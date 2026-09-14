@@ -7,10 +7,47 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/DeadValues.h"
+#include "Database/DBCStructure.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "runtime/BotManager.h"
 
 using namespace ai;
+
+static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, WorldPosition const& botPos,
+                                         AreaTriggerEntry const*& outAtEntry, AreaTriggerTeleport const*& outAt)
+{
+    outAtEntry = nullptr;
+    outAt = nullptr;
+    float bestDist = FLT_MAX;
+
+    for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); ++i)
+    {
+        AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(i);
+        if (!atEntry)
+            continue;
+
+        AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(i);
+        if (!at)
+            continue;
+
+        if (at->destination.mapId != corpseMapId)
+            continue;
+
+        if (atEntry->mapid != botMapId)
+            continue;
+
+        WorldPosition triggerPos(atEntry->mapid, atEntry->x, atEntry->y, atEntry->z);
+        float dist = botPos.sqDistance2d(triggerPos);
+        if (dist < bestDist)
+        {
+            bestDist = dist;
+            outAtEntry = atEntry;
+            outAt = at;
+        }
+    }
+
+    return outAtEntry != nullptr && outAt != nullptr;
+}
 
 bool ReviveFromCorpseAction::Execute(Event& event)
 {
@@ -99,7 +136,7 @@ bool FindCorpseAction::Execute(Event& event)
     bool manualCorpseRun = AI_VALUE(bool, "corpse run");
 
     Player* master = ai->GetGroupMaster();
-    if (master && !manualCorpseRun)
+    if (master && !manualCorpseRun && master->GetMapId() == bot->GetMapId())
     {
         float masterTargetDist = AI_VALUE2(float, "distance", "master target");
         if (!PlayerbotAIStorage::Instance().GetAI(master) && sServerFacade.IsDistanceLessThan(masterTargetDist, sPlayerbotAIConfig.farDistance))
@@ -112,112 +149,154 @@ bool FindCorpseAction::Execute(Event& event)
 
     WorldPosition botPos(bot), corpsePos(corpse), moveToPos = corpsePos, masterPos(master);
     float reclaimDist = CORPSE_RECLAIM_RADIUS - 5.0f;
-    float corpseDist = botPos.distance(corpsePos);
-
-    //If player fell through terrain move corpse to player position.
-    if (isRealPlayer_Helper(bot) && botPos.GetMapId() == moveToPos.GetMapId())
-    {
-        //Try to correct the position upward.
-        if (!moveToPos.ClosestCorrectPoint(5.0f, 500.0f, bot->GetInstanceId()))
-        {
-            //Revive in place.
-            corpse->Relocate(botPos.getX(), botPos.getY(), botPos.getZ());
-            corpsePos = corpse;
-            corpseDist = botPos.distance(corpsePos);
-        }
-        else
-        {
-            corpse->Relocate(moveToPos.getX(), moveToPos.getY(), moveToPos.getZ());
-            corpsePos = corpse;
-            corpseDist = botPos.distance(corpsePos);
-        }
-    }
-
     int64 deadTime = time(nullptr) - corpse->GetGhostTime();
 
-    bool moveToMaster = master && master != bot && masterPos.fDist(corpsePos) < reclaimDist;
-
-    sLog.outDetail("[BOT CORPSE] %s: find corpse - corpseDist=%.1f reclaimDist=%.1f reactDist=%.1f moveToMaster=%d deadTime=%llds",
-        bot->GetName(), corpseDist, reclaimDist, sPlayerbotAIConfig.reactDistance, moveToMaster ? 1 : 0, (long long)deadTime);
-
-    //Should we ressurect? If so, return false.
-    if (corpseDist < reclaimDist)
+    if (botPos.GetMapId() != corpsePos.GetMapId())
     {
-        if (moveToMaster) //We are near master.
+        AreaTriggerEntry const* entranceTrigger = nullptr;
+        AreaTriggerTeleport const* entranceTeleport = nullptr;
+        if (FindInstanceEntranceTrigger(corpsePos.GetMapId(), botPos.GetMapId(), botPos, entranceTrigger, entranceTeleport))
         {
-            if (botPos.fDist(masterPos) < sPlayerbotAIConfig.spellDistance)
+            // 1. Fallback timer: after 5 minutes of dead time, appear at the dungeon entrance inside the instance
+            if (deadTime >= 5 * MINUTE)
             {
-                sLog.outDetail("[BOT CORPSE] %s: find corpse - within reclaimDist & near master, yielding to revive-from-corpse", bot->GetName());
-                return false;
+                sLog.outBasic("[BOT CORPSE] %s: instance corpse run timeout (%llds >= 300s), appearing at dungeon entrance",
+                    bot->GetName(), (long long)deadTime);
+                bot->GetMotionMaster()->Clear();
+                bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
+                return true;
             }
+
+            // 2. Near entrance portal: step into instance
+            float triggerRadius = std::max(5.0f, entranceTrigger->radius);
+            WorldPosition portalPos(entranceTrigger->mapid, entranceTrigger->x, entranceTrigger->y, entranceTrigger->z);
+            float distToPortal = botPos.fDist(portalPos);
+            if (distToPortal <= triggerRadius + 2.0f)
+            {
+                sLog.outBasic("[BOT CORPSE] %s: reached instance entrance portal (dist=%.1f <= %.1f), entering instance %u",
+                    bot->GetName(), distToPortal, triggerRadius + 2.0f, corpsePos.GetMapId());
+                bot->GetMotionMaster()->Clear();
+                bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
+                return true;
+            }
+
+            // 3. Move towards the entrance portal on the bot's current map
+            moveToPos = portalPos;
         }
-        else if (deadTime > 8 * MINUTE) //We have walked too long already.
+        else
         {
-            sLog.outDetail("[BOT CORPSE] %s: find corpse - within reclaimDist & deadTime>8min, yielding to revive-from-corpse", bot->GetName());
+            sLog.outDetail("[BOT CORPSE] %s: find corpse - cross-map corpse on map %u but no entrance trigger from map %u",
+                bot->GetName(), corpsePos.GetMapId(), botPos.GetMapId());
             return false;
-        }
-        else
-        {
-            std::list<ObjectGuid> units = AI_VALUE(std::list<ObjectGuid>, "possible targets no los");
-
-            if (botPos.GetUnitsAggro(units, bot) == 0) //There are no mobs near.
-            {
-                sLog.outDetail("[BOT CORPSE] %s: find corpse - within reclaimDist & no mobs near, yielding to revive-from-corpse", bot->GetName());
-                return false;
-            }
-        }
-    }
-
-    //If we are getting close move to a save ressurrection spot instead of just the corpse.
-    if (corpseDist < sPlayerbotAIConfig.reactDistance)
-    {
-        if (moveToMaster)
-        {
-            if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
-            {
-                std::ostringstream out;
-                out << "Moving to revive near master.";
-                ai->TellPlayerNoFacing(GetMaster(), out);
-            }
-            moveToPos = masterPos;
-        }
-        else
-        {
-            FleeManager manager(bot, reclaimDist, 0.0, urand(0, 1), moveToPos);
-
-            if (manager.IsUseful())
-            {
-                float rx, ry, rz;
-                if (manager.CalculateDestination(&rx, &ry, &rz))
-                {
-                    if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
-                    {
-                        std::ostringstream out;
-                        out << "Moving to revive some where safe.";
-                        ai->TellPlayerNoFacing(GetMaster(), out);
-                    }
-                    moveToPos = WorldPosition(moveToPos.GetMapId(), rx, ry, rz, 0.0);
-                }
-                else if (!moveToPos.GetReachableRandomPointOnGround(bot, reclaimDist, urand(0, 1)))
-                {
-                    if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
-                    {
-                        std::ostringstream out;
-                        out << "Moving to revive at corpse.";
-                        ai->TellPlayerNoFacing(GetMaster(), out);
-                    }
-                    moveToPos = corpsePos;
-                }
-            }
         }
     }
     else
     {
-        if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+        float corpseDist = botPos.distance(corpsePos);
+
+        //If player fell through terrain move corpse to player position.
+        if (isRealPlayer_Helper(bot) && botPos.GetMapId() == moveToPos.GetMapId())
         {
-            std::ostringstream out;
-            out << "Moving towards corpse.";
-            ai->TellPlayerNoFacing(GetMaster(), out);
+            //Try to correct the position upward.
+            if (!moveToPos.ClosestCorrectPoint(5.0f, 500.0f, bot->GetInstanceId()))
+            {
+                //Revive in place.
+                corpse->Relocate(botPos.getX(), botPos.getY(), botPos.getZ());
+                corpsePos = corpse;
+                corpseDist = botPos.distance(corpsePos);
+            }
+            else
+            {
+                corpse->Relocate(moveToPos.getX(), moveToPos.getY(), moveToPos.getZ());
+                corpsePos = corpse;
+                corpseDist = botPos.distance(corpsePos);
+            }
+        }
+
+        bool moveToMaster = master && master != bot && master->GetMapId() == corpsePos.GetMapId() && masterPos.fDist(corpsePos) < reclaimDist;
+
+        sLog.outDetail("[BOT CORPSE] %s: find corpse - corpseDist=%.1f reclaimDist=%.1f reactDist=%.1f moveToMaster=%d deadTime=%llds",
+            bot->GetName(), corpseDist, reclaimDist, sPlayerbotAIConfig.reactDistance, moveToMaster ? 1 : 0, (long long)deadTime);
+
+        //Should we ressurect? If so, return false.
+        if (corpseDist < reclaimDist)
+        {
+            if (moveToMaster) //We are near master.
+            {
+                if (botPos.fDist(masterPos) < sPlayerbotAIConfig.spellDistance)
+                {
+                    sLog.outDetail("[BOT CORPSE] %s: find corpse - within reclaimDist & near master, yielding to revive-from-corpse", bot->GetName());
+                    return false;
+                }
+            }
+            else if (deadTime > 8 * MINUTE) //We have walked too long already.
+            {
+                sLog.outDetail("[BOT CORPSE] %s: find corpse - within reclaimDist & deadTime>8min, yielding to revive-from-corpse", bot->GetName());
+                return false;
+            }
+            else
+            {
+                std::list<ObjectGuid> units = AI_VALUE(std::list<ObjectGuid>, "possible targets no los");
+
+                if (botPos.GetUnitsAggro(units, bot) == 0) //There are no mobs near.
+                {
+                    sLog.outDetail("[BOT CORPSE] %s: find corpse - within reclaimDist & no mobs near, yielding to revive-from-corpse", bot->GetName());
+                    return false;
+                }
+            }
+        }
+
+        //If we are getting close move to a save ressurrection spot instead of just the corpse.
+        if (corpseDist < sPlayerbotAIConfig.reactDistance)
+        {
+            if (moveToMaster)
+            {
+                if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+                {
+                    std::ostringstream out;
+                    out << "Moving to revive near master.";
+                    ai->TellPlayerNoFacing(GetMaster(), out);
+                }
+                moveToPos = masterPos;
+            }
+            else
+            {
+                FleeManager manager(bot, reclaimDist, 0.0, urand(0, 1), moveToPos);
+
+                if (manager.IsUseful())
+                {
+                    float rx, ry, rz;
+                    if (manager.CalculateDestination(&rx, &ry, &rz))
+                    {
+                        if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+                        {
+                            std::ostringstream out;
+                            out << "Moving to revive some where safe.";
+                            ai->TellPlayerNoFacing(GetMaster(), out);
+                        }
+                        moveToPos = WorldPosition(moveToPos.GetMapId(), rx, ry, rz, 0.0);
+                    }
+                    else if (!moveToPos.GetReachableRandomPointOnGround(bot, reclaimDist, urand(0, 1)))
+                    {
+                        if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+                        {
+                            std::ostringstream out;
+                            out << "Moving to revive at corpse.";
+                            ai->TellPlayerNoFacing(GetMaster(), out);
+                        }
+                        moveToPos = corpsePos;
+                    }
+                }
+            }
+        }
+        else
+        {
+            if (ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
+            {
+                std::ostringstream out;
+                out << "Moving towards corpse.";
+                ai->TellPlayerNoFacing(GetMaster(), out);
+            }
         }
     }
 
@@ -226,8 +305,8 @@ bool FindCorpseAction::Execute(Event& event)
 
     if (!ai->AllowActivity(DETAILED_MOVE_ACTIVITY) && !ai->HasPlayerNearby(moveToPos))
     {
-        uint32 delay = sServerFacade.getDistance2d(bot, corpse) / bot->GetSpeed(MOVE_RUN); //Time a bot would take to travel to it's corpse.
-        delay = std::min(delay, uint32(10 * MINUTE)); //Cap time to get to corpse at 10 minutes.
+        uint32 delay = sServerFacade.getDistance2d(bot, moveToPos.getX(), moveToPos.getY()) / bot->GetSpeed(MOVE_RUN); //Time a bot would take to travel to destination.
+        delay = std::min(delay, uint32(10 * MINUTE)); //Cap time to get to destination at 10 minutes.
 
         if (deadTime > delay)
         {

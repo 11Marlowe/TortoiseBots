@@ -1868,6 +1868,23 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 
             if (guid1 != bot->getObjectGuid()) // do not reply to self
             {
+                // Dispatch party chat and whispers from authorized real players (group master / members) to HandleCommand
+                if ((msgtype == CHAT_MSG_PARTY || msgtype == CHAT_MSG_WHISPER) && lang != LANG_ADDON)
+                {
+                    if (Player* sender = sObjectAccessor.FindPlayer(guid1))
+                    {
+                        if (isRealPlayer_Helper(sender))
+                        {
+                            bool isAuthorized = (GetMaster() && GetMaster()->GetObjectGuid() == guid1) ||
+                                                (bot->GetGroup() && bot->GetGroup()->IsMember(guid1));
+                            if (isAuthorized)
+                            {
+                                HandleCommand(msgtype, message, *sender, lang);
+                            }
+                        }
+                    }
+                }
+
                 // try to always reply to real player
                 time_t lastChat = GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Get();
                 bool isPaused = time(0) < lastChat;
