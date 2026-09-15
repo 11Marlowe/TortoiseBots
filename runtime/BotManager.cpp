@@ -199,6 +199,18 @@ namespace {
 // cannot survive (same +5 tolerance the travel and quest gates use).
 // Unknown area levels fail closed. Pure predicates, no side effects.
 // `why` (optional) receives the reason for a "no", for the post-revive diagnostic line.
+bool GroupHasRealPlayer(::Player* bot)
+{
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
+        return false;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        if (Player* member = ref->getSource())
+            if (member != bot && member->GetSession() && !member->GetSession()->IsHeadless())
+                return true;
+    return false;
+}
+
 bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why = nullptr)
 {
     areaLevelOut = 0;
@@ -213,11 +225,8 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why =
     // not: the diagnostic showed 21 of 31 post-revive checks refused with "in a group" while
     // the bots kept dying in the same spot (bots group up among themselves all the time).
     // The misplaced bot leaves the group when it is moved (TeleportMisplacedBot).
-    if (Group* group = bot->GetGroup())
-        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
-            if (Player* member = ref->getSource())
-                if (member != bot && member->GetSession() && !member->GetSession()->IsHeadless())
-                    return no("in a group with a player");
+    if (GroupHasRealPlayer(bot))
+        return no("in a group with a player");
     BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
     if (!record || !record->random || record->lifecycle != BotLifecycle::InWorld)
         return no(!record ? "no bot record" : !record->random ? "not a random bot" : "record not in world");
@@ -364,7 +373,7 @@ void BotManager::SweepStrandedBots(uint32_t diff)
         bool stranded = rec.random && rec.lifecycle == BotLifecycle::InWorld && rec.masterGuid.IsEmpty() &&
             (p = sObjectAccessor.FindPlayer(rec.characterGuid)) != nullptr &&
             p->GetSession() && p->GetSession()->IsHeadless() && p->IsInWorld() &&
-            !p->GetGroup() && !p->InBattleGround() && !p->IsBeingTeleported() &&
+            !GroupHasRealPlayer(p) && !p->InBattleGround() && !p->IsBeingTeleported() &&
             !sRandomBotFacade.IsPinnedBot(key);
         int32 areaLevel = 0;
         if (stranded)
@@ -502,6 +511,8 @@ void BotManager::OnPlayerLogin(::Player* player)
             player->GetName());
         record.enteredWorld = false;
         record.lifecycle = BotLifecycle::Removing;
+        record.syncedInWorld = false;
+        sRandomBotFacade.MarkNativePlayersDirty();
         entry.aiAdapter->Shutdown();
         BotSessionAdapter::StopHeadlessSession(record.characterGuid, true);
         return;
@@ -515,6 +526,8 @@ void BotManager::OnPlayerLogin(::Player* player)
             player->GetName());
         record.enteredWorld = false;
         record.lifecycle = BotLifecycle::Removing;
+        record.syncedInWorld = false;
+        sRandomBotFacade.MarkNativePlayersDirty();
         entry.aiAdapter->Shutdown();
         BotSessionAdapter::StopHeadlessSession(record.characterGuid, true);
         return;
@@ -522,6 +535,8 @@ void BotManager::OnPlayerLogin(::Player* player)
 
     record.enteredWorld = true;
     record.lifecycle = BotLifecycle::InWorld;
+    record.syncedInWorld = true;
+    sRandomBotFacade.MarkNativePlayersDirty();
 
     // Normalize Goblin and High Elf (and any random bot in custom isolated
     // starting zones lacking navmesh/transport to mainland) to standard faction starting zones.
@@ -606,6 +621,8 @@ void BotManager::OnPlayerBeforeLogout(::Player* player)
 
     if (it->second.record.lifecycle != BotLifecycle::Removing)
         it->second.record.lifecycle = BotLifecycle::Removing;
+    it->second.record.syncedInWorld = false;
+    sRandomBotFacade.MarkNativePlayersDirty();
 }
 
 void BotManager::OnPlayerLogout(::Player* player)
@@ -616,6 +633,9 @@ void BotManager::OnPlayerLogout(::Player* player)
     auto it = m_bots.find(player->GetObjectGuid().GetCounter());
     if (it != m_bots.end() && it->second.aiAdapter)
         it->second.aiAdapter->Shutdown();
+    if (it != m_bots.end())
+        it->second.record.syncedInWorld = false;
+    sRandomBotFacade.MarkNativePlayersDirty();
 }
 
 void BotManager::DetachOwnedBots(::Player* master)
@@ -689,6 +709,7 @@ void BotManager::ReleaseToClient(::Player* player)
     TB_LOG_DETAIL("TortoiseBots: releasing module control of %s to a network client", player->GetName());
     uint32_t guidLow = player->GetObjectGuid().GetCounter();
     m_bots.erase(it);
+    sRandomBotFacade.MarkNativePlayersDirty();
     // Human reclaim owns the character now: evict any background lease with
     // active cleanup, then drop the master lock so no ghost lease lingers.
     BotActivityLeaseManager::Instance().ClaimForMaster(guidLow);
@@ -761,6 +782,7 @@ bool BotManager::AddBotWithMaster(uint32_t accountId, ::ObjectGuid guid, ::Objec
     entry.record.masterGuid = masterGuid;
     entry.record.lifecycle = BotLifecycle::PendingAdd;
     m_bots.emplace(key, std::move(entry));
+    sRandomBotFacade.MarkNativePlayersDirty();
     if (!masterGuid.IsEmpty())
         BotActivityLeaseManager::Instance().ClaimForMaster(key);
     TB_LOG_DETAIL("TortoiseBots: AddBot %s on acct %u master %s (PendingAdd, StartHeadlessSession)",
@@ -868,6 +890,7 @@ bool BotManager::RemoveBot(::ObjectGuid guid, bool save)
     if (m_inBotUpdate)
     {
         rec.lifecycle = BotLifecycle::Removing;
+        sRandomBotFacade.MarkNativePlayersDirty();
         BotActivityLeaseManager::Instance().Release(key, BotActivity::Grinding);
         bool queued = false;
         for (auto const& pending : m_pendingBotRemovals)
@@ -889,6 +912,7 @@ bool BotManager::RemoveBot(::ObjectGuid guid, bool save)
     }
 
     rec.lifecycle = BotLifecycle::Removing;
+    sRandomBotFacade.MarkNativePlayersDirty();
     // Grinding is indefinite with no timeout: clear it on logout so no ghost
     // lease lingers. Other activities are service-owned (LFT/BG/Trading via
     // Reconcile/Prune, PlayerMaster via Clear/ReleaseToClient).
@@ -909,6 +933,7 @@ bool BotManager::RemoveBot(::ObjectGuid guid, bool save)
                 TB_LOG_DETAIL("TortoiseBots: RemoveBot %s reclaimed by network — releasing", guid.GetString().c_str());
         }
         m_bots.erase(it);
+        sRandomBotFacade.MarkNativePlayersDirty();
         TB_LOG_DETAIL("TortoiseBots: RemoveBot %s immediate NotFound — erased", guid.GetString().c_str());
         return true;
     }
@@ -1240,6 +1265,7 @@ void BotManager::OnWorldUpdate(uint32_t diff)
                     rec.characterGuid.GetString().c_str());
                 uint32_t guidLow = rec.characterGuid.GetCounter();
                 it = m_bots.erase(it);
+                sRandomBotFacade.MarkNativePlayersDirty();
                 BotActivityLeaseManager::Instance().ClaimForMaster(guidLow);
                 BotActivityLeaseManager::Instance().ReleaseMaster(guidLow);
                 continue;
@@ -1249,6 +1275,7 @@ void BotManager::OnWorldUpdate(uint32_t diff)
                 TB_LOG_DETAIL("TortoiseBots: Bot %s removal complete (NotFound)", rec.characterGuid.GetString().c_str());
                 uint32_t guidLow = rec.characterGuid.GetCounter();
                 it = m_bots.erase(it);
+                sRandomBotFacade.MarkNativePlayersDirty();
                 BotActivityLeaseManager::Instance().ClaimForMaster(guidLow);
                 BotActivityLeaseManager::Instance().ReleaseMaster(guidLow);
                 continue;
@@ -1268,6 +1295,7 @@ void BotManager::OnWorldUpdate(uint32_t diff)
                     rec.characterGuid.GetString().c_str(), playerSess->GetAccountId());
                 uint32_t guidLow = rec.characterGuid.GetCounter();
                 it = m_bots.erase(it);
+                sRandomBotFacade.MarkNativePlayersDirty();
                 BotActivityLeaseManager::Instance().ClaimForMaster(guidLow);
                 BotActivityLeaseManager::Instance().ReleaseMaster(guidLow);
                 continue;
@@ -1276,6 +1304,15 @@ void BotManager::OnWorldUpdate(uint32_t diff)
             {
                 if (!rec.enteredWorld)
                     OnPlayerLogin(p);
+
+                // Map transfer toggles IsInWorld; mark dirty so the view
+                // resyncs on the next tick instead of waiting for the 5s
+                // fallback. (OnPlayerLogin already marks dirty on first entry.)
+                if (!rec.syncedInWorld)
+                {
+                    rec.syncedInWorld = true;
+                    sRandomBotFacade.MarkNativePlayersDirty();
+                }
 
                 // OnPlayerLogin owns the only promotion to InWorld. In
                 // particular, do not overwrite Removing after an AI attach
@@ -1293,6 +1330,8 @@ void BotManager::OnWorldUpdate(uint32_t diff)
                         rec.characterGuid.GetString().c_str());
                     rec.enteredWorld = false;
                     rec.lifecycle = BotLifecycle::Removing;
+                    rec.syncedInWorld = false;
+                    sRandomBotFacade.MarkNativePlayersDirty();
                     BotSessionAdapter::StopHeadlessSession(rec.characterGuid, true);
                     ++it;
                     continue;
@@ -1314,6 +1353,7 @@ void BotManager::OnWorldUpdate(uint32_t diff)
                     rec.characterGuid.GetString().c_str());
                 uint32_t guidLow = rec.characterGuid.GetCounter();
                 it = m_bots.erase(it);
+                sRandomBotFacade.MarkNativePlayersDirty();
                 BotActivityLeaseManager::Instance().ClaimForMaster(guidLow);
                 BotActivityLeaseManager::Instance().ReleaseMaster(guidLow);
                 continue;
@@ -1329,9 +1369,15 @@ void BotManager::OnWorldUpdate(uint32_t diff)
                 rec.characterGuid.GetString().c_str());
             uint32_t guidLow = rec.characterGuid.GetCounter();
             it = m_bots.erase(it);
+            sRandomBotFacade.MarkNativePlayersDirty();
             BotActivityLeaseManager::Instance().ClaimForMaster(guidLow);
             BotActivityLeaseManager::Instance().ReleaseMaster(guidLow);
             continue;
+        }
+        if (rec.syncedInWorld)
+        {
+            rec.syncedInWorld = false;
+            sRandomBotFacade.MarkNativePlayersDirty();
         }
         ++it;
     }

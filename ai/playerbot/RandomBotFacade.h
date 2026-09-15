@@ -37,6 +37,7 @@ public:
 
     PlayerBotMap& GetPlayers() { return players; }
     void SyncNativePlayers();
+    void MarkNativePlayersDirty() { m_nativePlayersDirty = true; }
 
     uint32 GetValue(Player* bot, std::string type);
     uint32 GetValue(uint32 guid, std::string type);
@@ -85,6 +86,8 @@ private:
     ~RandomBotFacade() = default;
 
     PlayerBotMap players;
+    bool m_nativePlayersDirty = true;
+    uint32 m_nativePlayersLastSyncMs = 0;
     std::map<Team, std::map<BattleGroundTypeId, std::list<uint32>>> battleMastersCache;
     std::unordered_map<uint32, std::vector<AuctionEntry>> ahMirror;
 };

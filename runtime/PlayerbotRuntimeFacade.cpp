@@ -13,15 +13,26 @@
 #include "../runtime/BotManager.h"
 #include "../runtime/PlayerbotAIStorage.h"
 
+// pi-lens-ignore: clang:pp_file_not_found
 #include "AuctionHouse/AuctionHouseMgr.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "Database/DBCStores.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "World.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "Item.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectAccessor.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectMgr.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "Objects/Player.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "Log.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "Database/DatabaseEnv.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Timer.h"
 #include "../host/ModuleLog.h"
 
 #include <algorithm>
@@ -61,6 +72,17 @@ std::string TradeKey(ObjectGuid bot, ObjectGuid master)
 
 void RandomBotFacade::SyncNativePlayers()
 {
+    // Phase 1: only rebuild the compatibility map when membership changed
+    // (dirty flag) or every 5s as a self-healing fallback. The per-tick
+    // rebuild did GetAllBots + FindPlayer per bot plus a full map clear on
+    // every world tick with zero membership change in the common case.
+    constexpr uint32 kResyncIntervalMs = 5000;
+    uint32 nowMs = WorldTimer::getMSTime();
+    bool fallbackDue = (nowMs - m_nativePlayersLastSyncMs) >= kResyncIntervalMs;
+    if (!m_nativePlayersDirty && !fallbackDue)
+        return;
+    m_nativePlayersDirty = false;
+    m_nativePlayersLastSyncMs = nowMs;
     players.clear();
     for (Player* player : TortoiseBots::BotManager::Instance().GetAllBots())
     {
