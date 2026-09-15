@@ -172,10 +172,16 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		}
 		for rows.Next() {
 			var bi BagItem
-			if err := rows.Scan(&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon); err != nil {
+			var st, sv [10]int32
+			var sp [5]uint32
+			var tr [5]uint8
+			base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon}
+			if err := rows.Scan(append(base, detailDests(&bi.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 				rows.Close()
 				return nil, err
 			}
+			foldDetail(&bi.Detail, st, sv, sp, tr)
+			s.resolveSpellNames(&bi.Detail)
 			profile.Bags[i].Items = append(profile.Bags[i].Items, bi)
 		}
 		rows.Close()
@@ -190,19 +196,39 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	bpQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.display_id,
-		       COALESCE(idi.icon, '') AS icon
+		       COALESCE(idi.icon, '') AS icon, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
 		LEFT JOIN item_instance ii ON ii.guid = ci.item
 		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= %d AND ci.slot < %d
 		ORDER BY ci.slot
-	`, s.cfg.WorldDB, s.cfg.WorldDB, BackpackStart, BackpackEnd)
+	`, detailSelect, s.cfg.WorldDB, s.cfg.WorldDB, BackpackStart, BackpackEnd)
 
 	if err := s.scanBackpack(bpQuery, guid, &profile); err != nil {
 		return nil, err
 	}
-	// 5. Stats: full armory row first, core character_stats subset fallback.
+
+	// 4b. Buyback: vendor-sold items still recoverable (slots 69-80).
+	bbQuery := fmt.Sprintf(`
+		SELECT ci.slot, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
+		       it.name, it.quality, it.display_id,
+		       COALESCE(idi.icon, '') AS icon, %s
+		FROM character_inventory ci
+		JOIN %s.item_template it ON ci.item_template = it.entry
+		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
+		LEFT JOIN item_instance ii ON ii.guid = ci.item
+		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= %d AND ci.slot < %d
+		ORDER BY ci.slot
+	`, detailSelect, s.cfg.WorldDB, s.cfg.WorldDB, BuybackStart, BuybackEnd)
+
+	if err := s.scanBuyback(bbQuery, guid, &profile); err != nil {
+		return nil, err
+	}
+	// 5. Stats: full armory row first, core character_stats subset, then live
+	// characters.health/power + player_levelstats base attributes. Both
+	// snapshot tables stay empty while a bot is online (core writes them
+	// only on logout), so without the live layer every online bot is 0/0%.
 	statQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4, maxpower5,
 		strength, agility, stamina, intellect, spirit, armor,
 		resHoly, resFire, resNature, resFrost, resShadow, resArcane,
@@ -230,7 +256,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 			blockPct, dodgePct, parryPct, critPct, rangedCritPct,
 			attackPower, rangedAttackPower
 			FROM character_stats WHERE guid = ?`
-		_ = s.db.QueryRow(fallbackQuery, guid).Scan(
+		if ferr := s.db.QueryRow(fallbackQuery, guid).Scan(
 			&profile.Stats.MaxHealth, &profile.Stats.MaxPower1, &profile.Stats.MaxPower2,
 			&profile.Stats.MaxPower3, &profile.Stats.MaxPower4,
 			&profile.Stats.Strength, &profile.Stats.Agility, &profile.Stats.Stamina,
@@ -239,15 +265,21 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 			&profile.Stats.ResFrost, &profile.Stats.ResShadow, &profile.Stats.ResArcane,
 			&profile.Stats.BlockPct, &profile.Stats.DodgePct, &profile.Stats.ParryPct,
 			&profile.Stats.MeleeCritPct, &profile.Stats.RangedCritPct,
-			&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower)
+			&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower); ferr == nil {
+			profile.Stats.Source = "character_stats"
+		} else {
+			s.loadLiveStats(guid, &profile.Stats)
+		}
+	} else {
+		profile.Stats.Source = "armory_stats"
 	}
 
 	// 6. Spells: same columns the core loads (spell,active,disabled) plus
-	// display metadata from the operator's own world DB. No icon files are
-	// served; icon/IconID are names/IDs for text display only.
+	// display metadata from the operator's own world DB. Description
+	// disambiguates shared names (pet-teach Survival Instinct vs talent).
 	spellQuery := fmt.Sprintf(`
 		SELECT cs.spell, cs.active, cs.disabled,
-		       COALESCE(st.name, ''), COALESCE(st.nameSubtext, ''),
+		       COALESCE(st.name, ''), COALESCE(st.nameSubtext, ''), COALESCE(st.description, ''),
 		       COALESCE(st.school, 0), COALESCE(st.spellIconId, 0),
 		       COALESCE(si.Name, '')
 		FROM character_spell cs
@@ -264,7 +296,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	profile.Spells = []SpellEntry{}
 	for spRows.Next() {
 		var se SpellEntry
-		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &se.Name, &se.Subtext, &se.School, &se.IconID, &se.Icon); err != nil {
+		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &se.Name, &se.Subtext, &se.Description, &se.School, &se.IconID, &se.Icon); err != nil {
 			return nil, err
 		}
 		profile.Spells = append(profile.Spells, se)
@@ -397,6 +429,33 @@ func (s *Service) scanBuyback(query string, guid uint32, profile *BotProfile) er
 		profile.Buyback = append(profile.Buyback, bi)
 	}
 	return rows.Err()
+}
+
+// loadLiveStats fills stats from live characters.health/power plus base
+// attributes from player_levelstats. Both snapshot tables stay empty while
+// a bot is online (core writes them only on logout), so without this every
+// online bot renders 0/0%. characters.health can be stale (1 HP corpse row),
+// so prefer player_classlevelstats.basehp and only fall back to the live row.
+func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
+	var race, class, level uint32
+	var liveHP, p1, p2, p3, p4, p5 uint32
+	if err := s.db.QueryRow(`SELECT race, class, level, health, power1, power2, power3, power4, power5
+		FROM characters WHERE guid = ?`, guid).Scan(
+		&race, &class, &level, &liveHP, &p1, &p2, &p3, &p4, &p5); err != nil {
+		st.Source = "none"
+		return
+	}
+	st.MaxPower1, st.MaxPower2, st.MaxPower3, st.MaxPower4, st.MaxPower5 = p1, p2, p3, p4, p5
+	_ = s.db.QueryRow(fmt.Sprintf(`SELECT str, agi, sta, inte, spi
+		FROM %s.player_levelstats WHERE race = ? AND class = ? AND level = ?`,
+		s.cfg.WorldDB), race, class, level).Scan(
+		&st.Strength, &st.Agility, &st.Stamina, &st.Intellect, &st.Spirit)
+	_ = s.db.QueryRow(fmt.Sprintf(`SELECT basehp, basemana FROM %s.player_classlevelstats
+		WHERE class = ? AND level = ?`, s.cfg.WorldDB), class, level).Scan(&st.MaxHealth, &st.MaxPower1)
+	if st.MaxHealth == 0 {
+		st.MaxHealth = liveHP
+	}
+	st.Source = "live"
 }
 
 // loadTalents resolves allocated talent ranks from known spells. A talent
