@@ -8,6 +8,7 @@ package armory
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -93,6 +94,57 @@ func dbcString(block []byte, off uint32) string {
 	return string(block[off:end])
 }
 
+// dbcFirstInt reads one int32 field (default column 1) of a single-ID DBC row.
+func dbcFirstInt(dir, file string, id uint32) (int32, bool) {
+	raw, err := os.ReadFile(filepath.Join(dir, file))
+	if err != nil || len(raw) < 20 {
+		return 0, false
+	}
+	nRec := binary.LittleEndian.Uint32(raw[4:8])
+	recSize := binary.LittleEndian.Uint32(raw[12:16])
+	for i := uint32(0); i < nRec; i++ {
+		off := 20 + i*recSize
+		if int(off)+8 > len(raw) {
+			break
+		}
+		if binary.LittleEndian.Uint32(raw[off:off+4]) == id {
+			return int32(binary.LittleEndian.Uint32(raw[off+4 : off+8])), true
+		}
+	}
+	return 0, false
+}
+
+// spellTiming resolves $d (duration ms), $r handled via range index miles
+// conversion below, $c (cast ms) from the operator DBCs. Missing files or
+// rows yield zeros; the frontend then hides those tokens.
+func (s *Service) spellTiming(durIdx, rngIdx, castIdx uint32) (durMs, rngYd, castMs int32) {
+	if s.cfg.DBCDir != "" {
+		if v, ok := dbcFirstInt(s.cfg.DBCDir, "SpellDuration.dbc", durIdx); ok {
+			durMs = v
+		}
+		if v, ok := dbcFirstInt(s.cfg.DBCDir, "SpellCastTimes.dbc", castIdx); ok {
+			castMs = v
+		}
+		if rngIdx != 0 {
+			if raw, err := os.ReadFile(filepath.Join(s.cfg.DBCDir, "SpellRange.dbc")); err == nil && len(raw) >= 20 {
+				nRec := binary.LittleEndian.Uint32(raw[4:8])
+				recSize := binary.LittleEndian.Uint32(raw[12:16])
+				for i := uint32(0); i < nRec; i++ {
+					off := 20 + i*recSize
+					if int(off)+12 > len(raw) {
+						break
+					}
+					if binary.LittleEndian.Uint32(raw[off:off+4]) == rngIdx {
+						// maxRange is the 3rd field (offset +8): float yards.
+						rngYd = int32(math.Float32frombits(binary.LittleEndian.Uint32(raw[off+8 : off+12])))
+						break
+					}
+				}
+			}
+		}
+	}
+	return durMs, rngYd, castMs
+}
 func readTalentDBC(dir string) ([]dbcTalent, []dbcTalentTab, error) {
 	tRecs, _, err := readDBCRecords(filepath.Join(dir, "Talent.dbc"))
 	if err != nil {
@@ -114,7 +166,6 @@ func readTalentDBC(dir string) ([]dbcTalent, []dbcTalentTab, error) {
 			id:        r[0],
 			name:      dbcString(tabStr, r[1]),
 			classMask: r[12],
-			page:      r[13],
 		})
 	}
 	talents := make([]dbcTalent, 0, len(tRecs))

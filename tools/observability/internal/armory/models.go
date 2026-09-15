@@ -165,8 +165,20 @@ type SpellEntry struct {
 	// It disambiguates same-name spells (e.g. pet-teaching "Survival
 	// Instinct (Cat)" vs the druid talent of the same name).
 	Description string `json:"description,omitempty"`
-	School      uint32 `json:"school"`
-	IconID      uint32 `json:"icon_id"`
+	// Values resolves the client $sN/$oN/$aN/$tN template tokens:
+	// simple value = effectBasePointsN + effectBaseDiceN per core
+	// SpellEntry::CalculateSimpleValue. Index 0-2 maps to $s1/$s2/$s3
+	// ($oN = over-time tick of the same effect, $aN = radius, $tN = amplitude).
+	Values []int32 `json:"values,omitempty"`
+	// Misc/Triggers resolve $aN (radius/misc) and triggered-spell links.
+	Misc     []uint32 `json:"misc,omitempty"`
+	Triggers []uint32 `json:"triggers,omitempty"`
+	// DurationMs/RangeYd/CastMs resolve $d/$r/$c from the operator DBCs.
+	DurationMs int32  `json:"duration_ms,omitempty"`
+	RangeYd    int32  `json:"range_yd,omitempty"`
+	CastMs     int32  `json:"cast_ms,omitempty"`
+	School     uint32 `json:"school"`
+	IconID     uint32 `json:"icon_id"`
 	// Icon is the icon *name* from world.spellicon when that mirror table is
 	// populated, otherwise empty. No image files are served.
 	Icon     string `json:"icon"`

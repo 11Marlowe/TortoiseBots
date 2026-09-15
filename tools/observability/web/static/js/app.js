@@ -106,28 +106,62 @@
     return 'Abilities';
   }
 
-  // Raw spell_template.description is full of $s1/$d/$a1 template tokens.
-  // Render a short human hint instead: rank/subtext plus the school, and
-  // only a trimmed plain-language prefix of the description when readable.
-  function spellHint(sp) {
-    const raw = String(sp.description || '').replace(/\s+/g, ' ').trim();
+  // Client $tokens resolved from backend effect values ($sN = base+dice per
+  // core CalculateSimpleValue, $oN = same-effect tick, $aN = radius/misc,
+  // $tN = amplitude, $d/$r/$c from operator DBCs, $/10; = divide-by-10).
+  // Unknown tokens stay visible so missing data is obvious, never silent.
+  function spellText(sp) {
+    let raw = String(sp.description || '').replace(/\s+/g, ' ').trim();
     if (!raw) return '';
-    const plain = raw.split('.')[0].slice(0, 140);
+    const vals = sp.values || [], misc = sp.misc || [], trig = sp.triggers || [];
+    const num = v => (v === null || v === undefined) ? '?' : String(v);
+    raw = raw.replace(/\$\/(\d+);s(\d)/g, (m, div, n) => {
+      const v = vals[parseInt(n, 10) - 1];
+      if (v === null || v === undefined) return m;
+      const d = parseInt(div, 10) || 1;
+      const q = v / d;
+      return String(Math.round(q * 10) / 10);
+    });
+    raw = raw.replace(/\$([sSoOaAtT])(\d)/g, (m, kind, n) => {
+      const i = parseInt(n, 10) - 1;
+      const k = kind.toLowerCase();
+      if (k === 's' || k === 'o') return num(vals[i]);
+      if (k === 'a') return num(misc[i] !== undefined ? misc[i] : vals[i]);
+      if (k === 't') return num(trig[i] !== undefined ? trig[i] : vals[i]);
+      return m;
+    });
+    raw = raw.replace(/\$d\b/g, sp.duration_ms ? fmtDur(sp.duration_ms) : '$d');
+    raw = raw.replace(/\$r\b/g, sp.range_yd ? `${sp.range_yd} yd` : '$r');
+    raw = raw.replace(/\$c\b/g, sp.cast_ms ? fmtDur(sp.cast_ms) : '$c');
+    return raw;
+  }
+
+  function fmtDur(ms) {
+    if (ms < 0) return 'permanent';
+    if (ms < 1000) return `${ms} ms`;
+    const s = ms / 1000;
+    if (s < 60) return `${Math.round(s * 10) / 10} sec`;
+    const m = Math.floor(s / 60);
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
+  }
+
+  function spellHint(sp) {
+    const resolved = spellText(sp);
+    if (!resolved) return '';
+    const plain = resolved.split('.')[0].slice(0, 160);
     if (/\$/.test(plain)) return '';
     return plain;
   }
 
-  // Full hover card for a spell row: name + rank, school, short hint and the
-  // raw template description collapsed to one line. Tokens ($s1, $d) stay
-  // visible but muted — they are core data, not rendering bugs.
+  // Full hover card for a spell row: name + rank, school, resolved text.
   function spellTooltip(sp) {
     const name = sp.name || `Spell ${sp.spell}`;
     const sub = sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : '';
     const hint = spellHint(sp);
-    const raw = String(sp.description || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    const full = spellText(sp).slice(0, 500);
     return `<div class="tip-name">${esc(name)}</div>${sub ? `<div class="tip-sub">${sub}</div>` : ''}<div class="tip-sub">${esc(spellSchoolName(sp.school))}</div>` +
       (hint ? `<div class="tip-stat">${esc(hint)}</div>` : '') +
-      (raw && raw !== hint ? `<div class="tip-sub" style="max-width: 240px;">${esc(raw)}</div>` : '');
+      (full && full !== hint ? `<div class="tip-sub" style="max-width: 260px;">${esc(full)}</div>` : '');
   }
 
   // Skill names from core SharedDefines.h SkillType enum. No DBC or client

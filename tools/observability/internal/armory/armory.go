@@ -285,6 +285,12 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	spellQuery := fmt.Sprintf(`
 		SELECT cs.spell, cs.active, cs.disabled,
 		       COALESCE(st.name, ''), COALESCE(st.nameSubtext, ''), COALESCE(st.description, ''),
+		       COALESCE(st.effectBasePoints1, 0) + COALESCE(st.effectBaseDice1, 0),
+		       COALESCE(st.effectBasePoints2, 0) + COALESCE(st.effectBaseDice2, 0),
+		       COALESCE(st.effectBasePoints3, 0) + COALESCE(st.effectBaseDice3, 0),
+		       COALESCE(st.effectMiscValue1, 0), COALESCE(st.effectMiscValue2, 0), COALESCE(st.effectMiscValue3, 0),
+		       COALESCE(st.effectTriggerSpell1, 0), COALESCE(st.effectTriggerSpell2, 0), COALESCE(st.effectTriggerSpell3, 0),
+		       COALESCE(st.durationIndex, 0), COALESCE(st.rangeIndex, 0), COALESCE(st.castingTimeIndex, 0),
 		       COALESCE(st.school, 0), COALESCE(st.spellIconId, 0),
 		       COALESCE(si.Name, '')
 		FROM character_spell cs
@@ -301,9 +307,19 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	profile.Spells = []SpellEntry{}
 	for spRows.Next() {
 		var se SpellEntry
-		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &se.Name, &se.Subtext, &se.Description, &se.School, &se.IconID, &se.Icon); err != nil {
+		var v1, v2, v3 int32
+		var m1, m2, m3 uint32
+		var t1, t2, t3 uint32
+		var durIdx, rngIdx, castIdx uint32
+		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &se.Name, &se.Subtext, &se.Description,
+			&v1, &v2, &v3, &m1, &m2, &m3, &t1, &t2, &t3, &durIdx, &rngIdx, &castIdx,
+			&se.School, &se.IconID, &se.Icon); err != nil {
 			return nil, err
 		}
+		se.Values = []int32{v1, v2, v3}
+		se.Misc = []uint32{m1, m2, m3}
+		se.Triggers = []uint32{t1, t2, t3}
+		se.DurationMs, se.RangeYd, se.CastMs = s.spellTiming(durIdx, rngIdx, castIdx)
 		profile.Spells = append(profile.Spells, se)
 	}
 	if err := spRows.Err(); err != nil {
@@ -441,6 +457,8 @@ func (s *Service) scanBuyback(query string, guid uint32, profile *BotProfile) er
 // a bot is online (core writes them only on logout), so without this every
 // online bot renders 0/0%. characters.health can be stale (1 HP corpse row),
 // so prefer player_classlevelstats.basehp and only fall back to the live row.
+// Armor sums equipped item armor + 2x agility (core SetArmor on create);
+// stamina bonus HP is intentionally NOT added (needs MaxStat-derived formula).
 func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	var race, class, level uint32
 	var liveHP, p1, p2, p3, p4, p5 uint32
@@ -459,6 +477,15 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 		WHERE class = ? AND level = ?`, s.cfg.WorldDB), class, level).Scan(&st.MaxHealth, &st.MaxPower1)
 	if st.MaxHealth == 0 {
 		st.MaxHealth = liveHP
+	}
+	var gearArmor sql.NullInt64
+	_ = s.db.QueryRow(fmt.Sprintf(`SELECT COALESCE(SUM(it.armor), 0)
+		FROM character_inventory ci
+		JOIN %s.item_template it ON it.entry = ci.item_template
+		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= 0 AND ci.slot < %d`,
+		s.cfg.WorldDB, EquipmentSlotEnd), guid).Scan(&gearArmor)
+	if gearArmor.Valid {
+		st.Armor = uint32(gearArmor.Int64) + uint32(st.Agility*2)
 	}
 	st.Source = "live"
 }
