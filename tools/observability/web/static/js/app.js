@@ -1485,6 +1485,8 @@
     if (el.armoryPlayed) el.armoryPlayed.textContent = '';
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
       .then(r => {
+        if (r.status === 401) throw new Error('HTTP 401');
+        if (r.status === 404) throw new Error('HTTP 404');
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
@@ -1493,8 +1495,16 @@
         state.armoryProfile = p;
         renderArmory();
       })
-      .catch(() => {
+      .catch(e => {
         if (state.armoryGuid !== guid) return;
+        if (String(e && e.message).includes('401')) {
+          if (el.armoryName) el.armoryName.textContent = 'Session expired';
+          if (el.armoryError) {
+            el.armoryError.style.display = 'block';
+            el.armoryError.innerHTML = 'Session expired — <a href="/login" style="color: #58a6ff;">log in again</a>, then reopen the bot.';
+          }
+          return;
+        }
         if (el.armoryName) el.armoryName.textContent = 'Bot not found';
         if (el.armoryError) {
           el.armoryError.style.display = 'block';
