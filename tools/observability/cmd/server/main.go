@@ -272,6 +272,7 @@ func main() {
 		profile, err := armoryService.GetBotProfile(uint32(guid))
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
+				log.Printf("[Armory] profile guid=%d not found (deleted or non-bot account)", guid)
 				http.Error(w, err.Error(), http.StatusNotFound)
 			} else {
 				log.Printf("[Armory] profile guid=%d failed: %v", guid, err)

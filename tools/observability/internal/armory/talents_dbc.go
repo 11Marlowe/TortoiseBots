@@ -212,6 +212,8 @@ func (s *Service) talentsFromDBC(guid uint32, classID uint32, known map[uint32]b
 	}
 	trees := []TalentTree{}
 	byTab := map[uint32]int{}
+	// Batch the rank-1 spell names: one query instead of ~54 round-trips.
+	names := s.spellNames(firstRanks(talents, tabByID))
 	for _, t := range talents {
 		tab, ok := tabByID[t.tabID]
 		if !ok {
@@ -236,7 +238,7 @@ func (s *Service) talentsFromDBC(guid uint32, classID uint32, known map[uint32]b
 		}
 		trees[idx].Talents = append(trees[idx].Talents, TalentNode{
 			TalentID: t.id, Row: t.row, Col: t.col,
-			Rank: rank, MaxRank: uint32(len(t.ranks)), SpellID: active, Name: s.spellName(t.ranks[0]),
+			Rank: rank, MaxRank: uint32(len(t.ranks)), SpellID: active, Name: names[t.ranks[0]],
 		})
 		if rank > 0 {
 			trees[idx].Points += rank

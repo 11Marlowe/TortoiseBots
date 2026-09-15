@@ -68,25 +68,36 @@ func (s *Service) resolveSpellNames(d *ItemDetail) {
 		return
 	}
 	d.SpellNames = make([]string, len(d.SpellIDs))
-	seen := map[uint32][]int{}
+	names := s.spellNames(d.SpellIDs)
 	for i, sid := range d.SpellIDs {
-		if sid != 0 {
-			seen[sid] = append(seen[sid], i)
+		d.SpellNames[i] = names[sid]
+	}
+}
+func (s *Service) spellName(spellID uint32) string {
+	return s.spellNames([]uint32{spellID})[spellID]
+}
+
+// spellNames resolves many spell display names in one query.
+func (s *Service) spellNames(ids []uint32) map[uint32]string {
+	out := map[uint32]string{}
+	seen := map[uint32]bool{}
+	var args []interface{}
+	var marks []string
+	for _, id := range ids {
+		if id == 0 || seen[id] {
+			continue
 		}
+		seen[id] = true
+		marks = append(marks, "?")
+		args = append(args, id)
 	}
-	if len(seen) == 0 {
-		return
+	if len(marks) == 0 {
+		return out
 	}
-	ids := make([]string, 0, len(seen))
-	args := make([]interface{}, 0, len(seen))
-	for sid := range seen {
-		ids = append(ids, "?")
-		args = append(args, sid)
-	}
-	q := fmt.Sprintf(`SELECT entry, name FROM %s.spell_template WHERE entry IN (%s)`, s.cfg.WorldDB, strings.Join(ids, ","))
+	q := fmt.Sprintf(`SELECT entry, name FROM %s.spell_template WHERE entry IN (%s)`, s.cfg.WorldDB, strings.Join(marks, ","))
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
-		return
+		return out
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -95,20 +106,21 @@ func (s *Service) resolveSpellNames(d *ItemDetail) {
 		if err := rows.Scan(&entry, &name); err != nil || !name.Valid {
 			continue
 		}
-		for _, i := range seen[entry] {
-			d.SpellNames[i] = name.String
-		}
+		out[entry] = name.String
 	}
+	return out
 }
 
-// spellName resolves one spell display name; empty when unknown.
-func (s *Service) spellName(spellID uint32) string {
-	var name sql.NullString
-	q := fmt.Sprintf(`SELECT name FROM %s.spell_template WHERE entry = ?`, s.cfg.WorldDB)
-	if err := s.db.QueryRow(q, spellID).Scan(&name); err == nil && name.Valid {
-		return name.String
+// firstRanks collects rank-1 spell ids of class talents for batch naming.
+func firstRanks(talents []dbcTalent, tabByID map[uint32]dbcTalentTab) []uint32 {
+	ids := make([]uint32, 0, len(talents))
+	for _, t := range talents {
+		if _, ok := tabByID[t.tabID]; !ok || len(t.ranks) == 0 {
+			continue
+		}
+		ids = append(ids, t.ranks[0])
 	}
-	return ""
+	return ids
 }
 
 func scanDetailTail(rows *sql.Rows, d *ItemDetail, s *Service) error {
