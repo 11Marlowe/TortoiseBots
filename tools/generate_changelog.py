@@ -277,7 +277,7 @@ def main():
         with open(os.environ["GITHUB_OUTPUT"], "a") as gh_out:
             gh_out.write("has_changes=true\n")
             gh_out.write(f"release_tag={release_tag}\n")
-            gh_out.write(f"release_title=TortoiseBots Update ({args.date})\n")
+            gh_out.write(f"release_title=TortoiseBots ({args.date})\n")
             gh_out.write(f"release_exists={'true' if exists else 'false'}\n")
 
 
