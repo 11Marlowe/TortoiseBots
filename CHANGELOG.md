@@ -1,68 +1,38 @@
 # Changelog
 
-## 2026-09-14
+## 2026-09-15
+
+### Performance & Engine
+
+- Staggered the cell-grid spatial scan per bot on a 1s cadence instead of every tick, cutting the biggest chunk of world-tick CPU (~60%). Discovery of new grind targets is delayed, but whole-bot decisions stay live; in-combat, dead, low-HP/mana, and post-revive/teleport all force back to the full 100ms rate. (#179)
+- Idle skips now suppress empty scans entirely: bots on taxi flights and RESTING+SANCTUARY or RESTING+stationary regen stop burning scan time for nothing. (#179)
+- SweepStrandedBots no longer excludes bot-only groups, and the UpdateAI telemetry string concat + perf monitor start are gated behind perfMonEnabled. (#177)
+- GetPriorityType / HasPlayerRelation now check real network sessions instead of iterating all 1000 random bots, with the IN_EMPTY_SERVER early-out restored. Noticeable tick savings on crowded servers. (#177)
 
 ### Combat & AI
-- New `.bot role <name> tank|healer|dps|clear` forces a bot's role; tank kits now mirror native AiFactory strategies (`protection`/`tank feral`, `tank assist`, `pull`, `pull back`, `close`) (#167)
-- Pull candidate selection is now deterministic: explicit role > designated tank > native spec. Bots attach `+pull` dynamically and never guess DPS (#167)
-- Fixed the movement freeze during pull/pullback sequences — bots now reposition cleanly instead of stalling (#167)
-- Ranged bots correctly fall back to ranged attacks when a melee pull isn't viable (#167)
-- DPS bots hold their threat during the tank's pull window instead of ripping aggro immediately (#167)
 
-### Addon Integration & Commands
-- New silent TBM addon command channel: the companion addon can drive `.bot` commands as addon messages, with responses returned on the same transport (#165)
-- UI clicks no longer spam the chat frame or echo to nearby players — quieter, cleaner bot management (#165)
-- `BotAddonAdapter` hooks `PLAYERHOOK_ON_ADDON_MESSAGE`, consumes `TBM`-prefixed payloads, and routes them through the existing `BotCommands::HandleChatCommand` entry point (same grammar, same GM authorization) (#165)
+- Dungeon corpse runs work cross-map: a bot that dies in an instance (e.g. Zul'Farrak) finds the entrance portal on the ghost's continent map, steps through, and pathfinds to its corpse inside. Also fixed the false master-resurrect block in FindCorpseAction. (#172)
+- New `.bot role <name> tank|healer|dps|clear` command forces a role; tank kit mirrors native AiFactory strategies. IsPullCandidate now follows explicit selection > designated tank > native spec and never guesses DPS. (#167)
+- Fixed the pull movement/freeze issue, added ranged fallback when no melee tank is available, and added a DPS threat window with pause support. (#167)
+- Party and whisper chat commands are now routed into the AI, so bots respond to direct coordination without needing a full command channel. (#172)
 
-### Documentation & Contracts
-- `docs/HOST_API.md` baseline realigned to merged upstream core `main` @ `5fafe43b` (#164)
-- Documented the module chat-hook contract settled by core PR #476, recording merged carriers for every dependent seam (#438, #469, #475, #476, #493) (#164)
+### Rescue & Core Sync Fixes
 
-### Combat & AI
-- Tank designation is now explicit: `.bot role <name> tank|healer|dps|clear` forces a role, with tank kits mirroring native AiFactory strategies (`protection` / `tank feral`, `tank assist`, `pull`, `pull back`, `close`) instead of relying on guesses (#167)
-- Pull candidates resolve in a sane order — explicit role > designated tank > native spec — and get `+pull` attached dynamically; DPS is never auto-promoted to puller (#167)
-- Movement freeze during pulls is fixed, ranged fallback kicks in when the tank can't reach, and DPS hold fire during the threat window so pulls stop wiping the group (#167)
+- Misplaced-bot rescue (hopeless-death relocation + stranded sweep) now works for bots grouped with other bots: a group only protects a bot when a real player is in it. Bot-only-grouped bots are relocated and leave the group first. (#176)
+- Death count is no longer wiped by XP packets, including exploration XP handed out when a ghost is repopped to a graveyard — so rescue thresholds fire correctly. (#176)
 
-### Addon Integration
-- New silent addon command channel lets the TBM companion addon fire `.bot` commands as addon messages: a `PlayerScript` on `PLAYERHOOK_ON_ADDON_MESSAGE` consumes `TBM`-prefixed payloads and routes them to the same `BotCommands::HandleChatCommand` entry point (#165)
-- Same grammar, same ownership/GM checks, same replies — but UI clicks print nothing to the chat frame and no request echo leaks to nearby players (#165)
+### Runtime & Build
 
-### Tooling & CI
-- Changelog generation is now idempotent per day: if today's `## YYYY-MM-DD` section already exists, new categories/bullets append to it instead of duplicating headers (#169)
-- Re-running the release workflow no longer dies on `HTTP 422: Release.tag_name already exists`; existing `vYYYY-MM-DD` releases get their notes merged/updated (#169)
+- Replaced all 22 `boost::algorithm` call sites (`iequals`, `istarts_with`, `trim`) with hand-written equivalents. This drops boost-algorithm, the last compile-time Boost dep, and its ~35-package vcpkg transitive closure. Faster CI and cleaner builds. (#173)
+- Removed three dead third-party includes (boost::stacktrace in MemoryMonitor, plus vestigial OpenSSL/Boost includes in PlayerbotLLMInterface and LootValues). No behavior change; less to link and maintain. (#171)
+- Dropped the OpenSSL RAND_bytes fallback from GenerateRandomPassword, which was forcing `libcrypto-3-x64.dll` to load even on builds that otherwise didn't need it. (#170)
 
-### Docs & Host API
-- `docs/HOST_API.md` baseline realigned to merged `tortoise-wow` `main` @ `5fafe43b`, with the chat-hook contract from core #476 now documented (#164)
-- Records the merged carriers for every seam the module depends on (#438, #469, #475, #476, #493) and points at `tools/verify_penqle_host_contract.sh` as the pre-build check (#164)
+### Addon & Tooling
 
-## 2026-09-14
-
-### Combat & AI
-- Bots now path around obstacles to reach targets that are out of line of sight instead of walking into walls; targets that stay unreachable for 15s get blacklisted per-bot for 5 minutes, killing the `invalid target` trigger spam (#157)
-- Capital city critters and NPCs are no longer grind targets — no more random bots picking fights with Gamon while the player is just trying to use the auction house; anything that attacks the bot still gets fought back (#158)
-
-### Starter Zones & World
-- Goblin and High Elf bots rescued by `TeleportMisplacedBot` are now routed to their homebind instead of being dumped on Blackstone Island or stranded in Hillsbrad at level 5 — no more bots stuck in zones with no way out (#161)
-
-### Core Sync & Fixes
-- Death is now logged and counted exactly once: repeated `OnDeath` fires during graveyard teleport and spirit-healer revive no longer inflate death counts several times per second (#159)
-- Removed the bogus `UNIT_STAT_STUNNED` logout check — combat stuns no longer trigger a bot logout, restoring correct `isLogingOut()`-based behavior from the donor core (#160)
-
-### Tooling & Docs
-- Added `tools/generate_changelog.py` plus a `CHANGELOG.md` seed and a `generate-changelog.yml` workflow, so releases can be generated from merged PRs with OpenCode AI instead of hand-writing notes (#163)
-- Updated canonical target core branch references from `bot-helpers` to `1181dev` in `README.md` and `CONTRIBUTING.md` after the upstream merge (#162)
+- New silent addon command channel: `host/BotAddonAdapter` hooks PLAYERHOOK_ON_ADDON_MESSAGE and forwards `TBM`-prefixed payloads to the existing BotCommands entry point. UI clicks drive `.bot` commands with no chat-frame spam and no echo to nearby players. (#165)
+- Documented the merged host chat seams (transport, script hooks, headless drain, chat hardening, OnChatYell) in HOST_API.md and pinned the compatible baseline to merged main. (#164)
+- Changelog CI now appends to an existing same-day section and updates the existing GitHub release instead of failing with HTTP 422 on tag collision. (#169)
 
 ---
 
-## 2026-09-13
-
-### Starter Zones & Survival
-- **Unsurvivable Zone Repatriation:** Repatriate alive bots stranded in zones significantly above their level range ([#155](https://github.com/Sagiroth/TortoiseBots/pull/155)).
-- **Custom Starter Island Blacklist:** Route Goblin and High Elf bots to standard starter zones and blacklist custom islands lacking egress paths ([#149](https://github.com/Sagiroth/TortoiseBots/pull/149)).
-- **Classic Zone Level Population:** Populated `ai_playerbot_zone_level` with classic zone level mappings ([#148](https://github.com/Sagiroth/TortoiseBots/pull/148)).
-- **Low-Level Travel Gating:** Reject travel destinations whose route crosses zones the bot cannot survive, keeping bots below level 10 within their starter regions ([#147](https://github.com/Sagiroth/TortoiseBots/pull/147), [#150](https://github.com/Sagiroth/TortoiseBots/pull/150), [#153](https://github.com/Sagiroth/TortoiseBots/pull/153)).
-
-### Observability & AI
-- **Rage Telemetry Units:** Converted rage values to normal 0-100 display units for dashboard visualization ([#154](https://github.com/Sagiroth/TortoiseBots/pull/154)).
-- **Stuck Detector Sampling:** Throttled stuck evaluation to once per second rather than every world tick ([#152](https://github.com/Sagiroth/TortoiseBots/pull/152)).
-- **AI Texts & Item Casting:** Seeded `ai_playerbot_texts` and repaired item cast validation checks ([#151](https://github.com/Sagiroth/TortoiseBots/pull/151)).
+## 2026-09-14
