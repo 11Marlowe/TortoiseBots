@@ -12,8 +12,7 @@ relates_to:
 # PROVENANCE — TortoiseBots behavior harvesting log
 
 > **Append-oriented historical record.** This file is the source-lineage and
-> validation ledger for imported/adapted behavior; it is not the current
-> roadmap. Start with [PLAN.md](PLAN.md).
+> validation ledger for imported/adapted behavior.
 
 Record every substantial port/reimplementation here for attribution,
 licensing, reasoning and local validation.

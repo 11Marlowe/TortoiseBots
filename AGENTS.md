@@ -25,7 +25,7 @@ For any PlayerBots work, consult the **Open Knowledge Format (OKF)** catalogue i
 7. [`docs/HOST_API.md`](docs/HOST_API.md) — When touching sessions, lifecycle, packets, commands, or core seams.
 8. [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — When porting or changing donor-derived behavior.
 
-`docs/PLAN.md` and `docs/concepts/` are the architecture source of truth. Historical audit evidence lives in Git history.
+`docs/concepts/` is the architecture source of truth. Historical audit evidence lives in Git history.
 
 This repo is self-contained. All required context is indexed in `docs/` and validated via `python3 tools/verify_okf.py`.
 
@@ -55,7 +55,7 @@ Unless qualified otherwise, these terms mean `tortoise-wow`: upstream, upstream 
 
 1. `tortoise-wow` pinned target core
 2. Tortoise data / DBC / runtime evidence
-3. This repo's host contract (`docs/HOST_API.md`, `docs/PLAN.md`)
+3. This repo's host contract (`docs/HOST_API.md`)
 4. `shyalya-tortoise-wow` and other donors as references only
 
 Git remote aliases are not authority — always identify a repo by `owner/repo`.

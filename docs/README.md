@@ -75,7 +75,6 @@ Detailed combat rotations, Turtle WoW 1.18.1 custom abilities, pet handling, and
 - [**Bot Mechanics, Quirks & Gaps**](concepts/bot-mechanics-and-quirks.md) — Targeting math, threat distribution, movement, interrupts, and quirks.
 - [**Donor Hierarchy & Porting Rules**](concepts/donor-hierarchy.md) — Shyalya runtime parity rules vs mod-playerbots behavior rules.
 - [**Known Limitations & Non-Goals**](concepts/known-limitations.md) — Current engine boundaries, blocked features, and deliberate non-goals.
-- [**Roadmap & Definition of Done**](PLAN.md) — Long-term architecture roadmap and acceptance criteria.
 
 ---
 

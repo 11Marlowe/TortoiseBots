@@ -119,7 +119,7 @@ been audited against the merged core.
    PlayerBots disabled.
 2. Prove the real-client owned-bot journey, including incoming command packet
    delivery and reclaim.
-3. Prove summon and pullback acceptance scenarios in `PLAN.md`.
+3. Prove summon and pullback acceptance scenarios in test suites.
 4. Add one catalog family at a time to the shared native/addon control path.
 5. For every family, add a deterministic server-side scenario where possible
    and a concise manual-client step where client packet semantics matter.

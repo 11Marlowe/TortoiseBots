@@ -92,10 +92,6 @@ nodes:
   - id: concept-bot-mechanics-and-quirks
     path: concepts/bot-mechanics-and-quirks.md
     category: concepts
-  - id: concept-plan
-    path: PLAN.md
-    category: concepts
-
   # Reference
   - id: ref-host-api
     path: HOST_API.md

@@ -63,7 +63,7 @@ this module calls, that legacy bot-object coupling has not returned to normal
 gameplay code, and that prints the core revision it verified. It passes against
 `5fafe43b`.
 
-The last recorded compile-verified pair (`PLAN.md` §6.4) predates that merge and
+The last recorded compile-verified pair predates that merge and
 must be refreshed at the next module build against merged `main`:
 
 ```text
@@ -586,4 +586,4 @@ core gameplay code, redesign it.
 
 ## 21. Historical closure
 
-F-03/F-27 closure and validation boundary are recorded in `PLAN.md` §6.1 and `PROVENANCE.md`; full historical audit evidence is preserved in Git history. This contract covers only the current host API.
+F-03/F-27 closure and validation boundary are recorded in `PROVENANCE.md`; full historical audit evidence is preserved in Git history. This contract covers only the current host API.
