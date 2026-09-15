@@ -1702,6 +1702,11 @@
     else renderArmoryStats(p);
   }
 
+  function statTable(title, rows) {
+    const body = Array.isArray(rows) ? rows.join('') : rows;
+    return `<div class="section-label" style="margin: 0 0 6px;">${esc(title)}</div><div style="overflow-x: auto;"><table class="data-table"><tbody>${body}</tbody></table></div>`;
+  }
+
   function statRow(k, v) {
     return `<tr><td style="color: var(--text-muted);">${esc(k)}</td><td class="mono" style="text-align: right;">${v === null || v === undefined ? '–' : v}</td></tr>`;
   }
@@ -1732,9 +1737,14 @@
       : st.source === 'character_stats' ? 'Last logout snapshot (basic)'
       : st.source === 'armory_stats' ? 'Last logout snapshot (full)'
       : 'No stat snapshot available';
-    const powers = [];
-    [['Mana', st.maxpower1], ['Rage', st.maxpower2], ['Focus', st.maxpower3], ['Energy', st.maxpower4], ['Happiness', st.maxpower5]]
-      .forEach(([k, v]) => { if (v) powers.push(statNum(k, v)); });
+    // characters.power1..5 hold every power type for every class (a mage row
+    // sits at default Energy=100), so pick the class-relevant power(s) only.
+    // 1 Warrior, 4 Rogue, 11 Druid; everyone else is mana-based.
+    const cls = (p.summary || {}).class;
+    const powerList = cls === 1 ? [['Rage', st.maxpower2]]
+      : cls === 4 ? [['Energy', st.maxpower4]]
+      : [['Mana', st.maxpower1]];
+    const powers = powerList.map(([k, v]) => statNum(k, v));
     const left =
       statTable('Vitals', [statNum('Health', st.maxhealth)].concat(powers)) +
       statTable('Attributes', [
