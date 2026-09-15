@@ -1159,12 +1159,48 @@ body {
   gap: 6px;
 }
 
+.talent-tier {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.talent-tier:last-child {
+  border-bottom: none;
+}
+
+.talent-tier-label {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+}
+
+.talent-tier-label span {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.talent-tier-nodes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
 .talent-node {
   border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 6px 4px;
   text-align: center;
-  cursor: default;
 }
 
 .talent-node .talent-rank {

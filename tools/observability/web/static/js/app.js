@@ -117,6 +117,19 @@
     return plain;
   }
 
+  // Full hover card for a spell row: name + rank, school, short hint and the
+  // raw template description collapsed to one line. Tokens ($s1, $d) stay
+  // visible but muted — they are core data, not rendering bugs.
+  function spellTooltip(sp) {
+    const name = sp.name || `Spell ${sp.spell}`;
+    const sub = sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : '';
+    const hint = spellHint(sp);
+    const raw = String(sp.description || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+    return `<div class="tip-name">${esc(name)}</div>${sub ? `<div class="tip-sub">${sub}</div>` : ''}<div class="tip-sub">${esc(spellSchoolName(sp.school))}</div>` +
+      (hint ? `<div class="tip-stat">${esc(hint)}</div>` : '') +
+      (raw && raw !== hint ? `<div class="tip-sub" style="max-width: 240px;">${esc(raw)}</div>` : '');
+  }
+
   // Skill names from core SharedDefines.h SkillType enum. No DBC or client
   // data is shipped; unknown IDs fall back to "Skill <id>".
   const SKILL_NAMES = {
@@ -1534,7 +1547,7 @@
     });
     if (d.description) lines.push(`<div class="tip-flavor">${esc(d.description.replace(/^"|"$/g, ''))}</div>`);
     lines.push(`<div class="tip-sub mono">#${esc(item.item_template)} · ${esc(qualityName(q))}</div>`);
-    if (d.sell_price) lines.push(`<div class="tip-sub">Sells for ${esc(Math.round(d.sell_price / 10000 * 100) / 100)}g</div>`);
+    if (d.sell_price) lines.push(`<div class="tip-sub">Sells for ${formatMoney(d.sell_price)}</div>`);
     return lines.join('');
   }
 
@@ -1598,6 +1611,27 @@
     });
   }
 
+  function bindSpellTooltips(root) {
+    if (!root) return;
+    const tip = armoryTipDiv();
+    root.querySelectorAll('[data-sptip]').forEach(node => {
+      if (node.dataset.sptipBound) return;
+      node.dataset.sptipBound = '1';
+      node.addEventListener('mouseenter', e => {
+        tip.innerHTML = node.dataset.sptip;
+        tip.style.display = 'block';
+        const pad = 14;
+        const r = tip.getBoundingClientRect();
+        let left = e.clientX + pad, top = e.clientY + pad;
+        if (left + r.width > window.innerWidth - 6) left = e.clientX - r.width - pad;
+        if (top + r.height > window.innerHeight - 6) top = e.clientY - r.height - pad;
+        tip.style.left = `${Math.max(6, left)}px`;
+        tip.style.top = `${Math.max(6, top)}px`;
+      });
+      node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+  }
+
   function bagItemRow(it) {
     const q = it.quality || 0;
     return `<tr data-tip='${esc(JSON.stringify(it))}'><td class="mono">${esc(it.slot)}</td><td class="quality-text-${q}">${esc(it.name)} <span class="badge quality-badge-${q}">${esc(qualityName(q))}</span></td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
@@ -1622,29 +1656,25 @@
   }
 
   function statRow(k, v) {
-    return `<tr><td style="color: var(--text-muted);">${esc(k)}</td><td class="mono" style="text-align: right;">${esc(v)}</td></tr>`;
+    return `<tr><td style="color: var(--text-muted);">${esc(k)}</td><td class="mono" style="text-align: right;">${v === null || v === undefined ? '–' : v}</td></tr>`;
   }
 
-  function statTable(title, rows) {
-    if (!rows.length) return '';
-    return `<div><div class="section-label" style="margin: 12px 0 6px;">${esc(title)}</div><table class="data-table"><tbody>${rows.join('')}</tbody></table></div>`;
+  function statText(k, v) {
+    return statRow(k, esc(v === null || v === undefined || v === '' ? '–' : v));
   }
 
+  function statNum(k, v, suffix) {
+    return statRow(k, esc(fmtNum(v) + (suffix || '')));
+  }
   function weaponPanel(p, slot, label) {
     const item = (p.equipment || []).find(e => e.slot === slot);
-    if (!item || !item.detail) return [];
+    if (!item || !item.detail) return '';
     const d = item.detail;
-    const parts = [];
-    if (d.dmg_min1 || d.dmg_max1) parts.push(`${Math.round(d.dmg_min1 || 0)}–${Math.round(d.dmg_max1 || 0)}`);
-    if (d.dmg_min2 || d.dmg_max2) parts.push(`${Math.round(d.dmg_min2 || 0)}–${Math.round(d.dmg_max2 || 0)}`);
-    if (d.dmg_min3 || d.dmg_max3) parts.push(`${Math.round(d.dmg_min3 || 0)}–${Math.round(d.dmg_max3 || 0)}`);
-    const dps = d.delay && (d.dmg_max1 || d.dmg_min1)
-      ? ` (${(((d.dmg_min1 || 0) + (d.dmg_max1 || 0)) / 2 / (d.delay / 1000)).toFixed(1)} DPS)`
-      : '';
+    const dmg = (d.dmg_max1 || d.dmg_min1) ? `${Math.round(d.dmg_min1 || 0)}–${Math.round(d.dmg_max1 || 0)}` : '';
+    if (!dmg) return '';
+    const dps = d.delay ? ` (${(((d.dmg_min1 || 0) + (d.dmg_max1 || 0)) / 2 / (d.delay / 1000)).toFixed(1)} DPS)` : '';
     const speed = d.delay ? ` · ${(d.delay / 1000).toFixed(2)}s` : '';
-    return parts.length
-      ? [`<span class="quality-text-${item.quality || 0}">${esc(item.name)}</span> <span style="color: var(--text-muted);">(${esc(label)} ${parts.join(' + ')}${dps}${speed})</span>`]
-      : [];
+    return `<div><span class="quality-text-${item.quality || 0}">${esc(item.name)}</span> <span style="color: var(--text-muted);">${esc(label)} ${esc(dmg)}${esc(dps)}${esc(speed)}</span></div>`;
   }
 
   function renderArmoryStats(p) {
@@ -1657,42 +1687,42 @@
       : 'No stat snapshot available';
     const powers = [];
     [['Mana', st.maxpower1], ['Rage', st.maxpower2], ['Focus', st.maxpower3], ['Energy', st.maxpower4], ['Happiness', st.maxpower5]]
-      .forEach(([k, v]) => { if (v) powers.push(statRow(k, fmtNum(v))); });
+      .forEach(([k, v]) => { if (v) powers.push(statNum(k, v)); });
     const left =
-      statTable('Vitals', [statRow('Health', fmtNum(st.maxhealth))].concat(powers)) +
+      statTable('Vitals', [statNum('Health', st.maxhealth)].concat(powers)) +
       statTable('Attributes', [
-        statRow('Strength', fmtNum(st.strength)), statRow('Agility', fmtNum(st.agility)),
-        statRow('Stamina', fmtNum(st.stamina)), statRow('Intellect', fmtNum(st.intellect)),
-        statRow('Spirit', fmtNum(st.spirit)), statRow('Armor', fmtNum(st.armor))
+        statNum('Strength', st.strength), statNum('Agility', st.agility),
+        statNum('Stamina', st.stamina), statNum('Intellect', st.intellect),
+        statNum('Spirit', st.spirit), statNum('Armor', st.armor)
       ]) +
       statTable('Resistances', [
-        statRow('Holy', fmtNum(st.res_holy)), statRow('Fire', fmtNum(st.res_fire)),
-        statRow('Nature', fmtNum(st.res_nature)), statRow('Frost', fmtNum(st.res_frost)),
-        statRow('Shadow', fmtNum(st.res_shadow)), statRow('Arcane', fmtNum(st.res_arcane))
+        statNum('Holy', st.res_holy), statNum('Fire', st.res_fire),
+        statNum('Nature', st.res_nature), statNum('Frost', st.res_frost),
+        statNum('Shadow', st.res_shadow), statNum('Arcane', st.res_arcane)
       ]);
-    const meleeRows = []
-      .concat(weaponPanel(p, 15, 'Main Hand'))
-      .concat(weaponPanel(p, 16, 'Off Hand'))
-      .concat(weaponPanel(p, 17, 'Ranged'));
+    const weapons =
+      weaponPanel(p, 15, 'Main Hand') +
+      weaponPanel(p, 16, 'Off Hand') +
+      weaponPanel(p, 17, 'Ranged');
     const right =
       statTable('Melee & Ranged', [
-        statRow('Attack Power', fmtNum(st.attack_power)),
-        statRow('Ranged Attack Power', fmtNum(st.ranged_attack_power)),
-        statRow('Melee Damage', st.melee_damage || '–'),
-        statRow('Ranged Damage', st.ranged_damage || '–'),
-        statRow('Melee Speed', fmtNum(st.melee_speed)),
-        statRow('Ranged Speed', fmtNum(st.ranged_speed)),
-        statRow('Melee Crit', `${fmtNum(st.melee_crit_pct)}%`),
-        statRow('Ranged Crit', `${fmtNum(st.ranged_crit_pct)}%`),
-        statRow('Melee Hit', `${fmtNum(st.melee_hit)}%`),
-        statRow('Ranged Hit', `${fmtNum(st.ranged_hit)}%`)
-      ].concat(meleeRows.length ? [statRow('Weapons', meleeRows.join('<br>'))] : [])) +
+        statNum('Attack Power', st.attack_power),
+        statNum('Ranged Attack Power', st.ranged_attack_power),
+        statText('Melee Damage', st.melee_damage),
+        statText('Ranged Damage', st.ranged_damage),
+        statNum('Melee Speed', st.melee_speed),
+        statNum('Ranged Speed', st.ranged_speed),
+        statNum('Melee Crit', st.melee_crit_pct, '%'),
+        statNum('Ranged Crit', st.ranged_crit_pct, '%'),
+        statNum('Melee Hit', st.melee_hit, '%'),
+        statNum('Ranged Hit', st.ranged_hit, '%')
+      ].concat(weapons ? [statRow('Weapons', weapons)] : [])) +
       statTable('Defense & Spell', [
-        statRow('Block', `${fmtNum(st.block_pct)}%`),
-        statRow('Dodge', `${fmtNum(st.dodge_pct)}%`),
-        statRow('Parry', `${fmtNum(st.parry_pct)}%`),
-        statRow('Spell Hit', `${fmtNum(st.spell_hit)}%`),
-        statRow('Cast Speed', fmtNum(st.cast_speed))
+        statNum('Block', st.block_pct, '%'),
+        statNum('Dodge', st.dodge_pct, '%'),
+        statNum('Parry', st.parry_pct, '%'),
+        statNum('Spell Hit', st.spell_hit, '%'),
+        statNum('Cast Speed', st.cast_speed)
       ]);
     host.innerHTML = `<div class="empty-hint" style="margin-bottom: 8px;">${esc(srcNote)}</div><div class="armory-stat-groups"><div>${left}</div><div>${right}</div></div>`;
   }
@@ -1729,14 +1759,24 @@
       host.innerHTML = `<div class="empty-hint">No talent points spent yet — this bot is level ${esc((p.summary || {}).level)} with ${esc((p.summary || {}).level >= 10 ? (p.summary.level - 9) : 0)} point(s) available. Trees appear here once points are allocated (DBC talent layout loads from the server).</div>`;
       return;
     }
-    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 10px;">${esc(spent)} point(s) spent</div><div class="armory-trees">${trees.map(t => {
-      const nodes = (t.talents || []).map(n => {
+    const active = state.armoryTalentTab || 0;
+    const tabs = trees.map((t, i) => `<button class="armory-subtab${i === active ? ' active' : ''}" data-ttab="${i}">${esc(t.name)} (${esc(t.points)})</button>`).join('');
+    const tree = trees[Math.min(active, trees.length - 1)];
+    const byRow = {};
+    (tree.talents || []).forEach(n => { (byRow[n.row] = byRow[n.row] || []).push(n); });
+    const rows = Object.keys(byRow).map(Number).sort((a, b) => a - b).map(r => {
+      const need = r * 5;
+      const cells = byRow[r].slice().sort((a, b) => a.col - b.col).map(n => {
         const cls = n.rank > 0 ? (n.rank >= n.max_rank ? 'learned' : 'partial') : 'unlearned';
-        const tip = `${n.name || `Talent ${n.talent_id}`} · row ${n.row + 1} col ${n.col + 1} · requires ${n.row * 5} pts${n.spell_id ? ` · spell #${n.spell_id}` : ''}`;
+        const tip = `${n.name || `Talent ${n.talent_id}`} · row ${n.row + 1} col ${n.col + 1} · requires ${need} pts${n.spell_id ? ` · spell #${n.spell_id}` : ''}`;
         return `<div class="talent-node ${cls}" title="${esc(tip)}"><div class="talent-rank">${esc(n.rank)}/${esc(n.max_rank)}</div><div class="talent-name">${esc(n.name || `Talent ${n.talent_id}`)}</div></div>`;
       }).join('');
-      return `<div class="talent-tree"><div class="talent-tree-head"><span>${esc(t.name)}</span><span class="badge badge-info">${esc(t.points)} pts</span></div><div class="talent-grid">${nodes || '<div class="empty-hint">—</div>'}</div></div>`;
-    }).join('')}</div>`;
+      return `<div class="talent-tier"><div class="talent-tier-label">Tier ${r + 1}<span>req ${need}</span></div><div class="talent-tier-nodes">${cells}</div></div>`;
+    }).join('');
+    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 10px;">${esc(spent)} point(s) spent</div><div class="armory-subtabs" style="border-bottom: none; padding-bottom: 0;">${tabs}</div><div class="talent-tree"><div class="talent-tree-head"><span>${esc(tree.name)}</span><span class="badge badge-info">${esc(tree.points)} pts</span></div>${rows || '<div class="empty-hint">—</div>'}</div>`;
+    host.querySelectorAll('[data-ttab]').forEach(btn => {
+      btn.addEventListener('click', () => { state.armoryTalentTab = parseInt(btn.dataset.ttab, 10) || 0; renderArmoryTalents(p); });
+    });
   }
 
   function renderArmorySpells(p) {
@@ -1764,12 +1804,14 @@
           const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
           const hint = spellHint(sp);
           const desc = hint ? `<div style="color: var(--text-muted); font-size: 0.72rem; max-width: 520px;">${esc(hint)}</div>` : '';
-          return `<tr><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td>${esc(sp.name || `Spell ${sp.spell}`)}${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}${desc}</td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
+          const tip = spellTooltip(sp);
+          return `<tr data-sptip="${esc(tip)}"><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td>${esc(sp.name || `Spell ${sp.spell}`)}${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}${desc}</td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
         }).join('');
         html += `<div class="section-label" style="margin: 14px 0 8px;">${esc(g)} · ${list.length}</div><div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
       });
     }
     host.innerHTML = html;
+    bindSpellTooltips(host);
     const input = document.getElementById('armory-spell-filter');
     if (input) {
       input.addEventListener('input', e => {
