@@ -15,6 +15,8 @@ namespace ai
     {
     public:
         HolyPriestStrategy(PlayerbotAI* ai);
+        int GetType() override { return STRATEGY_TYPE_HEAL | STRATEGY_TYPE_RANGED; }
+        uint32 GetType() const override { return STRATEGY_TYPE_HEAL | STRATEGY_TYPE_RANGED; }
 
     protected:
         virtual void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;

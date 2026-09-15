@@ -1583,8 +1583,16 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             // Explicit attack unleashes DPS early,
             // cancelling any pull threat-window hold. No-op when absent.
             ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
-            accepted = ExecuteQuietAction(ai, "attack my target",
-                ai::Event("action attack", "", requester));
+            // Dedicated healers should support the party, not be forced to target and attack the enemy
+            if (!PlayerbotAI::IsHeal(bot))
+            {
+                accepted = ExecuteQuietAction(ai, "attack my target",
+                    ai::Event("action attack", "", requester));
+            }
+            else
+            {
+                accepted = true;
+            }
             // Caster rotations and party heals are below the minimal-action
             // cutoff.  Run a normal first combat decision after committing the
             // explicit target so ranged bots engage alongside melee bots.

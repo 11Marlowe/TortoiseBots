@@ -43,11 +43,19 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_LIGHT_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_CRITICAL_HEAL + 2), NULL)));
 }
 
 void DisciplinePriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PriestStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_HIGH + 3), NULL)));
 }
 
 void DisciplinePriestStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)

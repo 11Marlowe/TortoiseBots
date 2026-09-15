@@ -161,6 +161,13 @@ bool ShouldSpiritHealerValue::Calculate()
         return true;
     }
 
+    // Never revive at spirit healer when corpse is in an instance (dungeon/raid)
+    if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(corpse->GetMapId()))
+    {
+        if (mapEntry->IsDungeon())
+            return false;
+    }
+
     uint32 deadTime = time(nullptr) - corpse->GetGhostTime();
 
     //Dead for a long time

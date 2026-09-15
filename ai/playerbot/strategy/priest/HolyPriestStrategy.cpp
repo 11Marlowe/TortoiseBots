@@ -43,6 +43,10 @@ void HolyPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_LIGHT_HEAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_CRITICAL_HEAL + 2), NULL)));
 }
 
 void HolyPriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -66,6 +70,10 @@ void HolyPriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers
     triggers.push_back(new TriggerNode(
         "party member almost full health",
         NextAction::array(0, new NextAction("renew on party", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_HIGH + 3), NULL)));
 }
 
 void HolyPriestStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)

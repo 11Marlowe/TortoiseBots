@@ -136,10 +136,29 @@ bool FindCorpseAction::Execute(Event& event)
     bool manualCorpseRun = AI_VALUE(bool, "corpse run");
 
     Player* master = ai->GetGroupMaster();
-    if (master && !manualCorpseRun && master->GetMapId() == bot->GetMapId())
+    WorldPosition botPos(bot), corpsePos(corpse), moveToPos = corpsePos, masterPos(master);
+    float reclaimDist = CORPSE_RECLAIM_RADIUS - 5.0f;
+    int64 deadTime = time(nullptr) - corpse->GetGhostTime();
+
+    bool corpseInDungeon = false;
+    uint32 dungeonMapId = 0;
+    if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(corpsePos.GetMapId()))
     {
+        if (mapEntry->IsDungeon())
+        {
+            corpseInDungeon = true;
+            dungeonMapId = corpsePos.GetMapId();
+        }
+    }
+
+    if (master && !manualCorpseRun && master->GetMapId() == bot->GetMapId() && !corpseInDungeon)
+    {
+        bool masterCanResurrect = sServerFacade.IsAlive(master) && !master->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST) &&
+                                  (PlayerbotAI::IsHeal(master) || master->GetClass() == CLASS_PRIEST || master->GetClass() == CLASS_PALADIN ||
+                                   master->GetClass() == CLASS_SHAMAN || master->GetClass() == CLASS_DRUID);
+
         float masterTargetDist = AI_VALUE2(float, "distance", "master target");
-        if (!PlayerbotAIStorage::Instance().GetAI(master) && sServerFacade.IsDistanceLessThan(masterTargetDist, sPlayerbotAIConfig.farDistance))
+        if (masterCanResurrect && botPos.GetMapId() == corpsePos.GetMapId() && !PlayerbotAIStorage::Instance().GetAI(master) && sServerFacade.IsDistanceLessThan(masterTargetDist, sPlayerbotAIConfig.farDistance))
         {
             sLog.outDetail("[BOT CORPSE] %s: find corpse - BLOCKED: real-player master within farDistance (dist=%.1f < %.1f). Waiting for master to resurrect. Say 'corpse run' to override.",
                 bot->GetName(), masterTargetDist, sPlayerbotAIConfig.farDistance);
@@ -147,9 +166,22 @@ bool FindCorpseAction::Execute(Event& event)
         }
     }
 
-    WorldPosition botPos(bot), corpsePos(corpse), moveToPos = corpsePos, masterPos(master);
-    float reclaimDist = CORPSE_RECLAIM_RADIUS - 5.0f;
-    int64 deadTime = time(nullptr) - corpse->GetGhostTime();
+    if (corpseInDungeon && deadTime >= 5 * MINUTE)
+    {
+        AreaTriggerTeleport const* entranceTeleport = sObjectMgr.GetMapEntranceTrigger(dungeonMapId);
+        if (entranceTeleport)
+        {
+            sLog.outBasic("[BOT CORPSE] %s: instance corpse run timeout (%llds >= 300s), appearing revived at dungeon entrance (map %u)",
+                bot->GetName(), (long long)deadTime, dungeonMapId);
+            bot->GetMotionMaster()->Clear();
+            bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
+            bot->ResurrectPlayer(0.5f, false);
+            bot->SpawnCorpseBones();
+            bot->SaveToDB();
+            SET_AI_VALUE(bool, "corpse run", false);
+            return true;
+        }
+    }
 
     if (botPos.GetMapId() != corpsePos.GetMapId())
     {
@@ -157,15 +189,6 @@ bool FindCorpseAction::Execute(Event& event)
         AreaTriggerTeleport const* entranceTeleport = nullptr;
         if (FindInstanceEntranceTrigger(corpsePos.GetMapId(), botPos.GetMapId(), botPos, entranceTrigger, entranceTeleport))
         {
-            // 1. Fallback timer: after 5 minutes of dead time, appear at the dungeon entrance inside the instance
-            if (deadTime >= 5 * MINUTE)
-            {
-                sLog.outBasic("[BOT CORPSE] %s: instance corpse run timeout (%llds >= 300s), appearing at dungeon entrance",
-                    bot->GetName(), (long long)deadTime);
-                bot->GetMotionMaster()->Clear();
-                bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
-                return true;
-            }
 
             // 2. Near entrance portal: step into instance
             float triggerRadius = std::max(5.0f, entranceTrigger->radius);

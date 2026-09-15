@@ -2650,9 +2650,10 @@ bool PlayerbotAI::IsRanged(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        bool isRanged = botAi->ContainsStrategy(STRATEGY_TYPE_RANGED);
-        if (inGroup || isRanged)
-            return isRanged;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_RANGED))
+            return true;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_MELEE))
+            return false;
     }
 
     switch (player->GetClass())
@@ -2677,9 +2678,8 @@ bool PlayerbotAI::IsTank(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        bool isTank = botAi->ContainsStrategy(STRATEGY_TYPE_TANK);
-        if (inGroup || isTank)
-            return isTank;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_TANK) || botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK))
+            return true;
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);
@@ -2692,9 +2692,8 @@ bool PlayerbotAI::IsHeal(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        bool isHeal = botAi->ContainsStrategy(STRATEGY_TYPE_HEAL);
-        if (inGroup || isHeal)
-            return isHeal;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_HEAL) || botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_HEALER))
+            return true;
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);
