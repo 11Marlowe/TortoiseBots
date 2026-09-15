@@ -15,8 +15,6 @@ bool XpGainAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
 
-    RESET_AI_VALUE(uint32,"death count");
-
     WorldPacket p(event.GetPacket()); // (8+4+1+4+8)
     ObjectGuid guid;
     uint32 xpgain;
@@ -28,6 +26,13 @@ bool XpGainAction::Execute(Event& event)
     p >> guid;      // 8 victim
     p >> xpgain;    // 1 given experience
     p >> type;      //1 00-kill_xp type, 01-non_kill_xp type
+
+    // The death count survives everything but a kill the living bot made itself. The old
+    // unconditional reset also fired on non-kill XP - the exploration XP of the graveyard a
+    // ghost was repopped to, quest XP - so a level-8 bot dying to level-20 spiders reached its
+    // post-revive rescue check with "0 deaths" every time and was never relocated.
+    if (type == 0 && bot->IsAlive())
+        RESET_AI_VALUE(uint32,"death count");
 
     if (sPlayerbotAIConfig.hasLog("bot_events.csv"))
     {
