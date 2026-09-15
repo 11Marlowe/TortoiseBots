@@ -274,6 +274,7 @@ func main() {
 			if strings.Contains(err.Error(), "not found") {
 				http.Error(w, err.Error(), http.StatusNotFound)
 			} else {
+				log.Printf("[Armory] profile guid=%d failed: %v", guid, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 			}
 			return

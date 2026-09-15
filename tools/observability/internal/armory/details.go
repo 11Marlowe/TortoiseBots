@@ -3,6 +3,7 @@ package armory
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 )
 
 // detailSelect lists the tooltip columns of world.item_template appended
@@ -60,14 +61,43 @@ func foldDetail(d *ItemDetail, st, sv [10]int32, sp [5]uint32, tr [5]uint8) {
 }
 
 // resolveSpellNames fills human-readable proc names from the operator's own
-// spell_template. Best effort: names are tooltip sugar, never fail the load.
+// spell_template in one query. Best effort: names are tooltip sugar, never
+// fail the load.
 func (s *Service) resolveSpellNames(d *ItemDetail) {
 	if len(d.SpellIDs) == 0 {
 		return
 	}
 	d.SpellNames = make([]string, len(d.SpellIDs))
+	seen := map[uint32][]int{}
 	for i, sid := range d.SpellIDs {
-		d.SpellNames[i] = s.spellName(sid)
+		if sid != 0 {
+			seen[sid] = append(seen[sid], i)
+		}
+	}
+	if len(seen) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(seen))
+	args := make([]interface{}, 0, len(seen))
+	for sid := range seen {
+		ids = append(ids, "?")
+		args = append(args, sid)
+	}
+	q := fmt.Sprintf(`SELECT entry, name FROM %s.spell_template WHERE entry IN (%s)`, s.cfg.WorldDB, strings.Join(ids, ","))
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entry uint32
+		var name sql.NullString
+		if err := rows.Scan(&entry, &name); err != nil || !name.Valid {
+			continue
+		}
+		for _, i := range seen[entry] {
+			d.SpellNames[i] = name.String
+		}
 	}
 }
 

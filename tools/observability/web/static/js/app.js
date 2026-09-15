@@ -1484,10 +1484,12 @@
     if (el.armoryMoney) el.armoryMoney.innerHTML = '';
     if (el.armoryPlayed) el.armoryPlayed.textContent = '';
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
-      .then(r => {
+      .then(async r => {
         if (r.status === 401) throw new Error('HTTP 401');
-        if (r.status === 404) throw new Error('HTTP 404');
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        if (!r.ok) {
+          const body = (await r.text()).trim().slice(0, 200);
+          throw new Error(`HTTP ${r.status}${body ? `: ${body}` : ''}`);
+        }
         return r.json();
       })
       .then(p => {
@@ -1497,7 +1499,8 @@
       })
       .catch(e => {
         if (state.armoryGuid !== guid) return;
-        if (String(e && e.message).includes('401')) {
+        const msg = String((e && e.message) || 'fetch failed');
+        if (msg.includes('401')) {
           if (el.armoryName) el.armoryName.textContent = 'Session expired';
           if (el.armoryError) {
             el.armoryError.style.display = 'block';
@@ -1508,7 +1511,7 @@
         if (el.armoryName) el.armoryName.textContent = 'Bot not found';
         if (el.armoryError) {
           el.armoryError.style.display = 'block';
-          el.armoryError.textContent = 'Could not load this bot profile. The character may have been deleted, or the character database is unreachable.';
+          el.armoryError.textContent = `Could not load bot #${guid}: ${msg}`;
         }
       });
   }
