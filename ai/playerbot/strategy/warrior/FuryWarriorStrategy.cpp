@@ -10,6 +10,7 @@ public:
     FuryWarriorStrategyActionNodeFactory()
     {
         creators["charge"] = &charge;
+        creators["intercept"] = &intercept;
         creators["berserker rage fear"] = &berserker_rage_fear;
         creators["piercing howl"] = &piercing_howl;
         creators["pummel"] = &pummel;
@@ -17,6 +18,8 @@ public:
 
 private:
     ACTION_NODE_A(charge, "charge", "intercept");
+
+    ACTION_NODE_A(intercept, "intercept", "reach melee");
 
     ACTION_NODE_A(piercing_howl, "piercing howl", "hamstring");
 

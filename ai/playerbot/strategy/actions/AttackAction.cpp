@@ -236,11 +236,13 @@ bool AttackAction::Attack(Player* requester, Unit* target)
         if (!ai->HasStrategy("stealthed", BotState::BOT_STATE_COMBAT) && !isWaitingForAttack)
         {
             ai->PlayAttackEmote(1);
-            result = bot->Attack(target, !ai->IsRanged(bot) || (sServerFacade.getDistance2d(bot, target) < 5.0f));
-            SC_LOG("attack-cmd bot->Attack bot=%s tgt=%s result=%d",
+            const bool meleeEval = !ai->IsRanged(bot) && !ai->IsHeal(bot);
+            result = bot->Attack(target, meleeEval);
+            SC_LOG("attack-cmd bot->Attack bot=%s tgt=%s result=%d meleeEval=%d",
                    bot ? bot->GetName() : "(null)",
                    target ? target->GetName() : "(null)",
-                   (int)result);
+                   (int)result,
+                   (int)meleeEval);
         }
         else
         {

@@ -15,6 +15,8 @@ namespace ai
     {
     public:
         ProtectionWarriorStrategy(PlayerbotAI* ai);
+        int GetType() override { return STRATEGY_TYPE_TANK | STRATEGY_TYPE_MELEE; }
+        uint32 GetType() const override { return STRATEGY_TYPE_TANK | STRATEGY_TYPE_MELEE; }
 
     protected:
         virtual void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;

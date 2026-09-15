@@ -49,6 +49,10 @@ void RestorationShamanStrategy::InitCombatTriggers(std::list<TriggerNode*> &trig
     ShamanStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_CRITICAL_HEAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "low mana",
         NextAction::array(0, new NextAction("mana tide totem", ACTION_EMERGENCY), NULL)));
 
@@ -100,6 +104,10 @@ void RestorationShamanStrategy::InitCombatTriggers(std::list<TriggerNode*> &trig
 void RestorationShamanStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ShamanStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_CRITICAL_HEAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "critical health",

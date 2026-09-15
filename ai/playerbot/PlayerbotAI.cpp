@@ -1868,6 +1868,23 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
 
             if (guid1 != bot->getObjectGuid()) // do not reply to self
             {
+                // Dispatch party chat and whispers from authorized real players (group master / members) to HandleCommand
+                if ((msgtype == CHAT_MSG_PARTY || msgtype == CHAT_MSG_WHISPER) && lang != LANG_ADDON)
+                {
+                    if (Player* sender = sObjectAccessor.FindPlayer(guid1))
+                    {
+                        if (isRealPlayer_Helper(sender))
+                        {
+                            bool isAuthorized = (GetMaster() && GetMaster()->GetObjectGuid() == guid1) ||
+                                                (bot->GetGroup() && bot->GetGroup()->IsMember(guid1));
+                            if (isAuthorized)
+                            {
+                                HandleCommand(msgtype, message, *sender, lang);
+                            }
+                        }
+                    }
+                }
+
                 // try to always reply to real player
                 time_t lastChat = GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Get();
                 bool isPaused = time(0) < lastChat;
@@ -2633,9 +2650,10 @@ bool PlayerbotAI::IsRanged(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        bool isRanged = botAi->ContainsStrategy(STRATEGY_TYPE_RANGED);
-        if (inGroup || isRanged)
-            return isRanged;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_RANGED))
+            return true;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_MELEE))
+            return false;
     }
 
     switch (player->GetClass())
@@ -2660,9 +2678,8 @@ bool PlayerbotAI::IsTank(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        bool isTank = botAi->ContainsStrategy(STRATEGY_TYPE_TANK);
-        if (inGroup || isTank)
-            return isTank;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_TANK) || botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK))
+            return true;
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);
@@ -2675,9 +2692,8 @@ bool PlayerbotAI::IsHeal(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        bool isHeal = botAi->ContainsStrategy(STRATEGY_TYPE_HEAL);
-        if (inGroup || isHeal)
-            return isHeal;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_HEAL) || botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_HEALER))
+            return true;
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);

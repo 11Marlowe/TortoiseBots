@@ -11,6 +11,10 @@ void HolyPaladinStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     PaladinStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_CRITICAL_HEAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "party member critical health",
         NextAction::array(0, new NextAction("lay on hands on party", ACTION_CRITICAL_HEAL), NULL)));
 
@@ -101,6 +105,10 @@ void HolyPaladinStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 void HolyPaladinStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     PaladinStrategy::InitNonCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "party member to heal out of spell range",
+        NextAction::array(0, new NextAction("reach party member to heal", ACTION_CRITICAL_HEAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "low health",

@@ -406,6 +406,8 @@ namespace ai
                 creators["holy shock on party"] = [](PlayerbotAI* ai) { return new CastHolyShockOnPartyAction(ai); };
                 creators["blessing of freedom"] = [](PlayerbotAI* ai) { return new CastBlessingOfFreedomAction(ai); };
                 creators["blessing of sacrifice"] = [](PlayerbotAI* ai) { return new CastBlessingOfSacrificeAction(ai); };
+                creators["hand of reckoning"] = [](PlayerbotAI* ai) { return new CastHandOfReckoningAction(ai); };
+                creators["righteous defense"] = [](PlayerbotAI* ai) { return new CastRighteousDefenseAction(ai); };
                 creators["update pve strats"] = [](PlayerbotAI* ai) { return new UpdatePaladinPveStrategiesAction(ai); };
                 creators["update pvp strats"] = [](PlayerbotAI* ai) { return new UpdatePaladinPvpStrategiesAction(ai); };
                 creators["update raid strats"] = [](PlayerbotAI* ai) { return new UpdatePaladinRaidStrategiesAction(ai); };

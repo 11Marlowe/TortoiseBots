@@ -15,6 +15,8 @@ namespace ai
     {
     public:
         ShadowPriestStrategy(PlayerbotAI* ai);
+        int GetType() override { return STRATEGY_TYPE_DPS | STRATEGY_TYPE_RANGED; }
+        uint32 GetType() const override { return STRATEGY_TYPE_DPS | STRATEGY_TYPE_RANGED; }
 
     protected:
         virtual void InitCombatTriggers(std::list<TriggerNode*>& triggers) override;

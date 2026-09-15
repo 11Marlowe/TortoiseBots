@@ -533,6 +533,18 @@ namespace ai
 		virtual std::string getName() override { return "purify disease on party"; }
 	};
 
+	class CastHandOfReckoningAction : public CastSpellAction
+	{
+	public:
+		CastHandOfReckoningAction(PlayerbotAI* ai) : CastSpellAction(ai, "hand of reckoning") {}
+	};
+
+	class CastRighteousDefenseAction : public CastSpellAction
+	{
+	public:
+		CastRighteousDefenseAction(PlayerbotAI* ai) : CastSpellAction(ai, "righteous defense") {}
+	};
+
 	class CastCleansePoisonAction : public CastCureSpellAction
 	{
 	public:
