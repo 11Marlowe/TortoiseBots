@@ -92,6 +92,20 @@
     0: 'Physical', 1: 'Holy', 2: 'Fire', 3: 'Nature', 4: 'Frost', 5: 'Shadow', 6: 'Arcane'
   };
 
+  // Spell buckets for the spellbook tab. Pets/traps/mounts/professions are
+  // data noise next to combat spells; grouping by nameSubtext + pet-teach
+  // descriptions keeps e.g. hunter pet teaches out of the combat list.
+  function spellBucket(sp) {
+    const sub = String(sp.subtext || '');
+    const desc = String(sp.description || '');
+    const name = String(sp.name || '');
+    if (/Rank \d+/.test(sub)) return 'Class spells';
+    if (/Apprentice|Journeyman|Expert|Artisan/.test(sub)) return 'Professions';
+    if (/Summon|Pet|Cat|Boar|Owl|Carrion|Crab|Gorilla|Raptor|Tallstrider|Turtle|Wolf|Bear|Spider|Bat|Hyena|Wind Serpent|Scorpid|Tamed/i.test(sub + ' ' + desc + ' ' + name)) return 'Pet & Minions';
+    if (/Trap|Totem|Seal|Blessing|Aura|Stance|Form|Aspect|Track/i.test(name + ' ' + sub)) return 'Auras & Forms';
+    return 'Abilities';
+  }
+
   // Skill names from core SharedDefines.h SkillType enum. No DBC or client
   // data is shipped; unknown IDs fall back to "Skill <id>".
   const SKILL_NAMES = {
@@ -130,6 +144,43 @@
   // Combat grouping for the Skills tab: weapons + defense first.
   const COMBAT_SKILL_IDS = [43, 44, 45, 46, 54, 55, 136, 160, 162, 172, 173, 176, 226, 228, 229, 473, 95];
   const ARMOR_SKILL_IDS = [293, 413, 414, 415, 433];
+
+  // Item tooltip enums from core (ItemPrototype.h, SharedDefines.h). Hardcoded
+  // on purpose: these are protocol constants, not data, and keep the dashboard
+  // free of DBC/client assets.
+  const ITEM_STAT_NAMES = {
+    0: 'Mana', 1: 'Health', 3: 'Agility', 4: 'Strength',
+    5: 'Intellect', 6: 'Spirit', 7: 'Stamina'
+  };
+  const ITEM_BONDING_NAMES = {
+    0: '', 1: 'Binds when picked up', 2: 'Binds when equipped',
+    3: 'Binds when used', 4: 'Quest Item', 6: 'Binds to account'
+  };
+  const ITEM_CLASS_NAMES = {
+    0: 'Consumable', 1: 'Container', 2: 'Weapon', 3: 'Gem', 4: 'Armor',
+    5: 'Reagent', 6: 'Projectile', 7: 'Trade Goods', 8: 'Generic',
+    9: 'Recipe', 10: 'Money', 11: 'Quiver', 12: 'Quest', 13: 'Key',
+    14: 'Permanent', 15: 'Junk'
+  };
+  const ITEM_SUBCLASS_NAMES = {
+    '2-0': 'Axe', '2-1': 'Two-Handed Axe', '2-2': 'Bow', '2-3': 'Gun',
+    '2-4': 'Mace', '2-5': 'Two-Handed Mace', '2-6': 'Polearm', '2-7': 'Sword',
+    '2-8': 'Two-Handed Sword', '2-10': 'Staff', '2-13': 'Fist Weapon',
+    '2-15': 'Dagger', '2-16': 'Thrown', '2-18': 'Crossbow', '2-19': 'Wand',
+    '2-20': 'Fishing Pole', '4-0': 'Miscellaneous', '4-1': 'Cloth',
+    '4-2': 'Leather', '4-3': 'Mail', '4-4': 'Plate', '4-6': 'Shield',
+    '4-7': 'Libram', '4-8': 'Idol', '4-9': 'Totem'
+  };
+  const ITEM_TRIGGER_NAMES = {
+    0: 'Use:', 1: 'Equip:', 2: 'Chance on hit:', 4: 'Soulstone:', 5: 'Use:'
+  };
+  const INVTYPE_NAMES = {
+    1: 'Head', 2: 'Neck', 3: 'Shoulder', 4: 'Shirt', 5: 'Chest', 6: 'Waist',
+    7: 'Legs', 8: 'Feet', 9: 'Wrist', 10: 'Hands', 11: 'Finger', 12: 'Trinket',
+    13: 'Weapon', 14: 'Shield', 15: 'Ranged', 16: 'Back', 17: 'Two-Hand',
+    18: 'Bag', 19: 'Tabard', 20: 'Robe', 21: 'Main Hand', 22: 'Off Hand',
+    23: 'Held In Off-hand', 24: 'Ammo', 25: 'Thrown', 26: 'Ranged', 27: 'Quiver', 28: 'Relic'
+  };
 
   const ISSUE_TYPES = ['STUCK', 'DEAD_LONG', 'ACTION_LOOP', 'UNREACHABLE_TARGET'];
   const ISSUE_LABELS = { STUCK: 'Stuck', DEAD_LONG: 'Dead long', ACTION_LOOP: 'Action loop', UNREACHABLE_TARGET: 'Unreachable' };
@@ -1152,8 +1203,10 @@
             <span class="mono">${esc(fmtDuration(i.duration_sec))}</span>
           </div>`).join('')}
       </div>` : ''}
-      <button class="btn" id="drawer-armory-btn" style="margin-top: 14px; width: 100%; justify-content: center;">View Armory</button>
+      <button class="btn" id="drawer-armory-btn" style="margin-top: 14px; width: 100%; justify-content: center;">Open Armory</button>
     `;
+    const botName = el.drawerContent.querySelector('div');
+    if (botName) { botName.style.cursor = 'pointer'; botName.title = 'Open armory'; botName.addEventListener('click', () => openArmory(b.guid)); }
     const armoryBtn = document.getElementById('drawer-armory-btn');
     if (armoryBtn) armoryBtn.addEventListener('click', () => openArmory(b.guid));
   }
@@ -1256,11 +1309,11 @@
         <td><span class="badge ${b.state === 'combat' ? 'badge-error' : b.state === 'dead' ? 'badge-warn' : 'badge-info'}">${esc(b.state || 'idle')}</span></td>
         <td style="color: #f85149;">${esc(b.target || '-')}</td>
         <td class="mono" style="font-size: 0.8rem;">${esc(getZoneName(b.zone))}</td>
-        <td><button class="btn armory-inspect" data-guid="${esc(b.guid)}" style="padding: 4px 10px; font-size: 0.75rem;">Inspect</button></td>
+        <td><button class="btn armory-map" data-guid="${esc(b.guid)}" style="padding: 4px 10px; font-size: 0.75rem;">Show on Map</button></td>
       `;
-      tr.querySelector('td[data-guid]').addEventListener('click', () => focusBot(b.guid));
-      const inspectBtn = tr.querySelector('.armory-inspect');
-      if (inspectBtn) inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); openArmory(b.guid); });
+      tr.querySelector('td[data-guid]').addEventListener('click', () => openArmory(b.guid));
+      const mapBtn = tr.querySelector('.armory-map');
+      if (mapBtn) mapBtn.addEventListener('click', (e) => { e.stopPropagation(); focusBot(b.guid); });
       el.rosterTable.appendChild(tr);
     });
   }
@@ -1426,6 +1479,53 @@
     renderArmoryGear(p);
     renderArmoryPanel(p, state.armorySubtab || 'stats');
   }
+  function itemSubclassName(cls, sub) {
+    const key = `${cls}-${sub}`;
+    return ITEM_SUBCLASS_NAMES[key] || ITEM_CLASS_NAMES[cls] || `Item ${cls}/${sub}`;
+  }
+
+  function itemStatName(t) {
+    return ITEM_STAT_NAMES[t] || `Stat ${t}`;
+  }
+
+  // WoW-style item tooltip from world.item_template fields only: name,
+  // quality, type line, requirements, armor/block/damage, stats, resists,
+  // equip/use procs, sell price. No images, no external data.
+  function itemTooltip(item) {
+    if (!item) return 'Empty slot';
+    const d = item.detail || {};
+    const q = item.quality || 0;
+    const lines = [];
+    lines.push(`<div class="tip-name quality-text-${q}">${esc(item.name)}${item.count > 1 ? ` <span style="color:#fff;">×${esc(item.count)}</span>` : ''}</div>`);
+    if (item.item_level) lines.push(`<div class="tip-sub">Item Level ${esc(item.item_level)}</div>`);
+    if (ITEM_BONDING_NAMES[d.bonding]) lines.push(`<div class="tip-sub">${esc(ITEM_BONDING_NAMES[d.bonding])}</div>`);
+    const typeName = item.inventory_type ? INVTYPE_NAMES[item.inventory_type] : itemSubclassName(d.class, d.subclass);
+    if (typeName) lines.push(`<div class="tip-row"><span>${esc(typeName)}</span><span>${esc(itemSubclassName(d.class, d.subclass))}</span></div>`);
+    if (d.required_level) lines.push(`<div class="tip-row"><span>Requires Level</span><span>${esc(d.required_level)}</span></div>`);
+    if (d.armor) lines.push(`<div class="tip-row"><span>Armor</span><span>${esc(d.armor)}</span></div>`);
+    if (d.block) lines.push(`<div class="tip-row"><span>Block</span><span>${esc(d.block)}</span></div>`);
+    const dmg = (a, b) => (a || b) ? `<div class="tip-row"><span>Damage</span><span>${esc(Math.round(a || 0))} – ${esc(Math.round(b || 0))}</span></div>` : '';
+    lines.push(dmg(d.dmg_min1, d.dmg_max1) + dmg(d.dmg_min2, d.dmg_max2) + dmg(d.dmg_min3, d.dmg_max3));
+    if (d.delay) lines.push(`<div class="tip-row"><span>Speed</span><span>${esc((d.delay / 1000).toFixed(2))}</span></div>`);
+    const types = d.stat_types || [], vals = d.stat_values || [];
+    types.forEach((t, i) => {
+      const v = vals[i];
+      if (!v) return;
+      lines.push(`<div class="tip-stat">+${esc(v)} ${esc(itemStatName(t))}</div>`);
+    });
+    const res = [['Holy', d.res_holy], ['Fire', d.res_fire], ['Nature', d.res_nature], ['Frost', d.res_frost], ['Shadow', d.res_shadow], ['Arcane', d.res_arcane]];
+    res.forEach(([k, v]) => { if (v) lines.push(`<div class="tip-stat">+${esc(v)} ${k} Resistance</div>`); });
+    const sids = d.spell_ids || [], strg = d.spell_triggers || [], snames = d.spell_names || [];
+    sids.forEach((sid, i) => {
+      if (!sid) return;
+      const label = ITEM_TRIGGER_NAMES[strg[i]] || 'Effect:';
+      lines.push(`<div class="tip-proc">${esc(label)} ${esc(snames[i] || `Spell #${sid}`)}</div>`);
+    });
+    if (d.description) lines.push(`<div class="tip-flavor">${esc(d.description.replace(/^"|"$/g, ''))}</div>`);
+    lines.push(`<div class="tip-sub mono">#${esc(item.item_template)} · ${esc(qualityName(q))}</div>`);
+    if (d.sell_price) lines.push(`<div class="tip-sub">Sells for ${esc(Math.round(d.sell_price / 10000 * 100) / 100)}g</div>`);
+    return lines.join('');
+  }
 
   function gearBySlot(p) {
     const m = {};
@@ -1440,15 +1540,59 @@
     }
     const count = item.count > 1 ? ` <span class="gear-ilvl">×${esc(item.count)}</span>` : '';
     const ilvl = item.item_level ? `<span class="gear-ilvl">iLvl ${esc(item.item_level)}</span>` : '';
-    const tip = `${item.name} — ${qualityName(item.quality)}${item.icon ? ` · ${item.icon}` : ''}`;
-    return `<div class="gear-row quality-border-${esc(item.quality)}" title="${esc(tip)}"><span class="gear-slot">${esc(slotName)}</span><span class="gear-name quality-text-${esc(item.quality)}">${esc(item.name)}${count}</span>${ilvl}<span class="gear-ilvl mono">#${esc(item.item_template)}</span></div>`;
+    return `<div class="gear-row quality-border-${esc(item.quality)}" data-tip='${esc(JSON.stringify(item))}'><span class="gear-slot">${esc(slotName)}</span><span class="gear-name quality-text-${esc(item.quality)}">${esc(item.name)}${count}</span>${ilvl}<span class="gear-ilvl mono">#${esc(item.item_template)}</span></div>`;
   }
-
   function renderArmoryGear(p) {
     const m = gearBySlot(p);
     if (el.gearLeft) el.gearLeft.innerHTML = GEAR_LEFT.map(s => gearRow(s, m[s])).join('');
     if (el.gearRight) el.gearRight.innerHTML = GEAR_RIGHT.map(s => gearRow(s, m[s])).join('');
     if (el.gearWeapons) el.gearWeapons.innerHTML = GEAR_WEAPONS.map(s => gearRow(s, m[s])).join('');
+    bindItemTooltips(document.getElementById('tab-armory'));
+  }
+
+  // Click-free hover card for any [data-tip] row inside the armory view.
+  // Reuses the .map-tooltip positioning recipe; one shared div appended once.
+  function armoryTipDiv() {
+    let tip = document.getElementById('item-tooltip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 'item-tooltip';
+      tip.className = 'item-tooltip';
+      tip.style.display = 'none';
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+
+  function bindItemTooltips(root) {
+    if (!root) return;
+    const tip = armoryTipDiv();
+    root.querySelectorAll('[data-tip]').forEach(node => {
+      if (node.dataset.tipBound) return;
+      node.dataset.tipBound = '1';
+      node.addEventListener('mouseenter', e => {
+        let item = null;
+        try { item = JSON.parse(node.dataset.tip); } catch (err) { item = null; }
+        tip.innerHTML = itemTooltip(item);
+        tip.style.display = 'block';
+        const pad = 14;
+        const r = tip.getBoundingClientRect();
+        let left = e.clientX + pad, top = e.clientY + pad;
+        if (left + r.width > window.innerWidth - 6) left = e.clientX - r.width - pad;
+        if (top + r.height > window.innerHeight - 6) top = e.clientY - r.height - pad;
+        tip.style.left = `${Math.max(6, left)}px`;
+        tip.style.top = `${Math.max(6, top)}px`;
+      });
+      node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+  }
+
+  function bagItemRow(it) {
+    return `<tr data-tip='${esc(JSON.stringify(it))}'><td class="mono">${esc(it.slot)}</td><td class="quality-text-${esc(it.quality)}">${esc(it.name)}</td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td>${esc(qualityName(it.quality))}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
+  }
+
+  function bagTable(items) {
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Slot</th><th>Item</th><th>Count</th><th>Quality</th><th>Entry</th></tr></thead><tbody>${items.map(bagItemRow).join('')}</tbody></table></div>`;
   }
 
   function renderArmoryPanel(p, tab) {
@@ -1478,6 +1622,10 @@
     const host = document.getElementById('armory-content-stats');
     if (!host) return;
     const st = p.stats || {};
+    const srcNote = st.source === 'live' ? 'Live values (logout snapshots are empty for online bots)'
+      : st.source === 'character_stats' ? 'Last logout snapshot (basic)'
+      : st.source === 'armory_stats' ? 'Last logout snapshot (full)'
+      : 'No stat snapshot available';
     const powers = [];
     [['Mana', st.maxpower1], ['Rage', st.maxpower2], ['Focus', st.maxpower3], ['Energy', st.maxpower4], ['Happiness', st.maxpower5]]
       .forEach(([k, v]) => { if (v) powers.push(statRow(k, fmtNum(v))); });
@@ -1513,16 +1661,9 @@
         statRow('Spell Hit', `${fmtNum(st.spell_hit)}%`),
         statRow('Cast Speed', fmtNum(st.cast_speed))
       ]);
-    host.innerHTML = `<div class="armory-stat-groups"><div>${left}</div><div>${right}</div></div>`;
+    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 8px;">${esc(srcNote)}</div><div class="armory-stat-groups"><div>${left}</div><div>${right}</div></div>`;
   }
 
-  function bagItemRow(it) {
-    return `<tr><td class="mono">${esc(it.slot)}</td><td class="quality-text-${esc(it.quality)}" title="${esc(it.icon || qualityName(it.quality))}">${esc(it.name)}</td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td>${esc(qualityName(it.quality))}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
-  }
-
-  function bagTable(items) {
-    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Slot</th><th>Item</th><th>Count</th><th>Quality</th><th>Entry</th></tr></thead><tbody>${items.map(bagItemRow).join('')}</tbody></table></div>`;
-  }
 
   function renderArmoryBags(p) {
     const host = document.getElementById('armory-content-bags');
@@ -1539,7 +1680,12 @@
       html += `</div>`;
     });
     if (!(p.bags || []).length) html += `<div class="empty-hint">No equipped bags.</div>`;
+    const bb = p.buyback || [];
+    if (bb.length) {
+      html += `<div class="bag-block"><div class="bag-head"><strong>Sold to vendor (buyback)</strong><span style="color: var(--text-muted);">${bb.length} recoverable</span></div>${bagTable(bb)}</div>`;
+    }
     host.innerHTML = html;
+    bindItemTooltips(host);
   }
 
   function renderArmoryTalents(p) {
@@ -1573,12 +1719,21 @@
     if (!filtered.length) {
       html += `<div class="empty-hint">No spells match.</div>`;
     } else {
-      const rows = filtered.slice(0, 500).map(sp => {
-        const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
-        return `<tr><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td>${esc(sp.name || `Spell ${sp.spell}`)}${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}</td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
-      }).join('');
-      html += `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-      if (filtered.length > 500) html += `<div class="empty-hint">Showing first 500 of ${filtered.length} matches.</div>`;
+      const groups = {};
+      filtered.forEach(sp => {
+        const g = spellBucket(sp);
+        (groups[g] = groups[g] || []).push(sp);
+      });
+      ['Class spells', 'Abilities', 'Auras & Forms', 'Pet & Minions', 'Professions'].forEach(g => {
+        const list = (groups[g] || []).slice(0, 500);
+        if (!list.length) return;
+        const rows = list.map(sp => {
+          const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
+          const desc = sp.description ? `<div style="color: var(--text-muted); font-size: 0.72rem; max-width: 520px;">${esc(sp.description)}</div>` : '';
+          return `<tr><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td>${esc(sp.name || `Spell ${sp.spell}`)}${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}${desc}</td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
+        }).join('');
+        html += `<div class="section-label" style="margin: 14px 0 8px;">${esc(g)} · ${list.length}</div><div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      });
     }
     host.innerHTML = html;
     const input = document.getElementById('armory-spell-filter');

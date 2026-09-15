@@ -113,33 +113,32 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	// 2. Equipment: bag=0 + slot 0-18, mirroring Player::_LoadInventory
 	// (IsEquipmentPos(INVENTORY_SLOT_BAG_0, slot)). Stack count comes from
 	// item_instance; that JOIN is the same one the core login query uses.
+	// detailSelect appends the tooltip columns consumed by scanDetailTail.
 	eqQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.item_level, it.inventory_type, it.display_id,
-		       COALESCE(idi.icon, '') AS icon
+		       COALESCE(idi.icon, '') AS icon, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
 		LEFT JOIN item_instance ii ON ii.guid = ci.item
 		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= 0 AND ci.slot < %d
 		ORDER BY ci.slot
-	`, s.cfg.WorldDB, s.cfg.WorldDB, EquipmentSlotEnd)
+	`, detailSelect, s.cfg.WorldDB, s.cfg.WorldDB, EquipmentSlotEnd)
 
 	if err := s.scanEquipped(eqQuery, guid, &profile); err != nil {
 		return nil, err
 	}
-
 	bagQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.container_slots, it.display_id,
-		       COALESCE(idi.icon, '') AS icon
+		       COALESCE(idi.icon, '') AS icon, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
 		LEFT JOIN item_instance ii ON ii.guid = ci.item
 		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= %d AND ci.slot < %d
-		ORDER BY ci.slot
-	`, s.cfg.WorldDB, s.cfg.WorldDB, BagSlotStart, BagSlotEnd)
+	`, detailSelect, s.cfg.WorldDB, s.cfg.WorldDB, BagSlotStart, BagSlotEnd)
 
 	if err := s.scanBags(bagQuery, guid, &profile); err != nil {
 		return nil, err
@@ -154,7 +153,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		contentQuery := fmt.Sprintf(`
 			SELECT ci.slot, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 			       it.name, it.quality, it.display_id,
-			       COALESCE(idi.icon, '') AS icon
+			       COALESCE(idi.icon, '') AS icon, %s
 			FROM character_inventory ci
 			JOIN character_inventory container
 			  ON container.guid = ci.guid
@@ -166,7 +165,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 			LEFT JOIN item_instance ii ON ii.guid = ci.item
 			WHERE ci.guid = ? AND ci.bag != 0
 			ORDER BY ci.slot
-		`, s.cfg.WorldDB, s.cfg.WorldDB)
+		`, detailSelect, s.cfg.WorldDB, s.cfg.WorldDB)
 		rows, err := s.db.Query(contentQuery, profile.Bags[i].Slot, guid)
 		if err != nil {
 			return nil, err
@@ -316,9 +315,15 @@ func (s *Service) scanEquipped(query string, guid uint32, profile *BotProfile) e
 	for rows.Next() {
 		var eq EquippedItem
 		var itemGUID uint32
-		if err := rows.Scan(&eq.Slot, &itemGUID, &eq.ItemTemplate, &eq.Count, &eq.Name, &eq.Quality, &eq.ItemLevel, &eq.InventoryType, &eq.DisplayID, &eq.Icon); err != nil {
+		var st, sv [10]int32
+		var sp [5]uint32
+		var tr [5]uint8
+		base := []interface{}{&eq.Slot, &itemGUID, &eq.ItemTemplate, &eq.Count, &eq.Name, &eq.Quality, &eq.ItemLevel, &eq.InventoryType, &eq.DisplayID, &eq.Icon}
+		if err := rows.Scan(append(base, detailDests(&eq.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
+		foldDetail(&eq.Detail, st, sv, sp, tr)
+		s.resolveSpellNames(&eq.Detail)
 		profile.Equipment = append(profile.Equipment, eq)
 	}
 	return rows.Err()
@@ -333,9 +338,15 @@ func (s *Service) scanBags(query string, guid uint32, profile *BotProfile) error
 	profile.Bags = []BagContainer{}
 	for rows.Next() {
 		var b BagContainer
-		if err := rows.Scan(&b.Slot, &b.Item, &b.ItemTemplate, &b.Count, &b.Name, &b.Quality, &b.ContainerSlots, &b.DisplayID, &b.Icon); err != nil {
+		var st, sv [10]int32
+		var sp [5]uint32
+		var tr [5]uint8
+		base := []interface{}{&b.Slot, &b.Item, &b.ItemTemplate, &b.Count, &b.Name, &b.Quality, &b.ContainerSlots, &b.DisplayID, &b.Icon}
+		if err := rows.Scan(append(base, detailDests(&b.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
+		foldDetail(&b.Detail, st, sv, sp, tr)
+		s.resolveSpellNames(&b.Detail)
 		b.Items = []BagItem{}
 		profile.Bags = append(profile.Bags, b)
 	}
@@ -351,10 +362,39 @@ func (s *Service) scanBackpack(query string, guid uint32, profile *BotProfile) e
 	profile.Backpack = []BagItem{}
 	for rows.Next() {
 		var bi BagItem
-		if err := rows.Scan(&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon); err != nil {
+		var st, sv [10]int32
+		var sp [5]uint32
+		var tr [5]uint8
+		base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon}
+		if err := rows.Scan(append(base, detailDests(&bi.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
+		foldDetail(&bi.Detail, st, sv, sp, tr)
+		s.resolveSpellNames(&bi.Detail)
 		profile.Backpack = append(profile.Backpack, bi)
+	}
+	return rows.Err()
+}
+
+func (s *Service) scanBuyback(query string, guid uint32, profile *BotProfile) error {
+	rows, err := s.db.Query(query, guid)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	profile.Buyback = []BagItem{}
+	for rows.Next() {
+		var bi BagItem
+		var st, sv [10]int32
+		var sp [5]uint32
+		var tr [5]uint8
+		base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon}
+		if err := rows.Scan(append(base, detailDests(&bi.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
+			return err
+		}
+		foldDetail(&bi.Detail, st, sv, sp, tr)
+		s.resolveSpellNames(&bi.Detail)
+		profile.Buyback = append(profile.Buyback, bi)
 	}
 	return rows.Err()
 }

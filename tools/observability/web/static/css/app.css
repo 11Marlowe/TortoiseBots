@@ -1184,3 +1184,52 @@ body {
 .talent-node.unlearned {
   opacity: 0.45;
 }
+
+/* Item tooltip: WoW-style floating panel, dashboard-native colors. Reuses the
+   existing .map-tooltip positioning pattern; content comes from
+   world.item_template fields only (no images, no external data). */
+.item-tooltip {
+  position: fixed;
+  pointer-events: none;
+  background: rgba(10, 13, 20, 0.97);
+  border: 1px solid var(--border-color);
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  max-width: 280px;
+  z-index: 10000;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+}
+
+.item-tooltip .tip-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.item-tooltip .tip-sub {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.item-tooltip .tip-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-main);
+}
+
+.item-tooltip .tip-stat {
+  color: #1eff00;
+}
+
+.item-tooltip .tip-proc {
+  color: var(--accent-green-bright);
+}
+
+.item-tooltip .tip-flavor {
+  color: var(--accent-yellow);
+  font-style: italic;
+  margin-top: 4px;
+}
