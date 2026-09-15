@@ -54,8 +54,82 @@
     issues: { active: [], resolved: [], counts_by_type: {} },
     issueTypeFilter: 'all',
     issueDurationFilter: 0,
-    issueHistory: { t: [], series: {} }
+    issueHistory: { t: [], series: {} },
+    armoryGuid: null,
+    armoryProfile: null,
+    armorySubtab: 'stats',
+    armorySpellFilter: ''
   };
+
+  // Equipment slot IDs mirror core Player.h EquipmentSlots (0-18).
+  const EQUIP_SLOT_NAMES = {
+    0: 'Head', 1: 'Neck', 2: 'Shoulders', 3: 'Shirt', 4: 'Chest',
+    5: 'Waist', 6: 'Legs', 7: 'Feet', 8: 'Wrists', 9: 'Hands',
+    10: 'Ring 1', 11: 'Ring 2', 12: 'Trinket 1', 13: 'Trinket 2',
+    14: 'Back', 15: 'Main Hand', 16: 'Off Hand', 17: 'Ranged', 18: 'Tabard'
+  };
+
+  // Classic paperdoll columns: left, right, weapons row.
+  const GEAR_LEFT = [0, 1, 2, 14, 4, 3, 18, 8];
+  const GEAR_RIGHT = [9, 5, 6, 7, 10, 11, 12, 13];
+  const GEAR_WEAPONS = [15, 16, 17];
+
+  // Race/class IDs from core SharedDefines.h (RACE_* 1-10, CLASS_* 1-11).
+  const RACE_NAMES = {
+    1: 'Human', 2: 'Orc', 3: 'Dwarf', 4: 'Night Elf', 5: 'Undead',
+    6: 'Tauren', 7: 'Gnome', 8: 'Troll', 9: 'Goblin', 10: 'High Elf'
+  };
+
+  const CLASS_NAMES = {
+    1: 'Warrior', 2: 'Paladin', 3: 'Hunter', 4: 'Rogue', 5: 'Priest',
+    7: 'Shaman', 8: 'Mage', 9: 'Warlock', 11: 'Druid'
+  };
+
+  // Quality names follow core SharedDefines.h ItemQualities (0-6).
+  const QUALITY_NAMES = ['Poor', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Artifact'];
+
+  const SPELL_SCHOOLS = {
+    0: 'Physical', 1: 'Holy', 2: 'Fire', 3: 'Nature', 4: 'Frost', 5: 'Shadow', 6: 'Arcane'
+  };
+
+  // Skill names from core SharedDefines.h SkillType enum. No DBC or client
+  // data is shipped; unknown IDs fall back to "Skill <id>".
+  const SKILL_NAMES = {
+    6: 'Frost', 8: 'Fire', 26: 'Arms', 38: 'Combat', 39: 'Subtlety', 40: 'Poisons',
+    43: 'Swords', 44: 'Axes', 45: 'Bows', 46: 'Guns', 50: 'Beast Mastery', 51: 'Survival',
+    54: 'Maces', 55: 'Two-Handed Swords', 56: 'Holy', 78: 'Shadow', 95: 'Defense',
+    98: 'Language: Common', 101: 'Racial: Dwarven', 109: 'Language: Orcish',
+    111: 'Language: Dwarven', 113: 'Language: Darnassian', 115: 'Language: Taurahe',
+    118: 'Dual Wield', 124: 'Racial: Tauren', 125: 'Racial: Orc', 126: 'Racial: Night Elf',
+    129: 'First Aid', 134: 'Feral Combat', 136: 'Staves', 137: 'Language: Thalassian',
+    138: 'Language: Draconic', 139: 'Language: Demon Tongue', 140: 'Language: Titan',
+    141: 'Language: Old Tongue', 142: 'Survival', 148: 'Riding: Horse', 149: 'Riding: Wolf',
+    150: 'Riding: Tiger', 152: 'Riding: Ram', 155: 'Swimming', 160: 'Two-Handed Maces',
+    162: 'Unarmed', 163: 'Marksmanship', 164: 'Blacksmithing', 165: 'Leatherworking',
+    171: 'Alchemy', 172: 'Two-Handed Axes', 173: 'Daggers', 176: 'Thrown',
+    182: 'Herbalism', 183: 'Generic (DND)', 184: 'Retribution', 185: 'Cooking', 186: 'Mining',
+    188: 'Pet: Imp', 189: 'Pet: Felhunter', 197: 'Tailoring', 202: 'Engineering',
+    203: 'Pet: Spider', 204: 'Pet: Voidwalker', 205: 'Pet: Succubus', 206: 'Pet: Infernal',
+    207: 'Pet: Doomguard', 208: 'Pet: Wolf', 209: 'Pet: Cat', 210: 'Pet: Bear',
+    211: 'Pet: Boar', 212: 'Pet: Crocilisk', 213: 'Pet: Carrion Bird', 214: 'Pet: Crab',
+    215: 'Pet: Gorilla', 217: 'Pet: Raptor', 218: 'Pet: Tallstrider', 220: 'Racial: Undead',
+    226: 'Crossbows', 228: 'Wands', 229: 'Polearms', 236: 'Pet: Scorpid', 237: 'Arcane',
+    251: 'Pet: Turtle', 253: 'Assassination', 256: 'Fury', 257: 'Protection',
+    261: 'Beast Training', 267: 'Protection', 270: 'Pet Talents', 293: 'Plate Mail',
+    313: 'Language: Gnomish', 315: 'Language: Troll', 333: 'Enchanting', 354: 'Demonology',
+    355: 'Affliction', 356: 'Fishing', 373: 'Enhancement', 374: 'Restoration',
+    375: 'Elemental Combat', 393: 'Skinning', 413: 'Mail', 414: 'Leather', 415: 'Cloth',
+    433: 'Shield', 473: 'Fist Weapons', 533: 'Riding: Raptor', 553: 'Riding: Mechanostrider',
+    554: 'Riding: Undead Horse', 573: 'Restoration', 574: 'Balance', 593: 'Destruction',
+    594: 'Holy', 613: 'Discipline', 633: 'Lockpicking', 653: 'Pet: Bat', 654: 'Pet: Hyena',
+    655: 'Pet: Owl', 656: 'Pet: Wind Serpent', 673: 'Language: Gutterspeak',
+    713: 'Riding: Kodo', 733: 'Racial: Troll', 753: 'Racial: Gnome', 754: 'Racial: Human',
+    755: 'Jewelcrafting', 758: 'Pet Event (RC)', 762: 'Riding'
+  };
+
+  // Combat grouping for the Skills tab: weapons + defense first.
+  const COMBAT_SKILL_IDS = [43, 44, 45, 46, 54, 55, 136, 160, 162, 172, 173, 176, 226, 228, 229, 473, 95];
+  const ARMOR_SKILL_IDS = [293, 413, 414, 415, 433];
 
   const ISSUE_TYPES = ['STUCK', 'DEAD_LONG', 'ACTION_LOOP', 'UNREACHABLE_TARGET'];
   const ISSUE_LABELS = { STUCK: 'Stuck', DEAD_LONG: 'Dead long', ACTION_LOOP: 'Action loop', UNREACHABLE_TARGET: 'Unreachable' };
@@ -141,6 +215,19 @@
     botSearch: document.getElementById('bot-search'),
     rosterTable: document.getElementById('roster-table-body'),
     rosterCount: document.getElementById('roster-count'),
+    // Armory
+    armoryBack: document.getElementById('armory-back'),
+    armoryMapBtn: document.getElementById('armory-map-btn'),
+    armoryOnline: document.getElementById('armory-online'),
+    armoryName: document.getElementById('armory-name'),
+    armorySubtitle: document.getElementById('armory-subtitle'),
+    armoryMoney: document.getElementById('armory-money'),
+    armoryPlayed: document.getElementById('armory-played'),
+    armoryError: document.getElementById('armory-error'),
+    armoryBody: document.getElementById('armory-body'),
+    gearLeft: document.getElementById('armory-gear-left'),
+    gearRight: document.getElementById('armory-gear-right'),
+    gearWeapons: document.getElementById('armory-gear-weapons'),
 
     // Incidents
     anomaliesTable: document.getElementById('anomalies-table-body'),
@@ -1065,7 +1152,10 @@
             <span class="mono">${esc(fmtDuration(i.duration_sec))}</span>
           </div>`).join('')}
       </div>` : ''}
+      <button class="btn" id="drawer-armory-btn" style="margin-top: 14px; width: 100%; justify-content: center;">View Armory</button>
     `;
+    const armoryBtn = document.getElementById('drawer-armory-btn');
+    if (armoryBtn) armoryBtn.addEventListener('click', () => openArmory(b.guid));
   }
 
   if (el.closeDrawer) {
@@ -1135,7 +1225,7 @@
     updateRosterSortIndicators();
 
     if (filtered.length === 0) {
-      el.rosterTable.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">No matching bots.</td></tr>`;
+      el.rosterTable.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No matching bots.</td></tr>`;
       return;
     }
 
@@ -1166,8 +1256,11 @@
         <td><span class="badge ${b.state === 'combat' ? 'badge-error' : b.state === 'dead' ? 'badge-warn' : 'badge-info'}">${esc(b.state || 'idle')}</span></td>
         <td style="color: #f85149;">${esc(b.target || '-')}</td>
         <td class="mono" style="font-size: 0.8rem;">${esc(getZoneName(b.zone))}</td>
+        <td><button class="btn armory-inspect" data-guid="${esc(b.guid)}" style="padding: 4px 10px; font-size: 0.75rem;">Inspect</button></td>
       `;
       tr.querySelector('td[data-guid]').addEventListener('click', () => focusBot(b.guid));
+      const inspectBtn = tr.querySelector('.armory-inspect');
+      if (inspectBtn) inspectBtn.addEventListener('click', (e) => { e.stopPropagation(); openArmory(b.guid); });
       el.rosterTable.appendChild(tr);
     });
   }
@@ -1218,7 +1311,325 @@
     });
   });
 
-  // Incidents
+  // ---- Bot Armory -------------------------------------------------------
+  // Text-first inspector over the read-only armory API. No image assets:
+  // quality shows as text/border color (core ItemQualityColors); icon names
+  // from item_display_info/spellicon surface as tooltip text only.
+
+  function classNameById(id) {
+    return CLASS_NAMES[id] || (id ? `Class ${id}` : 'Unknown');
+  }
+
+  function raceNameById(id) {
+    return RACE_NAMES[id] || (id ? `Race ${id}` : 'Unknown');
+  }
+
+  function skillNameById(id) {
+    return SKILL_NAMES[id] || `Skill ${id}`;
+  }
+
+  function qualityName(q) {
+    return QUALITY_NAMES[q] || `Quality ${q}`;
+  }
+
+  function spellSchoolName(s) {
+    if (s === null || s === undefined || s === 0) return 'Physical';
+    return SPELL_SCHOOLS[s] || `School ${s}`;
+  }
+
+  function formatMoney(copper) {
+    copper = Math.max(0, parseInt(copper, 10) || 0);
+    const g = Math.floor(copper / 10000);
+    const s = Math.floor((copper % 10000) / 100);
+    const c = copper % 100;
+    return `<span class="money-gold">${g}g</span> <span class="money-silver">${s}s</span> <span class="money-copper">${c}c</span>`;
+  }
+
+  function formatPlayed(sec) {
+    sec = Math.max(0, parseInt(sec, 10) || 0);
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h played`;
+    if (h > 0) return `${h}h ${m}m played`;
+    return `${m}m played`;
+  }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined || n === '') return '–';
+    const f = parseFloat(n);
+    if (isNaN(f)) return String(n);
+    return Number.isInteger(f) ? f.toLocaleString('en-US') : f.toFixed(2);
+  }
+
+  function openArmory(guid) {
+    state.armoryGuid = guid;
+    state.armoryProfile = null;
+    switchTab('armory');
+    if (el.armoryError) el.armoryError.style.display = 'none';
+    if (el.armoryBody) el.armoryBody.style.display = 'none';
+    if (el.armoryName) { el.armoryName.textContent = 'Loading…'; el.armoryName.style.color = '#fff'; }
+    if (el.armorySubtitle) el.armorySubtitle.textContent = '';
+    if (el.armoryMoney) el.armoryMoney.innerHTML = '';
+    if (el.armoryPlayed) el.armoryPlayed.textContent = '';
+    fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(p => {
+        if (state.armoryGuid !== guid) return;
+        state.armoryProfile = p;
+        renderArmory();
+      })
+      .catch(() => {
+        if (state.armoryGuid !== guid) return;
+        if (el.armoryName) el.armoryName.textContent = 'Bot not found';
+        if (el.armoryError) {
+          el.armoryError.style.display = 'block';
+          el.armoryError.textContent = 'Could not load this bot profile. The character may have been deleted, or the character database is unreachable.';
+        }
+      });
+  }
+
+  function closeArmory() {
+    switchTab('roster');
+  }
+
+  function armoryFocusMap() {
+    const guid = state.armoryGuid;
+    if (guid === null || guid === undefined) return;
+    const live = state.bots.some(b => b.guid === guid);
+    if (live) focusBot(guid);
+    else switchTab('map');
+  }
+
+  function renderArmory() {
+    const p = state.armoryProfile;
+    if (!p || !p.summary) return;
+    const s = p.summary;
+    const clsName = classNameById(s.class);
+    if (el.armoryName) {
+      el.armoryName.textContent = s.name;
+      el.armoryName.style.color = classColor(clsName);
+    }
+    if (el.armorySubtitle) el.armorySubtitle.textContent = `Level ${s.level} ${raceNameById(s.race)} ${clsName}`;
+    if (el.armoryMoney) el.armoryMoney.innerHTML = formatMoney(s.money);
+    if (el.armoryPlayed) el.armoryPlayed.textContent = formatPlayed(s.totaltime);
+    if (el.armoryOnline) {
+      const on = !!s.online;
+      el.armoryOnline.textContent = on ? 'Online' : 'Offline';
+      el.armoryOnline.className = `badge ${on ? 'badge-success' : 'badge-warn'}`;
+    }
+    if (el.armoryError) el.armoryError.style.display = 'none';
+    if (el.armoryBody) el.armoryBody.style.display = 'block';
+    renderArmoryGear(p);
+    renderArmoryPanel(p, state.armorySubtab || 'stats');
+  }
+
+  function gearBySlot(p) {
+    const m = {};
+    (p.equipment || []).forEach(e => { m[e.slot] = e; });
+    return m;
+  }
+
+  function gearRow(slot, item) {
+    const slotName = EQUIP_SLOT_NAMES[slot] || `Slot ${slot}`;
+    if (!item) {
+      return `<div class="gear-row gear-empty"><span class="gear-slot">${esc(slotName)}</span><span class="gear-name">Empty</span></div>`;
+    }
+    const count = item.count > 1 ? ` <span class="gear-ilvl">×${esc(item.count)}</span>` : '';
+    const ilvl = item.item_level ? `<span class="gear-ilvl">iLvl ${esc(item.item_level)}</span>` : '';
+    const tip = `${item.name} — ${qualityName(item.quality)}${item.icon ? ` · ${item.icon}` : ''}`;
+    return `<div class="gear-row quality-border-${esc(item.quality)}" title="${esc(tip)}"><span class="gear-slot">${esc(slotName)}</span><span class="gear-name quality-text-${esc(item.quality)}">${esc(item.name)}${count}</span>${ilvl}<span class="gear-ilvl mono">#${esc(item.item_template)}</span></div>`;
+  }
+
+  function renderArmoryGear(p) {
+    const m = gearBySlot(p);
+    if (el.gearLeft) el.gearLeft.innerHTML = GEAR_LEFT.map(s => gearRow(s, m[s])).join('');
+    if (el.gearRight) el.gearRight.innerHTML = GEAR_RIGHT.map(s => gearRow(s, m[s])).join('');
+    if (el.gearWeapons) el.gearWeapons.innerHTML = GEAR_WEAPONS.map(s => gearRow(s, m[s])).join('');
+  }
+
+  function renderArmoryPanel(p, tab) {
+    state.armorySubtab = tab;
+    document.querySelectorAll('.armory-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
+    ['stats', 'bags', 'talents', 'spells', 'skills'].forEach(t => {
+      const panel = document.getElementById(`armory-content-${t}`);
+      if (panel) panel.style.display = t === tab ? 'block' : 'none';
+    });
+    if (tab === 'bags') renderArmoryBags(p);
+    else if (tab === 'talents') renderArmoryTalents(p);
+    else if (tab === 'spells') renderArmorySpells(p);
+    else if (tab === 'skills') renderArmorySkills(p);
+    else renderArmoryStats(p);
+  }
+
+  function statRow(k, v) {
+    return `<tr><td style="color: var(--text-muted);">${esc(k)}</td><td class="mono" style="text-align: right;">${esc(v)}</td></tr>`;
+  }
+
+  function statTable(title, rows) {
+    if (!rows.length) return '';
+    return `<div><div class="section-label" style="margin: 12px 0 6px;">${esc(title)}</div><table class="data-table"><tbody>${rows.join('')}</tbody></table></div>`;
+  }
+
+  function renderArmoryStats(p) {
+    const host = document.getElementById('armory-content-stats');
+    if (!host) return;
+    const st = p.stats || {};
+    const powers = [];
+    [['Mana', st.maxpower1], ['Rage', st.maxpower2], ['Focus', st.maxpower3], ['Energy', st.maxpower4], ['Happiness', st.maxpower5]]
+      .forEach(([k, v]) => { if (v) powers.push(statRow(k, fmtNum(v))); });
+    const left =
+      statTable('Vitals', [statRow('Health', fmtNum(st.maxhealth))].concat(powers)) +
+      statTable('Attributes', [
+        statRow('Strength', fmtNum(st.strength)), statRow('Agility', fmtNum(st.agility)),
+        statRow('Stamina', fmtNum(st.stamina)), statRow('Intellect', fmtNum(st.intellect)),
+        statRow('Spirit', fmtNum(st.spirit)), statRow('Armor', fmtNum(st.armor))
+      ]) +
+      statTable('Resistances', [
+        statRow('Holy', fmtNum(st.res_holy)), statRow('Fire', fmtNum(st.res_fire)),
+        statRow('Nature', fmtNum(st.res_nature)), statRow('Frost', fmtNum(st.res_frost)),
+        statRow('Shadow', fmtNum(st.res_shadow)), statRow('Arcane', fmtNum(st.res_arcane))
+      ]);
+    const right =
+      statTable('Melee & Ranged', [
+        statRow('Attack Power', fmtNum(st.attack_power)),
+        statRow('Ranged Attack Power', fmtNum(st.ranged_attack_power)),
+        statRow('Melee Damage', st.melee_damage || '–'),
+        statRow('Ranged Damage', st.ranged_damage || '–'),
+        statRow('Melee Speed', fmtNum(st.melee_speed)),
+        statRow('Ranged Speed', fmtNum(st.ranged_speed)),
+        statRow('Melee Crit', `${fmtNum(st.melee_crit_pct)}%`),
+        statRow('Ranged Crit', `${fmtNum(st.ranged_crit_pct)}%`),
+        statRow('Melee Hit', `${fmtNum(st.melee_hit)}%`),
+        statRow('Ranged Hit', `${fmtNum(st.ranged_hit)}%`)
+      ]) +
+      statTable('Defense & Spell', [
+        statRow('Block', `${fmtNum(st.block_pct)}%`),
+        statRow('Dodge', `${fmtNum(st.dodge_pct)}%`),
+        statRow('Parry', `${fmtNum(st.parry_pct)}%`),
+        statRow('Spell Hit', `${fmtNum(st.spell_hit)}%`),
+        statRow('Cast Speed', fmtNum(st.cast_speed))
+      ]);
+    host.innerHTML = `<div class="armory-stat-groups"><div>${left}</div><div>${right}</div></div>`;
+  }
+
+  function bagItemRow(it) {
+    return `<tr><td class="mono">${esc(it.slot)}</td><td class="quality-text-${esc(it.quality)}" title="${esc(it.icon || qualityName(it.quality))}">${esc(it.name)}</td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td>${esc(qualityName(it.quality))}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
+  }
+
+  function bagTable(items) {
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Slot</th><th>Item</th><th>Count</th><th>Quality</th><th>Entry</th></tr></thead><tbody>${items.map(bagItemRow).join('')}</tbody></table></div>`;
+  }
+
+  function renderArmoryBags(p) {
+    const host = document.getElementById('armory-content-bags');
+    if (!host) return;
+    const bp = p.backpack || [];
+    let html = `<div class="bag-block"><div class="bag-head"><strong>Backpack</strong><span style="color: var(--text-muted);">${bp.length}/16</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.round((bp.length / 16) * 100)}%; background: var(--accent-blue-bright);"></div></div></div>`;
+    html += bp.length ? bagTable(bp) : `<div class="empty-hint">Backpack is empty.</div>`;
+    html += `</div>`;
+    (p.bags || []).forEach(b => {
+      const cap = b.container_slots || b.items.length;
+      const pct = cap ? Math.min(100, Math.round((b.items.length / cap) * 100)) : 0;
+      html += `<div class="bag-block"><div class="bag-head"><strong class="quality-text-${esc(b.quality)}">${esc(b.name)}</strong><span style="color: var(--text-muted);">${b.items.length}/${cap || '?'} · slot ${esc(b.slot)}</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${pct}%; background: var(--accent-blue-bright);"></div></div></div>`;
+      html += b.items.length ? bagTable(b.items) : `<div class="empty-hint">Empty.</div>`;
+      html += `</div>`;
+    });
+    if (!(p.bags || []).length) html += `<div class="empty-hint">No equipped bags.</div>`;
+    host.innerHTML = html;
+  }
+
+  function renderArmoryTalents(p) {
+    const host = document.getElementById('armory-content-talents');
+    if (!host) return;
+    const trees = p.talents || [];
+    if (!trees.length) {
+      host.innerHTML = `<div class="empty-hint">No talent data. The core reads talent trees from the operator's own DBC files at startup; this server has no talent mirror tables populated, so known spells cannot be resolved into ranks.</div>`;
+      return;
+    }
+    host.innerHTML = `<div class="armory-trees">${trees.map(t => {
+      const nodes = (t.talents || []).map(n => {
+        const cls = n.rank > 0 ? (n.rank >= n.max_rank ? 'learned' : 'partial') : 'unlearned';
+        const tip = `Talent ${n.talent_id} · row ${n.row} col ${n.col}${n.spell_id ? ` · spell #${n.spell_id}` : ''}`;
+        return `<div class="talent-node ${cls}" title="${esc(tip)}"><div class="talent-rank">${esc(n.rank)}/${esc(n.max_rank)}</div><div class="talent-name">${esc(n.name || `Talent ${n.talent_id}`)}</div></div>`;
+      }).join('');
+      return `<div class="talent-tree"><div class="talent-tree-head"><span>${esc(t.name)}</span><span class="badge badge-info">${esc(t.points)} pts</span></div><div class="talent-grid">${nodes || '<div class="empty-hint">—</div>'}</div></div>`;
+    }).join('')}</div>`;
+  }
+
+  function renderArmorySpells(p) {
+    const host = document.getElementById('armory-content-spells');
+    if (!host) return;
+    const q = (state.armorySpellFilter || '').toLowerCase().trim();
+    const all = p.spells || [];
+    const filtered = all.filter(sp => {
+      if (!q) return true;
+      return (sp.name || '').toLowerCase().includes(q) || String(sp.spell).includes(q);
+    });
+    let html = `<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;"><span style="color: var(--text-muted); font-size: 0.8rem;">${filtered.length}/${all.length} spells</span><input id="armory-spell-filter" class="btn" style="padding: 6px 12px; min-width: 200px;" placeholder="Filter spells..." value="${esc(state.armorySpellFilter || '')}"></div>`;
+    if (!filtered.length) {
+      html += `<div class="empty-hint">No spells match.</div>`;
+    } else {
+      const rows = filtered.slice(0, 500).map(sp => {
+        const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
+        return `<tr><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td>${esc(sp.name || `Spell ${sp.spell}`)}${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}</td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
+      }).join('');
+      html += `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      if (filtered.length > 500) html += `<div class="empty-hint">Showing first 500 of ${filtered.length} matches.</div>`;
+    }
+    host.innerHTML = html;
+    const input = document.getElementById('armory-spell-filter');
+    if (input) {
+      input.addEventListener('input', e => {
+        state.armorySpellFilter = e.target.value;
+        const pos = e.target.selectionStart;
+        renderArmorySpells(p);
+        const next = document.getElementById('armory-spell-filter');
+        if (next) { next.focus(); try { next.setSelectionRange(pos, pos); } catch (err) {} }
+      });
+    }
+  }
+
+  function skillTable(list) {
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Skill</th><th>Value</th><th>Max</th><th style="width: 40%;">Progress</th></tr></thead><tbody>${list.map(sk => {
+      const pct = sk.max ? Math.min(100, Math.round((sk.value / sk.max) * 100)) : 0;
+      const color = sk.max && sk.value >= sk.max ? 'var(--accent-green-bright)' : (pct >= 70 ? 'var(--accent-blue-bright)' : 'var(--accent-yellow)');
+      return `<tr><td>${esc(skillNameById(sk.skill))} <span class="mono" style="color: var(--text-dim); font-size: 0.7rem;">#${esc(sk.skill)}</span></td><td class="mono">${esc(sk.value)}</td><td class="mono" style="color: var(--text-muted);">${esc(sk.max)}</td><td><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${pct}%; background: ${color};"></div></div></td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  }
+
+  function renderArmorySkills(p) {
+    const host = document.getElementById('armory-content-skills');
+    if (!host) return;
+    const skills = p.skills || [];
+    if (!skills.length) {
+      host.innerHTML = `<div class="empty-hint">No skill rows recorded for this bot.</div>`;
+      return;
+    }
+    const groupOf = id => COMBAT_SKILL_IDS.includes(id) ? 0 : (ARMOR_SKILL_IDS.includes(id) ? 1 : 2);
+    const sorted = [...skills].sort((a, b) => groupOf(a.skill) - groupOf(b.skill) || skillNameById(a.skill).localeCompare(skillNameById(b.skill)));
+    const groups = [[], [], []];
+    sorted.forEach(sk => groups[groupOf(sk.skill)].push(sk));
+    const titles = ['Weapons & Defense', 'Armor Proficiencies', 'Professions & Other'];
+    host.innerHTML = groups.map((g, i) => g.length ? `<div class="section-label" style="margin: 14px 0 8px;">${titles[i]}</div>${skillTable(g)}` : '').join('') || `<div class="empty-hint">No skills.</div>`;
+  }
+
+  function initArmory() {
+    if (el.armoryBack) el.armoryBack.addEventListener('click', closeArmory);
+    if (el.armoryMapBtn) el.armoryMapBtn.addEventListener('click', armoryFocusMap);
+    document.querySelectorAll('.armory-subtab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (state.armoryProfile) renderArmoryPanel(state.armoryProfile, btn.dataset.subtab);
+        else {
+          state.armorySubtab = btn.dataset.subtab;
+          document.querySelectorAll('.armory-subtab').forEach(b => b.classList.toggle('active', b === btn));
+        }
+      });
+    });
+  }
   function fetchAnomalies() {
     fetch('/api/v1/anomalies')
       .then(r => r.json())
@@ -1655,9 +2066,9 @@
 
   // Init
   initZoneSelector();
+  initArmory();
   fetchBots();
   fetchAnomalies();
   fetchIssues();
   initWebSocket();
-
 })();
