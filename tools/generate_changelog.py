@@ -163,28 +163,29 @@ def update_or_prepend_changelog(date_str, summary_text):
         with open(CHANGELOG_PATH, "r", encoding="utf-8") as f:
             content = f.read()
 
-        # Check if an entry for this date already exists
-        pattern = rf"(##\s+{re.escape(date_str)}\s*\n)(.*?)(?=\n##\s+|\n---|\Z)"
+        # Check if an entry for this date already exists (up to next ## section or EOF)
+        pattern = rf"(##\s+{re.escape(date_str)}\s*\n)(.*?)(?=\n##\s+|\Z)"
         match = re.search(pattern, content, re.DOTALL)
         if match:
             existing_section = match.group(2).strip()
-            merged_section = f"{existing_section}\n\n{summary_text}\n"
-            new_content = content[:match.start(2)] + merged_section + content[match.end(2):]
-            with open(CHANGELOG_PATH, "w", encoding="utf-8") as f:
-                f.write(new_content.strip() + "\n")
-            print(f"Appended changes to existing section for {date_str} in {CHANGELOG_PATH}")
+            if summary_text.strip() not in existing_section:
+                merged_section = f"{existing_section}\n\n{summary_text}\n"
+                new_content = content[:match.start(2)] + merged_section + content[match.end(2):]
+                with open(CHANGELOG_PATH, "w", encoding="utf-8") as f:
+                    f.write(new_content.strip() + "\n")
+                print(f"Appended changes to existing section for {date_str} in {CHANGELOG_PATH}")
+            else:
+                print(f"Summary already present in section for {date_str} in {CHANGELOG_PATH}")
             return
 
-        # Prepend new section
+        # Prepend new section before the first existing '## ' entry
         header = f"## {date_str}\n\n{summary_text}\n\n---\n\n"
-        if content.startswith("# Changelog"):
-            parts = content.split("\n\n", 2)
-            if len(parts) >= 2 and parts[1].startswith("All notable"):
-                new_content = parts[0] + "\n\n" + parts[1] + "\n\n" + header + (parts[2] if len(parts) > 2 else "")
-            else:
-                new_content = parts[0] + "\n\n" + header + (parts[1] if len(parts) > 1 else "")
+        first_section = re.search(r"^##\s+", content, re.MULTILINE)
+        if first_section:
+            idx = first_section.start()
+            new_content = content[:idx] + header + content[idx:]
         else:
-            new_content = f"# Changelog\n\nAll notable changes to TortoiseBots are documented here.\n\n{header}{content}"
+            new_content = content.rstrip() + "\n\n" + header
     else:
         new_content = f"# Changelog\n\nAll notable changes to TortoiseBots are documented here.\n\n## {date_str}\n\n{summary_text}\n"
 
