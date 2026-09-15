@@ -14,6 +14,18 @@ using namespace MaNGOS;
 
 std::list<ObjectGuid> PossibleTargetsValue::Calculate()
 {
+    // Phase 2 guarded scan cadence (Issue #175): the Cell grid visit below is
+    // the hottest world-thread cost (~60% of tick). True idle (taxi/rested
+    // sanctuary) returns empty immediately; roaming bots reuse the cached
+    // list at a staggered 1s cadence. Combat/death/damage/grace/human guards
+    // inside ShouldReuseSpatialScan() force full 100ms rate. Throttling only
+    // delays *discovery* of new grind candidates: attackers/threat, current
+    // targets and explicit commands bypass this value entirely.
+    if (ai->IsSpatialScanIdle())
+        return std::list<ObjectGuid>();
+    if (ai->ShouldReuseSpatialScan())
+        return LazyGet();
+
     float rangeCheck = range;
     bool shouldIgnoreValidate = false;
     if (!qualifier.empty())
@@ -35,6 +47,8 @@ std::list<ObjectGuid> PossibleTargetsValue::Calculate()
         }
     }
 
+    Set(results);
+    ai->NoteSpatialScan();
     return results;
 }
 

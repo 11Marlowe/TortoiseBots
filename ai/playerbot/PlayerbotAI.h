@@ -687,6 +687,17 @@ public:
     bool IsPlayerFriend() { return isPlayerFriend; }
     bool HasPlayerRelation();
 
+    // Phase 2 guarded spatial-scan cadence (Issue #175): the Cell grid scan
+    // behind "possible targets" is the hottest world-thread cost. Outside
+    // combat each bot rescans at most once per second, with a per-bot phase
+    // so 1000 bots never scan on the same tick. Whole-bot decisions are never
+    // frozen: combat, death, damage, revive/teleport grace, nearby humans and
+    // a 1.5s staleness cap all force full rate.
+    static constexpr uint32 kReviveTeleportGraceMs = 15000;
+    bool IsSpatialScanIdle() const;
+    bool ShouldReuseSpatialScan();
+    void NoteSpatialScan() { m_lastSpatialScanMs = WorldTimer::getMSTime(); }
+
     bool IsStateActive(BotState state) const;
     time_t GetCombatStartTime() const;
 
@@ -791,7 +802,12 @@ protected:
     bool fallAfterJump;
     // Issue #84 (P2): bumped by HandleTeleportAck, consumed by engines.
     uint64_t transitionGeneration = 0;
-    uint32 faceTargetUpdateDelay;
+    uint32 faceTargetUpdateDelay = 0;
+    // Phase 2 spatial-scan cadence (ms clock + grace windows).
+    uint32 m_lastSpatialScanMs = 0;
+    uint32 m_reviveGraceUntilMs = 0;
+    uint32 m_teleportGraceUntilMs = 0;
+    uint32 m_lastMana = 0;
     bool isPlayerFriend = false;
     bool isMovingToTransport = false;
     bool shouldLogOut = false;

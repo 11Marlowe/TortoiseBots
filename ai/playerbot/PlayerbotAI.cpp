@@ -1270,7 +1270,11 @@ void PlayerbotAI::OnDeath()
 void PlayerbotAI::OnResurrected()
 {
     if (sServerFacade.IsAlive(bot))
+    {
         deathHandled_ = false; // alive again: the next death is a new one
+        // Phase 2: 15s full-rate scan grace after revive (spawn-camp guard).
+        m_reviveGraceUntilMs = WorldTimer::getMSTime() + PlayerbotAI::kReviveTeleportGraceMs;
+    }
 
     if (IsStateActive(BotState::BOT_STATE_DEAD) && sServerFacade.IsAlive(bot))
     {
@@ -1405,6 +1409,8 @@ void PlayerbotAI::HandleTeleportAck()
     // flows through (UpdateBots skips AI updates this tick). Engines compare
     // this counter to drain stale queues on arrival, however short the hop.
     ++transitionGeneration;
+    // Phase 2: 15s full-rate scan grace after any teleport (spawn-camp guard).
+    m_teleportGraceUntilMs = WorldTimer::getMSTime() + PlayerbotAI::kReviveTeleportGraceMs;
     if (IsRealPlayer() && bot->IsBeingTeleportedFar())
         return;
 
@@ -7964,6 +7970,95 @@ bool PlayerbotAI::IsInRealGuild()
         return false;
 
     return !sPlayerbotAIConfig.IsInRandomAccountList(leaderAccount);
+}
+
+// Phase 2 guarded spatial-scan cadence. All guards are O(1) field reads or a
+// cheap squared-distance walk over the handful of real network players; the
+// expensive Cell::VisitAllObjects grid scan they gate is ~60% of tick CPU.
+// True idle (taxi flight, rested sanctuary) skips the scan entirely by
+// returning an empty candidate set from PossibleTargetsValue::Calculate.
+namespace
+{
+constexpr uint32 kGrindScanIntervalMs = 1000;
+constexpr uint32 kGrindScanMaxStaleMs = 1500;
+constexpr float kHumanWakeDistanceYd = 50.0f;
+bool HasNetworkHumanNearby(Player* bot)
+{
+    if (!bot || !bot->IsInWorld())
+        return false;
+    // Cheap O(humans) squared-distance walk; the grid scan it gates is O(cells).
+    for (auto const& entry : sWorld.GetAllSessions())
+    {
+        WorldSession* session = entry.second;
+        if (!session || !session->HasNetworkTransport())
+            continue;
+        Player* player = session->GetPlayer();
+        if (!player || player == bot || !player->IsInWorld())
+            continue;
+        if (player->GetMapId() != bot->GetMapId())
+            continue;
+        float dist2d = player->GetDistance2d(bot);
+        if ((!player->IsGameMaster() || player->IsGMVisible()) && dist2d <= kHumanWakeDistanceYd)
+            return true;
+    }
+    return false;
+}
+} // namespace
+
+bool PlayerbotAI::IsSpatialScanIdle() const
+{
+    if (!bot)
+        return true;
+    if (bot->IsTaxiFlying())
+        return true;
+    // Rested in a protected zone (inn/capital): stationary regen, no threats.
+    // Sanctuary flag covers city/inn rest areas; RESTING without movement
+    // covers drinking/eating recovery elsewhere safe.
+    if (bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING) &&
+        (bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_SANCTUARY) || !sServerFacade.isMoving(bot)))
+        return true;
+    return false;
+}
+
+bool PlayerbotAI::ShouldReuseSpatialScan()
+{
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported())
+        return true;
+    // Dead bots (corpse run, release, revive) must never be throttled.
+    if (!bot->IsAlive())
+        return false;
+    // Combat runs at full 100ms rate.
+    if (sServerFacade.IsInCombat(bot))
+        return false;
+    // Sudden damage / mana spend wakes the scan immediately. Scalar field
+    // reads only; the grid scan they gate is the ~60% tick cost.
+    uint32 hp = bot->GetHealth();
+    uint32 mana = bot->GetPower(bot->GetPowerType());
+    float hpPct = bot->GetMaxHealth() ? (hp * 100.0f / bot->GetMaxHealth()) : 100.0f;
+    if (hpPct < 80.0f || (m_lastMana && mana < m_lastMana))
+    {
+        m_lastMana = mana;
+        return false;
+    }
+    m_lastMana = mana;
+    uint32 nowMs = WorldTimer::getMSTime();
+    // Post-revive / post-teleport grace: full rate for 15s. Future timestamps
+    // mean grace is active (wraparound-safe: diff grace->now is huge).
+    if (WorldTimer::getMSTimeDiff(m_reviveGraceUntilMs, nowMs) > (UINT32_MAX / 2) ||
+        WorldTimer::getMSTimeDiff(m_teleportGraceUntilMs, nowMs) > (UINT32_MAX / 2))
+        return false;
+    // Human in sight: full rate.
+    if (HasNetworkHumanNearby(bot))
+        return false;
+    // Max-stale fallback: never older than 1.5s. First scan always runs.
+    uint32 staleMs = WorldTimer::getMSTimeDiff(m_lastSpatialScanMs, nowMs);
+    if (!m_lastSpatialScanMs || staleMs >= kGrindScanMaxStaleMs)
+        return false;
+    // Staggered 1s cadence: per-bot phase from the GUID spreads 1000 bots
+    // across the second so they never all scan on the same tick boundary.
+    uint32 phaseMs = bot->GetGUIDLow() % kGrindScanIntervalMs;
+    return staleMs < kGrindScanIntervalMs &&
+        ((nowMs + phaseMs) % kGrindScanIntervalMs) >= 100;
 }
 
 bool PlayerbotAI::HasPlayerRelation()
