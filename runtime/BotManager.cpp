@@ -198,24 +198,33 @@ namespace {
 // random masterless ungrouped headless bot standing in a zone its level
 // cannot survive (same +5 tolerance the travel and quest gates use).
 // Unknown area levels fail closed. Pure predicates, no side effects.
-bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut)
+// `why` (optional) receives the reason for a "no", for the post-revive diagnostic line.
+bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why = nullptr)
 {
     areaLevelOut = 0;
+    auto no = [&](std::string const& reason) { if (why) *why = reason; return false; };
     if (!sPlayerbotAIConfig.relocateHopelessDeaths)
-        return false;
+        return no("relocation disabled");
     if (!bot || !bot->GetSession() || !bot->GetSession()->IsHeadless())
-        return false;
+        return no("no headless session");
     if (!bot->IsInWorld() || bot->IsBeingTeleported() || bot->InBattleGround())
-        return false;
-    if (bot->GetGroup())
-        return false;
+        return no(!bot->IsInWorld() ? "not in world" : bot->IsBeingTeleported() ? "being teleported" : "in a battleground");
+    // A group with a real player in it is that player's business. A group of bots only is
+    // not: the diagnostic showed 21 of 31 post-revive checks refused with "in a group" while
+    // the bots kept dying in the same spot (bots group up among themselves all the time).
+    // The misplaced bot leaves the group when it is moved (TeleportMisplacedBot).
+    if (Group* group = bot->GetGroup())
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+            if (Player* member = ref->getSource())
+                if (member != bot && member->GetSession() && !member->GetSession()->IsHeadless())
+                    return no("in a group with a player");
     BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
     if (!record || !record->random || record->lifecycle != BotLifecycle::InWorld)
-        return false;
+        return no(!record ? "no bot record" : !record->random ? "not a random bot" : "record not in world");
     if (!record->masterGuid.IsEmpty())
-        return false;
+        return no("has a master");
     if (sRandomBotFacade.IsPinnedBot(bot->GetGUIDLow()))
-        return false;
+        return no("pinned bot");
 
     // Isolated custom starting zones (Alah'Thalas 2040, Thalassian Highlands 5225, Blackstone Island 5536)
     // lack walking paths/transports to the mainland; random bots here are always hopelessly misplaced.
@@ -229,9 +238,9 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut)
     auto& travelMgr = MaNGOS::Singleton<ai::TravelMgr>::Instance();
     int32 areaLevel = 0;
     if (!travelMgr.TryGetValidatedAreaLevel(bot->GetAreaId(), areaLevel) || areaLevel <= 0)
-        return false;
+        return no("area " + std::to_string(bot->GetAreaId()) + " has no validated level");
     if (areaLevel <= (int32)bot->GetLevel() + 5)
-        return false;
+        return no("area " + std::to_string(bot->GetAreaId()) + " level " + std::to_string(areaLevel) + " fits level " + std::to_string(bot->GetLevel()) + "+5");
     areaLevelOut = areaLevel;
     return true;
 }
@@ -248,6 +257,13 @@ constexpr time_t STRANDED_GRACE_SEC = 15 * 60;
 // count on success so the fresh start is not mistaken for a loop.
 bool TeleportMisplacedBot(::Player* bot, int32 areaLevel, const std::string& cause)
 {
+    // Leave a bot-only group first: the others stay where they are, the moved bot must not
+    // be pulled back or keep them as "attackers" context from another zone.
+    if (bot->GetGroup() && bot->GetSession())
+    {
+        WorldPacket leave;
+        bot->GetSession()->HandleGroupDisbandOpcode(leave);
+    }
     if (bot->GetLevel() < 10)
     {
         // Goblin and High Elf bots are spawned in Durotar/Elwynn with their homebind
@@ -292,19 +308,32 @@ bool TeleportMisplacedBot(::Player* bot, int32 areaLevel, const std::string& cau
 
 bool BotManager::RelocateHopelessBot(::Player* bot)
 {
-    int32 areaLevel = 0;
-    if (!MisplacedBotEligible(bot, areaLevel))
-        return false;
+    // Diagnostic (15.9.): one line per revive saying why a bot was NOT relocated - a level-8
+    // bot died fifteen times to level-20 spiders in Hillsbrad without a single relocation
+    // although the zone table and the rule said it should have been.
     ::PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    auto* deathCountValue = (ai && ai->GetAiObjectContext()) ? ai->GetAiObjectContext()->GetValue<uint32>("death count") : nullptr;
+    uint32 deathCount = deathCountValue ? deathCountValue->Get() : 0;
+    int32 areaLevel = 0;
+    std::string why;
+    if (!MisplacedBotEligible(bot, areaLevel, &why))
+    {
+        if (bot && deathCount)
+            TB_LOG_BASIC("TortoiseBots: hopeless check %s level %u zone %u area %u deaths %u: not eligible - %s",
+                bot->GetName(), bot->GetLevel(), bot->GetZoneId(), bot->GetAreaId(), deathCount, why.c_str());
+        return false;
+    }
     if (!ai || !ai->GetAiObjectContext())
         return false;
-    auto* deathCountValue = ai->GetAiObjectContext()->GetValue<uint32>("death count");
-    uint32 deathCount = deathCountValue ? deathCountValue->Get() : 0;
     uint32 minDeaths = ((bot->GetLevel() < 10 && areaLevel >= 20) ||
         (!sPlayerbotAIConfig.allowIsolatedCustomStartingZones &&
          (PlayerbotAIConfig::IsIsolatedCustomZone(bot->GetAreaId()) || PlayerbotAIConfig::IsIsolatedCustomZone(bot->GetZoneId())))) ? 1 : 2;
     if (deathCount < minDeaths)
+    {
+        TB_LOG_BASIC("TortoiseBots: hopeless check %s level %u zone %u area %u (level %d) deaths %u: below %u, not yet",
+            bot->GetName(), bot->GetLevel(), bot->GetZoneId(), bot->GetAreaId(), areaLevel, deathCount, minDeaths);
         return false;
+    }
     return TeleportMisplacedBot(bot, areaLevel, "hopeless bot (" + std::to_string(deathCount) + " deaths)");
 }
 
