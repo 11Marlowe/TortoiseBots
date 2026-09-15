@@ -171,7 +171,8 @@ type SpellEntry struct {
 	// ($oN = over-time tick of the same effect, $aN = radius, $tN = amplitude).
 	Values []int32 `json:"values,omitempty"`
 	// Misc/Triggers resolve $aN (radius/misc) and triggered-spell links.
-	Misc     []uint32 `json:"misc,omitempty"`
+	// Misc is signed: spell_template.effectMiscValueN can be -1 (unspecified).
+	Misc     []int32  `json:"misc,omitempty"`
 	Triggers []uint32 `json:"triggers,omitempty"`
 	// DurationMs/RangeYd/CastMs resolve $d/$r/$c from the operator DBCs.
 	DurationMs int32  `json:"duration_ms,omitempty"`

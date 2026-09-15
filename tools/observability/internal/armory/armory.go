@@ -71,10 +71,10 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 
 	args := []interface{}{likeEscape(s.cfg.BotAccountPrefix) + "%"}
 	if query != "" {
-		sqlQuery += " AND c.name LIKE ? ESCAPE '\\'"
+		sqlQuery += " AND c.name LIKE ? ESCAPE '\\\\'"
 		args = append(args, "%"+likeEscape(query)+"%")
 	}
-	sqlQuery += " ORDER BY c.name LIMIT 200"
+	sqlQuery += " ORDER BY c.name LIMIT 1000"
 
 	rows, err := s.db.Query(sqlQuery, args...)
 	if err != nil {
@@ -308,7 +308,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	for spRows.Next() {
 		var se SpellEntry
 		var v1, v2, v3 int32
-		var m1, m2, m3 uint32
+		var m1, m2, m3 int32
 		var t1, t2, t3 uint32
 		var durIdx, rngIdx, castIdx uint32
 		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &se.Name, &se.Subtext, &se.Description,
@@ -317,7 +317,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 			return nil, err
 		}
 		se.Values = []int32{v1, v2, v3}
-		se.Misc = []uint32{m1, m2, m3}
+		se.Misc = []int32{m1, m2, m3}
 		se.Triggers = []uint32{t1, t2, t3}
 		se.DurationMs, se.RangeYd, se.CastMs = s.spellTiming(durIdx, rngIdx, castIdx)
 		profile.Spells = append(profile.Spells, se)

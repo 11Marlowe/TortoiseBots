@@ -325,6 +325,11 @@
     rosterTable: document.getElementById('roster-table-body'),
     rosterCount: document.getElementById('roster-count'),
     // Armory
+    armoryListView: document.getElementById('armory-list-view'),
+    armoryProfileView: document.getElementById('armory-profile-view'),
+    armoryListBody: document.getElementById('armory-list-body'),
+    armoryListSearch: document.getElementById('armory-list-search'),
+    armoryNavCount: document.getElementById('armory-nav-count'),
     armoryBack: document.getElementById('armory-back'),
     armoryMapBtn: document.getElementById('armory-map-btn'),
     armoryOnline: document.getElementById('armory-online'),
@@ -429,7 +434,8 @@
   // Sidebar Tab Navigation
   function switchTab(tab) {
     state.activeTab = tab;
-    el.menuItems.forEach(m => m.classList.toggle('active', m.dataset.tab === tab));
+    if (tab === 'roster') renderRoster();
+    if (tab === 'armory') { armoryView(); if (state.armoryGuid === null || state.armoryGuid === undefined) renderArmoryList(); }
     el.tabViews.forEach(v => {
       v.style.display = v.id === `tab-${tab}` ? 'block' : 'none';
     });
@@ -1469,14 +1475,28 @@
   function fmtNum(n) {
     if (n === null || n === undefined || n === '') return '–';
     const f = parseFloat(n);
-    if (isNaN(f)) return String(n);
-    return Number.isInteger(f) ? f.toLocaleString('en-US') : f.toFixed(2);
+    return isNaN(f) ? '–' : (Number.isInteger(f) ? String(f) : f.toFixed(1));
+  }
+
+  // Armory has two views: the searchable all-bots list (landing) and the
+  // per-bot profile. state.armoryGuid === null means the list view.
+  function armoryView() {
+    const listMode = state.armoryGuid === null || state.armoryGuid === undefined;
+    if (el.armoryListView) el.armoryListView.style.display = listMode ? 'block' : 'none';
+    if (el.armoryProfileView) el.armoryProfileView.style.display = listMode ? 'none' : 'block';
+  }
+
+  function showArmoryList() {
+    state.armoryGuid = null;
+    state.armoryProfile = null;
+    switchTab('armory');
   }
 
   function openArmory(guid) {
     state.armoryGuid = guid;
     state.armoryProfile = null;
     switchTab('armory');
+    armoryView();
     if (el.armoryError) el.armoryError.style.display = 'none';
     if (el.armoryBody) el.armoryBody.style.display = 'none';
     if (el.armoryName) { el.armoryName.textContent = 'Loading…'; el.armoryName.style.color = '#fff'; }
@@ -1517,7 +1537,40 @@
   }
 
   function closeArmory() {
-    switchTab('roster');
+    showArmoryList();
+  }
+
+  let armoryListTimer = null;
+  function renderArmoryList() {
+    if (!el.armoryListBody) return;
+    const q = ((el.armoryListSearch && el.armoryListSearch.value) || '').trim();
+    el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading…</td></tr>`;
+    fetch(`/api/v1/armory/bots?q=${encodeURIComponent(q)}`)
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(bots => {
+        if (!Array.isArray(bots)) throw new Error('bad payload');
+        // The nav badge counts all bots, so refresh it only on unfiltered loads.
+        if (!q && el.armoryNavCount) el.armoryNavCount.textContent = String(bots.length);
+        if (!bots.length) {
+          el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No bots match “${esc(q)}”.</td></tr>`;
+          return;
+        }
+        el.armoryListBody.innerHTML = bots.map(b => `
+          <tr>
+            <td data-guid="${b.guid}" style="cursor: pointer; font-weight: 600; color: ${classColor(classNameById(b.class))};">${esc(b.name)}</td>
+            <td>${esc(classNameById(b.class))}</td>
+            <td>${esc(b.level)}</td>
+            <td>${esc(raceNameById(b.race))}</td>
+            <td class="mono">${esc(formatMoney(b.money))}</td>
+            <td><span class="badge ${b.online ? 'badge-success' : 'badge-warn'}">${b.online ? 'Online' : 'Offline'}</span></td>
+          </tr>`).join('');
+      })
+      .catch(e => {
+        el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #f85149; padding: 24px;">Failed to load bot list: ${esc(String((e && e.message) || e))}</td></tr>`;
+      });
   }
 
   function armoryFocusMap() {
@@ -1917,6 +1970,19 @@
         }
       });
     });
+    // Armory list: server-side name search, click a row to open the profile.
+    if (el.armoryListSearch) {
+      el.armoryListSearch.addEventListener('input', () => {
+        clearTimeout(armoryListTimer);
+        armoryListTimer = setTimeout(renderArmoryList, 300);
+      });
+    }
+    if (el.armoryListBody) {
+      el.armoryListBody.addEventListener('click', e => {
+        const td = e.target.closest('td[data-guid]');
+        if (td) openArmory(parseInt(td.dataset.guid, 10));
+      });
+    }
   }
   function fetchAnomalies() {
     fetch('/api/v1/anomalies')
