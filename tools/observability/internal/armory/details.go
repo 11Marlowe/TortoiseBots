@@ -66,13 +66,19 @@ func (s *Service) resolveSpellNames(d *ItemDetail) {
 		return
 	}
 	d.SpellNames = make([]string, len(d.SpellIDs))
-	q := fmt.Sprintf(`SELECT name FROM %s.spell_template WHERE entry = ?`, s.cfg.WorldDB)
 	for i, sid := range d.SpellIDs {
-		var name sql.NullString
-		if err := s.db.QueryRow(q, sid).Scan(&name); err == nil && name.Valid {
-			d.SpellNames[i] = name.String
-		}
+		d.SpellNames[i] = s.spellName(sid)
 	}
+}
+
+// spellName resolves one spell display name; empty when unknown.
+func (s *Service) spellName(spellID uint32) string {
+	var name sql.NullString
+	q := fmt.Sprintf(`SELECT name FROM %s.spell_template WHERE entry = ?`, s.cfg.WorldDB)
+	if err := s.db.QueryRow(q, spellID).Scan(&name); err == nil && name.Valid {
+		return name.String
+	}
+	return ""
 }
 
 func scanDetailTail(rows *sql.Rows, d *ItemDetail, s *Service) error {

@@ -206,10 +206,10 @@ type BotProfile struct {
 	Bags      []BagContainer `json:"bags"`
 	Backpack  []BagItem      `json:"backpack"`
 	// Buyback holds vendor-sold items still recoverable (slots 69-80).
-	Buyback []BagItem     `json:"buyback"`
+	Buyback []BagItem      `json:"buyback"`
 	Stats   CharacterStats `json:"stats"`
-	Spells  []SpellEntry  `json:"spells"`
-	Skills  []SkillEntry  `json:"skills"`
+	Spells  []SpellEntry   `json:"spells"`
+	Skills  []SkillEntry   `json:"skills"`
 	// Talents is empty when the world DB talent mirror tables carry no rows
 	// (core loads Talent/TalentTab from the operator's own DBC files at
 	// server startup, not from SQL).

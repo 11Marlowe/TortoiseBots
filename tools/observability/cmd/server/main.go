@@ -54,6 +54,7 @@ func main() {
 	dbChar := flag.String("db-char", getEnv("DB_CHAR", "tw_char"), "MariaDB / MySQL characters database name")
 	dbWorld := flag.String("db-world", getEnv("DB_WORLD", "tw_world"), "MariaDB / MySQL world database name")
 	botPrefix := flag.String("bot-account-prefix", getEnv("BOT_ACCOUNT_PREFIX", "rndbot"), "Account name prefix identifying bot characters (must match AiPlayerbot.RandomBotAccountPrefix)")
+	dbcDir := flag.String("dbc-dir", getEnv("DBC_DIR", ""), "Optional operator DBC directory (same files mangosd reads); enables talent trees when world talent mirrors are empty")
 	issueMinAgeSec := flag.Int("issue-min-age-sec", getEnvInt("ISSUE_MIN_AGE_SEC", 300), "Only surface bot issues that persist at least this many seconds")
 	devNoAuth := flag.Bool("dev-no-auth", false, "Disable Game Master authentication check for local dev testing")
 	flag.Parse()
@@ -105,6 +106,7 @@ func main() {
 		WorldDB:          *dbWorld,
 		LoginDB:          *dbName,
 		BotAccountPrefix: *botPrefix,
+		DBCDir:           *dbcDir,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize armory service: %v", err)

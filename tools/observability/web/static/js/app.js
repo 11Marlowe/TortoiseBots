@@ -106,6 +106,17 @@
     return 'Abilities';
   }
 
+  // Raw spell_template.description is full of $s1/$d/$a1 template tokens.
+  // Render a short human hint instead: rank/subtext plus the school, and
+  // only a trimmed plain-language prefix of the description when readable.
+  function spellHint(sp) {
+    const raw = String(sp.description || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    const plain = raw.split('.')[0].slice(0, 140);
+    if (/\$/.test(plain)) return '';
+    return plain;
+  }
+
   // Skill names from core SharedDefines.h SkillType enum. No DBC or client
   // data is shipped; unknown IDs fall back to "Skill <id>".
   const SKILL_NAMES = {
@@ -1588,11 +1599,12 @@
   }
 
   function bagItemRow(it) {
-    return `<tr data-tip='${esc(JSON.stringify(it))}'><td class="mono">${esc(it.slot)}</td><td class="quality-text-${esc(it.quality)}">${esc(it.name)}</td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td>${esc(qualityName(it.quality))}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
+    const q = it.quality || 0;
+    return `<tr data-tip='${esc(JSON.stringify(it))}'><td class="mono">${esc(it.slot)}</td><td class="quality-text-${q}">${esc(it.name)} <span class="badge quality-badge-${q}">${esc(qualityName(q))}</span></td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
   }
 
   function bagTable(items) {
-    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Slot</th><th>Item</th><th>Count</th><th>Quality</th><th>Entry</th></tr></thead><tbody>${items.map(bagItemRow).join('')}</tbody></table></div>`;
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Slot</th><th>Item</th><th>Count</th><th>Entry</th></tr></thead><tbody>${items.map(bagItemRow).join('')}</tbody></table></div>`;
   }
 
   function renderArmoryPanel(p, tab) {
@@ -1618,6 +1630,23 @@
     return `<div><div class="section-label" style="margin: 12px 0 6px;">${esc(title)}</div><table class="data-table"><tbody>${rows.join('')}</tbody></table></div>`;
   }
 
+  function weaponPanel(p, slot, label) {
+    const item = (p.equipment || []).find(e => e.slot === slot);
+    if (!item || !item.detail) return [];
+    const d = item.detail;
+    const parts = [];
+    if (d.dmg_min1 || d.dmg_max1) parts.push(`${Math.round(d.dmg_min1 || 0)}–${Math.round(d.dmg_max1 || 0)}`);
+    if (d.dmg_min2 || d.dmg_max2) parts.push(`${Math.round(d.dmg_min2 || 0)}–${Math.round(d.dmg_max2 || 0)}`);
+    if (d.dmg_min3 || d.dmg_max3) parts.push(`${Math.round(d.dmg_min3 || 0)}–${Math.round(d.dmg_max3 || 0)}`);
+    const dps = d.delay && (d.dmg_max1 || d.dmg_min1)
+      ? ` (${(((d.dmg_min1 || 0) + (d.dmg_max1 || 0)) / 2 / (d.delay / 1000)).toFixed(1)} DPS)`
+      : '';
+    const speed = d.delay ? ` · ${(d.delay / 1000).toFixed(2)}s` : '';
+    return parts.length
+      ? [`<span class="quality-text-${item.quality || 0}">${esc(item.name)}</span> <span style="color: var(--text-muted);">(${esc(label)} ${parts.join(' + ')}${dps}${speed})</span>`]
+      : [];
+  }
+
   function renderArmoryStats(p) {
     const host = document.getElementById('armory-content-stats');
     if (!host) return;
@@ -1641,6 +1670,10 @@
         statRow('Nature', fmtNum(st.res_nature)), statRow('Frost', fmtNum(st.res_frost)),
         statRow('Shadow', fmtNum(st.res_shadow)), statRow('Arcane', fmtNum(st.res_arcane))
       ]);
+    const meleeRows = []
+      .concat(weaponPanel(p, 15, 'Main Hand'))
+      .concat(weaponPanel(p, 16, 'Off Hand'))
+      .concat(weaponPanel(p, 17, 'Ranged'));
     const right =
       statTable('Melee & Ranged', [
         statRow('Attack Power', fmtNum(st.attack_power)),
@@ -1653,7 +1686,7 @@
         statRow('Ranged Crit', `${fmtNum(st.ranged_crit_pct)}%`),
         statRow('Melee Hit', `${fmtNum(st.melee_hit)}%`),
         statRow('Ranged Hit', `${fmtNum(st.ranged_hit)}%`)
-      ]) +
+      ].concat(meleeRows.length ? [statRow('Weapons', meleeRows.join('<br>'))] : [])) +
       statTable('Defense & Spell', [
         statRow('Block', `${fmtNum(st.block_pct)}%`),
         statRow('Dodge', `${fmtNum(st.dodge_pct)}%`),
@@ -1687,19 +1720,19 @@
     host.innerHTML = html;
     bindItemTooltips(host);
   }
-
   function renderArmoryTalents(p) {
     const host = document.getElementById('armory-content-talents');
     if (!host) return;
     const trees = p.talents || [];
+    const spent = trees.reduce((a, t) => a + (t.points || 0), 0);
     if (!trees.length) {
-      host.innerHTML = `<div class="empty-hint">No talent data. The core reads talent trees from the operator's own DBC files at startup; this server has no talent mirror tables populated, so known spells cannot be resolved into ranks.</div>`;
+      host.innerHTML = `<div class="empty-hint">No talent points spent yet — this bot is level ${esc((p.summary || {}).level)} with ${esc((p.summary || {}).level >= 10 ? (p.summary.level - 9) : 0)} point(s) available. Trees appear here once points are allocated (DBC talent layout loads from the server).</div>`;
       return;
     }
-    host.innerHTML = `<div class="armory-trees">${trees.map(t => {
+    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 10px;">${esc(spent)} point(s) spent</div><div class="armory-trees">${trees.map(t => {
       const nodes = (t.talents || []).map(n => {
         const cls = n.rank > 0 ? (n.rank >= n.max_rank ? 'learned' : 'partial') : 'unlearned';
-        const tip = `Talent ${n.talent_id} · row ${n.row} col ${n.col}${n.spell_id ? ` · spell #${n.spell_id}` : ''}`;
+        const tip = `${n.name || `Talent ${n.talent_id}`} · row ${n.row + 1} col ${n.col + 1} · requires ${n.row * 5} pts${n.spell_id ? ` · spell #${n.spell_id}` : ''}`;
         return `<div class="talent-node ${cls}" title="${esc(tip)}"><div class="talent-rank">${esc(n.rank)}/${esc(n.max_rank)}</div><div class="talent-name">${esc(n.name || `Talent ${n.talent_id}`)}</div></div>`;
       }).join('');
       return `<div class="talent-tree"><div class="talent-tree-head"><span>${esc(t.name)}</span><span class="badge badge-info">${esc(t.points)} pts</span></div><div class="talent-grid">${nodes || '<div class="empty-hint">—</div>'}</div></div>`;
@@ -1729,7 +1762,8 @@
         if (!list.length) return;
         const rows = list.map(sp => {
           const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
-          const desc = sp.description ? `<div style="color: var(--text-muted); font-size: 0.72rem; max-width: 520px;">${esc(sp.description)}</div>` : '';
+          const hint = spellHint(sp);
+          const desc = hint ? `<div style="color: var(--text-muted); font-size: 0.72rem; max-width: 520px;">${esc(hint)}</div>` : '';
           return `<tr><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td>${esc(sp.name || `Spell ${sp.spell}`)}${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}${desc}</td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
         }).join('');
         html += `<div class="section-label" style="margin: 14px 0 8px;">${esc(g)} · ${list.length}</div><div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;

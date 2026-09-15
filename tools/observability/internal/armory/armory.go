@@ -20,6 +20,11 @@ type Config struct {
 	// BotAccountPrefix matches AiPlayerbot.RandomBotAccountPrefix
 	// (ai/playerbot/PlayerbotAIConfig.cpp, default "rndbot").
 	BotAccountPrefix string
+	// DBCDir optionally points at the operator's own extracted DBC files
+	// (the same dir mangosd reads via DataDir). When Talent.dbc +
+	// TalentTab.dbc are present, talents resolve from them; otherwise the
+	// backend falls back to the world talent/talenttab mirror tables.
+	DBCDir string
 }
 
 type Service struct {
@@ -458,10 +463,11 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	st.Source = "live"
 }
 
-// loadTalents resolves allocated talent ranks from known spells. A talent
-// node matches when any of its spellRank columns appears in character_spell;
-// the rank is the highest matching position (Player::LearnTalent unlearns
-// other ranks when a new one is learned).
+// loadTalents resolves allocated talent ranks from known spells. DBC files
+// from the operator (same dir mangosd reads) win when configured; the world
+// talent/talenttab mirrors are the fallback. A talent node matches when any
+// of its rank spells appears in character_spell; the rank is the highest
+// matching position (Player::LearnTalent unlearns other ranks).
 func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 	known := map[uint32]bool{}
 	spRows, err := s.db.Query("SELECT spell FROM character_spell WHERE guid = ?", guid)
@@ -476,11 +482,20 @@ func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 		}
 		known[spell] = true
 	}
-	spRows.Close()
 	if err := spRows.Err(); err != nil {
 		return nil, err
 	}
 
+	var classID uint32
+	if err := s.db.QueryRow("SELECT class FROM characters WHERE guid = ?", guid).Scan(&classID); err != nil {
+		return nil, err
+	}
+	if s.cfg.DBCDir != "" {
+		if trees, err := s.talentsFromDBC(guid, classID, known); err == nil {
+			return trees, nil
+		}
+		// Fall through to SQL mirrors on any DBC read error.
+	}
 	talentQuery := fmt.Sprintf(`
 		SELECT t.id, t.talentTabId, t.tierId, t.columnIndex,
 		       t.spellRank1, t.spellRank2, t.spellRank3, t.spellRank4, t.spellRank5,
@@ -493,10 +508,6 @@ func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 		ORDER BY tt.orderIndex, t.tierId, t.columnIndex, t.id
 	`, s.cfg.WorldDB, s.cfg.WorldDB, s.cfg.WorldDB)
 
-	var classID uint32
-	if err := s.db.QueryRow("SELECT class FROM characters WHERE guid = ?", guid).Scan(&classID); err != nil {
-		return nil, err
-	}
 	rows, err := s.db.Query(talentQuery, classID)
 	if err != nil {
 		// Mirror tables missing or empty: not an error, just no talent data.
