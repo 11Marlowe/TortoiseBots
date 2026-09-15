@@ -53,6 +53,7 @@ struct BotRecord
     uint32_t ticksInWorld = 0;
     bool enteredWorld = false;
     bool random = false;
+    bool syncedInWorld = false;
     // pi-lens-ignore: no-bit-fields
     BotLifecycle lifecycle = BotLifecycle::PendingAdd;
 };

@@ -310,8 +310,12 @@ Player* PlayerbotAI::GetLiveMaster()
 void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
 {
     AiObjectContext* context = aiObjectContext;
-    std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
-    auto pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAI " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
+    std::unique_ptr<PerformanceMonitorOperation> pmo;
+    if (sPlayerbotAIConfig.perfMonEnabled)
+    {
+        std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
+        pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAI " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
+    }
 
     SC_PHASE("UpdateAI.entry", bot ? bot->GetName() : "(null)");
 
@@ -696,8 +700,12 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
 bool PlayerbotAI::UpdateAIReaction(uint32 elapsed, bool minimal, bool isStunned)
 {
     bool reactionFound;
-    std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
-    auto pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAIReaction " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
+    std::unique_ptr<PerformanceMonitorOperation> pmo;
+    if (sPlayerbotAIConfig.perfMonEnabled)
+    {
+        std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
+        pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAIReaction " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
+    }
     const bool reactionInProgress = reactionEngine->Update(elapsed, minimal, isStunned, reactionFound);
     pmo.reset();
 
@@ -1317,8 +1325,12 @@ void PlayerbotAI::UpdateAIInternal(uint32 elapsed, bool minimal)
     if (bot->IsBeingTeleported() || !bot->IsInWorld())
         return;
 
-    std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
-    auto pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAIInternal " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
+    std::unique_ptr<PerformanceMonitorOperation> pmo;
+    if (sPlayerbotAIConfig.perfMonEnabled)
+    {
+        std::string mapString = WorldPosition(bot).isInstance() ? "I" : std::to_string(bot->GetMapId());
+        pmo = sPerformanceMonitor.start(PERF_MON_TOTAL, "PlayerbotAI::UpdateAIInternal " + mapString, nullptr, bot->GetMapId(), bot->GetInstanceId());
+    }
 
     ExternalEventHelper helper(aiObjectContext);
 
@@ -5645,13 +5657,18 @@ ActivePiorityType PlayerbotAI::GetPriorityType()
     if (sRandomBotFacade.GetPlayers().empty())
         return ActivePiorityType::IN_EMPTY_SERVER;
 
-    // friends always active
-    for (auto& i : sRandomBotFacade.GetPlayers())
+    // Friends are real human social links, not random bots. The old loop
+    // scanned every headless random bot (N bots x N ticks) even though
+    // headless bots never befriend anyone. Only network-transport players
+    // can hold a real friend entry for this bot.
+    for (auto const& entry : sWorld.GetAllSessions())
     {
-        Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, i.first));
-        if (!player || !player->IsInWorld())
+        WorldSession* session = entry.second;
+        if (!session || !session->HasNetworkTransport())
             continue;
-
+        Player* player = session->GetPlayer();
+        if (!player || player == bot || !player->IsInWorld())
+            continue;
         PlayerSocial* social = player->GetSocial();
         if (social && social->HasFriend(bot->getObjectGuid()))
             return ActivePiorityType::PLAYER_FRIEND;
@@ -7963,12 +7980,13 @@ bool PlayerbotAI::HasPlayerRelation()
     if (!sRandomBotFacade.IsRandomBot(bot))
         return true;
 
-    for (auto& p : sRandomBotFacade.GetPlayers())
+    for (auto const& entry : sWorld.GetAllSessions())
     {
-        // The facade view can outlive removed bots; resolve by GUID before
-        // touching the Player or its social list.
-        Player* peer = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, p.first));
-        if (!peer || !peer->IsInWorld())
+        WorldSession* session = entry.second;
+        if (!session || !session->HasNetworkTransport())
+            continue;
+        Player* peer = session->GetPlayer();
+        if (!peer || peer == bot || !peer->IsInWorld())
             continue;
 
         PlayerSocial* social = peer->GetSocial();
