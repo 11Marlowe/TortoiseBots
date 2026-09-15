@@ -349,11 +349,11 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
             }
             else if (player->GetLevel() < 30 || tab == 0)
             {
-                combatEngine->addStrategies("arms", "dps assist", "behind", NULL);
+                combatEngine->addStrategies("arms", "dps assist", "close", "behind", NULL);
             }
             else
             {
-                combatEngine->addStrategies("fury", "dps assist", "behind", NULL);
+                combatEngine->addStrategies("fury", "dps assist", "close", "behind", NULL);
             }
 
             combatEngine->addStrategies("aoe", "cc", "buff", "boost", NULL);
