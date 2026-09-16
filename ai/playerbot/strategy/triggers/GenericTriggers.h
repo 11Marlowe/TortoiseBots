@@ -532,6 +532,11 @@ namespace ai
         TimeTrigger(PlayerbotAI* ai, std::string name, int interval = 2) : Trigger(ai, name, interval) {}
         virtual bool IsActive() override { return true; }
     };
+    class EquipmentAuditTrigger : public TimeTrigger
+    {
+    public:
+        EquipmentAuditTrigger(PlayerbotAI* ai) : TimeTrigger(ai, "equipment audit", 60) {}
+    };
 
     class AndTrigger : public Trigger, public Qualified
     {

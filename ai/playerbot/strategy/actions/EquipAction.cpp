@@ -232,19 +232,13 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
     else
     {
         bool equipedBag = false;
-        if (item->GetProto()->Class == ITEM_CLASS_CONTAINER || item->GetProto()->Class == ITEM_CLASS_QUIVER)
+        bool isBag = item->GetProto()->Class == ITEM_CLASS_CONTAINER || item->GetProto()->Class == ITEM_CLASS_QUIVER;
+        if (isBag)
         {
             uint8 newBagSlot = GetSmallestBagSlot(bot);
 
-            // GetSmallestBagSlot hands back a free bag slot when there is one, and
-            // otherwise the slot holding the smallest equipped bag. Displacing that
-            // second kind only works while it is empty: _CanStoreItem_InSpecificSlot
-            // refuses to move a non-empty bag (it is guarded as a dupe exploit) and
-            // SwapItem reports nothing back, so the code below used to set
-            // equipedBag = true for a swap that never happened - and the same
-            // decision then fired again on the very next tick. One bot was seen
-            // retrying about six times a second for hours, and every attempt logged
-            // an anticheat entry. Leave the smaller bag alone until it empties.
+            // Only replace the smallest equipped bag when it is empty. The
+            // core rejects moving a non-empty bag from a specific slot.
             Item* const oldBag = newBagSlot > 0 ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, newBagSlot) : nullptr;
             const bool oldBagIsFull = oldBag && oldBag->IsBag() && !((Bag*)oldBag)->IsEmpty();
 
@@ -252,7 +246,7 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
             {
                 uint16 src = ((bagIndex << 8) | slot);
 
-                if (newBagSlot == item->GetBagSlot()) //The new bag is in the slots of the old bag. Move it to the pack first.
+                if (newBagSlot == item->GetBagSlot()) // The new bag is in the target slot. Move it to the pack first.
                 {
                     uint16 dst = ((INVENTORY_SLOT_BAG_0 << 8) | INVENTORY_SLOT_ITEM_START);
                     bot->SwapItem(src, dst);
@@ -265,7 +259,7 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
             }
         }
 
-        if (!equipedBag)
+        if (!equipedBag && !isBag)
         {
             WorldPacket packet(CMSG_AUTOEQUIP_ITEM, 2);
             packet << bagIndex << slot;

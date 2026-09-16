@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "LootRollAction.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
+#include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/LootValues.h"
 #include "Group/Group.h"
 #include "Maps/Map.h"
@@ -208,6 +209,19 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
         else
             needVote = ROLL_GREED;
     }
+    Group* group = bot->GetGroup();
+    Map* map = bot->GetMap();
+    const ItemPrototype* itemProto = itemQualifier.GetProto();
+    bool sharedLoot = group && (group->GetLootMethod() == GROUP_LOOT || group->GetLootMethod() == NEED_BEFORE_GREED);
+    bool groupLootContext = sharedLoot || (map && (map->IsDungeon() || map->IsRaid()));
+    if (usage != ItemUsage::ITEM_USAGE_FORCE_NEED &&
+        itemProto && itemProto->Class == ITEM_CLASS_ARMOR &&
+        groupLootContext &&
+        !sRandomItemMgr.ShouldEquipArmorForSpec(bot->GetClass(), sRandomItemMgr.GetPlayerSpecId(bot), itemProto))
+    {
+        needVote = ROLL_GREED;
+    }
+
 
     bool canLoot = StoreLootAction::IsLootAllowed(itemQualifier, PlayerbotAIStorage::Instance().GetAI(bot));
 

@@ -565,6 +565,7 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     }
 
     bool shouldEquip = false;
+    bool armorForSpec = true;
 
     uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
 
@@ -574,8 +575,12 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
 
     if (itemProto->Class == ITEM_CLASS_WEAPON && !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto))
         shouldEquip = false;
-    if (itemProto->Class == ITEM_CLASS_ARMOR && !sRandomItemMgr.ShouldEquipArmorForSpec(bot->GetClass(), specId, itemProto))
-        shouldEquip = false;
+    if (itemProto->Class == ITEM_CLASS_ARMOR)
+    {
+        armorForSpec = sRandomItemMgr.ShouldEquipArmorForSpec(bot->GetClass(), specId, itemProto);
+        if (!armorForSpec)
+            shouldEquip = false;
+    }
 
     Item* oldItem = bot->GetItemByPos(dest);
     uint8 slot = dest & 255;
@@ -610,7 +615,7 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     //No item equiped
     if (!oldItem)
     {
-        if (shouldEquip)
+        if (shouldEquip || itemProto->Class == ITEM_CLASS_ARMOR)
             return ItemUsage::ITEM_USAGE_EQUIP;
         else
             return ItemUsage::ITEM_USAGE_BAD_EQUIP;
@@ -654,6 +659,16 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     if (AI_VALUE2_EXISTS(ForceItemUsage, "force item usage", itemProto->ItemId, ForceItemUsage::FORCE_USAGE_NONE) == ForceItemUsage::FORCE_USAGE_EQUIP) //New item is forced. Always equip it.
         return ItemUsage::ITEM_USAGE_EQUIP;
 
+    if (itemProto->Class == ITEM_CLASS_ARMOR && !armorForSpec)
+    {
+        if (oldItemProto->Class != ITEM_CLASS_ARMOR ||
+            itemProto->SubClass >= oldItemProto->SubClass ||
+            statWeight <= oldStatWeight)
+            return ItemUsage::ITEM_USAGE_NONE;
+
+        shouldEquip = true;
+    }
+
     bool existingShouldEquip = true;
     if (oldItemProto->Class == ITEM_CLASS_WEAPON && !oldStatWeight)
         existingShouldEquip = false;
@@ -677,7 +692,7 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
         switch (itemProto->Class)
         {
         case ITEM_CLASS_ARMOR:
-            if (oldItemProto->SubClass <= itemProto->SubClass) {
+            if (oldItemProto->SubClass <= itemProto->SubClass || statWeight > oldStatWeight) {
                 if (itemIsBroken && !oldItemIsBroken)
                     return ItemUsage::ITEM_USAGE_BROKEN_EQUIP;
                 else

@@ -116,28 +116,41 @@ void AutoLearnSpellAction::LearnTrainerSpells(std::ostringstream* out)
             if (state != TRAINER_SPELL_GREEN)
                 continue;
 
-            if (co->trainer_type == TRAINER_TYPE_TRADESKILLS)
+            SpellEntry const* spell = sServerFacade.LookupSpellInfo(tSpell->spell);
+            if (co->trainer_type == TRAINER_TYPE_TRADESKILLS && bot->GetClass() != CLASS_HUNTER && spell)
             {
-                SpellEntry const* spell = sServerFacade.LookupSpellInfo(tSpell->spell);
-                if (spell)
+                bool teachesPetSpell = spell->Id == 6666 || spell->Id == 6667;
+                for (int effect = 0; effect < 3 && !teachesPetSpell; ++effect)
                 {
-                    std::string SpellName = spell->SpellName[0];
-                    if (spell->Effect[EFFECT_INDEX_1] == SPELL_EFFECT_SKILL_STEP)
-                        {
-                            uint32 skill = spell->EffectMiscValue[EFFECT_INDEX_1];
-
-                            if (skill)
-                            {
-                                SkillLineEntry const* pSkill = sSkillLineStore.LookupEntry(skill);
-                                if (pSkill)
-                                {
-                                    if (SpellName.find("Apprentice") != std::string::npos && pSkill->categoryId == SKILL_CATEGORY_PROFESSION || pSkill->categoryId == SKILL_CATEGORY_SECONDARY)
-                                        continue;
-                                }
-                            }
-                        }
+                    if (spell->Effect[effect] == SPELL_EFFECT_LEARN_PET_SPELL ||
+                        (spell->Effect[effect] == SPELL_EFFECT_LEARN_SPELL &&
+                         (spell->EffectTriggerSpell[effect] == 6666 || spell->EffectTriggerSpell[effect] == 6667)))
+                    {
+                        teachesPetSpell = true;
+                    }
                 }
 
+                if (teachesPetSpell)
+                    continue;
+            }
+
+            if (co->trainer_type == TRAINER_TYPE_TRADESKILLS && spell)
+            {
+                std::string SpellName = spell->SpellName[0];
+                if (spell->Effect[EFFECT_INDEX_1] == SPELL_EFFECT_SKILL_STEP)
+                {
+                    uint32 skill = spell->EffectMiscValue[EFFECT_INDEX_1];
+
+                    if (skill)
+                    {
+                        SkillLineEntry const* pSkill = sSkillLineStore.LookupEntry(skill);
+                        if (pSkill)
+                        {
+                            if (SpellName.find("Apprentice") != std::string::npos && pSkill->categoryId == SKILL_CATEGORY_PROFESSION || pSkill->categoryId == SKILL_CATEGORY_SECONDARY)
+                                continue;
+                        }
+                    }
+                }
             }
             LearnSpellFromSpell(tSpell->spell, out);
         }
