@@ -1,5 +1,26 @@
 # Changelog
 
+## 2026-09-16
+
+### Bots, Loot & Inventory
+- Group loot rolls are no longer a ninja-fest: bots pass Greed on armor lighter than their spec's native type (no more Enhancement shaman stealing cloth), and reserve Need for native-spec gear or solo/world-map drops (#183)
+- Off-armor upgrades now actually get equipped once the slot is emptied, fixing bots hoarding upgrades in bags instead of wearing them (#183)
+- Bag audit pass cleans up inventory handling so bots stop stranding useful gear and quest items (#183)
+- Safe quest cleanup prevents bots from corrupting quest state during routine pruning (#183)
+- Module-only changes — no core patches required, safe drop-in for existing servers (#183)
+
+### Observability & Tooling
+- New self-contained bot armory inspector ships under `tools/observability/` for DB-only bot audits (#180)
+- Inspect any bot's full profile: identity, all 38 equipment/bag slots with resolved item GUIDs, live stats for online bots, spells with icon + effect metadata, skills, and talents (#180)
+- Searchable bot listing with LIKE-escaped account-prefix filtering and name search, capped at 1000 results (#180)
+- Stats layer falls back to `character_stats` when `character_armory_stats` is missing, so the inspector works across setups (#180)
+
+### CI & Releases
+- Changelog updates now auto-post to the dedicated Discord thread straight from GitHub Actions — no bot invite or server ownership needed (#184)
+- Delta-only delivery: only newly merged PRs get announced, and anything already in `CHANGELOG.md` is skipped, so nobody gets spammed with the full history (#184)
+
+---
+
 ## 2026-09-15
 
 ### Performance & Engine
