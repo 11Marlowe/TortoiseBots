@@ -185,7 +185,24 @@ type SpellEntry struct {
 	Icon     string `json:"icon"`
 	Active   uint8  `json:"active"`
 	Disabled uint8  `json:"disabled"`
+	// ClassSpell marks a member of the character's class spellbook (SkillLine
+	// "Class Skills" + SkillLineAbility class mask). False when the operator
+	// DBCs are unavailable.
+	ClassSpell bool `json:"class_spell,omitempty"`
+	// Passive marks SPELL_ATTR_PASSIVE spells: talents and other effects the
+	// character never casts (Malice, Convection). A few legacy talent dummies
+	// carry empty attributes and therefore read as active, exactly as the
+	// client flags them.
+	Passive bool `json:"passive,omitempty"`
+	// Origin is SpellOriginStarting for race/class default spells that the
+	// core re-derives on login and never writes to character_spell.
+	Origin string `json:"origin,omitempty"`
 }
+
+// SpellOriginStarting marks a spell the core grants from playercreateinfo_spell
+// (Player::LearnDefaultSpells). It has no character_spell row on purpose: the
+// spell is re-learned on every login.
+const SpellOriginStarting = "starting"
 
 type SkillEntry struct {
 	Skill uint32 `json:"skill"`

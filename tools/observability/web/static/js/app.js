@@ -96,10 +96,13 @@
   // Spell buckets for the spellbook tab. Pets/traps/mounts/professions are
   // data noise next to combat spells; grouping by nameSubtext + pet-teach
   // descriptions keeps e.g. hunter pet teaches out of the combat list.
+  // class_spell comes from the operator's DBCs (class skill lines); the rank
+  // and name rules below cover talents, custom spells, and DBC-less setups.
   function spellBucket(sp) {
     const sub = String(sp.subtext || '');
     const desc = String(sp.description || '');
     const name = String(sp.name || '');
+    if (sp.class_spell) return 'Class spells';
     if (/Rank \d+/.test(sub)) return 'Class spells';
     if (/Apprentice|Journeyman|Expert|Artisan/.test(sub)) return 'Professions';
     if (/Trap|Totem|Seal|Blessing|Aura|Stance|Form|Aspect|Track/i.test(name + ' ' + sub)) return 'Auras & Forms';
@@ -163,6 +166,9 @@
     const text = hint || full;
     let html = `<div class="tip-name">${esc(name)}${sub ? ` ${sub}` : ''}</div>`;
     html += `<div class="tip-sub">${esc(spellSchoolName(sp.school))}</div>`;
+    if (sp.origin === 'starting') {
+      html += `<div class="tip-sub">Starting spell — granted on login, not stored in character_spell</div>`;
+    }
     if (text) {
       html += `<div class="tip-stat" style="margin-top: 4px; max-width: 280px;">${esc(text)}</div>`;
     }
@@ -2168,6 +2174,25 @@
     });
   }
 
+  // One spellbook table. Passive spells carry no cast state of their own, so
+  // they never inherit the persisted spellbook Active/Inactive flag.
+  function spellTable(list) {
+    const rows = list.map(sp => {
+      const badge = sp.passive
+        ? `<span class="badge">Passive</span>`
+        : (sp.origin === 'starting'
+          ? `<span class="badge badge-info">Starting</span>`
+          : (sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`)));
+      const tip = spellTooltip(sp);
+      const iconUrl = getItemIconUrl(sp.icon);
+      const iconHtml = iconUrl
+        ? `<img src="${iconUrl}" onerror="this.style.display='none';" class="spell-table-icon">`
+        : '';
+      return `<tr data-sptip="${esc(tip)}"><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td><div style="display: flex; align-items: center; gap: 8px;">${iconHtml}<div><span style="font-weight: 600;">${esc(sp.name || `Spell ${sp.spell}`)}</span>${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}</div></div></td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
+    }).join('');
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }
+
   function renderArmorySpells(p) {
     const host = document.getElementById('armory-content-spells');
     if (!host) return;
@@ -2177,7 +2202,9 @@
       if (!q) return true;
       return (sp.name || '').toLowerCase().includes(q) || String(sp.spell).includes(q);
     });
-    let html = `<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;"><span style="color: var(--text-muted); font-size: 0.8rem;">${filtered.length}/${all.length} spells</span><input id="armory-spell-filter" class="btn" style="padding: 6px 12px; min-width: 200px;" placeholder="Filter spells..." value="${esc(state.armorySpellFilter || '')}"></div>`;
+    const passiveTotal = filtered.filter(sp => sp.passive).length;
+    const passiveNote = passiveTotal ? ` · ${passiveTotal} passive` : '';
+    let html = `<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;"><span style="color: var(--text-muted); font-size: 0.8rem;">${filtered.length}/${all.length} spells${passiveNote}</span><input id="armory-spell-filter" class="btn" style="padding: 6px 12px; min-width: 200px;" placeholder="Filter spells..." value="${esc(state.armorySpellFilter || '')}"></div>`;
     if (!filtered.length) {
       html += `<div class="empty-hint">No spells match.</div>`;
     } else {
@@ -2189,16 +2216,17 @@
       ['Class spells', 'Abilities', 'Auras & Forms', 'Pet & Minions', 'Professions'].forEach(g => {
         const list = (groups[g] || []).slice(0, 500);
         if (!list.length) return;
-        const rows = list.map(sp => {
-          const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
-          const tip = spellTooltip(sp);
-          const iconUrl = getItemIconUrl(sp.icon);
-          const iconHtml = iconUrl
-            ? `<img src="${iconUrl}" onerror="this.style.display='none';" class="spell-table-icon">`
-            : '';
-          return `<tr data-sptip="${esc(tip)}"><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td><div style="display: flex; align-items: center; gap: 8px;">${iconHtml}<div><span style="font-weight: 600;">${esc(sp.name || `Spell ${sp.spell}`)}</span>${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}</div></div></td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
-        }).join('');
-        html += `<div class="section-label" style="margin: 14px 0 8px;">${esc(g)} · ${list.length}</div><div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        // Passives are never cast (talent effects, trigger-only auras), so they
+        // never answer "can this bot use this spell" — keep them apart.
+        const active = list.filter(sp => !sp.passive);
+        const passive = list.filter(sp => sp.passive);
+        const counts = passive.length ? ` <span style="font-weight: 400; color: var(--text-muted);">(${active.length} active · ${passive.length} passive)</span>` : '';
+        html += `<div class="section-label" style="margin: 14px 0 8px;">${esc(g)} · ${list.length}${counts}</div>`;
+        if (active.length) html += spellTable(active);
+        if (passive.length) {
+          html += `<div class="section-label" style="margin: 10px 0 6px; font-size: 0.7rem; color: var(--text-muted);">PASSIVE · ${passive.length}</div>`;
+          html += spellTable(passive);
+        }
       });
     }
     host.innerHTML = html;
