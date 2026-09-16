@@ -111,7 +111,7 @@ def generate_summary_with_ai(prs, api_key, base_url, model):
         "Rules:\n"
         "1. Group changes into clear, logical categories (e.g., 'Combat & AI', 'Starter Zones & World', 'Observability & Engine', 'Core Sync & Fixes'). Only include categories that have changes.\n"
         "2. Write concise, punchy, pragmatic bullet points explaining the gameplay or stability impact.\n"
-        "3. Always reference the pull request number like (#123) at the end of each bullet point.\n"
+        "3. Always reference the pull request as a markdown link like [#123](https://github.com/Sagiroth/TortoiseBots/pull/123) at the end of each bullet point.\n"
         "4. Do NOT output fluff, introductions, greetings, or sign-offs. Output ONLY the categorized markdown bullets starting with category headers (### Category).\n"
         "5. Keep the tone pragmatic and developer/gamer friendly."
     )
