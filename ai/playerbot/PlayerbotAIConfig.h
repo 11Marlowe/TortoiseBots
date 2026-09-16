@@ -134,6 +134,10 @@ public:
     bool randomGearProgression;
     float randomGearLoweringChance;
     bool rollBadItemsWithPlayer;
+    // One-time generation of the optional ai_playerbot_equip_cache and
+    // ai_playerbot_rnditem_cache tables while they are empty. The in-memory
+    // item info cache and the world weight-scale load are never gated by this.
+    bool generateItemCaches;
     float usePotionChance;
     float attackEmoteChance;
     uint32 minRandomBots, maxRandomBots;
@@ -289,6 +293,13 @@ public:
     uint32 diffEmpty;
     uint32 minEnchantingBotLevel;
     uint32 randombotStartingLevel;
+    // Level seeding for persistent-level pools (DisableRandomLevels=1). Fresh
+    // pool bots are created at level 1 by CharacterCreation and nothing in the
+    // module assigns a starting level (the legacy Randomize() pipeline is not
+    // called here), so the pool starts at 1 unless this range seeds it. 1/1
+    // keeps the historic "walk from level 1" behaviour.
+    uint32 randomBotStartLevelMin;
+    uint32 randomBotStartLevelMax;
     bool randomBotSayWithoutMaster;
     bool randomBotInvitePlayer;
     bool randomBotGroupNearby;

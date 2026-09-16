@@ -18,6 +18,7 @@ test -f data/sql/world/20260824090002_world.sql || fail "world compatibility mig
 test -f data/sql/char/20260824090002_char.sql || fail "character compatibility migration is missing"
 test -f data/sql/world/20260824090003_world.sql || fail "world cleanup migration is missing"
 test -f data/sql/char/20260824090003_char.sql || fail "character cleanup migration is missing"
+test -f data/sql/world/20260916090001_world.sql || fail "weight-scale seed migration is missing"
 test ! -e data/sql/World || fail "uppercase World migration directory remains"
 test ! -e data/sql/Char || fail "uppercase Char migration directory remains"
 
@@ -35,6 +36,14 @@ grep -q 'DROP TABLE IF EXISTS' data/sql/world/20260824090003_world.sql \
     || fail "World cleanup migration lacks explicit dead-table cleanup"
 grep -q 'DROP TABLE IF EXISTS' data/sql/char/20260824090003_char.sql \
     || fail "Char cleanup migration lacks explicit dead-table cleanup"
+grep -q 'ai_playerbot_weightscale_data' data/sql/world/20260916090001_world.sql \
+    || fail "weight-scale stat data is not seeded"
+# Spec ids carry hardcoded meaning in PlayerbotFactory/RandomItemMgr; renumbering
+# them silently kills gear scoring for those classes.
+grep -q "(20, 'elem', 7)" data/sql/world/20260916090001_world.sql \
+    || fail "weight-scale shaman spec ids are not the donor ids"
+grep -q "(31, 'resto', 11)" data/sql/world/20260916090001_world.sql \
+    || fail "weight-scale druid spec ids are not the donor ids"
 
 if rg -n -i 'rtsc|see spell|bossaura|ai_playerbot_(random_bots|rpg_races|tele_cache|rarity_cache)' \
     ai host runtime commands conf; then

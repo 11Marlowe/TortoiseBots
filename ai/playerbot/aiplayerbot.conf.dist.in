@@ -254,6 +254,18 @@ AiPlayerbot.RandomGearBlacklist = 0
 # 0 - roll greed on such items (Default)
 AiPlayerbot.RollBadItemsWithPlayer = 0
 
+# Build the optional character-database item caches (ai_playerbot_equip_cache and
+# ai_playerbot_rnditem_cache) once, on the first startup that finds them empty.
+# The generator walks the item prototypes a single time and writes the result in
+# one transaction, which takes seconds; afterwards the caches are loaded from the
+# database on every later startup. A fresh install therefore gears its bots
+# without any manual SQL import.
+# 1 - generate the caches while they are empty (Default)
+# 0 - leave the caches alone; bots then only fill empty slots from loot
+# The world weight scales (data/sql/world/20260916090001_world.sql) and the
+# in-memory item info cache are always loaded and are not affected by this.
+AiPlayerbot.GenerateItemCaches = 1
+
 # Bot transport use style: 0 = walk on transports (currently not available), 1 = teleport on transports and ride it, 2 = teleport from dock to dock bypassing transport.
 # AiPlayerbot.TransportTeleportType = 2
 
@@ -307,6 +319,15 @@ AiPlayerbot.DisableRandomLevels = 0
 # Set randombots starting level here if "AiPlayerbot.DisableRandomLevels" enabled
 # Recommended: 5+
 AiPlayerbot.randombotStartingLevel = 1
+
+# Random starting level for freshly created pool bots, inclusive range.
+# Applied once per bot on its first login (played time == 0), before the
+# level-bound skills, professions and starter gear are seeded, so a fresh pool
+# starts playable instead of walking up from level 1. Bots level up normally
+# from there. 1/1 keeps the historic behaviour (start at level 1).
+# Default: 1 / 1 (disabled)
+AiPlayerbot.RandomBotStartLevelMin = 1
+AiPlayerbot.RandomBotStartLevelMax = 1
 
 # Set XP rate for bots (default: 1)
 # Server XP Rate * AiPlayerbot.XPRate

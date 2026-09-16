@@ -1519,3 +1519,75 @@ Local validation:
 - `python3 tools/verify_all.sh` + `git diff --check` (see commit).
 - Module rebuild pending (see commit); live check pending: texts-loaded count in
   server log, raw keys gone in game, reason visible on failed casts.
+
+## Item weight scales + first-boot cache generation (Issue #182) — 2026-09-16
+
+Feature: Ship the Vanilla spec weight scales with the module, and let a fresh
+install generate its optional item caches once, so random bots are geared by
+`PlayerbotFactory` and judge upgrades instead of only filling empty slots.
+
+Source repository: `Shyalya/tortoise-wow` (classic port of `mod-playerbots`)
+
+Source commit: `05ba90b2e00ef5ee861111ec5bde670929eedfa4` (local
+`playerbots-references/shyalya-tortoise-wow` checkout, remote HEAD identical)
+
+Source files:
+- `modules/mod-playerbots/sql/world/classic/ai_playerbot_weightscales.sql`
+  (headerless HeidiSQL dump: 32 spec rows, 220 stat-weight rows, md5
+  `6e9a6dbfce75330bcd2f811ec710b15c`)
+
+Copied / ported / independently reimplemented:
+- Data-only port to `data/sql/world/20260916090001_world.sql`: the 28 Vanilla
+  spec rows and their 180 stat-weight rows are copied verbatim. Death knight ids
+  16-19 and their stat rows are omitted; every other id is kept, because
+  `PlayerbotFactory.cpp:1901-2321` and `RandomItemMgr.cpp:2816` hardcode spec ids
+  (2, 3, 4, 5, 6, 14, 20, 21, 22, 29, 31). Schema stays owned by
+  `20260824090000_world.sql`. The shipped id set is deleted before it is inserted
+  because `ai_playerbot_weightscale_data` has no unique key and a duplicate stat
+  row would double-count a weight; the death knight rows of an operator who
+  imported the full dump are left alone.
+- `RandomItemMgr::BuildEquipCache()` / `BuildRandomItemCache()`: the "generate
+  when the table is empty" branch was unreachable (it required a successful
+  `COUNT(*)` that was non-zero while the row query returned nothing). It is now
+  reachable and gated by the new `AiPlayerbot.GenerateItemCaches` (default `1`).
+  `BuildItemInfoCache()` is deliberately not gated: it loads the weight scales and
+  builds the in-memory stat-weight map on every start, and has no database load
+  path of its own.
+- The equipment generator was restructured from one full walk of the item id
+  space (~2M ids on Tortoise) per (class, spec, level, slot, quality) key — about
+  246k keys — to a single pass over the loaded prototypes, and writes its rows as
+  multi-row INSERT batches inside one transaction instead of one statement per
+  cached item. `GetUpgrade(Player*, std::string, ...)` now scans every registered
+  spec of the player's class instead of ids 1-4.
+
+Reason: With `ai_playerbot_weightscale_data` empty, `BuildItemInfoCache()` returns
+before any stat weight is computed, so `GetPlayerSpecId()` returns 0 for every
+bot, `PlayerbotFactory::InitEquipment` skips provisioning ("InitEquipment skipped
+(specId=0)") and every upgrade comparison scores zero. The generator also stalled
+the world thread for ~50 minutes when it was made to run, which is why it had been
+left unreachable.
+
+Local validation (local `tortoise-docker-penqle` stack, 500-bot pool, 2026-09-16):
+- Migration applied by the core Auto-Updater on the next boot
+  (`Attempting to execute update 20260916090001_world for module TortoiseBots,
+  hash 04FA7ACB990CCD24DE8B249E4754355038C75378`), followed by
+  `Loaded 28 weightscale class specs` / `Loaded 180 weightscale stat weights`.
+  Re-applying the same file into a scratch schema left 28 / 180 rows with no
+  duplicate `(id, field)` pair.
+- First start with empty character caches generated them: item info cache
+  2.9s, equipment cache 10.6s for 2,945,755 rows, random item cache 4.4s for
+  93,945 rows. A temporary measurement with the equip writes disabled put the
+  prototype walk itself at 0.85s, so the rest is the batched InnoDB write.
+- Second start loaded the caches instead of rebuilding:
+  `Equipment cache loaded from 2945755 records` in 0.37s, random item cache in
+  0.03s, and `World server is up and running! Loading time: 0 minutes 25
+  seconds`.
+- `ai_playerbot_item_info_cache` held 14,859 rows after the fix (0 while the
+  weight scales were empty), and the cache carries real candidates per slot:
+  level-15 hunter/beast-mastery had 55 green + 4 blue chests and 135 green + 46
+  blue main-hand items.
+- `python3 tools/verify_all.sh` and `git diff --check` pass; the weight-scale
+  seed is now asserted by `tools/verify_tortoise_surface.sh`.
+- Not yet observed: a fresh bot arriving dressed or swapping a looted upgrade.
+  That is the plan's pool wipe plus soak (`#182` §5.2/§5.4), which needs the
+  operator's go before deleting characters.

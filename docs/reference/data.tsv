@@ -1,7 +1,7 @@
 schema_dataset	producer	consumer	authoritative_revision	generation_import	cache_lifetime	missing_data_behavior	status
 travel nodes/links/paths	(disabled generators)	TravelMgr/TravelNode	—	REQUIRED workflow (F05/F22); current runtime node/fish generation explicitly disabled	—	declared reduced capability	pending (census)
-item/equip caches	—	RandomItemMgr/PlayerbotFactory	—	—	—	missing cache = limitation, not cert	pending (census)
+item/equip caches	RandomItemMgr::BuildEquipCache/BuildRandomItemCache (first boot while empty; AiPlayerbot.GenerateItemCaches=1)	RandomItemMgr/PlayerbotFactory	generated from the loaded item prototypes at that revision	in-repo generation replaces the operator import (issue #182)	loaded from `ai_playerbot_equip_cache`/`ai_playerbot_rnditem_cache` afterwards	scoring idle while empty; bots only fill empty slots	implemented (#182)
 spell/talent data	target DBC/SQL	SpellIdValue/Talentspec	—	—	invalidate after spell/talent/equip/pet change	—	pending (census)
 ahbot_category SQL (modern external)	external ahbot	modern consumer only	—	n/a (no modern ahbot tree)	—	n/a	pending (ModernDonorCensus confirms external dep)
 module SQL (T data/sql)	—	—	effective schema after migrations (not just CREATE TABLE)	—	—	empty tables unaccepted	pending (census)
-names/text/help/zone-level/fish/event datasets	—	various	—	offline or bounded native generation	—	precise remedy on missing/stale	pending (census)
+names/text/help/zone-level/weight-scales/fish/event datasets	weight scales ship in data/sql/world/20260916090001_world.sql	various	—	offline or bounded native generation	—	precise remedy on missing/stale	pending (census)

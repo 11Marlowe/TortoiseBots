@@ -191,7 +191,6 @@ class RandomItemMgr
         void BuildPotionCache();
         void BuildTradeCache();
         void LoadRandomEnchantments();
-        bool CanEquipItem(BotEquipKey key, ItemPrototype const* proto);
         bool CanEquipItemNew(ItemPrototype const* proto);
         void AddItemStats(uint32 mod, uint8 &sp, uint8 &ap, uint8 &tank);
         bool CheckItemStats(uint8 clazz, uint8 sp, uint8 ap, uint8 tank);

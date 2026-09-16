@@ -33,6 +33,9 @@ These settings dramatically enhance the solo or small-group experience with owne
 | `AiPlayerbot.AutoLearnQuestSpells` | `1` | **`1`** | **Class Quest Rewards:** Automatically teaches spells awarded by completed class quests (e.g. Paladin Resurrection, Warlock pet summons, Shaman totems). |
 | `AiPlayerbot.RollBadItemsWithPlayer` | `0` | **`1`** | **Need on Empty Slots:** Forces party bots to roll Need on dungeon drops if their corresponding equipment slot is empty or severely under-leveled. |
 | `AiPlayerbot.RandomGearUpgradeEnabled` | `1` | **`1`** | **Automatic Gear Scaling:** Periodically equips bots with level-appropriate dungeon and quest gear as they level up. |
+| `AiPlayerbot.GenerateItemCaches` | `1` | **`1`** | **First-Boot Gear Caches:** Builds the `ai_playerbot_equip_cache` and `ai_playerbot_rnditem_cache` tables once, while they are empty, and loads them from the database afterwards. Leave it on for a fresh install — with empty caches bots only fill empty slots from loot and never judge an upgrade. |
+
+The spec weights these caches are scored with come from the `ai_playerbot_weightscales` and `ai_playerbot_weightscale_data` tables, seeded by `data/sql/world/20260916090001_world.sql`. If bots wear wrong-slot gear from their bags but never swap an upgrade in, that dataset is empty — re-apply the migration and restart.
 
 ---
 
@@ -45,6 +48,7 @@ These flags control the behavior of autonomous random bots roaming the world:
 | `AiPlayerbot.RandomBotAutologin` | `0` | **`1`** | Automatically logs in random bots (`RNDBOT*`) at server startup. |
 | `AiPlayerbot.RandomBotAutoCreate` | `0` | **`1`** | Automatically creates new bot accounts/characters if the active pool is below `MinRandomBots`. |
 | `AiPlayerbot.MinRandomBots` / `MaxRandomBots` | `0` | `50` / `150` | Sets the minimum and maximum active random bot population. |
+| `AiPlayerbot.RandomBotStartLevelMin` / `Max` | `1` / `1` | `1` / `1` (raise for test pools) | **Fresh-Bot Level Seed:** A newly created pool bot gets a random level in this range once, on its first login, before its skills, professions and starter gear are seeded. Useful for running a pool that starts at a playable level (e.g. `10` / `15`) instead of walking up from 1. Set both to 1 to keep the historic behaviour. |
 | `AiPlayerbot.SyncLevelWithPlayers` | `0` | **`1`** | **Dynamic Level Bracket:** Restricts random bot levels to the highest online human player level + 5, ensuring the world levels up alongside you. |
 | `AiPlayerbot.RandomBotInvitePlayer` | `1` | `1` | Random bots in the open world will invite solo human players to form questing groups. |
 | `AiPlayerbot.RandomBotGroupNearby` | `1` | `1` | Bots will organically invite each other to form questing parties and dungeon groups. |

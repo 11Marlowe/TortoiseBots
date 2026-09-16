@@ -2703,6 +2703,21 @@ void PlayerbotFactory::InitTradeSkills()
             if (!proto)
                 continue;
 
+            // Pet teaching spells (e.g. Survival Instinct 6666/6667) must not be learned by non-hunters
+            bool teachesPetSpell = proto->Id == 6666 || proto->Id == 6667;
+            for (int effect = 0; effect < 3 && !teachesPetSpell; ++effect)
+            {
+                if (proto->Effect[effect] == SPELL_EFFECT_LEARN_PET_SPELL ||
+                    (proto->Effect[effect] == SPELL_EFFECT_LEARN_SPELL &&
+                     (proto->EffectTriggerSpell[effect] == 6666 || proto->EffectTriggerSpell[effect] == 6667)))
+                {
+                    teachesPetSpell = true;
+                }
+            }
+
+            if (teachesPetSpell && (bot->GetClass() != CLASS_HUNTER || bot->GetLevel() < 22))
+                continue;
+
             SpellEntry const* spell = sServerFacade.LookupSpellInfo(tSpell->spell);
             if (spell)
             {

@@ -563,6 +563,21 @@ void BotManager::OnPlayerLogin(::Player* player)
         }
     }
 
+    // Level seeding runs before the login scatter so PickLevelFittingPoint sees
+    // the seeded level (the scatter itself is gated on level >= 10).
+    if (record.random && sPlayerbotAIConfig.randomBotStartLevelMin > 1 &&
+        TortoiseBots::NeedsInitialGearSeeding(player->GetTotalPlayedTime(), sRandomBotFacade.GetValue(player->GetGUIDLow(), "levelSeeded")))
+    {
+        uint32 seedLevel = urand(sPlayerbotAIConfig.randomBotStartLevelMin,
+            std::max(sPlayerbotAIConfig.randomBotStartLevelMin, sPlayerbotAIConfig.randomBotStartLevelMax));
+        if (player->GetLevel() < seedLevel)
+        {
+            player->GiveLevel(seedLevel);
+            sRandomBotFacade.SetValue(player->GetGUIDLow(), "levelSeeded", 1);
+            TB_LOG_DETAIL("TortoiseBots: seeded fresh bot %s to level %u.", player->GetName(), seedLevel);
+        }
+    }
+
     // One-shot random scatter on headless login only; fail-closed, no DB mutation, no homebind
     TryRandomTeleport(player, record);
 
@@ -577,12 +592,14 @@ void BotManager::OnPlayerLogin(::Player* player)
     // randomize interval. Safe and synchronous; the existing
     // randomGearUpgradeEnabled setting controls this (default enabled).
     uint32 botGuidLow = player->GetGUIDLow();
+
     bool freshBot = TortoiseBots::NeedsInitialGearSeeding(
         player->GetTotalPlayedTime(), sRandomBotFacade.GetValue(botGuidLow, "seeded"));
     if (record.random && sPlayerbotAIConfig.randomGearUpgradeEnabled && player->GetLevel() >= 5 && freshBot)
     {
         sRandomBotFacade.UpdateGearSpells(player);
         sRandomBotFacade.SetValue(botGuidLow, "seeded", 1);
+        TB_LOG_DETAIL("TortoiseBots: seeded starter gear for fresh bot %s.", player->GetName());
     }
 
     // Skills are separate from gear seeding. With DisableRandomLevels=1 a bot never goes
