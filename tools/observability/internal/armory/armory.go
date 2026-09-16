@@ -279,27 +279,65 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		profile.Stats.Source = "armory_stats"
 	}
 
-	// 6. Spells: same columns the core loads (spell,active,disabled) plus
-	// display metadata from the operator's own world DB. Description
+	// 6. Spells: persisted rows (character_spell) plus the race/class defaults
+	// the core gives every character. LearnDefaultSpells adds those as
+	// dependent spells and _SaveSpells skips dependent entries, so a DB-only
+	// view would otherwise hide the whole starting spellbook. Description
 	// disambiguates shared names (pet-teach Survival Instinct vs talent).
+	spellMeta := fmt.Sprintf(`COALESCE(st.name, '') AS name,
+		       COALESCE(st.nameSubtext, '') AS name_subtext,
+		       COALESCE(st.description, '') AS description,
+		       COALESCE(st.effectBasePoints1, 0) + COALESCE(st.effectBaseDice1, 0) AS value1,
+		       COALESCE(st.effectBasePoints2, 0) + COALESCE(st.effectBaseDice2, 0) AS value2,
+		       COALESCE(st.effectBasePoints3, 0) + COALESCE(st.effectBaseDice3, 0) AS value3,
+		       COALESCE(st.effectMiscValue1, 0) AS misc1,
+		       COALESCE(st.effectMiscValue2, 0) AS misc2,
+		       COALESCE(st.effectMiscValue3, 0) AS misc3,
+		       COALESCE(st.effectTriggerSpell1, 0) AS trigger1,
+		       COALESCE(st.effectTriggerSpell2, 0) AS trigger2,
+		       COALESCE(st.effectTriggerSpell3, 0) AS trigger3,
+		       COALESCE(st.durationIndex, 0) AS duration_index,
+		       COALESCE(st.rangeIndex, 0) AS range_index,
+		       COALESCE(st.castingTimeIndex, 0) AS casting_time_index,
+		       COALESCE(st.school, 0) AS school,
+		       COALESCE(st.spellIconId, 0) AS spell_icon_id,
+		       COALESCE(si.Name, '') AS icon,
+		       (COALESCE(st.attributes, 0) & %d) <> 0 AS is_passive`, spellAttrPassive)
+
+	classSpells := s.classSpellsFor(profile.Summary.Class)
+	startIds, err := s.startingSpellIds(profile.Summary.Race, profile.Summary.Class, classSpells)
+	if err != nil {
+		return nil, err
+	}
+
 	spellQuery := fmt.Sprintf(`
-		SELECT cs.spell, cs.active, cs.disabled,
-		       COALESCE(st.name, ''), COALESCE(st.nameSubtext, ''), COALESCE(st.description, ''),
-		       COALESCE(st.effectBasePoints1, 0) + COALESCE(st.effectBaseDice1, 0),
-		       COALESCE(st.effectBasePoints2, 0) + COALESCE(st.effectBaseDice2, 0),
-		       COALESCE(st.effectBasePoints3, 0) + COALESCE(st.effectBaseDice3, 0),
-		       COALESCE(st.effectMiscValue1, 0), COALESCE(st.effectMiscValue2, 0), COALESCE(st.effectMiscValue3, 0),
-		       COALESCE(st.effectTriggerSpell1, 0), COALESCE(st.effectTriggerSpell2, 0), COALESCE(st.effectTriggerSpell3, 0),
-		       COALESCE(st.durationIndex, 0), COALESCE(st.rangeIndex, 0), COALESCE(st.castingTimeIndex, 0),
-		       COALESCE(st.school, 0), COALESCE(st.spellIconId, 0),
-		       COALESCE(si.Name, '')
-		FROM character_spell cs
-		LEFT JOIN %s.spell_template st ON st.entry = cs.spell
-		LEFT JOIN %s.spellicon si ON si.ID = st.spellIconId
-		WHERE cs.guid = ?
-		ORDER BY st.name, cs.spell
-	`, s.cfg.WorldDB, s.cfg.WorldDB)
-	spRows, err := s.db.Query(spellQuery, guid)
+		SELECT * FROM (
+			SELECT cs.spell AS spell, cs.active AS active, cs.disabled AS disabled, 0 AS is_starting, %s
+			FROM character_spell cs
+			LEFT JOIN %s.spell_template st ON st.entry = cs.spell
+			LEFT JOIN %s.spellicon si ON si.ID = st.spellIconId
+			WHERE cs.guid = ?
+	`, spellMeta, s.cfg.WorldDB, s.cfg.WorldDB)
+	args := []interface{}{guid}
+	if len(startIds) > 0 {
+		marks := strings.Repeat(", ?", len(startIds)-1)
+		spellQuery += fmt.Sprintf(`
+			UNION ALL
+			SELECT st.entry, 1, 0, 1, %s
+			FROM %s.spell_template st
+			LEFT JOIN %s.spellicon si ON si.ID = st.spellIconId
+			WHERE st.entry IN (?%s)
+			  AND NOT EXISTS (SELECT 1 FROM character_spell known WHERE known.guid = ? AND known.spell = st.entry)
+		`, spellMeta, s.cfg.WorldDB, s.cfg.WorldDB, marks)
+		for _, id := range startIds {
+			args = append(args, id)
+		}
+		args = append(args, guid)
+	}
+	spellQuery += `
+		) spellbook ORDER BY spellbook.name, spellbook.spell`
+
+	spRows, err := s.db.Query(spellQuery, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -307,14 +345,20 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	profile.Spells = []SpellEntry{}
 	for spRows.Next() {
 		var se SpellEntry
+		var starting, passive uint8
 		var v1, v2, v3 int32
 		var m1, m2, m3 int32
 		var t1, t2, t3 uint32
 		var durIdx, rngIdx, castIdx uint32
-		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &se.Name, &se.Subtext, &se.Description,
+		if err := spRows.Scan(&se.Spell, &se.Active, &se.Disabled, &starting, &se.Name, &se.Subtext, &se.Description,
 			&v1, &v2, &v3, &m1, &m2, &m3, &t1, &t2, &t3, &durIdx, &rngIdx, &castIdx,
-			&se.School, &se.IconID, &se.Icon); err != nil {
+			&se.School, &se.IconID, &se.Icon, &passive); err != nil {
 			return nil, err
+		}
+		se.ClassSpell = classSpells[se.Spell]
+		se.Passive = passive != 0
+		if starting != 0 {
+			se.Origin = SpellOriginStarting
 		}
 		if se.Icon == "" && se.IconID != 0 {
 			se.Icon = s.spellIconByID(se.IconID)

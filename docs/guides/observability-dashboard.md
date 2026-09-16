@@ -69,3 +69,22 @@ The daemon exports Prometheus metrics at `http://localhost:8080/metrics`, allowi
 - `tortoise_bots_state_count`: Total bots in combat, travel, dead, or resting states.
 - `tortoise_bots_issues_active`: Number of unresolved stuck episodes.
 - `tortoise_bots_telemetry_packets_received_total`: Telemetry ingest rate.
+
+---
+
+## 4. Bot Armory (DB inspector)
+
+The **Armory** tab inspects any bot straight from the database — no live session and no telemetry needed — so it also covers offline bots: equipment and bag slots with resolved items, live/saved stats, spells, skills, and talents.
+
+### Spells tab
+
+The spell list is assembled from two sources and must be read together:
+
+- **Persisted spells** (`character_spell`): everything the bot learned at runtime — quest rewards, trainer purchases, talents, professions. State shows Active / Inactive / Disabled.
+- **Starting spells** (`playercreateinfo_spell` for the bot's race and class): the default spellbook the core grants in `Player::LearnDefaultSpells`. The core adds these as *dependent* spells, and `Player::_SaveSpells` never writes dependent spells, so they have no `character_spell` row on purpose — they are re-learned at every login. They are listed with a **Starting** badge.
+
+Rows are grouped into `Class spells`, `Abilities`, `Auras & Forms`, `Pet & Minions`, and `Professions`. `Class spells` membership comes from the operator's own DBCs: a spell belongs to a class when `SkillLineAbility.dbc` lists it under a `SkillLine.dbc` line whose category is *Class Skills* and whose class mask covers the bot's class — the same rule the client uses to build the spellbook. Without a DBC directory (`--dbc-dir`, `/dbc` in the compose stack) the grouping falls back to name/rank heuristics.
+
+Each group is then split into **active** and **passive** rows (`SPELL_ATTR_PASSIVE`, i.e. talent effects and other never-cast spells such as Malice or Convection). The group header carries both counts, so a "6 class spells" line reads as "4 active · 2 passive" instead of looking like six usable abilities. A handful of legacy talent dummies carry empty attributes and therefore still count as active — the same way the client flags them.
+
+**A short `Class spells` list does not mean the dashboard is hiding spells.** Bot spellbooks are thin by design: with `AiPlayerbot.AutoLearnQuestSpells = 1` and a low `AutoLearnTrainerSpells`, bots pick up class-quest reward spells (stances, forms, totems, pet skills) and buy trainer spells only when they can afford a trainer visit.
