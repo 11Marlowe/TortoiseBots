@@ -102,8 +102,8 @@
     const name = String(sp.name || '');
     if (/Rank \d+/.test(sub)) return 'Class spells';
     if (/Apprentice|Journeyman|Expert|Artisan/.test(sub)) return 'Professions';
-    if (/Summon|Pet|Cat|Boar|Owl|Carrion|Crab|Gorilla|Raptor|Tallstrider|Turtle|Wolf|Bear|Spider|Bat|Hyena|Wind Serpent|Scorpid|Tamed/i.test(sub + ' ' + desc + ' ' + name)) return 'Pet & Minions';
     if (/Trap|Totem|Seal|Blessing|Aura|Stance|Form|Aspect|Track/i.test(name + ' ' + sub)) return 'Auras & Forms';
+    if (/Summon|Pet|Cat|Boar|Owl|Carrion|Crab|Gorilla|Raptor|Tallstrider|Turtle|Wolf|Bear|Spider|Bat|Hyena|Wind Serpent|Scorpid|Tamed/i.test(sub + ' ' + desc + ' ' + name)) return 'Pet & Minions';
     return 'Abilities';
   }
 

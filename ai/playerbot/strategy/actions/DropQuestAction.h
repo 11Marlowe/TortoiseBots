@@ -31,21 +31,18 @@ namespace ai
         virtual bool Execute(Event& event) override;
         virtual bool isUsefulWhenStunned() override { return true; }
 
-        virtual bool isUseful() override { return ai->HasStrategy("rpg quest", BotState::BOT_STATE_NON_COMBAT); }
+        virtual bool isUseful() override { return !ai->HasActivePlayerMaster(); }
 
 #ifdef GenerateBotHelp
         virtual std::string GetHelpName() { return "clean quest log"; }
         virtual std::string GetHelpDescription()
         {
-            return "This command makes the bot automatically drop certain quests to make room for new ones.\n"
-                   "It selects quests to drop based on priority (ie. gray without progress ones first)\n";
+            return "This command removes only safe stale quests to make room for new ones.\n"
+                   "Incomplete quests at least eight levels below the bot are eligible; class and delivery quests are preserved.\n";
         }
         virtual std::vector<std::string> GetUsedActions() { return {}; }
-        virtual std::vector<std::string> GetUsedValues() { return {"can fight equal"}; }
+        virtual std::vector<std::string> GetUsedValues() { return {}; }
 #endif
 
-        void DropQuestType(Player* requester, uint8& numQuest, uint8 wantNum = 100, bool isGreen = false, bool hasProgress = false, bool isComplete = false);
-
-        static bool HasProgress(Player* bot, Quest const* quest);
     };
 }

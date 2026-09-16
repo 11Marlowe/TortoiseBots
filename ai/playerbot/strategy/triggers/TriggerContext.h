@@ -38,6 +38,7 @@ namespace ai
             creators["seldom"] = [](PlayerbotAI* ai) { return new RandomTrigger(ai, "seldom", 300); };
             creators["often"] = [](PlayerbotAI* ai) { return new RandomTrigger(ai, "often", 5); };
             creators["very often"] = [](PlayerbotAI* ai) { return new TimeTrigger(ai, "very often", 5); };
+            creators["equipment audit"] = [](PlayerbotAI* ai) { return new EquipmentAuditTrigger(ai); };
 
             creators["target critical health"] = [](PlayerbotAI* ai) { return new TargetCriticalHealthTrigger(ai); };
 

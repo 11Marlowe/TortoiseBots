@@ -11,6 +11,9 @@ void NonCombatStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         "very often",
         NextAction::array(0, new NextAction("check mount state", 1.0f), new NextAction("check values", 1.0f), NULL)));
 
+    triggers.push_back(new TriggerNode(
+        "equipment audit",
+        NextAction::array(0, new NextAction("equip upgrades", 5.0f), NULL)));
 }
 
 void CollisionStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
