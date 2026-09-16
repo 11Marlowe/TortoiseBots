@@ -1,0 +1,164 @@
+package armory
+
+import (
+	"database/sql"
+	"fmt"
+	"strings"
+)
+
+// detailSelect lists the tooltip columns of world.item_template appended
+// after the base item columns. Order must match scanDetailRow.
+const detailSelect = `it.class, it.subclass, it.description, it.bonding,
+	it.required_level, it.required_skill, it.allowable_class, it.allowable_race,
+	it.max_count, it.stackable, it.container_slots, it.delay, it.ammo_type,
+	it.dmg_min1, it.dmg_max1, it.dmg_type1,
+	it.dmg_min2, it.dmg_max2, it.dmg_min3, it.dmg_max3,
+	it.block, it.armor,
+	it.holy_res, it.fire_res, it.nature_res, it.frost_res, it.shadow_res, it.arcane_res,
+	it.stat_type1, it.stat_value1, it.stat_type2, it.stat_value2,
+	it.stat_type3, it.stat_value3, it.stat_type4, it.stat_value4,
+	it.stat_type5, it.stat_value5, it.stat_type6, it.stat_value6,
+	it.stat_type7, it.stat_value7, it.stat_type8, it.stat_value8,
+	it.stat_type9, it.stat_value9, it.stat_type10, it.stat_value10,
+	it.spellid_1, it.spelltrigger_1, it.spellid_2, it.spelltrigger_2,
+	it.spellid_3, it.spelltrigger_3, it.spellid_4, it.spelltrigger_4,
+	it.spellid_5, it.spelltrigger_5,
+	it.max_durability, it.sell_price`
+
+// detailDests returns scan destinations for detailSelect in order.
+func detailDests(d *ItemDetail, st, sv *[10]int32, sp *[5]uint32, tr *[5]uint8) []interface{} {
+	return []interface{}{
+		&d.Class, &d.SubClass, &d.Description, &d.Bonding,
+		&d.RequiredLevel, &d.RequiredSkill, &d.AllowableClass, &d.AllowableRace,
+		&d.MaxCount, &d.Stackable, &d.ContainerSlots, &d.Delay, &d.AmmoType,
+		&d.DmgMin1, &d.DmgMax1, &d.DmgType1,
+		&d.DmgMin2, &d.DmgMax2, &d.DmgMin3, &d.DmgMax3,
+		&d.Block, &d.Armor,
+		&d.ResHoly, &d.ResFire, &d.ResNature, &d.ResFrost, &d.ResShadow, &d.ResArcane,
+		&st[0], &sv[0], &st[1], &sv[1], &st[2], &sv[2], &st[3], &sv[3], &st[4], &sv[4],
+		&st[5], &sv[5], &st[6], &sv[6], &st[7], &sv[7], &st[8], &sv[8], &st[9], &sv[9],
+		&sp[0], &tr[0], &sp[1], &tr[1], &sp[2], &tr[2], &sp[3], &tr[3], &sp[4], &tr[4],
+		&d.MaxDurability, &d.SellPrice,
+	}
+}
+
+// foldDetail compacts sparse stat/spell columns into the JSON slices.
+func foldDetail(d *ItemDetail, st, sv [10]int32, sp [5]uint32, tr [5]uint8) {
+	for i := range st {
+		if sv[i] == 0 {
+			continue
+		}
+		d.StatTypes = append(d.StatTypes, uint8(st[i]))
+		d.StatValues = append(d.StatValues, sv[i])
+	}
+	for i := range sp {
+		if sp[i] == 0 {
+			continue
+		}
+		d.SpellIDs = append(d.SpellIDs, sp[i])
+		d.SpellTriggers = append(d.SpellTriggers, tr[i])
+	}
+}
+
+// resolveSpellNames fills human-readable proc names from the operator's own
+// spell_template in one query. Best effort: names are tooltip sugar, never
+// fail the load.
+func (s *Service) resolveSpellNames(d *ItemDetail) {
+	if len(d.SpellIDs) == 0 {
+		return
+	}
+	d.SpellNames = make([]string, len(d.SpellIDs))
+	names := s.spellNames(d.SpellIDs)
+	for i, sid := range d.SpellIDs {
+		d.SpellNames[i] = names[sid]
+	}
+}
+func (s *Service) spellName(spellID uint32) string {
+	return s.spellNames([]uint32{spellID})[spellID]
+}
+
+type SpellInfo struct {
+	Name        string
+	Icon        string
+	Description string
+}
+
+// spellInfos resolves spell display names and icon names in one batch query.
+func (s *Service) spellInfos(ids []uint32) map[uint32]SpellInfo {
+	out := map[uint32]SpellInfo{}
+	seen := map[uint32]bool{}
+	var args []interface{}
+	var marks []string
+	for _, id := range ids {
+		if id == 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		marks = append(marks, "?")
+		args = append(args, id)
+	}
+	if len(marks) == 0 {
+		return out
+	}
+	q := fmt.Sprintf(`SELECT st.entry, COALESCE(st.name, ''), COALESCE(si.Name, ''), COALESCE(st.description, ''), COALESCE(st.spellIconId, 0)
+		FROM %s.spell_template st
+		LEFT JOIN %s.spellicon si ON si.ID = st.spellIconId
+		WHERE st.entry IN (%s)`, s.cfg.WorldDB, s.cfg.WorldDB, strings.Join(marks, ","))
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entry, iconID uint32
+		var name, icon, desc string
+		if err := rows.Scan(&entry, &name, &icon, &desc, &iconID); err != nil {
+			continue
+		}
+		if icon == "" && iconID != 0 {
+			icon = s.spellIconByID(iconID)
+		}
+		out[entry] = SpellInfo{Name: name, Icon: icon, Description: desc}
+	}
+	return out
+}
+
+// spellNames resolves many spell display names in one query.
+func (s *Service) spellNames(ids []uint32) map[uint32]string {
+	infos := s.spellInfos(ids)
+	out := map[uint32]string{}
+	for k, v := range infos {
+		out[k] = v.Name
+	}
+	return out
+}
+
+// firstRanks collects rank spell ids of class talents for batch naming and descriptions.
+func firstRanks(talents []dbcTalent, tabByID map[uint32]dbcTalentTab) []uint32 {
+	ids := make([]uint32, 0, len(talents)*2)
+	for _, t := range talents {
+		if _, ok := tabByID[t.tabID]; !ok || len(t.ranks) == 0 {
+			continue
+		}
+		for _, r := range t.ranks {
+			if r != 0 {
+				ids = append(ids, r)
+			}
+		}
+	}
+	return ids
+}
+
+func scanDetailTail(rows *sql.Rows, d *ItemDetail, s *Service) error {
+	var st, sv [10]int32
+	var sp [5]uint32
+	var tr [5]uint8
+	if err := rows.Scan(detailDests(d, &st, &sv, &sp, &tr)...); err != nil {
+		return err
+	}
+	foldDetail(d, st, sv, sp, tr)
+	if s != nil {
+		s.resolveSpellNames(d)
+	}
+	return nil
+}

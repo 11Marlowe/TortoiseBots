@@ -54,7 +54,280 @@
     issues: { active: [], resolved: [], counts_by_type: {} },
     issueTypeFilter: 'all',
     issueDurationFilter: 0,
-    issueHistory: { t: [], series: {} }
+    issueHistory: { t: [], series: {} },
+    armoryGuid: null,
+    armoryProfile: null,
+    armorySubtab: 'stats',
+    armorySpellFilter: '',
+    armorySort: { key: 'name', dir: 1 }
+  };
+
+  // Equipment slot IDs mirror core Player.h EquipmentSlots (0-18).
+  const EQUIP_SLOT_NAMES = {
+    0: 'Head', 1: 'Neck', 2: 'Shoulders', 3: 'Shirt', 4: 'Chest',
+    5: 'Waist', 6: 'Legs', 7: 'Feet', 8: 'Wrists', 9: 'Hands',
+    10: 'Ring 1', 11: 'Ring 2', 12: 'Trinket 1', 13: 'Trinket 2',
+    14: 'Back', 15: 'Main Hand', 16: 'Off Hand', 17: 'Ranged', 18: 'Tabard'
+  };
+
+  // Classic paperdoll columns: left, right, weapons row.
+  const GEAR_LEFT = [0, 1, 2, 14, 4, 3, 18, 8];
+  const GEAR_RIGHT = [9, 5, 6, 7, 10, 11, 12, 13];
+  const GEAR_WEAPONS = [15, 16, 17];
+
+  // Race/class IDs from core SharedDefines.h (RACE_* 1-10, CLASS_* 1-11).
+  const RACE_NAMES = {
+    1: 'Human', 2: 'Orc', 3: 'Dwarf', 4: 'Night Elf', 5: 'Undead',
+    6: 'Tauren', 7: 'Gnome', 8: 'Troll', 9: 'Goblin', 10: 'High Elf'
+  };
+
+  const CLASS_NAMES = {
+    1: 'Warrior', 2: 'Paladin', 3: 'Hunter', 4: 'Rogue', 5: 'Priest',
+    7: 'Shaman', 8: 'Mage', 9: 'Warlock', 11: 'Druid'
+  };
+
+  // Quality names follow core SharedDefines.h ItemQualities (0-6).
+  const QUALITY_NAMES = ['Poor', 'Common', 'Uncommon', 'Rare', 'Epic', 'Legendary', 'Artifact'];
+
+  const SPELL_SCHOOLS = {
+    0: 'Physical', 1: 'Holy', 2: 'Fire', 3: 'Nature', 4: 'Frost', 5: 'Shadow', 6: 'Arcane'
+  };
+
+  // Spell buckets for the spellbook tab. Pets/traps/mounts/professions are
+  // data noise next to combat spells; grouping by nameSubtext + pet-teach
+  // descriptions keeps e.g. hunter pet teaches out of the combat list.
+  function spellBucket(sp) {
+    const sub = String(sp.subtext || '');
+    const desc = String(sp.description || '');
+    const name = String(sp.name || '');
+    if (/Rank \d+/.test(sub)) return 'Class spells';
+    if (/Apprentice|Journeyman|Expert|Artisan/.test(sub)) return 'Professions';
+    if (/Summon|Pet|Cat|Boar|Owl|Carrion|Crab|Gorilla|Raptor|Tallstrider|Turtle|Wolf|Bear|Spider|Bat|Hyena|Wind Serpent|Scorpid|Tamed/i.test(sub + ' ' + desc + ' ' + name)) return 'Pet & Minions';
+    if (/Trap|Totem|Seal|Blessing|Aura|Stance|Form|Aspect|Track/i.test(name + ' ' + sub)) return 'Auras & Forms';
+    return 'Abilities';
+  }
+
+  // Client $tokens resolved from backend effect values ($sN = base+dice per
+  // core CalculateSimpleValue, $oN = same-effect tick, $aN = radius/misc,
+  // $tN = amplitude, $d/$r/$c from operator DBCs, $/10; = divide-by-10).
+  // Unknown tokens stay visible so missing data is obvious, never silent.
+  function spellText(sp) {
+    let raw = String(sp.description || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    const vals = sp.values || [], misc = sp.misc || [], trig = sp.triggers || [];
+    const num = v => (v === null || v === undefined) ? '?' : String(v);
+    raw = raw.replace(/\$\/(\d+);s(\d)/g, (m, div, n) => {
+      const v = vals[parseInt(n, 10) - 1];
+      if (v === null || v === undefined) return m;
+      const d = parseInt(div, 10) || 1;
+      const q = v / d;
+      return String(Math.round(q * 10) / 10);
+    });
+    raw = raw.replace(/\$([sSoOaAtT])(\d)/g, (m, kind, n) => {
+      const i = parseInt(n, 10) - 1;
+      const k = kind.toLowerCase();
+      if (k === 's' || k === 'o') return num(vals[i]);
+      if (k === 'a') return num(misc[i] !== undefined ? misc[i] : vals[i]);
+      if (k === 't') return num(trig[i] !== undefined ? trig[i] : vals[i]);
+      return m;
+    });
+    raw = raw.replace(/\$d\b/g, sp.duration_ms ? fmtDur(sp.duration_ms) : '$d');
+    raw = raw.replace(/\$r\b/g, sp.range_yd ? `${sp.range_yd} yd` : '$r');
+    raw = raw.replace(/\$c\b/g, sp.cast_ms ? fmtDur(sp.cast_ms) : '$c');
+    return raw;
+  }
+
+  function fmtDur(ms) {
+    if (ms < 0) return 'permanent';
+    if (ms < 1000) return `${ms} ms`;
+    const s = ms / 1000;
+    if (s < 60) return `${Math.round(s * 10) / 10} sec`;
+    const m = Math.floor(s / 60);
+    return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
+  }
+
+  function spellHint(sp) {
+    const resolved = spellText(sp);
+    if (!resolved) return '';
+    const plain = resolved.split('.')[0].slice(0, 160);
+    if (/\$/.test(plain)) return '';
+    return plain;
+  }
+
+  // Full hover card for a spell row: name + rank, school, resolved text.
+  function spellTooltip(sp) {
+    const name = sp.name || `Spell ${sp.spell}`;
+    const sub = sp.subtext ? `<span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : '';
+    const hint = (spellHint(sp) || '').trim();
+    const full = (spellText(sp) || '').trim();
+    const text = hint || full;
+    let html = `<div class="tip-name">${esc(name)}${sub ? ` ${sub}` : ''}</div>`;
+    html += `<div class="tip-sub">${esc(spellSchoolName(sp.school))}</div>`;
+    if (text) {
+      html += `<div class="tip-stat" style="margin-top: 4px; max-width: 280px;">${esc(text)}</div>`;
+    }
+    return html;
+  }
+
+  // Skill names from core SharedDefines.h SkillType enum. No DBC or client
+  // data is shipped; unknown IDs fall back to "Skill <id>".
+  const SKILL_NAMES = {
+    6: 'Frost', 8: 'Fire', 26: 'Arms', 38: 'Combat', 39: 'Subtlety', 40: 'Poisons',
+    43: 'Swords', 44: 'Axes', 45: 'Bows', 46: 'Guns', 50: 'Beast Mastery', 51: 'Survival',
+    54: 'Maces', 55: 'Two-Handed Swords', 56: 'Holy', 78: 'Shadow', 95: 'Defense',
+    98: 'Language: Common', 101: 'Racial: Dwarven', 109: 'Language: Orcish',
+    111: 'Language: Dwarven', 113: 'Language: Darnassian', 115: 'Language: Taurahe',
+    118: 'Dual Wield', 124: 'Racial: Tauren', 125: 'Racial: Orc', 126: 'Racial: Night Elf',
+    129: 'First Aid', 134: 'Feral Combat', 136: 'Staves', 137: 'Language: Thalassian',
+    138: 'Language: Draconic', 139: 'Language: Demon Tongue', 140: 'Language: Titan',
+    141: 'Language: Old Tongue', 142: 'Survival', 148: 'Riding: Horse', 149: 'Riding: Wolf',
+    150: 'Riding: Tiger', 152: 'Riding: Ram', 155: 'Swimming', 160: 'Two-Handed Maces',
+    162: 'Unarmed', 163: 'Marksmanship', 164: 'Blacksmithing', 165: 'Leatherworking',
+    171: 'Alchemy', 172: 'Two-Handed Axes', 173: 'Daggers', 176: 'Thrown',
+    182: 'Herbalism', 183: 'Generic (DND)', 184: 'Retribution', 185: 'Cooking', 186: 'Mining',
+    188: 'Pet: Imp', 189: 'Pet: Felhunter', 197: 'Tailoring', 202: 'Engineering',
+    203: 'Pet: Spider', 204: 'Pet: Voidwalker', 205: 'Pet: Succubus', 206: 'Pet: Infernal',
+    207: 'Pet: Doomguard', 208: 'Pet: Wolf', 209: 'Pet: Cat', 210: 'Pet: Bear',
+    211: 'Pet: Boar', 212: 'Pet: Crocilisk', 213: 'Pet: Carrion Bird', 214: 'Pet: Crab',
+    215: 'Pet: Gorilla', 217: 'Pet: Raptor', 218: 'Pet: Tallstrider', 220: 'Racial: Undead',
+    226: 'Crossbows', 228: 'Wands', 229: 'Polearms', 236: 'Pet: Scorpid', 237: 'Arcane',
+    251: 'Pet: Turtle', 253: 'Assassination', 256: 'Fury', 257: 'Protection',
+    261: 'Beast Training', 267: 'Protection', 270: 'Pet Talents', 293: 'Plate Mail',
+    313: 'Language: Gnomish', 315: 'Language: Troll', 333: 'Enchanting', 354: 'Demonology',
+    355: 'Affliction', 356: 'Fishing', 373: 'Enhancement', 374: 'Restoration',
+    375: 'Elemental Combat', 393: 'Skinning', 413: 'Mail', 414: 'Leather', 415: 'Cloth',
+    433: 'Shield', 473: 'Fist Weapons', 533: 'Riding: Raptor', 553: 'Riding: Mechanostrider',
+    554: 'Riding: Undead Horse', 573: 'Restoration', 574: 'Balance', 593: 'Destruction',
+    594: 'Holy', 613: 'Discipline', 633: 'Lockpicking', 653: 'Pet: Bat', 654: 'Pet: Hyena',
+    655: 'Pet: Owl', 656: 'Pet: Wind Serpent', 673: 'Language: Gutterspeak',
+    713: 'Riding: Kodo', 733: 'Racial: Troll', 753: 'Racial: Gnome', 754: 'Racial: Human',
+    755: 'Jewelcrafting', 758: 'Pet Event (RC)', 762: 'Riding'
+  };
+
+  // Combat grouping for the Skills tab: weapons + defense first.
+  const COMBAT_SKILL_IDS = [43, 44, 45, 46, 54, 55, 118, 136, 160, 162, 172, 173, 176, 226, 228, 229, 473, 95];
+  const ARMOR_SKILL_IDS = [293, 413, 414, 415, 433];
+  const PROFESSION_SKILL_IDS = [129, 164, 165, 171, 182, 185, 186, 197, 202, 333, 356, 393, 755];
+
+  const SKILL_ICONS = {
+    // Weapons & Combat
+    43: 'inv_sword_04',
+    44: 'inv_axe_02',
+    45: 'inv_weapon_bow_05',
+    46: 'inv_weapon_rifle_01',
+    54: 'inv_mace_01',
+    55: 'inv_sword_07',
+    95: 'ability_defend',
+    118: 'ability_dualwield',
+    136: 'inv_staff_08',
+    160: 'inv_mace_04',
+    162: 'ability_gouge',
+    172: 'inv_axe_09',
+    173: 'inv_weapon_shortblade_05',
+    176: 'inv_throwingknife_04',
+    226: 'inv_weapon_crossbow_01',
+    228: 'inv_wand_01',
+    229: 'inv_spear_06',
+    473: 'inv_misc_monsterclaw_04',
+    // Armor
+    293: 'inv_chest_plate01',
+    413: 'inv_chest_chain',
+    414: 'inv_chest_leather_09',
+    415: 'inv_chest_cloth_21',
+    433: 'inv_shield_04',
+    // Professions & Secondary
+    129: 'spell_holy_sealofsacrifice',
+    164: 'trade_blacksmithing',
+    165: 'trade_leatherworking',
+    171: 'trade_alchemy',
+    182: 'spell_nature_naturetouchgrow',
+    185: 'inv_misc_food_15',
+    186: 'trade_mining',
+    197: 'trade_tailoring',
+    202: 'trade_engineering',
+    333: 'trade_engraving',
+    356: 'trade_fishing',
+    393: 'inv_misc_pelt_wolf_01',
+    633: 'spell_nature_moonkey',
+    755: 'inv_misc_gem_01',
+    762: 'spell_nature_swiftness',
+    // Class Specs / Magic Schools
+    6: 'spell_frost_frostbolt02',
+    8: 'spell_fire_fire',
+    26: 'ability_warrior_savageblow',
+    38: 'ability_backstab',
+    39: 'ability_stealth',
+    40: 'trade_brewpoison',
+    50: 'ability_hunter_beasttaming',
+    51: 'ability_hunter_swiftstrike',
+    56: 'spell_holy_holybolt',
+    78: 'spell_shadow_shadowbolt',
+    134: 'ability_racial_bearform',
+    142: 'ability_hunter_camouflage',
+    163: 'ability_marksmanship',
+    184: 'spell_holy_auraoflight',
+    237: 'spell_holy_magicalsentry',
+    253: 'ability_rogue_eviscerate',
+    256: 'ability_warrior_innerrage',
+    257: 'ability_warrior_defensivestance',
+    267: 'spell_holy_devotionaura',
+    354: 'spell_shadow_metamorphosis',
+    355: 'spell_shadow_deathcoil',
+    373: 'spell_nature_lightningoverload',
+    374: 'spell_nature_magicimmunity',
+    375: 'spell_nature_lightning',
+    573: 'spell_nature_healingtouch',
+    574: 'spell_nature_starfall',
+    593: 'spell_shadow_rainoffire',
+    594: 'spell_holy_guardianspirit',
+    613: 'spell_holy_powerwordshield',
+    // Languages & Misc
+    98: 'inv_misc_book_07', 101: 'inv_misc_book_07', 109: 'inv_misc_book_07', 111: 'inv_misc_book_07',
+    113: 'inv_misc_book_07', 115: 'inv_misc_book_07', 137: 'inv_misc_book_07',
+    138: 'inv_misc_book_07', 139: 'inv_misc_book_07', 140: 'inv_misc_book_07',
+    141: 'inv_misc_book_07', 313: 'inv_misc_book_07', 315: 'inv_misc_book_07',
+    673: 'inv_misc_book_07',
+  };
+
+  function skillIconById(id) {
+    return SKILL_ICONS[id] || 'inv_misc_questionmark';
+  }
+
+  // Item tooltip enums from core (ItemPrototype.h, SharedDefines.h). Hardcoded
+  // on purpose: these are protocol constants, not data, and keep the dashboard
+  // free of DBC/client assets.
+  const ITEM_STAT_NAMES = {
+    0: 'Mana', 1: 'Health', 3: 'Agility', 4: 'Strength',
+    5: 'Intellect', 6: 'Spirit', 7: 'Stamina'
+  };
+  const ITEM_BONDING_NAMES = {
+    0: '', 1: 'Binds when picked up', 2: 'Binds when equipped',
+    3: 'Binds when used', 4: 'Quest Item', 6: 'Binds to account'
+  };
+  const ITEM_CLASS_NAMES = {
+    0: 'Consumable', 1: 'Container', 2: 'Weapon', 3: 'Gem', 4: 'Armor',
+    5: 'Reagent', 6: 'Projectile', 7: 'Trade Goods', 8: 'Generic',
+    9: 'Recipe', 10: 'Money', 11: 'Quiver', 12: 'Quest', 13: 'Key',
+    14: 'Permanent', 15: 'Junk'
+  };
+  const ITEM_SUBCLASS_NAMES = {
+    '2-0': 'Axe', '2-1': 'Two-Handed Axe', '2-2': 'Bow', '2-3': 'Gun',
+    '2-4': 'Mace', '2-5': 'Two-Handed Mace', '2-6': 'Polearm', '2-7': 'Sword',
+    '2-8': 'Two-Handed Sword', '2-10': 'Staff', '2-13': 'Fist Weapon',
+    '2-15': 'Dagger', '2-16': 'Thrown', '2-18': 'Crossbow', '2-19': 'Wand',
+    '2-20': 'Fishing Pole', '4-0': 'Miscellaneous', '4-1': 'Cloth',
+    '4-2': 'Leather', '4-3': 'Mail', '4-4': 'Plate', '4-6': 'Shield',
+    '4-7': 'Libram', '4-8': 'Idol', '4-9': 'Totem'
+  };
+  const ITEM_TRIGGER_NAMES = {
+    0: 'Use:', 1: 'Equip:', 2: 'Chance on hit:', 4: 'Soulstone:', 5: 'Use:'
+  };
+  const INVTYPE_NAMES = {
+    1: 'Head', 2: 'Neck', 3: 'Shoulder', 4: 'Shirt', 5: 'Chest', 6: 'Waist',
+    7: 'Legs', 8: 'Feet', 9: 'Wrist', 10: 'Hands', 11: 'Finger', 12: 'Trinket',
+    13: 'Weapon', 14: 'Shield', 15: 'Ranged', 16: 'Back', 17: 'Two-Hand',
+    18: 'Bag', 19: 'Tabard', 20: 'Robe', 21: 'Main Hand', 22: 'Off Hand',
+    23: 'Held In Off-hand', 24: 'Ammo', 25: 'Thrown', 26: 'Ranged', 27: 'Quiver', 28: 'Relic'
   };
 
   const ISSUE_TYPES = ['STUCK', 'DEAD_LONG', 'ACTION_LOOP', 'UNREACHABLE_TARGET'];
@@ -141,6 +414,24 @@
     botSearch: document.getElementById('bot-search'),
     rosterTable: document.getElementById('roster-table-body'),
     rosterCount: document.getElementById('roster-count'),
+    // Armory
+    armoryListView: document.getElementById('armory-list-view'),
+    armoryProfileView: document.getElementById('armory-profile-view'),
+    armoryListBody: document.getElementById('armory-list-body'),
+    armoryListSearch: document.getElementById('armory-list-search'),
+    armoryNavCount: document.getElementById('armory-nav-count'),
+    armoryBack: document.getElementById('armory-back'),
+    armoryMapBtn: document.getElementById('armory-map-btn'),
+    armoryOnline: document.getElementById('armory-online'),
+    armoryName: document.getElementById('armory-name'),
+    armorySubtitle: document.getElementById('armory-subtitle'),
+    armoryMoney: document.getElementById('armory-money'),
+    armoryPlayed: document.getElementById('armory-played'),
+    armoryError: document.getElementById('armory-error'),
+    armoryBody: document.getElementById('armory-body'),
+    gearLeft: document.getElementById('armory-gear-left'),
+    gearRight: document.getElementById('armory-gear-right'),
+    gearWeapons: document.getElementById('armory-gear-weapons'),
 
     // Incidents
     anomaliesTable: document.getElementById('anomalies-table-body'),
@@ -233,7 +524,8 @@
   // Sidebar Tab Navigation
   function switchTab(tab) {
     state.activeTab = tab;
-    el.menuItems.forEach(m => m.classList.toggle('active', m.dataset.tab === tab));
+    if (tab === 'roster') renderRoster();
+    if (tab === 'armory') { armoryView(); if (state.armoryGuid === null || state.armoryGuid === undefined) renderArmoryList(); }
     el.tabViews.forEach(v => {
       v.style.display = v.id === `tab-${tab}` ? 'block' : 'none';
     });
@@ -1065,7 +1357,12 @@
             <span class="mono">${esc(fmtDuration(i.duration_sec))}</span>
           </div>`).join('')}
       </div>` : ''}
+      <button class="btn" id="drawer-armory-btn" style="margin-top: 14px; width: 100%; justify-content: center;">Open Armory</button>
     `;
+    const botName = el.drawerContent.querySelector('div');
+    if (botName) { botName.style.cursor = 'pointer'; botName.title = 'Open armory'; botName.addEventListener('click', () => openArmory(b.guid)); }
+    const armoryBtn = document.getElementById('drawer-armory-btn');
+    if (armoryBtn) armoryBtn.addEventListener('click', () => openArmory(b.guid));
   }
 
   if (el.closeDrawer) {
@@ -1151,7 +1448,7 @@
         : '';
 
       tr.innerHTML = `
-        <td style="font-weight: 600; cursor: pointer; color: #58a6ff;" data-guid="${esc(b.guid)}">${esc(b.name)}${issueBadge}</td>
+        <td style="font-weight: 600; cursor: pointer; color: #58a6ff;" data-guid="${esc(b.guid)}" title="Show on map">${esc(b.name)}${issueBadge}</td>
         <td>${esc(b.class)}</td>
         <td><span class="badge ${roleBadge}">${esc((b.role || '').toUpperCase())}</span></td>
         <td>${esc(b.level)}</td>
@@ -1218,7 +1515,793 @@
     });
   });
 
-  // Incidents
+  // ---- Bot Armory -------------------------------------------------------
+  // Text-first inspector over the read-only armory API. No image assets:
+  // quality shows as text/border color (core ItemQualityColors); icon names
+  // from item_display_info/spellicon surface as tooltip text only.
+
+  function classNameById(id) {
+    return CLASS_NAMES[id] || (id ? `Class ${id}` : 'Unknown');
+  }
+
+  function raceNameById(id) {
+    return RACE_NAMES[id] || (id ? `Race ${id}` : 'Unknown');
+  }
+
+  function skillNameById(id) {
+    return SKILL_NAMES[id] || `Skill ${id}`;
+  }
+
+  function qualityName(q) {
+    return QUALITY_NAMES[q] || `Quality ${q}`;
+  }
+
+  function spellSchoolName(s) {
+    if (s === null || s === undefined || s === 0) return 'Physical';
+    return SPELL_SCHOOLS[s] || `School ${s}`;
+  }
+
+  function formatMoney(copper) {
+    copper = Math.max(0, parseInt(copper, 10) || 0);
+    const g = Math.floor(copper / 10000);
+    const s = Math.floor((copper % 10000) / 100);
+    const c = copper % 100;
+    return `<span class="money-gold">${g}g</span> <span class="money-silver">${s}s</span> <span class="money-copper">${c}c</span>`;
+  }
+
+  function formatPlayed(sec) {
+    sec = Math.max(0, parseInt(sec, 10) || 0);
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h played`;
+    if (h > 0) return `${h}h ${m}m played`;
+    return `${m}m played`;
+  }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined || n === '') return '–';
+    const f = parseFloat(n);
+    return isNaN(f) ? '–' : (Number.isInteger(f) ? String(f) : f.toFixed(1));
+  }
+
+  // Armory has two views: the searchable all-bots list (landing) and the
+  // per-bot profile. state.armoryGuid === null means the list view.
+  function armoryView() {
+    const listMode = state.armoryGuid === null || state.armoryGuid === undefined;
+    if (el.armoryListView) el.armoryListView.style.display = listMode ? 'block' : 'none';
+    if (el.armoryProfileView) el.armoryProfileView.style.display = listMode ? 'none' : 'block';
+  }
+
+  function showArmoryList() {
+    state.armoryGuid = null;
+    state.armoryProfile = null;
+    switchTab('armory');
+  }
+
+  function openArmory(guid) {
+    state.armoryGuid = guid;
+    state.armoryProfile = null;
+    switchTab('armory');
+    armoryView();
+    if (el.armoryError) el.armoryError.style.display = 'none';
+    if (el.armoryBody) el.armoryBody.style.display = 'none';
+    if (el.armoryName) { el.armoryName.textContent = 'Loading…'; el.armoryName.style.color = '#fff'; }
+    if (el.armorySubtitle) el.armorySubtitle.textContent = '';
+    if (el.armoryMoney) el.armoryMoney.innerHTML = '';
+    if (el.armoryPlayed) el.armoryPlayed.textContent = '';
+    fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
+      .then(async r => {
+        if (r.status === 401) throw new Error('HTTP 401');
+        if (!r.ok) {
+          const body = (await r.text()).trim().slice(0, 200);
+          throw new Error(`HTTP ${r.status}${body ? `: ${body}` : ''}`);
+        }
+        return r.json();
+      })
+      .then(p => {
+        if (state.armoryGuid !== guid) return;
+        state.armoryProfile = p;
+        renderArmory();
+      })
+      .catch(e => {
+        if (state.armoryGuid !== guid) return;
+        const msg = String((e && e.message) || 'fetch failed');
+        if (msg.includes('401')) {
+          if (el.armoryName) el.armoryName.textContent = 'Session expired';
+          if (el.armoryError) {
+            el.armoryError.style.display = 'block';
+            el.armoryError.innerHTML = 'Session expired — <a href="/login" style="color: #58a6ff;">log in again</a>, then reopen the bot.';
+          }
+          return;
+        }
+        if (el.armoryName) el.armoryName.textContent = 'Bot not found';
+        if (el.armoryError) {
+          el.armoryError.style.display = 'block';
+          el.armoryError.textContent = `Could not load bot #${guid}: ${msg}`;
+        }
+      });
+  }
+
+  function closeArmory() {
+    showArmoryList();
+  }
+
+  function armorySortValue(b, key) {
+    switch (key) {
+      case 'class': return classNameById(b.class).toLowerCase();
+      case 'level': return b.level || 0;
+      case 'race': return raceNameById(b.race).toLowerCase();
+      case 'money': return parseInt(b.money, 10) || 0;
+      case 'online': return b.online ? 1 : 0;
+      default: return (b.name || '').toLowerCase();
+    }
+  }
+
+  function updateArmorySortIndicators() {
+    document.querySelectorAll('#tab-armory #armory-list-view th.sortable').forEach(th => {
+      th.classList.toggle('sort-active', th.dataset.armorySort === state.armorySort.key);
+      const base = th.textContent.replace(/[ ▲▼]+$/, '');
+      const arrow = th.dataset.armorySort === state.armorySort.key ? (state.armorySort.dir > 0 ? ' ▲' : ' ▼') : '';
+      th.textContent = base + arrow;
+    });
+  }
+
+  let armoryListTimer = null;
+  function renderArmoryList() {
+    if (!el.armoryListBody) return;
+    const q = ((el.armoryListSearch && el.armoryListSearch.value) || '').trim();
+    el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading…</td></tr>`;
+    fetch(`/api/v1/armory/bots?q=${encodeURIComponent(q)}`)
+      .then(async r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then(bots => {
+        if (!Array.isArray(bots)) throw new Error('bad payload');
+        if (!q && el.armoryNavCount) el.armoryNavCount.textContent = String(bots.length);
+        if (!bots.length) {
+          el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No bots match “${esc(q)}”.</td></tr>`;
+          return;
+        }
+
+        const key = state.armorySort.key;
+        const dir = state.armorySort.dir;
+        bots.sort((a, b) => {
+          const av = armorySortValue(a, key), bv = armorySortValue(b, key);
+          if (av < bv) return -1 * dir;
+          if (av > bv) return 1 * dir;
+          return String(a.name || '').localeCompare(String(b.name || ''));
+        });
+
+        updateArmorySortIndicators();
+
+        el.armoryListBody.innerHTML = bots.map(b => `
+          <tr>
+            <td data-guid="${b.guid}" style="cursor: pointer; font-weight: 600; color: ${classColor(classNameById(b.class))};">${esc(b.name)}</td>
+            <td>${esc(classNameById(b.class))}</td>
+            <td>${esc(b.level)}</td>
+            <td>${esc(raceNameById(b.race))}</td>
+            <td class="mono">${formatMoney(b.money)}</td>
+            <td><span class="badge ${b.online ? 'badge-success' : 'badge-warn'}">${b.online ? 'Online' : 'Offline'}</span></td>
+          </tr>`).join('');
+      })
+      .catch(e => {
+        el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #f85149; padding: 24px;">Failed to load bot list: ${esc(String((e && e.message) || e))}</td></tr>`;
+      });
+  }
+
+  function armoryFocusMap() {
+    const guid = state.armoryGuid;
+    if (guid === null || guid === undefined) return;
+    const live = state.bots.some(b => b.guid === guid);
+    if (live) focusBot(guid);
+    else switchTab('map');
+  }
+
+  function renderArmory() {
+    const p = state.armoryProfile;
+    if (!p || !p.summary) return;
+    const s = p.summary;
+    const st = p.stats || {};
+    const clsName = classNameById(s.class);
+    if (el.armoryName) {
+      el.armoryName.textContent = s.name;
+      el.armoryName.style.color = classColor(clsName);
+    }
+    if (el.armorySubtitle) el.armorySubtitle.textContent = `Level ${s.level} ${raceNameById(s.race)} ${clsName}`;
+    if (el.armoryMoney) el.armoryMoney.innerHTML = formatMoney(s.money);
+    if (el.armoryPlayed) el.armoryPlayed.textContent = formatPlayed(s.totaltime);
+    if (el.armoryOnline) {
+      const on = !!s.online;
+      el.armoryOnline.textContent = on ? 'Online' : 'Offline';
+      el.armoryOnline.className = `badge ${on ? 'badge-success' : 'badge-warn'}`;
+    }
+
+    // Spec detection (highest talent tree points)
+    const trees = p.talents || [];
+    let specName = 'Unspecified';
+    let ptsArr = [0, 0, 0];
+    if (trees.length) {
+      ptsArr = trees.map(t => t.points || 0);
+      const totalPts = ptsArr.reduce((a, b) => a + b, 0);
+      if (totalPts > 0) {
+        let maxT = trees[0];
+        trees.forEach(t => {
+          if ((t.points || 0) > (maxT.points || 0)) maxT = t;
+        });
+        specName = maxT.name || 'Hybrid';
+      } else {
+        specName = 'Hybrid';
+      }
+    }
+    const specInfo = el.armorySpecInfo || document.getElementById('armory-spec-info');
+    if (specInfo) specInfo.textContent = `${specName} (${ptsArr.join(' / ')})`;
+
+    // HP Bar
+    const maxHp = st.maxhealth || 1;
+    const curHp = st.health !== undefined ? st.health : maxHp;
+    const hpPct = Math.min(100, Math.max(0, Math.round((curHp / maxHp) * 100)));
+    const hpBar = el.armoryHpBar || document.getElementById('armory-hp-bar');
+    const hpText = el.armoryHpText || document.getElementById('armory-hp-text');
+    if (hpBar) hpBar.style.width = `${hpPct}%`;
+    if (hpText) hpText.textContent = `${fmtNum(curHp)} / ${fmtNum(maxHp)} HP`;
+
+    // Power Bar (Mana / Rage / Energy)
+    const cls = s.class || 0;
+    const powerLabel = cls === 1 ? 'Rage' : cls === 4 ? 'Energy' : 'Mana';
+    const powerClass = cls === 1 ? 'stat-bar-fill stat-bar-rage' : cls === 4 ? 'stat-bar-fill stat-bar-energy' : 'stat-bar-fill stat-bar-mana';
+    const maxPow = cls === 1 ? (st.maxpower2 || 100) : cls === 4 ? (st.maxpower4 || 100) : (st.maxpower1 || 1);
+    const curPow = maxPow;
+    const powPct = Math.min(100, Math.max(0, Math.round((curPow / maxPow) * 100)));
+    const powBar = el.armoryPowBar || document.getElementById('armory-pow-bar');
+    const powText = el.armoryPowText || document.getElementById('armory-pow-text');
+    if (powBar) {
+      powBar.className = powerClass;
+      powBar.style.width = `${powPct}%`;
+    }
+    if (powText) powText.textContent = `${fmtNum(curPow)} / ${fmtNum(maxPow)} ${powerLabel}`;
+
+    if (el.armoryError) el.armoryError.style.display = 'none';
+    if (el.armoryBody) el.armoryBody.style.display = 'block';
+    renderArmoryGear(p);
+    renderArmoryStats(p);
+    renderArmoryPanel(p, state.armorySubtab || 'bags');
+  }
+
+  function itemSubclassName(cls, sub) {
+    const key = `${cls}-${sub}`;
+    return ITEM_SUBCLASS_NAMES[key] || ITEM_CLASS_NAMES[cls] || `Item ${cls}/${sub}`;
+  }
+
+  function itemStatName(t) {
+    return ITEM_STAT_NAMES[t] || `Stat ${t}`;
+  }
+
+  function getItemIconUrl(icon) {
+    if (!icon) return null;
+    const name = String(icon).toLowerCase().trim();
+    if (!name) return null;
+    return `/static/icons/${name}.jpg`;
+  }
+
+  function itemTooltip(item) {
+    if (!item) return 'Empty slot';
+    const d = item.detail || {};
+    const q = item.quality || 0;
+    const lines = [];
+    lines.push(`<div class="tip-name quality-text-${q}">${esc(item.name)}${item.count > 1 ? ` <span style="color:#fff;">×${esc(item.count)}</span>` : ''}</div>`);
+    if (item.item_level) lines.push(`<div class="tip-sub">Item Level ${esc(item.item_level)}</div>`);
+    if (ITEM_BONDING_NAMES[d.bonding]) lines.push(`<div class="tip-sub">${esc(ITEM_BONDING_NAMES[d.bonding])}</div>`);
+    const typeName = item.inventory_type ? INVTYPE_NAMES[item.inventory_type] : itemSubclassName(d.class, d.subclass);
+    if (typeName) lines.push(`<div class="tip-row"><span>${esc(typeName)}</span><span>${esc(itemSubclassName(d.class, d.subclass))}</span></div>`);
+    if (d.required_level) lines.push(`<div class="tip-row"><span>Requires Level</span><span>${esc(d.required_level)}</span></div>`);
+    if (d.armor) lines.push(`<div class="tip-row"><span>Armor</span><span>${esc(d.armor)}</span></div>`);
+    if (d.block) lines.push(`<div class="tip-row"><span>Block</span><span>${esc(d.block)}</span></div>`);
+    const dmg = (a, b) => (a || b) ? `<div class="tip-row"><span>Damage</span><span>${esc(Math.round(a || 0))} – ${esc(Math.round(b || 0))}</span></div>` : '';
+    lines.push(dmg(d.dmg_min1, d.dmg_max1) + dmg(d.dmg_min2, d.dmg_max2) + dmg(d.dmg_min3, d.dmg_max3));
+    if (d.delay) lines.push(`<div class="tip-row"><span>Speed</span><span>${esc((d.delay / 1000).toFixed(2))}</span></div>`);
+    const types = d.stat_types || [], vals = d.stat_values || [];
+    types.forEach((t, i) => {
+      const v = vals[i];
+      if (!v) return;
+      lines.push(`<div class="tip-stat">+${esc(v)} ${esc(itemStatName(t))}</div>`);
+    });
+    const res = [['Holy', d.res_holy], ['Fire', d.res_fire], ['Nature', d.res_nature], ['Frost', d.res_frost], ['Shadow', d.res_shadow], ['Arcane', d.res_arcane]];
+    res.forEach(([k, v]) => { if (v) lines.push(`<div class="tip-stat">+${esc(v)} ${k} Resistance</div>`); });
+    const sids = d.spell_ids || [], strg = d.spell_triggers || [], snames = d.spell_names || [];
+    sids.forEach((sid, i) => {
+      if (!sid) return;
+      const label = ITEM_TRIGGER_NAMES[strg[i]] || 'Effect:';
+      lines.push(`<div class="tip-proc">${esc(label)} ${esc(snames[i] || `Spell #${sid}`)}</div>`);
+    });
+    if (d.description) lines.push(`<div class="tip-flavor">${esc(d.description.replace(/^"|"$/g, ''))}</div>`);
+    lines.push(`<div class="tip-sub mono">#${esc(item.item_template)} · ${esc(qualityName(q))}</div>`);
+    if (d.sell_price) lines.push(`<div class="tip-sub">Sells for ${formatMoney(d.sell_price)}</div>`);
+    return lines.join('');
+  }
+
+  function gearBySlot(p) {
+    const m = {};
+    (p.equipment || []).forEach(e => { m[e.slot] = e; });
+    return m;
+  }
+
+  function gearRowLeft(slot, item) {
+    const slotName = EQUIP_SLOT_NAMES[slot] || `Slot ${slot}`;
+    const icon = item ? (item.icon || (item.detail && item.detail.icon)) : null;
+    const iconUrl = getItemIconUrl(icon);
+    const q = item ? item.quality : 0;
+
+    const iconHtml = iconUrl
+      ? `<img src="${iconUrl}" alt="${esc(slotName)}" onerror="this.onerror=null; this.parentElement.innerHTML='<span class=\\'gear-slot-initial\\'>${slotName[0]}</span>';" class="gear-icon-img">`
+      : `<span class="gear-slot-initial">${slotName[0]}</span>`;
+
+    if (!item) {
+      return `
+        <div class="gear-slot-row left gear-empty">
+          <div class="gear-icon-box quality-border-0">${iconHtml}</div>
+          <div class="gear-info">
+            <div class="gear-slot-label">${esc(slotName)}</div>
+            <div class="gear-empty-text">Empty</div>
+          </div>
+        </div>`;
+    }
+
+    const count = item.count > 1 ? ` <span class="gear-ilvl">×${esc(item.count)}</span>` : '';
+    const ilvl = item.item_level ? `<span class="gear-ilvl">iLvl ${esc(item.item_level)}</span>` : '';
+
+    return `
+      <div class="gear-slot-row left quality-border-${esc(q)}" data-tip='${esc(JSON.stringify(item))}'>
+        <div class="gear-icon-box quality-border-${esc(q)}">${iconHtml}</div>
+        <div class="gear-info">
+          <div class="gear-name quality-text-${esc(q)}">${esc(item.name)}${count}</div>
+          <div class="gear-subrow">
+            <span>${esc(slotName)}</span>${ilvl}<span class="mono">#${esc(item.item_template)}</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function gearRowRight(slot, item) {
+    const slotName = EQUIP_SLOT_NAMES[slot] || `Slot ${slot}`;
+    const icon = item ? (item.icon || (item.detail && item.detail.icon)) : null;
+    const iconUrl = getItemIconUrl(icon);
+    const q = item ? item.quality : 0;
+
+    const iconHtml = iconUrl
+      ? `<img src="${iconUrl}" alt="${esc(slotName)}" onerror="this.onerror=null; this.parentElement.innerHTML='<span class=\\'gear-slot-initial\\'>${slotName[0]}</span>';" class="gear-icon-img">`
+      : `<span class="gear-slot-initial">${slotName[0]}</span>`;
+
+    if (!item) {
+      return `
+        <div class="gear-slot-row right gear-empty">
+          <div class="gear-info" style="text-align: right;">
+            <div class="gear-slot-label">${esc(slotName)}</div>
+            <div class="gear-empty-text">Empty</div>
+          </div>
+          <div class="gear-icon-box quality-border-0">${iconHtml}</div>
+        </div>`;
+    }
+
+    const count = item.count > 1 ? ` <span class="gear-ilvl">×${esc(item.count)}</span>` : '';
+    const ilvl = item.item_level ? `<span class="gear-ilvl">iLvl ${esc(item.item_level)}</span>` : '';
+
+    return `
+      <div class="gear-slot-row right quality-border-${esc(q)}" data-tip='${esc(JSON.stringify(item))}'>
+        <div class="gear-info" style="text-align: right;">
+          <div class="gear-name quality-text-${esc(q)}">${esc(item.name)}${count}</div>
+          <div class="gear-subrow" style="justify-content: flex-end;">
+            <span>${esc(slotName)}</span>${ilvl}<span class="mono">#${esc(item.item_template)}</span>
+          </div>
+        </div>
+        <div class="gear-icon-box quality-border-${esc(q)}">${iconHtml}</div>
+      </div>`;
+  }
+
+  function gearRowWeapon(slot, item) {
+    const slotName = EQUIP_SLOT_NAMES[slot] || `Slot ${slot}`;
+    const icon = item ? (item.icon || (item.detail && item.detail.icon)) : null;
+    const iconUrl = getItemIconUrl(icon);
+    const q = item ? item.quality : 0;
+
+    const iconHtml = iconUrl
+      ? `<img src="${iconUrl}" alt="${esc(slotName)}" onerror="this.onerror=null; this.parentElement.innerHTML='<span class=\\'gear-slot-initial\\'>${slotName[0]}</span>';" class="gear-icon-img">`
+      : `<span class="gear-slot-initial">${slotName[0]}</span>`;
+
+    if (!item) {
+      return `
+        <div class="gear-weapon-item gear-empty">
+          <div class="gear-icon-box quality-border-0">${iconHtml}</div>
+          <div class="gear-info" style="text-align: center;">
+            <div class="gear-slot-label">${esc(slotName)}</div>
+            <div class="gear-empty-text">Empty</div>
+          </div>
+        </div>`;
+    }
+
+    return `
+      <div class="gear-weapon-item quality-border-${esc(q)}" data-tip='${esc(JSON.stringify(item))}'>
+        <div class="gear-icon-box quality-border-${esc(q)}">${iconHtml}</div>
+        <div class="gear-info" style="text-align: center;">
+          <div class="gear-name quality-text-${esc(q)}">${esc(item.name)}</div>
+          <div class="gear-subrow" style="justify-content: center;">
+            <span>${esc(slotName)}</span>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function renderArmoryGear(p) {
+    const m = gearBySlot(p);
+    if (el.gearLeft) el.gearLeft.innerHTML = GEAR_LEFT.map(s => gearRowLeft(s, m[s])).join('');
+    if (el.gearRight) el.gearRight.innerHTML = GEAR_RIGHT.map(s => gearRowRight(s, m[s])).join('');
+    if (el.gearWeapons) el.gearWeapons.innerHTML = GEAR_WEAPONS.map(s => gearRowWeapon(s, m[s])).join('');
+    bindItemTooltips(document.getElementById('tab-armory'));
+  }
+
+  function armoryTipDiv() {
+    let tip = document.getElementById('item-tooltip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.id = 'item-tooltip';
+      tip.className = 'item-tooltip';
+      tip.style.display = 'none';
+      document.body.appendChild(tip);
+    }
+    return tip;
+  }
+
+  function bindItemTooltips(root) {
+    if (!root) return;
+    const tip = armoryTipDiv();
+    root.querySelectorAll('[data-tip]').forEach(node => {
+      if (node.dataset.tipBound) return;
+      node.dataset.tipBound = '1';
+      node.addEventListener('mouseenter', e => {
+        let item = null;
+        try { item = JSON.parse(node.dataset.tip); } catch (err) { item = null; }
+        tip.innerHTML = itemTooltip(item);
+        tip.style.display = 'block';
+        const pad = 14;
+        const r = tip.getBoundingClientRect();
+        let left = e.clientX + pad, top = e.clientY + pad;
+        if (left + r.width > window.innerWidth - 6) left = e.clientX - r.width - pad;
+        if (top + r.height > window.innerHeight - 6) top = e.clientY - r.height - pad;
+        tip.style.left = `${Math.max(6, left)}px`;
+        tip.style.top = `${Math.max(6, top)}px`;
+      });
+      node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+  }
+
+  function bindSpellTooltips(root) {
+    if (!root) return;
+    const tip = armoryTipDiv();
+    root.querySelectorAll('[data-sptip]').forEach(node => {
+      if (node.dataset.sptipBound) return;
+      node.dataset.sptipBound = '1';
+      node.addEventListener('mouseenter', e => {
+        tip.innerHTML = node.dataset.sptip;
+        tip.style.display = 'block';
+        const pad = 14;
+        const r = tip.getBoundingClientRect();
+        let left = e.clientX + pad, top = e.clientY + pad;
+        if (left + r.width > window.innerWidth - 6) left = e.clientX - r.width - pad;
+        if (top + r.height > window.innerHeight - 6) top = e.clientY - r.height - pad;
+        tip.style.left = `${Math.max(6, left)}px`;
+        tip.style.top = `${Math.max(6, top)}px`;
+      });
+      node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    });
+  }
+
+  function bagItemRow(it) {
+    const q = it.quality || 0;
+    const iconUrl = getItemIconUrl(it.icon);
+    const iconHtml = iconUrl
+      ? `<img src="${iconUrl}" style="width: 20px; height: 20px; border-radius: 3px; vertical-align: middle; margin-right: 6px;" onerror="this.style.display='none';">`
+      : '';
+    return `<tr data-tip='${esc(JSON.stringify(it))}'><td class="mono">${esc(it.slot)}</td><td class="quality-text-${q}">${iconHtml}${esc(it.name)} <span class="badge quality-badge-${q}">${esc(qualityName(q))}</span></td><td class="mono">×${esc(it.count > 1 ? it.count : 1)}</td><td class="mono" style="color: var(--text-dim);">#${esc(it.item_template)}</td></tr>`;
+  }
+
+  function bagTable(items) {
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Slot</th><th>Item</th><th>Count</th><th>Entry</th></tr></thead><tbody>${items.map(bagItemRow).join('')}</tbody></table></div>`;
+  }
+
+  function renderArmoryPanel(p, tab) {
+    if (tab === 'stats') tab = 'bags';
+    state.armorySubtab = tab;
+    document.querySelectorAll('.armory-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
+    ['bags', 'talents', 'spells', 'skills'].forEach(t => {
+      const panel = document.getElementById(`armory-content-${t}`);
+      if (panel) panel.style.display = t === tab ? 'block' : 'none';
+    });
+    if (tab === 'bags') renderArmoryBags(p);
+    else if (tab === 'talents') renderArmoryTalents(p);
+    else if (tab === 'spells') renderArmorySpells(p);
+    else if (tab === 'skills') renderArmorySkills(p);
+  }
+
+  function renderArmoryStats(p) {
+    const host = document.getElementById('armory-content-stats');
+    if (!host) return;
+    const st = p.stats || {};
+
+    const attrsCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">💪</span> Attributes</div>
+        <div class="stat-card-row"><span>Strength</span><strong class="mono">${esc(fmtNum(st.strength))}</strong></div>
+        <div class="stat-card-row"><span>Agility</span><strong class="mono">${esc(fmtNum(st.agility))}</strong></div>
+        <div class="stat-card-row"><span>Stamina</span><strong class="mono">${esc(fmtNum(st.stamina))}</strong></div>
+        <div class="stat-card-row"><span>Intellect</span><strong class="mono">${esc(fmtNum(st.intellect))}</strong></div>
+        <div class="stat-card-row"><span>Spirit</span><strong class="mono">${esc(fmtNum(st.spirit))}</strong></div>
+      </div>`;
+
+    const defenseCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">🛡️</span> Defense</div>
+        <div class="stat-card-row"><span>Armor</span><strong class="mono">${esc(fmtNum(st.armor))}</strong></div>
+        <div class="stat-card-row"><span>Dodge</span><strong class="mono">${esc(fmtNum(st.dodge_pct))}%</strong></div>
+        <div class="stat-card-row"><span>Parry</span><strong class="mono">${esc(fmtNum(st.parry_pct))}%</strong></div>
+        <div class="stat-card-row"><span>Block</span><strong class="mono">${esc(fmtNum(st.block_pct))}%</strong></div>
+      </div>`;
+
+    const spellCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">✨</span> Spell</div>
+        <div class="stat-card-row"><span>Spell Hit</span><strong class="mono">${esc(fmtNum(st.spell_hit))}%</strong></div>
+        <div class="stat-card-row"><span>Cast Speed</span><strong class="mono">${esc(fmtNum(st.cast_speed))}</strong></div>
+      </div>`;
+
+    const meleeCard = `
+      <div class="armory-stat-card" style="grid-column: span 2;">
+        <div class="stat-card-title"><span class="stat-icon">⚔️</span> Melee & Ranged</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px;">
+          <div>
+            <div class="stat-card-row"><span>Attack Power</span><strong class="mono">${esc(fmtNum(st.attack_power))}</strong></div>
+            <div class="stat-card-row"><span>Ranged AP</span><strong class="mono">${esc(fmtNum(st.ranged_attack_power))}</strong></div>
+            <div class="stat-card-row"><span>Damage</span><strong class="mono" style="color: #fff;">${esc(st.melee_damage || '–')}</strong></div>
+          </div>
+          <div>
+            <div class="stat-card-row"><span>Melee Speed</span><strong class="mono">${st.melee_speed ? esc(fmtNum(st.melee_speed) + 's') : '–'}</strong></div>
+            <div class="stat-card-row"><span>Melee Crit</span><strong class="mono">${esc(fmtNum(st.melee_crit_pct))}%</strong></div>
+            <div class="stat-card-row"><span>Melee Hit</span><strong class="mono">${esc(fmtNum(st.melee_hit))}%</strong></div>
+          </div>
+        </div>
+      </div>`;
+
+    const resistCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">🔮</span> Resistance</div>
+        <div class="stat-card-row"><span>🔮 Arcane</span><strong class="mono">${esc(st.res_arcane || 0)}</strong></div>
+        <div class="stat-card-row"><span>🔥 Fire</span><strong class="mono">${esc(st.res_fire || 0)}</strong></div>
+        <div class="stat-card-row"><span>🌿 Nature</span><strong class="mono">${esc(st.res_nature || 0)}</strong></div>
+        <div class="stat-card-row"><span>❄️ Frost</span><strong class="mono">${esc(st.res_frost || 0)}</strong></div>
+        <div class="stat-card-row"><span>💀 Shadow</span><strong class="mono">${esc(st.res_shadow || 0)}</strong></div>
+        <div class="stat-card-row"><span>✨ Holy</span><strong class="mono">${esc(st.res_holy || 0)}</strong></div>
+      </div>`;
+
+    host.innerHTML = `
+      <div class="armory-stat-cards-grid">
+        ${attrsCard}
+        ${defenseCard}
+        ${spellCard}
+        ${meleeCard}
+        ${resistCard}
+      </div>`;
+  }
+
+
+  function renderArmoryBags(p) {
+    const host = document.getElementById('armory-content-bags');
+    if (!host) return;
+    const bp = p.backpack || [];
+    let html = `<div class="bag-block"><div class="bag-head"><strong>Backpack</strong><span style="color: var(--text-muted);">${bp.length}/16</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${Math.round((bp.length / 16) * 100)}%; background: var(--accent-blue-bright);"></div></div></div>`;
+    html += bp.length ? bagTable(bp) : `<div class="empty-hint">Backpack is empty.</div>`;
+    html += `</div>`;
+    (p.bags || []).forEach(b => {
+      const cap = b.container_slots || b.items.length;
+      const pct = cap ? Math.min(100, Math.round((b.items.length / cap) * 100)) : 0;
+      html += `<div class="bag-block"><div class="bag-head"><strong class="quality-text-${esc(b.quality)}">${esc(b.name)}</strong><span style="color: var(--text-muted);">${b.items.length}/${cap || '?'} · slot ${esc(b.slot)}</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${pct}%; background: var(--accent-blue-bright);"></div></div></div>`;
+      html += b.items.length ? bagTable(b.items) : `<div class="empty-hint">Empty.</div>`;
+      html += `</div>`;
+    });
+    if (!(p.bags || []).length) html += `<div class="empty-hint">No equipped bags.</div>`;
+    const bb = p.buyback || [];
+    if (bb.length) {
+      html += `<div class="bag-block"><div class="bag-head"><strong>Sold to vendor (buyback)</strong><span style="color: var(--text-muted);">${bb.length} recoverable</span></div>${bagTable(bb)}</div>`;
+    }
+    host.innerHTML = html;
+    bindItemTooltips(host);
+  }
+  function talentTooltipHtml(treeName, n, p) {
+    const name = n.name || `Talent ${n.talent_id}`;
+    const req = n.row * 5;
+    let spDesc = '';
+    if (n.spell_id && p && p.spells) {
+      const sp = p.spells.find(s => s.spell === n.spell_id);
+      if (sp) {
+        spDesc = spellText(sp) || sp.description || '';
+      }
+    }
+    if (!spDesc && n.description) {
+      spDesc = spellText({ description: n.description }) || n.description;
+    }
+    if (!spDesc) {
+      spDesc = `${treeName} talent (Rank ${n.rank}/${n.max_rank}).`;
+    }
+    return `<div class="tip-name" style="color: #e6cc80;">${esc(name)}</div><div class="tip-sub" style="color: var(--accent-yellow); font-weight: 600;">Rank ${n.rank}/${n.max_rank}</div>${req > 0 ? `<div class="tip-sub">Requires ${req} points in ${esc(treeName)}</div>` : ''}<div class="tip-stat" style="margin-top: 6px; color: #fff; max-width: 280px;">${esc(spDesc)}</div>${n.spell_id ? `<div class="tip-sub mono" style="margin-top: 4px; font-size: 0.7rem;">Spell #${n.spell_id}</div>` : ''}`;
+  }
+
+  function renderArmoryTalents(p) {
+    const host = document.getElementById('armory-content-talents');
+    if (!host) return;
+    const trees = p.talents || [];
+    const spent = trees.reduce((a, t) => a + (t.points || 0), 0);
+    if (!trees.length) {
+      host.innerHTML = `<div class="empty-hint">No talent points spent yet — this bot is level ${esc((p.summary || {}).level)} with ${esc((p.summary || {}).level >= 10 ? (p.summary.level - 9) : 0)} point(s) available. Trees appear here once points are allocated.</div>`;
+      return;
+    }
+    const active = state.armoryTalentTab || 0;
+    const tabs = trees.map((t, i) => `<button class="armory-subtab${i === active ? ' active' : ''}" data-ttab="${i}">${esc(t.name)} (${esc(t.points)})</button>`).join('');
+    const tree = trees[Math.min(active, trees.length - 1)];
+    const byRow = {};
+    (tree.talents || []).forEach(n => { (byRow[n.row] = byRow[n.row] || []).push(n); });
+    const rows = Object.keys(byRow).map(Number).sort((a, b) => a - b).map(r => {
+      const need = r * 5;
+      const cells = byRow[r].slice().sort((a, b) => a.col - b.col).map(n => {
+        const cls = n.rank > 0 ? (n.rank >= n.max_rank ? 'learned' : 'partial') : 'unlearned';
+        const iconUrl = getItemIconUrl(n.icon);
+        const iconHtml = iconUrl
+          ? `<img src="${iconUrl}" alt="${esc(n.name)}" onerror="this.onerror=null; this.style.display='none';" class="talent-icon-img">`
+          : `<div class="talent-icon-placeholder">${esc((n.name || 'T')[0])}</div>`;
+        const tip = talentTooltipHtml(tree.name, n, p);
+        return `<div class="talent-node-box ${cls}" data-sptip="${esc(tip)}"><div class="talent-node-icon-wrap">${iconHtml}<div class="talent-rank-badge">${esc(n.rank)}/${esc(n.max_rank)}</div></div><div class="talent-node-name">${esc(n.name || `Talent ${n.talent_id}`)}</div></div>`;
+      }).join('');
+      return `<div class="talent-tier"><div class="talent-tier-label">Tier ${r + 1}<span>req ${need}</span></div><div class="talent-tier-nodes">${cells}</div></div>`;
+    }).join('');
+    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 10px;">${esc(spent)} point(s) spent</div><div class="armory-subtabs" style="border-bottom: none; padding-bottom: 0;">${tabs}</div><div class="talent-tree"><div class="talent-tree-head"><span>${esc(tree.name)}</span><span class="badge badge-info">${esc(tree.points)} pts</span></div>${rows || '<div class="empty-hint">—</div>'}</div>`;
+    bindSpellTooltips(host);
+    host.querySelectorAll('[data-ttab]').forEach(btn => {
+      btn.addEventListener('click', () => { state.armoryTalentTab = parseInt(btn.dataset.ttab, 10) || 0; renderArmoryTalents(p); });
+    });
+  }
+
+  function renderArmorySpells(p) {
+    const host = document.getElementById('armory-content-spells');
+    if (!host) return;
+    const q = (state.armorySpellFilter || '').toLowerCase().trim();
+    const all = p.spells || [];
+    const filtered = all.filter(sp => {
+      if (!q) return true;
+      return (sp.name || '').toLowerCase().includes(q) || String(sp.spell).includes(q);
+    });
+    let html = `<div style="display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap;"><span style="color: var(--text-muted); font-size: 0.8rem;">${filtered.length}/${all.length} spells</span><input id="armory-spell-filter" class="btn" style="padding: 6px 12px; min-width: 200px;" placeholder="Filter spells..." value="${esc(state.armorySpellFilter || '')}"></div>`;
+    if (!filtered.length) {
+      html += `<div class="empty-hint">No spells match.</div>`;
+    } else {
+      const groups = {};
+      filtered.forEach(sp => {
+        const g = spellBucket(sp);
+        (groups[g] = groups[g] || []).push(sp);
+      });
+      ['Class spells', 'Abilities', 'Auras & Forms', 'Pet & Minions', 'Professions'].forEach(g => {
+        const list = (groups[g] || []).slice(0, 500);
+        if (!list.length) return;
+        const rows = list.map(sp => {
+          const badge = sp.disabled ? `<span class="badge badge-warn">Disabled</span>` : (sp.active ? `<span class="badge badge-success">Active</span>` : `<span class="badge">Inactive</span>`);
+          const tip = spellTooltip(sp);
+          const iconUrl = getItemIconUrl(sp.icon);
+          const iconHtml = iconUrl
+            ? `<img src="${iconUrl}" onerror="this.style.display='none';" class="spell-table-icon">`
+            : '';
+          return `<tr data-sptip="${esc(tip)}"><td class="mono" style="color: var(--text-dim);">#${esc(sp.spell)}</td><td><div style="display: flex; align-items: center; gap: 8px;">${iconHtml}<div><span style="font-weight: 600;">${esc(sp.name || `Spell ${sp.spell}`)}</span>${sp.subtext ? ` <span style="color: var(--text-muted);">${esc(sp.subtext)}</span>` : ''}</div></div></td><td>${esc(spellSchoolName(sp.school))}</td><td>${badge}</td></tr>`;
+        }).join('');
+        html += `<div class="section-label" style="margin: 14px 0 8px;">${esc(g)} · ${list.length}</div><div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>ID</th><th>Spell</th><th>School</th><th>State</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+      });
+    }
+    host.innerHTML = html;
+    bindSpellTooltips(host);
+    const input = document.getElementById('armory-spell-filter');
+    if (input) {
+      input.addEventListener('input', e => {
+        state.armorySpellFilter = e.target.value;
+        const pos = e.target.selectionStart;
+        renderArmorySpells(p);
+        const next = document.getElementById('armory-spell-filter');
+        if (next) { next.focus(); try { next.setSelectionRange(pos, pos); } catch (err) {} }
+      });
+    }
+  }
+
+  function skillTable(list) {
+    return `<div style="overflow-x: auto;"><table class="data-table"><thead><tr><th>Skill</th><th>Value</th><th>Max</th><th style="width: 40%;">Progress</th></tr></thead><tbody>${list.map(sk => {
+      const pct = sk.max ? Math.min(100, Math.round((sk.value / sk.max) * 100)) : 0;
+      const color = sk.max && sk.value >= sk.max ? 'var(--accent-green-bright)' : (pct >= 70 ? 'var(--accent-blue-bright)' : 'var(--accent-yellow)');
+      const iconName = skillIconById(sk.skill);
+      const iconUrl = getItemIconUrl(iconName);
+      const iconHtml = iconUrl
+        ? `<img src="${iconUrl}" onerror="this.style.display='none';" class="spell-table-icon">`
+        : '';
+      return `<tr>
+        <td>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            ${iconHtml}
+            <div>
+              <span style="font-weight: 600;">${esc(skillNameById(sk.skill))}</span>
+              <span class="mono" style="color: var(--text-dim); font-size: 0.7rem; margin-left: 4px;">#${esc(sk.skill)}</span>
+            </div>
+          </div>
+        </td>
+        <td class="mono">${esc(sk.value)}</td>
+        <td class="mono" style="color: var(--text-muted);">${esc(sk.max)}</td>
+        <td>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" style="width: ${pct}%; background: ${color};"></div>
+          </div>
+        </td>
+      </tr>`;
+    }).join('')}</tbody></table></div>`;
+  }
+
+  function renderArmorySkills(p) {
+    const host = document.getElementById('armory-content-skills');
+    if (!host) return;
+    const skills = p.skills || [];
+    if (!skills.length) {
+      host.innerHTML = `<div class="empty-hint">No skill rows recorded for this bot.</div>`;
+      return;
+    }
+    const groupOf = id => COMBAT_SKILL_IDS.includes(id) ? 0
+      : (ARMOR_SKILL_IDS.includes(id) ? 1
+      : (PROFESSION_SKILL_IDS.includes(id) ? 2 : 3));
+
+    const sorted = [...skills].sort((a, b) => groupOf(a.skill) - groupOf(b.skill) || skillNameById(a.skill).localeCompare(skillNameById(b.skill)));
+    const groups = [[], [], [], []];
+    sorted.forEach(sk => groups[groupOf(sk.skill)].push(sk));
+    const titles = ['Weapons & Defense', 'Armor Proficiencies', 'Professions', 'Languages & Secondary Skills'];
+    host.innerHTML = groups.map((g, i) => g.length ? `<div class="section-label" style="margin: 14px 0 8px;">${titles[i]}</div>${skillTable(g)}` : '').join('') || `<div class="empty-hint">No skills.</div>`;
+  }
+
+  function initArmory() {
+    if (el.armoryBack) el.armoryBack.addEventListener('click', closeArmory);
+    if (el.armoryMapBtn) el.armoryMapBtn.addEventListener('click', armoryFocusMap);
+    document.querySelectorAll('.armory-subtab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (state.armoryProfile) renderArmoryPanel(state.armoryProfile, btn.dataset.subtab);
+        else {
+          state.armorySubtab = btn.dataset.subtab;
+          document.querySelectorAll('.armory-subtab').forEach(b => b.classList.toggle('active', b === btn));
+        }
+      });
+    });
+    // Armory list: server-side name search, click a row to open the profile.
+    if (el.armoryListSearch) {
+      el.armoryListSearch.addEventListener('input', () => {
+        clearTimeout(armoryListTimer);
+        armoryListTimer = setTimeout(renderArmoryList, 300);
+      });
+    }
+    if (el.armoryListBody) {
+      el.armoryListBody.addEventListener('click', e => {
+        const td = e.target.closest('td[data-guid]');
+        if (td) openArmory(parseInt(td.dataset.guid, 10));
+      });
+    }
+    document.querySelectorAll('#tab-armory #armory-list-view th.sortable').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.armorySort;
+        if (state.armorySort.key === key) {
+          state.armorySort.dir *= -1;
+        } else {
+          state.armorySort.key = key;
+          state.armorySort.dir = 1;
+        }
+        renderArmoryList();
+      });
+    });
+  }
   function fetchAnomalies() {
     fetch('/api/v1/anomalies')
       .then(r => r.json())
@@ -1655,9 +2738,10 @@
 
   // Init
   initZoneSelector();
+  initArmory();
   fetchBots();
   fetchAnomalies();
   fetchIssues();
   initWebSocket();
-
+  switchTab('dashboard');
 })();
