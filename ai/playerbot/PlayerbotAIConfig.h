@@ -416,8 +416,6 @@ public:
     // Fish-location generation scans populated grids and writes the resulting
     // points to WorldDatabase. Keep the expensive persistent rebuild opt-in.
     bool generateFishLocations;
-    bool syncLevelWithPlayers;
-    uint32 syncLevelMaxAbove, syncLevelNoPlayer;
     bool syncAltLevelToMaster;
     uint32 tweakValue; //Debugging config
     float respawnModNeutral, respawnModHostile;

@@ -49,7 +49,7 @@ These flags control the behavior of autonomous random bots roaming the world:
 | `AiPlayerbot.RandomBotAutoCreate` | `0` | **`1`** | Automatically creates new bot accounts/characters if the active pool is below `MinRandomBots`. |
 | `AiPlayerbot.MinRandomBots` / `MaxRandomBots` | `0` | `50` / `150` | Sets the minimum and maximum active random bot population. |
 | `AiPlayerbot.RandomBotStartLevelMin` / `Max` | `1` / `1` | `1` / `1` (raise for test pools) | **Fresh-Bot Level Seed:** A newly created pool bot gets a random level in this range once, on its first login, before its skills, professions and starter gear are seeded. Useful for running a pool that starts at a playable level (e.g. `10` / `15`) instead of walking up from 1. Set both to 1 to keep the historic behaviour. |
-| `AiPlayerbot.SyncLevelWithPlayers` | `0` | **`1`** | **Dynamic Level Bracket:** Restricts random bot levels to the highest online human player level + 5, ensuring the world levels up alongside you. |
+| `AiPlayerbot.RandomBotMaxLevel` | `60` | `40` (test pools) | Caps the gear/item tables random bots roll from; it does not assign bot levels. |
 | `AiPlayerbot.RandomBotInvitePlayer` | `1` | `1` | Random bots in the open world will invite solo human players to form questing groups. |
 | `AiPlayerbot.RandomBotGroupNearby` | `1` | `1` | Bots will organically invite each other to form questing parties and dungeon groups. |
 | `AiPlayerbot.RandomBotFormGuild` | `1` | `1` | Bots will buy guild charters, collect signatures from other bots, and found their own guilds. |

@@ -62,14 +62,12 @@ For servers configured to run persistent, organically leveling bots starting at 
 
 ---
 
-## 3. Dynamic World Level Syncing
+## 3. Fresh-Bot Level Seed
 
-A common issue with bot realms is having level 60 bots everywhere while you are leveling a fresh level 10 character. TortoiseBots solves this through dynamic bracket scaling:
+A common issue with bot realms is a whole pool stuck at level 1 while you level a fresh character. TortoiseBots seeds each fresh pool bot once, on its first login, at a random level in `AiPlayerbot.RandomBotStartLevelMin`/`Max` (for example 10–15 for a test pool, 1/1 keeps the historic level-1 start):
 
-* **`AiPlayerbot.SyncLevelWithPlayers = 1`**
-  * When enabled, the server dynamically caps random bot levels to the highest online human player's level + 5 (`SyncLevelMaxAbove = 5`).
-  * If you log in at level 18, the bot population scales around levels 10–23, populating Westfall, Darkshore, the Barrens, and Loch Modan.
-  * As you level up into the 30s and 40s, the bot population advances into Stranglethorn Vale, Tanaris, and the Hinterlands alongside you.
+* Bots level up normally from their seed through grinding, questing, and XP.
+* The login scatter runs after the seed, so a seeded bot is placed in a zone fitting its level.
 
 ---
 
@@ -142,9 +140,9 @@ AiPlayerbot.RandomBotAutoCreate = 1
 AiPlayerbot.MinRandomBots = 60
 AiPlayerbot.MaxRandomBots = 150
 
-# Dynamic level scaling with online players
-AiPlayerbot.SyncLevelWithPlayers = 1
-AiPlayerbot.SyncLevelMaxAbove = 5
+# Fresh-bot level seed (verified 10–15 test pool)
+AiPlayerbot.RandomBotStartLevelMin = 10
+AiPlayerbot.RandomBotStartLevelMax = 15
 
 # Social immersion
 AiPlayerbot.RandomBotInvitePlayer = 1
