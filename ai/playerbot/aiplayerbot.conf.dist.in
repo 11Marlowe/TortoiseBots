@@ -308,6 +308,15 @@ AiPlayerbot.DisableRandomLevels = 0
 # Recommended: 5+
 AiPlayerbot.randombotStartingLevel = 1
 
+# Random starting level for freshly created pool bots, inclusive range.
+# Applied once per bot on its first login (played time == 0), before the
+# level-bound skills, professions and starter gear are seeded, so a fresh pool
+# starts playable instead of walking up from level 1. Bots level up normally
+# from there. 1/1 keeps the historic behaviour (start at level 1).
+# Default: 1 / 1 (disabled)
+AiPlayerbot.RandomBotStartLevelMin = 1
+AiPlayerbot.RandomBotStartLevelMax = 1
+
 # Set XP rate for bots (default: 1)
 # Server XP Rate * AiPlayerbot.XPRate
 AiPlayerbot.XPRate = 3

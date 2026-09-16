@@ -428,7 +428,10 @@ InventoryResult RandomBotFacade::CanEquipUnseenItem(Player* player, uint8 slot, 
         return EQUIP_ERR_ITEM_NOT_FOUND;
 
     ItemPrototype const* prototype = sObjectMgr.GetItemPrototype(item);
-    return prototype ? player->CanEquipItem(slot, dest, prototype, nullptr, false) : EQUIP_ERR_ITEM_NOT_FOUND;
+    // swap=true: the caller compares old-vs-new itself and replaces in place; with
+    // swap=false CanEquipItem rejects an occupied slot (e.g. starter MH weapon)
+    // and every upgrade candidate dies there.
+    return prototype ? player->CanEquipItem(slot, dest, prototype, nullptr, true) : EQUIP_ERR_ITEM_NOT_FOUND;
 }
 
 bool RandomBotFacade::IsPinnedBot(uint32 guidLow)

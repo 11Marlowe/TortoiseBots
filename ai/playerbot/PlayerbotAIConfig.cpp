@@ -582,6 +582,8 @@ bool PlayerbotAIConfig::Initialize()
     RandombotsWalkingRPGInDoors = config.GetBoolDefault("AiPlayerbot.RandombotsWalkingRPG.InDoors", false);
     minEnchantingBotLevel = config.GetIntDefault("AiPlayerbot.minEnchantingBotLevel", 60);
     randombotStartingLevel = config.GetIntDefault("AiPlayerbot.randombotStartingLevel", 5);
+    randomBotStartLevelMin = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMin", 1);
+    randomBotStartLevelMax = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMax", randomBotStartLevelMin);
     gearscorecheck = config.GetBoolDefault("AiPlayerbot.GearScoreCheck", false);
     levelCheck = config.GetIntDefault("AiPlayerbot.LevelCheck", 30);
 	randomBotPreQuests = config.GetBoolDefault("AiPlayerbot.PreQuests", true);

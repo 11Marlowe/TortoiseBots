@@ -83,7 +83,7 @@ Bot movement bridges native C++ AI directly to the core server's `MotionMaster`:
 | :--- | :--- |
 | **Simultaneous Eat & Drink** | Out of combat, bots scan bags for Food (Item Category 11) and Drink (Item Category 59). If both health and mana are depleted, the bot consumes both simultaneously in a single rest phase. |
 | **Conjured Item Sharing** | Mages out of combat automatically conjure food and water stacks and trade them to mana-using party members who have low supplies. |
-| **Gear Upgrades & Scoring** | When `RandomGearUpgradeEnabled = 1`, the bot evaluates equipment by calculating spec-relevant stat weights (Strength/Agility for physical, Spell Power/Intellect for casters). Items with higher effective scores are equipped automatically. |
+| **Gear Upgrades & Scoring** | When `RandomGearUpgradeEnabled = 1`, the bot evaluates equipment by calculating spec-relevant stat weights (Strength/Agility for physical, Spell Power/Intellect for casters) from the `ai_playerbot_weightscales` dataset. Items with higher effective scores are equipped automatically. Scoring needs the first-boot caches (`AiPlayerbot.GenerateItemCaches`, and the `ai_playerbot_item_info_cache` built in memory on every start) — while they are missing, the factory only kits out high-level spawns and loot only fills empty slots. |
 | **Initial Skill & Profession Seeding** | On servers running persistent-level bots (`DisableRandomLevels = 1`), bots never pass through the legacy `Randomize()` pipeline. To avoid swinging with weapon skill 1/5 and having no trade skills, fresh random bots receive their full suite of class weapon skills (scaled to current level cap), First Aid, and two class-compatible primary professions once on initial login. |
 
 ---
