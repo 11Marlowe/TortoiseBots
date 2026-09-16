@@ -181,24 +181,42 @@ void RandomItemMgr::BuildRandomItemCache()
     }
     else
     {
-        // The native module ships the cache schema separately from the large
-        // optional dataset. MaNGOS returns an empty result as nullptr here;
-        // distinguish that from a genuinely absent/legacy cache so startup
-        // does not synchronously issue one INSERT per item on the world
-        // thread. A populated cache still follows the mature load path.
+        // MaNGOS returns an empty result set as a failed query, so what is left
+        // here is either an absent table or an empty one. The native module ships
+        // the schema only, so a fresh install has an empty cache and reaches this
+        // path; it is generated once and loaded from the database afterwards.
         auto cacheCount = CharacterDatabase.PQuery("SELECT COUNT(*) FROM ai_playerbot_rnditem_cache");
         if (!cacheCount)
         {
             sLog.outErrorDb("TortoiseBots: ai_playerbot_rnditem_cache is missing; skipping optional cache generation");
             return;
         }
-        if (cacheCount->Fetch()->GetUInt32() == 0)
+
+        if (!sPlayerbotAIConfig.generateItemCaches)
         {
-            sLog.outString("Random item cache is present but empty; skipping optional cache generation");
+            sLog.outString("Random item cache is empty and AiPlayerbot.GenerateItemCaches is disabled; skipping optional cache generation");
             return;
         }
 
         sLog.outString("Building random item cache from %u items", sItemStorage.GetMaxEntry());
+
+        // One INSERT per entry would be ~94k round trips on the world thread, so
+        // rows are collected into multi-row statements. PExecute formats into a
+        // 32KB fixed buffer and does not report a truncated statement, so a flush
+        // stays well below it.
+        std::string rows;
+        rows.reserve(MAX_QUERY_LEN / 2);
+        auto flushRows = [&rows]()
+        {
+            if (rows.empty())
+                return;
+
+            CharacterDatabase.PExecute("insert into ai_playerbot_rnditem_cache (lvl, type, item) values %s", rows.c_str());
+            rows.clear();
+        };
+
+        CharacterDatabase.BeginTransaction();
+
         for (uint32 itemId = 0; itemId < sItemStorage.GetMaxEntry(); ++itemId)
         {
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
@@ -224,11 +242,19 @@ void RandomItemMgr::BuildRandomItemCache()
                 if (predicates[rit] && !predicates[rit]->Apply(proto))
                     continue;
 
+                char row[48];
+                snprintf(row, sizeof(row), "%s(%u, %u, %u)", rows.empty() ? "" : ", ", level / 10, type, itemId);
+                rows += row;
+
+                if (rows.size() >= 24 * 1024)
+                    flushRows();
+
                 randomItemCache[level / 10][rit].push_back(itemId);
-                CharacterDatabase.PExecute("insert into ai_playerbot_rnditem_cache (lvl, type, item) values (%u, %u, %u)",
-                        level / 10, type, itemId);
             }
         }
+
+        flushRows();
+        CharacterDatabase.CommitTransaction();
 
         uint32 maxLevel = sPlayerbotAIConfig.randomBotMaxLevel;
         if (maxLevel > sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
@@ -266,36 +292,6 @@ uint32 RandomItemMgr::GetRandomItem(uint32 level, RandomItemType type, RandomIte
     uint32 itemId = list[index];
 
     return itemId;
-}
-
-bool RandomItemMgr::CanEquipItem(BotEquipKey key, ItemPrototype const* proto)
-{
-    if (proto->Duration & 0x80000000)
-        return false;
-
-    if (proto->Quality != key.quality)
-        return false;
-
-    if (proto->Bonding == BIND_QUEST_ITEM || proto->Bonding == BIND_WHEN_USE)
-        return false;
-
-    if (proto->Class == ITEM_CLASS_CONTAINER)
-        return true;
-
-    std::set<InventoryType> slots = viableSlots[(EquipmentSlots)key.slot];
-    if (slots.find((InventoryType)proto->InventoryType) == slots.end())
-        return false;
-
-    uint32 requiredLevel = proto->RequiredLevel;
-
-    if (!requiredLevel)
-    {
-        requiredLevel = GetMinLevelFromCache(proto->ItemId);
-    }
-    if (!requiredLevel)
-        return false;
-
-    return true;
 }
 
 bool RandomItemMgr::CanEquipItemNew(ItemPrototype const* proto)
@@ -2297,9 +2293,14 @@ uint32 RandomItemMgr::GetUpgrade(Player* player, std::string spec, uint8 slot, u
     uint32 closestUpgradeWeight = 0;
     std::vector<uint32> classspecs;
 
-    for (uint32 specNum = 1; specNum < 5; ++specNum)
+    for (uint32 specNum = 1; specNum <= MAX_STAT_SCALES; ++specNum)
     {
         if (!m_weightScales[specNum].info.id)
+            continue;
+
+        // Only the player's own class specs may be compared against each other;
+        // scanning ids 1..4 limited this to the warrior and paladin specs.
+        if (m_weightScales[specNum].info.classId != player->GetClass())
             continue;
 
         classspecs.push_back(m_weightScales[specNum].info.id);
@@ -2890,161 +2891,246 @@ void RandomItemMgr::BuildEquipCache()
     }
     else
     {
+        // MaNGOS returns an empty result set as a failed query, so what is left
+        // here is either an absent table or an empty one. The native module ships
+        // the schema only, so a fresh install has an empty cache and reaches this
+        // path; it is generated once and loaded from the database afterwards.
         auto cacheCount = CharacterDatabase.PQuery("SELECT COUNT(*) FROM ai_playerbot_equip_cache");
         if (!cacheCount)
         {
             sLog.outErrorDb("TortoiseBots: ai_playerbot_equip_cache is missing; skipping optional cache generation");
             return;
         }
-        if (cacheCount->Fetch()->GetUInt32() == 0)
+
+        if (!sPlayerbotAIConfig.generateItemCaches)
         {
-            sLog.outString("Equipment cache is present but empty; skipping optional cache generation");
+            sLog.outString("Equipment cache is empty and AiPlayerbot.GenerateItemCaches is disabled; skipping optional cache generation");
             return;
         }
 
-        uint64 total = uint64(MAX_CLASSES * 3 * maxLevel * EQUIPMENT_SLOT_END * ITEM_QUALITY_ARTIFACT);
-        sLog.outString("Building equipment cache for %d classes, %d specs, %d levels, %d slots, %d quality from %d items (%zu total)",
-                MAX_CLASSES, MAX_STAT_SCALES, maxLevel, EQUIPMENT_SLOT_END, ITEM_QUALITY_ARTIFACT, sItemStorage.GetMaxEntry(), total);
+        // BuildItemInfoCache() bails out early while the world weight scales are
+        // empty, and a cache generated without them would hold nothing but the
+        // shirt/tabard rows and then load as "populated" forever. The warning the
+        // scale load already logs is the actionable part.
+        if (itemInfoCache.empty())
+        {
+            sLog.outError("Equipment cache is empty and no item stat weights are available; skipping optional cache generation");
+            return;
+        }
 
-        BarGoLink bar(total);
-        // Tracks how many items were cached for each stat-weight spec, so we can
-        // emit a visible progress line per (class, spec) as the build advances.
+        sLog.outString("Building equipment cache for %d classes, %d specs, %d levels, %d slots, %d quality from %d items",
+                MAX_CLASSES, MAX_STAT_SCALES, maxLevel, EQUIPMENT_SLOT_END, ITEM_QUALITY_ARTIFACT, sItemStorage.GetMaxEntry());
+
+        // Tracks how many items were cached for each stat-weight spec, reported
+        // once per spec after the walk.
         std::map<uint32, uint64> specItemCounts;
         RandomItemList tabardsList;
         RandomItemList shirtsList;
         BotEquipKey tabardKey(60, 1, 1, EQUIPMENT_SLOT_TABARD, 1);
         BotEquipKey shirtKey(60, 1, 1, EQUIPMENT_SLOT_BODY, 1);
 
-        // The cache is built only from ItemPrototype rows loaded by Tortoise.
-
-        for (uint8 clazz = CLASS_WARRIOR; clazz < MAX_CLASSES; ++clazz)
+        // The cache is built from the loaded ItemPrototype rows in a single pass.
+        // Walking the whole item id space (up to ~2M ids on Tortoise) once per
+        // (class, spec, level, slot, quality) key is what made the first startup
+        // take tens of minutes on the world thread: ~11s for ~2.9M rows here, of
+        // which the prototype walk itself is under a second. Rows are written as
+        // multi-row statements inside one transaction, because one INSERT per
+        // cached item would be ~2.9M round trips. PExecute formats into a 32KB
+        // fixed buffer and does not report a truncated statement, so a flush stays
+        // well below it.
+        std::string rows;
+        rows.reserve(MAX_QUERY_LEN / 2);
+        auto flushRows = [&rows]()
         {
-            // skip nonexistent classes
-            if (!((1 << (clazz - 1)) & CLASSMASK_ALL_PLAYABLE) || !sChrClassesStore.LookupEntry(clazz))
+            if (rows.empty())
+                return;
+
+            CharacterDatabase.PExecute("insert into ai_playerbot_equip_cache (clazz, spec, lvl, slot, quality, item) values %s", rows.c_str());
+            rows.clear();
+        };
+
+        auto addItem = [&](BotEquipKey const& key, uint32 itemId)
+        {
+            equipCache[key].push_back(itemId);
+
+            char row[80];
+            snprintf(row, sizeof(row), "%s(%u, %u, %u, %u, %u, %u)", rows.empty() ? "" : ", ",
+                (unsigned)key.clazz, (unsigned)key.spec, key.level, (unsigned)key.slot, key.quality, itemId);
+            rows += row;
+
+            if (rows.size() >= 24 * 1024)
+                flushRows();
+        };
+
+        CharacterDatabase.BeginTransaction();
+
+        for (uint32 itemId = 0; itemId < sItemStorage.GetMaxEntry(); ++itemId)
+        {
+            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+            if (!proto)
                 continue;
 
-            for (uint32 level = 1; level <= maxLevel; ++level)
+            // Reject everything no key could ever accept, cheapest test first.
+            if (proto->Quality > ITEM_QUALITY_ARTIFACT)
+                continue;
+
+            // Shirts and tabards are not cached per class, spec and level: the
+            // donor build collected them under the fixed (60, 1, 1, slot, 1) key,
+            // and never checked their bind state or required level.
+            if (proto->InventoryType == INVTYPE_BODY || proto->InventoryType == INVTYPE_TABARD)
             {
-                for (uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
+                bool bodySlot = proto->InventoryType == INVTYPE_BODY;
+
+                for (uint8 clazz = CLASS_WARRIOR; clazz < MAX_CLASSES; ++clazz)
                 {
-                    for (uint32 spec = 1; spec <= MAX_STAT_SCALES; ++spec)
+                    // skip nonexistent classes
+                    if (!((1 << (clazz - 1)) & CLASSMASK_ALL_PLAYABLE) || !sChrClassesStore.LookupEntry(clazz))
+                        continue;
+
+                    if (!IsRandomGearCandidate(proto, clazz))
+                        continue;
+
+                    if (bodySlot)
+                        shirtsList.push_back(itemId);
+                    else
+                        tabardsList.push_back(itemId);
+                    break;
+                }
+
+                continue;
+            }
+
+            if (proto->Duration & 0x80000000)
+                continue;
+
+            if (proto->Bonding == BIND_QUEST_ITEM || proto->Bonding == BIND_WHEN_USE)
+                continue;
+
+            if (proto->Class != ITEM_CLASS_WEAPON &&
+                proto->Class != ITEM_CLASS_ARMOR &&
+                proto->Class != ITEM_CLASS_CONTAINER &&
+                proto->Class != ITEM_CLASS_PROJECTILE)
+                continue;
+
+            auto infoItr = itemInfoCache.find(itemId);
+            if (infoItr == itemInfoCache.end() || !infoItr->second)
+                continue;
+
+            ItemInfoEntry* info = infoItr->second;
+
+            // Without a required level there is no level bracket to cache for;
+            // CanEquipItem() rejects such an item as well.
+            uint32 minLevel = info->minLevel;
+            if (!proto->RequiredLevel && !minLevel)
+                continue;
+
+            // Slots this prototype can occupy. CanEquipItem() resolved this per
+            // key, but it only depends on the inventory type.
+            std::vector<uint8> protoSlots;
+            for (uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
+            {
+                std::set<InventoryType> const& slots = viableSlots[(EquipmentSlots)slot];
+                if (slots.find((InventoryType)proto->InventoryType) != slots.end())
+                    protoSlots.push_back(slot);
+            }
+
+            if (protoSlots.empty())
+                continue;
+
+            // The donor key held an item for every level within 20 levels of its
+            // own required level, never below it and never above the cache range.
+            uint32 levelLow = minLevel > 20 ? minLevel - 20 : 1;
+            uint32 levelHigh = std::min(maxLevel, minLevel + 20);
+
+            for (uint8 clazz = CLASS_WARRIOR; clazz < MAX_CLASSES; ++clazz)
+            {
+                // skip nonexistent classes
+                if (!((1 << (clazz - 1)) & CLASSMASK_ALL_PLAYABLE) || !sChrClassesStore.LookupEntry(clazz))
+                    continue;
+
+                if (!IsRandomGearCandidate(proto, clazz))
+                    continue;
+
+                for (uint32 spec = 1; spec <= MAX_STAT_SCALES; ++spec)
+                {
+                    if (!m_weightScales[spec].info.id)
+                        continue;
+
+                    if (m_weightScales[spec].info.classId != clazz)
+                        continue;
+
+                    // check stat weight
+                    uint32 statWeight = info->weights[spec];
+
+                    // only accept "useless" items if bot level <= 30
+                    uint32 specLevelHigh = (statWeight == 1 && !proto->RandomProperty) ? std::min(levelHigh, 30u) : levelHigh;
+
+                    if (statWeight <= 0 || levelLow > specLevelHigh)
+                        continue;
+
+                    for (std::vector<uint8>::iterator i = protoSlots.begin(); i != protoSlots.end(); ++i)
                     {
-                        if (!m_weightScales[spec].info.id)
+                        uint8 slot = *i;
+
+                        if (slot == EQUIPMENT_SLOT_OFFHAND && clazz == CLASS_ROGUE && proto->Class != ITEM_CLASS_WEAPON)
                             continue;
 
-                        if (m_weightScales[spec].info.classId != clazz)
-                            continue;
+                        bool armorSlot = proto->Class == ITEM_CLASS_ARMOR && (
+                            slot == EQUIPMENT_SLOT_HEAD ||
+                            slot == EQUIPMENT_SLOT_SHOULDERS ||
+                            slot == EQUIPMENT_SLOT_CHEST ||
+                            slot == EQUIPMENT_SLOT_WAIST ||
+                            slot == EQUIPMENT_SLOT_LEGS ||
+                            slot == EQUIPMENT_SLOT_FEET ||
+                            slot == EQUIPMENT_SLOT_WRISTS ||
+                            slot == EQUIPMENT_SLOT_HANDS);
 
-                        for (uint32 quality = ITEM_QUALITY_POOR; quality <= ITEM_QUALITY_ARTIFACT; ++quality)
+                        // CanEquipArmor() only ever switches on the level 40 armor
+                        // proficiency step, so it is evaluated once per band.
+                        bool armorBelow40 = !armorSlot || CanEquipArmor(clazz, (uint8)spec, 39, proto);
+                        bool armorAt40Plus = !armorSlot || CanEquipArmor(clazz, (uint8)spec, 40, proto);
+
+                        for (uint32 level = levelLow; level <= specLevelHigh; ++level)
                         {
-                            BotEquipKey key(level, clazz, spec, slot, quality);
+                            if (!(level < 40 ? armorBelow40 : armorAt40Plus))
+                                continue;
 
-                            RandomItemList items;
-                            for (uint32 itemId = 0; itemId < sItemStorage.GetMaxEntry(); ++itemId)
-                            {
-                                ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-                                if (!proto)
-                                    continue;
-
-                                if (!IsRandomGearCandidate(proto, clazz))
-                                    continue;
-
-                                if (proto->Quality != key.quality)
-                                    continue;
-
-                                if ((slot == EQUIPMENT_SLOT_BODY || slot == EQUIPMENT_SLOT_TABARD))
-                                {
-                                    std::set<InventoryType> slots = viableSlots[(EquipmentSlots)key.slot];
-                                    if (slots.find((InventoryType)proto->InventoryType) == slots.end())
-                                        continue;
-
-                                    if (slot == EQUIPMENT_SLOT_BODY && std::find(shirtsList.begin(), shirtsList.end(), itemId) == shirtsList.end())
-                                        shirtsList.push_back(itemId);
-                                    if (slot == EQUIPMENT_SLOT_TABARD && std::find(tabardsList.begin(), tabardsList.end(), itemId) == tabardsList.end())
-                                        tabardsList.push_back(itemId);
-
-                                    CharacterDatabase.PExecute("replace into ai_playerbot_equip_cache (id, clazz, spec, lvl, slot, quality, item) values (%u, %u, %u, %u, %u, %u, %u)",
-                                        2000000 + itemId, 1, 1, 60, slot, 1, itemId);
-
-                                    continue;
-                                }
-
-                                // check stat weight
-                                uint32 statWeight = GetStatWeight(itemId, spec);
-                                if (statWeight <= 0)
-                                    continue;
-
-                                // only accept "useless" items if bot level <= 30
-                                if (statWeight == 1 && level > 30 && !proto->RandomProperty)
-                                    continue;
-
-                                uint32 minLevel = GetMinLevelFromCache(itemId);
-                                // skip higher level (e.g. quest rewards)
-                                if (minLevel > level)
-                                    continue;
-
-                                if (abs((int)minLevel - (int)level) > 20)
-                                    continue;
-
-                                /*if (proto->Class == ITEM_CLASS_WEAPON && abs((int)minLevel - (int)level) > 10)
-                                    continue;*/
-
-                                if (proto->Class != ITEM_CLASS_WEAPON &&
-                                    proto->Class != ITEM_CLASS_ARMOR &&
-                                    proto->Class != ITEM_CLASS_CONTAINER &&
-                                    proto->Class != ITEM_CLASS_PROJECTILE)
-                                    continue;
-
-                                if (!CanEquipItem(key, proto))
-                                    continue;
-
-                                if (proto->Class == ITEM_CLASS_ARMOR && (
-                                    slot == EQUIPMENT_SLOT_HEAD ||
-                                    slot == EQUIPMENT_SLOT_SHOULDERS ||
-                                    slot == EQUIPMENT_SLOT_CHEST ||
-                                    slot == EQUIPMENT_SLOT_WAIST ||
-                                    slot == EQUIPMENT_SLOT_LEGS ||
-                                    slot == EQUIPMENT_SLOT_FEET ||
-                                    slot == EQUIPMENT_SLOT_WRISTS ||
-                                    slot == EQUIPMENT_SLOT_HANDS) && !CanEquipArmor(key.clazz, key.spec, key.level, proto))
-                                    continue;
-
-                                //if (proto->Class == ITEM_CLASS_WEAPON && !CanEquipWeapon(key.clazz, proto))
-                                //    continue;
-
-                                if (slot == EQUIPMENT_SLOT_OFFHAND && key.clazz == CLASS_ROGUE && proto->Class != ITEM_CLASS_WEAPON)
-                                    continue;
-
-                                items.push_back(itemId);
-
-                                CharacterDatabase.PExecute("insert into ai_playerbot_equip_cache (clazz, spec, lvl, slot, quality, item) values (%u, %u, %u, %u, %u, %u)",
-                                    clazz, spec, level, slot, quality, itemId);
-                            }
-
-                            equipCache[key] = items;
-                            specItemCounts[spec] += items.size();
-                            bar.step();
-                            sLog.outDetail("Equipment cache for class: %d, level %d, slot %d, quality %d: %zu items",
-                                clazz, level, slot, quality, items.size());
+                            addItem(BotEquipKey(level, clazz, (uint8)spec, slot, proto->Quality), itemId);
+                            specItemCounts[spec]++;
                         }
                     }
                 }
             }
-
-            // The class loop is outermost, so once we leave a class body every spec
-            // belonging to that class is fully built. Emit one visible line per spec.
-            for (uint32 spec = 1; spec <= MAX_STAT_SCALES; ++spec)
-            {
-                if (!m_weightScales[spec].info.id || m_weightScales[spec].info.classId != clazz)
-                    continue;
-
-                sLog.outBasic("[GearCache] class %u spec %u (%s): cached %llu items",
-                    clazz, spec, m_weightScales[spec].info.name.c_str(),
-                    (unsigned long long)specItemCounts[spec]);
-            }
         }
+
+        flushRows();
+
+        // The fixed shirt/tabard keys are what the mature gear code queries, and
+        // their rows carry the item id in the row id so a rebuild replaces them
+        // instead of accumulating duplicates.
         equipCache[tabardKey] = tabardsList;
         equipCache[shirtKey] = shirtsList;
+
+        for (RandomItemList::iterator i = shirtsList.begin(); i != shirtsList.end(); ++i)
+            CharacterDatabase.PExecute("replace into ai_playerbot_equip_cache (id, clazz, spec, lvl, slot, quality, item) values (%u, %u, %u, %u, %u, %u, %u)",
+                2000000 + *i, 1, 1, 60, EQUIPMENT_SLOT_BODY, 1, *i);
+
+        for (RandomItemList::iterator i = tabardsList.begin(); i != tabardsList.end(); ++i)
+            CharacterDatabase.PExecute("replace into ai_playerbot_equip_cache (id, clazz, spec, lvl, slot, quality, item) values (%u, %u, %u, %u, %u, %u, %u)",
+                2000000 + *i, 1, 1, 60, EQUIPMENT_SLOT_TABARD, 1, *i);
+
+        CharacterDatabase.CommitTransaction();
+
+        for (uint32 spec = 1; spec <= MAX_STAT_SCALES; ++spec)
+        {
+            if (!m_weightScales[spec].info.id)
+                continue;
+
+            sLog.outBasic("[GearCache] class %u spec %u (%s): cached %llu items",
+                m_weightScales[spec].info.classId, spec, m_weightScales[spec].info.name.c_str(),
+                (unsigned long long)specItemCounts[spec]);
+        }
+
         sLog.outString("Equipment cache saved to DB");
     }
 }

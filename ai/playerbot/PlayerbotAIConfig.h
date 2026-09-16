@@ -134,6 +134,10 @@ public:
     bool randomGearProgression;
     float randomGearLoweringChance;
     bool rollBadItemsWithPlayer;
+    // One-time generation of the optional ai_playerbot_equip_cache and
+    // ai_playerbot_rnditem_cache tables while they are empty. The in-memory
+    // item info cache and the world weight-scale load are never gated by this.
+    bool generateItemCaches;
     float usePotionChance;
     float attackEmoteChance;
     uint32 minRandomBots, maxRandomBots;

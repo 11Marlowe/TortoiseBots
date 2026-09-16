@@ -254,6 +254,18 @@ AiPlayerbot.RandomGearBlacklist = 0
 # 0 - roll greed on such items (Default)
 AiPlayerbot.RollBadItemsWithPlayer = 0
 
+# Build the optional character-database item caches (ai_playerbot_equip_cache and
+# ai_playerbot_rnditem_cache) once, on the first startup that finds them empty.
+# The generator walks the item prototypes a single time and writes the result in
+# one transaction, which takes seconds; afterwards the caches are loaded from the
+# database on every later startup. A fresh install therefore gears its bots
+# without any manual SQL import.
+# 1 - generate the caches while they are empty (Default)
+# 0 - leave the caches alone; bots then only fill empty slots from loot
+# The world weight scales (data/sql/world/20260916090001_world.sql) and the
+# in-memory item info cache are always loaded and are not affected by this.
+AiPlayerbot.GenerateItemCaches = 1
+
 # Bot transport use style: 0 = walk on transports (currently not available), 1 = teleport on transports and ride it, 2 = teleport from dock to dock bypassing transport.
 # AiPlayerbot.TransportTeleportType = 2
 
