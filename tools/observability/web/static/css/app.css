@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+/* Offline-friendly system font stack */
 
 :root {
   /* Tell the browser this page is already dark. Without this, Chrome's
@@ -972,14 +972,35 @@ body {
 .money-silver { color: #e6e6e6; }
 .money-copper { color: #c89b7b; }
 
+.armory-main-grid {
+  display: grid;
+  grid-template-columns: 460px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 1080px) {
+  .armory-main-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.armory-paperdoll-section {
+  width: 100%;
+}
+
+.armory-stats-section {
+  width: 100%;
+}
+
 .armory-gear {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px 20px;
+  gap: 6px 12px;
   margin-bottom: 6px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 500px) {
   .armory-gear { grid-template-columns: 1fr; }
 }
 
@@ -992,11 +1013,11 @@ body {
 .armory-weapons {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 6px 20px;
-  margin: 6px 0 20px;
+  gap: 6px 10px;
+  margin: 6px 0 12px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 500px) {
   .armory-weapons { grid-template-columns: 1fr; }
 }
 
@@ -1278,3 +1299,320 @@ body {
   font-style: italic;
   margin-top: 4px;
 }
+
+/* WoW Classic Armory Paperdoll & Stat Cards */
+.armory-stat-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.armory-stat-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.stat-card-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stat-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.stat-card-row strong {
+  color: var(--text-main);
+}
+
+.stat-bar-wrap {
+  position: relative;
+  height: 20px;
+  background: #080c12;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+}
+
+.stat-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  transition: width 0.3s ease;
+}
+
+.stat-bar-hp {
+  background: linear-gradient(90deg, #2ea043, #3fb950);
+}
+
+.stat-bar-mana {
+  background: linear-gradient(90deg, #1f6feb, #388bfd);
+}
+
+.stat-bar-rage {
+  background: linear-gradient(90deg, #da3633, #f85149);
+}
+
+.stat-bar-energy {
+  background: linear-gradient(90deg, #d29922, #e3b341);
+}
+
+.stat-bar-text {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  text-align: center;
+  font-size: 0.73rem;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.resistance-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  margin-top: 6px;
+}
+
+@media (max-width: 768px) {
+  .resistance-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.res-box {
+  background: #080b0f;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px;
+  text-align: center;
+}
+
+.res-icon { font-size: 1rem; margin-bottom: 2px; }
+.res-name { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; text-transform: uppercase; }
+.res-val { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.95rem; color: #fff; margin-top: 2px; }
+
+.res-arcane { border-color: rgba(163, 53, 238, 0.4); }
+.res-fire { border-color: rgba(248, 81, 73, 0.4); }
+.res-nature { border-color: rgba(46, 160, 67, 0.4); }
+.res-frost { border-color: rgba(88, 166, 255, 0.4); }
+.res-shadow { border-color: rgba(139, 148, 158, 0.4); }
+.res-holy { border-color: rgba(230, 204, 128, 0.4); }
+
+.gear-slot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  min-height: 48px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+}
+
+.gear-slot-row.left .gear-info {
+  text-align: left;
+}
+.gear-slot-row.left .gear-name {
+  text-align: left;
+}
+
+.gear-slot-row.right .gear-info {
+  text-align: right;
+}
+.gear-slot-row.right .gear-name {
+  text-align: right;
+}
+
+.gear-slot-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  line-height: 1.2;
+}
+
+.gear-empty-text {
+  color: var(--text-dim);
+  font-weight: 400;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.gear-subrow {
+  display: flex;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.gear-weapon-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  min-height: 72px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.gear-weapon-item .gear-name {
+  text-align: center;
+}
+
+.gear-icon-box {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 2px solid #30363d;
+  background: #06090e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.gear-icon-box.quality-border-0 { border-color: #9d9d9d; }
+.gear-icon-box.quality-border-1 { border-color: #ffffff; }
+.gear-icon-box.quality-border-2 { border-color: #1eff00; }
+.gear-icon-box.quality-border-3 { border-color: #0070dd; }
+.gear-icon-box.quality-border-4 { border-color: #a335ee; }
+.gear-icon-box.quality-border-5 { border-color: #ff8000; }
+.gear-icon-box.quality-border-6 { border-color: #e6cc80; }
+
+.gear-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.gear-slot-initial {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.gear-info {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Spell Table & Talent Icons */
+.spell-table-icon {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.talent-node-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.talent-node-box:hover {
+  transform: translateY(-2px);
+  border-color: var(--accent-yellow);
+}
+
+.talent-node-box.learned {
+  border-color: rgba(230, 204, 128, 0.7);
+  background: rgba(230, 204, 128, 0.08);
+}
+
+.talent-node-box.partial {
+  border-color: rgba(210, 153, 34, 0.6);
+  background: rgba(210, 153, 34, 0.06);
+}
+
+.talent-node-box.unlearned {
+  opacity: 0.5;
+  filter: grayscale(0.7);
+}
+
+.talent-node-icon-wrap {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 2px solid #30363d;
+  background: #06090e;
+}
+
+.talent-node-box.learned .talent-node-icon-wrap { border-color: #e6cc80; }
+.talent-node-box.partial .talent-node-icon-wrap { border-color: #d29922; }
+
+.talent-icon-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.talent-icon-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.talent-rank-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+  padding: 1px 3px;
+  border-top-left-radius: 4px;
+}
+
+.talent-node-name {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70px;
+}
+
+

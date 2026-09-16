@@ -316,6 +316,9 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 			&se.School, &se.IconID, &se.Icon); err != nil {
 			return nil, err
 		}
+		if se.Icon == "" && se.IconID != 0 {
+			se.Icon = s.spellIconByID(se.IconID)
+		}
 		se.Values = []int32{v1, v2, v3}
 		se.Misc = []int32{m1, m2, m3}
 		se.Triggers = []uint32{t1, t2, t3}
@@ -457,8 +460,15 @@ func (s *Service) scanBuyback(query string, guid uint32, profile *BotProfile) er
 // a bot is online (core writes them only on logout), so without this every
 // online bot renders 0/0%. characters.health can be stale (1 HP corpse row),
 // so prefer player_classlevelstats.basehp and only fall back to the live row.
-// Armor sums equipped item armor + 2x agility (core SetArmor on create);
-// stamina bonus HP is intentionally NOT added (needs MaxStat-derived formula).
+func MathRound(v float64) float64 {
+	if v < 0 {
+		return float64(int(v - 0.5))
+	}
+	return float64(int(v + 0.5))
+}
+
+// loadLiveStats fills stats from live characters.health/power, base attributes,
+// and equipped gear stat bonuses (Str, Agi, Sta, Int, Spi, Armor, Resists).
 func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	var race, class, level uint32
 	var liveHP, p1, p2, p3, p4, p5 uint32
@@ -478,15 +488,131 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	if st.MaxHealth == 0 {
 		st.MaxHealth = liveHP
 	}
-	var gearArmor sql.NullInt64
-	_ = s.db.QueryRow(fmt.Sprintf(`SELECT COALESCE(SUM(it.armor), 0)
+
+	var totalArmor, resHoly, resFire, resNature, resFrost, resShadow, resArcane uint32
+	var bonusStr, bonusAgi, bonusSta, bonusInt, bonusSpi uint32
+	var mainDmgMin, mainDmgMax, mainDelay float64
+	var rangedDmgMin, rangedDmgMax, rangedDelay float64
+	var hasShield bool
+
+	q := fmt.Sprintf(`SELECT ci.slot, it.armor, it.holy_res, it.fire_res, it.nature_res, it.frost_res, it.shadow_res, it.arcane_res,
+		it.stat_type1, it.stat_value1, it.stat_type2, it.stat_value2,
+		it.stat_type3, it.stat_value3, it.stat_type4, it.stat_value4,
+		it.stat_type5, it.stat_value5, it.stat_type6, it.stat_value6,
+		it.stat_type7, it.stat_value7, it.stat_type8, it.stat_value8,
+		it.stat_type9, it.stat_value9, it.stat_type10, it.stat_value10,
+		it.delay, it.dmg_min1, it.dmg_max1, it.subclass, it.inventory_type
 		FROM character_inventory ci
 		JOIN %s.item_template it ON it.entry = ci.item_template
 		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= 0 AND ci.slot < %d`,
-		s.cfg.WorldDB, EquipmentSlotEnd), guid).Scan(&gearArmor)
-	if gearArmor.Valid {
-		st.Armor = uint32(gearArmor.Int64) + uint32(st.Agility*2)
+		s.cfg.WorldDB, EquipmentSlotEnd)
+
+	rows, err := s.db.Query(q, guid)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var slot uint32
+			var armor, rHoly, rFire, rNat, rFrst, rShad, rArc uint32
+			var st1, st2, st3, st4, st5, st6, st7, st8, st9, st10 int32
+			var sv1, sv2, sv3, sv4, sv5, sv6, sv7, sv8, sv9, sv10 int32
+			var delay, dmgMin, dmgMax uint32
+			var subClass, invType uint32
+
+			if err := rows.Scan(&slot, &armor, &rHoly, &rFire, &rNat, &rFrst, &rShad, &rArc,
+				&st1, &sv1, &st2, &sv2, &st3, &sv3, &st4, &sv4, &st5, &sv5,
+				&st6, &sv6, &st7, &sv7, &st8, &sv8, &st9, &sv9, &st10, &sv10,
+				&delay, &dmgMin, &dmgMax, &subClass, &invType); err == nil {
+
+				totalArmor += armor
+				resHoly += rHoly; resFire += rFire; resNature += rNat; resFrost += rFrst; resShadow += rShad; resArcane += rArc
+				if slot == 14 && (subClass == 6 || invType == 14) {
+					hasShield = true
+				}
+				if slot == 15 {
+					mainDmgMin = float64(dmgMin)
+					mainDmgMax = float64(dmgMax)
+					mainDelay = float64(delay)
+				} else if slot == 17 {
+					rangedDmgMin = float64(dmgMin)
+					rangedDmgMax = float64(dmgMax)
+					rangedDelay = float64(delay)
+				}
+
+				stats := [10][2]int32{{st1, sv1}, {st2, sv2}, {st3, sv3}, {st4, sv4}, {st5, sv5}, {st6, sv6}, {st7, sv7}, {st8, sv8}, {st9, sv9}, {st10, sv10}}
+				for _, pair := range stats {
+					if pair[1] <= 0 {
+						continue
+					}
+					switch pair[0] {
+					case 3: bonusAgi += uint32(pair[1])
+					case 4: bonusStr += uint32(pair[1])
+					case 5: bonusInt += uint32(pair[1])
+					case 6: bonusSpi += uint32(pair[1])
+					case 7: bonusSta += uint32(pair[1])
+					}
+				}
+			}
+		}
 	}
+
+	st.Strength += float64(bonusStr)
+	st.Agility += float64(bonusAgi)
+	st.Stamina += float64(bonusSta)
+	st.Intellect += float64(bonusInt)
+	st.Spirit += float64(bonusSpi)
+	st.Armor = totalArmor + uint32(st.Agility*2.0)
+	st.ResHoly = resHoly; st.ResFire = resFire; st.ResNature = resNature; st.ResFrost = resFrost; st.ResShadow = resShadow; st.ResArcane = resArcane
+
+	var ap, rap float64
+	lvl := float64(level)
+	str := st.Strength
+	agi := st.Agility
+
+	switch class {
+	case 1, 2:
+		if lvl*3.0+str*2.0 > 20.0 { ap = lvl*3.0 + str*2.0 - 20.0 }
+	case 3:
+		if lvl*2.0+agi*2.0 > 20.0 { ap = lvl*2.0 + agi*2.0 - 20.0 }
+		if lvl*2.0+agi*2.0 > 10.0 { rap = lvl*2.0 + agi*2.0 - 10.0 }
+	case 4:
+		if lvl*2.0+str+agi*2.0 > 20.0 { ap = lvl*2.0 + str + agi*2.0 - 20.0 }
+		if lvl*2.0+agi*2.0 > 20.0 { rap = lvl*2.0 + agi*2.0 - 20.0 }
+	case 7:
+		if lvl*2.0+str*2.0 > 20.0 { ap = lvl*2.0 + str*2.0 - 20.0 }
+	default:
+		if str*2.0 > 20.0 { ap = str*2.0 - 20.0 }
+	}
+
+	st.AttackPower = ap
+	st.RangedAttackPower = rap
+
+	critBase := 5.0 + agi/20.0
+	dodgeBase := 3.0 + agi/20.0
+	st.MeleeCritPct = critBase
+	st.RangedCritPct = critBase
+	st.DodgePct = dodgeBase
+	if class == 1 || class == 2 || class == 4 || class == 7 {
+		st.ParryPct = 5.0
+	}
+	if hasShield {
+		st.BlockPct = 5.0
+	}
+
+	if mainDmgMax > 0 {
+		apBonus := ap / 14.0 * (mainDelay / 1000.0)
+		dMin := MathRound(mainDmgMin + apBonus)
+		dMax := MathRound(mainDmgMax + apBonus)
+		st.MeleeDamage = fmt.Sprintf("%.0f – %.0f", dMin, dMax)
+		st.MeleeSpeed = mainDelay / 1000.0
+	}
+	if rangedDmgMax > 0 {
+		rapBonus := rap / 14.0 * (rangedDelay / 1000.0)
+		dMin := MathRound(rangedDmgMin + rapBonus)
+		dMax := MathRound(rangedDmgMax + rapBonus)
+		st.RangedDamage = fmt.Sprintf("%.0f – %.0f", dMin, dMax)
+		st.RangedSpeed = rangedDelay / 1000.0
+	}
+
 	st.Source = "live"
 }
 
@@ -527,13 +653,14 @@ func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 		SELECT t.id, t.talentTabId, t.tierId, t.columnIndex,
 		       t.spellRank1, t.spellRank2, t.spellRank3, t.spellRank4, t.spellRank5,
 		       tt.Name1, tt.orderIndex,
-		       COALESCE(st.name, '')
+		       COALESCE(st.name, ''), COALESCE(si.Name, ''), COALESCE(st.spellIconId, 0)
 		FROM %s.talent t
 		JOIN %s.talenttab tt ON tt.id = t.talentTabId
 		LEFT JOIN %s.spell_template st ON st.entry = t.spellRank1
+		LEFT JOIN %s.spellicon si ON si.ID = st.spellIconId
 		WHERE (tt.classMask & (1 << (? - 1))) != 0
 		ORDER BY tt.orderIndex, t.tierId, t.columnIndex, t.id
-	`, s.cfg.WorldDB, s.cfg.WorldDB, s.cfg.WorldDB)
+	`, s.cfg.WorldDB, s.cfg.WorldDB, s.cfg.WorldDB, s.cfg.WorldDB)
 
 	rows, err := s.db.Query(talentQuery, classID)
 	if err != nil {
@@ -553,17 +680,18 @@ func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 			r1, r2, r3, r4, r5        uint32
 			tabName                   sql.NullString
 			page                      uint32
-			spellName                 sql.NullString
+			spellName, spellIcon      sql.NullString
+			iconID                    uint32
 		)
 		if err := rows.Scan(&talentID, &tabID, &row, &col,
-			&r1, &r2, &r3, &r4, &r5, &tabName, &page, &spellName); err != nil {
+			&r1, &r2, &r3, &r4, &r5, &tabName, &page, &spellName, &spellIcon, &iconID); err != nil {
 			return nil, err
 		}
 		ranks := []uint32{r1, r2, r3, r4, r5}
 		maxRank := uint32(0)
 		activeSpell := uint32(0)
 		activeRank := uint32(0)
-		activeName := ""
+		activeName, activeIcon := "", ""
 		for i, rs := range ranks {
 			if rs == 0 {
 				continue
@@ -575,7 +703,19 @@ func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 				if spellName.Valid {
 					activeName = spellName.String
 				}
+				if spellIcon.Valid {
+					activeIcon = spellIcon.String
+				}
 			}
+		}
+		if activeName == "" && spellName.Valid {
+			activeName = spellName.String
+		}
+		if activeIcon == "" && spellIcon.Valid {
+			activeIcon = spellIcon.String
+		}
+		if activeIcon == "" && iconID != 0 {
+			activeIcon = s.spellIconByID(iconID)
 		}
 		if maxRank == 0 {
 			continue
@@ -592,7 +732,7 @@ func (s *Service) loadTalents(guid uint32) ([]TalentTree, error) {
 		}
 		trees[idx].Talents = append(trees[idx].Talents, TalentNode{
 			TalentID: talentID, Row: row, Col: col,
-			Rank: activeRank, MaxRank: maxRank, SpellID: activeSpell, Name: activeName,
+			Rank: activeRank, MaxRank: maxRank, SpellID: activeSpell, Name: activeName, Icon: activeIcon,
 		})
 		if activeRank > 0 {
 			trees[idx].Points += activeRank

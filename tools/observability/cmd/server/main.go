@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -132,6 +134,40 @@ func main() {
 			next.ServeHTTP(w, r)
 		})
 	}
+
+	// On-demand icon cache: serves local cached icons, or downloads once from CDN into disk cache
+	iconCacheDir := getEnv("ICON_CACHE_DIR", filepath.Join(os.TempDir(), "tortoise_icons"))
+	_ = os.MkdirAll(iconCacheDir, 0755)
+
+	mux.HandleFunc("/static/icons/", func(w http.ResponseWriter, r *http.Request) {
+		name := strings.TrimPrefix(r.URL.Path, "/static/icons/")
+		name = filepath.Base(name)
+		if name == "" || name == "." || name == "/" {
+			http.NotFound(w, r)
+			return
+		}
+		rawName := strings.TrimSuffix(name, filepath.Ext(name))
+		targetFile := filepath.Join(iconCacheDir, rawName+".jpg")
+		if _, err := os.Stat(targetFile); os.IsNotExist(err) {
+			client := &http.Client{Timeout: 8 * time.Second}
+			cdnURL := fmt.Sprintf("https://wow.zamimg.com/images/wow/icons/medium/%s.jpg", strings.ToLower(rawName))
+			resp, err := client.Get(cdnURL)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				defer resp.Body.Close()
+				data, err := io.ReadAll(resp.Body)
+				if err == nil && len(data) > 0 {
+					_ = os.WriteFile(targetFile, data, 0644)
+				}
+			}
+		}
+		if _, err := os.Stat(targetFile); err == nil {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			http.ServeFile(w, r, targetFile)
+			return
+		}
+		noCache(http.FileServer(http.FS(web.FS))).ServeHTTP(w, r)
+	})
+
 	mux.Handle("/static/", noCache(http.FileServer(http.FS(web.FS))))
 	mux.Handle("/maps/", noCache(http.FileServer(http.FS(web.FS))))
 	mux.Handle("/data/", noCache(http.FileServer(http.FS(web.FS))))

@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -36,9 +37,57 @@ type dbcCache struct {
 }
 
 var (
-	dbcMu    sync.Mutex
-	dbcByDir = map[string]*dbcCache{}
+	dbcMu        sync.Mutex
+	dbcByDir     = map[string]*dbcCache{}
+	dbcSpellIcon = map[string]map[uint32]string{}
 )
+
+func loadDBCSpellIcons(dir string) (map[uint32]string, error) {
+	dbcMu.Lock()
+	defer dbcMu.Unlock()
+	if icons, ok := dbcSpellIcon[dir]; ok {
+		return icons, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "SpellIcon.dbc"))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) < 20 {
+		return nil, fmt.Errorf("SpellIcon.dbc too short")
+	}
+	nRec := binary.LittleEndian.Uint32(raw[4:8])
+	recSize := binary.LittleEndian.Uint32(raw[12:16])
+	if recSize < 8 || uint32(len(raw)) < 20+nRec*recSize {
+		return nil, fmt.Errorf("SpellIcon.dbc truncated")
+	}
+	strBlock := raw[20+nRec*recSize:]
+	icons := make(map[uint32]string, nRec)
+	for i := uint32(0); i < nRec; i++ {
+		off := 20 + i*recSize
+		id := binary.LittleEndian.Uint32(raw[off : off+4])
+		strOff := binary.LittleEndian.Uint32(raw[off+4 : off+8])
+		fullStr := dbcString(strBlock, strOff)
+		base := filepath.Base(strings.ReplaceAll(fullStr, "\\", "/"))
+		base = strings.TrimSuffix(base, filepath.Ext(base))
+		base = strings.ToLower(strings.TrimSpace(base))
+		if base != "" {
+			icons[id] = base
+		}
+	}
+	dbcSpellIcon[dir] = icons
+	return icons, nil
+}
+
+func (s *Service) spellIconByID(id uint32) string {
+	if id == 0 || s.cfg.DBCDir == "" {
+		return ""
+	}
+	icons, err := loadDBCSpellIcons(s.cfg.DBCDir)
+	if err != nil {
+		return ""
+	}
+	return icons[id]
+}
 
 func loadDBCTalents(dir string) ([]dbcTalent, []dbcTalentTab, error) {
 	dbcMu.Lock()
@@ -212,8 +261,8 @@ func (s *Service) talentsFromDBC(guid uint32, classID uint32, known map[uint32]b
 	}
 	trees := []TalentTree{}
 	byTab := map[uint32]int{}
-	// Batch the rank-1 spell names: one query instead of ~54 round-trips.
-	names := s.spellNames(firstRanks(talents, tabByID))
+	// Batch rank-1 spell names and icons: one query instead of ~54 round-trips.
+	infos := s.spellInfos(firstRanks(talents, tabByID))
 	for _, t := range talents {
 		tab, ok := tabByID[t.tabID]
 		if !ok {
@@ -236,9 +285,22 @@ func (s *Service) talentsFromDBC(guid uint32, classID uint32, known map[uint32]b
 			idx = len(trees) - 1
 			byTab[t.tabID] = idx
 		}
+		targetSpell := t.ranks[0]
+		if active != 0 {
+			targetSpell = active
+		}
+		spInfo := infos[targetSpell]
+		if spInfo.Description == "" {
+			spInfo = infos[t.ranks[0]]
+		}
+		icon := spInfo.Icon
+		if icon == "" && infos[t.ranks[0]].Icon != "" {
+			icon = infos[t.ranks[0]].Icon
+		}
 		trees[idx].Talents = append(trees[idx].Talents, TalentNode{
 			TalentID: t.id, Row: t.row, Col: t.col,
-			Rank: rank, MaxRank: uint32(len(t.ranks)), SpellID: active, Name: names[t.ranks[0]],
+			Rank: rank, MaxRank: uint32(len(t.ranks)), SpellID: active, Name: spInfo.Name, Icon: icon,
+			Description: spInfo.Description,
 		})
 		if rank > 0 {
 			trees[idx].Points += rank

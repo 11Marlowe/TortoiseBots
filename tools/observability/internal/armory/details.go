@@ -77,9 +77,15 @@ func (s *Service) spellName(spellID uint32) string {
 	return s.spellNames([]uint32{spellID})[spellID]
 }
 
-// spellNames resolves many spell display names in one query.
-func (s *Service) spellNames(ids []uint32) map[uint32]string {
-	out := map[uint32]string{}
+type SpellInfo struct {
+	Name        string
+	Icon        string
+	Description string
+}
+
+// spellInfos resolves spell display names and icon names in one batch query.
+func (s *Service) spellInfos(ids []uint32) map[uint32]SpellInfo {
+	out := map[uint32]SpellInfo{}
 	seen := map[uint32]bool{}
 	var args []interface{}
 	var marks []string
@@ -94,31 +100,51 @@ func (s *Service) spellNames(ids []uint32) map[uint32]string {
 	if len(marks) == 0 {
 		return out
 	}
-	q := fmt.Sprintf(`SELECT entry, name FROM %s.spell_template WHERE entry IN (%s)`, s.cfg.WorldDB, strings.Join(marks, ","))
+	q := fmt.Sprintf(`SELECT st.entry, COALESCE(st.name, ''), COALESCE(si.Name, ''), COALESCE(st.description, ''), COALESCE(st.spellIconId, 0)
+		FROM %s.spell_template st
+		LEFT JOIN %s.spellicon si ON si.ID = st.spellIconId
+		WHERE st.entry IN (%s)`, s.cfg.WorldDB, s.cfg.WorldDB, strings.Join(marks, ","))
 	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return out
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var entry uint32
-		var name sql.NullString
-		if err := rows.Scan(&entry, &name); err != nil || !name.Valid {
+		var entry, iconID uint32
+		var name, icon, desc string
+		if err := rows.Scan(&entry, &name, &icon, &desc, &iconID); err != nil {
 			continue
 		}
-		out[entry] = name.String
+		if icon == "" && iconID != 0 {
+			icon = s.spellIconByID(iconID)
+		}
+		out[entry] = SpellInfo{Name: name, Icon: icon, Description: desc}
 	}
 	return out
 }
 
-// firstRanks collects rank-1 spell ids of class talents for batch naming.
+// spellNames resolves many spell display names in one query.
+func (s *Service) spellNames(ids []uint32) map[uint32]string {
+	infos := s.spellInfos(ids)
+	out := map[uint32]string{}
+	for k, v := range infos {
+		out[k] = v.Name
+	}
+	return out
+}
+
+// firstRanks collects rank spell ids of class talents for batch naming and descriptions.
 func firstRanks(talents []dbcTalent, tabByID map[uint32]dbcTalentTab) []uint32 {
-	ids := make([]uint32, 0, len(talents))
+	ids := make([]uint32, 0, len(talents)*2)
 	for _, t := range talents {
 		if _, ok := tabByID[t.tabID]; !ok || len(t.ranks) == 0 {
 			continue
 		}
-		ids = append(ids, t.ranks[0])
+		for _, r := range t.ranks {
+			if r != 0 {
+				ids = append(ids, r)
+			}
+		}
 	}
 	return ids
 }

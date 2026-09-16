@@ -202,7 +202,9 @@ type TalentNode struct {
 	Rank     uint32 `json:"rank"`
 	MaxRank  uint32 `json:"max_rank"`
 	SpellID  uint32 `json:"spell_id"`
-	Name     string `json:"name"`
+	Name        string `json:"name"`
+	Icon        string `json:"icon,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
 type TalentTree struct {
