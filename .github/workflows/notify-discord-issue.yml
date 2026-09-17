@@ -58,7 +58,7 @@ jobs:
           if not number and input_number:
               try:
                   out = subprocess.check_output(
-                      ["gh", "issue", "view", input_number, "--json", "number,title,url,author,labels"],
+                      ["gh", "issue", "view", input_number, "--repo", "Sagiroth/TortoiseBots", "--json", "number,title,url,author,labels"],
                       text=True
                   )
                   data = json.loads(out)
