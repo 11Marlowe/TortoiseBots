@@ -242,6 +242,10 @@ public:
     bool randomBotLftEnabled = false;
     uint32 randomBotLftUpdateInterval = 15000;
     uint32 randomBotLftMaxFillsPerInterval = 1;
+    // Issue #189: LFT role borrowing (respec a bot into a missing role) is
+    // opt-in and default-off. Default keeps each bot's own spec; a missing
+    // role stays empty with a logged reason.
+    bool randomBotLftAllowRoleBorrow = false;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     bool summonAtInnkeepersEnabled;

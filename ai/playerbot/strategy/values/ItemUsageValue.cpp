@@ -566,8 +566,9 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
 
     bool shouldEquip = false;
     bool armorForSpec = true;
-
     uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
+    if (!specId)
+        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
 
     uint32 statWeight = sRandomItemMgr.ItemStatWeight(bot, itemQualifier);
     if (statWeight)

@@ -118,6 +118,7 @@ Administrators can inspect and tune the synthetic market pass using in-game comm
 * Config: **`AiPlayerbot.RandomBotLftEnabled = 1`**
 * When human players queue in the LFT tool and sit waiting for missing roles (especially Tanks or Healers), the module checks idle random bots in the world matching that level bracket.
 * Eligible bots auto-queue, accept the dungeon invite, and teleport into the instance to run the dungeon with the human group.
+* Role match is fail-closed on each bot's own spec: a tank slot needs a natural tank with a shield actually equipped (best shield from bags is equipped first), a druid tank needs bear form, a healer needs healing spells. A missing role stays empty with a logged skip reason instead of being filled badly. Set `AiPlayerbot.RandomBotLftAllowRoleBorrow = 1` only to opt back into respec-into-role borrowing.
 
 ### Battleground Auto-Queue
 * Config: **`AiPlayerbot.RandomBotBgEnabled = 1`**

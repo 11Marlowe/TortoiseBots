@@ -242,7 +242,7 @@ void RandomBotFacade::UpdateGearSpells(Player* bot)
         return;
 
     PlayerbotFactory factory(bot, bot->GetLevel());
-    factory.UpgradeGearBest();
+    factory.MakeComplete();
 }
 
 bool RandomBotFacade::ProcessBot(Player* player)

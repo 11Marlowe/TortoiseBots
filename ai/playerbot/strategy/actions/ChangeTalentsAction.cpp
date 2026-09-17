@@ -3,6 +3,7 @@
 #include "playerbot/Talentspec.h"
 #include "ChangeTalentsAction.h"
 #include "playerbot/AiFactory.h"
+#include "playerbot/PlayerbotFactory.h"
 
 using namespace ai;
 
@@ -163,6 +164,15 @@ bool ChangeTalentsAction::Execute(Event& event)
         sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
         ai->UpdateTalentSpec();
         ai->ResetStrategies();
+        // Issue #189 Phase 3: explicit respec re-scores gear incrementally
+        // for the new spec. Random-pool only; never wipes, level-up auto
+        // path passes through here too and stays incremental.
+        if (!param.empty() && sRandomBotFacade.IsRandomBot(bot))
+        {
+            PlayerbotFactory gear(bot, bot->GetLevel());
+            gear.UpgradeGearBest();
+            bot->SaveToDB();
+        }
     }
 
     ai->TellPlayer(requester, out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
@@ -297,10 +307,9 @@ bool ChangeTalentsAction::AutoSelectTalents(Player* bot, std::ostringstream* out
     std::string specLink = sRandomBotFacade.GetData(bot->GetGUIDLow(), "specLink");
     uint8 cls = bot->GetClass();
 
-    // If an explicit role is required (e.g. from dungeon finder queue) and this is
-    // an autonomous random bot whose stored spec cannot fill that role, wipe the
-    // stored choice so the selection logic below picks an appropriate spec for the role.
+    // Issue #189: forced-role respec is opt-in (default keeps own spec).
     if (role != BotRoles::BOT_ROLE_NONE &&
+        sPlayerbotAIConfig.randomBotLftAllowRoleBorrow &&
         sRandomBotFacade.IsRandomBot(bot) &&
         bot->GetLevel() >= 10 &&
         specNo > 0)

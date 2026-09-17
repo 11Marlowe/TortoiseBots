@@ -182,6 +182,10 @@ class RandomItemMgr
         std::vector<uint32> GetQuestIdsForItem(uint32 itemId);
         std::string GetPlayerSpecName(Player* player);
         uint32 GetPlayerSpecId(Player* player);
+        // Issue #189 Phase 2: unknown-spec fallback. Spent talents decide
+        // when present; otherwise a class-generic spec so gear never skips
+        // entirely (fail-open scoring, still filtered by weapon rules).
+        uint32 GetFallbackSpecId(uint8 playerclass);
     private:
         void BuildRandomItemCache();
         void BuildEquipCache();
