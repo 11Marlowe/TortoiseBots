@@ -1,0 +1,78 @@
+name: Notify Discord on New Issue
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post new-issue alert to Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_ISSUE_THREAD_ID: ${{ secrets.DISCORD_ISSUE_THREAD_ID }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          ISSUE_AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_LABELS: ${{ join(github.event.issue.labels.*.name, ', ') }}
+        run: |
+          python3 - <<'PYEOF'
+          import json
+          import os
+          import sys
+          import urllib.request
+          import urllib.error
+
+          webhook = os.environ.get("DISCORD_WEBHOOK_URL", "").strip()
+          if not webhook:
+              print("Warning: DISCORD_WEBHOOK_URL is not set. Skipping Discord notification.")
+              sys.exit(0)
+
+          thread_id = os.environ.get("DISCORD_ISSUE_THREAD_ID", "").strip()
+          endpoint = webhook
+          if thread_id:
+              sep = "&" if "?" in webhook else "?"
+              endpoint = f"{webhook}{sep}thread_id={thread_id}"
+
+          number = os.environ.get("ISSUE_NUMBER", "?")
+          title = os.environ.get("ISSUE_TITLE", "(no title)")
+          url = os.environ.get("ISSUE_URL", "")
+          author = os.environ.get("ISSUE_AUTHOR", "someone")
+          labels = os.environ.get("ISSUE_LABELS", "").strip()
+
+          description = f"Opened by @{author}"
+          if labels:
+              description += f" • {labels}"
+
+          embed = {
+              "title": f"Issue #{number}: {title}"[:256],
+              "url": url,
+              "description": description,
+              "color": 0xE67E22,
+          }
+          payload = {"username": "TortoiseBots Issue", "embeds": [embed]}
+
+          req = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={"Content-Type": "application/json", "User-Agent": "TortoiseBots-Issue-Notifier/1.0"},
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(req, timeout=15) as resp:
+                  if resp.status not in (200, 204):
+                      print(f"Discord API unexpected status {resp.status}", file=sys.stderr)
+                      sys.exit(1)
+          except urllib.error.HTTPError as e:
+              print(f"Discord API error HTTP {e.code}: {e.read().decode('utf-8', errors='replace')}", file=sys.stderr)
+              sys.exit(1)
+          except Exception as e:
+              print(f"Network error sending to Discord: {e}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Posted new-issue alert for #{number} as TortoiseBots Issue.")
+          PYEOF
