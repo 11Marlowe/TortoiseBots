@@ -2,16 +2,25 @@ name: Notify Discord on New Issue
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to notify Discord about'
+        required: true
+        default: '192'
 
-permissions: {}
+permissions:
+  issues: read
 
 jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - name: Post new-issue alert to Discord
+      - name: Post issue alert to Discord
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_ISSUE_THREAD_ID: ${{ secrets.DISCORD_ISSUE_THREAD_ID || '1542647578548772954' }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
@@ -23,6 +32,7 @@ jobs:
           python3 - <<'PYEOF'
           import json
           import os
+          import subprocess
           import sys
           import urllib.request
           import urllib.error
@@ -38,11 +48,28 @@ jobs:
               sep = "&" if "?" in webhook else "?"
               endpoint = f"{webhook}{sep}thread_id={thread_id}"
 
-          number = os.environ.get("ISSUE_NUMBER", "?")
-          title = os.environ.get("ISSUE_TITLE", "(no title)")
-          url = os.environ.get("ISSUE_URL", "")
-          author = os.environ.get("ISSUE_AUTHOR", "someone")
+          number = os.environ.get("ISSUE_NUMBER", "").strip()
+          title = os.environ.get("ISSUE_TITLE", "").strip()
+          url = os.environ.get("ISSUE_URL", "").strip()
+          author = os.environ.get("ISSUE_AUTHOR", "").strip()
           labels = os.environ.get("ISSUE_LABELS", "").strip()
+
+          input_number = os.environ.get("INPUT_ISSUE_NUMBER", "").strip()
+          if not number and input_number:
+              try:
+                  out = subprocess.check_output(
+                      ["gh", "issue", "view", input_number, "--json", "number,title,url,author,labels"],
+                      text=True
+                  )
+                  data = json.loads(out)
+                  number = str(data.get("number", input_number))
+                  title = data.get("title", "(no title)")
+                  url = data.get("url", "")
+                  author = data.get("author", {}).get("login", "someone")
+                  labels = ", ".join(lbl.get("name", "") for lbl in data.get("labels", []) if lbl.get("name"))
+              except Exception as e:
+                  print(f"Error resolving issue #{input_number}: {e}", file=sys.stderr)
+                  sys.exit(1)
 
           description = f"Opened by @{author}"
           if labels:
@@ -74,5 +101,5 @@ jobs:
               print(f"Network error sending to Discord: {e}", file=sys.stderr)
               sys.exit(1)
 
-          print(f"Posted new-issue alert for #{number} as TortoiseBots Issue.")
+          print(f"Posted alert for #{number} to Discord thread {thread_id}.")
           PYEOF
