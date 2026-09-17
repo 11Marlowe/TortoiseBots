@@ -7,8 +7,12 @@ on:
     inputs:
       issue_number:
         description: 'Issue number to update in Discord'
-        required: true
+        required: false
         default: '192'
+      delete_message_id:
+        description: 'Discord Message ID to delete (optional)'
+        required: false
+        default: ''
 
 permissions:
   issues: write
@@ -21,6 +25,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          INPUT_DELETE_MESSAGE_ID: ${{ inputs.delete_message_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           DISCORD_ISSUE_THREAD_ID: ${{ secrets.DISCORD_ISSUE_THREAD_ID || '1542647578548772954' }}
           EVENT_ACTION: ${{ github.event.action }}
@@ -49,6 +54,21 @@ jobs:
 
           base_webhook = webhook.split('?')[0].rstrip('/')
           thread_id = os.environ.get("DISCORD_ISSUE_THREAD_ID", "").strip() or "1542647578548772954"
+
+          delete_id = os.environ.get("INPUT_DELETE_MESSAGE_ID", "").strip()
+          if delete_id:
+              endpoint = f"{base_webhook}/messages/{delete_id}"
+              if thread_id:
+                  endpoint += f"?thread_id={thread_id}"
+              print(f"Deleting Discord message {delete_id}...")
+              req = urllib.request.Request(endpoint, headers={"User-Agent": "TortoiseBots-Issue-Notifier/1.0"}, method="DELETE")
+              try:
+                  with urllib.request.urlopen(req, timeout=15) as resp:
+                      print(f"Successfully deleted Discord message {delete_id} (status {resp.status}).")
+                      sys.exit(0)
+              except Exception as e:
+                  print(f"Error deleting message {delete_id}: {e}", file=sys.stderr)
+                  sys.exit(1)
 
           number = os.environ.get("ISSUE_NUMBER", "").strip()
           title = os.environ.get("ISSUE_TITLE", "").strip()
