@@ -3,6 +3,7 @@
 #include "AutoLearnSpellAction.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/PlayerbotFactory.h"
 #include "Objects/Item.h"
 #include <Mail/Mail.h>
 #include <map>
@@ -79,6 +80,12 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
             bot->LearnSpell(6991, false); // Feed pet
             bot->LearnSpell(1515, false); // Tame beast
         }
+    }
+
+    if (freeLearn)
+    {
+        PlayerbotFactory factory(bot, bot->GetLevel());
+        factory.InitSkills();
     }
 }
 

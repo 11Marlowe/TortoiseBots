@@ -380,6 +380,9 @@ bool RandomItemMgr::ShouldEquipArmorForSpec(uint8 playerclass, uint8 spec, ItemP
     if (proto->InventoryType == INVTYPE_TABARD)
         return true;
 
+    if (!spec)
+        spec = static_cast<uint8>(GetFallbackSpecId(playerclass));
+
     if (!m_weightScales[spec].info.id)
         return false;
 
@@ -539,6 +542,9 @@ bool RandomItemMgr::ShouldEquipWeaponForSpec(uint8 playerclass, uint8 spec, Item
 
     if (slot_mh == EQUIPMENT_SLOT_START && slot_oh == EQUIPMENT_SLOT_START && slot_rh == EQUIPMENT_SLOT_START)
         return false;
+
+    if (!spec)
+        spec = static_cast<uint8>(GetFallbackSpecId(playerclass));
 
     if (!m_weightScales[spec].info.id)
         return false;

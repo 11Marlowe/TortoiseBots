@@ -223,7 +223,7 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
         static uint32 const heals[] = {
             2050, 2052, 2053, 2060, 2061, 10915,
             635, 639, 647, 1026,
-            8004, 8008, 8010,
+            331, 332, 547, 8004, 8008, 8010,
             5185, 5186, 5187, 8936, 8938, 8939, 0
         };
         for (uint32 const* id = heals; *id; ++id)
@@ -242,26 +242,32 @@ bool LftBotFillService::EquipBestShieldFromBags(Player* bot) const
     ItemPrototype const* worn = offhand ? offhand->GetProto() : nullptr;
     if (worn && worn->Class == ITEM_CLASS_ARMOR && worn->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
         return true;
-    // Scan bags for the highest-item-level shield the core accepts.
+    // Scan backpack and equipped bags for the highest-item-level shield the core accepts.
     Item* best = nullptr;
+    auto checkCandidate = [&](Item* item) {
+        if (!item)
+            return;
+        ItemPrototype const* proto = item->GetProto();
+        if (!proto || proto->Class != ITEM_CLASS_ARMOR || proto->SubClass != ITEM_SUBCLASS_ARMOR_SHIELD)
+            return;
+        uint16 dest = 0;
+        if (bot->CanEquipItem(EQUIPMENT_SLOT_OFFHAND, dest, item, true) != EQUIP_ERR_OK)
+            return;
+        if (!best || proto->ItemLevel > best->GetProto()->ItemLevel)
+            best = item;
+    };
+
+    // 1. Backpack (bag 0, slots 23..38)
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        checkCandidate(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+
+    // 2. Equipped bags (bag slots 19..22)
     for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
     {
         Bag const* pBag = (Bag const*)bot->GetItemByPos(INVENTORY_SLOT_BAG_0, bag);
         uint32 size = pBag ? pBag->GetBagSize() : 0;
         for (uint32 slot = 0; slot < size; ++slot)
-        {
-            Item* item = bot->GetItemByPos(bag, static_cast<uint8>(slot));
-            if (!item)
-                continue;
-            ItemPrototype const* proto = item->GetProto();
-            if (!proto || proto->Class != ITEM_CLASS_ARMOR || proto->SubClass != ITEM_SUBCLASS_ARMOR_SHIELD)
-                continue;
-            uint16 dest = 0;
-            if (bot->CanEquipItem(EQUIPMENT_SLOT_OFFHAND, dest, item, true) != EQUIP_ERR_OK)
-                continue;
-            if (!best || proto->ItemLevel > best->GetProto()->ItemLevel)
-                best = item;
-        }
+            checkCandidate(bot->GetItemByPos(bag, static_cast<uint8>(slot)));
     }
     if (!best)
         return false;

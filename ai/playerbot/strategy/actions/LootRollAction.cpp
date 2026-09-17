@@ -214,10 +214,14 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
     const ItemPrototype* itemProto = itemQualifier.GetProto();
     bool sharedLoot = group && (group->GetLootMethod() == GROUP_LOOT || group->GetLootMethod() == NEED_BEFORE_GREED);
     bool groupLootContext = sharedLoot || (map && (map->IsDungeon() || map->IsRaid()));
+    uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
+    if (!specId)
+        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
+
     if (usage != ItemUsage::ITEM_USAGE_FORCE_NEED &&
         itemProto && itemProto->Class == ITEM_CLASS_ARMOR &&
         groupLootContext &&
-        !sRandomItemMgr.ShouldEquipArmorForSpec(bot->GetClass(), sRandomItemMgr.GetPlayerSpecId(bot), itemProto))
+        !sRandomItemMgr.ShouldEquipArmorForSpec(bot->GetClass(), specId, itemProto))
     {
         needVote = ROLL_GREED;
     }
@@ -225,7 +229,7 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
     if (usage != ItemUsage::ITEM_USAGE_FORCE_NEED &&
         itemProto && itemProto->Class == ITEM_CLASS_WEAPON &&
         groupLootContext &&
-        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), sRandomItemMgr.GetPlayerSpecId(bot), itemProto))
+        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto))
     {
         needVote = ROLL_GREED;
     }
