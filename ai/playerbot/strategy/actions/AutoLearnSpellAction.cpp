@@ -5,6 +5,8 @@
 #include "playerbot/TravelMgr.h"
 #include "Objects/Item.h"
 #include <Mail/Mail.h>
+#include <map>
+#include <vector>
 
 using namespace ai;
 
@@ -33,6 +35,13 @@ bool AutoLearnSpellAction::Execute(Event& event)
     return true;
 }
 
+// Issue #189: free spell learning is random-pool only. Owned bots keep the
+// paid trainer-with-gold path untouched (TrainerAction).
+static bool IsFreeLearnBot(Player* bot)
+{
+    return bot && sRandomBotFacade.IsRandomBot(bot);
+}
+
 void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
 {
     BroadcastHelper::BroadcastLevelup(ai, bot);
@@ -48,16 +57,19 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
         }
     }
 
-    if (sPlayerbotAIConfig.autoLearnQuestSpells)
+    // Free learning is random-pool only; the paid trainer path is untouched.
+    bool const freeLearn = IsFreeLearnBot(bot);
+
+    if (freeLearn && sPlayerbotAIConfig.autoLearnQuestSpells)
         LearnQuestSpells(out);
 
-    if (sPlayerbotAIConfig.autoLearnTrainerSpells)
+    if (freeLearn && sPlayerbotAIConfig.autoLearnTrainerSpells)
         LearnTrainerSpells(out);
 
-    if (sPlayerbotAIConfig.autoLearnDroppedSpells)
+    if (freeLearn && sPlayerbotAIConfig.autoLearnDroppedSpells)
         LearnDroppedSpells(out);
 
-    if (!ai->HasActivePlayerMaster()) //Hunter spells for pets.
+    if (freeLearn && !ai->HasActivePlayerMaster()) //Hunter spells for pets.
     {
         if (bot->GetClass() == CLASS_HUNTER && bot->GetLevel() >= 10)
         {
@@ -74,33 +86,63 @@ void AutoLearnSpellAction::LearnTrainerSpells(std::ostringstream* out)
 {
     bot->LearnDefaultSpells();
 
-    for (uint32 id = 0; id < sCreatureStorage.GetMaxEntry(); ++id)
+    // Per-class trainer cache, built once per server run. The previous
+    // per-bot full-creature scan is not shippable for 500 logins.
+    struct CachedTrainer
     {
-        CreatureInfo const* co = sCreatureStorage.LookupEntry<CreatureInfo>(id);
-        if (!co)
+        uint8 trainerType;
+        uint8 trainerClass;
+        TrainerSpellData const* spells;
+    };
+    static std::map<uint8, std::vector<CachedTrainer>> s_classTrainers;
+    static std::vector<CachedTrainer> s_tradeskillTrainers;
+    static bool s_trainersCached = false;
+    if (!s_trainersCached)
+    {
+        for (uint32 id = 0; id < sCreatureStorage.GetMaxEntry(); ++id)
+        {
+            CreatureInfo const* co = sCreatureStorage.LookupEntry<CreatureInfo>(id);
+            if (!co)
+                continue;
+            if (co->trainer_type != TRAINER_TYPE_CLASS &&
+                co->trainer_type != TRAINER_TYPE_TRADESKILLS &&
+                co->trainer_type != TRAINER_TYPE_PETS)
+                continue;
+            uint32 trainerId = co->trainer_id;
+            if (!trainerId)
+                trainerId = co->entry;
+            TrainerSpellData const* trainer_spells = sObjectMgr.GetNpcTrainerTemplateSpells(trainerId);
+            if (!trainer_spells)
+                trainer_spells = sObjectMgr.GetNpcTrainerSpells(trainerId);
+            if (!trainer_spells)
+                continue;
+            CachedTrainer entry{ co->trainer_type, co->trainer_class, trainer_spells };
+            if (co->trainer_type == TRAINER_TYPE_TRADESKILLS)
+                s_tradeskillTrainers.push_back(entry);
+            else
+                s_classTrainers[co->trainer_class].push_back(entry);
+        }
+        s_trainersCached = true;
+    }
+
+    std::vector<CachedTrainer const*> trainers;
+    auto classIt = s_classTrainers.find(bot->GetClass());
+    if (classIt != s_classTrainers.end())
+        for (auto const& e : classIt->second)
+            trainers.push_back(&e);
+    for (auto const& e : s_tradeskillTrainers)
+        trainers.push_back(&e);
+
+    for (CachedTrainer const* entry : trainers)
+    {
+        if (entry->trainerType == TRAINER_TYPE_PETS && bot->GetClass() == CLASS_HUNTER)
             continue;
 
-        if (co->trainer_type != TRAINER_TYPE_CLASS &&
-            co->trainer_type != TRAINER_TYPE_TRADESKILLS &&
-            co->trainer_type != TRAINER_TYPE_PETS)
+        if ((entry->trainerType == TRAINER_TYPE_CLASS || entry->trainerType == TRAINER_TYPE_PETS) && entry->trainerClass != bot->GetClass())
             continue;
 
-        if (co->trainer_type == TRAINER_TYPE_PETS && bot->GetClass() == CLASS_HUNTER)
-            continue;
-
-        if ((co->trainer_type == TRAINER_TYPE_CLASS || co->trainer_type == TRAINER_TYPE_PETS) && co->trainer_class != bot->GetClass())
-            continue;
-
-        uint32 trainerId = co->trainer_id;
-        if (!trainerId)
-            trainerId = co->entry;
-
-        TrainerSpellData const* trainer_spells = sObjectMgr.GetNpcTrainerTemplateSpells(trainerId);
-        if (!trainer_spells)
-            trainer_spells = sObjectMgr.GetNpcTrainerSpells(trainerId);
-
-        if (!trainer_spells)
-            continue;
+        uint8 trainerType = entry->trainerType;
+        TrainerSpellData const* trainer_spells = entry->spells;
 
         for (TrainerSpellMap::const_iterator itr = trainer_spells->spellList.begin(); itr != trainer_spells->spellList.end(); ++itr)
         {
@@ -117,7 +159,7 @@ void AutoLearnSpellAction::LearnTrainerSpells(std::ostringstream* out)
                 continue;
 
             SpellEntry const* spell = sServerFacade.LookupSpellInfo(tSpell->spell);
-            if (co->trainer_type == TRAINER_TYPE_TRADESKILLS && bot->GetClass() != CLASS_HUNTER && spell)
+            if (trainerType == TRAINER_TYPE_TRADESKILLS && bot->GetClass() != CLASS_HUNTER && spell)
             {
                 bool teachesPetSpell = spell->Id == 6666 || spell->Id == 6667;
                 for (int effect = 0; effect < 3 && !teachesPetSpell; ++effect)
@@ -134,7 +176,7 @@ void AutoLearnSpellAction::LearnTrainerSpells(std::ostringstream* out)
                     continue;
             }
 
-            if (co->trainer_type == TRAINER_TYPE_TRADESKILLS && spell)
+            if (trainerType == TRAINER_TYPE_TRADESKILLS && spell)
             {
                 std::string SpellName = spell->SpellName[0];
                 if (spell->Effect[EFFECT_INDEX_1] == SPELL_EFFECT_SKILL_STEP)

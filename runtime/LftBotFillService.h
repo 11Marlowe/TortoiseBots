@@ -44,11 +44,18 @@ private:
     void ReconcilePending(bool cancelAll, std::vector<std::string> const* activeInstances = nullptr);
     void AcceptPendingOffers();
     void ClearForcedRole(uint32 guidLow);
+    // Issue #189 Phase 4: natural-role eligibility (no borrowing by default)
+    // plus best-shield-from-bags equip for shield-class tanks. Returns the
+    // skip reason when the bot must not fill the role, empty when it may.
+    std::string RoleMismatchReason(Player* bot, uint8 needRole) const;
+    bool EquipBestShieldFromBags(Player* bot) const;
 
     bool m_initialized = false;
     uint32_t m_elapsedMs = 0;
     // guidLow -> instance we queued the bot for (single instance, the one we filled)
     std::unordered_map<uint32_t, std::string> m_pending;
+    // "instance:role:reason" -> skip count for this tick, logged once per tick.
+    std::unordered_map<std::string, uint32_t> m_skipReasons;
 };
 
 } // namespace TortoiseBots

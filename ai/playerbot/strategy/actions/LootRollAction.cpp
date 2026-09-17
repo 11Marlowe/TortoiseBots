@@ -221,6 +221,14 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
     {
         needVote = ROLL_GREED;
     }
+    // Issue #189 Phase 2: roll weapons the same way the bot would wear them.
+    if (usage != ItemUsage::ITEM_USAGE_FORCE_NEED &&
+        itemProto && itemProto->Class == ITEM_CLASS_WEAPON &&
+        groupLootContext &&
+        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), sRandomItemMgr.GetPlayerSpecId(bot), itemProto))
+    {
+        needVote = ROLL_GREED;
+    }
 
 
     bool canLoot = StoreLootAction::IsLootAllowed(itemQualifier, PlayerbotAIStorage::Instance().GetAI(bot));

@@ -64,6 +64,11 @@ public:
     // secondary skills, all bounded by the current level. Public so the runtime can
     // give it to persistent-level bots, which never pass through Randomize().
     void InitAllSkills();
+    // Issue #189 Phase 1: idempotent "make complete" for random-pool bots.
+    // Talents first, then knob-gated free spells, then skills, then gear —
+    // same result whether first run at 1, 10, 40 or 60. Owned bots keep
+    // current behavior (caller gates on IsRandomBot).
+    void MakeComplete();
     void AddReagents() { return InitReagents(); }
     void AddPotions() { return InitPotions(); }
     void AddConsumes() { return AddConsumables(); }

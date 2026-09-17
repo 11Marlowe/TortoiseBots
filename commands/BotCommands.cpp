@@ -631,6 +631,18 @@ static bool HandleRole(ChatHandler* handler, char const* args)
     }
     sPlayerbotDbStore.Save(ai);
 
+    // Issue #189 Phase 3: role-only designation stays gear-neutral, but warn
+    // when the worn gear cannot back the role (squishy tank, no heals).
+    if (role == static_cast<uint8>(ai::BOT_ROLE_TANK))
+    {
+        Item const* offhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+        ItemPrototype const* offProto = offhand ? offhand->GetProto() : nullptr;
+        bool hasShield = offProto && offProto->Class == ITEM_CLASS_ARMOR &&
+            offProto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD;
+        if (!hasShield)
+            handler->PSendSysMessage("Warning: %s has no shield equipped — will be squishy as tank.", name.c_str());
+    }
+
     char const* label = role == static_cast<uint8>(ai::BOT_ROLE_TANK) ? "tank"
         : role == static_cast<uint8>(ai::BOT_ROLE_HEALER) ? "healer"
         : role == static_cast<uint8>(ai::BOT_ROLE_DPS) ? "dps" : "cleared";

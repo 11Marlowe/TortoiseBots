@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cctype>
 #include <set>
+#include <string>
 #include <unordered_set>
 
 namespace TortoiseBots
@@ -186,6 +187,90 @@ uint8 LftBotFillService::GetBotRoleMask(Player const* bot) const
     if (!bot) return 0;
     BotRoles r = AiFactory::GetPlayerRoles(bot);
     return static_cast<uint8>(r);
+}
+
+std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) const
+{
+    if (!bot)
+        return "no bot";
+    // Natural role only, unless the operator opted into role borrowing.
+    uint8 mask = GetBotRoleMask(bot);
+    if ((mask & needRole) == 0)
+        return "role mismatch (own spec cannot fill)";
+    if (needRole == LFT_ROLE_TANK)
+    {
+        uint8 cls = bot->GetClass();
+        if (cls == CLASS_WARRIOR || cls == CLASS_PALADIN)
+        {
+            Item const* offhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+            ItemPrototype const* proto = offhand ? offhand->GetProto() : nullptr;
+            bool shield = proto && proto->Class == ITEM_CLASS_ARMOR &&
+                proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD;
+            // Best-shield-from-bags quick fix runs at queue time; eligibility
+            // here only checks the currently equipped off-hand so the caller
+            // can log a precise skip reason.
+            if (!shield)
+                return "tank-spec without shield equipped";
+        }
+        if (cls == CLASS_DRUID && !bot->HasSpell(5487) && !bot->HasSpell(9634))
+            return "druid tank without bear form";
+    }
+    if (needRole == LFT_ROLE_HEALER)
+    {
+        // Healing suite by spell ownership: priest / paladin / shaman /
+        // druid rank-1 heals. No AI context here (AI_VALUE needs an engine),
+        // so check the book directly — the level-up learner teaches ranks.
+        static uint32 const heals[] = {
+            2050, 2052, 2053, 2060, 2061, 10915,
+            635, 639, 647, 1026,
+            8004, 8008, 8010,
+            5185, 5186, 5187, 8936, 8938, 8939, 0
+        };
+        for (uint32 const* id = heals; *id; ++id)
+            if (bot->HasSpell(*id))
+                return "";
+        return "healer-spec without healing spell";
+    }
+    return "";
+}
+
+bool LftBotFillService::EquipBestShieldFromBags(Player* bot) const
+{
+    if (!bot)
+        return false;
+    Item const* offhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    ItemPrototype const* worn = offhand ? offhand->GetProto() : nullptr;
+    if (worn && worn->Class == ITEM_CLASS_ARMOR && worn->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
+        return true;
+    // Scan bags for the highest-item-level shield the core accepts.
+    Item* best = nullptr;
+    for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+    {
+        Bag const* pBag = (Bag const*)bot->GetItemByPos(INVENTORY_SLOT_BAG_0, bag);
+        uint32 size = pBag ? pBag->GetBagSize() : 0;
+        for (uint32 slot = 0; slot < size; ++slot)
+        {
+            Item* item = bot->GetItemByPos(bag, static_cast<uint8>(slot));
+            if (!item)
+                continue;
+            ItemPrototype const* proto = item->GetProto();
+            if (!proto || proto->Class != ITEM_CLASS_ARMOR || proto->SubClass != ITEM_SUBCLASS_ARMOR_SHIELD)
+                continue;
+            uint16 dest = 0;
+            if (bot->CanEquipItem(EQUIPMENT_SLOT_OFFHAND, dest, item, true) != EQUIP_ERR_OK)
+                continue;
+            if (!best || proto->ItemLevel > best->GetProto()->ItemLevel)
+                best = item;
+        }
+    }
+    if (!best)
+        return false;
+    uint8 bagIndex = best->GetBagSlot();
+    uint8 slot = best->GetSlot();
+    uint16 src = (static_cast<uint16>(bagIndex) << 8) | slot;
+    uint16 dst = (static_cast<uint16>(INVENTORY_SLOT_BAG_0) << 8) | EQUIPMENT_SLOT_OFFHAND;
+    bot->SwapItem(src, dst);
+    return true;
 }
 
 void LftBotFillService::ClearForcedRole(uint32 guidLow)
@@ -495,9 +580,24 @@ void LftBotFillService::Update(uint32_t diff)
                         continue;
                     if (cand->IsHardcore() != part.hardcore)
                         continue;
-                    uint8 candMask = GetBotRoleMask(cand);
-                    if ((candMask & needRole) == 0)
+                    // Issue #189 Phase 4: fail closed on natural-role gear.
+                    // Count skips per role so the empty slot logs a reason.
+                    std::string mismatch = RoleMismatchReason(cand, needRole);
+                    if (!mismatch.empty())
+                    {
+                        if (needRole == LFT_ROLE_TANK &&
+                            (cand->GetClass() == CLASS_WARRIOR || cand->GetClass() == CLASS_PALADIN) &&
+                            mismatch == "tank-spec without shield equipped" &&
+                            EquipBestShieldFromBags(cand) &&
+                            RoleMismatchReason(cand, needRole).empty())
+                            mismatch.clear();
+                    }
+                    if (!mismatch.empty())
+                    {
+                        std::string key = instance + ":" + std::to_string(needRole) + ":" + mismatch;
+                        m_skipReasons[key]++;
                         continue;
+                    }
                     bool alreadyPending = m_pending.find(cand->GetObjectGuid().GetCounter()) != m_pending.end();
                     if (alreadyPending)
                         continue;
@@ -518,21 +618,24 @@ void LftBotFillService::Update(uint32_t diff)
                     continue;
                 std::vector<std::string> instVec;
                 instVec.push_back(instance);
-                // Set forced role so AI rebuilds with correct spec (tank/heal/dps)
-                if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(chosen))
-                {
-                    ai->SetForcedRole(needRole);
-                    ai->DoSpecificAction("auto talents");
-                }
+                // Forced role only when the operator opted into role borrowing.
+                bool borrowRole = sPlayerbotAIConfig.randomBotLftAllowRoleBorrow;
+                if (borrowRole)
+                    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(chosen))
+                    {
+                        ai->SetForcedRole(needRole);
+                        ai->DoSpecificAction("auto talents");
+                    }
 
                 bool ok = sLFTMgr.QueuePlayer(chosen, instVec, needRole);
                 if (!ok)
                 {
-                    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(chosen))
-                    {
-                        ai->SetForcedRole(0);
-                        ai->DoSpecificAction("auto talents");
-                    }
+                    if (borrowRole)
+                        if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(chosen))
+                        {
+                            ai->SetForcedRole(0);
+                            ai->DoSpecificAction("auto talents");
+                        }
                     BotActivityLeaseManager::Instance().Release(guidLow, BotActivity::LftQueued,
                         previousActivity == BotActivity::Grinding ? BotActivity::Grinding : BotActivity::Idle);
                     continue;
@@ -554,6 +657,10 @@ void LftBotFillService::Update(uint32_t diff)
 
     if (filledThisTick)
         TB_LOG_DEBUG("TortoiseBots: LFT fill tick queued %u (max %u) activeInstances %u", filledThisTick, maxPerInterval, (uint32)activeInstances.size());
+    // A missing bot beats a fake tank: log why each role stayed empty.
+    for (auto const& kv : m_skipReasons)
+        TB_LOG_DETAIL("TortoiseBots: LFT fill skipped %s", kv.first.c_str());
+    m_skipReasons.clear();
 }
 
 void LftBotFillService::Shutdown()

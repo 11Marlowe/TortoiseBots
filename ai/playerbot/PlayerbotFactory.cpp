@@ -170,6 +170,26 @@ void PlayerbotFactory::Prepare()
     }
 }
 
+void PlayerbotFactory::MakeComplete()
+{
+    if (!bot || !ai)
+        return;
+    // Talents first: roll once, then grow the same tree as points arrive.
+    // SelectPremadeSpecNo is idempotent-safe here only when no spec is
+    // stored yet; otherwise keep the stored build (restart-safe fallback
+    // reads spent talents, never specNo).
+    if (!sRandomBotFacade.GetValue(bot, "specNo"))
+        SelectPremadeSpecNo();
+    ai->DoSpecificAction("auto talents");
+    // Spells second, each gated by its own knob inside the action.
+    ai->DoSpecificAction("auto learn spell");
+    // Skills on thresholds every level (armor steps around 40 included).
+    InitSkills();
+    // Gear last and incremental only — never wipe earned gear.
+    InitEquipment(true, false);
+    bot->SaveToDB();
+}
+
 void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
 {
     sLog.outDetail("Preparing to %s randomize...", (incremental ? "incremental" : "full"));
@@ -1879,9 +1899,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
         masterGS = ai->GetEquipGearScore(ai->GetMaster(), false, false);
     }
 
-    // Check spec before wiping gear — a specId==0 result after DestroyItemsVisitor would
-    // leave the bot naked.
+    // Check spec before wiping gear. Unknown spent-talents fall back to a
+    // class-generic scale (issue #189 Phase 2) so gear never skips entirely.
     uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
+    if (specId == 0)
+        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
     if (specId == 0)
     {
         sLog.outDetail("Bot #%d <%s> lvl %d class %d: InitEquipment skipped (specId=0)",

@@ -606,8 +606,9 @@ bool RandomItemMgr::ShouldEquipWeaponForSpec(uint8 playerclass, uint8 spec, Item
         }
         else if (m_weightScales[spec].info.name == "combat")
         {
-            mh_weapons = { ITEM_SUBCLASS_WEAPON_SWORD, ITEM_SUBCLASS_WEAPON_MACE };
-            oh_weapons = { ITEM_SUBCLASS_WEAPON_SWORD, ITEM_SUBCLASS_WEAPON_MACE };
+            // Rogues are taught fist skill; combat uses swords/maces + fists.
+            mh_weapons = { ITEM_SUBCLASS_WEAPON_SWORD, ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_FIST };
+            oh_weapons = { ITEM_SUBCLASS_WEAPON_SWORD, ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_FIST };
         }
         else
         {
@@ -2281,6 +2282,16 @@ uint32 RandomItemMgr::GetPlayerSpecId(Player* player)
     return 0;
 }
 
+uint32 RandomItemMgr::GetFallbackSpecId(uint8 playerclass)
+{
+    // First weight scale registered for the class: generic enough for
+    // pre-10 bots with no spent talents, filtered by weapon rules downstream.
+    for (auto const& itr : m_weightScales)
+        if (itr.second.info.classId == playerclass && itr.second.info.id)
+            return itr.second.info.id;
+    return 0;
+}
+
 uint32 RandomItemMgr::GetUpgrade(Player* player, std::string spec, uint8 slot, uint32 quality, uint32 itemId)
 {
     if (!player)
@@ -2648,6 +2659,8 @@ uint32 RandomItemMgr::GetStatWeight(Player* player, uint32 itemId)
     std::vector<uint32> classspecs;
 
     if (specId == 0)
+        specId = GetFallbackSpecId(player->GetClass());
+    if (specId == 0)
         return 0;
 
     if (!m_weightScales[specId].info.id)
@@ -2731,6 +2744,8 @@ uint32 RandomItemMgr::GetLiveStatWeight(Player* player, uint32 itemId, uint32 sp
 
     uint32 statWeight = 0;
     specId = specId ? specId : GetPlayerSpecId(player);
+    if (specId == 0 && player)
+        specId = GetFallbackSpecId(player->GetClass());
     if (specId == 0)
         return 0;
 
