@@ -13,7 +13,7 @@ jobs:
       - name: Post new-issue alert to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          DISCORD_ISSUE_THREAD_ID: ${{ secrets.DISCORD_ISSUE_THREAD_ID }}
+          DISCORD_ISSUE_THREAD_ID: ${{ secrets.DISCORD_ISSUE_THREAD_ID || '1542647578548772954' }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
@@ -32,7 +32,7 @@ jobs:
               print("Warning: DISCORD_WEBHOOK_URL is not set. Skipping Discord notification.")
               sys.exit(0)
 
-          thread_id = os.environ.get("DISCORD_ISSUE_THREAD_ID", "").strip()
+          thread_id = os.environ.get("DISCORD_ISSUE_THREAD_ID", "").strip() or "1542647578548772954"
           endpoint = webhook
           if thread_id:
               sep = "&" if "?" in webhook else "?"
