@@ -117,8 +117,9 @@ ItemUsage ItemUsageValue::Calculate()
     if (proto->ItemId == 6948)
         return ItemUsage::ITEM_USAGE_KEEP;
 
-    //WARLOCKS GOT TO KEEP SOULSHARDS (keep at least 10)
-    if (bot->GetClass() == CLASS_WARLOCK && proto->ItemId == 6265 && CurrentStacks(ai, proto) <= 10)
+    //WARLOCKS GOT TO KEEP SOULSHARDS (keep at most 5; excess is destroyed out
+    //of combat by the "too many soul shards" trigger)
+    if (bot->GetClass() == CLASS_WARLOCK && proto->ItemId == 6265 && CurrentStacks(ai, proto) <= 5)
         return ItemUsage::ITEM_USAGE_KEEP;
 
     //SKILL

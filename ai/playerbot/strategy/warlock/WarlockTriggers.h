@@ -201,6 +201,19 @@ namespace ai
         bool IsActive() override;
     };
 
+    class NoSoulShardTrigger : public Trigger
+    {
+    public:
+        NoSoulShardTrigger(PlayerbotAI* ai) : Trigger(ai, "no soul shard") {}
+        bool IsActive() override { return !ai->HasCheat(BotCheatMask::item) && bot->GetItemCount(6265) == 0; }
+    };
+    class TooManySoulShardsTrigger : public Trigger
+    {
+    public:
+        TooManySoulShardsTrigger(PlayerbotAI* ai) : Trigger(ai, "too many soul shards") {}
+        bool IsActive() override { return !ai->HasCheat(BotCheatMask::item) && !bot->IsInCombat() && bot->GetItemCount(6265) > 5; }
+    };
+
     class FearPvpTrigger : public Trigger
     {
     public:
