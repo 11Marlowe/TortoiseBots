@@ -1028,6 +1028,47 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Bot %s could not enter follow mode; no success is reported.", name.c_str());
     return true;
 }
+
+// Pre-combat rest: order scoped bots to sit and consume food/drink until
+// full, combat, or the master moves away. The mature food/drink actions own
+// inventory, sit state, and regen checks; this layer only fans out and
+// reports over the dynamic scope.
+static bool HandleRest(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        bool rested = false;
+        if (bot->GetPowerType() == POWER_MANA && bot->GetPower(POWER_MANA) < bot->GetMaxPower(POWER_MANA))
+            rested = ExecuteQuietAction(ai, "drink", ai::Event("bot command", "drink", requester)) || rested;
+        if (bot->GetHealth() < bot->GetMaxHealth())
+            rested = ExecuteQuietAction(ai, "food", ai::Event("bot command", "food", requester)) || rested;
+        if (rested)
+            ++succeeded;
+        else if (bot->GetHealth() >= bot->GetMaxHealth() && (bot->GetPowerType() != POWER_MANA || bot->GetPower(POWER_MANA) >= bot->GetMaxPower(POWER_MANA)))
+            ++succeeded;
+    }
+    handler->PSendSysMessage("Commanded %u companion bot(s) to rest and restore health/mana.", succeeded);
+    return true;
+}
+
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
 static bool HandlePullback(ChatHandler* handler, char const* args)
 {
@@ -1499,7 +1540,8 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
     if (first != "attack" && first != "interrupt" && first != "stop" && first != "pull" &&
         first != "pullback" && first != "come" && first != "stay" &&
         first != "follow" && first != "aoe" && first != "hold" &&
-        first != "comestay" && first != "ready")
+        first != "comestay" && first != "ready" && first != "rest" &&
+        first != "drink" && first != "eat")
         return false;
 
     if (first == "aoe")
@@ -1535,7 +1577,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|ready");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|rest|drink|eat|ready");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -1811,6 +1853,16 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             accepted = ExecuteQuietAction(ai, "ready check",
                 ai::Event(intent, "", requester));
         }
+        else if (intent == "rest" || intent == "drink" || intent == "eat")
+        {
+            bool rested = false;
+            if (bot->GetPowerType() == POWER_MANA && bot->GetPower(POWER_MANA) < bot->GetMaxPower(POWER_MANA))
+                rested = ExecuteQuietAction(ai, "drink", ai::Event(intent, "drink", requester)) || rested;
+            if (bot->GetHealth() < bot->GetMaxHealth())
+                rested = ExecuteQuietAction(ai, "food", ai::Event(intent, "food", requester)) || rested;
+            accepted = rested || (bot->GetHealth() >= bot->GetMaxHealth() &&
+                (bot->GetPowerType() != POWER_MANA || bot->GetPower(POWER_MANA) >= bot->GetMaxPower(POWER_MANA)));
+        }
         else if (intent == "aoe")
         {
             bool enable = option == "on" ||
@@ -1998,7 +2050,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/ah");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/rest/drink/eat/ah");
         return true;
     }
 
@@ -2062,6 +2114,8 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleSummon(handler, subArgs);
     if (cmd == "hire")
         return HandleHire(handler, subArgs);
+    if (cmd == "rest" || cmd == "drink" || cmd == "eat")
+        return HandleRest(handler, subArgs);
     if (cmd == "command")
         return HandleMatureCommand(handler, subArgs);
     if (cmd == "help" || cmd == "h")
