@@ -7,12 +7,12 @@ using namespace ai;
 
 bool CastSerpentStingAction::isUseful()
 {
-    return CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "health", GetTargetName()) > 50 && !(AI_VALUE2(uint8, "mana", GetTargetName()) >= 10);
+    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "health", GetTargetName()) > 50 && !(AI_VALUE2(uint8, "mana", GetTargetName()) >= 10);
 }
 
 bool CastViperStingAction::isUseful()
 {
-    return CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "mana", GetTargetName()) >= 10;
+    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "mana", GetTargetName()) >= 10;
 }
 
 bool FeedPetAction::Execute(Event& event)
@@ -26,7 +26,11 @@ bool FeedPetAction::Execute(Event& event)
 
 bool CastAutoShotAction::isUseful()
 {
-    return ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT) && AI_VALUE(uint32, "active spell") != AI_VALUE2(uint32, "spell id", getName());
+    if (!ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT))
+        return false;
+    if (!HunterHasRangedAmmo(ai))
+        return false;
+    return AI_VALUE(uint32, "active spell") != AI_VALUE2(uint32, "spell id", getName());
 }
 
 bool HunterEquipAmmoAction::Execute(Event& event)

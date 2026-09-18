@@ -25,11 +25,36 @@ namespace ai
     BEGIN_RANGED_SPELL_ACTION(CastShadowBoltAction, "shadow bolt")
     END_SPELL_ACTION()
 
-	class CastDrainSoulAction : public CastSpellAction
-	{
-	public:
-		CastDrainSoulAction(PlayerbotAI* ai) : CastSpellAction(ai, "drain soul") {}
-	};
+    class CastDrainSoulAction : public CastSpellAction
+    {
+    public:
+        CastDrainSoulAction(PlayerbotAI* ai) : CastSpellAction(ai, "drain soul") {}
+    };
+
+    class CastCreateSoulShardAction : public CastSpellAction
+    {
+    public:
+        CastCreateSoulShardAction(PlayerbotAI* ai) : CastSpellAction(ai, "create soul shard") {}
+        bool Execute(Event& event) override { return CastSpellAction::Execute(event); }
+        bool isUseful() override { return !ai->HasCheat(BotCheatMask::item) && bot->GetItemCount(6265) == 0; }
+    };
+
+    class DestroySoulShardAction : public Action
+    {
+    public:
+        DestroySoulShardAction(PlayerbotAI* ai) : Action(ai, "destroy soul shard") {}
+        bool Execute(Event& event) override
+        {
+            (void)event;
+            if (ai->HasCheat(BotCheatMask::item))
+                return false;
+            uint32 count = bot->GetItemCount(6265);
+            if (count <= 5)
+                return false;
+            bot->DestroyItemCount(6265, count - 5, true);
+            return true;
+        }
+    };
 
 	class CastDarkHarvestAction : public CastSpellAction
 	{

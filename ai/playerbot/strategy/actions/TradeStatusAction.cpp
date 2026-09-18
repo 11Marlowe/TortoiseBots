@@ -139,6 +139,69 @@ void TradeStatusAction::BeginTrade()
             ai->TellPlayer(trader, out);
         }
     }
+
+    AutoShareConjured(trader);
+}
+
+void TradeStatusAction::AutoShareConjured(Player* trader)
+{
+    if (!sPlayerbotAIConfig.autoShareConjuredOnTrade || !trader || !bot->GetTradeData())
+        return;
+    if (bot->GetClass() != CLASS_MAGE && bot->GetClass() != CLASS_WARLOCK)
+        return;
+
+    auto placeInTrade = [&](Item* item) -> bool
+    {
+        if (!item || item->IsInTrade() || !bot->GetTrader())
+            return false;
+        TradeData* trade = bot->GetTradeData();
+        int8 tradeSlot = -1;
+        for (uint8 i = 0; i < TRADE_SLOT_TRADED_COUNT && tradeSlot == -1; ++i)
+            if (trade->GetItem(TradeSlots(i)) == NULL)
+                tradeSlot = static_cast<int8>(i);
+        if (tradeSlot == -1)
+            return false;
+        WorldPacket packet(CMSG_SET_TRADE_ITEM, 3);
+        packet << static_cast<uint8>(tradeSlot) << static_cast<uint8>(item->GetBagSlot()) << static_cast<uint8>(item->GetSlot());
+        bot->GetSession()->HandleSetTradeItemOpcode(packet);
+        return true;
+    };
+
+    auto firstConjured = [&](uint32 spellCategory) -> Item*
+    {
+        FindFoodVisitor visitor(bot, spellCategory, true);
+        ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        std::list<Item*>& found = visitor.GetResult();
+        return found.empty() ? nullptr : found.front();
+    };
+
+    bool placed = false;
+    if (bot->GetClass() == CLASS_MAGE)
+    {
+        if (Item* food = firstConjured(11))
+            placed = placeInTrade(food) || placed;
+        if (trader->GetPowerType() == POWER_MANA)
+            if (Item* water = firstConjured(59))
+                placed = placeInTrade(water) || placed;
+    }
+    else if (bot->GetClass() == CLASS_WARLOCK)
+    {
+        uint32 stoneId = 0;
+        uint32 level = trader->GetLevel();
+        if (level < 12) stoneId = 5512;
+        else if (level < 24) stoneId = 5511;
+        else if (level < 36) stoneId = 5509;
+        else if (level < 48) stoneId = 5510;
+        else stoneId = 9421;
+        if (trader->HasItemCount(stoneId, 1))
+            return;
+        FindItemByIdVisitor visitor(stoneId);
+        ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        std::list<Item*>& found = visitor.GetResult();
+        if (!found.empty())
+            placed = placeInTrade(found.front()) || placed;
+    }
+    (void)placed;
 }
 
 bool TradeStatusAction::CheckTrade()

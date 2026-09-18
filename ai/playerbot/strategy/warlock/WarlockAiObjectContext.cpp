@@ -227,6 +227,8 @@ namespace ai
                 creators["inferno"] = [](PlayerbotAI* ai) { return new InfernoTrigger(ai); };
                 creators["life tap"] = [](PlayerbotAI* ai) { return new LifeTapTrigger(ai); };
                 creators["drain soul"] = [](PlayerbotAI* ai) { return new DrainSoulTrigger(ai); };
+                creators["no soul shard"] = [](PlayerbotAI* ai) { return new NoSoulShardTrigger(ai); };
+                creators["too many soul shards"] = [](PlayerbotAI* ai) { return new TooManySoulShardsTrigger(ai); };
                 creators["no curse"] = [](PlayerbotAI* ai) { return new NoCurseTrigger(ai); };
                 creators["no curse on attacker"] = [](PlayerbotAI* ai) { return new NoCurseOnAttackerTrigger(ai); };
                 creators["conflagrate"] = [](PlayerbotAI* ai) { return new ConflagrateTrigger(ai); };
@@ -283,9 +285,10 @@ namespace ai
                 creators["curse of tongues"] = [](PlayerbotAI* ai) { return new CastCurseOfTonguesAction(ai); };
                 creators["curse of tongues on attacker"] = [](PlayerbotAI* ai) { return new CastCurseOfTonguesOnAttackerAction(ai); };
                 creators["curse of shadow"] = [](PlayerbotAI* ai) { return new CastCurseOfShadowAction(ai); };
-                creators["curse of shadow on attacker"] = [](PlayerbotAI* ai) { return new CastCurseOfShadowOnAttackerAction(ai); };
-                creators["shadow bolt"] = [](PlayerbotAI* ai) { return new CastShadowBoltAction(ai); };
                 creators["drain soul"] = [](PlayerbotAI* ai) { return new CastDrainSoulAction(ai); };
+                creators["create soul shard"] = [](PlayerbotAI* ai) { return new CastCreateSoulShardAction(ai); };
+                creators["destroy soul shard"] = [](PlayerbotAI* ai) { return new DestroySoulShardAction(ai); };
+                creators["shadow bolt"] = [](PlayerbotAI* ai) { return new CastShadowBoltAction(ai); };
                 creators["drain mana"] = [](PlayerbotAI* ai) { return new CastDrainManaAction(ai); };
                 creators["drain life"] = [](PlayerbotAI* ai) { return new CastDrainLifeAction(ai); };
                 creators["banish"] = [](PlayerbotAI* ai) { return new CastBanishAction(ai); };

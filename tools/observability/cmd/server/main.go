@@ -58,6 +58,7 @@ func main() {
 	botPrefix := flag.String("bot-account-prefix", getEnv("BOT_ACCOUNT_PREFIX", "rndbot"), "Account name prefix identifying bot characters (must match AiPlayerbot.RandomBotAccountPrefix)")
 	dbcDir := flag.String("dbc-dir", getEnv("DBC_DIR", ""), "Optional operator DBC directory (same files mangosd reads); enables talent trees when world talent mirrors are empty")
 	issueMinAgeSec := flag.Int("issue-min-age-sec", getEnvInt("ISSUE_MIN_AGE_SEC", 300), "Only surface bot issues that persist at least this many seconds")
+	minGMLevel := flag.Int("min-gm-level", getEnvInt("MIN_GM_LEVEL", 2), "Minimum GM rank required for dashboard login (2 = gamemaster)")
 	devNoAuth := flag.Bool("dev-no-auth", false, "Disable Game Master authentication check for local dev testing")
 	flag.Parse()
 
@@ -85,7 +86,6 @@ func main() {
 	}
 	log.Printf("[Map] Initialized coordinate projection engine with %d zones", len(projectionEngine.GetAllZones()))
 
-	// 4. realmd authentication
 	authService, err := auth.NewService(auth.Config{
 		DBHost:     *dbHost,
 		DBPort:     *dbPort,
@@ -93,6 +93,7 @@ func main() {
 		DBPassword: *dbPass,
 		DBName:     *dbName,
 		SecretKey:  getEnv("SESSION_SECRET", "tortoise-observability-salt-secret"),
+		MinGMLevel: *minGMLevel,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize auth service: %v", err)

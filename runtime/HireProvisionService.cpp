@@ -311,6 +311,7 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     pending.masterAccountId = ownerAccountId;
     pending.targetLevel = static_cast<uint8>(level);
     pending.role = role;
+    pending.specIndex = sel.specIndex;
     pending.queuedAt = time(nullptr);
     m_pending.push_back(pending);
 
@@ -676,11 +677,17 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pen
     }
     // Spec first: pick a premade build matching the hired role where one
     // exists, otherwise keep the class default. The forced role makes the
-    // mature auto-talents path converge on the hired kit.
+    // mature auto-talents path converge on the hired kit. A gossip spec word
+    // narrows it further: Feral Cat stays on the shared feral path while
+    // Balance resolves to the balance path (both read as DPS).
     uint8 forcedRole = pending.role ? pending.role : DefaultRoleForClass(bot->GetClass());
     ai->SetForcedRole(forcedRole);
     {
-        std::vector<TalentPath*> paths = ai::ChangeTalentsAction::getPremadePaths(bot->GetClass(), "", (ai::BotRoles)forcedRole);
+        std::string specName;
+        if (bot->GetClass() == CLASS_DRUID && pending.specIndex >= 0)
+            specName = pending.specIndex == 2 ? "balance" : pending.specIndex == 1 ? "restoration" : "feral";
+        std::vector<TalentPath*> paths = specName.empty() ? ai::ChangeTalentsAction::getPremadePaths(bot->GetClass(), "", (ai::BotRoles)forcedRole)
+            : ai::ChangeTalentsAction::getPremadePaths(bot->GetClass(), specName, (ai::BotRoles)forcedRole);
         if (paths.empty())
             paths = ai::ChangeTalentsAction::getPremadePaths(bot->GetClass(), "", ai::BOT_ROLE_NONE);
         bool appliedSpec = false;

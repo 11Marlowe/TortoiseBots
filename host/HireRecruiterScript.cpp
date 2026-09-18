@@ -368,6 +368,7 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
         sel.race = race;
         sel.gender = gender;
         sel.role = specs.options[specIndex].role;
+        sel.specIndex = static_cast<int>(specIndex);
         HireOutcome outcome = HireProvisionService::Instance().Hire(player, sel, true);
         CloseWithHint(player, outcome.message.c_str());
         return true;

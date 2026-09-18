@@ -55,10 +55,10 @@ void PaladinCureStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
                         { NextAction("cleanse magic on party", ACTION_DISPEL + 1) }));
 }
 
-void PaladinBoostStrategy::InitTriggers(std::vector<TriggerNode*>& /*triggers*/)
+void PaladinBoostStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    // triggers.push_back(new TriggerNode("divine favor", { NextAction("divine favor",
-    // ACTION_HIGH + 1) }));
+    triggers.push_back(new TriggerNode("divine favor", { NextAction("divine favor",
+        ACTION_HIGH + 2) }));
 }
 
 void PaladinCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

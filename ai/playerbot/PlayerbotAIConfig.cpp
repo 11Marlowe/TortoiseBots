@@ -422,7 +422,7 @@ bool PlayerbotAIConfig::Initialize()
     randomBotReactStrategies = config.GetStringDefault("AiPlayerbot.RandomBotReactStrategies", "");
     randomBotDeadStrategies = config.GetStringDefault("AiPlayerbot.RandomBotDeadStrategies", "");
     combatStrategies = config.GetStringDefault("AiPlayerbot.CombatStrategies", "");
-    nonCombatStrategies = config.GetStringDefault("AiPlayerbot.NonCombatStrategies", "+return,+delayed roll");
+    nonCombatStrategies = config.GetStringDefault("AiPlayerbot.NonCombatStrategies", "+return,+delayed roll,+loot");
     reactStrategies = config.GetStringDefault("AiPlayerbot.ReactStrategies", "");
     deadStrategies = config.GetStringDefault("AiPlayerbot.DeadStrategies", "");
 
@@ -739,6 +739,7 @@ bool PlayerbotAIConfig::Initialize()
     autoLearnQuestSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnQuestSpells", true);
     autoLearnDroppedSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnDroppedSpells", false);
     autoDoQuests = config.GetBoolDefault("AiPlayerbot.AutoDoQuests", true);
+    autoShareConjuredOnTrade = config.GetBoolDefault("AiPlayerbot.AutoShareConjuredOnTrade", true);
     generateTravelNodes = config.GetBoolDefault("AiPlayerbot.GenerateTravelNodes", false);
     generateFishLocations = config.GetBoolDefault("AiPlayerbot.GenerateFishLocations", false);
     asyncTravelPartitions = config.GetBoolDefault("AiPlayerbot.AsyncTravelPartitions", false); // false = travel/terrain lookups on main thread only (crash-safe on cores without concurrent terrain load)
