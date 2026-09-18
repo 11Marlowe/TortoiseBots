@@ -27,11 +27,26 @@ bool InfernoTrigger::IsActive()
 
 bool CorruptionTrigger::IsActive()
 {
-	if (!ai->HasSpell("corruption"))
-		return false;
+    if (!ai->HasSpell("corruption"))
+        return false;
+    if (AI_VALUE2(uint8, "health", "current target") <= 20)
+        return false;
+    Unit* target = GetTarget();
+    return target && !ai->HasAura("corruption", target) && !HasMaxDebuffs();
+}
 
-	Unit* target = GetTarget();
-	return target && !ai->HasAura("corruption", target) && !HasMaxDebuffs();
+bool SiphonLifeTrigger::IsActive()
+{
+    if (AI_VALUE2(uint8, "health", "current target") <= 20)
+        return false;
+    return DebuffTrigger::IsActive();
+}
+
+bool CurseOfAgonyTrigger::IsActive()
+{
+    if (AI_VALUE2(uint8, "health", "current target") <= 20)
+        return false;
+    return DebuffTrigger::IsActive();
 }
 
 bool CorruptionOnAttackerTrigger::IsActive()
