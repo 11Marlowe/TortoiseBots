@@ -499,6 +499,7 @@ namespace ai
     {
     public:
         DivineFavorTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "divine favor") {}
+        bool IsActive() override { return ai->HasSpell("divine favor") && BuffTrigger::IsActive(); }
     };
 
     class TurnUndeadTrigger : public HasCcTargetTrigger
