@@ -630,6 +630,15 @@ static bool HandleRole(ChatHandler* handler, char const* args)
         ai->ChangeStrategy("+protection,+tank feral,+tank assist,+pull,+pull back,+close",
             BotState::BOT_STATE_COMBAT);
     }
+    else if (role == static_cast<uint8>(ai::BOT_ROLE_DPS) && bot->GetClass() == CLASS_DRUID)
+    {
+        // A Feral ordered to DPS fights as a Cat: drop any Bear leftovers
+        // ResetStrategies may have installed, then hold the Cat kit.
+        ai->ChangeStrategy("-tank feral,-tank assist,-protection,-pull,-pull back", BotState::BOT_STATE_NON_COMBAT);
+        ai->ChangeStrategy("-tank feral,-tank assist,-protection,-pull,-pull back", BotState::BOT_STATE_COMBAT);
+        ai->ChangeStrategy("+dps feral,+dps assist,+close,+behind", BotState::BOT_STATE_NON_COMBAT);
+        ai->ChangeStrategy("+dps feral,+dps assist,+close,+behind", BotState::BOT_STATE_COMBAT);
+    }
     sPlayerbotDbStore.Save(ai);
 
     // Issue #189 Phase 3: role-only designation stays gear-neutral, but warn
@@ -770,26 +779,34 @@ static bool HandleHire(ChatHandler* handler, char const* args)
             }
             // Bare spec words imply their role (protection -> tank, holy ->
             // healer). Match the gossip labels loosely: any token containing
-            // the spec stem counts ("prot", "ret", "feral bear").
+            // the spec stem counts ("prot", "ret", "feral bear"). Feral Cat
+            // stays DPS on the shared feral path (specIndex 3); other feral
+            // words keep the Bear tank default (specIndex 0).
             std::string lower = token;
-            bool tankWord = lower.find("prot") != std::string::npos || lower.find("tank") != std::string::npos ||
-                lower.find("bear") != std::string::npos || lower.find("feral") != std::string::npos;
+            bool catWord = lower.find("cat") != std::string::npos;
+            bool tankWord = !catWord && (lower.find("prot") != std::string::npos || lower.find("tank") != std::string::npos ||
+                lower.find("bear") != std::string::npos || lower.find("feral") != std::string::npos);
             bool healWord = lower.find("holy") != std::string::npos || lower.find("heal") != std::string::npos ||
                 lower.find("resto") != std::string::npos || lower.find("discipline") != std::string::npos ||
                 lower.find("disc") != std::string::npos;
             if (tankWord)
             {
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_TANK);
+                if (sel.classId == CLASS_DRUID)
+                    sel.specIndex = 0;
                 continue;
             }
             if (healWord)
             {
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_HEALER);
+                if (sel.classId == CLASS_DRUID)
+                    sel.specIndex = 1;
                 continue;
             }
+            bool balanceWord = lower.find("balance") != std::string::npos;
             if (lower.find("dps") != std::string::npos || lower.find("arms") != std::string::npos ||
                 lower.find("fury") != std::string::npos || lower.find("shadow") != std::string::npos ||
-                lower.find("ret") != std::string::npos || lower.find("balance") != std::string::npos ||
+                lower.find("ret") != std::string::npos || balanceWord ||
                 lower.find("frost") != std::string::npos || lower.find("fire") != std::string::npos ||
                 lower.find("arcane") != std::string::npos || lower.find("afflic") != std::string::npos ||
                 lower.find("demon") != std::string::npos || lower.find("destro") != std::string::npos ||
@@ -797,9 +814,11 @@ static bool HandleHire(ChatHandler* handler, char const* args)
                 lower.find("subtle") != std::string::npos || lower.find("beast") != std::string::npos ||
                 lower.find("marks") != std::string::npos || lower.find("surv") != std::string::npos ||
                 lower.find("elem") != std::string::npos || lower.find("enhance") != std::string::npos ||
-                lower.find("cat") != std::string::npos)
+                catWord)
             {
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_DPS);
+                if (sel.classId == CLASS_DRUID)
+                    sel.specIndex = catWord ? 3 : balanceWord ? 2 : -1;
                 continue;
             }
         }
@@ -834,6 +853,8 @@ static bool HandleHire(ChatHandler* handler, char const* args)
         sel.gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
     if (!sel.role)
         sel.role = HireProvisionService::DefaultRoleForClass(sel.classId);
+    if (sel.classId == CLASS_DRUID && sel.specIndex < 0 && sel.role == static_cast<uint8>(ai::BOT_ROLE_DPS))
+        sel.specIndex = 3;
     HireOutcome outcome = HireProvisionService::Instance().Hire(requester, sel, false);
     handler->PSendSysMessage("%s", outcome.message.c_str());
     return true;
@@ -1026,6 +1047,109 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Bot %s now following %s.", name.c_str(), requester->GetName());
     else
         handler->PSendSysMessage("Bot %s could not enter follow mode; no success is reported.", name.c_str());
+    return true;
+}
+
+// Companion maintenance: loot toggling plus vendor sell/repair fan-out over
+// the dynamic scope (selected bot or all owned party bots). The mature chat
+// actions own vendor checks (proximity, gossip flags, gold); this layer only
+// resolves scope, invokes them, persists strategy state, and reports.
+static bool HandleLoot(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    std::string mode = Trim(args ? args : "");
+    for (char& c : mode)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (!mode.empty() && mode != "on" && mode != "off")
+    {
+        handler->PSendSysMessage("Usage: .bot loot [on|off]");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        bool enabled = mode.empty() ? !ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT) : mode == "on";
+        ai->ChangeStrategy(enabled ? "+loot" : "-loot", BotState::BOT_STATE_NON_COMBAT);
+        sPlayerbotDbStore.Save(ai);
+        ++succeeded;
+        if (context.selectedBot && scope.size() == 1)
+            handler->PSendSysMessage("Bot %s: loot strategy %s.", bot->GetName(), enabled ? "enabled" : "disabled");
+    }
+    if (!context.selectedBot || scope.size() != 1)
+        handler->PSendSysMessage("Loot strategy toggled for %u bot(s).", succeeded);
+    return true;
+}
+
+static bool HandleRepair(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        if (ExecuteQuietAction(ai, "repair", ai::Event("bot command", "repair", requester)))
+            ++succeeded;
+    }
+    handler->PSendSysMessage("Commanded %u bot(s) to repair equipment.", succeeded);
+    return true;
+}
+
+static bool HandleSell(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        if (ExecuteQuietAction(ai, "sell", ai::Event("bot command", "sell", requester)))
+            ++succeeded;
+    }
+    handler->PSendSysMessage("Commanded %u bot(s) to sell vendor trash.", succeeded);
     return true;
 }
 
@@ -1540,11 +1664,18 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
     if (first != "attack" && first != "interrupt" && first != "stop" && first != "pull" &&
         first != "pullback" && first != "come" && first != "stay" &&
         first != "follow" && first != "aoe" && first != "hold" &&
-        first != "comestay" && first != "ready" && first != "rest" &&
+        first != "comestay" && first != "ready" && first != "loot" &&
+        first != "repair" && first != "sell" && first != "rest" &&
         first != "drink" && first != "eat")
         return false;
 
     if (first == "aoe")
+    {
+        if (!remainder.empty() && remainder != "on" && remainder != "off")
+            return false;
+        option = remainder;
+    }
+    else if (first == "loot")
     {
         if (!remainder.empty() && remainder != "on" && remainder != "off")
             return false;
@@ -1577,7 +1708,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|rest|drink|eat|ready");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|ready");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -1883,6 +2014,25 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 ai::Event("focus skull", "", requester));
             ExecuteQuietNextAction(ai, true);
         }
+        else if (intent == "loot")
+        {
+            bool enable = option == "on" ||
+                (option.empty() && !ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT));
+            if (option == "off")
+                enable = false;
+            ai->ChangeStrategy((enable ? "+" : "-") + std::string("loot"),
+                BotState::BOT_STATE_NON_COMBAT);
+            sPlayerbotDbStore.Save(ai);
+            accepted = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT) == enable;
+        }
+        else if (intent == "repair")
+        {
+            accepted = ExecuteQuietAction(ai, "repair", ai::Event(intent, "repair", requester));
+        }
+        else if (intent == "sell")
+        {
+            accepted = ExecuteQuietAction(ai, "sell", ai::Event(intent, "sell", requester));
+        }
 
         if (accepted)
         {
@@ -1890,6 +2040,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             if (intent == "aoe")
             {
                 std::string current = ai->HasStrategy("dps aoe", BotState::BOT_STATE_COMBAT)
+                    ? "on" : "off";
+                if (aoeState.empty())
+                    aoeState = current;
+                else if (aoeState != current)
+                    aoeState = "mixed";
+            }
+            if (intent == "loot")
+            {
+                std::string current = ai->HasStrategy("loot", BotState::BOT_STATE_NON_COMBAT)
                     ? "on" : "off";
                 if (aoeState.empty())
                     aoeState = current;
@@ -1908,8 +2067,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string scopeName = context.selectedBot && scope.size() == 1
         ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
     SendActionAck(handler, intent, scopeName, succeeded,
-        intent == "aoe" ? aoeState : "");
-    return true;
+        intent == "aoe" || intent == "loot" ? aoeState : "");
 }
 
 static bool HandleAhBot(ChatHandler* handler, char const* args)
@@ -2050,7 +2208,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/rest/drink/eat/ah");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/ah");
         return true;
     }
 
@@ -2114,6 +2272,12 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleSummon(handler, subArgs);
     if (cmd == "hire")
         return HandleHire(handler, subArgs);
+    if (cmd == "loot")
+        return HandleLoot(handler, subArgs);
+    if (cmd == "repair")
+        return HandleRepair(handler, subArgs);
+    if (cmd == "sell")
+        return HandleSell(handler, subArgs);
     if (cmd == "rest" || cmd == "drink" || cmd == "eat")
         return HandleRest(handler, subArgs);
     if (cmd == "command")

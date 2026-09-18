@@ -4,6 +4,11 @@
 
 namespace ai
 {
+    inline bool HunterHasRangedAmmo(PlayerbotAI* ai)
+    {
+        return ai && (ai->HasCheat(BotCheatMask::item) || (ai->GetAiObjectContext() && ai->GetAiObjectContext()->GetValue<uint32>("item count", "ammo")->Get() > 0));
+    }
+
     BEGIN_RANGED_DEBUFF_ACTION(CastHuntersMarkAction, "hunter's mark")
     END_SPELL_ACTION()
 
@@ -23,45 +28,55 @@ public:
 };
 
     BEGIN_RANGED_SPELL_ACTION(CastTranquilizingShotAction, "tranquilizing shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_SPELL_ACTION(CastArcaneShotAction, "arcane shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_SPELL_ACTION(CastAimedShotAction, "aimed shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_DEBUFF_ACTION(CastConcussiveShotAction, "concussive shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_DEBUFF_ACTION(CastScatterShotAction, "scatter shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     class CastScatterShotOnClosestAttackerTargetingMeAction : public CastRangedDebuffSpellAction
     {
     public:
         CastScatterShotOnClosestAttackerTargetingMeAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "scatter shot") {}
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful(); }
         std::string GetTargetName() override { return "closest attacker targeting me target"; }
     };
 
     BEGIN_RANGED_SPELL_ACTION(CastDistractingShotAction, "distracting shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_SPELL_ACTION(CastMultiShotAction, "multi-shot")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_SPELL_ACTION(CastVolleyAction, "volley")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_DEBUFF_ACTION(CastSerpentStingAction, "serpent sting")
-        virtual bool isUseful();
+        virtual bool isUseful() override;
     END_SPELL_ACTION()
 
     BEGIN_RANGED_DEBUFF_ACTION(CastViperStingAction, "viper sting")
-        virtual bool isUseful();
+        virtual bool isUseful() override;
     END_SPELL_ACTION()
 
     BEGIN_RANGED_SPELL_ACTION(CastScorpidStingAction, "scorpid sting")
+        virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
     END_SPELL_ACTION()
 
     class CastAspectOfTheMonkeyAction : public CastBuffSpellAction

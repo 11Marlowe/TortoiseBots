@@ -404,6 +404,12 @@ namespace ai
         virtual bool IsActive() override;
     };
 
+    class EarthShockInterruptSpellTrigger : public InterruptSpellTrigger
+    {
+    public:
+        EarthShockInterruptSpellTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, "earth shock") {}
+    };
+
     class FrostShockSnareTrigger : public SnareTargetTrigger
     {
     public:

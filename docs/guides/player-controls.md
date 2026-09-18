@@ -35,6 +35,9 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 | `.bot action focus skull` | Enemy / None | Sets or targets the **Skull** raid icon; orders all party DPS bots to focus fire on that target. |
 | `.bot action cc <mark>` | Marked Mob | Orders a capable bot (Mage *Polymorph*, Rogue *Sap*, Warlock *Seduce*, Priest *Shackle*, Druid *Hibernate*) to CC the target. |
 | `.bot action aoe <on\|off>` | None | Toggles whether DPS bots cast high-damage AoE abilities (useful to toggle OFF around CC targets). |
+| `.bot action loot [on\|off]` | None | Toggles corpse looting across scoped bots. |
+| `.bot action repair` | None | Orders scoped bots to repair gear at a nearby vendor. |
+| `.bot action sell` | None | Orders scoped bots to sell grey vendor trash. |
 | `.bot action rest` *(or `drink`, `eat`)* | None | Orders scoped bots to sit and consume food/drink until full. |
 | `.bot action ready` | None | Initiates a group ready check across all party bots. |
 
@@ -48,7 +51,8 @@ These commands manage the login, party membership, and presence of your owned bo
 | :--- | :--- | :--- |
 | **Roster Snapshot** | `.bot roster` | Returns an authoritative snapshot of all owned characters on your account and their online/party state (emits structured `TBM:ROSTER`). |
 | **Login Bot** | `.bot add <Name>` | Logs in an owned character from your account as a headless bot. |
-| **Hire Companion** | `.bot hire <class> [role] [race] [gender]` | Recruits a fresh companion at your level from an inn: provisions talents, spells, skills, and spec-weighted gear, then invites it to your party. Requires resting (or use a `<Mercenary Hire>` recruiter). Costs level-scaled gold (party hires escalate, raid hires are flat). |
+| **Hire Companion** | `.bot hire <class> [role] [race] [gender]` | Recruits a fresh companion at your level from an inn: provisions talents, spells, skills, and spec-weighted gear, then invites it to your party. Requires resting (or use a `<Mercenary Hire>` recruiter). Costs level-scaled gold (party hires escalate, raid hires are flat). Druid spec words `cat`/`balance` hire Cat/Balance DPS, `bear`/`feral` hire a Bear tank. |
+| **Set Bot Role** | `.bot role <Name> <tank\|healer\|dps\|clear>` | Designates an owned bot's party role and rebuilds its strategy kit (e.g. a Feral ordered to `dps` fights as Cat, ordered to `tank` fights as Bear; unassigned Feral defaults to Cat). |
 | **Logout Bot** | `.bot remove <Name>` *(or `logout`)* | Cleanly logs out an active headless bot on your account. |
 | **Invite to Party** | `.bot invite <Name>` | Sends a party invite to an online bot on your account. |
 | **Uninvite from Party**| `.bot uninvite <Name>` *(or `kick`)*| Removes an owned bot from your group. |
@@ -70,6 +74,9 @@ Direct command shortcuts that operate on your targeted bot or all party bots:
 | `.bot attack` | `[Name]` | Orders targeted bot to attack your current hostile target. |
 | `.bot pullback` | `[Name]` | Dispatches pullback maneuver on the specified bot or designated tank. |
 | `.bot formation` | `<arrow\|queue\|near\|line\|circle\|shield>` | Sets the geometric follow formation around the party leader. |
+| `.bot loot` | `[on\|off]` | Toggles corpse looting on the targeted bot (or all party bots); on by default. Also available as `.bot action loot [on\|off]`. |
+| `.bot repair` | None | Orders the targeted bot (or all party bots) to repair gear at a nearby vendor. Also available as `.bot action repair`. |
+| `.bot sell` | None | Orders the targeted bot (or all party bots) to sell grey vendor trash. Also available as `.bot action sell`. |
 | `.bot rest` *(aliases `drink`, `eat`)* | None | Orders scoped bots to sit and consume food/drink until full health/mana (combat or master movement breaks rest). Also available as `.bot action rest`. |
 
 ---

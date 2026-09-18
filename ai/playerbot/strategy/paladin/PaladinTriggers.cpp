@@ -313,6 +313,8 @@ bool HammerOfJusticeOnEnemyTrigger::IsActive()
 
 bool ConsecrationTrigger::IsActive()
 {
+    if (!ai->HasSpell("consecration"))
+        return false;
     if (SpellNoCooldownTrigger::IsActive())
     {
         return AI_VALUE2(uint8, "mana", "self target") > sPlayerbotAIConfig.mediumMana;
