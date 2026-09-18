@@ -1028,6 +1028,136 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Bot %s could not enter follow mode; no success is reported.", name.c_str());
     return true;
 }
+
+// Wipe recovery and companion utility: release, corpse run, trainer learn,
+// and direct trade. Scope follows the dynamic convention (selected bot or all
+// owned party bots); release and corpse run further filter to dead bots.
+static std::vector<Player*> DeadBotsInScope(BotCommandContext const& context)
+{
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    std::vector<Player*> dead;
+    for (Player* bot : scope)
+        if (bot && !bot->IsAlive())
+            dead.push_back(bot);
+    return dead;
+}
+
+static bool HandleRelease(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = DeadBotsInScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No dead companion bots found.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        if (ExecuteQuietAction(ai, "release", ai::Event("bot command", "release", requester)))
+            ++succeeded;
+    }
+    handler->PSendSysMessage("Released spirit for %u companion bot(s).", succeeded);
+    return true;
+}
+
+static bool HandleCorpseRun(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = DeadBotsInScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No dead companion bots found.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        if (ExecuteQuietAction(ai, "corpse run", ai::Event("bot command", "corpse run", requester)))
+            ++succeeded;
+    }
+    handler->PSendSysMessage("Commanded %u companion bot(s) to run back to corpse.", succeeded);
+    return true;
+}
+
+static bool HandleLearn(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        if (ExecuteQuietAction(ai, "trainer", ai::Event("bot command", "learn", requester)))
+            ++succeeded;
+    }
+    handler->PSendSysMessage("Commanded %u companion bot(s) to learn spells from nearby trainers.", succeeded);
+    return true;
+}
+
+static bool HandleTrade(ChatHandler* handler, char const* args)
+{
+    (void)args;
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    BotCommandContext context = BuildContext(requester);
+    Player* bot = context.selectedBot;
+    if (!bot || !bot->IsAlive())
+    {
+        handler->PSendSysMessage("Target an alive companion bot to trade.");
+        return true;
+    }
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!ai)
+    {
+        handler->PSendSysMessage("Bot %s has no AI yet.", bot->GetName());
+        return true;
+    }
+    if (ExecuteQuietAction(ai, "trade", ai::Event("bot command", requester->GetName(), requester)))
+        handler->PSendSysMessage("Trade requested with %s.", bot->GetName());
+    else
+        handler->PSendSysMessage("Bot %s could not open trade.", bot->GetName());
+    return true;
+}
+
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
 static bool HandlePullback(ChatHandler* handler, char const* args)
 {
@@ -1496,10 +1626,23 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         return true;
     }
 
+    if (first == "corpse")
+    {
+        std::string rest = remainder;
+        for (char& character : rest)
+            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        if (rest != "run")
+            return false;
+        intent = "corpse run";
+        return true;
+    }
+
     if (first != "attack" && first != "interrupt" && first != "stop" && first != "pull" &&
         first != "pullback" && first != "come" && first != "stay" &&
         first != "follow" && first != "aoe" && first != "hold" &&
-        first != "comestay" && first != "ready")
+        first != "comestay" && first != "ready" && first != "release" &&
+        first != "corpse run" && first != "corpserun" && first != "learn" &&
+        first != "trade")
         return false;
 
     if (first == "aoe")
@@ -1507,6 +1650,11 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         if (!remainder.empty() && remainder != "on" && remainder != "off")
             return false;
         option = remainder;
+    }
+    else if (first == "corpse run" || first == "corpserun")
+    {
+        intent = "corpse run";
+        return true;
     }
     else if (!remainder.empty())
         return false;
@@ -1535,7 +1683,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|ready");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|release|corpse run|learn|trade|ready");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -1811,25 +1959,27 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             accepted = ExecuteQuietAction(ai, "ready check",
                 ai::Event(intent, "", requester));
         }
-        else if (intent == "aoe")
+        else if (intent == "release")
         {
-            bool enable = option == "on" ||
-                (option.empty() && !ai->HasStrategy("dps aoe", BotState::BOT_STATE_COMBAT));
-            if (option == "off")
-                enable = false;
-            ai->ChangeStrategy((enable ? "+" : "-") + std::string("dps aoe"),
-                BotState::BOT_STATE_COMBAT);
-            ExecuteQuietNextAction(ai, true);
-            accepted = ai->HasStrategy("dps aoe", BotState::BOT_STATE_COMBAT) == enable;
+            if (!bot || bot->IsAlive())
+                continue;
+            accepted = ExecuteQuietAction(ai, "release", ai::Event(intent, "release", requester));
         }
-        else if (intent == "focus skull")
+        else if (intent == "corpse run")
         {
-            RelaxTacticalMovement(ai);
-            bool set = ExecuteQuietAction(ai, "rti",
-                ai::Event("focus skull", "skull", requester));
-            accepted = set && ExecuteQuietAction(ai, "attack rti target",
-                ai::Event("focus skull", "", requester));
-            ExecuteQuietNextAction(ai, true);
+            if (!bot || bot->IsAlive())
+                continue;
+            accepted = ExecuteQuietAction(ai, "corpse run", ai::Event(intent, "corpse run", requester));
+        }
+        else if (intent == "learn")
+        {
+            accepted = ExecuteQuietAction(ai, "trainer", ai::Event(intent, "learn", requester));
+        }
+        else if (intent == "trade")
+        {
+            if (context.selectedBot != bot)
+                continue;
+            accepted = ExecuteQuietAction(ai, "trade", ai::Event(intent, requester->GetName(), requester));
         }
 
         if (accepted)
@@ -1998,7 +2148,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/ah");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/release/corpse run/learn/trade/ah");
         return true;
     }
 
@@ -2062,6 +2212,24 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleSummon(handler, subArgs);
     if (cmd == "hire")
         return HandleHire(handler, subArgs);
+    if (cmd == "release")
+        return HandleRelease(handler, subArgs);
+    if (cmd == "corpse")
+    {
+        std::string rest = Trim(subArgs ? subArgs : "");
+        for (char& c : rest)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (rest == "run" || rest.empty())
+            return HandleCorpseRun(handler, "");
+        handler->PSendSysMessage("Usage: .bot corpse run");
+        return true;
+    }
+    if (cmd == "corpse run" || cmd == "corpserun")
+        return HandleCorpseRun(handler, subArgs);
+    if (cmd == "learn")
+        return HandleLearn(handler, subArgs);
+    if (cmd == "trade")
+        return HandleTrade(handler, subArgs);
     if (cmd == "command")
         return HandleMatureCommand(handler, subArgs);
     if (cmd == "help" || cmd == "h")
