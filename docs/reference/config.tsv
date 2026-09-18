@@ -18,4 +18,5 @@ AiPlayerbot.HirePartyMult3	2.66	2.66	—	restart	PlayerbotAIConfig::Initialize +
 AiPlayerbot.HirePartyMult4	4.66	4.66	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100	—	—	shipped (#192)
 AiPlayerbot.HireRaidFlatCostCopper	10000	10000	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100000000	—	0 = free raid top-up	shipped (#192)
 AiPlayerbot.HireDisconnectGracePeriod	300	300	—	restart	PlayerbotAIConfig::Initialize + HireLifecycle	hire	0-3600	—	—	shipped (#192)
+AiPlayerbot.NonCombatStrategies	empty (owned bots fall back to C++ default)	+return,+delayed roll,+loot	—	restart	PlayerbotAIConfig::Initialize + AiFactory owned-bot defaults	owned	—	—	owned-bot loot defaults on via fallback	shipped (#194)
 AiPlayerbot.AutoShareConjuredOnTrade	1	true	—	restart	PlayerbotAIConfig::Initialize + TradeStatusAction::BeginTrade	companion	0/1	—	—	shipped (#206)

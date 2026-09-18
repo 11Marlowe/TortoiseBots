@@ -1257,7 +1257,8 @@ AiPlayerbot.RandomBotNonCombatStrategies = +grind,+loot,+custom::say,+tfish,+wan
 #AiPlayerbot.RandomBotDeadStrategies =
 # Keep these empty so the spec/role defaults above remain authoritative for
 # player-owned bots. Add explicit overrides only when intentionally changing a
-# bot's role or autonomous behavior.
+# bot's role or autonomous behavior. The C++ fallback for owned bots adds
+# +loot (corpse looting) on top of +return,+delayed roll.
 AiPlayerbot.CombatStrategies = ""
 AiPlayerbot.NonCombatStrategies = ""
 #AiPlayerbot.ReactStrategies =

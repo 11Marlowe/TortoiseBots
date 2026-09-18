@@ -422,7 +422,7 @@ bool PlayerbotAIConfig::Initialize()
     randomBotReactStrategies = config.GetStringDefault("AiPlayerbot.RandomBotReactStrategies", "");
     randomBotDeadStrategies = config.GetStringDefault("AiPlayerbot.RandomBotDeadStrategies", "");
     combatStrategies = config.GetStringDefault("AiPlayerbot.CombatStrategies", "");
-    nonCombatStrategies = config.GetStringDefault("AiPlayerbot.NonCombatStrategies", "+return,+delayed roll");
+    nonCombatStrategies = config.GetStringDefault("AiPlayerbot.NonCombatStrategies", "+return,+delayed roll,+loot");
     reactStrategies = config.GetStringDefault("AiPlayerbot.ReactStrategies", "");
     deadStrategies = config.GetStringDefault("AiPlayerbot.DeadStrategies", "");
 
