@@ -39,6 +39,10 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 | `.bot action repair` | None | Orders scoped bots to repair gear at a nearby vendor. |
 | `.bot action sell` | None | Orders scoped bots to sell grey vendor trash. |
 | `.bot action rest` *(or `drink`, `eat`)* | None | Orders scoped bots to sit and consume food/drink until full. |
+| `.bot action release` | None | Commands dead companion bots to release spirit. |
+| `.bot action corpse run` | None | Commands spirit bots to run back to corpse. |
+| `.bot action learn` | None | Commands scoped bots to learn spells from nearby trainers. |
+| `.bot action trade` | Companion Bot Target | Opens trade with the targeted companion bot. |
 | `.bot action ready` | None | Initiates a group ready check across all party bots. |
 
 ---
@@ -57,6 +61,10 @@ These commands manage the login, party membership, and presence of your owned bo
 | **Invite to Party** | `.bot invite <Name>` | Sends a party invite to an online bot on your account. |
 | **Uninvite from Party**| `.bot uninvite <Name>` *(or `kick`)*| Removes an owned bot from your group. |
 | **Summon** | `.bot summon [Name]` | Teleports your owned party bot(s) safely to your location out of combat. |
+| **Release Spirit** | `.bot release` | Commands dead companion bots to release spirit to the graveyard. Also available as `.bot action release`. |
+| **Corpse Run** | `.bot corpse run` | Commands spirit bots to run back to their corpse or instance entrance. Also available as `.bot action corpse run`. |
+| **Learn Spells** | `.bot learn` | Commands companion bots near matching trainers to learn affordable spells. Also available as `.bot action learn`. |
+| **Trade** | `.bot trade` | Opens a trade window with the targeted alive companion bot. Also available as `.bot action trade`. |
 
 ---
 
