@@ -2697,8 +2697,14 @@ bool PlayerbotAI::IsTank(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        if (botAi->ContainsStrategy(STRATEGY_TYPE_TANK) || botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK))
+        if (botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK))
             return true;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_TANK))
+            return true;
+        // An explicit forced role wins over the talent read below for owned
+        // companions: a Feral ordered to DPS must not report as a tank.
+        if (botAi->GetForcedRole() != static_cast<uint8>(BOT_ROLE_NONE) && botAi->HasActivePlayerMaster())
+            return false;
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);
@@ -2711,8 +2717,12 @@ bool PlayerbotAI::IsHeal(Player* player, bool inGroup)
     PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(player);
     if (botAi)
     {
-        if (botAi->ContainsStrategy(STRATEGY_TYPE_HEAL) || botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_HEALER))
+        if (botAi->GetForcedRole() == static_cast<uint8>(BOT_ROLE_HEALER))
             return true;
+        if (botAi->ContainsStrategy(STRATEGY_TYPE_HEAL))
+            return true;
+        if (botAi->GetForcedRole() != static_cast<uint8>(BOT_ROLE_NONE) && botAi->HasActivePlayerMaster())
+            return false;
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);

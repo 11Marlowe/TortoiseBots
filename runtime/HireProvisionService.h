@@ -15,12 +15,15 @@ namespace TortoiseBots
 
 // Companion choice as gathered from gossip or the `.bot hire` command.
 // role uses the ai::BOT_ROLE_* bits (tank 0x01, healer 0x02, dps 0x04).
+// specIndex is the gossip spec-menu position (SpecsFor order); -1 when the
+// request came from `.bot hire` without a spec word (role only).
 struct HireSelection
 {
     uint8 classId = 0;
     uint8 race = 0;
     uint8 gender = 0;
     uint8 role = 0;
+    int specIndex = -1;
 };
 
 enum class HireStatus
@@ -76,9 +79,6 @@ public:
     static bool ClassCanRole(uint8 classId, uint8 role);
     static uint8 DefaultRoleForClass(uint8 classId);
 
-private:
-    HireProvisionService() = default;
-
     struct PendingProvision
     {
         ObjectGuid botGuid;
@@ -86,10 +86,11 @@ private:
         uint32_t masterAccountId = 0;
         uint8 targetLevel = 1;
         uint8 role = 0;
+        int specIndex = -1;
         time_t queuedAt = 0;
     };
-
     bool FindOwnedReusableCandidate(Player* requester, HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
+
     bool FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
     bool CreateCandidate(HireSelection const& sel, uint32_t requesterTeam, uint32_t& accountId, ObjectGuid& guid);
     bool ProvisionNow(Player* bot, PendingProvision const& pending);

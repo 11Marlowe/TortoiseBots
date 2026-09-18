@@ -234,11 +234,11 @@ BotRoles AiFactory::GetPlayerRoles(uint8 cls, uint8 tab)
             }
             else if (tab == 1)
             {
-                // Feral counts as tank here. The dungeon finder can put a druid
-                // on the tank slot, and this mapping decides which premade
-                // talent build it gets - with DPS it would be handed a balance
-                // build and try to tank in caster form.
-                role = BOT_ROLE_TANK;
+                // Feral covers both Bear (tank) and Cat (melee DPS) on the
+                // single shared 11.1 talent path. Report both roles so
+                // role-filtered premade lookups can match it either way;
+                // the forced role (or Cat default) decides Bear vs Cat.
+                role = BotRoles(BOT_ROLE_TANK | BOT_ROLE_DPS);
             }
             else if (tab == 2)
             {
@@ -266,6 +266,13 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     // warrior who happened to stand in defensive stance would have been handed
     // the tank slot with a fury build, while a feral druid was already
     // recognised through its talents. The aura check is gone. The tree decides.
+    // An explicit forced role wins for owned companions (.bot role, hire):
+    // a Feral ordered to DPS must read as DPS, not Tank. Free wandering bots
+    // keep the natural talent mask so LFT fill keeps seeing Feral as
+    // tank-capable even while borrowed under another slot.
+    PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(const_cast<Player*>(player));
+    if (botAi && botAi->GetForcedRole() != BOT_ROLE_NONE && botAi->HasActivePlayerMaster())
+        return static_cast<BotRoles>(botAi->GetForcedRole());
     return GetPlayerRoles(player->GetClass(), GetPlayerSpecTab(player));
 }
 
@@ -425,17 +432,11 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
                 // Bear or cat. An assigned role decides it outright: a druid the
                 // dungeon finder put on the tank slot should be a bear whether or
                 // not it has reached Primal Fury, and one sent as dps should stay
-                // a cat even if it has.
-                //
-                // Primal Fury - 16958 and 16961 - remains the fallback for bots
-                // nobody assigned anything to, which is every druid simply
-                // wandering the world. It is only a proxy for having gone down
-                // the bear side of the tree, and a poor one below the level that
-                // reaches it.
+                // a cat even if it has. Unassigned wandering Feral defaults to
+                // Cat DPS; Bear is opt-in via role, never a talent guess.
                 uint8 const role = facade->GetForcedRole();
 
-                bool const tanking = role ? (role & BOT_ROLE_TANK) != 0
-                                          : (player->HasSpell(16961) || player->HasSpell(16958));
+                bool const tanking = role ? (role & BOT_ROLE_TANK) != 0 : false;
 
                 if (tanking)
                 {
@@ -443,7 +444,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
                 }
                 else
                 {
-                    combatEngine->addStrategies("dps feral", "dps assist", "close", "behind", NULL);
+                    combatEngine->addStrategies("dps feral", "dps assist", "close", "behind", "stealth", NULL);
                     if (sPlayerbotAIConfig.enableOffSpecStrategies)
                         combatEngine->addStrategy("offheal");
                 }
@@ -539,7 +540,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
                 combatEngine->removeStrategy("close");
             }
 
-            if (player->GetClass() == CLASS_DRUID && tab == 1 && urand(0, 100) > 50 && player->GetLevel() >= 20)
+            if (player->GetClass() == CLASS_DRUID && tab == 1 && urand(0, 100) > 50 && player->GetLevel() >= 20 && !facade->GetForcedRole())
             {
                 if (player->HasSpell(16961) || player->HasSpell(16958))
                 {
@@ -639,7 +640,10 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 
         if (player->GetClass() == CLASS_DRUID && tab == 1)
         {
-            if (player->HasSpell(16961) || player->HasSpell(16958))
+            uint8 const bgRole = facade->GetForcedRole();
+            bool const bgTanking = bgRole ? (bgRole & BOT_ROLE_TANK) != 0
+                : (player->HasSpell(16961) || player->HasSpell(16958));
+            if (bgTanking)
             {
                 combatEngine->addStrategies("tank feral", "close", NULL);
             }
@@ -812,7 +816,9 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
             if (tab == 1)
             {
-                if (player->HasSpell(16961) || player->HasSpell(16958))
+                uint8 const ncRole = facade->GetForcedRole();
+                bool const ncTanking = ncRole ? (ncRole & BOT_ROLE_TANK) != 0 : false;
+                if (ncTanking)
                 {
                     nonCombatEngine->addStrategies("tank feral", "tank assist", NULL);
                 }
@@ -1145,7 +1151,8 @@ void AiFactory::AddDefaultDeadStrategies(Player* player, PlayerbotAI* const faca
 
             if (tab == 1)
             {
-                if (player->HasSpell(16961) || player->HasSpell(16958))
+                uint8 const deadRole = facade->GetForcedRole();
+                if (deadRole ? (deadRole & BOT_ROLE_TANK) != 0 : false)
                 {
                     deadEngine->addStrategy("tank feral");
                 }
@@ -1345,7 +1352,8 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
 
             if (tab == 1)
             {
-                if (player->HasSpell(16961) || player->HasSpell(16958))
+                uint8 const reactRole = facade->GetForcedRole();
+                if (reactRole ? (reactRole & BOT_ROLE_TANK) != 0 : false)
                 {
                     reactionEngine->addStrategy("tank feral");
                 }

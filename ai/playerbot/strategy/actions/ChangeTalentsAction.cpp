@@ -188,7 +188,7 @@ std::vector<TalentPath*> ChangeTalentsAction::getPremadePaths(uint8 cls, std::st
         if (!findName.empty() && path.name.find(findName) == std::string::npos)
             continue;
 
-        if (role != BotRoles::BOT_ROLE_NONE && AiFactory::GetPlayerRoles(cls, path.talentSpec.back().highestTree()) != role)
+        if (role != BotRoles::BOT_ROLE_NONE && (AiFactory::GetPlayerRoles(cls, path.talentSpec.back().highestTree()) & role) == 0)
             continue;
 
         ret.push_back(&path);
