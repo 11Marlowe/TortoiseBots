@@ -22,6 +22,7 @@ type Config struct {
 	DBPassword string
 	DBName     string
 	SecretKey  string
+	MinGMLevel int
 }
 
 type Service struct {
@@ -62,15 +63,16 @@ func NewService(cfg Config) (*Service, error) {
 	}, nil
 }
 
-// CalculateShaPassHash returns SHA1(UPPER(username) + ":" + UPPER(password)) in hex lowercase.
+// CalculateShaPassHash returns SHA1(UPPER(username) + ":" + UPPER(password)) in hex uppercase,
+// matching the core hexEncodeByteArray storage so comparisons stay case-insensitive.
 func CalculateShaPassHash(username, password string) string {
 	combined := strings.ToUpper(username) + ":" + strings.ToUpper(password)
 	hasher := sha1.New()
 	hasher.Write([]byte(combined))
-	return hex.EncodeToString(hasher.Sum(nil))
+	return strings.ToUpper(hex.EncodeToString(hasher.Sum(nil)))
 }
 
-// Authenticate verifies the user against the database and checks for gmlevel/rank >= 3.
+// Authenticate verifies the user against the database and checks for gmlevel/rank >= MinGMLevel.
 func (s *Service) Authenticate(username, password string) (*SessionData, error) {
 	username = strings.TrimSpace(username)
 	if username == "" || password == "" {
@@ -79,27 +81,40 @@ func (s *Service) Authenticate(username, password string) (*SessionData, error) 
 
 	hash := CalculateShaPassHash(username, password)
 
-	// Primary query: Penqle tw_logon uses account.rank
+	// Primary query: Penqle tw_logon uses account.rank. Hash comparison is
+	// case-insensitive so lowercase-computed hashes match uppercase storage.
 	var accountID uint32
 	var rank uint32
 
-	query := `SELECT id, rank FROM account WHERE UPPER(username) = UPPER(?) AND sha_pass_hash = ? LIMIT 1`
+	query := `SELECT id, rank FROM account WHERE UPPER(username) = UPPER(?) AND UPPER(sha_pass_hash) = UPPER(?) LIMIT 1`
 	err := s.db.QueryRow(query, username, hash).Scan(&accountID, &rank)
 	if err != nil {
 		// Fallback query: check if account_access table exists (legacy MaNGOS/Trinity style)
 		fallbackQuery := `
-			SELECT a.id, aa.gmlevel 
-			FROM account a 
-			JOIN account_access aa ON a.id = aa.id 
-			WHERE UPPER(a.username) = UPPER(?) AND a.sha_pass_hash = ? LIMIT 1`
+			SELECT a.id, aa.gmlevel
+			FROM account a
+			JOIN account_access aa ON a.id = aa.id
+			WHERE UPPER(a.username) = UPPER(?) AND UPPER(a.sha_pass_hash) = UPPER(?) LIMIT 1`
 		fbErr := s.db.QueryRow(fallbackQuery, username, hash).Scan(&accountID, &rank)
 		if fbErr != nil {
 			return nil, fmt.Errorf("invalid username or password")
 		}
+	} else {
+		// A zero-rank account row must not mask a real GM level stored in
+		// account_access: take the highest of both sources.
+		var accessRank uint32
+		accessQuery := `SELECT gmlevel FROM account_access WHERE id = ? ORDER BY gmlevel DESC LIMIT 1`
+		if accessErr := s.db.QueryRow(accessQuery, accountID).Scan(&accessRank); accessErr == nil && accessRank > rank {
+			rank = accessRank
+		}
 	}
 
-	if rank < 3 {
-		return nil, fmt.Errorf("access denied: account requires Game Master rank (gmlevel >= 3, current rank %d)", rank)
+	minLevel := s.cfg.MinGMLevel
+	if minLevel <= 0 {
+		minLevel = 2
+	}
+	if int(rank) < minLevel {
+		return nil, fmt.Errorf("access denied: account requires Game Master rank (gmlevel >= %d, current rank %d)", minLevel, rank)
 	}
 
 	return &SessionData{
