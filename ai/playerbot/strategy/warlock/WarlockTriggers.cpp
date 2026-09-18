@@ -49,6 +49,11 @@ bool CurseOfAgonyTrigger::IsActive()
     return DebuffTrigger::IsActive();
 }
 
+bool CorruptionOnAttackerTrigger::IsActive()
+{
+    return DebuffOnAttackerTrigger::IsActive();
+}
+
 bool LifeTapTrigger::IsActive()
 {
 	if (!ai->HasSpell("life tap"))

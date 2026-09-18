@@ -63,6 +63,8 @@ namespace ai
         bool IsActive() override { return ai->HasSpell("holy shield") && BuffTrigger::IsActive(); }
     };
 
+    BUFF_TRIGGER(RighteousFuryTrigger, "righteous fury");
+
 	class SealTrigger : public BuffTrigger
 	{
 	public:
