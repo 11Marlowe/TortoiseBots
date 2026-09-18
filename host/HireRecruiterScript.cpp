@@ -33,10 +33,16 @@ constexpr uint32 kSenderRace = 502;
 constexpr uint32 kSenderGender = 503;
 constexpr uint32 kSenderSpec = 504;
 
-constexpr uint32 kBackAction = 900;
-// Confirm is a distinct action id; the packed class/race/gender/spec selection
-// travels in the sender, so confirm never collides with a spec index.
-constexpr uint32 kConfirmAction = 950;
+// All action ids fit in one byte: every wizard step packs prior choices into
+// individual bytes of the 32-bit action/sender (class | race | gender |
+// specIndex), so any value > 255 bleeds into the neighboring byte and
+// corrupts the decoded race/gender (900 = 0x384 garbled Human into Dwarf).
+// 255 is the highest non-choice byte: races are 1-10, genders 0-1, spec
+// indices 0-3, so it never collides with a real choice.
+constexpr uint32 kBackAction = 255;
+// Confirm rides in the sender-packed selection with action 254 (likewise one
+// byte, likewise collision-free).
+constexpr uint32 kConfirmAction = 254;
 
 constexpr uint32 kMaxMenuItems = 30;
 
@@ -166,27 +172,12 @@ HireCost::CostConfig CurrentCosts()
     return costs;
 }
 
-uint32_t OwnedHireCount(Player* player)
+// Quote-only hire-slot count for the confirm menu: live hires + mustering
+// for THIS master guid (same rule as the provisioner's cap). Same-account
+// alts are not hires and never inflate the quote.
+uint32_t QuoteHireCount(Player* player)
 {
-    if (!player || !player->GetSession())
-        return 0;
-    uint32_t ownerAccountId = player->GetSession()->GetAccountId();
-    uint32_t count = 0;
-    for (OwnedCharacter const& row : BotManager::Instance().GetOwnedCharacters(ownerAccountId))
-    {
-        BotRecord* record = BotManager::Instance().FindBot(row.characterGuid);
-        if (record && record->random && !record->masterGuid.IsEmpty() && record->ownerAccountId == ownerAccountId)
-            ++count;
-        else if (!record)
-        {
-            PlayerCacheData const* data = sObjectMgr.GetPlayerDataByGUID(row.characterGuid.GetCounter());
-            if (data && data->uiClass)
-                ++count;
-        }
-    }
-    // Companions still mustering (login queued by a double-click) also occupy
-    // a slot: count them via the provisioner's master view.
-    return count;
+    return HireProvisionService::Instance().CountHired(player);
 }
 
 void ShowClassMenu(Player* player, Creature* creature)
@@ -247,7 +238,7 @@ void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 ra
         return;
     }
     uint32_t level = player->GetLevel();
-    uint32_t cost = HireCost::ForNextHire(CurrentCosts(), OwnedHireCount(player), level);
+    uint32_t cost = HireCost::ForNextHire(CurrentCosts(), QuoteHireCount(player), level);
     std::ostringstream label;
     label << "Hire " << RaceName(race) << " " << ClassName(classId) << " (" << specs.options[specIndex].label << ") for "
         << ai::ChatHelper::formatMoney(cost) << ". Confirm?";
@@ -299,7 +290,7 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
     {
         uint8 classId = static_cast<uint8>((action >> 8) & 0xFF);
         uint32 low = action & 0xFF;
-        if (low == (kBackAction & 0xFF) || low == kBackAction)
+        if (low == kBackAction)
         {
             ShowClassMenu(player, creature);
             return true;
@@ -318,7 +309,7 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
         uint8 classId = static_cast<uint8>((action >> 16) & 0xFF);
         uint8 race = static_cast<uint8>((action >> 8) & 0xFF);
         uint32 low = action & 0xFF;
-        if (low == (kBackAction & 0xFF) || low == kBackAction)
+        if (low == kBackAction)
         {
             ShowRaceMenu(player, creature, classId);
             return true;
@@ -338,7 +329,7 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
         uint8 gender = static_cast<uint8>((action >> 8) & 0xFF);
         uint32 low = action & 0xFF;
         SpecList specs = SpecsFor(classId);
-        if (low == (kBackAction & 0xFF) || low == kBackAction)
+        if (low == kBackAction)
         {
             ShowGenderMenu(player, creature, classId, race);
             return true;

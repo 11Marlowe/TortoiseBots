@@ -74,39 +74,6 @@ std::string RandomHireName()
     return name;
 }
 
-uint32_t CountOwnedHired(uint32_t ownerAccountId)
-{
-    uint32_t count = 0;
-    for (Player* bot : BotManager::Instance().GetAllBots())
-    {
-        if (!bot)
-            continue;
-        BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-        if (!record || !record->ownerAccountId || record->ownerAccountId != ownerAccountId)
-            continue;
-        if (!record->random)
-            continue;
-        // Hired companions are master-bound random bots; roaming pool bots
-        // have no durable owner and never pass the ownerAccountId check.
-        if (record->masterGuid.IsEmpty())
-            continue;
-        ++count;
-    }
-    // Offline hired rows keep their durable ownership but have no live record.
-    // They still occupy a hire slot until the master releases them via
-    // .bot remove (ownership is durable by design).
-    for (OwnedCharacter const& row : BotManager::Instance().GetOwnedCharacters(ownerAccountId))
-    {
-        if (BotManager::Instance().FindBot(row.characterGuid))
-            continue;
-        PlayerCacheData const* data = sObjectMgr.GetPlayerDataByGUID(row.characterGuid.GetCounter());
-        if (!data || !data->uiClass)
-            continue;
-        ++count;
-    }
-    return count;
-}
-
 } // namespace
 
 HireProvisionService& HireProvisionService::Instance()
@@ -204,8 +171,13 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
         return outcome;
     }
 
-    uint32_t ownerAccountId = requester->GetSession()->GetAccountId();
-    uint32_t owned = CountOwnedHired(ownerAccountId);
+    // Live-slot cap for THIS master guid: live HireLifecycle hires plus this
+    // master's mustering (login-queued) provisions (CountHired covers both).
+    // Never GetOwnedCharacters here: same-account alts are not hires, and a
+    // dismissed bot's durable ownership row must not block the next hire
+    // (Dismiss/.bot remove always release the lifecycle record). Each alt
+    // (master guid) has its own hire slots.
+    uint32_t owned = HireProvisionService::Instance().CountHired(requester);
     uint32_t maxHires = std::min<uint32_t>(sPlayerbotAIConfig.hireMaxBotsPerPlayer, 39);
 
     Group* group = requester->GetGroup();
@@ -288,7 +260,13 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     ObjectGuid guid;
     HireSelection resolved = sel;
     resolved.role = role;
-    bool haveCandidate = FindReusableCandidate(resolved, accountId, guid);
+    // Own dismissed bots first: an offline bot the requester already owns and
+    // that is not hired out to another master is re-leveled and re-provisioned
+    // instead of minting a new character (no DB bloat, keeps names stable).
+    // Pool strangers second, fresh creation last.
+    bool haveCandidate = FindOwnedReusableCandidate(requester, resolved, accountId, guid);
+    if (!haveCandidate)
+        haveCandidate = FindReusableCandidate(resolved, accountId, guid);
     Team team = requesterTeam;
     if (!haveCandidate && !CreateCandidate(resolved, team, accountId, guid))
     {
@@ -303,6 +281,7 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     requester->SaveToDB();
 
     ObjectGuid masterGuid = requester->GetObjectGuid();
+    uint32_t ownerAccountId = requester->GetSession()->GetAccountId();
     if (!BotManager::Instance().AddBotWithMaster(accountId, guid, masterGuid))
     {
         // Refund: the login queue rejected us (already online/pending).
@@ -342,6 +321,42 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     outcome.message = std::string("Hired ") + outcome.botName + " for " +
         ai::ChatHelper::formatMoney(cost) + ". Your companion is mustering.";
     return outcome;
+}
+
+// Own dismissed bots first: offline, requester-owned, matching
+// class/race/gender, and not currently hired by anyone. Re-levels and
+// re-provisions the same character instead of minting a new one.
+bool HireProvisionService::FindOwnedReusableCandidate(Player* requester, HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid)
+{
+    if (!requester || !requester->GetSession())
+        return false;
+    uint32_t ownerAccountId = requester->GetSession()->GetAccountId();
+    for (OwnedCharacter const& row : BotManager::Instance().GetOwnedCharacters(ownerAccountId))
+    {
+        if (row.ownerAccountId != ownerAccountId)
+            continue;
+        PlayerCacheData const* data = sObjectMgr.GetPlayerDataByGUID(row.characterGuid.GetCounter());
+        if (!data || data->uiClass != sel.classId || data->uiRace != sel.race || data->uiGender != sel.gender)
+            continue;
+        if (data->uiAccount == 0)
+            continue;
+        if (BotManager::Instance().FindBot(row.characterGuid))
+            continue;
+        if (sObjectAccessor.FindPlayer(row.characterGuid))
+            continue;
+        if (BotSessionAdapter::GetHeadlessSessionState(row.characterGuid) != HeadlessSessionState::NotFound)
+            continue;
+        if (HireLifecycle::Instance().IsHired(row.characterGuid))
+            continue;
+        OwnedCharacter live;
+        if (BotManager::Instance().GetOwnedCharacter(row.characterGuid, live) && !live.masterGuid.IsEmpty() &&
+            live.masterGuid != requester->GetObjectGuid())
+            continue;
+        accountId = data->uiAccount;
+        guid = row.characterGuid;
+        return true;
+    }
+    return false;
 }
 
 bool HireProvisionService::FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid)

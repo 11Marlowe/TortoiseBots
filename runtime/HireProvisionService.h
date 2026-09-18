@@ -89,6 +89,7 @@ private:
         time_t queuedAt = 0;
     };
 
+    bool FindOwnedReusableCandidate(Player* requester, HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
     bool FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
     bool CreateCandidate(HireSelection const& sel, uint32_t requesterTeam, uint32_t& accountId, ObjectGuid& guid);
     bool ProvisionNow(Player* bot, PendingProvision const& pending);

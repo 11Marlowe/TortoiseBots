@@ -5,13 +5,14 @@
 -- script_name='tortoise_mercenary_hire'. Cloning display/faction keeps the
 -- recruiter lore-plausible next to its innkeeper (same look, same side);
 -- subname is the fixed '<Mercenary Hire>' title. Idempotent: DELETEs the
--- module's entry range and spawn markers before re-inserting, so the
--- migration can be re-applied and uninstalled cleanly.
+-- module's entry range (templates) and id range (spawns) before re-inserting,
+-- so the migration can be re-applied and uninstalled cleanly.
 --
--- Spawns are placed 1.5 yards to the side of each live innkeeper spawn
--- (facing-relative offset, same map/position_z/orientation). The marker
--- comment lets operators find and (if desired) move or remove individual
--- recruiters; respawning follows the innkeeper's own timers.
+-- Spawns: one row per live innkeeper spawn (46 rows across 45 recruiters;
+-- Fizzgrimble spawns twice so 95029 spawns twice; Hern/95042 has a template
+-- but no base spawn in core data, so no spawn row yet). Each recruiter stands
+-- 1.5 yards to the side of its innkeeper (facing-relative offset, same
+-- map/z/orientation, innkeeper's own respawn timers mirrored).
 
 DELETE FROM `creature_template` WHERE `entry` BETWEEN 95000 AND 95045;
 DELETE FROM `creature` WHERE `id` BETWEEN 95000 AND 95045;
@@ -64,3 +65,78 @@ INSERT INTO `creature_template` (`entry`, `display_id1`, `display_id2`, `display
 (95043, 7202, 0, 0, 0, 0, 'Recruiter Frizzo', 'Mercenary Hire', 0, 30, 30, 1605, 1605, 0, 0, 1200, 1682, 1, 1, 1.14286, 1, 20, 5, 0, 0, 1, 1, 1, 0, 1, 1, 2000, 2000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, 0, '', 0, 3, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 'tortoise_mercenary_hire'),
 (95044, 8185, 0, 0, 0, 0, 'Recruiter Heidi', 'Mercenary Hire', 0, 30, 30, 1002, 1002, 0, 0, 1200, 12, 1, 1, 1.14286, 1, 20, 5, 0, 0, 1, 1, 1, 0, 1, 1, 2000, 2000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, 0, '', 0, 3, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 'tortoise_mercenary_hire'),
 (95045, 3675, 0, 0, 0, 0, 'Recruiter Natt', 'Mercenary Hire', 0, 30, 30, 1002, 1002, 0, 0, 1200, 68, 1, 1, 1.14286, 1, 20, 5, 0, 0, 1, 1, 1, 0, 1, 1, 2000, 2000, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, 0, '', 0, 3, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 'tortoise_mercenary_hire');
+
+-- Recruiter spawns: one per live innkeeper spawn (1.5y facing-relative side
+-- offset, same map/z/orientation, innkeeper's own respawn timers mirrored).
+-- guid is AUTO_INCREMENT (0 lets the server assign); Fizzgrimble (7733)
+-- spawns twice, so Recruiter Fizzgrimble (95029) spawns twice too. Hern
+-- (51620) has a template but no base spawn, so Recruiter Hern (95042) gets
+-- no spawn row until core data adds one.
+INSERT INTO `creature`
+(
+    `guid`,
+    `id`,
+    `id2`,
+    `id3`,
+    `id4`,
+    `map`,
+    `position_x`,
+    `position_y`,
+    `position_z`,
+    `orientation`,
+    `spawntimesecsmin`,
+    `spawntimesecsmax`,
+    `wander_distance`,
+    `health_percent`,
+    `mana_percent`,
+    `movement_type`,
+    `spawn_flags`,
+    `visibility_mod`
+)
+VALUES
+(0, 95000, 0, 0, 0, 0, -9467.865876, 21.530348, 56.3401, 1.49663, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95000 beside innkeeper 295 (base guid 2556037)
+(0, 95001, 0, 0, 0, 0, -5602.872073, -531.997877, 399.7370, 2.1293, 310, 310, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95001 beside innkeeper 1247 (base guid 199)
+(0, 95002, 0, 0, 0, 0, -3828.516097, -830.520243, 10.0906, 0.401426, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95002 beside innkeeper 1464 (base guid 9460)
+(0, 95003, 0, 0, 0, 0, -858.595771, -570.724817, 11.2638, 1.55334, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95003 beside innkeeper 2352 (base guid 15326)
+(0, 95004, 0, 0, 0, 0, -6.552986, -943.663537, 57.1621, 2.7415, 300, 300, 1.000000, 100.000000, 0.000000, 1, 0, 0.000000), -- recruiter 95004 beside innkeeper 2388 (base guid 15287)
+(0, 95005, 0, 0, 0, 1, -413.307722, -2646.351645, 96.2230, 3.33634, 25, 25, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95005 beside innkeeper 3934 (base guid 2555357)
+(0, 95006, 0, 0, 0, 0, -4839.188468, -856.859346, 501.9970, 4.86947, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95006 beside innkeeper 5111 (base guid 1745)
+(0, 95007, 0, 0, 0, 0, 2270.370367, 243.715274, 34.3402, 3.75246, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95007 beside innkeeper 5688 (base guid 28474)
+(0, 95008, 0, 0, 0, 0, -12435.582016, 212.482492, 2.4485, 0.907571, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95008 beside innkeeper 5814 (base guid 690)
+(0, 95009, 0, 0, 0, 1, -3617.327952, -4471.722725, 14.3286, 2.21657, 360, 360, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95009 beside innkeeper 6272 (base guid 30676)
+(0, 95010, 0, 0, 0, 0, -9224.110728, -2158.614293, 64.0168, 3.05433, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95010 beside innkeeper 6727 (base guid 10076)
+(0, 95011, 0, 0, 0, 0, -5379.377220, -2974.221874, 323.2520, 1.78024, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95011 beside innkeeper 6734 (base guid 8219)
+(0, 95012, 0, 0, 0, 1, 10126.702048, 2223.887275, 1328.8100, 2.21657, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95012 beside innkeeper 6735 (base guid 46341)
+(0, 95013, 0, 0, 0, 1, 9803.704293, 982.738725, 1313.9800, 4.79965, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95013 beside innkeeper 6736 (base guid 46343)
+(0, 95014, 0, 0, 0, 1, 6405.075543, 515.805558, 8.7257, 1.27409, 275, 275, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95014 beside innkeeper 6737 (base guid 37069)
+(0, 95015, 0, 0, 0, 1, 2780.365125, -434.269074, 116.6650, 2.58309, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95015 beside innkeeper 6738 (base guid 32451)
+(0, 95016, 0, 0, 0, 0, 512.296755, 1635.883899, 126.0270, 4.31096, 275, 275, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95016 beside innkeeper 6739 (base guid 17865)
+(0, 95017, 0, 0, 0, 0, -8866.465578, 674.377206, 97.9864, 5.20108, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95017 beside innkeeper 6740 (base guid 79841)
+(0, 95018, 0, 0, 0, 0, 1634.961447, 221.896541, -43.0198, 2.84489, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95018 beside innkeeper 6741 (base guid 38407)
+(0, 95019, 0, 0, 0, 1, -1301.074878, 39.757872, 129.2920, 0.558505, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95019 beside innkeeper 6746 (base guid 24772)
+(0, 95020, 0, 0, 0, 1, -2364.736069, -345.950540, -8.8736, 5.84685, 250, 250, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95020 beside innkeeper 6747 (base guid 24774)
+(0, 95021, 0, 0, 0, 0, -10514.834282, -1162.153981, 28.1161, 4.03171, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95021 beside innkeeper 6790 (base guid 4208)
+(0, 95022, 0, 0, 0, 1, -1049.626540, -3663.358109, 23.9684, 6.00393, 275, 275, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95022 beside innkeeper 6791 (base guid 14986)
+(0, 95023, 0, 0, 0, 0, -14456.585283, 494.344303, 15.2129, 3.97935, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95023 beside innkeeper 6807 (base guid 537)
+(0, 95024, 0, 0, 0, 1, 341.661038, -4687.040000, 16.5411, 4.18879, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95024 beside innkeeper 6928 (base guid 7671)
+(0, 95025, 0, 0, 0, 1, 1627.568300, -4434.082716, 13.6229, 2.4369, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95025 beside innkeeper 6929 (base guid 2556032)
+(0, 95026, 0, 0, 0, 0, -10487.456793, -3257.348217, 21.1127, 0.10472, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95026 beside innkeeper 6930 (base guid 31947)
+(0, 95027, 0, 0, 0, 1, -2377.581929, -1995.012784, 96.7881, 1.06465, 275, 275, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95027 beside innkeeper 7714 (base guid 13550)
+(0, 95028, 0, 0, 0, 1, 894.468954, 929.205009, 106.3640, 5.70723, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95028 beside innkeeper 7731 (base guid 29233)
+(0, 95029, 0, 0, 0, 1, -7160.350775, -3842.171912, 8.8481, 1.95477, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95029 beside innkeeper 7733 (base guid 22681)
+(0, 95029, 0, 0, 0, 451, 16900.400661, 15554.669829, 74.2460, 0.200908, 120, 120, 0.000000, 100.000000, 100.000000, 0, 0, 0.000000), -- recruiter 95029 beside innkeeper 7733 (base guid 2574822)
+(0, 95030, 0, 0, 0, 1, -4381.642350, 3290.949086, 13.6266, 0.034907, 30, 30, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95030 beside innkeeper 7736 (base guid 50059)
+(0, 95031, 0, 0, 0, 1, -4460.827214, 244.033930, 39.1908, 0.506145, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95031 beside innkeeper 7737 (base guid 50060)
+(0, 95032, 0, 0, 0, 0, 396.121465, -2096.815436, 131.5620, 4.93049, 350, 350, 0.000000, 100.000000, 0.000000, 2, 0, 0.000000), -- recruiter 95032 beside innkeeper 7744 (base guid 92923)
+(0, 95033, 0, 0, 0, 0, -10652.572786, 1167.741930, 34.9278, 5.77704, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95033 beside innkeeper 8931 (base guid 66978)
+(0, 95034, 0, 0, 0, 0, -912.374004, -3526.420000, 72.7679, 3.14159, 400, 400, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95034 beside innkeeper 9501 (base guid 11273)
+(0, 95035, 0, 0, 0, 1, 255.771789, 1252.268217, 192.2240, 3.24631, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95035 beside innkeeper 11103 (base guid 28304)
+(0, 95036, 0, 0, 0, 1, -1591.540962, 3149.520000, 46.5777, 4.18879, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95036 beside innkeeper 11106 (base guid 28340)
+(0, 95037, 0, 0, 0, 1, -5478.313525, -2459.003415, 89.3671, 0.314159, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95037 beside innkeeper 11116 (base guid 21575)
+(0, 95038, 0, 0, 0, 1, 6694.377443, -4671.754249, 721.6500, 0.541052, 333, 333, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95038 beside innkeeper 11118 (base guid 42181)
+(0, 95039, 0, 0, 0, 1, 2340.727934, -2567.974087, 102.8570, 2.28638, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95039 beside innkeeper 12196 (base guid 33073)
+(0, 95040, 0, 0, 0, 1, 2731.062013, 1497.216503, 237.5930, 4.04916, 300, 300, 0.000000, 100.000000, 0.000000, 0, 0, 0.000000), -- recruiter 95040 beside innkeeper 16458 (base guid 29239)
+(0, 95041, 0, 0, 0, 42, 8636.655348, -8197.598798, 229.0150, 3.57897, 300, 360, 0.000000, 100.000000, 100.000000, 0, 0, 0.000000), -- recruiter 95041 beside innkeeper 81022 (base guid 2571518)
+(0, 95043, 0, 0, 0, 1, -4593.760245, -3161.316525, 34.7015, 6.18988, 180, 300, 0.000000, 100.000000, 100.000000, 0, 0, 0.000000), -- recruiter 95043 beside innkeeper 80930 (base guid 2567598)
+(0, 95044, 0, 0, 0, 0, -3854.685312, -1873.652701, 142.1870, 2.81916, 120, 120, 0.000000, 100.000000, 100.000000, 0, 0, 0.000000), -- recruiter 95044 beside innkeeper 52118 (base guid 1260057)
+(0, 95045, 0, 0, 0, 0, 1961.409942, 2828.663201, 3.6250, 4.72119, 300, 600, 0.000000, 100.000000, 100.000000, 0, 0, 0.000000), -- recruiter 95045 beside innkeeper 91748 (base guid 2563804);

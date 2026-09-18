@@ -202,6 +202,23 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     InitAvailableSpells();
     InitSpecialSpells();
     InitEquipment(true, false);
+    // Field kit: ammo (hunters/rogues/warriors with ranged), reagents
+    // (poisons, powders, candles, shards via class tables), potions, food
+    // and class consumables. Without these a hired hunter has 0 arrows and
+    // a warlock has 0 shards on arrival.
+    InitAmmo();
+    InitReagents();
+    InitPotions();
+    InitFood();
+    AddConsumables();
+    // Hunter pets (level 10+) and warlock summons need their pet objects;
+    // InitPet is a no-op for other classes.
+    if ((bot->GetClass() == CLASS_HUNTER && bot->GetLevel() >= 10) ||
+        bot->GetClass() == CLASS_WARLOCK)
+    {
+        InitPet();
+        InitPetSpells();
+    }
     bot->SaveToDB();
 }
 
