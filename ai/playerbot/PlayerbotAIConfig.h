@@ -440,6 +440,7 @@ public:
     bool autoLearnQuestSpells;
     bool autoLearnDroppedSpells;
     bool autoDoQuests;
+    bool autoShareConjuredOnTrade;
     // TravelNode cache generation can load every map and rewrite its database
     // cache. Keep it opt-in; direct movement and quest destinations do not
     // require a generated graph for the owned-bot MVP.
