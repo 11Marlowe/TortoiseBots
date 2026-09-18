@@ -630,6 +630,15 @@ static bool HandleRole(ChatHandler* handler, char const* args)
         ai->ChangeStrategy("+protection,+tank feral,+tank assist,+pull,+pull back,+close",
             BotState::BOT_STATE_COMBAT);
     }
+    else if (role == static_cast<uint8>(ai::BOT_ROLE_DPS) && bot->GetClass() == CLASS_DRUID)
+    {
+        // A Feral ordered to DPS fights as a Cat: drop any Bear leftovers
+        // ResetStrategies may have installed, then hold the Cat kit.
+        ai->ChangeStrategy("-tank feral,-tank assist,-protection,-pull,-pull back", BotState::BOT_STATE_NON_COMBAT);
+        ai->ChangeStrategy("-tank feral,-tank assist,-protection,-pull,-pull back", BotState::BOT_STATE_COMBAT);
+        ai->ChangeStrategy("+dps feral,+dps assist,+close,+behind", BotState::BOT_STATE_NON_COMBAT);
+        ai->ChangeStrategy("+dps feral,+dps assist,+close,+behind", BotState::BOT_STATE_COMBAT);
+    }
     sPlayerbotDbStore.Save(ai);
 
     // Issue #189 Phase 3: role-only designation stays gear-neutral, but warn
@@ -770,26 +779,34 @@ static bool HandleHire(ChatHandler* handler, char const* args)
             }
             // Bare spec words imply their role (protection -> tank, holy ->
             // healer). Match the gossip labels loosely: any token containing
-            // the spec stem counts ("prot", "ret", "feral bear").
+            // the spec stem counts ("prot", "ret", "feral bear"). Feral Cat
+            // stays DPS on the shared feral path (specIndex 3); other feral
+            // words keep the Bear tank default (specIndex 0).
             std::string lower = token;
-            bool tankWord = lower.find("prot") != std::string::npos || lower.find("tank") != std::string::npos ||
-                lower.find("bear") != std::string::npos || lower.find("feral") != std::string::npos;
+            bool catWord = lower.find("cat") != std::string::npos;
+            bool tankWord = !catWord && (lower.find("prot") != std::string::npos || lower.find("tank") != std::string::npos ||
+                lower.find("bear") != std::string::npos || lower.find("feral") != std::string::npos);
             bool healWord = lower.find("holy") != std::string::npos || lower.find("heal") != std::string::npos ||
                 lower.find("resto") != std::string::npos || lower.find("discipline") != std::string::npos ||
                 lower.find("disc") != std::string::npos;
             if (tankWord)
             {
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_TANK);
+                if (sel.classId == CLASS_DRUID)
+                    sel.specIndex = 0;
                 continue;
             }
             if (healWord)
             {
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_HEALER);
+                if (sel.classId == CLASS_DRUID)
+                    sel.specIndex = 1;
                 continue;
             }
+            bool balanceWord = lower.find("balance") != std::string::npos;
             if (lower.find("dps") != std::string::npos || lower.find("arms") != std::string::npos ||
                 lower.find("fury") != std::string::npos || lower.find("shadow") != std::string::npos ||
-                lower.find("ret") != std::string::npos || lower.find("balance") != std::string::npos ||
+                lower.find("ret") != std::string::npos || balanceWord ||
                 lower.find("frost") != std::string::npos || lower.find("fire") != std::string::npos ||
                 lower.find("arcane") != std::string::npos || lower.find("afflic") != std::string::npos ||
                 lower.find("demon") != std::string::npos || lower.find("destro") != std::string::npos ||
@@ -797,9 +814,11 @@ static bool HandleHire(ChatHandler* handler, char const* args)
                 lower.find("subtle") != std::string::npos || lower.find("beast") != std::string::npos ||
                 lower.find("marks") != std::string::npos || lower.find("surv") != std::string::npos ||
                 lower.find("elem") != std::string::npos || lower.find("enhance") != std::string::npos ||
-                lower.find("cat") != std::string::npos)
+                catWord)
             {
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_DPS);
+                if (sel.classId == CLASS_DRUID)
+                    sel.specIndex = catWord ? 3 : balanceWord ? 2 : -1;
                 continue;
             }
         }
@@ -834,6 +853,8 @@ static bool HandleHire(ChatHandler* handler, char const* args)
         sel.gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
     if (!sel.role)
         sel.role = HireProvisionService::DefaultRoleForClass(sel.classId);
+    if (sel.classId == CLASS_DRUID && sel.specIndex < 0 && sel.role == static_cast<uint8>(ai::BOT_ROLE_DPS))
+        sel.specIndex = 3;
     HireOutcome outcome = HireProvisionService::Instance().Hire(requester, sel, false);
     handler->PSendSysMessage("%s", outcome.message.c_str());
     return true;

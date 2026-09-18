@@ -47,7 +47,8 @@ These commands manage the login, party membership, and presence of your owned bo
 | :--- | :--- | :--- |
 | **Roster Snapshot** | `.bot roster` | Returns an authoritative snapshot of all owned characters on your account and their online/party state (emits structured `TBM:ROSTER`). |
 | **Login Bot** | `.bot add <Name>` | Logs in an owned character from your account as a headless bot. |
-| **Hire Companion** | `.bot hire <class> [role] [race] [gender]` | Recruits a fresh companion at your level from an inn: provisions talents, spells, skills, and spec-weighted gear, then invites it to your party. Requires resting (or use a `<Mercenary Hire>` recruiter). Costs level-scaled gold (party hires escalate, raid hires are flat). |
+| **Hire Companion** | `.bot hire <class> [role] [race] [gender]` | Recruits a fresh companion at your level from an inn: provisions talents, spells, skills, and spec-weighted gear, then invites it to your party. Requires resting (or use a `<Mercenary Hire>` recruiter). Costs level-scaled gold (party hires escalate, raid hires are flat). Druid spec words `cat`/`balance` hire Cat/Balance DPS, `bear`/`feral` hire a Bear tank. |
+| **Set Bot Role** | `.bot role <Name> <tank\|healer\|dps\|clear>` | Designates an owned bot's party role and rebuilds its strategy kit (e.g. a Feral ordered to `dps` fights as Cat, ordered to `tank` fights as Bear; unassigned Feral defaults to Cat). |
 | **Logout Bot** | `.bot remove <Name>` *(or `logout`)* | Cleanly logs out an active headless bot on your account. |
 | **Invite to Party** | `.bot invite <Name>` | Sends a party invite to an online bot on your account. |
 | **Uninvite from Party**| `.bot uninvite <Name>` *(or `kick`)*| Removes an owned bot from your group. |
