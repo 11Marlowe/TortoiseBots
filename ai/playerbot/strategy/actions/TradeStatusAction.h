@@ -14,5 +14,6 @@ namespace ai
         void BeginTrade();
         void AutoShareConjured(Player* trader);
         bool CheckTrade();
+        int32 CalculateCost(Player *player, bool sell);
     };
 }
