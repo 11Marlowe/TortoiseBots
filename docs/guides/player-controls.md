@@ -35,6 +35,9 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 | `.bot action focus skull` | Enemy / None | Sets or targets the **Skull** raid icon; orders all party DPS bots to focus fire on that target. |
 | `.bot action cc <mark>` | Marked Mob | Orders a capable bot (Mage *Polymorph*, Rogue *Sap*, Warlock *Seduce*, Priest *Shackle*, Druid *Hibernate*) to CC the target. |
 | `.bot action aoe <on\|off>` | None | Toggles whether DPS bots cast high-damage AoE abilities (useful to toggle OFF around CC targets). |
+| `.bot action loot [on\|off]` | None | Toggles corpse looting across scoped bots. |
+| `.bot action repair` | None | Orders scoped bots to repair gear at a nearby vendor. |
+| `.bot action sell` | None | Orders scoped bots to sell grey vendor trash. |
 | `.bot action ready` | None | Initiates a group ready check across all party bots. |
 
 ---
@@ -68,7 +71,9 @@ Direct command shortcuts that operate on your targeted bot or all party bots:
 | `.bot ready` | None | Checks if party bots are ready (health/mana full, buffs active). |
 | `.bot attack` | `[Name]` | Orders targeted bot to attack your current hostile target. |
 | `.bot pullback` | `[Name]` | Dispatches pullback maneuver on the specified bot or designated tank. |
-| `.bot formation` | `<arrow\|queue\|near\|line\|circle\|shield>` | Sets the geometric follow formation around the party leader. |
+| `.bot loot` | `[on\|off]` | Toggles corpse looting on the targeted bot (or all party bots); on by default. Also available as `.bot action loot [on\|off]`. |
+| `.bot repair` | None | Orders the targeted bot (or all party bots) to repair gear at a nearby vendor. Also available as `.bot action repair`. |
+| `.bot sell` | None | Orders the targeted bot (or all party bots) to sell grey vendor trash. Also available as `.bot action sell`. |
 
 ---
 
