@@ -37,7 +37,12 @@ namespace ai
     };
 
     DEBUFF_TRIGGER_A(CorruptionTrigger, "corruption");
-    DEBUFF_TRIGGER(SiphonLifeTrigger, "siphon life");
+    class SiphonLifeTrigger : public DebuffTrigger
+    {
+    public:
+        SiphonLifeTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "siphon life") {}
+        bool IsActive() override;
+    };
 
     INTERRUPT_TRIGGER(DeathCoilInterruptTrigger, "death coil");
     INTERRUPT_HEALER_TRIGGER(DeathCoilInterruptTHealerTrigger, "death coil");
@@ -50,7 +55,12 @@ namespace ai
         bool IsActive() override;
     };
 
-    DEBUFF_TRIGGER(CurseOfAgonyTrigger, "curse of agony");
+    class CurseOfAgonyTrigger : public DebuffTrigger
+    {
+    public:
+        CurseOfAgonyTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "curse of agony") {}
+        bool IsActive() override;
+    };
 
     class CurseOfAgonyOnAttackerTrigger : public DebuffOnAttackerTrigger
     {
