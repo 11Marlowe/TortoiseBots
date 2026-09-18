@@ -1959,6 +1959,26 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             accepted = ExecuteQuietAction(ai, "ready check",
                 ai::Event(intent, "", requester));
         }
+        else if (intent == "aoe")
+        {
+            bool enable = option == "on" ||
+                (option.empty() && !ai->HasStrategy("dps aoe", BotState::BOT_STATE_COMBAT));
+            if (option == "off")
+                enable = false;
+            ai->ChangeStrategy((enable ? "+" : "-") + std::string("dps aoe"),
+                BotState::BOT_STATE_COMBAT);
+            ExecuteQuietNextAction(ai, true);
+            accepted = ai->HasStrategy("dps aoe", BotState::BOT_STATE_COMBAT) == enable;
+        }
+        else if (intent == "focus skull")
+        {
+            RelaxTacticalMovement(ai);
+            bool set = ExecuteQuietAction(ai, "rti",
+                ai::Event("focus skull", "skull", requester));
+            accepted = set && ExecuteQuietAction(ai, "attack rti target",
+                ai::Event("focus skull", "", requester));
+            ExecuteQuietNextAction(ai, true);
+        }
         else if (intent == "release")
         {
             if (!bot || bot->IsAlive())
