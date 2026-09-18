@@ -6,7 +6,7 @@ namespace ai
 {
     inline bool HunterHasRangedAmmo(PlayerbotAI* ai)
     {
-        return ai->HasCheat(BotCheatMask::item) || AI_VALUE2(uint32, "item count", "ammo") > 0;
+        return ai && (ai->HasCheat(BotCheatMask::item) || (ai->GetAiObjectContext() && ai->GetAiObjectContext()->GetValue<uint32>("item count", "ammo")->Get() > 0));
     }
 
     BEGIN_RANGED_DEBUFF_ACTION(CastHuntersMarkAction, "hunter's mark")
@@ -65,6 +65,14 @@ public:
 
     BEGIN_RANGED_SPELL_ACTION(CastVolleyAction, "volley")
         virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
+    END_SPELL_ACTION()
+
+    BEGIN_RANGED_DEBUFF_ACTION(CastSerpentStingAction, "serpent sting")
+        virtual bool isUseful() override;
+    END_SPELL_ACTION()
+
+    BEGIN_RANGED_DEBUFF_ACTION(CastViperStingAction, "viper sting")
+        virtual bool isUseful() override;
     END_SPELL_ACTION()
 
     BEGIN_RANGED_SPELL_ACTION(CastScorpidStingAction, "scorpid sting")
