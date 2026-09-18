@@ -56,7 +56,13 @@ namespace ai
     BUFF_TRIGGER(SanctityAuraTrigger, "sanctity aura");
     BUFF_TRIGGER(ConcentrationAuraTrigger, "concentration aura");
 
-    BUFF_TRIGGER(HolyShieldTrigger, "holy shield");
+    class HolyShieldTrigger : public BuffTrigger
+    {
+    public:
+        HolyShieldTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "holy shield") {}
+        bool IsActive() override { return ai->HasSpell("holy shield") && BuffTrigger::IsActive(); }
+    };
+
     BUFF_TRIGGER(RighteousFuryTrigger, "righteous fury");
 
 	class SealTrigger : public BuffTrigger
@@ -499,6 +505,7 @@ namespace ai
     {
     public:
         DivineFavorTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "divine favor") {}
+        bool IsActive() override { return ai->HasSpell("divine favor") && BuffTrigger::IsActive(); }
     };
 
     class TurnUndeadTrigger : public HasCcTargetTrigger

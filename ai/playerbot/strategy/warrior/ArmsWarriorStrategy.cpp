@@ -69,6 +69,10 @@ void ArmsWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("overpower", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
+        "instant slam",
+        NextAction::array(0, new NextAction("slam", ACTION_HIGH + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "mortal strike",
         NextAction::array(0, new NextAction("mortal strike", ACTION_NORMAL + 3), NULL)));
 

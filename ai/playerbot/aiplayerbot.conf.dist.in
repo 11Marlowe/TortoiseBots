@@ -554,6 +554,11 @@ AiPlayerbot.AutoLearnDroppedSpells = 0
 # Default: 1 (enabled)
 # AiPlayerbot.AutoDoQuests = 1
 
+# Companion Mage/Warlock bots auto-place conjured food/water/healthstones into
+# the trade window when a player opens trade with them.
+# Default: 1 (enabled)
+AiPlayerbot.AutoShareConjuredOnTrade = 1
+
 # Generate and persist the full TravelNode/navmesh cache at AI startup.
 # This can load every map and perform a large database rebuild. Leave disabled
 # unless a core path-filter implementation is available; the pinned Tortoise
