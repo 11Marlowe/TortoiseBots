@@ -38,6 +38,7 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 | `.bot action loot [on\|off]` | None | Toggles corpse looting across scoped bots. |
 | `.bot action repair` | None | Orders scoped bots to repair gear at a nearby vendor. |
 | `.bot action sell` | None | Orders scoped bots to sell grey vendor trash. |
+| `.bot action rest` *(or `drink`, `eat`)* | None | Orders scoped bots to sit and consume food/drink until full. |
 | `.bot action ready` | None | Initiates a group ready check across all party bots. |
 
 ---
@@ -72,9 +73,11 @@ Direct command shortcuts that operate on your targeted bot or all party bots:
 | `.bot ready` | None | Checks if party bots are ready (health/mana full, buffs active). |
 | `.bot attack` | `[Name]` | Orders targeted bot to attack your current hostile target. |
 | `.bot pullback` | `[Name]` | Dispatches pullback maneuver on the specified bot or designated tank. |
+| `.bot formation` | `<arrow\|queue\|near\|line\|circle\|shield>` | Sets the geometric follow formation around the party leader. |
 | `.bot loot` | `[on\|off]` | Toggles corpse looting on the targeted bot (or all party bots); on by default. Also available as `.bot action loot [on\|off]`. |
 | `.bot repair` | None | Orders the targeted bot (or all party bots) to repair gear at a nearby vendor. Also available as `.bot action repair`. |
 | `.bot sell` | None | Orders the targeted bot (or all party bots) to sell grey vendor trash. Also available as `.bot action sell`. |
+| `.bot rest` *(aliases `drink`, `eat`)* | None | Orders scoped bots to sit and consume food/drink until full health/mana (combat or master movement breaks rest). Also available as `.bot action rest`. |
 
 ---
 

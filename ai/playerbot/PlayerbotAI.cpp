@@ -6452,6 +6452,11 @@ float PlayerbotAI::GetRange(std::string type)
     if (type == "follow" && bot->GetGroup() && bot->GetGroup()->isRaidGroup())
         type = "followraid";
 
+    // In dungeons and raids the follow leash stays tight (raid distance)
+    // so bots trail the master instead of cutting corners into side packs.
+    if (type == "follow" && bot->GetMap() && (bot->GetMap()->IsDungeon() || bot->GetMap()->IsRaid()))
+        type = "followraid";
+
     if (aiObjectContext) val = aiObjectContext->GetValue<float>("range", type)->Get();
     if (abs(val) >= 0.1f) return val;
 

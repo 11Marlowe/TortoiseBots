@@ -93,6 +93,15 @@ namespace ai
 
         bool isUseful() override
         {
+            if (sServerFacade.isMoving(bot))
+            {
+                // No totems on the run: they would be left behind and burn
+                // mana for zero benefit. Only an engaged melee fight keeps
+                // the totem useful while moving.
+                Unit* target = AI_VALUE(Unit*, "current target");
+                if (!bot->IsInCombat() || !target || bot->GetDistance(target) > 10.0f)
+                    return false;
+            }
             if (!CastBuffSpellAction::isUseful())
                 return false;
 
