@@ -378,7 +378,42 @@ bool PlayerbotAIConfig::Initialize()
     randomBotLftUpdateInterval = config.GetIntDefault("AiPlayerbot.RandomBotLftUpdateInterval", 15000);
     randomBotLftMaxFillsPerInterval = config.GetIntDefault("AiPlayerbot.RandomBotLftMaxFillsPerInterval", 1);
     randomBotLftAllowRoleBorrow = config.GetBoolDefault("AiPlayerbot.RandomBotLftAllowRoleBorrow", false);
-    openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
+    // Issue #192: on-demand companion hiring (see PlayerbotAIConfig.h). All
+    // bounds keep the level-scaled copper math inside 32 bits (multiplier x
+    // base x level/60 can never overflow a uint32 at sane values).
+    hireEnabled = config.GetBoolDefault("AiPlayerbot.HireEnabled", true);
+    hireMinAccountSecurity = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireMinAccountSecurity", 0));
+    if (hireMinAccountSecurity > 6)
+        hireMinAccountSecurity = 6;
+    hireMaxBotsPerPlayer = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireMaxBotsPerPlayer", 4));
+    if (hireMaxBotsPerPlayer > 39)
+        hireMaxBotsPerPlayer = 39;
+    hireRequiresResting = config.GetBoolDefault("AiPlayerbot.HireRequiresResting", true);
+    hireBaseCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireBaseCostCopper", 15000));
+    if (hireBaseCostCopper > 100000000)
+        hireBaseCostCopper = 100000000;
+    hirePartyMult2 = config.GetFloatDefault("AiPlayerbot.HirePartyMult2", 1.66f);
+    if (hirePartyMult2 < 0.0f)
+        hirePartyMult2 = 0.0f;
+    if (hirePartyMult2 > 100.0f)
+        hirePartyMult2 = 100.0f;
+    hirePartyMult3 = config.GetFloatDefault("AiPlayerbot.HirePartyMult3", 2.66f);
+    if (hirePartyMult3 < 0.0f)
+        hirePartyMult3 = 0.0f;
+    if (hirePartyMult3 > 100.0f)
+        hirePartyMult3 = 100.0f;
+    hirePartyMult4 = config.GetFloatDefault("AiPlayerbot.HirePartyMult4", 4.66f);
+    if (hirePartyMult4 < 0.0f)
+        hirePartyMult4 = 0.0f;
+    if (hirePartyMult4 > 100.0f)
+        hirePartyMult4 = 100.0f;
+    hireRaidFlatCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireRaidFlatCostCopper", 10000));
+    if (hireRaidFlatCostCopper > 100000000)
+        hireRaidFlatCostCopper = 100000000;
+    hireDisconnectGracePeriod = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireDisconnectGracePeriod", 300));
+    if (hireDisconnectGracePeriod > 3600)
+        hireDisconnectGracePeriod = 3600;
+     openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
 

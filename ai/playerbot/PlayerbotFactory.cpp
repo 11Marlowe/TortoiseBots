@@ -190,6 +190,21 @@ void PlayerbotFactory::MakeComplete()
     bot->SaveToDB();
 }
 
+// Issue #192: spells + skills + incremental gear for a hired companion.
+// Public wrapper around the private init steps so the provisioner never
+// touches wiping paths. Talents are owned by the provisioner (role-matching
+// premade build), so this covers only the level-bound follow-ups.
+void PlayerbotFactory::ProvisionSpellsAndGear()
+{
+    if (!bot)
+        return;
+    InitAllSkills();
+    InitAvailableSpells();
+    InitSpecialSpells();
+    InitEquipment(true, false);
+    bot->SaveToDB();
+}
+
 void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
 {
     sLog.outDetail("Preparing to %s randomize...", (incremental ? "incremental" : "full"));

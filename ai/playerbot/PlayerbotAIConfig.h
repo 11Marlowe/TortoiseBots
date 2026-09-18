@@ -246,6 +246,34 @@ public:
     // opt-in and default-off. Default keeps each bot's own spec; a missing
     // role stays empty with a logged reason.
     bool randomBotLftAllowRoleBorrow = false;
+    // Issue #192: on-demand companion hiring (.bot hire + <Mercenary Hire>
+    // recruiters). All costs are data, never hardcoded; the calculator in
+    // runtime/HireCost.h is the single formula (party escalation for hires
+    // 1-4, flat bulk rate for raid hires 5+), linearly scaled by level/60.
+    bool hireEnabled = true;
+    // Minimum account security that may hire (0 = every player, 1 = observer,
+    // 2 = moderator, 3 = developer, 4 = administrator). Note there is no
+    // separate gamemaster rank on this core (SEC_GAMEMASTER aliases admin).
+    uint32 hireMinAccountSecurity = 0;
+    // Maximum hired companions per player. Party hires cap at 4 regardless;
+    // raise toward 39 to fill a full 40-man raid (player + hires).
+    uint32 hireMaxBotsPerPlayer = 4;
+    // Require the resting flag for the fast `.bot hire` command. Gossip hires
+    // skip this: standing at the recruiter inside the inn is proof enough.
+    bool hireRequiresResting = true;
+    // Hiring fee in copper for the 1st companion at level 60 (default 15000 =
+    // 1.5g). Hires 2-4 multiply by the party mults below; the full 4-bot
+    // party totals ~15g at 60. Set to 0 for free hiring.
+    uint32 hireBaseCostCopper = 15000;
+    float hirePartyMult2 = 1.66f;
+    float hirePartyMult3 = 2.66f;
+    float hirePartyMult4 = 4.66f;
+    // Flat fee in copper per extra raid hire (5th companion onward) at level
+    // 60 (default 10000 = 1g). Set to 0 for free raid top-up.
+    uint32 hireRaidFlatCostCopper = 10000;
+    // Seconds a hired companion waits on guard after its master disconnects
+    // before dismissing (default 300 = 5 minutes).
+    uint32 hireDisconnectGracePeriod = 300;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     bool summonAtInnkeepersEnabled;

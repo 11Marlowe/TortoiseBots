@@ -1,8 +1,8 @@
 #include "RandomBotService.h"
 #include "BotActivityLease.h"
-
 #include "BotManager.h"
 #include "GearSeedingGuard.h"
+#include "HireLifecycle.h"
 #include "../host/BotSessionAdapter.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -819,6 +819,15 @@ void RandomBotService::RemoveExpiredBots(uint32_t diff)
         // name match, best-effort) but still gated by
         // RandomBotLoginWithPlayer=1 (see MaintainOnlinePool).
         if (IsPinnedGuid(candidate.characterGuid.GetCounter()))
+        {
+            m_ageMs[i] = 0;
+            continue;
+        }
+
+        // Issue #192: hired companions ride the RNDBOT account pool but are
+        // master-owned with durable ownership. The random reap must never log
+        // them off mid-party; HireLifecycle owns their dismissal.
+        if (HireLifecycle::Instance().IsHired(candidate.characterGuid))
         {
             m_ageMs[i] = 0;
             continue;

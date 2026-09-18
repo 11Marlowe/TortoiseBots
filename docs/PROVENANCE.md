@@ -1591,3 +1591,39 @@ Local validation (local `tortoise-docker-penqle` stack, 500-bot pool, 2026-09-16
 - Not yet observed: a fresh bot arriving dressed or swapping a looted upgrade.
   That is the plan's pool wipe plus soak (`#182` §5.2/§5.4), which needs the
   operator's go before deleting characters.
+
+## Issue #192: On-demand companion hiring (`<Mercenary Hire>` & `.bot hire`) — 2026-09-18
+
+Feature: inn-recruiter gossip wizard (class -> race -> gender -> spec/role -> confirm) plus `.bot hire <class> [role] [race] [gender]` fast path; RNDBOT-pool candidate reuse with `CharacterCreation::CreateCharacter` fallback; level sync, role-matching premade talents, `ProvisionSpellsAndGear`, tank strategy kit, native invite+accept; 5-minute master-disconnect grace with guard stance and party rejoin greeting; group-remove/disband dismissal (instant logout, or hearth-to-pool when the living world is under target).
+
+Source repository: Tortoisebots native implementation (no donor copy). Behavioral references only:
+- `playerbots-references/mod-playerbots` `HireAction.cpp` (trade-discount-gated ownership transfer — NOT ported; replaced by gold-fee + Headless login + durable ownership).
+- `playerbots-references/shyalya-tortoise-wow` gossip/group patterns (reference for `CreatureScript` sender/action wizard shape and native invite/accept flow).
+- `tortoise-wow` core `Player::GiveLevel`, `CharacterCreation::CreateCharacter`, `Group::RemoveMember/Disband`, `GossipMenu::AddMenuItem/SendGossipMenu`.
+
+Source commit: n/a (native feature; donor SHAs not applicable).
+
+Source files:
+- `runtime/HireCost.{h,cpp}`
+- `runtime/HireProvisionService.{h,cpp}`
+- `runtime/HireLifecycle.{h,cpp}`
+- `host/HireRecruiterScript.{h,cpp}`
+- `host/HireRecruiterAdapter.{h,cpp}`
+- `host/HireGroupAdapter.{h,cpp}`
+- `commands/BotCommands.cpp` (HandleHire + hire release on remove/logout)
+- `ai/playerbot/PlayerbotAIConfig.{h,cpp}` + `aiplayerbot.conf.dist.in` (Hire* knobs)
+- `ai/playerbot/PlayerbotFactory.{h,cpp}` (ProvisionSpellsAndGear)
+- `data/sql/world/20260918120000_world.sql` (46 recruiter templates, entries 95000-95045)
+
+Copied / ported / independently reimplemented: independently reimplemented. No donor code copied; donor hire semantics (discount-gated `Randomize(false)` wipe) deliberately rejected in favor of fee + incremental provisioning.
+
+Reason: Complete Issue #192: RPG-native mercenary recruitment on both low-spec (zero background bots) and living-world servers, with fair level-scaled economy and disconnect resilience, zero core modifications.
+
+Local validation:
+- Throwaway cost harness (defaults: 1.5g/2.5g/4g/7g party curve, 1g raid flat, linear level scale, free-hire zeros, index/level clamps) — PASSED.
+- Gossip sender/action bit-packing round-trip check — PASSED.
+- Recruiter SQL structural check (46 templates, script-bound, 80 cols, idempotent DELETEs) — PASSED.
+- Docker native static builder `./dev/build-playerbots` — mangosd linked with hire symbols (`HireRecruiterAdapter`, `HireGroupAdapter`, `HireProvisionService::Hire`, `HireLifecycle::Claim`, `HireCost::ForHireIndex`).
+- `bash tools/verify_all.sh ../tortoise-wow` — all checks passed.
+- `git diff --check` — clean.
+- Not yet observed: live in-game hire (recruiter gossip click-through, gold deduction, bot join). Needs a running server with the migration applied — flagged in the PR.

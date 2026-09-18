@@ -3,8 +3,9 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/BotManager.h"
 #include "../runtime/BotActivityLease.h"
+#include "../runtime/HireLifecycle.h"
+#include "../runtime/HireProvisionService.h"
 #include "BotCommandContext.h"
-// pi-lens-ignore: clang:pp_file_not_found
 #include "../behavior/PlayerConvenience.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/AhMarketService.h"
@@ -697,6 +698,147 @@ static bool HandleMatureCommand(ChatHandler* handler, char const* args)
 }
 
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
+// Issue #192: fast-path companion hire. Same service, costs, and caps as the
+// <Mercenary Hire> gossip wizard; only the resting gate differs (enforced
+// here, skipped at the recruiter where presence is proof). Usage:
+//   .bot hire <class> [dps|tank|healer] [race] [male|female]
+// Tokens after the class may come in any order: "warrior tauren male tank",
+// "mage female frost", and "paladin protection" all parse. Bare spec words
+// (protection/arms/fury/holy/retribution/...) imply their role.
+static bool HandleHire(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game to hire a companion.");
+        return true;
+    }
+    std::string input = Trim(args ? args : "");
+    if (input.empty())
+    {
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps|tank|healer] [race] [male|female]");
+        return true;
+    }
+    // Split on whitespace; class/race/gender/role/spec tokens in any order.
+    std::vector<std::string> tokens;
+    {
+        std::istringstream stream(input);
+        std::string token;
+        while (stream >> token)
+            tokens.push_back(token);
+    }
+    HireSelection sel;
+    for (std::string raw : tokens)
+    {
+        std::string token = raw;
+        for (char& c : token)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (!sel.classId)
+        {
+            uint32 parsed = ai::ChatHelper::parseClass(token);
+            if (parsed >= CLASS_WARRIOR && parsed <= CLASS_DRUID && parsed != 6 && parsed != 10)
+            {
+                sel.classId = static_cast<uint8>(parsed);
+                continue;
+            }
+        }
+        if (!sel.race)
+        {
+            uint32 parsed = ai::ChatHelper::parseRace(token);
+            if (parsed >= RACE_HUMAN && parsed <= RACE_HIGH_ELF)
+            {
+                sel.race = static_cast<uint8>(parsed);
+                continue;
+            }
+        }
+        if (!sel.gender)
+        {
+            uint32 parsed = ai::ChatHelper::parseGender(token);
+            if (parsed == GENDER_MALE || parsed == GENDER_FEMALE)
+            {
+                sel.gender = static_cast<uint8>(parsed);
+                continue;
+            }
+        }
+        if (!sel.role)
+        {
+            ai::BotRoles parsed = ai::ChatHelper::parseRole(token);
+            if (parsed != ai::BOT_ROLE_NONE)
+            {
+                sel.role = static_cast<uint8>(parsed);
+                continue;
+            }
+            // Bare spec words imply their role (protection -> tank, holy ->
+            // healer). Match the gossip labels loosely: any token containing
+            // the spec stem counts ("prot", "ret", "feral bear").
+            std::string lower = token;
+            bool tankWord = lower.find("prot") != std::string::npos || lower.find("tank") != std::string::npos ||
+                lower.find("bear") != std::string::npos || lower.find("feral") != std::string::npos;
+            bool healWord = lower.find("holy") != std::string::npos || lower.find("heal") != std::string::npos ||
+                lower.find("resto") != std::string::npos || lower.find("discipline") != std::string::npos ||
+                lower.find("disc") != std::string::npos;
+            if (tankWord)
+            {
+                sel.role = static_cast<uint8>(ai::BOT_ROLE_TANK);
+                continue;
+            }
+            if (healWord)
+            {
+                sel.role = static_cast<uint8>(ai::BOT_ROLE_HEALER);
+                continue;
+            }
+            if (lower.find("dps") != std::string::npos || lower.find("arms") != std::string::npos ||
+                lower.find("fury") != std::string::npos || lower.find("shadow") != std::string::npos ||
+                lower.find("ret") != std::string::npos || lower.find("balance") != std::string::npos ||
+                lower.find("frost") != std::string::npos || lower.find("fire") != std::string::npos ||
+                lower.find("arcane") != std::string::npos || lower.find("afflic") != std::string::npos ||
+                lower.find("demon") != std::string::npos || lower.find("destro") != std::string::npos ||
+                lower.find("assassin") != std::string::npos || lower.find("combat") != std::string::npos ||
+                lower.find("subtle") != std::string::npos || lower.find("beast") != std::string::npos ||
+                lower.find("marks") != std::string::npos || lower.find("surv") != std::string::npos ||
+                lower.find("elem") != std::string::npos || lower.find("enhance") != std::string::npos ||
+                lower.find("cat") != std::string::npos)
+            {
+                sel.role = static_cast<uint8>(ai::BOT_ROLE_DPS);
+                continue;
+            }
+        }
+    }
+    if (!sel.classId)
+    {
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps|tank|healer] [race] [male|female]");
+        return true;
+    }
+    // Defaults: requester's faction race pool, random gender, class role.
+    if (!sel.race)
+    {
+        Team team = requester->GetTeam();
+        std::vector<uint8> pool;
+        for (uint32 race = RACE_HUMAN; race <= RACE_HIGH_ELF; ++race)
+        {
+            if (Player::TeamForRace(race) != team)
+                continue;
+            // GetPlayerInfo is the authoritative class/race contract.
+            if (!sObjectMgr.GetPlayerInfo(race, sel.classId))
+                continue;
+            pool.push_back(static_cast<uint8>(race));
+        }
+        if (pool.empty())
+        {
+            handler->PSendSysMessage("No race of your faction can be that class.");
+            return true;
+        }
+        sel.race = pool[urand(0, uint32(pool.size() - 1))];
+    }
+    if (!sel.gender)
+        sel.gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
+    if (!sel.role)
+        sel.role = HireProvisionService::DefaultRoleForClass(sel.classId);
+    HireOutcome outcome = HireProvisionService::Instance().Hire(requester, sel, false);
+    handler->PSendSysMessage("%s", outcome.message.c_str());
+    return true;
+}
+
 static bool HandleAdd(ChatHandler* handler, char const* args)
 {
     if (!handler)
@@ -834,6 +976,7 @@ static bool HandleRemove(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("You may only control characters on your account.");
         return true;
     }
+    HireLifecycle::Instance().Release(guid);
     if (BotManager::Instance().RemoveBot(guid, true))
         handler->PSendSysMessage("Removal requested for bot %s; Headless cleanup completes asynchronously.", name.c_str());
     else
@@ -1310,6 +1453,7 @@ static bool HandleLogout(ChatHandler* handler, char const* args)
         return true;
     }
 
+    HireLifecycle::Instance().Release(bot->GetObjectGuid());
     if (!BotManager::Instance().RemoveBot(bot->GetObjectGuid(), true))
     {
         handler->PSendSysMessage("Bot %s could not be logged out.", name.c_str());
@@ -1854,7 +1998,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/ah");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/ah");
         return true;
     }
 
@@ -1916,6 +2060,8 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleRole(handler, subArgs);
     if (cmd == "summon")
         return HandleSummon(handler, subArgs);
+    if (cmd == "hire")
+        return HandleHire(handler, subArgs);
     if (cmd == "command")
         return HandleMatureCommand(handler, subArgs);
     if (cmd == "help" || cmd == "h")
