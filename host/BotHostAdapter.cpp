@@ -3,6 +3,8 @@
 #include "../behavior/PlayerConvenience.h"
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/BotManager.h"
+#include "../runtime/HireLifecycle.h"
+#include "../runtime/HireProvisionService.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
@@ -11,7 +13,6 @@
 #include "Config/Config.h"
 #include "ObjectMgr.h"
 #include "Log.h"
-#include "Database/DatabaseEnv.h"
 #include "ModuleLog.h"
 
 #include <cctype>
@@ -129,6 +130,9 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     BotManager::Instance().OnWorldUpdate(diff);
     PlayerConvenience::Instance().Update(diff);
     RandomBotService::Instance().Update(diff);
+    // Issue #192: complete queued hire provisions, then sweep grace timers.
+    HireProvisionService::Instance().Update(diff);
+    HireLifecycle::Instance().Update(diff);
     AhMarketService::Instance().Update(diff);
     BattlegroundQueueService::Instance().Update(diff);
     ObservabilityEmitter::Instance().Update(diff);

@@ -8,3 +8,13 @@ AH/LFT/BG service switches	default-off, still required scope	—	—	—	service
 AiPlayerbot.WorldBuff* (repeated)	commented examples (22888 etc.)	none loaded (GetValues {})	—	live on reload boundary	T: PlayerbotAIConfig.cpp:443-475 loader; F23 synthetic policy	worldbuff	—	—	loader FIXED in M10 (native prefix walk)	fixed-M10 (runtime proof pending)
 TortoiseBots.* test fixtures (AutoTest/PacketBridgeTest/PendingAddRemoveTest)	0	—	—	one-shot	BotHostAdapter + BotManager journeys; verified paths, not re-run here	operator	—	—	—	pending-runtime
 TortoiseBots.LogLevel	2 (was 1, never read)	—	—	yes: WORLDHOOK_ON_AFTER_CONFIG_LOAD	ModuleLog::ApplyConfig; gates TB_LOG_BASIC/DETAIL/DEBUG across host/+runtime/	operator	0-3	—	—	fixed (branch feat/module-log-level)
+AiPlayerbot.HireEnabled	1	true	—	restart	PlayerbotAIConfig::Initialize + HireProvisionService/HireRecruiterScript	hire	0/1	—	—	shipped (#192)
+AiPlayerbot.HireMinAccountSecurity	0	0	—	restart	PlayerbotAIConfig::Initialize + HireProvisionService/HireRecruiterScript	hire	0-6	—	—	shipped (#192)
+AiPlayerbot.HireMaxBotsPerPlayer	4	4	—	restart	PlayerbotAIConfig::Initialize + HireProvisionService	hire	0-39	—	—	shipped (#192)
+AiPlayerbot.HireRequiresResting	1	true	—	restart	PlayerbotAIConfig::Initialize + HireProvisionService (.bot hire only)	hire	0/1	—	—	shipped (#192)
+AiPlayerbot.HireBaseCostCopper	15000	15000	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100000000	—	0 = free hiring	shipped (#192)
+AiPlayerbot.HirePartyMult2	1.66	1.66	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100	—	—	shipped (#192)
+AiPlayerbot.HirePartyMult3	2.66	2.66	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100	—	—	shipped (#192)
+AiPlayerbot.HirePartyMult4	4.66	4.66	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100	—	—	shipped (#192)
+AiPlayerbot.HireRaidFlatCostCopper	10000	10000	—	restart	PlayerbotAIConfig::Initialize + HireCost::ForHireIndex	hire	0-100000000	—	0 = free raid top-up	shipped (#192)
+AiPlayerbot.HireDisconnectGracePeriod	300	300	—	restart	PlayerbotAIConfig::Initialize + HireLifecycle	hire	0-3600	—	—	shipped (#192)

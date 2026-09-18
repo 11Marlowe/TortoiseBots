@@ -190,6 +190,38 @@ void PlayerbotFactory::MakeComplete()
     bot->SaveToDB();
 }
 
+// Issue #192: spells + skills + incremental gear for a hired companion.
+// Public wrapper around the private init steps so the provisioner never
+// touches wiping paths. Talents are owned by the provisioner (role-matching
+// premade build), so this covers only the level-bound follow-ups.
+void PlayerbotFactory::ProvisionSpellsAndGear()
+{
+    if (!bot)
+        return;
+    InitAllSkills();
+    InitAvailableSpells();
+    InitSpecialSpells();
+    InitEquipment(true, false);
+    // Field kit: ammo (hunters/rogues/warriors with ranged), reagents
+    // (poisons, powders, candles, shards via class tables), potions, food
+    // and class consumables. Without these a hired hunter has 0 arrows and
+    // a warlock has 0 shards on arrival.
+    InitAmmo();
+    InitReagents();
+    InitPotions();
+    InitFood();
+    AddConsumables();
+    // Hunter pets (level 10+) and warlock summons need their pet objects;
+    // InitPet is a no-op for other classes.
+    if ((bot->GetClass() == CLASS_HUNTER && bot->GetLevel() >= 10) ||
+        bot->GetClass() == CLASS_WARLOCK)
+    {
+        InitPet();
+        InitPetSpells();
+    }
+    bot->SaveToDB();
+}
+
 void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
 {
     sLog.outDetail("Preparing to %s randomize...", (incremental ? "incremental" : "full"));

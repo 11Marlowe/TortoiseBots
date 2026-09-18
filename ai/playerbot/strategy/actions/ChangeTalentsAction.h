@@ -23,12 +23,14 @@ namespace ai
         // AutoSelectTalents itself will not tell them: given a role it cannot
         // satisfy it quietly falls back to every spec of the class and picks one.
         static std::vector<TalentPath*> getPremadePaths(uint8 cls, std::string findName, BotRoles role = BotRoles::BOT_ROLE_NONE);
-    private:
-        static std::vector<TalentPath*> getPremadePaths(Player* bot, TalentSpec* oldSpec);
-        static TalentPath* getPremadePath(uint8 cls, int id);
-        static void listPremadePaths(uint8 cls, std::vector<TalentPath*> paths, std::ostringstream* out);
-        static TalentPath* PickPremadePath(std::vector<TalentPath*> paths, bool useProbability);
+        // Issue #192: public so the hire provisioner can pick a role-matching
+        // premade build without reimplementing the premade-spec lookup.
         static TalentSpec* GetBestPremadeSpec(Player* bot, int spec);
+     private:
+         static std::vector<TalentPath*> getPremadePaths(Player* bot, TalentSpec* oldSpec);
+         static TalentPath* getPremadePath(uint8 cls, int id);
+         static void listPremadePaths(uint8 cls, std::vector<TalentPath*> paths, std::ostringstream* out);
+         static TalentPath* PickPremadePath(std::vector<TalentPath*> paths, bool useProbability);
     };
 
     class AutoSetTalentsAction : public ChangeTalentsAction

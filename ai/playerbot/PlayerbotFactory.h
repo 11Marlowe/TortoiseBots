@@ -69,6 +69,10 @@ public:
     // same result whether first run at 1, 10, 40 or 60. Owned bots keep
     // current behavior (caller gates on IsRandomBot).
     void MakeComplete();
+    // Issue #192: public so the hire provisioner can provision a companion
+    // without reimplementing gear/spell init. Incremental-only callers must
+    // use UpgradeGearBest (never the wiping non-incremental path).
+    void ProvisionSpellsAndGear();
     void AddReagents() { return InitReagents(); }
     void AddPotions() { return InitPotions(); }
     void AddConsumes() { return AddConsumables(); }

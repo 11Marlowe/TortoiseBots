@@ -2,6 +2,7 @@
 
 #include "../behavior/PlayerConvenience.h"
 #include "../runtime/BotManager.h"
+#include "../runtime/HireLifecycle.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../ai/playerbot/PlayerbotAI.h"
@@ -29,6 +30,7 @@ void BotPlayerAdapter::OnLogin(Player* player)
     if (player && player->GetSession() && player->GetSession()->HasNetworkTransport())
     {
         RandomBotService::Instance().OnHumanLogin();
+        HireLifecycle::Instance().OnMasterLogin(player);
         if (player->GetSession()->GetSecurity() >= SEC_DEVELOPER && sObservabilityEmitter.IsEnabled())
         {
             ChatHandler(player).PSendSysMessage("|cff00ff00[TortoiseBots]|r Observability dashboard active: http://localhost:8095/dashboard");
@@ -69,6 +71,11 @@ void BotPlayerAdapter::OnMapChanged(Player* player)
 
 void BotPlayerAdapter::OnBeforeLogout(Player* player)
 {
+    // Start the hire grace clock while the master object is still valid.
+    // OnLogout fires after the session tears down; OnPlayerBeforeLogout only
+    // detaches AI pointers, so ordering here is safe.
+    if (player && player->GetSession() && player->GetSession()->HasNetworkTransport())
+        HireLifecycle::Instance().OnMasterLogout(player);
     BotManager::Instance().OnPlayerBeforeLogout(player);
 }
 

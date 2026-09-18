@@ -1,0 +1,102 @@
+#pragma once
+
+// pi-lens-ignore: clang:pp_file_not_found
+#include "ObjectGuid.h"
+
+#include <cstdint>
+#include <ctime>
+#include <string>
+#include <vector>
+
+class Player;
+
+namespace TortoiseBots
+{
+
+// Companion choice as gathered from gossip or the `.bot hire` command.
+// role uses the ai::BOT_ROLE_* bits (tank 0x01, healer 0x02, dps 0x04).
+struct HireSelection
+{
+    uint8 classId = 0;
+    uint8 race = 0;
+    uint8 gender = 0;
+    uint8 role = 0;
+};
+
+enum class HireStatus
+{
+    Ok,
+    Disabled,
+    NoPermission,
+    RestingRequired,
+    InvalidChoice,
+    GroupFull,
+    CapReached,
+    Poor,
+    NoCandidate,
+    Failed
+};
+
+struct HireOutcome
+{
+    HireStatus status = HireStatus::Failed;
+    std::string message;
+    std::string botName;
+    uint32_t cost = 0;
+};
+
+// Issue #192: on-demand companion hiring. Finds or creates a character on an
+// RNDBOT account matching the requested class/race/gender, levels it to the
+// requester, provisions talents/spells/skills/gear for the requested role,
+// and invites it to the requester's group. Character creation reuses the
+// generic CharacterCreation seam on the world thread; login goes through the
+// normal Headless queue owned by BotManager. Provisioning itself is deferred
+// to Update() because the character only exists as a live Player once the
+// Headless session finishes logging in.
+class HireProvisionService
+{
+public:
+    static HireProvisionService& Instance();
+
+    // fromGossip skips the resting check: standing at the recruiter inside the
+    // inn is proof of presence. The `.bot hire` fast path enforces it.
+    HireOutcome Hire(Player* requester, HireSelection const& sel, bool fromGossip);
+
+    // Completes queued provisions once the hired character is controllable,
+    // then groups it with its master. Bounded: at most two provisions per tick.
+    void Update(uint32_t diff);
+
+    // Native invite + immediate mature accept. Shared by provisioning and by
+    // the grace-period rejoin so both paths group identically.
+    bool EnsureGrouped(Player* master, Player* bot);
+
+    // Live hired companions owned by master (grace-period resilient).
+    uint32_t CountHired(Player* master) const;
+
+    static bool ClassCanRole(uint8 classId, uint8 role);
+    static uint8 DefaultRoleForClass(uint8 classId);
+
+private:
+    HireProvisionService() = default;
+
+    struct PendingProvision
+    {
+        ObjectGuid botGuid;
+        ObjectGuid masterGuid;
+        uint32_t masterAccountId = 0;
+        uint8 targetLevel = 1;
+        uint8 role = 0;
+        time_t queuedAt = 0;
+    };
+
+    bool FindOwnedReusableCandidate(Player* requester, HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
+    bool FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
+    bool CreateCandidate(HireSelection const& sel, uint32_t requesterTeam, uint32_t& accountId, ObjectGuid& guid);
+    bool ProvisionNow(Player* bot, PendingProvision const& pending);
+    void DropStalePending();
+
+    std::vector<PendingProvision> m_pending;
+    uint32_t m_updateElapsedMs = 0;
+};
+
+} // namespace TortoiseBots
