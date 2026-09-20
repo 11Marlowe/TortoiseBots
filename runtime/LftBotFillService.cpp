@@ -303,7 +303,16 @@ void LftBotFillService::ReconcilePending(bool cancelAll, std::vector<std::string
         bool queued = sLFTMgr.IsQueued(guid);
         if (!queued && !inOffer)
         {
-            // Completed, cancelled, or grouped – pending is stale. Clear forced role on every exit.
+            // Grouped for the dungeon: the queue let go because the match
+            // completed. The forced role must survive - ResetStrategies reads
+            // it when the bot adopts the group leader as master. Only the
+            // lease expiry/evict path clears it (OnLeaseEvicted/Shutdown).
+            if (Player* formed = sObjectAccessor.FindPlayer(guid))
+                if (formed->GetGroup())
+                {
+                    toErase.push_back(guidLow);
+                    continue;
+                }
             ClearForcedRole(guidLow);
             toErase.push_back(guidLow);
             continue;
@@ -396,7 +405,10 @@ void LftBotFillService::Update(uint32_t diff)
     if (!m_pending.empty())
         AcceptPendingOffers();
 
-    // Reconcile stale pending tracking (left queue/offer) with forced-role cleanup on every path.
+    // Reconcile stale pending tracking (left queue/offer). A bot that left
+    // because its offer completed is now in the dungeon group: keep its
+    // forced role (ResetStrategies needs it at master adoption) and only
+    // drop pending tracking. Genuinely stale bots get ClearForcedRole.
     // This must run even when MaxFillsPerInterval==0, so it is before the max gate.
     {
         std::vector<uint32> stale;
@@ -408,6 +420,14 @@ void LftBotFillService::Update(uint32_t diff)
         }
         for (uint32 g : stale)
         {
+            ObjectGuid guid(HIGHGUID_PLAYER, g);
+            if (Player* formed = sObjectAccessor.FindPlayer(guid))
+                if (formed->GetGroup())
+                {
+                    m_pending.erase(g);
+                    BotActivityLeaseManager::Instance().Release(g, BotActivity::LftQueued);
+                    continue;
+                }
             ClearForcedRole(g);
             m_pending.erase(g);
             BotActivityLeaseManager::Instance().Release(g, BotActivity::LftQueued);

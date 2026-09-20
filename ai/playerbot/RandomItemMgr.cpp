@@ -3096,6 +3096,13 @@ void RandomItemMgr::BuildEquipCache()
                         if (slot == EQUIPMENT_SLOT_OFFHAND && clazz == CLASS_ROGUE && proto->Class != ITEM_CLASS_WEAPON)
                             continue;
 
+                        // Warriors and hunters cannot use caster off-hands
+                        // ("held in off-hand"): keep them out of the cache so
+                        // gear rolls never offer one (Issue #219).
+                        if (slot == EQUIPMENT_SLOT_OFFHAND && proto->InventoryType == INVTYPE_HOLDABLE &&
+                            (clazz == CLASS_WARRIOR || clazz == CLASS_HUNTER))
+                            continue;
+
                         bool armorSlot = proto->Class == ITEM_CLASS_ARMOR && (
                             slot == EQUIPMENT_SLOT_HEAD ||
                             slot == EQUIPMENT_SLOT_SHOULDERS ||

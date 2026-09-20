@@ -78,6 +78,10 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("aimed shot", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
+        "arcane shot",
+        NextAction::array(0, new NextAction("arcane shot", ACTION_NORMAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "enemy is close",
         NextAction::array(0, new NextAction("raptor strike", ACTION_NORMAL + 1), NULL)));
 

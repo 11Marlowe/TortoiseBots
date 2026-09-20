@@ -60,27 +60,30 @@ bool HunterEquipAmmoAction::Execute(Event& event)
 
     uint32 currentAmmoId = bot->GetUInt32Value(PLAYER_AMMO_ID);
     const ItemPrototype* bestAmmoProto = nullptr;
+    auto checkAmmo = [&](Item* item)
+    {
+        if (!item)
+            return;
+        const ItemPrototype* proto = item->GetProto();
+        if (!proto)
+            return;
+        if (proto->Class == ammoClass && proto->SubClass == subClass)
+            if (!bestAmmoProto || proto->ItemLevel > bestAmmoProto->ItemLevel)
+                bestAmmoProto = proto;
+    };
 
-    // Scan inventory for best ammo
+    // Main 16-slot backpack (bag 0, slots 23..38): InitAmmo stores fresh
+    // stacks here, so ignoring it left the action blind (Issue #219).
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        checkAmmo(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+
+    // Equipped bags (slots 19..22)
     for (int i = INVENTORY_SLOT_BAG_START; i < INVENTORY_SLOT_BAG_END; ++i)
     {
         if (Bag* bag = (Bag*)bot->GetItemByPos(INVENTORY_SLOT_BAG_0, i))
         {
             for (uint32 j = 0; j < bag->GetBagSize(); ++j)
-            {
-                if (Item* item = bag->GetItemByPos(j))
-                {
-                    const ItemPrototype* proto = item->GetProto();
-                    if (!proto)
-                        continue;
-
-                    if (proto->Class == ammoClass && proto->SubClass == subClass)
-                    {
-                        if (!bestAmmoProto || proto->ItemLevel > bestAmmoProto->ItemLevel)
-                            bestAmmoProto = proto;
-                    }
-                }
-            }
+                checkAmmo(bag->GetItemByPos(j));
         }
     }
 

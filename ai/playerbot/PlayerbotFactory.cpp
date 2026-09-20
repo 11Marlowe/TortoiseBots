@@ -2231,6 +2231,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                 sLog.outDetail("Bot #%d %s:%d <%s>: %u possible items for slot %d", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName(), uint32(ids.size()), slot);
 
+                // Best-first always: the equip loop below takes the first
+                // candidate that passes its filters and breaks, so ascending
+                // order hands a level 19 bot a level 4 white (Issue #219).
+                // Progressive variety comes from the quality band above, not
+                // from starting at the worst item.
                 if (incremental || !progressiveGear)
                 {
                     // sort items based on stat value, ilvl or quality
@@ -2238,8 +2243,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         {
                             uint32 baseCompareA = (sRandomItemMgr.GetStatWeight(a, specId) + sRandomItemMgr.GetBestRandomEnchantStatWeight(a, specId)) * 1000;
                             uint32 baseCompareB = (sRandomItemMgr.GetStatWeight(b, specId) + sRandomItemMgr.GetBestRandomEnchantStatWeight(b, specId)) * 1000;
-                            if (baseCompareA < baseCompareB)
-                                return true;
+                            if (baseCompareA != baseCompareB)
+                                return baseCompareA > baseCompareB;
 
                             ItemPrototype const* proto1 = sObjectMgr.GetItemPrototype(a);
                             ItemPrototype const* proto2 = sObjectMgr.GetItemPrototype(b);
@@ -2247,11 +2252,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                             baseCompareA += proto1->Quality * proto1->ItemLevel;
                             baseCompareB += proto2->Quality * proto2->ItemLevel;
 
-                            return baseCompareA < baseCompareB;
+                            return baseCompareA > baseCompareB;
                         });
-
-                    if (!progressiveGear)
-                        std::reverse(ids.begin(), ids.end());
                 }
                 else if (!ids.empty())
                 {
@@ -2297,6 +2299,14 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         continue;
 
                     if (slot == EQUIPMENT_SLOT_MAINHAND && proto->InventoryType == INVTYPE_HOLDABLE)
+                        continue;
+
+                    // Caster off-hand ("held in off-hand") on a melee class:
+                    // ShouldEquipArmorForSpec already rejects it, but the
+                    // cached query can still return it - filter here too so
+                    // warriors/rogues/hunters never equip it (Issue #219).
+                    if (slot == EQUIPMENT_SLOT_OFFHAND && proto->InventoryType == INVTYPE_HOLDABLE &&
+                        (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_HUNTER))
                         continue;
 
                     // filter tank weapons
@@ -3276,7 +3286,16 @@ void PlayerbotFactory::InitAmmo()
     }
 
     uint32 entry = bot->GetUInt32Value(PLAYER_AMMO_ID);
-    uint32 count = bot->GetItemCount(entry) / 200;
+    // A hunter that swapped gun->bow (or bow->gun) keeps the old ammo id
+    // and a stale bullet/arrow stock: auto shot then has no valid ammo
+    // (Issue #219). Verify against the equipped weapon and resync.
+    if (entry)
+    {
+        ItemPrototype const* ammoProto = sObjectMgr.GetItemPrototype(entry);
+        if (!ammoProto || ammoProto->Class != ITEM_CLASS_PROJECTILE || ammoProto->SubClass != subClass)
+            entry = 0;
+    }
+    uint32 count = entry ? bot->GetItemCount(entry) / 200 : 0;
     uint32 maxCount = 5 + level / 10;
 
     if (ai->HasCheat(BotCheatMask::item))

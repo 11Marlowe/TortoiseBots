@@ -211,6 +211,7 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
     uint8 bagIndex = item->GetBagSlot();
     uint8 slot = item->GetSlot();
     uint32 itemId = item->GetProto()->ItemId;
+    ItemPrototype const* newProto = item->GetProto();
 
     uint16 dest;
     InventoryResult result = bot->CanEquipItem(NULL_SLOT, dest, item, !item->IsBag());
@@ -264,6 +265,16 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
             WorldPacket packet(CMSG_AUTOEQUIP_ITEM, 2);
             packet << bagIndex << slot;
             bot->GetSession()->HandleAutoEquipItemOpcode(packet);
+        }
+
+        // A hunter swapping bow<->gun keeps the stale ammo id: after the
+        // equip completes, re-equip matching ammo from bags (Issue #219).
+        if (newProto && (newProto->Class == ITEM_CLASS_WEAPON) &&
+            (bot->GetClass() == CLASS_HUNTER || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_WARRIOR))
+        {
+            Item* ranged = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
+            if (ranged && ranged->GetProto() && ranged->GetProto()->ItemId == itemId)
+                ai->DoSpecificAction("equip ammo", Event(), true);
         }
     }
 

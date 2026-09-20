@@ -168,7 +168,7 @@ Current adapters:
 | --- | --- |
 | `BotHostAdapter` | startup, shutdown and world update |
 | `BotSessionAdapter` | Headless session lifecycle |
-| `BotPlayerAdapter` | player lifecycle/reclaim attachment |
+| `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`) |
 | `BotChatAdapter` | native `.bot` command integration |
 | `BotPacketAdapter` | packet bridge into Existing PlayerBots (primarily AzerothCore/mod-playerbots) |
 

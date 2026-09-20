@@ -31,14 +31,20 @@ void HolyPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_CRITICAL_HEAL + 1),
                              new NextAction("flash heal on party", ACTION_CRITICAL_HEAL), NULL)));
 
+    // Low-level dungeons (RFC/WC/DM, 13-19) know only lesser heal (1) and
+    // heal (16): flash heal needs 20, greater heal needs 40. Without a
+    // direct low-rank trigger the engine never falls back (alternatives
+    // only run on isPossible failure, not isUseful), so the priest idles.
     triggers.push_back(new TriggerNode(
         "party member low health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 2),
-                             new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 1), NULL)));
+                             new NextAction("heal on party", ACTION_MEDIUM_HEAL + 1),
+                             new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL), NULL)));
 
     triggers.push_back(new TriggerNode(
         "party member medium health",
-        NextAction::array(0, new NextAction("greater heal on party", ACTION_MEDIUM_HEAL), NULL)));
+        NextAction::array(0, new NextAction("heal on party", ACTION_MEDIUM_HEAL),
+                             new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL - 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "party member almost full health",
@@ -61,11 +67,13 @@ void HolyPriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers
     triggers.push_back(new TriggerNode(
         "party member low health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_HIGH + 2),
-            new NextAction("greater heal on party", ACTION_HIGH + 1), NULL)));
+            new NextAction("heal on party", ACTION_HIGH + 1),
+            new NextAction("lesser heal on party", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
         "party member medium health",
-        NextAction::array(0, new NextAction("greater heal on party", ACTION_HIGH), NULL)));
+        NextAction::array(0, new NextAction("heal on party", ACTION_HIGH),
+            new NextAction("lesser heal on party", ACTION_HIGH - 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "party member almost full health",
