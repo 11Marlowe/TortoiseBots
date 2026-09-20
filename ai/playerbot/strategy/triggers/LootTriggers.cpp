@@ -36,7 +36,7 @@ bool FarFromCurrentLootTrigger::IsActive()
         Creature* creature = ai->GetCreature(loot.guid);
         if (creature && sServerFacade.GetDeathState(creature) == CORPSE)
         {
-            float safeRange = sPlayerbotAIConfig.followDistance + bot->GetMaxLootDistance(creature);
+            float safeRange = sPlayerbotAIConfig.lootDistance;
             if (sServerFacade.getDistance2d(master, creature) > safeRange)
                 return false;
         }

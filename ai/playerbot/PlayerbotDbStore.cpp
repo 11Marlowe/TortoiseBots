@@ -48,7 +48,7 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
             ai->ClearStrategies(BotState::BOT_STATE_COMBAT);
             ai->ClearStrategies(BotState::BOT_STATE_NON_COMBAT);
             ai->ChangeStrategy("+chat", BotState::BOT_STATE_COMBAT);
-            ai->ChangeStrategy("+chat", BotState::BOT_STATE_NON_COMBAT);
+            ai->ChangeStrategy("+chat,+loot,+delayed roll", BotState::BOT_STATE_NON_COMBAT);
         }
 
         std::list<std::string> values;

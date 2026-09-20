@@ -31,7 +31,7 @@ bool LootAction::Execute(Event& event)
             Creature* c = ai->GetCreature(candidate.guid);
             if (c && sServerFacade.GetDeathState(c) == CORPSE)
             {
-                float safeRange = sPlayerbotAIConfig.followDistance + bot->GetMaxLootDistance(c);
+                float safeRange = sPlayerbotAIConfig.lootDistance;
                 if (sServerFacade.getDistance2d(master, c) > safeRange)
                     continue;
             }

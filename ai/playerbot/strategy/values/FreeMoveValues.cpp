@@ -68,7 +68,15 @@ float FreeMoveRangeValue::Calculate()
    }
    if (ai->HasStrategy("follow", ai->GetState()))
    {
-       return ai->GetRange("follow");
+       float range = ai->GetRange("follow");
+       // When the bot has loot to collect, temporarily expand the free-move
+       // radius so the follow action (priority 20) does not yank the bot away
+       // from corpses before "move to loot" (priority 7) can reach them.
+       // The loot pipeline already caps corpse eligibility to lootDistance
+       // from the master, so this expansion is safely bounded.
+       if (AI_VALUE(bool, "has available loot"))
+           range = std::max(range, sPlayerbotAIConfig.lootDistance);
+       return range;
    }
    if (ai->HasStrategy("guard", ai->GetState()))
    {
