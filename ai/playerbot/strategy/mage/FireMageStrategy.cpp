@@ -32,6 +32,14 @@ void FireMageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     MageStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "fireball",
+        NextAction::array(0, new NextAction("fireball", ACTION_NORMAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "fire blast",
+        NextAction::array(0, new NextAction("fire blast", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "no improved scorch",
         NextAction::array(0, new NextAction("scorch", ACTION_HIGH + 1), NULL)));
 

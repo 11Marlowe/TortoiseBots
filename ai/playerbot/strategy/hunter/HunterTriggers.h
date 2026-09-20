@@ -302,6 +302,28 @@ private:
         }
     };
 
+    // Aimed shot needs the 31-point MM talent (19434): BM/survival and
+    // sub-40 MM hunters never fire it, and arcane shot was only its
+    // fallback - so they fell back to auto shot forever (Issue #221).
+    class ArcaneShotTrigger : public Trigger
+    {
+    public:
+        ArcaneShotTrigger(PlayerbotAI* ai) : Trigger(ai, "arcane shot", 2) {}
+        virtual std::string GetTargetName() override { return "current target"; }
+
+        virtual bool IsActive() override
+        {
+            Unit* target = GetTarget();
+            if (!target)
+                return false;
+            // Aimed shot owners keep their opener; everyone else rotates
+            // arcane shot (level 8) whenever it is castable.
+            if (bot->HasSpell(19434))
+                return false;
+            return ai->CanCastSpell("arcane shot", target, true, nullptr, true);
+        }
+    };
+
     class AimedShotTrigger : public Trigger
     {
     public:

@@ -10,7 +10,8 @@ class BotPlayerAdapter final : public PlayerScript
 {
 public:
     BotPlayerAdapter();
-
+    bool IsManagedBot(Player* who) override;
+    uint8 GetBotRoles(Player* who) override;
     void OnLogin(Player* player) override;
     void OnMapChanged(Player* player) override;
     void OnBeforeLogout(Player* player) override;

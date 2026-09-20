@@ -951,12 +951,17 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                 {
                     if (PlayerbotAIStorage::Instance().GetAI(player) || sRandomBotFacade.IsFreeBot(player))
                     {
+                        // Dungeon groups run the LFT role kit, not the open
+                        // world: grind/travel/tfish/rpg wander inside the
+                        // instance otherwise (Issue #218).
+                        bool const inInstance = player->GetMap() && (player->GetMap()->IsDungeon() || player->GetMap()->IsRaid());
                         nonCombatEngine->addStrategy("collision");
-                        nonCombatEngine->addStrategy("grind");
+                        if (!inInstance)
+                            nonCombatEngine->addStrategy("grind");
                         nonCombatEngine->addStrategy("group");
                         nonCombatEngine->addStrategy("guild");
 
-                        if (sPlayerbotAIConfig.autoDoQuests)
+                        if (sPlayerbotAIConfig.autoDoQuests && !inInstance)
                         {
                             nonCombatEngine->addStrategy("travel");
                             nonCombatEngine->addStrategy("tfish");

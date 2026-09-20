@@ -135,6 +135,11 @@ namespace ai
         IceBarrierTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "ice barrier", 5) {}
     };
 
+    // Frostbolt/fireball had no combat trigger at all: the specs sat at
+    // ACTION_IDLE and fell through to the wand fallback (Issue #221).
+    CAN_CAST_TRIGGER(FrostboltTrigger, "frostbolt");
+    CAN_CAST_TRIGGER(FireBlastTrigger, "fire blast");
+
     class IciclesTrigger : public SpellCanBeCastedTrigger
     {
     public:

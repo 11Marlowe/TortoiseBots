@@ -16,6 +16,10 @@ void FrostMageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     MageStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
+        "frostbolt",
+        NextAction::array(0, new NextAction("frostbolt", ACTION_NORMAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "icicles channel check",
         NextAction::array(0, new NextAction("cancel channel", ACTION_HIGH + 3), NULL)));
 

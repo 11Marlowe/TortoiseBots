@@ -155,6 +155,8 @@ namespace ai
             TriggerFactoryInternal()
             {
                 creators["fireball"] = [](PlayerbotAI* ai) { return new FireballTrigger(ai); };
+                creators["frostbolt"] = [](PlayerbotAI* ai) { return new FrostboltTrigger(ai); };
+                creators["fire blast"] = [](PlayerbotAI* ai) { return new FireBlastTrigger(ai); };
                 creators["pyroblast"] = [](PlayerbotAI* ai) { return new PyroblastTrigger(ai); };
                 creators["combustion"] = [](PlayerbotAI* ai) { return new CombustionTrigger(ai); };
                 creators["arcane intellect"] = [](PlayerbotAI* ai) { return new ArcaneIntellectTrigger(ai); };

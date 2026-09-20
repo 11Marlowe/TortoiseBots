@@ -5,6 +5,7 @@
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/PlayerbotAIStorage.h"
+#include "../ai/playerbot/AiFactory.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "Log.h"
 #include "Map.h"
@@ -21,8 +22,26 @@ BotPlayerAdapter::BotPlayerAdapter()
         PLAYERHOOK_ON_LOGIN,
         PLAYERHOOK_ON_MAP_CHANGED,
         PLAYERHOOK_ON_BEFORE_LOGOUT,
-        PLAYERHOOK_ON_LOGOUT })
+        PLAYERHOOK_ON_LOGOUT,
+        PLAYERHOOK_IS_MANAGED_BOT,
+        PLAYERHOOK_GET_BOT_ROLES })
 {
+}
+
+bool BotPlayerAdapter::IsManagedBot(Player* who)
+{
+    if (!who)
+        return false;
+    return BotManager::Instance().IsBot(who->GetObjectGuid());
+}
+
+uint8 BotPlayerAdapter::GetBotRoles(Player* who)
+{
+    if (!who)
+        return 0;
+    if (!BotManager::Instance().IsBot(who->GetObjectGuid()))
+        return 0;
+    return static_cast<uint8>(AiFactory::GetPlayerRoles(who));
 }
 
 void BotPlayerAdapter::OnLogin(Player* player)

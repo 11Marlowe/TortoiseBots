@@ -75,7 +75,7 @@ Bot sessions are not special core subclasses. They are standard `WorldSession` i
 All interaction between the module and core server passes through explicit adapters in `host/`:
 * `BotSessionAdapter`: Manages headless session allocation and termination via `World::StartHeadlessSession`.
 * `BotPacketAdapter`: Handles packet routing and interception.
-* `BotPlayerAdapter`: Interacts with standard `Player` objects through native server APIs.
+* `BotPlayerAdapter`: Interacts with standard `Player` objects through native server APIs; answers the core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`).
 
 #### 5. Asynchronous LLM Isolation
 LLM-based chat interactions are purely asynchronous and decoupled. If an LLM backend times out or fails, combat AI, movement, healing, interrupts, and crowd control continue running with zero interruption or frame hitching.
