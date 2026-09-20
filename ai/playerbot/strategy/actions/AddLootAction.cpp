@@ -145,7 +145,10 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
         {
             if (ai->HasActivePlayerMaster())
             {
-                lootDistanceToUse = sPlayerbotAIConfig.groupMemberLootDistanceWithActiveMaster;
+                // Alt bots: use the full loot distance. Downstream safety checks
+                // (safe-range in LootAction, free-move range expansion) already
+                // prevent the bot from straying too far from the master.
+                lootDistanceToUse = sPlayerbotAIConfig.lootDistance;
             }
             else
             {
@@ -172,7 +175,7 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
 
     if (isInGroup && !ai->IsGroupLeader())
     {
-        float MOB_AGGRO_DISTANCE = 30.0f;
+        float MOB_AGGRO_DISTANCE = 10.0f;
         std::list<Unit*> hostiles = ai->GetAllHostileNPCNonPetUnitsAroundWO(wo, MOB_AGGRO_DISTANCE);
 
         if (hostiles.size() > 0)
