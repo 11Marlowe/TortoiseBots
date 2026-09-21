@@ -4,6 +4,38 @@
 
 using namespace ai;
 
+bool CastJudgementAction::isUseful()
+{
+    if (!ai->HasAnyAuraOf(bot, "seal of justice", "seal of command", "seal of righteousness", "seal of light", "seal of wisdom", NULL))
+        return false;
+
+    return AI_VALUE2(uint8, "mana", "self target") >= sPlayerbotAIConfig.mediumMana;
+}
+
+bool CastConsecrationAction::isUseful()
+{
+    if (!CastSpellAction::isUseful())
+        return false;
+
+    uint8 const mana = AI_VALUE2(uint8, "mana", "self target");
+    if (mana < sPlayerbotAIConfig.mediumMana)
+        return false;
+
+    // Enemies that would actually stand in it (8yd radius around the paladin).
+    uint32 inReach = 0;
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* const attacker = ai->GetUnit(guid);
+        if (attacker && attacker->IsAlive() && bot->GetDistance(attacker) <= 8.0f)
+            ++inReach;
+    }
+
+    if (inReach >= 3)
+        return true;
+
+    return inReach == 2 && mana >= 70;
+}
+
 bool CastPaladinAuraAction::Execute(Event& event)
 {
     std::vector<std::string> altAuras;

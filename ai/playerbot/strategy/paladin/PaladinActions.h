@@ -14,10 +14,12 @@ namespace ai
 	{
 	public:
 		CastJudgementAction(PlayerbotAI* ai) : CastMeleeDebuffSpellAction(ai, "judgement") { range = 10.0f; }
-		virtual bool isUseful()
-		{
-			return ai->HasAnyAuraOf(bot, "seal of justice", "seal of command", "seal of righteousness", "seal of light", "seal of wisdom", NULL);
-		}
+		// A Judgement spends the seal, so every one of them is followed by a fresh seal:
+		// the pair is a tenth of a level-20 paladin's mana, and the "judgement" trigger asks
+		// for it on every new target. Below medium mana the seal that is up is Seal of
+		// Wisdom (see the "medium mana" triggers) - judging it away throws out the one thing
+		// that refills the bar. Keep the seal, keep swinging.
+		virtual bool isUseful();
 	};
 
 	// judgements
@@ -29,7 +31,16 @@ namespace ai
 	HEAL_PARTY_ACTION(CastHolyShockOnPartyAction, "holy shock");
 
 	// consecration
-	SPELL_ACTION(CastConsecrationAction, "consecration");
+	class CastConsecrationAction : public CastSpellAction
+	{
+	public:
+		CastConsecrationAction(PlayerbotAI* ai) : CastSpellAction(ai, "consecration") {}
+		// The most expensive button a paladin has (rank 1: 120 mana, a seventh of the bar at
+		// level 20, for 8 damage a second per enemy standing in it). It pays on a pack and
+		// on nothing else; on cooldown against a single enemy it empties the paladin in
+		// half a minute.
+		virtual bool isUseful() override;
+	};
 
 	// repentance
 	SNARE_ACTION(CastRepentanceSnareAction, "repentance");
