@@ -1912,6 +1912,80 @@ void PlayerbotFactory::Shuffle(std::vector<uint32>& items)
     }
 }
 
+// Fresh-seed gear policy: even, acquirable spread instead of min/max.
+// Top-N window per slot class (weapons most contested, jewelry least), so a
+// fresh bot rolls a plausible kit rather than the single best raid item.
+static uint32 SeedTopNWindow(uint8 slot)
+{
+    switch (slot)
+    {
+    case EQUIPMENT_SLOT_MAINHAND:
+    case EQUIPMENT_SLOT_OFFHAND:
+    case EQUIPMENT_SLOT_RANGED:
+        return 5;
+    case EQUIPMENT_SLOT_FINGER1:
+    case EQUIPMENT_SLOT_FINGER2:
+    case EQUIPMENT_SLOT_TRINKET1:
+    case EQUIPMENT_SLOT_TRINKET2:
+    case EQUIPMENT_SLOT_NECK:
+        return 3;
+    default:
+        return 8;
+    }
+}
+
+// Paired-slot dupe guard: the FINGER1/2 and TRINKET1/2 candidate lists are
+// identical, so without this the loop equips the same entry twice. Data-side
+// unique flags are unreliable (Flags=0, MaxCount=0 on most rings/trinkets),
+// so compare against the already-equipped pair item directly.
+static uint32 PairedSlot(uint8 slot)
+{
+    switch (slot)
+    {
+    case EQUIPMENT_SLOT_FINGER1:
+        return EQUIPMENT_SLOT_FINGER2;
+    case EQUIPMENT_SLOT_FINGER2:
+        return EQUIPMENT_SLOT_FINGER1;
+    case EQUIPMENT_SLOT_TRINKET1:
+        return EQUIPMENT_SLOT_TRINKET2;
+    case EQUIPMENT_SLOT_TRINKET2:
+        return EQUIPMENT_SLOT_TRINKET1;
+    default:
+        return EQUIPMENT_SLOT_END;
+    }
+}
+
+
+// Fresh-seed provenance gate: a newly created bot has done no raids. Raid
+// drops (world-boss rank or raid-map spawn) and raid-quest rewards are
+// rejected outright. Non-raid quest rewards pass when the bot meets the quest
+// level (doable per GetLiveStatWeight) — completion is NOT required, or fresh
+// bots starve on jewelry. Vendor/world-drop/crafted items pass (no quest row
+// at all). Fail-open: unknown items pass; only positively-identified raid
+// loot is cut. Applies to the fresh-seed path only, never to earned upgrades.
+static bool PassesSeedProvenance(Player* bot, uint32 newItemId)
+{
+    if (sRandomItemMgr.IsRaidSourcedItem(newItemId))
+        return false;
+    if (sRandomItemMgr.IsRaidQuestItem(newItemId))
+        return false;
+    std::vector<uint32> questIds = sRandomItemMgr.GetQuestIdsForItem(newItemId);
+    if (questIds.empty())
+        return true;
+    for (uint32 questId : questIds)
+    {
+        Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+        uint32 questLevel = quest->GetQuestLevel();
+        if (!questLevel)
+            questLevel = quest->GetMinLevel();
+        if (!questLevel || questLevel <= (uint32)bot->GetLevel())
+            return true;
+    }
+    return false;
+}
+
 void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool progressive, bool partialUpgrade)
 {
     // Bots below level 5 stay in their starting outfit: gear DB has little for them,
@@ -2184,17 +2258,22 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         if (newItems.size())
                             ids.insert(ids.begin(), newItems.begin(), newItems.end());
 
+                        // Wearability descent (review fix): the cache window
+                        // holds items up to 20 levels above their bracket, so
+                        // ItemLevel alone accepts req-60 weapons for a 55 bot
+                        // that CanEquipItem then rejects. Descend until at
+                        // least one candidate is wearable by this bot.
                         for (auto id : ids)
                         {
                             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(id);
-                            if(proto)
-                            {
-                                if (proto->ItemLevel > maxItemLevel)
-                                    continue;
-
-                                hasProperLevel = true;
-                                break;
-                            }
+                            if (!proto)
+                                continue;
+                            if (proto->ItemLevel > maxItemLevel)
+                                continue;
+                            if (sRandomItemMgr.GetMinLevelFromCache(id) > (uint32)bot->GetLevel())
+                                continue;
+                            hasProperLevel = true;
+                            break;
                         }
 
                         if (!hasProperLevel)
@@ -2260,37 +2339,54 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     Shuffle(ids);
                 }
 
+                // Top-N spread (review fix): collect passing candidates, pick
+                // uniformly from the best window instead of always index 0.
+                // Incremental fresh-seed only; explicit-quality and sync paths
+                // keep deterministic best-first. The do/while quality
+                // degradation still applies per attempt round.
+                std::vector<uint32> passingIds;
+                bool collectSpread = incremental && !syncWithMaster && itemQuality == 0;
+                uint32 topN = collectSpread ? SeedTopNWindow(slot) : 1;
+
+                Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+                ItemPrototype const* oldProto = oldItem ? oldItem->GetProto() : nullptr;
+                uint32 oldStatValue = oldItem ? sRandomItemMgr.GetLiveStatWeight(bot, oldProto->ItemId, specId) : 0;
+
                 for (uint32 index = 0; index < ids.size(); ++index)
                 {
                     uint32 newItemId = ids[index];
 
-                    // filter item level
+                    // Required-level gate (review fix): the cache window holds
+                    // items up to 20 levels above their bracket, and the search
+                    // descent only checks ItemLevel — so a level 55 bot is
+                    // offered req-60 weapons that CanEquipItem then rejects,
+                    // stranding the starter. Filter here, before sort/pick, so
+                    // the window contains only wearable items.
+                    uint32 reqLevelGate = sRandomItemMgr.GetMinLevelFromCache(newItemId);
+                    if (reqLevelGate > (uint32)bot->GetLevel())
+                        continue;
+
+                    // Fresh-seed provenance gate: no raid drops, no raid-quest
+                    // rewards, quest rewards only when the bot meets the quest
+                    // level. Earned-progression paths (syncWithMaster, explicit
+                    // itemQuality, non-incremental Randomize) bypass it.
+                    if (incremental && !syncWithMaster && itemQuality == 0)
+                    {
+                        if (!PassesSeedProvenance(bot, newItemId))
+                            continue;
+                    }
+
+                    // Paired-slot dupe guard: same entry in FINGER2/TRINKET2.
+                    uint32 pairSlot = PairedSlot(slot);
+                    if (pairSlot != EQUIPMENT_SLOT_END)
+                    {
+                        Item* pairItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot);
+                        if (pairItem && pairItem->GetEntry() == newItemId)
+                            continue;
+                    }
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (!proto)
                         continue;
-
-                    if (std::find(lockedItems.begin(), lockedItems.end(), proto->ItemId) != lockedItems.end())
-                        continue;
-
-                    // blacklist
-                    if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), proto->ItemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
-                        continue;
-
-                    // skip unique-equippable items if already have one in inventory
-                    if (proto->Flags & ITEM_FLAG_UNIQUE_EQUIPPABLE && bot->HasItemCount(proto->ItemId, 1))
-                        continue;
-
-                    if (proto->MaxCount && bot->HasItemCount(proto->ItemId, proto->MaxCount))
-                        continue;
-
-                    if (proto->ItemLevel > maxItemLevel)
-                        continue;
-
-                    // do not use items that required level is too low compared to bot's level
-                    uint32 reqLevel = sRandomItemMgr.GetMinLevelFromCache(newItemId);
-                    if (reqLevel && proto->Quality < ITEM_QUALITY_LEGENDARY && abs((int)bot->GetLevel() - (int)reqLevel) > (int)sPlayerbotAIConfig.randomGearMaxDiff)
-                        continue;
-
                     // filter tank weapons
                     if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
                         continue;
@@ -2347,10 +2443,6 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         }
                     }
 
-                    Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
-                    ItemPrototype const* oldProto = oldItem ? oldItem->GetProto() : nullptr;
-                    //uint32 oldStatValue = oldItem ? sRandomItemMgr.GetStatWeight(oldProto->ItemId, specId) : 0;
-                    uint32 oldStatValue = oldItem ? sRandomItemMgr.GetLiveStatWeight(bot, oldProto->ItemId, specId) : 0;
 
                     if (oldItem && oldProto->ItemId == newItemId)
                         continue;
@@ -2433,36 +2525,57 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if ((incremental || progressiveGear) && oldItem && oldProto->Quality < ITEM_QUALITY_NORMAL && proto->Quality < ITEM_QUALITY_NORMAL && level > 5)
                         continue;
 
-                    uint16 eDest;
-                    if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId) == EQUIP_ERR_OK)
-                    {
-                        if (oldItem)
-                            bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+                    // Collect-then-pick: every passing candidate is scored;
+                    // the equip below rolls uniformly from the best window.
+                    // CanEquipUnseenItem (slot rules, skill, unique-equip) is
+                    // NOT evaluated here — it destroys nothing but is still a
+                    // per-candidate core call, so it runs once on the pick.
+                    passingIds.push_back(newItemId);
+                    if (passingIds.size() >= topN * 3)
+                        break;
+                }
 
-                        Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
-                        if (pItem)
-                        {
-                            if (randomEnchBestId)
-                            {
-                                // overwrite random generated property
-                                pItem->SetItemRandomProperties(randomEnchBestId);
-                                // update for inspect
-                                bot->TransmogSetVisibleItemSlot(pItem->GetSlot(), pItem);
-                            }
-                            pItem->SetOwnerGuid(bot->getObjectGuid());
-                            EnchantItem(pItem);
-                            found = true;
-                        }
-                    }
-                    if (found)
+                if (!passingIds.empty())
+                {
+                    // Window = first topN of the best-first sort (or fewer).
+                    // Deterministic paths (topN == 1) keep index-0 behavior.
+                    uint32 window = std::min<uint32>(topN, (uint32)passingIds.size());
+                    uint32 pickIdx = window > 1 ? urand(0, window - 1) : 0;
+                    uint32 newItemId = passingIds[pickIdx];
+                    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
+                    if (proto)
                     {
-                        if (incremental)
+                        uint32 newStatValue = sRandomItemMgr.GetLiveStatWeight(bot, newItemId, specId);
+                        uint32 randomEnchBestId = 0;
+                        if (proto->RandomProperty)
+                        {
+                            randomEnchBestId = sRandomItemMgr.CalculateBestRandomEnchantId(bot->GetClass(), specId, newItemId);
+                            newStatValue += sRandomItemMgr.CalculateEnchantWeight(bot->GetClass(), specId, randomEnchBestId);
+                        }
+                        uint16 eDest;
+                        if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId) == EQUIP_ERR_OK)
+                        {
+                            if (oldItem)
+                                bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+                            Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
+                            if (pItem)
+                            {
+                                if (randomEnchBestId)
+                                {
+                                    pItem->SetItemRandomProperties(randomEnchBestId);
+                                    bot->TransmogSetVisibleItemSlot(pItem->GetSlot(), pItem);
+                                }
+                                pItem->SetOwnerGuid(bot->getObjectGuid());
+                                EnchantItem(pItem);
+                                found = true;
+                            }
+                        }
+                        if (found && incremental)
                         {
                             if (oldItem)
                                 sLog.outDetail("Bot #%d %s:%d <%s>: Old Item: slot: %u, id: %u, value: %u (%s)", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName(), slot, oldProto->ItemId, oldStatValue, oldProto->Name1);
                             sLog.outDetail("Bot #%d %s:%d <%s>: New Item: slot: %u, id: %u, value: %u (%s)", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName(), slot, proto->ItemId, newStatValue, proto->Name1);
                         }
-                        break;
                     }
                 }
             }

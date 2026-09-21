@@ -2,11 +2,8 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "RandomItemMgr.h"
-#include "playerbot/PlayerbotAI.h"
-
-#include "Database/DBCStore.h"
+#include "Maps/Map.h"
 #include "Database/DatabaseEnv.h"
-#include "PlayerbotAI.h"
 
 #include "playerbot/ServerFacade.h"
 #include "strategy/values/LootValues.h"
@@ -2185,6 +2182,149 @@ std::vector<uint32> RandomItemMgr::GetQuestIdsForItem(uint32 itemId)
     }
     return questIds;
 }
+bool RandomItemMgr::IsRaidSourcedItem(uint32 itemId)
+{
+    if (!itemId)
+        return false;
+
+    // Walk every creature template through the same loot_id seam the world
+    // uses at loot time (DropMapValue::GetLootTemplate): template loot_id ->
+    // LootTemplates_Creature, plus pickpocket/skinning tables. Reference
+    // indirection (negative mincountOrRef) is followed one level, matching
+    // the world's own reference resolution. Token turn-ins (Frostfire via
+    // spell 18382) and quest rewards have no loot row and return false.
+    uint32 maxEntry = sCreatureStorage.GetMaxEntry();
+    for (uint32 entry = 0; entry < maxEntry; ++entry)
+    {
+        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(entry);
+        if (!cInfo)
+            continue;
+
+        uint32 lootIds[3] = { cInfo->loot_id, cInfo->pickpocket_loot_id, cInfo->skinning_loot_id };
+        bool dropsItem = false;
+        // Same reinterpret_cast seam as DropMapValue::GetLootTemplate
+        // (LootValues.h): LootTemplateAccess mirrors the real layout, so
+        // Entries/Groups read correctly. Groups carry the explicitly/grouped
+        // chances; the ungrouped Entries list alone misses raid drops.
+        auto templateDropsItem = [itemId](LootTemplate const* tpl) -> bool
+        {
+            if (!tpl)
+                return false;
+            LootTemplateAccess const* access = reinterpret_cast<LootTemplateAccess const*>(tpl);
+            for (LootStoreItem const& lootEntry : access->Entries)
+            {
+                if (lootEntry.itemid == itemId)
+                    return true;
+                if (lootEntry.mincountOrRef < 0)
+                {
+                    LootTemplate const* ref = LootTemplates_Reference.GetLootFor((uint32)-lootEntry.mincountOrRef);
+                    if (!ref)
+                        continue;
+                    LootTemplateAccess const* refAccess = reinterpret_cast<LootTemplateAccess const*>(ref);
+                    for (LootStoreItem const& refEntry : refAccess->Entries)
+                    {
+                        if (refEntry.itemid == itemId)
+                            return true;
+                    }
+                }
+            }
+            for (LootLootGroupAccess const& group : access->Groups)
+            {
+                for (LootStoreItem const& lootEntry : group.ExplicitlyChanced)
+                {
+                    if (lootEntry.itemid == itemId)
+                        return true;
+                }
+                for (LootStoreItem const& lootEntry : group.EqualChanced)
+                {
+                    if (lootEntry.itemid == itemId)
+                        return true;
+                }
+            }
+            return false;
+        };
+        for (uint32 lootId : lootIds)
+        {
+            if (!lootId)
+                continue;
+            LootTemplate const* tpl = nullptr;
+            if (lootId == cInfo->loot_id)
+                tpl = LootTemplates_Creature.GetLootFor(lootId);
+            else if (lootId == cInfo->pickpocket_loot_id)
+                tpl = LootTemplates_Pickpocketing.GetLootFor(lootId);
+            else
+                tpl = LootTemplates_Skinning.GetLootFor(lootId);
+            if (templateDropsItem(tpl))
+            {
+                dropsItem = true;
+                break;
+            }
+        }
+        if (!dropsItem)
+            continue;
+
+        // World boss by rank, whatever map it walks on.
+        if (cInfo->rank == CREATURE_ELITE_WORLDBOSS)
+            return true;
+
+        // Raid map by spawn location: any live spawn of this entry on a
+        // MAP_RAID map marks the item raid-sourced. Fail-closed to non-raid
+        // when no spawns exist (custom items, sparse DB).
+        std::unique_ptr<QueryResult> spawns(WorldDatabase.PQuery(
+            "SELECT map FROM creature WHERE id = '%u' LIMIT 5", entry));
+        if (spawns)
+        {
+            do
+            {
+                Field* fields = spawns->Fetch();
+                uint32 mapId = fields[0].GetUInt32();
+                if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId))
+                {
+                    if (mapEntry->IsRaid())
+                        return true;
+                }
+            } while (spawns->NextRow());
+        }
+    }
+    return false;
+}
+
+bool RandomItemMgr::IsRaidQuestItem(uint32 itemId)
+{
+    if (!itemId)
+        return false;
+
+    std::vector<uint32> questIds = GetQuestIdsForItem(itemId);
+    for (uint32 questId : questIds)
+    {
+        Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+        // Explicit raid quest type.
+        if (quest->GetType() == QUEST_TYPE_RAID)
+            return true;
+        // Raid-scale group content.
+        if (quest->GetSuggestedPlayers() > 5)
+            return true;
+        // Raid map completion: ZoneOrSort > 0 is an area id whose map is the
+        // raid; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
+        int32 zoneOrSort = quest->GetZoneOrSort();
+        if (zoneOrSort > 0)
+        {
+            AreaEntry const* area = AreaEntry::GetById((uint32)zoneOrSort);
+            if (area)
+            {
+                if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(area->MapId))
+                {
+                    if (mapEntry->IsRaid())
+                        return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 
 std::string RandomItemMgr::GetPlayerSpecName(Player* player)
 {

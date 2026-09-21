@@ -178,8 +178,20 @@ class RandomItemMgr
         bool CanEquipWeapon(uint8 clazz, ItemPrototype const* proto);
         bool ShouldEquipWeaponForSpec(uint8 playerclass, uint8 spec, ItemPrototype const* proto);
         bool CheckItemSpec(uint8 spec, ItemSpecType itSpec);
-        uint32 GetQuestIdForItem(uint32 itemId);
+        // Fresh-seed provenance gates. Everything is best-effort and fail-open:
+        // missing world rows (custom items, sparse DBC) must never block gear.
+        // IsRaidSourcedItem: true when any creature dropping the item is a
+        // world boss (rank 3) or spawns on a raid map. Cost is one bounded
+        // loot-table scan plus indexed template lookups; loot-excluded items
+        // (token turn-ins like Frostfire, quest rewards) return false.
+        bool IsRaidSourcedItem(uint32 itemId);
+        // IsRaidQuestItem: true when any quest rewarding the item is a raid
+        // quest (Type 62) or gated behind a raid map / raid-scale group
+        // (SuggestedPlayers > 5). ZoneOrSort sign convention: positive =
+        // area id, negative = QuestSort.dbc sort id.
+        bool IsRaidQuestItem(uint32 itemId);
         std::vector<uint32> GetQuestIdsForItem(uint32 itemId);
+        uint32 GetQuestIdForItem(uint32 itemId);
         std::string GetPlayerSpecName(Player* player);
         uint32 GetPlayerSpecId(Player* player);
         // Issue #189 Phase 2: unknown-spec fallback. Spent talents decide
