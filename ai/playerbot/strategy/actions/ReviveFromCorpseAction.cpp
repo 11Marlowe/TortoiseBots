@@ -174,9 +174,19 @@ bool FindCorpseAction::Execute(Event& event)
             sLog.outBasic("[BOT CORPSE] %s: instance corpse run timeout (%llds >= 300s), appearing revived at dungeon entrance (map %u)",
                 bot->GetName(), (long long)deadTime, dungeonMapId);
             bot->GetMotionMaster()->Clear();
-            bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
+            // Resurrect BEFORE the teleport. TeleportTo onto another map is async:
+            // the player is pulled off its map and m_currMap is null until the
+            // worldport ack lands next tick, and Player::ResurrectPlayer -> GetMap()
+            // ASSERTS on a mapless player (Object.cpp:2046 -> terminate; observed
+            // taking the whole world server down at the 300s corpse timeout). The
+            // ghost still stands on a map here (at the graveyard outside, or inside
+            // the instance), so revive it where it is and teleport the living bot to
+            // the entrance. Never resurrect a mapless bot.
+            if (!bot->FindMap())
+                return true;
             bot->ResurrectPlayer(0.5f, false);
             bot->SpawnCorpseBones();
+            bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
             bot->SaveToDB();
             SET_AI_VALUE(bool, "corpse run", false);
             return true;
