@@ -279,6 +279,14 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
     PushDefaultActions();
 
     std::vector<Action*> modifiedActions;
+    // Actions a multiplier VETOED (factor 0) in this tick. modifiedActions above exempts an
+    // action from the multipliers once it has been re-queued with its lowered relevance -
+    // fine for a lowered relevance, which travels with the re-queued basket, but the same
+    // Action object also arrives in OTHER baskets of the same tick (as the prerequisite of
+    // three different abilities, say), and those carried their original relevance straight
+    // past every multiplier: a vetoed "reach melee" still ran as the prerequisite of
+    // "melee", "shield bash" and "thunder clap". A veto holds for the whole tick.
+    std::vector<Action*> vetoedActions;
 
     int iterations = 0;
     int iterationsPerTick = queue.Size() * (minimal ? (uint32)(sPlayerbotAIConfig.iterationsPerTick / 2) : sPlayerbotAIConfig.iterationsPerTick);
@@ -360,7 +368,13 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 
                 if (isUseful)
                 {
-                    if (std::find(modifiedActions.begin(), modifiedActions.end(), action) == modifiedActions.end())
+                    if (std::find(vetoedActions.begin(), vetoedActions.end(), action) != vetoedActions.end())
+                    {
+                        relevance = 0.0f;
+                        action->setRelevance(relevance);
+                        LogAction("A:%s - vetoed earlier this tick", action->getName().c_str());
+                    }
+                    else if (std::find(modifiedActions.begin(), modifiedActions.end(), action) == modifiedActions.end())
                     {
                         for (std::list<Multiplier*>::iterator i = multipliers.begin(); i != multipliers.end(); i++)
                         {
@@ -379,6 +393,7 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                             if (!relevance)
                             {
                                 LogAction("Multiplier %s made action %s useless", multiplier->getName().c_str(), action->getName().c_str());
+                                vetoedActions.push_back(action);
                                 break;
                             }
                         }
