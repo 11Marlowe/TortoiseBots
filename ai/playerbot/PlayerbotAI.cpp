@@ -2608,6 +2608,17 @@ bool PlayerbotAI::PlaySound(uint32 emote)
 
 bool PlayerbotAI::PlayEmote(uint32 emote)
 {
+    // A bot between two maps has no map: TeleportTo onto another map takes the player off
+    // its map at once and the new one arrives with the worldport ack on a later tick. The
+    // text-emote handler reads GetMap(), which asserts on a mapless player and takes the
+    // whole world server down. Seen with a dead dungeon-crew bot: "find corpse" -> "spirit
+    // healer" -> DoSpecificAction("repop") teleported the ghost from the instance to its
+    // graveyard, returned OK, and the confirming nod right after it was the crash
+    // (Object.cpp:2046 "Assertion in GetMap failed: m_currMap", backtrace PlayEmote <-
+    // DoSpecificAction <- SpiritHealerAction). No map, no emote.
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !bot->FindMap())
+        return false;
+
     WorldPacket data(SMSG_TEXT_EMOTE);
     data << (TextEmotes)emote;
     data << urand(0, EmoteAction::GetNumberOfEmoteVariants((TextEmotes)emote, bot->GetRace(), bot->GetGender()) - 1);
