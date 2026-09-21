@@ -374,6 +374,8 @@ bool PlayerbotAIConfig::Initialize()
     logInGroupOnly = config.GetBoolDefault("AiPlayerbot.LogInGroupOnly", true);
     logValuesPerTick = config.GetBoolDefault("AiPlayerbot.LogValuesPerTick", false);
     fleeingEnabled = config.GetBoolDefault("AiPlayerbot.FleeingEnabled", true);
+    bombRunoutDistance = config.GetFloatDefault("AiPlayerbot.BombRunoutDistance", 30.0f);
+    hazardEvasionDistance = config.GetFloatDefault("AiPlayerbot.HazardEvasionDistance", 12.0f);
     summonAtInnkeepersEnabled = config.GetBoolDefault("AiPlayerbot.SummonAtInnkeepersEnabled", true);
     randomBotMaxLevel = config.GetIntDefault("AiPlayerbot.RandomBotMaxLevel", DEFAULT_MAX_LEVEL);
     randomBotLoginAtStartup = config.GetBoolDefault("AiPlayerbot.RandomBotLoginAtStartup", false);
@@ -1008,6 +1010,10 @@ std::string PlayerbotAIConfig::GetValue(std::string name)
         out << lootDistance;
     else if (name == "FleeDistance")
         out << fleeDistance;
+    else if (name == "BombRunoutDistance")
+        out << bombRunoutDistance;
+    else if (name == "HazardEvasionDistance")
+        out << hazardEvasionDistance;
 
     else if (name == "CriticalHealth")
         out << criticalHealth;
@@ -1041,12 +1047,14 @@ void PlayerbotAIConfig::SetValue(std::string name, std::string value)
         out >> spellDistance;
     else if (name == "ReactDistance")
         out >> reactDistance;
-    else if (name == "GrindDistance")
-        out >> grindDistance;
-    else if (name == "LootDistance")
-        out >> lootDistance;
     else if (name == "FleeDistance")
         out >> fleeDistance;
+    else if (name == "BombRunoutDistance")
+        out >> bombRunoutDistance;
+    else if (name == "HazardEvasionDistance")
+        out >> hazardEvasionDistance;
+    else if (name == "LootDistance")
+        out >> lootDistance;
 
     else if (name == "CriticalHealth")
         out >> criticalHealth;

@@ -322,7 +322,10 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 {
     int tab = GetPlayerSpecTab(player);
 
-    combatEngine->addStrategies("mount", NULL);
+    // Raid/dungeon transition engine: the "dungeon" strategy owns the
+    // enter/leave <raid> triggers that swap in MC/Ony/BWL/Naxx tactics.
+    // Without it bots zone into raids and keep fighting with outdoor AI.
+    combatEngine->addStrategies("dungeon", "mount", NULL);
     // The pinned Tortoise PathInfo exposes no area-cost/avoidance filter. Do
     // not install the mature AvoidMobs strategy whose setArea() calls would
     // otherwise report success while changing no path state.
@@ -909,7 +912,9 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
         }
     }
 
-    nonCombatEngine->addStrategies("wbuff", NULL);
+    nonCombatEngine->addStrategies("wbuff", "dungeon", NULL);
+    // "dungeon" owns the enter/leave <raid> transition triggers; without it
+    // zone-ins never swap into raid tactics.
     // Mob avoidance remains disabled until the core supplies a real path
     // filter; see SetAvoidAreaAction and the audit's core follow-up.
 

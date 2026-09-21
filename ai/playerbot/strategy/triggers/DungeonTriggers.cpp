@@ -347,3 +347,104 @@ bool ItemBuffReadyTrigger::IsActive()
 
     return false;
 }
+
+bool RaidBombDebuffTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !sServerFacade.IsAlive(bot))
+        return false;
+    // Spell-ID based: Geddon Living Bomb, Vael Burning Adrenaline
+    // (Turtle 23620 + classic 18173), Grobbulus Mutating Injection.
+    static const uint32 bombSpells[] = { 20475, 23620, 18173, 23478, 28169 };
+    for (uint32 spellId : bombSpells)
+    {
+        if (ai->HasAura(spellId, bot))
+            return true;
+    }
+    return false;
+}
+
+bool FourHorsemenMarkTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !sServerFacade.IsAlive(bot))
+        return false;
+    // Thane 28832, Blaumeux 28833, Mograine 28834, Zeliek 28835.
+    static const uint32 markSpells[] = { 28832, 28833, 28834, 28835 };
+    for (uint32 spellId : markSpells)
+    {
+        if (Aura* aura = ai->GetAura(spellId, bot))
+        {
+            if (aura->GetStackAmount() >= 3)
+                return true;
+        }
+    }
+    return false;
+}
+
+namespace
+{
+bool IsRaidDragonEntry(uint32 entry)
+{
+    switch (entry)
+    {
+        case 10184: // Onyxia
+        case 14601: // Ebonroc
+        case 11981: // Flamegor
+        case 11983: // Firemaw
+        case 11583: // Nefarian
+            return true;
+        default:
+            return false;
+    }
+}
+} // namespace
+
+bool DragonBreathRiskTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !sServerFacade.IsAlive(bot))
+        return false;
+    Unit* target = GetTarget();
+    if (!target || !sServerFacade.IsAlive(target) || !target->IsCreature())
+        return false;
+    if (!IsRaidDragonEntry(target->GetEntry()))
+        return false;
+    // Tanks hold the head; the trigger tells non-tanks to flank. Tank
+    // positioning itself is an explicit .bot raid tankface command.
+    if (ai->IsTank(bot))
+        return false;
+    const float dist = bot->GetDistance(target);
+    if (dist > sPlayerbotAIConfig.spellDistance + 10.0f)
+        return false;
+    // Angle between the dragon's facing and the bot, in radians.
+    float facing = target->GetOrientation();
+    float toBot = target->GetAngle(bot);
+    float diff = fabs(toBot - facing);
+    while (diff > M_PI_F)
+        diff = fabs(diff - 2.0f * M_PI_F);
+    // Front 90-degree cone (breath/cleave) or rear 60-degree tail cone.
+    const float frontHalf = M_PI_F / 4.0f;
+    const float rearHalf = M_PI_F / 6.0f;
+    return diff < frontHalf || diff > (M_PI_F - rearHalf);
+}
+
+bool RaidSpreadNeededTrigger::IsActive()
+{
+    if (!bot->IsInWorld() || bot->IsBeingTeleported() || !sServerFacade.IsAlive(bot))
+        return false;
+    // Melee/tanks stack by design; spread is a ranged survival behavior.
+    if (!ai->IsRanged(bot))
+        return false;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+    for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+    {
+        Player* member = gref->GetSource();
+        if (!member || member == bot || !sServerFacade.IsAlive(member))
+            continue;
+        if (member->GetMapId() != bot->GetMapId())
+            continue;
+        if (sServerFacade.getDistance2d(bot, member) < 10.0f)
+            return true;
+    }
+    return false;
+}

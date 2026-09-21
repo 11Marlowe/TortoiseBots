@@ -110,6 +110,7 @@ namespace BotCommands {
 
 static bool IsRaidTargetMark(std::string const& mark);
 static std::string CurrentCcMark(PlayerbotAI* ai);
+static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent);
 
 static std::string Trim(std::string value)
 {
@@ -1054,6 +1055,7 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
 // the dynamic scope (selected bot or all owned party bots). The mature chat
 // actions own vendor checks (proximity, gossip flags, gold); this layer only
 // resolves scope, invokes them, persists strategy state, and reports.
+static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent);
 static bool HandleLoot(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -1805,20 +1807,18 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         first != "repair" && first != "sell" && first != "rest" &&
         first != "drink" && first != "eat" && first != "release" &&
         first != "corpse run" && first != "corpserun" && first != "learn" &&
-        first != "trade")
+        first != "trade" && first != "raid")
         return false;
 
-    if (first == "aoe")
+    if (first == "raid")
     {
-        if (!remainder.empty() && remainder != "on" && remainder != "off")
+        std::string rest = remainder;
+        for (char& character : rest)
+            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        if (rest != "status" && rest != "tankface" && rest != "douse")
             return false;
-        option = remainder;
-    }
-    else if (first == "loot")
-    {
-        if (!remainder.empty() && remainder != "on" && remainder != "off")
-            return false;
-        option = remainder;
+        intent = "raid " + rest;
+        return true;
     }
     else if (first == "corpse run" || first == "corpserun")
     {
@@ -1852,7 +1852,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2004,8 +2004,8 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             ? "bot:" + std::string(executor->GetName()) : "party", 1, executor->GetName());
         return true;
     }
-    else
-        scope = ResolveDynamicScope(context);
+    else if (intent == "raid status" || intent == "raid tankface" || intent == "raid douse")
+        return HandleRaidAction(handler, context, requester, intent);
     if (tactical)
     {
         Player* executor = ResolvePullExecutor(context);
@@ -2240,6 +2240,65 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
     SendActionAck(handler, intent, scopeName, succeeded,
         intent == "aoe" || intent == "loot" ? aoeState : "");
+}
+
+static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent)
+{
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        SendActionError(handler, intent, "no-bots", "No live owned party bots are controllable.");
+        return true;
+    }
+    if (intent == "raid status")
+    {
+        uint32 count = 0;
+        for (Player* bot : scope)
+        {
+            if (!bot || !bot->IsInWorld())
+                continue;
+            PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!ai)
+                continue;
+            std::string active;
+            for (char const* strategy : { "molten core", "onyxia's lair", "blackwing lair", "naxxramas",
+                                          "onyxia", "magmadar", "suppression room", "four horseman" })
+            {
+                if (ai->HasStrategy(strategy, BotState::BOT_STATE_COMBAT))
+                    active += (active.empty() ? "" : ",") + std::string(strategy);
+            }
+            handler->PSendSysMessage("TBM:ACTION_ACK|raid status|bot:%s|1|%s",
+                bot->GetName(), active.empty() ? "outdoor" : active.c_str());
+            ++count;
+        }
+        if (!count)
+            SendActionError(handler, intent, "failed", "No scoped bot accepted the mature action.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    char const* matureAction = intent == "raid tankface" ? "dragon tank face away" : "douse mc rune eternal";
+    for (Player* bot : scope)
+    {
+        if (!bot || !bot->IsInWorld())
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        bool accepted = ExecuteQuietAction(ai, matureAction, ai::Event(intent, "", requester));
+        if (!accepted && intent == "raid douse")
+            accepted = ExecuteQuietAction(ai, "douse mc rune aqual", ai::Event(intent, "", requester));
+        if (accepted)
+            ++succeeded;
+    }
+    if (!succeeded)
+    {
+        SendActionError(handler, intent, "failed", "No scoped bot accepted the mature action.");
+        return true;
+    }
+    std::string scopeName = context.selectedBot && scope.size() == 1
+        ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
+    SendActionAck(handler, intent, scopeName, succeeded, "");
+    return true;
 }
 
 static bool HandleAhBot(ChatHandler* handler, char const* args)

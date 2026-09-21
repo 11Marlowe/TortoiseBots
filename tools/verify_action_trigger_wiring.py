@@ -62,7 +62,7 @@ DEAD_FILES = (
     'CatDruidStrategy.cpp', 'RestoDruidStrategy.cpp', 'DpsRogueStrategy.cpp',
     'RestoShamanStrategy.cpp', 'HealPriestStrategy.cpp',
     'TankPaladinStrategy.cpp', 'LevelingDruidStrategy.cpp',
-    'MoltenCoreDungeonStrategies.cpp', 'BattlegroundStrategy.cpp',
+    'BattlegroundStrategy.cpp',
     'TravelStrategy.cpp', 'RpgStrategy.cpp', 'MeleeCombatStrategy.cpp',
     'SayStrategy.cpp', 'TotemsShamanStrategy.cpp',
     'ShamanNonCombatStrategy.cpp', 'DpsPaladinStrategy.cpp',

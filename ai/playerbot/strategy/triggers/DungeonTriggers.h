@@ -89,6 +89,57 @@ namespace ai
         time_t hazardDuration;
     };
 
+    // Universal raid survival: bomb/plague runout. Baron Geddon Living Bomb
+    // (20475), Vaelastrasz Burning Adrenaline (23620 + classic 18173),
+    // Grobbulus Mutating Injection (28169) all detonate into the raid clump
+    // unless the carrier runs 30yd clear. Spell-ID based so it fires on the
+    // carrier regardless of which boss applied it.
+    class RaidBombDebuffTrigger : public Trigger
+    {
+    public:
+        RaidBombDebuffTrigger(PlayerbotAI* ai, std::string name = "raid bomb debuff", int checkInterval = 1)
+        : Trigger(ai, name, checkInterval) {}
+        std::string GetTargetName() override { return "self target"; }
+        bool IsActive() override;
+    };
+
+    // Universal raid survival: 4H-style mark rotation. The Four Horsemen
+    // marks (28832 Thane, 28833 Blaumeux, 28834 Mograine, 28835 Zeliek)
+    // stack to lethal; at 3+ stacks the carrier must rotate out.
+    class FourHorsemenMarkTrigger : public Trigger
+    {
+    public:
+        FourHorsemenMarkTrigger(PlayerbotAI* ai, std::string name = "four horsemen mark", int checkInterval = 1)
+        : Trigger(ai, name, checkInterval) {}
+        std::string GetTargetName() override { return "self target"; }
+        bool IsActive() override;
+    };
+
+    // Universal raid survival: dragon breath/tail geometry. Onyxia (10184),
+    // Ebonroc (14601), Flamegor (11981), Firemaw (11983), Nefarian (11583).
+    // Tanks hold the head away from the raid; everyone else clears the
+    // frontal cone and the rear tail cone and works the flanks.
+    class DragonBreathRiskTrigger : public Trigger
+    {
+    public:
+        DragonBreathRiskTrigger(PlayerbotAI* ai, std::string name = "dragon breath risk", int checkInterval = 1)
+        : Trigger(ai, name, checkInterval) {}
+        std::string GetTargetName() override { return "current target"; }
+        bool IsActive() override;
+    };
+
+    // Universal raid survival: ranged AoE spread. When another friendly
+    // player is inside 10yd during a flagged spread encounter, split out
+    // so chain abilities cannot bracket the whole caster line.
+    class RaidSpreadNeededTrigger : public Trigger
+    {
+    public:
+        RaidSpreadNeededTrigger(PlayerbotAI* ai, std::string name = "raid spread needed", int checkInterval = 2)
+        : Trigger(ai, name, checkInterval) {}
+        std::string GetTargetName() override { return "self target"; }
+        bool IsActive() override;
+    };
+
     class CloseToGameObjectHazardTrigger : public CloseToHazardTrigger
     {
     public:

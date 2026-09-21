@@ -51,12 +51,14 @@ namespace ai
     class DouseMCRuneActionAqual : public UseItemIdAction
     {
     public:
+        // Aqual Quintessence (17333): Majordomo cache / Hydraxian quest item.
         DouseMCRuneActionAqual(PlayerbotAI* ai) : UseItemIdAction(ai, "douse mc rune aqual") { qualifier = "{17333,entry filter::{gos close,mc runes}}"; }
     };
 
     class DouseMCRuneActionEternal : public UseItemIdAction
     {
     public:
+        // Eternal Quintessence (22754): exalted-Hydraxian upgrade, same use.
         DouseMCRuneActionEternal(PlayerbotAI* ai) : UseItemIdAction(ai, "douse mc rune eternal") { qualifier = "{22754,entry filter::{gos close,mc runes}}"; }
     };
 }
