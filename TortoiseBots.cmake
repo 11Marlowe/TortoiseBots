@@ -184,10 +184,16 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
 
     # Keep the positive source graph mechanically hostile to donor expansion
     # families. A future file with one of these names must be reviewed before
-    # it can enter the module through a directory glob.
+    # it can enter the module through a directory glob. Native Tortoise
+    # Karazhan tactics (LowerKarazhan*, KarazhanCrypt*) are Turtle 1.18.1
+    # content, not donor TBC/WotLK Karazhan, so they bypass the KARAZHAN bar.
     string(TOUPPER "${TORTOISEBOTS_SOURCE}" TORTOISEBOTS_SOURCE_UPPER)
-    if(TORTOISEBOTS_SOURCE_UPPER MATCHES "DEATHKNIGHT|GLYPH|VEHICLE|KARAZHAN|ARENA|RTSC|BOSSAURA|OUTLAND|NORTHREND")
-      message(FATAL_ERROR "Expansion/test family is not allowed in TortoiseBots source graph: ${TORTOISEBOTS_SOURCE}")
+    get_filename_component(TORTOISEBOTS_SOURCE_NAME "${TORTOISEBOTS_SOURCE}" NAME)
+    string(TOUPPER "${TORTOISEBOTS_SOURCE_NAME}" TORTOISEBOTS_SOURCE_NAME_UPPER)
+    if(NOT TORTOISEBOTS_SOURCE_NAME_UPPER MATCHES "^(LOWERKARAZHAN|KARAZHANCRYPT|EMERALDSANCTUM)")
+      if(TORTOISEBOTS_SOURCE_UPPER MATCHES "DEATHKNIGHT|GLYPH|VEHICLE|KARAZHAN|ARENA|RTSC|BOSSAURA|OUTLAND|NORTHREND")
+        message(FATAL_ERROR "Expansion/test family is not allowed in TortoiseBots source graph: ${TORTOISEBOTS_SOURCE}")
+      endif()
     endif()
 
     TW_ADD_SCRIPT("${TORTOISEBOTS_SOURCE}")

@@ -110,6 +110,14 @@ Entering a raid map auto-enables the `dungeon` transition engine, which swaps in
 
 Encounter notes: MC runes douse via `.bot action raid douse` (Eternal Quintessence 22754 first, Aqual 17333 fallback); Onyxia phase 2 swaps bots to `shoot` + spread while airborne; BWL rogues disarm suppression devices out of combat; 4H mark carriers (3+ stacks) rotate out via hazard move.
 
+## 7. Custom Turtle Raids (Emerald Sanctum / Lower Karazhan / Karazhan Crypt)
+
+Zone-ins for Map 807, 532, and 800 swap in `emerald sanctum`, `lower karazhan`, and `karazhan crypt` via the same `dungeon` engine (gated by `AiPlayerbot.EnableCustomRaidTactics = 1`; toggle per-bot with `.bot action raid custom [status|on|off]`). Static mechanics from core scripts:
+
+- **Emerald Sanctum (Solnius 60748):** tanks hold the head away from *Acid Breath* (24839); *Emerald Rot* (56508) carriers run out via the shared bomb action; *Call of Nightmare* (46079) add waves (Suppressor 61212, Scalebane 60746, Dragonkin 60743, Wyrmkin 60745) trigger add focus.
+- **Lower Karazhan (Araxxna 61221 / Moroes 61225):** spiderling swarms (entry 30008) trigger AoE cleave; Moroes smoke bomb (57096) forces tank-assist re-target.
+- **Karazhan Crypt (800):** set `.bot formation near` manually before entering — narrow tunnels clip wide formations through walls. Door/lever puzzles stay manual pending playtesting (issue #237).
+
 ---
 
 ## 5. Dungeon Loot & Item Upgrades
