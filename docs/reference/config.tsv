@@ -22,3 +22,4 @@ AiPlayerbot.NonCombatStrategies	empty (owned bots fall back to C++ default)	+ret
 AiPlayerbot.AutoShareConjuredOnTrade	1	true	—	restart	PlayerbotAIConfig::Initialize + TradeStatusAction::BeginTrade	companion	0/1	—	—	shipped (#206)
 AiPlayerbot.BombRunoutDistance	30.0	30.0f	—	restart	PlayerbotAIConfig::Initialize + RaidBombRunoutAction	raid	>0	—	—	pending (#201)
 AiPlayerbot.HazardEvasionDistance	12.0	12.0f	—	restart	PlayerbotAIConfig::Initialize + RaidSpreadAction/DragonFlankAction	raid	>0	—	—	pending (#201)
+AiPlayerbot.EnableCustomRaidTactics	1	true	—	restart	PlayerbotAIConfig::Initialize + DungeonStrategy custom triggers	raid	0/1	—	—	pending (#203)

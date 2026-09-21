@@ -77,6 +77,9 @@
 #include "MoltenCoreDungeonActions.h"
 #include "BlackwingLairDungeonActions.h"
 #include "NaxxramasDungeonActions.h"
+#include "EmeraldSanctumDungeonActions.h"
+#include "LowerKarazhanDungeonActions.h"
+#include "KarazhanCryptDungeonActions.h"
 
 namespace ai
 {
@@ -325,6 +328,12 @@ namespace ai
             creators["disable blackwing lair strategy"] = [](PlayerbotAI* ai) { return new BlackwingLairDisableDungeonStrategyAction(ai); };
             creators["enable naxxramas strategy"] = [](PlayerbotAI* ai) { return new NaxxramasEnableDungeonStrategyAction(ai); };
             creators["disable naxxramas strategy"] = [](PlayerbotAI* ai) { return new NaxxramasDisableDungeonStrategyAction(ai); };
+            creators["enable emerald sanctum strategy"] = [](PlayerbotAI* ai) { return new EmeraldSanctumEnableDungeonStrategyAction(ai); };
+            creators["disable emerald sanctum strategy"] = [](PlayerbotAI* ai) { return new EmeraldSanctumDisableDungeonStrategyAction(ai); };
+            creators["enable lower karazhan strategy"] = [](PlayerbotAI* ai) { return new LowerKarazhanEnableDungeonStrategyAction(ai); };
+            creators["disable lower karazhan strategy"] = [](PlayerbotAI* ai) { return new LowerKarazhanDisableDungeonStrategyAction(ai); };
+            creators["enable karazhan crypt strategy"] = [](PlayerbotAI* ai) { return new KarazhanCryptEnableDungeonStrategyAction(ai); };
+            creators["disable karazhan crypt strategy"] = [](PlayerbotAI* ai) { return new KarazhanCryptDisableDungeonStrategyAction(ai); };
 
             // Dungeon Boss Actions
             creators["enable onyxia fight strategy"] = [](PlayerbotAI* ai) { return new OnyxiaEnableFightStrategyAction(ai); };
@@ -350,6 +359,12 @@ namespace ai
             creators["enable four horseman fight strategy"] = [](PlayerbotAI* ai) { return new FourHorsemanEnableFightStrategyAction(ai); };
             creators["disable four horseman fight strategy"] = [](PlayerbotAI* ai) { return new FourHorsemanDisableFightStrategyAction(ai); };
             creators["move away from void zone"] = [](PlayerbotAI* ai) { return new FourHorsemanMoveAwayFromVoidZoneAction(ai); };
+            creators["enable solnius fight strategy"] = [](PlayerbotAI* ai) { return new SolniusEnableFightStrategyAction(ai); };
+            creators["disable solnius fight strategy"] = [](PlayerbotAI* ai) { return new SolniusDisableFightStrategyAction(ai); };
+            creators["enable araxxna fight strategy"] = [](PlayerbotAI* ai) { return new AraxxnaEnableFightStrategyAction(ai); };
+            creators["disable araxxna fight strategy"] = [](PlayerbotAI* ai) { return new AraxxnaDisableFightStrategyAction(ai); };
+            creators["enable moroes fight strategy"] = [](PlayerbotAI* ai) { return new MoroesEnableFightStrategyAction(ai); };
+            creators["disable moroes fight strategy"] = [](PlayerbotAI* ai) { return new MoroesDisableFightStrategyAction(ai); };
 
         }
     };

@@ -49,6 +49,9 @@
 #include "generic/MoltenCoreDungeonStrategies.h"
 #include "generic/BlackwingLairDungeonStrategies.h"
 #include "generic/NaxxramasDungeonStrategies.h"
+#include "generic/EmeraldSanctumDungeonStrategies.h"
+#include "generic/LowerKarazhanDungeonStrategies.h"
+#include "generic/KarazhanCryptDungeonStrategies.h"
 
 namespace ai
 {
@@ -153,12 +156,18 @@ namespace ai
             creators["molten core"] = [](PlayerbotAI* ai) { return new MoltenCoreDungeonStrategy(ai); };
             creators["blackwing lair"] = [](PlayerbotAI* ai) { return new BlackwingLairDungeonStrategy(ai); };
             creators["naxxramas"] = [](PlayerbotAI* ai) { return new NaxxramasDungeonStrategy(ai); };
+            creators["emerald sanctum"] = [](PlayerbotAI* ai) { return new EmeraldSanctumDungeonStrategy(ai); };
+            creators["lower karazhan"] = [](PlayerbotAI* ai) { return new LowerKarazhanDungeonStrategy(ai); };
+            creators["karazhan crypt"] = [](PlayerbotAI* ai) { return new KarazhanCryptDungeonStrategy(ai); };
 
             // Dungeon Boss Strategies
             creators["onyxia"] = [](PlayerbotAI* ai) { return new OnyxiaFightStrategy(ai); };
             creators["magmadar"] = [](PlayerbotAI* ai) { return new MagmadarFightStrategy(ai); };
             creators["suppression room"] = [](PlayerbotAI* ai) { return new SuppressionRoomStrategy(ai); };
             creators["four horseman"] = [](PlayerbotAI* ai) { return new FourHorsemanFightStrategy(ai); };
+            creators["solnius"] = [](PlayerbotAI* ai) { return new SolniusFightStrategy(ai); };
+            creators["araxxna"] = [](PlayerbotAI* ai) { return new AraxxnaFightStrategy(ai); };
+            creators["moroes"] = [](PlayerbotAI* ai) { return new MoroesFightStrategy(ai); };
 
         }
     };

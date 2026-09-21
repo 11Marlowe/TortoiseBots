@@ -286,6 +286,9 @@ public:
     // Universal raid survival knobs (issue #201): bomb carriers run
     // BombRunoutDistance clear, spread/split steps use HazardEvasionDistance.
     float bombRunoutDistance = 30.0f, hazardEvasionDistance = 12.0f;
+    // Custom Turtle raid tactics (issue #203): Emerald Sanctum / Lower
+    // Karazhan / Karazhan Crypt transition strategies.
+    bool enableCustomRaidTactics = true;
     bool summonAtInnkeepersEnabled;
     std::string combatStrategies, nonCombatStrategies, reactStrategies, deadStrategies;
     std::string randomBotCombatStrategies, randomBotNonCombatStrategies, randomBotReactStrategies, randomBotDeadStrategies;

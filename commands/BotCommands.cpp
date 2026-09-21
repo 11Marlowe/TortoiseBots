@@ -1815,7 +1815,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         std::string rest = remainder;
         for (char& character : rest)
             character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-        if (rest != "status" && rest != "tankface" && rest != "douse")
+        if (rest != "status" && rest != "tankface" && rest != "douse" && rest != "custom status" && rest != "custom on" && rest != "custom off")
             return false;
         intent = "raid " + rest;
         return true;
@@ -1852,7 +1852,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2004,7 +2004,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             ? "bot:" + std::string(executor->GetName()) : "party", 1, executor->GetName());
         return true;
     }
-    else if (intent == "raid status" || intent == "raid tankface" || intent == "raid douse")
+    else if (intent == "raid status" || intent == "raid tankface" || intent == "raid douse" || intent == "raid custom status" || intent == "raid custom on" || intent == "raid custom off")
         return HandleRaidAction(handler, context, requester, intent);
     if (tactical)
     {
@@ -2262,7 +2262,9 @@ static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& cont
                 continue;
             std::string active;
             for (char const* strategy : { "molten core", "onyxia's lair", "blackwing lair", "naxxramas",
-                                          "onyxia", "magmadar", "suppression room", "four horseman" })
+                                          "onyxia", "magmadar", "suppression room", "four horseman",
+                                          "emerald sanctum", "lower karazhan", "karazhan crypt",
+                                          "solnius", "araxxna", "moroes" })
             {
                 if (ai->HasStrategy(strategy, BotState::BOT_STATE_COMBAT))
                     active += (active.empty() ? "" : ",") + std::string(strategy);
@@ -2275,30 +2277,52 @@ static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& cont
             SendActionError(handler, intent, "failed", "No scoped bot accepted the mature action.");
         return true;
     }
-    uint32 succeeded = 0;
-    char const* matureAction = intent == "raid tankface" ? "dragon tank face away" : "douse mc rune eternal";
-    for (Player* bot : scope)
+    if (intent == "raid custom status" || intent == "raid custom on" || intent == "raid custom off")
     {
-        if (!bot || !bot->IsInWorld())
-            continue;
-        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
-        if (!ai)
-            continue;
-        bool accepted = ExecuteQuietAction(ai, matureAction, ai::Event(intent, "", requester));
-        if (!accepted && intent == "raid douse")
-            accepted = ExecuteQuietAction(ai, "douse mc rune aqual", ai::Event(intent, "", requester));
-        if (accepted)
+        // Custom Turtle raid tactics gate (Emerald Sanctum / Lower Karazhan /
+        // Karazhan Crypt): enabling adds the three transition strategies so
+        // zone-ins swap them in; disabling drops them for manual control.
+        // Playtesting-dependent geometry stays out regardless (#237).
+        uint32 succeeded = 0;
+        for (Player* bot : scope)
+        {
+            if (!bot || !bot->IsInWorld())
+                continue;
+            PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!ai)
+                continue;
+            if (intent == "raid custom status")
+            {
+                std::string active;
+                for (char const* strategy : { "emerald sanctum", "lower karazhan", "karazhan crypt" })
+                {
+                    if (ai->HasStrategy(strategy, BotState::BOT_STATE_COMBAT))
+                        active += (active.empty() ? "" : ",") + std::string(strategy);
+                }
+                handler->PSendSysMessage("TBM:ACTION_ACK|raid custom status|bot:%s|1|%s",
+                    bot->GetName(), active.empty() ? "off" : active.c_str());
+                ++succeeded;
+                continue;
+            }
+            bool enable = intent == "raid custom on";
+            for (BotState state : { BotState::BOT_STATE_COMBAT, BotState::BOT_STATE_NON_COMBAT })
+            {
+                ai->ChangeStrategy((enable ? "+" : "-") + std::string("emerald sanctum"), state);
+                ai->ChangeStrategy((enable ? "+" : "-") + std::string("lower karazhan"), state);
+                ai->ChangeStrategy((enable ? "+" : "-") + std::string("karazhan crypt"), state);
+            }
             ++succeeded;
-    }
-    if (!succeeded)
-    {
-        SendActionError(handler, intent, "failed", "No scoped bot accepted the mature action.");
+        }
+        if (!succeeded)
+        {
+            SendActionError(handler, intent, "failed", "No scoped bot accepted the mature action.");
+            return true;
+        }
+        std::string scopeName = context.selectedBot && scope.size() == 1
+            ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
+        SendActionAck(handler, intent, scopeName, succeeded, "");
         return true;
     }
-    std::string scopeName = context.selectedBot && scope.size() == 1
-        ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
-    SendActionAck(handler, intent, scopeName, succeeded, "");
-    return true;
 }
 
 static bool HandleAhBot(ChatHandler* handler, char const* args)

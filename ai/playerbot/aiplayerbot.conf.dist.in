@@ -1260,6 +1260,11 @@ AiPlayerbot.FleeingEnabled = 1
 #AiPlayerbot.BombRunoutDistance = 30.0
 #AiPlayerbot.HazardEvasionDistance = 12.0
 
+# Custom Turtle raid tactics (issue #203): Emerald Sanctum (807), Lower
+# Karazhan (532), Karazhan Crypt (800). Geometry-dependent behavior stays
+# manual pending playtesting (#237); this gates the transition strategies.
+AiPlayerbot.EnableCustomRaidTactics = 1
+
 # Health/Mana levels
 #AiPlayerbot.CriticalHealth = 25
 #AiPlayerbot.LowHealth = 45

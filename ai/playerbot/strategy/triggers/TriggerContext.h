@@ -18,6 +18,8 @@
 #include "MoltenCoreDungeonTriggers.h"
 #include "BlackwingLairDungeonTriggers.h"
 #include "NaxxramasDungeonTriggers.h"
+#include "EmeraldSanctumDungeonTriggers.h"
+#include "LowerKarazhanDungeonTriggers.h"
 #include "WorldBuffTravelTriggers.h"
 
 namespace ai
@@ -285,6 +287,12 @@ namespace ai
             creators["leave naxxramas"] = [](PlayerbotAI* ai) { return new NaxxramasLeaveDungeonTrigger(ai); };
             creators["enter blackwing lair"] = [](PlayerbotAI* ai) { return new BlackwingLairEnterDungeonTrigger(ai); };
             creators["leave blackwing lair"] = [](PlayerbotAI* ai) { return new BlackwingLairLeaveDungeonTrigger(ai); };
+            creators["enter emerald sanctum"] = [](PlayerbotAI* ai) { return new EmeraldSanctumEnterDungeonTrigger(ai); };
+            creators["leave emerald sanctum"] = [](PlayerbotAI* ai) { return new EmeraldSanctumLeaveDungeonTrigger(ai); };
+            creators["enter lower karazhan"] = [](PlayerbotAI* ai) { return new LowerKarazhanEnterDungeonTrigger(ai); };
+            creators["leave lower karazhan"] = [](PlayerbotAI* ai) { return new LowerKarazhanLeaveDungeonTrigger(ai); };
+            creators["enter karazhan crypt"] = [](PlayerbotAI* ai) { return new KarazhanCryptEnterDungeonTrigger(ai); };
+            creators["leave karazhan crypt"] = [](PlayerbotAI* ai) { return new KarazhanCryptLeaveDungeonTrigger(ai); };
 
             creators["environmental hazard nearby"] = [](PlayerbotAI* ai) { return new EnvironmentalHazardTrigger(ai); };
             creators["raid bomb debuff"] = [](PlayerbotAI* ai) { return new RaidBombDebuffTrigger(ai); };
@@ -315,6 +323,16 @@ namespace ai
             creators["start four horseman fight"] = [](PlayerbotAI* ai) { return new FourHorsemanStartFightTrigger(ai); };
             creators["end four horseman fight"] = [](PlayerbotAI* ai) { return new FourHorsemanEndFightTrigger(ai); };
             creators["void zone too close"] = [](PlayerbotAI* ai) { return new FourHorsemanVoidZoneTrigger(ai); };
+            creators["start solnius fight"] = [](PlayerbotAI* ai) { return new SolniusStartFightTrigger(ai); };
+            creators["end solnius fight"] = [](PlayerbotAI* ai) { return new SolniusEndFightTrigger(ai); };
+            creators["solnius emerald rot"] = [](PlayerbotAI* ai) { return new SolniusEmeraldRotTrigger(ai); };
+            creators["solnius adds"] = [](PlayerbotAI* ai) { return new SolniusAddsTrigger(ai); };
+            creators["start araxxna fight"] = [](PlayerbotAI* ai) { return new AraxxnaStartFightTrigger(ai); };
+            creators["end araxxna fight"] = [](PlayerbotAI* ai) { return new AraxxnaEndFightTrigger(ai); };
+            creators["araxxna swarm"] = [](PlayerbotAI* ai) { return new AraxxnaSwarmTrigger(ai); };
+            creators["start moroes fight"] = [](PlayerbotAI* ai) { return new MoroesStartFightTrigger(ai); };
+            creators["end moroes fight"] = [](PlayerbotAI* ai) { return new MoroesEndFightTrigger(ai); };
+            creators["moroes vanished"] = [](PlayerbotAI* ai) { return new MoroesVanishedTrigger(ai); };
 
         }
     };
