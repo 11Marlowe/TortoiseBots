@@ -11,6 +11,13 @@ using namespace ai;
 
 WorldLocation Formation::NullLocation = WorldLocation();
 
+// Follow-spot ground safety (issue #217): a missed floor lookup must not drag
+// the bot into the subterranean terrain below a crypt. A steep stair or slope
+// moves the follow spot a couple of yards above the target; a missed crypt
+// floor gives a lot more.
+static constexpr float kMaxGroundDrop = 4.0f;
+static constexpr float kStairSearchHeadroom = 4.0f;
+
 bool IsSameLocation(WorldLocation const &a, WorldLocation const &b)
 {
 	return a.x == b.x && a.y == b.y && a.z == b.z && a.mapId == b.mapId;
@@ -146,9 +153,17 @@ namespace ai
             float x = followTarget->getPositionX() + cos(angle) * range;
             float y = followTarget->getPositionY() + sin(angle) * range;
             float z = followTarget->getPositionZ();
-            float ground = followTarget->GetMap()->GetHeight(x, y, z);
-            //if (ground <= INVALID_HEIGHT)
-            //    return Formation::NullLocation;
+
+            // Crypt stairs (issue #217): the follow spot behind a target walking
+            // downhill sits ABOVE the target's elevation. Map::GetHeight casts its
+            // ray downward from z + 2, so seeding with the target's own height
+            // starts the search underneath the steps, misses the floor structure
+            // and falls back to the subterranean terrain below the crypt. Start
+            // the search with extra upward headroom and refuse ground results
+            // that sit unreasonably far from the target.
+            float ground = followTarget->GetMap()->GetHeight(x, y, z + kStairSearchHeadroom);
+            if (ground > INVALID_HEIGHT && fabs(ground - followTarget->getPositionZ()) <= kMaxGroundDrop)
+                z = ground;
 
             // prevent going into terrain
             float ox, oy, oz;
@@ -159,6 +174,16 @@ namespace ai
             {
                 z += CONTACT_DISTANCE;
                 bot->UpdateAllowedPositionZ(x, y, z);
+
+                // UpdateAllowedPositionZ clamps with the same downward raycast and
+                // can drag the spot into the subterranean fallback. The window
+                // must be SYMMETRIC around the target: walking DOWN stairs the
+                // follow spot sits a couple of yards ABOVE the leader, walking UP
+                // stairs a couple of yards BELOW it (issue #217).
+                float const maxZ = followTarget->getPositionZ() + kMaxGroundDrop;
+                float const minZ = followTarget->getPositionZ() - kMaxGroundDrop;
+                if (z > maxZ || z < minZ)
+                    z = std::clamp(z, minZ, maxZ);
             }
 
             return WorldLocation(followTarget->GetMapId(), x, y, z);

@@ -634,6 +634,9 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         {
             WorldPosition botPos(bot);
             bot->GetTransport()->RemovePassenger(bot);
+            // RemovePassenger leaves MOVEFLAG_ONTRANSPORT set in the core;
+            // a stale flag with no transport freezes the bot (issue #216).
+            bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_ONTRANSPORT);
             bot->NearTeleportTo(bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z, bot->m_movementInfo.pos.o);
             MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
         }
@@ -647,6 +650,9 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
 
         WorldPosition botPos(bot);
         bot->GetTransport()->RemovePassenger(bot);
+        // RemovePassenger leaves MOVEFLAG_ONTRANSPORT set in the core;
+        // a stale flag with no transport freezes the bot (issue #216).
+        bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_ONTRANSPORT);
         bot->NearTeleportTo(bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z, bot->m_movementInfo.pos.o);
         MANGOS_ASSERT(botPos.fDist(bot) < 500.0f);
         bot->StopMoving();
@@ -1455,6 +1461,17 @@ void PlayerbotAI::Reset(bool full)
 
     if (bot->IsTaxiFlying())
         return;
+
+    // A stale MOVEFLAG_ONTRANSPORT (flag set, no transport) freezes all later
+    // bot movement: core Transport::RemovePassenger unregisters the passenger
+    // but leaves the move flag behind (issue #216). Drop stale state here so
+    // reset/unstuck can always break the lock. Never touches a bot that is
+    // legitimately riding a transport.
+    if (!bot->GetTransport() && bot->m_movementInfo.HasMovementFlag(MOVEFLAG_ONTRANSPORT))
+    {
+        bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_ONTRANSPORT);
+        bot->m_movementInfo.ClearTransportData();
+    }
 
     if (!HasActivePlayerMaster() && currentEngine == engines[(uint8)BotState::BOT_STATE_COMBAT] && sServerFacade.IsInCombat(bot) && time(0) - AI_VALUE(time_t,"combat start time") > 5 * MINUTE)
     {
