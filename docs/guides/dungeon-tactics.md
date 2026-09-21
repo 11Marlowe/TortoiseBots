@@ -99,6 +99,19 @@ If your group wipes, follow this checklist to recover quickly:
 
 ---
 
+## 6. Raid Survival (MC / Onyxia / BWL / Naxx)
+
+Entering a raid map auto-enables the `dungeon` transition engine, which swaps in the matching raid tactics (`molten core`, `onyxia's lair`, `blackwing lair`, `naxxramas`) and tears them down on exit. Four universal behaviors run on the reaction engine in any raid:
+
+- **Bomb runout:** carriers of *Living Bomb* (Geddon), *Burning Adrenaline* (Vaelastrasz), or *Mutating Injection* (Grobbulus) run 30yd clear of the raid anchor (`AiPlayerbot.BombRunoutDistance`).
+- **Hazard evasion:** lava bombs, void zones, and poison clouds trigger the shared hazard move-away plus path avoidance.
+- **Dragon geometry:** non-tanks flank out of breath/tail cones automatically; order tanks with `.bot action raid tankface` to drag the head away from the raid.
+- **Ranged spread:** stacked casters split 12yd apart (`AiPlayerbot.HazardEvasionDistance`).
+
+Encounter notes: MC runes douse via `.bot action raid douse` (Eternal Quintessence 22754 first, Aqual 17333 fallback); Onyxia phase 2 swaps bots to `shoot` + spread while airborne; BWL rogues disarm suppression devices out of combat; 4H mark carriers (3+ stacks) rotate out via hazard move.
+
+---
+
 ## 5. Dungeon Loot & Item Upgrades
 
 ### Loot Rolling Rules

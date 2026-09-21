@@ -283,6 +283,9 @@ public:
     uint32 hireDisconnectGracePeriod = 300;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
+    // Universal raid survival knobs (issue #201): bomb carriers run
+    // BombRunoutDistance clear, spread/split steps use HazardEvasionDistance.
+    float bombRunoutDistance = 30.0f, hazardEvasionDistance = 12.0f;
     bool summonAtInnkeepersEnabled;
     std::string combatStrategies, nonCombatStrategies, reactStrategies, deadStrategies;
     std::string randomBotCombatStrategies, randomBotNonCombatStrategies, randomBotReactStrategies, randomBotDeadStrategies;

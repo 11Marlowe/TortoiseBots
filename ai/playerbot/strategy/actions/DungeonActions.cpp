@@ -233,6 +233,172 @@ bool MoveAwayFromCreature::isPossible()
     return false;
 }
 
+namespace
+{
+// Raid anchor: master when present, else the nearest live group member,
+// else null (caller falls back to radial flee).
+Unit* RaidAnchor(PlayerbotAI* ai, Player* bot)
+{
+    Player* master = ai->GetMaster();
+    if (master && master != bot && master->IsInWorld() && !master->IsBeingTeleported() &&
+        sServerFacade.IsAlive(master) && master->GetMapId() == bot->GetMapId())
+        return master;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return nullptr;
+    Unit* nearest = nullptr;
+    float nearestDist = FLT_MAX;
+    for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+    {
+        Player* member = gref->GetSource();
+        if (!member || member == bot || !sServerFacade.IsAlive(member))
+            continue;
+        if (member->GetMapId() != bot->GetMapId())
+            continue;
+        float dist = sServerFacade.getDistance2d(bot, member);
+        if (dist < nearestDist)
+        {
+            nearestDist = dist;
+            nearest = member;
+        }
+    }
+    return nearest;
+}
+
+bool FindStep(Player* bot, const WorldPosition& from, float angle, float distance, WorldPosition& out)
+{
+    out = from + WorldPosition(0, distance * cos(angle), distance * sin(angle), 1.0f);
+    out.setZ(out.GetHeight());
+    if (!bot->IsWithinLOS(out.getX(), out.getY(), out.getZ() + bot->GetCollisionHeight()))
+        return false;
+    if (!from.canPathTo(out, bot))
+        return false;
+    return true;
+}
+} // namespace
+
+bool RaidBombRunoutAction::Execute(Event& event)
+{
+    (void)event;
+    // 30yd clear of the raid anchor: Geddon/Vael/Grobbulus detonations
+    // bracket the whole clump otherwise. Keep running while the aura lives;
+    // the trigger re-fires each tick until it expires or detonates.
+    const float runout = sPlayerbotAIConfig.bombRunoutDistance;
+    const WorldPosition botPos(bot);
+    WorldPosition out(botPos);
+    if (Unit* anchor = RaidAnchor(ai, bot))
+    {
+        const WorldPosition anchorPos(anchor);
+        float away = anchorPos.GetAngleTo(botPos);
+        const float angles[] = { 0.0f, 0.5f, -0.5f };
+        for (float extra = 0.0f; extra <= 10.0f; extra += 5.0f)
+        {
+            for (float d : angles)
+            {
+                if (FindStep(bot, botPos, away + d, runout + extra, out) &&
+                    MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true))
+                    return true;
+            }
+        }
+        return false;
+    }
+    // Solo carrier: radial flee still clears melee range.
+    float angle = frand(0, M_PI_F * 2.0f);
+    return FindStep(bot, botPos, angle, runout, out) &&
+           MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true);
+}
+
+bool DragonFlankAction::Execute(Event& event)
+{
+    (void)event;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !sServerFacade.IsAlive(target))
+        return false;
+    const WorldPosition bossPos(target);
+    const WorldPosition botPos(bot);
+    float facing = target->GetOrientation();
+    // Flank = 90 degrees off the facing axis; pick the nearer side.
+    float toBot = bossPos.GetAngleTo(botPos);
+    float side = (toBot - facing) > 0 ? (facing + M_PI_F / 2.0f) : (facing - M_PI_F / 2.0f);
+    const float dist = std::max(botPos.distance(bossPos), 8.0f);
+    for (int i = 0; i < 4; ++i)
+    {
+        WorldPosition point = bossPos + WorldPosition(0, dist * cos(side), dist * sin(side), 1.0f);
+        point.setZ(point.GetHeight());
+        if (bot->IsWithinLOS(point.getX(), point.getY(), point.getZ() + bot->GetCollisionHeight()) &&
+            bossPos.canPathTo(point, bot) &&
+            MoveTo(bot->GetMapId(), point.getX(), point.getY(), point.getZ(), false, IsReaction(), false, true))
+            return true;
+        side += M_PI_F / 2.0f;
+    }
+    return false;
+}
+
+bool RaidSpreadAction::Execute(Event& event)
+{
+    (void)event;
+    // Step 12yd directly away from the nearest stacked friendly.
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+    Player* nearest = nullptr;
+    float nearestDist = FLT_MAX;
+    for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+    {
+        Player* member = gref->GetSource();
+        if (!member || member == bot || !sServerFacade.IsAlive(member))
+            continue;
+        if (member->GetMapId() != bot->GetMapId())
+            continue;
+        float dist = sServerFacade.getDistance2d(bot, member);
+        if (dist < nearestDist)
+        {
+            nearestDist = dist;
+            nearest = member;
+        }
+    }
+    if (!nearest || nearestDist >= 10.0f)
+        return false;
+    const WorldPosition botPos(bot);
+    const WorldPosition nearPos(nearest);
+    float away = nearPos.GetAngleTo(botPos);
+    const float spread = sPlayerbotAIConfig.hazardEvasionDistance;
+    const float angles[] = { 0.0f, 0.6f, -0.6f };
+    WorldPosition out(botPos);
+    for (float d : angles)
+    {
+        if (FindStep(bot, botPos, away + d, spread, out) &&
+            MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true))
+            return true;
+    }
+    return false;
+}
+
+bool DragonTankFaceAwayAction::Execute(Event& event)
+{
+    (void)event;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !sServerFacade.IsAlive(target))
+        return false;
+    // Drag the boss through the bot so its head points away from the raid
+    // anchor: destination is the far side of the bot from the anchor.
+    Unit* anchor = RaidAnchor(ai, bot);
+    if (!anchor)
+        return false;
+    const WorldPosition botPos(bot);
+    const WorldPosition anchorPos(anchor);
+    float away = anchorPos.GetAngleTo(botPos);
+    const WorldPosition bossPos(target);
+    float pullDist = std::min(botPos.distance(bossPos) + 6.0f, 20.0f);
+    WorldPosition point = botPos + WorldPosition(0, pullDist * cos(away), pullDist * sin(away), 1.0f);
+    point.setZ(point.GetHeight());
+    if (!bot->IsWithinLOS(point.getX(), point.getY(), point.getZ() + bot->GetCollisionHeight()))
+        return false;
+    if (!botPos.canPathTo(point, bot))
+        return false;
+    return MoveTo(bot->GetMapId(), point.getX(), point.getY(), point.getZ(), false, IsReaction(), false, true);
+}
+
 bool MoveAwayFromCreature::IsValidPoint(const WorldPosition& point, const std::list<Creature*>& creatures, const std::list<HazardPosition>& hazards)
 {
     // Check if the point is not near other game objects

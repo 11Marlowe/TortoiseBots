@@ -13,7 +13,14 @@ void OnyxiasLairDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& tri
 
 void OnyxiaFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    // ...
+    // Phase 2 airborne: melee cannot reach; wands/shoot keep DPS on the
+    // boss while whelp packs are the valid melee targets. Ranged spread
+    // trims Fireball (18392) splash; universal flank keeps Deep Breath
+    // lane clear via the reaction engine.
+    triggers.push_back(new TriggerNode(
+        "onyxia airborne",
+        NextAction::array(0, new NextAction("shoot", ACTION_HIGH),
+                             new NextAction("raid spread", ACTION_HIGH - 1), NULL)));
 }
 
 void OnyxiaFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -1255,6 +1255,11 @@ AiPlayerbot.RpgDistance = 200
 # Bot can flee for enemy
 AiPlayerbot.FleeingEnabled = 1
 
+# Universal raid survival (issue #201): bomb carriers run BombRunoutDistance
+# clear of the raid anchor; spread/flank steps use HazardEvasionDistance.
+#AiPlayerbot.BombRunoutDistance = 30.0
+#AiPlayerbot.HazardEvasionDistance = 12.0
+
 # Health/Mana levels
 #AiPlayerbot.CriticalHealth = 25
 #AiPlayerbot.LowHealth = 45
