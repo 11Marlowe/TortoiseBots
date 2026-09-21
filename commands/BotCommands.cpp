@@ -2055,6 +2055,12 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string aoeState;
     for (Player* bot : scope)
     {
+        // Scope entries are resolved live from ObjectAccessor, but earlier
+        // iterations run full AI actions; re-check before dereferencing so a
+        // bot that logged out mid-loop is skipped, not crashed into (#225).
+        if (!bot || !bot->IsInWorld())
+            continue;
+
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
         if (!ai)
             continue;

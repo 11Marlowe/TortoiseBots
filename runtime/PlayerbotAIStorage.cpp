@@ -48,9 +48,12 @@ PlayerbotAI* PlayerbotAIStorage::GetAI(Player* player) const
     if (!player) return nullptr;
     auto it = byPlayer_.find(player);
     if (it != byPlayer_.end()) return it->second;
-    ObjectGuid guid = player->GetObjectGuid();
-    auto it2 = byGuid_.find(guid);
-    if (it2 != byGuid_.end()) return it2->second;
+    // No guid fallback here. SetAI/RemoveAI are the only writers and keep
+    // byGuid_ and byPlayer_ in lockstep, so a byPlayer_ miss implies a byGuid_
+    // miss - the fallback could never return a hit. Its only observable effect
+    // was dereferencing `player`: when a command scope carries a Player* whose
+    // object was destroyed (bot relogin window), that dereference crashed the
+    // server (issue #225). Pointer comparison never dereferences.
     return nullptr;
 }
 

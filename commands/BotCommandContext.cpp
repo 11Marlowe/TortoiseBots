@@ -160,8 +160,15 @@ BotCommandContext BuildContext(Player* requester)
 
     if (context.group)
     {
-        for (GroupReference* ref = context.group->GetFirstMember(); ref; ref = ref->next())
-            appendPartyBot(ref->GetSource());
+        // Iterate the Group's own member slots, not the GroupReference list.
+        // The slots carry only ObjectGuids and are owned by the Group; a
+        // Player* from the reference list can outlive the Player object during
+        // a bot's headless relogin window, and build-time checks on that stale
+        // pointer read freed memory (SIGSEGV in GetAI, issue #225). Resolve
+        // every member through ObjectAccessor so only live players enter the
+        // command scope - the same contract BotManager::GetBotsForMaster uses.
+        for (Group::MemberSlot const& slot : context.group->GetMemberSlots())
+            appendPartyBot(ObjectAccessor::FindPlayer(slot.guid));
     }
     else
     {
