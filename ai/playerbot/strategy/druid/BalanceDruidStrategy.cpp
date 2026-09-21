@@ -56,6 +56,10 @@ void BalanceDruidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("regrowth", ACTION_MEDIUM_HEAL), NULL)));
 
     triggers.push_back(new TriggerNode(
+        "medium health",
+        NextAction::array(0, new NextAction("barkskin", ACTION_MEDIUM_HEAL - 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "faerie fire",
         NextAction::array(0, new NextAction("faerie fire", ACTION_NORMAL + 3), NULL)));
 

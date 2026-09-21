@@ -36,6 +36,11 @@ void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
     triggers.push_back(new TriggerNode(
         "power overwhelming",
         NextAction::array(0, new NextAction("power overwhelming", ACTION_NORMAL + 3), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("fel domination", ACTION_HIGH),
+                             new NextAction("summon voidwalker", ACTION_HIGH - 1), NULL)));
 }
 
 void DemonologyWarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

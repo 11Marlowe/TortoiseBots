@@ -90,8 +90,8 @@ void CatDruidStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(
         new TriggerNode(
-            "healer low mana", {
-                NextAction("innervate on healer", 35.0f)
+            "medium mana", {
+                NextAction("innervate", 35.0f)
             }
         )
     );

@@ -73,8 +73,7 @@ void GenericHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("hunters pet low health", { NextAction("mend pet", 21.0f) }));
 
     // Dispel Triggers
-    triggers.push_back(new TriggerNode("tranquilizing shot enrage", { NextAction("tranquilizing shot", 61.0f) }));
-    triggers.push_back(new TriggerNode("tranquilizing shot magic", { NextAction("tranquilizing shot", 61.0f) }));
+    triggers.push_back(new TriggerNode("dispel enrage", { NextAction("tranquilizing shot", 61.0f) }));
 
     // Ranged-based Triggers
     triggers.push_back(new TriggerNode("enemy within melee", { NextAction("explosive trap", 37.0f),

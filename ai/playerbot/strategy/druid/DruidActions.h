@@ -211,10 +211,22 @@ namespace ai
 	CURE_ACTION(CastRemoveCurseAction, "remove curse");
 	CURE_PARTY_ACTION(CastRemoveCurseOnPartyAction, "remove curse", DISPEL_CURSE);
 
-    class CastBarskinAction : public CastBuffSpellAction
+    class CastBarkskinAction : public CastBuffSpellAction
     {
     public:
-        CastBarskinAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "barskin") {}
+        CastBarkskinAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "barkskin") {}
+        std::string GetTargetName() override { return "self target"; }
+
+        bool isUseful() override
+        {
+            // Turtle 22812 blocks all shapeshift forms and cuts melee attack
+            // speed by 20%: never worth it for Cat/Bear, which lose their
+            // form bonuses while it is up. Balance/Resto stay humanoid.
+            if (ai->HasAura("cat form", bot) || ai->HasAura("bear form", bot) ||
+                ai->HasAura("dire bear form", bot) || ai->HasAura("tree of life", bot))
+                return false;
+            return CastBuffSpellAction::isUseful();
+        }
     };
 
     class CastInnervateAction : public CastSpellTargetAction
@@ -222,21 +234,56 @@ namespace ai
     public:
         CastInnervateAction(PlayerbotAI* ai) : CastSpellTargetAction(ai, "innervate", "boost targets", true, true) {}
         std::string GetTargetName() override { return "self target"; }
+        std::string GetReachActionName() override { return "reach party member to heal"; }
+
+        Unit* GetTarget() override
+        {
+            // Manual .bot boost assignment wins over automation.
+            const std::list<ObjectGuid>& assigned = AI_VALUE(std::list<ObjectGuid>, "boost targets");
+            for (const ObjectGuid& guid : assigned)
+            {
+                Unit* manual = ai->GetUnit(guid);
+                if (manual && IsTargetValid(manual))
+                    return manual;
+            }
+            // Turtle 29166 is a single-target healer battery: prefer the
+            // lowest-mana party healer under LowMana, fall back to self.
+            Group* group = bot->GetGroup();
+            if (group)
+            {
+                Unit* lowestHealer = nullptr;
+                float lowestPct = static_cast<float>(sPlayerbotAIConfig.lowMana);
+                for (GroupReference* gref = group->GetFirstMember(); gref; gref = gref->next())
+                {
+                    Player* member = gref->GetSource();
+                    if (!member || member == bot || !ai->IsSafe(member) || !ai->IsHeal(member))
+                        continue;
+                    if (member->GetMapId() != bot->GetMapId() || !sServerFacade.IsAlive(member))
+                        continue;
+                    uint32 maxMana = member->GetMaxPower(POWER_MANA);
+                    if (!maxMana)
+                        continue;
+                    float pct = (static_cast<float>(member->GetPower(POWER_MANA)) / maxMana) * 100.0f;
+                    if (pct < lowestPct)
+                    {
+                        lowestPct = pct;
+                        lowestHealer = member;
+                    }
+                }
+                if (lowestHealer && IsTargetValid(lowestHealer))
+                    return lowestHealer;
+            }
+            Unit* fallback = CastSpellAction::GetTarget();
+            return (fallback && IsTargetValid(fallback)) ? fallback : nullptr;
+        }
 
         bool IsTargetValid(Unit* target) override
         {
-            if (CastSpellTargetAction::IsTargetValid(target))
-            {
-                const uint32 currentMana = target->GetPower(POWER_MANA);
-                if (currentMana > 0)
-                {
-                    const uint32 maxMana = target->GetMaxPower(POWER_MANA);
-                    const uint32 currentManaPct = (uint32)(currentMana / maxMana) * 100;
-                    return currentManaPct < sPlayerbotAIConfig.lowMana;
-                }
-            }
-
-            return false;
+            if (!CastSpellTargetAction::IsTargetValid(target))
+                return false;
+            if (!target->GetMaxPower(POWER_MANA))
+                return false;
+            return ai->GetManaPercent(*target) < sPlayerbotAIConfig.lowMana;
         }
     };
 

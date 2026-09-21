@@ -313,7 +313,7 @@ namespace ai
                 creators["swiftmend on party"] = [](PlayerbotAI* ai) { return new CastSwiftmendOnPartyAction(ai); };
                 creators["rebirth"] = [](PlayerbotAI* ai) { return new CastRebirthAction(ai); };
                 creators["revive"] = [](PlayerbotAI* ai) { return new CastReviveAction(ai); };
-                creators["barskin"] = [](PlayerbotAI* ai) { return new CastBarskinAction(ai); };
+                creators["barkskin"] = [](PlayerbotAI* ai) { return new CastBarkskinAction(ai); };
                 creators["hurricane"] = [](PlayerbotAI* ai) { return new CastHurricaneAction(ai); };
                 creators["innervate"] = [](PlayerbotAI* ai) { return new CastInnervateAction(ai); };
                 creators["tranquility"] = [](PlayerbotAI* ai) { return new CastTranquilityAction(ai); };

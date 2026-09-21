@@ -58,6 +58,7 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 - **Polymorph CC:** Instantly casts *Polymorph* (Sheep) on targets assigned via `.bot action cc <mark>`. Avoids damaging or AoEing sheeped targets.
 - **Interrupts:** Casts *Counterspell* immediately when an enemy begins casting a dangerous spell, locking out that spell school for up to 10 seconds.
 - **Food & Drink Conjuration:** Automatically conjures food and water out of combat, sharing stacks with party members who need mana or health.
+- **Mana Gem Priority:** Consumes the strongest gem in bags first (Ruby → Citrine → Jade → Agate) so low-level gems are never wasted ahead of raid gems.
 - **Buffs:** Maintains *Arcane Intellect* on all mana-using party members and self *Mage Armor* / *Ice Armor*.
 - **Curses:** Uses *Remove Lesser Curse* on party members affected by debilitating curses.
 

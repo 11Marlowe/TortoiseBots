@@ -94,13 +94,13 @@ void GenericMageStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     // Mana Threshold Triggers
     Player* bot = botAI->GetBot();
     if (bot->HasSpell(SPELL_CONJURE_MANA_RUBY))
-        triggers.push_back(new TriggerNode("high mana", { NextAction("use mana ruby", 90.0f) }));
+        triggers.push_back(new TriggerNode("high mana", { NextAction("mana gem", 90.0f) }));
     else if (bot->HasSpell(SPELL_CONJURE_MANA_CITRINE))
-        triggers.push_back(new TriggerNode("high mana", { NextAction("use mana citrine", 90.0f) }));
+        triggers.push_back(new TriggerNode("high mana", { NextAction("mana gem", 90.0f) }));
     else if (bot->HasSpell(SPELL_CONJURE_MANA_JADE))
-        triggers.push_back(new TriggerNode("high mana", { NextAction("use mana jade", 90.0f) }));
+        triggers.push_back(new TriggerNode("high mana", { NextAction("mana gem", 90.0f) }));
     else if (bot->HasSpell(SPELL_CONJURE_MANA_AGATE))
-        triggers.push_back(new TriggerNode("high mana", { NextAction("use mana agate", 90.0f) }));
+        triggers.push_back(new TriggerNode("high mana", { NextAction("mana gem", 90.0f) }));
 
     triggers.push_back(new TriggerNode("low mana", { NextAction("evocation", 90.0f) }));
 

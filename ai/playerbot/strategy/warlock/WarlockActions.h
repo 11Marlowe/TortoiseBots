@@ -505,6 +505,26 @@ namespace ai
         CastAmplifyCurseAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "amplify curse") {}
     };
 
+    class CastFelDominationAction : public CastBuffSpellAction
+    {
+    public:
+        CastFelDominationAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "fel domination") {}
+        std::string GetTargetName() override { return "self target"; }
+
+        bool isUseful() override
+        {
+            // Turtle 18708 is a 5-min emergency summon accelerator: only
+            // worth burning in combat with a dead pet, never out of combat
+            // where the free 10s summon is available.
+            if (!bot->IsInCombat())
+                return false;
+            Unit* pet = AI_VALUE(Unit*, "pet target");
+            if (pet && sServerFacade.IsAlive(pet))
+                return false;
+            return CastBuffSpellAction::isUseful();
+        }
+    };
+
     class CastSiphonLifeAction : public CastRangedDebuffSpellAction
     {
     public:
