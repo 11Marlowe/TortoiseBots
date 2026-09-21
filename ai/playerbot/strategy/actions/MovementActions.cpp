@@ -1533,6 +1533,12 @@ bool MovementAction::FollowOnTransport(Unit* target)
     if (GenericTransport* pMyTransport = bot->GetTransport())
     {
         pMyTransport->RemovePassenger(bot);
+        // RemovePassenger only clears the transport state when the passenger
+        // was actually in the set; zero it unconditionally so no t_guid /
+        // t_pos survive, and drop the on-transport move flag the core leaves
+        // behind - a stale flag without a transport freezes every later
+        // movement until relog (issue #216).
+        bot->m_movementInfo.ClearTransportData();
         bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_ONTRANSPORT);
     }
 

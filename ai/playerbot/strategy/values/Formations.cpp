@@ -176,10 +176,12 @@ namespace ai
                 bot->UpdateAllowedPositionZ(x, y, z);
 
                 // UpdateAllowedPositionZ clamps with the same downward raycast and
-                // can drag the spot into the subterranean fallback. The bot must
-                // never end more than a stair height away from its target (#217).
-                float const maxZ = followTarget->getPositionZ() + CONTACT_DISTANCE;
-                float const minZ = maxZ - kMaxGroundDrop;
+                // can drag the spot into the subterranean fallback. The window
+                // must be SYMMETRIC around the target: walking DOWN stairs the
+                // follow spot sits a couple of yards ABOVE the leader, walking UP
+                // stairs a couple of yards BELOW it (issue #217).
+                float const maxZ = followTarget->getPositionZ() + kMaxGroundDrop;
+                float const minZ = followTarget->getPositionZ() - kMaxGroundDrop;
                 if (z > maxZ || z < minZ)
                     z = std::clamp(z, minZ, maxZ);
             }
