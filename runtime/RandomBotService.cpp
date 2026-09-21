@@ -860,6 +860,9 @@ void RandomBotService::RemoveExpiredBots(uint32_t diff)
             m_ageMs[i] = 0;
             continue;
         }
+        // A dungeon crew is not logged out under its run.
+        if (BotActivityLeaseManager::Instance().GetActivity(candidate.characterGuid.GetCounter()) == BotActivity::Dungeon)
+            continue;
 
         m_ageMs[i] += diff;
         if (!sPlayerbotAIConfig.randomBotTimedLogout || !sPlayerbotAIConfig.maxRandomBotInWorldTime)
@@ -1244,6 +1247,11 @@ void RandomBotService::Update(uint32_t diff)
 
         // Keep the cached level current for the level ladder (a level-up while online).
         m_candidates[i].level = static_cast<uint8_t>(std::max<uint32>(1, player->GetLevel()));
+
+        // A dungeon crew (another module holds the Dungeon lease) keeps its strategies and its
+        // corpse runs: no recovery revive, no strategy roulette, no timed gear seeding.
+        if (BotActivityLeaseManager::Instance().GetActivity(player->GetGUIDLow()) == BotActivity::Dungeon)
+            continue;
 
         // Recovery/expired-value work stays on the world thread and is bounded
         // by the configured service cadence rather than a second AI loop.
