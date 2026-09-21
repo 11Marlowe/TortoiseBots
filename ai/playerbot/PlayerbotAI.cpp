@@ -432,6 +432,22 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     bool isCasting = bot->IsNonMeleeSpellCasted(true);
     if (sServerFacade.IsInCombat(bot))
     {
+        // Attacked while fishing: the Fishing channel has no damage interrupt flag, so the bot
+        // stood channelling for up to twenty seconds while it was hit, and afterwards fought
+        // with the fishing pole in hand (23 % of all deaths, warriors first). The moment combat
+        // starts the channel is dropped and the weapon comes back before anything else.
+        if (!inCombat)
+        {
+            if (Spell* channel = bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+                if (channel->m_spellInfo && std::string(channel->m_spellInfo->SpellName[0]).find("Fishing") == 0)
+                {
+                    bot->InterruptSpell(CURRENT_CHANNELED_SPELL);
+                    isCasting = bot->IsNonMeleeSpellCasted(true);
+                }
+            if (Item* mainHand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND))
+                if (mainHand->GetProto()->Class == ITEM_CLASS_WEAPON && mainHand->GetProto()->SubClass == ITEM_SUBCLASS_WEAPON_FISHING_POLE)
+                    DoSpecificAction("equip upgrades", Event(), true);
+        }
         if (!inCombat && !isCasting && !isWaiting)
         {
             ResetAIInternalUpdateDelay();
