@@ -44,6 +44,16 @@ bool PlayerConvenience::RequestSummon(Player* requester, Player* bot)
         bot->IsBeingTeleported() || !bot->IsAlive() || bot->IsInCombat() || bot->IsTaxiFlying())
         return false;
 
+    // Same stale on-transport purge as PlayerbotAI::Reset: a bot still flagged
+    // as riding a transport it no longer sits on must never enter the summon
+    // flow frozen (issue #216). A bot legitimately on a transport is left
+    // alone; the summon teleport itself detaches it cleanly.
+    if (!bot->GetTransport() && bot->m_movementInfo.HasMovementFlag(MOVEFLAG_ONTRANSPORT))
+    {
+        bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_ONTRANSPORT);
+        bot->m_movementInfo.ClearTransportData();
+    }
+
     BotRecord const* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
     if (!record || record->masterGuid != requester->GetObjectGuid())
         return false;

@@ -18,6 +18,18 @@
 
 using namespace ai;
 
+// Crypt stairs (issue #217): how far UpdateAllowedPositionZ may pull a navmesh
+// waypoint down before the rewrite is treated as a missed floor lookup instead
+// of a real ground clamp. A stair step or slope is well under this; the
+// subterranean terrain fallback is not.
+static constexpr float kMaxWaypointDrop = 4.0f;
+
+// Elevator boarding (issue #216): maximum 3D distance at which a bot may step
+// directly onto the master's transport. Large enough to cover the gap between
+// the shaft edge and a docked platform, small enough that the bot waits for it
+// instead of teleporting across the shaft.
+static constexpr float kTransportBoardDistance = 15.0f;
+
 void MovementAction::CreateWp(Player* wpOwner, float x, float y, float z, float o, uint32 entry, bool important)
 {
     float dist = wpOwner->GetDistance(x, y, z);
@@ -750,7 +762,16 @@ bool MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
         {
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerPosition(p.x, p.y, p.z);
+            float const navmeshZ = p.z;
             bot->UpdateAllowedPositionZ(p.x, p.y, p.z);
+            // Crypt stairs (issue #217): a 3D navmesh waypoint carries the true
+            // floor elevation. UpdateAllowedPositionZ re-derives the floor with a
+            // downward raycast; when that ray starts underneath an uphill step it
+            // misses the structure and the waypoint is clamped to the
+            // subterranean terrain fallback - the bot then walks through the
+            // floor. Keep the navmesh elevation when the rewrite is a big drop.
+            if (p.z < navmeshZ && navmeshZ - p.z > kMaxWaypointDrop)
+                p.z = navmeshZ;
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerOffset(p.x, p.y, p.z);
         }
@@ -1500,32 +1521,46 @@ float MovementAction::MoveDelay(float distance)
 bool MovementAction::FollowOnTransport(Unit* target)
 {
     bool const onDifferentTransports = bot->m_movementInfo.t_guid != target->m_movementInfo.t_guid;
-    if (onDifferentTransports && sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(bot, target), sPlayerbotAIConfig.sightDistance))
+    if (!onDifferentTransports || !sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(bot, target), sPlayerbotAIConfig.sightDistance))
+        return false;
+
+    ai->StopMoving();
+
+    // Leaving a transport must also clear the on-transport move flag: core
+    // Transport::RemovePassenger unregisters the passenger but leaves
+    // MOVEFLAG_ONTRANSPORT set, and a stale flag without a transport freezes
+    // every later movement until relog (issue #216).
+    if (GenericTransport* pMyTransport = bot->GetTransport())
     {
-        ai->StopMoving();
-        bool sendHeartbeat = false;
-
-        if (GenericTransport* pMyTransport = bot->GetTransport())
-        {
-            sendHeartbeat = true;
-            pMyTransport->RemovePassenger(bot);
-            bot->Relocate(target->getPositionX(), target->getPositionY(), target->getPositionZ());
-        }
-
-        if (GenericTransport* pHisTransport = target->GetTransport())
-        {
-            sendHeartbeat = true;
-            bot->Relocate(target->getPositionX(), target->getPositionY(), target->getPositionZ());
-            pHisTransport->AddPassenger(bot);
-        }
-
-        if (sendHeartbeat)
-            bot->SendHeartBeat();
-
-        return true;
+        pMyTransport->RemovePassenger(bot);
+        bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_ONTRANSPORT);
     }
 
-    return false;
+    if (GenericTransport* pHisTransport = target->GetTransport())
+    {
+        // Boarding: the static navmesh has no tiles on a moving MO_TRANSPORT, so
+        // pathfinding to a master on an elevator returns PATHFIND_NOPATH and the
+        // bot stops at the shaft edge (issue #216). When the master is close
+        // enough - in 3D, so the bot never snaps onto a platform far above or
+        // below it - step onto the platform directly. PlayerRelocation (not
+        // Relocate) keeps grid, visibility and the passenger position
+        // consistent; AddPassenger then sets t_guid, the local t_pos and
+        // MOVEFLAG_ONTRANSPORT.
+        if (!sServerFacade.IsDistanceLessOrEqualThan(bot->GetDistance(target), kTransportBoardDistance))
+            return false; // wait for the platform to come down instead of snapping across the shaft
+
+        bot->GetMap()->PlayerRelocation(bot, target->getPositionX(), target->getPositionY(), target->getPositionZ(), target->getOrientation());
+        pHisTransport->AddPassenger(bot);
+    }
+    else
+    {
+        // The master stepped off onto solid ground: snap out of the shaft to
+        // the master's position so ordinary ground follow resumes (issue #216).
+        bot->GetMap()->PlayerRelocation(bot, target->getPositionX(), target->getPositionY(), target->getPositionZ(), target->getOrientation());
+    }
+
+    bot->SendHeartBeat();
+    return true;
 }
 
 
