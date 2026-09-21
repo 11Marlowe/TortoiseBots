@@ -57,7 +57,9 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - **Combat Resurrection:**
   - Uses *Rebirth* (Battle Rez) to revive a fallen party tank or healer mid-fight.
 - **Innervate:**
-  - Casts *Innervate* on the party healer when their mana drops below 20%.
+  - Casts *Innervate* on the lowest-mana party healer below the `AiPlayerbot.LowMana` threshold (default 15%), falling back to self when solo or healers are healthy. Manual `.bot boost` assignments win over automation. Shifts to caster form first (required by Turtle 1.18.1 shapeshift rules).
+- **Barkskin:**
+  - Balance/Restoration cast *Barkskin* on medium-health pressure as a physical-damage shield; never wired for Feral (Cat/Bear lose form bonuses under Turtle 1.18.1 attack-speed and shapeshift penalties).
 - **Party Buffs:**
   - Maintains *Mark of the Wild* (armor, stats, resistances) and *Thorns* (reflective nature damage) on party members.
 

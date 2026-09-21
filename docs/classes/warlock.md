@@ -57,6 +57,8 @@ Warlocks provide sustained Shadow and Fire DPS through curses and damage-over-ti
 - **Healthstones & Soulstones:**
   - Creates and uses *Healthstones* during combat.
   - Creates and stores Soulstones on the party healer or tank before boss pulls.
+- **Fel Domination (Demonology combat recovery):**
+  - Burns the 5-minute *Fel Domination* cooldown only in combat with a dead pet, then immediately re-summons (Voidwalker fallback); never wasted out of combat where the free summon applies.
 - **Crowd Control:**
   - Casts *Fear* on designated marks (or when fleeing).
   - Casts *Banish* on Demons and Elementals.

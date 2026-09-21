@@ -305,6 +305,7 @@ namespace ai
                 creators["death coil on enemy healer"] = [](PlayerbotAI* ai) { return new CastDeathCoilOnHealerAction(ai); };
                 creators["death coil on snare target"] = [](PlayerbotAI* ai) { return new CastDeathCoilSnareAction(ai); };
                 creators["dark pact"] = [](PlayerbotAI* ai) { return new CastDarkPactAction(ai); };
+                creators["fel domination"] = [](PlayerbotAI* ai) { return new CastFelDominationAction(ai); };
                 creators["dark harvest"] = [](PlayerbotAI* ai) { return new CastDarkHarvestAction(ai); };
                 creators["power overwhelming"] = [](PlayerbotAI* ai) { return new CastPowerOverwhelmingAction(ai); };
                 creators["howl of terror"] = [](PlayerbotAI* ai) { return new CastHowlOfTerrorAction(ai); };

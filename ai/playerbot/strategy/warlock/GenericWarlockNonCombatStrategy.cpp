@@ -66,7 +66,7 @@ void GenericWarlockNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& tr
     NonCombatStrategy::InitTriggers(triggers);
     triggers.push_back(new TriggerNode("has pet", { NextAction("toggle pet spell", 60.0f) }));
     triggers.push_back(new TriggerNode("new pet", { NextAction("set pet stance", 60.0f) }));
-    triggers.push_back(new TriggerNode("no pet", { NextAction("fel domination", 30.0f) }));
+    triggers.push_back(new TriggerNode("no pet", { NextAction("summon voidwalker", 30.0f) }));
     triggers.push_back(new TriggerNode("no soul shard", { NextAction("create soul shard", 60.0f) }));
     triggers.push_back(new TriggerNode("too many soul shards", { NextAction("destroy soul shard", 60.0f) }));
     triggers.push_back(new TriggerNode("soul link", { NextAction("soul link", 28.0f) }));
@@ -134,7 +134,7 @@ SoulstoneSelfStrategy::SoulstoneSelfStrategy(PlayerbotAI* ai) : NonCombatStrateg
 
 void SoulstoneSelfStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone self", 24.0f) }));
+    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone", 24.0f) }));
 }
 
 // Non-combat strategy for selecting the master to receive soulstone
@@ -145,7 +145,7 @@ SoulstoneMasterStrategy::SoulstoneMasterStrategy(PlayerbotAI* ai) : NonCombatStr
 
 void SoulstoneMasterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone master", 24.0f) }));
+    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone", 24.0f) }));
 }
 
 // Non-combat strategy for selecting tanks to receive soulstone
@@ -156,7 +156,7 @@ SoulstoneTankStrategy::SoulstoneTankStrategy(PlayerbotAI* ai) : NonCombatStrateg
 
 void SoulstoneTankStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone tank", 24.0f) }));
+    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone", 24.0f) }));
 }
 
 // Non-combat strategy for selecting healers to receive soulstone
@@ -167,7 +167,7 @@ SoulstoneHealerStrategy::SoulstoneHealerStrategy(PlayerbotAI* ai) : NonCombatStr
 
 void SoulstoneHealerStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone healer", 24.0f) }));
+    triggers.push_back(new TriggerNode("soulstone", { NextAction("soulstone", 24.0f) }));
 }
 
 // Non-combat strategy for using Spellstone
