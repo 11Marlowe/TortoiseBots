@@ -2323,6 +2323,30 @@ static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& cont
         SendActionAck(handler, intent, scopeName, succeeded, "");
         return true;
     }
+    uint32 succeeded = 0;
+    char const* matureAction = intent == "raid tankface" ? "dragon tank face away" : "douse mc rune eternal";
+    for (Player* bot : scope)
+    {
+        if (!bot || !bot->IsInWorld())
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        bool accepted = ExecuteQuietAction(ai, matureAction, ai::Event(intent, "", requester));
+        if (!accepted && intent == "raid douse")
+            accepted = ExecuteQuietAction(ai, "douse mc rune aqual", ai::Event(intent, "", requester));
+        if (accepted)
+            ++succeeded;
+    }
+    if (!succeeded)
+    {
+        SendActionError(handler, intent, "failed", "No scoped bot accepted the mature action.");
+        return true;
+    }
+    std::string scopeName = context.selectedBot && scope.size() == 1
+        ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
+    SendActionAck(handler, intent, scopeName, succeeded, "");
+    return true;
 }
 
 static bool HandleAhBot(ChatHandler* handler, char const* args)

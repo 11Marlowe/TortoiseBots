@@ -391,6 +391,7 @@ bool IsRaidDragonEntry(uint32 entry)
         case 11981: // Flamegor
         case 11983: // Firemaw
         case 11583: // Nefarian
+        case 60748: // Solnius (Emerald Sanctum, Acid Breath 24839)
             return true;
         default:
             return false;
