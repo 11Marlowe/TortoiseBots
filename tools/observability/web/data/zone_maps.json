@@ -503,5 +503,20 @@
     "name": "UpperKarazhan2f",
     "map": 814,
     "file": "upperkarazhan2f.webp"
+  },
+  "5561": {
+    "name": "Balor",
+    "map": 0,
+    "file": "balor.webp"
+  },
+  "5602": {
+    "name": "GrimReaches",
+    "map": 0,
+    "file": "grimreaches.webp"
+  },
+  "5581": {
+    "name": "Northwind",
+    "map": 0,
+    "file": "northwind.webp"
   }
 }
