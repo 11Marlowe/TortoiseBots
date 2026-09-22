@@ -2952,6 +2952,14 @@ bool JumpAction::DoJump(const WorldPosition &dest, const WorldPosition& highestP
         float oy = dest.getY();
         float oz = dest.getZ() + 0.5f;
         bot->UpdateAllowedPositionZ(ox, oy, oz);
+        // The landing came out of a collision test against the world; this is only meant to
+        // settle it onto the floor. Where the map's floor lookup misses the structure the bot
+        // lands on (a WMO deck over terrain: a custom cave, Stormwind's streets and canal
+        // edges) UpdateAllowedPositionZ answers with the TERRAIN far below - same family as
+        // the waypoint clamp of issue #217. A correction of more than kMaxWaypointDrop is a
+        // missed floor, not a floor: keep the computed landing.
+        if (oz < dest.getZ() - kMaxWaypointDrop)
+            oz = dest.getZ();
         landing = WorldPosition(dest.GetMapId(), ox, oy, oz);
     }
 

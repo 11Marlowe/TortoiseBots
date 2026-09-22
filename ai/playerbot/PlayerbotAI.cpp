@@ -530,6 +530,23 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
             // simulate falling
             float landingHeight = bot->m_movementInfo.pos.z;
             bot->UpdateAllowedPositionZ(bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, landingHeight);
+            // A long way down is not always a fall. Where the map's floor lookup misses the
+            // structure the bot stands on - a WMO deck over terrain: a custom cave 180yd over
+            // its terrain, Stormwind's streets 36yd over theirs - UpdateAllowedPositionZ answers
+            // with the terrain beneath, and the bot "falls" through the floor onto ground that
+            // has no way back up (seen: a dungeon tank that hopped once in a chase, and the
+            // random bots that collect under Stormwind). The navmesh knows better: a walkable
+            // polygon right under the feet means the bot has landed. Failing that, no jump is
+            // planned with a landing further down than JumpHeightLimit, so a fall longer than
+            // that was not in the plan either - stay at the height the jump ended on.
+            if (bot->m_movementInfo.pos.z - landingHeight > 5.0f)
+            {
+                WorldPosition feet(bot->GetMapId(), bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z);
+                if (feet.isMmapLoaded(bot->GetInstanceId()) && feet.ClosestCorrectPoint(2.0f, 4.0f, bot->GetInstanceId()))
+                    landingHeight = feet.getZ();
+                else if (bot->m_movementInfo.pos.z - landingHeight > sPlayerbotAIConfig.jumpHeightLimit)
+                    landingHeight = bot->m_movementInfo.pos.z;
+            }
 
             // calculate fall time
             float gravity = 19.2911f;
