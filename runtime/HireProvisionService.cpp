@@ -382,7 +382,9 @@ bool HireProvisionService::FindReusableCandidate(HireSelection const& sel, uint3
             accountIds.push_back(id);
     } while (accounts->NextRow());
 
-    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
+    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM);
+    if (!perAccountLimit)
+        perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
     if (!perAccountLimit)
         perAccountLimit = 10;
 
@@ -444,10 +446,13 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
     if (prefix.empty())
         prefix = "RNDBOT";
 
-    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
+    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM);
+    if (!perAccountLimit)
+        perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
     if (!perAccountLimit)
         perAccountLimit = 10;
     bool allowTwoSide = sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_ACCOUNTS) != 0;
+
 
     std::unique_ptr<QueryResult> accounts(LoginDatabase.PQuery(
         "SELECT id FROM account WHERE username LIKE '%s%%' ORDER BY id", prefix.c_str()));
@@ -487,9 +492,15 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
         if (!allowTwoSide)
         {
             if (hasAlliance && hasHorde)
+            {
+                TB_LOG_DETAIL("TortoiseBots: hire create skips mixed-faction RNDBOT account %u", id);
                 return false;
+            }
             if ((hasAlliance && requesterTeam == HORDE) || (hasHorde && requesterTeam == ALLIANCE))
+            {
+                TB_LOG_DETAIL("TortoiseBots: hire create skips wrong-team RNDBOT account %u", id);
                 return false;
+            }
         }
         return true;
     };
@@ -537,7 +548,10 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
             }
             AccountOpResult created = sAccountMgr.CreateAccount(username, password);
             if (created != AOR_OK)
+            {
+                sLog.outError("TortoiseBots: hire CreateAccount %s failed result %u", username.c_str(), uint32(created));
                 continue;
+            }
             // GetId re-queries the DB on a cache miss (synchronous query
             // connection), so it observes the just-committed row once the
             // async INSERT drains. Retry the same hired name a few times
@@ -554,10 +568,9 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
                 sLog.outError("TortoiseBots: hire created account %s but its id never became visible; giving up on it", username.c_str());
                 return false;
             }
+            sLog.outString("TortoiseBots: hire minted fresh account %s (%u)", username.c_str(), freshId);
             chosenAccount = freshId;
         }
-        if (!chosenAccount)
-            return false;
     }
 
     for (int attempt = 0; attempt < 8; ++attempt)
@@ -592,6 +605,8 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
         if (outcome.result == CHAR_CREATE_NAME_IN_USE || outcome.result == CHAR_NAME_RESERVED ||
             outcome.result == CHAR_NAME_PROFANE || outcome.result == CHAR_CREATE_FAILED)
             continue;
+        sLog.outError("TortoiseBots: hire CreateCharacter %s on account %u failed result %u",
+            norm.c_str(), chosenAccount, uint32(outcome.result));
         return false;
     }
     return false;
