@@ -1636,6 +1636,7 @@
   function armorySortValue(b, key) {
     switch (key) {
       case 'class': return classNameById(b.class).toLowerCase();
+      case 'spec': return (b.spec || '').toLowerCase();
       case 'level': return b.level || 0;
       case 'race': return raceNameById(b.race).toLowerCase();
       case 'money': return parseInt(b.money, 10) || 0;
@@ -1657,7 +1658,7 @@
   function renderArmoryList() {
     if (!el.armoryListBody) return;
     const q = ((el.armoryListSearch && el.armoryListSearch.value) || '').trim();
-    el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading…</td></tr>`;
+    el.armoryListBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">Loading…</td></tr>`;
     fetch(`/api/v1/armory/bots?q=${encodeURIComponent(q)}`)
       .then(async r => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1667,7 +1668,7 @@
         if (!Array.isArray(bots)) throw new Error('bad payload');
         if (!q && el.armoryNavCount) el.armoryNavCount.textContent = String(bots.length);
         if (!bots.length) {
-          el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No bots match “${esc(q)}”.</td></tr>`;
+          el.armoryListBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">No bots match “${esc(q)}”.</td></tr>`;
           return;
         }
 
@@ -1686,6 +1687,7 @@
           <tr>
             <td data-guid="${b.guid}" style="cursor: pointer; font-weight: 600; color: ${classColor(classNameById(b.class))};">${esc(b.name)}</td>
             <td>${esc(classNameById(b.class))}</td>
+            <td style="color: var(--accent-yellow); font-weight: 500;">${esc(b.spec || '–')}</td>
             <td>${esc(b.level)}</td>
             <td>${esc(raceNameById(b.race))}</td>
             <td class="mono">${formatMoney(b.money)}</td>
@@ -1693,7 +1695,7 @@
           </tr>`).join('');
       })
       .catch(e => {
-        el.armoryListBody.innerHTML = `<tr><td colspan="6" style="text-align: center; color: #f85149; padding: 24px;">Failed to load bot list: ${esc(String((e && e.message) || e))}</td></tr>`;
+        el.armoryListBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: #f85149; padding: 24px;">Failed to load bot list: ${esc(String((e && e.message) || e))}</td></tr>`;
       });
   }
 
@@ -1793,38 +1795,113 @@
 
   function itemTooltip(item) {
     if (!item) return 'Empty slot';
-    const d = item.detail || {};
-    const q = item.quality || 0;
-    const lines = [];
-    lines.push(`<div class="tip-name quality-text-${q}">${esc(item.name)}${item.count > 1 ? ` <span style="color:#fff;">×${esc(item.count)}</span>` : ''}</div>`);
-    if (item.item_level) lines.push(`<div class="tip-sub">Item Level ${esc(item.item_level)}</div>`);
-    if (ITEM_BONDING_NAMES[d.bonding]) lines.push(`<div class="tip-sub">${esc(ITEM_BONDING_NAMES[d.bonding])}</div>`);
-    const typeName = item.inventory_type ? INVTYPE_NAMES[item.inventory_type] : itemSubclassName(d.class, d.subclass);
-    if (typeName) lines.push(`<div class="tip-row"><span>${esc(typeName)}</span><span>${esc(itemSubclassName(d.class, d.subclass))}</span></div>`);
-    if (d.required_level) lines.push(`<div class="tip-row"><span>Requires Level</span><span>${esc(d.required_level)}</span></div>`);
-    if (d.armor) lines.push(`<div class="tip-row"><span>Armor</span><span>${esc(d.armor)}</span></div>`);
-    if (d.block) lines.push(`<div class="tip-row"><span>Block</span><span>${esc(d.block)}</span></div>`);
-    const dmg = (a, b) => (a || b) ? `<div class="tip-row"><span>Damage</span><span>${esc(Math.round(a || 0))} – ${esc(Math.round(b || 0))}</span></div>` : '';
-    lines.push(dmg(d.dmg_min1, d.dmg_max1) + dmg(d.dmg_min2, d.dmg_max2) + dmg(d.dmg_min3, d.dmg_max3));
-    if (d.delay) lines.push(`<div class="tip-row"><span>Speed</span><span>${esc((d.delay / 1000).toFixed(2))}</span></div>`);
-    const types = d.stat_types || [], vals = d.stat_values || [];
-    types.forEach((t, i) => {
-      const v = vals[i];
-      if (!v) return;
-      lines.push(`<div class="tip-stat">+${esc(v)} ${esc(itemStatName(t))}</div>`);
-    });
-    const res = [['Holy', d.res_holy], ['Fire', d.res_fire], ['Nature', d.res_nature], ['Frost', d.res_frost], ['Shadow', d.res_shadow], ['Arcane', d.res_arcane]];
-    res.forEach(([k, v]) => { if (v) lines.push(`<div class="tip-stat">+${esc(v)} ${k} Resistance</div>`); });
-    const sids = d.spell_ids || [], strg = d.spell_triggers || [], snames = d.spell_names || [];
-    sids.forEach((sid, i) => {
-      if (!sid) return;
-      const label = ITEM_TRIGGER_NAMES[strg[i]] || 'Effect:';
-      lines.push(`<div class="tip-proc">${esc(label)} ${esc(snames[i] || `Spell #${sid}`)}</div>`);
-    });
-    if (d.description) lines.push(`<div class="tip-flavor">${esc(d.description.replace(/^"|"$/g, ''))}</div>`);
-    lines.push(`<div class="tip-sub mono">#${esc(item.item_template)} · ${esc(qualityName(q))}</div>`);
-    if (d.sell_price) lines.push(`<div class="tip-sub">Sells for ${formatMoney(d.sell_price)}</div>`);
-    return lines.join('');
+    try {
+      const d = item.detail || {};
+      const q = item.quality || 0;
+      const lines = [];
+      lines.push(`<div class="tip-name quality-text-${q}">${esc(item.name)}${item.count > 1 ? ` <span style="color:#fff;">×${esc(item.count)}</span>` : ''}</div>`);
+      if (item.item_level) lines.push(`<div class="tip-sub">Item Level ${esc(item.item_level)}</div>`);
+      if (ITEM_BONDING_NAMES[d.bonding]) lines.push(`<div class="tip-sub">${esc(ITEM_BONDING_NAMES[d.bonding])}</div>`);
+      const slots = item.container_slots || d.container_slots;
+      if (slots) lines.push(`<div class="tip-row"><span>${esc(slots)} Slot Bag</span></div>`);
+      const typeName = item.inventory_type ? INVTYPE_NAMES[item.inventory_type] : itemSubclassName(d.class, d.subclass);
+      if (typeName && !slots) lines.push(`<div class="tip-row"><span>${esc(typeName)}</span><span>${esc(itemSubclassName(d.class, d.subclass))}</span></div>`);
+      if (d.required_level) lines.push(`<div class="tip-row"><span>Requires Level</span><span>${esc(d.required_level)}</span></div>`);
+      if (d.armor) lines.push(`<div class="tip-row"><span>${esc(d.armor)} Armor</span></div>`);
+      if (d.block) lines.push(`<div class="tip-row"><span>${esc(d.block)} Block</span></div>`);
+      if (d.dmg_min1 || d.dmg_max1) {
+        const speedSec = d.delay ? (d.delay / 1000) : 0;
+        const speedText = speedSec ? `<span>Speed ${esc(speedSec.toFixed(2))}</span>` : '';
+        lines.push(`<div class="tip-row"><span>${esc(Math.round(d.dmg_min1 || 0))} – ${esc(Math.round(d.dmg_max1 || 0))} Damage</span>${speedText}</div>`);
+        if (speedSec > 0) {
+          const dps = ((d.dmg_min1 + d.dmg_max1) / 2) / speedSec;
+          lines.push(`<div class="tip-row"><span style="color: #8b949e;">(${dps.toFixed(1)} damage per second)</span></div>`);
+        }
+      }
+      if (d.dmg_min2 || d.dmg_max2) {
+        lines.push(`<div class="tip-row"><span>+${esc(Math.round(d.dmg_min2 || 0))} – ${esc(Math.round(d.dmg_max2 || 0))} Damage</span></div>`);
+      }
+      if (d.dmg_min3 || d.dmg_max3) {
+        lines.push(`<div class="tip-row"><span>+${esc(Math.round(d.dmg_min3 || 0))} – ${esc(Math.round(d.dmg_max3 || 0))} Damage</span></div>`);
+      }
+
+      if (Array.isArray(item.enchantments) && item.enchantments.length > 0) {
+        item.enchantments.forEach(e => {
+          let extra = '';
+          if (e.slot === 1) {
+            if (e.charges > 0 && e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)} min / ${e.charges} charges)`;
+            else if (e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)} min)`;
+            else if (e.charges > 0) extra = ` (${e.charges} charges)`;
+          }
+          lines.push(`<div class="tip-enchant">${esc(e.description)}${extra}</div>`);
+        });
+      }
+
+      let types = d.stat_types || [];
+      if (typeof types === 'string') {
+        try {
+          const bin = atob(types);
+          types = [];
+          for (let i = 0; i < bin.length; i++) types.push(bin.charCodeAt(i));
+        } catch (e) {
+          types = [];
+        }
+      }
+      const vals = d.stat_values || [];
+      if (Array.isArray(types)) {
+        types.forEach((t, i) => {
+          const v = vals[i];
+          if (!v) return;
+          lines.push(`<div class="tip-stat">+${esc(v)} ${esc(itemStatName(t))}</div>`);
+        });
+      }
+
+      if (Array.isArray(d.random_stats) && d.random_stats.length > 0) {
+        d.random_stats.forEach(st => {
+          if (st) lines.push(`<div class="tip-stat">${esc(st)}</div>`);
+        });
+      }
+
+      const res = [['Holy', d.res_holy], ['Fire', d.res_fire], ['Nature', d.res_nature], ['Frost', d.res_frost], ['Shadow', d.res_shadow], ['Arcane', d.res_arcane]];
+      res.forEach(([k, v]) => { if (v) lines.push(`<div class="tip-stat">+${esc(v)} ${k} Resistance</div>`); });
+
+      const sids = d.spell_ids || [];
+      let strg = d.spell_triggers || [];
+      if (typeof strg === 'string') {
+        try {
+          const bin = atob(strg);
+          strg = [];
+          for (let i = 0; i < bin.length; i++) strg.push(bin.charCodeAt(i));
+        } catch (e) {
+          strg = [];
+        }
+      }
+      const snames = d.spell_names || [];
+      const sdescs = d.spell_descs || [];
+      sids.forEach((sid, i) => {
+        if (!sid) return;
+        const triggerVal = Array.isArray(strg) ? strg[i] : (typeof strg === 'string' ? strg.charCodeAt(i) : 1);
+        const label = ITEM_TRIGGER_NAMES[triggerVal] || 'Effect:';
+        let text = (sdescs[i] || snames[i] || `Spell #${sid}`).trim();
+        if (!text) return;
+        if (text.startsWith(label)) {
+          lines.push(`<div class="tip-proc">${esc(text)}</div>`);
+        } else {
+          lines.push(`<div class="tip-proc">${esc(label)} ${esc(text)}</div>`);
+        }
+      });
+
+      if (d.max_durability) {
+        lines.push(`<div class="tip-sub">Durability ${esc(d.max_durability)} / ${esc(d.max_durability)}</div>`);
+      }
+      if (d.description) lines.push(`<div class="tip-flavor">${esc(d.description.replace(/^"|"$/g, ''))}</div>`);
+      lines.push(`<div class="tip-sub mono">#${esc(item.item_template)} · ${esc(qualityName(q))}</div>`);
+      if (d.sell_price) lines.push(`<div class="tip-sub">Sells for ${formatMoney(d.sell_price)}</div>`);
+      return lines.join('');
+    } catch (err) {
+      console.error('Failed to render item tooltip', err);
+      return `<div class="tip-name quality-text-${item.quality || 0}">${esc(item.name || 'Item')}</div><div class="tip-sub mono">#${esc(item.item_template || '')}</div>`;
+    }
   }
 
   function gearBySlot(p) {
@@ -1844,8 +1921,9 @@
       : `<span class="gear-slot-initial">${slotName[0]}</span>`;
 
     if (!item) {
+      const emptyTip = JSON.stringify({ name: `Empty ${slotName}`, quality: 0 });
       return `
-        <div class="gear-slot-row left gear-empty">
+        <div class="gear-slot-row left gear-empty" data-tip='${esc(emptyTip)}'>
           <div class="gear-icon-box quality-border-0">${iconHtml}</div>
           <div class="gear-info">
             <div class="gear-slot-label">${esc(slotName)}</div>
@@ -1856,12 +1934,24 @@
 
     const count = item.count > 1 ? ` <span class="gear-ilvl">×${esc(item.count)}</span>` : '';
     const ilvl = item.item_level ? `<span class="gear-ilvl">iLvl ${esc(item.item_level)}</span>` : '';
+    const enchantHtml = (item.enchantments && item.enchantments.length > 0)
+      ? item.enchantments.map(e => {
+          let extra = '';
+          if (e.slot === 1) {
+            if (e.charges > 0 && e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)}m, ${e.charges}ch)`;
+            else if (e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)}m)`;
+            else if (e.charges > 0) extra = ` (${e.charges}ch)`;
+          }
+          return `<div class="gear-enchant-text" title="${esc(e.description)}${extra}">✨ ${esc(e.description)}${extra}</div>`;
+        }).join('')
+      : '';
 
     return `
       <div class="gear-slot-row left quality-border-${esc(q)}" data-tip='${esc(JSON.stringify(item))}'>
         <div class="gear-icon-box quality-border-${esc(q)}">${iconHtml}</div>
         <div class="gear-info">
           <div class="gear-name quality-text-${esc(q)}">${esc(item.name)}${count}</div>
+          ${enchantHtml}
           <div class="gear-subrow">
             <span>${esc(slotName)}</span>${ilvl}<span class="mono">#${esc(item.item_template)}</span>
           </div>
@@ -1880,8 +1970,9 @@
       : `<span class="gear-slot-initial">${slotName[0]}</span>`;
 
     if (!item) {
+      const emptyTip = JSON.stringify({ name: `Empty ${slotName}`, quality: 0 });
       return `
-        <div class="gear-slot-row right gear-empty">
+        <div class="gear-slot-row right gear-empty" data-tip='${esc(emptyTip)}'>
           <div class="gear-info" style="text-align: right;">
             <div class="gear-slot-label">${esc(slotName)}</div>
             <div class="gear-empty-text">Empty</div>
@@ -1892,11 +1983,23 @@
 
     const count = item.count > 1 ? ` <span class="gear-ilvl">×${esc(item.count)}</span>` : '';
     const ilvl = item.item_level ? `<span class="gear-ilvl">iLvl ${esc(item.item_level)}</span>` : '';
+    const enchantHtml = (item.enchantments && item.enchantments.length > 0)
+      ? item.enchantments.map(e => {
+          let extra = '';
+          if (e.slot === 1) {
+            if (e.charges > 0 && e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)}m, ${e.charges}ch)`;
+            else if (e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)}m)`;
+            else if (e.charges > 0) extra = ` (${e.charges}ch)`;
+          }
+          return `<div class="gear-enchant-text" title="${esc(e.description)}${extra}">✨ ${esc(e.description)}${extra}</div>`;
+        }).join('')
+      : '';
 
     return `
       <div class="gear-slot-row right quality-border-${esc(q)}" data-tip='${esc(JSON.stringify(item))}'>
         <div class="gear-info" style="text-align: right;">
           <div class="gear-name quality-text-${esc(q)}">${esc(item.name)}${count}</div>
+          ${enchantHtml}
           <div class="gear-subrow" style="justify-content: flex-end;">
             <span>${esc(slotName)}</span>${ilvl}<span class="mono">#${esc(item.item_template)}</span>
           </div>
@@ -1916,8 +2019,9 @@
       : `<span class="gear-slot-initial">${slotName[0]}</span>`;
 
     if (!item) {
+      const emptyTip = JSON.stringify({ name: `Empty ${slotName}`, quality: 0 });
       return `
-        <div class="gear-weapon-item gear-empty">
+        <div class="gear-weapon-item gear-empty" data-tip='${esc(emptyTip)}'>
           <div class="gear-icon-box quality-border-0">${iconHtml}</div>
           <div class="gear-info" style="text-align: center;">
             <div class="gear-slot-label">${esc(slotName)}</div>
@@ -1926,11 +2030,24 @@
         </div>`;
     }
 
+    const enchantHtml = (item.enchantments && item.enchantments.length > 0)
+      ? item.enchantments.map(e => {
+          let extra = '';
+          if (e.slot === 1) {
+            if (e.charges > 0 && e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)}m, ${e.charges}ch)`;
+            else if (e.duration > 0) extra = ` (${Math.ceil(e.duration / 60)}m)`;
+            else if (e.charges > 0) extra = ` (${e.charges}ch)`;
+          }
+          return `<div class="gear-enchant-text" title="${esc(e.description)}${extra}">✨ ${esc(e.description)}${extra}</div>`;
+        }).join('')
+      : '';
+
     return `
       <div class="gear-weapon-item quality-border-${esc(q)}" data-tip='${esc(JSON.stringify(item))}'>
         <div class="gear-icon-box quality-border-${esc(q)}">${iconHtml}</div>
         <div class="gear-info" style="text-align: center;">
           <div class="gear-name quality-text-${esc(q)}">${esc(item.name)}</div>
+          ${enchantHtml}
           <div class="gear-subrow" style="justify-content: center;">
             <span>${esc(slotName)}</span>
           </div>
@@ -2044,6 +2161,49 @@
         <div class="stat-card-row"><span>Spirit</span><strong class="mono">${esc(fmtNum(st.spirit))}</strong></div>
       </div>`;
 
+    const meleeCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">⚔️</span> Melee</div>
+        <div class="stat-card-row"><span>Attack Power</span><strong class="mono">${esc(fmtNum(st.attack_power))}</strong></div>
+        <div class="stat-card-row"><span>Damage</span><strong class="mono" style="color: #fff;">${esc(st.melee_damage || '–')}</strong></div>
+        <div class="stat-card-row"><span>Speed</span><strong class="mono">${st.melee_speed ? esc(fmtNum(st.melee_speed) + 's') : '–'}</strong></div>
+        <div class="stat-card-row"><span>Crit Chance</span><strong class="mono">${esc(fmtNum(st.melee_crit_pct))}%</strong></div>
+        <div class="stat-card-row"><span>Hit Chance</span><strong class="mono">${esc(fmtNum(st.melee_hit))}%</strong></div>
+      </div>`;
+
+    const rangedCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">🏹</span> Ranged</div>
+        <div class="stat-card-row"><span>Ranged AP</span><strong class="mono">${esc(fmtNum(st.ranged_attack_power))}</strong></div>
+        <div class="stat-card-row"><span>Damage</span><strong class="mono" style="color: #fff;">${esc(st.ranged_damage || '–')}</strong></div>
+        <div class="stat-card-row"><span>Speed</span><strong class="mono">${st.ranged_speed ? esc(fmtNum(st.ranged_speed) + 's') : '–'}</strong></div>
+        <div class="stat-card-row"><span>Crit Chance</span><strong class="mono">${esc(fmtNum(st.ranged_crit_pct))}%</strong></div>
+        <div class="stat-card-row"><span>Hit Chance</span><strong class="mono">${esc(fmtNum(st.ranged_hit))}%</strong></div>
+      </div>`;
+
+    let schoolBadges = [];
+    const baseSp = st.spell_damage || 0;
+    if (st.spell_dmg_fire) schoolBadges.push(`🔥 Fire +${baseSp + st.spell_dmg_fire}`);
+    if (st.spell_dmg_frost) schoolBadges.push(`❄️ Frost +${baseSp + st.spell_dmg_frost}`);
+    if (st.spell_dmg_shadow) schoolBadges.push(`💀 Shadow +${baseSp + st.spell_dmg_shadow}`);
+    if (st.spell_dmg_nature) schoolBadges.push(`🌿 Nature +${baseSp + st.spell_dmg_nature}`);
+    if (st.spell_dmg_arcane) schoolBadges.push(`🔮 Arcane +${baseSp + st.spell_dmg_arcane}`);
+    if (st.spell_dmg_holy) schoolBadges.push(`✨ Holy +${baseSp + st.spell_dmg_holy}`);
+    const schoolRow = schoolBadges.length > 0
+      ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 6px; padding-top: 4px; border-top: 1px dashed var(--border-color); line-height: 1.4;">${esc(schoolBadges.join(' · '))}</div>`
+      : '';
+
+    const spellCard = `
+      <div class="armory-stat-card">
+        <div class="stat-card-title"><span class="stat-icon">✨</span> Spell</div>
+        <div class="stat-card-row"><span>Spell Power</span><strong class="mono" style="color: #3fb950; font-size: 0.95rem;">+${esc(baseSp)}</strong></div>
+        <div class="stat-card-row"><span>Healing</span><strong class="mono" style="color: #3fb950;">+${esc(st.healing_power || baseSp)}</strong></div>
+        <div class="stat-card-row"><span>Spell Crit</span><strong class="mono">${esc(fmtNum(st.spell_crit_pct))}%</strong></div>
+        <div class="stat-card-row"><span>Spell Hit</span><strong class="mono">${esc(fmtNum(st.spell_hit))}%</strong></div>
+        <div class="stat-card-row"><span>Mana Regen</span><strong class="mono">${esc(st.mana_regen || 0)} MP5</strong></div>
+        ${schoolRow}
+      </div>`;
+
     const defenseCard = `
       <div class="armory-stat-card">
         <div class="stat-card-title"><span class="stat-icon">🛡️</span> Defense</div>
@@ -2051,30 +2211,6 @@
         <div class="stat-card-row"><span>Dodge</span><strong class="mono">${esc(fmtNum(st.dodge_pct))}%</strong></div>
         <div class="stat-card-row"><span>Parry</span><strong class="mono">${esc(fmtNum(st.parry_pct))}%</strong></div>
         <div class="stat-card-row"><span>Block</span><strong class="mono">${esc(fmtNum(st.block_pct))}%</strong></div>
-      </div>`;
-
-    const spellCard = `
-      <div class="armory-stat-card">
-        <div class="stat-card-title"><span class="stat-icon">✨</span> Spell</div>
-        <div class="stat-card-row"><span>Spell Hit</span><strong class="mono">${esc(fmtNum(st.spell_hit))}%</strong></div>
-        <div class="stat-card-row"><span>Cast Speed</span><strong class="mono">${esc(fmtNum(st.cast_speed))}</strong></div>
-      </div>`;
-
-    const meleeCard = `
-      <div class="armory-stat-card" style="grid-column: span 2;">
-        <div class="stat-card-title"><span class="stat-icon">⚔️</span> Melee & Ranged</div>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px;">
-          <div>
-            <div class="stat-card-row"><span>Attack Power</span><strong class="mono">${esc(fmtNum(st.attack_power))}</strong></div>
-            <div class="stat-card-row"><span>Ranged AP</span><strong class="mono">${esc(fmtNum(st.ranged_attack_power))}</strong></div>
-            <div class="stat-card-row"><span>Damage</span><strong class="mono" style="color: #fff;">${esc(st.melee_damage || '–')}</strong></div>
-          </div>
-          <div>
-            <div class="stat-card-row"><span>Melee Speed</span><strong class="mono">${st.melee_speed ? esc(fmtNum(st.melee_speed) + 's') : '–'}</strong></div>
-            <div class="stat-card-row"><span>Melee Crit</span><strong class="mono">${esc(fmtNum(st.melee_crit_pct))}%</strong></div>
-            <div class="stat-card-row"><span>Melee Hit</span><strong class="mono">${esc(fmtNum(st.melee_hit))}%</strong></div>
-          </div>
-        </div>
       </div>`;
 
     const resistCard = `
@@ -2091,9 +2227,10 @@
     host.innerHTML = `
       <div class="armory-stat-cards-grid">
         ${attrsCard}
-        ${defenseCard}
-        ${spellCard}
         ${meleeCard}
+        ${rangedCard}
+        ${spellCard}
+        ${defenseCard}
         ${resistCard}
       </div>`;
   }
@@ -2109,7 +2246,12 @@
     (p.bags || []).forEach(b => {
       const cap = b.container_slots || b.items.length;
       const pct = cap ? Math.min(100, Math.round((b.items.length / cap) * 100)) : 0;
-      html += `<div class="bag-block"><div class="bag-head"><strong class="quality-text-${esc(b.quality)}">${esc(b.name)}</strong><span style="color: var(--text-muted);">${b.items.length}/${cap || '?'} · slot ${esc(b.slot)}</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${pct}%; background: var(--accent-blue-bright);"></div></div></div>`;
+      const bagIcon = b.icon || (b.detail && b.detail.icon);
+      const bagIconUrl = getItemIconUrl(bagIcon);
+      const bagIconHtml = bagIconUrl
+        ? `<img src="${bagIconUrl}" style="width: 20px; height: 20px; border-radius: 3px; vertical-align: middle; margin-right: 6px;" onerror="this.style.display='none';">`
+        : '';
+      html += `<div class="bag-block"><div class="bag-head" data-tip='${esc(JSON.stringify(b))}' style="cursor: pointer;"><strong class="quality-text-${esc(b.quality)}">${bagIconHtml}${esc(b.name)}</strong><span style="color: var(--text-muted);">${b.items.length}/${cap || '?'} · slot ${esc(b.slot)}</span><div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${pct}%; background: var(--accent-blue-bright);"></div></div></div>`;
       html += b.items.length ? bagTable(b.items) : `<div class="empty-hint">Empty.</div>`;
       html += `</div>`;
     });

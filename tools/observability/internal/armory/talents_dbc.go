@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -37,9 +38,12 @@ type dbcCache struct {
 }
 
 var (
-	dbcMu        sync.Mutex
-	dbcByDir     = map[string]*dbcCache{}
-	dbcSpellIcon = map[string]map[uint32]string{}
+	dbcMu           sync.Mutex
+	dbcByDir        = map[string]*dbcCache{}
+	dbcSpellIcon    = map[string]map[uint32]string{}
+	dbcEnchantments = map[string]map[uint32]string{}
+	dbcDurations    = map[string]map[uint32]int32{}
+	dbcRandomProps  = map[string]map[uint32]DBCRandomProperty{}
 )
 
 func loadDBCSpellIcons(dir string) (map[uint32]string, error) {
@@ -319,3 +323,307 @@ func (s *Service) talentsFromDBC(guid uint32, classID uint32, known map[uint32]b
 	}
 	return trees, nil
 }
+
+// resolveBotSpecs populates the Spec field for a slice of bots by reading their
+// learned talent ranks from character_spell against Talent.dbc / TalentTab.dbc.
+func (s *Service) resolveBotSpecs(bots []BotSummary) {
+	if len(bots) == 0 || s.cfg.DBCDir == "" {
+		for i := range bots {
+			if bots[i].Spec == "" {
+				bots[i].Spec = "Unspecified"
+			}
+		}
+		return
+	}
+	talents, tabs, err := loadDBCTalents(s.cfg.DBCDir)
+	if err != nil {
+		for i := range bots {
+			if bots[i].Spec == "" {
+				bots[i].Spec = "Unspecified"
+			}
+		}
+		return
+	}
+	tabNames := make(map[uint32]string, len(tabs))
+	for _, t := range tabs {
+		tabNames[t.id] = t.name
+	}
+
+	spellToTab := make(map[uint32]uint32, len(talents)*3)
+	spellToRank := make(map[uint32]uint32, len(talents)*3)
+	for _, t := range talents {
+		for i, r := range t.ranks {
+			if r != 0 {
+				spellToTab[r] = t.tabID
+				spellToRank[r] = uint32(i + 1)
+			}
+		}
+	}
+	if len(spellToTab) == 0 {
+		return
+	}
+
+	guids := make([]interface{}, len(bots))
+	guidMarks := make([]string, len(bots))
+	guidIdx := make(map[uint32]int, len(bots))
+	for i, b := range bots {
+		guids[i] = b.GUID
+		guidMarks[i] = "?"
+		guidIdx[b.GUID] = i
+	}
+
+	q := fmt.Sprintf(`SELECT guid, spell FROM character_spell WHERE guid IN (%s)`, strings.Join(guidMarks, ","))
+	rows, err := s.db.Query(q, guids...)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	points := make(map[uint32]map[uint32]uint32, len(bots))
+	for rows.Next() {
+		var guid, spell uint32
+		if err := rows.Scan(&guid, &spell); err != nil {
+			continue
+		}
+		tabID, ok := spellToTab[spell]
+		if !ok {
+			continue
+		}
+		bp, ok := points[guid]
+		if !ok {
+			bp = make(map[uint32]uint32)
+			points[guid] = bp
+		}
+		bp[tabID] += spellToRank[spell]
+	}
+
+	for guid, bp := range points {
+		idx, ok := guidIdx[guid]
+		if !ok {
+			continue
+		}
+		var maxPts uint32
+		var maxTab uint32
+		var tie bool
+		for tabID, pts := range bp {
+			if pts > maxPts {
+				maxPts = pts
+				maxTab = tabID
+				tie = false
+			} else if pts == maxPts && pts > 0 {
+				tie = true
+			}
+		}
+		if maxPts == 0 {
+			bots[idx].Spec = "Unspecified"
+		} else if tie {
+			bots[idx].Spec = "Hybrid"
+		} else {
+			name := tabNames[maxTab]
+			if name == "" {
+				name = "Hybrid"
+			}
+			bots[idx].Spec = name
+		}
+	}
+	for i := range bots {
+		if bots[i].Spec == "" {
+			bots[i].Spec = "Unspecified"
+		}
+	}
+}
+
+func loadDBCEnchantments(dir string) (map[uint32]string, error) {
+	dbcMu.Lock()
+	defer dbcMu.Unlock()
+	if ench, ok := dbcEnchantments[dir]; ok {
+		return ench, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "SpellItemEnchantment.dbc"))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) < 20 {
+		return nil, fmt.Errorf("SpellItemEnchantment.dbc too short")
+	}
+	nRec := binary.LittleEndian.Uint32(raw[4:8])
+	recSize := binary.LittleEndian.Uint32(raw[12:16])
+	if recSize < 56 || uint32(len(raw)) < 20+nRec*recSize {
+		return nil, fmt.Errorf("SpellItemEnchantment.dbc truncated")
+	}
+	strBlock := raw[20+nRec*recSize:]
+	ench := make(map[uint32]string, nRec)
+	for i := uint32(0); i < nRec; i++ {
+		off := 20 + i*recSize
+		id := binary.LittleEndian.Uint32(raw[off : off+4])
+		strOff := binary.LittleEndian.Uint32(raw[off+52 : off+56])
+		s := strings.TrimSpace(dbcString(strBlock, strOff))
+		if s != "" {
+			ench[id] = s
+		}
+	}
+	dbcEnchantments[dir] = ench
+	return ench, nil
+}
+
+type DBCRandomProperty struct {
+	ID         uint32
+	Suffix     string
+	EnchantIDs [3]uint32
+}
+
+func loadDBCSpellDuration(dir string) (map[uint32]int32, error) {
+	dbcMu.Lock()
+	defer dbcMu.Unlock()
+	if durs, ok := dbcDurations[dir]; ok {
+		return durs, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "SpellDuration.dbc"))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) < 20 {
+		return nil, fmt.Errorf("SpellDuration.dbc too short")
+	}
+	nRec := binary.LittleEndian.Uint32(raw[4:8])
+	recSize := binary.LittleEndian.Uint32(raw[12:16])
+	if recSize < 8 || uint32(len(raw)) < 20+nRec*recSize {
+		return nil, fmt.Errorf("SpellDuration.dbc truncated")
+	}
+	durs := make(map[uint32]int32, nRec)
+	for i := uint32(0); i < nRec; i++ {
+		off := 20 + i*recSize
+		id := binary.LittleEndian.Uint32(raw[off : off+4])
+		dur := int32(binary.LittleEndian.Uint32(raw[off+4 : off+8]))
+		durs[id] = dur
+	}
+	dbcDurations[dir] = durs
+	return durs, nil
+}
+
+func loadDBCRandomProperties(dir string) (map[uint32]DBCRandomProperty, error) {
+	dbcMu.Lock()
+	defer dbcMu.Unlock()
+	if props, ok := dbcRandomProps[dir]; ok {
+		return props, nil
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "ItemRandomProperties.dbc"))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) < 20 {
+		return nil, fmt.Errorf("ItemRandomProperties.dbc too short")
+	}
+	nRec := binary.LittleEndian.Uint32(raw[4:8])
+	recSize := binary.LittleEndian.Uint32(raw[12:16])
+	if recSize < 64 || uint32(len(raw)) < 20+nRec*recSize {
+		return nil, fmt.Errorf("ItemRandomProperties.dbc truncated")
+	}
+	strBlock := raw[20+nRec*recSize:]
+	props := make(map[uint32]DBCRandomProperty, nRec)
+	for i := uint32(0); i < nRec; i++ {
+		off := 20 + i*recSize
+		id := binary.LittleEndian.Uint32(raw[off : off+4])
+		e1 := binary.LittleEndian.Uint32(raw[off+8 : off+12])
+		e2 := binary.LittleEndian.Uint32(raw[off+12 : off+16])
+		e3 := binary.LittleEndian.Uint32(raw[off+16 : off+20])
+		nameOff := binary.LittleEndian.Uint32(raw[off+28 : off+32])
+		suffix := strings.TrimSpace(dbcString(strBlock, nameOff))
+		props[id] = DBCRandomProperty{
+			ID:         id,
+			Suffix:     suffix,
+			EnchantIDs: [3]uint32{e1, e2, e3},
+		}
+	}
+	dbcRandomProps[dir] = props
+	return props, nil
+}
+
+func (s *Service) applyRandomProperties(name *string, detail *ItemDetail, randPropID uint32) {
+	if randPropID == 0 || s.cfg.DBCDir == "" {
+		return
+	}
+	props, err := loadDBCRandomProperties(s.cfg.DBCDir)
+	if err != nil {
+		return
+	}
+	prop, ok := props[randPropID]
+	if !ok {
+		return
+	}
+	if prop.Suffix != "" && name != nil && !strings.Contains(*name, prop.Suffix) {
+		*name = strings.TrimSpace(*name + " " + prop.Suffix)
+	}
+	enchMap, _ := loadDBCEnchantments(s.cfg.DBCDir)
+	if enchMap != nil {
+		for _, eID := range prop.EnchantIDs {
+			if eID == 0 {
+				continue
+			}
+			if desc, ok := enchMap[eID]; ok && desc != "" {
+				detail.RandomStats = append(detail.RandomStats, desc)
+			}
+		}
+	}
+}
+
+func (s *Service) parseEnchantments(raw string) []ItemEnchantmentInfo {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	tokens := strings.Fields(raw)
+	if len(tokens) < 3 {
+		return nil
+	}
+
+	var enchMap map[uint32]string
+	if s.cfg.DBCDir != "" {
+		enchMap, _ = loadDBCEnchantments(s.cfg.DBCDir)
+	}
+
+	var result []ItemEnchantmentInfo
+
+	// Slot 0: Permanent enchantment / armor kit (tokens 0, 1, 2)
+	permID, _ := strconv.ParseUint(tokens[0], 10, 32)
+	if permID > 0 {
+		desc := ""
+		if enchMap != nil {
+			desc = enchMap[uint32(permID)]
+		}
+		if desc == "" {
+			desc = fmt.Sprintf("Enchantment #%d", permID)
+		}
+		result = append(result, ItemEnchantmentInfo{
+			ID:          uint32(permID),
+			Description: desc,
+			Slot:        0,
+		})
+	}
+
+	// Slot 1: Temporary enchantment / poison / stone / oil (tokens 3, 4, 5)
+	if len(tokens) >= 6 {
+		tempID, _ := strconv.ParseUint(tokens[3], 10, 32)
+		if tempID > 0 {
+			durationMs, _ := strconv.ParseUint(tokens[4], 10, 32)
+			charges, _ := strconv.ParseUint(tokens[5], 10, 32)
+			desc := ""
+			if enchMap != nil {
+				desc = enchMap[uint32(tempID)]
+			}
+			if desc == "" {
+				desc = fmt.Sprintf("Enhancement #%d", tempID)
+			}
+			result = append(result, ItemEnchantmentInfo{
+				ID:          uint32(tempID),
+				Description: desc,
+				Slot:        1,
+				Duration:    uint32(durationMs / 1000),
+				Charges:     uint32(charges),
+			})
+		}
+	}
+
+	return result
+}
+

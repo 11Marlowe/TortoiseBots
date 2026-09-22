@@ -31,6 +31,7 @@ type BotSummary struct {
 	Money     uint32 `json:"money"`
 	TotalTime uint32 `json:"totaltime"`
 	Online    uint8  `json:"online"`
+	Spec      string `json:"spec,omitempty"`
 }
 
 // ItemDetail carries the tooltip-relevant fields from world.item_template:
@@ -64,28 +65,39 @@ type ItemDetail struct {
 	ResFrost       int32    `json:"res_frost,omitempty"`
 	ResShadow      int32    `json:"res_shadow,omitempty"`
 	ResArcane      int32    `json:"res_arcane,omitempty"`
-	StatTypes      []uint8  `json:"stat_types,omitempty"`
+	StatTypes      []uint32 `json:"stat_types,omitempty"`
 	StatValues     []int32  `json:"stat_values,omitempty"`
 	SpellIDs       []uint32 `json:"spell_ids,omitempty"`
-	SpellTriggers  []uint8  `json:"spell_triggers,omitempty"`
+	SpellTriggers  []uint32 `json:"spell_triggers,omitempty"`
 	SpellNames     []string `json:"spell_names,omitempty"`
+	SpellDescs     []string `json:"spell_descs,omitempty"`
+	RandomStats    []string `json:"random_stats,omitempty"`
 	MaxDurability  uint32   `json:"max_durability,omitempty"`
 	SellPrice      uint32   `json:"sell_price,omitempty"`
 }
 
+type ItemEnchantmentInfo struct {
+	ID          uint32 `json:"id"`
+	Description string `json:"description"`
+	Slot        uint8  `json:"slot"` // 0 = permanent / armor kit, 1 = temporary / poison / stone
+	Duration    uint32 `json:"duration,omitempty"`
+	Charges     uint32 `json:"charges,omitempty"`
+}
+
 type EquippedItem struct {
-	Slot          uint8  `json:"slot"`
-	ItemTemplate  uint32 `json:"item_template"`
-	Count         uint32 `json:"count"`
-	Name          string `json:"name"`
-	Quality       uint8  `json:"quality"`
-	ItemLevel     uint32 `json:"item_level"`
-	InventoryType uint32 `json:"inventory_type"`
-	DisplayID     uint32 `json:"display_id"`
+	Slot          uint8                 `json:"slot"`
+	ItemTemplate  uint32                `json:"item_template"`
+	Count         uint32                `json:"count"`
+	Name          string                `json:"name"`
+	Quality       uint8                 `json:"quality"`
+	ItemLevel     uint32                `json:"item_level"`
+	InventoryType uint32                `json:"inventory_type"`
+	DisplayID     uint32                `json:"display_id"`
 	// Icon is the icon *name* from world.item_display_info (e.g. INV_Sword_04).
 	// The dashboard renders no image files; names are informational only.
-	Icon   string     `json:"icon"`
-	Detail ItemDetail `json:"detail"`
+	Icon         string                `json:"icon"`
+	Enchantments []ItemEnchantmentInfo `json:"enchantments,omitempty"`
+	Detail       ItemDetail            `json:"detail"`
 }
 
 type BagContainer struct {
@@ -103,14 +115,15 @@ type BagContainer struct {
 }
 
 type BagItem struct {
-	Slot         uint8      `json:"slot"`
-	ItemTemplate uint32     `json:"item_template"`
-	Count        uint32     `json:"count"`
-	Name         string     `json:"name"`
-	Quality      uint8      `json:"quality"`
-	DisplayID    uint32     `json:"display_id"`
-	Icon         string     `json:"icon"`
-	Detail       ItemDetail `json:"detail"`
+	Slot         uint8                 `json:"slot"`
+	ItemTemplate uint32                `json:"item_template"`
+	Count        uint32                `json:"count"`
+	Name         string                `json:"name"`
+	Quality      uint8                 `json:"quality"`
+	DisplayID    uint32                `json:"display_id"`
+	Icon         string                `json:"icon"`
+	Enchantments []ItemEnchantmentInfo `json:"enchantments,omitempty"`
+	Detail       ItemDetail            `json:"detail"`
 }
 
 // CharacterStats mirrors tw_char.character_armory_stats with a fallback to
@@ -154,6 +167,16 @@ type CharacterStats struct {
 	MeleeHit          float64 `json:"melee_hit"`
 	RangedHit         float64 `json:"ranged_hit"`
 	SpellHit          float64 `json:"spell_hit"`
+	SpellDamage       uint32  `json:"spell_damage"`
+	HealingPower      uint32  `json:"healing_power"`
+	SpellCritPct      float64 `json:"spell_crit_pct"`
+	ManaRegen         uint32  `json:"mana_regen"`
+	SpellDmgFire      uint32  `json:"spell_dmg_fire,omitempty"`
+	SpellDmgFrost     uint32  `json:"spell_dmg_frost,omitempty"`
+	SpellDmgShadow    uint32  `json:"spell_dmg_shadow,omitempty"`
+	SpellDmgNature    uint32  `json:"spell_dmg_nature,omitempty"`
+	SpellDmgArcane    uint32  `json:"spell_dmg_arcane,omitempty"`
+	SpellDmgHoly      uint32  `json:"spell_dmg_holy,omitempty"`
 }
 
 type SpellEntry struct {
