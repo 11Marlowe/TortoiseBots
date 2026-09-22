@@ -67,10 +67,18 @@ bool HireLifecycle::MasterOnline(HiredRecord const& record) const
         !master->GetSession()->IsHeadless();
 }
 
-void HireLifecycle::Dismiss(HiredRecord const& record, char const* reason)
+void HireLifecycle::Dismiss(HiredRecord const& record, char const* reason, bool removeFromGroup)
 {
+    uint32_t botGuidLow = record.botGuid.GetCounter();
+    if (!m_dismissing.insert(botGuidLow).second)
+        return;
+
+    // Issue #243: Erase from active hired registry up-front so that any subsequent
+    // group callbacks (e.g. Group::Disband triggered by RemoveMember) do not see this bot as an active hire.
+    m_hired.erase(botGuidLow);
+
     Player* bot = sObjectAccessor.FindPlayer(record.botGuid);
-    if (bot && bot->GetGroup())
+    if (removeFromGroup && bot && bot->GetGroup())
         bot->GetGroup()->RemoveMember(record.botGuid, 0);
 
     // Zero-strain vs living-world: with no random pool the hire logs off
@@ -98,7 +106,7 @@ void HireLifecycle::Dismiss(HiredRecord const& record, char const* reason)
         TB_LOG_BASIC("TortoiseBots: hired bot %s dismissed (%s); logging off",
             record.botGuid.GetString().c_str(), reason ? reason : "released");
         BotManager::Instance().RemoveBot(record.botGuid, true);
-        m_hired.erase(record.botGuid.GetCounter());
+        m_dismissing.erase(botGuidLow);
         return;
     }
 
@@ -110,7 +118,7 @@ void HireLifecycle::Dismiss(HiredRecord const& record, char const* reason)
     }
     BotManager::Instance().ClearBotMaster(record.botGuid);
     BotActivityLeaseManager::Instance().ReleaseMaster(record.botGuid.GetCounter());
-    m_hired.erase(record.botGuid.GetCounter());
+    m_dismissing.erase(botGuidLow);
 }
 
 void HireLifecycle::OnGroupMemberRemoved(Group* group, ObjectGuid guid)
@@ -122,23 +130,18 @@ void HireLifecycle::OnGroupMemberRemoved(Group* group, ObjectGuid guid)
         return;
     // Kicked or left by choice: the hire ends. Master-offline grace is only
     // for disconnects (master object gone), never for explicit removals.
-    Player* bot = sObjectAccessor.FindPlayer(guid);
-    if (bot && BotManager::Instance().IsBot(guid) && !MasterOnline(it->second))
-    {
-        // Master already offline and someone removed the bot: still dismiss.
-        Dismiss(it->second, "removed from group");
-        return;
-    }
+    // Core has already removed the member from the group before this hook.
     HiredRecord record = it->second;
-    Dismiss(record, "removed from group");
+    Dismiss(record, "removed from group", false);
 }
 
 void HireLifecycle::OnGroupDisband(Group* group)
 {
     if (!group)
         return;
-    // The member list is cleared by the core after this hook in some paths;
-    // snapshot hired members first, then dismiss.
+    // Issue #243: The group is already being disbanded by the core, which will
+    // clean up member slots and session state. Snapshot hired members first,
+    // then dismiss without calling RemoveMember to prevent infinite Disband recursion.
     std::vector<HiredRecord> departing;
     for (auto const& kv : m_hired)
     {
@@ -146,7 +149,7 @@ void HireLifecycle::OnGroupDisband(Group* group)
             departing.push_back(kv.second);
     }
     for (HiredRecord const& record : departing)
-        Dismiss(record, "group disbanded");
+        Dismiss(record, "group disbanded", false);
 }
 
 void HireLifecycle::OnMasterLogin(Player* master)

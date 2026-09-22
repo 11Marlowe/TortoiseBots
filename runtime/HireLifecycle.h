@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <ctime>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 class Player;
@@ -54,12 +55,13 @@ private:
         bool greeted = false;
     };
 
-    void Dismiss(HiredRecord const& record, char const* reason);
+    void Dismiss(HiredRecord const& record, char const* reason, bool removeFromGroup = true);
     bool MasterOnline(HiredRecord const& record) const;
     void Reunite(HiredRecord& record, Player* master);
     void SweepGracePeriod(time_t now);
 
     std::unordered_map<uint32_t, HiredRecord> m_hired;
+    std::unordered_set<uint32_t> m_dismissing;
     uint32_t m_updateElapsedMs = 0;
 };
 
