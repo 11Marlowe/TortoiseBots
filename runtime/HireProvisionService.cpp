@@ -38,8 +38,10 @@
 #endif
 
 #include <algorithm>
+#include <chrono>
 #include <ctime>
 #include <random>
+#include <thread>
 
 namespace TortoiseBots
 {
@@ -272,6 +274,8 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     {
         outcome.status = HireStatus::NoCandidate;
         outcome.message = "No mercenary of that kind is available right now. Try again shortly.";
+        sLog.outError("TortoiseBots: hire NoCandidate class %u race %u gender %u role %u (reuse + create both failed)",
+            uint32(resolved.classId), uint32(resolved.race), uint32(resolved.gender), uint32(resolved.role));
         return outcome;
     }
 
@@ -378,7 +382,9 @@ bool HireProvisionService::FindReusableCandidate(HireSelection const& sel, uint3
             accountIds.push_back(id);
     } while (accounts->NextRow());
 
-    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
+    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM);
+    if (!perAccountLimit)
+        perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
     if (!perAccountLimit)
         perAccountLimit = 10;
 
@@ -406,8 +412,10 @@ bool HireProvisionService::FindReusableCandidate(HireSelection const& sel, uint3
             parsed.push_back(r);
         } while (rows->NextRow());
         if (rowCount >= perAccountLimit)
+        {
+            TB_LOG_DETAIL("TortoiseBots: hire reuse skips full RNDBOT account %u (%u chars)", id, rowCount);
             continue;
-
+        }
         for (Row const& r : parsed)
         {
             if (r.race != sel.race || r.cls != sel.classId || r.gender != sel.gender)
@@ -438,10 +446,13 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
     if (prefix.empty())
         prefix = "RNDBOT";
 
-    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
+    uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM);
+    if (!perAccountLimit)
+        perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_ACCOUNT);
     if (!perAccountLimit)
         perAccountLimit = 10;
     bool allowTwoSide = sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_ACCOUNTS) != 0;
+
 
     std::unique_ptr<QueryResult> accounts(LoginDatabase.PQuery(
         "SELECT id FROM account WHERE username LIKE '%s%%' ORDER BY id", prefix.c_str()));
@@ -481,9 +492,15 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
         if (!allowTwoSide)
         {
             if (hasAlliance && hasHorde)
+            {
+                TB_LOG_DETAIL("TortoiseBots: hire create skips mixed-faction RNDBOT account %u", id);
                 return false;
+            }
             if ((hasAlliance && requesterTeam == HORDE) || (hasHorde && requesterTeam == ALLIANCE))
+            {
+                TB_LOG_DETAIL("TortoiseBots: hire create skips wrong-team RNDBOT account %u", id);
                 return false;
+            }
         }
         return true;
     };
@@ -501,6 +518,9 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
     {
         // Allocate one fresh RNDBOT account. Password is random, hashed by the
         // core, and never logged. Bounded: 20 name attempts, then fail closed.
+        // NOTE: CreateAccount queues its INSERT on the async LoginDatabase
+        // worker at runtime; GetId serves a stale in-memory map, so retry the
+        // SAME name until it drains instead of minting orphan accounts.
         std::string safePrefix = prefix.substr(0, MAX_ACCOUNT_STR > 6 ? MAX_ACCOUNT_STR - 6 : 0);
         for (int attempt = 0; attempt < 20 && !chosenAccount; ++attempt)
         {
@@ -526,17 +546,31 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
                 for (int i = 0; i < 12; ++i)
                     password.push_back(charset[urand(0, uint32(sizeof(charset) - 2))]);
             }
-            if (sAccountMgr.CreateAccount(username, password) == AOR_OK)
+            AccountOpResult created = sAccountMgr.CreateAccount(username, password);
+            if (created != AOR_OK)
             {
-                uint32_t id = sAccountMgr.GetId(username);
-                if (id)
-                    chosenAccount = id;
-                else
-                    return false;
+                sLog.outError("TortoiseBots: hire CreateAccount %s failed result %u", username.c_str(), uint32(created));
+                continue;
             }
+            // GetId re-queries the DB on a cache miss (synchronous query
+            // connection), so it observes the just-committed row once the
+            // async INSERT drains. Retry the same hired name a few times
+            // instead of minting orphan accounts per attempt.
+            uint32_t freshId = 0;
+            for (int wait = 0; wait < 10 && !freshId; ++wait)
+            {
+                freshId = sAccountMgr.GetId(username);
+                if (!freshId)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            }
+            if (!freshId)
+            {
+                sLog.outError("TortoiseBots: hire created account %s but its id never became visible; giving up on it", username.c_str());
+                return false;
+            }
+            sLog.outString("TortoiseBots: hire minted fresh account %s (%u)", username.c_str(), freshId);
+            chosenAccount = freshId;
         }
-        if (!chosenAccount)
-            return false;
     }
 
     for (int attempt = 0; attempt < 8; ++attempt)
@@ -571,6 +605,8 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
         if (outcome.result == CHAR_CREATE_NAME_IN_USE || outcome.result == CHAR_NAME_RESERVED ||
             outcome.result == CHAR_NAME_PROFANE || outcome.result == CHAR_CREATE_FAILED)
             continue;
+        sLog.outError("TortoiseBots: hire CreateCharacter %s on account %u failed result %u",
+            norm.c_str(), chosenAccount, uint32(outcome.result));
         return false;
     }
     return false;
