@@ -16,6 +16,15 @@ bool FollowAction::Execute(Event& event)
     Unit* followTarget = AI_VALUE(Unit*, "follow target");
     Formation* formation = AI_VALUE(Formation*, "formation");
 
+    // BoostFollow: match the mount state instead of speed-hacking. A mounted
+    // master outruns an unmounted bot at any speed multiplier, and UpdateSpeed
+    // cheats leak into combat. The mount action already owns mounting rules;
+    // here we only make sure a far-behind bot is eligible to mount up.
+    if (sPlayerbotAIConfig.boostFollow && followTarget && followTarget != bot &&
+        !bot->IsMounted() && !bot->IsInCombat() &&
+        sServerFacade.IsDistanceGreaterThan(sServerFacade.getDistance2d(bot, followTarget), sPlayerbotAIConfig.reactDistance))
+        ai->DoSpecificAction("check mount state", Event(), true);
+
     if (ai->IsSafe(followTarget))
     {
         if (formation)

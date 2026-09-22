@@ -71,6 +71,17 @@ void WarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         "no healthstone",
         NextAction::array(0, new NextAction("create healthstone", ACTION_NORMAL), NULL)));
 
+    // Soul shard upkeep: keep one shard for pet summons/stones without
+    // hoarding bag space. Both creators already exist in the warlock context;
+    // only the dead generic file queued them.
+    triggers.push_back(new TriggerNode(
+        "no soul shard",
+        NextAction::array(0, new NextAction("create soul shard", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "too many soul shards",
+        NextAction::array(0, new NextAction("destroy soul shard", ACTION_NORMAL), NULL)));
+
     triggers.push_back(new TriggerNode(
         "no soulstone",
         NextAction::array(0, new NextAction("create soulstone", ACTION_NORMAL), NULL)));

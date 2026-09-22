@@ -111,6 +111,7 @@ namespace BotCommands {
 static bool IsRaidTargetMark(std::string const& mark);
 static std::string CurrentCcMark(PlayerbotAI* ai);
 static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent);
+static bool ExecuteInterruptAction(ChatHandler* handler, BotCommandContext const& context, Player* requester);
 
 static std::string Trim(std::string value)
 {
@@ -364,6 +365,103 @@ static bool HandleUninvite(ChatHandler* handler, char const* args)
     packet << bot->GetName();
     requester->GetSession()->HandleGroupUninviteOpcode(packet);
     handler->PSendSysMessage("Uninvite sent for bot %s.", name.c_str());
+    return true;
+}
+
+// Direct single-bot interrupt: same probe-and-execute path as
+// `.bot action interrupt`, but scoped to one owned bot instead of a
+// tactical executor search. Resolving the owner-selected or named bot first
+// keeps this consistent with .bot attack/.bot stay single-target verbs.
+static bool HandleInterrupt(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    Player* bot = nullptr;
+    BotRecord* record = nullptr;
+    std::string name;
+    if (!requester || !ResolveOwnedBot(handler, args, bot, record, name))
+    {
+        handler->PSendSysMessage("Usage: .bot interrupt <online bot name> (same account only)");
+        return true;
+    }
+    Unit* target = nullptr;
+    ObjectGuid selectionGuid = requester->GetSelectionGuid();
+    if (!selectionGuid.IsEmpty())
+    {
+        Unit* selected = requester->GetSelectedUnit();
+        if (selected && selected != requester &&
+            !BotManager::Instance().IsBot(selected->GetObjectGuid()))
+            target = selected;
+    }
+    if (!target || !target->IsInWorld() || !target->IsAlive())
+    {
+        handler->PSendSysMessage("Select a live enemy target first.");
+        return true;
+    }
+    if (!target->IsNonMeleeSpellCasted(true))
+    {
+        handler->PSendSysMessage("The target is not casting an interruptible spell.");
+        return true;
+    }
+    BotCommandContext context;
+    context.requester = requester;
+    context.selectedBot = bot;
+    context.enemyTarget = target;
+    return ExecuteInterruptAction(handler, context, requester);
+}
+
+// Direct strategy toggle: `.bot strategy <+|-name> [bot]` fans out over the
+// dynamic scope (selected bot or owned party bots), mirroring `.bot loot`.
+// Thin wrapper over the mature ChangeStrategy path; validation and
+// persistence stay AI-owned via ChangeStrategyAction/DbStore.
+static bool HandleStrategy(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+    std::string input = Trim(args ? args : "");
+    if (input.empty() || (input[0] != '+' && input[0] != '-' && input[0] != '~'))
+    {
+        handler->PSendSysMessage("Usage: .bot strategy <+|-|~strategy> [bot] (e.g. .bot strategy +loot, .bot strategy -passive)");
+        return true;
+    }
+    size_t separator = input.find_first_of(" \t");
+    std::string change = separator == std::string::npos ? input : Trim(input.substr(0, separator));
+    std::string botToken = separator == std::string::npos ? std::string() : Trim(input.substr(separator + 1));
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope;
+    if (!botToken.empty())
+    {
+        Player* bot = nullptr;
+        BotRecord* record = nullptr;
+        std::string name;
+        if (!ResolveOwnedBot(handler, botToken.c_str(), bot, record, name))
+        {
+            handler->PSendSysMessage("You may only control an online bot on your account.");
+            return true;
+        }
+        scope.push_back(bot);
+    }
+    else
+        scope = ResolveDynamicScope(context);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        ai->ChangeStrategy(change, BotState::BOT_STATE_ALL);
+        sPlayerbotDbStore.Save(ai);
+        ++succeeded;
+    }
+    handler->PSendSysMessage("Strategy change '%s' applied to %u bot(s).", change.c_str(), succeeded);
     return true;
 }
 
@@ -1416,6 +1514,13 @@ static bool HandleSummon(ChatHandler* handler, char const* args)
     if (requester->IsTaxiFlying())
     {
         handler->PSendSysMessage("You cannot summon while on a taxi.");
+        return true;
+    }
+    // NonGmFreeSummon gates unrestricted summoning: without it only GMs may
+    // summon freely (CanControlBot already limits scope to owned bots).
+    if (!sPlayerbotAIConfig.nonGmFreeSummon && !IsBotAdministrator(requester))
+    {
+        handler->PSendSysMessage("Summoning is restricted to GameMasters (AiPlayerbot.NonGmFreeSummon = 0).");
         return true;
     }
     std::string name = Trim(args ? args : "");
@@ -2487,7 +2592,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ah");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/strategy/ah");
         return true;
     }
 
@@ -2521,7 +2626,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleFollow(handler, subArgs);
     if (cmd == "invite")
         return HandleInvite(handler, subArgs);
-    if (cmd == "uninvite")
+    if (cmd == "uninvite" || cmd == "kick")
         return HandleUninvite(handler, subArgs);
     if (cmd == "stay")
         return HandleStay(handler, subArgs);
@@ -2533,6 +2638,8 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleReady(handler, subArgs);
     if (cmd == "attack")
         return HandleAttack(handler, subArgs);
+    if (cmd == "interrupt")
+        return HandleInterrupt(handler, subArgs);
     if (cmd == "formation")
         return HandleFormation(handler, subArgs);
     if (cmd == "list")
@@ -2571,7 +2678,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Usage: .bot corpse run");
         return true;
     }
-    if (cmd == "corpse run" || cmd == "corpserun")
+    if (cmd == "corpserun")
         return HandleCorpseRun(handler, subArgs);
     if (cmd == "learn")
         return HandleLearn(handler, subArgs);
@@ -2579,6 +2686,8 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleTrade(handler, subArgs);
     if (cmd == "command")
         return HandleMatureCommand(handler, subArgs);
+    if (cmd == "strategy")
+        return HandleStrategy(handler, subArgs);
     if (cmd == "help" || cmd == "h")
     {
         handler->PSendSysMessage("TortoiseBots: Enabled");

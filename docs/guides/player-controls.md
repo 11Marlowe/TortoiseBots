@@ -66,7 +66,7 @@ These commands manage the login, party membership, and presence of your owned bo
 | **Logout Bot** | `.bot remove <Name>` *(or `logout`)* | Cleanly logs out an active headless bot on your account. |
 | **Invite to Party** | `.bot invite <Name>` | Sends a party invite to an online bot on your account. |
 | **Uninvite from Party**| `.bot uninvite <Name>` *(or `kick`)*| Removes an owned bot from your group. |
-| **Summon** | `.bot summon [Name]` | Teleports your owned party bot(s) safely to your location out of combat. |
+| **Summon** | `.bot summon <Name>` | Teleports one owned bot safely to your location out of combat. Requires `AiPlayerbot.NonGmFreeSummon = 1` unless you are a GM. |
 | **Release Spirit** | `.bot release` | Commands dead companion bots to release spirit to the graveyard. Also available as `.bot action release`. |
 | **Corpse Run** | `.bot corpse run` | Commands spirit bots to run back to their corpse or instance entrance. Also available as `.bot action corpse run`. |
 | **Learn Spells** | `.bot learn` | Commands companion bots near matching trainers to learn affordable spells. Also available as `.bot action learn`. |
@@ -80,13 +80,15 @@ Direct command shortcuts that operate on your targeted bot or all party bots:
 
 | Command | Parameters | What It Does |
 | :--- | :--- | :--- |
-| `.bot follow` | `[Name]` | Orders targeted bot (or all party bots) to follow the requester. |
-| `.bot stay` | `[Name]` | Orders targeted bot (or all party bots) to stay at current location. |
-| `.bot guard` | `[Name]` | Orders bot to guard its current position and engage nearby threats. |
-| `.bot free` | `[Name]` | Releases bot from stay/guard back to free autonomous movement. |
+| `.bot follow` | `<Name>` | Orders one owned bot to follow the requester (party-wide: `.bot action follow`). |
+| `.bot stay` | `<Name>` | Orders one owned bot to stay at its current location (party-wide: `.bot action stay`). |
+| `.bot guard` | `<Name>` | Orders one owned bot to guard its current position and engage nearby threats. |
+| `.bot free` | `<Name>` | Releases one owned bot from stay/guard back to free autonomous movement. |
 | `.bot ready` | None | Checks if party bots are ready (health/mana full, buffs active). |
-| `.bot attack` | `[Name]` | Orders targeted bot to attack your current hostile target. |
+| `.bot attack` | `<Name>` | Orders one owned bot to attack your current hostile target (party-wide: `.bot action attack`). |
+| `.bot interrupt` | `<Name>` | Orders one owned bot to interrupt your current target's cast (party-wide: `.bot action interrupt`). |
 | `.bot pullback` | `[Name]` | Dispatches pullback maneuver on the specified bot or designated tank. |
+| `.bot strategy` | `<+|-|~strategy> [Name]` | Applies a strategy change to the selected bot, named bot, or all owned party bots (e.g. `.bot strategy +loot`, `.bot strategy -passive`). Also available per-bot via whispers (`co`, `nc`) or `.bot command <BotName> <change>`. |
 | `.bot formation` | `<arrow\|queue\|near\|line\|circle\|shield>` | Sets the geometric follow formation around the party leader. |
 | `.bot loot` | `[on\|off]` | Toggles corpse looting on the targeted bot (or all party bots); on by default. Also available as `.bot action loot [on\|off]`. |
 | `.bot repair` | None | Orders the targeted bot (or all party bots) to repair gear at a nearby vendor. Also available as `.bot action repair`. |

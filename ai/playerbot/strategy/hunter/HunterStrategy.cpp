@@ -65,6 +65,13 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "counterattack",
         NextAction::array(0, new NextAction("counterattack", ACTION_HIGH + 2), NULL)));
 
+    // Wyvern sting: sleep-based snare fallback when concussive shot is on
+    // cooldown or unusable. The snare trigger fires only on unsnared targets;
+    // the action's own usefulness gates ammo + spell state.
+    triggers.push_back(new TriggerNode(
+        "wyvern sting",
+        NextAction::array(0, new NextAction("wyvern sting", ACTION_HIGH + 1), NULL)));
+
     triggers.push_back(new TriggerNode(
         "stealthed nearby",
         NextAction::array(0, new NextAction("flare", ACTION_HIGH + 1), NULL)));
@@ -76,6 +83,14 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "aimed shot",
         NextAction::array(0, new NextAction("aimed shot", ACTION_NORMAL + 2), NULL)));
+
+    // Distracting shot: peel a peeling target back onto the hunter when the
+    // bot is losing it. "medium threat" fires when the bot trails the tank
+    // but still holds measurable threat; usefulness stays with the mature
+    // action (ammo + spell state).
+    triggers.push_back(new TriggerNode(
+        "medium threat",
+        NextAction::array(0, new NextAction("distracting shot", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
         "arcane shot",

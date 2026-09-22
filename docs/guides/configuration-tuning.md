@@ -106,11 +106,11 @@ You do not need to restart the server to adjust tactical behavior during gamepla
 - `.bot action cc <mark>` — Assigns CC to a specific raid marker (e.g. Moon, Star).
 
 ### Strategy & Stance Toggles
-Using `.bot strategy <+|-strategy>` or the `/tbm` addon:
-- `+conserve mana` / `-conserve mana` — Restricts casters to basic, high-efficiency spells.
-- `+loot` / `-loot` — Toggles whether bots run to loot corpses after combat.
-- `+silent` / `-silent` — Silences bot chatter in party/say chat so they execute commands quietly.
-- `+passive` / `-passive` — Halts all bot attacks; bots will only follow and hold fire.
+Using `.bot strategy <change> [Name]` (change first, optional bot name second) or the `/tbm` addon:
+- `.bot strategy +conserve mana` / `.bot strategy -conserve mana` — Restricts casters to basic, high-efficiency spells.
+- `.bot strategy +loot` / `.bot strategy -loot` — Toggles whether bots run to loot corpses after combat.
+- `.bot strategy +silent` / `.bot strategy -silent` — Silences bot chatter in party/say chat so they execute commands quietly.
+- `.bot strategy -passive` — Halts all bot attacks; bots will only follow and hold fire.
 - `.bot formation <arrow|line|circle|shield>` — Changes follow positioning around the leader.
 
 ---
