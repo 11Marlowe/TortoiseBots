@@ -211,7 +211,33 @@ void PlayerbotFactory::MakeComplete()
     InitPotions();
     InitFood();
     AddConsumables();
+    // Two equips can land in one slot: the starter kit row never enters this
+    // session's item map, so DestroyItem cannot see it and the loser row
+    // survives in the DB (3243 live duplicates found). Keep only the best
+    // item per contested slot and drop the loser plus its orphaned instance
+    // row — two indexed statements, idempotent.
+    PruneDuplicateEquipRows();
     bot->SaveToDB();
+}
+
+void PlayerbotFactory::PruneDuplicateEquipRows()
+{
+    if (!bot)
+        return;
+
+    uint32 guid = bot->GetGUIDLow();
+    CharacterDatabase.PExecute(
+        "DELETE ci FROM character_inventory ci WHERE ci.guid = %u AND ci.bag = 0 "
+        "AND ci.slot IN (4,6,7,15,16,17) "
+        "AND ci.item NOT IN (SELECT item FROM (SELECT x.item, "
+        "ROW_NUMBER() OVER (PARTITION BY x.slot ORDER BY it.item_level DESC, it.Quality DESC, x.item DESC) rn "
+        "FROM character_inventory x JOIN tw_world.item_template it ON it.entry = x.item_template "
+        "WHERE x.guid = %u AND x.bag = 0 AND x.slot IN (4,6,7,15,16,17)) t WHERE t.rn = 1)",
+        guid, guid);
+    CharacterDatabase.PExecute(
+        "DELETE ii FROM item_instance ii LEFT JOIN character_inventory ci ON ci.item = ii.guid "
+        "WHERE ci.item IS NULL AND ii.owner_guid = %u",
+        guid);
 }
 
 // Issue #192: spells + skills + incremental gear for a hired companion.
