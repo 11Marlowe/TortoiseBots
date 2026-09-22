@@ -28,7 +28,7 @@ These settings dramatically enhance the solo or small-group experience with owne
 | Setting | Default | Recommended | What It Does |
 | :--- | :---: | :---: | :--- |
 | `AiPlayerbot.SyncAltLevelToMaster` | `0` | **`1`** | **Auto-Level Bot Alts:** When enabled, all bot characters on your account automatically level up to match your main character's level as you progress. |
-| `AiPlayerbot.BoostFollow` | `0` | **`1`** | **Sprint to Catch Up:** Bots temporarily increase run speed when they fall behind the leader, preventing them from trailing or getting caught on dungeon geometry. |
+| `AiPlayerbot.BoostFollow` | `0` | **`1`** | **Mount Up to Catch Up:** Bots far behind the leader (beyond react distance) trigger a mount check so they ride to catch up instead of trailing on foot. No speed hack; combat-safe. |
 | `AiPlayerbot.NonGmFreeSummon` | `0` | **`1`** | **Unrestricted Summoning:** Allows regular players without GM status to use `.bot summon` to gather their bots out of combat anywhere. |
 | `AiPlayerbot.AutoLearnQuestSpells` | `1` | **`1`** | **Class Quest Rewards:** Automatically teaches spells awarded by completed class quests (e.g. Paladin Resurrection, Warlock pet summons, Shaman totems). |
 | `AiPlayerbot.AutoLearnTrainerSpells` | `0` | **`0`** | **Free Trainer Spells (random pool only):** When on, random bots learn every green-eligible trainer spell on level-up (Dual Wield at live data level, rank upgrades, poisons). When off, no free sweep runs — but paid trainer visits with gold still teach. Owned bots never get free spells either way. |

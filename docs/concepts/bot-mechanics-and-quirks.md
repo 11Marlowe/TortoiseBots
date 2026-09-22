@@ -70,7 +70,7 @@ Bot movement bridges native C++ AI directly to the core server's `MotionMaster`:
 | Movement Subsystem | Implementation Details |
 | :--- | :--- |
 | **Formations** | Supports 6 geometric formations: `arrow`, `queue`, `near`, `line`, `circle`, `shield`. The bot calculates local offsets relative to the master's orientation and updates target coordinates. |
-| **Catch-Up Sprint (`BoostFollow`)** | When enabled in configuration (`AiPlayerbot.BoostFollow = 1`), bots falling further than 15 yards behind the leader temporarily gain a movement speed multiplier to close the gap quickly. |
+| **Catch-Up Mount (`BoostFollow`)** | When enabled in configuration (`AiPlayerbot.BoostFollow = 1`), bots far behind the leader (beyond react distance) trigger a check-mount-state so they mount up and ride to catch up instead of trailing on foot. No speed multiplier; combat-safe. |
 | **Hunter Dead-Zone Weaving** | When an enemy approaches within 8 yards (the ranged dead zone), Hunter bots automatically cast *Wing Clip* or *Disengage*, step into melee with *Mongoose Bite* / *Carve*, and step back to ranged distance as soon as the target is snared. |
 | **Kiting & Fleeing** | Casters and healers evaluate melee proximity. If an enemy closes in without tank threat, the bot invokes `FleeAction`, dropping snares (*Frost Nova*, *Earthbind Totem*, *Psychic Scream*) and retreating toward the tank. |
 | **Elevators & Transports** | Moving transports (boats, zeppelins, elevators) use `TransportTeleportType` (default `2`). Rather than desyncing on complex moving geometry, bots safely teleport from dock to dock or follow the master's transport coordinates. |
