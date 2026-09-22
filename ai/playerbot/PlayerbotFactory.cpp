@@ -3547,18 +3547,27 @@ void PlayerbotFactory::InitAmmo()
 
     if (!entry || count <= 2)
     {
-        uint32 oldEntry = entry;
         entry = sRandomItemMgr.GetAmmo(level, subClass);
-        // Owner spec: vendor tier for the level — drop the level-1 starter
-        // stack (Rough Arrow) when the tier changes instead of leaving it
-        // rotting in the bags next to the new stock.
-        if (entry && oldEntry && entry != oldEntry && bot->GetItemCount(oldEntry))
-            bot->DestroyItemCount(oldEntry, bot->GetItemCount(oldEntry), true);
         count = bot->GetItemCount(entry) / 200;
     }
 
     if (!entry)
         return;
+
+    // Owner spec: no starter-tier leftovers. Once the tier is known, remove
+    // every other projectile stack from the bags — the fresh-seed case has
+    // ammoId = 0 with a Rough Arrow stack already in the bags, which the
+    // old stale-entry destroy could never match (52-stack sighting on the
+    // live pool).
+    {
+        FindAmmoVisitor ammoVisitor(bot, pItem->GetProto()->SubClass);
+        ai->InventoryIterateItems(&ammoVisitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        for (Item* oldAmmo : ammoVisitor.GetResult())
+        {
+            if (oldAmmo && oldAmmo->GetEntry() != entry)
+                bot->DestroyItem(oldAmmo->GetBagSlot(), oldAmmo->GetSlot(), true);
+        }
+    }
 
     if (count < maxCount)
     {
