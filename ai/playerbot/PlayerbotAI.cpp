@@ -536,14 +536,20 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
             // with the terrain beneath, and the bot "falls" through the floor onto ground that
             // has no way back up (seen: a dungeon tank that hopped once in a chase, and the
             // random bots that collect under Stormwind). The navmesh knows better: a walkable
-            // polygon right under the feet means the bot has landed. Failing that, no jump is
-            // planned with a landing further down than JumpHeightLimit, so a fall longer than
-            // that was not in the plan either - stay at the height the jump ended on.
+            // polygon AT OR UNDER the feet means the bot has landed. Failing that, a fall
+            // deeper than AiPlayerbot.JumpHeightLimit is refused - the bot stays at the
+            // height the jump ended on.
             if (bot->m_movementInfo.pos.z - landingHeight > 5.0f)
             {
-                WorldPosition feet(bot->GetMapId(), bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z);
-                if (feet.isMmapLoaded(bot->GetInstanceId()) && feet.ClosestCorrectPoint(2.0f, 4.0f, bot->GetInstanceId()))
-                    landingHeight = feet.getZ();
+                // ClosestCorrectPoint's box spans kFeetProbeDepth either side of its query
+                // point; centering the query kFeetProbeDepth below the feet puts the top of
+                // the box AT the feet, so only floor at or under the bot can be found. A deck
+                // over the head (a canal bridge) must not count as landing ground - it would
+                // snap the landing above where the jump ended.
+                constexpr float kFeetProbeDepth = 4.0f;
+                WorldPosition feet(bot->GetMapId(), bot->m_movementInfo.pos.x, bot->m_movementInfo.pos.y, bot->m_movementInfo.pos.z - kFeetProbeDepth);
+                if (feet.isMmapLoaded(bot->GetInstanceId()) && feet.ClosestCorrectPoint(2.0f, kFeetProbeDepth, bot->GetInstanceId()))
+                    landingHeight = std::min(feet.getZ(), bot->m_movementInfo.pos.z);
                 else if (bot->m_movementInfo.pos.z - landingHeight > sPlayerbotAIConfig.jumpHeightLimit)
                     landingHeight = bot->m_movementInfo.pos.z;
             }
