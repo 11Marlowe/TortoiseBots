@@ -90,7 +90,11 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 		}
 		bots = append(bots, b)
 	}
-	return bots, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	s.resolveBotSpecs(bots)
+	return bots, nil
 }
 
 func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
@@ -122,7 +126,9 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	eqQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.item_level, it.inventory_type, it.display_id,
-		       COALESCE(idi.icon, '') AS icon, %s
+		       COALESCE(idi.icon, '') AS icon,
+		       COALESCE(ii.enchantments, '') AS enchantments,
+		       COALESCE(ii.randomPropertyId, 0) AS random_property_id, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
@@ -137,7 +143,8 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	bagQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.container_slots, it.display_id,
-		       COALESCE(idi.icon, '') AS icon, %s
+		       COALESCE(idi.icon, '') AS icon,
+		       COALESCE(ii.randomPropertyId, 0) AS random_property_id, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
@@ -158,7 +165,9 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		contentQuery := fmt.Sprintf(`
 			SELECT ci.slot, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 			       it.name, it.quality, it.display_id,
-			       COALESCE(idi.icon, '') AS icon, %s
+			       COALESCE(idi.icon, '') AS icon,
+			       COALESCE(ii.enchantments, '') AS enchantments,
+			       COALESCE(ii.randomPropertyId, 0) AS random_property_id, %s
 			FROM character_inventory ci
 			JOIN character_inventory container
 			  ON container.guid = ci.guid
@@ -177,16 +186,20 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		}
 		for rows.Next() {
 			var bi BagItem
+			var rawEnchants string
+			var randPropID uint32
 			var st, sv [10]int32
 			var sp [5]uint32
 			var tr [5]uint8
-			base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon}
+			base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon, &rawEnchants, &randPropID}
 			if err := rows.Scan(append(base, detailDests(&bi.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 				rows.Close()
 				return nil, err
 			}
 			foldDetail(&bi.Detail, st, sv, sp, tr)
 			s.resolveSpellNames(&bi.Detail)
+			s.applyRandomProperties(&bi.Name, &bi.Detail, randPropID)
+			bi.Enchantments = s.parseEnchantments(rawEnchants)
 			profile.Bags[i].Items = append(profile.Bags[i].Items, bi)
 		}
 		rows.Close()
@@ -201,7 +214,9 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	bpQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.display_id,
-		       COALESCE(idi.icon, '') AS icon, %s
+		       COALESCE(idi.icon, '') AS icon,
+		       COALESCE(ii.enchantments, '') AS enchantments,
+		       COALESCE(ii.randomPropertyId, 0) AS random_property_id, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
@@ -218,7 +233,9 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	bbQuery := fmt.Sprintf(`
 		SELECT ci.slot, ci.item_template, COALESCE(ii.`+"`count`"+`, 1),
 		       it.name, it.quality, it.display_id,
-		       COALESCE(idi.icon, '') AS icon, %s
+		       COALESCE(idi.icon, '') AS icon,
+		       COALESCE(ii.enchantments, '') AS enchantments,
+		       COALESCE(ii.randomPropertyId, 0) AS random_property_id, %s
 		FROM character_inventory ci
 		JOIN %s.item_template it ON ci.item_template = it.entry
 		LEFT JOIN %s.item_display_info idi ON it.display_id = idi.ID
@@ -237,6 +254,7 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	statQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4, maxpower5,
 		strength, agility, stamina, intellect, spirit, armor,
 		resHoly, resFire, resNature, resFrost, resShadow, resArcane,
+		dmgModNormal, dmgModHoly, dmgModFire, dmgModNature, dmgModFrost, dmgModShadow, dmgModArcane,
 		blockPct, dodgePct, parryPct, meleeCritPct, rangedCritPct,
 		attackPower, rangedAttackPower, meleeDamage, rangedDamage,
 		meleeWeaponSpeed, rangedWeaponSpeed, castSpeed, meleeHit, rangedHit, spellHit
@@ -248,13 +266,21 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		&profile.Stats.Intellect, &profile.Stats.Spirit, &profile.Stats.Armor,
 		&profile.Stats.ResHoly, &profile.Stats.ResFire, &profile.Stats.ResNature,
 		&profile.Stats.ResFrost, &profile.Stats.ResShadow, &profile.Stats.ResArcane,
+		&profile.Stats.SpellDamage, &profile.Stats.SpellDmgHoly, &profile.Stats.SpellDmgFire,
+		&profile.Stats.SpellDmgNature, &profile.Stats.SpellDmgFrost, &profile.Stats.SpellDmgShadow,
+		&profile.Stats.SpellDmgArcane,
 		&profile.Stats.BlockPct, &profile.Stats.DodgePct, &profile.Stats.ParryPct,
 		&profile.Stats.MeleeCritPct, &profile.Stats.RangedCritPct,
 		&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower,
 		&profile.Stats.MeleeDamage, &profile.Stats.RangedDamage,
 		&profile.Stats.MeleeSpeed, &profile.Stats.RangedSpeed, &profile.Stats.CastSpeed,
 		&profile.Stats.MeleeHit, &profile.Stats.RangedHit, &profile.Stats.SpellHit)
-	if err != nil {
+	if err == nil {
+		if profile.Stats.HealingPower == 0 {
+			profile.Stats.HealingPower = profile.Stats.SpellDamage
+		}
+		profile.Stats.Source = "armory_stats"
+	} else {
 		fallbackQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4,
 			strength, agility, stamina, intellect, spirit, armor,
 			resHoly, resFire, resNature, resFrost, resShadow, resArcane,
@@ -275,8 +301,6 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 		} else {
 			s.loadLiveStats(guid, &profile.Stats)
 		}
-	} else {
-		profile.Stats.Source = "armory_stats"
 	}
 
 	// 6. Spells: persisted rows (character_spell) plus the race/class defaults
@@ -415,15 +439,19 @@ func (s *Service) scanEquipped(query string, guid uint32, profile *BotProfile) e
 	for rows.Next() {
 		var eq EquippedItem
 		var itemGUID uint32
+		var rawEnchants string
+		var randPropID uint32
 		var st, sv [10]int32
 		var sp [5]uint32
 		var tr [5]uint8
-		base := []interface{}{&eq.Slot, &itemGUID, &eq.ItemTemplate, &eq.Count, &eq.Name, &eq.Quality, &eq.ItemLevel, &eq.InventoryType, &eq.DisplayID, &eq.Icon}
+		base := []interface{}{&eq.Slot, &itemGUID, &eq.ItemTemplate, &eq.Count, &eq.Name, &eq.Quality, &eq.ItemLevel, &eq.InventoryType, &eq.DisplayID, &eq.Icon, &rawEnchants, &randPropID}
 		if err := rows.Scan(append(base, detailDests(&eq.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
 		foldDetail(&eq.Detail, st, sv, sp, tr)
 		s.resolveSpellNames(&eq.Detail)
+		s.applyRandomProperties(&eq.Name, &eq.Detail, randPropID)
+		eq.Enchantments = s.parseEnchantments(rawEnchants)
 		profile.Equipment = append(profile.Equipment, eq)
 	}
 	return rows.Err()
@@ -438,15 +466,17 @@ func (s *Service) scanBags(query string, guid uint32, profile *BotProfile) error
 	profile.Bags = []BagContainer{}
 	for rows.Next() {
 		var b BagContainer
+		var randPropID uint32
 		var st, sv [10]int32
 		var sp [5]uint32
 		var tr [5]uint8
-		base := []interface{}{&b.Slot, &b.Item, &b.ItemTemplate, &b.Count, &b.Name, &b.Quality, &b.ContainerSlots, &b.DisplayID, &b.Icon}
+		base := []interface{}{&b.Slot, &b.Item, &b.ItemTemplate, &b.Count, &b.Name, &b.Quality, &b.ContainerSlots, &b.DisplayID, &b.Icon, &randPropID}
 		if err := rows.Scan(append(base, detailDests(&b.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
 		foldDetail(&b.Detail, st, sv, sp, tr)
 		s.resolveSpellNames(&b.Detail)
+		s.applyRandomProperties(&b.Name, &b.Detail, randPropID)
 		b.Items = []BagItem{}
 		profile.Bags = append(profile.Bags, b)
 	}
@@ -462,15 +492,19 @@ func (s *Service) scanBackpack(query string, guid uint32, profile *BotProfile) e
 	profile.Backpack = []BagItem{}
 	for rows.Next() {
 		var bi BagItem
+		var rawEnchants string
+		var randPropID uint32
 		var st, sv [10]int32
 		var sp [5]uint32
 		var tr [5]uint8
-		base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon}
+		base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon, &rawEnchants, &randPropID}
 		if err := rows.Scan(append(base, detailDests(&bi.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
 		foldDetail(&bi.Detail, st, sv, sp, tr)
 		s.resolveSpellNames(&bi.Detail)
+		s.applyRandomProperties(&bi.Name, &bi.Detail, randPropID)
+		bi.Enchantments = s.parseEnchantments(rawEnchants)
 		profile.Backpack = append(profile.Backpack, bi)
 	}
 	return rows.Err()
@@ -485,15 +519,19 @@ func (s *Service) scanBuyback(query string, guid uint32, profile *BotProfile) er
 	profile.Buyback = []BagItem{}
 	for rows.Next() {
 		var bi BagItem
+		var rawEnchants string
+		var randPropID uint32
 		var st, sv [10]int32
 		var sp [5]uint32
 		var tr [5]uint8
-		base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon}
+		base := []interface{}{&bi.Slot, &bi.ItemTemplate, &bi.Count, &bi.Name, &bi.Quality, &bi.DisplayID, &bi.Icon, &rawEnchants, &randPropID}
 		if err := rows.Scan(append(base, detailDests(&bi.Detail, &st, &sv, &sp, &tr)...)...); err != nil {
 			return err
 		}
 		foldDetail(&bi.Detail, st, sv, sp, tr)
 		s.resolveSpellNames(&bi.Detail)
+		s.applyRandomProperties(&bi.Name, &bi.Detail, randPropID)
+		bi.Enchantments = s.parseEnchantments(rawEnchants)
 		profile.Buyback = append(profile.Buyback, bi)
 	}
 	return rows.Err()
@@ -538,6 +576,7 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	var mainDmgMin, mainDmgMax, mainDelay float64
 	var rangedDmgMin, rangedDmgMax, rangedDelay float64
 	var hasShield bool
+	var itemSpells []uint32
 
 	q := fmt.Sprintf(`SELECT ci.slot, it.armor, it.holy_res, it.fire_res, it.nature_res, it.frost_res, it.shadow_res, it.arcane_res,
 		it.stat_type1, it.stat_value1, it.stat_type2, it.stat_value2,
@@ -545,7 +584,8 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 		it.stat_type5, it.stat_value5, it.stat_type6, it.stat_value6,
 		it.stat_type7, it.stat_value7, it.stat_type8, it.stat_value8,
 		it.stat_type9, it.stat_value9, it.stat_type10, it.stat_value10,
-		it.delay, it.dmg_min1, it.dmg_max1, it.subclass, it.inventory_type
+		it.delay, it.dmg_min1, it.dmg_max1, it.subclass, it.inventory_type,
+		it.spellid_1, it.spellid_2, it.spellid_3, it.spellid_4, it.spellid_5
 		FROM character_inventory ci
 		JOIN %s.item_template it ON it.entry = ci.item_template
 		WHERE ci.guid = ? AND ci.bag = 0 AND ci.slot >= 0 AND ci.slot < %d`,
@@ -561,11 +601,13 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 			var sv1, sv2, sv3, sv4, sv5, sv6, sv7, sv8, sv9, sv10 int32
 			var delay, dmgMin, dmgMax uint32
 			var subClass, invType uint32
+			var sp1, sp2, sp3, sp4, sp5 uint32
 
 			if err := rows.Scan(&slot, &armor, &rHoly, &rFire, &rNat, &rFrst, &rShad, &rArc,
 				&st1, &sv1, &st2, &sv2, &st3, &sv3, &st4, &sv4, &st5, &sv5,
 				&st6, &sv6, &st7, &sv7, &st8, &sv8, &st9, &sv9, &st10, &sv10,
-				&delay, &dmgMin, &dmgMax, &subClass, &invType); err == nil {
+				&delay, &dmgMin, &dmgMax, &subClass, &invType,
+				&sp1, &sp2, &sp3, &sp4, &sp5); err == nil {
 
 				totalArmor += armor
 				resHoly += rHoly; resFire += rFire; resNature += rNat; resFrost += rFrst; resShadow += rShad; resArcane += rArc
@@ -595,6 +637,11 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 					case 7: bonusSta += uint32(pair[1])
 					}
 				}
+				for _, sp := range []uint32{sp1, sp2, sp3, sp4, sp5} {
+					if sp > 0 {
+						itemSpells = append(itemSpells, sp)
+					}
+				}
 			}
 		}
 	}
@@ -606,6 +653,87 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	st.Spirit += float64(bonusSpi)
 	st.Armor = totalArmor + uint32(st.Agility*2.0)
 	st.ResHoly = resHoly; st.ResFire = resFire; st.ResNature = resNature; st.ResFrost = resFrost; st.ResShadow = resShadow; st.ResArcane = resArcane
+
+	var bonusSpellCrit, bonusSpellHit, bonusHit, bonusCrit, bonusAP, bonusRAP float64
+	if len(itemSpells) > 0 {
+		marks := strings.Repeat(", ?", len(itemSpells)-1)
+		args := make([]interface{}, len(itemSpells))
+		for i, id := range itemSpells {
+			args[i] = id
+		}
+		qSpells := fmt.Sprintf(`SELECT effectApplyAuraName1, effectMiscValue1, effectBasePoints1,
+			effectApplyAuraName2, effectMiscValue2, effectBasePoints2,
+			effectApplyAuraName3, effectMiscValue3, effectBasePoints3
+			FROM %s.spell_template WHERE entry IN (?%s)`, s.cfg.WorldDB, marks)
+		if srows, err := s.db.Query(qSpells, args...); err == nil {
+			for srows.Next() {
+				var ea1, ea2, ea3 uint32
+				var em1, em2, em3 uint32
+				var eb1, eb2, eb3 int32
+				if err := srows.Scan(&ea1, &em1, &eb1, &ea2, &em2, &eb2, &ea3, &em3, &eb3); err == nil {
+					effects := [][3]int64{{int64(ea1), int64(em1), int64(eb1)}, {int64(ea2), int64(em2), int64(eb2)}, {int64(ea3), int64(em3), int64(eb3)}}
+					for _, eff := range effects {
+						aura, mask, bp := eff[0], eff[1], eff[2]
+						pts := uint32(bp + 1)
+						switch aura {
+						case 13: // SPELL_AURA_MOD_DAMAGE_DONE
+							if mask == 0 || (mask&126) == 126 || mask == 126 {
+								st.SpellDamage += pts
+								st.HealingPower += pts
+							} else {
+								if mask&2 != 0 { st.SpellDmgHoly += pts }
+								if mask&4 != 0 { st.SpellDmgFire += pts }
+								if mask&8 != 0 { st.SpellDmgNature += pts }
+								if mask&16 != 0 { st.SpellDmgFrost += pts }
+								if mask&32 != 0 { st.SpellDmgShadow += pts }
+								if mask&64 != 0 { st.SpellDmgArcane += pts }
+							}
+						case 135: // SPELL_AURA_MOD_HEALING_DONE
+							st.HealingPower += pts
+						case 71: // SPELL_AURA_MOD_SPELL_CRIT_CHANCE
+							bonusSpellCrit += float64(pts)
+						case 55: // SPELL_AURA_MOD_SPELL_HIT_CHANCE
+							bonusSpellHit += float64(pts)
+						case 85: // SPELL_AURA_MOD_POWER_REGEN (MP5)
+							st.ManaRegen += pts
+						case 99: // SPELL_AURA_MOD_ATTACK_POWER
+							bonusAP += float64(pts)
+						case 124: // SPELL_AURA_MOD_RANGED_ATTACK_POWER
+							bonusRAP += float64(pts)
+						case 54: // SPELL_AURA_MOD_HIT_CHANCE
+							bonusHit += float64(pts)
+						case 52: // SPELL_AURA_MOD_CRIT_PERCENT
+							bonusCrit += float64(pts)
+						}
+					}
+				}
+			}
+			srows.Close()
+		}
+	}
+	if st.HealingPower == 0 && st.SpellDamage > 0 {
+		st.HealingPower = st.SpellDamage
+	}
+	st.SpellHit += bonusSpellHit
+
+	var baseSpellCrit float64
+	switch class {
+	case 8:
+		baseSpellCrit = 0.91 + st.Intellect/59.5
+	case 5:
+		baseSpellCrit = 1.24 + st.Intellect/59.2
+	case 9:
+		baseSpellCrit = 1.70 + st.Intellect/60.6
+	case 11:
+		baseSpellCrit = 1.85 + st.Intellect/60.0
+	case 7:
+		baseSpellCrit = 2.20 + st.Intellect/59.5
+	case 2:
+		baseSpellCrit = 0.70 + st.Intellect/54.0
+	default:
+		baseSpellCrit = st.Intellect / 60.0
+	}
+	st.SpellCritPct = MathRound((baseSpellCrit+bonusSpellCrit)*100) / 100
 
 	var ap, rap float64
 	lvl := float64(level)
@@ -627,14 +755,16 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 		if str*2.0 > 20.0 { ap = str*2.0 - 20.0 }
 	}
 
-	st.AttackPower = ap
-	st.RangedAttackPower = rap
+	st.AttackPower = ap + bonusAP
+	st.RangedAttackPower = rap + bonusRAP
+	st.MeleeHit += bonusHit
+	st.RangedHit += bonusHit
 
-	critBase := 5.0 + agi/20.0
+	critBase := 5.0 + agi/20.0 + bonusCrit
 	dodgeBase := 3.0 + agi/20.0
-	st.MeleeCritPct = critBase
-	st.RangedCritPct = critBase
-	st.DodgePct = dodgeBase
+	st.MeleeCritPct = MathRound(critBase*100) / 100
+	st.RangedCritPct = MathRound(critBase*100) / 100
+	st.DodgePct = MathRound(dodgeBase*100) / 100
 	if class == 1 || class == 2 || class == 4 || class == 7 {
 		st.ParryPct = 5.0
 	}
@@ -643,14 +773,14 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 	}
 
 	if mainDmgMax > 0 {
-		apBonus := ap / 14.0 * (mainDelay / 1000.0)
+		apBonus := st.AttackPower / 14.0 * (mainDelay / 1000.0)
 		dMin := MathRound(mainDmgMin + apBonus)
 		dMax := MathRound(mainDmgMax + apBonus)
 		st.MeleeDamage = fmt.Sprintf("%.0f – %.0f", dMin, dMax)
 		st.MeleeSpeed = mainDelay / 1000.0
 	}
 	if rangedDmgMax > 0 {
-		rapBonus := rap / 14.0 * (rangedDelay / 1000.0)
+		rapBonus := st.RangedAttackPower / 14.0 * (rangedDelay / 1000.0)
 		dMin := MathRound(rangedDmgMin + rapBonus)
 		dMax := MathRound(rangedDmgMax + rapBonus)
 		st.RangedDamage = fmt.Sprintf("%.0f – %.0f", dMin, dMax)

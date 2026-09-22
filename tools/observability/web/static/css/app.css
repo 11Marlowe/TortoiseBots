@@ -973,24 +973,35 @@ body {
 .money-copper { color: #c89b7b; }
 
 .armory-main-grid {
-  display: grid;
-  grid-template-columns: 460px 1fr;
+  display: flex;
   gap: 24px;
-  align-items: start;
+  align-items: flex-start;
 }
 
 @media (max-width: 1080px) {
   .armory-main-grid {
-    grid-template-columns: 1fr;
+    flex-direction: column;
   }
 }
 
 .armory-paperdoll-section {
-  width: 100%;
+  width: 520px;
+  min-width: 520px;
+  max-width: 520px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 1080px) {
+  .armory-paperdoll-section {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+  }
 }
 
 .armory-stats-section {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
 }
 
 .armory-gear {
@@ -1290,6 +1301,10 @@ body {
   color: #1eff00;
 }
 
+.item-tooltip .tip-enchant {
+  color: #1eff00;
+}
+
 .item-tooltip .tip-proc {
   color: var(--accent-green-bright);
 }
@@ -1303,8 +1318,8 @@ body {
 /* WoW Classic Armory Paperdoll & Stat Cards */
 .armory-stat-cards-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
 }
 
 .armory-stat-card {
@@ -1425,6 +1440,8 @@ body {
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid var(--border-color);
   border-radius: 6px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .gear-slot-row.left .gear-info {
@@ -1439,6 +1456,25 @@ body {
 }
 .gear-slot-row.right .gear-name {
   text-align: right;
+}
+
+.gear-enchant-text {
+  color: #1eff00;
+  font-size: 0.70rem;
+  line-height: 1.2;
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gear-slot-row.left .gear-enchant-text {
+  text-align: left;
+}
+.gear-slot-row.right .gear-enchant-text {
+  text-align: right;
+}
+.gear-weapon-item .gear-enchant-text {
+  text-align: center;
 }
 
 .gear-slot-label {
@@ -1459,10 +1495,14 @@ body {
 
 .gear-subrow {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   font-size: 0.72rem;
   color: var(--text-muted);
   margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .gear-weapon-item {
@@ -1518,6 +1558,7 @@ body {
 .gear-info {
   flex: 1;
   min-width: 0;
+  overflow: hidden;
 }
 
 /* Spell Table & Talent Icons */
