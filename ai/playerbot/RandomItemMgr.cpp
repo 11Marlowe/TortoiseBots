@@ -2148,6 +2148,12 @@ uint32 RandomItemMgr::GetQuestIdForItem(uint32 itemId)
 
 std::vector<uint32> RandomItemMgr::GetQuestIdsForItem(uint32 itemId)
 {
+    // Quest templates never change after load, so the reverse lookup is
+    // memoized: the seed gate otherwise rescans every quest per candidate.
+    auto memoized = questIdsMemo.find(itemId);
+    if (memoized != questIdsMemo.end())
+        return memoized->second;
+
     std::vector<uint32> questIds;
     ObjectMgr::QuestMap const& questTemplates = sObjectMgr.GetQuestTemplates();
     for (ObjectMgr::QuestMap::const_iterator i = questTemplates.begin(); i != questTemplates.end(); ++i)
@@ -2180,113 +2186,134 @@ std::vector<uint32> RandomItemMgr::GetQuestIdsForItem(uint32 itemId)
             }
         }
     }
-    return questIds;
+    return questIdsMemo[itemId] = questIds;
 }
+// Walks one loot table through the same access seam the world uses at loot
+// time (DropMapValue::GetLootTemplate, LootValues.h) and marks every item it
+// can yield: ungrouped Entries, reference entries one level deep (the world
+// resolves only one indirection per template), and all grouped chances —
+// Groups carry the explicitly/grouped chances; the ungrouped Entries list
+// alone misses raid drops.
+static void MarkLootItems(LootTemplateAccess const* access, std::set<uint32>& items)
+{
+    if (!access)
+        return;
+
+    for (LootStoreItem const& lootEntry : access->Entries)
+    {
+        items.insert(lootEntry.itemid);
+        if (lootEntry.mincountOrRef < 0)
+        {
+            if (LootTemplate const* ref = LootTemplates_Reference.GetLootFor((uint32)-lootEntry.mincountOrRef))
+            {
+                LootTemplateAccess const* refAccess = reinterpret_cast<LootTemplateAccess const*>(ref);
+                for (LootStoreItem const& refEntry : refAccess->Entries)
+                    items.insert(refEntry.itemid);
+            }
+        }
+    }
+    for (LootLootGroupAccess const& group : access->Groups)
+    {
+        for (LootStoreItem const& lootEntry : group.ExplicitlyChanced)
+            items.insert(lootEntry.itemid);
+        for (LootStoreItem const& lootEntry : group.EqualChanced)
+            items.insert(lootEntry.itemid);
+    }
+}
+
 bool RandomItemMgr::IsRaidSourcedItem(uint32 itemId)
 {
     if (!itemId)
         return false;
 
-    // Walk every creature template through the same loot_id seam the world
-    // uses at loot time (DropMapValue::GetLootTemplate): template loot_id ->
-    // LootTemplates_Creature, plus pickpocket/skinning tables. Reference
-    // indirection (negative mincountOrRef) is followed one level, matching
-    // the world's own reference resolution. Token turn-ins (Frostfire via
-    // spell 18382) and quest rewards have no loot row and return false.
+    if (!raidSourceIndexed)
+        BuildRaidSourceIndex();
+
+    return raidSourceItems.find(itemId) != raidSourceItems.end();
+}
+
+// One-time raid provenance index for the fresh-seed gate. The per-item
+// version scanned every creature template and issued a world-DB spawn query
+// per dropping creature per candidate — thousands of synchronous queries in
+// a single seeding burst, despite the header claiming a bounded scan. This
+// builds the inverse item set once: two spawn-table reads (map ids classified
+// through MapEntry::IsRaid, so custom raid maps are included), world-boss
+// rank templates from the in-memory storage, then one loot walk per
+// qualifying entry across corpse/pickpocket/skinning and gameobject chest
+// tables. Entries with no spawn rows simply never qualify — the same
+// fail-closed-to-non-raid decision as before, now made once instead of per
+// candidate. Token turn-ins and quest rewards have no loot row and stay out
+// of the set (they are gated by IsRaidQuestItem / the quest-level check).
+void RandomItemMgr::BuildRaidSourceIndex()
+{
+    raidSourceIndexed = true;
+
+    // Classify every spawn-table map through the DBC once.
+    std::set<uint32> raidMaps;
+    {
+        std::unique_ptr<QueryResult> rows(WorldDatabase.Query("SELECT DISTINCT map FROM creature UNION SELECT DISTINCT map FROM gameobject"));
+        if (rows)
+        {
+            do
+            {
+                uint32 mapId = rows->Fetch()[0].GetUInt32();
+                if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId))
+                    if (mapEntry->IsRaid())
+                        raidMaps.insert(mapId);
+            } while (rows->NextRow());
+        }
+    }
+
+    // Entries qualifying as raid-sourced: any spawn on a raid map.
+    std::set<uint32> raidCreatures;
+    std::set<uint32> raidGameobjects;
+    if (!raidMaps.empty())
+    {
+        std::string mapList;
+        for (uint32 mapId : raidMaps)
+            mapList += (mapList.empty() ? "" : ",") + std::to_string(mapId);
+
+        auto collect = [&mapList](char const* table, std::set<uint32>& out)
+        {
+            std::unique_ptr<QueryResult> rows(WorldDatabase.PQuery(
+                "SELECT DISTINCT id FROM %s WHERE map IN (%s)", table, mapList.c_str()));
+            if (!rows)
+                return;
+            do
+            {
+                out.insert(rows->Fetch()[0].GetUInt32());
+            } while (rows->NextRow());
+        };
+        collect("creature", raidCreatures);
+        collect("gameobject", raidGameobjects);
+    }
+
+    // World bosses qualify wherever they walk.
     uint32 maxEntry = sCreatureStorage.GetMaxEntry();
     for (uint32 entry = 0; entry < maxEntry; ++entry)
     {
         CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(entry);
-        if (!cInfo)
-            continue;
+        if (cInfo && cInfo->rank == CREATURE_ELITE_WORLDBOSS)
+            raidCreatures.insert(entry);
+    }
 
-        uint32 lootIds[3] = { cInfo->loot_id, cInfo->pickpocket_loot_id, cInfo->skinning_loot_id };
-        bool dropsItem = false;
-        // Same reinterpret_cast seam as DropMapValue::GetLootTemplate
-        // (LootValues.h): LootTemplateAccess mirrors the real layout, so
-        // Entries/Groups read correctly. Groups carry the explicitly/grouped
-        // chances; the ungrouped Entries list alone misses raid drops.
-        auto templateDropsItem = [itemId](LootTemplate const* tpl) -> bool
+    for (uint32 entry : raidCreatures)
+    {
+        LootType const lootTypes[3] = { LOOT_CORPSE, LOOT_PICKPOCKETING, LOOT_SKINNING };
+        for (LootType lootType : lootTypes)
         {
-            if (!tpl)
-                return false;
-            LootTemplateAccess const* access = reinterpret_cast<LootTemplateAccess const*>(tpl);
-            for (LootStoreItem const& lootEntry : access->Entries)
-            {
-                if (lootEntry.itemid == itemId)
-                    return true;
-                if (lootEntry.mincountOrRef < 0)
-                {
-                    LootTemplate const* ref = LootTemplates_Reference.GetLootFor((uint32)-lootEntry.mincountOrRef);
-                    if (!ref)
-                        continue;
-                    LootTemplateAccess const* refAccess = reinterpret_cast<LootTemplateAccess const*>(ref);
-                    for (LootStoreItem const& refEntry : refAccess->Entries)
-                    {
-                        if (refEntry.itemid == itemId)
-                            return true;
-                    }
-                }
-            }
-            for (LootLootGroupAccess const& group : access->Groups)
-            {
-                for (LootStoreItem const& lootEntry : group.ExplicitlyChanced)
-                {
-                    if (lootEntry.itemid == itemId)
-                        return true;
-                }
-                for (LootStoreItem const& lootEntry : group.EqualChanced)
-                {
-                    if (lootEntry.itemid == itemId)
-                        return true;
-                }
-            }
-            return false;
-        };
-        for (uint32 lootId : lootIds)
-        {
-            if (!lootId)
-                continue;
-            LootTemplate const* tpl = nullptr;
-            if (lootId == cInfo->loot_id)
-                tpl = LootTemplates_Creature.GetLootFor(lootId);
-            else if (lootId == cInfo->pickpocket_loot_id)
-                tpl = LootTemplates_Pickpocketing.GetLootFor(lootId);
-            else
-                tpl = LootTemplates_Skinning.GetLootFor(lootId);
-            if (templateDropsItem(tpl))
-            {
-                dropsItem = true;
-                break;
-            }
-        }
-        if (!dropsItem)
-            continue;
-
-        // World boss by rank, whatever map it walks on.
-        if (cInfo->rank == CREATURE_ELITE_WORLDBOSS)
-            return true;
-
-        // Raid map by spawn location: any live spawn of this entry on a
-        // MAP_RAID map marks the item raid-sourced. Fail-closed to non-raid
-        // when no spawns exist (custom items, sparse DB).
-        std::unique_ptr<QueryResult> spawns(WorldDatabase.PQuery(
-            "SELECT map FROM creature WHERE id = '%u' LIMIT 5", entry));
-        if (spawns)
-        {
-            do
-            {
-                Field* fields = spawns->Fetch();
-                uint32 mapId = fields[0].GetUInt32();
-                if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId))
-                {
-                    if (mapEntry->IsRaid())
-                        return true;
-                }
-            } while (spawns->NextRow());
+            MarkLootItems(DropMapValue::GetLootTemplate(
+                ObjectGuid(HIGHGUID_UNIT, entry, uint32(1)), lootType), raidSourceItems);
         }
     }
-    return false;
+    for (uint32 entry : raidGameobjects)
+    {
+        MarkLootItems(DropMapValue::GetLootTemplate(
+            ObjectGuid(HIGHGUID_GAMEOBJECT, entry, uint32(1)), LOOT_CORPSE), raidSourceItems);
+    }
+
+    sLog.outDetail("RandomItemMgr: raid provenance index holds %u items from %zu raid creatures, %zu raid gameobjects, %zu raid maps",
+        (uint32)raidSourceItems.size(), raidCreatures.size(), raidGameobjects.size(), raidMaps.size());
 }
 
 bool RandomItemMgr::IsRaidQuestItem(uint32 itemId)

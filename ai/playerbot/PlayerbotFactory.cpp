@@ -1912,27 +1912,13 @@ void PlayerbotFactory::Shuffle(std::vector<uint32>& items)
     }
 }
 
-// Fresh-seed gear policy: even, acquirable spread instead of min/max.
-// Top-N window per slot class (weapons most contested, jewelry least), so a
-// fresh bot rolls a plausible kit rather than the single best raid item.
-static uint32 SeedTopNWindow(uint8 slot)
-{
-    switch (slot)
-    {
-    case EQUIPMENT_SLOT_MAINHAND:
-    case EQUIPMENT_SLOT_OFFHAND:
-    case EQUIPMENT_SLOT_RANGED:
-        return 5;
-    case EQUIPMENT_SLOT_FINGER1:
-    case EQUIPMENT_SLOT_FINGER2:
-    case EQUIPMENT_SLOT_TRINKET1:
-    case EQUIPMENT_SLOT_TRINKET2:
-    case EQUIPMENT_SLOT_NECK:
-        return 3;
-    default:
-        return 8;
-    }
-}
+// Fresh-seed gear policy (owner spec): a uniform green/blue world-drop mix,
+// never epics, never a best-first min/max walk. The candidate pool is
+// shuffled before filtering, so this sample cap stays uniform over the whole
+// pool while bounding per-slot scoring cost; the equip retry then walks the
+// sample until one candidate actually equips, so a failed roll never leaves
+// the slot empty.
+static constexpr uint32 kSeedCandidateSample = 48;
 
 // Paired-slot dupe guard: the FINGER1/2 and TRINKET1/2 candidate lists are
 // identical, so without this the loop equips the same entry twice. Data-side
@@ -2182,6 +2168,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             quality = itemQuality;
         }
 
+        // Fresh-seed path (owner spec): MakeComplete gears a brand-new bot.
+        // Only this path gets the green/blue world-drop policy — no epics, no
+        // PvP gear, uniform roll, every-slot retry. Earned paths
+        // (syncWithMaster, explicit itemQuality, non-incremental Randomize)
+        // keep deterministic best-first behaviour.
+        bool const seedSpread = incremental && !syncWithMaster && itemQuality == 0;
+
         bool found = false;
         uint32 attempts = 0;
         do
@@ -2244,7 +2237,20 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             else
             {
                 std::vector<uint32> ids;
-                for (uint32 q = quality; q < ITEM_QUALITY_ARTIFACT; ++q)
+                // Fresh-seed quality band (owner spec): greens and blues mixed
+                // from level 20, the progressive poor/normal floor below that,
+                // and never an epic — a fresh bot must not be overpowered.
+                // Earned/command paths keep the quality-started band.
+                uint32 qBegin = quality;
+                uint32 qEnd = ITEM_QUALITY_ARTIFACT;
+                if (seedSpread)
+                {
+                    qBegin = level < 10 ? ITEM_QUALITY_POOR
+                           : level < 20 ? ITEM_QUALITY_NORMAL
+                                        : ITEM_QUALITY_UNCOMMON;
+                    qEnd = ITEM_QUALITY_RARE + 1;
+                }
+                for (uint32 q = qBegin; q < qEnd; ++q)
                 {
                     // quality selected from command
                     if (setQuality && q != quality)
@@ -2310,12 +2316,19 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                 sLog.outDetail("Bot #%d %s:%d <%s>: %u possible items for slot %d", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName(), uint32(ids.size()), slot);
 
-                // Best-first always: the equip loop below takes the first
-                // candidate that passes its filters and breaks, so ascending
-                // order hands a level 19 bot a level 4 white (Issue #219).
+                // Best-first for earned paths: the equip loop below takes the
+                // first candidate that passes its filters, so ascending order
+                // hands a level 19 bot a level 4 white (Issue #219).
                 // Progressive variety comes from the quality band above, not
-                // from starting at the worst item.
-                if (incremental || !progressiveGear)
+                // from starting at the worst item. The fresh seed instead
+                // shuffles: a uniform roll over its green/blue band, so two
+                // fresh bots never converge on the same best-in-slot kit
+                // (owner spec: not super min-max).
+                if (seedSpread)
+                {
+                    Shuffle(ids);
+                }
+                else if (incremental || !progressiveGear)
                 {
                     // sort items based on stat value, ilvl or quality
                     std::sort(ids.begin(), ids.end(), [specId](int a, int b)
@@ -2339,14 +2352,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     Shuffle(ids);
                 }
 
-                // Top-N spread (review fix): collect passing candidates, pick
-                // uniformly from the best window instead of always index 0.
-                // Incremental fresh-seed only; explicit-quality and sync paths
-                // keep deterministic best-first. The do/while quality
-                // degradation still applies per attempt round.
                 std::vector<uint32> passingIds;
-                bool collectSpread = incremental && !syncWithMaster && itemQuality == 0;
-                uint32 topN = collectSpread ? SeedTopNWindow(slot) : 1;
 
                 Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
                 ItemPrototype const* oldProto = oldItem ? oldItem->GetProto() : nullptr;
@@ -2370,11 +2376,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     // rewards, quest rewards only when the bot meets the quest
                     // level. Earned-progression paths (syncWithMaster, explicit
                     // itemQuality, non-incremental Randomize) bypass it.
-                    if (incremental && !syncWithMaster && itemQuality == 0)
-                    {
-                        if (!PassesSeedProvenance(bot, newItemId))
-                            continue;
-                    }
+                    if (seedSpread && !PassesSeedProvenance(bot, newItemId))
+                        continue;
 
                     // Paired-slot dupe guard: same entry in FINGER2/TRINKET2.
                     uint32 pairSlot = PairedSlot(slot);
@@ -2386,6 +2389,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     }
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (!proto)
+                        continue;
+                    // Fresh-seed PvP gate (owner spec: bots must not wear PvP
+                    // gear): the item cache classifies ITEM_SOURCE_PVP by this
+                    // same NO_DISENCHANT flag, and RequiredHonorRank is rank
+                    // gear on top of it. Together with the green/blue band this
+                    // keeps both rank epics and reward blues out of fresh kits.
+                    if (seedSpread && ((proto->Flags & ITEM_FLAG_NO_DISENCHANT) || proto->RequiredHonorRank))
                         continue;
                     // filter tank weapons
                     if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
@@ -2525,23 +2535,25 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if ((incremental || progressiveGear) && oldItem && oldProto->Quality < ITEM_QUALITY_NORMAL && proto->Quality < ITEM_QUALITY_NORMAL && level > 5)
                         continue;
 
-                    // Collect-then-pick: every passing candidate is scored;
-                    // the equip below rolls uniformly from the best window.
-                    // CanEquipUnseenItem (slot rules, skill, unique-equip) is
-                    // NOT evaluated here — it destroys nothing but is still a
-                    // per-candidate core call, so it runs once on the pick.
+                    // Collect every passing candidate; CanEquipUnseenItem
+                    // (slot rules, skill, unique-equip) is NOT evaluated here —
+                    // it destroys nothing but is a per-candidate core call, so
+                    // it runs in the retry loop on the equipping side. The
+                    // seed's pool is pre-shuffled, so its sample cap keeps the
+                    // roll uniform; earned paths collect unbounded so the retry
+                    // can fall back exactly like the pre-window loop did.
                     passingIds.push_back(newItemId);
-                    if (passingIds.size() >= topN * 3)
+                    if (seedSpread && passingIds.size() >= kSeedCandidateSample)
                         break;
                 }
 
-                if (!passingIds.empty())
+                // Retry every passing candidate until one actually equips
+                // (owner spec: every slot filled). Seed order = uniform
+                // green/blue roll over the sample; earned order = best-first
+                // fallback, matching the pre-window loop.
+                for (uint32 attempt = 0; attempt < passingIds.size() && !found; ++attempt)
                 {
-                    // Window = first topN of the best-first sort (or fewer).
-                    // Deterministic paths (topN == 1) keep index-0 behavior.
-                    uint32 window = std::min<uint32>(topN, (uint32)passingIds.size());
-                    uint32 pickIdx = window > 1 ? urand(0, window - 1) : 0;
-                    uint32 newItemId = passingIds[pickIdx];
+                    uint32 newItemId = passingIds[attempt];
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (proto)
                     {
@@ -2586,7 +2598,9 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             }
 
             attempts++;
-        } while (!found && attempts < 3 && quality != ITEM_QUALITY_POOR);
+            // The seed's quality band is level-derived, so quality degradation
+            // cannot widen it — one round is the whole search on that path.
+        } while (!found && !seedSpread && attempts < 3 && quality != ITEM_QUALITY_POOR);
         if (!found)
         {
             if (slot != EQUIPMENT_SLOT_TRINKET1 && slot != EQUIPMENT_SLOT_TRINKET2)

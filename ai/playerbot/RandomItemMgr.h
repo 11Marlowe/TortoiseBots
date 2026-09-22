@@ -178,12 +178,15 @@ class RandomItemMgr
         bool CanEquipWeapon(uint8 clazz, ItemPrototype const* proto);
         bool ShouldEquipWeaponForSpec(uint8 playerclass, uint8 spec, ItemPrototype const* proto);
         bool CheckItemSpec(uint8 spec, ItemSpecType itSpec);
-        // Fresh-seed provenance gates. Everything is best-effort and fail-open:
-        // missing world rows (custom items, sparse DBC) must never block gear.
-        // IsRaidSourcedItem: true when any creature dropping the item is a
-        // world boss (rank 3) or spawns on a raid map. Cost is one bounded
-        // loot-table scan plus indexed template lookups; loot-excluded items
-        // (token turn-ins like Frostfire, quest rewards) return false.
+        // Fresh-seed provenance gates. Unknown items pass (fail-open): missing
+        // world rows (custom items, sparse DBC) must never block gear; only
+        // positively-identified raid loot is cut. IsRaidSourcedItem: true when
+        // the item drops from a world-boss-rank template or from any
+        // creature/gameobject whose spawns sit on a raid map (DBC-classified,
+        // custom raid maps included) — corpse, pickpocket, skinning and chest
+        // tables, one reference level. Backed by a one-time index
+        // (BuildRaidSourceIndex), never a per-item scan: the seed gate calls it
+        // once per candidate.
         bool IsRaidSourcedItem(uint32 itemId);
         // IsRaidQuestItem: true when any quest rewarding the item is a raid
         // quest (Type 62) or gated behind a raid map / raid-scale group
@@ -226,6 +229,14 @@ class RandomItemMgr
         std::map<std::string, uint32 > weightRatingLink;
         std::map<uint32, ItemInfoEntry*> itemInfoCache;
         std::map<uint32, std::vector<uint32> > randomEnchantsCache;
+        // Fresh-seed gate state: one-time raid provenance index (see
+        // IsRaidSourcedItem) and the memoized quest reverse-lookup
+        // (GetQuestIdsForItem). Both filled lazily, valid for the process
+        // lifetime — quest and loot data never change after load.
+        void BuildRaidSourceIndex();
+        bool raidSourceIndexed = false;
+        std::set<uint32> raidSourceItems;
+        std::map<uint32, std::vector<uint32> > questIdsMemo;
 };
 
 #define sRandomItemMgr RandomItemMgr::instance()
