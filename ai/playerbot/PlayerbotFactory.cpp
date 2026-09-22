@@ -185,6 +185,13 @@ void PlayerbotFactory::MakeComplete()
     ai->DoSpecificAction("auto learn spell");
     // Skills on thresholds every level (armor steps around 40 included).
     InitSkills();
+    // Enchant templates must be loaded before gear equips: EnchantItem()
+    // runs per equipped item inside InitEquipment and matches against this
+    // container. Randomize() loads it; MakeComplete never did, so fresh
+    // seeds always came out unenchanted even with data in
+    // ai_playerbot_enchants.
+    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
+        LoadEnchantContainer();
     // Gear last and incremental only — never wipe earned gear.
     InitEquipment(true, false);
     bot->SaveToDB();
@@ -2612,6 +2619,25 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         }
                     }
                 }
+
+                // Rejection forensics: pool>0 but nothing equipped — say whether
+                // the filter chain emptied the list or the core equip check
+                // refused every candidate (and why).
+                if (!found)
+                {
+                    if (passingIds.empty())
+                    {
+                        sLog.outDetail("Bot #%d <%s>: slot %u: pool %zu, 0 passed filters (spec %u, weaponType %u)",
+                            bot->GetGUIDLow(), bot->GetName(), slot, ids.size(), specId, weaponType);
+                    }
+                    else
+                    {
+                        uint16 probeDest = 0;
+                        uint32 err = RandomBotFacade::CanEquipUnseenItem(bot, slot, probeDest, passingIds[0]);
+                        sLog.outDetail("Bot #%d <%s>: slot %u: %zu passed filters, all equip attempts failed; first CanEquip err=%u, id=%u",
+                            bot->GetGUIDLow(), bot->GetName(), slot, passingIds.size(), err, passingIds[0]);
+                    }
+                }
             }
 
             if (!found && quality > ITEM_QUALITY_NORMAL)
@@ -3078,6 +3104,24 @@ void PlayerbotFactory::InitSkills()
         SetRandomSkill(SKILL_FIST_WEAPONS);
         SetRandomSkill(SKILL_THROWN);
         break;
+    }
+
+    // Dual Wield: warriors, hunters, rogues and shamans train it in the
+    // world (91 trainers teach spell 1424, which chains to spell 674,
+    // SPELL_EFFECT_DUAL_WIELD -> m_canDualWield). An instant GiveLevel
+    // seed never runs that chain, the flag stays false, and FindEquipSlot
+    // then refuses every offhand weapon for dual-wielders (NULL_SLOT ->
+    // ERR_NOT_EQUIPPED), leaving them main-hand-only. Grant it once here;
+    // re-learning is a no-op and the flag is idempotent.
+    if (bot->GetLevel() >= 10 &&
+        (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_HUNTER ||
+         bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_SHAMAN))
+    {
+        if (!bot->HasSpell(1424))
+            bot->LearnSpell(1424, false);
+        if (!bot->HasSpell(674))
+            bot->LearnSpell(674, false);
+        bot->SetCanDualWield(true);
     }
 }
 
