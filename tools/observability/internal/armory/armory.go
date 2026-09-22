@@ -679,7 +679,6 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 						case 13: // SPELL_AURA_MOD_DAMAGE_DONE
 							if mask == 0 || (mask&126) == 126 || mask == 126 {
 								st.SpellDamage += pts
-								st.HealingPower += pts
 							} else {
 								if mask&2 != 0 { st.SpellDmgHoly += pts }
 								if mask&4 != 0 { st.SpellDmgFire += pts }
@@ -711,7 +710,7 @@ func (s *Service) loadLiveStats(guid uint32, st *CharacterStats) {
 			srows.Close()
 		}
 	}
-	if st.HealingPower == 0 && st.SpellDamage > 0 {
+	if st.HealingPower < st.SpellDamage {
 		st.HealingPower = st.SpellDamage
 	}
 	st.SpellHit += bonusSpellHit
