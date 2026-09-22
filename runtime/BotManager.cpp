@@ -567,7 +567,7 @@ void BotManager::OnPlayerLogin(::Player* player)
 
     // Level seeding runs before the login scatter so PickLevelFittingPoint sees
     // the seeded level (the scatter itself is gated on level >= 10).
-    if (record.random && sPlayerbotAIConfig.randomBotStartLevelMin > 1 &&
+    if (record.random &&
         TortoiseBots::NeedsInitialGearSeeding(player->GetTotalPlayedTime(), sRandomBotFacade.GetValue(player->GetGUIDLow(), "levelSeeded")))
     {
         uint32 seedLevel = urand(sPlayerbotAIConfig.randomBotStartLevelMin,
