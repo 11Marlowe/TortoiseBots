@@ -3377,12 +3377,36 @@ void RandomItemMgr::BuildAmmoCache()
             counter1++;
         }
     }
+	sLog.outBasic("Building quiver cache");
+    // Best vendor-sold quiver/ammo pouch per level bucket (owner spec: the
+    // ammo container must be adequate to the level). The npc_vendor join
+    // makes drop/raid containers impossible by construction, and
+    // required_level DESC picks the highest tier the level allows
+    // (Light Quiver 1 -> Medium 10 -> Heavy 30 -> ...).
+    for (uint32 level = 1; level <= maxLevel + 1; level += 10)
+    {
+        auto results = WorldDatabase.PQuery(
+                "SELECT it.entry FROM item_template it JOIN npc_vendor v ON v.item = it.entry"
+                " WHERE it.class = '%u' AND it.required_level <= '%u'"
+                " ORDER BY it.required_level DESC LIMIT 1",
+                ITEM_CLASS_QUIVER, level);
+        if (results)
+            quiverCache[level / 10] = results->Fetch()[0].GetUInt32();
+    }
+
 	sLog.outString("Cached %d types of ammo", counter1); // TEST
 }
 
 uint32 RandomItemMgr::GetAmmo(uint32 level, uint32 subClass)
 {
     return ammoCache[(level - 1) / 10][subClass];
+}
+
+uint32 RandomItemMgr::GetQuiver(uint32 level)
+{
+    if (level < 1)
+        level = 1;
+    return quiverCache[(level - 1) / 10];
 }
 
 

@@ -201,6 +201,16 @@ void PlayerbotFactory::MakeComplete()
     }
     // Gear last and incremental only — never wipe earned gear.
     InitEquipment(true, false);
+    // Field kit — the same block ProvisionSpellsAndGear runs for hired
+    // companions. The pool path never ran any of it, so fresh seeds kept
+    // their level-1 starter kit forever: Light Quiver, Rough Arrow,
+    // Tough Jerky (owner spec: ammo container / ammo / food adequate to
+    // the level, vendor tier, never raid).
+    InitAmmo();
+    InitReagents();
+    InitPotions();
+    InitFood();
+    AddConsumables();
     bot->SaveToDB();
 }
 
@@ -3473,6 +3483,40 @@ void PlayerbotFactory::InitAmmo()
     if (!subClass)
         return;
 
+    // Ammo container (owner spec): nothing ever equipped a quiver — fresh
+    // hunters carried the level-1 Light Quiver from CharacterCreation
+    // forever. Give the best vendor-sold container the level allows
+    // (RandomItemMgr::GetQuiver, vendor-joined so never a raid drop); the
+    // core allows exactly one quiver/pouch, so a strictly worse one is
+    // dropped first and CanEquipItem re-checks the same uniqueness.
+    if (subClass == ITEM_SUBCLASS_ARROW || subClass == ITEM_SUBCLASS_BULLET)
+    {
+        uint32 quiverId = sRandomItemMgr.GetQuiver(level);
+        ItemPrototype const* bestQuiver = quiverId ? sObjectMgr.GetItemPrototype(quiverId) : nullptr;
+        if (bestQuiver)
+        {
+            bool haveGood = false;
+            for (uint8 bagSlot = INVENTORY_SLOT_BAG_START; bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+            {
+                Item* bagItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, bagSlot);
+                if (!bagItem || bagItem->GetProto()->Class != ITEM_CLASS_QUIVER)
+                    continue;
+                if (bagItem->GetEntry() == quiverId || bagItem->GetProto()->RequiredLevel >= bestQuiver->RequiredLevel)
+                {
+                    haveGood = true;
+                    continue;
+                }
+                bot->DestroyItem(INVENTORY_SLOT_BAG_0, bagSlot, true);
+            }
+            if (!haveGood)
+            {
+                uint16 eDest;
+                if (RandomBotFacade::CanEquipUnseenItem(bot, INVENTORY_SLOT_BAG_START, eDest, quiverId) == EQUIP_ERR_OK)
+                    bot->EquipNewItem(eDest, quiverId, true);
+            }
+        }
+    }
+
     // Tortoise: thrown weapons are single repairable items (Stackable=1), not 200-stack ammo.
     // Give exactly 1 and return so we don't fill the bot's bags with 200 individual knives.
     if (subClass == ITEM_SUBCLASS_THROWN)
@@ -3503,7 +3547,13 @@ void PlayerbotFactory::InitAmmo()
 
     if (!entry || count <= 2)
     {
+        uint32 oldEntry = entry;
         entry = sRandomItemMgr.GetAmmo(level, subClass);
+        // Owner spec: vendor tier for the level — drop the level-1 starter
+        // stack (Rough Arrow) when the tier changes instead of leaving it
+        // rotting in the bags next to the new stock.
+        if (entry && oldEntry && entry != oldEntry && bot->GetItemCount(oldEntry))
+            bot->DestroyItemCount(oldEntry, bot->GetItemCount(oldEntry), true);
         count = bot->GetItemCount(entry) / 200;
     }
 
@@ -3679,10 +3729,6 @@ void PlayerbotFactory::InitFood()
         if (category == 59 && bot->GetPowerType() != POWER_MANA) // Do not give drinks to non-mana users.
             continue;
 
-        FindFoodVisitor visitor(bot, category);
-        ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
-        if (!visitor.GetResult().empty()) continue;
-
         uint32 itemId = sRandomItemMgr.GetFood(level, category);
         if (!itemId)
         {
@@ -3691,6 +3737,23 @@ void PlayerbotFactory::InitFood()
         }
         ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
         if (!proto) continue;
+
+        // Fresh seeds carry level-1 starter food; the old keep-if-any rule
+        // preserved it forever (owner spec: food adequate to the level).
+        // Drop strictly lower-tier food, keep anything already as good.
+        FindFoodVisitor visitor(bot, category);
+        ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        bool haveGood = false;
+        for (Item* foodItem : visitor.GetResult())
+        {
+            if (!foodItem || !foodItem->GetProto())
+                continue;
+            if (foodItem->GetEntry() == itemId || foodItem->GetProto()->ItemLevel >= proto->ItemLevel)
+                haveGood = true;
+            else
+                bot->DestroyItem(foodItem->GetBagSlot(), foodItem->GetSlot(), true);
+        }
+        if (haveGood) continue;
 
         uint32 maxCount = proto->GetMaxStackSize();
         Item* newItem = bot->StoreNewItemInInventorySlot(itemId, urand(maxCount / 2, maxCount));
