@@ -25,7 +25,7 @@ class TalentSpec {
             int maxRank;
             TalentEntry const* talentInfo;
             TalentTabEntry const* talentTabInfo;
-            int tabPage() { return talentTabInfo->TalentTabID == 41 ? 1 : talentTabInfo->tabpage; }
+            int tabPage() { return talentTabInfo->tabpage; }
         };
 
         uint32 points = 0;
