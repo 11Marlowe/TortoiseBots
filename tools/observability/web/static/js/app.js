@@ -2104,9 +2104,7 @@
     root.querySelectorAll('[data-sptip]').forEach(node => {
       if (node.dataset.sptipBound) return;
       node.dataset.sptipBound = '1';
-      node.addEventListener('mouseenter', e => {
-        tip.innerHTML = node.dataset.sptip;
-        tip.style.display = 'block';
+      const posTip = e => {
         const pad = 14;
         const r = tip.getBoundingClientRect();
         let left = e.clientX + pad, top = e.clientY + pad;
@@ -2114,7 +2112,13 @@
         if (top + r.height > window.innerHeight - 6) top = e.clientY - r.height - pad;
         tip.style.left = `${Math.max(6, left)}px`;
         tip.style.top = `${Math.max(6, top)}px`;
+      };
+      node.addEventListener('mouseenter', e => {
+        tip.innerHTML = node.dataset.sptip;
+        tip.style.display = 'block';
+        posTip(e);
       });
+      node.addEventListener('mousemove', posTip);
       node.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
     });
   }
@@ -2182,42 +2186,50 @@
       </div>`;
 
     const baseSp = st.spell_damage || 0;
-    const hasSchoolBonus = !!(st.spell_dmg_fire || st.spell_dmg_frost || st.spell_dmg_shadow || st.spell_dmg_nature || st.spell_dmg_arcane || st.spell_dmg_holy);
-    // Paladin (2), Priest (5), Shaman (7), Mage (8), Warlock (9), Druid (11)
-    const isCasterOrHybrid = [2, 5, 7, 8, 9, 11].includes(p.class);
-    const showSchools = baseSp > 0 || hasSchoolBonus || isCasterOrHybrid;
-
     const schools = [
-      { name: 'Shadow', icon: '💀', color: '#c084fc', bonus: st.spell_dmg_shadow || 0 },
-      { name: 'Fire', icon: '🔥', color: '#fb923c', bonus: st.spell_dmg_fire || 0 },
-      { name: 'Frost', icon: '❄️', color: '#38bdf8', bonus: st.spell_dmg_frost || 0 },
-      { name: 'Arcane', icon: '🔮', color: '#e879f9', bonus: st.spell_dmg_arcane || 0 },
-      { name: 'Nature', icon: '🌿', color: '#4ade80', bonus: st.spell_dmg_nature || 0 },
       { name: 'Holy', icon: '✨', color: '#fde047', bonus: st.spell_dmg_holy || 0 },
+      { name: 'Fire', icon: '🔥', color: '#fb923c', bonus: st.spell_dmg_fire || 0 },
+      { name: 'Nature', icon: '🌿', color: '#4ade80', bonus: st.spell_dmg_nature || 0 },
+      { name: 'Frost', icon: '❄️', color: '#38bdf8', bonus: st.spell_dmg_frost || 0 },
+      { name: 'Shadow', icon: '💀', color: '#c084fc', bonus: st.spell_dmg_shadow || 0 },
+      { name: 'Arcane', icon: '🔮', color: '#e879f9', bonus: st.spell_dmg_arcane || 0 },
     ];
 
-    let schoolRows = '';
-    if (showSchools) {
-      schoolRows = `
-        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border-color);">
-          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px;">Damage by School</div>
-          ${schools.map(s => {
-            const total = baseSp + s.bonus;
-            const bonusTag = s.bonus > 0 ? ` <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: normal;">(+${s.bonus})</span>` : '';
-            return `<div class="stat-card-row"><span>${s.icon} ${s.name}</span><strong class="mono" style="color: ${s.color};">+${esc(total)}${bonusTag}</strong></div>`;
-          }).join('')}
-        </div>`;
-    }
+    const schoolTipRows = schools.map(s => {
+      const total = baseSp + s.bonus;
+      const bonusText = s.bonus > 0 ? ` <span style="color: var(--text-muted); font-size: 0.72rem; font-weight: normal;">(+${s.bonus})</span>` : '';
+      return `<div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0;"><span style="color: var(--text-muted);">${s.icon} ${s.name}</span><strong class="mono" style="color: ${s.color};">+${total}${bonusText}</strong></div>`;
+    }).join('');
+
+    const spTipHtml = `
+      <div style="font-weight: 700; color: #fff; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-color); font-size: 0.82rem;">Spell Power by School</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0; margin-bottom: 4px; border-bottom: 1px dashed rgba(255,255,255,0.1);"><span style="color: var(--text-main); font-weight: 600;">Base Spell Power</span><strong class="mono" style="color: #3fb950;">+${baseSp}</strong></div>
+      ${schoolTipRows}
+    `;
+
+    const healingPower = st.healing_power || baseSp;
+    const healBonus = healingPower > baseSp ? healingPower - baseSp : 0;
+    const healTipHtml = `
+      <div style="font-weight: 700; color: #fff; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border-color); font-size: 0.82rem;">Healing Power Breakdown</div>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0;"><span style="color: var(--text-muted);">Base Spell Power</span><strong class="mono" style="color: #3fb950;">+${baseSp}</strong></div>
+      ${healBonus > 0 ? `<div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0;"><span style="color: var(--text-muted);">Pure Healing Bonus</span><strong class="mono" style="color: #3fb950;">+${healBonus}</strong></div>` : ''}
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 3px 0; margin-top: 4px; border-top: 1px dashed rgba(255,255,255,0.1);"><span style="color: var(--text-main); font-weight: 600;">Total Healing Power</span><strong class="mono" style="color: #3fb950;">+${healingPower}</strong></div>
+    `;
 
     const spellCard = `
       <div class="armory-stat-card">
         <div class="stat-card-title"><span class="stat-icon">✨</span> Spell</div>
-        <div class="stat-card-row"><span>Spell Power</span><strong class="mono" style="color: #3fb950; font-size: 0.95rem;">+${esc(baseSp)}</strong></div>
-        <div class="stat-card-row"><span>Healing</span><strong class="mono" style="color: #3fb950;">+${esc(st.healing_power || baseSp)}</strong></div>
+        <div class="stat-card-row" data-sptip="${esc(spTipHtml)}" style="cursor: help;">
+          <span style="border-bottom: 1px dotted var(--text-dim); display: inline-flex; align-items: center; gap: 4px;">Spell Power <span style="font-size: 0.72rem; color: var(--text-muted);">ℹ️</span></span>
+          <strong class="mono" style="color: #3fb950; font-size: 0.95rem;">+${esc(baseSp)}</strong>
+        </div>
+        <div class="stat-card-row" data-sptip="${esc(healTipHtml)}" style="cursor: help;">
+          <span style="border-bottom: 1px dotted var(--text-dim); display: inline-flex; align-items: center; gap: 4px;">Healing <span style="font-size: 0.72rem; color: var(--text-muted);">ℹ️</span></span>
+          <strong class="mono" style="color: #3fb950;">+${esc(healingPower)}</strong>
+        </div>
         <div class="stat-card-row"><span>Spell Crit</span><strong class="mono">${esc(fmtNum(st.spell_crit_pct))}%</strong></div>
         <div class="stat-card-row"><span>Spell Hit</span><strong class="mono">${esc(fmtNum(st.spell_hit))}%</strong></div>
         <div class="stat-card-row"><span>Mana Regen</span><strong class="mono">${esc(st.mana_regen || 0)} MP5</strong></div>
-        ${schoolRows}
       </div>`;
 
     const defenseCard = `
@@ -2249,6 +2261,7 @@
         ${defenseCard}
         ${resistCard}
       </div>`;
+    bindSpellTooltips(host);
   }
 
 
