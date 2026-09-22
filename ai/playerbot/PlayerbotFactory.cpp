@@ -2096,6 +2096,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
         // Item availability is derived from the active Tortoise item cache.
 
+    // Fresh-seed path (owner spec): MakeComplete gears a brand-new bot.
+    // Only this path gets the green/blue world-drop policy — no epics, no
+    // PvP gear, uniform roll, every-slot retry. Earned paths
+    // (syncWithMaster, explicit itemQuality, non-incremental Randomize)
+    // keep deterministic best-first behaviour.
+    bool const seedSpread = incremental && !syncWithMaster && itemQuality == 0;
+
     for(uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
     {
         if (slot == EQUIPMENT_SLOT_TABARD)
@@ -2108,6 +2115,22 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
         if (incremental && upgradeSlots.size() && upgradeSlots[slot] != true && !(slot == EQUIPMENT_SLOT_TRINKET1 || slot == EQUIPMENT_SLOT_TRINKET2))
             continue;
+
+        // Fresh seed: a leftover starter shield sitting under a two-handed
+        // main hand is not equippable in-game (2H disables the offhand slot),
+        // so it is stale band-breaking junk — clear it and leave the slot
+        // legally empty.
+        if (seedSpread && slot == EQUIPMENT_SLOT_OFFHAND)
+        {
+            Item* mhItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+            Item* ohItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+            if (mhItem && mhItem->GetProto() && mhItem->GetProto()->InventoryType == INVTYPE_2HWEAPON && ohItem)
+            {
+                sLog.outDetail("Bot #%d <%s>: clearing stale offhand %u under 2H main hand",
+                    bot->GetGUIDLow(), bot->GetName(), ohItem->GetEntry());
+                bot->DestroyItem(ohItem->GetBagSlot(), ohItem->GetSlot(), true);
+            }
+        }
 
         uint32 searchLevel = level;
         uint32 quality = ITEM_QUALITY_POOR;
@@ -2168,13 +2191,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             quality = itemQuality;
         }
 
-        // Fresh-seed path (owner spec): MakeComplete gears a brand-new bot.
-        // Only this path gets the green/blue world-drop policy — no epics, no
-        // PvP gear, uniform roll, every-slot retry. Earned paths
-        // (syncWithMaster, explicit itemQuality, non-incremental Randomize)
-        // keep deterministic best-first behaviour.
-        bool const seedSpread = incremental && !syncWithMaster && itemQuality == 0;
-
+        // See seedSpread above for the fresh-seed vs earned-path split.
         bool found = false;
         uint32 attempts = 0;
         do
@@ -2483,8 +2500,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         newStatValue += randomEnchBestValue;
                     }
 
-                    // skip off hand if main hand is worse
-                    if (proto->IsWeapon() && slot == EQUIPMENT_SLOT_OFFHAND && (bot->GetClass() == CLASS_ROGUE || specId == 2))
+                    // skip off hand if main hand is worse. Earned paths only:
+                    // for the fresh seed this gate blocked every rogue/enhance
+                    // offhand whose DPS did not beat the freshly rolled main
+                    // hand (73/73 rogues came out two-handered-empty), and any
+                    // green/blue offhand beats an empty slot (owner spec:
+                    // every slot filled).
+                    if (!seedSpread && proto->IsWeapon() && slot == EQUIPMENT_SLOT_OFFHAND && (bot->GetClass() == CLASS_ROGUE || specId == 2))
                         {
                             bool betterValue = false;
                             bool betterDamage = false;
