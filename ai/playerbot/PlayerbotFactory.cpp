@@ -191,7 +191,14 @@ void PlayerbotFactory::MakeComplete()
     // seeds always came out unenchanted even with data in
     // ai_playerbot_enchants.
     if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
+    {
         LoadEnchantContainer();
+        size_t templates = GetEnchantContainerEnd() - GetEnchantContainerBegin();
+        sLog.outDetail("%s: loaded %zu enchant templates (level %u, minEnchanting %u)",
+            bot->GetName(), templates, bot->GetLevel(), sPlayerbotAIConfig.minEnchantingBotLevel);
+        if (!templates)
+            sLog.outError("%s: no enchant templates in ai_playerbot_enchants — seeded gear will be unenchanted", bot->GetName());
+    }
     // Gear last and incremental only — never wipe earned gear.
     InitEquipment(true, false);
     bot->SaveToDB();

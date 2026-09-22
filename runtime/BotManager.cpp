@@ -580,6 +580,16 @@ void BotManager::OnPlayerLogin(::Player* player)
         }
     }
 
+    // m_canDualWield is not persisted (the Player ctor clears it and the
+    // spellbook passive chain does not re-fire on login), which would make
+    // FindEquipSlot/CanEquipItem refuse every future offhand swap for
+    // dual-wielders. Restore it for the four classes that train Dual Wield
+    // (seed-time InitSkills grants the same flag).
+    if (record.random && player->GetLevel() >= 10 &&
+        (player->GetClass() == CLASS_WARRIOR || player->GetClass() == CLASS_HUNTER ||
+         player->GetClass() == CLASS_ROGUE || player->GetClass() == CLASS_SHAMAN))
+        player->SetCanDualWield(true);
+
     // One-shot random scatter on headless login only; fail-closed, no DB mutation, no homebind
     TryRandomTeleport(player, record);
 
