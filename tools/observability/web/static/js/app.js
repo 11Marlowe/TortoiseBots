@@ -2181,17 +2181,33 @@
         <div class="stat-card-row"><span>Hit Chance</span><strong class="mono">${esc(fmtNum(st.ranged_hit))}%</strong></div>
       </div>`;
 
-    let schoolBadges = [];
     const baseSp = st.spell_damage || 0;
-    if (st.spell_dmg_fire) schoolBadges.push(`🔥 Fire +${baseSp + st.spell_dmg_fire}`);
-    if (st.spell_dmg_frost) schoolBadges.push(`❄️ Frost +${baseSp + st.spell_dmg_frost}`);
-    if (st.spell_dmg_shadow) schoolBadges.push(`💀 Shadow +${baseSp + st.spell_dmg_shadow}`);
-    if (st.spell_dmg_nature) schoolBadges.push(`🌿 Nature +${baseSp + st.spell_dmg_nature}`);
-    if (st.spell_dmg_arcane) schoolBadges.push(`🔮 Arcane +${baseSp + st.spell_dmg_arcane}`);
-    if (st.spell_dmg_holy) schoolBadges.push(`✨ Holy +${baseSp + st.spell_dmg_holy}`);
-    const schoolRow = schoolBadges.length > 0
-      ? `<div style="font-size: 0.72rem; color: var(--text-muted); margin-top: 6px; padding-top: 4px; border-top: 1px dashed var(--border-color); line-height: 1.4;">${esc(schoolBadges.join(' · '))}</div>`
-      : '';
+    const hasSchoolBonus = !!(st.spell_dmg_fire || st.spell_dmg_frost || st.spell_dmg_shadow || st.spell_dmg_nature || st.spell_dmg_arcane || st.spell_dmg_holy);
+    // Paladin (2), Priest (5), Shaman (7), Mage (8), Warlock (9), Druid (11)
+    const isCasterOrHybrid = [2, 5, 7, 8, 9, 11].includes(p.class);
+    const showSchools = baseSp > 0 || hasSchoolBonus || isCasterOrHybrid;
+
+    const schools = [
+      { name: 'Shadow', icon: '💀', color: '#c084fc', bonus: st.spell_dmg_shadow || 0 },
+      { name: 'Fire', icon: '🔥', color: '#fb923c', bonus: st.spell_dmg_fire || 0 },
+      { name: 'Frost', icon: '❄️', color: '#38bdf8', bonus: st.spell_dmg_frost || 0 },
+      { name: 'Arcane', icon: '🔮', color: '#e879f9', bonus: st.spell_dmg_arcane || 0 },
+      { name: 'Nature', icon: '🌿', color: '#4ade80', bonus: st.spell_dmg_nature || 0 },
+      { name: 'Holy', icon: '✨', color: '#fde047', bonus: st.spell_dmg_holy || 0 },
+    ];
+
+    let schoolRows = '';
+    if (showSchools) {
+      schoolRows = `
+        <div style="margin-top: 8px; padding-top: 6px; border-top: 1px dashed var(--border-color);">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; letter-spacing: 0.5px;">Damage by School</div>
+          ${schools.map(s => {
+            const total = baseSp + s.bonus;
+            const bonusTag = s.bonus > 0 ? ` <span style="font-size: 0.72rem; color: var(--text-muted); font-weight: normal;">(+${s.bonus})</span>` : '';
+            return `<div class="stat-card-row"><span>${s.icon} ${s.name}</span><strong class="mono" style="color: ${s.color};">+${esc(total)}${bonusTag}</strong></div>`;
+          }).join('')}
+        </div>`;
+    }
 
     const spellCard = `
       <div class="armory-stat-card">
@@ -2201,7 +2217,7 @@
         <div class="stat-card-row"><span>Spell Crit</span><strong class="mono">${esc(fmtNum(st.spell_crit_pct))}%</strong></div>
         <div class="stat-card-row"><span>Spell Hit</span><strong class="mono">${esc(fmtNum(st.spell_hit))}%</strong></div>
         <div class="stat-card-row"><span>Mana Regen</span><strong class="mono">${esc(st.mana_regen || 0)} MP5</strong></div>
-        ${schoolRow}
+        ${schoolRows}
       </div>`;
 
     const defenseCard = `
