@@ -45,7 +45,7 @@ Alternatively, type these commands in chat:
 ```text
 .bot add <CharacterName>       # Log in an owned character as a bot
 .bot invite <CharacterName>    # Invite bot to your party
-.bot summon                    # Summon nearby party bots to your location
+.bot summon <CharacterName>    # Summon a bot to your location (needs AiPlayerbot.NonGmFreeSummon = 1 unless you are a GM)
 ```
 
 > [!NOTE]
@@ -73,7 +73,7 @@ Alternatively, type these commands in chat:
 
 | Intent / Action | `/tbm` Addon Button | Native Chat Command | Bot Behavior |
 | :--- | :--- | :--- | :--- |
-| **Regroup / Unstuck** | **Summon** | `.bot summon` | Immediately teleports out-of-combat party bots to your coordinates |
+| **Regroup / Unstuck** | **Summon** | `.bot summon <Name>` | Immediately teleports one out-of-combat bot to your coordinates (requires `NonGmFreeSummon = 1` unless GM) |
 | **Focus Target** | **Focus Skull** | `.bot action focus skull` | Directs all DPS bots to burst the raid-marked Skull target |
 | **Pullback Pull** | **Pullback** | `.bot action pullback` | Tank pulls target with ranged attack and sprints back behind cover |
 | **Hold Fire** | **Stay** / **Stop** | `.bot action stay` | Pauses movement and stops casting to prevent accidental adds |
