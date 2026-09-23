@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-23
+
+### Combat & AI
+- Fixed player-owned bots never looting: an uncommented empty `AiPlayerbot.NonCombatStrategies` was overriding the C++ default `+return,+delayed roll,+loot`, so companion alts spawned with zero non-combat strategies. Restoring the default means owned bots now loot corpses, return to master, and roll on loot as intended. [#259](https://github.com/Sagiroth/TortoiseBots/pull/259)
+
+---
+
 ## 2026-09-22
 
 ### Combat & AI
