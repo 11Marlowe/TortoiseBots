@@ -26,6 +26,13 @@
 - Bots now rebind to their owner's player on login via `BotManager::RebindOwnedBots`, restoring master/follow relationships across relogs instead of losing them. [#262](https://github.com/Sagiroth/TortoiseBots/pull/262)
 - Hardened group iteration to avoid unsafe traversal while processing party members. [#262](https://github.com/Sagiroth/TortoiseBots/pull/262)
 
+### Combat & AI
+
+- Party buff routines now only target actual party members — bots stop wasting mana and GCDs buffing random nearby players [#263](https://github.com/Sagiroth/TortoiseBots/pull/263)
+- Paladin blessing triggers were re-scoped to `party member without aura`, so blessings land on the group instead of any friendly in range [#263](https://github.com/Sagiroth/TortoiseBots/pull/263)
+- `ignoreOutOfGroup` is now enforced on `PartyMemberWithoutMyAuraValue` and `PartyTankWithoutAuraValue`, keeping aura checks strictly inside the group [#263](https://github.com/Sagiroth/TortoiseBots/pull/263)
+- Bots that are grouped or bound to a master will never scan nearby strangers for party-buff targets, even when `allowBufOutOfGroupPlayers` is enabled [#263](https://github.com/Sagiroth/TortoiseBots/pull/263)
+
 ## 2026-09-22
 
 ### Combat & AI
