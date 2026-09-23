@@ -590,9 +590,6 @@ void BotManager::OnPlayerLogin(::Player* player)
          player->GetClass() == CLASS_ROGUE || player->GetClass() == CLASS_SHAMAN))
         player->SetCanDualWield(true);
 
-    // One-shot random scatter on headless login only; fail-closed, no DB mutation, no homebind
-    TryRandomTeleport(player, record);
-
     // Initial gear seeding is for fresh pool bots only, never earned progression.
     // See GearSeedingGuard.h for the dual-heuristic rule. Stamp after the
     // attempt, not before: a crash between stamp and equip must not matter, and
@@ -628,6 +625,10 @@ void BotManager::OnPlayerLogin(::Player* player)
         skills.InitAllSkills();
         TB_LOG_DETAIL("TortoiseBots: bot %s received its level-bound skills and professions.", player->GetName());
     }
+
+    // One-shot random scatter on headless login only; fail-closed, no DB mutation, no homebind.
+    // Must run AFTER gear seeding and skills so the bot is fully initialized before any map transfer.
+    TryRandomTeleport(player, record);
 
     TB_LOG_DETAIL("TortoiseBots: bot %s entered world through native PlayerScript", player->GetName());
 }
