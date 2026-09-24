@@ -341,8 +341,8 @@ logout
 roster
 action attack|interrupt|stop|pull|pullback|come|stay|follow
 action focus skull
-action cc <raid-mark>  # star/circle/diamond/triangle/moon/square/cross/skull (exclusive per-bot ownership)
-action cc clear  # dismiss ownership: targeted bot, or whole owned party
+action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/skull (exclusive per-bot ownership; explicit name wins over target; unknown name -> ACTION_ERR no-bot; ACK scope bot:<Name>)
+action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action aoe [on|off]
 follow
 invite
@@ -385,14 +385,17 @@ target's active cast, then executes it or queues the existing reach action.
 Pull and Pullback both use the mature `PullStrategy`
 but select different existing policy state: ordinary Pull removes `pull back`,
 while Pullback enables its return-to-pull-position trigger. CC resolves a
-requested raid mark and a suitable executor server-side. Targeting an owned bot
-sets that bot's persistent `rti cc` preference; targeting an enemy (or an
-existing group mark) lets the server select a capable executor and immediately
-attempt the mature CC action. Mark ownership is exclusive: assigning a mark
-resets every other owned live party bot holding it to `none` and persists the
-change. `action cc clear` dismisses ownership (targeted bot, or the whole
-owned party when no bot is targeted); `none` is reported as `-` in the
-`TBM:CC_ASSIGN` snapshot. Executor discovery walks the registered mature
+requested raid mark and a suitable executor server-side. An explicit bot name
+(`cc <mark> <Bot>`) assigns that owned live bot directly, winning over the
+live target; unknown or uncontrollable names fail with `no-bot`. Otherwise
+targeting an owned bot sets that bot's persistent `rti cc` preference, and
+targeting an enemy (or an existing group mark) lets the server select a
+capable executor and immediately attempt the mature CC action. Mark ownership
+is exclusive: assigning a mark resets every other owned live party bot holding
+it to `none` and persists the change. `action cc clear [bot]` dismisses
+ownership (named bot, else targeted bot, else the whole owned party when no
+bot is targeted); `none` is reported as `-` in the `TBM:CC_ASSIGN` snapshot.
+Executor discovery walks the registered mature
 CC actions, so Hunter traps/beast control, Paladin Turn Undead, Rogue Sap, and
 the other class actions remain eligible without a second class policy table.
 Assignment is persisted even when the current marked creature is not legal for

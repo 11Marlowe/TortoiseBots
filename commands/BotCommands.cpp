@@ -1921,15 +1921,26 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         std::string mark = remainder.substr(0, secondSeparator);
         for (char& character : mark)
             character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-        // "cc clear" is the dismissal intent (no mark named "clear" exists:
-        // GetRtiIndex returns -1 for it). It takes no extra token.
+        // "cc clear [<BotName>]" is the dismissal intent (no mark named
+        // "clear" exists: GetRtiIndex returns -1 for it).
         if (first == "cc" && mark == "clear")
         {
-            if (mark.empty() ||
-                (secondSeparator != std::string::npos &&
-                    !Trim(remainder.substr(secondSeparator + 1)).empty()))
+            std::string botToken = secondSeparator == std::string::npos
+                ? std::string() : Trim(remainder.substr(secondSeparator + 1));
+            if (mark.empty() || botToken.find_first_of(" \t") != std::string::npos)
                 return false;
-            intent = first + " " + mark;
+            intent = botToken.empty() ? first + " " + mark : first + " " + mark + " " + botToken;
+            return true;
+        }
+        // "cc <mark> [<BotName>]": an explicit bot name assigns the mark to
+        // that owned bot without juggling the player's target.
+        if (first == "cc" && IsRaidTargetMark(mark))
+        {
+            std::string botToken = secondSeparator == std::string::npos
+                ? std::string() : Trim(remainder.substr(secondSeparator + 1));
+            if (mark.empty() || botToken.find_first_of(" \t") != std::string::npos)
+                return false;
+            intent = botToken.empty() ? first + " " + mark : first + " " + mark + " " + botToken;
             return true;
         }
         if ((first == "focus" && mark != "skull") ||
@@ -1941,7 +1952,6 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         intent = first + " " + mark;
         return true;
     }
-
     if (first == "corpse")
     {
         std::string rest = remainder;
@@ -2028,7 +2038,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|cc clear|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark> [bot]|cc clear [bot]|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2071,13 +2081,27 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
         scope = context.partyBots;
     }
-    else if (intent == "cc clear")
+    else if (intent == "cc clear" || intent.compare(0, 9, "cc clear ") == 0)
     {
-        // Dismissal: targeted bot clears its own mark; untargeted clears the
-        // whole owned party. "none" is not a raid mark, so CurrentCcMark
-        // reports "-" and the next CC_ASSIGN snapshot drops the owner.
+        // Dismissal: an explicit name clears only that bot; a targeted bot
+        // clears itself; otherwise the whole owned party is cleared. "none"
+        // is not a raid mark, so CurrentCcMark reports "-" and the next
+        // CC_ASSIGN snapshot drops the owner.
         std::vector<Player*> clearScope;
-        if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
+        if (intent.size() > 9)
+        {
+            Player* named = nullptr;
+            BotRecord* namedRecord = nullptr;
+            std::string namedName;
+            if (!ResolveOwnedBot(handler, intent.substr(9).c_str(), named, namedRecord, namedName))
+            {
+                SendActionError(handler, intent, "no-bot",
+                    "Unknown or uncontrollable bot name for cc clear.");
+                return true;
+            }
+            clearScope.push_back(named);
+        }
+        else if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
             clearScope.push_back(context.selectedBot);
         else
             clearScope = context.partyBots;
@@ -2102,14 +2126,24 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             return true;
         }
         SendActionAck(handler, intent,
-            context.selectedBot && cleared == 1
-                ? "bot:" + std::string(context.selectedBot->GetName()) : "party",
+            clearScope.size() == 1 && cleared == 1
+                ? "bot:" + clearedName : "party",
             cleared, clearedName);
         return true;
     }
     else if (intent.compare(0, 3, "cc ") == 0)
     {
+        // Optional explicit bot name ("cc <mark> <BotName>") assigns that
+        // owned bot without juggling the player's target. The mark token
+        // itself is lowercase; the name keeps its case for resolution.
+        std::string ccBotToken;
         std::string ccMark = intent.substr(3);
+        size_t ccSpace = ccMark.find_first_of(" \t");
+        if (ccSpace != std::string::npos)
+        {
+            ccBotToken = Trim(ccMark.substr(ccSpace + 1));
+            ccMark = ccMark.substr(0, ccSpace);
+        }
         int markIndex = RtiTargetValue::GetRtiIndex(ccMark);
         Unit* ccTarget = context.enemyTarget;
 
@@ -2131,9 +2165,33 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
             ccTarget = nullptr;
 
+        // An explicit name wins over the live target: same assignment path
+        // as the selected-bot case, including the immediate-cast probe when
+        // an enemy is selected or the mark already exists.
+        Player* namedBot = nullptr;
+        if (!ccBotToken.empty())
+        {
+            BotRecord* namedRecord = nullptr;
+            std::string namedName;
+            if (!ResolveOwnedBot(handler, ccBotToken.c_str(), namedBot, namedRecord, namedName))
+            {
+                SendActionError(handler, intent, "no-bot",
+                    "Unknown or uncontrollable bot name for cc assignment.");
+                return true;
+            }
+        }
+
         Player* executor = nullptr;
         std::string ccAction;
-        if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
+        if (namedBot)
+        {
+            executor = namedBot;
+            if (ccTarget)
+            {
+                ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
+            }
+        }
+        else if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
         {
             // A selected bot is an assignment request. It may be configured
             // before an enemy is marked; when a live target is available, keep
@@ -2215,7 +2273,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 ExecuteQuietNextAction(ai, true);
         }
 
-        SendActionAck(handler, intent, context.selectedBot == executor
+        SendActionAck(handler, intent, (namedBot || context.selectedBot == executor)
             ? "bot:" + std::string(executor->GetName()) : "party", 1, executor->GetName());
         return true;
     }
