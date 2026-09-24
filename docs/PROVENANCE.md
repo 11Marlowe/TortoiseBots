@@ -1630,7 +1630,7 @@ Local validation:
 
 ## Healer priest off-spec damage gate (`healer should attack`) — 2026-09-24
 
-Feature: new generic `HealerShouldAttackTrigger` (`healer should attack`, `healer should wand`); `PriestOffdpsStrategy` damage (SW:P, Holy Fire, Smite, Starshards, Mind Blast) now fires only when solo, or when no party member is below `almostFullHealth` and mana is above a balance-scaled reserve, at `ACTION_DEFAULT` relevance. A healthy party with low mana gets a wand instead. Removed the ungated per-tick `smite`/`holy fire`/`very often -> starshards` nodes and the AoE SW:P/Holy Nova nodes from off-spec DPS.
+Feature: new generic `HealerShouldAttackTrigger` (`healer should attack`, `healer should wand`); `PriestOffdpsStrategy` damage (SW:P, Holy Fire, Smite, Starshards, Mind Blast) now fires only when solo, or when no party member is below `almostFullHealth` and mana is above a balance-scaled reserve, at `ACTION_DEFAULT` relevance. A healthy party with low mana gets a wand instead. Removed the ungated per-tick `smite`/`holy fire`/`very often -> starshards` nodes and the per-attacker SW:P node; Holy Nova is kept behind `melee medium aoe and healer should attack` (the donor's `medium aoe and healer should attack` -> Mind Sear). Note: `healer should attack` is now a registered trigger name, which the unregistered healer-dps strategies of druid/paladin/shaman also reference — registering those strategies later arms them.
 
 Source repository: `mod-playerbots/mod-playerbots`
 

@@ -600,6 +600,12 @@ void PriestOffdpsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
             new NextAction("starshards", ACTION_DEFAULT + 0.25f),
             new NextAction("mind blast", ACTION_DEFAULT + 0.2f), NULL)));
 
+    // Holy Nova is the 1.12 stand-in for the donor's Mind Sear: point-blank,
+    // so it keys off a melee-range pack.
+    triggers.push_back(new TriggerNode(
+        "melee medium aoe and healer should attack",
+        NextAction::array(0, new NextAction("holy nova", ACTION_DEFAULT + 0.6f), NULL)));
+
     triggers.push_back(new TriggerNode(
         "healer should wand",
         NextAction::array(0, new NextAction("shoot", ACTION_DEFAULT), NULL)));
