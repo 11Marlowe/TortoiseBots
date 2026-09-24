@@ -1627,3 +1627,44 @@ Local validation:
 - `bash tools/verify_all.sh ../tortoise-wow` — all checks passed.
 - `git diff --check` — clean.
 - Not yet observed: live in-game hire (recruiter gossip click-through, gold deduction, bot join). Needs a running server with the migration applied — flagged in the PR.
+
+## Tank target stickiness (smart ranking + hold gate) — 2026-09-24
+
+Feature: tank bots keep/finish the mob they hold instead of walking off a
+nearly-dead mob to a loose add. `TankTargetValue` now buckets attackers
+(loose first/nearest, then held-in-melee, then held-out-of-melee, lowest
+personal threat as tie-break) and `TankAssistTrigger` only retargets while
+the tank still holds its current target (`has aggro`), so the switch is
+reversible. Explicit `.bot action attack` and RTI (skull) precedence and the
+CC skips are unchanged.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout); behavior commits
+`a63c6b67` ("smarter dps target and tank target") and `0a76fc1d`
+("Better tank target selection (#996)").
+
+Source files:
+- `src/Ai/Base/Value/TankTargetValue.cpp:49-136` (`FindTankTargetSmartStrategy::IsBetter/GetIntervalLevel`, smart `TankTargetValue::Calculate`)
+- `src/Ai/Base/Trigger/GenericTriggers.cpp:536-550` (`TankAssistTrigger::IsActive` has-aggro gate)
+- `src/Ai/Base/Value/AttackerCountValues.cpp:13-32` (`HasAggroValue::Calculate` victim semantics)
+- `src/Bot/PlayerbotAI.cpp:2071-2083` (`PlayerbotAI::HasAggro`)
+
+Copied / ported / independently reimplemented: ported, adapted to the 1.12
+codebase. Ranking (`IsBetter`/`GetIntervalLevel`), the trigger gate, and the
+live-victim + threat-manager victim helpers are behavior-identical; the
+donor's multi-tank/explicit-MT pin (`IsExplicitMainTank`, `GetGroupTankNum`,
+`TargetValueExclusionType::Tank`) is skipped as non-trivial single-tank
+plumbing. The old lowest-threat `FindTargetForTankStrategy` is replaced
+(donor keeps it commented-out; here it is removed since nothing else
+references it).
+
+Reason: the flat lowest-threat tournament plus the victim-based assist gate
+made the tank abandon a nearly-dead mob for any lower-threat add and then
+forbade switching back (one-way door) — see
+`scratchpad/research/tank-target-switching.md` RC-1.
+
+Local validation:
+- `python3 tools/verify_okf.py` + `./tools/verify_all.sh` (see commit); `git diff --check` clean.
+- No build (per task constraints); live in-game check pending: multi-mob pull, tank finishes its mob, still picks up healer adds, no stuck-on-door.

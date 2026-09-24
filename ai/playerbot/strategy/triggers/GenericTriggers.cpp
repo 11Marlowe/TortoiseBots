@@ -639,12 +639,13 @@ bool TankAssistTrigger::IsActive()
     Unit* tankTarget = AI_VALUE(Unit*, "tank target");
     if (!tankTarget || currentTarget == tankTarget)
         return false;
-#ifdef CMANGOS
-    return tankTarget->GetVictim() != AI_VALUE(Unit*, "self target");
-#endif
-#ifdef MANGOS
-    return tankTarget->GetVictim() != AI_VALUE(Unit*, "self target");
-#endif
+
+    // mod-playerbots TankAssistTrigger semantics: switch only while the tank
+    // still holds its current target. A loose add is picked up while the
+    // current mob is held, and the tank can switch back to finish it later.
+    // The old victim check forbade returning to a mob on the tank (one-way
+    // door). "has aggro" is HasAggroValue (values/AttackerCountValues.cpp).
+    return AI_VALUE2(bool, "has aggro", "current target");
 }
 
 bool IsBehindTargetTrigger::IsActive()
