@@ -13,6 +13,8 @@
 #include "Database/DatabaseEnv.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
+#include "RandomBotAccountRegistry.h"
+#include "RandomBotPoolReset.h"
 #include "AccountMgr.h"
 #include "SharedDefines.h"
 #include "Database/DBCStores.h"
@@ -121,6 +123,92 @@ RandomBotService& RandomBotService::Instance()
     return instance;
 }
 
+bool RandomBotService::IsPoolAvailable() const
+{
+    // A pool operation needs both an authoritative registry and no reset in
+    // progress. Without validated registry rows the module cannot tell its own
+    // accounts from anybody else's, so nothing may create, hire, or log in a
+    // pool character.
+    return RandomBotAccountRegistry::Instance().IsValidated() && RandomBotPoolReset::Instance().IsPoolAvailable();
+}
+
+void RandomBotService::WarnAboutUnregisteredPrefixAccounts()
+{
+    // Legacy installations may hold hand-made accounts that look like pool
+    // accounts. They are not module-owned until an administrator adopts them
+    // explicitly, and startup only reports them.
+    std::vector<std::string> unregistered = RandomBotAccountRegistry::Instance().UnregisteredPrefixMatches();
+    if (unregistered.empty())
+        return;
+
+    std::string names;
+    size_t shown = std::min<size_t>(unregistered.size(), 10);
+    for (size_t i = 0; i < shown; ++i)
+        names += (i ? ", " : "") + unregistered[i];
+    if (unregistered.size() > shown)
+        names += ", ...";
+
+    sLog.outError("TortoiseBots: %u account(s) match the random-bot prefix but are NOT managed pool accounts (%s). "
+        "They are ignored by the pool and will never be reset. Run 'bot pool adopt preview' at the server console "
+        "to review them, then 'bot pool adopt confirm <challenge>' to enroll them.",
+        static_cast<uint32>(unregistered.size()), names.c_str());
+}
+
+bool RandomBotService::RegisterPoolAccount(uint32_t accountId, std::string const& username, RegistrationSource source)
+{
+    // The registry row is written and read back before the account is used for
+    // anything. An account the module cannot prove it registered is never
+    // treated as pool infrastructure.
+    RegisterResult result = RandomBotAccountRegistry::Instance().RegisterCreatedAccount(accountId, username, source);
+    if (result == RegisterResult::Success || result == RegisterResult::AlreadyRegistered)
+    {
+        if (std::find(m_rndBotAccountIds.begin(), m_rndBotAccountIds.end(), accountId) == m_rndBotAccountIds.end())
+            m_rndBotAccountIds.push_back(accountId);
+        return true;
+    }
+
+    sLog.outError("TortoiseBots: account %u ('%s') could not be registered as a managed pool account (result %u); "
+        "no character will be created on it", accountId, NormalizeAccountUsername(username).c_str(), uint32(result));
+    return false;
+}
+
+void RandomBotService::DrivePoolReset(uint32_t diff)
+{
+    RandomBotPoolReset& reset = RandomBotPoolReset::Instance();
+    if (!reset.IsActive())
+        return;
+
+    PoolResetPhase before = reset.Phase();
+    reset.Update(diff);
+    PoolResetPhase after = reset.Phase();
+    if (after == before)
+        return;
+
+    if (after == PoolResetPhase::Complete)
+    {
+        // The pool is empty now: reload the (unchanged) account list and let
+        // the normal bounded auto-create refill it toward the configured
+        // target.
+        LoadCandidates();
+        if (sPlayerbotAIConfig.randomBotAutoCreate)
+            m_targetCount = DesiredTargetCount();
+        else
+            m_targetCount = TargetCount();
+        m_pinnedGuids.clear();
+        m_pinnedResolved = false;
+        m_failedAutoCreateAccounts.clear();
+        m_freshAutoCreateDisabled = false;
+        m_charCreateErrorNextRetry = 0;
+        m_accountAllocNextRetry = 0;
+        TB_LOG_BASIC("TortoiseBots: random pool rebuilt from %u managed accounts (target %u)",
+            static_cast<uint32>(m_rndBotAccountIds.size()), m_targetCount);
+    }
+    else if (after == PoolResetPhase::Failed)
+    {
+        sLog.outError("TortoiseBots: random pool reset stopped: %s", reset.LastFailure().c_str());
+    }
+}
+
 void RandomBotService::Initialize()
 {
     if (m_initialized)
@@ -140,6 +228,14 @@ void RandomBotService::Initialize()
     m_pendingNextRetry = 0;
     m_pendingSince = 0;
     m_pendingStaleLogged = false;
+
+    // Issue #265: read the recorded generation and plan the startup reset
+    // before the service's own gates, so `bot pool status` reports the stored
+    // generation accurately even on a server that runs with the random-bot
+    // service switched off. Planning schedules nothing without a validated
+    // registry, so a disabled service cannot leave a reset half-started.
+    RandomBotPoolReset::Instance().PlanAtStartup(sPlayerbotAIConfig.randomBotPoolReset, sPlayerbotAIConfig.randomBotAutoCreate);
+
     if (!sPlayerbotAIConfig.enabled)
     {
         TB_LOG_BASIC("TortoiseBots: native random-bot service disabled by configuration");
@@ -149,9 +245,26 @@ void RandomBotService::Initialize()
     // check needs the real candidate set.
     if (!sPlayerbotAIConfig.randomBotAutologin && !sPlayerbotAIConfig.randomBotAutoCreate)
     {
+        // A configured rebuild must not disappear silently when the service is
+        // switched off.
+        PoolResetSetting setting = ParsePoolResetSetting(sPlayerbotAIConfig.randomBotPoolReset);
+        if (setting.mode == PoolResetMode::Once || setting.mode == PoolResetMode::Always)
+            sLog.outError("TortoiseBots: AiPlayerbot.RandomBotPoolReset requests a pool rebuild, but the random-bot "
+                "service is disabled (RandomBotAutologin=0 and RandomBotAutoCreate=0); no reset was scheduled");
         TB_LOG_BASIC("TortoiseBots: native random-bot service disabled by configuration");
         return;
     }
+    if (!RandomBotAccountRegistry::Instance().IsValidated())
+    {
+        // Without a validated registry the module cannot tell its own accounts
+        // from anybody else's, so the pool stays empty instead of falling back
+        // to prefix identity.
+        sLog.outError("TortoiseBots: managed-account registry unavailable (%s); random-bot pool stays empty until it can be read",
+            RandomBotAccountRegistry::Instance().LastError().c_str());
+        return;
+    }
+
+    WarnAboutUnregisteredPrefixAccounts();
 
     LoadCandidates();
     // m_targetCount historically capped to candidates size. With auto-create
@@ -177,23 +290,17 @@ void RandomBotService::LoadCandidates()
     m_rndBotAccountIds.clear();
     m_nextCandidate = 0;
 
-    std::set<uint32> accountIds;
-    std::unique_ptr<QueryResult> accounts(LoginDatabase.PQuery("SELECT id FROM account WHERE username LIKE '%s%%'",
-        sPlayerbotAIConfig.randomBotAccountPrefix.c_str()));
-    if (!accounts)
-        return;
-
-    do
+    // Issue #265: the pool is exactly the managed-account registry. No prefix
+    // query decides what is a bot account, so a personal account that merely
+    // looks like one is never loaded, hired, or reset.
+    RandomBotAccountRegistry& registry = RandomBotAccountRegistry::Instance();
+    if (!registry.IsValidated())
     {
-        Field* fields = accounts->Fetch();
-        uint32 accountId = fields[0].GetUInt32();
-        if (accountId)
-        {
-            accountIds.insert(accountId);
-            sPlayerbotAIConfig.IsInRandomAccountList(accountId);
-        }
-    } while (accounts->NextRow());
+        sLog.outError("TortoiseBots: managed-account registry is not validated; refusing to load a random-bot pool");
+        return;
+    }
 
+    std::set<uint32> accountIds(registry.AccountIds().begin(), registry.AccountIds().end());
     m_rndBotAccountIds.assign(accountIds.begin(), accountIds.end());
 
     std::set<uint32> characterIds;
@@ -457,6 +564,10 @@ bool RandomBotService::TryAutoCreate()
         return false;
     if (sWorld.IsShutdowning())
         return false;
+    // No account allocation or character creation while the pool is being
+    // reset: new characters would be deleted by the running snapshot.
+    if (!IsPoolAvailable())
+        return false;
 
     // Snapshot DesiredTargetCount once at Initialize when auto-create is
     // enabled; repeated cadence calls must not re-roll time()%range or ratchet
@@ -535,11 +646,11 @@ bool RandomBotService::TryAutoCreate()
                 m_pendingNextRetry = 0;
                 m_pendingStaleLogged = false;
                 m_accountAllocNextRetry = 0;
-                if (std::find(m_rndBotAccountIds.begin(), m_rndBotAccountIds.end(), pendingId) == m_rndBotAccountIds.end())
-                    m_rndBotAccountIds.push_back(pendingId);
-                else
-                    TB_LOG_DETAIL("TortoiseBots: auto-create pending account %s (%u) already in pool, proceeding to character",
-                        resolvedName.c_str(), pendingId);
+                if (!RegisterPoolAccount(pendingId, resolvedName, RegistrationSource::AutoCreate))
+                {
+                    m_accountAllocNextRetry = time(nullptr) + 60;
+                    return false;
+                }
                 AutoCreateCharResult pendingRes = TryCreateCharacterOnAccount(pendingId, validAll);
                 if (pendingRes == AutoCreateCharResult::Success)
                     return true;
@@ -669,9 +780,16 @@ bool RandomBotService::TryAutoCreate()
             uint32 id = sAccountMgr.GetId(username);
             if (id)
             {
+                // The account enters the registry before any character is
+                // created on it; without a readable registry row it is not
+                // used at all (the empty login account is harmless).
+                if (!RegisterPoolAccount(id, username, RegistrationSource::AutoCreate))
+                {
+                    m_accountAllocNextRetry = time(nullptr) + 60;
+                    return false;
+                }
                 newAccountId = id;
                 newUsername = username;
-                m_rndBotAccountIds.push_back(id);
                 TB_LOG_DETAIL("TortoiseBots: auto-create created RNDBOT account %s (%u)", username.c_str(), id);
             }
             else
@@ -731,6 +849,8 @@ bool RandomBotService::TryAutoCreate()
 void RandomBotService::ResolvePinnedBots()
 {
     if (m_pinnedResolved)
+        return;
+    if (!IsPoolAvailable())
         return;
     if (sPlayerbotAIConfig.pinnedBotNames.empty())
     {
@@ -1013,6 +1133,8 @@ void RandomBotService::MaintainOnlinePool()
 {
     if (!m_started || sWorld.IsShutdowning())
         return;
+    if (!IsPoolAvailable())
+        return;
     if (sPlayerbotAIConfig.randomBotLoginWithPlayer && !m_humanSessions)
     {
         for (Candidate const& candidate : m_candidates)
@@ -1210,6 +1332,12 @@ void RandomBotService::Update(uint32_t diff)
 
     sRandomBotFacade.RefreshAuctionPrices(diff);
 
+    // Issue #265: a startup reset runs before anything else touches the pool,
+    // one bounded step per world tick.
+    DrivePoolReset(diff);
+    if (!IsPoolAvailable())
+        return;
+
     uint32_t cadence = std::max<uint32_t>(1000, sPlayerbotAIConfig.randomBotUpdateInterval);
     m_serviceElapsedMs += diff;
     if (m_serviceElapsedMs < cadence)
@@ -1319,6 +1447,7 @@ void RandomBotService::Shutdown()
     m_pendingNextRetry = 0;
     m_pendingSince = 0;
     m_pendingStaleLogged = false;
+    RandomBotPoolReset::Instance().Shutdown();
 }
 
 } // namespace TortoiseBots

@@ -172,7 +172,30 @@ Manage and monitor the autonomous synthetic Auction House engine in real time:
 
 ---
 
-## 7. Addon Command Transport (`TortoiseBotsManager`)
+## 7. Managed Pool Administration (`.bot pool`)
+
+*(Administrator / server console)*
+
+Inspect the managed random-bot pool and enroll legacy accounts. See
+[Resetting the managed bot pool](living-world.md#resetting-the-managed-bot-pool)
+for the full rebuild procedure.
+
+| Command | Available to | What It Does |
+| :--- | :--- | :--- |
+| `.bot pool status` | In-game administrators and the server console | Shows the configured reset mode and requested generation, the applied generation, managed account/character counts, the current reset phase and progress, and the last failure reason. |
+| `.bot pool accounts` | **Server console only** | Lists every managed pool account with its registration source and current character count. |
+| `.bot pool adopt preview` | **Server console only** | Read-only. Lists every account matching `AiPlayerbot.RandomBotAccountPrefix`, whether it is already managed, and its character count, then prints a short-lived confirmation challenge. |
+| `.bot pool adopt confirm <challenge>` | **Server console only** | Enrolls the previewed accounts. Requires an unexpired challenge and an unchanged account set; re-running it is idempotent. **Registers accounts only — it never deletes, moves, or edits a character.** |
+
+Notes:
+
+- Adoption is the only way a pre-existing hand-made bot account becomes managed. Startup logs a warning listing prefix-matching accounts that are not managed, and those accounts are ignored by the pool until adopted.
+- The console-only commands require a session-less handler **that carries `SEC_CONSOLE`**. Players, addon messages, hired bots, and headless sessions all have a session and are rejected; remote-access and Discord commands use session-less handlers too, but carry the calling account's own security level, so they are rejected as well. Every `.bot pool` handler enforces this itself, because the module intercepts `.bot` before the core command table can apply its own permission checks.
+- There is deliberately **no** live reset command: rebuilding the pool is a startup operation driven by `AiPlayerbot.RandomBotPoolReset`.
+
+---
+
+## 8. Addon Command Transport (`TortoiseBotsManager`)
 
 The `/tbm` UI speaks the same command grammar over a silent transport. While the
 server reports the addon channel usable, the addon sends its UI commands as

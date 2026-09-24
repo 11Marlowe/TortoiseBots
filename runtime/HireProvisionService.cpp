@@ -6,6 +6,8 @@
 #include "BotManager.h"
 #include "BotActivityLease.h"
 #include "PlayerbotAIStorage.h"
+#include "RandomBotAccountRegistry.h"
+#include "RandomBotService.h"
 #include "../host/BotSessionAdapter.h"
 #include "../host/ModuleLog.h"
 #include "../ai/playerbot/PlayerbotAI.h"
@@ -132,6 +134,16 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     {
         outcome.status = HireStatus::Disabled;
         outcome.message = "Companion hiring is disabled on this server.";
+        return outcome;
+    }
+    // Issue #265: while the managed pool is being rebuilt, hiring would race
+    // the deletion (its candidates are pool characters).
+    if (!RandomBotService::Instance().IsPoolAvailable())
+    {
+        outcome.status = HireStatus::Failed;
+        outcome.message = RandomBotAccountRegistry::Instance().IsValidated()
+            ? "The bot pool is being rebuilt right now. Try again in a moment."
+            : "The bot pool is unavailable: the managed-account registry could not be read.";
         return outcome;
     }
     if (requester->GetSession()->GetSecurity() < static_cast<int>(sPlayerbotAIConfig.hireMinAccountSecurity))
@@ -366,21 +378,9 @@ bool HireProvisionService::FindOwnedReusableCandidate(Player* requester, HireSel
 
 bool HireProvisionService::FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid)
 {
-    std::string prefix = sPlayerbotAIConfig.randomBotAccountPrefix;
-    if (prefix.empty())
-        prefix = "RNDBOT";
-    std::unique_ptr<QueryResult> accounts(LoginDatabase.PQuery(
-        "SELECT id FROM account WHERE username LIKE '%s%%'", prefix.c_str()));
-    if (!accounts)
-        return false;
-
-    std::vector<uint32_t> accountIds;
-    do
-    {
-        Field* fields = accounts->Fetch();
-        if (uint32_t id = fields[0].GetUInt32())
-            accountIds.push_back(id);
-    } while (accounts->NextRow());
+    // Issue #265: reuse only accounts the module registered itself. A
+    // prefix-matching personal account is never handed out as a hire.
+    std::vector<uint32_t> accountIds = RandomBotAccountRegistry::Instance().AccountIds();
 
     uint32_t perAccountLimit = sWorld.getConfig(CONFIG_UINT32_CHARACTERS_PER_REALM);
     if (!perAccountLimit)
@@ -454,18 +454,9 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
     bool allowTwoSide = sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_ACCOUNTS) != 0;
 
 
-    std::unique_ptr<QueryResult> accounts(LoginDatabase.PQuery(
-        "SELECT id FROM account WHERE username LIKE '%s%%' ORDER BY id", prefix.c_str()));
-    std::vector<uint32_t> accountIds;
-    if (accounts)
-    {
-        do
-        {
-            Field* f = accounts->Fetch();
-            if (uint32_t id = f[0].GetUInt32())
-                accountIds.push_back(id);
-        } while (accounts->NextRow());
-    }
+    // Issue #265: only registered pool accounts are eligible; new accounts are
+    // registered before their first character is created.
+    std::vector<uint32_t> accountIds = RandomBotAccountRegistry::Instance().AccountIds();
 
     auto accountEligible = [&](uint32_t id) -> bool
     {
@@ -566,6 +557,14 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
             if (!freshId)
             {
                 sLog.outError("TortoiseBots: hire created account %s but its id never became visible; giving up on it", username.c_str());
+                return false;
+            }
+            RegisterResult registered = RandomBotAccountRegistry::Instance().RegisterCreatedAccount(
+                freshId, username, RegistrationSource::Hire);
+            if (registered != RegisterResult::Success && registered != RegisterResult::AlreadyRegistered)
+            {
+                sLog.outError("TortoiseBots: hire created account %s (%u) but could not register it as a managed pool account; refusing to use it",
+                    username.c_str(), freshId);
                 return false;
             }
             sLog.outString("TortoiseBots: hire minted fresh account %s (%u)", username.c_str(), freshId);

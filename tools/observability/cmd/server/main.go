@@ -55,7 +55,6 @@ func main() {
 	dbName := flag.String("db-name", getEnv("DB_LOGIN", "tw_logon"), "MariaDB / MySQL realmd database name")
 	dbChar := flag.String("db-char", getEnv("DB_CHAR", "tw_char"), "MariaDB / MySQL characters database name")
 	dbWorld := flag.String("db-world", getEnv("DB_WORLD", "tw_world"), "MariaDB / MySQL world database name")
-	botPrefix := flag.String("bot-account-prefix", getEnv("BOT_ACCOUNT_PREFIX", "rndbot"), "Account name prefix identifying bot characters (must match AiPlayerbot.RandomBotAccountPrefix)")
 	dbcDir := flag.String("dbc-dir", getEnv("DBC_DIR", ""), "Optional operator DBC directory (same files mangosd reads); enables talent trees when world talent mirrors are empty")
 	issueMinAgeSec := flag.Int("issue-min-age-sec", getEnvInt("ISSUE_MIN_AGE_SEC", 300), "Only surface bot issues that persist at least this many seconds")
 	minGMLevel := flag.Int("min-gm-level", getEnvInt("MIN_GM_LEVEL", 2), "Minimum GM rank required for dashboard login (2 = gamemaster)")
@@ -107,8 +106,6 @@ func main() {
 		DBPassword:       *dbPass,
 		CharDB:           *dbChar,
 		WorldDB:          *dbWorld,
-		LoginDB:          *dbName,
-		BotAccountPrefix: *botPrefix,
 		DBCDir:           *dbcDir,
 	})
 	if err != nil {

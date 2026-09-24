@@ -26,7 +26,17 @@ python3 -m unittest tools/test_engine_walk_gating.py
 echo "✓ Engine unit tests passed."
 
 echo ""
-echo "=== 5. Running Decision Trail Self-Test ==="
+echo "=== 5. Running Pool Reset Policy Test (issue #265) ==="
+if command -v g++ >/dev/null 2>&1; then
+    g++ -std=c++17 -Wall -Wextra tools/test_pool_reset_policy.cpp -o "${TMPDIR:-/tmp}/test_pool_reset_policy"
+    "${TMPDIR:-/tmp}/test_pool_reset_policy"
+    echo "✓ Pool reset policy verified."
+else
+    echo "ℹ Skipping pool reset policy test (no g++ on PATH)."
+fi
+
+echo ""
+echo "=== 6. Running Decision Trail Self-Test ==="
 python3 tools/check_decision_trail.py --self-test
 echo "✓ Decision trail self-test verified."
 

@@ -3,6 +3,7 @@
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "BotManager.h"
+#include "RandomBotService.h"
 #include "PlayerbotAIStorage.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
@@ -524,6 +525,9 @@ void BattlegroundQueueService::Update(uint32_t diff)
     if (!m_initialized)
         return;
     if (!sPlayerbotAIConfig.enabled || !sPlayerbotAIConfig.randomBotBgEnabled)
+        return;
+    // Issue #265: no pool bot is queued while the managed pool is being reset.
+    if (!RandomBotService::Instance().IsPoolAvailable())
         return;
 
     // Reconcile every tick: if a bot queued by this service now has an active
