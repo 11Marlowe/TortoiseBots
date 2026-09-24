@@ -7,6 +7,7 @@
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectGuid.h"
+#include "RandomBotAccountRegistry.h"
 
 namespace TortoiseBots
 {
@@ -28,6 +29,12 @@ public:
     void OnHumanLogin();
     void OnHumanLogout();
 
+    // False while the startup pool reset is draining, deleting, verifying or
+    // has failed. Every pool consumer (autologin, auto-create, pinned
+    // resolution, hiring, battleground selection) stays paused while it is
+    // false, so nothing races the deletion.
+    bool IsPoolAvailable() const;
+
 private:
     struct Candidate
     {
@@ -41,6 +48,13 @@ private:
     ~RandomBotService() = default;
 
     void LoadCandidates();
+    // Startup pool reset (issue #265): planned in Initialize, executed one
+    // bounded step per world tick, and followed by a candidate reload.
+    void DrivePoolReset(uint32_t diff);
+    // Register a module-created account before any character is created on it.
+    bool RegisterPoolAccount(uint32_t accountId, std::string const& username, RegistrationSource source);
+    // Startup diagnostic: prefix-matching accounts that are not managed.
+    void WarnAboutUnregisteredPrefixAccounts();
     void MaintainOnlinePool();
     // Level ladder (AiPlayerbot.LevelLadder), see MaintainOnlinePool.
     uint32_t LadderBandCount() const;
@@ -115,6 +129,9 @@ private:
     // continuing the existing-account selection path and without allocating
     // another fresh account; log once after prolonged unresolved period.
     // Cleared once the id is visible, then one character creation is attempted.
+    // Startup pool reset state (issue #265). Deletion details stay inside
+    // RandomBotPoolReset; this service only drives it and reloads afterwards.
+    // Registry validity is always read from the registry itself.
     std::string m_pendingAccountName;
     time_t m_pendingNextRetry = 0;
     time_t m_pendingSince = 0;

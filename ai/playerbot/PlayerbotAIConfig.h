@@ -305,6 +305,10 @@ public:
     int32 gearProgressionSystemItems[MAX_GEAR_PROGRESSION_LEVEL][MAX_CLASSES][4][SLOT_EMPTY];
     std::string commandPrefix, commandSeparator;
     std::string randomBotAccountPrefix;
+    // AiPlayerbot.RandomBotPoolReset (issue #265): 'off', 'once:<token>' or
+    // 'always'. Parsed by the reset planner during initial world startup only;
+    // it is read here so `bot pool status` can report the requested value.
+    std::string randomBotPoolReset;
     // Character names matched using the database's stored `characters.name`
     // collation; pinned bots stay online and are exempt from timed logout
     // (native login teleport is skipped separately via the facade's normalized

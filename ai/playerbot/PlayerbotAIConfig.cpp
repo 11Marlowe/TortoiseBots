@@ -9,6 +9,9 @@
 #include "RandomItemMgr.h"
 #include "playerbot/PlayerbotHelpMgr.h"
 #include "playerbot/strategy/actions/CheatAction.h"
+// Issue #265: the managed-account registry is the authority for random-pool
+// account identity (prefix matching never authorizes ownership).
+#include "../../runtime/RandomBotAccountRegistry.h"
 
 #include "playerbot/TravelMgr.h"
 
@@ -607,6 +610,10 @@ bool PlayerbotAIConfig::Initialize()
     }
 
     randomBotAccountPrefix = config.GetStringDefault("AiPlayerbot.RandomBotAccountPrefix", "rndbot");
+    // Issue #265: managed-pool reset mode. Read once here for the reset
+    // planner; `.reload config` must never initiate deletion, and the value is
+    // never interpolated into SQL (tokens are stored and compared as data).
+    randomBotPoolReset = config.GetStringDefault("AiPlayerbot.RandomBotPoolReset", "off");
     //cosmetics (by lidocain)
     randomBotShowCloak = config.GetBoolDefault("AiPlayerbot.RandomBotShowCloak", false);
     randomBotShowHelmet = config.GetBoolDefault("AiPlayerbot.RandomBotShowHelmet", false);
@@ -903,6 +910,12 @@ bool PlayerbotAIConfig::Initialize()
         nm[0] = toupper(nm[0]);
     }
 
+    // Issue #265: the managed-account registry is loaded before the free-alt
+    // scan so module-owned pool accounts are excluded by identity rather than
+    // by username prefix. A failed load is reported and leaves the registry
+    // unvalidated; destructive pool operations then refuse to run.
+    TortoiseBots::RandomBotAccountRegistry::Instance().LoadValidatedAccounts();
+
     loadFreeAltBotAccounts();
 
     targetPosRecalcDistance = config.GetFloatDefault("AiPlayerbot.TargetPosRecalcDistance", 0.1f),
@@ -943,32 +956,10 @@ bool PlayerbotAIConfig::Initialize()
 
 bool PlayerbotAIConfig::IsInRandomAccountList(uint32 id)
 {
-    // Fast path: already confirmed bot account.
-    if (find(randomBotAccounts.begin(), randomBotAccounts.end(), id) != randomBotAccounts.end())
-        return true;
-    // Fast path: already confirmed non-bot account — skip the DB query.
-    if (nonRandomBotAccounts.count(id))
-        return false;
-
-    // Slow path: look up username and check RNDBOT prefix. Cache result either way.
-    auto qr = LoginDatabase.PQuery("SELECT username FROM account WHERE id = %u", id);
-    if (!qr)
-    {
-        nonRandomBotAccounts.insert(id);
-        return false;
-    }
-    Field* fields = qr->Fetch();
-    std::string username = fields[0].GetCppString();
-    std::string prefix = randomBotAccountPrefix;
-    bool isBot = username.size() >= prefix.size();
-    for (size_t i = 0; isBot && i < prefix.size(); ++i)
-        isBot = std::tolower((unsigned char)username[i]) == std::tolower((unsigned char)prefix[i]);
-
-    if (isBot)
-        randomBotAccounts.push_back(id);
-    else
-        nonRandomBotAccounts.insert(id);
-    return isBot;
+    // Issue #265: pool identity comes from the managed-account registry, never
+    // from a username prefix. An account that merely looks like a bot account
+    // is not module-owned and stays outside every random-pool operation.
+    return TortoiseBots::RandomBotAccountRegistry::Instance().IsRegistered(id);
 }
 
 bool PlayerbotAIConfig::IsFreeAltBot(uint32 guid)
@@ -1078,7 +1069,17 @@ void PlayerbotAIConfig::loadFreeAltBotAccounts()
 
     freeAltBots.clear();
 
-    auto results = LoginDatabase.PQuery("SELECT username, id FROM account where username not like '%s%%'", randomBotAccountPrefix.c_str());
+    // Issue #265: free-alt handling must never enroll a pool account. Without a
+    // validated registry the module cannot tell a managed pool account from a
+    // personal one, so no account is enrolled at all rather than misclassifying
+    // every pool account as somebody's alt.
+    if (!TortoiseBots::RandomBotAccountRegistry::Instance().IsValidated())
+    {
+        sLog.outError("TortoiseBots: managed-account registry is not validated; skipping the free-alt account scan");
+        return;
+    }
+
+    auto results = LoginDatabase.PQuery("SELECT username, id FROM account");
     if (results)
     {
         do
@@ -1088,6 +1089,12 @@ void PlayerbotAIConfig::loadFreeAltBotAccounts()
             Field* fields = results->Fetch();
             std::string accountName = fields[0].GetString();
             uint32 accountId = fields[1].GetUInt32();
+
+            // Issue #265: module-owned pool accounts are identified by the
+            // registry, not by their username prefix. A prefix-matching
+            // account that was never adopted stays a normal account here.
+            if (TortoiseBots::RandomBotAccountRegistry::Instance().IsRegistered(accountId))
+                continue;
 
             if (std::find(toggleAlwaysOnlineAccounts.begin(), toggleAlwaysOnlineAccounts.end(), accountName) != toggleAlwaysOnlineAccounts.end())
                 accountToggle = true;

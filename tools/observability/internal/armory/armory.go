@@ -16,10 +16,6 @@ type Config struct {
 	DBPassword string
 	CharDB     string
 	WorldDB    string
-	LoginDB    string
-	// BotAccountPrefix matches AiPlayerbot.RandomBotAccountPrefix
-	// (ai/playerbot/PlayerbotAIConfig.cpp, default "rndbot").
-	BotAccountPrefix string
 	// DBCDir optionally points at the operator's own extracted DBC files
 	// (the same dir mangosd reads via DataDir). When Talent.dbc +
 	// TalentTab.dbc are present, talents resolve from them; otherwise the
@@ -33,9 +29,6 @@ type Service struct {
 }
 
 func NewService(cfg Config) (*Service, error) {
-	if cfg.BotAccountPrefix == "" {
-		cfg.BotAccountPrefix = "rndbot"
-	}
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=5s&parseTime=false",
 		cfg.DBUser, cfg.DBPassword, cfg.DBHost, cfg.DBPort, cfg.CharDB)
 
@@ -52,8 +45,8 @@ func NewService(cfg Config) (*Service, error) {
 	return &Service{cfg: cfg, db: db}, nil
 }
 
-// likeEscape guards the two LIKE inputs (bot prefix, name search) against
-// callers smuggling % _ or \ into the match.
+// likeEscape guards the name search against callers smuggling % _ or \ into
+// the match.
 func likeEscape(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	s = strings.ReplaceAll(s, `%`, `\%`)
@@ -62,14 +55,17 @@ func likeEscape(s string) string {
 }
 
 func (s *Service) ListBots(query string) ([]BotSummary, error) {
-	sqlQuery := fmt.Sprintf(`
+	// Bot identity is the module's managed-account registry
+	// (tortoise_bots_pool_account), never a username prefix: a personal account
+	// whose name merely looks like a bot account is not a bot.
+	sqlQuery := `
 		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online
 		FROM characters c
-		JOIN %s.account a ON c.account = a.id
-		WHERE a.username LIKE ? ESCAPE '\\' AND c.deleteDate IS NULL
-	`, s.cfg.LoginDB)
+		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		WHERE c.deleteDate IS NULL
+	`
 
-	args := []interface{}{likeEscape(s.cfg.BotAccountPrefix) + "%"}
+	var args []interface{}
 	if query != "" {
 		sqlQuery += " AND c.name LIKE ? ESCAPE '\\\\'"
 		args = append(args, "%"+likeEscape(query)+"%")
@@ -100,15 +96,15 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	var profile BotProfile
 
-	// 1. Identity: same columns the login query holder already loads; the
-	// caller decides whether a name is a bot by the account prefix check.
-	summaryQuery := fmt.Sprintf(`
+	// 1. Identity: same columns the login query holder already loads; a bot is a
+	// character on a managed pool account (registry), not a name prefix.
+	summaryQuery := `
 		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online
 		FROM characters c
-		JOIN %s.account a ON c.account = a.id
-		WHERE c.guid = ? AND a.username LIKE ? ESCAPE '\\' AND c.deleteDate IS NULL
-	`, s.cfg.LoginDB)
-	err := s.db.QueryRow(summaryQuery, guid, likeEscape(s.cfg.BotAccountPrefix)+"%").Scan(
+		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		WHERE c.guid = ? AND c.deleteDate IS NULL
+	`
+	err := s.db.QueryRow(summaryQuery, guid).Scan(
 		&profile.Summary.GUID, &profile.Summary.Name, &profile.Summary.Race,
 		&profile.Summary.Class, &profile.Summary.Gender, &profile.Summary.Level,
 		&profile.Summary.Money, &profile.Summary.TotalTime, &profile.Summary.Online)

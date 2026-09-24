@@ -12,7 +12,9 @@ relates_to:
 
 # Living World & Autonomous Bots
 
-TortoiseBots is not limited to player-owned companions. It includes a complete **Living World** subsystem that populates your realm with autonomous bots (`RNDBOT*`). These bots explore zones, grind mobs, gather profession nodes, quest, trade on the Auction House, form parties, and create guilds—making the world feel vibrant and active like a populated MMO server.
+TortoiseBots is not limited to player-owned companions. It includes a complete **Living World** subsystem that populates your realm with autonomous bots on **managed pool accounts**. These bots explore zones, grind mobs, gather profession nodes, quest, trade on the Auction House, form parties, and create guilds—making the world feel vibrant and active like a populated MMO server.
+
+> **What "managed" means.** A pool account is one recorded in the character-database table `tortoise_bots_pool_account`: either the module created it itself (auto-create or hiring) or an administrator adopted it explicitly at the server console. A username that merely starts with the configured prefix (`RNDBOT`) does **not** make an account a pool account — such accounts are ignored by the pool and are never reset. See [Resetting the managed bot pool](#resetting-the-managed-bot-pool).
 
 ---
 
@@ -156,3 +158,67 @@ AiPlayerbot.AhMarketEnabled = 1
 AiPlayerbot.RandomBotLftEnabled = 1
 AiPlayerbot.RandomBotBgEnabled = 1
 ```
+---
+
+## 8. Resetting the Managed Bot Pool
+
+Changes to fresh-character seeding, starter gear, professions, or skills only reach bots that are created afterwards. To rebuild the existing pool — same login accounts, brand-new characters — set a one-shot generation token and restart:
+
+```ini
+# conf/aiplayerbot.conf
+AiPlayerbot.RandomBotPoolReset = once:gear-seeding-v2
+AiPlayerbot.RandomBotAutoCreate = 1
+```
+
+The reset runs **only** during initial world startup, deletes the characters on managed pool accounts one at a time on the world thread, verifies that nothing is left, records the generation, and then regenerates the pool toward `MinRandomBots`/`MaxRandomBots`. `.reload config` never starts a reset, and there is no live reset command — a running world is never mutated behind the players' backs.
+
+### Modes
+
+| Value | Behaviour |
+| :--- | :--- |
+| `off` | Never reset automatically. This is the default and the recommended production setting. |
+| `once:<token>` | Reset on the next server start **only if** `<token>` differs from the last completed generation. Re-using the same token is a no-op, so the value can safely stay in the config. Change the token for every new rebuild. |
+| `always` | Reset on **every** server start. Development only — every restart destroys bot progression. |
+| anything else | Invalid: it is logged and nothing is reset. |
+
+### Step-by-step (existing installation)
+
+```text
+1.  Back up the character database.
+2.  Start the server with AiPlayerbot.RandomBotPoolReset = off.
+3.  At the server console run: bot pool status
+4.  Upgrading an old installation? Run: bot pool adopt preview
+5.  Review the listed accounts and run the exact confirmation command it prints:
+        bot pool adopt confirm <challenge>
+6.  Run: bot pool status        (managed accounts should now match)
+7.  Stop the server normally.
+8.  Set AiPlayerbot.RandomBotPoolReset = once:<new-token>
+9.  Start the server and watch the log for:
+        TortoiseBots: random pool generation '<new-token>'; reset scheduled for ...
+        TortoiseBots: random pool reset progress: ...
+        TortoiseBots: random pool reset verified: 0 characters remain ...
+        TortoiseBots: random pool generation '<new-token>' applied; pool rebuild starts now
+10. Run: bot pool status        (phase complete, characters regenerating)
+```
+
+Adoption (`bot pool adopt preview` / `confirm`) only **registers** accounts. It never deletes, moves, or edits a character, and it is available only at the server console.
+
+### What a reset intentionally loses
+
+- bot level, gear, bags, bank, quests, and profession progression;
+- hired companions that were riding the pool (their durable ownership rows are cleared with the character);
+- pinned bot names and their saved GUIDs (pins resolve again once new characters exist);
+- guilds that consist only of pool characters (a guild holding anyone outside the pool blocks the reset instead — see below);
+- bot-owned auction listings: active bidders are refunded through the core's normal auction mail before the listing is removed, and the listed item is destroyed with the character.
+
+### Safety guarantees
+
+- Only registered pool accounts are ever touched; `RNDBOTPersonal`-style personal accounts stay untouched unless an administrator adopts them.
+- Every registered account is re-validated against the login database (existence **and** username) before the first deletion; a missing, renamed, or unreadable account aborts the reset.
+- Human sessions are never logged out or deleted: a pool character being played by a player aborts the reset before anything is deleted.
+- A bot-led guild with any member outside the pool aborts the reset and names the guild and its leader.
+- The generation is recorded only after deletion **and** verification succeed, so a crash mid-reset resumes on the next start instead of being marked as done.
+- While a reset is running (or after it fails), hiring, auto-create, autologin, and battleground selection stay paused. The pool is also unavailable whenever the registry itself cannot be validated, so nothing creates or hires pool characters while the module cannot tell its own accounts apart.
+- Every auction owned by a pool character is settled in a dedicated phase **before the first deletion**, while all pool bidders still exist. A pool bot bidding on another pool bot's listing therefore cannot block the reset (its refund is issued while it is still there to receive it), and a bid that still cannot be refunded stops the reset instead of being lost silently. A hardcore bidder is deliberately not refunded — the same rule the core applies when an auction is cancelled. A listing that somehow appears after settlement stops the reset rather than being deleted unrefunded.
+- An empty managed set (nothing registered, or no characters on the registered accounts) is a verified no-op: the generation is still recorded, so a token cannot silently wipe a pool that auto-create builds afterwards.
+- Login accounts are always retained; only their characters are rebuilt.

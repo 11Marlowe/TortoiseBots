@@ -526,7 +526,9 @@ No per-tick AH/DB scan or new AH-specific core seam is required.
 
 ## 18. Random-bot auto-create (optional, default-off)
 
-`RandomBotService` discovers existing `RNDBOT*` characters; with
+`RandomBotService` discovers the characters of **registered managed pool
+accounts** (character-database table `tortoise_bots_pool_account`, seeded by
+`data/sql/char/20260924120000_char.sql`); with
 `AiPlayerbot.RandomBotAutoCreate=1` (default `0`, one character per
 `RandomBotUpdateInterval`, world-thread) it creates the bounded deficit toward
 `MinRandomBots`/`MaxRandomBots` through `AccountMgr::CreateAccount` (random
@@ -548,6 +550,80 @@ collisions (`CHAR_CREATE_NAME_IN_USE`/`CHAR_NAME_RESERVED`/`CHAR_NAME_PROFANE`/
 `CHAR_CREATE_FAILED`) are retried silently with another candidate, so a healthy
 account is not permanently poisoned by a single bad name or temporary balance
 state. Created GUIDs enter the existing Headless candidate/login path.
+
+## 18.1 Managed pool registry and startup reset (optional, default-off)
+
+`RandomBotAccountRegistry` (runtime/) is the authority for pool identity: an
+account is a pool account only if it has a registry row, and the row is
+validated against the login database (existence **and** username) before any
+destructive use. `AiPlayerbot.RandomBotAccountPrefix` is used only to name new
+module-created accounts and to list legacy accounts for explicit console
+adoption (`bot pool adopt preview` / `confirm`); a prefix match never authorizes
+deletion. Registration is written and read back before a character is created
+on the account, so an account the module cannot prove it registered is not used.
+The registry also owns the managed-account scope used by reporting and by the
+reset (`AccountIdList`, `CountManagedCharacters`), and a failed read is never
+reported as "no accounts": the adoption preview aborts and clears its pending
+challenge instead of enrolling a set whose size it cannot state. The observability
+daemon joins the same table for its armory views, so a personal account whose
+name merely looks like a bot account is not shown as a bot there either.
+
+`RandomBotPoolReset` (runtime/) executes `AiPlayerbot.RandomBotPoolReset` =
+`off` | `once:<token>` | `always` during initial world startup only
+(`BotHostAdapter::OnStartup` -> `PlayerbotAIConfig::Initialize` ->
+`RandomBotService::Initialize`). It deletes one snapshotted character per world
+tick through `Player::DeleteFromDB(guid, accountId, true, true)`, verifies that
+no managed character remains, and records the generation in
+`tortoise_bots_pool_state` **only after** deletion and verification succeed, so
+an interrupted reset resumes on the next start. `.reload config` never starts a
+reset and no live reset command exists.
+
+Ordering relative to world startup and headless sessions: the plan is built
+after the module's world-startup hook, so the database and DBC stores are
+loaded. The reset then runs `Planning` (drain every pool session with
+`BotManager::RemoveBot(guid, false)` plus `HireLifecycle::Release`),
+`SettlingAuctions` (settle every target-owned listing, one character per tick,
+while all pool bidders still exist — a pool bot bidding on another pool bot's
+auction would otherwise be gone by the time that listing is reached), and only
+then `Deleting`. A character whose session has not closed is skipped, and a
+session that refuses to close within a bounded timeout fails the reset instead
+of deleting a live character. Human
+network sessions are never logged out or deleted — a pool character being played
+by a player aborts the reset. While maintenance is active (or after a failure)
+`RandomBotService::IsPoolAvailable()` is false, which pauses auto-create,
+autologin, pinned resolution, hiring, and battleground selection. Availability
+requires **both** a validated registry and no active/failed reset, so an
+unreadable registry never lets hiring create and register a new pool account on
+top of a known-invalid one; the free-alt scan is skipped in that state too, so
+existing pool accounts cannot be reclassified as personal alts. A reset whose
+snapshot is empty (no registered accounts, or none with characters) is a
+verified no-op that still records the one-shot generation.
+
+Related-data handling keeps the core bot-agnostic and needs **no core change**:
+
+- **Auctions** are settled through the existing public auction interfaces
+  (`sAuctionHouseStore` -> `sAuctionMgr.GetAuctionsMap` -> `AuctionHouseObject`):
+  an active bidder is refunded with the core's cancelled-to-bidder mail
+  (`MailDraft(...).SetMoney(bid).SendMailTo(MailReceiver(...), auction, ...)`),
+  the item is removed from the in-memory item map and `item_instance`, and the
+  listing is removed from memory and the `auction` table. No raw SQL is used for
+  auctions, so the in-memory auction manager cannot desynchronise. A bid whose
+  bidder can no longer be resolved fails the reset **before** the listing is
+  touched; a hardcore bidder is skipped exactly like the core's own cancel path
+  (`Player::IsHardcore` / the cached `HARDCORE_MODE_STATUS_ALIVE|DEAD|HC60`
+  status, which excludes `IMMORTAL`). Settlement runs in its own phase before
+  any deletion, so recovery never depends on a bidder that the reset already
+  deleted; the deletion step re-checks that the character owns no listing and
+  stops the reset if one appeared after settlement.
+- **Guilds** are preflighted from `guild`/`guild_member`: deleting a bot that
+  leads a guild promotes another member or disbands an empty guild, so a
+  bot-led guild holding any character outside the managed pool aborts the reset
+  before the first deletion.
+- **Module rows** for each deleted character (`ai_playerbot_db_store`,
+  `ai_playerbot_custom_strategy`, `tortoise_bots_owned_character`) are removed
+  explicitly and re-verified; character-owned data (inventory, mail, pets,
+  groups, instances, petitions, guild membership) stays with
+  `Player::DeleteFromDB`.
 
 ## 19. Battleground auto-queue (optional, default-off)
 
