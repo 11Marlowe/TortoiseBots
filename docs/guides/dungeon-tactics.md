@@ -78,7 +78,7 @@ Crowd control is essential for multi-caster pulls in level 40+ dungeons.
   .bot action cc moon
   # Or click the Moon button under CC Marks in /tbm
   ```
-* The server selects an available bot capable of executing that CC and enqueues the action.
+* The server selects the capable bot with the best-fitting CC for that target (Sap before the pull, then Shackle/Banish/Hibernate/Polymorph/traps, Fear last) and enqueues the action. The same target and state always pick the same bot.
 * **Automatic Discipline:** Once applied, party bots and pets are strictly blocked from attacking the crowd-controlled target until all other active threats are dead.
 
 ---

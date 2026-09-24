@@ -390,6 +390,10 @@ existing group mark) lets the server select a capable executor and immediately
 attempt the mature CC action. Executor discovery walks the registered mature
 CC actions, so Hunter traps/beast control, Paladin Turn Undead, Rogue Sap, and
 the other class actions remain eligible without a second class policy table.
+Among the bots whose mature action is usable, the best spell fit wins (Sap on an
+unengaged target, then Shackle Undead, Banish, Hibernate, Polymorph, Freezing
+Trap, Turn Undead, Scare Beast, Entangling Roots, and Fear last). Ties go to the
+lowest bot GUID, so the choice never depends on party invite order (issue #58).
 Assignment is persisted even when the current marked creature is not legal for
 the selected bot; the immediate cast is best-effort and normal AI fallback
 remains available. Addon requests receive one structured
