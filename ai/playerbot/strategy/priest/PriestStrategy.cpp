@@ -588,32 +588,21 @@ void PriestOffdpsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     OffdpsStrategy::InitCombatTriggers(triggers);
 
-    if (ai->HasStrategy("aoe", BotState::BOT_STATE_COMBAT))
-    {
-        triggers.push_back(new TriggerNode(
-            "shadow word: pain on attacker",
-            NextAction::array(0, new NextAction("shadow word: pain on attacker", ACTION_HIGH + 1), NULL)));
-
-        triggers.push_back(new TriggerNode(
-            "melee medium aoe",
-            NextAction::array(0, new NextAction("holy nova", ACTION_HIGH), NULL)));
-    }
+    // Healer off-spec damage (mod-playerbots PriestHealerDpsStrategy): only
+    // while nobody needs healing and mana is comfortable, at the lowest
+    // relevance so every heal outbids it. Otherwise wand the target.
+    triggers.push_back(new TriggerNode(
+        "healer should attack",
+        NextAction::array(0,
+            new NextAction("shadow word: pain", ACTION_DEFAULT + 0.5f),
+            new NextAction("holy fire", ACTION_DEFAULT + 0.4f),
+            new NextAction("smite", ACTION_DEFAULT + 0.3f),
+            new NextAction("starshards", ACTION_DEFAULT + 0.25f),
+            new NextAction("mind blast", ACTION_DEFAULT + 0.2f), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "shadow word: pain",
-        NextAction::array(0, new NextAction("shadow word: pain", ACTION_NORMAL + 3), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "holy fire",
-        NextAction::array(0, new NextAction("holy fire", ACTION_NORMAL + 2), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "very often",
-        NextAction::array(0, new NextAction("starshards", ACTION_NORMAL + 1), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "smite",
-        NextAction::array(0, new NextAction("smite", ACTION_NORMAL + 1), NULL)));
+        "healer should wand",
+        NextAction::array(0, new NextAction("shoot", ACTION_DEFAULT), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no mana",

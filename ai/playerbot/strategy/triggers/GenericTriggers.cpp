@@ -32,6 +32,24 @@ bool HighManaTrigger::IsActive()
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 65;
 }
 
+bool HealerShouldAttackTrigger::IsActive()
+{
+    if (!bot->GetGroup())
+        return true;
+
+    if (AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.almostFullHealth)
+        return false;
+
+    if (!checkMana)
+        return true;
+
+    // Easy fights (low balance) keep a large reserve; hard ones allow more.
+    // 65 is the "high mana" line used by HighManaTrigger.
+    uint8 balance = AI_VALUE(uint8, "balance");
+    uint32 manaThreshold = balance <= 50 ? 85 : (balance <= 100 ? 65 : sPlayerbotAIConfig.mediumMana);
+    return !AI_VALUE2(bool, "has mana", "self target") || AI_VALUE2(uint8, "mana", "self target") >= manaThreshold;
+}
+
 bool AlmostFullManaTrigger::IsActive()
 {
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") > 85;

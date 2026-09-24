@@ -32,6 +32,9 @@ Ally Health 60%-85% ──► Renew / Lesser Heal (Maintenance)
 Multiple Injured    ──► Prayer of Healing (Party AoE heal)
 ```
 
+### Healer Off-Spec Damage & Wand
+A grouped Holy priest only damages while **nobody in the party is below 90% health** and its mana is comfortable (85% reserve on easy pulls, 65% on normal ones, the medium-mana line on hard ones). Then it uses *Shadow Word: Pain*, *Holy Fire*, *Smite*, *Starshards* or *Mind Blast* at the lowest priority, so every heal outbids it. When the party is healthy but mana is not, it wands the target instead. A solo priest damages freely.
+
 ### Power Word: Shield & Weakened Soul Refusal
 The bot checks for the *Weakened Soul* debuff (6788) before attempting *Power Word: Shield*. If the target already has Weakened Soul, the shield is skipped in favor of a direct heal, preventing wasted cast attempts.
 

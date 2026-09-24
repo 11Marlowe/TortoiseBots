@@ -1627,3 +1627,21 @@ Local validation:
 - `bash tools/verify_all.sh ../tortoise-wow` — all checks passed.
 - `git diff --check` — clean.
 - Not yet observed: live in-game hire (recruiter gossip click-through, gold deduction, bot join). Needs a running server with the migration applied — flagged in the PR.
+
+## Healer priest off-spec damage gate (`healer should attack`) — 2026-09-24
+
+Feature: new generic `HealerShouldAttackTrigger` (`healer should attack`, `healer should wand`); `PriestOffdpsStrategy` damage (SW:P, Holy Fire, Smite, Starshards, Mind Blast) now fires only when solo, or when no party member is below `almostFullHealth` and mana is above a balance-scaled reserve, at `ACTION_DEFAULT` relevance. A healthy party with low mana gets a wand instead. Removed the ungated per-tick `smite`/`holy fire`/`very often -> starshards` nodes and the AoE SW:P/Holy Nova nodes from off-spec DPS.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907`
+
+Source files:
+- `src/Ai/Base/Trigger/GenericTriggers.cpp` (`HealerShouldAttackTrigger::IsActive`)
+- `src/Ai/Class/Priest/Strategy/GenericPriestStrategy.cpp` (`PriestHealerDpsStrategy::InitTriggers`)
+
+Copied / ported / independently reimplemented: ported (logic re-expressed with this module's values; solo check uses group membership instead of `GetNearGroupMemberCount`; Tree of Life clause dropped; `highMana` = the existing 65% `high mana` line). Starshards (1.12 Night Elf racial) kept inside the gate.
+
+Reason: live play report — Holy priest bots DPS like a damage spec and run out of mana instead of healing.
+
+Local validation: cached `MODULE_TORTOISEBOTS=static` build; `tools/verify_all.sh`; `git diff --check`. In-game observation pending.
