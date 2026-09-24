@@ -63,6 +63,9 @@ public:
     void InitMounts();
     void InitPet();
     void InitPetSpells();
+    // Public entry for the .bot train command: ported learnClassLevelSpells()
+    // behavior (class/level quest + trainer spells), without gear/talent churn.
+    void LearnClassLevelSpells() { InitClassLevelSpells(); }
 
 private:
     void Shuffle(std::vector<uint32>& items);
