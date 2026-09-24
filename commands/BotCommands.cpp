@@ -18,6 +18,8 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/PlayerbotAI.h"
 // pi-lens-ignore: clang:pp_file_not_found
+#include "../ai/playerbot/PlayerbotFactory.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/PlayerbotDbStore.h"
 #include "../ai/playerbot/ChatHelper.h"
 #include "../ai/playerbot/BotState.h"
@@ -1434,6 +1436,159 @@ static bool HandleLearn(ChatHandler* handler, char const* args)
             ++succeeded;
     }
     handler->PSendSysMessage("Commanded %u companion bot(s) to learn spells from nearby trainers.", succeeded);
+    return true;
+}
+
+// Shared scope for .bot gear / .bot train: 'all' => owned party bots, otherwise
+// the single selected bot. Empty means the caller should print guidance.
+static void CollectGearTrainScope(BotCommandContext const& context, bool all, std::vector<Player*>& scope)
+{
+    if (all)
+    {
+        scope = context.partyBots;
+        return;
+    }
+    if (context.selectedBot)
+        scope.push_back(context.selectedBot);
+}
+
+// Parses the optional 'all' flag out of the args; returns the remaining token
+// (lowercased) as the mode. Only one non-'all' token is expected.
+static bool ParseAllFlag(char const* args, std::string& mode)
+{
+    bool all = false;
+    std::string token;
+    std::stringstream ss(args ? args : "");
+    while (ss >> token)
+    {
+        std::string lower;
+        for (char c : token)
+            lower += static_cast<char>(tolower(static_cast<unsigned char>(c)));
+        if (lower == "all")
+            all = true;
+        else
+            mode = lower;
+    }
+    return all;
+}
+
+// Port of CMaNGOS .bot gear: re-equip/upgrade a bot's gear. Target the selected
+// bot by default, or the whole owned party with 'all'. Available to all players;
+// scope is limited to bots the requester controls (CanControlBot in BuildContext).
+static bool HandleGear(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+
+    std::string mode;
+    bool all = ParseAllFlag(args, mode);
+
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope;
+    CollectGearTrainScope(context, all, scope);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("Target a companion bot, or use '.bot gear all' to gear your whole party.");
+        return true;
+    }
+
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        if (!bot || !bot->IsInWorld() || !PlayerbotAIStorage::Instance().GetAI(bot))
+            continue;
+
+        if (mode.empty())
+        {
+            PlayerbotFactory f(bot, bot->GetLevel());
+            f.EquipGear();
+        }
+        else if (mode == "green" || mode == "uncommon")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel(), ITEM_QUALITY_UNCOMMON);
+            f.EquipGear();
+        }
+        else if (mode == "blue" || mode == "rare")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel(), ITEM_QUALITY_RARE);
+            f.EquipGear();
+        }
+        else if (mode == "purple" || mode == "epic")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel(), ITEM_QUALITY_EPIC);
+            f.EquipGear();
+        }
+        else if (mode == "best")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel());
+            f.EquipGearBest();
+        }
+        else if (mode == "partial")
+        {
+            PlayerbotFactory f(bot, bot->GetLevel());
+            f.EquipGearPartialUpgrade();
+        }
+        else if (mode == "upgrade")
+        {
+            PlayerbotFactory f(bot, requester->GetLevel(), ITEM_QUALITY_NORMAL);
+            f.UpgradeGear(false);
+        }
+        else if (mode == "sync")
+        {
+            PlayerbotFactory f(bot, requester->GetLevel(), ITEM_QUALITY_NORMAL);
+            f.UpgradeGear(true);
+        }
+        else
+        {
+            handler->PSendSysMessage("Unknown gear mode '%s'. Options: (none), green, blue, purple, best, partial, upgrade, sync.", mode.c_str());
+            return true;
+        }
+        ++succeeded;
+    }
+
+    handler->PSendSysMessage("Re-geared %u companion bot(s).", succeeded);
+    return true;
+}
+
+// Port of CMaNGOS .bot train: instantly teaches the bot its class/level spells
+// (quest-rewarded + trainer spells) via the ported InitClassLevelSpells logic.
+// No gear/talent changes. Target the selected bot, or the party with 'all'.
+static bool HandleTrain(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+
+    std::string ignored;
+    bool all = ParseAllFlag(args, ignored);
+
+    BotCommandContext context = BuildContext(requester);
+    std::vector<Player*> scope;
+    CollectGearTrainScope(context, all, scope);
+    if (scope.empty())
+    {
+        handler->PSendSysMessage("Target a companion bot, or use '.bot train all' for your whole party.");
+        return true;
+    }
+
+    uint32 succeeded = 0;
+    for (Player* bot : scope)
+    {
+        if (!bot || !bot->IsInWorld() || !PlayerbotAIStorage::Instance().GetAI(bot))
+            continue;
+        PlayerbotFactory f(bot, bot->GetLevel());
+        f.LearnClassLevelSpells();
+        ++succeeded;
+    }
+
+    handler->PSendSysMessage("Commanded %u companion bot(s) to learn their class spells.", succeeded);
     return true;
 }
 
@@ -3106,7 +3261,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/strategy/ah/pool");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/gear/train/trade/strategy/ah/pool");
         return true;
     }
 
@@ -3200,6 +3355,10 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleCorpseRun(handler, subArgs);
     if (cmd == "learn")
         return HandleLearn(handler, subArgs);
+    if (cmd == "gear" || cmd == "equip")
+        return HandleGear(handler, subArgs);
+    if (cmd == "train")
+        return HandleTrain(handler, subArgs);
     if (cmd == "trade")
         return HandleTrade(handler, subArgs);
     if (cmd == "command")
