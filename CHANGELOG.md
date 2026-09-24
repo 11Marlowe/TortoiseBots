@@ -20,6 +20,14 @@
 
 ---
 
+### Bot Pool Management
+- Random-bot pool identity is now tracked in a character-DB table (`tortoise_bots_pool_account`) instead of a username prefix, so discovery, hiring, creation, and deletion of pool characters all go through one authoritative ownership record. [#267](https://github.com/Sagiroth/TortoiseBots/pull/267)
+- The module now only touches accounts it actually owns — no more clobbering bots or stray accounts that happen to share a naming pattern. [#267](https://github.com/Sagiroth/TortoiseBots/pull/267)
+- Added a safe startup rebuild via `AiPlayerbot.RandomBotPoolReset`: `off` (default), `always` rebuilds every boot, and `once:<token>` rebuilds exactly one time until the token changes. [#267](https://github.com/Sagiroth/TortoiseBots/pull/267)
+
+### Config & Ops
+- Use `once:<token>` (e.g. a version or date string) to force a single clean pool rebuild after a data or roster change, without paying the cost on every restart. [#267](https://github.com/Sagiroth/TortoiseBots/pull/267)
+
 ## 2026-09-23
 
 ### Combat & AI
