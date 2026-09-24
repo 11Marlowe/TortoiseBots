@@ -645,7 +645,12 @@ bool TankAssistTrigger::IsActive()
     // current mob is held, and the tank can switch back to finish it later.
     // The old victim check forbade returning to a mob on the tank (one-way
     // door). "has aggro" is HasAggroValue (values/AttackerCountValues.cpp).
-    return AI_VALUE2(bool, "has aggro", "current target");
+    bool holdsCurrent = AI_VALUE2(bool, "has aggro", "current target");
+    // Finish a held mob that is already low before peeling a loose add; the
+    // add waits a few seconds, a half-dead mob left behind waits forever.
+    if (holdsCurrent && currentTarget->GetHealthPercent() <= sPlayerbotAIConfig.lowHealth)
+        return false;
+    return holdsCurrent;
 }
 
 bool IsBehindTargetTrigger::IsActive()

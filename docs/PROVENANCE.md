@@ -1651,6 +1651,11 @@ Source files:
 - `src/Ai/Base/Value/AttackerCountValues.cpp:13-32` (`HasAggroValue::Calculate` victim semantics)
 - `src/Bot/PlayerbotAI.cpp:2071-2083` (`PlayerbotAI::HasAggro`)
 
+Local additions beyond the donor (review follow-up): among held mobs the
+current target wins the tie-break, and the assist gate never peels while the
+held current target is at or below `AiPlayerbot.LowHealth`. Without them two
+held mobs ping-ponged on threat and a low mob was still left for a loose add.
+
 Copied / ported / independently reimplemented: ported, adapted to the 1.12
 codebase. Ranking (`IsBetter`/`GetIntervalLevel`), the trigger gate, and the
 live-victim + threat-manager victim helpers are behavior-identical; the

@@ -51,6 +51,14 @@ public:
         if (GetIntervalLevel(newUnit) == 2)
             return bot->GetDistance(newUnit) < bot->GetDistance(oldUnit);
 
+        // Among mobs the tank already holds, stay on the current one; lowest
+        // threat only orders the others, so two held mobs never ping-pong.
+        Unit* current = ai->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
+        if (oldUnit == current)
+            return false;
+        if (newUnit == current)
+            return true;
+
         return newThreat < oldThreat;
     }
 
