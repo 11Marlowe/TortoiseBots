@@ -19,6 +19,6 @@ UPDATE ai_playerbot_enchants SET spellid = 13898 WHERE class = 7 AND spec = 71 A
 UPDATE ai_playerbot_enchants SET spellid = 25079 WHERE class = 7 AND spec = 72 AND slotid = 9 AND spellid = 20012;
 UPDATE ai_playerbot_enchants SET spellid = 25079 WHERE class = 11 AND spec = 112 AND slotid = 9 AND spellid = 20012;
 INSERT INTO ai_playerbot_enchants (class, spec, spellid, slotid)
-SELECT 5, 50, 25079, 9 WHERE NOT EXISTS (SELECT 1 FROM ai_playerbot_enchants WHERE class = 5 AND spec = 50 AND slotid = 9);
+SELECT 5, 50, 25079, 9 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM ai_playerbot_enchants WHERE class = 5 AND spec = 50 AND slotid = 9);
 INSERT INTO ai_playerbot_enchants (class, spec, spellid, slotid)
-SELECT 5, 51, 25079, 9 WHERE NOT EXISTS (SELECT 1 FROM ai_playerbot_enchants WHERE class = 5 AND spec = 51 AND slotid = 9);
+SELECT 5, 51, 25079, 9 FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM ai_playerbot_enchants WHERE class = 5 AND spec = 51 AND slotid = 9);
