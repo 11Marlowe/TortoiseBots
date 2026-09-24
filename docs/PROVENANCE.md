@@ -1627,3 +1627,45 @@ Local validation:
 - `bash tools/verify_all.sh ../tortoise-wow` — all checks passed.
 - `git diff --check` — clean.
 - Not yet observed: live in-game hire (recruiter gossip click-through, gold deduction, bot join). Needs a running server with the migration applied — flagged in the PR.
+
+## CC stage 1: exclusive mark ownership, dismissal, dungeon gate, AoE interlock — 2026-09-24
+
+Feature: one mark = one owner (assigning `.bot action cc <mark>` resets every
+other owned live party bot holding it to `none`, persisted); `.bot action cc
+clear` dismisses ownership (targeted bot, or whole owned party); CC chooser
+never CCs over an existing breakable/unbreakable CC (own-aura re-CC still
+flows via `current cc target`); `HasCcTargetTrigger` fires only on the bot's
+`rti cc target` inside non-raid dungeons (open world keeps free picks);
+`AoeTrigger` refuses packs holding (or splashing) a breakable CC.
+Generalizes the `fix/warlock-fear-gating` Fear-only guard to every CC spell
+without changing its semantics.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout); behavior commits `d9ee5198`
+("fix(dungeons): stop the generic cc strategy from firing in 5-man dung…",
+PR #2648) and `a63c6b67` / `0a76fc1d` (CC bucketing context).
+
+Source files:
+- `src/Ai/Base/Trigger/GenericTriggers.cpp:575-595` (`HasCcTargetTrigger::IsActive/IsCcTargetFree` — dungeon RTI gate)
+- `src/Ai/Base/Trigger/RtiTriggers.cpp:25-36` (`RtiCcTrigger` — CC only on the RTI target)
+- `src/Ai/Base/Value/CcTargetValue.cpp:23-85` (candidate filters incl. AoE-position skip)
+- `src/Ai/Class/Druid/Action/DruidActions.cpp:158-170` (`CastStarfallAction::isUseful` CC guard — AoE idea source)
+- `src/Bot/PlayerbotAI.cpp:1786` (`IsInNonRaidDungeon`)
+
+Copied / ported / independently reimplemented: ported semantics, adapted to
+the 1.12 codebase (`Map::IsDungeon && !IsRaid` instead of `MapEntry::
+IsNonRaidDungeon`; `PossibleAttackTargetsValue::HasBreakableCC/
+HasUnBreakableCC` as the already-CC'd test; central `AoeTrigger` gate instead
+of per-spell guards). Also fixes doc overclaims: Warlock *Seduce* is not a CC
+executor (no CC-flagged seduction action; aura not in the breakable set);
+Hunter (*Freezing Trap*/*Scare Beast*) and Paladin (*Turn Undead*) added as
+eligible executors.
+
+Reason: CC stage 1 of the raid-mark ownership plan (player keeps maximum
+control: explicit orders > automation). No core changes; module only.
+
+Local validation:
+- `python3 tools/verify_okf.py` + `./tools/verify_all.sh` (see commit); `git diff --check` clean.
+- No build (per task constraints); live in-game check pending (see `scratchpad/research/impl-cc-stage1.md`).

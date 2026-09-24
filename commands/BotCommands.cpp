@@ -1921,6 +1921,17 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         std::string mark = remainder.substr(0, secondSeparator);
         for (char& character : mark)
             character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        // "cc clear" is the dismissal intent (no mark named "clear" exists:
+        // GetRtiIndex returns -1 for it). It takes no extra token.
+        if (first == "cc" && mark == "clear")
+        {
+            if (mark.empty() ||
+                (secondSeparator != std::string::npos &&
+                    !Trim(remainder.substr(secondSeparator + 1)).empty()))
+                return false;
+            intent = first + " " + mark;
+            return true;
+        }
         if ((first == "focus" && mark != "skull") ||
             (first == "cc" && !IsRaidTargetMark(mark)) ||
             mark.empty() ||
@@ -1978,6 +1989,29 @@ static bool IsRaidTargetMark(std::string const& mark)
     return RtiTargetValue::GetRtiIndex(mark) >= 0;
 }
 
+// One mark = one owner. After assigning <mark> to <owner>, every other owned
+// live bot in the same command scope holding that mark is reset to "none" and
+// persisted. "none" resolves to GetRtiIndex -1, so CurrentCcMark reports "-"
+// and the CC_ASSIGN snapshot drops the stale owner without extra plumbing.
+static void RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
+    std::vector<Player*> const& scope)
+{
+    for (Player* other : scope)
+    {
+        if (!other || other == owner || !IsLiveHeadlessBot(other))
+            continue;
+        PlayerbotAI* otherAi = PlayerbotAIStorage::Instance().GetAI(other);
+        if (!otherAi || !otherAi->GetAiObjectContext())
+            continue;
+        ai::Value<std::string>* otherMark =
+            otherAi->GetAiObjectContext()->GetValue<std::string>("rti cc");
+        if (!otherMark || otherMark->Get() != mark)
+            continue;
+        otherMark->Set("none");
+        sPlayerbotDbStore.Save(otherAi);
+    }
+}
+
 static std::string CurrentCcMark(PlayerbotAI* ai)
 {
     if (!ai || !ai->GetAiObjectContext())
@@ -1994,7 +2028,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark>|cc clear|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2036,6 +2070,42 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             return true;
         }
         scope = context.partyBots;
+    }
+    else if (intent == "cc clear")
+    {
+        // Dismissal: targeted bot clears its own mark; untargeted clears the
+        // whole owned party. "none" is not a raid mark, so CurrentCcMark
+        // reports "-" and the next CC_ASSIGN snapshot drops the owner.
+        std::vector<Player*> clearScope;
+        if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
+            clearScope.push_back(context.selectedBot);
+        else
+            clearScope = context.partyBots;
+        uint32 cleared = 0;
+        std::string clearedName = "-";
+        for (Player* bot : clearScope)
+        {
+            if (!bot || !IsLiveHeadlessBot(bot))
+                continue;
+            PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!botAi || !botAi->GetAiObjectContext())
+                continue;
+            botAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set("none");
+            sPlayerbotDbStore.Save(botAi);
+            clearedName = bot->GetName();
+            ++cleared;
+        }
+        if (!cleared)
+        {
+            SendActionError(handler, intent, "no-target",
+                "Select an owned bot or have owned party bots to clear CC marks.");
+            return true;
+        }
+        SendActionAck(handler, intent,
+            context.selectedBot && cleared == 1
+                ? "bot:" + std::string(context.selectedBot->GetName()) : "party",
+            cleared, clearedName);
+        return true;
     }
     else if (intent.compare(0, 3, "cc ") == 0)
     {
@@ -2109,6 +2179,9 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             return true;
         }
         sPlayerbotDbStore.Save(ai);
+        // Exclusive ownership: the new owner keeps the mark; every other owned
+        // live party bot holding it is reset to "none" and persisted.
+        RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
 
         if (ccTarget && !ccAction.empty())
         {

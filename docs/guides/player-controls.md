@@ -33,8 +33,9 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 | `.bot action stay` *(or `hold`)* | None | Bots halt at their current position and hold ground. |
 | `.bot action follow` | None | Bots break current movement and resume tight follow formation behind the leader. |
 | `.bot action focus skull` | Enemy / None | Sets or targets the **Skull** raid icon; orders all party DPS bots to focus fire on that target. |
-| `.bot action cc <mark>` | Marked Mob | Orders a capable bot (Mage *Polymorph*, Rogue *Sap*, Warlock *Seduce*, Priest *Shackle*, Druid *Hibernate*) to CC the target. |
-| `.bot action aoe <on\|off>` | None | Toggles whether DPS bots cast high-damage AoE abilities (useful to toggle OFF around CC targets). |
+| `.bot action cc <mark>` | Owned Bot / Marked Mob | Assigns the mark to one bot (**exclusive ownership**: any other owned party bot holding the mark is reset to `none`). With an owned bot targeted, assigns that bot; otherwise selects a capable bot server-side (Mage *Polymorph*, Rogue *Sap*, Warlock *Banish*/*Fear*, Priest *Shackle Undead*, Druid *Hibernate*/*Entangling Roots*, Hunter *Freezing Trap*/*Scare Beast*, Paladin *Turn Undead*). Inside non-raid dungeons the bot CCs only its assigned mark; in the open world it may CC a free pick. Never CCs over an existing CC. |
+| `.bot action cc clear` | Owned Bot / None | Dismisses CC ownership: with an owned bot targeted clears that bot's mark to `none`; otherwise clears all owned live party bots. The roster snapshot drops cleared owners. |
+| `.bot action aoe <on\|off>` | None | Toggles whether DPS bots cast high-damage AoE abilities. AoE triggers additionally refuse to fire while a breakable-CC mob (sheep/sap/trap) is in or beside the pack, so a stray sheep is not broken even with AoE left on. |
 | `.bot action loot [on\|off]` | None | Toggles corpse looting across scoped bots. |
 | `.bot action repair` | None | Orders scoped bots to repair gear at a nearby vendor. |
 | `.bot action sell` | None | Orders scoped bots to sell grey vendor trash. |

@@ -7,6 +7,7 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/AoeValues.h"
 #include "playerbot/strategy/actions/AttackAction.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 
 #include <regex>
 
@@ -327,7 +328,36 @@ bool NoThreatTrigger::IsActive()
 bool AoeTrigger::IsActive()
 {
     std::list<ObjectGuid> aoeEnemies = AoeCountValue::FindMaxDensity(bot, range);
-    return aoeEnemies.size() >= amount;
+    if (aoeEnemies.size() < (size_t)amount)
+        return false;
+
+    // CC interlock: never AoE a pack holding a breakable CC (sheep/sap/trap).
+    // Unbreakable CC (stun/fear/roots) survives damage, so only breakable
+    // blocks. Skull-marked mobs opted out of CC protection (HasIgnoreCCRti).
+    // Splash counts too: a CCed mob beside the cluster still eats the blast.
+    for (std::list<ObjectGuid>::iterator i = aoeEnemies.begin(); i != aoeEnemies.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (unit && !PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot) &&
+            PossibleAttackTargetsValue::HasBreakableCC(unit, bot))
+            return false;
+    }
+    std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!unit || PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot) ||
+            !PossibleAttackTargetsValue::HasBreakableCC(unit, bot))
+            continue;
+        for (std::list<ObjectGuid>::iterator j = aoeEnemies.begin(); j != aoeEnemies.end(); ++j)
+        {
+            Unit* member = ai->GetUnit(*j);
+            if (member && sServerFacade.IsDistanceLessOrEqualThan(
+                sServerFacade.getDistance2d(unit, member), sPlayerbotAIConfig.aoeRadius))
+                return false;
+        }
+    }
+    return true;
 }
 
 bool DebuffTrigger::IsActive()
@@ -669,6 +699,19 @@ bool HasCcTargetTrigger::IsActive()
     uint32 spellid = AI_VALUE2(uint32, "spell id", getName());
     if (spellid && sServerFacade.IsSpellReady(bot, spellid))
     {
+        // mod-playerbots d9ee5198/#2648: inside a non-raid dungeon the generic
+        // CC never fires on a free pick — only on this bot's assigned raid
+        // mark ("rti cc target"). Open world keeps today's free CC; raids
+        // keep it too (marks are advisory there, packs are scripted).
+        if (bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
+        {
+            Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
+            if (!rtiCcTarget)
+                return false;
+            Unit* ccTarget = AI_VALUE2(Unit*, "cc target", getName());
+            if (!ccTarget || ccTarget != rtiCcTarget)
+                return false;
+        }
         return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
     }
 
