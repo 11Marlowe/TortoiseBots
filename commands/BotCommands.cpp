@@ -2188,7 +2188,11 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             executor = namedBot;
             if (ccTarget)
             {
-                ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
+                // Probe the named bot itself, not the party's best executor,
+                // so the immediate cast uses an action this bot owns.
+                BotCommandContext namedContext = context;
+                namedContext.selectedBot = namedBot;
+                ResolveCcExecutor(namedContext, ccTarget, ccMark, &ccAction);
             }
         }
         else if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
