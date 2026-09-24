@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-09-24
+
+### Combat & AI
+- DPS bots now prioritize the group tank’s target after explicit attack commands and Skull/X raid marks, but before the least-HP fallback, improving focused fire and reducing target thrash. [#266](https://github.com/Sagiroth/TortoiseBots/pull/266)
+- Tank-target candidates are validated as alive, hostile, in combat or attacked by the party, in line of sight, and not crowd-controlled before DPS bots commit to them. [#266](https://github.com/Sagiroth/TortoiseBots/pull/266)
+
+### Commands & Role Overrides
+- Added player role override storage so explicit player-assigned roles can steer bot behavior and override default DPS targeting priorities. [#266](https://github.com/Sagiroth/TortoiseBots/pull/266)
+
+---
+
 ## 2026-09-23
 
 ### Combat & AI
