@@ -57,16 +57,19 @@ public:
         // - it carries NO periodic damage aura from any source (else sheep is
         //   pointless — owner's words; shyalya check #8, but for every spell),
         // - it is not the only enemy in the fight (never sheep the last mob),
-        // - it is not skull-marked and not the tank's target.
+        // - it is not skull-marked (the tank's target is covered by "attacked").
         // One bot per mob falls out of the shared aura state: the first sheep
         // makes HasBreakableCC true, so every other bot's chooser skips it
         // (stage-1 guard above); one target per bot falls out of the
         // HasMyAura pre-pass in Calculate (a bot holding a sheep returns NULL).
         // A broken sheep is never re-sheeped: once DoT'd/attacked the guards
         // below reject it, and the mark path stays authoritative.
-        if (ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) && IsAutoCcTarget(creature))
+        // With the toggle on this is the only free pick: the legacy chooser
+        // below must not run, since the toggle also lifts the dungeon gate.
+        if (ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT))
         {
-            result = creature;
+            if (IsAutoCcTarget(creature))
+                result = creature;
             return;
         }
 
@@ -167,7 +170,8 @@ private:
         if (!PlayerbotAI::IsHeal(victimPlayer) && !ai->IsRanged(victimPlayer))
             return false;
 
-        // Nobody in the group may be attacking it (members + their pets).
+        // Nobody in the group may be attacking it (members + their pets);
+        // this also covers the tank's target.
         for (Player* member : LiveGroupMembers(group))
         {
             if (!member || member->GetMapId() != bot->GetMapId())
@@ -185,11 +189,8 @@ private:
         if (creature->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE))
             return false;
 
-        // Not skull-marked, not the tank's target (focus fire stays sacred).
+        // Not skull-marked (focus fire stays sacred).
         if (group->GetTargetIcon(7) == creature->getObjectGuid())
-            return false;
-        Unit* tankTarget = ai->GetAiObjectContext()->GetValue<Unit*>("tank target")->Get();
-        if (tankTarget && tankTarget == creature)
             return false;
 
         return true;
