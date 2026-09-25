@@ -403,6 +403,7 @@ bool PullEndAction::Execute(Event& event)
 
         strategy->OnPullEnded();
         return true;
+    }
 
     return false;
 }
