@@ -76,6 +76,10 @@
 - Restored `release_exists_on_github`, which was removed in #290 but still called — that missing function broke the first run outright. [#291](https://github.com/Sagiroth/TortoiseBots/pull/291)
 - Release creation/editing is now skipped unless notes were actually written, while the daily tag still moves as before, cutting down pointless empty releases. [#291](https://github.com/Sagiroth/TortoiseBots/pull/291)
 
+### CI, Releases & Discord
+
+- Release list and Discord embed titles now include the build range, so you can spot `v1–vN` without opening the release body; release titles use `<repo> <date> (builds v1–vN)` and Discord uses `<repo> build <date>-vN`, with links still pointing to the daily release. [#292](https://github.com/Sagiroth/TortoiseBots/pull/292)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
