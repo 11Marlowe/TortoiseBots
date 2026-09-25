@@ -156,6 +156,11 @@
 - Party members can still issue tactical commands, so in-combat coordination with your bots keeps working as before. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
 - Denied actions now whisper a short reason to the sender, and addon senders receive a structured `TBM:ACTION_ERR|cmd|denied|…` response so UI addons can surface the failure cleanly. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
 
+### Observability & Engine
+- Web dashboard is now usable on phones (360–430 px) and tablets (768 px): sidebar collapses into an off-canvas drawer with a dimmed backdrop, stacked grids, and fluid controls [#305](https://github.com/Sagiroth/TortoiseBots/pull/305)
+- New compact mobile topbar shows the active tab title plus an accessible hamburger toggle (`aria-label` / `aria-expanded`) — tap a tab, the backdrop, or hit Escape to dismiss the drawer [#305](https://github.com/Sagiroth/TortoiseBots/pull/305)
+- Desktop layout at ≥ 1200 px is intentionally left untouched, so existing operator workflows and muscle memory stay intact [#305](https://github.com/Sagiroth/TortoiseBots/pull/305)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
