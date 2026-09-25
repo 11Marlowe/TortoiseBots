@@ -4232,12 +4232,14 @@ uint32 RandomItemMgr::CalculateBestBotEnchantId(Player* bot, uint32 specId, Item
 
     uint32 level = bot->GetLevel();
     uint32 quality = proto->Quality;
-    // Owner quality ceiling: grey/white gear stays unenchanted; greens take
-    // cheap/mid enchants only (min level at least 10 below the bot); blues
-    // take anything non-premium up to the bot's level; epics+ take premium too.
-    if (quality < ITEM_QUALITY_UNCOMMON)
+    // Owner quality ceiling: grey gear stays unenchanted; whites take cheap
+    // enchants only (min level at least 10 below the bot), greens at least 5
+    // below; blues take anything non-premium up to the bot's level; epics+
+    // take premium too.
+    if (quality < ITEM_QUALITY_NORMAL)
         return 0;
     bool isEpic = quality >= ITEM_QUALITY_EPIC;
+    uint32 levelMargin = quality == ITEM_QUALITY_NORMAL ? 10 : quality == ITEM_QUALITY_UNCOMMON ? 5 : 0;
 
     uint8 equipSlot = item->GetSlot();
     uint8 playerclass = bot->GetClass();
@@ -4260,7 +4262,7 @@ uint32 RandomItemMgr::CalculateBestBotEnchantId(Player* bot, uint32 specId, Item
             continue;
         if (candidate.premium && !isEpic)
             continue;
-        if (!isEpic && candidate.minLevel + 10 > level && quality == ITEM_QUALITY_UNCOMMON)
+        if (candidate.minLevel + levelMargin > level)
             continue;
 
         SpellEntry const* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(candidate.spellId);

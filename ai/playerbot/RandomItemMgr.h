@@ -200,9 +200,10 @@ class RandomItemMgr
         // Best candidate for one equipped item: filters by tier/rep cap, bot
         // level, slot and item-type mask, then picks the highest stat weight
         // for the class/spec. Returns the enchant SPELL id (0 = none fits).
-        // Quality ceiling (owner rule): grey/white -> 0; green -> non-premium
-        // rows with min_level <= level-10; blue -> non-premium rows with
-        // min_level <= level; epic+ -> anything allowed incl. premium.
+        // Quality ceiling (owner rule): grey -> 0; white -> non-premium rows
+        // with min_level <= level-10; green -> non-premium rows with
+        // min_level <= level-5; blue -> non-premium rows with min_level <=
+        // level; epic+ -> anything allowed incl. premium.
         uint32 CalculateBestBotEnchantId(Player* bot, uint32 specId, Item* item);
         // Proc-enchant score used by the candidate picker above. Type-1
         // (on-hit proc) enchants score 0 in CalculateEnchantWeight; this
