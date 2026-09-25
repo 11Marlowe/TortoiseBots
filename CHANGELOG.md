@@ -119,6 +119,14 @@
 ### Core Sync & Fixes
 - Classification is persisted in `ai_playerbot_item_info_cache` (migration `20260925140000`) so it's computed once, not per spawn. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
 
+### Bot Kits & Companions
+- Bots now spawn with the full intended kit — bags, profession tools (including fishing pole), 40/60 mounts, fresh-seed money, Paladin Divinity/Kings, and level-tier bandages — across both pool bots and hired companions [#296](https://github.com/Sagiroth/TortoiseBots/pull/296)
+- Hired companions restock on an hourly `HireLifecycle` cadence via `RestockCompanion()`, so long-lived hires stay supplied without manual intervention [#296](https://github.com/Sagiroth/TortoiseBots/pull/296)
+- Seeding is idempotent: no duplicate kits, no wasted restocks, safe on repeated completions/provisioning passes [#296](https://github.com/Sagiroth/TortoiseBots/pull/296)
+
+### Core Sync & Fixes
+- Removed dead `Randomize()` and its orphaned helpers (wipe paths, quest/taxi/reputation seeding, second equipment set, immersive/inventory-trade/equip) to shrink the factory and cut maintenance surface [#296](https://github.com/Sagiroth/TortoiseBots/pull/296)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
