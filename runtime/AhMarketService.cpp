@@ -763,8 +763,24 @@ bool AhMarketService::PublishSyntheticAuction(uint32_t itemId, uint32_t count, u
 
     // Isolation guarantee: Tag with SYNTHETIC_OWNER_GUID (0). Never enters player inventory.
     item->SetOwnerGuid(ObjectGuid(HIGHGUID_PLAYER, SYNTHETIC_OWNER_GUID));
+    // Write random-property fields directly instead of SetItemRandomProperties():
+    // that calls SetState(ITEM_CHANGED) -> AddToUpdateQueueOf -> GetOwner() is null
+    // for ownerless synthetic items, logging one error per item (fixes #283).
+    // The item is ITEM_NEW, so SaveToDB() persists these fields regardless.
     if (int32 property = Item::GenerateItemRandomPropertyId(itemId))
-        item->SetItemRandomProperties(property);
+    {
+        if (ItemRandomPropertiesEntry const* itemRand = sItemRandomPropertiesStore.LookupEntry(property))
+        {
+            item->SetInt32Value(ITEM_FIELD_RANDOM_PROPERTIES_ID, itemRand->ID);
+            for (uint32 i = PROP_ENCHANTMENT_SLOT_0; i < PROP_ENCHANTMENT_SLOT_0 + 3; ++i)
+            {
+                item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT + i * MAX_ENCHANTMENT_OFFSET + ENCHANTMENT_ID_OFFSET,
+                                     itemRand->enchant_id[i - PROP_ENCHANTMENT_SLOT_0]);
+                item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT + i * MAX_ENCHANTMENT_OFFSET + ENCHANTMENT_DURATION_OFFSET, 0);
+                item->SetUInt32Value(ITEM_FIELD_ENCHANTMENT + i * MAX_ENCHANTMENT_OFFSET + ENCHANTMENT_CHARGES_OFFSET, 0);
+            }
+        }
+    }
     item->ClearUpdateMask(false);
 
     std::unique_ptr<AuctionEntry> auction(new AuctionEntry{});
