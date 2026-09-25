@@ -77,7 +77,8 @@ bool PullEndTrigger::IsActive()
 
         // Bounded return: a stuck return (knockback, fear, path failure,
         // anchor in another map) ends the pull instead of holding the tank
-        // inert forever. The clock starts when the pull lands.
+        // inert forever. The clock starts when the pull lands. Ending the
+        // pull releases the held DPS through the normal pull-end path.
         time_t returnStart = strategy->GetReturnStartTime();
         if (returnStart > 0 && time(0) - returnStart >= static_cast<time_t>(sPlayerbotAIConfig.pullBackMaxReturnTime))
             return true;

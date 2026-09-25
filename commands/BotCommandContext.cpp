@@ -260,11 +260,18 @@ Player* ResolvePullExecutor(BotCommandContext const& context, bool allowSelected
 // stay hold so the allowed "keep safe distance" action cannot drift the bots
 // toward the mob. The stay is released together with the wait window.
 // joinDelaySeconds is clamped to the uint8 value range (0-60 at the parser).
-void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, uint32 joinDelaySeconds)
+// For a pullback the DPS must additionally wait out the tank's return leg:
+// the window is widened to cover the capped return plus the join delay, and
+// re-stamped to just the join delay when the tank arrives (see the arrival
+// brake). A plain pull keeps exactly the join delay from the landing.
+void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, uint32 joinDelaySeconds, bool pullback)
 {
     if (!context.requester)
         return;
 
+    uint32 windowSeconds = joinDelaySeconds;
+    if (pullback)
+        windowSeconds = std::min<uint32>(255, sPlayerbotAIConfig.pullBackMaxReturnTime + joinDelaySeconds);
     WorldPosition anchor(context.requester);
     for (Player* bot : context.partyBots)
     {
@@ -287,13 +294,13 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         ai::PositionEntry holdPos = posMap["pull hold"];
         holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
         posMap["pull hold"] = holdPos;
-        ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(joinDelaySeconds));
+        ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(windowSeconds));
         ai->ChangeStrategy("+wait for attack", BotState::BOT_STATE_COMBAT);
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
-        // Re-stamped when the pull lands / the tank returns (see
-        // PullStrategy::OnPullActionCompleted / PullEndAction), so the join
-        // delay runs from the event, not from the command.
+        // Re-stamped when the pull lands (plain pull) or when the tank
+        // arrives at the anchor (pullback), so the join delay runs from the
+        // event, not from the command.
         ai->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
     }
 }
@@ -329,7 +336,7 @@ void ReleasePartyDpsFromPull(BotCommandContext const& context, Player* executor)
 // but the command snapshots the tank's default and records the per-request
 // mode on the PullStrategy. PullEndAction restores the default, so a pull
 // never leaks into the next command and a pullback never sticks.
-bool ConfigurePullMode(PlayerbotAI* ai, bool pullback)
+bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds)
 {
     if (!ai)
         return false;
@@ -346,7 +353,7 @@ bool ConfigurePullMode(PlayerbotAI* ai, bool pullback)
     if (applied)
     {
         if (PullStrategy* strategy = PullStrategy::Get(ai))
-            strategy->BeginCommand(pullback, hadPullBack);
+            strategy->BeginCommand(pullback, hadPullBack, joinDelaySeconds);
     }
     return applied;
 }

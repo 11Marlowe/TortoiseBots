@@ -10,6 +10,59 @@
 
 using namespace ai;
 
+namespace
+{
+// Re-stamp every held party bot's combat-start clock, optionally narrowing
+// its wait window (arrival path). Shared by the landing (PullAction) and the
+// anchor arrival (arrival brake): one helper, not two loops.
+void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
+{
+    if (!tank)
+        return;
+    for (Player* member : LiveGroupMembers(tank->GetGroup()))
+    {
+        if (!member || member == tank || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
+            continue;
+        PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+        if (!memberAi || !memberAi->GetAiObjectContext())
+            continue;
+        if (!memberAi->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+            continue;
+        if (narrowWindow)
+            memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(waitSeconds));
+        memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
+    }
+}
+
+// Release every hold placed for this tank's pull: drop the wait window and
+// clear only our anchor copy ("pull hold"), never a player-placed stay.
+void RestampPullPartyRelease(Player* tank)
+{
+    if (!tank)
+        return;
+    for (Player* member : LiveGroupMembers(tank->GetGroup()))
+    {
+        if (!member || member == tank || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
+            continue;
+        PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+        if (!memberAi || !memberAi->GetAiObjectContext())
+            continue;
+        memberAi->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
+        ai::PositionMap& posMap = memberAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        ai::PositionEntry holdPos = posMap["pull hold"];
+        if (!holdPos.isSet())
+            continue;
+        ai::PositionEntry stayPos = posMap["stay"];
+        if (stayPos.isSet() && stayPos.mapId == holdPos.mapId &&
+            stayPos.GetX() == holdPos.GetX() && stayPos.GetY() == holdPos.GetY())
+        {
+            memberAi->SetMovementStrategy("follow");
+            posMap.erase("stay");
+        }
+        posMap.erase("pull hold");
+    }
+}
+
 Unit* PullNearestTargetAction::FindPullTarget(PlayerbotAI* ai)
 {
     Player* bot = ai->GetBot();
@@ -237,19 +290,10 @@ bool PullAction::Execute(Event& event)
                 strategy->OnPullActionCompleted();
                 // Anchor the DPS join delay to the landing, not to the
                 // command: re-stamp every held party bot's combat-start clock
-                // and re-assert its wait window so an ordinary pull holds for
-                // the full delay after the cast lands.
-                for (Player* member : LiveGroupMembers(bot->GetGroup()))
-                {
-                    if (!member || member == bot || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
-                        continue;
-                    PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
-                    if (!memberAi || !memberAi->GetAiObjectContext())
-                        continue;
-                    if (!memberAi->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
-                        continue;
-                    memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
-                }
+                // so an ordinary pull holds for the full delay after the cast
+                // lands. Pullbacks keep the wide return-covering window here;
+                // the arrival brake narrows it to the join delay.
+                RestampPullParty(bot, 0, false);
                 return true;
             }
             else
@@ -351,9 +395,13 @@ bool PullEndAction::Execute(Event& event)
             posMap.erase("pull");
         }
 
+        // Release the held party: drop the wait window and our anchor stay
+        // (never a player-placed stay). This covers the return timeout as
+        // well as the normal end — the join window has expired either way.
+        RestampPullPartyRelease(bot);
+
         strategy->OnPullEnded();
         return true;
-    }
 
     return false;
 }

@@ -36,14 +36,13 @@ namespace ai
         void OnPullEnded();
         // Per-command mode: true while a pull/pullback command owns this pull.
         // The return leg follows commandPullback, not the sticky strategy.
-        void BeginCommand(bool pullback, bool hadPullBackStrategy);
+        void BeginCommand(bool pullback, bool hadPullBackStrategy, uint32 joinDelaySeconds = 0);
         bool IsCommandActive() const { return commandActive; }
         bool IsCommandPullback() const { return commandPullback; }
         bool HadPullBack() const { return hadPullBack; }
+        uint32 GetCommandJoinDelay() const { return commandJoinDelay; }
         time_t GetReturnStartTime() const { return returnStartTime; }
         void NoteReturnedToAnchor();
-        ReactStates GetPetReactState() const { return petReactState; }
-        void SetPetReactState(ReactStates reactState) { petReactState = reactState; }
 
     private:
         void SetTarget(Unit* target);
@@ -64,8 +63,8 @@ namespace ai
         bool commandPullback;
         bool commandActive;
         bool hadPullBack;
+        uint32 commandJoinDelay;
         time_t returnStartTime;
-        ReactStates petReactState;
     };
 
     class PullMultiplier : public Multiplier

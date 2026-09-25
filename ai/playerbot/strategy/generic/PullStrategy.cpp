@@ -46,6 +46,7 @@ PullStrategy::PullStrategy(PlayerbotAI* ai, std::string pullAction, std::string 
 , commandPullback(false)
 , commandActive(false)
 , hadPullBack(false)
+, commandJoinDelay(0)
 , returnStartTime(0)
 , petReactState(REACT_DEFENSIVE)
 {
@@ -310,7 +311,6 @@ void PullStrategy::OnPullActionCompleted()
     if (commandActive && commandPullback && !returnStartTime)
         returnStartTime = time(0);
 }
-
 void PullStrategy::OnPullEnded()
 {
     pendingToStart = false;
@@ -319,15 +319,17 @@ void PullStrategy::OnPullEnded()
     commandActive = false;
     commandPullback = false;
     hadPullBack = false;
+    commandJoinDelay = 0;
     returnStartTime = 0;
     SetTarget(nullptr);
 }
 
-void PullStrategy::BeginCommand(bool pullback, bool hadPullBackStrategy)
+void PullStrategy::BeginCommand(bool pullback, bool hadPullBackStrategy, uint32 joinDelaySeconds)
 {
     commandActive = true;
     commandPullback = pullback;
     hadPullBack = hadPullBackStrategy;
+    commandJoinDelay = joinDelaySeconds;
     returnStartTime = 0;
 }
 

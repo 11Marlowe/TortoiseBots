@@ -1519,13 +1519,13 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Tank %s could not be assigned to you for pullback.", tank->GetName());
         return true;
     }
-    if (!ConfigurePullMode(tankAI, true))
+    if (!ConfigurePullMode(tankAI, true, sPlayerbotAIConfig.pullBackDpsJoinDelay))
     {
         handler->PSendSysMessage("Tank %s has no pullback strategy available.", tank->GetName());
         return true;
     }
     RelaxTacticalMovement(tankAI);
-    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay);
+    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay, true);
     // Snapshot the target GUID like the action path does.
     ai::Event event("pullback", context.enemyTarget->GetObjectGuid(), requester);
     if (!ExecuteQuietAction(tankAI, "pull my target", event))
@@ -2359,11 +2359,20 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
 
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
-        // Pull and Pullback share the mature request action; the per-command
-        // return mode is recorded on the PullStrategy (never sticky). The
-        // tank's default is restored when the pull ends.
+        // Join delay: per-command [seconds] (0-60, parsed) or the configured
+        // default. For a pullback the window runs from the tank's arrival at
+        // the anchor; the hold placed below keeps DPS waiting through the
+        // return leg and is re-stamped on arrival.
         bool pullback = intent == "pullback";
-        if (!ConfigurePullMode(ai, pullback))
+        uint32 joinDelay = pullback
+            ? sPlayerbotAIConfig.pullBackDpsJoinDelay
+            : sPlayerbotAIConfig.pullDpsJoinDelay;
+        if (!option.empty())
+            joinDelay = static_cast<uint32>(std::stoi(option));
+        // Pull and Pullback share the mature request action; the per-command
+        // return mode (plus join delay) is recorded on the PullStrategy
+        // (never sticky). The tank's default is restored when the pull ends.
+        if (!ConfigurePullMode(ai, pullback, joinDelay))
         {
             char const* message = pullback
                 ? "The mature pullback strategy is unavailable."
@@ -2372,31 +2381,18 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             return true;
         }
 
-        // Join delay: per-command [seconds] (0-60, parsed) or the configured
-        // default. The window runs from the pull landing (pull) or from the
-        // tank back at the anchor (pullback), not from the command.
-        uint32 joinDelay = pullback
-            ? sPlayerbotAIConfig.pullBackDpsJoinDelay
-            : sPlayerbotAIConfig.pullDpsJoinDelay;
-        if (!option.empty())
-            joinDelay = static_cast<uint32>(std::stoi(option));
-
         // Report a body-pull substitution honestly: "reach pull" means the
-        // tank has no working ranged option and will walk into melee.
+        // tank has no working ranged option, so it walks in, hits the mob in
+        // melee once, then returns to the anchor like a ranged pullback. The
+        // ACK detail carries it for both intents.
         std::string pullActionName;
         if (PullStrategy* probe = PullStrategy::Get(ai))
             pullActionName = probe->GetPullActionName();
         bool bodyPull = pullActionName == "reach pull";
-        if (pullback && bodyPull)
-        {
-            SendActionError(handler, intent, "no-ranged",
-                "The tank has no working ranged pull and would have to walk in. Pullback needs a ranged option.");
-            return true;
-        }
 
         // Pulling requires tank movement: break stay!
         RelaxTacticalMovement(ai);
-        PausePartyDpsForPull(context, executor, joinDelay);
+        PausePartyDpsForPull(context, executor, joinDelay, pullback);
         // Snapshot the target GUID: the live selection can change between
         // command validation and the pull tick.
         ai::Event pullEvent(intent, context.enemyTarget->GetObjectGuid(), requester);
