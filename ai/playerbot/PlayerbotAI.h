@@ -487,6 +487,14 @@ public:
     uint32 GetEquipStatsValue(Player* player);
     bool HasSkill(SkillType skill);
     bool IsAllowedCommand(std::string text);
+    // Issue #294: single choke point for tiered whisper/`.bot command`
+    // authorization. Tier keyed by the command's first word (plus two-word
+    // prefixes for `ah bid`, `ah cancel`, `set value`); unknown commands
+    // default to owner-or-GM so new debug/economy surface fails closed.
+    enum class BotCommandAuthTier : uint8 { Tactical = 0, OwnerOrGm = 1, GmOnly = 2 };
+    BotCommandAuthTier AuthTierForCommand(std::string const& command) const;
+    bool IsBotOwnerOrGm(Player const& fromPlayer) const;
+    bool CheckBotCommandAuth(Player& fromPlayer, std::string const& command, bool silentDeny);
     float GetRange(std::string type);
 
     static ReputationRank GetFactionReaction(FactionTemplateEntry const* thisTemplate, FactionTemplateEntry const* otherTemplate);

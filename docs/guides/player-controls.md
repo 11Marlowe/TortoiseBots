@@ -16,6 +16,18 @@ TortoiseBots provides a native, intent-driven command suite (`.bot`) that powers
 
 Bot-targeted commands require the requesting player to own the target bot (same account) or be a GameMaster. `.bot role self` changes only the requesting player's group-role override and does not target a bot.
 
+### Who may use what (issue #294)
+
+Whisper commands (`/w <BotName> <command>`) and `.bot command <BotName> <command>` pass one gate in `PlayerbotAI::HandleCommand`, keyed by the command's first word. GM means the sender's session security is above `SEC_PLAYER`; owner means the sender's account matches the bot's durable owner account (`BotManager` ownership record). Random bots grouped with a player treat that player as a group member, not an owner. Unknown commands default to owner-or-GM (fail closed).
+
+| Tier | Who | Commands |
+| :--- | :--- | :--- |
+| GM only | GameMasters (owner NOT included) | `cheat`, `debug` (incl. remote `debug <…>` diagnostics), `cdebug`, `cs`, `log`, `set value`, `teleport`, `load ai`, `save ai`, `list ai`, `reset ai` / `reset strats` / `reset values` |
+| Owner or GM | Same-account owner, or any GM | `sendmail`/`mail`, `bank`/`gb`, `ah`/`ah bid`/`ah cancel`, `t`/`trade`/`nt`, `s`/`sell`, `b`/`buy`/`bb`, `repair`, `destroy`, `drop`, `e`/`equip`, `ue`/`unequip`, `keep`, `u`/`use`, `craft`, `guild` + guild shorthand (`gi`/`gk`/`gl`/`gp`/…), `invite`/`join`/`lfg`/`leave`, `summon`, `taxi`, `co`/`nc`/`de`/`react`/`all` strategy changes, `talents`, `reset`, `release`/`revive`/`corpse run`, `trainer`, `skill`, `faction`, `outfit`, `go`, `range`, `flag`, `speak`, `cast`/`castnc`/`spell`, `pet`, `buff`, `share`, `accept`, `talk`, `q`/`quests`, `rep`, `roll`, `ll`, `ss`, `chat`, `home`, `logout`, `do`/`d` item-use shortcuts, `doquest`, `grind`, `r`/`reward`, `bg free`, `move style`, `give leader`, `focus`/`boost`/`follow`/`revive` target assignments, `ra` |
+| Group member (tactical/info) | Anyone currently grouped with the bot | `follow`, `stay`, `guard`, `free`, `wander`, `flee`, `runaway`, `attack`, `pull`, `tank attack`, `rti`, `formation`, `stance`, `save mana`, `max dps`, `possible attack targets`, `attackers`, `position`, `who`, `where`, `wts`, `stats`, `c`/`items`/`inv` count, `spells` list, `hire` (self-gated to random bots), `emote`, `help`, `warning`, `ready`, `queue`, `los`, `wait`, `jump` |
+
+Refused commands answer with a short reason in chat; addon-originated requests additionally receive exactly one `TBM:ACTION_ERR|<command>|denied|<reason>` line so the `/tbm` UI can surface it.
+
 ---
 
 ## 1. Tactical Party Actions (`.bot action <intent>`)

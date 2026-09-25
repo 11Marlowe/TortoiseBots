@@ -1698,6 +1698,145 @@ bool PlayerbotAI::IsAllowedCommand(std::string text)
     return false;
 }
 
+// Issue #294: tiered bot command authorization. Single choke point keyed by
+// the command's first word. GM = sender session security > SEC_PLAYER (this
+// core has no separate GM rank: SEC_GAMEMASTER aliases SEC_ADMINISTRATOR,
+// so `> SEC_PLAYER` is the documented "any elevated account" check). Owner =
+// sender account == the bot's durable owner account (BotManager ownership
+// record, falling back to the character account for pre-ownership records).
+// Random bots grouped with a player are group members, never owners.
+namespace
+{
+std::string BotCommandFirstWordLower(std::string const& command)
+{
+    size_t begin = command.find_first_not_of(" \t");
+    if (begin == std::string::npos)
+        return {};
+    size_t end = command.find_first_of(" \t", begin);
+    std::string word = command.substr(begin, end == std::string::npos ? std::string::npos : end - begin);
+    for (char& c : word)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return word;
+}
+}
+PlayerbotAI::BotCommandAuthTier PlayerbotAI::AuthTierForCommand(std::string const& command) const
+{
+    size_t begin = command.find_first_not_of(" \t");
+    if (begin == std::string::npos)
+        return BotCommandAuthTier::Tactical;
+    std::string lower = command.substr(begin);
+    for (char& c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    size_t end = lower.find_first_of(" \t");
+    std::string word = lower.substr(0, end);
+    // GM-only: admin/debug surface. The bot's owner is deliberately not
+    // included (issue #294 owner decision).
+    if (word == "cheat" || word == "debug" || word == "cdebug" || word == "cs" ||
+        word == "log" || word == "teleport" ||
+        (word == "set" && lower.compare(0, 9, "set value") == 0) ||
+        ((word == "load" || word == "save" || word == "list" || word == "reset") &&
+            (lower.find(" ai") != std::string::npos || lower.find(" strat") != std::string::npos ||
+                lower.find(" value") != std::string::npos)))
+        return BotCommandAuthTier::GmOnly;
+    // Owner-or-GM: account/inventory affecting commands and durable AI
+    // configuration (mail, bank, AH, trade, guild, craft, strategy edits).
+    // Listed explicitly so the mapping is auditable; anything unlisted
+    // below falls through to OwnerOrGm (fail closed).
+    if (word == "sendmail" || word == "mail" ||
+        word == "bank" || word == "gb" || word == "gbank" ||
+        word == "ah" ||
+        word == "t" || word == "trade" || word == "nt" ||
+        word == "s" || word == "sell" || word == "b" || word == "buy" || word == "bb" ||
+        word == "repair" || word == "destroy" || word == "drop" ||
+        word == "e" || word == "equip" || word == "ue" || word == "unequip" || word == "keep" ||
+        word == "u" || word == "use" ||
+        word == "craft" ||
+        word == "guild" || word == "gi" || word == "gk" || word == "gl" || word == "gp" ||
+        word == "ginvite" || word == "gremove" || word == "gleave" || word == "gleader" ||
+        word == "gpromote" || word == "gdemote" ||
+        word == "invite" || word == "join" || word == "lfg" || word == "leave" ||
+        word == "summon" || word == "taxi" ||
+        word == "co" || word == "nc" || word == "de" || word == "react" || word == "all" ||
+        word == "talents" || word == "reset" ||
+        word == "release" || word == "revive" || word == "corpse" || word == "trainer" ||
+        word == "skill" || word == "faction" || word == "outfit" ||
+        word == "go" || word == "range" || word == "flag" || word == "speak" ||
+        word == "cast" || word == "castnc" || word == "spell" ||
+        word == "pet" || word == "buff" || word == "share" || word == "accept" || word == "talk" ||
+        word == "roll" || word == "ll" || word == "ss" || word == "chat" || word == "home" ||
+        word == "logout" || word == "r" || word == "reward" ||
+        word == "d" || word == "do" || word == "doquest" || word == "grind" ||
+        word == "bg" || word == "move" || word == "focus" || word == "boost" ||
+        word == "self" || word == "give" || word == "ra")
+        return BotCommandAuthTier::OwnerOrGm;
+    // Tactical/info surface (group members): combat movement and read-only
+    // queries that never move money/items or rewrite AI configuration.
+    // `hire` stays tactical: HireAction self-gates to random bots (level and
+    // cost checks) and hiring is how a stranger becomes an owner.
+    if (word == "follow" || word == "stay" || word == "guard" || word == "free" ||
+        word == "wander" || word == "flee" || word == "runaway" || word == "grind" ||
+        word == "attack" || word == "pull" || word == "tank" || word == "rti" ||
+        word == "formation" || word == "stance" || word == "save" || word == "max" ||
+        word == "possible" || word == "attackers" || word == "position" ||
+        word == "who" || word == "where" || word == "wts" || word == "stats" ||
+        word == "c" || word == "items" || word == "inv" || word == "inventory" ||
+        word == "spells" || word == "hire" ||
+        word == "emote" || word == "help" || word == "warning" || word == "ready" ||
+        word == "queue" || word == "los" ||
+        word == "wait" || word == "jump")
+        return BotCommandAuthTier::Tactical;
+    // Unknown commands default to owner-or-GM so new debug/economy surface
+    // fails closed.
+    return BotCommandAuthTier::OwnerOrGm;
+}
+bool PlayerbotAI::IsBotOwnerOrGm(Player const& fromPlayer) const
+{
+    WorldSession const* session = fromPlayer.GetSession();
+    if (!session)
+        return false;
+    if (session->GetSecurity() > SEC_PLAYER)
+        return true;
+    uint32 senderAccount = session->GetAccountId();
+    if (!senderAccount)
+        return false;
+    TortoiseBots::BotManager& manager = TortoiseBots::BotManager::Instance();
+    if (TortoiseBots::BotRecord* record = manager.FindBot(bot->GetObjectGuid()))
+    {
+        uint32 ownerAccount = record->ownerAccountId ? record->ownerAccountId : record->accountId;
+        if (ownerAccount != 0 && ownerAccount == senderAccount)
+            return true;
+        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid())
+            return true;
+    }
+    TortoiseBots::OwnedCharacter owned;
+    if (manager.GetOwnedCharacter(bot->GetObjectGuid(), owned) &&
+        owned.ownerAccountId != 0 && owned.ownerAccountId == senderAccount)
+        return true;
+    // Pre-ownership records (same character account as the bot itself).
+    return sObjectMgr.GetPlayerAccountIdByGUID(bot->getObjectGuid()) == senderAccount;
+}
+bool PlayerbotAI::CheckBotCommandAuth(Player& fromPlayer, std::string const& command, bool silentDeny)
+{
+    BotCommandAuthTier tier = AuthTierForCommand(command);
+    if (tier == BotCommandAuthTier::Tactical)
+        return true;
+    WorldSession const* session = fromPlayer.GetSession();
+    bool isGm = session && session->GetSecurity() > SEC_PLAYER;
+    if (tier == BotCommandAuthTier::GmOnly)
+    {
+        if (isGm)
+            return true;
+        if (!silentDeny)
+            TellPlayer(&fromPlayer, "That command is restricted to GameMasters.");
+        return false;
+    }
+    if (IsBotOwnerOrGm(fromPlayer))
+        return true;
+    if (!silentDeny)
+        TellPlayer(&fromPlayer, "Only this bot's owner (or a GameMaster) may do that.");
+    return false;
+}
+
 void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fromPlayer, const uint32 lang)
 {
     std::string filtered = text;
@@ -1758,6 +1897,24 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
     if (filtered.empty())
         return;
 
+    if (filtered.substr(0, 6) == "debug " && &fromPlayer != bot)
+    {
+        // `debug <remote>` diagnostics stay GM-only; refusals keep the exact
+        // addon packet shape so TBM parsers never see a second line.
+        WorldSession const* session = fromPlayer.GetSession();
+        if (!session || session->GetSecurity() <= SEC_PLAYER)
+        {
+            fromPlayer.SendAddonMessage("TBM", "ACTION_ERR|debug|denied|GameMasters only.");
+            TellPlayer(&fromPlayer, "That command is restricted to GameMasters.");
+            return;
+        }
+        std::string response = HandleRemoteCommand(filtered.substr(6));
+        WorldPacket data;
+        ChatHandler::BuildChatPacket(data, CHAT_MSG_ADDON, response.c_str(), LANG_ADDON,
+                CHAT_TAG_NONE, bot->getObjectGuid(), bot->GetName());
+        sServerFacade.SendPacket(&fromPlayer, data);
+        return;
+    }
     if (filtered.substr(0, 6) == "debug ")
     {
         std::string response = HandleRemoteCommand(filtered.substr(6));
@@ -1767,10 +1924,22 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
         sServerFacade.SendPacket(&fromPlayer, data);
         return;
     }
-
+    // Issue #294 single choke-point gate: tiered authorization for every
+    // queued/action command. Internal self-commands (fromPlayer == bot)
+    // bypass; everything else is tiered by AuthTierForCommand above.
+    if (&fromPlayer != bot)
+    {
+        bool silentDeny = type != CHAT_MSG_WHISPER;
+        if (!CheckBotCommandAuth(fromPlayer, filtered, silentDeny))
+        {
+            if (!silentDeny)
+                fromPlayer.SendAddonMessage("TBM", std::string("ACTION_ERR|") +
+                    BotCommandFirstWordLower(filtered) + "|denied|Not authorized for this bot command.");
+            return;
+        }
+    }
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, type != CHAT_MSG_WHISPER, &fromPlayer))
         return;
-
     if (type == CHAT_MSG_RAID_WARNING && filtered.find(bot->GetName()) != std::string::npos && filtered.find("award") == std::string::npos)
     {
         ChatCommandHolder cmd("warning", &fromPlayer, type);
