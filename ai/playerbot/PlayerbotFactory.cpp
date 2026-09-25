@@ -43,132 +43,6 @@ std::vector<std::pair<uint32, uint32>> const& CollectionMounts()
 }
 }
 
-#define PLAYER_SKILL_INDEX(x)       (PLAYER_SKILL_INFO_1_1 + ((x)*3))
-
-uint32 PlayerbotFactory::tradeSkills[] =
-{
-    SKILL_ALCHEMY,
-    SKILL_ENCHANTING,
-    SKILL_SKINNING,
-    SKILL_TAILORING,
-    SKILL_LEATHERWORKING,
-    SKILL_ENGINEERING,
-    SKILL_HERBALISM,
-    SKILL_MINING,
-    SKILL_BLACKSMITHING,
-    SKILL_COOKING,
-    SKILL_FIRST_AID,
-    SKILL_FISHING
-};
-
-std::list<uint32> PlayerbotFactory::classQuestIds;
-std::list<uint32> PlayerbotFactory::specialQuestIds;
-
-TaxiNodeLevelContainer PlayerbotFactory::overworldTaxiNodeLevelsA;
-TaxiNodeLevelContainer PlayerbotFactory::overworldTaxiNodeLevelsH;
-
-void PlayerbotFactory::Init()
-{
-    if (sPlayerbotAIConfig.randomBotPreQuests) {
-        ObjectMgr::QuestMap const& questTemplates = sObjectMgr.GetQuestTemplates();
-        for (ObjectMgr::QuestMap::const_iterator i = questTemplates.begin(); i != questTemplates.end(); ++i)
-        {
-            uint32 questId = i->first;
-            Quest const* quest = i->second.get();
-
-            if (!quest->GetRequiredClasses() || quest->IsRepeatable() || quest->GetMinLevel() < 10)
-                continue;
-
-            AddPrevQuests(questId, classQuestIds);
-            classQuestIds.remove(questId);
-            classQuestIds.push_back(questId);
-        }
-        for (std::list<uint32>::iterator i = sPlayerbotAIConfig.randomBotQuestIds.begin(); i != sPlayerbotAIConfig.randomBotQuestIds.end(); ++i)
-        {
-            uint32 questId = *i;
-            AddPrevQuests(questId, specialQuestIds);
-            specialQuestIds.remove(questId);
-            specialQuestIds.push_back(questId);
-        }
-    }
-
-    overworldTaxiNodeLevelsH.clear();
-    overworldTaxiNodeLevelsA.clear();
-
-    for (uint32 i = 1; i < sTaxiNodesStore.GetNumRows(); ++i)
-    {
-        TaxiNodesEntry const* taxiNode = sTaxiNodesStore.LookupEntry(i);
-
-        if (!taxiNode)
-            continue;
-
-        // The taximask is eight words and AppendTaximaskTo puts exactly those
-        // eight on the wire, so 256 is a protocol limit, not a tunable. Tortoise
-        // numbers its two Landing Pod nodes 508 and 509, which land on field 15
-        // of an eight-field mask - seven words past it, straight into
-        // m_TaxiDestinations. SetTaximaskNode bounds-checks that now, but there
-        // is no point offering it a node it can never record.
-        if (i > TaxiMaskSize * 32)
-            continue;
-
-        WorldPosition taxiPosition(taxiNode);
-
-        if (!taxiPosition.isOverworld())
-            continue;
-
-        TaxiNodeLevel taxiNodeLevel = TaxiNodeLevel();
-
-        taxiNodeLevel.Index = i;
-        taxiNodeLevel.MapId = taxiNode->map_id;
-        taxiNodeLevel.Level = taxiPosition.getAreaLevel();
-
-        if (taxiNode->MountCreatureID[0])
-            overworldTaxiNodeLevelsH.push_back(taxiNodeLevel);
-
-        if (taxiNode->MountCreatureID[1])
-            overworldTaxiNodeLevelsA.push_back(taxiNodeLevel);
-    }
-}
-
-void PlayerbotFactory::Prepare()
-{
-    if (sServerFacade.UnitIsDead(bot))
-    {
-        bot->ResurrectPlayer(1.0f, false);
-        bot->SpawnCorpseBones();
-    }
-
-    bot->CombatStop(true);
-    // Was commented out - re-enabled so a manual .bot random/.bot init on a
-    // still-fresh bot (below the configured starting level) brings it up to
-    // randombotStartingLevel. GiveLevel (not SetLevel) so stats/HP/mana/talent
-    // points come along too - raw SetLevel only touches the level field.
-    if (sPlayerbotAIConfig.disableRandomLevels)
-    {
-        if (bot->GetLevel() < sPlayerbotAIConfig.randombotStartingLevel)
-        {
-            bot->GiveLevel(sPlayerbotAIConfig.randombotStartingLevel);
-        }
-    }
-
-    if (!sPlayerbotAIConfig.disableRandomLevels)
-    {
-        bot->SetLevel(level);
-        //Reset xp and xp for next level.
-        bot->SetUInt32Value(PLAYER_XP, 0);
-        bot->SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr.getXPForLevel(level));
-    }
-
-    if (!sPlayerbotAIConfig.randomBotShowHelmet)
-    {
-       bot->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_HIDE_HELM);
-    }
-
-    if (!sPlayerbotAIConfig.randomBotShowCloak)
-    {
-       bot->SetFlag(PLAYER_FLAGS, PLAYER_FLAGS_HIDE_CLOAK);
-    }
-}
 
 void PlayerbotFactory::MakeComplete()
 {
@@ -187,9 +61,8 @@ void PlayerbotFactory::MakeComplete()
     InitSkills();
     // Enchant templates must be loaded before gear equips: EnchantItem()
     // runs per equipped item inside InitEquipment and matches against this
-    // container. Randomize() loads it; MakeComplete never did, so fresh
-    // seeds always came out unenchanted even with data in
-    // ai_playerbot_enchants.
+    // container. Without this fresh seeds always came out unenchanted even
+    // with data in ai_playerbot_enchants.
     if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
     {
         LoadEnchantContainer();
@@ -201,16 +74,21 @@ void PlayerbotFactory::MakeComplete()
     }
     // Gear last and incremental only — never wipe earned gear.
     InitEquipment(true, false);
-    // Field kit — the same block ProvisionSpellsAndGear runs for hired
-    // companions. The pool path never ran any of it, so fresh seeds kept
-    // their level-1 starter kit forever: Light Quiver, Rough Arrow,
-    // Tough Jerky (owner spec: ammo container / ammo / food adequate to
-    // the level, vendor tier, never raid).
+    // Missing kit, idempotent: bags (level-tier vendor, quiver intact),
+    // profession tools (pick/knife/hammer/spanner/pole), mounts 40/60,
+    // fresh-seed money (once, not on re-seed), reagents, potions, food,
+    // class oils/stones/poisons and level-tier bandages. Every helper
+    // checks current state first, so re-seed is a safe backstop.
+    InitBags();
+    InitInventorySkill();
+    InitMounts();
+    SeedFreshMoney();
     InitAmmo();
     InitReagents();
     InitPotions();
     InitFood();
     AddConsumables();
+    InitBandages();
     // Two equips can land in one slot: the starter kit row never enters this
     // session's item map, so DestroyItem cannot see it and the loser row
     // survives in the DB (3243 live duplicates found). Keep only the best
@@ -253,15 +131,19 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     InitAvailableSpells();
     InitSpecialSpells();
     InitEquipment(true, false);
-    // Field kit: ammo (hunters/rogues/warriors with ranged), reagents
-    // (poisons, powders, candles, shards via class tables), potions, food
-    // and class consumables. Without these a hired hunter has 0 arrows and
-    // a warlock has 0 shards on arrival.
+    // Field kit, idempotent like the pool path: bags, tools, mounts,
+    // ammo, reagents, potions, food, class consumables and bandages.
+    // Mounts/riding are level-gated inside (40/60); tools/bags only fill
+    // gaps so a companion hired at any level arrives with a usable kit.
+    InitBags();
+    InitInventorySkill();
+    InitMounts();
     InitAmmo();
     InitReagents();
     InitPotions();
     InitFood();
     AddConsumables();
+    InitBandages();
     // Hunter pets (level 10+) and warlock summons need their pet objects;
     // InitPet is a no-op for other classes.
     if ((bot->GetClass() == CLASS_HUNTER && bot->GetLevel() >= 10) ||
@@ -274,198 +156,71 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     bot->SaveToDB();
 }
 
-void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
-{
-    sLog.outDetail("Preparing to %s randomize...", (incremental ? "incremental" : "full"));
-    Prepare();
-
-    if (sPlayerbotAIConfig.disableRandomLevels)
-    {
-        return;
-    }
-    bool isRealRandomBot = sRandomBotFacade.IsRandomBot(bot);
-    bool isRandomBot = sRandomBotFacade.IsRandomBot(bot) && PlayerbotAIStorage::Instance().GetAI(bot) && !PlayerbotAIStorage::Instance().GetAI(bot)->HasRealPlayerMaster() && !PlayerbotAIStorage::Instance().GetAI(bot)->IsInRealGuild();
-
-    sLog.outDetail("Resetting player...");
-    auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Reset");
-    //ClearSkills();
-    ClearSpells();
-
-    if (!incremental && isRandomBot)
-    {
-        ClearInventory();
-        ResetQuests();
-        bot->ResetTalents(true);
-        CancelAuras();
-    }
-    if (isRealRandomBot)
-    {
-        if (bot->GetLevel() > level)
-        {
-            bot->SetLevel(level);
-            //Reset xp and xp for next level.
-            bot->SetUInt32Value(PLAYER_XP, 0);
-            bot->SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr.getXPForLevel(level));
-        }
-
-        InitQuests(specialQuestIds);
-        bot->LearnQuestRewardedSpells();
-
-        // clear inventory and set level after getting xp and quest rewards
-        ClearInventory();
-        if (bot->GetLevel() > level)
-        {
-            bot->SetLevel(level);
-            //Reset xp and xp for next level.
-            bot->SetUInt32Value(PLAYER_XP, 0);
-            bot->SetUInt32Value(PLAYER_NEXT_LEVEL_XP, sObjectMgr.getXPForLevel(level));
-        }
-    }
-    pmo.reset();
-
-    sLog.outDetail("Initializing bags...");
-    InitBags();
-
-    sLog.outDetail("Initializing spells (step 1)...");
-    InitAvailableSpells();
-
-    sLog.outDetail("Initializing skills (step 1)...");
-    InitAllSkills();
-
-    pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Talents");
-    sLog.outDetail("Initializing talents...");
-    // Assign a premade spec (specNo), then let the "auto talents" action apply the
-    // matching premade build. If no premade spec is configured for the class, the
-    // action falls back to its generic per-tree auto-selection.
-    if (!incremental)
-        SelectPremadeSpecNo();
-    ai->DoSpecificAction("auto talents");
-
-    if (!incremental && isRandomBot)
-        sPlayerbotDbStore.Reset(ai);
-
-    ai->ResetStrategies(incremental); // fix wrong stored strategy
-    pmo.reset();
-
-    pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Spells2");
-    sLog.outDetail("Initializing spells (step 2)...");
-    InitAvailableSpells();
-    InitSpecialSpells();
-    pmo.reset();
-
-    if (isRealRandomBot)
-    {
-        sLog.outDetail("Initializing mounts...");
-        InitMounts();
-    }
-
-    sLog.outDetail("Initializing skills (step 2)...");
-    UpdateTradeSkills();
-
-    if (isRealRandomBot)
-    {
-        sLog.outDetail("Initializing reputations...");
-        InitReputations();
-
-    }
-
-    pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Equip");
-    sLog.outDetail("Initializing equipmemt...");
-    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
-    {
-        sLog.outDetail("Initializing enchant templates...");
-        LoadEnchantContainer();
-    }
-
-    InitEquipment(incremental, syncWithMaster);
-    EnchantEquipment();
-    pmo.reset();
-
-    if (isRandomBot)
-    {
-        sLog.outDetail("Initializing ammo...");
-        InitAmmo();
-
-        sLog.outDetail("Initializing food...");
-        InitFood();
-
-        sLog.outDetail("Initializing potions...");
-        InitPotions();
-
-        sLog.outDetail("Initializing reagents...");
-        InitReagents();
-    }
-
-    if (!incremental)
-    {
-        sLog.outDetail("Initializing consumables...");
-        AddConsumables();
-    }
-
-    if (!incremental && isRandomBot)
-    {
-        /*pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_EqSets");
-        sLog.outDetail("Initializing second equipment set...");
-        InitSecondEquipmentSet();
-        if (pmo) pmo->finish();*/
-
-        sLog.outDetail("Initializing inventory...");
-        InitInventory();
-    }
-
-    if (bot->GetLevel() >= 10 && bot->GetClass() == CLASS_HUNTER)
-    {
-        auto pmo_pet = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Pet");
-        sLog.outDetail("Initializing pet...");
-        InitPet();
-        InitPetSpells();
-    }
-    else if (bot->GetClass() == CLASS_WARLOCK)
-    {
-        auto pmo_pet = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Pet");
-        sLog.outDetail("Initializing pet...");
-        InitPet();
-        InitPetSpells();
-    }
-
-    if (isRandomBot)
-    {
-        if (incremental)
-        {
-            uint32 money = bot->GetMoney();
-            bot->SetMoney(money + 1000 * urand(1, level * 5));
-        }
-        else
-        {
-            bot->SetMoney(10000 * urand(1, level * 5));
-        }
-    }
-
-    if (isRandomBot)
-    {
-        sLog.outDetail("Initializing taxi...");
-        InitTaxiNodes();
-    }
-
-    pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Save");
-    sLog.outDetail("Saving to DB...");
-    bot->SaveToDB();
-    sLog.outDetail("Done.");
-    pmo.reset();
-}
 
 void PlayerbotFactory::Refresh()
 {
-    //Prepare();
-    if (!ai->HasCheat(BotCheatMask::item))
-        return;
-
-    InitAmmo();
-    InitFood();
-    InitPotions();
-    InitReagents();
-    AddConsumables();
+    // Periodic cheap top-up for hired/owned companions (no item cheat).
+    // The old item-cheat gate made this dead for exactly the bots that
+    // need it; RestockCompanion reuses the same bounded seed helpers, so
+    // there is one restock path, not two.
+    RestockCompanion();
     bot->SaveToDB();
+}
+
+// Periodic cheap top-up for hired/owned companions: class reagents, food,
+// drink, potions and level-tier bandages, each topped to a small bounded
+// stack. Idempotent (helpers check current counts first) and never
+// unbounded; tools/bags are deliberately excluded (one-time seed, the
+// re-seed backstop already covers gaps).
+void PlayerbotFactory::RestockCompanion()
+{
+    InitReagents();
+    InitPotions();
+    InitFood();
+    AddConsumables();
+    InitBandages();
+}
+
+// Level-tier bandage matching the First Aid ladder in UseBandageAction
+// (skill 129 thresholds). Vendored cloth bandages, never raid. Keeps the
+// current stack and tops it to one half-stack when low; never unbounded.
+void PlayerbotFactory::InitBandages()
+{
+    auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Bandages");
+    uint16 firstAid = bot->GetSkillValue(SKILL_FIRST_AID);
+    uint32 itemId = 1251;
+    if (firstAid >= 225) itemId = 14530;
+    else if (firstAid >= 200) itemId = 14529;
+    else if (firstAid >= 175) itemId = 8545;
+    else if (firstAid >= 150) itemId = 8544;
+    else if (firstAid >= 125) itemId = 6451;
+    else if (firstAid >= 100) itemId = 6450;
+    else if (firstAid >= 75) itemId = 3531;
+    else if (firstAid >= 50) itemId = 3530;
+    else if (firstAid >= 20) itemId = 2581;
+    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+    if (!proto)
+        return;
+    uint32 have = bot->GetItemCount(itemId);
+    uint32 halfStack = proto->GetMaxStackSize() / 2;
+    if (have >= halfStack)
+        return;
+    Item* stored = StoreItem(itemId, halfStack - have, true);
+    if (stored)
+        sLog.outDetail("Bot %d got bandage %s x%d", bot->GetGUIDLow(), proto->Name1, halfStack - have);
+}
+
+// Fresh-seed money: a sensible level-scaled amount on first seed only.
+// Guards on the current coinage so a re-seed/backstop never refills it
+// (vendor restock, repairs and AH buying stay earned after the seed).
+void PlayerbotFactory::SeedFreshMoney()
+{
+    if (!bot || bot->GetMoney() > 0)
+        return;
+    uint32 lvl = bot->GetLevel();
+    uint32 money = 10000 * urand(1, std::max<uint32>(1, lvl * 5));
+    bot->SetMoney(money);
+    sLog.outDetail("Bot %d seeded with %u copper (level %u)", bot->GetGUIDLow(), money, lvl);
 }
 
 void PlayerbotFactory::AddConsumables()
@@ -1476,91 +1231,12 @@ void PlayerbotFactory::InitPetSpells()
     }
 }
 
-void PlayerbotFactory::ClearSkills()
-{
-    for (int i = 0; i < sizeof(tradeSkills) / sizeof(uint32); ++i)
-    {
-        bot->SetSkill(tradeSkills[i], 0, 0, 0);
-    }
-    bot->SetUInt32Value(PLAYER_SKILL_INDEX(0), 0);
-    bot->SetUInt32Value(PLAYER_SKILL_INDEX(1), 0);
-}
-
-void PlayerbotFactory::ClearSpells()
-{
-    std::list<uint32> spells;
-    for (PlayerSpellMap::const_iterator itr = bot->GetSpellMap().begin(); itr != bot->GetSpellMap().end(); ++itr)
-    {
-        uint32 spellId = itr->first;
-		if (itr->second.state == PLAYERSPELL_REMOVED || itr->second.disabled || IsPassiveSpell(spellId))
-			continue;
-
-        spells.push_back(spellId);
-    }
-
-    for (uint32 spellId : spells)
-        bot->RemoveSpell(spellId, false, false);
-}
-
-void PlayerbotFactory::ResetQuests()
-{
-    // Remove active quests through the public core operation so quest items,
-    // timers, status, and the visible quest log stay consistent.
-    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
-        bot->RemoveQuestAtSlot(slot);
-
-    bot->getQuestStatusMap().clear();
-    CharacterDatabase.PExecute("DELETE FROM character_queststatus WHERE guid = '%u'", bot->GetGUIDLow());
-}
-
-void PlayerbotFactory::InitReputations()
-{
-    auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Reputations");
-    // list of factions
-    std::list<uint32> factions;
-
-    // neutral
-    if (level >= 60)
-    {
-        factions.push_back(910); // nozdormu
-        factions.push_back(749); // hydraxian waterlords
-        factions.push_back(529); // argent dawn
-    }
-
-    // pvp factions
-    if (level >= 60)
-    {
-        if (bot->GetTeam() == ALLIANCE)
-        {
-            factions.push_back(890); // Silverwing Sentinels
-            factions.push_back(730); // Stormpike Guard
-            factions.push_back(509); // The League of Arathor
-        }
-        else
-        {
-            factions.push_back(729); // Frostwolf Clan
-            factions.push_back(510); // The Defilers
-            factions.push_back(889); // Warsong Outriders
-        }
-    }
 
 
-    for (auto faction : factions)
-    {
-        FactionEntry const* factionEntry = sFactionStore.LookupEntry(faction);
 
-        if (!factionEntry || !factionEntry->CanHaveReputation())
-            continue;
 
-        bot->GetReputationMgr().SetReputation(factionEntry, 42000);
-    }
-}
 
-void PlayerbotFactory::InitSpells()
-{
-    for (int i = 0; i < 15; i++)
-        InitAvailableSpells();
-}
+
 
 bool PlayerbotFactory::SelectPremadeSpecNo()
 {
@@ -2720,142 +2396,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
     }
 }
 
-bool PlayerbotFactory::IsDesiredReplacement(uint32 itemId)
-{
-    if (!itemId)
-        return true;
-
-    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-    if (!proto)
-        return false;
-
-    uint32 requiredLevel = proto->RequiredLevel;
-    if (!requiredLevel)
-    {
-        requiredLevel = sRandomItemMgr.GetMinLevelFromCache(proto->ItemId);
-    }
-    if (!requiredLevel)
-        return false;
-
-    int delta = sPlayerbotAIConfig.randomGearMaxDiff + (DEFAULT_MAX_LEVEL - bot->GetLevel()) / 10;
-    return (int)bot->GetLevel() - (int)requiredLevel > delta;
-}
-
-void PlayerbotFactory::InitSecondEquipmentSet()
-{
-    if (bot->GetClass() == CLASS_MAGE || bot->GetClass() == CLASS_WARLOCK || bot->GetClass() == CLASS_PRIEST)
-        return;
-
-    std::map<uint32, std::vector<uint32> > items;
-
-    uint32 desiredQuality = ITEM_QUALITY_NORMAL;
-    if (level < 10)
-        desiredQuality = urand(ITEM_QUALITY_POOR, ITEM_QUALITY_UNCOMMON);
-    if (level < 20)
-        desiredQuality = urand(ITEM_QUALITY_NORMAL, ITEM_QUALITY_UNCOMMON);
-    else if (level < 40)
-        desiredQuality = urand(ITEM_QUALITY_UNCOMMON, ITEM_QUALITY_RARE);
-    else if (level < 60)
-        desiredQuality = urand(ITEM_QUALITY_UNCOMMON, ITEM_QUALITY_RARE);
-    else
-        desiredQuality = urand(ITEM_QUALITY_RARE, ITEM_QUALITY_EPIC);
-
-    while (urand(0, 100) < 100 * sPlayerbotAIConfig.randomGearLoweringChance && desiredQuality > ITEM_QUALITY_NORMAL) {
-        desiredQuality--;
-    }
-
-    do
-    {
-        for (uint32 itemId = 0; itemId < sItemStorage.GetMaxEntry(); ++itemId)
-        {
-            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-            if (!proto)
-                continue;
-
-            // filter item level
-            if (proto->ItemLevel > sPlayerbotAIConfig.randomGearMaxLevel)
-                continue;
-
-            // do not use items that required level is too low compared to bot's level
-            uint32 reqLevel = sRandomItemMgr.GetMinLevelFromCache(itemId);
-            if (reqLevel && proto->Quality < ITEM_QUALITY_LEGENDARY && abs((int)bot->GetLevel() - (int)reqLevel) > (int)sPlayerbotAIConfig.randomGearMaxDiff)
-                continue;
-
-            if (!CanEquipItem(proto, desiredQuality))
-                continue;
-
-            if (proto->Class == ITEM_CLASS_WEAPON)
-            {
-                if (!CanEquipWeapon(proto))
-                    continue;
-
-                Item* existingItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
-                if (existingItem)
-                {
-                    switch (existingItem->GetProto()->SubClass)
-                    {
-                    case ITEM_SUBCLASS_WEAPON_AXE:
-                    case ITEM_SUBCLASS_WEAPON_DAGGER:
-                    case ITEM_SUBCLASS_WEAPON_FIST:
-                    case ITEM_SUBCLASS_WEAPON_MACE:
-                    case ITEM_SUBCLASS_WEAPON_SWORD:
-                        if (proto->SubClass == ITEM_SUBCLASS_WEAPON_AXE || proto->SubClass == ITEM_SUBCLASS_WEAPON_DAGGER ||
-                            proto->SubClass == ITEM_SUBCLASS_WEAPON_FIST || proto->SubClass == ITEM_SUBCLASS_WEAPON_MACE ||
-                            proto->SubClass == ITEM_SUBCLASS_WEAPON_SWORD)
-                            continue;
-                        break;
-                    default:
-                        if (proto->SubClass != ITEM_SUBCLASS_WEAPON_AXE && proto->SubClass != ITEM_SUBCLASS_WEAPON_DAGGER &&
-                            proto->SubClass != ITEM_SUBCLASS_WEAPON_FIST && proto->SubClass != ITEM_SUBCLASS_WEAPON_MACE &&
-                            proto->SubClass != ITEM_SUBCLASS_WEAPON_SWORD)
-                            continue;
-                        break;
-                    }
-                }
-            }
-            else if (proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
-            {
-                Item* existingItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-                if (existingItem && existingItem->GetProto()->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
-                    continue;
-            }
-            else
-                continue;
-
-            items[proto->Class].push_back(itemId);
-        }
-    } while (items[ITEM_CLASS_ARMOR].empty() && items[ITEM_CLASS_WEAPON].empty() && desiredQuality++ != ITEM_QUALITY_ARTIFACT);
-
-    int maxCount = urand(0, 5);
-    int count = 0;
-    for (std::map<uint32, std::vector<uint32> >::iterator i = items.begin(); i != items.end(); ++i)
-    {
-        if (count++ >= maxCount)
-            break;
-
-        std::vector<uint32>& ids = i->second;
-        if (ids.empty())
-        {
-            sLog.outDebug(  "%s: no items to make second equipment set for slot %d", bot->GetName(), i->first);
-            continue;
-        }
-        for (int attempts = 0; attempts < 15; attempts++)
-        {
-            uint32 index = urand(0, ids.size() - 1);
-            uint32 newItemId = ids[index];
-            Item* newItem = StoreItem(newItemId, 1);
-            if (newItem)
-            {
-                count++;
-                break;
-            }
-        }
-    }
-}
-
 void PlayerbotFactory::InitBags()
 {
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Bags");
+    InitLevelBags();
     for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
     {
         Bag* pBag = (Bag*)bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
@@ -2863,6 +2407,51 @@ void PlayerbotFactory::InitBags()
         {
             bot->StoreNewItemInBestSlots(4500, 1); // add Traveler's Backpack if no bag in slot
         }
+    }
+}
+
+// Level-tier vendor bags for the plain container slots. Quiver/ammo-pouch
+// slots (ITEM_CLASS_QUIVER) are owned by InitAmmo's GetQuiver path and are
+// never touched here; an occupied non-empty bag is never moved either (the
+// core rejects relocating a non-empty bag from a specific slot). Tiers use
+// npc_vendor rows only: 6 slot (4496 Small Brown Pouch) 1-9, 8 slot (4498
+// Brown Leather Satchel) 10-19, 10 slot (4497 Heavy Brown Bag) 20-29,
+// 12 slot (10050 Mageweave Bag) 30-39, 14 slot (14046 Runecloth Bag) 40-49,
+// 16 slot (4500 Traveler's Backpack) 50+. Idempotent: keeps any bag that is
+// already at or above the tier and only replaces a strictly smaller, empty
+// plain-container bag.
+void PlayerbotFactory::InitLevelBags()
+{
+    uint32 tierBag = 4496;
+    uint32 tierSlots = 6;
+    if (level >= 50) { tierBag = 4500; tierSlots = 16; }
+    else if (level >= 40) { tierBag = 14046; tierSlots = 14; }
+    else if (level >= 30) { tierBag = 10050; tierSlots = 12; }
+    else if (level >= 20) { tierBag = 4497; tierSlots = 10; }
+    else if (level >= 10) { tierBag = 4498; tierSlots = 8; }
+    ItemPrototype const* tierProto = sObjectMgr.GetItemPrototype(tierBag);
+    if (!tierProto)
+        return;
+    for (uint8 slot = INVENTORY_SLOT_BAG_START; slot < INVENTORY_SLOT_BAG_END; ++slot)
+    {
+        Item* bagItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (!bagItem)
+            continue;
+        ItemPrototype const* proto = bagItem->GetProto();
+        if (!proto || proto->Class == ITEM_CLASS_QUIVER)
+            continue;
+        if (bagItem->GetEntry() == tierBag || proto->ContainerSlots >= tierSlots)
+            continue;
+        Bag* pBag = bagItem->IsBag() ? (Bag*)bagItem : nullptr;
+        if (pBag && !pBag->IsEmpty())
+            continue;
+        uint16 eDest = 0;
+        if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, tierBag) != EQUIP_ERR_OK)
+            continue;
+        bot->DestroyItem(INVENTORY_SLOT_BAG_0, slot, true);
+        Item* pItem = bot->EquipNewItem(eDest, tierBag, true);
+        if (pItem)
+            sLog.outDetail("Bot %d got level-tier bag %s (%u slots)", bot->GetGUIDLow(), tierProto->Name1, tierSlots);
     }
 }
 
@@ -3035,16 +2624,6 @@ void PlayerbotFactory::InitTradeSkills()
             if (!learned)
                 ai->CastSpell(tSpell->spell, bot);
         }
-    }
-}
-
-void PlayerbotFactory::UpdateTradeSkills()
-{
-    auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Skills2");
-    for (int i = 0; i < sizeof(tradeSkills) / sizeof(uint32); ++i)
-    {
-        if (bot->GetSkillValue(tradeSkills[i]) == 1)
-            bot->SetSkill(tradeSkills[i], 0, 0, 0);
     }
 }
 
@@ -3433,54 +3012,6 @@ void PlayerbotFactory::InitSpecialSpells()
     }
 }
 
-void PlayerbotFactory::AddPrevQuests(uint32 questId, std::list<uint32>& questIds)
-{
-    Quest const *quest = sObjectMgr.GetQuestTemplate(questId);
-    for (Quest::PrevQuests::const_iterator iter = quest->prevQuests.begin(); iter != quest->prevQuests.end(); ++iter)
-    {
-        uint32 prevId = abs(*iter);
-        AddPrevQuests(prevId, questIds);
-        questIds.remove(prevId);
-        questIds.push_back(prevId);
-    }
-}
-
-void PlayerbotFactory::InitQuests(std::list<uint32>& questMap)
-{
-    int count = 0;
-    for (std::list<uint32>::iterator i = questMap.begin(); i != questMap.end(); ++i)
-    {
-        uint32 questId = *i;
-        Quest const *quest = sObjectMgr.GetQuestTemplate(questId);
-
-        if (!bot->SatisfyQuestClass(quest, false) ||
-                quest->GetMinLevel() > bot->GetLevel() ||
-                !bot->SatisfyQuestRace(quest, false))
-            continue;
-
-        bot->SetQuestStatus(questId, QUEST_STATUS_COMPLETE);
-        bot->RewardQuest(quest, 0, bot, false);
-        sLog.outDetail("Bot %s (%d level) rewarded quest %d: %s (MinLevel=%d, QuestLevel=%d)",
-                bot->GetName(), bot->GetLevel(), questId, quest->GetTitle().c_str(),
-                quest->GetMinLevel(), quest->GetQuestLevel());
-        /*if (!(count++ % 10))
-            ClearInventory();*/
-    }
-}
-
-void PlayerbotFactory::ClearInventory()
-{
-    DestroyItemsVisitor visitor(bot);
-    IterateItemsMask mask = IterateItemsMask((uint8)IterateItemsMask::ITERATE_ITEMS_IN_BAGS | (uint8)IterateItemsMask::ITERATE_ITEMS_IN_EQUIP);
-    ai->InventoryIterateItems(&visitor, mask);
-}
-
-void PlayerbotFactory::ClearAllItems()
-{
-    DestroyItemsVisitor visitor(bot);
-    ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ALL_ITEMS);
-}
-
 void PlayerbotFactory::InitAmmo()
 {
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Ammo");
@@ -3831,8 +3362,14 @@ void PlayerbotFactory::InitReagents()
         break;
     case CLASS_PALADIN:
         regCount = 3;
-        if (bot->GetLevel() > 50)
-            items = { 21177 };
+        // Divine Intervention (spell 19752) needs Symbol of Divinity 17033
+        // from level 30; Greater Blessings need Symbol of Kings 21177 from
+        // 52 (spell 25782). The old table seeded Kings only past 50 and
+        // never Divinity, so live paladins match 0/5 brackets below 50.
+        if (bot->GetLevel() >= 30)
+            items = { 17033 };
+        if (bot->GetLevel() >= 52)
+            items = { 17033, 21177 };
         break;
     case CLASS_SHAMAN:
         regCount = 1;
@@ -3921,19 +3458,6 @@ void PlayerbotFactory::InitReagents()
     }
 }
 
-void PlayerbotFactory::CancelAuras()
-{
-    bot->RemoveAllAuras();
-}
-
-void PlayerbotFactory::InitInventory()
-{
-    auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Inventory");
-    //InitInventoryTrade();
-    //InitInventoryEquip();
-    InitInventorySkill();
-}
-
 void PlayerbotFactory::InitInventorySkill()
 {
     if (bot->HasSkill(SKILL_MINING)) {
@@ -3950,6 +3474,12 @@ void PlayerbotFactory::InitInventorySkill()
     }
     if (bot->HasSkill(SKILL_SKINNING)) {
         StoreItem(7005, 1); // Skinning Knife
+    }
+    // Fishing is impossible without a pole in hand (FishAction checks the
+    // main-hand subclass); the donor skill list never granted one, so live
+    // tool ownership is 0% in every band. StoreItem is already idempotent.
+    if (bot->HasSkill(SKILL_FISHING)) {
+        StoreItem(6256, 1); // Fishing Pole
     }
 }
 
@@ -3969,184 +3499,6 @@ Item* PlayerbotFactory::StoreItem(uint32 itemId, uint32 count, bool ignoreCount)
 
     return bot->StoreNewItem(sDest, itemId, true, Item::GenerateItemRandomPropertyId(itemId));
 }
-
-void PlayerbotFactory::InitInventoryTrade()
-{
-    uint32 itemId = sRandomItemMgr.GetRandomTrade(level);
-    if (!itemId)
-    {
-        sLog.outError("No trade items available for bot %s (%d level)", bot->GetName(), bot->GetLevel());
-        return;
-    }
-
-    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-    if (!proto)
-        return;
-
-    uint32 count = 1, stacks = 1;
-    switch (proto->Quality)
-    {
-    case ITEM_QUALITY_NORMAL:
-        count = proto->GetMaxStackSize();
-        stacks = urand(1, 3);
-        break;
-    case ITEM_QUALITY_UNCOMMON:
-        stacks = 1;
-        count = urand(1, proto->GetMaxStackSize() / 2);
-        break;
-    }
-
-    for (uint32 i = 0; i < stacks; i++)
-        StoreItem(itemId, count);
-}
-
-void PlayerbotFactory::InitInventoryEquip()
-{
-    std::vector<uint32> ids;
-
-    uint32 desiredQuality = ITEM_QUALITY_NORMAL;
-    if (level < 10)
-        desiredQuality = urand(ITEM_QUALITY_POOR, ITEM_QUALITY_UNCOMMON);
-    if (level < 20)
-        desiredQuality = urand(ITEM_QUALITY_NORMAL, ITEM_QUALITY_UNCOMMON);
-    else if (level < 40)
-        desiredQuality = urand(ITEM_QUALITY_UNCOMMON, ITEM_QUALITY_RARE);
-    else if (level < 60)
-        desiredQuality = urand(ITEM_QUALITY_UNCOMMON, ITEM_QUALITY_RARE);
-    else
-        desiredQuality = urand(ITEM_QUALITY_RARE, ITEM_QUALITY_EPIC);
-
-    if (urand(0, 100) < 100 * sPlayerbotAIConfig.randomGearLoweringChance && desiredQuality > ITEM_QUALITY_NORMAL) {
-        desiredQuality--;
-    }
-
-    for (uint32 itemId = 0; itemId < sItemStorage.GetMaxEntry(); ++itemId)
-    {
-        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-        if (!proto)
-            continue;
-
-        if (proto->ItemLevel > sPlayerbotAIConfig.randomGearMaxLevel)
-            continue;
-
-        // do not use items that required level is too low compared to bot's level
-        uint32 reqLevel = sRandomItemMgr.GetMinLevelFromCache(itemId);
-        if (reqLevel && proto->Quality < ITEM_QUALITY_LEGENDARY && abs((int)bot->GetLevel() - (int)reqLevel) > (int)sPlayerbotAIConfig.randomGearMaxDiff)
-            continue;
-
-        if ((proto->Class != ITEM_CLASS_ARMOR && proto->Class != ITEM_CLASS_WEAPON) || (proto->Bonding == BIND_WHEN_PICKED_UP ||
-                proto->Bonding == BIND_WHEN_USE))
-            continue;
-
-
-        if (proto->Class == ITEM_CLASS_ARMOR && !CanEquipArmor(proto))
-            continue;
-
-        if (proto->Class == ITEM_CLASS_WEAPON && !CanEquipWeapon(proto))
-            continue;
-
-        ids.push_back(itemId);
-    }
-
-    int maxCount = urand(0, 5);
-    int count = 0;
-    for (int attempts = 0; attempts < 15; attempts++)
-    {
-        uint32 index = urand(0, ids.size() - 1);
-        uint32 itemId = ids[index];
-        Item* newItem = StoreItem(itemId, 1);
-        if (newItem && count++ >= maxCount)
-            break;
-   }
-}
-
-void PlayerbotFactory::InitImmersive()
-{
-    uint32 owner = bot->getObjectGuid().GetCounter();
-    std::map<Stats, int32> percentMap;
-
-    bool initialized = false;
-    for (int i = STAT_STRENGTH; i < MAX_STATS; ++i)
-    {
-        Stats type = (Stats)i;
-        std::ostringstream name; name << "immersive_stat_" << i;
-        uint32 value = sRandomBotFacade.GetValue(owner, name.str());
-        if (value) initialized = true;
-        percentMap[type] = value;
-    }
-
-    if (!initialized)
-    {
-        switch (bot->GetClass())
-        {
-        case CLASS_DRUID:
-        case CLASS_SHAMAN:
-            percentMap[STAT_STRENGTH] = 15;
-            percentMap[STAT_INTELLECT] = 10;
-            percentMap[STAT_SPIRIT] = 5;
-            percentMap[STAT_AGILITY] = 35;
-            percentMap[STAT_STAMINA] = 35;
-            break;
-        case CLASS_PALADIN:
-            percentMap[STAT_STRENGTH] = 35;
-            percentMap[STAT_INTELLECT] = 10;
-            percentMap[STAT_SPIRIT] = 5;
-            percentMap[STAT_AGILITY] = 15;
-            percentMap[STAT_STAMINA] = 35;
-            break;
-        case CLASS_WARRIOR:
-            percentMap[STAT_STRENGTH] = 30;
-            percentMap[STAT_SPIRIT] = 10;
-            percentMap[STAT_AGILITY] = 20;
-            percentMap[STAT_STAMINA] = 40;
-            break;
-        case CLASS_ROGUE:
-        case CLASS_HUNTER:
-            percentMap[STAT_STRENGTH] = 15;
-            percentMap[STAT_SPIRIT] = 5;
-            percentMap[STAT_AGILITY] = 40;
-            percentMap[STAT_STAMINA] = 40;
-            break;
-        case CLASS_MAGE:
-            percentMap[STAT_INTELLECT] = 65;
-            percentMap[STAT_SPIRIT] = 5;
-            percentMap[STAT_STAMINA] = 30;
-            break;
-        case CLASS_PRIEST:
-            percentMap[STAT_INTELLECT] = 15;
-            percentMap[STAT_SPIRIT] = 55;
-            percentMap[STAT_STAMINA] = 30;
-            break;
-        case CLASS_WARLOCK:
-            percentMap[STAT_INTELLECT] = 30;
-            percentMap[STAT_SPIRIT] = 15;
-            percentMap[STAT_STAMINA] = 55;
-            break;
-        }
-
-        for (int i = 0; i < 5; i++)
-        {
-            Stats from = (Stats)urand(STAT_STRENGTH, MAX_STATS - 1);
-            Stats to = (Stats)urand(STAT_STRENGTH, MAX_STATS - 1);
-            int32 delta = urand(0, 5 + bot->GetLevel() / 3);
-            if (from != to && percentMap[to] + delta <= 100 && percentMap[from] - delta >= 0)
-            {
-                percentMap[to] += delta;
-                percentMap[from] -= delta;
-            }
-        }
-
-        for (int i = STAT_STRENGTH; i < MAX_STATS; ++i)
-        {
-            Stats type = (Stats)i;
-            std::ostringstream name; name << "immersive_stat_" << i;
-            sRandomBotFacade.SetValue(owner, name.str(), percentMap[type]);
-        }
-    }
-    bot->InitStatsForLevel(true);
-    bot->UpdateAllStats();
-}
-
 
 void PlayerbotFactory::EnchantEquipment()
 {
@@ -4258,25 +3610,4 @@ void PlayerbotFactory::LoadEnchantContainer()
          ++count;
       } while (result->NextRow());
    }
-}
-
-void PlayerbotFactory::InitTaxiNodes()
-{
-    auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_TaxiNodes");
-    uint32 startMap = bot->GetMapId();
-
-    TaxiNodeLevelContainer const& overworldTaxiNodeLevels = bot->GetTeam() == ALLIANCE ? overworldTaxiNodeLevelsA : overworldTaxiNodeLevelsH;
-
-    for (TaxiNodeLevelContainer::const_iterator itr = overworldTaxiNodeLevels.begin(); itr != overworldTaxiNodeLevels.end(); ++itr)
-    {
-        TaxiNodeLevel const& taxiNodeLevel = *itr;
-
-        if (taxiNodeLevel.Level > bot->GetLevel() && urand(0, 20)) //Limit nodes in high level area's.
-            continue;
-
-        if (taxiNodeLevel.MapId != startMap && taxiNodeLevel.Level + 20 > bot->GetLevel() && urand(0, 4)) //Limit nodes on other map.
-            continue;
-
-        bot->GetTaxi().SetTaximaskNode(taxiNodeLevel.Index);
-    }
 }

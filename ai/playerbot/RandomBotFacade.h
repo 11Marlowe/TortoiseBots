@@ -53,7 +53,6 @@ public:
     void AddTradeDiscount(Player* bot, Player* master, int32 value);
 
     void Remove(Player* bot);
-    void Refresh(Player* bot);
     void UpdateGearSpells(Player* bot);
     bool ProcessBot(Player* player);
     void ChangeStrategy(Player* player);

@@ -228,15 +228,6 @@ void RandomBotFacade::Remove(Player* bot)
         TortoiseBots::BotManager::Instance().RemoveBot(bot->GetObjectGuid(), true);
 }
 
-void RandomBotFacade::Refresh(Player* bot)
-{
-    if (!bot || !IsRandomBot(bot))
-        return;
-
-    PlayerbotFactory factory(bot, bot->GetLevel());
-    factory.Refresh();
-}
-
 void RandomBotFacade::UpdateGearSpells(Player* bot)
 {
     if (!bot || !IsRandomBot(bot) || !PlayerbotAIStorage::Instance().GetAI(bot))
