@@ -41,7 +41,8 @@ AiPlayerbot.ExplicitDbStoreSave = 0
 # the highest-level character logs in first, so the leaders keep playing until they reach 60
 # and the fresh characters wait in the pool until a slot frees up. Once every
 # LevelLadderLogMinutes the service logs the online count per band.
-# AiPlayerbot.LevelLadder = 0
+# Default: 1 (on). 0 restores the round-robin over the whole pool.
+# AiPlayerbot.LevelLadder = 1
 # AiPlayerbot.LevelLadderBandSize = 5
 # AiPlayerbot.LevelLadderMaxLevelShare = 10
 # AiPlayerbot.LevelLadderLogMinutes = 5
@@ -375,9 +376,9 @@ AiPlayerbot.randombotStartingLevel = 1
 # level-bound skills, professions and starter gear are seeded, so a fresh pool
 # starts playable instead of walking up from level 1. Bots level up normally
 # from there. 1/1 keeps the historic behaviour (start at level 1).
-# Default: 1 / 1 (disabled)
+# Default: 1 / 60 (fresh bots spread over every level)
 AiPlayerbot.RandomBotStartLevelMin = 1
-AiPlayerbot.RandomBotStartLevelMax = 1
+AiPlayerbot.RandomBotStartLevelMax = 60
 
 # Set XP rate for bots (default: 1)
 # Server XP Rate * AiPlayerbot.XPRate

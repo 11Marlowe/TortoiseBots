@@ -66,7 +66,7 @@ For servers configured to run persistent, organically leveling bots starting at 
 
 ## 3. Fresh-Bot Level Seed
 
-A common issue with bot realms is a whole pool stuck at level 1 while you level a fresh character. TortoiseBots seeds each fresh pool bot once, on its first login, at a random level in `AiPlayerbot.RandomBotStartLevelMin`/`Max` (for example 10–15 for a test pool, 1/1 keeps the historic level-1 start):
+A common issue with bot realms is a whole pool stuck at level 1 while you level a fresh character. TortoiseBots seeds each fresh pool bot once, on its first login, at a random level in `AiPlayerbot.RandomBotStartLevelMin`/`Max` (default 1–60, so the realm has bots at every level; for example 10–15 for a test pool, 1/1 keeps the historic level-1 start). With `AiPlayerbot.LevelLadder` (on by default) the online share is also spread by level band:
 
 * Bots level up normally from their seed through grinding, questing, and XP.
 * The login scatter runs after the seed, so a seeded bot is placed in a zone fitting its level.

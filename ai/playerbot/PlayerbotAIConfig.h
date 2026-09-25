@@ -146,7 +146,7 @@ public:
     // Level ladder (AiPlayerbot.LevelLadder*): choose the next random bot to log in by the
     // shortfall of its level band instead of round-robin over the whole pool, highest level
     // first inside the band, so the field spreads over the levels and the leaders climb to 60.
-    bool levelLadder = false;
+    bool levelLadder = true;
     uint32 levelLadderBandSize = 5;
     uint32 levelLadderMaxLevelSharePct = 10;
     uint32 levelLadderLogMinutes = 5;
