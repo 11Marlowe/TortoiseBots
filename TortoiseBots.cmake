@@ -35,7 +35,22 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
       set(TORTOISEBOTS_SOURCE_STATE "dirty")
     endif()
   endif()
+  # Per-merge build version (<UTC date>-v<N>) from the root VERSION file,
+  # written by .github/workflows/generate-changelog.yml on every main push.
+  # Falls back to "dev" for source checkouts without the file.
+  set(TORTOISEBOTS_BUILD_VERSION "dev")
+  if(EXISTS "${TORTOISEBOTS_ROOT}/VERSION")
+    file(READ "${TORTOISEBOTS_ROOT}/VERSION" TORTOISEBOTS_BUILD_VERSION_RAW)
+    string(STRIP "${TORTOISEBOTS_BUILD_VERSION_RAW}" TORTOISEBOTS_BUILD_VERSION)
+    if("${TORTOISEBOTS_BUILD_VERSION}" STREQUAL "")
+      set(TORTOISEBOTS_BUILD_VERSION "dev")
+    endif()
+  endif()
+  message(STATUS "TortoiseBots version: ${TORTOISEBOTS_BUILD_VERSION}")
   message(STATUS "TortoiseBots source: ${TORTOISEBOTS_ROOT} commit ${TORTOISEBOTS_SOURCE_COMMIT} (${TORTOISEBOTS_SOURCE_STATE})")
+  # Re-run CMake when the workflow stamps a new VERSION so the compiled
+  # string cannot go stale.
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${TORTOISEBOTS_ROOT}/VERSION")
 
   # PlayerbotAIConfig reads its mature configuration beside mangosd.conf.
   set(TORTOISEBOTS_AI_CONFIG "${CMAKE_CURRENT_BINARY_DIR}/aiplayerbot.conf")
@@ -217,9 +232,21 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "POST_TARGETS")
     # BUILD_PLAYERBOTS is the core's legacy-vendor escape hatch. Native module
     # selection is controlled by MODULE_TORTOISEBOTS, so do not force the
     # legacy option on from inside this module.
+    # Recompute the build version here too: POST_TARGETS may run in a fresh
+    # CMake scope without the DISCOVERY-phase variable.
+    set(TORTOISEBOTS_BUILD_VERSION "dev")
+    if(EXISTS "${TORTOISEBOTS_ROOT}/VERSION")
+      file(READ "${TORTOISEBOTS_ROOT}/VERSION" TORTOISEBOTS_BUILD_VERSION_RAW)
+      string(STRIP "${TORTOISEBOTS_BUILD_VERSION_RAW}" TORTOISEBOTS_BUILD_VERSION)
+      if("${TORTOISEBOTS_BUILD_VERSION}" STREQUAL "")
+        set(TORTOISEBOTS_BUILD_VERSION "dev")
+      endif()
+    endif()
     target_compile_definitions("${TORTOISEBOTS_TARGET}" PRIVATE
       MANGOSBOT_ZERO=1
       CMANGOS=1)
+    target_compile_definitions("${TORTOISEBOTS_TARGET}" PRIVATE
+      "TORTOISEBOTS_BUILD_VERSION=\"${TORTOISEBOTS_BUILD_VERSION}\"")
     target_include_directories("${TORTOISEBOTS_TARGET}" PRIVATE
       "${TORTOISEBOTS_ROOT}"
       "${TORTOISEBOTS_ROOT}/ai"
