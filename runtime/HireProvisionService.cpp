@@ -681,7 +681,7 @@ uint32_t HireProvisionService::CountHired(Player* master) const
     return count;
 }
 
-bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pending)
+bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision& pending)
 {
     if (!bot || !bot->IsInWorld())
         return false;
@@ -693,6 +693,47 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pen
     if (!ai)
         return false;
 
+    auto start = std::chrono::steady_clock::now();
+
+    if (!pending.provisioned)
+    {
+        ProvisionHeavy(bot, pending, ai, masterOnline ? master : nullptr);
+        pending.provisioned = true;
+    }
+
+    auto provisionElapsedMs =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    uint8 forcedRole = pending.role ? pending.role : DefaultRoleForClass(bot->GetClass());
+
+    if (masterOnline)
+    {
+        if (!Reunite(bot, master))
+        {
+            sLog.outError("TortoiseBots: hired bot %s could not join master %s after provisioning",
+                bot->GetName(), master->GetName());
+            return false;
+        }
+        auto totalElapsedMs =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+        TB_LOG_BASIC("TortoiseBots: hired companion %s (level %u role %u) joined %s (provision %lldms, total %lldms)",
+            bot->GetName(), bot->GetLevel(), forcedRole, master->GetName(),
+            (long long)provisionElapsedMs, (long long)totalElapsedMs);
+    }
+    else
+    {
+        // Master is offline (grace-period hire): leave the bot where it is.
+        // HireLifecycle reunites them when the master returns.
+        TB_LOG_BASIC("TortoiseBots: hired companion %s provisioned while master offline in %lldms; grouped on return",
+            bot->GetName(), (long long)provisionElapsedMs);
+    }
+    return true;
+}
+
+// Issue #281: runs exactly once per hire. Level/talents/spells/gear/SaveToDB
+// are the heavy world-thread work; re-running them on every group retry
+// (plus the seeding in BotManager::OnPlayerLogin) cost 2-3 full passes.
+void HireProvisionService::ProvisionHeavy(Player* bot, PendingProvision const& pending, PlayerbotAI* ai, Player* master)
+{
     // Level sync: GiveLevel runs the full stat/talent-point pipeline (and
     // UpdateSkillsForLevel rides along inside it); the bot keeps its
     // race/class/gender/name and only grows into the master's level.
@@ -741,7 +782,7 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pen
         }
         // Fall through to the generic auto path when no premade spec matched:
         // AutoSelectTalents converges on the class default for the new level.
-        ai::Event talentEvent("hire", "", masterOnline ? master : nullptr);
+        ai::Event talentEvent("hire", "", master);
         if (!appliedSpec)
             ai->DoSpecificAction("auto talents", talentEvent, true);
         else if (PlayerbotAIStorage::Instance().GetAI(bot))
@@ -769,28 +810,55 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pen
         ai->ChangeStrategy("+protection,+tank feral,+tank assist,+pull,+pull back,+close", BotState::BOT_STATE_COMBAT);
         sPlayerbotDbStore.Save(ai);
     }
+}
 
-    if (masterOnline)
+// Issue #281: invite while co-located, teleport only when the maps differ,
+// and let the core Headless ack path finish the move. Grouping first works:
+// Group::AddMember only touches map state via instance binds, so accepting
+// while still on the old map is safe; teleport + same-map moves that keep
+// the player in world complete on the next tick regardless.
+bool HireProvisionService::Reunite(Player* bot, Player* master)
+{
+    if (!bot || !master)
+        return false;
+    if (bot->IsInSameGroupWith(master))
+        return true;
+    // The bot itself must be settled: mid-teleport it is out of world, and
+    // HandleGroupAcceptOpcode/AddMember reads live map state. Same-map hops
+    // that stay in world are safe to group through.
+    if (!bot->IsInWorld() || bot->IsBeingTeleported())
+        return false;
+    if (!master->IsInWorld())
+        return false;
+    if (bot->GetMapId() != master->GetMapId())
     {
+        if (!EnsureGrouped(master, bot))
+            return false;
         bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
             master->GetPositionZ(), master->GetOrientation(), 0);
-        if (!EnsureGrouped(master, bot))
-        {
-            sLog.outError("TortoiseBots: hired bot %s could not join master %s after provisioning",
-                bot->GetName(), master->GetName());
-            return false;
-        }
-        TB_LOG_BASIC("TortoiseBots: hired companion %s (level %u role %u) joined %s",
-            bot->GetName(), bot->GetLevel(), forcedRole, master->GetName());
+        return bot->IsInSameGroupWith(master);
     }
-    else
+    // Same map, but a far hop (e.g. opposite continents' distance or a forced
+    // map change): invite now so the pending entry survives the transfer,
+    // then teleport. Near hops stay in world and complete without waiting.
+    bool farHop = bot->GetDistance(master) > 500.0f;
+    if (farHop)
     {
-        // Master is offline (grace-period hire): leave the bot where it is.
-        // HireLifecycle reunites them when the master returns.
-        TB_LOG_BASIC("TortoiseBots: hired companion %s provisioned while master offline; grouped on return",
-            bot->GetName());
+        if (!EnsureGrouped(master, bot))
+            return false;
+        bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
+            master->GetPositionZ(), master->GetOrientation(), 0);
+        return bot->IsInSameGroupWith(master);
     }
-    return true;
+    bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
+        master->GetPositionZ(), master->GetOrientation(), 0);
+    // Near teleport executes on the bot's next ack tick; group once the bot
+    // lands (or immediately if the core kept it in world).
+    if (bot->IsBeingTeleported() && !bot->IsInWorld())
+        return false;
+    if (!EnsureGrouped(master, bot))
+        return false;
+    return bot->IsInSameGroupWith(master);
 }
 
 void HireProvisionService::DropStalePending()
@@ -830,17 +898,28 @@ void HireProvisionService::Update(uint32_t diff)
             ++it;
             continue;
         }
-        PendingProvision pending = *it;
-        if (ProvisionNow(bot, pending))
+        if (ProvisionNow(bot, *it))
         {
             it = m_pending.erase(it);
             ++completed;
         }
         else
         {
+            // Issue #281: ProvisionNow marks the heavy pass done itself, so
+            // the next tick only retries the cheap reunite (teleport +
+            // grouping). Count an attempt per tick and cap the wait so a
+            // stuck teleport cannot pin the entry doing nothing.
+            if (++it->reuniteAttempts >= 60)
+            {
+                sLog.outError("TortoiseBots: hired bot %s never joined master after 60 reunite attempts; leaving grouped on return",
+                    bot->GetName());
+                it = m_pending.erase(it);
+                ++completed;
+                continue;
+            }
             // Retry next tick unless the master went offline mid-provision:
             // keep the bot claimed and let the grace path reunite them.
-            Player* master = sObjectAccessor.FindPlayer(pending.masterGuid);
+            Player* master = sObjectAccessor.FindPlayer(it->masterGuid);
             if (!master || !master->IsInWorld())
             {
                 it = m_pending.erase(it);
