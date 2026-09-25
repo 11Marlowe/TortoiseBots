@@ -54,7 +54,7 @@ void RestampPullPartyRelease(Player* tank)
             continue;
         ai::PositionEntry stayPos = posMap["stay"];
         if (stayPos.isSet() && stayPos.mapId == holdPos.mapId &&
-            stayPos.GetX() == holdPos.GetX() && stayPos.GetY() == holdPos.GetY())
+            stayPos.x == holdPos.x && stayPos.y == holdPos.y)
         {
             memberAi->SetMovementStrategy("follow");
             posMap.erase("stay");
