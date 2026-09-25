@@ -33,6 +33,19 @@
 - **Fail loud, not silent:** Unknown or uncontrollable bot names return `no-bot` instead of quietly doing nothing, so typos surface immediately. [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
 - Ships alongside the stage-1 dungeon gate and AoE interlock, so CC assignments respect instanced content and don't get stomped by AoE routines. [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
 
+### Combat & AI — Crowd Control
+- Smart auto CC is now available but **off by default**: flip it per bot with `.bot action auto cc [on|off]` (no argument toggles) or `.bot strategy +/-auto cc`. Setting persists like the loot toggle, and the ACK reports `on`/`off`/`mixed`. [#276](https://github.com/Sagiroth/TortoiseBots/pull/276)
+- Auto CC is deliberately conservative: it only fires when the group is fighting 2+ live enemies, so the last mob never gets sheeped, and it targets loose adds hitting healers/casters — never the tank. [#276](https://github.com/Sagiroth/TortoiseBots/pull/276)
+- `.bot action cc <mark>` is now deterministic: CC actions are ranked by spell fit (Sap on unengaged targets, Shackle Undead, Banish, Hibernate, Polymorph, Freezing Trap, Turn Undead, Scare Beast, Entangling Roots, Fear), with lowest GUID breaking ties. No more executor-by-invite-order surprises. [#273](https://github.com/Sagiroth/TortoiseBots/pull/273)
+
+### Bots & Population
+- Fresh realms now spread random bots across **levels 1–60** instead of stacking the whole pool at level 1: `AiPlayerbot.RandomBotStartLevelMax` defaults to 60, and each pool bot is seeded exactly once on its first login. Existing bots are untouched (seeding only runs at zero played time). [#275](https://github.com/Sagiroth/TortoiseBots/pull/275)
+- `AiPlayerbot.LevelLadder` now defaults to **on**, so the online population is picked per level band and stays spread out across levels instead of the whole pool drifting upward together. [#275](https://github.com/Sagiroth/TortoiseBots/pull/275)
+
+### World & NPCs
+- Recruiters are no longer carbon copies of their innkeepers: each `<Mercenary Hire>` NPC now gets the **opposite gender** of the innkeeper beside it, same race, fully dressed. [#274](https://github.com/Sagiroth/TortoiseBots/pull/274)
+- All 67 recruiter displays are pulled from existing 1.18.1 vendor/trainer NPCs, so every model is known-good to render, all displays are distinct, and no innkeeper display is reused. [#274](https://github.com/Sagiroth/TortoiseBots/pull/274)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
