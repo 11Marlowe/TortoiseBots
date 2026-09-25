@@ -196,6 +196,17 @@ bool QuestAction::ProcessQuests(WorldObject* questGiver)
     return hasAccept;
 }
 
+// #278: grouped with a live master on the same map and close enough to follow.
+bool QuestAction::IsNearGroupedMaster()
+{
+    Player* master = ai->GetMaster();
+    if (!master || master == bot || !bot->IsAlive() || !bot->GetGroup() || bot->GetGroup() != master->GetGroup())
+        return false;
+
+    return master->GetMapId() == bot->GetMapId() &&
+        sServerFacade.getDistance2d(bot, master) <= sPlayerbotAIConfig.reactDistance;
+}
+
 bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 questGiver)
 {
     bool success = false;
@@ -248,6 +259,17 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
         {
             Object* pObject = bot->GetObjectByTypeMask((ObjectGuid)questGiver, TYPEMASK_CREATURE_GAMEOBJECT_PLAYER_OR_ITEM);
             bot->AddQuest(quest, pObject);
+        }
+        else if (bot->GetQuestStatus(questId) == QUEST_STATUS_NONE && IsNearGroupedMaster())
+        {
+            // #278: the core refuses the accept beyond INTERACTION_DISTANCE, so a
+            // bot at follow distance never got the quest its master just took.
+            // Add it directly (as the donor does under SyncQuestWithPlayer, which
+            // stays off here because it also stops quest-item looting). NPC and
+            // object givers only; the bot must be eligible.
+            Object* pObject = bot->GetObjectByTypeMask((ObjectGuid)questGiver, TYPEMASK_CREATURE_OR_GAMEOBJECT);
+            if (pObject && bot->CanTakeQuest(quest, false) && bot->CanAddQuest(quest, false))
+                bot->AddQuest(quest, pObject);
         }
 
         if (bot->GetQuestStatus(questId) != QUEST_STATUS_NONE && bot->GetQuestStatus(questId) != QUEST_STATUS_AVAILABLE)
