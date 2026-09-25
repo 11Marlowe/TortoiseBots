@@ -61,7 +61,7 @@ namespace ai
         virtual std::string GetHelpDescription()
         {
             return "This command will make bots cancel their own auctions at a nearby auction house.\n"
-                "Usage: ah cancel [itemlink|all|<auctionId>]\n"
+                "Usage: ah cancel [itemlink/all/<auctionId>]\n"
                 "Example: ah cancel all\n";
         }
         virtual std::vector<std::string> GetUsedActions() { return {}; }

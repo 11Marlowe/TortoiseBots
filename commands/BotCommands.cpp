@@ -446,7 +446,7 @@ static bool HandleStrategy(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (input.empty() || (input[0] != '+' && input[0] != '-' && input[0] != '~'))
     {
-        handler->PSendSysMessage("Usage: .bot strategy <+|-|~strategy> [bot] (e.g. .bot strategy +loot, .bot strategy -passive)");
+        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy> [bot] (e.g. .bot strategy +loot, .bot strategy -passive)");
         return true;
     }
     size_t separator = input.find_first_of(" \t");
@@ -614,7 +614,7 @@ static bool HandleFormation(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (!requester || input.empty())
     {
-        handler->PSendSysMessage("Usage: .bot formation [botName] <default|melee|queue|chaos|circle|line|shield|arrow|near|far>");
+        handler->PSendSysMessage("Usage: .bot formation [botName] <default/melee/queue/chaos/circle/line/shield/arrow/near/far>");
         return true;
     }
 
@@ -653,7 +653,7 @@ static bool HandleFormation(ChatHandler* handler, char const* args)
 
     if (separator == std::string::npos)
     {
-        handler->PSendSysMessage("Usage: .bot formation [botName] <default|melee|queue|chaos|circle|line|shield|arrow|near|far>");
+        handler->PSendSysMessage("Usage: .bot formation [botName] <default/melee/queue/chaos/circle/line/shield/arrow/near/far>");
         return true;
     }
 
@@ -742,7 +742,7 @@ static bool HandleRole(ChatHandler* handler, char const* args)
     if (!requester || botToken.empty() || role == 255 ||
         !ResolveOwnedBot(handler, botToken.c_str(), bot, record, name))
     {
-        handler->PSendSysMessage("Usage: .bot role <online bot name|self|your name> <tank|healer|dps|clear>");
+        handler->PSendSysMessage("Usage: .bot role <online bot name/self/your name> <tank/healer/dps/clear>");
         return true;
     }
 
@@ -861,7 +861,7 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (input.empty())
     {
-        handler->PSendSysMessage("Usage: .bot hire <class> [dps|tank|healer] [race] [male|female]");
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female]");
         return true;
     }
     // Split on whitespace; class/race/gender/role/spec tokens in any order.
@@ -961,7 +961,7 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     }
     if (!sel.classId)
     {
-        handler->PSendSysMessage("Usage: .bot hire <class> [dps|tank|healer] [race] [male|female]");
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female]");
         return true;
     }
     // Defaults: requester's faction race pool, random gender, class role.
@@ -1204,7 +1204,7 @@ static bool HandleLoot(ChatHandler* handler, char const* args)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (!mode.empty() && mode != "on" && mode != "off")
     {
-        handler->PSendSysMessage("Usage: .bot loot [on|off]");
+        handler->PSendSysMessage("Usage: .bot loot [on/off]");
         return true;
     }
     BotCommandContext context = BuildContext(requester);
@@ -2058,7 +2058,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark> [bot]|cc clear [bot]|auto cc [on|off]|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull/pullback/come/stay/hold/follow/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2737,7 +2737,7 @@ static bool HandleAhBot(ChatHandler* handler, char const* args)
         uint32_t itemId = 0;
         if (!(ss >> itemId) || itemId == 0)
         {
-            handler->PSendSysMessage("Usage: .bot ah item <id> [value [chance [min [max]]]] | reset");
+            handler->PSendSysMessage("Usage: .bot ah item <id> [value [chance [min [max]]]] / reset");
             return true;
         }
 
@@ -3004,7 +3004,7 @@ static bool HandlePoolAdopt(ChatHandler* handler, char const* args)
         return true;
     }
 
-    handler->PSendSysMessage("Usage: bot pool adopt preview | bot pool adopt confirm <challenge>");
+    handler->PSendSysMessage("Usage: bot pool adopt preview / bot pool adopt confirm <challenge>");
     return true;
 }
 
@@ -3022,7 +3022,7 @@ static bool HandlePool(ChatHandler* handler, char const* args)
     if (subLower.rfind("adopt", 0) == 0)
         return HandlePoolAdopt(handler, subLower.substr(5).c_str());
 
-    handler->PSendSysMessage("Usage: bot pool status | accounts | adopt preview | adopt confirm <challenge>");
+    handler->PSendSysMessage("Usage: bot pool status / accounts / adopt preview / adopt confirm <challenge>");
     return true;
 }
 
