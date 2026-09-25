@@ -380,7 +380,7 @@ bool PullEndAction::Execute(Event& event)
 bool ReleasePullHoldAction::Execute(Event& event)
 {
     (void)event;
-    ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
+    ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
     AiObjectContext* context = ai->GetAiObjectContext();
     PositionMap& posMap = AI_VALUE(PositionMap&, "position");
     PositionEntry holdPos = posMap["pull hold"];

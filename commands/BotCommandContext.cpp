@@ -295,7 +295,7 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
         posMap["pull hold"] = holdPos;
         ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(windowSeconds));
-        ai->ChangeStrategy("+wait for attack", BotState::BOT_STATE_COMBAT);
+        ai->ChangeStrategy("+wait for attack", BotState::BOT_STATE_ALL);
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
         // Re-stamped when the pull lands (plain pull) or when the tank
@@ -316,7 +316,7 @@ void ReleasePartyDpsFromPull(BotCommandContext const& context, Player* executor)
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
         if (!ai || !ai->GetAiObjectContext())
             continue;
-        ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
+        ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
         ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
         ai::PositionEntry holdPos = posMap["pull hold"];
         if (!holdPos.isSet())
