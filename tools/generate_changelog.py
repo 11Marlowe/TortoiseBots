@@ -267,6 +267,22 @@ def with_build_range(notes, date_str, build_number):
 
 
 
+def release_exists_on_github(tag_name):
+    """Check whether a release for tag_name already exists using gh CLI."""
+    try:
+        res = subprocess.run(
+            ["gh", "release", "view", tag_name, "--json", "body"],
+            capture_output=True,
+            text=True
+        )
+        if res.returncode == 0:
+            data = json.loads(res.stdout)
+            return True, data.get("body", "")
+    except Exception:
+        pass
+    return False, ""
+
+
 def main():
     parser = argparse.ArgumentParser(description="Generate release notes from merged PRs using OpenCode AI.")
     parser.add_argument("--since", help="ISO timestamp or date to search PRs since (default: auto-detect from last tag/changelog)")
