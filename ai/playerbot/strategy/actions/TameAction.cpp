@@ -181,7 +181,7 @@ bool TameAction::Execute(Event& event)
         mode = "target";
     if (mode != "target" && mode != "name" && mode != "id" && mode != "family")
     {
-        ai->TellPlayer(requester, "Usage: tame [target|name <name>|id <entry>|family <family>|rename <name>|abandon]");
+        ai->TellPlayer(requester, "Usage: tame [target/name <name>/id <entry>/family <family>/rename <name>/abandon]");
         return false;
     }
 

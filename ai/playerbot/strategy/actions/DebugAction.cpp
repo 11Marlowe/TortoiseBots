@@ -237,7 +237,7 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "Movement: route, path, distance, teleport, zone");
         ai->TellPlayer(requester, "Info: target, movement, corpse, logouttime, taxi");
         ai->TellPlayer(requester, "Interaction: npc, go, rpg, travel, loot, trade, mail");
-        ai->TellPlayer(requester, "Quest: quest list|complete|drop|add|travel");
+        ai->TellPlayer(requester, "Quest: quest list/complete/drop/add/travel");
         ai->TellPlayer(requester, "Nodes: nodes");
 
         if (isMod)
@@ -262,23 +262,23 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "  debug position zone [loc]          - Zone info (bot or location)");
         ai->TellPlayer(requester, "  debug position teleport [loc]     - Teleport to master or location");
         ai->TellPlayer(requester, "  debug position distance [loc]    - Distance to master or location");
-        ai->TellPlayer(requester, "  debug position path <from>|<to>  - Full path with movement breakdown");
+        ai->TellPlayer(requester, "  debug position path <from>/<to>  - Full path with movement breakdown");
         ai->TellPlayer(requester, "  debug position path <loc> full   - Show all path points");
-        ai->TellPlayer(requester, "  debug position route <from>|<to> - Route nodes with map/area");
+        ai->TellPlayer(requester, "  debug position route <from>/<to> - Route nodes with map/area");
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Location formats:");
         ai->TellPlayer(requester, "  x y                    - Coordinates (uses bot's map/z)");
         ai->TellPlayer(requester, "  map x y                - 3 params");
         ai->TellPlayer(requester, "  map x y z              - 4 params");
         ai->TellPlayer(requester, "  LocationName           - Named location (case sensitive)");
-        ai->TellPlayer(requester, "  from|to                - Pipe separates start and end");
+        ai->TellPlayer(requester, "  from/to                - Slash separates start and end");
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Examples:");
         ai->TellPlayer(requester, "  debug position");
         ai->TellPlayer(requester, "  debug position teleport Stormwind");
         ai->TellPlayer(requester, "  debug position distance Orgrimmar");
-        ai->TellPlayer(requester, "  debug position path Orgrimmar|Stormwind");
-        ai->TellPlayer(requester, "  debug position route Orgrimmar|Stormwind full");
+        ai->TellPlayer(requester, "  debug position path Orgrimmar/Stormwind");
+        ai->TellPlayer(requester, "  debug position route Orgrimmar/Stormwind full");
     }
     else if (cmd == "quest")
     {
@@ -303,7 +303,7 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "=== debug position route ===");
         ai->TellPlayer(requester, "Show travel nodes between two locations.");
         ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug position route <from>|<to>");
+        ai->TellPlayer(requester, "Usage: debug position route <from>/<to>");
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Output:");
         ai->TellPlayer(requester, "  - List of travel nodes with names, zone, map");
@@ -311,8 +311,8 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "  - Total route distance");
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Examples:");
-        ai->TellPlayer(requester, "  debug position route Orgrimmar|Stormwind");
-        ai->TellPlayer(requester, "  debug position route ThunderBluff|Stormwind");
+        ai->TellPlayer(requester, "  debug position route Orgrimmar/Stormwind");
+        ai->TellPlayer(requester, "  debug position route ThunderBluff/Stormwind");
     }
     else if (cmd == "path")
     {
@@ -322,7 +322,7 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "Usage:");
         ai->TellPlayer(requester, "  debug position path <loc>              - Summary only");
         ai->TellPlayer(requester, "  debug position path <loc> full          - All points");
-        ai->TellPlayer(requester, "  debug position path <from>|<to>        - Between two locations");
+        ai->TellPlayer(requester, "  debug position path <from>/<to>        - Between two locations");
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Output:");
         ai->TellPlayer(requester, "  - Total distance");
@@ -334,7 +334,7 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Examples:");
         ai->TellPlayer(requester, "  debug position path Stormwind");
-        ai->TellPlayer(requester, "  debug position path Orgrimmar|Stormwind full");
+        ai->TellPlayer(requester, "  debug position path Orgrimmar/Stormwind full");
     }
     else if (cmd == "distance" || cmd == "dist")
     {
@@ -354,7 +354,7 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "=== debug position teleport ===");
         ai->TellPlayer(requester, "Teleport bot to a location.");
         ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug position teleport [location|coords]");
+        ai->TellPlayer(requester, "Usage: debug position teleport [location/coords]");
         ai->TellPlayer(requester, "  Without params: teleport to master");
         ai->TellPlayer(requester, "  With location: teleport to named location");
         ai->TellPlayer(requester, "");
@@ -2327,7 +2327,7 @@ bool DebugAction::HandleQuest(Event& event, Player* requester, const std::string
     }
 
     // No valid subcommand - show usage
-    ai->TellPlayer(requester, "Usage: quest <complete|drop|add|list|travel> [questId]");
+    ai->TellPlayer(requester, "Usage: quest <complete/drop/add/list/travel> [questId]");
     return true;
 }
 
@@ -2418,7 +2418,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             }
             else
             {
-                ai->TellPlayer(requester, "Usage: position zone [x y | map x y | location]");
+                ai->TellPlayer(requester, "Usage: position zone [x y / map x y / location]");
                 return true;
             }
         }
@@ -2508,7 +2508,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             return true;
         }
 
-        ai->TellPlayer(requester, "Usage: position teleport [x y | map x y | map x y z | location]");
+        ai->TellPlayer(requester, "Usage: position teleport [x y / map x y / map x y z / location]");
         return true;
     }
 
@@ -2548,7 +2548,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             return true;
         }
 
-        ai->TellPlayer(requester, "Usage: position distance [x y | map x y | map x y z | location]");
+        ai->TellPlayer(requester, "Usage: position distance [x y / map x y / map x y z / location]");
         return true;
     }
 
@@ -2571,9 +2571,11 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
         std::string targetParam;
         WorldPosition startPos(bot);
 
-        size_t pipePos = pathParam.find('|');
+        size_t pipePos = pathParam.find('/');
         if (pipePos == std::string::npos)
             pipePos = pathParam.find("->");
+        if (pipePos == std::string::npos)
+            pipePos = pathParam.find('|');
 
         bool showFull = false;
         if (pipePos != std::string::npos)
@@ -2599,7 +2601,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             }
             else
             {
-                ai->TellPlayer(requester, "Usage: position path <from>|<to>");
+                ai->TellPlayer(requester, "Usage: position path <from>/<to>");
                 return true;
             }
         }
@@ -2745,7 +2747,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             return true;
         }
 
-        ai->TellPlayer(requester, "Usage: position path [<from> |] <to> [full]");
+        ai->TellPlayer(requester, "Usage: position path [<from> /] <to> [full]");
         return true;
     }
 
@@ -2757,16 +2759,18 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
 
         if (routeParam.empty())
         {
-            ai->TellPlayer(requester, "Usage: position route <from> | <to>");
+            ai->TellPlayer(requester, "Usage: position route <from> / <to>");
             return true;
         }
 
         std::string targetParam;
         WorldPosition startPos(bot);
 
-        size_t pipePos = routeParam.find('|');
+        size_t pipePos = routeParam.find('/');
         if (pipePos == std::string::npos)
             pipePos = routeParam.find("->");
+        if (pipePos == std::string::npos)
+            pipePos = routeParam.find('|');
 
         if (pipePos != std::string::npos)
         {
@@ -2782,7 +2786,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             }
             else
             {
-                ai->TellPlayer(requester, "Usage: position route <from>|<to>");
+                ai->TellPlayer(requester, "Usage: position route <from>/<to>");
                 return true;
             }
         }
@@ -2853,7 +2857,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             return true;
         }
 
-        ai->TellPlayer(requester, "Usage: position route <from> | <to>");
+        ai->TellPlayer(requester, "Usage: position route <from> / <to>");
         return true;
     }
 
@@ -2878,7 +2882,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             }
             else
             {
-                ai->TellPlayer(requester, "Usage: position water [x y | map x y | map x y z | location]");
+                ai->TellPlayer(requester, "Usage: position water [x y / map x y / map x y z / location]");
                 return true;
             }
         }
@@ -2972,7 +2976,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
             }
             else
             {
-                ai->TellPlayer(requester, "Usage: position ground [x y | map x y | map x y z | location]");
+                ai->TellPlayer(requester, "Usage: position ground [x y / map x y / map x y z / location]");
                 return true;
             }
         }
@@ -3051,7 +3055,7 @@ bool DebugAction::HandlePosition(Event& event, Player* requester, const std::str
         }
     }
 
-    ai->TellPlayer(requester, "Usage: position [zone|teleport|distance|path|<name/guid>]");
+    ai->TellPlayer(requester, "Usage: position [zone/teleport/distance/path/<name/guid>]");
     return true;
 }
 

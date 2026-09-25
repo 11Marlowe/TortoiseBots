@@ -629,7 +629,7 @@ bool SetFormationAction::Execute(Event& event)
     {
         std::ostringstream str; str << "Invalid formation: |cffff0000" << formation;
         ai->TellPlayer(requester, str);
-        ai->TellPlayer(requester, "Please set to any of:|cffffffff near, queue, chaos, circle, line, shield, arrow, melee, far, default");
+        ai->TellPlayer(requester, "Please set to any of: |cffffffffnear, queue, chaos, circle, line, shield, arrow, melee, far, default");
         return false;
     }
 
