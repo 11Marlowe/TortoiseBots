@@ -60,7 +60,8 @@ Warlocks provide sustained Shadow and Fire DPS through curses and damage-over-ti
 - **Fel Domination (Demonology combat recovery):**
   - Burns the 5-minute *Fel Domination* cooldown only in combat with a dead pet, then immediately re-summons (Voidwalker fallback); never wasted out of combat where the free summon applies.
 - **Crowd Control:**
-  - Casts *Fear* on designated marks (or when fleeing).
+  - Casts *Fear* only on its assigned raid CC mark, and never on a mob already under another CC (a feared mob pulls adds). There is no automatic Fear on unmarked mobs.
+  - *Howl of Terror* (AoE fear) is PvP-only; it is never cast in PvE groups.
   - Casts *Banish* on Demons and Elementals.
 
 ---
