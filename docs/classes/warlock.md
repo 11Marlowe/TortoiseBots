@@ -17,46 +17,47 @@ Warlocks provide sustained Shadow and Fire DPS through curses and damage-over-ti
 
 - **Affliction (Ranged DPS):** Dominant DoT dealer with *Corruption*, *Curse of Agony*, *Siphon Life*, and *Drain Life*.
 - **Demonology (Pet DPS / Tanky):** Heavy pet empowerment, *Soul Link*, *Demonic Sacrifice*, and high durability.
-- **Destruction (Burst DPS):** Fire burst nuke specialist utilizing *Shadow Bolt*, *Immolate*, *Conflagrate*, and *Searing Pain*.
+- **Destruction (Burst DPS):** Fire burst nuke specialist utilizing *Shadow Bolt*, *Immolate*, and *Conflagrate* (no *Searing Pain* wiring in the Destruction strategies).
 
 ---
 
 ## Combat Rotations & Priorities
 
 ### 1. DoT Upkeep & Shard Economy
-- **Curses:** Coordinates curses with group composition: *Curse of Elements* (for Mages), *Curse of Shadows* (for Warlocks/Shadow Priests), *Curse of Weakness* (on heavy melee packs), or *Curse of Agony*.
-- **DoTs:** Applies *Corruption* and *Immolate* to high-health targets.
-- **Soul Shard Harvest:** Automatically casts *Drain Soul* when non-elite mobs fall below 15% health to restock the bot's Soul Shard pouch.
+- **Curses:** Defaults to *Curse of Agony*; other curses only when you enable them manually.
+- **DoTs:** Only *Corruption* is health-gated (skipped at/below 20% target health); *Immolate* has no gate. Affliction also maintains *Siphon Life*.
+- **Soul Shard Harvest:** Automatically casts *Drain Soul* when the target is at/below 25% health, provided the bot holds fewer than 5 Soul Shards and has bag space; no elite check.
 
 ### 2. Mana Management: Life Tap
+- Affliction also casts *Dark Pact* on low mana, so *Life Tap* is not the only mana tool.
 - Warlocks dynamically cast *Life Tap* to convert surplus health into mana.
-- Safety check: *Life Tap* is suppressed if the bot's health is below 50% or if taking heavy incoming damage, preventing accidental suicide.
+- Safety check: *Life Tap* fires when mana is at/below the low-mana line and health exceeds the low-health line (default 50); no incoming-damage check exists.
 
 ---
 
 ## Turtle WoW 1.18.1 Custom Content
 
-- **Dark Harvest (Spell ID 52550):**
-  - Custom Turtle WoW Affliction talent requiring 2+ active DoTs on the target.
-  - Deals rapid Shadow damage with a 30-second cooldown that is automatically refunded if the target dies while afflicted.
-- **Power Overwhelming (Spell ID 51714):**
-  - Custom Demonology talent requiring pet health > 60%.
-  - Sacrifices pet health to break crowd control on the demon and unleash massive burst damage.
+- **Dark Harvest (Spell ID 52550, per game data):**
+  - Custom Turtle WoW Affliction talent requiring 2+ active own DoTs on the target.
+  - Deals rapid Shadow damage with a 30-second cooldown that is automatically refunded if the target dies while afflicted, per game data.
+- **Power Overwhelming (Spell ID 51714, per game data):**
+  - Custom Demonology pet burst (crowd-control break plus damage buff) costing the demon a share of base health over the duration, per game data. The bot requires a live pet above 60% health and a live enemy.
 - **Rain of Fire Channeling:**
-  - Includes safe channel cancellation if all mobs leave the AoE radius or if the bot takes critical damage.
+  - Includes safe channel cancellation when fewer than 2 enemies remain in the AoE.
 
 ---
 
 ## Demon Summons & Utility
 
 - **Pet Selection:**
-  - *Imp:* Provides *Blood Pact* (Stamina buff) for dungeon parties.
-  - *Voidwalker:* Off-tanks and uses *Sacrifice* for emergency shields.
+  - *Voidwalker:* The PvE/dungeon default (higher-priority summon, also the non-combat default); off-tanks and uses *Sacrifice* for emergency shields.
+  - *Imp:* The raid pet, providing *Blood Pact* (Stamina buff).
   - *Succubus:* Provides humanoid crowd control via *Seduce*.
-  - *Felhunter:* Uses *Spell Lock* for ranged interrupts and *Devour Magic* for offensive/defensive dispels.
+  - *Felhunter:* Uses *Spell Lock* for ranged interrupts. *Devour Magic* has no registered action wiring, so the bot never casts it.
+- **Out-of-combat upkeep:** The bot maintains *Demon Armor* (with *Demon Skin* as fallback) and casts *Unending Breath* on itself and the party.
 - **Healthstones & Soulstones:**
   - Creates and uses *Healthstones* during combat.
-  - Creates and stores Soulstones on the party healer or tank before boss pulls.
+  - Creates and stores Soulstones on the party healer or tank whenever an in-range healer/tank lacks one (not timed to boss pulls).
 - **Fel Domination (Demonology combat recovery):**
   - Burns the 5-minute *Fel Domination* cooldown only in combat with a dead pet, then immediately re-summons (Voidwalker fallback); never wasted out of combat where the free summon applies.
 - **Crowd Control:**
@@ -88,7 +89,7 @@ TortoiseBots provides verified 5-level talent checkpoints (levels 10–60) tailo
   - *Levels 35–45:* *Demonic Precision* (3/3 pet spell hit), *Master Demonologist* (5/5 stat scaling), and *Soul Link* (40 30% damage transfer).
   - *Levels 45–60:* Completes Demonology utility (*Unleashed Potential* + *Nether Studies*), then takes 7 Affliction points into *Improved Corruption* (5/5) and *Improved Life Tap* (2/2).
 - **Destruction (`9.2`):**
-  - *Levels 10–35:* Fire/Shadow nuke path: *Cataclysm* (5/5 cost reduction), *Bane* (5/5 cast time reduction), *Shadowburn* (20 instant soul shard burst), *Devastation* (5/5 +5% crit), and *Ruin* (30 +100% crit damage bonus).
-  - *Levels 35–45:* *Improved Immolate* (5/5) and *Conflagrate* (40 instant burst consuming Immolate).
-  - *Levels 45–60:* Takes 7 Affliction points into *Improved Corruption* (5/5 instant cast) and *Improved Life Tap* (2/2) to eliminate cast vulnerability, then finishes Destruction with *Emberstorm* (5/5) and *Demonic Swiftness* (2/2 reduced Imp Firebolt cast time). Avoids threat-increasing talents (*Improved Searing Pain*).
+  - *Levels 10–35:* Fire/Shadow nuke path: *Cataclysm* (5/5 cost reduction), *Bane* (5/5 cast time reduction), *Shadowburn* (20 instant soul shard burst), *Devastation* (5/5 +5% crit), and *Ruin* (30 +100% crit damage bonus), per game data.
+  - *Levels 35–45:* *Improved Immolate* (5/5) and *Conflagrate* (40 instant burst consuming Immolate), per game data.
+  - *Levels 45–60:* Per the preset order, takes *Emberstorm* and *Demonic Swiftness* **before** the 7-point Affliction dip (*Improved Corruption* 5/5 instant cast + *Improved Life Tap* 2/2), then finishes deeper in Destruction. Avoids threat-increasing talents (*Improved Searing Pain*), per game data.
 
