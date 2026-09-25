@@ -1673,3 +1673,22 @@ forbade switching back (one-way door) — see
 Local validation:
 - `python3 tools/verify_okf.py` + `./tools/verify_all.sh` (see commit); `git diff --check` clean.
 - No build (per task constraints); live in-game check pending: multi-mob pull, tank finishes its mob, still picks up healer adds, no stuck-on-door.
+
+## Warlock fear gating (mark-only Fear, PvP-only Howl of Terror) — 2026-09-24
+
+Feature: `fear on cc` fires only on the bot's `rti cc target` (and never replaces an existing breakable/unbreakable CC); `enemy ten yards -> howl of terror` moved from the base warlock `cc` strategy to `cc pvp`. Fixes warlocks fearing arbitrary (even dotted) mobs in PvE groups, which scattered pulls.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907`
+
+Source files:
+- `src/Ai/Base/Trigger/RtiTriggers.cpp` (`RtiCcTrigger::IsActive` — CC only on the RTI CC target)
+- `src/Ai/Class/Warlock/WarlockTriggers.h` (`FearTrigger : RtiCcTrigger`)
+- `src/Ai/Class/Warlock/Strategy/GenericWarlockStrategy.cpp` (`WarlockCcStrategy`: banish/fear on cc only, no Howl of Terror)
+
+Copied / ported / independently reimplemented: ported semantics (no code copied); implemented as a `FearTrigger::IsActive` override on the existing `HasCcTargetTrigger`, plus an extra "target not already CC'd" guard via `PossibleAttackTargetsValue::HasBreakableCC/HasUnBreakableCC`.
+
+Reason: live play report — warlock bots fear constantly in dungeon groups.
+
+Local validation: cached `MODULE_TORTOISEBOTS=static` build; `tools/verify_all.sh`; `git diff --check`. In-game observation pending.

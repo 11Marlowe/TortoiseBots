@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "WarlockTriggers.h"
 #include "WarlockActions.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 
 using namespace ai;
 
@@ -157,6 +158,22 @@ bool NoCurseOnAttackerTrigger::IsActive()
     }
 
 	return false;
+}
+
+// Fear runs the mob into other packs, so unlike the other CC triggers it never
+// auto-picks a target: it only fires on this bot's assigned raid mark
+// (mod-playerbots RtiCcTrigger semantics), and never replaces another CC.
+bool FearTrigger::IsActive()
+{
+    Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
+    if (!rtiCcTarget || AI_VALUE2(Unit*, "cc target", getName()) != rtiCcTarget)
+        return false;
+
+    if (PossibleAttackTargetsValue::HasBreakableCC(rtiCcTarget, bot) ||
+        PossibleAttackTargetsValue::HasUnBreakableCC(rtiCcTarget, bot))
+        return false;
+
+    return HasCcTargetTrigger::IsActive();
 }
 
 bool FearPvpTrigger::IsActive()
