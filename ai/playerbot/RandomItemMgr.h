@@ -221,6 +221,7 @@ class RandomItemMgr
         // quest (Type 62) or gated behind a raid map / raid-scale group
         // (SuggestedPlayers > 5). ZoneOrSort sign convention: positive =
         // area id, negative = QuestSort.dbc sort id.
+        bool IsRaidQuestItem(uint32 itemId);
         std::vector<uint32> GetQuestIdsForItem(uint32 itemId);
         uint32 GetQuestIdForItem(uint32 itemId);
         // Source-tier classification (owner gear rules, roadmap #289).
@@ -296,6 +297,10 @@ class RandomItemMgr
         // template (reference-table-only rows do not attest). World-epic
         // attestation set for IsWorldDropEpic.
         std::set<uint32> itemDirectBaseLoot;
+        // Crafted product -> lowest tier of its recipe sources; recipes gated
+        // by reputation are also listed in repRecipeItems (REP flag).
+        std::map<uint32, ItemSourceTier> recipeTier;
+        std::set<uint32> repRecipeItems;
         // Lowest loot-table tier mentioning the recipe item (raid /
         // end-game-dungeon loot recipe raises the product; trainer, vendor
         // and world-loot recipes stay base). Fail-open base when the recipe
