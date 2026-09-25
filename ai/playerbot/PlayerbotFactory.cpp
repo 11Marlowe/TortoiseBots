@@ -2743,6 +2743,11 @@ void PlayerbotFactory::InitSkills()
     else
         bot->SetSkill(SKILL_RIDING, 0, 0);
 
+    // Defense only rises from being hit, which an instant level seed never
+    // does: bots sat at 1/300 with 0% dodge/parry and took ~12% extra
+    // crits/hits at 60. Grant the level cap like a played character.
+    bot->SetSkill(SKILL_DEFENSE, bot->GetLevel() * 5, bot->GetLevel() * 5);
+
     uint32 skillLevel = bot->GetLevel() < 40 ? 0 : 1;
     switch (bot->GetClass())
     {
@@ -2853,6 +2858,18 @@ void PlayerbotFactory::InitSkills()
         if (!bot->HasSpell(674))
             bot->LearnSpell(674, false);
         bot->SetCanDualWield(true);
+    }
+
+    // Parry: same trainer-only chain (spell 3128 teaches 3127,
+    // SPELL_EFFECT_PARRY -> m_canParry) at level 8 for these four classes.
+    // Without it every bot parried 0% of attacks.
+    if (bot->GetLevel() >= 8 &&
+        (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_PALADIN ||
+         bot->GetClass() == CLASS_HUNTER || bot->GetClass() == CLASS_ROGUE))
+    {
+        if (!bot->HasSpell(3127))
+            bot->LearnSpell(3127, false);
+        bot->SetCanParry(true);
     }
 }
 

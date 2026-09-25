@@ -21,6 +21,10 @@ Each `BOT_BATCH` bot entry carries: `name, guid, class, role, level, hp/max_hp, 
 - `BOT_DEATH` is emitted from `PlayerbotAI::OnDeath` (target/zone/position/level).
 - Anomaly emitters that can persist (`UNREACHABLE_TARGET`) re-report every cooldown window so the daemon has a liveness signal; do not make them fire-once.
 
+## Armory stats
+
+Online bots never log out, so the core `character_stats`/`character_armory_stats` tables stay empty for them. On each snapshot the emitter also writes the exact live `Player` stats of 10 bots (round-robin, ~100 s for 500) to `tortoise_bots_armory_stats` (enchants, talents, buffs included; rage in display units). The armory reads that table first (`stats.source = "module_stats"`), then the core tables, then an approximate rebuild from base values and item stats (`"live"`). Pool reset deletes the rows with the characters.
+
 ## Issue episodes (`internal/state` issue tracker)
 
 Persistent problems are tracked as open/closed episodes per bot, surfaced in the dashboard Issues tab, map glow, roster badge, and `/api/v1/issues`.
