@@ -48,7 +48,11 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
             ai->ClearStrategies(BotState::BOT_STATE_COMBAT);
             ai->ClearStrategies(BotState::BOT_STATE_NON_COMBAT);
             ai->ChangeStrategy("+chat", BotState::BOT_STATE_COMBAT);
-            ai->ChangeStrategy("+chat,+loot,+delayed roll", BotState::BOT_STATE_NON_COMBAT);
+            // Baseline first: +loot/+delayed roll survive stale snapshots missing
+            // them (#222), +quest survives snapshots predating it (#277). Replay
+            // below then re-applies the stored snapshot verbatim, so a stored
+            // "-quest" (explicit opt-out) still wins over this default.
+            ai->ChangeStrategy("+chat,+loot,+delayed roll,+quest", BotState::BOT_STATE_NON_COMBAT);
         }
 
         std::list<std::string> values;

@@ -16,7 +16,7 @@ LootType LootAccess::lootType() const
 	return loot ? loot->loot_type : LOOT_CORPSE;
 }
 
-std::vector<LootItem*> LootAccess::GetLootContentFor(Player* /*player*/) const
+std::vector<LootItem*> LootAccess::GetLootContentFor(Player* player) const
 {
 	std::vector<LootItem*> retvec;
 	if (!loot)
@@ -27,12 +27,59 @@ std::vector<LootItem*> LootAccess::GetLootContentFor(Player* /*player*/) const
 	for (auto const& item : loot->items)
 		retvec.push_back(const_cast<LootItem*>(&item));
 
+	if (!player)
+		return retvec;
+
+	// Quest drops live outside loot->items, in the core's per-player quest/FFA/
+	// conditional lists. Without them a corpse whose only loot for this bot is
+	// a quest item looks empty. Skip entries already looted (either flag) and
+	// FFA/conditional entries already covered by the shared list above.
+	uint32 const guidLow = player->GetGUIDLow();
+
+	QuestItemMap const* maps[3] = { &loot->GetPlayerQuestItems(), &loot->GetPlayerFFAItems(), &loot->GetPlayerNonQuestNonFFAConditionalItems() };
+	for (uint8 m = 0; m < 3; ++m)
+	{
+		QuestItemMap::const_iterator it = maps[m]->find(guidLow);
+		if (it == maps[m]->end() || !it->second)
+			continue;
+
+		bool const isQuestMap = (m == 0);
+		for (QuestItem const& qi : *it->second)
+		{
+			LootItemList const& store = isQuestMap ? loot->m_questItems : loot->items;
+			if (qi.index >= store.size())
+				continue;
+
+			LootItem* item = const_cast<LootItem*>(&store[qi.index]);
+			if (qi.is_looted || item->is_looted)
+				continue;
+
+			if (!isQuestMap)
+			{
+				bool alreadyListed = false;
+				for (LootItem* listed : retvec)
+				{
+					if (listed == item)
+					{
+						alreadyListed = true;
+						break;
+					}
+				}
+				if (alreadyListed)
+					continue;
+			}
+
+			retvec.push_back(item);
+		}
+	}
+
 	return retvec;
 }
 
 // Get loot status for a specified player.
 // cmangos returned bitflags reflecting "has gold / not fully looted / contains FFA / etc."
-// Derive the status from the core's public loot fields and group round-robin
+// Derive the status from the per-player content list (shared items plus the
+// core's per-player quest/FFA/conditional lists) and the group round-robin
 // contract; do not route through the core's intentionally empty loot-view
 // permission sentinel.
 uint32 LootAccess::GetLootStatusFor(Player const* player) const
@@ -47,9 +94,9 @@ uint32 LootAccess::GetLootStatusFor(Player const* player) const
 
 	WorldObject const* lootTarget = loot->GetLootTarget();
 	Group* group = const_cast<Player*>(player)->GetGroup();
-	for (uint32 slot = 0; slot < loot->items.size(); ++slot)
+	for (LootItem* lootItemPtr : GetLootContentFor(const_cast<Player*>(player)))
 	{
-		LootItem const& lootItem = loot->items[slot];
+		LootItem const& lootItem = *lootItemPtr;
 		if (lootItem.is_looted || !lootItem.AllowedForPlayer(player, lootTarget))
 			continue;
 
