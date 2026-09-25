@@ -254,7 +254,7 @@ AiPlayerbot.AhMarketValueVendor = 1
 #     botActiveAlone percent. All bots stay logged in either way; this only
 #     limits how often their AI updates. If you get lag with 1, reduce the
 #     number of online bots.
-# Code default 0; this template ships 1.
+# Default 1 (bots always alive); throttling is an opt-in.
 AiPlayerbot.DisableActivityPriorities = 1
 
 # Force bots to become active when a player is nearby
