@@ -1925,9 +1925,12 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
         return;
     }
     // Issue #294 single choke-point gate: tiered authorization for every
-    // queued/action command. Internal self-commands (fromPlayer == bot)
-    // bypass; everything else is tiered by AuthTierForCommand above.
-    if (&fromPlayer != bot)
+    // queued/action command from a real player. Internal self-commands and
+    // commands from other bots (headless sessions, e.g. a bot group leader
+    // ordering its members) bypass it; the existing security level below
+    // still applies to them.
+    WorldSession const* fromSession = fromPlayer.GetSession();
+    if (&fromPlayer != bot && fromSession && !fromSession->IsHeadless())
     {
         bool silentDeny = type != CHAT_MSG_WHISPER;
         if (!CheckBotCommandAuth(fromPlayer, filtered, silentDeny))
