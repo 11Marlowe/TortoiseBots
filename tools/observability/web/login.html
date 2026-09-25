@@ -7,10 +7,21 @@
   <title>Admin Login — Tortoise WoW Observability</title>
   <link rel="stylesheet" href="/static/css/app.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%236366f1%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22/><circle cx=%2212%22 cy=%2212%22 r=%223%22/></svg>">
+  <style>
+    @media (max-width: 480px) {
+      .login-card {
+        padding: 24px 16px !important;
+        margin: 12px !important;
+      }
+      .btn {
+        min-height: 42px;
+      }
+    }
+  </style>
 </head>
 <body style="display: flex; align-items: center; justify-content: center; min-height: 100vh;">
 
-  <div class="glass-card" style="width: 100%; max-width: 400px; padding: 32px; margin: 20px;">
+  <div class="glass-card login-card" style="width: 100%; max-width: 400px; padding: 32px; margin: 20px;">
     <div style="text-align: center; margin-bottom: 24px;">
       <div style="margin-bottom: 12px; display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 12px; background: rgba(99, 102, 241, 0.12); border: 1px solid rgba(99, 102, 241, 0.3);">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

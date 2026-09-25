@@ -384,6 +384,10 @@
     // Tabs & Navigation
     menuItems: document.querySelectorAll('.sidebar-menu .menu-item[data-tab]'),
     tabViews: document.querySelectorAll('.tab-view'),
+    sidebar: document.getElementById('sidebar'),
+    sidebarBackdrop: document.getElementById('sidebar-backdrop'),
+    hamburgerBtn: document.getElementById('hamburger-btn'),
+    currentTabTitle: document.getElementById('current-tab-title'),
 
     // Map
     zoneFilterInput: document.getElementById('zone-filter-input'),
@@ -528,8 +532,47 @@
   }
 
   // Sidebar Tab Navigation
+  const TAB_TITLES = {
+    dashboard: 'Dashboard',
+    map: 'Live Map',
+    roster: 'Bots',
+    armory: 'Armory',
+    issues: 'Persistent Issues',
+    incidents: 'Incidents'
+  };
+
+  function openNavDrawer() {
+    if (!el.sidebar) return;
+    el.sidebar.classList.add('open');
+    if (el.sidebarBackdrop) el.sidebarBackdrop.classList.add('active');
+    if (el.hamburgerBtn) el.hamburgerBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeNavDrawer() {
+    if (!el.sidebar) return;
+    el.sidebar.classList.remove('open');
+    if (el.sidebarBackdrop) el.sidebarBackdrop.classList.remove('active');
+    if (el.hamburgerBtn) el.hamburgerBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleNavDrawer() {
+    if (el.sidebar && el.sidebar.classList.contains('open')) {
+      closeNavDrawer();
+    } else {
+      openNavDrawer();
+    }
+  }
+
   function switchTab(tab) {
     state.activeTab = tab;
+    if (el.currentTabTitle) {
+      el.currentTabTitle.textContent = TAB_TITLES[tab] || (tab.charAt(0).toUpperCase() + tab.slice(1));
+    }
+    el.menuItems.forEach(item => {
+      item.classList.toggle('active', item.dataset.tab === tab);
+    });
+    closeNavDrawer();
+
     if (tab === 'roster') renderRoster();
     if (tab === 'armory') { armoryView(); if (state.armoryGuid === null || state.armoryGuid === undefined) renderArmoryList(); }
     el.tabViews.forEach(v => {
@@ -553,6 +596,32 @@
       if (tab) switchTab(tab);
     });
   });
+
+  if (el.hamburgerBtn) {
+    el.hamburgerBtn.addEventListener('click', toggleNavDrawer);
+  }
+  if (el.sidebarBackdrop) {
+    el.sidebarBackdrop.addEventListener('click', closeNavDrawer);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeNavDrawer();
+  });
+
+  let resizeTimer = null;
+  function onWindowResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (state.activeTab === 'map') {
+        renderMap();
+      } else if (state.activeTab === 'dashboard') {
+        renderDashboardCharts();
+      } else if (state.activeTab === 'issues') {
+        renderIssueChart();
+      }
+    }, 100);
+  }
+  window.addEventListener('resize', onWindowResize);
+  window.addEventListener('orientationchange', onWindowResize);
 
   if (el.refreshBtn) {
     el.refreshBtn.addEventListener('click', () => {

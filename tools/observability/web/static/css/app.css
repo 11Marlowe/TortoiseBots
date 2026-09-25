@@ -1112,7 +1112,9 @@ body {
 .armory-subtabs {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   margin-bottom: 16px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-color);
@@ -1128,6 +1130,8 @@ body {
   cursor: pointer;
   border-radius: 6px;
   transition: all 0.15s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .armory-subtab:hover {
@@ -1679,6 +1683,354 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 70px;
+}
+
+/* ==========================================================================
+   Mobile & Responsive Layout System
+   ========================================================================== */
+
+/* Mobile Navigation Drawer & Backdrop (Desktop: hidden) */
+.sidebar-backdrop {
+  display: none;
+}
+
+.topbar-nav-mobile {
+  display: none;
+}
+
+/* Fluid Form Controls & Bot Drawer base styles */
+.zone-filter-input {
+  width: 200px;
+  text-align: left;
+}
+
+.zone-select {
+  max-width: 260px;
+}
+
+.bot-search-input {
+  width: 170px;
+}
+
+.armory-list-search-input {
+  width: 200px;
+  margin-left: auto;
+}
+
+.armory-bars {
+  margin-top: 8px;
+  display: flex;
+  gap: 10px;
+  max-width: 440px;
+}
+
+.dashboard-grid-issues {
+  grid-template-columns: 1.6fr 1fr;
+}
+
+.bot-drawer {
+  display: none;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 320px;
+  padding: 20px;
+  z-index: 30;
+  background: rgba(14, 19, 27, 0.95);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.close-drawer-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.2rem;
+  min-width: 36px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+}
+
+.close-drawer-btn:hover {
+  color: var(--text-main);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Horizontally scrollable container with sticky first column for tables */
+.table-container {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 8px;
+}
+
+.table-container .data-table th:first-child,
+.table-container .data-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background-color: var(--bg-card);
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.3);
+}
+
+.table-container .data-table thead th:first-child {
+  z-index: 3;
+}
+
+.table-container .data-table tr:hover td:first-child {
+  background-color: var(--bg-card-hover, #1a2230);
+}
+
+.dashboard-grid > *,
+.telemetry-card,
+.chart-container,
+.chart-box {
+  min-width: 0;
+}
+
+.chart-box canvas {
+  max-width: 100%;
+}
+
+/* Responsive: Tablet and Mobile Layout (< 900px) */
+@media (max-width: 900px) {
+  /* Navigation: off-canvas drawer with dimmed backdrop */
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 99;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 260px;
+    max-width: 80vw;
+    height: 100vh;
+    height: 100dvh;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease-in-out;
+    box-shadow: none;
+  }
+
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 6px 0 24px rgba(0, 0, 0, 0.7);
+  }
+
+  .main-wrapper {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .topbar {
+    padding: 8px 16px;
+    min-height: 56px;
+    height: auto;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .topbar-nav-mobile {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .hamburger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    min-height: 40px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .hamburger-btn:hover,
+  .hamburger-btn:focus-visible {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.25);
+    outline: none;
+  }
+
+  .current-tab-title {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #fff;
+    white-space: nowrap;
+  }
+
+  .menu-item {
+    min-height: 40px;
+  }
+
+  /* All multi-column grids stack to 1 column below 900px */
+  .dashboard-grid,
+  .dashboard-grid-issues {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* Responsive: Phone Layout (< 600px) */
+@media (max-width: 600px) {
+  .content-area {
+    padding: 14px 12px;
+  }
+
+  .telemetry-card {
+    padding: 14px 12px;
+  }
+
+  /* Stat cards: 2 per row on phones */
+  .metrics-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px;
+  }
+
+  .metric-big-num {
+    font-size: 1.6rem;
+  }
+
+  .metric-gauge-card {
+    padding: 12px 8px;
+  }
+
+  .gauge-circle {
+    width: 60px;
+    height: 60px;
+  }
+
+  /* Fluid inputs & selects below 600px */
+  .zone-filter-input,
+  .zone-select,
+  .bot-search-input,
+  .armory-list-search-input {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-left: 0 !important;
+  }
+
+  .armory-bars {
+    width: 100%;
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+
+  /* Map: canvas height ~60vh on phones */
+  .map-viewport {
+    height: 60vh !important;
+    aspect-ratio: auto !important;
+  }
+
+  /* Bot drawer becomes a bottom sheet */
+  .bot-drawer {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 50vh;
+    border-radius: 16px 16px 0 0;
+    overflow-y: auto;
+    z-index: 105;
+    padding: 16px;
+    box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.7);
+    border-bottom: none;
+  }
+
+  .close-drawer-btn {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .bot-dot {
+    width: 16px;
+    height: 18px;
+  }
+
+  #world-view .bot-dot {
+    width: 14px;
+    height: 14px;
+  }
+
+  /* Armory: gear grid 1 column on phones */
+  .armory-gear {
+    grid-template-columns: 1fr !important;
+  }
+
+  .armory-weapons {
+    grid-template-columns: 1fr !important;
+  }
+
+  .armory-head {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  /* Hide secondary table columns below 600px */
+  #tab-roster .data-table th:nth-child(6),
+  #tab-roster .data-table td:nth-child(6),
+  #tab-roster .data-table th:nth-child(8),
+  #tab-roster .data-table td:nth-child(8) {
+    display: none;
+  }
+
+  #tab-armory .data-table th:nth-child(5),
+  #tab-armory .data-table td:nth-child(5),
+  #tab-armory .data-table th:nth-child(6),
+  #tab-armory .data-table td:nth-child(6) {
+    display: none;
+  }
+
+  #tab-issues .data-table th:nth-child(6),
+  #tab-issues .data-table td:nth-child(6),
+  #tab-issues .data-table th:nth-child(8),
+  #tab-issues .data-table td:nth-child(8) {
+    display: none;
+  }
+
+  #tab-incidents .data-table th:nth-child(7),
+  #tab-incidents .data-table td:nth-child(7) {
+    display: none;
+  }
+
+  /* Tap targets >= 40px on mobile */
+  .btn,
+  .armory-subtab,
+  input[type="text"],
+  input[type="password"],
+  select {
+    min-height: 40px;
+    box-sizing: border-box;
+  }
 }
 
 
