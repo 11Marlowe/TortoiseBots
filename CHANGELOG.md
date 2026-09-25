@@ -46,6 +46,23 @@
 - Recruiters are no longer carbon copies of their innkeepers: each `<Mercenary Hire>` NPC now gets the **opposite gender** of the innkeeper beside it, same race, fully dressed. [#274](https://github.com/Sagiroth/TortoiseBots/pull/274)
 - All 67 recruiter displays are pulled from existing 1.18.1 vendor/trainer NPCs, so every model is known-good to render, all displays are distinct, and no innkeeper display is reused. [#274](https://github.com/Sagiroth/TortoiseBots/pull/274)
 
+### Economy & Auction House
+- Synthetic auction items stop spamming `AddToUpdateQueueOf … current owner (None)` errors — random properties are now written directly instead of triggering `SetState(ITEM_CHANGED)`, so player logs no longer look like bots are misbehaving. [#288](https://github.com/Sagiroth/TortoiseBots/pull/288)
+
+### Commands & Chat Text
+- Usage/help strings now use `/` instead of raw `|`, fixing garbled output in the WoW client (`[dps|tank|healer]` was rendering as `dps | tankealer`); cppovers `.bot action`, `hire`, `role`, `formation`, `loot`, `strategy`, `ah`, `bot pool` plus debug/quest/tame/formation/stance help. [#287](https://github.com/Sagiroth/TortoiseBots/pull/287)
+- `position path` / `position route` accept `A/B` alongside the legacy syntax, so both styles just work. [#287](https://github.com/Sagiroth/TortoiseBots/pull/287)
+
+### Quests & Group Play
+- Grouped bots near their master now actually receive the quest the master accepted — the replayed accept was being refused beyond `INTERACTION_DISTANCE`, so `QuestAction::AcceptQuest` grants it directly when the bot is eligible, alive, on the same map, and within `reactDistance` of the grouped master. [#286](https://github.com/Sagiroth/TortoiseBots/pull/286)
+
+### Loot & Corpses
+- Bots now loot corpses whose only loot *for them* is a quest item — `LootAccess` is player-aware and merges shared loot with per-player quest, FFA, and conditional lists, skipping already-looted entries and duplicates while inheriting the same status to `ShouldLootObject`. [#285](https://github.com/Sagiroth/TortoiseBots/pull/285)
+
+### Hiring & Group Management
+- `.bot hire` provisions exactly once: `ProvisionHeavy` (level, talents, spells, gear, `SaveToDB`, tank kit) runs a single time, and retries only re-run `Reunite` (teleport + grouping) instead of 2-3 full passes on the world thread. [#284](https://github.com/Sagiroth/TortoiseBots/pull/284)
+- Retries no longer try to group a bot mid-teleport, cutting hire-time hitching. [#284](https://github.com/Sagiroth/TortoiseBots/pull/284)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
