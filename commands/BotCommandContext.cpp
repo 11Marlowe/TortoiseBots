@@ -381,7 +381,22 @@ Player* ResolveInterruptExecutor(BotCommandContext const& context, Unit* target,
 
 namespace {
 
-static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const& mark)
+// Issue #58: preference among CC spells the mature action graph already
+// proved usable. This ranks fit, it never grants capability. Lower is better:
+// Sap for an unengaged target, type-specific holds next, Fear last because a
+// feared mob runs into other packs.
+static uint32 CcSpellPreference(std::string const& spell)
+{
+    static char const* const order[] = { "sap", "shackle undead", "banish", "hibernate",
+        "polymorph", "freezing trap", "turn undead", "scare beast", "entangling roots", "fear" };
+    for (uint32 i = 0; i < sizeof(order) / sizeof(order[0]); ++i)
+        if (spell == order[i])
+            return i;
+    return sizeof(order) / sizeof(order[0]);
+}
+
+static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const& mark,
+    uint32* outPreference = nullptr)
 {
     if (!ai || !target || !target->IsInWorld() || !target->IsAlive())
         return {};
@@ -424,6 +439,7 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
     context->GetSupportedActions(actionNames);
     std::set<std::string> probedSpells;
     std::string selectedAction;
+    uint32 selectedPreference = 0;
     for (std::string const& actionName : actionNames)
     {
         ai::Action* action = context->GetAction(actionName);
@@ -432,6 +448,14 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
 
         std::string spell = action->GetCrowdControlSpellName();
         if (spell.empty() || !ai->HasSpell(spell))
+            continue;
+
+        uint32 preference = CcSpellPreference(spell);
+        if (!selectedAction.empty() && preference >= selectedPreference)
+            continue;
+
+        // Sap only opens a pull; an engaged target is never a Sap target.
+        if (spell == "sap" && target->IsInCombat())
             continue;
 
         probedSpells.insert(spell);
@@ -446,7 +470,7 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
             continue;
 
         selectedAction = actionName;
-        break;
+        selectedPreference = preference;
     }
 
     markValue->Set(previousMark);
@@ -454,6 +478,8 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
     for (std::string const& spell : probedSpells)
         resetProbeValues(spell);
 
+    if (outPreference)
+        *outPreference = selectedPreference;
     return selectedAction;
 }
 
@@ -480,6 +506,11 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
         return nullptr;
     }
 
+    // Best spell fit wins; ties go to the lowest GUID so the same target and
+    // state pick the same executor regardless of party invite order.
+    Player* best = nullptr;
+    std::string bestAction;
+    uint32 bestPreference = 0;
     for (Player* bot : context.partyBots)
     {
         if (!IsLiveHeadlessBot(bot))
@@ -487,15 +518,22 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
         if (!ai)
             continue;
-        std::string action = FindCcAction(ai, target, mark);
-        if (!action.empty())
+        uint32 preference = 0;
+        std::string action = FindCcAction(ai, target, mark, &preference);
+        if (action.empty())
+            continue;
+        if (!best || preference < bestPreference ||
+            (preference == bestPreference && bot->GetObjectGuid() < best->GetObjectGuid()))
         {
-            if (outAction) *outAction = action;
-            return bot;
+            best = bot;
+            bestAction = action;
+            bestPreference = preference;
         }
     }
 
-    return nullptr;
+    if (best && outAction)
+        *outAction = bestAction;
+    return best;
 }
 
 std::string RosterState(Player* bot, BotRecord const* suppliedRecord)

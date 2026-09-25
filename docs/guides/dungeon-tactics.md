@@ -78,7 +78,7 @@ Crowd control is essential for multi-caster pulls in level 40+ dungeons.
   .bot action cc moon
   # Or click the Moon button under CC Marks in /tbm
   ```
-* The mark is assigned to exactly one bot (exclusive ownership); reassigning it moves ownership. The server selects a capable bot when no owned bot is targeted.
+* The mark is assigned to exactly one bot (exclusive ownership); reassigning it moves ownership. When no owned bot is targeted, the server selects the capable bot with the best-fitting CC for that target (Sap before the pull, then Shackle/Banish/Hibernate/Polymorph/traps, Fear last); the same target and state always pick the same bot.
 * Dismiss with `.bot action cc clear` (targeted bot, or the whole owned party when untargeted).
 * **Dungeon rule:** inside non-raid dungeons bots CC only their assigned mark; in the open world they may CC a free pick. Bots never CC over an existing CC, and AoE triggers refuse packs holding a breakable CC.
 * **Automatic Discipline:** Once applied, party bots and pets are strictly blocked from attacking the crowd-controlled target until all other active threats are dead.
