@@ -161,6 +161,13 @@
 - New compact mobile topbar shows the active tab title plus an accessible hamburger toggle (`aria-label` / `aria-expanded`) — tap a tab, the backdrop, or hit Escape to dismiss the drawer [#305](https://github.com/Sagiroth/TortoiseBots/pull/305)
 - Desktop layout at ≥ 1200 px is intentionally left untouched, so existing operator workflows and muscle memory stay intact [#305](https://github.com/Sagiroth/TortoiseBots/pull/305)
 
+### Bot Gear & Enchanting
+
+- White-quality gear can now carry non-premium enchants (min level ≤ bot level − 10) instead of nothing at all — freshly spawned low-level bots stop showing up effectively naked. [#306](https://github.com/Sagiroth/TortoiseBots/pull/306)
+- Green-quality gear enchant threshold relaxed from bot level − 10 to bot level − 5, so green drops get meaningful enchants noticeably earlier. [#306](https://github.com/Sagiroth/TortoiseBots/pull/306)
+- Grey gear stays unenchanted, and blue/epic ceilings are untouched — economy and high-end itemization balance are unaffected. [#306](https://github.com/Sagiroth/TortoiseBots/pull/306)
+- Verified on dev after a random pool reset (500 bots): level 10–19 band went from 1/152 enchanted items to 281/1581, and 30–39 jewelry from 91/282 to 147/270. [#306](https://github.com/Sagiroth/TortoiseBots/pull/306)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
