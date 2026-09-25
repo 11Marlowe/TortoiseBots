@@ -5,26 +5,12 @@
 class Player;
 class ChatHandler;
 
-struct EnchantTemplate
-{
-   uint8   ClassId;
-   uint8   SpecId;
-   uint32  SpellId;
-   uint8   SlotId;
-};
-
-typedef std::vector<EnchantTemplate*> EnchantContainer;
 
 class PlayerbotFactory
 {
 public:
     PlayerbotFactory(Player* bot, uint32 level, uint32 itemQuality = 0) : level(level), itemQuality(itemQuality), bot(bot), ai(PlayerbotAIStorage::Instance().GetAI(bot)) {}
-    virtual ~PlayerbotFactory()
-    {
-        for (auto* enchant : m_EnchantContainer)
-            delete enchant;
-        m_EnchantContainer.clear();
-    }
+    virtual ~PlayerbotFactory() {}
 
     void Refresh();
     void InitSkills();
@@ -102,20 +88,17 @@ private:
     void InitInventorySkill();
     Item* StoreItem(uint32 itemId, uint32 count, bool ignoreCount = false);
     void AddConsumables();
-    void LoadEnchantContainer();
-    void ApplyEnchantTemplate();
-    void ApplyEnchantTemplate(uint8 spec, Item* item = nullptr);
-    EnchantContainer::const_iterator GetEnchantContainerBegin() { return m_EnchantContainer.begin(); }
-    EnchantContainer::const_iterator GetEnchantContainerEnd() { return m_EnchantContainer.end(); }
+    // Level-appropriate enchant for one equipped item: best candidate from
+    // ai_playerbot_enchant_candidates for the bot's class/spec (see
+    // RandomItemMgr::CalculateBestBotEnchantId). Silent skip (mask mismatch,
+    // no candidate, below gate) keeps seed logs clean.
+    void ApplyBestEnchant(Item* item);
 
 private:
     uint32 level;
     uint32 itemQuality;
     PlayerbotAI* ai;
     Player* bot;
-
-protected:
-   EnchantContainer m_EnchantContainer;
 };
 
 enum PriorizedConsumables

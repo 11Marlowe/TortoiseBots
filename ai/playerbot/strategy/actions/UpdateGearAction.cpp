@@ -3,12 +3,12 @@
 #include "UpdateGearAction.h"
 #include "playerbot/RandomBotFacade.h"
 #include "playerbot/AiFactory.h"
+#include "playerbot/RandomItemMgr.h"
 
 using namespace ai;
 
 UpdateGearAction::UpdateGearAction(PlayerbotAI* ai): Action(ai, "update gear")
 {
-    enchants.clear();
 }
 
 bool UpdateGearAction::Execute(Event& event)
@@ -199,38 +199,18 @@ uint8 UpdateGearAction::GetMasterItemProgressionLevel(uint8 slot, uint8 avgProgr
 
 void UpdateGearAction::EnchantItem(Item* item)
 {
-    if (item)
-    {
-        int tab = AiFactory::GetPlayerSpecTab(bot);
-        uint32 tempId = uint32((uint32)bot->GetClass() * (uint32)10);
-        uint8 spec = tempId += (uint32)tab;
+    if (!item)
+        return;
 
-        if (enchants.empty())
-        {
-            auto result = WorldDatabase.PQuery("SELECT class, spec, spellid, slotid FROM ai_playerbot_enchants");
-            if (result)
-            {
-                do
-                {
-                    Field* fields = result->Fetch();
+    uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
+    if (!specId)
+        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
+    if (!specId)
+        return;
 
-                    EnchantTemplate pEnchant;
-                    pEnchant.ClassId = fields[0].GetUInt8();
-                    pEnchant.SpecId = fields[1].GetUInt8();
-                    pEnchant.SpellId = fields[2].GetUInt32();
-                    pEnchant.SlotId = fields[3].GetUInt8();
-                    enchants.push_back(pEnchant);
-                }
-                while (result->NextRow());
-            }
-        }
+    uint32 spellId = sRandomItemMgr.CalculateBestBotEnchantId(bot, specId, item);
+    if (!spellId)
+        return;
 
-        for (const auto& enchant : enchants)
-        {
-            if (enchant.ClassId == bot->GetClass() && enchant.SpecId == spec)
-            {
-                ai->EnchantItemT(enchant.SpellId, enchant.SlotId, item);
-            }
-        }
-    }
+    ai->EnchantItemT(spellId, item->GetSlot(), item);
 }
