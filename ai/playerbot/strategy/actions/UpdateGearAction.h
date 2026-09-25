@@ -19,8 +19,5 @@ namespace ai
         uint8 GetMasterItemProgressionLevel(uint8 slot, uint8 avgProgressionLevel);
 
         void EnchantItem(Item* item);
-
-    private:
-        std::vector<EnchantTemplate> enchants;
     };
 }

@@ -170,6 +170,20 @@ class RandomItemMgr
         uint32 CalculateRandomEnchantId(uint8 playerclass, uint8 spec, ItemPrototype const* proto);
         uint32 CalculateBestRandomEnchantId(uint8 playerclass, uint8 spec, uint32 itemId);
         uint32 CalculateEnchantWeight(uint8 playerclass, uint8 spec, uint32 enchantId);
+        // Level-appropriate permanent enchants (ai_playerbot_enchant_candidates).
+        // Best candidate for one equipped item: filters by tier/rep cap, bot
+        // level, slot and item-type mask, then picks the highest stat weight
+        // for the class/spec. Returns the enchant SPELL id (0 = none fits).
+        // Quality ceiling (owner rule): grey/white -> 0; green -> non-premium
+        // rows with min_level <= level-10; blue -> non-premium rows with
+        // min_level <= level; epic+ -> anything allowed incl. premium.
+        uint32 CalculateBestBotEnchantId(Player* bot, uint32 specId, Item* item);
+        // Proc-enchant score used by the candidate picker above. Type-1
+        // (on-hit proc) enchants score 0 in CalculateEnchantWeight; this
+        // converts the proc into an equivalent stat weight (see .cpp).
+        uint32 CalculateProcEnchantWeight(uint8 playerclass, uint8 spec, uint32 enchantId);
+        // min_level of one candidate row (for the deterministic tie-break).
+        uint8 GetBotEnchantMinLevel(uint32 spellId, uint8 slotId);
         uint32 CalculateRandomPropertyWeight(uint8 playerclass, uint8 spec, int32 randomPropertyId);
         uint32 CalculateStatWeight(uint8 playerclass, uint8 spec, ItemPrototype const* proto, ItemSpecType &itSpec);
         uint32 ItemStatWeight(Player* player, ItemQualifier& qualifier);
@@ -234,6 +248,20 @@ class RandomItemMgr
         std::map<std::string, uint32 > weightRatingLink;
         std::map<uint32, ItemInfoEntry*> itemInfoCache;
         std::map<uint32, std::vector<uint32> > randomEnchantsCache;
+        // Permanent-enchant candidate pool (ai_playerbot_enchant_candidates).
+        // Loaded once from the world DB; rows never change without a restart.
+        struct BotEnchantCandidate
+        {
+            uint32 spellId;
+            uint8 slotId;
+            uint8 minLevel;
+            uint8 tier;
+            uint8 rep;
+            uint8 premium;
+        };
+        void LoadBotEnchantCandidates();
+        bool botEnchantsLoaded = false;
+        std::vector<BotEnchantCandidate> botEnchantCandidates;
         // Fresh-seed gate state: one-time raid provenance index (see
         // IsRaidSourcedItem) and the memoized quest reverse-lookup
         // (GetQuestIdsForItem). Both filled lazily, valid for the process

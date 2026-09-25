@@ -386,8 +386,8 @@ AiPlayerbot.RandomBotStartLevelMax = 60
 AiPlayerbot.XPRate = 3
 
 # Set minimum level of randombots where gets enchants on items (Maxlevel + 1 to disable)
-# Default: 60
-AiPlayerbot.minEnchantingBotLevel = 60
+# Default: 10
+AiPlayerbot.minEnchantingBotLevel = 10
 
 # Randombots checking players gear score level and deny the group invite if it's too low
 # Default: 0 (disabled)

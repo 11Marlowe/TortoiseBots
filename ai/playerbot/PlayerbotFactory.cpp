@@ -185,21 +185,9 @@ void PlayerbotFactory::MakeComplete()
     ai->DoSpecificAction("auto learn spell");
     // Skills on thresholds every level (armor steps around 40 included).
     InitSkills();
-    // Enchant templates must be loaded before gear equips: EnchantItem()
-    // runs per equipped item inside InitEquipment and matches against this
-    // container. Randomize() loads it; MakeComplete never did, so fresh
-    // seeds always came out unenchanted even with data in
-    // ai_playerbot_enchants.
-    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
-    {
-        LoadEnchantContainer();
-        size_t templates = GetEnchantContainerEnd() - GetEnchantContainerBegin();
-        sLog.outDetail("%s: loaded %zu enchant templates (level %u, minEnchanting %u)",
-            bot->GetName(), templates, bot->GetLevel(), sPlayerbotAIConfig.minEnchantingBotLevel);
-        if (!templates)
-            sLog.outError("%s: no enchant templates in ai_playerbot_enchants — seeded gear will be unenchanted", bot->GetName());
-    }
     // Gear last and incremental only — never wipe earned gear.
+    // Enchants apply per item inside InitEquipment (ApplyBestEnchant) plus
+    // the EnchantEquipment() sweep below; both read the candidate pool.
     InitEquipment(true, false);
     // Field kit — the same block ProvisionSpellsAndGear runs for hired
     // companions. The pool path never ran any of it, so fresh seeds kept
@@ -371,12 +359,6 @@ void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
 
     pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Equip");
     sLog.outDetail("Initializing equipmemt...");
-    if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
-    {
-        sLog.outDetail("Initializing enchant templates...");
-        LoadEnchantContainer();
-    }
-
     InitEquipment(incremental, syncWithMaster);
     EnchantEquipment();
     pmo.reset();
@@ -2874,9 +2856,25 @@ void PlayerbotFactory::EnchantItem(Item* item)
     if (bot->GetLevel() < sPlayerbotAIConfig.minEnchantingBotLevel)
         return;
 
-    int tab = AiFactory::GetPlayerSpecTab(bot);
-    uint32 tempId = uint32((uint32)bot->GetClass() * (uint32)10);
-    ApplyEnchantTemplate(tempId += (uint32)tab, item);
+    ApplyBestEnchant(item);
+}
+
+void PlayerbotFactory::ApplyBestEnchant(Item* item)
+{
+    if (!item)
+        return;
+
+    uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
+    if (!specId)
+        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
+    if (!specId)
+        return;
+
+    uint32 spellId = sRandomItemMgr.CalculateBestBotEnchantId(bot, specId, item);
+    if (!spellId)
+        return;
+
+    ai->EnchantItemT(spellId, item->GetSlot(), item);
 }
 
 void PlayerbotFactory::InitAllSkills()
@@ -4152,11 +4150,6 @@ void PlayerbotFactory::EnchantEquipment()
 {
     if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
     {
-        if (m_EnchantContainer.empty())
-        {
-            LoadEnchantContainer();
-        }
-
         for (uint8 slot = 0; slot < SLOT_EMPTY; slot++)
         {
             Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
@@ -4166,98 +4159,6 @@ void PlayerbotFactory::EnchantEquipment()
             }
         }
     }
-}
-
-void PlayerbotFactory::ApplyEnchantTemplate()
-{
-   int tab = AiFactory::GetPlayerSpecTab(bot);
-
-   switch (bot->GetClass())
-   {
-   case CLASS_WARRIOR:
-      if (tab == 2)
-          ApplyEnchantTemplate(12);
-      else if (tab == 1)
-          ApplyEnchantTemplate(11);
-      else
-          ApplyEnchantTemplate(10);
-      break;
-   case CLASS_DRUID:
-      if (tab == 2)
-          ApplyEnchantTemplate(112);
-      else if (tab == 0)
-          ApplyEnchantTemplate(110);
-      else
-          ApplyEnchantTemplate(111);
-      break;
-   case CLASS_SHAMAN:
-      if (tab == 0)
-         ApplyEnchantTemplate(70);
-      else if (tab == 2)
-         ApplyEnchantTemplate(71);
-      else
-         ApplyEnchantTemplate(72);
-      break;
-   case CLASS_PALADIN:
-      if (tab == 0)
-         ApplyEnchantTemplate(20);
-      else if (tab == 2)
-         ApplyEnchantTemplate(22);
-      else if (tab == 1)
-         ApplyEnchantTemplate(21);
-      break;
-   case CLASS_HUNTER:
-      ApplyEnchantTemplate(30);
-      break;
-   case CLASS_ROGUE:
-      ApplyEnchantTemplate(40);
-      break;
-   case CLASS_MAGE:
-      ApplyEnchantTemplate(80);
-      break;
-   case CLASS_WARLOCK:
-      ApplyEnchantTemplate(90);
-      break;
-   case CLASS_PRIEST:
-       ApplyEnchantTemplate(50);
-       break;
-   }
-}
-
-void PlayerbotFactory::ApplyEnchantTemplate(uint8 spec, Item* item)
-{
-   for (EnchantContainer::const_iterator itr = GetEnchantContainerBegin(); itr != GetEnchantContainerEnd(); ++itr)
-      if ((*itr)->ClassId == bot->GetClass() && (*itr)->SpecId == spec)
-         ai->EnchantItemT((*itr)->SpellId, (*itr)->SlotId, item);
-}
-
-void PlayerbotFactory::LoadEnchantContainer()
-{
-   for (EnchantContainer::const_iterator itr = m_EnchantContainer.begin(); itr != m_EnchantContainer.end(); ++itr)
-      delete *itr;
-
-   m_EnchantContainer.clear();
-
-   uint32 count = 0;
-
-   auto result = WorldDatabase.PQuery("SELECT class, spec, spellid, slotid FROM ai_playerbot_enchants");
-   if (result)
-   {
-      do
-      {
-         Field* fields = result->Fetch();
-
-         EnchantTemplate* pEnchant = new EnchantTemplate;
-
-         pEnchant->ClassId = fields[0].GetUInt8();
-         pEnchant->SpecId = fields[1].GetUInt8();
-         pEnchant->SpellId = fields[2].GetUInt32();
-         pEnchant->SlotId = fields[3].GetUInt8();
-
-         m_EnchantContainer.push_back(pEnchant);
-         ++count;
-      } while (result->NextRow());
-   }
 }
 
 void PlayerbotFactory::InitTaxiNodes()

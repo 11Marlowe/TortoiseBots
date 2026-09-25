@@ -108,6 +108,7 @@ void RandomItemMgr::Init()
     BuildFoodCache();
     BuildTradeCache();
     LoadRandomEnchantments();
+    LoadBotEnchantCandidates();
     BuildRandomItemCache();
 }
 
@@ -1936,12 +1937,15 @@ uint32 RandomItemMgr::CalculateEnchantWeight(uint8 playerclass, uint8 spec, uint
     {
         switch (pEnchant->type[s])
         {
-        case 1: //Proc //TODO add proc values?
-            break;
         case 2: //Damage
             if (!pEnchant->amount[s])
                 continue;
+            // Weapon-damage enchants (incl. scopes): melee specs score them
+            // on "mledps", ranged specs on "rgddps". One of the two always
+            // exists, so hunter scopes rank above zero and march up the
+            // ladder via the tie-break instead of returning "no enchant".
             weight += CalculateSingleStatWeight(playerclass, spec, "mledps", pEnchant->amount[s]);
+            weight += CalculateSingleStatWeight(playerclass, spec, "rgddps", pEnchant->amount[s]);
             break;
         case 3:
         {
@@ -2008,8 +2012,18 @@ uint32 RandomItemMgr::CalculateEnchantWeight(uint8 playerclass, uint8 spec, uint
                 {
                     weight += CalculateSingleStatWeight(playerclass, spec, "splheal", spellInfo->EffectBasePoints[j] + 1);
                 }
-
-
+                // Flat health/mana from chest/mana enchants: stamina and
+                // intellect are the closest weight scales (aura 34/35 is a
+                // flat pool, not a percent — the +1 mirrors the other
+                // branches' EffectBasePoints+1 convention).
+                if (spellInfo->EffectApplyAuraName[j] == SPELL_AURA_MOD_INCREASE_HEALTH)
+                {
+                    weight += CalculateSingleStatWeight(playerclass, spec, "sta", spellInfo->EffectBasePoints[j] + 1);
+                }
+                if (spellInfo->EffectApplyAuraName[j] == SPELL_AURA_MOD_INCREASE_ENERGY)
+                {
+                    weight += CalculateSingleStatWeight(playerclass, spec, "int", spellInfo->EffectBasePoints[j] + 1);
+                }
             }
             break;
         }
@@ -3670,4 +3684,227 @@ void RandomItemMgr::LoadRandomEnchantments()
         sLog.outErrorDb(">> Loaded 0 Item Enchantment definitions. DB table `item_enchantment_template` is empty.");
 
     sLog.outString();
+}
+
+void RandomItemMgr::LoadBotEnchantCandidates()
+{
+    botEnchantCandidates.clear();
+    botEnchantsLoaded = true;
+
+    uint32 count = 0;
+    auto queryResult = WorldDatabase.Query(
+        "SELECT spellid, slotid, min_level, tier, rep, premium FROM ai_playerbot_enchant_candidates");
+    if (queryResult)
+    {
+        do
+        {
+            Field* fields = queryResult->Fetch();
+            BotEnchantCandidate candidate;
+            candidate.spellId = fields[0].GetUInt32();
+            candidate.slotId = fields[1].GetUInt8();
+            candidate.minLevel = fields[2].GetUInt8();
+            candidate.tier = fields[3].GetUInt8();
+            candidate.rep = fields[4].GetUInt8();
+            candidate.premium = fields[5].GetUInt8();
+            botEnchantCandidates.push_back(candidate);
+            ++count;
+        } while (queryResult->NextRow());
+
+        sLog.outString(">> Loaded %u bot enchant candidates", count);
+    }
+    else
+        sLog.outErrorDb(">> Loaded 0 bot enchant candidates. DB table `ai_playerbot_enchant_candidates` is empty.");
+
+    sLog.outString();
+}
+
+uint32 RandomItemMgr::CalculateProcEnchantWeight(uint8 playerclass, uint8 spec, uint32 enchantId)
+{
+    if (!enchantId)
+        return 0;
+
+    SpellItemEnchantmentEntry const* pEnchant = sSpellItemEnchantmentStore.LookupEntry(enchantId);
+    if (!pEnchant)
+        return 0;
+
+    // Expected-damage model for ITEM_ENCHANTMENT_TYPE_COMBAT_SPELL procs.
+    // Per-swing proc chance follows the core's own formula
+    // (Player::CastItemCombatSpell): table PPM from spell_proc_item_enchant
+    // when present, else the DBC amount as a percent, else 1 PPM. PPM turns
+    // into chance via the standard 60s-normalized swing rate
+    // (chance = PPM * weaponDelay / 60000); a 2.0s weapon stands in for the
+    // unknown piece so candidate ranking never depends on the equipped item.
+    // Expected damage per swing ~= chance * spell damage, converted to the
+    // spec's melee-dps scale ("mledps" is damage per point) and scaled by
+    // buff uptime (duration window capped at 90%, same convention as the
+    // trinket scorer in CalculateStatWeight). Non-damage procs (slows,
+    // debuffs) score 0.
+    static const float kReferenceWeaponDelayMs = 2000.0f;
+    uint32 weight = 0;
+    for (int s = 0; s < 3; ++s)
+    {
+        if (pEnchant->type[s] != ITEM_ENCHANTMENT_TYPE_COMBAT_SPELL)
+            continue;
+        uint32 procSpellId = pEnchant->spellid[s];
+        if (!procSpellId)
+            continue;
+        SpellEntry const* procInfo = sSpellTemplate.LookupEntry<SpellEntry>(procSpellId);
+        if (!procInfo)
+            continue;
+
+        float chancePerSwing = 0.0f;
+        float ppmRate = sSpellMgr.GetItemEnchantProcChance(procSpellId);
+        if (ppmRate > 0.0f)
+            chancePerSwing = ppmRate * kReferenceWeaponDelayMs / 60000.0f;
+        else if (pEnchant->amount[s] != 0)
+            chancePerSwing = static_cast<float>(pEnchant->amount[s]) / 100.0f;
+        else
+            chancePerSwing = 1.0f * kReferenceWeaponDelayMs / 60000.0f;
+
+        for (uint32 j = 0; j < MAX_EFFECT_INDEX; ++j)
+        {
+            uint32 effect = procInfo->Effect[j];
+            int32 basePoints = procInfo->EffectBasePoints[j] + 1;
+            if (basePoints <= 0)
+                continue;
+            if (effect == SPELL_EFFECT_HEALTH_LEECH)
+            {
+                // Lifestealing-style proc: direct damage plus a heal.
+                // Score the damage through both dps scales (see the type-2
+                // comment above); the heal rides along for free.
+                float expected = chancePerSwing * static_cast<float>(basePoints);
+                weight += CalculateSingleStatWeight(playerclass, spec, "mledps", static_cast<int32>(expected));
+                weight += CalculateSingleStatWeight(playerclass, spec, "rgddps", static_cast<int32>(expected));
+            }
+            else if (effect == SPELL_EFFECT_SCHOOL_DAMAGE)
+            {
+                // Direct damage proc: expected damage per swing (both scales).
+                float expected = chancePerSwing * static_cast<float>(basePoints);
+                weight += CalculateSingleStatWeight(playerclass, spec, "mledps", static_cast<int32>(expected));
+                weight += CalculateSingleStatWeight(playerclass, spec, "rgddps", static_cast<int32>(expected));
+            }
+            else if (effect == SPELL_EFFECT_APPLY_AURA)
+            {
+                uint32 auraName = procInfo->EffectApplyAuraName[j];
+                if (auraName == SPELL_AURA_MOD_STAT)
+                {
+                    uint32 stat = procInfo->EffectMiscValue[j];
+                    if (ItemStatLink.find(stat) == ItemStatLink.end())
+                        continue;
+                    float coverage = chancePerSwing;
+                    int32 duration = GetSpellDuration(procInfo);
+                    if (duration > 0)
+                    {
+                        // Buff proc: uptime ~= procs-per-duration-window.
+                        coverage = chancePerSwing * static_cast<float>(duration) / kReferenceWeaponDelayMs;
+                        if (coverage > 0.9f)
+                            coverage = 0.9f;
+                    }
+                    float expected = coverage * static_cast<float>(basePoints);
+                    weight += CalculateSingleStatWeight(playerclass, spec, ItemStatLink[stat], static_cast<int32>(expected));
+                }
+                else if (auraName == SPELL_AURA_MOD_DAMAGE_DONE)
+                {
+                    float coverage = chancePerSwing;
+                    int32 duration = GetSpellDuration(procInfo);
+                    if (duration > 0)
+                    {
+                        coverage = chancePerSwing * static_cast<float>(duration) / kReferenceWeaponDelayMs;
+                        if (coverage > 0.9f)
+                            coverage = 0.9f;
+                    }
+                    float expected = coverage * static_cast<float>(basePoints);
+                    if (procInfo->EffectMiscValue[j] == SPELL_SCHOOL_MASK_MAGIC)
+                        weight += CalculateSingleStatWeight(playerclass, spec, "splpwr", static_cast<int32>(expected));
+                }
+            }
+        }
+    }
+
+    return weight;
+}
+
+uint32 RandomItemMgr::CalculateBestBotEnchantId(Player* bot, uint32 specId, Item* item)
+{
+    if (!bot || !item)
+        return 0;
+    if (!botEnchantsLoaded)
+        LoadBotEnchantCandidates();
+    if (botEnchantCandidates.empty())
+        return 0;
+
+    ItemPrototype const* proto = item->GetProto();
+    if (!proto)
+        return 0;
+
+    uint32 level = bot->GetLevel();
+    uint32 quality = proto->Quality;
+    // Owner quality ceiling: grey/white gear stays unenchanted; greens take
+    // cheap/mid enchants only (min level at least 10 below the bot); blues
+    // take anything non-premium up to the bot's level; epics+ take premium too.
+    if (quality < ITEM_QUALITY_UNCOMMON)
+        return 0;
+    bool isEpic = quality >= ITEM_QUALITY_EPIC;
+
+    uint8 equipSlot = item->GetSlot();
+    uint8 playerclass = bot->GetClass();
+    if (!specId)
+        specId = GetFallbackSpecId(playerclass);
+    if (!specId || !m_weightScales[specId].info.id)
+        return 0;
+
+    uint32 bestSpell = 0;
+    uint32 bestScore = 0;
+    for (auto const& candidate : botEnchantCandidates)
+    {
+        if (candidate.slotId != equipSlot)
+            continue;
+        // Source-tier cap with rep gate (same rules as the gear pool:
+        // default tier 0, rep off; roadmap issue #289 unlocks higher).
+        if (candidate.tier > 0 || candidate.rep > 0)
+            continue;
+        if (candidate.minLevel > level)
+            continue;
+        if (candidate.premium && !isEpic)
+            continue;
+        if (!isEpic && candidate.minLevel + 10 > level && quality == ITEM_QUALITY_UNCOMMON)
+            continue;
+
+        SpellEntry const* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(candidate.spellId);
+        if (!spellInfo || spellInfo->Effect[0] != SPELL_EFFECT_ENCHANT_ITEM)
+            continue;
+        uint32 enchantId = spellInfo->EffectMiscValue[0];
+        if (!enchantId)
+            continue;
+        // Slot/item-type mask fit: mirrors EnchantItemT's own check so
+        // mismatches are skipped silently instead of spamming error logs
+        // (e.g. Fiery Weapon onto a shield, scope onto a thrown weapon).
+        if (!((1 << proto->SubClass) & spellInfo->EquippedItemSubClassMask) &&
+            !((1 << proto->InventoryType) & spellInfo->EquippedItemInventoryTypeMask))
+            continue;
+
+        uint32 score = CalculateEnchantWeight(playerclass, specId, enchantId);
+        if (!score)
+            score = CalculateProcEnchantWeight(playerclass, specId, enchantId);
+        // Deterministic tie-break: two candidates can weigh the same
+        // (e.g. scopes on a spec with no dps scale, or zero-weight auras).
+        // Prefer the higher-min-level row so picks march up the ladder with
+        // the bot instead of sticking on the first tier forever.
+        if (score > bestScore || (score && bestSpell && score == bestScore &&
+            candidate.minLevel > GetBotEnchantMinLevel(bestSpell, equipSlot)))
+        {
+            bestScore = score;
+            bestSpell = candidate.spellId;
+        }
+    }
+
+    return bestScore ? bestSpell : 0;
+}
+
+uint8 RandomItemMgr::GetBotEnchantMinLevel(uint32 spellId, uint8 slotId)
+{
+    for (auto const& candidate : botEnchantCandidates)
+        if (candidate.spellId == spellId && candidate.slotId == slotId)
+            return candidate.minLevel;
+    return 0;
 }
