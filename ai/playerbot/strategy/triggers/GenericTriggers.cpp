@@ -7,6 +7,7 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/AoeValues.h"
 #include "playerbot/strategy/actions/AttackAction.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 
 #include <regex>
 
@@ -30,6 +31,24 @@ bool MediumManaTrigger::IsActive()
 bool HighManaTrigger::IsActive()
 {
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 65;
+}
+
+bool HealerShouldAttackTrigger::IsActive()
+{
+    if (!bot->GetGroup())
+        return true;
+
+    if (AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.almostFullHealth)
+        return false;
+
+    if (!checkMana)
+        return true;
+
+    // Easy fights (low balance) keep a large reserve; hard ones allow more.
+    // 65 is the "high mana" line used by HighManaTrigger.
+    uint8 balance = AI_VALUE(uint8, "balance");
+    uint32 manaThreshold = balance <= 50 ? 85 : (balance <= 100 ? 65 : sPlayerbotAIConfig.mediumMana);
+    return !AI_VALUE2(bool, "has mana", "self target") || AI_VALUE2(uint8, "mana", "self target") >= manaThreshold;
 }
 
 bool AlmostFullManaTrigger::IsActive()
@@ -324,10 +343,53 @@ bool NoThreatTrigger::IsActive()
     return true;
 }
 
+// Deliberate damage-breakable CC that an AoE would waste. The frozen state is
+// left out on purpose: Frost Nova sets it too, and nova + AoE is normal play.
+static bool HoldsBreakableCc(PlayerbotAI* ai, Unit* unit, Player* bot)
+{
+    if (!unit || PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot))
+        return false;
+
+    static char const* const breakableCc[] = { "sap", "gouge", "shackle undead", "hibernate",
+        "freezing trap effect", "seduction", "repentance", "wyvern sting" };
+    if (unit->IsPolymorphed())
+        return true;
+    for (char const* spell : breakableCc)
+        if (ai->HasAura(spell, unit))
+            return true;
+    return false;
+}
+
 bool AoeTrigger::IsActive()
 {
     std::list<ObjectGuid> aoeEnemies = AoeCountValue::FindMaxDensity(bot, range);
-    return aoeEnemies.size() >= amount;
+    if (aoeEnemies.size() < (size_t)amount)
+        return false;
+
+    // CC interlock: never AoE a pack holding a breakable CC (sheep/sap/trap).
+    // Unbreakable CC (stun/fear/roots) survives damage, so only breakable
+    // blocks. Skull-marked mobs opted out of CC protection (HasIgnoreCCRti).
+    // Splash counts too: a CCed mob beside the cluster still eats the blast.
+    for (std::list<ObjectGuid>::iterator i = aoeEnemies.begin(); i != aoeEnemies.end(); ++i)
+    {
+        if (HoldsBreakableCc(ai, ai->GetUnit(*i), bot))
+            return false;
+    }
+    std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!HoldsBreakableCc(ai, unit, bot))
+            continue;
+        for (std::list<ObjectGuid>::iterator j = aoeEnemies.begin(); j != aoeEnemies.end(); ++j)
+        {
+            Unit* member = ai->GetUnit(*j);
+            if (member && sServerFacade.IsDistanceLessOrEqualThan(
+                sServerFacade.getDistance2d(unit, member), sPlayerbotAIConfig.aoeRadius))
+                return false;
+        }
+    }
+    return true;
 }
 
 bool DebuffTrigger::IsActive()
@@ -639,12 +701,18 @@ bool TankAssistTrigger::IsActive()
     Unit* tankTarget = AI_VALUE(Unit*, "tank target");
     if (!tankTarget || currentTarget == tankTarget)
         return false;
-#ifdef CMANGOS
-    return tankTarget->GetVictim() != AI_VALUE(Unit*, "self target");
-#endif
-#ifdef MANGOS
-    return tankTarget->GetVictim() != AI_VALUE(Unit*, "self target");
-#endif
+
+    // mod-playerbots TankAssistTrigger semantics: switch only while the tank
+    // still holds its current target. A loose add is picked up while the
+    // current mob is held, and the tank can switch back to finish it later.
+    // The old victim check forbade returning to a mob on the tank (one-way
+    // door). "has aggro" is HasAggroValue (values/AttackerCountValues.cpp).
+    bool holdsCurrent = AI_VALUE2(bool, "has aggro", "current target");
+    // Finish a held mob that is already low before peeling a loose add; the
+    // add waits a few seconds, a half-dead mob left behind waits forever.
+    if (holdsCurrent && currentTarget->GetHealthPercent() <= sPlayerbotAIConfig.lowHealth)
+        return false;
+    return holdsCurrent;
 }
 
 bool IsBehindTargetTrigger::IsActive()
@@ -669,6 +737,19 @@ bool HasCcTargetTrigger::IsActive()
     uint32 spellid = AI_VALUE2(uint32, "spell id", getName());
     if (spellid && sServerFacade.IsSpellReady(bot, spellid))
     {
+        // mod-playerbots d9ee5198/#2648: inside a non-raid dungeon the generic
+        // CC never fires on a free pick — only on this bot's assigned raid
+        // mark ("rti cc target"). Open world keeps today's free CC; raids
+        // keep it too (marks are advisory there, packs are scripted).
+        if (bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
+        {
+            Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
+            if (!rtiCcTarget)
+                return false;
+            Unit* ccTarget = AI_VALUE2(Unit*, "cc target", getName());
+            if (!ccTarget || ccTarget != rtiCcTarget)
+                return false;
+        }
         return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
     }
 

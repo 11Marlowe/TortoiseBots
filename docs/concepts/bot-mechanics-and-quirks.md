@@ -22,10 +22,10 @@ Targeting in TortoiseBots is governed by specialized value calculators rather th
 
 | Role / Intent | Target Calculator | Selection Logic |
 | :--- | :--- | :--- |
-| **Tank** | `TankTargetValue` | **Lowest Personal Threat:** The tank inspects `threatManager->getThreat(bot)` across all engaged attackers and targets the mob where its threat is *lowest*. This produces automatic tab-target sunder/taunt behavior across multi-mob packs. Strictly ignores CC targets. |
+| **Tank** | `TankTargetValue` (`FindTankTargetSmartStrategy`) | **Bucketed Aggro Priority:** attackers are bucketed — loose mobs the tank holds nothing on first (nearest), then held mobs in melee reach, then held mobs out of reach; among held mobs the current target wins and lowest personal threat orders the rest. `TankAssistTrigger` only switches while the tank still holds its current target (`has aggro`) and never while that held mob is at or below `AiPlayerbot.LowHealth` (50%): the tank finishes a low mob before peeling a loose add, then can switch back to anything it left. Priority 1 = Explicit `.bot action attack` target; Priority 2 = Raid Target Icon; strictly ignores CC targets. |
 | **DPS (Single Target)** | `DpsTargetValue` | **Lowest Health First:** Priority 1 = Explicit `.bot action attack` target; Priority 2 = Raid Target Icon (**Skull**); Priority 3 = Non-CC attacker with the **lowest current health** to burn mobs down one by one. |
 | **DPS (AoE)** | `DpsAoeTargetValue` | **Highest Health First:** Targets the enemy with the **highest health** so damage-over-time (DoT) effects and cleaves tick for the longest possible duration. |
-| **Crowd Control** | `CcTargetValue` | **Smart Exclusions:** Evaluates mobs matching the assigned raid mark. Automatically excludes: (1) Current tank/DPS target, (2) Mobs with < 50% HP (won't waste CC on dying mobs), and (3) Mobs inside active AoE spell radiuses (e.g. *Blizzard*, *Consecration*). |
+| **Crowd Control** | `CcTargetValue` + `HasCcTargetTrigger` | **Exclusive mark ownership + gated CC:** one mark = one bot (assigning a mark resets other owners to `none`; `cc clear` dismisses). Never CCs over an existing breakable/unbreakable CC (own-aura re-CC still flows). Inside non-raid dungeons CC fires only on the bot's assigned mark; open world keeps free picks. AoE triggers refuse packs holding a breakable CC. Otherwise **Smart Exclusions:** (1) Current tank/DPS target, (2) Mobs with < 50% HP, (3) Mobs inside active AoE radiuses. |
 | **Grind Target (Level 1–4)** | `GrindTravelDestination` | **Beginner Band Clamp:** Bots level 1–4 clamp the level ceiling to their own level and are permitted to target coinless starter beasts (e.g., boars, scorpids, plainstriders) while strictly excluding critters (`CREATURE_TYPE_CRITTER`). |
 | **Enemy Healer** | `EnemyHealerTargetValue` | Detects humanoid/creature enemies casting healing spells and surfaces them as high-priority interrupt/focus targets. |
 
@@ -59,7 +59,7 @@ Player Issues .bot action interrupt
 ```
 
 ### Pet Discipline Around Crowd Control
-A classic PlayerBots bug was pets breaking crowd control immediately after application. In TortoiseBots, pets belonging to Hunter and Warlock bots inspect `IsCcTarget()`. When a mob is affected by *Polymorph*, *Freezing Trap*, *Sap*, or *Seduce*, pets are strictly blocked from attacking that GUID.
+A classic PlayerBots bug was pets breaking crowd control immediately after application. In TortoiseBots, pets belonging to Hunter and Warlock bots are kept off CC'd targets via the breakable/unbreakable CC check (`HasBreakableCC`: *Polymorph*, *Freezing Trap*, *Sap*, *Gouge*, *Shackle Undead*; `HasUnBreakableCC`: stun/fear/roots) unless the Skull mark opts out. *Seduce* is not a bot CC executor (no CC-flagged seduction action) and its aura is not in the breakable set.
 
 ---
 

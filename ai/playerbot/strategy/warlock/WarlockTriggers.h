@@ -172,6 +172,7 @@ namespace ai
     {
     public:
         FearTrigger(PlayerbotAI* ai) : HasCcTargetTrigger(ai, "fear") {}
+        virtual bool IsActive() override;
     };
 
     class AmplifyCurseTrigger : public BuffTrigger

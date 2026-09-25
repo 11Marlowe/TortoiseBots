@@ -341,7 +341,8 @@ logout
 roster
 action attack|interrupt|stop|pull|pullback|come|stay|follow
 action focus skull
-action cc <raid-mark>  # star/circle/diamond/triangle/moon/square/cross/skull
+action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/skull (exclusive per-bot ownership; explicit name wins over target; unknown name -> ACTION_ERR no-bot; ACK scope bot:<Name>)
+action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action aoe [on|off]
 follow
 invite
@@ -384,10 +385,17 @@ target's active cast, then executes it or queues the existing reach action.
 Pull and Pullback both use the mature `PullStrategy`
 but select different existing policy state: ordinary Pull removes `pull back`,
 while Pullback enables its return-to-pull-position trigger. CC resolves a
-requested raid mark and a suitable executor server-side. Targeting an owned bot
-sets that bot's persistent `rti cc` preference; targeting an enemy (or an
-existing group mark) lets the server select a capable executor and immediately
-attempt the mature CC action. Executor discovery walks the registered mature
+requested raid mark and a suitable executor server-side. An explicit bot name
+(`cc <mark> <Bot>`) assigns that owned live bot directly, winning over the
+live target; unknown or uncontrollable names fail with `no-bot`. Otherwise
+targeting an owned bot sets that bot's persistent `rti cc` preference, and
+targeting an enemy (or an existing group mark) lets the server select a
+capable executor and immediately attempt the mature CC action. Mark ownership
+is exclusive: assigning a mark resets every other owned live party bot holding
+it to `none` and persists the change. `action cc clear [bot]` dismisses
+ownership (named bot, else targeted bot, else the whole owned party when no
+bot is targeted); `none` is reported as `-` in the `TBM:CC_ASSIGN` snapshot.
+Executor discovery walks the registered mature
 CC actions, so Hunter traps/beast control, Paladin Turn Undead, Rogue Sap, and
 the other class actions remain eligible without a second class policy table.
 Among the bots whose mature action is usable, the best spell fit wins (Sap on an
@@ -396,7 +404,9 @@ Trap, Turn Undead, Scare Beast, Entangling Roots, and Fear last). Ties go to the
 lowest bot GUID, so the choice never depends on party invite order (issue #58).
 Assignment is persisted even when the current marked creature is not legal for
 the selected bot; the immediate cast is best-effort and normal AI fallback
-remains available. Addon requests receive one structured
+remains available. Inside non-raid dungeons the generic CC triggers fire only
+on the bot's assigned mark; AoE triggers refuse packs holding a breakable CC.
+Addon requests receive one structured
 `TBM:ACTION_ACK` or `TBM:ACTION_ERR`; incidental mature-AI chat is suppressed
 where the existing silent strategy supports it.
 

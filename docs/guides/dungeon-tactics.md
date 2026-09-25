@@ -68,9 +68,9 @@ Crowd control is essential for multi-caster pulls in level 40+ dungeons.
 | Raid Icon | Primary Class & Ability | Valid Targets | Notes |
 | :---: | :--- | :--- | :--- |
 | **Moon** | **Mage** (*Polymorph*) / **Rogue** (*Sap*) | Beasts, Humanoids | Rogue must be in stealth prior to pull for Sap. |
-| **Star** | **Priest** (*Shackle Undead*) | Undead only | Crucial in Stratholme, Scholomance, and Shadowfang Keep. |
-| **Diamond** | **Warlock** (*Banish* / *Seduce*) | Demons, Elementals | Banish completely immunizes target from damage. |
-| **Triangle** | **Hunter** (*Freezing Trap*) / **Druid** (*Hibernate*) | Beasts, Dragonkin | Hunter drops trap; tank guides mob over the trap. |
+| **Star** | **Priest** (*Shackle Undead*) / **Paladin** (*Turn Undead*) | Undead only | Crucial in Stratholme, Scholomance, and Shadowfang Keep. |
+| **Diamond** | **Warlock** (*Banish* / *Fear*) | Demons, Elementals (Banish); Fear only on its assigned mark | Banish completely immunizes target from damage. *Seduce* is not a bot CC executor. |
+| **Triangle** | **Hunter** (*Freezing Trap* / *Scare Beast*) / **Druid** (*Hibernate* / *Entangling Roots*) | Beasts, Dragonkin | Hunter drops trap; tank guides mob over the trap. |
 
 ### Issuing CC In-Game
 * Target the mob you want CC'd and type:
@@ -78,7 +78,9 @@ Crowd control is essential for multi-caster pulls in level 40+ dungeons.
   .bot action cc moon
   # Or click the Moon button under CC Marks in /tbm
   ```
-* The server selects the capable bot with the best-fitting CC for that target (Sap before the pull, then Shackle/Banish/Hibernate/Polymorph/traps, Fear last) and enqueues the action. The same target and state always pick the same bot.
+* The mark is assigned to exactly one bot (exclusive ownership); reassigning it moves ownership. When no owned bot is targeted, the server selects the capable bot with the best-fitting CC for that target (Sap before the pull, then Shackle/Banish/Hibernate/Polymorph/traps, Fear last); the same target and state always pick the same bot.
+* Dismiss with `.bot action cc clear` (targeted bot, or the whole owned party when untargeted).
+* **Dungeon rule:** inside non-raid dungeons bots CC only their assigned mark; in the open world they may CC a free pick. Bots never CC over an existing CC, and AoE triggers refuse packs holding a breakable CC.
 * **Automatic Discipline:** Once applied, party bots and pets are strictly blocked from attacking the crowd-controlled target until all other active threats are dead.
 
 ---
