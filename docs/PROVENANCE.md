@@ -768,11 +768,6 @@ Source repositories and commits:
 
 - `mod-playerbots@5397110cba484a9b7209bc9f632652e9d4bd6a70`, `RtiAction`,
   `RtiCcValue`, `RtiCcTargetValue`, `CcTargetValue`, and CC trigger behavior.
-- `MicroBot/CCP` v4.16 plus the local reverse-engineering notes in
-  `playerbots-references/MicroBot Data/CCP-addon-reverse-engineer.md` and
-  `microbot-wikidot-synthesis.md`, used for the per-companion `ccmark` UX and
-  command semantics. MicroBot server code is closed; no binary or core patch
-  was copied.
 
 Source files: `commands/BotCommands.cpp`, `README.md`, `docs/HOST_API.md`,
 `docs/PLAYER_CONTROL.md`, and the manager's `Constants.lua`, `Roster.lua`,
