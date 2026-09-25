@@ -638,6 +638,9 @@ bool PlayerbotAIConfig::Initialize()
     RandombotsWalkingRPG = config.GetBoolDefault("AiPlayerbot.RandombotsWalkingRPG", false);
     RandombotsWalkingRPGInDoors = config.GetBoolDefault("AiPlayerbot.RandombotsWalkingRPG.InDoors", false);
     minEnchantingBotLevel = config.GetIntDefault("AiPlayerbot.minEnchantingBotLevel", 10);
+    pullDpsJoinDelay = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.PullDpsJoinDelay", 10));
+    pullBackDpsJoinDelay = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.PullBackDpsJoinDelay", 3));
+    pullBackMaxReturnTime = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.PullBackMaxReturnTime", 15));
     randombotStartingLevel = config.GetIntDefault("AiPlayerbot.randombotStartingLevel", 1);
     randomBotStartLevelMin = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMin", 1);
     randomBotStartLevelMax = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMax", 60);

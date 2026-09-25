@@ -62,7 +62,11 @@ bool PullEndTrigger::IsActive()
         return false;
 
     const time_t secondsSincePullStarted = time(0) - strategy->GetPullStartTime();
-    const bool pullback = ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT);
+    // Per-command mode owns the return leg; the sticky strategy is only the
+    // fallback for automatic dungeon pulls.
+    const bool pullback = strategy->IsCommandActive()
+        ? strategy->IsCommandPullback()
+        : ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT);
 
     if (pullback && strategy->HasPullActionCompleted())
     {
@@ -71,8 +75,18 @@ bool PullEndTrigger::IsActive()
         if (!pullPosition.isSet() || pullPosition.mapId != bot->GetMapId())
             return true;
 
-        // Do not discard the return anchor just because the target died,
-        // changed victim, or the normal pull timeout elapsed while returning.
+        // Bounded return: a stuck return (knockback, fear, path failure,
+        // anchor in another map) ends the pull instead of holding the tank
+        // inert forever. The clock starts when the pull lands.
+        time_t returnStart = strategy->GetReturnStartTime();
+        if (returnStart > 0 && time(0) - returnStart >= static_cast<time_t>(sPlayerbotAIConfig.pullBackMaxReturnTime))
+            return true;
+
+        // Tank back at the anchor: stop the return clock (NoteReturnedToAnchor
+        // is called by the arrival brake) and hold the anchor for the join
+        // window. Do not discard the return anchor just because the target
+        // died, changed victim, or the normal pull timeout elapsed while
+        // returning.
         return bot->GetDistance(pullPosition.x, pullPosition.y, pullPosition.z) <=
             ai->GetRange("follow");
     }

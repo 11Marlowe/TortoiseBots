@@ -34,6 +34,14 @@ namespace ai
         void OnPullStarted();
         void OnPullActionCompleted();
         void OnPullEnded();
+        // Per-command mode: true while a pull/pullback command owns this pull.
+        // The return leg follows commandPullback, not the sticky strategy.
+        void BeginCommand(bool pullback, bool hadPullBackStrategy);
+        bool IsCommandActive() const { return commandActive; }
+        bool IsCommandPullback() const { return commandPullback; }
+        bool HadPullBack() const { return hadPullBack; }
+        time_t GetReturnStartTime() const { return returnStartTime; }
+        void NoteReturnedToAnchor();
         ReactStates GetPetReactState() const { return petReactState; }
         void SetPetReactState(ReactStates reactState) { petReactState = reactState; }
 
@@ -51,6 +59,12 @@ namespace ai
         bool pendingToStart;
         bool pullActionCompleted;
         time_t pullStartTime;
+        // Per-command return mode: set by the pull/pullback command, restored
+        // to the tank's default when the pull ends. Never sticky.
+        bool commandPullback;
+        bool commandActive;
+        bool hadPullBack;
+        time_t returnStartTime;
         ReactStates petReactState;
     };
 

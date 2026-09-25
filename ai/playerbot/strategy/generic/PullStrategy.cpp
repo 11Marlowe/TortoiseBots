@@ -43,6 +43,10 @@ PullStrategy::PullStrategy(PlayerbotAI* ai, std::string pullAction, std::string 
 , pendingToStart(false)
 , pullActionCompleted(false)
 , pullStartTime(0)
+, commandPullback(false)
+, commandActive(false)
+, hadPullBack(false)
+, returnStartTime(0)
 , petReactState(REACT_DEFENSIVE)
 {
     actionNodeFactories.Add(std::make_unique<PullStrategyActionNodeFactory>());
@@ -303,6 +307,8 @@ void PullStrategy::OnPullActionCompleted()
     pendingToStart = false;
     pullActionCompleted = true;
     pullStartTime = time(0);
+    if (commandActive && commandPullback && !returnStartTime)
+        returnStartTime = time(0);
 }
 
 void PullStrategy::OnPullEnded()
@@ -310,7 +316,19 @@ void PullStrategy::OnPullEnded()
     pendingToStart = false;
     pullActionCompleted = false;
     pullStartTime = 0;
+    commandActive = false;
+    commandPullback = false;
+    hadPullBack = false;
+    returnStartTime = 0;
     SetTarget(nullptr);
+}
+
+void PullStrategy::BeginCommand(bool pullback, bool hadPullBackStrategy)
+{
+    commandActive = true;
+    commandPullback = pullback;
+    hadPullBack = hadPullBackStrategy;
+    returnStartTime = 0;
 }
 
 void PullStrategy::RequestPull(Unit* target, bool resetTime)
@@ -324,6 +342,13 @@ void PullStrategy::RequestPull(Unit* target, bool resetTime)
     }
 }
 
+void PullStrategy::NoteReturnedToAnchor()
+{
+    // Called when the tank reaches the anchor: stop the return clock so the
+    // end trigger holds the anchor for the join window instead of ending
+    // the pull the instant the tank arrives.
+    returnStartTime = 0;
+}
 float PullMultiplier::GetValue(Action* action)
 {
     const PullStrategy* strategy = PullStrategy::Get(ai);
@@ -340,7 +365,18 @@ float PullMultiplier::GetValue(Action* action)
             return 1.0f;
         }
 
-        if (action->getRelevance() >= 100)
+        // The returning tank is under fire: let emergency, defensive and
+        // taunt-grade actions through (taunt, defensives, self-heal, potions)
+        // while keeping the damage rotation muted until the pull ends.
+        if (action->getRelevance() >= ACTION_EMERGENCY)
+        {
+            return 1.0f;
+        }
+
+        // Taunt-grade actions (ACTION_INTERRUPT and above: taunt, shield
+        // bash, earth shock) stay eligible at low priority; emergency and
+        // above (defensives, self-heal, potions) run at full priority.
+        if (action->getRelevance() >= ACTION_INTERRUPT)
         {
             return 0.01f;
         }

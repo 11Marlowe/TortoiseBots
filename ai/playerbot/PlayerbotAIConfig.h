@@ -348,6 +348,12 @@ public:
     uint32 diffWithPlayer;
     uint32 diffEmpty;
     uint32 minEnchantingBotLevel;
+    // Ordered pull: DPS hold after the tank's pull lands (pull) or after the
+    // tank is back at the anchor (pullback). Per-command [seconds] overrides
+    // the defaults; the return leg is hard-capped by pullBackMaxReturnTime.
+    uint32 pullDpsJoinDelay;
+    uint32 pullBackDpsJoinDelay;
+    uint32 pullBackMaxReturnTime;
     uint32 randombotStartingLevel;
     // Level seeding for persistent-level pools (DisableRandomLevels=1). Fresh
     // pool bots are created at level 1 by CharacterCreation, so the pool

@@ -1,9 +1,12 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/GroupMembers.h"
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/AttackersValue.h"
 #include "PullActions.h"
 #include "playerbot/strategy/values/PositionValue.h"
+#include "../../runtime/BotManager.h"
+#include "../../runtime/PlayerbotAIStorage.h"
 
 using namespace ai;
 
@@ -111,6 +114,15 @@ bool PullRequestAction::Execute(Event& event)
 
 Unit* PullMyTargetAction::GetTarget(Event& event)
 {
+    // Prefer the GUID snapshotted by the command (event object): the live
+    // selection can change between command validation and this tick.
+    ObjectGuid snapshot = event.getObject();
+    if (!snapshot.IsEmpty())
+    {
+        if (Unit* snapshotted = ai->GetUnit(snapshot))
+            return snapshotted;
+    }
+
     Unit* target = nullptr;
 
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
@@ -126,6 +138,7 @@ Unit* PullMyTargetAction::GetTarget(Event& event)
 
     return target;
 }
+
 
 Unit* PullRTITargetAction::GetTarget(Event& event)
 {
@@ -222,6 +235,21 @@ bool PullAction::Execute(Event& event)
             else if (ai->DoSpecificAction(actionName, event, true))
             {
                 strategy->OnPullActionCompleted();
+                // Anchor the DPS join delay to the landing, not to the
+                // command: re-stamp every held party bot's combat-start clock
+                // and re-assert its wait window so an ordinary pull holds for
+                // the full delay after the cast lands.
+                for (Player* member : LiveGroupMembers(bot->GetGroup()))
+                {
+                    if (!member || member == bot || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
+                        continue;
+                    PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+                    if (!memberAi || !memberAi->GetAiObjectContext())
+                        continue;
+                    if (!memberAi->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+                        continue;
+                    memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
+                }
                 return true;
             }
             else
@@ -292,12 +320,34 @@ bool PullEndAction::Execute(Event& event)
             }
         }
 
+        // Per-command return mode: restore the tank's default before erasing
+        // anything, so an ordinary pull re-arms the tank kit and a pullback
+        // never leaks into the next command.
+        bool wasCommand = strategy->IsCommandActive();
+        bool wasPullback = strategy->IsCommandPullback();
+        bool hadPullBack = strategy->HadPullBack();
+        if (wasCommand && (wasPullback != hadPullBack))
+        {
+            ai->ChangeStrategy((hadPullBack ? "+" : "-") + std::string("pull back"),
+                BotState::BOT_STATE_ALL);
+        }
+
         // Remove the saved pull position
         AiObjectContext* context = ai->GetAiObjectContext();
         PositionMap& posMap = AI_VALUE(PositionMap&, "position");
         PositionEntry stayPosition = posMap["pull"];
         if (stayPosition.isSet())
         {
+            // After a pullback the tank holds the anchor for the join window:
+            // drop a stay at the anchor position so the tank fights the
+            // incoming mob in the corner instead of drifting back out.
+            if (wasCommand && wasPullback)
+            {
+                PositionEntry tankStay = posMap["stay"];
+                tankStay.Set(stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
+                posMap["stay"] = tankStay;
+                ai->SetMovementStrategy("stay");
+            }
             posMap.erase("pull");
         }
 

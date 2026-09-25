@@ -6,7 +6,8 @@
 #include "../ai/playerbot/strategy/Engine.h"
 #include "../ai/playerbot/strategy/Action.h"
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
-
+#include "../ai/playerbot/strategy/values/PositionValue.h"
+#include "../ai/playerbot/WorldPosition.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectAccessor.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -252,15 +253,19 @@ Player* ResolvePullExecutor(BotCommandContext const& context, bool allowSelected
     return nullptr;
 }
 
-// Threat window: while the tank pulls and establishes threat at the anchor,
-// party DPS bots hold fire for ~10s. Healers stay active. Uses the mature
+// Threat window: while the tank pulls and establishes threat, party DPS bots
+// hold at the command anchor. Healers stay active. Uses the mature
 // "wait for attack" gate the rotation already honors (AttackAction skips
-// bot->Attack and the multiplier zeroes combat actions), not a new pause flag.
-void PausePartyDpsForPull(BotCommandContext const& context, Player* executor)
+// bot->Attack and the multiplier zeroes combat actions), plus an explicit
+// stay hold so the allowed "keep safe distance" action cannot drift the bots
+// toward the mob. The stay is released together with the wait window.
+// joinDelaySeconds is clamped to the uint8 value range (0-60 at the parser).
+void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, uint32 joinDelaySeconds)
 {
     if (!context.requester)
         return;
 
+    WorldPosition anchor(context.requester);
     for (Player* bot : context.partyBots)
     {
         if (!bot || bot == executor)
@@ -271,26 +276,79 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor)
         if (ai->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK) ||
             PlayerbotAI::IsTank(bot, true))
             continue;
-        ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(10);
+        // Hold this bot at the anchor: stay owns the movement mode, and the
+        // anchor copy lets the release step distinguish our hold from a
+        // player-placed stay (only ours is cleared).
+        ai->SetMovementStrategy("stay");
+        ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        ai::PositionEntry stayPos = posMap["stay"];
+        stayPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
+        posMap["stay"] = stayPos;
+        ai::PositionEntry holdPos = posMap["pull hold"];
+        holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
+        posMap["pull hold"] = holdPos;
+        ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(joinDelaySeconds));
         ai->ChangeStrategy("+wait for attack", BotState::BOT_STATE_COMBAT);
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
+        // Re-stamped when the pull lands / the tank returns (see
+        // PullStrategy::OnPullActionCompleted / PullEndAction), so the join
+        // delay runs from the event, not from the command.
         ai->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
     }
 }
 
+// Release the anchor hold placed by PausePartyDpsForPull. Only clears a stay
+// that still matches our anchor copy; a player-placed stay is left alone.
+void ReleasePartyDpsFromPull(BotCommandContext const& context, Player* executor)
+{
+    for (Player* bot : context.partyBots)
+    {
+        if (!bot || bot == executor)
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai || !ai->GetAiObjectContext())
+            continue;
+        ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
+        ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        ai::PositionEntry holdPos = posMap["pull hold"];
+        if (!holdPos.isSet())
+            continue;
+        ai::PositionEntry stayPos = posMap["stay"];
+        if (stayPos.isSet() && stayPos.mapId == holdPos.mapId &&
+            stayPos.GetX() == holdPos.GetX() && stayPos.GetY() == holdPos.GetY())
+        {
+            ai->SetMovementStrategy("follow");
+            posMap.erase("stay");
+        }
+        posMap.erase("pull hold");
+    }
+}
+
+// Per-command return mode: the `pull back` strategy stays the mature switch,
+// but the command snapshots the tank's default and records the per-request
+// mode on the PullStrategy. PullEndAction restores the default, so a pull
+// never leaks into the next command and a pullback never sticks.
 bool ConfigurePullMode(PlayerbotAI* ai, bool pullback)
 {
     if (!ai)
         return false;
 
+    bool hadPullBack = ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("pull back", BotState::BOT_STATE_NON_COMBAT);
     ai->ChangeStrategy((pullback ? "+" : "-") + std::string("pull back"),
         BotState::BOT_STATE_ALL);
-    return pullback
+    bool applied = pullback
         ? (ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT) ||
             ai->HasStrategy("pull back", BotState::BOT_STATE_NON_COMBAT))
         : (!ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT) &&
             !ai->HasStrategy("pull back", BotState::BOT_STATE_NON_COMBAT));
+    if (applied)
+    {
+        if (PullStrategy* strategy = PullStrategy::Get(ai))
+            strategy->BeginCommand(pullback, hadPullBack);
+    }
+    return applied;
 }
 
 namespace {

@@ -210,3 +210,25 @@ bool ReturnToPullPositionAction::isPossible()
     return pullPosition.isSet() && pullPosition.mapId == bot->GetMapId() &&
         strategy && strategy->HasPullActionCompleted();
 }
+
+bool ReturnToPullPositionAction::Execute(Event& event)
+{
+    // Arrival brake: the AI thinks a tick late, so stop the tank the moment
+    // it is within follow distance of the anchor instead of drifting past
+    // it. Face the pull target so the tank keeps the mob in front.
+    PositionMap& posMap = AI_VALUE(PositionMap&, "position");
+    PositionEntry pullPosition = posMap["pull"];
+    if (pullPosition.isSet() && pullPosition.mapId == bot->GetMapId() &&
+        bot->GetDistance(pullPosition.x, pullPosition.y, pullPosition.z) <= sPlayerbotAIConfig.followDistance)
+    {
+        ai->StopMoving();
+        if (PullStrategy* strategy = PullStrategy::Get(ai))
+        {
+            strategy->NoteReturnedToAnchor();
+            if (Unit* target = strategy->GetTarget())
+                sServerFacade.SetFacingTo(bot, target);
+        }
+        return true;
+    }
+    return MoveToPositionAction::Execute(event);
+}
