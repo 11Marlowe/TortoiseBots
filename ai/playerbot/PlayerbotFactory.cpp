@@ -3620,5 +3620,3 @@ void PlayerbotFactory::EnchantEquipment()
         }
     }
 }
-
-}
