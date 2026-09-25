@@ -242,18 +242,19 @@ AiPlayerbot.AhMarketValueVendor = 1
 #AiPlayerbot.RandomBotBgQueueInterval = 30000
 #AiPlayerbot.RandomBotBgMaxQueuePerInterval = 1
 
-# Disable core mangos map/bot optimizations which hinders bot activity
-# Works best together with AiPlayerbot.DisableActivityPriorities = 1
-# Currently has no effect (read but unused).
-# (0-1), default 0
+# Currently has NO effect: the key is read but nothing uses it (kept for
+# config compatibility). Bot activity is controlled by
+# AiPlayerbot.DisableActivityPriorities and AiPlayerbot.botActiveAlone below.
 # AiPlayerbot.DisableBotOptimizations = 0
 
-# Disable bot activity priorities, to make all bots ACTUALLY active without player in the zones or server (unless AiPlayerbot.DisableBotOptimizations = 0)
-# This setting is added for the sake of having all bots always active regardless of anything
-# With this enabled, if you get lags - then you need to reduce amount of online bots, rather than relying on optimizations
-# This will ingore the AiPlayerbot.botActiveAlone setting, all bots will be active regardless
-# Works best together with AiPlayerbot.DisableBotOptimizations = 1
-# (0-1), default 0
+# 1 = every bot's AI is always fully active (botActiveAlone is ignored).
+# 0 = activity priorities apply: bots near/visible to a player, in combat, in
+#     an instance, grouped with a player or in a battleground stay active;
+#     "alone" bots (no player nearby / empty map or server) are throttled to
+#     botActiveAlone percent. All bots stay logged in either way; this only
+#     limits how often their AI updates. If you get lag with 1, reduce the
+#     number of online bots.
+# Code default 0; this template ships 1.
 AiPlayerbot.DisableActivityPriorities = 1
 
 # Force bots to become active when a player is nearby
@@ -265,7 +266,9 @@ AiPlayerbot.DisableActivityPriorities = 1
 # Limit combat activity for slight performance boost.
 #AiPlayerbot.LimitCombatActivity = 0
 
-# Percentage of fully active bots. Default is 10, higher numbers may affect performance
+# Percentage (not a count) of "alone" bots kept fully active when
+# DisableActivityPriorities = 0; the active set rotates ~1% per minute.
+# Default is 10, higher numbers may affect performance
 # AiPlayerbot.botActiveAlone = 10
 
 # Sync non-random bot alt levels to master level automatically

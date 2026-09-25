@@ -92,6 +92,17 @@ All autonomous services are fully bounded and disabled by default. Enable only t
 
 ---
 
+### Bot activity (performance)
+
+| Setting | Default | What It Does |
+| :--- | :---: | :--- |
+| `AiPlayerbot.DisableActivityPriorities` | code `0`, template ships `1` | `1`: every bot's AI is always fully active and `botActiveAlone` is ignored. `0`: bots near or visible to a player, in combat, in an instance, grouped with a player or in a battleground stay active; "alone" bots are throttled. All bots stay logged in either way — only their AI update rate changes. |
+| `AiPlayerbot.botActiveAlone` | `10` | **Percentage** (not a count) of "alone" bots (no player nearby, empty map/server) kept fully active when priorities are on; the active set rotates about 1% per minute. With 20 bots, expect ~2 active when nobody is around. |
+| `AiPlayerbot.ForceActiveWhenNearPlayer` | `0` | Also treat bots merely visible to a player as always reacting. |
+| `AiPlayerbot.DisableBotOptimizations` | `0` | Currently has **no effect** (read but unused). |
+
+---
+
 ## 4. Combat & Reaction Thresholds
 
 Fine-tune how aggressively bots heal, rest, or drink:
