@@ -741,7 +741,13 @@ bool HasCcTargetTrigger::IsActive()
         // CC never fires on a free pick — only on this bot's assigned raid
         // mark ("rti cc target"). Open world keeps today's free CC; raids
         // keep it too (marks are advisory there, packs are scripted).
-        if (bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
+        // Opt-in bypass: the "auto cc" strategy (OFF by default, toggled via
+        // `.bot action auto cc [on|off]`) lets the bot CC its own smart pick
+        // (loose add on a healer/caster, unattacked, undotted) in dungeons.
+        // Explicit marks still win: CcTargetValue returns the assigned target
+        // first, so an assigned bot never falls through to its auto pick.
+        if (!ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) &&
+            bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
         {
             Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
             if (!rtiCcTarget)

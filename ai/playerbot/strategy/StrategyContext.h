@@ -19,6 +19,7 @@
 #include "generic/EmoteStrategy.h"
 #include "generic/TankAssistStrategy.h"
 #include "generic/DpsAssistStrategy.h"
+#include "generic/AutoCcStrategy.h"
 #include "generic/PassiveStrategy.h"
 #include "generic/GrindingStrategy.h"
 #include "generic/UsePotionsStrategy.h"
@@ -195,6 +196,7 @@ namespace ai
             creators["dps assist"] = [](PlayerbotAI* ai) { return new DpsAssistStrategy(ai); };
             creators["dps aoe"] = [](PlayerbotAI* ai) { return new DpsAoeStrategy(ai); };
             creators["tank assist"] = [](PlayerbotAI* ai) { return new TankAssistStrategy(ai); };
+            creators["auto cc"] = [](PlayerbotAI* ai) { return new AutoCcStrategy(ai); };
         }
     };
 

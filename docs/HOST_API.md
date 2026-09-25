@@ -343,6 +343,7 @@ action attack|interrupt|stop|pull|pullback|come|stay|follow
 action focus skull
 action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/skull (exclusive per-bot ownership; explicit name wins over target; unknown name -> ACTION_ERR no-bot; ACK scope bot:<Name>)
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
+action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
 follow
 invite
