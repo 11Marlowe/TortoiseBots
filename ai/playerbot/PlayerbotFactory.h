@@ -91,6 +91,7 @@ private:
     void Prepare();
     void InitSecondEquipmentSet();
     void Shuffle(std::vector<uint32>& items);
+    void InitEquipment(bool incremental, bool syncWithMaster, bool progressive = sPlayerbotAIConfig.randomGearProgression, bool partialUpgrade = false);
     // One per-quality candidate query with the wearability descent (shared
     // by the main band loop, the epic path and the fallback).
     void QuerySeedCandidates(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, uint32 q, std::vector<uint32>& ids);
