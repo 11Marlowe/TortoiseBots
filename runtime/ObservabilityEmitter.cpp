@@ -351,7 +351,8 @@ void ObservabilityEmitter::Initialize()
         m_destAddr = addr;
     }
 
-    TB_LOG_BASIC("TortoiseBots: Observability telemetry active on %s:%u", m_host.c_str(), m_port);
+    if (m_hostResolved)
+        TB_LOG_BASIC("TortoiseBots: Observability telemetry active on %s:%u", m_host.c_str(), m_port);
 }
 
 void ObservabilityEmitter::Shutdown()
