@@ -243,59 +243,62 @@ func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	if err := s.scanBuyback(bbQuery, guid, &profile); err != nil {
 		return nil, err
 	}
-	// 5. Stats: full armory row first, core character_stats subset, then live
-	// characters.health/power + player_levelstats base attributes. Both
-	// snapshot tables stay empty while a bot is online (core writes them
-	// only on logout), so without the live layer every online bot is 0/0%.
-	statQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4, maxpower5,
-		strength, agility, stamina, intellect, spirit, armor,
-		resHoly, resFire, resNature, resFrost, resShadow, resArcane,
-		dmgModNormal, dmgModHoly, dmgModFire, dmgModNature, dmgModFrost, dmgModShadow, dmgModArcane,
-		blockPct, dodgePct, parryPct, meleeCritPct, rangedCritPct,
-		attackPower, rangedAttackPower, meleeDamage, rangedDamage,
-		meleeWeaponSpeed, rangedWeaponSpeed, castSpeed, meleeHit, rangedHit, spellHit
-		FROM character_armory_stats WHERE guid = ?`
-	err = s.db.QueryRow(statQuery, guid).Scan(
-		&profile.Stats.MaxHealth, &profile.Stats.MaxPower1, &profile.Stats.MaxPower2,
-		&profile.Stats.MaxPower3, &profile.Stats.MaxPower4, &profile.Stats.MaxPower5,
-		&profile.Stats.Strength, &profile.Stats.Agility, &profile.Stats.Stamina,
-		&profile.Stats.Intellect, &profile.Stats.Spirit, &profile.Stats.Armor,
-		&profile.Stats.ResHoly, &profile.Stats.ResFire, &profile.Stats.ResNature,
-		&profile.Stats.ResFrost, &profile.Stats.ResShadow, &profile.Stats.ResArcane,
-		&profile.Stats.SpellDamage, &profile.Stats.SpellDmgHoly, &profile.Stats.SpellDmgFire,
-		&profile.Stats.SpellDmgNature, &profile.Stats.SpellDmgFrost, &profile.Stats.SpellDmgShadow,
-		&profile.Stats.SpellDmgArcane,
-		&profile.Stats.BlockPct, &profile.Stats.DodgePct, &profile.Stats.ParryPct,
-		&profile.Stats.MeleeCritPct, &profile.Stats.RangedCritPct,
-		&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower,
-		&profile.Stats.MeleeDamage, &profile.Stats.RangedDamage,
-		&profile.Stats.MeleeSpeed, &profile.Stats.RangedSpeed, &profile.Stats.CastSpeed,
-		&profile.Stats.MeleeHit, &profile.Stats.RangedHit, &profile.Stats.SpellHit)
-	if err == nil {
-		if profile.Stats.HealingPower == 0 {
-			profile.Stats.HealingPower = profile.Stats.SpellDamage
-		}
-		profile.Stats.Source = "armory_stats"
-	} else {
-		fallbackQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4,
+	// 5. Stats: exact values the module writes for online bots first
+	// (tortoise_bots_armory_stats), then the core armory row, the core
+	// character_stats subset, and finally live characters.health/power +
+	// player_levelstats base attributes. Both core tables stay empty while a
+	// character is online (core writes them only on logout).
+	if !s.loadModuleStats(guid, &profile.Stats) {
+		statQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4, maxpower5,
 			strength, agility, stamina, intellect, spirit, armor,
 			resHoly, resFire, resNature, resFrost, resShadow, resArcane,
-			blockPct, dodgePct, parryPct, critPct, rangedCritPct,
-			attackPower, rangedAttackPower
-			FROM character_stats WHERE guid = ?`
-		if ferr := s.db.QueryRow(fallbackQuery, guid).Scan(
+			dmgModNormal, dmgModHoly, dmgModFire, dmgModNature, dmgModFrost, dmgModShadow, dmgModArcane,
+			blockPct, dodgePct, parryPct, meleeCritPct, rangedCritPct,
+			attackPower, rangedAttackPower, meleeDamage, rangedDamage,
+			meleeWeaponSpeed, rangedWeaponSpeed, castSpeed, meleeHit, rangedHit, spellHit
+			FROM character_armory_stats WHERE guid = ?`
+		err = s.db.QueryRow(statQuery, guid).Scan(
 			&profile.Stats.MaxHealth, &profile.Stats.MaxPower1, &profile.Stats.MaxPower2,
-			&profile.Stats.MaxPower3, &profile.Stats.MaxPower4,
+			&profile.Stats.MaxPower3, &profile.Stats.MaxPower4, &profile.Stats.MaxPower5,
 			&profile.Stats.Strength, &profile.Stats.Agility, &profile.Stats.Stamina,
 			&profile.Stats.Intellect, &profile.Stats.Spirit, &profile.Stats.Armor,
 			&profile.Stats.ResHoly, &profile.Stats.ResFire, &profile.Stats.ResNature,
 			&profile.Stats.ResFrost, &profile.Stats.ResShadow, &profile.Stats.ResArcane,
+			&profile.Stats.SpellDamage, &profile.Stats.SpellDmgHoly, &profile.Stats.SpellDmgFire,
+			&profile.Stats.SpellDmgNature, &profile.Stats.SpellDmgFrost, &profile.Stats.SpellDmgShadow,
+			&profile.Stats.SpellDmgArcane,
 			&profile.Stats.BlockPct, &profile.Stats.DodgePct, &profile.Stats.ParryPct,
 			&profile.Stats.MeleeCritPct, &profile.Stats.RangedCritPct,
-			&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower); ferr == nil {
-			profile.Stats.Source = "character_stats"
+			&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower,
+			&profile.Stats.MeleeDamage, &profile.Stats.RangedDamage,
+			&profile.Stats.MeleeSpeed, &profile.Stats.RangedSpeed, &profile.Stats.CastSpeed,
+			&profile.Stats.MeleeHit, &profile.Stats.RangedHit, &profile.Stats.SpellHit)
+		if err == nil {
+			if profile.Stats.HealingPower == 0 {
+				profile.Stats.HealingPower = profile.Stats.SpellDamage
+			}
+			profile.Stats.Source = "armory_stats"
 		} else {
-			s.loadLiveStats(guid, &profile.Stats)
+			fallbackQuery := `SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4,
+				strength, agility, stamina, intellect, spirit, armor,
+				resHoly, resFire, resNature, resFrost, resShadow, resArcane,
+				blockPct, dodgePct, parryPct, critPct, rangedCritPct,
+				attackPower, rangedAttackPower
+				FROM character_stats WHERE guid = ?`
+			if ferr := s.db.QueryRow(fallbackQuery, guid).Scan(
+				&profile.Stats.MaxHealth, &profile.Stats.MaxPower1, &profile.Stats.MaxPower2,
+				&profile.Stats.MaxPower3, &profile.Stats.MaxPower4,
+				&profile.Stats.Strength, &profile.Stats.Agility, &profile.Stats.Stamina,
+				&profile.Stats.Intellect, &profile.Stats.Spirit, &profile.Stats.Armor,
+				&profile.Stats.ResHoly, &profile.Stats.ResFire, &profile.Stats.ResNature,
+				&profile.Stats.ResFrost, &profile.Stats.ResShadow, &profile.Stats.ResArcane,
+				&profile.Stats.BlockPct, &profile.Stats.DodgePct, &profile.Stats.ParryPct,
+				&profile.Stats.MeleeCritPct, &profile.Stats.RangedCritPct,
+				&profile.Stats.AttackPower, &profile.Stats.RangedAttackPower); ferr == nil {
+				profile.Stats.Source = "character_stats"
+			} else {
+				s.loadLiveStats(guid, &profile.Stats)
+			}
 		}
 	}
 
@@ -531,6 +534,42 @@ func (s *Service) scanBuyback(query string, guid uint32, profile *BotProfile) er
 		profile.Buyback = append(profile.Buyback, bi)
 	}
 	return rows.Err()
+}
+
+// loadModuleStats reads the exact stats the module's ObservabilityEmitter
+// copies from the live Player for online bots (enchants, talents, buffs and
+// racials included). Debuffs can push signed columns below zero; they are
+// clamped for the unsigned model. Returns false when there is no such row.
+func (s *Service) loadModuleStats(guid uint32, st *CharacterStats) bool {
+	var meleeMin, meleeMax, rangedMin, rangedMax float64
+	err := s.db.QueryRow(`SELECT maxhealth, maxpower1, maxpower2, maxpower3, maxpower4, maxpower5,
+		strength, agility, stamina, intellect, spirit, GREATEST(armor, 0),
+		GREATEST(resHoly, 0), GREATEST(resFire, 0), GREATEST(resNature, 0), GREATEST(resFrost, 0), GREATEST(resShadow, 0), GREATEST(resArcane, 0),
+		GREATEST(spellDamage, 0), GREATEST(spellDmgHoly, 0), GREATEST(spellDmgFire, 0), GREATEST(spellDmgNature, 0), GREATEST(spellDmgFrost, 0), GREATEST(spellDmgShadow, 0), GREATEST(spellDmgArcane, 0),
+		GREATEST(healingPower, 0), blockPct, dodgePct, parryPct, meleeCritPct, rangedCritPct, spellCritPct,
+		attackPower, rangedAttackPower, meleeDmgMin, meleeDmgMax, rangedDmgMin, rangedDmgMax,
+		meleeSpeed, rangedSpeed, meleeHit, rangedHit, spellHit, GREATEST(manaRegen, 0)
+		FROM tortoise_bots_armory_stats WHERE guid = ?`, guid).Scan(
+		&st.MaxHealth, &st.MaxPower1, &st.MaxPower2, &st.MaxPower3, &st.MaxPower4, &st.MaxPower5,
+		&st.Strength, &st.Agility, &st.Stamina, &st.Intellect, &st.Spirit, &st.Armor,
+		&st.ResHoly, &st.ResFire, &st.ResNature, &st.ResFrost, &st.ResShadow, &st.ResArcane,
+		&st.SpellDamage, &st.SpellDmgHoly, &st.SpellDmgFire, &st.SpellDmgNature, &st.SpellDmgFrost,
+		&st.SpellDmgShadow, &st.SpellDmgArcane,
+		&st.HealingPower, &st.BlockPct, &st.DodgePct, &st.ParryPct,
+		&st.MeleeCritPct, &st.RangedCritPct, &st.SpellCritPct,
+		&st.AttackPower, &st.RangedAttackPower, &meleeMin, &meleeMax, &rangedMin, &rangedMax,
+		&st.MeleeSpeed, &st.RangedSpeed, &st.MeleeHit, &st.RangedHit, &st.SpellHit, &st.ManaRegen)
+	if err != nil {
+		return false
+	}
+	if meleeMax > 0 {
+		st.MeleeDamage = fmt.Sprintf("%.0f – %.0f", meleeMin, meleeMax)
+	}
+	if rangedMax > 0 {
+		st.RangedDamage = fmt.Sprintf("%.0f – %.0f", rangedMin, rangedMax)
+	}
+	st.Source = "module_stats"
+	return true
 }
 
 // loadLiveStats fills stats from live characters.health/power plus base

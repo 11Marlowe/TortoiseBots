@@ -24,12 +24,14 @@
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/ServerFacade.h"
 #include "Config/Config.h"
+#include "Database/DatabaseEnv.h"
 #include "Player.h"
 #include "World.h"
 #include "Log.h"
 #include "../host/ModuleLog.h"
 #include "Timer.h"
 #include "MotionMaster.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <cstdlib>
@@ -48,6 +50,8 @@ constexpr int kProtocolVersion = 4;
 // MTU so a large roster arrives as several unpredictable chunks; the receiver
 // assembles them per Seq.
 constexpr uint32 kSnapshotIntervalMs = 2000;
+// 10 bots per 2 s snapshot refreshes a 500-bot pool every ~100 s.
+constexpr size_t kArmoryBotsPerSnapshot = 10;
 constexpr size_t kBatchSize = 25;
 
 // Retention bounds. All three tables are pruned on every snapshot, so a long
@@ -692,6 +696,64 @@ void ObservabilityEmitter::Update(uint32 diff)
 
     PruneState(nowMs);
     EmitSnapshotCycle(activeBots, diff);
+
+    for (size_t i = 0; i < kArmoryBotsPerSnapshot && i < activeBots.size(); ++i)
+    {
+        Player* bot = activeBots[m_armoryCursor++ % activeBots.size()];
+        if (bot && bot->IsInWorld())
+            WriteArmoryStats(bot);
+    }
+}
+
+void ObservabilityEmitter::WriteArmoryStats(Player* bot)
+{
+    // Spell power: the lowest magic school is the shared base, the rest is a
+    // per-school bonus on top (the dashboard renders base + bonus).
+    int32 schoolDmg[MAX_SPELL_SCHOOL];
+    int32 baseDmg = 0;
+    float spellCrit = 0.0f;
+    for (int school = SPELL_SCHOOL_HOLY; school < MAX_SPELL_SCHOOL; ++school)
+    {
+        schoolDmg[school] = bot->SpellBaseDamageBonusDone(SpellSchoolMask(1 << school));
+        baseDmg = school == SPELL_SCHOOL_HOLY ? schoolDmg[school] : std::min(baseDmg, schoolDmg[school]);
+        // Talents raise single schools; show the best one.
+        spellCrit = std::max(spellCrit, bot->GetSpellCritPercent(SpellSchools(school)));
+    }
+
+    // Core keeps rage x10; store display units like the telemetry snapshot.
+    uint32 maxPower[MAX_POWERS];
+    for (int i = 0; i < MAX_POWERS; ++i)
+        maxPower[i] = bot->GetMaxPower(Powers(i));
+    maxPower[POWER_RAGE] /= 10;
+
+    bool hasRanged = bot->GetFloatValue(UNIT_FIELD_MAXRANGEDDAMAGE) > 0.0f;
+
+    CharacterDatabase.PExecute(
+        "REPLACE INTO tortoise_bots_armory_stats (guid, maxhealth, maxpower1, maxpower2, maxpower3, maxpower4, maxpower5, "
+        "strength, agility, stamina, intellect, spirit, armor, resHoly, resFire, resNature, resFrost, resShadow, resArcane, "
+        "spellDamage, spellDmgHoly, spellDmgFire, spellDmgNature, spellDmgFrost, spellDmgShadow, spellDmgArcane, healingPower, "
+        "blockPct, dodgePct, parryPct, meleeCritPct, rangedCritPct, spellCritPct, attackPower, rangedAttackPower, "
+        "meleeDmgMin, meleeDmgMax, rangedDmgMin, rangedDmgMax, meleeSpeed, rangedSpeed, meleeHit, rangedHit, spellHit, manaRegen) "
+        "VALUES (%u, %u, %u, %u, %u, %u, %u, %f, %f, %f, %f, %f, %d, %d, %d, %d, %d, %d, %d, "
+        "%d, %d, %d, %d, %d, %d, %d, %d, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d)",
+        bot->GetGUIDLow(), bot->GetMaxHealth(), maxPower[0], maxPower[1], maxPower[2], maxPower[3], maxPower[4],
+        bot->GetStat(STAT_STRENGTH), bot->GetStat(STAT_AGILITY), bot->GetStat(STAT_STAMINA),
+        bot->GetStat(STAT_INTELLECT), bot->GetStat(STAT_SPIRIT), bot->GetArmor(),
+        bot->GetResistance(SPELL_SCHOOL_HOLY), bot->GetResistance(SPELL_SCHOOL_FIRE), bot->GetResistance(SPELL_SCHOOL_NATURE),
+        bot->GetResistance(SPELL_SCHOOL_FROST), bot->GetResistance(SPELL_SCHOOL_SHADOW), bot->GetResistance(SPELL_SCHOOL_ARCANE),
+        baseDmg, schoolDmg[SPELL_SCHOOL_HOLY] - baseDmg, schoolDmg[SPELL_SCHOOL_FIRE] - baseDmg,
+        schoolDmg[SPELL_SCHOOL_NATURE] - baseDmg, schoolDmg[SPELL_SCHOOL_FROST] - baseDmg,
+        schoolDmg[SPELL_SCHOOL_SHADOW] - baseDmg, schoolDmg[SPELL_SCHOOL_ARCANE] - baseDmg,
+        bot->SpellBaseHealingBonusDone(SPELL_SCHOOL_MASK_HOLY),
+        bot->GetFloatValue(PLAYER_BLOCK_PERCENTAGE), bot->GetFloatValue(PLAYER_DODGE_PERCENTAGE),
+        bot->GetFloatValue(PLAYER_PARRY_PERCENTAGE), bot->GetFloatValue(PLAYER_CRIT_PERCENTAGE),
+        bot->GetFloatValue(PLAYER_RANGED_CRIT_PERCENTAGE), spellCrit,
+        bot->GetTotalAttackPowerValue(BASE_ATTACK), hasRanged ? bot->GetTotalAttackPowerValue(RANGED_ATTACK) : 0.0f,
+        bot->GetFloatValue(UNIT_FIELD_MINDAMAGE), bot->GetFloatValue(UNIT_FIELD_MAXDAMAGE),
+        bot->GetFloatValue(UNIT_FIELD_MINRANGEDDAMAGE), bot->GetFloatValue(UNIT_FIELD_MAXRANGEDDAMAGE),
+        bot->GetAttackTime(BASE_ATTACK) / 1000.0f, hasRanged ? bot->GetAttackTime(RANGED_ATTACK) / 1000.0f : 0.0f,
+        bot->m_modMeleeHitChance, bot->m_modRangedHitChance, bot->m_modSpellHitChance,
+        bot->GetTotalAuraModifierByMiscValue(SPELL_AURA_MOD_POWER_REGEN, POWER_MANA));
 }
 
 void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeBots, uint32 diff)

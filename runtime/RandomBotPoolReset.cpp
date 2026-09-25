@@ -641,6 +641,7 @@ bool RandomBotPoolReset::DeleteNextTarget(std::string& error)
     CharacterDatabase.DirectPExecute("DELETE FROM `ai_playerbot_db_store` WHERE `guid` = '%u'", target.guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `ai_playerbot_custom_strategy` WHERE `owner` = '%u'", target.guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_owned_character` WHERE `character_guid` = '%u'", target.guidLow);
+    CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_armory_stats` WHERE `guid` = '%u'", target.guidLow);
 
     HireLifecycle::Instance().Release(guid);
     BotActivityLeaseManager::Instance().Release(target.guidLow, BotActivity::Grinding);
