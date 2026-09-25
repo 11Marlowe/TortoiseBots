@@ -136,6 +136,14 @@
 - Default pool excludes 55 rows (37 spells) from dungeon/raid/rep sources; QA/Test/Copy/payload-less spells are never inserted. [#300](https://github.com/Sagiroth/TortoiseBots/pull/300)
 - Emptied legacy `ai_playerbot_enchants` so bots rely only on the curated enchant system. [#300](https://github.com/Sagiroth/TortoiseBots/pull/300)
 
+### Combat & AI
+
+- Pull strategy now supports per-command return mode: pull behavior switches for that single command and restores itself at pull end, so it never sticks around and breaks later pulls. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
+- Party DPS now holds at the command anchor using stay plus the mature wait-for-attack window — no more stragglers wandering off mid-pull before the tank is set. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
+- Pullback join delay is now counted from the tank's actual *arrival* at the anchor rather than cast time, so bots commit to the fight when the tank actually gets there. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
+- Hold windows now adapt dynamically: the command widens the hold to cover the capped return, the arrival brake narrows it to the join delay and restarts the clock, and a return timeout zeroes held windows so the per-bot trigger fires on the next tick instead of hanging. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
+- Each held bot now releases itself through a new `pull hold expired` trigger and `release pull hold` action, giving per-bot control over release timing instead of a central drop. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
