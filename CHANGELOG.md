@@ -63,6 +63,19 @@
 - `.bot hire` provisions exactly once: `ProvisionHeavy` (level, talents, spells, gear, `SaveToDB`, tank kit) runs a single time, and retries only re-run `Reunite` (teleport + grouping) instead of 2-3 full passes on the world thread. [#284](https://github.com/Sagiroth/TortoiseBots/pull/284)
 - Retries no longer try to group a bot mid-teleport, cutting hire-time hitching. [#284](https://github.com/Sagiroth/TortoiseBots/pull/284)
 
+### Observability & Engine
+
+- Every merge to `main` now gets its own build version in the form `<UTC date>-v<N>` (e.g. `2026-09-25-v3`), exposed in game and via `.bot version` / `TBM:VERSION` so players and operators can pinpoint exactly which build is running. [#290](https://github.com/Sagiroth/TortoiseBots/pull/290)
+- `N` only counts real merges — bot `[skip ci]` commits are ignored — and resets to `v1` each day, so version numbers stay meaningful instead of inflating with changelog noise. [#290](https://github.com/Sagiroth/TortoiseBots/pull/290)
+- Workflow now triggers on pushes to `main` only and uses a `concurrency` group, so back-to-back merges no longer race each other to stamp the `VERSION` file. [#290](https://github.com/Sagiroth/TortoiseBots/pull/290)
+- Per-build lightweight tags are created without spinning up a release or firing a Discord post; the existing daily `vYYYY-MM-DD` release is untouched. [#290](https://github.com/Sagiroth/TortoiseBots/pull/290)
+
+### Core Sync & Fixes
+
+- Fixed the build-version workflow so it actually completes: stamped files are committed before `git pull --rebase`, which previously aborted because the working tree was dirty. [#291](https://github.com/Sagiroth/TortoiseBots/pull/291)
+- Restored `release_exists_on_github`, which was removed in #290 but still called — that missing function broke the first run outright. [#291](https://github.com/Sagiroth/TortoiseBots/pull/291)
+- Release creation/editing is now skipped unless notes were actually written, while the daily tag still moves as before, cutting down pointless empty releases. [#291](https://github.com/Sagiroth/TortoiseBots/pull/291)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
