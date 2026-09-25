@@ -92,6 +92,10 @@ private:
     bool AnomalyAllowed(uint32 guid, uint8 typeId, uint32 nowMs);
     void AddStateTime(size_t stateIndex, uint32 diff);
     void EmitSnapshotCycle(std::vector<Player*> const& activeBots, uint32 diff);
+    // Exact server-side stats for the dashboard armory
+    // (tortoise_bots_armory_stats); a few bots per snapshot, round-robin.
+    void WriteArmoryStats(Player* bot);
+    size_t m_armoryCursor = 0;
 
     // Storage-only handle: this header stays free of <winsock2.h>/<sys/socket.h>, the same
     // way m_destAddr below stays a void* rather than a struct sockaddr_in*. std::uintptr_t
