@@ -7,6 +7,8 @@
 #include "../runtime/HireProvisionService.h"
 #include "BotCommandContext.h"
 #include "../behavior/PlayerConvenience.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "../runtime/AhMarketService.h"
 #include "../host/ModuleVersion.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/PlayerbotAIStorage.h"
