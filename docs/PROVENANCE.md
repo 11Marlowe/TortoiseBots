@@ -1812,18 +1812,18 @@ Source files:
   `src/Ai/Base/Value/ItemUsageValue.cpp:120-131` (why sync stays off: bots
   refuse quest-item loot / treat master's quest items as their own)
 
-Copied / ported / independently reimplemented: independently reimplemented
-(no donor code copied). `QuestAction::ProcessQuests(WorldObject*)` keeps the
-`INTERACTION_DISTANCE` gate, but when the bot is grouped with its master on
-the same map, alive, within `reactDistance` of the master, it mirrors the
-accept: iterates the giver's `PrepareQuestMenu` for quests the bot doesn't
-have and passes `CanTakeQuest`/`CanAddQuest`, delegating to the existing
-`ProcessQuest` → `AcceptQuest` path (challenge-quest blocks, log/bag checks,
-`HandleQuestgiverAcceptQuestOpcode` stay intact). Shared quests
+Copied / ported / independently reimplemented: ported (adapted). The donor's
+`AddQuest` fallback after the accept opcode fails the core's
+`INTERACTION_DISTANCE` check is kept, but instead of `SyncQuestWithPlayer` it is
+gated on `QuestAction::IsNearGroupedMaster()` (bot alive, grouped with its
+master, same map, within `reactDistance`) plus `CanTakeQuest`/`CanAddQuest`,
+NPC/object givers only. It only fires for the quest being accepted (the
+sniffed master accept), never for the giver's other quests. Shared quests
 (`CMSG_PUSHQUESTTOPARTY`) untouched.
 
-Reason: a follow-distance bot could never reach the NPC before the sniffed
-`CMSG_QUESTGIVER_ACCEPT_QUEST` fired, so it only replied "come closer".
+Reason: a follow-distance bot sniffs the master's
+`CMSG_QUESTGIVER_ACCEPT_QUEST`, but the core refuses the replayed accept
+beyond `INTERACTION_DISTANCE`, so the bot never got the quest.
 
 Local validation:
 - `python3 tools/verify_okf.py`, `bash tools/verify_all.sh`;
