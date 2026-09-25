@@ -1965,7 +1965,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
 
     if (first != "attack" && first != "interrupt" && first != "stop" && first != "pull" &&
         first != "pullback" && first != "come" && first != "stay" &&
-        first != "follow" && first != "aoe" && first != "hold" &&
+        first != "follow" && first != "auto" && first != "aoe" && first != "hold" &&
         first != "comestay" && first != "ready" && first != "loot" &&
         first != "repair" && first != "sell" && first != "rest" &&
         first != "drink" && first != "eat" && first != "release" &&
@@ -1987,6 +1987,26 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
     {
         intent = "corpse run";
         return true;
+    }
+    else if (first == "auto")
+    {
+        std::string rest = remainder;
+        for (char& character : rest)
+            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        // Only "auto cc" exists today; keep the surface extensible.
+        // Split "auto cc [on|off]" into intent + option like aoe/loot.
+        if (rest == "cc")
+        {
+            intent = "auto cc";
+            return true;
+        }
+        if (rest == "cc on" || rest == "cc off")
+        {
+            intent = "auto cc";
+            option = rest.substr(3);
+            return true;
+        }
+        return false;
     }
     else if (!remainder.empty())
         return false;
@@ -2038,7 +2058,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark> [bot]|cc clear [bot]|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack|interrupt|stop|pull|pullback|come|stay|hold|follow|focus skull|cc <mark> [bot]|cc clear [bot]|auto cc [on|off]|aoe [on|off]|loot [on|off]|repair|sell|rest|drink|eat|release|corpse run|learn|trade|ready|raid [status|tankface|douse|custom status|custom on|custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2434,6 +2454,21 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             ExecuteQuietNextAction(ai, true);
             accepted = ai->HasStrategy("dps aoe", BotState::BOT_STATE_COMBAT) == enable;
         }
+        else if (intent == "auto cc")
+        {
+            // Opt-in smart auto CC, OFF by default. Persisted like the loot
+            // toggle so the choice survives relog; explicit `.bot action cc`
+            // marks always win (CcTargetValue returns them first).
+            bool enable = option == "on" ||
+                (option.empty() && !ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT));
+            if (option == "off")
+                enable = false;
+            ai->ChangeStrategy((enable ? "+" : "-") + std::string("auto cc"),
+                BotState::BOT_STATE_COMBAT);
+            sPlayerbotDbStore.Save(ai);
+            ExecuteQuietNextAction(ai, true);
+            accepted = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) == enable;
+        }
         else if (intent == "focus skull")
         {
             RelaxTacticalMovement(ai);
@@ -2506,6 +2541,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 else if (aoeState != current)
                     aoeState = "mixed";
             }
+            if (intent == "auto cc")
+            {
+                std::string current = ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT)
+                    ? "on" : "off";
+                if (aoeState.empty())
+                    aoeState = current;
+                else if (aoeState != current)
+                    aoeState = "mixed";
+            }
         }
     }
 
@@ -2518,7 +2562,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string scopeName = context.selectedBot && scope.size() == 1
         ? "bot:" + std::string(context.selectedBot->GetName()) : "party";
     SendActionAck(handler, intent, scopeName, succeeded,
-        intent == "aoe" || intent == "loot" ? aoeState : "");
+        intent == "aoe" || intent == "loot" || intent == "auto cc" ? aoeState : "");
     return true;
 }
 

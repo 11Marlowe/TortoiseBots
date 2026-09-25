@@ -1669,3 +1669,50 @@ control: explicit orders > automation). No core changes; module only.
 Local validation:
 - `python3 tools/verify_okf.py` + `./tools/verify_all.sh` (see commit); `git diff --check` clean.
 - No build (per task constraints); live in-game check pending (see `scratchpad/research/impl-cc-stage1.md`).
+
+## CC stage 3: opt-in smart auto CC ("auto cc" strategy) — 2026-09-25
+
+Feature: OFF-by-default `auto cc` combat strategy toggled via
+`.bot action auto cc [on|off]` (persisted per bot through PlayerbotDbStore
+like the loot toggle; bare `auto cc` flips; also directly via
+`.bot strategy +/-auto cc`). While ON, CcTargetValue may pick a loose add
+that is hitting a party healer/caster (never the tank), that nobody in the
+group is attacking (members + pets, via GetVictim), that carries no
+SPELL_AURA_PERIODIC_DAMAGE aura from any source, and that is not the last
+live enemy, skull-marked, or the tank's target. Explicit `.bot action cc`
+marks always win (assigned target returns first); the toggle bypasses the
+stage-1 5-man dungeon mark gate while ON. One bot per mob falls out of the
+shared aura state (first sheep trips the stage-1 no-CC-over-CC guard for
+everyone else); one auto target per bot falls out of the HasMyAura pre-pass;
+no re-sheep once DoT'd/attacked. Stage-1 AoE interlock protects the
+auto-sheeped mob. Works through the existing per-class CC actions for every
+CC-capable class (mage Polymorph primary; no new spells).
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout); shyalya DoT-avoidance
+precedent `CcTargetValue` check #8 (no-CC-on-dotted, fear/banish exempt —
+here generalized to every spell with no exemptions).
+
+Source files:
+- `src/Ai/Base/Value/CcTargetValue.cpp:23-85` (candidate filter order)
+- `src/Ai/Base/Trigger/GenericTriggers.cpp:575-595` (dungeon RTI gate bypassed)
+- `src/Ai/Class/Druid/Action/DruidActions.cpp:158-170` (AoE-guard idea, reused as-is)
+
+Copied / ported / independently reimplemented: independently reimplemented
+(no donor code copied). New `AutoCcStrategy` marker strategy +
+`IsAutoCcTarget` candidacy in the existing chooser; `HasCcTargetTrigger`
+dungeon gate bypass; `auto cc` intent in ParseAction/HandleAction mirroring
+the aoe/loot toggle loop (persist + ACK on|off|mixed).
+
+Reason: CC stage 3 — owner's "sheep the loose add, but never a mob being
+attacked or DoT'd". Player keeps maximum control: automation is opt-in,
+explicit orders always win. No core changes; module only.
+
+Local validation:
+- Cached `MODULE_TORTOISEBOTS=static` build via `./dev/build-playerbots`
+  (tortoise-docker-penqle) — `mangosd` linked.
+- `python3 tools/verify_action_trigger_wiring.py` (live-missing=0),
+  `python3 tools/verify_okf.py`, `./tools/verify_all.sh`; `git diff --check`.
+- Live in-game check pending (see `raport-nocny-2026-09-25/research/impl-cc-stage3.md`).
