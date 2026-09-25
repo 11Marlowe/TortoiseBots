@@ -35,7 +35,13 @@ These settings dramatically enhance the solo or small-group experience with owne
 | `AiPlayerbot.AutoLearnDroppedSpells` | `0` | **`0`** | **Level-60 Book Spells (random pool only):** Teaches dungeon/raid book spells the bot reached the level for. Same random-only scope as the trainer sweep. |
 | `AiPlayerbot.RollBadItemsWithPlayer` | `0` | **`1`** | **Need on Empty Slots:** Forces party bots to roll Need on dungeon drops if their corresponding equipment slot is empty or severely under-leveled. |
 | `AiPlayerbot.RandomGearUpgradeEnabled` | `1` | **`1`** | **Automatic Gear Scaling:** Periodically equips bots with level-appropriate dungeon and quest gear as they level up. |
-| `AiPlayerbot.GenerateItemCaches` | `1` | **`1`** | **First-Boot Gear Caches:** Builds the `ai_playerbot_equip_cache` and `ai_playerbot_rnditem_cache` tables once, while they are empty, and loads them from the database afterwards. Leave it on for a fresh install — with empty caches bots only fill empty slots from loot and never judge an upgrade. |
+| `AiPlayerbot.RandomGearBlacklist` | `` (empty) | `` (empty) | **Gear Exclusion List:** Item IDs never picked by random gear (seed/hire/upgrade). Comma-separated, e.g. `12345,67890`. |
+| `AiPlayerbot.AutoEquipUpgradeLoot` | `1` | **`1`** | **Equip Loot Upgrades:** Bots equip upgrades obtained from looting or quests. |
+| `AiPlayerbot.AutoPickReward` | `yes` | **`yes`** | **Quest Reward Pick:** Bots pick the first useful quest reward automatically (`no` = list all, `ask` = pick useful and list if multiple). |
+| `AiPlayerbot.AutoPickTalents` | `full` | **`full`** | **Auto Talents:** Bots pick talent points based on current spec. |
+| `AiPlayerbot.AutoTrainSpells` | `yes` | **`yes`** | **Auto Train:** Bots train all available spells at trainers while they have the money. |
+| `AiPlayerbot.XPRate` | `3` | **`3`** | **Bot XP Rate:** Server XP rate × this value for bots. |
+| `AiPlayerbot.GlobalCooldown` | `1500` | **`1500`** | **Cast pacing:** Delay between two short-time spell casts. |
 
 The spec weights these caches are scored with come from the `ai_playerbot_weightscales` and `ai_playerbot_weightscale_data` tables, seeded by `data/sql/world/20260916090001_world.sql`. If bots wear wrong-slot gear from their bags but never swap an upgrade in, that dataset is empty — re-apply the migration and restart.
 ---
@@ -152,3 +158,21 @@ Volume is controlled by these knobs (all need a restart):
 | `AiPlayerbot.EnableBroadcasts` | `1` | Master switch. `0` disables all quest/loot/kill/level-up/suggest broadcasts. |
 | `AiPlayerbot.BroadcastToWorldGlobalChance` / `BroadcastToGeneralGlobalChance` | `3000` | Main throttle on what reaches world/general chat (range `0`-`30000`). `0` re-routes most broadcasts away from that channel. |
 | `AiPlayerbot.BroadcastChance*` | varies | Per-event chance, e.g. `BroadcastChanceQuestAccepted`, `BroadcastChanceSuggestSell`. `0` disables that one class. Toxic/scam lines (`*Toxic*`, `*Thunderfury*`) ship at `0` already. |
+
+## 8. Settings that currently have no effect
+
+These keys are read into the config object (so old config files keep
+loading) but nothing consumes them. They are marked in
+`aiplayerbot.conf.dist.in` with "Currently has no effect (read but unused)."
+and listed here so nobody tunes a dead knob:
+
+`AhMarketValueVendor`, `AllowGuildBots`, `AllowMultiAccountAltBots`,
+`BotAutologin`, `DiffEmpty`, `DiffWithPlayer`, `DisableBotOptimizations`,
+`FreeMoveDelay`, `GroupMemberLootDistanceWithActiveMaster`,
+`InstantRandomize`, `LLMApiKey`, `MaxFreeMoveDistance`,
+`MinRandomBotInWorldTime`, `MinRandomBotsPriceChangeInterval`,
+`RandomBotRandomPassword`, `RandomBotTimedOffline`,
+`RandomGearTabardsUnobtainable`, `RandombotsWalkingRPG.InDoors`,
+`RespawnModNeutral`, `RespawnModHostile`, `RespawnModThreshold`,
+`RespawnModMax`, `RespawnModForPlayerBots`, `RespawnModForInstances`,
+`TweakValue`.
