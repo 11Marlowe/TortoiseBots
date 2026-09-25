@@ -9,6 +9,7 @@
 #include <vector>
 
 class Player;
+class PlayerbotAI;
 
 namespace TortoiseBots
 {
@@ -88,12 +89,21 @@ public:
         uint8 role = 0;
         int specIndex = -1;
         time_t queuedAt = 0;
+        // Issue #281: heavy provisioning (level/talents/spells/gear/SaveToDB)
+        // runs exactly once per hire; retries only redo teleport/grouping.
+        bool provisioned = false;
+        // Reunite attempts so far (invite failures + teleport waits).
+        uint32_t reuniteAttempts = 0;
     };
     bool FindOwnedReusableCandidate(Player* requester, HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
 
     bool FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
     bool CreateCandidate(HireSelection const& sel, uint32_t requesterTeam, uint32_t& accountId, ObjectGuid& guid);
     bool ProvisionNow(Player* bot, PendingProvision const& pending);
+    // Issue #281: heavy one-shot work (level/talents/spells/gear/SaveToDB).
+    void ProvisionHeavy(Player* bot, PendingProvision const& pending, PlayerbotAI* ai, Player* master);
+    // Issue #281: teleport + grouping only; safe to retry every tick.
+    bool Reunite(Player* bot, Player* master);
     void DropStalePending();
 
     std::vector<PendingProvision> m_pending;
