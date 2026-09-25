@@ -1678,6 +1678,10 @@ Local validation:
 
 Feature: `fear on cc` fires only on the bot's `rti cc target` (and never replaces an existing breakable/unbreakable CC); `enemy ten yards -> howl of terror` moved from the base warlock `cc` strategy to `cc pvp`. Fixes warlocks fearing arbitrary (even dotted) mobs in PvE groups, which scattered pulls.
 
+## Healer priest off-spec damage gate (`healer should attack`) — 2026-09-24
+
+Feature: new generic `HealerShouldAttackTrigger` (`healer should attack`, `healer should wand`); `PriestOffdpsStrategy` damage (SW:P, Holy Fire, Smite, Starshards, Mind Blast) now fires only when solo, or when no party member is below `almostFullHealth` and mana is above a balance-scaled reserve, at `ACTION_DEFAULT` relevance. A healthy party with low mana gets a wand instead. Removed the ungated per-tick `smite`/`holy fire`/`very often -> starshards` nodes and the per-attacker SW:P node; Holy Nova is kept behind `melee medium aoe and healer should attack` (the donor's `medium aoe and healer should attack` -> Mind Sear). Note: `healer should attack` is now a registered trigger name, which the unregistered healer-dps strategies of druid/paladin/shaman also reference — registering those strategies later arms them.
+
 Source repository: `mod-playerbots/mod-playerbots`
 
 Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907`
@@ -1690,5 +1694,12 @@ Source files:
 Copied / ported / independently reimplemented: ported semantics (no code copied); implemented as a `FearTrigger::IsActive` override on the existing `HasCcTargetTrigger`, plus an extra "target not already CC'd" guard via `PossibleAttackTargetsValue::HasBreakableCC/HasUnBreakableCC`.
 
 Reason: live play report — warlock bots fear constantly in dungeon groups.
+
+- `src/Ai/Base/Trigger/GenericTriggers.cpp` (`HealerShouldAttackTrigger::IsActive`)
+- `src/Ai/Class/Priest/Strategy/GenericPriestStrategy.cpp` (`PriestHealerDpsStrategy::InitTriggers`)
+
+Copied / ported / independently reimplemented: ported (logic re-expressed with this module's values; solo check uses group membership instead of `GetNearGroupMemberCount`; Tree of Life clause dropped; `highMana` = the existing 65% `high mana` line). Starshards (1.12 Night Elf racial) kept inside the gate.
+
+Reason: live play report — Holy priest bots DPS like a damage spec and run out of mana instead of healing.
 
 Local validation: cached `MODULE_TORTOISEBOTS=static` build; `tools/verify_all.sh`; `git diff --check`. In-game observation pending.
