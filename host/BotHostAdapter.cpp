@@ -14,6 +14,7 @@
 #include "ObjectMgr.h"
 #include "Log.h"
 #include "ModuleLog.h"
+#include "ModuleVersion.h"
 
 #include <cctype>
 #include <string>
@@ -119,7 +120,7 @@ void BotHostAdapter::OnStartup()
             sLog.outError("TortoiseBots: PacketBridgeTest requires two distinct disposable TBPLAY fixtures on one account");
     }
 
-    TB_LOG_BASIC("TortoiseBots: native module loaded (AI %s)", configured ? "enabled" : "disabled");
+    TB_LOG_BASIC("TortoiseBots %s (AI %s)", BuildVersion().c_str(), configured ? "enabled" : "disabled");
     ObservabilityEmitter::Instance().Initialize();
 }
 void BotHostAdapter::OnUpdate(uint32 diff)

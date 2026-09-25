@@ -109,6 +109,7 @@ Commands for checking bot state, lifecycle, and fleet metrics:
 | `.bot status` | `<Name>` | Displays detailed status of an owned bot: lifecycle (`starting`, `in world`, `removing`), AI attachment, active movement strategy (`follow`, `stay`, `guard`, `free`, `custom`), and owner. |
 | `.bot stats` | None | Summarizes owned bot fleet: total online, random bots, and bots with active AI attached. |
 | `.bot lease` | `[status]` | Reports autonomous activity lease counts (Idle, Grinding, Trading, LftQueued, BgQueued, PlayerMaster) and lists active lease timers. |
+| `.bot version` *(alias `v`)* | None | Prints the server build version (`TortoiseBots <UTC date>-v<N>`); any player may use it. Also emits `TBM:VERSION|<version>` for the addon. |
 
 ---
 
@@ -210,6 +211,9 @@ pre-battleground group, or an older module — and for every hand-typed command.
 - Request — addon message prefix `TBM`, body `<verb> [args]` (`action attack`).
 - Reply — addon message prefix `TBM`, one line per reply, `TBM:` protocol lines included.
 - Verdict — `TBM:TRANSPORT|party` or `TBM:TRANSPORT|none`, trailing each roster response.
+- Version — `TBM:VERSION|<UTC date>-v<N>` trails every roster response, and
+  answers `.bot version` and `.bot help` directly. The addon shows it as
+  `server <version>` in the `/tbm` window (`server ?` on older servers).
 
 Hand-typed `.bot` commands keep their chat replies, so the CLI and macro surface
 is unchanged.

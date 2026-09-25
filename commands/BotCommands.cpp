@@ -9,6 +9,7 @@
 #include "../behavior/PlayerConvenience.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/AhMarketService.h"
+#include "../host/ModuleVersion.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../runtime/RandomBotAccountRegistry.h"
@@ -254,6 +255,15 @@ static bool HandleStatus(ChatHandler* handler, char const* args)
         record->masterGuid == requester->GetObjectGuid() ? "you" : "another player");
     return true;
 }
+
+static bool HandleVersion(ChatHandler* handler)
+{
+    // Any player may ask; the version is public build metadata, not control.
+    handler->PSendSysMessage("TortoiseBots %s", BuildVersion().c_str());
+    handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
+    return true;
+}
+
 static bool HandleLease(ChatHandler* handler, char const* args)
 {
     std::string sub = Trim(args ? args : "");
@@ -1870,6 +1880,9 @@ static bool HandleRoster(ChatHandler* handler)
         handler->PSendSysMessage("TBM:CC_ASSIGN|%s|%s", ProtocolSafe(assignment.first).c_str(),
             ProtocolSafe(assignment.second).c_str());
     handler->PSendSysMessage("TBM:CC_ASSIGN_END");
+    // Version trailer: the addon shows "server <version>" from this line and
+    // falls back to "server ?" when an older module never sends it.
+    handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
     // Transport trailer: the addon sends its next commands over the addon
     // channel only while this says "party". See AddonCommandChannel.
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));
@@ -3036,7 +3049,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/strategy/ah/pool");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/strategy/ah/pool");
         return true;
     }
 
@@ -3094,6 +3107,8 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleStatus(handler, subArgs);
     if (cmd == "lease")
         return HandleLease(handler, subArgs);
+    if (cmd == "version" || cmd == "v")
+        return HandleVersion(handler);
     if (cmd == "pullback" || cmd == "pull-back")
         return HandlePullback(handler, subArgs);
     if (cmd == "role")
@@ -3137,6 +3152,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     if (cmd == "help" || cmd == "h")
     {
         handler->PSendSysMessage("TortoiseBots: Enabled");
+        handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
         return true;
     }
 

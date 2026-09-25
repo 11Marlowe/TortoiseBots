@@ -69,6 +69,27 @@ Alternatively, type these commands in chat:
 
 ---
 
+## 4b. Which Build Are You Running?
+
+Every merge to `main` stamps a per-merge build version `<UTC date>-v<N>`
+(e.g. `2026-09-25-v3` is the 3rd real merge that UTC day; the counter resets
+to v1 daily and each repo counts its own merges). The workflow's own
+`[skip ci]` changelog commits never count.
+
+Where to see it:
+
+- Server log at startup: `TortoiseBots <version>` (or `dev` for a checkout
+  without the stamped file).
+- In game, any player: `.bot version` prints the server build plus a
+  `TBM:VERSION|<version>` protocol line for the addon.
+- The `/tbm` window header shows `TBM <addon version> · server <server
+  version>`; `server ?` means the server predates the version reply.
+
+Tags and releases: each merge also gets a lightweight git tag `<version>`
+pointing at its own commit. The daily `vYYYY-MM-DD` release and Discord post
+stay as today, but the tag now moves to the day's latest version commit and
+the notes open with the build range (e.g. `Builds 2026-09-25-v1 – v7`).
+
 ## 4. Basic Controls in the Field
 
 | Intent / Action | `/tbm` Addon Button | Native Chat Command | Bot Behavior |
