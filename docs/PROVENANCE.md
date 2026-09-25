@@ -1827,3 +1827,41 @@ Local validation:
 - Live in-game check pending (group with bot at follow distance, accept an
   eligible quest, bot takes it; ineligible/full-log/full-bag bots decline
   with the usual message).
+
+## Seed gear source tiers + rare world epics + low-level coverage — 2026-09-25
+
+Feature: per-item source-tier classification (base / end-game dungeon /
+raid, orthogonal REP/PVP flags) computed once at startup, persisted in
+`ai_playerbot_item_info_cache`, and enforced on the fresh-seed/hire gear
+path behind `RandomGearMaxSourceTier` (default 0) + REP/PVP toggles; rare
+world-epic per-slot gate (`RandomGearSeedEpicChance`, default 0.02);
+weight-1 jewellery allowed below 30 plus a usable-item fallback sweep for
+thin low-level slots.
+
+Source repository: native implementation on owner spec (roadmap #289);
+research in scratchpad `research-gear.md` (§6 rare epics, §7 crafted chain,
+§8 tier proposal) and `research-gear-gaps.md` (§9 empty slots). Donor
+`mod-playerbots` offers no reuse here: its pool has no raid/tier/rep filter
+(map/rep checks commented out, `RandomItemMgr.cpp:2205,2316,2441`).
+
+Source files (donor, reference only):
+- `src/Mgr/Item/RandomItemMgr.cpp` (`BuildCacheEquipNew`, `IsValidItem`)
+- `src/Bot/Factory/PlayerbotFactory.cpp` (`InitEquipment`, `InitAmmo`)
+
+Copied / ported / independently reimplemented: independently reimplemented
+(no donor code copied). Loot→spawn→map minima with lowest-tier-source-wins
+(shared generic tables stay base), crafted products via the recipe chain
+(item class 9 → LEARN spell → craft spell → CREATE_ITEM), quest rewards via
+the quest reverse-lookup (raid quest raises, other quests keep base),
+world-epic attestation via direct world-map loot rows.
+
+Reason: owner rules — no rep/PvP/raid/end-game-dungeon gear on seeded bots,
+rare (not flooded) world epics, no empty low-level slots — with a
+configurable tier cap so players can later unlock higher tiers for hired
+bots instead of a hard-coded exclusion list.
+
+Local validation:
+- `python3 tools/verify_okf.py`, `bash tools/verify_all.sh`;
+  `git diff --check`.
+- DB before/after estimates from tw_char/tw_world (see summary).
+- Module build by orchestrator (workers do not run the docker builder).

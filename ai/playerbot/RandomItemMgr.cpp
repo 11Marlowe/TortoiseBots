@@ -1237,6 +1237,9 @@ void RandomItemMgr::BuildItemInfoCache()
         cacheInfo->slot = slot;
         cacheInfo->itemLevel = proto->ItemLevel;
 
+        // Owner-rule source tier (lowest-tier source wins) + REP/PVP flags.
+        ClassifySourceTier(proto, cacheInfo);
+
         // calculate stat weights
         for (uint8 clazz = CLASS_WARRIOR; clazz < MAX_CLASSES; ++clazz)
         {
@@ -1337,8 +1340,9 @@ void RandomItemMgr::BuildItemInfoCache()
 
         stmt = CharacterDatabase.CreateStatement(insertCache, "INSERT INTO ai_playerbot_item_info_cache (id, quality, slot, source, sourceId, team, faction, factionRepRank, minLevel, "
             "scale_1, scale_2, scale_3, scale_4, scale_5, scale_6, scale_7, scale_8, scale_9, scale_10, scale_11, scale_12, scale_13, scale_14, scale_15, "
-            "scale_16, scale_17, scale_18, scale_19, scale_20, scale_21, scale_22, scale_23, scale_24, scale_25, scale_26, scale_27, scale_28, scale_29, scale_30, scale_31, scale_32)"
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            "scale_16, scale_17, scale_18, scale_19, scale_20, scale_21, scale_22, scale_23, scale_24, scale_25, scale_26, scale_27, scale_28, scale_29, scale_30, scale_31, scale_32, "
+            "source_tier, source_flags, world_epic)"
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
         stmt.addUInt32(cacheInfo->itemId);
         stmt.addUInt32(cacheInfo->quality);
@@ -1358,6 +1362,9 @@ void RandomItemMgr::BuildItemInfoCache()
             stmt.addUInt32(w);
         }
 
+        stmt.addUInt32((uint32)cacheInfo->sourceTier);
+        stmt.addUInt32((uint32)cacheInfo->sourceFlags);
+        stmt.addUInt32(cacheInfo->worldEpic ? 1u : 0u);
         stmt.Execute();
 
         itemInfoCache[cacheInfo->itemId] = cacheInfo;
@@ -2221,6 +2228,50 @@ static void MarkLootItems(LootTemplateAccess const* access, std::set<uint32>& it
     }
 }
 
+// Records every item a loot table can yield (same seam and one-reference
+// rule as MarkLootItems) at the given tier: itemLootTier[item] keeps the
+// minimum tier over all tables. When directOnly, entries reached only
+// through a reference row still lower itemLootTier but are not added to
+// itemDirectBaseLoot — world-epic attestation needs a direct row.
+static void MarkLootItemsTier(LootTemplateAccess const* access, ItemSourceTier tier,
+    std::map<uint32, ItemSourceTier>& itemLootTier, std::set<uint32>& itemDirectBaseLoot, bool directOnly)
+{
+    if (!access)
+        return;
+
+    auto record = [&](uint32 itemId, bool direct)
+    {
+        if (!itemId)
+            return;
+        auto known = itemLootTier.find(itemId);
+        if (known == itemLootTier.end() || tier < known->second)
+            itemLootTier[itemId] = tier;
+        if (direct && directOnly && tier == ITEM_SOURCE_TIER_BASE)
+            itemDirectBaseLoot.insert(itemId);
+    };
+
+    for (LootStoreItem const& lootEntry : access->Entries)
+    {
+        record(lootEntry.itemid, true);
+        if (lootEntry.mincountOrRef < 0)
+        {
+            if (LootTemplate const* ref = LootTemplates_Reference.GetLootFor((uint32)-lootEntry.mincountOrRef))
+            {
+                LootTemplateAccess const* refAccess = reinterpret_cast<LootTemplateAccess const*>(ref);
+                for (LootStoreItem const& refEntry : refAccess->Entries)
+                    record(refEntry.itemid, false);
+            }
+        }
+    }
+    for (LootLootGroupAccess const& group : access->Groups)
+    {
+        for (LootStoreItem const& lootEntry : group.ExplicitlyChanced)
+            record(lootEntry.itemid, true);
+        for (LootStoreItem const& lootEntry : group.EqualChanced)
+            record(lootEntry.itemid, true);
+    }
+}
+
 bool RandomItemMgr::IsRaidSourcedItem(uint32 itemId)
 {
     if (!itemId)
@@ -2232,8 +2283,16 @@ bool RandomItemMgr::IsRaidSourcedItem(uint32 itemId)
     return raidSourceItems.find(itemId) != raidSourceItems.end();
 }
 
+// Source-tier computation for the owner gear rules (roadmap #289).
+// Lowest-tier source wins: world/vendor/quest/allowed-recipe counts as base
+// even when the same item also drops in a raid. Runs once inside
+// BuildItemInfoCache (which already walks every prototype), so the per-item
+// cost stays in the startup cache build, never on the gear-roll path.
+// End-game dungeon maps whose own loot tables are tier 1: 229/289/329/800.
+// Every other dungeon (Deadmines/WC/SM low-level sets, BRD, Dire Maul,
+// Hateforge, Gilneas, Dragonmaw, Stormwrought, Windhorn, ...) stays base.
+
 // One-time raid provenance index for the fresh-seed gate. The per-item
-// version scanned every creature template and issued a world-DB spawn query
 // per dropping creature per candidate — thousands of synchronous queries in
 // a single seeding burst, despite the header claiming a bounded scan. This
 // builds the inverse item set once: two spawn-table reads (map ids classified
@@ -2316,6 +2375,208 @@ void RandomItemMgr::BuildRaidSourceIndex()
         (uint32)raidSourceItems.size(), raidCreatures.size(), raidGameobjects.size(), raidMaps.size());
 }
 
+// Source-tier index: one inverted item->tier map plus the recipe reverse
+// map, computed once per process. Steps on the world DB (two spawn-table
+// reads, no joins), then one loot walk per owning template — O(total loot
+// rows), a few hundred ms. Lowest-tier source wins: a shared generic table
+// dropping in both a raid and the open world records base for its items.
+void RandomItemMgr::BuildSourceTierIndex()
+{
+    sourceTierIndexed = true;
+    creatureSpawnTier.clear();
+    gameObjectSpawnTier.clear();
+    itemLootTier.clear();
+    itemDirectBaseLoot.clear();
+    recipeTier.clear();
+    repRecipeItems.clear();
+
+    auto mapTier = [](uint32 mapId) -> ItemSourceTier
+    {
+        if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(mapId))
+            if (mapEntry->IsRaid())
+                return ITEM_SOURCE_TIER_RAID;
+        if (mapId == 229 || mapId == 289 || mapId == 329 || mapId == 800)
+            return ITEM_SOURCE_TIER_DUNGEON;
+        return ITEM_SOURCE_TIER_BASE;
+    };
+
+    // Creature template -> min tier over its spawns (id..id4 columns).
+    {
+        std::unique_ptr<QueryResult> rows(WorldDatabase.Query(
+            "SELECT id, id2, id3, id4, map FROM creature"));
+        if (rows)
+        {
+            do
+            {
+                Field* fields = rows->Fetch();
+                uint32 ids[4] = { fields[0].GetUInt32(), fields[1].GetUInt32(), fields[2].GetUInt32(), fields[3].GetUInt32() };
+                ItemSourceTier tier = mapTier(fields[4].GetUInt32());
+                for (uint32 id : ids)
+                {
+                    if (!id)
+                        continue;
+                    auto found = creatureSpawnTier.find(id);
+                    if (found == creatureSpawnTier.end() || tier < found->second)
+                        creatureSpawnTier[id] = tier;
+                }
+            } while (rows->NextRow());
+        }
+    }
+
+    // GameObject template -> min tier over its spawns.
+    {
+        std::unique_ptr<QueryResult> rows(WorldDatabase.Query("SELECT id, map FROM gameobject"));
+        if (rows)
+        {
+            do
+            {
+                Field* fields = rows->Fetch();
+                uint32 id = fields[0].GetUInt32();
+                ItemSourceTier tier = mapTier(fields[1].GetUInt32());
+                auto found = gameObjectSpawnTier.find(id);
+                if (found == gameObjectSpawnTier.end() || tier < found->second)
+                    gameObjectSpawnTier[id] = tier;
+            } while (rows->NextRow());
+        }
+    }
+
+    // Walk every owning template once and record each yielded item at the
+    // owner's min spawn tier: creature corpse/pickpocket/skinning tables
+    // (world bosses always raid) plus gameobject chest tables. O(total loot
+    // rows); every per-item lookup below is O(1).
+    LootType const creatureLootTypes[3] = { LOOT_CORPSE, LOOT_PICKPOCKETING, LOOT_SKINNING };
+    uint32 maxCreature = sCreatureStorage.GetMaxEntry();
+    for (uint32 entry = 0; entry < maxCreature; ++entry)
+    {
+        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(entry);
+        if (!cInfo)
+            continue;
+        auto found = creatureSpawnTier.find(entry);
+        if (found == creatureSpawnTier.end())
+            continue;
+        ItemSourceTier tier = found->second;
+        if (cInfo->rank == CREATURE_ELITE_WORLDBOSS)
+            tier = ITEM_SOURCE_TIER_RAID;
+        ObjectGuid guid(HIGHGUID_UNIT, entry, uint32(1));
+        for (LootType lootType : creatureLootTypes)
+            MarkLootItemsTier(DropMapValue::GetLootTemplate(guid, lootType), tier,
+                itemLootTier, itemDirectBaseLoot, lootType == LOOT_CORPSE);
+    }
+    uint32 maxGO = sGOStorage.GetMaxEntry();
+    for (uint32 entry = 0; entry < maxGO; ++entry)
+    {
+        auto found = gameObjectSpawnTier.find(entry);
+        if (found == gameObjectSpawnTier.end())
+            continue;
+        MarkLootItemsTier(DropMapValue::GetLootTemplate(
+            ObjectGuid(HIGHGUID_GAMEOBJECT, entry, uint32(1)), LOOT_CORPSE),
+            found->second, itemLootTier, itemDirectBaseLoot, false);
+    }
+    // Recipe reverse map: crafted wearable -> tier of its recipe source.
+    // Chain (§7): recipe item (class 9) -> spellid_1 LEARN spell
+    // (Effect[0]=36 SPELL_EFFECT_LEARN_SPELL) -> EffectTriggerSpell[0] (craft
+    // spell) -> Effect[e]=24 CREATE_ITEM -> EffectItemType = wearable.
+    // The in-memory SpellEntry store carries the merged DBC+DB rows, so the
+    // chain walks without world-DB spell queries.
+    {
+        std::unique_ptr<QueryResult> recipes(WorldDatabase.Query(
+            "SELECT entry, spellid_1 FROM item_template WHERE class = 9 AND spellid_1 <> 0"));
+        if (recipes)
+        {
+            do
+            {
+                Field* fields = recipes->Fetch();
+                uint32 recipeItem = fields[0].GetUInt32();
+                uint32 learnSpell = fields[1].GetUInt32();
+                SpellEntry const* learn = sServerFacade.LookupSpellInfo(learnSpell);
+                if (!learn || learn->Effect[0] != SPELL_EFFECT_LEARN_SPELL)
+                    continue;
+                uint32 craftSpell = learn->EffectTriggerSpell[0];
+                SpellEntry const* craft = sServerFacade.LookupSpellInfo(craftSpell);
+                if (!craft)
+                    continue;
+                bool createsItem = false;
+                for (uint8 e = 0; e < MAX_EFFECT_INDEX; ++e)
+                    if (craft->Effect[e] == SPELL_EFFECT_CREATE_ITEM)
+                        createsItem = true;
+                if (!createsItem)
+                    continue;
+
+                // Recipe source tier: rep-gated recipe excludes (REP flag is
+                // set separately); raid / end-game-dungeon loot recipe takes
+                // the loot tier; trainer / vendor / world loot stays base.
+                ItemPrototype const* recipeProto = sObjectMgr.GetItemPrototype(recipeItem);
+                ItemSourceTier tier = ITEM_SOURCE_TIER_BASE;
+                if (recipeProto && (recipeProto->RequiredReputationFaction || recipeProto->RequiredReputationRank))
+                {
+                    tier = ITEM_SOURCE_TIER_RAID;
+                    repRecipeItems.insert(recipeItem);
+                }
+                else
+                {
+                    tier = RecipeLootTier(recipeItem);
+                }
+
+                for (uint8 e = 0; e < MAX_EFFECT_INDEX; ++e)
+                {
+                    if (craft->Effect[e] != SPELL_EFFECT_CREATE_ITEM)
+                        continue;
+                    uint32 product = craft->EffectItemType[e];
+                    if (!product)
+                        continue;
+                    auto known = recipeTier.find(product);
+                    if (known == recipeTier.end() || tier < known->second)
+                        recipeTier[product] = tier;
+                }
+            } while (recipes->NextRow());
+        }
+    }
+
+    sLog.outDetail("RandomItemMgr: source-tier index holds %zu creature spawns, %zu gameobject spawns, %zu loot items (%zu direct base), %zu recipe tiers (%zu rep-gated)",
+        creatureSpawnTier.size(), gameObjectSpawnTier.size(), itemLootTier.size(), itemDirectBaseLoot.size(), recipeTier.size(), repRecipeItems.size());
+}
+
+
+// O(1) recipe-source lookup on the inverted index. Fail-open base when the
+// recipe has no loot row (quest reward, deprecated).
+ItemSourceTier RandomItemMgr::RecipeLootTier(uint32 recipeItemId)
+{
+    if (!recipeItemId)
+        return ITEM_SOURCE_TIER_BASE;
+
+    auto known = itemLootTier.find(recipeItemId);
+    return known == itemLootTier.end() ? ITEM_SOURCE_TIER_BASE : known->second;
+}
+
+
+bool RandomItemMgr::IsRaidQuest(Quest const* quest)
+{
+    if (!quest)
+        return false;
+    // Explicit raid quest type.
+    if (quest->GetType() == QUEST_TYPE_RAID)
+        return true;
+    // Raid-scale group content.
+    if (quest->GetSuggestedPlayers() > 5)
+        return true;
+    // Raid map completion: ZoneOrSort > 0 is an area id whose map is the
+    // raid; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
+    int32 zoneOrSort = quest->GetZoneOrSort();
+    if (zoneOrSort > 0)
+    {
+        AreaEntry const* area = AreaEntry::GetById((uint32)zoneOrSort);
+        if (area)
+        {
+            if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(area->MapId))
+            {
+                if (mapEntry->IsRaid())
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool RandomItemMgr::IsRaidQuestItem(uint32 itemId)
 {
     if (!itemId)
@@ -2324,33 +2585,151 @@ bool RandomItemMgr::IsRaidQuestItem(uint32 itemId)
     std::vector<uint32> questIds = GetQuestIdsForItem(itemId);
     for (uint32 questId : questIds)
     {
-        Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
-        if (!quest)
-            continue;
-        // Explicit raid quest type.
-        if (quest->GetType() == QUEST_TYPE_RAID)
+        if (IsRaidQuest(sObjectMgr.GetQuestTemplate(questId)))
             return true;
-        // Raid-scale group content.
-        if (quest->GetSuggestedPlayers() > 5)
-            return true;
-        // Raid map completion: ZoneOrSort > 0 is an area id whose map is the
-        // raid; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
-        int32 zoneOrSort = quest->GetZoneOrSort();
-        if (zoneOrSort > 0)
-        {
-            AreaEntry const* area = AreaEntry::GetById((uint32)zoneOrSort);
-            if (area)
-            {
-                if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(area->MapId))
-                {
-                    if (mapEntry->IsRaid())
-                        return true;
-                }
-            }
-        }
     }
     return false;
 }
+
+// Rare world epic attestation (§6): membership in the direct-base-loot set
+// built by the index walk. Reference-table-only and dungeon/raid-map rows
+// never enter the set.
+bool RandomItemMgr::IsWorldDropEpic(uint32 itemId)
+{
+    if (!itemId)
+        return false;
+
+    return itemDirectBaseLoot.count(itemId) != 0;
+}
+
+// Source-tier cache accessors. Fail-open defaults (base / no flags / not an
+// epic) for uncached items: custom items and sparse DBC rows must never
+// block gear.
+ItemSourceTier RandomItemMgr::GetSourceTier(uint32 itemId)
+{
+    auto found = itemInfoCache.find(itemId);
+    if (found == itemInfoCache.end() || !found->second)
+        return ITEM_SOURCE_TIER_BASE;
+    return found->second->sourceTier;
+}
+
+uint8 RandomItemMgr::GetSourceFlags(uint32 itemId)
+{
+    auto found = itemInfoCache.find(itemId);
+    if (found == itemInfoCache.end() || !found->second)
+        return ITEM_SOURCE_FLAG_NONE;
+    return found->second->sourceFlags;
+}
+
+bool RandomItemMgr::IsWorldEpic(uint32 itemId)
+{
+    auto found = itemInfoCache.find(itemId);
+    if (found == itemInfoCache.end() || !found->second)
+        return false;
+    return found->second->worldEpic;
+}
+
+// Seed/hire source-tier gate (owner rules): tier cap, REP flag, PVP flag.
+// Replaces the ad-hoc raid/PvP/rep checks in the seed path with one
+// classification — no double logic.
+bool RandomItemMgr::PassesSourceTier(uint32 itemId)
+{
+    auto found = itemInfoCache.find(itemId);
+    if (found == itemInfoCache.end() || !found->second)
+        return true;
+    ItemInfoEntry* info = found->second;
+    if ((uint32)info->sourceTier > sPlayerbotAIConfig.randomGearMaxSourceTier)
+        return false;
+    if ((info->sourceFlags & ITEM_SOURCE_FLAG_REP) && !sPlayerbotAIConfig.randomGearAllowReputation)
+        return false;
+    if ((info->sourceFlags & ITEM_SOURCE_FLAG_PVP) && !sPlayerbotAIConfig.randomGearAllowPvP)
+        return false;
+    return true;
+}
+
+
+// Per-item owner-rule classification. Lowest-tier source wins across every
+// known source; REP/PVP are orthogonal flags, not tiers.
+void RandomItemMgr::ClassifySourceTier(ItemPrototype const* proto, ItemInfoEntry* cacheInfo)
+{
+    if (!proto || !cacheInfo)
+        return;
+
+    if (!sourceTierIndexed)
+        BuildSourceTierIndex();
+
+    cacheInfo->sourceTier = ITEM_SOURCE_TIER_BASE;
+    cacheInfo->sourceFlags = ITEM_SOURCE_FLAG_NONE;
+    cacheInfo->worldEpic = false;
+
+    auto lowerTier = [&](ItemSourceTier tier)
+    {
+        if (tier < cacheInfo->sourceTier)
+            cacheInfo->sourceTier = tier;
+    };
+    auto raiseTier = [&](ItemSourceTier tier)
+    {
+        if (tier > cacheInfo->sourceTier)
+            cacheInfo->sourceTier = tier;
+    };
+
+    // REP flag: item row, quest requirement (already in cacheInfo), vendor
+    // condition (already in cacheInfo), or rep-gated recipe.
+    if (proto->RequiredReputationFaction || proto->RequiredReputationRank ||
+        cacheInfo->repFaction || repRecipeItems.count(proto->ItemId))
+        cacheInfo->sourceFlags |= ITEM_SOURCE_FLAG_REP;
+
+    // PVP flag: NO_DISENCHANT reward blues or honor rank gear.
+    if ((proto->Flags & ITEM_FLAG_NO_DISENCHANT) || proto->RequiredHonorRank)
+        cacheInfo->sourceFlags |= ITEM_SOURCE_FLAG_PVP;
+
+    // Rare world epic marker (§6): BoE epic, no set, weapon/armor, attested
+    // by a direct world-map (0/1) creature-loot row.
+    if (proto->Quality == ITEM_QUALITY_EPIC && proto->Bonding == BIND_WHEN_EQUIPPED &&
+        !proto->ItemSet && (proto->Class == ITEM_CLASS_WEAPON || proto->Class == ITEM_CLASS_ARMOR))
+        cacheInfo->worldEpic = IsWorldDropEpic(proto->ItemId);
+
+    // Crafted product: the recipe source decides. A base recipe (trainer,
+    // plain vendor, world loot) keeps the product at base even when the
+    // product itself also drops in a raid — lowest-tier wins, so only
+    // raise, never lower, from here.
+    auto recipe = recipeTier.find(proto->ItemId);
+    if (recipe != recipeTier.end())
+    {
+        raiseTier(recipe->second);
+        if (repRecipeItems.count(proto->ItemId))
+            cacheInfo->sourceFlags |= ITEM_SOURCE_FLAG_REP;
+        if (recipe->second == ITEM_SOURCE_TIER_BASE)
+            return;
+    }
+
+    // Loot sources: O(1) on the inverted index. Any base table keeps the
+    // item at base; unknown (vendor-only/quest-only) items skip this.
+    auto loot = itemLootTier.find(proto->ItemId);
+    if (loot != itemLootTier.end())
+        raiseTier(loot->second);
+
+    // Quest reward source: raid quest (type 62 / >5 players / raid map)
+    // raises; any other quest is a base source and keeps base. Vendor and
+    // plain world sources are base by definition — nothing to do.
+    std::vector<uint32> questIds = GetQuestIdsForItem(proto->ItemId);
+    bool hasBaseQuest = false;
+    for (uint32 questId : questIds)
+    {
+        Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+        if (IsRaidQuest(quest))
+            raiseTier(ITEM_SOURCE_TIER_RAID);
+        else
+            hasBaseQuest = true;
+        if (quest->GetRequiredMinRepFaction())
+            cacheInfo->sourceFlags |= ITEM_SOURCE_FLAG_REP;
+    }
+    if (hasBaseQuest)
+        lowerTier(ITEM_SOURCE_TIER_BASE);
+}
+
 
 
 std::string RandomItemMgr::GetPlayerSpecName(Player* player)
@@ -2560,13 +2939,15 @@ uint32 RandomItemMgr::GetUpgrade(Player* player, std::string spec, uint8 slot, u
                 continue;
         }
 
-        // skip no stats trinkets
-        if (info->weights[specId] == 1 &&
-            info->slot == EQUIPMENT_SLOT_NECK ||
+        // No-stat jewellery below 30: a weight-1 neck/ring/trinket beats an
+        // empty slot at 10-29 (owner spec: prefer usable over empty). Above
+        // 30 the pools have scored alternatives, so the gate stays.
+        if (info->weights[specId] == 1 && player->GetLevel() >= 30 &&
+            (info->slot == EQUIPMENT_SLOT_NECK ||
             info->slot == EQUIPMENT_SLOT_TRINKET1 ||
             info->slot == EQUIPMENT_SLOT_TRINKET2 ||
             info->slot == EQUIPMENT_SLOT_FINGER1 ||
-            info->slot == EQUIPMENT_SLOT_FINGER2)
+            info->slot == EQUIPMENT_SLOT_FINGER2))
             continue;
 
         // check if item stat score is the best among class specs
@@ -2681,8 +3062,10 @@ std::vector<uint32> RandomItemMgr::GetUpgradeList(Player* player, uint32 specId,
                 continue;
         }
 
-        // skip no stats trinkets
-        if (info->weights[specId] < 2 && (
+        // No-stat jewellery below 30: a weight-1 neck/ring/trinket beats an
+        // empty slot at 10-29 (owner spec: prefer usable over empty). Above
+        // 30 the pools have scored alternatives, so the gate stays.
+        if (info->weights[specId] < 2 && player->GetLevel() >= 30 && (
             info->slot == EQUIPMENT_SLOT_NECK ||
             info->slot == EQUIPMENT_SLOT_TRINKET1 ||
             info->slot == EQUIPMENT_SLOT_TRINKET2 ||
@@ -3018,8 +3401,10 @@ uint32 RandomItemMgr::GetLiveStatWeight(Player* player, uint32 itemId, uint32 sp
     if (info->reqSkill && player->GetSkillValue(info->reqSkill) < info->reqSkillRank)
         return 0;
 
-    // skip no stats trinkets
-    if (info->weights[specId] == 1 && (
+    // No-stat jewellery below 30: a weight-1 neck/ring/trinket beats an
+    // empty slot at 10-29 (owner spec: prefer usable over empty). The seed
+    // loop filters weight-0 only, so this gate is what emptied the slots.
+    if (info->weights[specId] == 1 && player->GetLevel() >= 30 && (
         info->slot == EQUIPMENT_SLOT_NECK ||
         info->slot == EQUIPMENT_SLOT_TRINKET1 ||
         info->slot == EQUIPMENT_SLOT_TRINKET2 ||
