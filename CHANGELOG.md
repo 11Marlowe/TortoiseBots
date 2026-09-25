@@ -174,6 +174,13 @@
 - Stats are copied straight from the live `Player` object into a new module table (`tortoise_bots_armory_stats`), so stamina-derived max HP, enchants, talents, buffs, and racials are all accounted for instead of only class base values plus raw item stats. [#307](https://github.com/Sagiroth/TortoiseBots/pull/307)
 - Snapshots are throttled at 10 bots per 2 s (~100 s to cover 500 bots), keeping the emitter cheap and off the gameplay hot path. [#307](https://github.com/Sagiroth/TortoiseBots/pull/307)
 
+### Combat & AI
+- Fixed bots sitting at Defense 1 at every level: at 60 that was 1/300, meaning zero dodge/parry and mobs getting roughly +12% hit and crit chance against them. `InitSkills` now seeds Defense to `level*5`, so max-level bots actually defend like max-level characters. [#308](https://github.com/Sagiroth/TortoiseBots/pull/308)
+- Bots can parry now. The trainer-only Parry chain (3128 → 3127, `SPELL_EFFECT_PARRY`) is granted at level 8 for warriors, paladins, hunters, and rogues, alongside the existing Dual Wield grant — no more free hits for anything swinging at your tank. [#308](https://github.com/Sagiroth/TortoiseBots/pull/308)
+
+### Progression & Leveling
+- Defense seeding also re-runs on every level-up for random bots (`auto learn spell`), so leveling bots keep pace instead of falling behind and getting shredded in the 50s. [#308](https://github.com/Sagiroth/TortoiseBots/pull/308)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
