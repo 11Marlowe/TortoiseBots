@@ -7,6 +7,7 @@
 #include "../host/ModuleLog.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
+#include "../ai/playerbot/PlayerbotFactory.h"
 #include "../ai/playerbot/strategy/Event.h"
 
 #include "ObjectAccessor.h"
@@ -300,6 +301,23 @@ void HireLifecycle::Update(uint32_t diff)
     if (m_hired.empty())
         return;
     SweepGracePeriod(time(nullptr));
+    // Cheap periodic top-up for hired companions (no item cheat): class
+    // reagents, food/drink, potions and level-tier bandages, each bounded
+    // to a small stack by the factory. Hourly per bot, module-owned bots
+    // only, never unbounded; tools/bags stay one-time seed.
+    m_restockElapsedMs += 5000;
+    if (m_restockElapsedMs < 3600000)
+        return;
+    m_restockElapsedMs = 0;
+    for (auto const& kv : m_hired)
+    {
+        Player* bot = sObjectAccessor.FindPlayer(kv.second.botGuid);
+        if (!bot || !bot->IsInWorld() || !BotManager::Instance().IsControllableBot(bot))
+            continue;
+        PlayerbotFactory factory(bot, bot->GetLevel());
+        factory.RestockCompanion();
+        bot->SaveToDB();
+    }
 }
 
 } // namespace TortoiseBots

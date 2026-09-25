@@ -91,6 +91,7 @@ namespace ai
             creators["should pull"] = [](PlayerbotAI* ai) { return new ShouldPullTrigger(ai); };
             creators["pull start"] = [](PlayerbotAI* ai) { return new PullStartTrigger(ai); };
             creators["pull end"] = [](PlayerbotAI* ai) { return new PullEndTrigger(ai); };
+            creators["pull hold expired"] = [](PlayerbotAI* ai) { return new PullHoldExpiredTrigger(ai); };
 
             creators["tank assist"] = [](PlayerbotAI* ai) { return new TankAssistTrigger(ai); };
             creators["lose aggro"] = [](PlayerbotAI* ai) { return new LoseAggroTrigger(ai); };

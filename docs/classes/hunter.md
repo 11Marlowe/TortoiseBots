@@ -2,7 +2,7 @@
 id: class-hunter
 title: Hunter Bot AI & Specs
 category: classes
-summary: Guide to Hunter bot ranged and melee combat, pet care, Aspect of the Viper mana recovery, and custom Turtle Survival skills.
+summary: Guide to Hunter bot ranged and melee combat, pet care, Aspect upkeep (Viper manual-only), and custom Turtle Survival skills.
 tags: [class, hunter, dps, ranged, pet, melee]
 relates_to:
   - class-overview
@@ -11,13 +11,13 @@ relates_to:
 
 # Hunter Bot AI & Specs
 
-Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, and crowd control. In Turtle WoW 1.18.1, Hunters also possess a fully supported melee Survival combat style.
+Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, and crowd control. In Turtle WoW 1.18.1, Hunters also possess a partially automated melee Survival combat style (ranged-first hybrid; *Carve* fires on AoE packs, *Lacerate* is manual).
 
 ## Supported Specs & Roles
 
 - **Beast Mastery (Ranged DPS):** Focuses on pet empowerment, *Bestial Wrath*, and high sustained ranged output.
 - **Marksmanship (Ranged DPS):** Heavy physical burst damage centered on *Aimed Shot*, *Multi-Shot*, and *Trueshot Aura*.
-- **Survival (Melee / Ranged Hybrid):** Turtle WoW custom melee combat utilizing polearms/axes, *Carve*, *Lacerate*, and traps.
+- **Survival (Melee / Ranged Hybrid):** Turtle WoW custom melee combat utilizing traps, *Carve* (automatic on AoE packs), and manual *Lacerate*.
 
 ---
 
@@ -26,14 +26,14 @@ Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, an
 ### 1. Ranged Combat (Beast Mastery & Marksmanship)
 1. **Opener:** Casts *Hunter's Mark* on the primary target, orders pet to attack.
 2. **Shot Priority:**
-   - *Aimed Shot* / *Arcane Shot* on cooldown.
+   - *Aimed Shot* when the MM talent is known, otherwise *Arcane Shot* (never both), on cooldown.
    - *Multi-Shot* when AoE is permitted and multiple enemies are engaged.
    - Keeps *Serpent Sting* ticking on high-health targets (skips on low-health mobs to conserve mana).
-3. **Dead-Zone Handling:** If an enemy closes into the 8-yard minimum range, the bot smoothly executes *Disengage*, *Wing Clip*, or transitions into melee until distance is recovered.
+3. **Dead-Zone Handling:** If an enemy closes to melee the bot uses *Wing Clip*, *Mongoose Bite*/*Raptor Strike* and melee weapon swapping until distance is recovered; *Disengage* is not automated.
 
 ### 2. Melee Survival Combat
-- Closes into melee range with two-handed polearms or dual weapons.
-- Casts *Carve* for front-cone cleave and *Lacerate* for stacking bleed damage.
+- Closes into melee range.
+- Casts *Carve* automatically on AoE packs; *Lacerate* is a manual action.
 - Applies *Wing Clip* and *Mongoose Bite* reactive counter-attacks.
 
 ---
@@ -42,20 +42,20 @@ Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, an
 
 - **Aspect of the Viper (Spell ID 45651):**
   - Custom Turtle WoW aspect that regenerates mana on ranged attacks while reducing damage output.
-  - The bot automatically toggles *Aspect of the Viper* when mana falls below 25%, and switches back to *Aspect of the Hawk* or *Aspect of the Monkey* once mana recovers above 80%.
+  - *Aspect of the Viper* is a manual action only; the bot auto-maintains only *Aspect of the Hawk*.
 - **Carve (Spell ID 51575):**
-  - Custom Turtle WoW instant melee weapon attack hitting up to 3 nearby enemies. Integrated into Survival melee DPS and AoE packs.
+  - Custom Turtle WoW instant melee weapon attack hitting up to 3 nearby enemies. Integrated into Survival AoE packs.
 - **Lacerate (Spell ID 48049):**
-  - Custom Turtle WoW melee bleed ability providing sustained physical damage.
+  - Custom Turtle WoW melee bleed ability providing sustained physical damage. Manual action only.
 
 ---
 
 ## Pet Management & Utility
 
 - **Pet Lifecycle:**
-  - Automatically summons pet out of combat.
+  - Automatically summons pet out of combat. If it has no pet at all it will attempt to tame a nearby tameable beast.
   - Revives dead pets using *Revive Pet* and heals injured pets during combat via *Mend Pet*.
-  - Feeds pet appropriate diet foods from inventory to maintain "Happy" loyalty status.
+  - Restores an unhappy pet's happiness via the feed handler (no food items are consumed).
 - **Pet Safety & CC Discipline:**
   - When a target is crowd-controlled (e.g. *Polymorph* or *Freezing Trap*), the bot's pet is prevented from attacking the CC'd mob, preventing accidental breaks.
 - **Crowd Control:**

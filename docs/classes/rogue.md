@@ -32,37 +32,36 @@ Rogues provide premier single-target melee physical DPS, invaluable pre-combat c
 
 ### 2. Combo Points & Finisher Priority
 - **Generator:** Uses *Sinister Strike* (Swords) or *Backstab* (Daggers), or *Hemorrhage* (Subtlety).
-- **Slice and Dice Priority:** Always prioritizes maintaining *Slice and Dice* buff for attack speed.
+- **Slice and Dice Priority:** Combat ranks *Slice and Dice* above *Eviscerate*; Assassination and Subtlety rank *Eviscerate* above *Slice and Dice*.
 - **Finishers:**
-  - 4–5 Combo Points: Casts *Eviscerate* for burst damage.
-  - Applies *Rupture* on high-health boss encounters.
-  - Uses *Kidney Shot* when a stun is required to stop enemy channels.
+  - 4–5 Combo Points: Casts *Eviscerate* for burst damage (falling back to *Rupture* when the debuff is missing; Assassination/Subtlety also cast *Rupture* from 3+ combo points, on any target).
+  - Interrupts are covered by *Kick* (*Cheap Shot* while stealthed); *Kidney Shot* is only a fallback when *Kick* cannot run.
 
 ### 3. Burst Cooldowns
-- Casts *Adrenaline Rush* and *Blade Flurry* during tough encounters or multi-mob pulls.
-- Activates *Evasion* immediately if taking unexpected melee aggro.
+- Combat casts *Adrenaline Rush* and *Blade Flurry* during tough encounters or multi-mob pulls; Assassination fires *Cold Blood* and Subtlety fires *Preparation*.
+- Activates *Evasion* (with *Feint*) on the low-health trigger (own HP in the low band), regardless of aggro source.
 - Activates *Vanish* if health falls below 20% to wipe threat.
 
 ---
 
 ## Turtle WoW 1.18.1 Custom Content
 
-- **Surprise Attack (Spell ID 52511):**
-  - Combat talent providing an unblockable, undodgeable finisher that boosts offensive flow.
-- **Noxious Assault (Spell ID 52714):**
-  - Assassination talent providing +30% Attack Power and instant poison delivery.
-- **Envenom (Spell ID 52531):**
-  - Finisher consuming Deadly Poison stacks for instant Nature damage and an attack-speed poison buff.
-- **Shadow of Death (Spell ID 52710) & Mark for Death (Spell ID 52538):**
-  - Subtlety talents for banked burst detonation and party-wide attack power enhancement on fresh targets.
+- **Surprise Attack (Spell ID 52511, per game data):**
+  - Combat combo-builder strike wired into the Combat rotation via a combo-gated trigger.
+- **Noxious Assault (Spell ID 52714, per game data):**
+  - Assassination talent providing +30% Attack Power and instant poison delivery, per game data.
+- **Envenom (Spell ID 52531, per game data):**
+  - Finisher consuming Deadly Poison stacks for instant Nature damage and an attack-speed poison buff, per game data.
+- **Shadow of Death (Spell ID 52710) & Mark for Death (Spell ID 52538, per game data):**
+  - Subtlety talents for banked burst detonation and party-wide attack power enhancement on fresh targets, per game data.
 
 ---
 
 ## Utility & Poisons
 
-- **Poisons:** Automatically applies *Instant Poison* / *Deadly Poison* to main-hand and off-hand weapons out of combat.
+- **Poisons:** Poison choice is context-dependent: raid/generic uses Instant (main hand) + Deadly (off hand); PvE uses Instant on both hands; PvP uses Mind (main hand) + Crippling (off hand).
 - **Interrupts:** Casts *Kick* instantly to lock out enemy spell schools.
-- **Disarm & Blinds:** Uses *Gouge* to incapacitate secondary attackers and *Blind* on out-of-control adds.
+- **Gouge & Blind:** Both are self-defence reactions — *Gouge* fires on the bot's own medium-health band against its current target; *Blind* is the top-priority critical-health self-peel, ahead of *Vanish*.
 
 ---
 

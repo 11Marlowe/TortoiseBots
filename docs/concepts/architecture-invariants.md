@@ -36,8 +36,8 @@ flowchart TD
     end
 
     subgraph Client ["Client Interface"]
-        TBM["TortoiseBotsManager Addon (/tbm)"]
-        TBM -- ".bot commands" --> World
+        TBM["TortoiseBotsManager Addon (separate addon repo; TBM prefix)"]
+        TBM -- "TBM<verb> addon messages" --> World
         Sessions -- "TBM: responses" --> TBM
     end
 ```
@@ -47,17 +47,17 @@ flowchart TD
 | Invariant | Architectural Principle | Violations to Prevent | Enforcement Mechanism |
 | :--- | :--- | :--- | :--- |
 | **1. 100% Modular Native C++** | Module lives entirely in `modules/TortoiseBots/`. | Direct core edits, mandatory module dependencies. | CMake `-DMODULES=disabled` build gate. |
-| **2. Zero Core Coupling** | Core server contains zero bot AI or state. | `WorldSession::GetBot()`, `Player::m_bot`, `if (IsBot())`. | `tools/verify_tortoise_surface.sh` audit. |
+| **2. Zero Core Coupling** | Core server contains zero bot AI or state. | `WorldSession::GetBot()`, `Player::m_bot`, `if (IsBot())`. | `tools/verify_penqle_host_contract.sh --core <path>` audit. |
 | **3. Generic Headless Sessions** | Bots use standard `WorldSession` with `SessionTransport::Headless`. | Custom socket subclasses, bypassing network auth. | Headless checks, Human Reclaim protocol. |
 | **4. Narrow Host Boundary** | All host interaction passes through explicit adapters in `host/`. | Direct header pollution, leaking module types into core. | `tools/verify_penqle_host_contract.sh`. |
-| **5. Asynchronous LLM Isolation** | LLM/Chat reasoning is asynchronous from combat ticks. | Blocking the main world frame for network responses. | Background queue / worker isolation. |
+| **5. Asynchronous LLM Isolation** | LLM/Chat reasoning is asynchronous from combat ticks. | Blocking the main world frame for network responses. | Per-message `std::async` + `DelayedBotPacket` deque drained on the world tick. |
 
 ---
 
 ### Detailed Invariant Specifications
 
 #### 1. 100% Modular Native C++ Module
-The core server ([tortoise-wow](https://github.com/tortoise-wow/tortoise-wow)) must compile cleanly without TortoiseBots enabled (`-DMODULES=disabled` or without `-DMODULE_TORTOISEBOTS=static`). TortoiseBots lives entirely inside `modules/TortoiseBots/`.
+The core server ([tortoise-wow](https://github.com/tortoise-wow/tortoise-wow)) must compile cleanly without TortoiseBots enabled (`-DMODULES=disabled`). TortoiseBots lives entirely inside `modules/TortoiseBots/`.
 
 #### 2. Zero Core Coupling (No `GetBot()` or `m_bot`)
 Never reintroduce direct bot references into core engine code:
@@ -67,15 +67,18 @@ Never reintroduce direct bot references into core engine code:
 
 #### 3. Generic Headless Sessions (`SessionTransport::Headless`)
 Bot sessions are not special core subclasses. They are standard `WorldSession` instances backed by `SessionTransport::Headless`:
-* One account can have at most one Network session + $N$ Headless sessions.
-* **Human Reclaim Always Wins:** If a human logs into an account while a bot is active from that account, the bot is cleanly logged out and human control takes precedence immediately.
+* One Headless entry per character (duplicate starts for the same character are rejected); any number of headless character sessions per account — the headless side has no cap.
+* **Human Reclaim Always Wins:** If a human logs into an account while a bot is active on the same character, the bot is cleanly logged out and human control takes precedence immediately.
 * Headless sessions never manipulate `LoginDatabase` online account status, preserving normal network authentication boundaries.
 
 #### 4. Narrow, Centralized Host Boundary
-All interaction between the module and core server passes through explicit adapters in `host/`:
+All interaction between the module and core server passes through explicit adapters in `host/` (full boundary: `docs/HOST_API.md` §7):
+* `BotHostAdapter`: world-tick entry (`WorldScript` `OnUpdate`) driving `BotManager`/AI updates.
 * `BotSessionAdapter`: Manages headless session allocation and termination via `World::StartHeadlessSession`.
 * `BotPacketAdapter`: Handles packet routing and interception.
-* `BotPlayerAdapter`: Interacts with standard `Player` objects through native server APIs; answers the core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`).
+* `BotAddonAdapter`: addon-message entry (`PLAYERHOOK_ON_ADDON_MESSAGE`, `TBM` prefix) forwarding to the single `.bot` command entry.
+* `BotChatAdapter`: chat-command entry (`AllCommandScript` for `.bot`).
+* `BotPlayerAdapter`: Interacts with standard `Player` objects through native server APIs; answers the core LFT managed-bot hooks (`IsManagedBot` gate + `GetBotRoles` role answer).
 
 #### 5. Asynchronous LLM Isolation
 LLM-based chat interactions are purely asynchronous and decoupled. If an LLM backend times out or fails, combat AI, movement, healing, interrupts, and crowd control continue running with zero interruption or frame hitching.

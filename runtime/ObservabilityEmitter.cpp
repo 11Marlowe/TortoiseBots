@@ -231,6 +231,51 @@ ObservabilityEmitter::~ObservabilityEmitter()
     Shutdown();
 }
 
+// Resolves an IPv4 literal or host name; returns s_addr in network order,
+// or 0 when the name does not resolve (yet).
+static uint32_t ResolveIPv4(std::string const& host)
+{
+    struct in_addr literal{};
+    if (inet_pton(AF_INET, host.c_str(), &literal) == 1)
+        return literal.s_addr;
+
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &res) != 0 || !res)
+        return 0;
+    uint32_t resolved = reinterpret_cast<struct sockaddr_in*>(res->ai_addr)->sin_addr.s_addr;
+    freeaddrinfo(res);
+    return resolved;
+}
+
+void ObservabilityEmitter::RetryHostResolution(uint32 diff)
+{
+    if (m_resolveFuture.valid())
+    {
+        if (m_resolveFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            return;
+        uint32_t resolved = m_resolveFuture.get();
+        if (!resolved)
+            return;
+        {
+            std::lock_guard<std::mutex> lock(m_socketMutex);
+            if (m_destAddr)
+                static_cast<struct sockaddr_in*>(m_destAddr)->sin_addr.s_addr = resolved;
+        }
+        m_hostResolved = true;
+        TB_LOG_BASIC("TortoiseBots: Observability telemetry active on %s:%u", m_host.c_str(), m_port);
+        return;
+    }
+
+    m_resolveRetryMs += diff;
+    if (m_resolveRetryMs < kResolveRetryMs)
+        return;
+    m_resolveRetryMs = 0;
+    // DNS can block for seconds; never on the world thread.
+    m_resolveFuture = std::async(std::launch::async, ResolveIPv4, m_host);
+}
+
 void ObservabilityEmitter::Initialize()
 {
     // Re-initialization must not leak the previous socket or stale state.
@@ -285,22 +330,19 @@ void ObservabilityEmitter::Initialize()
     addr->sin_family = AF_INET;
     addr->sin_port = htons(static_cast<uint16>(m_port));
 
-    if (inet_pton(AF_INET, m_host.c_str(), &addr->sin_addr) != 1)
+    m_hostResolved = true;
+    m_resolveRetryMs = 0;
+    if (uint32_t resolved = ResolveIPv4(m_host))
+        addr->sin_addr.s_addr = resolved;
+    else
     {
-        struct addrinfo hints{}, *res = nullptr;
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
-        if (getaddrinfo(m_host.c_str(), nullptr, &hints, &res) == 0 && res)
-        {
-            addr->sin_addr = reinterpret_cast<struct sockaddr_in*>(res->ai_addr)->sin_addr;
-            freeaddrinfo(res);
-        }
-        else
-        {
-            sLog.outError("TortoiseBots: Observability failed to resolve host '%s', falling back to 127.0.0.1", m_host.c_str());
-            m_host = "127.0.0.1";
-            inet_pton(AF_INET, "127.0.0.1", &addr->sin_addr);
-        }
+        // Keep the configured host and retry later: at boot the dashboard
+        // container may not be up yet, and a one-time fallback would send
+        // every datagram to the wrong place for the whole session.
+        sLog.outError("TortoiseBots: Observability cannot resolve host '%s' yet; sending to 127.0.0.1 and retrying every %u s",
+            m_host.c_str(), kResolveRetryMs / 1000);
+        m_hostResolved = false;
+        inet_pton(AF_INET, "127.0.0.1", &addr->sin_addr);
     }
 
     {
@@ -309,7 +351,8 @@ void ObservabilityEmitter::Initialize()
         m_destAddr = addr;
     }
 
-    TB_LOG_BASIC("TortoiseBots: Observability telemetry active on %s:%u", m_host.c_str(), m_port);
+    if (m_hostResolved)
+        TB_LOG_BASIC("TortoiseBots: Observability telemetry active on %s:%u", m_host.c_str(), m_port);
 }
 
 void ObservabilityEmitter::Shutdown()
@@ -533,6 +576,9 @@ void ObservabilityEmitter::Update(uint32 diff)
 {
     if (!IsEnabled())
         return;
+
+    if (!m_hostResolved)
+        RetryHostResolution(diff);
 
     uint32 nowMs = WorldTimer::getMSTime();
     std::vector<Player*> activeBots = BotManager::Instance().GetAllBots();

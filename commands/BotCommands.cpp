@@ -1519,14 +1519,15 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Tank %s could not be assigned to you for pullback.", tank->GetName());
         return true;
     }
-    if (!ConfigurePullMode(tankAI, true))
+    if (!ConfigurePullMode(tankAI, true, sPlayerbotAIConfig.pullBackDpsJoinDelay))
     {
         handler->PSendSysMessage("Tank %s has no pullback strategy available.", tank->GetName());
         return true;
     }
     RelaxTacticalMovement(tankAI);
-    PausePartyDpsForPull(context, tank);
-    ai::Event event("pullback", "", requester);
+    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay, true);
+    // Snapshot the target GUID like the action path does.
+    ai::Event event("pullback", context.enemyTarget->GetObjectGuid(), requester);
     if (!ExecuteQuietAction(tankAI, "pull my target", event))
     {
         handler->PSendSysMessage("Tank %s could not start a pull for your selected target.", tank->GetName());
@@ -1883,6 +1884,9 @@ static bool HandleRoster(ChatHandler* handler)
     // Version trailer: the addon shows "server <version>" from this line and
     // falls back to "server ?" when an older module never sends it.
     handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
+    // Capability trailer: advertises adjustable pull/pullback delays
+    // (".bot action pull [seconds]", 0-60). Old addons ignore unknown lines.
+    handler->PSendSysMessage("TBM:CAPS|pull-seconds");
     // Transport trailer: the addon sends its next commands over the addon
     // channel only while this says "party". See AddonCommandChannel.
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));
@@ -2021,6 +2025,33 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         }
         return false;
     }
+    else if (first == "pull" || first == "pullback")
+    {
+        // Owner-specified adjustable delay: ".bot action pull [seconds]" and
+        // ".bot action pullback [seconds]". Plain "pull"/"pullback" keeps the
+        // configured default; the TBM addon sends the slider value here.
+        // Anything else is rejected here (not in HandleAction) so the usage
+        // line stays the single source of truth for the surface.
+        if (remainder.empty())
+        {
+            intent = first;
+            return true;
+        }
+        try
+        {
+            size_t pos = 0;
+            int seconds = std::stoi(remainder, &pos);
+            if (pos != remainder.size() || seconds < 0 || seconds > 60)
+                return false;
+            intent = first;
+            option = std::to_string(seconds);
+            return true;
+        }
+        catch (...)
+        {
+            return false;
+        }
+    }
     else if (!remainder.empty())
         return false;
     intent = first;
@@ -2071,7 +2102,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull/pullback/come/stay/hold/follow/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds]/pullback [seconds]/come/stay/hold/follow/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2328,10 +2359,20 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
 
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
-        // Pull and Pullback share the mature request action; the existing
-        // `pull back` strategy is the only semantic switch between them.
+        // Join delay: per-command [seconds] (0-60, parsed) or the configured
+        // default. For a pullback the window runs from the tank's arrival at
+        // the anchor; the hold placed below keeps DPS waiting through the
+        // return leg and is re-stamped on arrival.
         bool pullback = intent == "pullback";
-        if (!ConfigurePullMode(ai, pullback))
+        uint32 joinDelay = pullback
+            ? sPlayerbotAIConfig.pullBackDpsJoinDelay
+            : sPlayerbotAIConfig.pullDpsJoinDelay;
+        if (!option.empty())
+            joinDelay = static_cast<uint32>(std::stoi(option));
+        // Pull and Pullback share the mature request action; the per-command
+        // return mode (plus join delay) is recorded on the PullStrategy
+        // (never sticky). The tank's default is restored when the pull ends.
+        if (!ConfigurePullMode(ai, pullback, joinDelay))
         {
             char const* message = pullback
                 ? "The mature pullback strategy is unavailable."
@@ -2340,10 +2381,22 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             return true;
         }
 
+        // Report a body-pull substitution honestly: "reach pull" means the
+        // tank has no working ranged option, so it walks in, hits the mob in
+        // melee once, then returns to the anchor like a ranged pullback. The
+        // ACK detail carries it for both intents.
+        std::string pullActionName;
+        if (PullStrategy* probe = PullStrategy::Get(ai))
+            pullActionName = probe->GetPullActionName();
+        bool bodyPull = pullActionName == "reach pull";
+
         // Pulling requires tank movement: break stay!
         RelaxTacticalMovement(ai);
-        PausePartyDpsForPull(context, executor);
-        if (!ExecuteQuietAction(ai, "pull my target", ai::Event(intent, "", requester)))
+        PausePartyDpsForPull(context, executor, joinDelay, pullback);
+        // Snapshot the target GUID: the live selection can change between
+        // command validation and the pull tick.
+        ai::Event pullEvent(intent, context.enemyTarget->GetObjectGuid(), requester);
+        if (!ExecuteQuietAction(ai, "pull my target", pullEvent))
         {
             SendActionError(handler, intent, "failed", "The native pull strategy rejected the target.");
             return true;
@@ -2352,8 +2405,12 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         // step filters them out and leaves the tank waiting for a later tick.
         ExecuteQuietNextAction(ai, false);
 
-        SendActionAck(handler, intent, context.selectedBot == executor
-            ? "bot:" + std::string(executor->GetName()) : "party", 1, executor->GetName());
+        std::string scope = context.selectedBot == executor
+            ? "bot:" + std::string(executor->GetName()) : "party";
+        if (bodyPull)
+            SendActionAck(handler, intent, scope, 1, std::string(executor->GetName()) + "|body-pull");
+        else
+            SendActionAck(handler, intent, scope, 1, executor->GetName());
         return true;
     }
 
@@ -2384,9 +2441,9 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             // preserving the mature target validation and combat path.
             // Break stay and follow in combat so bots can move to and fight the target!
             RelaxTacticalMovement(ai);
-            // Explicit attack unleashes DPS early,
-            // cancelling any pull threat-window hold. No-op when absent.
-            ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
+            // Explicit attack unleashes DPS early: drop the wait window and
+            // our anchor stay (never a player-placed stay). No-op when absent.
+            ReleasePartyDpsFromPull(context, bot);
             // Dedicated healers should support the party, not be forced to target and attack the enemy
             if (!PlayerbotAI::IsHeal(bot))
             {
