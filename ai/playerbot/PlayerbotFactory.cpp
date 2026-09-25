@@ -1965,14 +1965,18 @@ void PlayerbotFactory::Shuffle(std::vector<uint32>& items)
     }
 }
 
-bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids)
+// One per-quality candidate query with the wearability descent: the cache
+// window holds items up to 20 levels above their bracket, so ItemLevel
+// alone accepts req-60 weapons for a 55 bot that CanEquipItem then rejects.
+// Descends until at least one candidate is wearable by this bot. Shared by
+// the main band loop, the epic path and the fallback — one copy.
+void PlayerbotFactory::QuerySeedCandidates(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, uint32 q, std::vector<uint32>& ids)
 {
-    ids.clear();
     uint32 currSearchLevel = searchLevel;
     bool hasProperLevel = false;
     while (!hasProperLevel && currSearchLevel > 0)
     {
-        std::vector<uint32> newItems = sRandomItemMgr.Query(currSearchLevel, bot->GetClass(), uint8(specId), slot, ITEM_QUALITY_EPIC);
+        std::vector<uint32> newItems = sRandomItemMgr.Query(currSearchLevel, bot->GetClass(), uint8(specId), slot, q);
         if (newItems.size())
             ids.insert(ids.begin(), newItems.begin(), newItems.end());
         for (auto id : ids)
@@ -1980,14 +1984,9 @@ bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, ui
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(id);
             if (!proto)
                 continue;
-            if (proto->ItemLevel > sPlayerbotAIConfig.randomGearMaxLevel)
+            if (proto->ItemLevel > maxItemLevel)
                 continue;
             if (sRandomItemMgr.GetMinLevelFromCache(id) > (uint32)bot->GetLevel())
-                continue;
-            // Attested BoE world epic only; the EPIC cache key also holds
-            // raid/dungeon epics and BoP drops. Tier gate still applies, so
-            // an over-tier attested epic cannot leak in either.
-            if (!sRandomItemMgr.IsWorldEpic(id))
                 continue;
             hasProperLevel = true;
             break;
@@ -1998,12 +1997,17 @@ bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, ui
             currSearchLevel--;
         }
     }
-    if (!hasProperLevel)
-    {
-        ids.clear();
+}
+
+bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids)
+{
+    ids.clear();
+    QuerySeedCandidates(bot, specId, slot, searchLevel, sPlayerbotAIConfig.randomGearMaxLevel, ITEM_QUALITY_EPIC, ids);
+    if (ids.empty())
         return false;
-    }
-    // Strip non-attested epics; the caller shuffles the survivors.
+    // Strip non-attested epics; the caller shuffles the survivors. The EPIC
+    // cache key also holds raid/dungeon epics and BoP drops. Tier gate still
+    // applies downstream, so an over-tier attested epic cannot leak in.
     std::vector<uint32> attested;
     for (uint32 id : ids)
         if (sRandomItemMgr.IsWorldEpic(id))
@@ -2013,8 +2017,9 @@ bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, ui
 }
 
 
-// Fresh-seed gear policy (owner spec): a uniform green/blue world-drop mix,
-// never epics, never a best-first min/max walk. The candidate pool is
+// Fresh-seed gear policy (owner spec): a uniform green/blue world-drop mix
+// (epics only through the rare world-epic gate), never a best-first min/max
+// walk. The candidate pool is
 // shuffled before filtering, so this sample cap stays uniform over the whole
 // pool while bounding per-slot scoring cost; the equip retry then walks the
 // sample until one candidate actually equips, so a failed roll never leaves
@@ -2200,10 +2205,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
         // Item availability is derived from the active Tortoise item cache.
 
     // Fresh-seed path (owner spec): MakeComplete gears a brand-new bot.
-    // Only this path gets the green/blue world-drop policy — no epics, no
-    // PvP gear, uniform roll, every-slot retry. Earned paths
-    // (syncWithMaster, explicit itemQuality, non-incremental Randomize)
-    // keep deterministic best-first behaviour.
+    // Only this path gets the green/blue world-drop policy — epics only via
+    // the rare world-epic gate, no PvP gear, uniform roll, every-slot retry.
+    // Earned paths (syncWithMaster, explicit itemQuality, non-incremental
+    // Randomize) keep deterministic best-first behaviour.
     bool const seedSpread = incremental && !syncWithMaster && itemQuality == 0;
 
     for(uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
@@ -2369,9 +2374,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     frand(0.0f, 1.0f) < sPlayerbotAIConfig.randomGearSeedEpicChance)
                     seedEpic = TrySeedEpicIds(bot, specId, slot, searchLevel, ids);
                 // Fresh-seed quality band (owner spec): greens and blues mixed
-                // from level 20, the progressive poor/normal floor below that,
-                // and never an epic — a fresh bot must not be overpowered.
-                // Earned/command paths keep the quality-started band.
+                // from level 20, the progressive poor/normal floor below that.
+                // Epics only through the rare world-epic gate above (a fresh
+                // bot must not be overpowered). Earned/command paths keep
+                // the quality-started band.
                 uint32 qBegin = quality;
                 uint32 qEnd = ITEM_QUALITY_ARTIFACT;
                 if (seedSpread && !seedEpic)
@@ -2392,38 +2398,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if (setQuality && q != quality)
                         continue;
 
-                    uint32 currSearchLevel = searchLevel;
-                    bool hasProperLevel = false;
-                    while (!hasProperLevel && currSearchLevel > 0)
-                    {
-                        std::vector<uint32> newItems = sRandomItemMgr.Query(currSearchLevel, bot->GetClass(), uint8(specId), slot, q);
-                        if (newItems.size())
-                            ids.insert(ids.begin(), newItems.begin(), newItems.end());
-
-                        // Wearability descent (review fix): the cache window
-                        // holds items up to 20 levels above their bracket, so
-                        // ItemLevel alone accepts req-60 weapons for a 55 bot
-                        // that CanEquipItem then rejects. Descend until at
-                        // least one candidate is wearable by this bot.
-                        for (auto id : ids)
-                        {
-                            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(id);
-                            if (!proto)
-                                continue;
-                            if (proto->ItemLevel > maxItemLevel)
-                                continue;
-                            if (sRandomItemMgr.GetMinLevelFromCache(id) > (uint32)bot->GetLevel())
-                                continue;
-                            hasProperLevel = true;
-                            break;
-                        }
-
-                        if (!hasProperLevel)
-                        {
-                            ids.clear();
-                            currSearchLevel--;
-                        }
-                    }
+                    QuerySeedCandidates(bot, specId, slot, searchLevel, maxItemLevel, q, ids);
 
                     // add one hand weapons for tanks
                     if ((specId == 3 || specId == 5) && slot == EQUIPMENT_SLOT_MAINHAND)
@@ -2462,31 +2437,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     {
                         if (setQuality && q != quality)
                             continue;
-                        uint32 currSearchLevel = searchLevel;
-                        bool hasProperLevel = false;
-                        while (!hasProperLevel && currSearchLevel > 0)
-                        {
-                            std::vector<uint32> newItems = sRandomItemMgr.Query(currSearchLevel, bot->GetClass(), uint8(specId), slot, q);
-                            if (newItems.size())
-                                ids.insert(ids.begin(), newItems.begin(), newItems.end());
-                            for (auto id : ids)
-                            {
-                                ItemPrototype const* proto = sObjectMgr.GetItemPrototype(id);
-                                if (!proto)
-                                    continue;
-                                if (proto->ItemLevel > maxItemLevel)
-                                    continue;
-                                if (sRandomItemMgr.GetMinLevelFromCache(id) > (uint32)bot->GetLevel())
-                                    continue;
-                                hasProperLevel = true;
-                                break;
-                            }
-                            if (!hasProperLevel)
-                            {
-                                ids.clear();
-                                currSearchLevel--;
-                            }
-                        }
+                        QuerySeedCandidates(bot, specId, slot, searchLevel, maxItemLevel, q, ids);
                     }
                 }
 
@@ -2797,13 +2748,15 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             (slot == EQUIPMENT_SLOT_HEAD || slot == EQUIPMENT_SLOT_SHOULDERS ||
              slot == EQUIPMENT_SLOT_NECK || slot == EQUIPMENT_SLOT_FINGER1 ||
              slot == EQUIPMENT_SLOT_FINGER2 || slot == EQUIPMENT_SLOT_TRINKET1 ||
-             slot == EQUIPMENT_SLOT_TRINKET2 || slot == EQUIPMENT_SLOT_RANGED))
+             slot == EQUIPMENT_SLOT_TRINKET2 || slot == EQUIPMENT_SLOT_RANGED) &&
+            !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
         {
             // Low-level coverage (§9): the scored pools for these slots are
             // thin at 10-29, so a usable item of the right slot/level beats
             // an empty slot. Sweep every cached quality for the slot and
             // take the first wearable, tier-passing candidate — no stat
-            // gate beyond wearable, no junk force-fill above 30.
+            // gate beyond wearable, no junk force-fill above 30. Empty
+            // slots only: never destroys anything.
             for (uint32 q = ITEM_QUALITY_POOR; q <= ITEM_QUALITY_RARE && !found; ++q)
             {
                 std::vector<uint32> fallback = sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q);
@@ -2827,9 +2780,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     uint16 eDest;
                     if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) != EQUIP_ERR_OK)
                         continue;
-                    Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
-                    if (oldItem)
-                        bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+                    // Guarded empty above: equip directly, destroy nothing.
                     if (bot->EquipNewItem(eDest, fallbackId, true))
                     {
                         sLog.outDetail("Bot #%d <%s>: slot %u low-level fallback equipped %u",

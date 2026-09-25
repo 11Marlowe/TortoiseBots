@@ -286,21 +286,21 @@ class RandomItemMgr
         std::map<uint32, ItemSourceTier> creatureSpawnTier;
         // GameObject template -> lowest map tier of its spawns.
         std::map<uint32, ItemSourceTier> gameObjectSpawnTier;
-        // Loot-table id -> lowest tier over its owners (creature templates
-        // via loot_id/pickpocket/skinning + gameobject templates via loot id).
-        std::map<uint32, ItemSourceTier> lootTableTier;
-        // Recipe item -> tier of the recipe source (trainer/vendor/world loot
-        // base; rep-gated, raid or end-game-dungeon recipe raises it).
-        std::map<uint32, ItemSourceTier> recipeTier;
-        std::set<uint32> repRecipeItems;
+        // Inverted loot index: item id -> lowest tier over every loot table
+        // that can yield it (one walk per owning template, entries + groups
+        // + one reference level). Per-item lookups are O(1); a shared
+        // generic table dropping in both a raid and the open world records
+        // base — lowest-tier-source-wins.
+        std::map<uint32, ItemSourceTier> itemLootTier;
+        // Items in a *direct* corpse-loot row of a base-tier creature
+        // template (reference-table-only rows do not attest). World-epic
+        // attestation set for IsWorldDropEpic.
+        std::set<uint32> itemDirectBaseLoot;
         // Lowest loot-table tier mentioning the recipe item (raid /
         // end-game-dungeon loot recipe raises the product; trainer, vendor
         // and world-loot recipes stay base). Fail-open base when the recipe
         // has no loot row (quest reward, deprecated).
         ItemSourceTier RecipeLootTier(uint32 recipeItemId);
-        // True when a loot table (creature tables when creatureTable, else
-        // gameobject tables) yields the item, one reference level deep.
-        bool LootHasItem(uint32 tableId, uint32 itemId, bool creatureTable);
         // Per-item owner-rule classification into the caller's ItemInfoEntry.
         void ClassifySourceTier(ItemPrototype const* proto, ItemInfoEntry* cacheInfo);
         // Raid-quest predicate shared by IsRaidQuestItem and the tier walk.

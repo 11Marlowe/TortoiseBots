@@ -2228,6 +2228,50 @@ static void MarkLootItems(LootTemplateAccess const* access, std::set<uint32>& it
     }
 }
 
+// Records every item a loot table can yield (same seam and one-reference
+// rule as MarkLootItems) at the given tier: itemLootTier[item] keeps the
+// minimum tier over all tables. When directOnly, entries reached only
+// through a reference row still lower itemLootTier but are not added to
+// itemDirectBaseLoot — world-epic attestation needs a direct row.
+static void MarkLootItemsTier(LootTemplateAccess const* access, ItemSourceTier tier,
+    std::map<uint32, ItemSourceTier>& itemLootTier, std::set<uint32>& itemDirectBaseLoot, bool directOnly)
+{
+    if (!access)
+        return;
+
+    auto record = [&](uint32 itemId, bool direct)
+    {
+        if (!itemId)
+            return;
+        auto known = itemLootTier.find(itemId);
+        if (known == itemLootTier.end() || tier < known->second)
+            itemLootTier[itemId] = tier;
+        if (direct && directOnly && tier == ITEM_SOURCE_TIER_BASE)
+            itemDirectBaseLoot.insert(itemId);
+    };
+
+    for (LootStoreItem const& lootEntry : access->Entries)
+    {
+        record(lootEntry.itemid, true);
+        if (lootEntry.mincountOrRef < 0)
+        {
+            if (LootTemplate const* ref = LootTemplates_Reference.GetLootFor((uint32)-lootEntry.mincountOrRef))
+            {
+                LootTemplateAccess const* refAccess = reinterpret_cast<LootTemplateAccess const*>(ref);
+                for (LootStoreItem const& refEntry : refAccess->Entries)
+                    record(refEntry.itemid, false);
+            }
+        }
+    }
+    for (LootLootGroupAccess const& group : access->Groups)
+    {
+        for (LootStoreItem const& lootEntry : group.ExplicitlyChanced)
+            record(lootEntry.itemid, true);
+        for (LootStoreItem const& lootEntry : group.EqualChanced)
+            record(lootEntry.itemid, true);
+    }
+}
+
 bool RandomItemMgr::IsRaidSourcedItem(uint32 itemId)
 {
     if (!itemId)
@@ -2331,18 +2375,18 @@ void RandomItemMgr::BuildRaidSourceIndex()
         (uint32)raidSourceItems.size(), raidCreatures.size(), raidGameobjects.size(), raidMaps.size());
 }
 
-// Source-tier index: per-owner loot→spawn→map minima, computed once per
-// process. Steps on the world DB (all indexed-column reads, no joins):
-// creature/gameobject spawn maps grouped by template, then one loot walk
-// per owning template (same MarkLootItems seam as the raid index).
-// Lowest-tier source wins downstream: a shared generic reference table that
-// drops in both a raid and the open world classifies as base.
+// Source-tier index: one inverted item->tier map plus the recipe reverse
+// map, computed once per process. Steps on the world DB (two spawn-table
+// reads, no joins), then one loot walk per owning template — O(total loot
+// rows), a few hundred ms. Lowest-tier source wins: a shared generic table
+// dropping in both a raid and the open world records base for its items.
 void RandomItemMgr::BuildSourceTierIndex()
 {
     sourceTierIndexed = true;
     creatureSpawnTier.clear();
     gameObjectSpawnTier.clear();
-    lootTableTier.clear();
+    itemLootTier.clear();
+    itemDirectBaseLoot.clear();
     recipeTier.clear();
     repRecipeItems.clear();
 
@@ -2396,9 +2440,11 @@ void RandomItemMgr::BuildSourceTierIndex()
         }
     }
 
-    // Loot-table id -> min tier over its owner templates. Creature side walks
-    // the in-memory template storage (loot_id + pickpocket + skinning, the
-    // same tables MarkLootItems reads); gameobject side walks its loot ids.
+    // Walk every owning template once and record each yielded item at the
+    // owner's min spawn tier: creature corpse/pickpocket/skinning tables
+    // (world bosses always raid) plus gameobject chest tables. O(total loot
+    // rows); every per-item lookup below is O(1).
+    LootType const creatureLootTypes[3] = { LOOT_CORPSE, LOOT_PICKPOCKETING, LOOT_SKINNING };
     uint32 maxCreature = sCreatureStorage.GetMaxEntry();
     for (uint32 entry = 0; entry < maxCreature; ++entry)
     {
@@ -2411,31 +2457,20 @@ void RandomItemMgr::BuildSourceTierIndex()
         ItemSourceTier tier = found->second;
         if (cInfo->rank == CREATURE_ELITE_WORLDBOSS)
             tier = ITEM_SOURCE_TIER_RAID;
-        uint32 tables[3] = { cInfo->loot_id, cInfo->pickpocket_loot_id, cInfo->skinning_loot_id };
-        for (uint32 table : tables)
-        {
-            if (!table)
-                continue;
-            auto known = lootTableTier.find(table);
-            if (known == lootTableTier.end() || tier < known->second)
-                lootTableTier[table] = tier;
-        }
+        ObjectGuid guid(HIGHGUID_UNIT, entry, uint32(1));
+        for (LootType lootType : creatureLootTypes)
+            MarkLootItemsTier(DropMapValue::GetLootTemplate(guid, lootType), tier,
+                itemLootTier, itemDirectBaseLoot, lootType == LOOT_CORPSE);
     }
     uint32 maxGO = sGOStorage.GetMaxEntry();
     for (uint32 entry = 0; entry < maxGO; ++entry)
     {
-        GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectInfo(entry);
-        if (!gInfo)
-            continue;
-        uint32 table = gInfo->GetLootId();
-        if (!table)
-            continue;
         auto found = gameObjectSpawnTier.find(entry);
         if (found == gameObjectSpawnTier.end())
             continue;
-        auto known = lootTableTier.find(table);
-        if (known == lootTableTier.end() || found->second < known->second)
-            lootTableTier[table] = found->second;
+        MarkLootItemsTier(DropMapValue::GetLootTemplate(
+            ObjectGuid(HIGHGUID_GAMEOBJECT, entry, uint32(1)), LOOT_CORPSE),
+            found->second, itemLootTier, itemDirectBaseLoot, false);
     }
     // Recipe reverse map: crafted wearable -> tier of its recipe source.
     // Chain (§7): recipe item (class 9) -> spellid_1 LEARN spell
@@ -2495,120 +2530,22 @@ void RandomItemMgr::BuildSourceTierIndex()
                 }
             } while (recipes->NextRow());
         }
-        sLog.outDetail("RandomItemMgr: source-tier index holds %zu recipe tiers (%zu rep-gated)",
-            recipeTier.size(), repRecipeItems.size());
     }
 
-    sLog.outDetail("RandomItemMgr: source-tier index holds %zu creature spawns, %zu gameobject spawns, %zu loot tables",
-        creatureSpawnTier.size(), gameObjectSpawnTier.size(), lootTableTier.size());
+    sLog.outDetail("RandomItemMgr: source-tier index holds %zu creature spawns, %zu gameobject spawns, %zu loot items (%zu direct base), %zu recipe tiers (%zu rep-gated)",
+        creatureSpawnTier.size(), gameObjectSpawnTier.size(), itemLootTier.size(), itemDirectBaseLoot.size(), recipeTier.size(), repRecipeItems.size());
 }
 
-// True when a loot table yields the item, one reference level deep (the
-// world resolves only one indirection per template — same rule as
-// MarkLootItems above).
-bool RandomItemMgr::LootHasItem(uint32 tableId, uint32 itemId, bool creatureTable)
-{
-    if (!tableId || !itemId)
-        return false;
 
-    auto scan = [&](LootTemplateAccess const* access) -> bool
-    {
-        if (!access)
-            return false;
-        for (LootStoreItem const& lootEntry : access->Entries)
-        {
-            if (lootEntry.itemid == itemId)
-                return true;
-            if (lootEntry.mincountOrRef < 0)
-            {
-                if (LootTemplate const* ref = LootTemplates_Reference.GetLootFor((uint32)-lootEntry.mincountOrRef))
-                {
-                    LootTemplateAccess const* refAccess = reinterpret_cast<LootTemplateAccess const*>(ref);
-                    for (LootStoreItem const& refEntry : refAccess->Entries)
-                        if (refEntry.itemid == itemId)
-                            return true;
-                }
-            }
-        }
-        for (LootLootGroupAccess const& group : access->Groups)
-        {
-            for (LootStoreItem const& lootEntry : group.ExplicitlyChanced)
-                if (lootEntry.itemid == itemId)
-                    return true;
-            for (LootStoreItem const& lootEntry : group.EqualChanced)
-                if (lootEntry.itemid == itemId)
-                    return true;
-        }
-        return false;
-    };
-
-    if (creatureTable)
-    {
-        // Table ids are per-store (creature loot_id vs pickpocket vs
-        // skinning); a raw id may exist in several stores, so probe each.
-        // Direct store lookup: creature tables live in the corpse store for
-        // loot_id; pickpocket/skinning stores hold their own ids. Probe all
-        // three; a hit in any store counts.
-        if (scan(reinterpret_cast<LootTemplateAccess const*>(LootTemplates_Creature.GetLootFor(tableId))))
-            return true;
-        if (scan(reinterpret_cast<LootTemplateAccess const*>(LootTemplates_Pickpocketing.GetLootFor(tableId))))
-            return true;
-        if (scan(reinterpret_cast<LootTemplateAccess const*>(LootTemplates_Skinning.GetLootFor(tableId))))
-            return true;
-        return false;
-    }
-
-    return scan(reinterpret_cast<LootTemplateAccess const*>(LootTemplates_Gameobject.GetLootFor(tableId)));
-}
-
-// Lowest loot-table tier mentioning a recipe item. Walks the in-memory loot
-// stores (creature corpse/pickpocket/skinning + gameobject, one reference
-// level like MarkLootItems) and takes the min over lootTableTier; unknown
-// tables (quest-reward/deprecated recipes) stay base (fail-open).
+// O(1) recipe-source lookup on the inverted index. Fail-open base when the
+// recipe has no loot row (quest reward, deprecated).
 ItemSourceTier RandomItemMgr::RecipeLootTier(uint32 recipeItemId)
 {
     if (!recipeItemId)
         return ITEM_SOURCE_TIER_BASE;
 
-    ItemSourceTier tier = ITEM_SOURCE_TIER_BASE;
-    bool found = false;
-    auto consider = [&](uint32 table)
-    {
-        auto known = lootTableTier.find(table);
-        if (known == lootTableTier.end())
-            return;
-        if (!found || known->second < tier)
-        {
-            tier = known->second;
-            found = true;
-        }
-    };
-
-    uint32 maxCreature = sCreatureStorage.GetMaxEntry();
-    for (uint32 entry = 0; entry < maxCreature; ++entry)
-    {
-        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(entry);
-        if (!cInfo)
-            continue;
-        uint32 tables[3] = { cInfo->loot_id, cInfo->pickpocket_loot_id, cInfo->skinning_loot_id };
-        for (uint32 table : tables)
-        {
-            if (!table)
-                continue;
-            if (LootHasItem(table, recipeItemId, true))
-                consider(table);
-        }
-    }
-    uint32 maxGO = sGOStorage.GetMaxEntry();
-    for (uint32 entry = 0; entry < maxGO; ++entry)
-    {
-        GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectInfo(entry);
-        if (!gInfo || !gInfo->GetLootId())
-            continue;
-        if (LootHasItem(gInfo->GetLootId(), recipeItemId, false))
-            consider(gInfo->GetLootId());
-    }
-    return found ? tier : ITEM_SOURCE_TIER_BASE;
+    auto known = itemLootTier.find(recipeItemId);
+    return known == itemLootTier.end() ? ITEM_SOURCE_TIER_BASE : known->second;
 }
 
 
@@ -2654,32 +2591,15 @@ bool RandomItemMgr::IsRaidQuestItem(uint32 itemId)
     return false;
 }
 
-// Rare world epic attestation (§6): a direct creature-loot row whose owners
-// spawn on map 0/1. Reference-table-only and dungeon/raid-map rows do not
-// attest; the research list is exactly these 62 items.
+// Rare world epic attestation (§6): membership in the direct-base-loot set
+// built by the index walk. Reference-table-only and dungeon/raid-map rows
+// never enter the set.
 bool RandomItemMgr::IsWorldDropEpic(uint32 itemId)
 {
     if (!itemId)
         return false;
 
-    uint32 maxCreature = sCreatureStorage.GetMaxEntry();
-    for (uint32 entry = 0; entry < maxCreature; ++entry)
-    {
-        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(entry);
-        if (!cInfo || !cInfo->loot_id)
-            continue;
-        if (!LootHasItem(cInfo->loot_id, itemId, true))
-            continue;
-        auto found = creatureSpawnTier.find(entry);
-        if (found == creatureSpawnTier.end())
-            continue;
-        // World maps only; caller already checked quality/bonding/set/class.
-        // creatureSpawnTier holds the MINIMUM map tier, so a min of base
-        // means at least one world spawn attests this table.
-        if (found->second == ITEM_SOURCE_TIER_BASE)
-            return true;
-    }
-    return false;
+    return itemDirectBaseLoot.count(itemId) != 0;
 }
 
 // Source-tier cache accessors. Fail-open defaults (base / no flags / not an
@@ -2783,53 +2703,11 @@ void RandomItemMgr::ClassifySourceTier(ItemPrototype const* proto, ItemInfoEntry
             return;
     }
 
-    // Loot sources: min tier over every loot table that can yield the item
-    // (creature corpse/pickpocket/skinning + gameobject, one reference
-    // level). Any base table keeps the item at base.
-    ItemSourceTier lootTier = ITEM_SOURCE_TIER_BASE;
-    bool hasLoot = false;
-    auto considerLoot = [&](uint32 table)
-    {
-        auto known = lootTableTier.find(table);
-        if (known == lootTableTier.end())
-            return;
-        if (!hasLoot || known->second < lootTier)
-            lootTier = known->second;
-        hasLoot = true;
-    };
-    uint32 maxCreature = sCreatureStorage.GetMaxEntry();
-    for (uint32 entry = 0; entry < maxCreature; ++entry)
-    {
-        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(entry);
-        if (!cInfo)
-            continue;
-        uint32 tables[3] = { cInfo->loot_id, cInfo->pickpocket_loot_id, cInfo->skinning_loot_id };
-        for (uint32 table : tables)
-        {
-            if (!table)
-                continue;
-            if (LootHasItem(table, proto->ItemId, true))
-                considerLoot(table);
-        }
-        if (hasLoot && lootTier == ITEM_SOURCE_TIER_BASE)
-            break;
-    }
-    if (!hasLoot || lootTier != ITEM_SOURCE_TIER_BASE)
-    {
-        uint32 maxGO = sGOStorage.GetMaxEntry();
-        for (uint32 entry = 0; entry < maxGO; ++entry)
-        {
-            GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectInfo(entry);
-            if (!gInfo || !gInfo->GetLootId())
-                continue;
-            if (LootHasItem(gInfo->GetLootId(), proto->ItemId, false))
-                considerLoot(gInfo->GetLootId());
-            if (hasLoot && lootTier == ITEM_SOURCE_TIER_BASE)
-                break;
-        }
-    }
-    if (hasLoot)
-        raiseTier(lootTier);
+    // Loot sources: O(1) on the inverted index. Any base table keeps the
+    // item at base; unknown (vendor-only/quest-only) items skip this.
+    auto loot = itemLootTier.find(proto->ItemId);
+    if (loot != itemLootTier.end())
+        raiseTier(loot->second);
 
     // Quest reward source: raid quest (type 62 / >5 players / raid map)
     // raises; any other quest is a base source and keeps base. Vendor and
