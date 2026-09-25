@@ -1789,3 +1789,46 @@ Local validation:
 - `python3 tools/verify_action_trigger_wiring.py` (live-missing=0),
   `python3 tools/verify_okf.py`, `./tools/verify_all.sh`; `git diff --check`.
 - Live in-game check pending (see `raport-nocny-2026-09-25/research/impl-cc-stage3.md`).
+
+## Nearby quest mirror on master NPC-accept (#278) — 2026-09-25
+
+Feature: grouped bot near its master takes the same quest when the master
+accepts it from an NPC, without walking to the giver and without enabling
+SyncQuestWithPlayer.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `917a22bc30272f5fe7956abdcc7b8c1e7c893ba6` (local
+`playerbots-references/mod-playerbots` checkout; donor default
+`AiPlayerbot.SyncQuestWithPlayer=1`).
+
+Source files:
+- `src/Ai/Base/Actions/QuestAction.cpp:187` (distance gate bypassed when
+  sync enabled) and `:243-248` (`AddQuest` fallback after the opcode fails
+  the distance check)
+- `src/Ai/Base/Actions/TalkToQuestGiverAction.cpp:38-50,272` (donor progress
+  sync; deliberately NOT ported — no donor-style progress sync exists here)
+- `src/Ai/Base/Actions/LootAction.cpp:508` and
+  `src/Ai/Base/Value/ItemUsageValue.cpp:120-131` (why sync stays off: bots
+  refuse quest-item loot / treat master's quest items as their own)
+
+Copied / ported / independently reimplemented: independently reimplemented
+(no donor code copied). `QuestAction::ProcessQuests(WorldObject*)` keeps the
+`INTERACTION_DISTANCE` gate, but when the bot is grouped with its master on
+the same map, alive, within `reactDistance` of the master, it mirrors the
+accept: iterates the giver's `PrepareQuestMenu` for quests the bot doesn't
+have and passes `CanTakeQuest`/`CanAddQuest`, delegating to the existing
+`ProcessQuest` → `AcceptQuest` path (challenge-quest blocks, log/bag checks,
+`HandleQuestgiverAcceptQuestOpcode` stay intact). Shared quests
+(`CMSG_PUSHQUESTTOPARTY`) untouched.
+
+Reason: a follow-distance bot could never reach the NPC before the sniffed
+`CMSG_QUESTGIVER_ACCEPT_QUEST` fired, so it only replied "come closer".
+
+Local validation:
+- `python3 tools/verify_okf.py`, `bash tools/verify_all.sh`;
+  `git diff --check`.
+- Module build by orchestrator (workers do not run the docker builder).
+- Live in-game check pending (group with bot at follow distance, accept an
+  eligible quest, bot takes it; ineligible/full-log/full-bag bots decline
+  with the usual message).

@@ -163,6 +163,40 @@ bool QuestAction::ProcessQuests(WorldObject* questGiver)
 
     if (sServerFacade.getDistance2d(bot, questGiver) > INTERACTION_DISTANCE && !sPlayerbotAIConfig.syncQuestWithPlayer)
     {
+        // The bot mirrors its master's NPC accept while staying at follow distance:
+        // a grouped bot near its master takes the same quest without walking to
+        // the NPC (donor mod-playerbots achieves this via SyncQuestWithPlayer,
+        // which we keep off because of its loot side effects). Needs the quest
+        // to be offered by this giver and the bot to be eligible; the giver
+        // interaction itself is skipped, so no distance/teleport side effects.
+        Player* questMaster = ai->GetMaster();
+        if (questMaster && questMaster->GetMapId() == bot->GetMapId() && bot->IsAlive() &&
+            bot->GetGroup() && bot->GetGroup() == questMaster->GetGroup() &&
+            sServerFacade.getDistance2d(bot, questMaster) <= sPlayerbotAIConfig.reactDistance)
+        {
+            bool mirrored = false;
+            bot->SetSelectionGuid(guid);
+            bot->PrepareQuestMenu(guid);
+            QuestMenu& questMenu = bot->PlayerTalkClass->GetQuestMenu();
+            for (uint32 i = 0; i < questMenu.MenuItemCount(); ++i)
+            {
+                QuestMenuItem const& menuItem = questMenu.GetItem(i);
+                Quest const* quest = sObjectMgr.GetQuestTemplate(menuItem.m_qId);
+                if (!quest)
+                    continue;
+
+                if (bot->GetQuestStatus(quest->GetQuestId()) != QUEST_STATUS_NONE)
+                    continue;
+
+                if (!bot->CanTakeQuest(quest, false) || !bot->CanAddQuest(quest, false))
+                    continue;
+
+                mirrored |= ProcessQuest(GetMaster(), quest, questGiver);
+            }
+
+            return mirrored;
+        }
+
         Player* master = ai->GetMaster();
         if (!ai->GetMaster() || sServerFacade.getDistance2d(bot, ai->GetMaster()) < sPlayerbotAIConfig.reactDistance || ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
             ai->TellPlayerNoFacing(master, BOT_TEXT("quest_error_talk"));
