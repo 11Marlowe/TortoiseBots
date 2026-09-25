@@ -62,6 +62,16 @@ For servers configured to run persistent, organically leveling bots starting at 
 * **Trade Skills:** Bots receive two class-matched primary professions (Blacksmithing + Engineering for Warriors/Paladins; Skinning or Engineering + Leatherworking for Rogues/Hunters/Shamans/Druids; one of four gathering/crafting pairs such as Herbalism + Alchemy for casters) plus First Aid, Cooking, and Fishing.
 * **Persistence:** Seeding runs once per fresh bot (it is skipped when the bot already has a primary profession or has played time); the professions and skills themselves are saved as normal character data, so they are never re-rolled across restarts.
 
+### Fresh-Bot Field Kit (bags, tools, mounts, money, bandages)
+
+Every fresh seed (pool login via `MakeComplete`, hire via `ProvisionSpellsAndGear`) also grants a usable field kit, idempotently — re-seeds only fill gaps, never duplicate:
+* **Bags:** level-tier vendor bags in the plain container slots (6-slot to 16-slot by level band). Hunter quiver/ammo-pouch slots are untouched.
+* **Profession tools:** mining pick, skinning knife, blacksmith hammer, arclight spanner and fishing pole, matching the bot's professions. Mining/skinning/fishing cannot run without them.
+* **Mounts:** race/class mount spell at 40 (apprentice) and 60 (journeyman); riding skill is already level-gated.
+* **Money:** a level-scaled starting amount on first seed only — never refilled on re-seed, so vendor/AH/repair economy stays earned.
+* **Bandages:** one half-stack at the First Aid tier; class reagents, food/drink and potions come from the existing seed tables.
+* **Hired-companion restock:** hired companions get a cheap hourly top-up (reagents, food/drink, potions, bandages, each bounded to a small stack). Tools and bags stay one-time seed.
+
 ---
 
 ## 3. Fresh-Bot Level Seed

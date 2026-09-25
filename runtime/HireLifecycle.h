@@ -63,6 +63,7 @@ private:
     std::unordered_map<uint32_t, HiredRecord> m_hired;
     std::unordered_set<uint32_t> m_dismissing;
     uint32_t m_updateElapsedMs = 0;
+    uint32_t m_restockElapsedMs = 0;
 };
 
 } // namespace TortoiseBots

@@ -386,8 +386,7 @@ AiPlayerbot.RandomBotShowCloak = 1
 #      this produces a genuine level curve over a few weeks. On one that
 #      does not, bots stay near their seed level until gameplay advances them.
 #
-# The legacy Randomize() level pipeline is not called, so flipping this on a
-# running realm does not reassign levels.
+# Flipping this on a running realm does not reassign levels.
 AiPlayerbot.DisableRandomLevels = 0
 
 # Set randombots starting level here if "AiPlayerbot.DisableRandomLevels" enabled

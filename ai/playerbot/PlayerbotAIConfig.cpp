@@ -5,7 +5,6 @@
 #include <cstring>
 #include "BotLog.h"
 #include "AccountMgr.h"
-#include "playerbot/PlayerbotFactory.h"
 #include "RandomItemMgr.h"
 #include "playerbot/PlayerbotHelpMgr.h"
 #include "playerbot/strategy/actions/CheatAction.h"
@@ -932,7 +931,6 @@ bool PlayerbotAIConfig::Initialize()
     ItemUsageValue::PopulateSoldByVendorItemIds();
     ItemUsageValue::PopulateReagentItemIdsForCraftableItemIds();
 
-    PlayerbotFactory::Init();
     sRandomItemMgr.Init();
     sPlayerbotTextMgr.LoadBotTexts();
     sPlayerbotTextMgr.LoadBotTextChance();

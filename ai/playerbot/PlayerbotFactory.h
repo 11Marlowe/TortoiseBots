@@ -15,34 +15,6 @@ struct EnchantTemplate
 
 typedef std::vector<EnchantTemplate*> EnchantContainer;
 
-struct TaxiNodeLevel
-{
-    uint32 Index;
-    uint32 MapId;
-    uint32 Level;
-};
-
-typedef std::vector<TaxiNodeLevel> TaxiNodeLevelContainer;
-
-//TODO: more spec/role
-/* classid+talenttree
-enum spec : uint8 {
-   WARRIOR ARMS = 10,
-   WARRIOR FURY = 11,
-   WARRIOR PROT = 12,
-   ROLE_HEALER = 1,
-   ROLE_MDPS = 2,
-   ROLE_CDPS = 3,
-};
-*/
-
-/*enum roles : uint8 {
-   ROLE_TANK = 0,
-   ROLE_HEALER = 1,
-   ROLE_MDPS = 2,
-   ROLE_CDPS = 3,
-};*/
-
 class PlayerbotFactory
 {
 public:
@@ -54,11 +26,7 @@ public:
         m_EnchantContainer.clear();
     }
 
-    static void Init();
     void Refresh();
-    void Randomize(bool incremental, bool syncWithMaster);
-    static std::list<uint32> classQuestIds;
-    static std::list<uint32> specialQuestIds;
     void InitSkills();
     void EnchantEquipment();
     void EquipGear() { InitEquipment(false, false); }
@@ -68,7 +36,7 @@ public:
     void UpgradeGearBest() { return InitEquipment(true, false, false); }
     // Weapon/armour/riding skills plus two class-appropriate professions and the
     // secondary skills, all bounded by the current level. Public so the runtime can
-    // give it to persistent-level bots, which never pass through Randomize().
+    // give it to persistent-level bots on first login.
     void InitAllSkills();
     // Issue #189 Phase 1: idempotent "make complete" for random-pool bots.
     // Talents first, then knob-gated free spells, then skills, then gear —
@@ -79,6 +47,11 @@ public:
     // without reimplementing gear/spell init. Incremental-only callers must
     // use UpgradeGearBest (never the wiping non-incremental path).
     void ProvisionSpellsAndGear();
+    // Cheap periodic top-up for hired/owned companions (no item cheat):
+    // class reagents, food/drink, potions and level-tier bandages, each
+    // topped to a small bounded stack. Safe to run hourly; never duplicates.
+    void RestockCompanion();
+    void AddTools() { return InitInventorySkill(); }
     void AddReagents() { return InitReagents(); }
     void AddPotions() { return InitPotions(); }
     void AddConsumes() { return AddConsumables(); }
@@ -88,8 +61,6 @@ public:
     void InitPetSpells();
 
 private:
-    void Prepare();
-    void InitSecondEquipmentSet();
     void Shuffle(std::vector<uint32>& items);
     void InitEquipment(bool incremental, bool syncWithMaster, bool progressive = sPlayerbotAIConfig.randomGearProgression, bool partialUpgrade = false);
     // One per-quality candidate query with the wearability descent (shared
@@ -100,29 +71,23 @@ private:
     // filled when the slot has any; false (fall back to the normal band)
     // otherwise.
     bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids);
-    void InitEquipmentNew(bool incremental);
     bool CanEquipItem(ItemPrototype const* proto, uint32 desiredQuality);
     void InitTradeSkills();
-    void UpdateTradeSkills();
     void SetRandomSkill(uint16 id);
-    void InitReputations();
-    void InitSpells();
-    void InitClassLevelSpells();
-    void ClearSpells();
-    void ClearSkills();
-    bool InitLevelOne();
     void InitAvailableSpells();
     void InitSpecialSpells();
+    void InitClassLevelSpells();
     // Assigns the bot a premade talent spec (specNo) by weighted probability, so the
     // "auto talents" action applies the matching premade build. Returns false if the
     // class has no premade specs configured.
     bool SelectPremadeSpecNo();
-    void InitQuests(std::list<uint32>& questMap);
-    void InitTaxiNodes();
-    void ClearInventory();
-    void ClearAllItems();
-    void ResetQuests();
     void InitMounts();
+    // Idempotent kit helpers shared by the fresh-seed and restock paths.
+    // InitBags keeps the hunter quiver/pouch logic intact; InitLevelBags
+    // upgrades plain container slots to a level-tier vendor bag first.
+    void InitLevelBags();
+    void SeedFreshMoney();
+    void InitBandages();
     void InitPotions();
     void InitFood();
     void InitReagents();
@@ -133,17 +98,10 @@ private:
     void AddItemStats(uint32 mod, uint8 &sp, uint8 &ap, uint8 &tank);
     void AddItemSpellStats(uint32 smod, uint8& sp, uint8& ap, uint8& tank);
     bool CheckItemStats(uint8 sp, uint8 ap, uint8 tank);
-    void CancelAuras();
-    bool IsDesiredReplacement(uint32 itemId);
     void InitBags();
-    void InitInventory();
-    void InitInventoryTrade();
-    void InitInventoryEquip();
     void InitInventorySkill();
     Item* StoreItem(uint32 itemId, uint32 count, bool ignoreCount = false);
-    void InitImmersive();
     void AddConsumables();
-    static void AddPrevQuests(uint32 questId, std::list<uint32>& questIds);
     void LoadEnchantContainer();
     void ApplyEnchantTemplate();
     void ApplyEnchantTemplate(uint8 spec, Item* item = nullptr);
@@ -153,9 +111,6 @@ private:
 private:
     uint32 level;
     uint32 itemQuality;
-    static uint32 tradeSkills[];
-    static TaxiNodeLevelContainer overworldTaxiNodeLevelsA;
-    static TaxiNodeLevelContainer overworldTaxiNodeLevelsH;
     PlayerbotAI* ai;
     Player* bot;
 
