@@ -62,6 +62,7 @@ void RestampPullPartyRelease(Player* tank)
         posMap.erase("pull hold");
     }
 }
+} // namespace
 
 Unit* PullNearestTargetAction::FindPullTarget(PlayerbotAI* ai)
 {
