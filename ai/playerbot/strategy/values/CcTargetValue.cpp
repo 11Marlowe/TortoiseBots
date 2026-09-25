@@ -4,6 +4,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/Action.h"
+#include "PossibleAttackTargetsValue.h"
 
 using namespace ai;
 
@@ -23,9 +24,19 @@ public:
 
         AiObjectContext* context = ai->GetAiObjectContext();
 
+        // Never CC over another CC (generalized from the Fear mark-only
+        // branch): a mob already held by someone's breakable/unbreakable aura
+        // stays held. Re-CC of our own aura of the same spell still flows
+        // through "current cc target" (HasCcTargetTrigger), not this chooser.
+        if (!ai->HasAura(spell, creature) &&
+            (PossibleAttackTargetsValue::HasBreakableCC(creature, bot) ||
+             PossibleAttackTargetsValue::HasUnBreakableCC(creature, bot)))
+            return;
+
         // A bot assigned to this raid mark may still need to close distance.
         // Keep the normal legality/resource checks, but let the mature reach
         // prerequisite handle range for that one assigned target.
+
         const bool assignedTarget = AI_VALUE(Unit*, "rti cc target") == creature;
         if (!ai->CanCastSpell(spell, creature, true, nullptr, assignedTarget, true))
             return;
