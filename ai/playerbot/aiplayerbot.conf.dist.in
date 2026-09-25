@@ -283,8 +283,23 @@ AiPlayerbot.RandomGearMaxLevel = 100
 # Default = 9, means bots level 60 can use items that require (themselves or via quests) level 51 and above
 AiPlayerbot.RandomGearMaxDiff = 9
 
-# Regularly upgrade bots equipment for their level
-AiPlayerbot.RandomGearUpgradeEnabled = 1
+# Owner-rule source-tier cap for seeded/hired bot gear (roadmap #289: higher
+# tiers unlock later). 0 = base only (world drop, vendor, quest, allowed
+# recipe); 1 = + end-game dungeons (Blackrock Spire 229, Scholomance 289,
+# Stratholme 329, Karazhan Crypt 800); 2 = + raids. Computed per item with
+# lowest-tier-source-wins and persisted in ai_playerbot_item_info_cache.
+AiPlayerbot.RandomGearMaxSourceTier = 0
+
+# Allow reputation-gated gear (item/quest/vendor-condition/recipe rep) on seeds.
+AiPlayerbot.RandomGearAllowReputation = 0
+
+# Allow PvP gear (NO_DISENCHANT rewards, honor rank) on seeds.
+AiPlayerbot.RandomGearAllowPvP = 0
+
+# Per-slot chance a fresh seed rolls a rare world-drop epic (loot-attested
+# BoE world epics) instead of the normal green/blue band. Falls back to the
+# normal band when the slot has no attested epic.
+AiPlayerbot.RandomGearSeedEpicChance = 0.02
 
 # Enable random tabards on randomisation
 AiPlayerbot.RandomGearTabards = 0

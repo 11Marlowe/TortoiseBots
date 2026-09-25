@@ -35,7 +35,10 @@ These settings dramatically enhance the solo or small-group experience with owne
 | `AiPlayerbot.AutoLearnDroppedSpells` | `0` | **`0`** | **Level-60 Book Spells (random pool only):** Teaches dungeon/raid book spells the bot reached the level for. Same random-only scope as the trainer sweep. |
 | `AiPlayerbot.RollBadItemsWithPlayer` | `0` | **`1`** | **Need on Empty Slots:** Forces party bots to roll Need on dungeon drops if their corresponding equipment slot is empty or severely under-leveled. |
 | `AiPlayerbot.RandomGearUpgradeEnabled` | `1` | **`1`** | **Automatic Gear Scaling:** Periodically equips bots with level-appropriate dungeon and quest gear as they level up. |
-| `AiPlayerbot.GenerateItemCaches` | `1` | **`1`** | **First-Boot Gear Caches:** Builds the `ai_playerbot_equip_cache` and `ai_playerbot_rnditem_cache` tables once, while they are empty, and loads them from the database afterwards. Leave it on for a fresh install — with empty caches bots only fill empty slots from loot and never judge an upgrade. |
+| `AiPlayerbot.RandomGearMaxSourceTier` | `0` | **`0`** | **Seed Gear Source Tier:** Highest loot source tier fresh/hired bots may wear — `0` base only (world drop, vendor, quest, allowed recipe), `1` + end-game dungeons (Blackrock Spire, Scholomance, Stratholme, Karazhan Crypt), `2` + raids. Per-item lowest-source-wins, persisted in `ai_playerbot_item_info_cache`. Raise later to unlock tiers (roadmap #289). |
+| `AiPlayerbot.RandomGearAllowReputation` | `0` | **`0`** | **Seed Rep Gear:** Allow reputation-gated gear (item/quest/vendor/recipe rep) on fresh/hired bots. |
+| `AiPlayerbot.RandomGearAllowPvP` | `0` | **`0`** | **Seed PvP Gear:** Allow PvP gear (honor rank, NO_DISENCHANT rewards) on fresh/hired bots. |
+| `AiPlayerbot.RandomGearSeedEpicChance` | `0.02` | **`0.02`** | **Seed World-Epic Chance:** Per-slot chance a fresh seed rolls a rare loot-attested BoE world epic instead of the green/blue band; falls back to the band when the slot has none. |
 
 The spec weights these caches are scored with come from the `ai_playerbot_weightscales` and `ai_playerbot_weightscale_data` tables, seeded by `data/sql/world/20260916090001_world.sql`. If bots wear wrong-slot gear from their bags but never swap an upgrade in, that dataset is empty — re-apply the migration and restart.
 ---

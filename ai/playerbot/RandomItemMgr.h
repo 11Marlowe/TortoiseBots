@@ -56,9 +56,30 @@ struct WeightScaleStat
     uint32 weight;
 };
 
+// Source-tier classification for the owner gear rules (roadmap #289: players
+// will later unlock higher tiers for hired bots, so the pool classifies by
+// tier with a configurable cap instead of a hard-coded exclusion list).
+// Lowest-tier source wins: an item available from ANY base source
+// (world drop, vendor, quest, trainer/world recipe) counts as base even if
+// it also drops in a raid.
+enum ItemSourceTier : uint8
+{
+    ITEM_SOURCE_TIER_BASE = 0,      // world drop / vendor / quest / allowed recipe
+    ITEM_SOURCE_TIER_DUNGEON = 1,   // end-game dungeon maps 229/289/329/800
+    ITEM_SOURCE_TIER_RAID = 2       // raid maps (DBC map_type=2), world bosses, raid quests/recipes
+};
+
+enum ItemSourceFlag : uint8
+{
+    ITEM_SOURCE_FLAG_NONE = 0,
+    ITEM_SOURCE_FLAG_REP = 1 << 0,  // reputation-gated (item row, quest, vendor condition or recipe)
+    ITEM_SOURCE_FLAG_PVP = 1 << 1   // PvP gear (NO_DISENCHANT flag or honor rank)
+};
+
 struct ItemInfoEntry
 {
-    ItemInfoEntry() : minLevel(0), itemLevel(0), source(0), team(0), repRank(0), repFaction(0), reqSkill(0), reqSkillRank(0), pvpRank(0), quality(0), slot(0), itemId(0)
+    ItemInfoEntry() : minLevel(0), itemLevel(0), source(0), team(0), repRank(0), repFaction(0), reqSkill(0), reqSkillRank(0), pvpRank(0), quality(0), slot(0), itemId(0),
+        sourceTier(ITEM_SOURCE_TIER_BASE), sourceFlags(ITEM_SOURCE_FLAG_NONE), worldEpic(false)
     {
         for (int i = 1; i <= MAX_STAT_SCALES; ++i)
         {
@@ -82,6 +103,11 @@ struct ItemInfoEntry
     uint32 slot;
     uint32 itemId;
     ItemSpecType itemSpec;
+    // Owner-rule source tier (lowest-tier source wins), orthogonal REP/PVP
+    // flags, and the rare-world-epic marker (§6: loot-attested BoE epics).
+    ItemSourceTier sourceTier;
+    uint8 sourceFlags;
+    bool worldEpic;
 };
 
 typedef std::vector<WeightScaleStat> WeightScaleStats;
@@ -195,9 +221,18 @@ class RandomItemMgr
         // quest (Type 62) or gated behind a raid map / raid-scale group
         // (SuggestedPlayers > 5). ZoneOrSort sign convention: positive =
         // area id, negative = QuestSort.dbc sort id.
-        bool IsRaidQuestItem(uint32 itemId);
         std::vector<uint32> GetQuestIdsForItem(uint32 itemId);
         uint32 GetQuestIdForItem(uint32 itemId);
+        // Source-tier classification (owner gear rules, roadmap #289).
+        // Lowest-tier source wins; computed once in BuildItemInfoCache from
+        // loot→spawn→map, recipe source and quest source, and persisted in
+        // ai_playerbot_item_info_cache (source_tier, source_flags, world_epic).
+        ItemSourceTier GetSourceTier(uint32 itemId);
+        uint8 GetSourceFlags(uint32 itemId);
+        bool IsWorldEpic(uint32 itemId);
+        // Seed/hire gate: tier cap + REP/PVP flags from the new knobs.
+        // Fail-open for uncached items (custom items, sparse DBC).
+        bool PassesSourceTier(uint32 itemId);
         std::string GetPlayerSpecName(Player* player);
         uint32 GetPlayerSpecId(Player* player);
         // Issue #189 Phase 2: unknown-spec fallback. Spent talents decide
@@ -242,6 +277,36 @@ class RandomItemMgr
         bool raidSourceIndexed = false;
         std::set<uint32> raidSourceItems;
         std::map<uint32, std::vector<uint32> > questIdsMemo;
+        // Source-tier index (owner gear rules): loot→spawn→map minima.
+        // Built once per process inside BuildItemInfoCache; valid for the
+        // process lifetime like the raid index above.
+        void BuildSourceTierIndex();
+        bool sourceTierIndexed = false;
+        // Creature template -> lowest map tier of its spawns (id..id4).
+        std::map<uint32, ItemSourceTier> creatureSpawnTier;
+        // GameObject template -> lowest map tier of its spawns.
+        std::map<uint32, ItemSourceTier> gameObjectSpawnTier;
+        // Loot-table id -> lowest tier over its owners (creature templates
+        // via loot_id/pickpocket/skinning + gameobject templates via loot id).
+        std::map<uint32, ItemSourceTier> lootTableTier;
+        // Recipe item -> tier of the recipe source (trainer/vendor/world loot
+        // base; rep-gated, raid or end-game-dungeon recipe raises it).
+        std::map<uint32, ItemSourceTier> recipeTier;
+        std::set<uint32> repRecipeItems;
+        // Lowest loot-table tier mentioning the recipe item (raid /
+        // end-game-dungeon loot recipe raises the product; trainer, vendor
+        // and world-loot recipes stay base). Fail-open base when the recipe
+        // has no loot row (quest reward, deprecated).
+        ItemSourceTier RecipeLootTier(uint32 recipeItemId);
+        // True when a loot table (creature tables when creatureTable, else
+        // gameobject tables) yields the item, one reference level deep.
+        bool LootHasItem(uint32 tableId, uint32 itemId, bool creatureTable);
+        // Per-item owner-rule classification into the caller's ItemInfoEntry.
+        void ClassifySourceTier(ItemPrototype const* proto, ItemInfoEntry* cacheInfo);
+        // Raid-quest predicate shared by IsRaidQuestItem and the tier walk.
+        bool IsRaidQuest(Quest const* quest);
+        // True when the epic has a direct world-map (0/1) creature-loot row.
+        bool IsWorldDropEpic(uint32 itemId);
 };
 
 #define sRandomItemMgr RandomItemMgr::instance()

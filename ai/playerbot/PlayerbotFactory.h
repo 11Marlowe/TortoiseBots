@@ -91,7 +91,11 @@ private:
     void Prepare();
     void InitSecondEquipmentSet();
     void Shuffle(std::vector<uint32>& items);
-    void InitEquipment(bool incremental, bool syncWithMaster, bool progressive = sPlayerbotAIConfig.randomGearProgression, bool partialUpgrade = false);
+    // Rare world-epic gate (§6): EPIC-only query for the slot, restricted to
+    // loot-attested BoE world epics the bot can wear. Returns true with ids
+    // filled when the slot has any; false (fall back to the normal band)
+    // otherwise.
+    bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids);
     void InitEquipmentNew(bool incremental);
     bool CanEquipItem(ItemPrototype const* proto, uint32 desiredQuality);
     void InitTradeSkills();
