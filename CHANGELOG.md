@@ -149,6 +149,13 @@
 - Telemetry emitter no longer permanently falls back to `127.0.0.1` when the dashboard's docker hostname isn't resolvable at boot — it keeps the configured host and retries resolution every 30s, so metrics resume as soon as the dashboard container comes up (e.g. after a reboot). [#303](https://github.com/Sagiroth/TortoiseBots/pull/303)
 - Host lookup runs on a background task, so DNS retries can never stall the world thread; the "telemetry active" log line now only appears once the host has actually resolved, making misconfig easy to spot. [#303](https://github.com/Sagiroth/TortoiseBots/pull/303)
 
+### Security & Permissions
+- Locked down bot chat commands behind a single authorization gate, so random players can no longer hijack someone else's bots mid-run. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
+- GM-only commands (`cheat`, `debug`/`cdebug`/`cs`/`log`, `set value`, `teleport`, AI resets) now require a real GM session — no more accidental server-breaking from a curious alt. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
+- Bot management (mail, bank, AH, trade, guild, craft, strategy edits like `co`/`nc`) is restricted to the bot's durable owner or a GM; unknown commands default to denied instead of silently running. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
+- Party members can still issue tactical commands, so in-combat coordination with your bots keeps working as before. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
+- Denied actions now whisper a short reason to the sender, and addon senders receive a structured `TBM:ACTION_ERR|cmd|denied|…` response so UI addons can surface the failure cleanly. [#304](https://github.com/Sagiroth/TortoiseBots/pull/304)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
