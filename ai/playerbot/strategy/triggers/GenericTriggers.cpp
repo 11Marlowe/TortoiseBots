@@ -921,8 +921,14 @@ bool ReturnToStayPositionTrigger::IsActive()
 bool ReturnToPullPositionTrigger::IsActive()
 {
     PullStrategy const* strategy = PullStrategy::Get(ai);
-    if (!strategy || !strategy->HasPullActionCompleted() ||
-        !ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT))
+    if (!strategy || !strategy->HasPullActionCompleted())
+        return false;
+    // Per-command mode owns the return leg; the sticky strategy is only the
+    // fallback for automatic dungeon pulls.
+    bool pullback = strategy->IsCommandActive()
+        ? strategy->IsCommandPullback()
+        : ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT);
+    if (!pullback)
         return false;
 
     PositionMap& posMap = AI_VALUE(PositionMap&, "position");

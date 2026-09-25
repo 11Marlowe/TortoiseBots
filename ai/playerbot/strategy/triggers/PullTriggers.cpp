@@ -6,8 +6,32 @@
 #include "PullTriggers.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/actions/PullActions.h"
+#include "../../runtime/BotManager.h"
+#include "../../runtime/PlayerbotAIStorage.h"
 
 using namespace ai;
+
+namespace
+{
+// Zero every held party bot's wait window so the per-bot "pull hold expired"
+// trigger releases them on the next tick. Used when the tank's return leg
+// times out: the pull ends, but the tank must not release the party itself.
+void ReleasePullHoldNow(Player* tank)
+{
+    if (!tank)
+        return;
+    for (Player* member : LiveGroupMembers(tank->GetGroup()))
+    {
+        if (!member || member == tank || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
+            continue;
+        PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+        if (!memberAi || !memberAi->GetAiObjectContext())
+            continue;
+        memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(0);
+        memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
+    }
+}
+} // namespace
 
 bool PullStartTrigger::IsActive()
 {
@@ -62,7 +86,11 @@ bool PullEndTrigger::IsActive()
         return false;
 
     const time_t secondsSincePullStarted = time(0) - strategy->GetPullStartTime();
-    const bool pullback = ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT);
+    // Per-command mode owns the return leg; the sticky strategy is only the
+    // fallback for automatic dungeon pulls.
+    const bool pullback = strategy->IsCommandActive()
+        ? strategy->IsCommandPullback()
+        : ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT);
 
     if (pullback && strategy->HasPullActionCompleted())
     {
@@ -71,8 +99,23 @@ bool PullEndTrigger::IsActive()
         if (!pullPosition.isSet() || pullPosition.mapId != bot->GetMapId())
             return true;
 
-        // Do not discard the return anchor just because the target died,
-        // changed victim, or the normal pull timeout elapsed while returning.
+        // Bounded return: a stuck return (knockback, fear, path failure,
+        // anchor in another map) ends the pull instead of holding the tank
+        // inert forever. The clock starts when the pull lands. Ending the
+        // pull does not release the held bots (they release themselves), so
+        // zero their window here: the per-bot trigger fires on the next tick.
+        time_t returnStart = strategy->GetReturnStartTime();
+        if (returnStart > 0 && time(0) - returnStart >= static_cast<time_t>(sPlayerbotAIConfig.pullBackMaxReturnTime))
+        {
+            ReleasePullHoldNow(bot);
+            return true;
+        }
+
+        // Tank back at the anchor: stop the return clock (NoteReturnedToAnchor
+        // is called by the arrival brake) and hold the anchor for the join
+        // window. Do not discard the return anchor just because the target
+        // died, changed victim, or the normal pull timeout elapsed while
+        // returning.
         return bot->GetDistance(pullPosition.x, pullPosition.y, pullPosition.z) <=
             ai->GetRange("follow");
     }
@@ -88,4 +131,22 @@ bool PullEndTrigger::IsActive()
     // succeeds.  Before that, retain the request while the tank closes to its
     // class-specific melee/ranged pull distance.
     return strategy->HasPullActionCompleted();
+}
+
+bool PullHoldExpiredTrigger::IsActive()
+{
+    AiObjectContext* context = ai->GetAiObjectContext();
+    if (!context)
+        return false;
+    PositionMap& posMap = AI_VALUE(PositionMap&, "position");
+    if (!posMap["pull hold"].isSet())
+        return false;
+    // Early release already dropped the wait strategy: finish the cleanup.
+    if (!ai->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+        return true;
+    time_t combatStart = AI_VALUE(time_t, "combat start time");
+    if (combatStart <= 0)
+        return true;
+    uint8 waitSeconds = AI_VALUE(uint8, "wait for attack time");
+    return time(0) - combatStart >= static_cast<time_t>(waitSeconds);
 }

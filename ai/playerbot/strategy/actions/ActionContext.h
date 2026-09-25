@@ -151,6 +151,7 @@ namespace ai
             creators["pull action"] = [](PlayerbotAI* ai) { return new PullAction(ai); };
             creators["return to pull position"] = [](PlayerbotAI* ai) { return new ReturnToPullPositionAction(ai); };
             creators["pull end"] = [](PlayerbotAI* ai) { return new PullEndAction(ai); };
+            creators["release pull hold"] = [](PlayerbotAI* ai) { return new ReleasePullHoldAction(ai); };
             creators["emote"] = [](PlayerbotAI* ai) { return new EmoteAction(ai); };
             creators["talk"] = [](PlayerbotAI* ai) { return new TalkAction(ai); };
             creators["mount anim"] = [](PlayerbotAI* ai) { return new MountAnimAction(ai); };

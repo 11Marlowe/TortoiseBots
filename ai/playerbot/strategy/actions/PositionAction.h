@@ -60,5 +60,6 @@ namespace ai
     public:
         ReturnToPullPositionAction(PlayerbotAI* ai) : MoveToPositionAction(ai, "return to pull position", "pull") {}
         virtual bool isPossible() override;
+        virtual bool Execute(Event& event) override;
     };
 }
