@@ -384,6 +384,10 @@
     // Tabs & Navigation
     menuItems: document.querySelectorAll('.sidebar-menu .menu-item[data-tab]'),
     tabViews: document.querySelectorAll('.tab-view'),
+    sidebar: document.getElementById('sidebar'),
+    sidebarBackdrop: document.getElementById('sidebar-backdrop'),
+    hamburgerBtn: document.getElementById('hamburger-btn'),
+    currentTabTitle: document.getElementById('current-tab-title'),
 
     // Map
     zoneFilterInput: document.getElementById('zone-filter-input'),
@@ -407,6 +411,9 @@
     worldCount0: document.getElementById('world-count-0'),
     worldCount1: document.getElementById('world-count-1'),
     worldZones: document.getElementById('world-zones'),
+    worldChipsWrapper: document.getElementById('world-chips-wrapper'),
+    toggleZoneChips: document.getElementById('toggle-zone-chips'),
+    zoneChipsCount: document.getElementById('zone-chips-count'),
     worldOffmap: document.getElementById('world-offmap'),
     botDrawer: document.getElementById('bot-drawer'),
     drawerContent: document.getElementById('drawer-content'),
@@ -528,8 +535,47 @@
   }
 
   // Sidebar Tab Navigation
+  const TAB_TITLES = {
+    dashboard: 'Dashboard',
+    map: 'Live Map',
+    roster: 'Bots',
+    armory: 'Armory',
+    issues: 'Persistent Issues',
+    incidents: 'Incidents'
+  };
+
+  function openNavDrawer() {
+    if (!el.sidebar) return;
+    el.sidebar.classList.add('open');
+    if (el.sidebarBackdrop) el.sidebarBackdrop.classList.add('active');
+    if (el.hamburgerBtn) el.hamburgerBtn.setAttribute('aria-expanded', 'true');
+  }
+
+  function closeNavDrawer() {
+    if (!el.sidebar) return;
+    el.sidebar.classList.remove('open');
+    if (el.sidebarBackdrop) el.sidebarBackdrop.classList.remove('active');
+    if (el.hamburgerBtn) el.hamburgerBtn.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleNavDrawer() {
+    if (el.sidebar && el.sidebar.classList.contains('open')) {
+      closeNavDrawer();
+    } else {
+      openNavDrawer();
+    }
+  }
+
   function switchTab(tab) {
     state.activeTab = tab;
+    if (el.currentTabTitle) {
+      el.currentTabTitle.textContent = TAB_TITLES[tab] || (tab.charAt(0).toUpperCase() + tab.slice(1));
+    }
+    el.menuItems.forEach(item => {
+      item.classList.toggle('active', item.dataset.tab === tab);
+    });
+    closeNavDrawer();
+
     if (tab === 'roster') renderRoster();
     if (tab === 'armory') { armoryView(); if (state.armoryGuid === null || state.armoryGuid === undefined) renderArmoryList(); }
     el.tabViews.forEach(v => {
@@ -553,6 +599,32 @@
       if (tab) switchTab(tab);
     });
   });
+
+  if (el.hamburgerBtn) {
+    el.hamburgerBtn.addEventListener('click', toggleNavDrawer);
+  }
+  if (el.sidebarBackdrop) {
+    el.sidebarBackdrop.addEventListener('click', closeNavDrawer);
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeNavDrawer();
+  });
+
+  let resizeTimer = null;
+  function onWindowResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (state.activeTab === 'map') {
+        renderMap();
+      } else if (state.activeTab === 'dashboard') {
+        renderDashboardCharts();
+      } else if (state.activeTab === 'issues') {
+        renderIssueChart();
+      }
+    }, 100);
+  }
+  window.addEventListener('resize', onWindowResize);
+  window.addEventListener('orientationchange', onWindowResize);
 
   if (el.refreshBtn) {
     el.refreshBtn.addEventListener('click', () => {
@@ -654,6 +726,12 @@
       .catch(() => {});
     if (el.worldTab0) el.worldTab0.addEventListener('click', () => setWorldTab(0));
     if (el.worldTab1) el.worldTab1.addEventListener('click', () => setWorldTab(1));
+    if (el.toggleZoneChips && el.worldChipsWrapper) {
+      el.toggleZoneChips.addEventListener('click', () => {
+        const isExpanded = el.worldChipsWrapper.classList.toggle('expanded');
+        el.toggleZoneChips.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+      });
+    }
   }
 
   function loadZoneMap(zoneId) {
@@ -793,6 +871,9 @@
       if (b.map !== mapId) return;
       counts.set(b.zone, (counts.get(b.zone) || 0) + 1);
     });
+    if (el.zoneChipsCount) {
+      el.zoneChipsCount.textContent = counts.size;
+    }
     [...counts.entries()].sort((a, b) => b[1] - a[1]).forEach(([zoneId, n]) => {
       const chip = document.createElement('button');
       chip.className = 'btn';

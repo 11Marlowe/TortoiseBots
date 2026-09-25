@@ -12,8 +12,11 @@
 
 <div class="app-container">
 
+  <!-- Mobile Navigation Backdrop -->
+  <div id="sidebar-backdrop" class="sidebar-backdrop" aria-hidden="true"></div>
+
   <!-- Left Sidebar -->
-  <aside class="sidebar">
+  <aside class="sidebar" id="sidebar" aria-label="Main Navigation">
     <div class="sidebar-header">
       <svg class="brand-icon" viewBox="0 0 24 24" fill="currentColor">
         <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
@@ -70,6 +73,17 @@
     
     <!-- Top Bar -->
     <header class="topbar">
+      <div class="topbar-nav-mobile">
+        <button id="hamburger-btn" class="hamburger-btn" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="sidebar">
+          <svg class="hamburger-icon" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+        <span id="current-tab-title" class="current-tab-title">Dashboard</span>
+      </div>
+
       <div class="pill-group">
         <div id="status-pill" class="status-pill offline">
           <span id="status-dot" class="status-dot"></span>
@@ -91,8 +105,8 @@
 
       <!-- TAB 1: DASHBOARD VIEW -->
       <section id="tab-dashboard" class="tab-view">
-        <div style="margin-bottom: 24px;">
-          <h1 style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Dashboard</h1>
+        <div class="tab-heading-wrap">
+          <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Dashboard</h1>
         </div>
 
         <div class="section-label">SERVER TELEMETRY · TORTOISE WOW</div>
@@ -203,13 +217,13 @@
         <div class="telemetry-card" style="padding: 14px 18px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
             <label for="zone-filter-input" style="font-weight: 600; font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">Zone:</label>
-            <input type="text" id="zone-filter-input" placeholder="Filter zone (e.g. Durotar, Barrens)..." class="btn" style="padding: 6px 12px; font-size: 0.85rem; width: 200px; text-align: left;">
-            <select id="zone-select" class="btn" style="padding: 6px 14px; font-weight: 600; max-width: 260px;">
+            <input type="text" id="zone-filter-input" placeholder="Filter zone (e.g. Durotar, Barrens)..." class="btn zone-filter-input">
+            <select id="zone-select" class="btn zone-select">
             </select>
             <span id="zone-filter-count" class="badge badge-info">101 zones</span>
           </div>
 
-          <div style="display: flex; align-items: center; gap: 20px; font-size: 0.85rem;">
+          <div style="display: flex; align-items: center; gap: 20px; font-size: 0.85rem; flex-wrap: wrap;">
             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
               <input type="checkbox" id="toggle-trails" checked style="accent-color: #2ea043;">
               <span>Path Trails (Breadcrumbs)</span>
@@ -220,11 +234,21 @@
 
         <div style="position: relative;">
           <!-- WORLD VIEW (default): both continents, all bots -->
-          <div style="display: flex; gap: 8px; margin-bottom: 10px;">
-            <button class="btn" id="world-tab-0" style="padding: 6px 14px; font-weight: 600;">Eastern Kingdoms <span id="world-count-0" style="opacity: 0.6; font-weight: 400;"></span></button>
-            <button class="btn" id="world-tab-1" style="padding: 6px 14px; font-weight: 600;">Kalimdor <span id="world-count-1" style="opacity: 0.6; font-weight: 400;"></span></button>
+          <div id="world-chips-wrapper" class="world-chips-wrapper">
+            <button id="toggle-zone-chips" class="btn toggle-zone-chips-btn" type="button" aria-expanded="false" aria-controls="world-chips-content">
+              <span>Zones (<span id="zone-chips-count">0</span>)</span>
+              <svg class="toggle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div id="world-chips-content" class="world-chips-content">
+              <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+                <button class="btn" id="world-tab-0" style="padding: 6px 14px; font-weight: 600;">Eastern Kingdoms <span id="world-count-0" style="opacity: 0.6; font-weight: 400;"></span></button>
+                <button class="btn" id="world-tab-1" style="padding: 6px 14px; font-weight: 600;">Kalimdor <span id="world-count-1" style="opacity: 0.6; font-weight: 400;"></span></button>
+              </div>
+              <div id="world-zones" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;"></div>
+            </div>
           </div>
-            <div id="world-zones" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;"></div>
           <div id="world-view">
             <div class="map-viewport" id="world-viewport">
               <img class="map-img" id="world-img" src="/maps/azeroth.webp" alt="Continent Map">
@@ -243,10 +267,10 @@
           </div>
           </div>
           <div id="map-tooltip" class="map-tooltip" style="display: none;"></div>
-          <!-- Bot Side Drawer -->
-          <div id="bot-drawer" class="telemetry-card" style="display: none; position: absolute; top: 16px; right: 16px; width: 320px; padding: 20px; z-index: 30; background: rgba(14, 19, 27, 0.95);">
+          <!-- Bot Side Drawer / Mobile Bottom Sheet -->
+          <div id="bot-drawer" class="telemetry-card bot-drawer">
             <div style="display: flex; justify-content: flex-end;">
-              <button id="close-drawer" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.2rem;">&times;</button>
+              <button id="close-drawer" class="close-drawer-btn" aria-label="Close bot details">&times;</button>
             </div>
             <div id="drawer-content"></div>
           </div>
@@ -259,7 +283,7 @@
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
             <h2 style="font-size: 1.15rem; font-weight: 700; color: #fff;">Active Bot Population <span id="roster-count" style="color: var(--text-muted); font-size: 0.8rem; font-weight: 400;"></span></h2>
             <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-              <input type="text" id="bot-search" placeholder="Search name/class..." class="btn" style="padding: 6px 12px; width: 170px;">
+              <input type="text" id="bot-search" placeholder="Search name/class..." class="btn bot-search-input">
               <select id="role-filter" class="btn" style="padding: 6px 12px;">
                 <option value="all">All Roles</option>
                 <option value="tank">Tanks</option>
@@ -282,7 +306,7 @@
               </label>
             </div>
           </div>
-          <div style="overflow-x: auto;">
+          <div class="table-container">
             <table class="data-table">
               <thead>
                 <tr>
@@ -309,11 +333,11 @@
       <section id="tab-armory" class="tab-view" style="display: none;">
         <div id="armory-list-view" class="telemetry-card" style="display: none;">
           <div class="armory-topbar">
-            <h1 style="font-size: 1.5rem; font-weight: 700; color: #fff;">Bot Armory</h1>
-            <input type="text" id="armory-list-search" placeholder="Search name…" class="btn" style="padding: 6px 12px; width: 200px; margin-left: auto;">
+            <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff;">Bot Armory</h1>
+            <input type="text" id="armory-list-search" placeholder="Search name…" class="btn armory-list-search-input">
           </div>
           <p style="color: var(--text-muted); font-size: 0.85rem;">Every bot character in the armory database, online or offline. Click a bot to open its profile.</p>
-          <div style="overflow-x: auto;">
+          <div class="table-container">
             <table class="data-table">
               <thead>
                 <tr>
@@ -341,7 +365,7 @@
               <h2 id="armory-name" class="armory-name">–</h2>
               <div id="armory-subtitle" class="armory-subtitle"></div>
               <div id="armory-spec-info" style="margin-top: 4px; font-size: 0.85rem; font-weight: 700; color: var(--accent-yellow);"></div>
-              <div id="armory-bars" style="margin-top: 8px; display: flex; gap: 10px; max-width: 440px;">
+              <div id="armory-bars" class="armory-bars">
                 <div class="stat-bar-wrap" style="flex: 1;">
                   <div id="armory-hp-bar" class="stat-bar-fill stat-bar-hp" style="width: 100%;"></div>
                   <span id="armory-hp-text" class="stat-bar-text">0 / 0 HP</span>
@@ -395,7 +419,7 @@
       <!-- TAB 4: ISSUES -->
       <section id="tab-issues" class="tab-view" style="display: none;">
         <div style="margin-bottom: 20px;">
-          <h1 style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Persistent Issues</h1>
+          <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Persistent Issues</h1>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
             Only problems that persist <strong>5+ minutes</strong> are shown, so short hiccups are ignored. Red = 10+ minutes. Click a bot to jump to its map.
           </p>
@@ -409,7 +433,7 @@
           <div class="telemetry-card metric-stat"><div id="issue-deaths" class="metric-big-num" style="color: #c9d1d9;">0</div><div class="metric-label">Deaths (session)</div></div>
         </div>
 
-        <div class="dashboard-grid" style="grid-template-columns: 1.6fr 1fr;">
+        <div class="dashboard-grid dashboard-grid-issues">
           <div class="telemetry-card chart-container" style="height: 280px;">
             <div class="chart-header">
               <div class="section-label" style="margin: 0;">ACTIVE ISSUES OVER TIME</div>
@@ -426,7 +450,7 @@
         <div class="telemetry-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; gap: 12px; flex-wrap: wrap;">
             <h2 style="font-size: 1.15rem; font-weight: 700; color: #fff;">Active Issues</h2>
-            <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
               <select id="issue-type-filter" class="btn" style="padding: 6px 12px;">
                 <option value="all">All Types</option>
                 <option value="STUCK">Stuck</option>
@@ -442,7 +466,7 @@
               </select>
             </div>
           </div>
-          <div style="overflow-x: auto;">
+          <div class="table-container">
             <table class="data-table">
               <thead>
                 <tr>
@@ -466,9 +490,9 @@
       <!-- TAB 5: INCIDENTS -->
       <section id="tab-incidents" class="tab-view" style="display: none;">
         <div class="telemetry-card">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
             <h2 style="font-size: 1.15rem; font-weight: 700; color: #fff;">Incidents & Anomalies</h2>
-            <div style="display: flex; gap: 12px; align-items: center;">
+            <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
               <select id="anomaly-type-filter" class="btn" style="padding: 6px 12px;">
                 <option value="all">All Types</option>
                 <option value="BOT_STUCK">BOT_STUCK</option>
@@ -485,7 +509,7 @@
               <button id="clear-anomalies" class="btn" style="padding: 6px 12px;">Clear</button>
             </div>
           </div>
-          <div style="overflow-x: auto;">
+          <div class="table-container">
             <table class="data-table">
               <thead>
                 <tr>

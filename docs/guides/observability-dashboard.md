@@ -34,6 +34,7 @@ When the daemon is running, sign in with a game account of GM rank ≥ 2 (or run
 - **Roster & Health Overview:** Real-time list of all active bots, class names (icons exist only for items/spells/talents), current levels, health/mana percentages, and target units.
 - **Macro-State Breakdown:** Fleet-wide visualization showing how many bots are currently in `combat`, `moving`, `resting`, `idle`, or `dead`.
 - **Persistent Issue Tracker:** Any bot that gets stuck, loops an action, or fails to reach a target for 5+ minutes is automatically logged as a tracked episode. You can inspect the root cause; episodes auto-close (short ones are discarded, resolved history is read-only) — only incidents/anomalies have a clear button.
+- **Mobile & Tablet Friendly:** Fully responsive layout for phones (360–430 px) and tablets (768 px) featuring an off-canvas navigation drawer, stacked grids, scrollable tables, and touch-friendly controls while preserving the desktop layout.
 
 ---
 
