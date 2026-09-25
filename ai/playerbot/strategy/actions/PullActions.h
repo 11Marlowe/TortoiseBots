@@ -75,4 +75,13 @@ namespace ai
         PullEndAction(PlayerbotAI* ai, std::string name = "pull end") : Action(ai, name) {}
         bool Execute(Event& event) override;
     };
-}
+
+    // Self release for a held DPS bot: drops the wait window and clears only
+    // our anchor copy ("pull hold"), never a player-placed stay. Fires from
+    // the per-bot "pull hold expired" trigger once the join window elapses.
+    class ReleasePullHoldAction : public Action
+    {
+    public:
+        ReleasePullHoldAction(PlayerbotAI* ai, std::string name = "release pull hold") : Action(ai, name) {}
+        bool Execute(Event& event) override;
+    };

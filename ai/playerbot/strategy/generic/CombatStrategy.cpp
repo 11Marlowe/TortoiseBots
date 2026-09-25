@@ -87,6 +87,19 @@ void WaitForAttackStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
     triggers.push_back(new TriggerNode(
         "wait for attack safe distance",
         NextAction::array(0, new NextAction("wait for attack keep safe distance", 60.0f), NULL)));
+    // Ordered-pull hold release: each held bot drops its own anchor hold
+    // once its join window elapses (see "pull hold expired"). High relevance
+    // so the release wins over the drift guard while both are active.
+    triggers.push_back(new TriggerNode(
+        "pull hold expired",
+        NextAction::array(0, new NextAction("release pull hold", ACTION_HIGH), NULL)));
+}
+
+void WaitForAttackStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "pull hold expired",
+        NextAction::array(0, new NextAction("release pull hold", ACTION_HIGH), NULL)));
 }
 
 void WaitForAttackStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
@@ -150,7 +163,8 @@ float WaitForAttackMultiplier::GetValue(Action* action)
         (actionName != "pull rti target") &&
         (actionName != "pull start") &&
         (actionName != "pull action") &&
-        (actionName != "pull end"))
+        (actionName != "pull end") &&
+        (actionName != "release pull hold"))
     {
         return WaitForAttackStrategy::ShouldWait(ai) ? 0.0f : 1.0f;
     }

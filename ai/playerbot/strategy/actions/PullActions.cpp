@@ -33,35 +33,6 @@ void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
         memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
     }
 }
-
-// Release every hold placed for this tank's pull: drop the wait window and
-// clear only our anchor copy ("pull hold"), never a player-placed stay.
-void RestampPullPartyRelease(Player* tank)
-{
-    if (!tank)
-        return;
-    for (Player* member : LiveGroupMembers(tank->GetGroup()))
-    {
-        if (!member || member == tank || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
-            continue;
-        PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
-        if (!memberAi || !memberAi->GetAiObjectContext())
-            continue;
-        memberAi->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
-        ai::PositionMap& posMap = memberAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
-        ai::PositionEntry holdPos = posMap["pull hold"];
-        if (!holdPos.isSet())
-            continue;
-        ai::PositionEntry stayPos = posMap["stay"];
-        if (stayPos.isSet() && stayPos.mapId == holdPos.mapId &&
-            stayPos.x == holdPos.x && stayPos.y == holdPos.y)
-        {
-            memberAi->SetMovementStrategy("follow");
-            posMap.erase("stay");
-        }
-        posMap.erase("pull hold");
-    }
-}
 } // namespace
 
 Unit* PullNearestTargetAction::FindPullTarget(PlayerbotAI* ai)
@@ -395,15 +366,33 @@ bool PullEndAction::Execute(Event& event)
             }
             posMap.erase("pull");
         }
-
-        // Release the held party: drop the wait window and our anchor stay
-        // (never a player-placed stay). This covers the return timeout as
-        // well as the normal end — the join window has expired either way.
-        RestampPullPartyRelease(bot);
+        // The held party releases itself per bot once its own join window
+        // elapses ("pull hold expired" trigger): the tank must not drop the
+        // wait window here, or the join delay would be zero.
 
         strategy->OnPullEnded();
         return true;
     }
 
     return false;
+}
+
+bool ReleasePullHoldAction::Execute(Event& event)
+{
+    (void)event;
+    ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_COMBAT);
+    AiObjectContext* context = ai->GetAiObjectContext();
+    PositionMap& posMap = AI_VALUE(PositionMap&, "position");
+    PositionEntry holdPos = posMap["pull hold"];
+    if (!holdPos.isSet())
+        return true;
+    PositionEntry stayPos = posMap["stay"];
+    if (stayPos.isSet() && stayPos.mapId == holdPos.mapId &&
+        stayPos.x == holdPos.x && stayPos.y == holdPos.y)
+    {
+        ai->SetMovementStrategy("follow");
+        posMap.erase("stay");
+    }
+    posMap.erase("pull hold");
+    return true;
 }
