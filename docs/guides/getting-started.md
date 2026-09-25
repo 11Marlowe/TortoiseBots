@@ -53,7 +53,7 @@ Alternatively, type these commands in chat:
 
 > [!TIP]
 > **Fast Leveling & Training:**
-> * Set `AiPlayerbot.SyncAltLevelToMaster = 1` in `conf/aiplayerbot.conf` so all bot characters on your account automatically level up to match your main character.
+> * Set `AiPlayerbot.SyncAltLevelToMaster = 1` in `aiplayerbot.conf` (next to `mangosd.conf`) and keep your owned bots in your group with you as leader: each gains one level per AI update until it matches your level.
 > * Take your bots to class trainers in major cities and whisper them `trainer` (or type `.bot command <Name> trainer`) to have them learn all available class spells and ranks in one click!
 
 ---

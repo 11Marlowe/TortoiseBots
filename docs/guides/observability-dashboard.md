@@ -11,7 +11,7 @@ relates_to:
 
 # Observability Dashboard & Telemetry
 
-TortoiseBots includes an optional, zero-overhead observability subsystem located in [`tools/observability`](../../tools/observability). It provides live visibility into bot fleet health, active locations, combat states, and navigation stuck episodes.
+TortoiseBots includes an optional observability subsystem located in [`tools/observability`](../../tools/observability). It is zero-overhead while disabled (default off); once enabled the emitter serialises heartbeat + roster batches to UDP each cycle (non-blocking). It provides live visibility into bot fleet health, active locations, combat states, and navigation stuck episodes.
 
 ```text
 TortoiseBots Module (C++)
@@ -21,19 +21,19 @@ TortoiseBots Module (C++)
 Go Observability Daemon (tools/observability)
     │
     ├──► Prometheus Metrics HTTP Endpoint (/metrics)
-    ├──► REST API (/api/state, /api/issues)
-    └──► WebSocket (/ws) -> Embedded Web SPA Dashboard (:8080)
+    ├──► REST API (/api/v1/status, /api/v1/bots, /api/v1/issues, /api/v1/anomalies)
+    └──► WebSocket (/api/v1/stream) -> Embedded Web SPA Dashboard (:8095)
 ```
 
 ---
 
 ## 1. Web Dashboard Features
 
-When the daemon is running, opening `http://localhost:8080` in your browser provides:
+When the daemon is running, sign in with a game account of GM rank ≥ 2 (or run with `--dev-no-auth` for local dev), then open `http://localhost:8095` in your browser (port is configurable via `--http-port`):
 - **2D World Map:** Live rendering of Kalimdor and Eastern Kingdoms with continent tabs, zone chips, and real-time bot position markers.
-- **Roster & Health Overview:** Real-time list of all active bots, class icons, current levels, health/mana percentages, and target units.
-- **Macro-State Breakdown:** Fleet-wide visualization showing how many bots are currently fighting, resting, traveling, looting, or dead.
-- **Persistent Issue Tracker:** Any bot that gets stuck, loops an action, or fails to reach a target for 5+ minutes is automatically logged as a tracked episode. You can inspect the root cause and clear resolved episodes.
+- **Roster & Health Overview:** Real-time list of all active bots, class names (icons exist only for items/spells/talents), current levels, health/mana percentages, and target units.
+- **Macro-State Breakdown:** Fleet-wide visualization showing how many bots are currently in `combat`, `moving`, `resting`, `idle`, or `dead`.
+- **Persistent Issue Tracker:** Any bot that gets stuck, loops an action, or fails to reach a target for 5+ minutes is automatically logged as a tracked episode. You can inspect the root cause; episodes auto-close (short ones are discarded, resolved history is read-only) — only incidents/anomalies have a clear button.
 
 ---
 
@@ -54,21 +54,21 @@ You can run the daemon directly or via Docker:
 #### Direct Go Run:
 ```bash
 cd tools/observability
-go run cmd/server/main.go --http-port 8080 --udp-port 9195
+go run cmd/server/main.go --http-port 8095 --udp-port 9195
 ```
 
 #### Via Docker Compose:
-If using containerized deployment (e.g. Docker Compose runtime), ensure the `observability` service container is running.
+The `observability` service is part of the compose stack (opt-in via `--profile observability`); the dashboard is on port 8095, and talents/class-spell grouping needs the DB env plus the `/dbc` mount (`${DATA_PATH}/dbc:/dbc:ro`).
 
 ---
 
 ## 3. Prometheus Metrics Endpoint
 
-The daemon exports Prometheus metrics at `http://localhost:8080/metrics`, allowing you to visualize bot performance in Grafana:
-- `tortoise_bots_active_total`: Number of active bots by faction and class.
-- `tortoise_bots_state_count`: Total bots in combat, travel, dead, or resting states.
-- `tortoise_bots_issues_active`: Number of unresolved stuck episodes.
-- `tortoise_bots_telemetry_packets_received_total`: Telemetry ingest rate.
+The daemon exports Prometheus metrics at `http://localhost:8095/metrics`, allowing you to visualize bot performance in Grafana:
+- `tortoisebots_active_count{class,role}`: Number of active bots by class and role.
+- `tortoisebots_state_ratio`: Rolling-window ratio (0.0–1.0) of time spent per macro state (`combat`/`moving`/`resting`/`idle`/`dead`).
+- `tortoisebots_issues_active`: Number of active stuck-episode issues by type.
+- `tortoisebots_snapshots_total` / `tortoisebots_anomalies_total`: Telemetry ingest counters (roster snapshots published / anomalies detected).
 
 ---
 
@@ -87,7 +87,7 @@ Rows are grouped into `Class spells`, `Abilities`, `Auras & Forms`, `Pet & Minio
 
 Each group is then split into **active** and **passive** rows (`SPELL_ATTR_PASSIVE`, i.e. talent effects and other never-cast spells such as Malice or Convection). The group header carries both counts, so a "6 class spells" line reads as "4 active · 2 passive" instead of looking like six usable abilities. A handful of legacy talent dummies carry empty attributes and therefore still count as active — the same way the client flags them.
 
-**A short `Class spells` list does not mean the dashboard is hiding spells.** Bot spellbooks are thin by design: with `AiPlayerbot.AutoLearnQuestSpells = 1` and a low `AutoLearnTrainerSpells`, bots pick up class-quest reward spells (stances, forms, totems, pet skills) and buy trainer spells only when they can afford a trainer visit.
+**A short `Class spells` list does not mean the dashboard is hiding spells.** Bot spellbooks are thin by design: with `AiPlayerbot.AutoLearnQuestSpells = 1` and a low `AutoLearnTrainerSpells`, random-pool bots pick up class-quest reward spells (stances, forms, totems, pet skills) via free auto-learn (quest/trainer/dropped spells); owned/manual bots keep the gold-gated paid trainer path and buy trainer spells only when they can afford a trainer visit.
 
 ---
 

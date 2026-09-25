@@ -2118,6 +2118,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if (reqLevelGate > (uint32)bot->GetLevel())
                         continue;
 
+                    // Owner-configured exclusion list: applies to every gear
+                    // path (seed, hire, upgrade), not just the fresh seed.
+                    if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), newItemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
+                        continue;
+
                     // Fresh-seed provenance gate: no raid drops, no raid-quest
                     // rewards, quest rewards only when the bot meets the quest
                     // level. Earned-progression paths (syncWithMaster, explicit

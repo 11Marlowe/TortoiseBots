@@ -24,8 +24,8 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 ## Combat Rotations & Priorities
 
 ### 1. Holy (Healing)
-- **Emergency:** Casts *Lay on Hands* when tank health < 15%. Casts *Divine Favor* followed by a guaranteed-crit *Holy Light* on critical targets.
-- **Maintenance:** Maintains *Flash of Light* on injured allies. Weaves *Holy Shock* on moving or emergency targets.
+- **Emergency:** Casts *Lay on Hands* on any party member at critical health (default 20). Casts *Divine Favor* as a standalone buff trigger on medium/low mana; no code chains it into *Holy Light*.
+- **Maintenance:** Maintains *Flash of Light* on injured allies. Casts *Holy Shock* on low-health bands only (no movement condition).
 - **Self-Defense:** Pops *Divine Shield* (Bubble) if personal health drops into danger, continuing to heal the group while immune.
 
 ### 2. Protection (Tank)
@@ -34,19 +34,19 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 - **Burst Threat:** Judges *Seal of Righteousness* on primary target.
 
 ### 3. Retribution (DPS)
-- **Seals & Judgement:** Maintains *Seal of Command* (or *Seal of Righteousness* on fast weapons) and unleashes *Judgement* on cooldown.
+- **Seals & Judgement:** Maintains *Seal of Command* (falling back to *Seal of Righteousness* on spell availability, with no weapon-speed check) and unleashes *Judgement* on cooldown. The rotation also wires *Exorcism* (instant with the Art of War proc), *Holy Strike*, and *Crusader Strike*.
 - **Finishers:** Casts *Hammer of Wrath* when target falls below 20% health.
 
 ---
 
 ## Turtle WoW 1.18.1 Custom Content
 
-- **Holy Strike (Spell ID 679):**
-  - Custom Turtle WoW instant holy melee strike (0.71 weapon coefficient + Mending Light bonus).
+- **Holy Strike (Spell ID 679, per game data):**
+  - Custom Turtle WoW instant holy melee strike (0.71 weapon coefficient + Mending Light bonus, per game data).
   - Gives Retribution and Protection Paladins an active on-demand melee filler and sustained holy damage.
-- **Bulwark of the Righteous (Spell ID 51346):**
-  - Protection talent granting an active shield-slam ability with damage reduction on a 5-minute cooldown.
-  - Used as an emergency tank mitigation cooldown against boss enrages or large packs.
+- **Bulwark of the Righteous (Spell ID 51346, per game data):**
+  - Protection talent granting an active shield-slam ability with damage reduction.
+  - Auto-cast whenever ready at high priority (not held as an emergency cooldown); the cooldown length is game data, not bot logic.
 - **Exorcism Targeting:**
   - In Vanilla, *Exorcism* can only hit Undead and Demons. In Turtle WoW with the *Art of War* talent, it becomes usable on all creature types on proc. The bot's trigger explicitly verifies target type or proc status before attempting cast, eliminating wasted mana.
 
@@ -55,9 +55,9 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 ## Utility, Blessings & Auras
 
 - **Blessings:** Coordinates blessings across party classes (*Blessing of Kings*, *Might*, *Wisdom*, *Salvation*, *Sanctuary*, *Light*). Automatically avoids overriding higher-tier blessings.
-- **Auras:** Automatically selects the appropriate aura (e.g. *Devotion Aura* for physical damage, *Concentration Aura* for caster groups, or elemental resistance auras).
+- **Auras:** Each spec keeps a fixed default aura (Holy → Concentration, Protection → Retribution, Retribution → Sanctity); otherwise the bot casts the first missing aura in a fixed list. No damage-type or group-composition detection exists.
 - **Cleansing:** Uses *Cleanse* and *Purify* to remove poisons, diseases, and magic debuffs from party members.
-- **Crowd Control:** Stuns dangerous casters or runners using *Hammer of Justice*. Uses *Repentance* (Retribution) for humanoid CC when ordered via `.bot action cc`.
+- **Crowd Control:** Stuns dangerous casters or runners using *Hammer of Justice*. *Repentance* fires automatically from interrupt, enemy-healer and snare triggers with no humanoid restriction; the Paladin CC-strategy spell is *Turn Undead*, and `.bot action cc` assigns marks rather than ordering a spell.
 
 ---
 
@@ -69,7 +69,7 @@ TortoiseBots configures verified 5-level talent checkpoints (levels 10–60) tai
 | :--- | :--- | :--- | :--- | :--- |
 | **Holy** | `2.0` | Healer | `40 / 11 / 0` | Holy Shock (35), Divine Favor (40), Daybreak (45 shielding heal), Blessed Strikes, Illumination, 11 Prot dip. |
 | **Protection** | `2.1` | Tank | `5 / 38 / 8` | Holy Shield (40), Bulwark of the Righteous (50), Righteous Strikes, Reckoning, Blessing of Sanctuary, Ret/Holy dips. |
-| **Retribution** | `2.2` | Melee DPS | `11 / 0 / 40` | Seal of Command (35), Repentance (45), Vengeful Strikes, Sanctity Aura (+10% Holy damage aura), Benediction (-15% mana). |
+| **Retribution** | `2.2` | Melee DPS | `11 / 0 / 40` | Seal of Command (35), Repentance (45), Vengeful Strikes, Sanctity Aura (+10% Holy damage aura, per game data), Benediction (-15% mana, per game data). |
 
 ### Leveling Milestones & Progression Rationale
 

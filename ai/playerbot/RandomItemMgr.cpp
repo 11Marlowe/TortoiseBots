@@ -2515,6 +2515,10 @@ uint32 RandomItemMgr::GetUpgrade(Player* player, std::string spec, uint8 slot, u
         if (info->weights[specId] == 0)
             continue;
 
+        // owner-configured exclusion list: never suggest these items
+        if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), info->itemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
+            continue;
+
         // skip higher lvl
         if (info->minLevel > player->GetLevel())
             continue;
@@ -2630,6 +2634,10 @@ std::vector<uint32> RandomItemMgr::GetUpgradeList(Player* player, uint32 specId,
 
         // skip useless items
         if (info->weights[specId] == 0)
+            continue;
+
+        // owner-configured exclusion list: never suggest these items
+        if (std::find(sPlayerbotAIConfig.randomGearBlacklist.begin(), sPlayerbotAIConfig.randomGearBlacklist.end(), info->itemId) != sPlayerbotAIConfig.randomGearBlacklist.end())
             continue;
 
         // skip higher lvl
