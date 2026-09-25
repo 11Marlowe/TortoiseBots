@@ -144,6 +144,11 @@
 - Hold windows now adapt dynamically: the command widens the hold to cover the capped return, the arrival brake narrows it to the join delay and restarts the clock, and a return timeout zeroes held windows so the per-bot trigger fires on the next tick instead of hanging. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
 - Each held bot now releases itself through a new `pull hold expired` trigger and `release pull hold` action, giving per-bot control over release timing instead of a central drop. [#302](https://github.com/Sagiroth/TortoiseBots/pull/302)
 
+### Observability & Engine
+
+- Telemetry emitter no longer permanently falls back to `127.0.0.1` when the dashboard's docker hostname isn't resolvable at boot — it keeps the configured host and retries resolution every 30s, so metrics resume as soon as the dashboard container comes up (e.g. after a reboot). [#303](https://github.com/Sagiroth/TortoiseBots/pull/303)
+- Host lookup runs on a background task, so DNS retries can never stall the world thread; the "telemetry active" log line now only appears once the host has actually resolved, making misconfig easy to spot. [#303](https://github.com/Sagiroth/TortoiseBots/pull/303)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
