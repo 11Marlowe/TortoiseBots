@@ -24,41 +24,42 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 ## Combat Rotations & Priorities
 
 ### 1. Protection (Tank)
-1. **Pull & Engagement:** Charges in Battle Stance (or shoots ranged weapon on `.bot action pull`), immediately swaps to Defensive Stance.
+1. **Pull & Engagement:** Charges on enemy-out-of-melee, then swaps to Defensive Stance (no Battle Stance prep in code).
 2. **Threat Generation:**
    - Keeps *Shield Block* active on cooldown to enable *Revenge*.
-   - Weaves *Sunder Armor* up to 5 stacks on primary target, spreading sunders to secondary mobs in multi-mob packs.
+   - Re-applies *Sunder Armor* unconditionally on the current target (no stack counting, no spreading to secondary mobs; AoE threat is *Challenging Shout*).
    - Casts *Shield Slam* or *Heroic Strike* as rage dump.
 3. **Emergency Mitigation:**
-   - *Last Stand* (12975) triggers when health < 25%.
+   - *Last Stand* (12975, per game data) triggers on the critical-health trigger (default 20).
    - *Shield Wall* triggers under severe incoming damage.
-   - *Taunt* immediately targets mobs that peel off to attack healers or casters.
+   - *Taunt* fires on the current target whenever it peels onto any non-tank member (not just healers/casters).
 
 ### 2. Arms / Fury (DPS)
 1. **Opener:** *Charge* from range when available.
 2. **Rage Spenders:**
-   - *Overpower* triggers within 5 seconds of enemy dodge.
-   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown.
-   - *Whirlwind* when 2+ targets are nearby.
+   - *Overpower* is wired for Arms (and via the Protection stance-dance); Fury has no Overpower wiring, and the dodge window is core spell data.
+   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus the instant-*Slam* proc, *Rend* upkeep, and the *Master Strike* weapon nuke.
+   - *Whirlwind* is used on cooldown above 20% target health; 2+ nearby targets only raises its priority.
+   - Cooldowns: Fury fires *Death Wish* and *Recklessness* as boosts; Arms fires *Recklessness* (*Death Wish* exists in Arms only as a fallback alternative on the berserker-rage node).
 3. **Execute Phase:** Below 20% enemy health, *Execute* becomes highest priority, consuming all available rage.
 
 ---
 
 ## Turtle WoW 1.18.1 Custom Content
 
-- **Master Strike (Spell ID 54023):**
-  - Custom Turtle WoW weapon-dispatched strike (30s cooldown, 20 rage).
-  - Wired into both Arms and Fury combat strategies as a high-damage burst nuke when equipped with a polearm or two-handed weapon.
-- **Defensive Tactics (Spell ID 51606):**
-  - Passive talent providing threat aura benefits while wielding a shield in Battle or Berserker stances. Fully supported by the bot's core stance logic.
+- **Master Strike (Spell ID 54023, per game data):**
+  - Custom Turtle WoW weapon-dispatched strike (30s cooldown, 20 rage, per game data).
+  - Wired into both Arms and Fury combat strategies as a high-damage burst nuke whenever a main-hand weapon is equipped (core enforces cooldown/rage/weapon rules).
+- **Defensive Tactics (Spell ID 51606, per game data):**
+  - Passive talent providing threat aura benefits while wielding a shield in Battle or Berserker stances, per game data. It needs no bot wiring, so no `ai/` references exist.
 
 ---
 
 ## Utility & Interrupts
 
-- **Interrupts:** Casts *Shield Bash* (Defensive/Battle stance with shield) or *Pummel* (Berserker stance) instantly when an enemy begins casting an interruptible spell.
-- **Shouts:** Automatically maintains *Battle Shout* on party members and applies *Demoralizing Shout* to debuff melee packs.
-- **CC & Snares:** Casts *Piercing Howl* (AoE snare) or *Hamstring* on fleeing mobs. Uses *Concussion Blow* (Protection) as a 5-second stun on priority targets.
+- **Interrupts:** Protection: *Shield Bash* · Fury: *Pummel* (auto-Berserker) · Arms: none wired. *Shield Bash* has no stance precondition in code.
+- **Shouts:** Automatically maintains *Battle Shout* on party members (all specs); only Protection wires *Demoralizing Shout*.
+- **CC & Snares:** Casts *Piercing Howl* (AoE snare) or *Hamstring* on fleeing mobs. Uses *Concussion Blow* (Protection) as a 5-second stun on priority targets, per game data.
 
 ---
 
@@ -68,9 +69,9 @@ TortoiseBots ships with pre-configured talent progressions at 5-level intervals 
 
 | Spec Name | Config ID | Role | 60 Allocation | Key Signatures & Synergies |
 | :--- | :--- | :--- | :--- | :--- |
-| **Fury** | `1.0` | Melee DPS | `17 / 34 / 0` | Death Wish (30), Flurry (35), Bloodthirst (40), Ravager (-3s Whirlwind CD), 17 Arms dip for Deep Wounds 3/3 + Impale 2/2 (+20% crit damage bonus). |
-| **Protection** | `1.1` | Tank | `7 / 0 / 44` | Shield Slam (40), Concussion Blow (50), Gag Order (silence on Shield Bash / dispel on Shield Slam), Defensive Tactics, Tactical Mastery 4/5. |
-| **Arms** | `1.2` | Melee DPS | `40 / 11 / 0` | Sweeping Strikes (30), Mortal Strike (40), Master Strike, Boundless Anger, 11 Fury dip for Cruelty 5/5 + Piercing Howl. |
+| **Fury** | `1.0` | Melee DPS | `17 / 34 / 0` | Death Wish (30), Flurry (35), Bloodthirst (40), Ravager (-3s Whirlwind CD, per game data), 17 Arms dip for Deep Wounds 3/3 + Impale 2/2 (+20% crit damage bonus, per game data). |
+| **Protection** | `1.1` | Tank | `7 / 0 / 44` | Shield Slam (40), Concussion Blow (50), Gag Order (silence on Shield Bash / dispel on Shield Slam, per game data), Defensive Tactics, Tactical Mastery 4/5. |
+| **Arms** | `1.2` | Melee DPS | `40 / 11 / 0` | Sweeping Strikes (30), Mortal Strike (40), Master Strike (20 rage, per game data), Boundless Anger, 11 Fury dip for Cruelty 5/5 + Piercing Howl. |
 
 ### Leveling Milestones & Progression Rationale
 

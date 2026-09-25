@@ -2,7 +2,7 @@
 id: guide-player-controls
 title: Available Bot Commands & Addon Controls
 category: guides
-summary: Complete and authoritative reference of all currently implemented .bot commands, tactical actions, and addon transport protocols.
+summary: Reference of the `.bot` command surface, tactical actions, and addon transport protocols.
 tags: [guide, commands, player-controls, addon, tactics, cli]
 relates_to:
   - guide-getting-started
@@ -24,13 +24,13 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 
 | Command | Target Required | What It Does |
 | :--- | :--- | :--- |
-| `.bot action attack` | Hostile Target | Controllable party bots engage your current target immediately. |
-| `.bot action interrupt` | Casting Hostile | Evaluates party bots and orders a capable bot in range with a ready interrupt (e.g. *Kick*, *Pummel*, *Earth Shock*, *Counterspell*) to interrupt the cast. |
+| `.bot action attack` | Hostile Target | Controllable party DPS/tank bots engage your current target immediately (dedicated healers keep healing). |
+| `.bot action interrupt` | Casting Hostile | Evaluates party bots and orders the first party bot with a ready interrupt (e.g. *Kick*, *Pummel*, *Earth Shock*, *Counterspell*); if it is out of range the bot first closes distance and then casts. |
 | `.bot action stop` | None | Clears combat queues and stops current attacks. |
 | `.bot action pull` | Hostile Target | Directs the party tank to pull your target with ranged attack/taunt while other bots hold damage until threat is established. |
 | `.bot action pullback` | Hostile Target | Tank pulls the target and sprints back to the group's current coordinates. |
 | `.bot action come` | None | All bots sprint directly to the player's exact coordinates. |
-| `.bot action stay` *(or `hold`)* | None | Bots halt at their current position and hold ground. |
+| `.bot action stay` | None | Bots halt at their current position and hold ground. `hold`/`comestay` are aliases of *come* and move every bot to your current coordinates. |
 | `.bot action follow` | None | Bots break current movement and resume tight follow formation behind the leader. |
 | `.bot action focus skull` | Enemy / None | Sets or targets the **Skull** raid icon; orders all party DPS bots to focus fire on that target. |
 | `.bot action cc <mark> [bot]` | Owned Bot / Marked Mob | Assigns the mark to one bot (**exclusive ownership**: any other owned party bot holding the mark is reset to `none`). An explicit bot name assigns that bot without juggling targets; otherwise a targeted owned bot is assigned, else a capable bot is selected server-side (Mage *Polymorph*, Rogue *Sap*, Warlock *Banish*/*Fear*, Priest *Shackle Undead*, Druid *Hibernate*/*Entangling Roots*, Hunter *Freezing Trap*/*Scare Beast*, Paladin *Turn Undead*). Unknown names fail with `no-bot`. Inside non-raid dungeons the bot CCs only its assigned mark; in the open world it may CC a free pick. Never CCs over an existing CC. |
@@ -110,6 +110,7 @@ Commands for checking bot state, lifecycle, and fleet metrics:
 | `.bot stats` | None | Summarizes owned bot fleet: total online, random bots, and bots with active AI attached. |
 | `.bot lease` | `[status]` | Reports autonomous activity lease counts (Idle, Grinding, Trading, LftQueued, BgQueued, PlayerMaster) and lists active lease timers. |
 | `.bot version` *(alias `v`)* | None | Prints the server build version (`TortoiseBots <UTC date>-v<N>`); any player may use it. Also emits `TBM:VERSION|<version>` for the addon. |
+| `.bot help` *(alias `h`)* | None | Prints the enabled banner and server version (`TBM:VERSION|<version>`). |
 
 ---
 
@@ -126,20 +127,20 @@ In addition to high-level `.bot action` party commands, you can delegate command
 
 | Category | Command / Whisper | What It Does |
 | :--- | :--- | :--- |
-| **Inventory & Bags** | `c` / `items` / `inv` | Lists bag items and free bag slot count in chat. |
+| **Inventory & Bags** | `c` / `items` / `inv` | Lists equipped and carried items with counts in chat. |
 | | `e <item>` / `equip <item>` | Equips the specified item link or item name from bags. |
-| | `ue <slot>` / `unequip <slot>` | Unequips gear from the specified equipment slot into bags. |
-| | `u <item>` / `use <item>` | Uses an item from inventory (potions, quest items, bandages). |
-| | `drop <item>` | Destroys an item from inventory to free up bag space. |
+| | `ue <slot>` | Unequips gear from the specified equipment slot into bags. |
+| | `u <item>` | Uses an item from inventory (potions, quest items, bandages). |
+| | `destroy <item>` | Destroys an item from inventory to free up bag space. (`drop <quest>` abandons a quest.) |
 | **Vendors & Repairs** | `s [gray\|all\|<item>]` | Sells gray junk items or specific items when targeted vendor is open. |
 | | `b <item>` | Purchases the specified item from the open merchant window. |
 | | `bb <item>` | Buys back an accidentally sold item from the vendor. |
 | | `repair` | Repairs damaged equipment at a blacksmith / armorer NPC. |
-| | `t` / `trade` | Initiates or accepts a direct trade window with the player. |
+| | `t` | Initiates or accepts a direct trade window with the player. |
 | **Quests & NPCs** | `q` / `quests` | Prints active quests and current objective completion status. |
 | | `accept` | Accepts an offered quest from a nearby quest giver. |
 | | `talk` | Interacts / gossips with the current NPC target. |
-| | `r [choice]` / `reward [choice]` | Selects the quest reward and turns in a completed quest. |
+| | `r [choice]` | Selects the quest reward and turns in a completed quest. |
 | | `share` | Shares eligible quests from the bot's quest log with party members. |
 | **Training & Skills** | `trainer` | Automatically learns all currently available spells and ranks from a class trainer! |
 | | `talents` | Prints spent talent points and tree distribution. |

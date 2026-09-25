@@ -20,7 +20,7 @@ This document provides an honest, authoritative record of current architectural 
    - Native PlayerAI is not a control seam; converting a Network session into a Headless session mid-connection would violate session integrity.
 2. **Synthetic Auction Market (Empty Market Population):**
    - Personal bot auction posting and bidding works using real bot inventories.
-   - Full synthetic market seeding (server-generated trade goods out of thin air) requires a dedicated core snapshot seam (`MarketPost`/`Bid`/`Expire`).
+   - Synthetic supply and a synthetic buyer are implemented in the module (`AiPlayerbot.AhMarketSyntheticSupply` / `AiPlayerbot.AhMarketBuyer`, both off by default). Synthetic auctions are tagged and kept isolated from player inventories; no core seam is needed.
 3. **Early Loot Admission Check:**
    - The core currently lacks a pre-movement `CanLoot` query, so bots may occasionally approach a corpse before discovering it has no valid personal loot slot.
 
@@ -38,6 +38,6 @@ This document provides an honest, authoritative record of current architectural 
   - No Death Knights, glyphs, vehicles, Arena ratings, or expansion zones (e.g. Outland, Northrend).
   - All classes are strictly Vanilla 1.12 with Turtle WoW 1.18.1 additions.
 - **Synchronous LLM in Combat or Movement:**
-  - LLM integration is experimental and strictly asynchronous for chat. Combat, movement, healing, threat, and interrupts never wait on or depend on LLM generation.
+  - LLM chat is disabled in this build (`PlayerbotLLMInterface::Generate()` returns no response). Combat, movement, healing, threat, and interrupts never depend on it.
 - **Guild Vaults:**
   - Turtle WoW 1.18.1 does not feature multi-tab WotLK-style guild vaults; all guild bank actions fail closed gracefully.

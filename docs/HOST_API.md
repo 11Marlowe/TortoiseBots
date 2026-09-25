@@ -311,7 +311,9 @@ server says it can:
 client -> server   addon message, prefix "TBM", body "<verb> [args]"
                    (same grammar as `.bot <verb> [args]`)
 server -> client   addon message, prefix "TBM", one line per command reply
-                   (the same lines the chat path sends as CHAT_MSG_SYSTEM)
+                   (the same lines the chat path sends as CHAT_MSG_SYSTEM —
+                   the same `TBM:` protocol lines a hand-typed `.bot`
+                   command also prints in chat)
 server -> client   "TBM:TRANSPORT|party" or "TBM:TRANSPORT|none", trailing the
                    roster response
 ```
@@ -332,7 +334,9 @@ whenever the verdict is missing, stale, or `none`.
 
 ## 11. Command contract
 
-TortoiseBots owns the native `.bot` surface. Current commands include:
+TortoiseBots owns the native `.bot` surface. Current commands include
+(see [Available Bot Commands & Addon Controls](guides/player-controls.md) for
+the complete player-facing list):
 
 ```text
 add

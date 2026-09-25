@@ -1,17 +1,23 @@
 ---
 id: ref-player-control
-title: Player-Owned Control Catalog
+title: Player-Owned Control Catalog (Historical Design Contract)
 category: reference
-summary: Technical delivery specification for the public .bot command catalog, account authentication, and addon transport protocol.
+summary: Historical design and delivery contract for the public .bot command catalog; superseded by guides/player-controls.md as the current command surface.
 tags: [commands, player-control, catalog, addon-protocol, tbm]
 relates_to:
   - guide-player-controls
   - concept-architecture-invariants
 ---
 
-# Player-owned control catalog
+# Player-owned control catalog (historical design contract)
 
-**Status:** design and delivery contract
+> **Historical note:** this document is the pre-implementation design and
+> delivery contract for player-owned controls. It is not the current command
+> reference — see [Available Bot Commands & Addon Controls](guides/player-controls.md)
+> for the shipped `.bot` surface. "First release" scope and hidden-command
+> statements below describe the original plan, not the merged behaviour.
+
+**Status:** historical design and delivery contract (superseded by `guides/player-controls.md`)
 
 This document defines the public control surface for a human who owns a
 TortoiseBot. It is intentionally smaller than the inherited PlayerbotAI chat
@@ -83,25 +89,30 @@ undeleted account characters plus explicit cross-account ownership rows in the
 module-owned character database table. SavedVariables may retain only addon
 presentation preferences.
 
-### Deferred support controls
+### Deferred support controls (historical plan; whisper forms exist)
 
-`focus heal`, `buff target`, and `revive target` are deliberately not aliases
-yet. The inherited implementation treats them as value-setting commands with
-their own target-list/spell parameter grammar; they are not equivalent to
-“use the player’s current selection.” A player-facing version needs a small,
-explicit target-list contract and a real-client acceptance case before it is
-added. Until then, the native shell must not guess parameters or invoke those
-actions with an empty event.
+The original plan deliberately left `focus heal`, `buff target`, and
+`revive target` out of the native `.bot` shell: the inherited implementation
+treats them as value-setting commands with their own `+name` / `-name` /
+list-parameter grammar, not "use the player's current selection." There is
+still no `.bot action focus heal`. The inherited whisper forms
+(`/w <bot> focus heal <+name,-name,…>`, `buff target`, `revive target`) exist
+and take an explicit target-list parameter, so the native shell must not guess
+parameters or invoke those actions with an empty event.
 
 The addon should first display a selected owned bot, its lifecycle/health/group
 state, and only actions applicable to that state. It should not create another
 transport or ask the core whether a player is a bot.
 
-## Explicitly not public in the first release
+## Inherited commands outside the catalog (reachable, not gated here)
 
 The inherited parser also accepts powerful or highly contextual operations.
-They stay hidden from normal players until a separate product decision,
-security review and acceptance case exists:
+These commands are *undocumented* but still reachable through the mature-AI
+whisper surface — by the bot's owner (same account) or any member of the bot's
+group — and through `.bot command` (ownership-checked to the requester's own
+account); the control layer does not gate them. Reach them only through the
+mature-AI whisper surface (`guides/player-controls.md` §5); the native `.bot`
+catalog neither presents nor restricts them:
 
 * `debug`, `cdebug`, `cheat`, `set value`, custom strategy editing and remote
   diagnostics;
@@ -113,14 +124,18 @@ security review and acceptance case exists:
   represented in the public interface.
 
 `.bot command <bot> <text>` is a transitional advanced path, not the player
-product interface. Restricting it to GM use is a separate compatibility and
-security change; do not make that change until its current user workflows have
-been audited against the merged core.
+product interface. It forwards to the mature-AI whisper parser with ownership
+checks only; no GM restriction is implemented.
 
-## Delivery and acceptance order
+## Delivery and acceptance order (historical; merged baseline in HOST_API.md §2)
 
-1. Merge/rebase #411 then #416; build module-on and module-off with legacy
-   PlayerBots disabled.
+The #411 / #416 delivery step below is history: both candidates were
+superseded and closed, and their surface landed through #438 (see
+[HOST_API.md §2](HOST_API.md#2-compatible-baseline) for the merged baseline).
+Kept verbatim as the original plan:
+
+1. ~~Merge/rebase #411 then #416~~ (superseded by #438); build module-on and
+   module-off with legacy PlayerBots disabled.
 2. Prove the real-client owned-bot journey, including incoming command packet
    delivery and reclaim.
 3. Prove summon and pullback acceptance scenarios in test suites.
