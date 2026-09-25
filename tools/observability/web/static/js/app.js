@@ -411,6 +411,9 @@
     worldCount0: document.getElementById('world-count-0'),
     worldCount1: document.getElementById('world-count-1'),
     worldZones: document.getElementById('world-zones'),
+    worldChipsWrapper: document.getElementById('world-chips-wrapper'),
+    toggleZoneChips: document.getElementById('toggle-zone-chips'),
+    zoneChipsCount: document.getElementById('zone-chips-count'),
     worldOffmap: document.getElementById('world-offmap'),
     botDrawer: document.getElementById('bot-drawer'),
     drawerContent: document.getElementById('drawer-content'),
@@ -723,6 +726,12 @@
       .catch(() => {});
     if (el.worldTab0) el.worldTab0.addEventListener('click', () => setWorldTab(0));
     if (el.worldTab1) el.worldTab1.addEventListener('click', () => setWorldTab(1));
+    if (el.toggleZoneChips && el.worldChipsWrapper) {
+      el.toggleZoneChips.addEventListener('click', () => {
+        const isExpanded = el.worldChipsWrapper.classList.toggle('expanded');
+        el.toggleZoneChips.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+      });
+    }
   }
 
   function loadZoneMap(zoneId) {
@@ -862,6 +871,9 @@
       if (b.map !== mapId) return;
       counts.set(b.zone, (counts.get(b.zone) || 0) + 1);
     });
+    if (el.zoneChipsCount) {
+      el.zoneChipsCount.textContent = counts.size;
+    }
     [...counts.entries()].sort((a, b) => b[1] - a[1]).forEach(([zoneId, n]) => {
       const chip = document.createElement('button');
       chip.className = 'btn';

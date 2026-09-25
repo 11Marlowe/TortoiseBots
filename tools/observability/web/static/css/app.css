@@ -662,6 +662,19 @@ body {
   font-weight: 500;
 }
 
+.tab-heading-wrap {
+  margin-bottom: 24px;
+}
+
+/* Zone chips collapsible toggle on phones */
+.btn.toggle-zone-chips-btn {
+  display: none;
+}
+
+.world-chips-content {
+  display: block;
+}
+
 /* 2D Map Viewport */
 .map-viewport {
   position: relative;
@@ -1896,6 +1909,15 @@ body {
   .dashboard-grid-issues {
     grid-template-columns: minmax(0, 1fr) !important;
   }
+
+  /* Hide duplicate section headings below 900px */
+  .tab-section-heading {
+    display: none !important;
+  }
+
+  .tab-heading-wrap {
+    margin-bottom: 0 !important;
+  }
 }
 
 /* Responsive: Phone Layout (< 600px) */
@@ -1941,6 +1963,35 @@ body {
     width: 100%;
     max-width: 100%;
     flex-wrap: wrap;
+  }
+
+  /* Live map zone chips collapsible on phones */
+  .btn.toggle-zone-chips-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 14px;
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .toggle-zone-chips-btn .toggle-icon {
+    transition: transform 0.2s ease;
+  }
+
+  .world-chips-wrapper.expanded .toggle-zone-chips-btn .toggle-icon {
+    transform: rotate(180deg);
+  }
+
+  .world-chips-content {
+    display: none;
+    margin-bottom: 10px;
+  }
+
+  .world-chips-wrapper.expanded .world-chips-content {
+    display: block;
   }
 
   /* Map: canvas height ~60vh on phones */

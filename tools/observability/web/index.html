@@ -105,8 +105,8 @@
 
       <!-- TAB 1: DASHBOARD VIEW -->
       <section id="tab-dashboard" class="tab-view">
-        <div style="margin-bottom: 24px;">
-          <h1 style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Dashboard</h1>
+        <div class="tab-heading-wrap">
+          <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Dashboard</h1>
         </div>
 
         <div class="section-label">SERVER TELEMETRY · TORTOISE WOW</div>
@@ -234,11 +234,21 @@
 
         <div style="position: relative;">
           <!-- WORLD VIEW (default): both continents, all bots -->
-          <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
-            <button class="btn" id="world-tab-0" style="padding: 6px 14px; font-weight: 600;">Eastern Kingdoms <span id="world-count-0" style="opacity: 0.6; font-weight: 400;"></span></button>
-            <button class="btn" id="world-tab-1" style="padding: 6px 14px; font-weight: 600;">Kalimdor <span id="world-count-1" style="opacity: 0.6; font-weight: 400;"></span></button>
+          <div id="world-chips-wrapper" class="world-chips-wrapper">
+            <button id="toggle-zone-chips" class="btn toggle-zone-chips-btn" type="button" aria-expanded="false" aria-controls="world-chips-content">
+              <span>Zones (<span id="zone-chips-count">0</span>)</span>
+              <svg class="toggle-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="6 9 12 15 18 9"></polyline>
+              </svg>
+            </button>
+            <div id="world-chips-content" class="world-chips-content">
+              <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;">
+                <button class="btn" id="world-tab-0" style="padding: 6px 14px; font-weight: 600;">Eastern Kingdoms <span id="world-count-0" style="opacity: 0.6; font-weight: 400;"></span></button>
+                <button class="btn" id="world-tab-1" style="padding: 6px 14px; font-weight: 600;">Kalimdor <span id="world-count-1" style="opacity: 0.6; font-weight: 400;"></span></button>
+              </div>
+              <div id="world-zones" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;"></div>
+            </div>
           </div>
-            <div id="world-zones" style="display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap;"></div>
           <div id="world-view">
             <div class="map-viewport" id="world-viewport">
               <img class="map-img" id="world-img" src="/maps/azeroth.webp" alt="Continent Map">
@@ -323,7 +333,7 @@
       <section id="tab-armory" class="tab-view" style="display: none;">
         <div id="armory-list-view" class="telemetry-card" style="display: none;">
           <div class="armory-topbar">
-            <h1 style="font-size: 1.5rem; font-weight: 700; color: #fff;">Bot Armory</h1>
+            <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff;">Bot Armory</h1>
             <input type="text" id="armory-list-search" placeholder="Search name…" class="btn armory-list-search-input">
           </div>
           <p style="color: var(--text-muted); font-size: 0.85rem;">Every bot character in the armory database, online or offline. Click a bot to open its profile.</p>
@@ -409,7 +419,7 @@
       <!-- TAB 4: ISSUES -->
       <section id="tab-issues" class="tab-view" style="display: none;">
         <div style="margin-bottom: 20px;">
-          <h1 style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Persistent Issues</h1>
+          <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Persistent Issues</h1>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
             Only problems that persist <strong>5+ minutes</strong> are shown, so short hiccups are ignored. Red = 10+ minutes. Click a bot to jump to its map.
           </p>
