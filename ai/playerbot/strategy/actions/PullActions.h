@@ -85,3 +85,4 @@ namespace ai
         ReleasePullHoldAction(PlayerbotAI* ai, std::string name = "release pull hold") : Action(ai, name) {}
         bool Execute(Event& event) override;
     };
+}

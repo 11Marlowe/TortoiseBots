@@ -35,3 +35,4 @@ namespace ai
         PullHoldExpiredTrigger(PlayerbotAI* ai, std::string name = "pull hold expired") : Trigger(ai, name) {}
         bool IsActive() override;
     };
+}
