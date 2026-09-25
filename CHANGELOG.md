@@ -86,6 +86,13 @@
 - Dead knobs are explicitly marked `Currently has no effect (read but unused)` in the template, with a new guide section 8 covering them — no more chasing settings that do nothing. [#295](https://github.com/Sagiroth/TortoiseBots/pull/295)
 - `RandomGearBlacklist` is now actually implemented across seed/hire/upgrade loops and upgrade suggestions; template default was fixed from `0` to empty. Exclude problem items from bots for real. [#295](https://github.com/Sagiroth/TortoiseBots/pull/295)
 
+### Documentation & Developer Workflow
+- `AGENTS.md` slimmed from 312 lines to ~60 — stale MVP-era scope rules ("no raids/BG/random bots before the dungeon MVP") and duplicated architecture rules are gone, with the latter now living in `docs/concepts/architecture-invariants.md`. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Observability daemon internals relocated to `tools/observability/README.md` — no content lost, just moved next to the code it describes. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Donor lookup now starts with `mod-playerbots`, so new contributors and tooling resolve the reference implementation first instead of guessing. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Added explicit product direction: player control first, automation opt-in, bots always alive — stops future contributors from "fixing" the design in the wrong direction. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Documented the Docker dev loop and the config fallback rule (fallback must match the shipped template) so operators don't chase load-time mismatches. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
