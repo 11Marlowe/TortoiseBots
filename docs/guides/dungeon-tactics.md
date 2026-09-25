@@ -23,8 +23,8 @@ This guide outlines practical field tactics to ensure smooth dungeon runs withou
 
 1. **Pull to LoS Corners, Don't Charge:** Use `.bot action pullback` so the tank pulls and runs back to you around a corner. Never let bots fight out in open corridors where patrols roam.
 2. **Toggle AoE OFF on CC Packs:** Before pulling packs where you plan to *Polymorph* or *Sap*, run `.bot action aoe off`. This prevents Mages (*Blizzard*), Warlocks (*Rain of Fire*), and Hunters (*Multi-Shot*) from accidentally breaking crowd control.
-3. **Always Mark the Primary Target with Skull:** Issue `.bot action focus skull`. All DPS bots will focus their single-target burst exclusively onto that target until it dies.
-4. **Give the Tank Two Seconds:** Tanks tab-target *Sunder Armor* and *Torment* based on lowest personal threat. Give them 2–3 seconds to establish initial aggro before nuking.
+3. **Always Mark the Primary Target with Skull:** Issue `.bot action focus skull`. DPS treat the Skull-marked target as their kill priority (it sets the mark and issues one attack; normal target selection — peels, CC protection, re-targeting — still applies).
+4. **Give the Tank Two Seconds:** Tanks tab-target *Sunder Armor* (warlock pets add *Torment*) based on lowest personal threat. Give them 2–3 seconds to establish initial aggro before nuking.
 5. **Keep `.bot summon <Name>` Ready:** If a bot gets stuck on tricky instance terrain (like Blackrock Depths stairs or Gnomeregan elevators), `.bot summon <Name>` snaps them directly to you out of combat (requires `NonGmFreeSummon = 1` unless GM).
 
 ---
@@ -35,8 +35,8 @@ Open corridors are death traps in dungeons like Deadmines, Scarlet Monastery, an
 
 ### The Pullback Maneuver (`.bot action pullback`)
 When you target an enemy mob and issue `.bot action pullback`:
-1. The server identifies your party's designated tank (Warrior, Bear Druid, or Paladin).
-2. The tank uses a ranged attack (Bow, Gun, Thrown, or *Exorcism*) or charges in, applies immediate threat, and immediately sprints back to your party's current location.
+1. The server picks the puller by precedence: your targeted bot, else any bot designated `.bot role <Name> tank` (any class), else a native tank-spec bot.
+2. The tank uses its class pull action (ranged shot/throw, *Judgement*, *Faerie Fire*, *Serpent Sting*, or *Lightning Bolt*) — or closes in and body-pulls (`reach pull`) when no ranged option exists — applies immediate threat, and immediately sprints back to your party's current location.
 3. Non-tank bots hold fire until the tank reaches the regroup anchor, drawing the entire mob pack safely around the corner into your ambush.
 
 ```mermaid
@@ -46,7 +46,7 @@ flowchart TD
     end
 
     subgraph PullStep ["Pull Sequence"]
-        Command["Player Issues: .bot action pullback"] --> TankPull["Tank Pulls with Ranged Shot / Exorcism"]
+        Command["Player Issues: .bot action pullback"] --> TankPull["Tank Pulls with Class Pull Action (or reach pull)"]
         TankPull --> Retract["Tank Immediately Sprints Back Around Corner"]
         TargetMob -->|"LoS Broken: Casters Forced to Follow"| Corner["LoS Corner Pivot"]
     end
@@ -76,7 +76,6 @@ Crowd control is essential for multi-caster pulls in level 40+ dungeons.
 * Target the mob you want CC'd and type:
   ```text
   .bot action cc moon
-  # Or click the Moon button under CC Marks in /tbm
   ```
 * The mark is assigned to exactly one bot (exclusive ownership); reassigning it moves ownership. When no owned bot is targeted, the server selects the capable bot with the best-fitting CC for that target (Sap before the pull, then Shackle/Banish/Hibernate/Polymorph/traps, Fear last); the same target and state always pick the same bot.
 * Dismiss with `.bot action cc clear` (targeted bot, or the whole owned party when untargeted).
@@ -106,11 +105,11 @@ If your group wipes, follow this checklist to recover quickly:
 Entering a raid map auto-enables the `dungeon` transition engine, which swaps in the matching raid tactics (`molten core`, `onyxia's lair`, `blackwing lair`, `naxxramas`) and tears them down on exit. Four universal behaviors run on the reaction engine in any raid:
 
 - **Bomb runout:** carriers of *Living Bomb* (Geddon), *Burning Adrenaline* (Vaelastrasz), or *Mutating Injection* (Grobbulus) run 30yd clear of the raid anchor (`AiPlayerbot.BombRunoutDistance`).
-- **Hazard evasion:** lava bombs, void zones, and poison clouds trigger the shared hazard move-away plus path avoidance.
+- **Hazard evasion:** lava bombs, void zones, and poison clouds trigger the shared hazard move-away as a reactive step-out (no persistent path avoidance yet).
 - **Dragon geometry:** non-tanks flank out of breath/tail cones automatically; order tanks with `.bot action raid tankface` to drag the head away from the raid.
 - **Ranged spread:** stacked casters split 12yd apart (`AiPlayerbot.HazardEvasionDistance`).
 
-Encounter notes: MC runes douse via `.bot action raid douse` (Eternal Quintessence 22754 first, Aqual 17333 fallback); Onyxia phase 2 swaps bots to `shoot` + spread while airborne; BWL rogues disarm suppression devices out of combat; 4H mark carriers (3+ stacks) rotate out via hazard move.
+Encounter notes: MC runes douse via `.bot action raid douse` (Eternal Quintessence 22754 first, Aqual 17333 fallback); Onyxia phase 2 swaps bots to `shoot` + spread while airborne; BWL rogues disarm suppression devices (wired in both combat and non-combat states); 4H mark carriers (3+ stacks) rotate out via hazard move.
 
 ## 7. Custom Turtle Raids (Emerald Sanctum / Lower Karazhan / Karazhan Crypt)
 
@@ -126,10 +125,10 @@ Zone-ins for Map 807, 532, and 800 swap in `emerald sanctum`, `lower karazhan`, 
 
 ### Loot Rolling Rules
 * Bots participate in standard party loot rolls (`Need`, `Greed`, `Pass`).
-* **Need on Empty Slots (`AiPlayerbot.RollBadItemsWithPlayer = 1`):** When enabled in `aiplayerbot.conf`, party bots will roll Need on dungeon blue/green drops only if their matching gear slot is empty or severely under-leveled, ensuring fair loot distribution without hoarding items you need.
+* **Need on Empty Slots (`AiPlayerbot.RollBadItemsWithPlayer = 1`):** When enabled in `aiplayerbot.conf`, bots also roll Need on empty-slot filler (otherwise Greed); genuine upgrades (`ITEM_USAGE_EQUIP`) are always Needed regardless of the flag.
 
 ### Reagents & Food Sharing
-* If you have a Mage bot in your group, they automatically conjure food and water out of combat and initiate direct trades (`/w <Name> trade`) to replenish mana-using party members.
+* If you have a Mage or Warlock bot in your group, open trade with them (`/w <Name> trade`); they auto-add conjured food, water, or healthstones into the already-open window out of combat.
 * To force an owned bot to equip a dropped dungeon item from their bags:
   ```text
   .bot command <BotName> equip [Item Link]

@@ -80,6 +80,45 @@
 
 - Release list and Discord embed titles now include the build range, so you can spot `v1–vN` without opening the release body; release titles use `<repo> <date> (builds v1–vN)` and Discord uses `<repo> build <date>-vN`, with links still pointing to the daily release. [#292](https://github.com/Sagiroth/TortoiseBots/pull/292)
 
+### Configuration & Defaults
+- Code fallbacks in `PlayerbotAIConfig.cpp` now match the shipped `aiplayerbot.conf.dist.in`, so deleting a line from `aiplayerbot.conf` no longer silently changes bot behavior — what you see is what runs. [#295](https://github.com/Sagiroth/TortoiseBots/pull/295)
+- Commented examples in the template now show the effective values, so you can see the real numbers you're tweaking without digging through source. [#295](https://github.com/Sagiroth/TortoiseBots/pull/295)
+- Dead knobs are explicitly marked `Currently has no effect (read but unused)` in the template, with a new guide section 8 covering them — no more chasing settings that do nothing. [#295](https://github.com/Sagiroth/TortoiseBots/pull/295)
+- `RandomGearBlacklist` is now actually implemented across seed/hire/upgrade loops and upgrade suggestions; template default was fixed from `0` to empty. Exclude problem items from bots for real. [#295](https://github.com/Sagiroth/TortoiseBots/pull/295)
+
+### Documentation & Developer Workflow
+- `AGENTS.md` slimmed from 312 lines to ~60 — stale MVP-era scope rules ("no raids/BG/random bots before the dungeon MVP") and duplicated architecture rules are gone, with the latter now living in `docs/concepts/architecture-invariants.md`. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Observability daemon internals relocated to `tools/observability/README.md` — no content lost, just moved next to the code it describes. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Donor lookup now starts with `mod-playerbots`, so new contributors and tooling resolve the reference implementation first instead of guessing. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Added explicit product direction: player control first, automation opt-in, bots always alive — stops future contributors from "fixing" the design in the wrong direction. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+- Documented the Docker dev loop and the config fallback rule (fallback must match the shipped template) so operators don't chase load-time mismatches. [#298](https://github.com/Sagiroth/TortoiseBots/pull/298)
+
+### Docs & Provenance
+
+- Trimmed an external UX reference from the CC mark provenance entry per owner request — the mod-playerbots source attribution stays untouched, so licensing/credit records remain accurate with one less stray link. [#299](https://github.com/Sagiroth/TortoiseBots/pull/299)
+
+### Docs & Configuration
+- OKF documentation re-verified line-by-line against the actual code — every correction was confirmed in source before landing, and rejected findings are logged with reasons in the review notes. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Fixed installed config paths and documented the real reload scope, so operators stop guessing which file changes actually take effect. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Corrected wrong documented defaults for `CriticalHealth`, `LowMana`, and `MediumMana`, plus the Thunderfury broadcast setting. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Clarified that bots are always active by default — no hidden toggle required to get them running. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+
+### Bot Behavior & Defaults
+- `RandomGearUpgradeEnabled` only seeds fresh bots; existing bots won't retroactively re-roll gear. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- `SyncAltLevelToMaster` requires the master to be the party leader and applies +1 level per update tick. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- `botActiveAlone` documented as a percentage rather than a boolean switch. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Auction house synthetic switches, login-scatter preconditions, and profession pairing rules now match the implemented behavior. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+
+### Gear & Itemization
+- Every item now gets a source-tier tag (base / end-game dungeon 229-289-329-800 / raid) plus orthogonal REP and PVP flags, computed once from loot→spawn→map minima with lowest-tier-source-wins — bots can no longer roll gear above your configured tier. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
+- Recipe chains and quest sources are folded into the same classification, so crafted and quest-reward gear is tiered correctly instead of slipping through. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
+- New `RandomGearMaxSourceTier` (default 0) plus `RandomGearAllowReputation` / `RandomGearAllowPvP` knobs replace the old ad-hoc raid/PvP checks — one enforcement point on the seed/hire path, no double logic. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
+- Rare world epics get a per-slot gate: `RandomGearSeedEpicChance` (0.02) rolls loot-attested BoE world epics so seeds feel special without trivializing progression. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
+- Low-level seed coverage filled in — bots get sensible starter gear instead of empty slots at early levels. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
+
+### Core Sync & Fixes
+- Classification is persisted in `ai_playerbot_item_info_cache` (migration `20260925140000`) so it's computed once, not per spawn. [#293](https://github.com/Sagiroth/TortoiseBots/pull/293)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))

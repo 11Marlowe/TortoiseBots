@@ -611,8 +611,8 @@ void BotManager::OnPlayerLogin(::Player* player)
         TB_LOG_DETAIL("TortoiseBots: seeded starter gear for fresh bot %s.", player->GetName());
     }
 
-    // Skills are separate from gear seeding. With DisableRandomLevels=1 a bot never goes
-    // through Randomize(), the only caller of InitAllSkills(): it would keep weapon
+    // Skills are separate from gear seeding. With DisableRandomLevels=1 a bot never passes
+    // through a level pipeline: it would keep weapon
     // skill 1 for good and never get a profession, so grind, craft and gather have
     // nothing to work with. Give such a bot the level-bound skill set once, at any
     // level; from then on it trains and skills up on its own. "Once" is decided from

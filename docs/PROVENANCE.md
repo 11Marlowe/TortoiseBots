@@ -768,11 +768,6 @@ Source repositories and commits:
 
 - `mod-playerbots@5397110cba484a9b7209bc9f632652e9d4bd6a70`, `RtiAction`,
   `RtiCcValue`, `RtiCcTargetValue`, `CcTargetValue`, and CC trigger behavior.
-- `MicroBot/CCP` v4.16 plus the local reverse-engineering notes in
-  `playerbots-references/MicroBot Data/CCP-addon-reverse-engineer.md` and
-  `microbot-wikidot-synthesis.md`, used for the per-companion `ccmark` UX and
-  command semantics. MicroBot server code is closed; no binary or core patch
-  was copied.
 
 Source files: `commands/BotCommands.cpp`, `README.md`, `docs/HOST_API.md`,
 `docs/PLAYER_CONTROL.md`, and the manager's `Constants.lua`, `Roster.lua`,
@@ -1832,5 +1827,43 @@ Local validation:
 - Live in-game check pending (group with bot at follow distance, accept an
   eligible quest, bot takes it; ineligible/full-log/full-bag bots decline
   with the usual message).
+
+## Seed gear source tiers + rare world epics + low-level coverage — 2026-09-25
+
+Feature: per-item source-tier classification (base / end-game dungeon /
+raid, orthogonal REP/PVP flags) computed once at startup, persisted in
+`ai_playerbot_item_info_cache`, and enforced on the fresh-seed/hire gear
+path behind `RandomGearMaxSourceTier` (default 0) + REP/PVP toggles; rare
+world-epic per-slot gate (`RandomGearSeedEpicChance`, default 0.02);
+weight-1 jewellery allowed below 30 plus a usable-item fallback sweep for
+thin low-level slots.
+
+Source repository: native implementation on owner spec (roadmap #289);
+research in scratchpad `research-gear.md` (§6 rare epics, §7 crafted chain,
+§8 tier proposal) and `research-gear-gaps.md` (§9 empty slots). Donor
+`mod-playerbots` offers no reuse here: its pool has no raid/tier/rep filter
+(map/rep checks commented out, `RandomItemMgr.cpp:2205,2316,2441`).
+
+Source files (donor, reference only):
+- `src/Mgr/Item/RandomItemMgr.cpp` (`BuildCacheEquipNew`, `IsValidItem`)
+- `src/Bot/Factory/PlayerbotFactory.cpp` (`InitEquipment`, `InitAmmo`)
+
+Copied / ported / independently reimplemented: independently reimplemented
+(no donor code copied). Loot→spawn→map minima with lowest-tier-source-wins
+(shared generic tables stay base), crafted products via the recipe chain
+(item class 9 → LEARN spell → craft spell → CREATE_ITEM), quest rewards via
+the quest reverse-lookup (raid quest raises, other quests keep base),
+world-epic attestation via direct world-map loot rows.
+
+Reason: owner rules — no rep/PvP/raid/end-game-dungeon gear on seeded bots,
+rare (not flooded) world epics, no empty low-level slots — with a
+configurable tier cap so players can later unlock higher tiers for hired
+bots instead of a hard-coded exclusion list.
+
+Local validation:
+- `python3 tools/verify_okf.py`, `bash tools/verify_all.sh`;
+  `git diff --check`.
+- DB before/after estimates from tw_char/tw_world (see summary).
+- Module build by orchestrator (workers do not run the docker builder).
 
 | Level-appropriate bot enchant selection (candidate pool + weight scorer + proc model) | `mod-playerbots` `src/Bot/Factory/PlayerbotFactory.cpp:5105-5290` (`ApplyEnchantAndGemsNew`: per-slot DBC scan, `IsFitToSpellRequirements` mask fit, `StatsWeightCalculator::CalculateEnchant` best-pick) + `Player::CastItemCombatSpell` proc-chance formula (`tortoise-wow` `src/game/Objects/Player.cpp:8995-9001`) | `mod-playerbots` donor behavior per research-enchant-code.md §7 (live-path reference, no SHA pinned) / core proc formula read 2026-09-25 | `ai/playerbot/RandomItemMgr.{h,cpp}` (`LoadBotEnchantCandidates`, `CalculateBestBotEnchantId`, `CalculateProcEnchantWeight`), `ai/playerbot/PlayerbotFactory.{h,cpp}` (`ApplyBestEnchant`), `ai/playerbot/strategy/actions/UpdateGearAction.{h,cpp}`, `data/sql/world/20260925150000_world.sql` | Reimplemented: curated SQL candidate pool (slot/min-level/tier/rep/premium from DBC+DB research, not a live DBC scan) with owner quality ceiling (grey/white none, green min_level+10, blue non-premium, epic premium); proc scoring via expected-damage PPM model instead of donor's unweighted path | `python3 tools/verify_okf.py`, `bash tools/verify_all.sh`, `git diff --check`; module build by orchestrator (workers do not run the docker builder); armory per-bot enchant verification pending |

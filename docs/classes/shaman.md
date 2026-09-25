@@ -23,12 +23,12 @@ Shamans bring unparalleled group utility through totem sets, elemental shocks, w
 
 ## Totem Orchestration
 
-Shamans automatically drop and maintain 4-element totem sets based on party composition:
+Shamans automatically drop and maintain fixed per-spec 4-element totem sets (other totems are selectable via manual `totem ...` strategies):
 
-- **Earth Totem:** *Strength of Earth Totem* (for melee groups), *Stoneskin Totem*, or *Tremor Totem* (against fear/charm).
+- **Earth Totem:** *Strength of Earth Totem* (automatic; *Stoneskin Totem* as fallback). *Tremor Totem* is manual-only.
 - **Fire Totem:** *Searing Totem* (single target), *Magma Totem* / *Fire Nova Totem* (AoE packs).
-- **Water Totem:** *Mana Spring Totem* (caster/healer mana), *Healing Stream Totem*, or *Poison Cleansing Totem*.
-- **Air Totem:** *Windfury Totem* (melee attack speed), *Grace of Air Totem* (agility), or *Grounding Totem* (redirecting hostile spells).
+- **Water Totem:** *Mana Spring Totem* or *Healing Stream Totem* (automatic per spec). *Poison Cleansing Totem* is manual-only.
+- **Air Totem:** *Windfury Totem* (automatic; *Grace of Air Totem* for Enhancement), *Grounding Totem* as fallback.
 
 ---
 
@@ -37,22 +37,24 @@ Shamans automatically drop and maintain 4-element totem sets based on party comp
 - **Earthquake (Spell ID 48306):**
   - Custom Turtle WoW Elemental AoE spell causing Nature damage and aftershocks. Integrated into Elemental AoE rotations when AoE is enabled.
 - **Lightning Strike (Spell ID 51387):**
-  - Custom Enhancement talent that consumes Lightning Shield charges for an instant Nature burst.
+  - Custom Enhancement talent that releases the active shield for an instant Nature burst.
 - **Spirit Link (Spell ID 51363):**
   - Restoration talent linking party members to distribute incoming tank damage evenly across the group, mitigating lethal spike damage.
 - **Ancestral Swiftness (Spell ID 16188):**
   - Instant cast trigger paired with *Healing Wave* for instantaneous emergency tank saves.
 - **Bloodlust (Spell ID 45509):**
-  - Custom Turtle WoW enhancement ability granting self frenzy and boosting party melee critical strikes.
+  - Custom Turtle WoW enhancement ability: self frenzy whose haste spreads through party melee crits.
 
 ---
 
 ## Utility & Interrupts
 
-- **Interrupts:** Casts rank 1 *Earth Shock* instantly to interrupt enemy spell casts with minimal mana cost and a 6-second cooldown.
-- **Weapon Imbues:** Automatically maintains *Windfury Weapon*, *Rockbiter Weapon*, or *Flametongue Weapon* on equipped weapons.
+- **Interrupts:** Casts *Earth Shock* instantly to interrupt enemy spell casts.
+- **Snares:** Casts *Frost Shock* to snare targets.
+- **Weapon Imbues:** Automatically maintains weapon imbues (*Windfury Weapon* / *Flametongue Weapon* for Enhancement, *Flametongue Weapon* otherwise, with *Rockbiter Weapon* / *Frostbrand Weapon* as fallbacks).
 - **Dispels & Cleansing:** Uses *Purge* to strip enemy buffs (shields, HoTs) and *Cure Poison* / *Cure Disease* on party members.
-- **Self-Resurrection:** Uses *Reincarnation* (Ankh) to revive after combat wipes.
+- **Resurrection:** Resurrects fallen party members with *Ancestral Spirit* (no self-Reincarnation).
+- **Defensive & Utility:** Keeps *Earth Shield* on the party tank, uses *Call of the Elements* / *Call of the Ancestors* / *Call of the Spirits* totem recall, and shifts to *Ghost Wolf* when carrying a PvP flag.
 
 ---
 

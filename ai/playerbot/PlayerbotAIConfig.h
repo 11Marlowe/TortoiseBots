@@ -125,6 +125,13 @@ public:
     uint32 randomGearMaxLevel;
     uint32 randomGearMaxDiff;
     bool randomGearUpgradeEnabled;
+    // Owner-rule source-tier cap (roadmap #289): 0 base only, 1 + end-game
+    // dungeons (229/289/329/800), 2 + raids. REP/PVP are orthogonal flags.
+    uint32 randomGearMaxSourceTier;
+    bool randomGearAllowReputation;
+    bool randomGearAllowPvP;
+    // Rare world-epic chance per gear slot on the fresh-seed path.
+    float randomGearSeedEpicChance;
     bool randomGearTabards;
     bool randomGearTabardsReplaceGuild;
     bool randomGearTabardsUnobtainable;
@@ -343,10 +350,9 @@ public:
     uint32 minEnchantingBotLevel;
     uint32 randombotStartingLevel;
     // Level seeding for persistent-level pools (DisableRandomLevels=1). Fresh
-    // pool bots are created at level 1 by CharacterCreation and nothing in the
-    // module assigns a starting level (the legacy Randomize() pipeline is not
-    // called here), so the pool starts at 1 unless this range seeds it. 1/1
-    // keeps the historic "walk from level 1" behaviour.
+    // pool bots are created at level 1 by CharacterCreation, so the pool
+    // starts at 1 unless this range seeds it. 1/1 keeps the historic
+    // "walk from level 1" behaviour.
     uint32 randomBotStartLevelMin;
     uint32 randomBotStartLevelMax;
     bool randomBotSayWithoutMaster;
