@@ -23,14 +23,16 @@ Priests are the quintessential healers of Vanilla WoW, boasting an extensive hea
 
 ## The Priest Healing Ladder
 
-The bot dynamically selects healing spells based on ally health percentage and damage velocity:
+The bot selects healing spells from static health bands (defaults: Critical 20 / Low 50 / Medium 70 / Almost-Full 90):
 
 ```text
-Ally Health < 25%   ──► Flash Heal (Emergency) / Desperate Prayer / PW:Shield
-Ally Health 25%-60% ──► Greater Heal / Heal (High efficiency throughput)
-Ally Health 60%-85% ──► Renew / Lesser Heal (Maintenance)
-Multiple Injured    ──► Prayer of Healing (Party AoE heal)
+Ally Health < 20% (critical) ──► PW:Shield + Flash Heal (Holy)
+Ally Health 20%-50% (low)    ──► PW:Shield + Heal / Lesser Heal (Holy; Greater Heal in Discipline/off-spec ladders)
+Ally Health 50%-70% (medium) ──► Heal / Lesser Heal
+Ally Health 70%-90% (almost) ──► Renew
+Multiple Injured              ──► Prayer of Healing (Party AoE heal)
 ```
+*Desperate Prayer* is a self-only emergency heal and never lands on allies.
 
 ### Healer Off-Spec Damage & Wand
 A grouped Holy priest only damages while **nobody in the party is below 90% health** and its mana is comfortable (85% reserve on easy pulls, 65% on normal ones, the medium-mana line on hard ones). Then it uses *Shadow Word: Pain*, *Holy Fire*, *Smite*, *Starshards* or *Mind Blast* at the lowest priority, so every heal outbids it, and *Holy Nova* when a pack stands in melee range. When the party is healthy but mana is not, it wands the target instead. A solo priest damages freely.
@@ -53,22 +55,20 @@ The bot checks for the *Weakened Soul* debuff (6788) before attempting *Power Wo
 
 ## Turtle WoW 1.18.1 Custom Content
 
-- **Chastise (Spell ID 51478):**
+- **Chastise (Spell ID 51478, per game data):**
   - Custom Turtle WoW talent. Hostile Chastise is integrated as a ranged CC disorient at `INTERRUPT` priority, stopping enemy spellcasters in their tracks.
-- **Ascendance (Spell ID 52962):**
-  - Holy capstone talent providing an emergency CC purge and massive healing throughput boost during intense raid/dungeon phases.
-- **Enlighten (Spell ID 51476):**
-  - Holy passive talent granting procs on Holy spell casts, fully handled by the core server and leveraged by bot heal frequency.
+- **Ascendance (Spell ID 52962, per game data):**
+  - Holy capstone talent providing an emergency CC purge and massive healing throughput boost during intense raid/dungeon phases, per game data.
 
 ---
 
 ## Buffs & Crowd Control
 
-- **Party Buffs:** Maintains *Power Word: Fortitude* (Stamina), *Divine Spirit* (Spirit), and *Shadow Protection*.
-- **Dispels:** Proactively uses *Dispel Magic* on allies (to clear magic debuffs) and enemies (to strip shields/buffs), and *Cure Disease* on diseased allies.
+- **Party Buffs:** Maintains *Power Word: Fortitude* (Stamina), *Divine Spirit* (Spirit), and *Shadow Protection*. Out of combat the bot also casts *Resurrection* (removing *Shadowform* first) and uses *Fade* for threat management (raid medium-threat and after *Psychic Scream*).
+- **Dispels:** Proactively uses *Dispel Magic* on self and allies (to clear magic debuffs), and *Cure Disease* on diseased allies. The enemy-target dispel action is registered but has no trigger, so the bot never offensively dispels.
 - **Crowd Control:**
   - Casts *Shackle Undead* when assigned CC on Undead targets.
-  - Casts *Psychic Scream* when overwhelmed by multiple melee attackers, then flees to safe casting distance.
+  - Casts *Psychic Scream* on any single enemy within 5 yards, then follows up with *Fade* (not fleeing).
 
 ---
 
@@ -79,8 +79,8 @@ TortoiseBots configures validated 5-level talent checkpoints (levels 10–60) ta
 | Spec Name | Config ID | Role | 60 Allocation | Key Signatures & Synergies |
 | :--- | :--- | :--- | :--- | :--- |
 | **Holy** | `5.0` | Healer | `14 / 37 / 0` | Spirit of Redemption (35), Ascendance (45), Spiritual Guidance, Inspiration, Inner Focus dip. |
-| **Shadow** | `5.1` | Ranged DPS | `20 / 0 / 31` | Mind Flay (20), Shadowform (40), Vampiric Touch + Vampiric Embrace, Meditation in-combat mana regen. |
-| **Discipline** | `5.2` | Healer / Support | `40 / 11 / 0` | Resurgent Shield, Enlighten, Chastise (50), Force of Will, Inner Focus, Meditation, Holy dip. |
+| **Shadow** | `5.1` | Ranged DPS | `20 / 0 / 31` | Mind Flay (20), Shadowform (40), Vampiric Touch (preset talent, never cast by the bot) + Vampiric Embrace, Meditation in-combat mana regen. |
+| **Discipline** | `5.2` | Healer / Support | `40 / 11 / 0` | Resurgent Shield, Enlighten (preset talent, no bot wiring), Chastise (50), Force of Will, Inner Focus, Meditation, Holy dip. |
 
 ### Leveling Milestones & Progression Rationale
 
@@ -90,8 +90,8 @@ TortoiseBots configures validated 5-level talent checkpoints (levels 10–60) ta
   - *Levels 45–60:* Transitions into Discipline for *Wand Specialization* (2/2), *Mental Agility* (5/5 instant spell cost reduction), *Improved Power Word: Fortitude* (2/2), and *Inner Focus* (60 free crit cooldown).
 - **Shadow (`5.1`):**
   - *Levels 10–40:* Shadow ramping: *Improved Mind Blast* (5/5), *Shadow Focus* (5/5 hit cap), *Mind Flay* (20 signature channel), *Shadow Reach* (2/2), *Shadow Weaving* (5/5 Shadow vulnerability), *Vampiric Embrace* (30), and *Shadowform* (40).
-  - *Levels 40–50:* *Vampiric Touch* (2/2 mana battery), *Darkness* (5/5 shadow damage).
-  - *Levels 50–60:* Discipline mana sustainability dip (*Mental Agility* 5/5 + *Inner Focus* + *Improved Power Word: Shield* 3/3 + *Meditation* 3/3 for 15% in-combat mana regeneration).
+  - *Levels 40–50:* *Vampiric Touch* (2/2 mana battery in the preset, but no bot action/trigger ever casts it), *Darkness* (5/5 shadow damage), per game data.
+  - *Levels 50–60:* Discipline mana sustainability dip (*Mental Agility* 5/5 + *Inner Focus* + *Improved Power Word: Shield* 3/3 + *Meditation* 3/3 for 15% in-combat mana regeneration), per game data.
 - **Discipline (`5.2`):**
   - *Levels 10–35:* Mitigation and shielding core: *Silent Resolve* (5/5 threat reduction), *Unbreakable Will* (5/5 stun/fear resistance), *Inner Focus* (1/1), *Improved Power Word: Shield* (3/3), *Meditation* (3/3), and *Searing Light* (3/3 Smite damage).
   - *Levels 35–50:* *Mental Strength* (3/3 max mana), *Enlighten* (45), *Resurgent Shield* (1/1 mana return on shield absorb), and *Chastise* (50 disorient CC).

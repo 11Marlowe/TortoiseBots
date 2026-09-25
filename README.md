@@ -70,7 +70,7 @@ cmake -B build -DMODULES=static -DMODULE_TORTOISEBOTS=static
 cmake --build build -j"$(nproc)"
 ```
 
-Configuration templates are generated at build time (`conf/tortoise_bots.conf` and `aiplayerbot.conf`). See [**Configuration & Tuning**](docs/guides/configuration-tuning.md) for available settings.
+Configuration is generated at build time from `ai/playerbot/aiplayerbot.conf.dist.in` and `conf/tortoise_bots.conf.dist` and installed next to `mangosd.conf` (`aiplayerbot.conf`, and `modules/tortoise_bots.conf`). See [**Configuration & Tuning**](docs/guides/configuration-tuning.md) for available settings.
 
 ---
 

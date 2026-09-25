@@ -15,9 +15,9 @@ Druids are the ultimate hybrid class, able to fulfill Tank, Healer, Melee DPS, o
 
 ## Supported Specs & Roles
 
-- **Feral (Bear Tank):** Dire Bear Form tank specializing in *Growl*, *Maul*, *Swipe*, and *Demoralizing Roar*.
-- **Feral (Cat Melee DPS):** Cat Form stealth and energy specialist utilizing *Claw*, *Rake*, *Shred*, *Rip*, and *Ferocious Bite*.
-- **Restoration (Healer):** HoT-focused healing with *Rejuvenation*, *Regrowth*, *Healing Touch*, and *Swiftmend*.
+- **Feral (Bear Tank):** Dire Bear Form tank specializing in *Growl*, *Maul*, *Swipe*, and *Demoralizing Roar*, with *Frenzied Regeneration*, *Challenging Roar*, *Mangle (Bear)*, *Faerie Fire (Feral)*, and *Enrage* also wired.
+- **Feral (Cat Melee DPS):** Cat Form stealth and energy specialist utilizing *Claw*, *Rake*, *Shred* (with *Mangle (Cat)* as fallback), *Rip*, and *Ferocious Bite*, with *Pounce*, *Ravage*, and *Tiger's Fury* also wired.
+- **Restoration (Healer):** HoT-focused healing with *Rejuvenation*, *Regrowth*, *Healing Touch*, and *Swiftmend*, with *Nature's Swiftness* and *Tranquility* also wired.
 - **Balance (Ranged DPS):** Moonkin caster driving Nature and Arcane damage via *Moonfire*, *Wrath*, *Starfire*, and *Insect Swarm*.
 
 ---
@@ -29,17 +29,17 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - If designated as **Melee DPS**, the bot stays in **Cat Form**.
 - If designated as **Ranged DPS**, the bot stays in **Moonkin Form** (if talented) or Humanoid form.
 - If designated as **Healer**, the bot stays in **Humanoid Form** or **Tree of Life Form**.
-- **Caster Shifting:** The bot automatically shifts out of feral forms when out of combat to cast party buffs (*Mark of the Wild*, *Thorns*), dispel poisons (*Cure Poison*), or consume water.
+- **Caster Shifting:** The bot automatically shifts out of feral forms when out of combat to cast party buffs (*Mark of the Wild*, *Thorns*), dispel poisons (*Abolish Poison*, with *Cure Poison* as the fallback), or consume water.
 
 ---
 
 ## Turtle WoW 1.18.1 Custom Content
 
-- **Tree of Life Form (Spell ID 45705):**
+- **Tree of Life Form (Spell ID 45705, per game data):**
   - Custom Turtle WoW Restoration talent form.
-  - Grants a spirit-scaling healing aura that buffs all party members while reducing mana cost of healing spells.
-- **Berserk (Spell ID 45708):**
-  - Custom Feral talent. Cat form removes energy cost limitations for massive burst; Bear form eliminates *Growl* cooldown and spreads damage reduction.
+  - Grants a spirit-scaling healing modifier with a party aura and polymorph immunity at the cost of movement speed, per game data.
+- **Berserk (Spell ID 45708, per game data):**
+  - Custom Feral talent. Per game data it branches Bear/Dire Bear into 45709 (+20% max health) and Cat into 45710; the bot fires it as a combat boost trigger.
 - **Swiftmend HoT-Gating (Spell ID 18562):**
   - Consumes the shortest remaining active *Rejuvenation* or *Regrowth* HoT on an ally to deliver instantaneous burst healing.
   - The bot verifies that an active HoT exists on the target before attempting cast, preventing wasted cooldown triggers.
@@ -50,16 +50,16 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 
 - **Crowd Control:**
   - Casts *Entangling Roots* outdoors to root melee mobs away from party casters.
-  - Casts *Hibernate* when assigned CC on Beasts or Dragonkin.
+  - Casts *Hibernate* when assigned CC (the bot applies no creature-type filter itself; it relies on core validation).
 - **Interrupts & Stuns:**
-  - Casts *Feral Charge* (Bear) to root and interrupt distant casters.
-  - Casts *Bash* (Bear) to stun melee targets.
+  - Casts *Feral Charge* (Bear) as a gap-closer on any out-of-melee enemy.
+  - Casts *Bash* (Bear) as an interrupt (also wired against enemy healers).
 - **Combat Resurrection:**
-  - Uses *Rebirth* (Battle Rez) to revive a fallen party tank or healer mid-fight.
+  - Uses *Rebirth* (Battle Rez) on the first dead party member mid-fight (no tank/healer priority).
 - **Innervate:**
   - Casts *Innervate* on the lowest-mana party healer below the `AiPlayerbot.LowMana` threshold (default 15%), falling back to self when solo or healers are healthy. Manual `.bot boost` assignments win over automation. Shifts to caster form first (required by Turtle 1.18.1 shapeshift rules).
 - **Barkskin:**
-  - Balance/Restoration cast *Barkskin* on medium-health pressure as a physical-damage shield; never wired for Feral (Cat/Bear lose form bonuses under Turtle 1.18.1 attack-speed and shapeshift penalties).
+  - Balance/Restoration cast *Barkskin* on own-health triggers (medium-health band in the Balance/Restoration combat sets, almost-full-health band in the generic set); never wired for Feral (Cat/Bear lose form bonuses under Turtle 1.18.1 attack-speed and shapeshift penalties).
 - **Party Buffs:**
   - Maintains *Mark of the Wild* (armor, stats, resistances) and *Thorns* (reflective nature damage) on party members.
 
