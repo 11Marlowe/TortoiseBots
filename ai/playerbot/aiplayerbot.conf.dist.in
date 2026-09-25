@@ -151,8 +151,9 @@ AiPlayerbot.RandomBotAutoCreate = 0
 # login via the generic PlayerScript OnLogin hook, only for BotManager records
 # marked random; owned/manual bots unchanged. Pinned bots
 # (sRandomBotFacade.IsPinnedBot) are skipped. Uses core Player::TeleportTo on
-# the world thread; no homebind update. Default 0.
-AiPlayerbot.EnableRandomTeleports = 0
+# the world thread; no homebind update. Default 1, so bots seeded above level
+# 10 start in a zone that fits their level instead of their starting zone.
+AiPlayerbot.EnableRandomTeleports = 1
 
 # Whether random bots are allowed in custom isolated starting zones
 # (Blackstone Island 5536, Thalassian Highlands 5225, Alah'Thalas 2040).

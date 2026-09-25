@@ -227,7 +227,7 @@ public:
     // GenericRpg destination. Default off; fail-closed when no validated level
     // or no destination. Persisted ai_playerbot_zone_level is tried first
     // (with parent fallback) then immutable DBC AreaLevel/parent.
-    bool enableRandomTeleports = false;
+    bool enableRandomTeleports = true;
     // Whether random bots are allowed in custom isolated starting zones
     // (Blackstone Island 5536, Thalassian Highlands 5225, Alah'Thalas 2040).
     // Default false (blocked and normalized to mainland starting zones).
