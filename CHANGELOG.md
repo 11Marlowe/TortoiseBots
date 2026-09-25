@@ -12,6 +12,12 @@
 
 ---
 
+### Combat & AI
+
+- Warlock bots now only cast Fear on their own assigned RTI CC mark, so they stop burning Fear on random dotted adds and breaking group kill order. [#270](https://github.com/Sagiroth/TortoiseBots/pull/270)
+- Existing CC is no longer overwritten by a redundant Fear cast — fewer lost traps, sheeps, and saps mid-pull. [#270](https://github.com/Sagiroth/TortoiseBots/pull/270)
+- Howl of Terror moved behind the `cc pvp` strategy: no more 10-yard panic casts scattering PvE pulls, but warlocks still have it when PvP is enabled. [#270](https://github.com/Sagiroth/TortoiseBots/pull/270)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
