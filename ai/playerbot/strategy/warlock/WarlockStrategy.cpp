@@ -370,10 +370,6 @@ void WarlockCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "fear",
         NextAction::array(0, new NextAction("fear on cc", ACTION_INTERRUPT + 1), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "enemy ten yards",
-        NextAction::array(0, new NextAction("howl of terror", ACTION_INTERRUPT), NULL)));
 }
 
 void WarlockCcStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -388,6 +384,11 @@ void WarlockCcPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "fear pvp",
         NextAction::array(0, new NextAction("fear", ACTION_INTERRUPT + 1), NULL)));
+
+    // AoE fear scatters PvE packs into adds; keep it for PvP only.
+    triggers.push_back(new TriggerNode(
+        "enemy ten yards",
+        NextAction::array(0, new NextAction("howl of terror", ACTION_INTERRUPT), NULL)));
 }
 
 void WarlockCcPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
