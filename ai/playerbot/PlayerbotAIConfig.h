@@ -146,7 +146,7 @@ public:
     // Level ladder (AiPlayerbot.LevelLadder*): choose the next random bot to log in by the
     // shortfall of its level band instead of round-robin over the whole pool, highest level
     // first inside the band, so the field spreads over the levels and the leaders climb to 60.
-    bool levelLadder = false;
+    bool levelLadder = true;
     uint32 levelLadderBandSize = 5;
     uint32 levelLadderMaxLevelSharePct = 10;
     uint32 levelLadderLogMinutes = 5;
@@ -227,7 +227,7 @@ public:
     // GenericRpg destination. Default off; fail-closed when no validated level
     // or no destination. Persisted ai_playerbot_zone_level is tried first
     // (with parent fallback) then immutable DBC AreaLevel/parent.
-    bool enableRandomTeleports = false;
+    bool enableRandomTeleports = true;
     // Whether random bots are allowed in custom isolated starting zones
     // (Blackstone Island 5536, Thalassian Highlands 5225, Alah'Thalas 2040).
     // Default false (blocked and normalized to mainland starting zones).

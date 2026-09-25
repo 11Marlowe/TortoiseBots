@@ -271,7 +271,7 @@ bool PlayerbotAIConfig::Initialize()
     randomBotUpdateInterval = config.GetIntDefault("AiPlayerbot.RandomBotUpdateInterval", 1 * 1000);
     randomBotTimedLogout = config.GetBoolDefault("AiPlayerbot.RandomBotTimedLogout", true);
     randomBotTimedOffline = config.GetBoolDefault("AiPlayerbot.RandomBotTimedOffline", false);
-    levelLadder = config.GetBoolDefault("AiPlayerbot.LevelLadder", false);
+    levelLadder = config.GetBoolDefault("AiPlayerbot.LevelLadder", true);
     levelLadderBandSize = config.GetIntDefault("AiPlayerbot.LevelLadderBandSize", 5);
     if (levelLadderBandSize < 1) levelLadderBandSize = 1;
     if (levelLadderBandSize > 59) levelLadderBandSize = 59;
@@ -384,7 +384,7 @@ bool PlayerbotAIConfig::Initialize()
     randomBotMaxLevel = config.GetIntDefault("AiPlayerbot.RandomBotMaxLevel", DEFAULT_MAX_LEVEL);
     randomBotLoginAtStartup = config.GetBoolDefault("AiPlayerbot.RandomBotLoginAtStartup", false);
     randomBotAutoCreate = config.GetBoolDefault("AiPlayerbot.RandomBotAutoCreate", false);
-    enableRandomTeleports = config.GetBoolDefault("AiPlayerbot.EnableRandomTeleports", false);
+    enableRandomTeleports = config.GetBoolDefault("AiPlayerbot.EnableRandomTeleports", true);
     allowIsolatedCustomStartingZones = config.GetBoolDefault("AiPlayerbot.AllowIsolatedCustomStartingZones", false);
     relocateHopelessDeaths = config.GetBoolDefault("AiPlayerbot.RelocateHopelessDeaths", true);
     randomBotLftEnabled = config.GetBoolDefault("AiPlayerbot.RandomBotLftEnabled", false);
@@ -637,7 +637,7 @@ bool PlayerbotAIConfig::Initialize()
     minEnchantingBotLevel = config.GetIntDefault("AiPlayerbot.minEnchantingBotLevel", 60);
     randombotStartingLevel = config.GetIntDefault("AiPlayerbot.randombotStartingLevel", 5);
     randomBotStartLevelMin = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMin", 1);
-    randomBotStartLevelMax = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMax", randomBotStartLevelMin);
+    randomBotStartLevelMax = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMax", 60);
     gearscorecheck = config.GetBoolDefault("AiPlayerbot.GearScoreCheck", false);
     levelCheck = config.GetIntDefault("AiPlayerbot.LevelCheck", 30);
 	randomBotPreQuests = config.GetBoolDefault("AiPlayerbot.PreQuests", true);
