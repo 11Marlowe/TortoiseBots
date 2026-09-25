@@ -97,6 +97,18 @@
 
 - Trimmed an external UX reference from the CC mark provenance entry per owner request — the mod-playerbots source attribution stays untouched, so licensing/credit records remain accurate with one less stray link. [#299](https://github.com/Sagiroth/TortoiseBots/pull/299)
 
+### Docs & Configuration
+- OKF documentation re-verified line-by-line against the actual code — every correction was confirmed in source before landing, and rejected findings are logged with reasons in the review notes. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Fixed installed config paths and documented the real reload scope, so operators stop guessing which file changes actually take effect. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Corrected wrong documented defaults for `CriticalHealth`, `LowMana`, and `MediumMana`, plus the Thunderfury broadcast setting. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Clarified that bots are always active by default — no hidden toggle required to get them running. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+
+### Bot Behavior & Defaults
+- `RandomGearUpgradeEnabled` only seeds fresh bots; existing bots won't retroactively re-roll gear. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- `SyncAltLevelToMaster` requires the master to be the party leader and applies +1 level per update tick. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- `botActiveAlone` documented as a percentage rather than a boolean switch. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+- Auction house synthetic switches, login-scatter preconditions, and profession pairing rules now match the implemented behavior. [#301](https://github.com/Sagiroth/TortoiseBots/pull/301)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
