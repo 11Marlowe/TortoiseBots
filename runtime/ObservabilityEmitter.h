@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <future>
 
 class Player;
 class Unit;
@@ -105,6 +106,16 @@ private:
     uint32 m_port;
     SocketHandle m_socketFd;
     void* m_destAddr; // struct sockaddr_in*
+
+    // Host resolution retry: when the configured host (e.g. the docker
+    // service name) is not resolvable at startup, keep the configured name,
+    // send to 127.0.0.1 meanwhile, and retry off the world thread every
+    // kResolveRetryMs until it resolves (the dashboard may start later).
+    static constexpr uint32 kResolveRetryMs = 30000;
+    bool m_hostResolved = true;
+    uint32 m_resolveRetryMs = 0;
+    std::future<uint32_t> m_resolveFuture; // IPv4 s_addr (network order), 0 = failed
+    void RetryHostResolution(uint32 diff);
 
     // Guards socket teardown against a concurrent sender; emission and state
     // mutation stay on the world thread.
