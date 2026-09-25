@@ -45,6 +45,10 @@ These settings dramatically enhance the solo or small-group experience with owne
 | `AiPlayerbot.AutoTrainSpells` | `yes` | **`yes`** | **Auto Train:** Bots train all available spells at trainers while they have the money. |
 | `AiPlayerbot.XPRate` | `3` | **`3`** | **Bot XP Rate:** Server XP rate × this value for bots. |
 | `AiPlayerbot.GlobalCooldown` | `1500` | **`1500`** | **Cast pacing:** Delay between two short-time spell casts. |
+| `AiPlayerbot.RandomGearMaxSourceTier` | `0` | **`0`** | **Seed Gear Source Tier:** Highest loot source tier fresh/hired bots may wear — `0` base only (world drop, vendor, quest, allowed recipe), `1` + end-game dungeons (Blackrock Spire, Scholomance, Stratholme, Karazhan Crypt), `2` + raids. Per-item lowest-source-wins, persisted in `ai_playerbot_item_info_cache`. Raise later to unlock tiers (roadmap #289). |
+| `AiPlayerbot.RandomGearAllowReputation` | `0` | **`0`** | **Seed Rep Gear:** Allow reputation-gated gear (item/quest/vendor/recipe rep) on fresh/hired bots. |
+| `AiPlayerbot.RandomGearAllowPvP` | `0` | **`0`** | **Seed PvP Gear:** Allow PvP gear (honor rank, NO_DISENCHANT rewards) on fresh/hired bots. |
+| `AiPlayerbot.RandomGearSeedEpicChance` | `0.02` | **`0.02`** | **Seed World-Epic Chance:** Per-slot chance a fresh seed rolls a rare loot-attested BoE world epic instead of the green/blue band; falls back to the band when the slot has none. |
 
 The spec weights these caches are scored with come from the `ai_playerbot_weightscales` and `ai_playerbot_weightscale_data` tables, seeded by `data/sql/world/20260916090001_world.sql`. If bots wear wrong-slot gear from their bags but never swap an upgrade in, that dataset is empty — re-apply the migration and restart.
 ---

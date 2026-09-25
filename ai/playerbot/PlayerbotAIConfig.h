@@ -125,6 +125,13 @@ public:
     uint32 randomGearMaxLevel;
     uint32 randomGearMaxDiff;
     bool randomGearUpgradeEnabled;
+    // Owner-rule source-tier cap (roadmap #289): 0 base only, 1 + end-game
+    // dungeons (229/289/329/800), 2 + raids. REP/PVP are orthogonal flags.
+    uint32 randomGearMaxSourceTier;
+    bool randomGearAllowReputation;
+    bool randomGearAllowPvP;
+    // Rare world-epic chance per gear slot on the fresh-seed path.
+    float randomGearSeedEpicChance;
     bool randomGearTabards;
     bool randomGearTabardsReplaceGuild;
     bool randomGearTabardsUnobtainable;

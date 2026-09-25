@@ -63,6 +63,14 @@ public:
 private:
     void Shuffle(std::vector<uint32>& items);
     void InitEquipment(bool incremental, bool syncWithMaster, bool progressive = sPlayerbotAIConfig.randomGearProgression, bool partialUpgrade = false);
+    // One per-quality candidate query with the wearability descent (shared
+    // by the main band loop, the epic path and the fallback).
+    void QuerySeedCandidates(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, uint32 q, std::vector<uint32>& ids);
+    // Rare world-epic gate (§6): EPIC-only query for the slot, restricted to
+    // loot-attested BoE world epics the bot can wear. Returns true with ids
+    // filled when the slot has any; false (fall back to the normal band)
+    // otherwise.
+    bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids);
     bool CanEquipItem(ItemPrototype const* proto, uint32 desiredQuality);
     void InitTradeSkills();
     void SetRandomSkill(uint16 id);

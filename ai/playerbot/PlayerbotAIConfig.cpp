@@ -213,6 +213,10 @@ bool PlayerbotAIConfig::Initialize()
 
     randomGearMaxLevel = config.GetIntDefault("AiPlayerbot.RandomGearMaxLevel", 100);
     randomGearMaxDiff = config.GetIntDefault("AiPlayerbot.RandomGearMaxDiff", 9);
+    randomGearMaxSourceTier = config.GetIntDefault("AiPlayerbot.RandomGearMaxSourceTier", 0);
+    randomGearAllowReputation = config.GetBoolDefault("AiPlayerbot.RandomGearAllowReputation", false);
+    randomGearAllowPvP = config.GetBoolDefault("AiPlayerbot.RandomGearAllowPvP", false);
+    randomGearSeedEpicChance = config.GetFloatDefault("AiPlayerbot.RandomGearSeedEpicChance", 0.02f);
     randomGearUpgradeEnabled = config.GetBoolDefault("AiPlayerbot.RandomGearUpgradeEnabled", true);
     randomGearTabards = config.GetBoolDefault("AiPlayerbot.RandomGearTabards", false);
     randomGearTabardsChance = config.GetFloatDefault("AiPlayerbot.RandomGearTabardsChance", 0.1f);
