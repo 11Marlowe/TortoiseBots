@@ -618,6 +618,21 @@ namespace ai
         virtual bool IsActive() override;
     };
 
+    // Off-spec damage for a healer (mod-playerbots HealerShouldAttackTrigger):
+    // free when solo; in a group only while nobody needs healing and, when
+    // checkMana is set, while mana is comfortable for the fight's difficulty.
+    class HealerShouldAttackTrigger : public Trigger
+    {
+    public:
+        HealerShouldAttackTrigger(PlayerbotAI* ai, std::string name = "healer should attack", bool checkMana = true)
+            : Trigger(ai, name), checkMana(checkMana) {}
+
+        virtual bool IsActive() override;
+
+    private:
+        bool checkMana;
+    };
+
     class AlmostFullManaTrigger : public Trigger
     {
     public:

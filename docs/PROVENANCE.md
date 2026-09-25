@@ -1628,6 +1628,16 @@ Local validation:
 - `git diff --check` — clean.
 - Not yet observed: live in-game hire (recruiter gossip click-through, gold deduction, bot join). Needs a running server with the migration applied — flagged in the PR.
 
+## Tank target stickiness (smart ranking + hold gate) — 2026-09-24
+
+Feature: tank bots keep/finish the mob they hold instead of walking off a
+nearly-dead mob to a loose add. `TankTargetValue` now buckets attackers
+(loose first/nearest, then held-in-melee, then held-out-of-melee, lowest
+personal threat as tie-break) and `TankAssistTrigger` only retargets while
+the tank still holds its current target (`has aggro`), so the switch is
+reversible. Explicit `.bot action attack` and RTI (skull) precedence and the
+CC skips are unchanged.
+
 ## CC stage 1: exclusive mark ownership, dismissal, dungeon gate, AoE interlock — 2026-09-24
 
 Feature: one mark = one owner (assigning `.bot action cc <mark>` resets every
@@ -1643,6 +1653,69 @@ without changing its semantics.
 Source repository: `mod-playerbots/mod-playerbots`
 
 Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout); behavior commits
+`a63c6b67` ("smarter dps target and tank target") and `0a76fc1d`
+("Better tank target selection (#996)").
+
+Source files:
+- `src/Ai/Base/Value/TankTargetValue.cpp:49-136` (`FindTankTargetSmartStrategy::IsBetter/GetIntervalLevel`, smart `TankTargetValue::Calculate`)
+- `src/Ai/Base/Trigger/GenericTriggers.cpp:536-550` (`TankAssistTrigger::IsActive` has-aggro gate)
+- `src/Ai/Base/Value/AttackerCountValues.cpp:13-32` (`HasAggroValue::Calculate` victim semantics)
+- `src/Bot/PlayerbotAI.cpp:2071-2083` (`PlayerbotAI::HasAggro`)
+
+Local additions beyond the donor (review follow-up): among held mobs the
+current target wins the tie-break, and the assist gate never peels while the
+held current target is at or below `AiPlayerbot.LowHealth`. Without them two
+held mobs ping-ponged on threat and a low mob was still left for a loose add.
+
+Copied / ported / independently reimplemented: ported, adapted to the 1.12
+codebase. Ranking (`IsBetter`/`GetIntervalLevel`), the trigger gate, and the
+live-victim + threat-manager victim helpers are behavior-identical; the
+donor's multi-tank/explicit-MT pin (`IsExplicitMainTank`, `GetGroupTankNum`,
+`TargetValueExclusionType::Tank`) is skipped as non-trivial single-tank
+plumbing. The old lowest-threat `FindTargetForTankStrategy` is replaced
+(donor keeps it commented-out; here it is removed since nothing else
+references it).
+
+Reason: the flat lowest-threat tournament plus the victim-based assist gate
+made the tank abandon a nearly-dead mob for any lower-threat add and then
+forbade switching back (one-way door) — see
+`scratchpad/research/tank-target-switching.md` RC-1.
+
+Local validation:
+- `python3 tools/verify_okf.py` + `./tools/verify_all.sh` (see commit); `git diff --check` clean.
+- No build (per task constraints); live in-game check pending: multi-mob pull, tank finishes its mob, still picks up healer adds, no stuck-on-door.
+
+## Warlock fear gating (mark-only Fear, PvP-only Howl of Terror) — 2026-09-24
+
+Feature: `fear on cc` fires only on the bot's `rti cc target` (and never replaces an existing breakable/unbreakable CC); `enemy ten yards -> howl of terror` moved from the base warlock `cc` strategy to `cc pvp`. Fixes warlocks fearing arbitrary (even dotted) mobs in PvE groups, which scattered pulls.
+
+## Healer priest off-spec damage gate (`healer should attack`) — 2026-09-24
+
+Feature: new generic `HealerShouldAttackTrigger` (`healer should attack`, `healer should wand`); `PriestOffdpsStrategy` damage (SW:P, Holy Fire, Smite, Starshards, Mind Blast) now fires only when solo, or when no party member is below `almostFullHealth` and mana is above a balance-scaled reserve, at `ACTION_DEFAULT` relevance. A healthy party with low mana gets a wand instead. Removed the ungated per-tick `smite`/`holy fire`/`very often -> starshards` nodes and the per-attacker SW:P node; Holy Nova is kept behind `melee medium aoe and healer should attack` (the donor's `medium aoe and healer should attack` -> Mind Sear). Note: `healer should attack` is now a registered trigger name, which the unregistered healer-dps strategies of druid/paladin/shaman also reference — registering those strategies later arms them.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907`
+
+Source files:
+- `src/Ai/Base/Trigger/RtiTriggers.cpp` (`RtiCcTrigger::IsActive` — CC only on the RTI CC target)
+- `src/Ai/Class/Warlock/WarlockTriggers.h` (`FearTrigger : RtiCcTrigger`)
+- `src/Ai/Class/Warlock/Strategy/GenericWarlockStrategy.cpp` (`WarlockCcStrategy`: banish/fear on cc only, no Howl of Terror)
+
+Copied / ported / independently reimplemented: ported semantics (no code copied); implemented as a `FearTrigger::IsActive` override on the existing `HasCcTargetTrigger`, plus an extra "target not already CC'd" guard via `PossibleAttackTargetsValue::HasBreakableCC/HasUnBreakableCC`.
+
+Reason: live play report — warlock bots fear constantly in dungeon groups.
+
+- `src/Ai/Base/Trigger/GenericTriggers.cpp` (`HealerShouldAttackTrigger::IsActive`)
+- `src/Ai/Class/Priest/Strategy/GenericPriestStrategy.cpp` (`PriestHealerDpsStrategy::InitTriggers`)
+
+Copied / ported / independently reimplemented: ported (logic re-expressed with this module's values; solo check uses group membership instead of `GetNearGroupMemberCount`; Tree of Life clause dropped; `highMana` = the existing 65% `high mana` line). Starshards (1.12 Night Elf racial) kept inside the gate.
+
+Reason: live play report — Holy priest bots DPS like a damage spec and run out of mana instead of healing.
+
+Local validation: cached `MODULE_TORTOISEBOTS=static` build; `tools/verify_all.sh`; `git diff --check`. In-game observation pending.
+
 `playerbots-references/mod-playerbots` checkout); behavior commits `d9ee5198`
 ("fix(dungeons): stop the generic cc strategy from firing in 5-man dung…",
 PR #2648) and `a63c6b67` / `0a76fc1d` (CC bucketing context).

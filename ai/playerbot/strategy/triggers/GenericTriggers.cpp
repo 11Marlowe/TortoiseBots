@@ -33,6 +33,24 @@ bool HighManaTrigger::IsActive()
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 65;
 }
 
+bool HealerShouldAttackTrigger::IsActive()
+{
+    if (!bot->GetGroup())
+        return true;
+
+    if (AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.almostFullHealth)
+        return false;
+
+    if (!checkMana)
+        return true;
+
+    // Easy fights (low balance) keep a large reserve; hard ones allow more.
+    // 65 is the "high mana" line used by HighManaTrigger.
+    uint8 balance = AI_VALUE(uint8, "balance");
+    uint32 manaThreshold = balance <= 50 ? 85 : (balance <= 100 ? 65 : sPlayerbotAIConfig.mediumMana);
+    return !AI_VALUE2(bool, "has mana", "self target") || AI_VALUE2(uint8, "mana", "self target") >= manaThreshold;
+}
+
 bool AlmostFullManaTrigger::IsActive()
 {
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") > 85;
@@ -683,12 +701,18 @@ bool TankAssistTrigger::IsActive()
     Unit* tankTarget = AI_VALUE(Unit*, "tank target");
     if (!tankTarget || currentTarget == tankTarget)
         return false;
-#ifdef CMANGOS
-    return tankTarget->GetVictim() != AI_VALUE(Unit*, "self target");
-#endif
-#ifdef MANGOS
-    return tankTarget->GetVictim() != AI_VALUE(Unit*, "self target");
-#endif
+
+    // mod-playerbots TankAssistTrigger semantics: switch only while the tank
+    // still holds its current target. A loose add is picked up while the
+    // current mob is held, and the tank can switch back to finish it later.
+    // The old victim check forbade returning to a mob on the tank (one-way
+    // door). "has aggro" is HasAggroValue (values/AttackerCountValues.cpp).
+    bool holdsCurrent = AI_VALUE2(bool, "has aggro", "current target");
+    // Finish a held mob that is already low before peeling a loose add; the
+    // add waits a few seconds, a half-dead mob left behind waits forever.
+    if (holdsCurrent && currentTarget->GetHealthPercent() <= sPlayerbotAIConfig.lowHealth)
+        return false;
+    return holdsCurrent;
 }
 
 bool IsBehindTargetTrigger::IsActive()

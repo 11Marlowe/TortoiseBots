@@ -1,5 +1,38 @@
 # Changelog
 
+## 2026-09-25
+
+### Combat & AI
+
+- Tank bots now stick to the mobs they're holding instead of abandoning them the moment an add shows up — held targets get priority over loose adds in the ranking logic. [#269](https://github.com/Sagiroth/TortoiseBots/pull/269)
+- Added proper priority ordering: loose adds actively hitting someone else (nearest first), then mobs already held in melee range, then held mobs outside melee. No more random target flapping. [#269](https://github.com/Sagiroth/TortoiseBots/pull/269)
+- Tanks return to finish off mobs they peeled away to grab — previously they'd wander off and never come back, leaving healers to tank. [#269](https://github.com/Sagiroth/TortoiseBots/pull/269)
+- When holding two mobs at once, the current target wins the tie-break and lowest personal threat breaks remaining ties, so tanks stop ping-ponging on threat. [#269](https://github.com/Sagiroth/TortoiseBots/pull/269)
+- `TankAssistTrigger` now gates on the donor's has-aggro-on-current-target check, reducing wasted taunts and target swaps during pulls. [#269](https://github.com/Sagiroth/TortoiseBots/pull/269)
+
+---
+
+### Combat & AI
+
+- Warlock bots now only cast Fear on their own assigned RTI CC mark, so they stop burning Fear on random dotted adds and breaking group kill order. [#270](https://github.com/Sagiroth/TortoiseBots/pull/270)
+- Existing CC is no longer overwritten by a redundant Fear cast — fewer lost traps, sheeps, and saps mid-pull. [#270](https://github.com/Sagiroth/TortoiseBots/pull/270)
+- Howl of Terror moved behind the `cc pvp` strategy: no more 10-yard panic casts scattering PvE pulls, but warlocks still have it when PvP is enabled. [#270](https://github.com/Sagiroth/TortoiseBots/pull/270)
+
+### Combat & AI
+- Holy priests no longer secretly run a damage spec: Smite, Holy Fire, SW:P, and Starshards are now gated behind the `HealerShouldAttackTrigger`, so they only fire when solo or when the party is topped up and the priest has mana to spare. [#271](https://github.com/Sagiroth/TortoiseBots/pull/271)
+- Parties no longer get a dry healer: a healthy group with a low-mana priest gets a wand instead of burning the last of the mana bar on off-spec damage. [#271](https://github.com/Sagiroth/TortoiseBots/pull/271)
+- Damage nodes run at `ACTION_DEFAULT` relevance, keeping the healer rotation prioritized correctly while the balance-scaled mana reserve does the throttling. [#271](https://github.com/Sagiroth/TortoiseBots/pull/271)
+- Ports mod-playerbots' `HealerShouldAttackTrigger` and `PriestHealerDpsStrategy`, so grouped holy priests behave like healers again instead of OOM-ing through trash. [#271](https://github.com/Sagiroth/TortoiseBots/pull/271)
+- Holy Nova restored behind the same gating. [#271](https://github.com/Sagiroth/TortoiseBots/pull/271)
+
+### Crowd Control & Commands
+
+- **One mark, one owner:** `.bot action cc <mark>` now clears any other party bot holding that mark back to `none`, and the change persists across sessions — no more silent CC collisions between bots. [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
+- **Assign by name:** `.bot action cc <mark> <Bot>` lets you hand out CC marks without targeting the bot first, going through the exact same path as selected-bot assignment (exclusive ownership plus the immediate-cast probe). [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
+- **Clear what you set:** `.bot action cc clear [Bot]` drops CC for a single bot, or the entire party when no bot is named — handy for resetting before a pull or after a wipe. [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
+- **Fail loud, not silent:** Unknown or uncontrollable bot names return `no-bot` instead of quietly doing nothing, so typos surface immediately. [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
+- Ships alongside the stage-1 dungeon gate and AoE interlock, so CC assignments respect instanced content and don't get stomped by AoE routines. [#272](https://github.com/Sagiroth/TortoiseBots/pull/272)
+
 ## 2026-09-24
 
 ### Managed Random-Bot Pool Reset ([#265](https://github.com/Sagiroth/TortoiseBots/issues/265))
@@ -27,6 +60,11 @@
 
 ### Config & Ops
 - Use `once:<token>` (e.g. a version or date string) to force a single clean pool rebuild after a data or roster change, without paying the cost on every restart. [#267](https://github.com/Sagiroth/TortoiseBots/pull/267)
+
+### Core Sync & Fixes
+- Fixed failed world-SQL imports on MySQL/MariaDB — `SELECT ... WHERE NOT EXISTS` with no `FROM` isn't valid syntax in those engines, so the enchant migration now uses the `FROM DUAL` idiom to apply cleanly. [#268](https://github.com/Sagiroth/TortoiseBots/pull/268)
+- Retired the broken enchant migration pair (`20260922170000_world.sql` / `20260922180000_world.sql`) after confirming the `FROM DUAL` fix alone still wasn't sufficient on a real re-run. [#268](https://github.com/Sagiroth/TortoiseBots/pull/268)
+- Pipeline world-SQL imports no longer hard-fail partway through on these migrations, unblocking fresh world database setups. [#268](https://github.com/Sagiroth/TortoiseBots/pull/268)
 
 ## 2026-09-23
 
