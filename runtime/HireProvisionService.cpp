@@ -681,7 +681,7 @@ uint32_t HireProvisionService::CountHired(Player* master) const
     return count;
 }
 
-bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pending)
+bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision& pending)
 {
     if (!bot || !bot->IsInWorld())
         return false;
@@ -696,7 +696,10 @@ bool HireProvisionService::ProvisionNow(Player* bot, PendingProvision const& pen
     auto start = std::chrono::steady_clock::now();
 
     if (!pending.provisioned)
+    {
         ProvisionHeavy(bot, pending, ai, masterOnline ? master : nullptr);
+        pending.provisioned = true;
+    }
 
     auto provisionElapsedMs =
         std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
@@ -902,11 +905,10 @@ void HireProvisionService::Update(uint32_t diff)
         }
         else
         {
-            // Issue #281: the heavy pass ran once; mark it so the next tick
-            // only retries the cheap reunite (teleport + grouping). Count an
-            // attempt per tick and cap the wait so a stuck teleport cannot
-            // pin the entry past the stale timeout doing nothing.
-            it->provisioned = true;
+            // Issue #281: ProvisionNow marks the heavy pass done itself, so
+            // the next tick only retries the cheap reunite (teleport +
+            // grouping). Count an attempt per tick and cap the wait so a
+            // stuck teleport cannot pin the entry doing nothing.
             if (++it->reuniteAttempts >= 60)
             {
                 sLog.outError("TortoiseBots: hired bot %s never joined master after 60 reunite attempts; leaving grouped on return",

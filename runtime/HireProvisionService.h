@@ -99,7 +99,7 @@ public:
 
     bool FindReusableCandidate(HireSelection const& sel, uint32_t& accountId, ObjectGuid& guid);
     bool CreateCandidate(HireSelection const& sel, uint32_t requesterTeam, uint32_t& accountId, ObjectGuid& guid);
-    bool ProvisionNow(Player* bot, PendingProvision const& pending);
+    bool ProvisionNow(Player* bot, PendingProvision& pending);
     // Issue #281: heavy one-shot work (level/talents/spells/gear/SaveToDB).
     void ProvisionHeavy(Player* bot, PendingProvision const& pending, PlayerbotAI* ai, Player* master);
     // Issue #281: teleport + grouping only; safe to retry every tick.
