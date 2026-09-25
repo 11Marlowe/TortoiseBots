@@ -59,8 +59,8 @@ Autonomous bots roam the open world, reacting dynamically to nearby players and 
 
 For servers configured to run persistent, organically leveling bots starting at level 1 (`AiPlayerbot.DisableRandomLevels = 1`):
 * **Weapon Skills:** Bots receive full class-compatible weapon proficiencies on their first login, scaled to their current level cap (e.g., 5/5 at level 1). This ensures melee and ranged attacks connect reliably instead of missing 80% of the time at 1/5 weapon skill.
-* **Trade Skills:** Bots receive two class-matched primary professions (e.g. Mining + Blacksmithing/Engineering for Warriors; Skinning + Leatherworking for Rogues; Herbalism + Alchemy for Casters) plus First Aid, Cooking, and Fishing.
-* **Persistence:** Seeding runs only once on initial login and is recorded in the character database, ensuring professions and skills are never re-rolled across server restarts.
+* **Trade Skills:** Bots receive two class-matched primary professions (Blacksmithing + Engineering for Warriors/Paladins; Skinning or Engineering + Leatherworking for Rogues/Hunters/Shamans/Druids; one of four gathering/crafting pairs such as Herbalism + Alchemy for casters) plus First Aid, Cooking, and Fishing.
+* **Persistence:** Seeding runs once per fresh bot (it is skipped when the bot already has a primary profession or has played time); the professions and skills themselves are saved as normal character data, so they are never re-rolled across restarts.
 
 ---
 
@@ -69,7 +69,7 @@ For servers configured to run persistent, organically leveling bots starting at 
 A common issue with bot realms is a whole pool stuck at level 1 while you level a fresh character. TortoiseBots seeds each fresh pool bot once, on its first login, at a random level in `AiPlayerbot.RandomBotStartLevelMin`/`Max` (default 1–60, so the realm has bots at every level; for example 10–15 for a test pool, 1/1 keeps the historic level-1 start). With `AiPlayerbot.LevelLadder` (on by default) the online share is also spread by level band:
 
 * Bots level up normally from their seed through grinding, questing, and XP.
-* The login scatter (`AiPlayerbot.EnableRandomTeleports`, on by default) runs after the seed, so a seeded bot is placed in a zone fitting its level.
+* The login scatter (`AiPlayerbot.EnableRandomTeleports`, on by default) runs after the seed, so a seeded bot of level 10+ is placed in a zone fitting its level. Lower-level bots stay in their starting area, and pinned bots or bots already teleporting are skipped.
 
 ---
 
@@ -102,6 +102,8 @@ flowchart TD
 * **Bot Sellers:** Bots list surplus profession mats (cloth, herbs, ore, leather), green/blue Bind-on-Equip (BoE) gear, and crafted consumables on the Auction House at realistic market prices.
 * **Bot Buyers:** When bots accumulate gold, they periodically search the Auction House for gear upgrades suited to their class and spec. If an item on the AH is better than their current equipped gear, they place bids or buyout the listing.
 * **Personal Settlement:** Items sold or bought by bots use native core auction mechanics. Human players receive real gold in their mailbox when a bot buys their auctions.
+
+Switches: `AiPlayerbot.AhMarketEnabled = 1` turns on bots posting and bidding with their own inventories (random bots must be logged in, i.e. `AiPlayerbot.RandomBotAutologin = 1`). The server-generated extras are separate and off by default: `AiPlayerbot.AhMarketSyntheticSupply = 1` (synthetic listings) and `AiPlayerbot.AhMarketBuyer = 1` (synthetic buyer).
 
 ### Auction House Administration Commands (`.bot ah` / `.ahbot`)
 Administrators can inspect and tune the synthetic market pass using in-game commands:
