@@ -552,8 +552,10 @@ AiPlayerbot.ThunderfuryRepliesChance = 40
 # Bots will chat in guild about certain events (int) (0-100)
 AiPlayerbot.GuildRepliesRate = 100         # Reply someone saying something.
 
-# Bots without a master will say things they normally tell their master.
-AiPlayerbot.RandomBotSayWithoutMaster = 1
+# 1 = bots without a master say out loud (/say) everything they would
+# normally whisper to a master, incl. narration of where they go and why.
+# Greetings, broadcasts and normal bot chat do not depend on this. Default 0.
+AiPlayerbot.RandomBotSayWithoutMaster = 0
 
 # Minimum level at which bots will start accepting duels
 # AiPlayerbot.BotAcceptDuelMinimumLevel = 10
