@@ -78,7 +78,7 @@ These flags control the behavior of autonomous random bots roaming the world:
 | `AiPlayerbot.HireEnabled` | `1` | `1` | Master switch for on-demand companion hiring (`.bot hire` + `<Mercenary Hire>` inn recruiters). |
 | `AiPlayerbot.HireMinAccountSecurity` | `0` | `0` | Minimum account security that may hire (`0` = everyone). |
 | `AiPlayerbot.HireMaxBotsPerPlayer` | `4` | `4` (up to `39` for 40-man raids) | Cap on hired companions per player. Party hires stop at 4; raise toward 39 with a raid group. |
-| `AiPlayerbot.HireRequiresResting` | `1` | `1` | `.bot hire` requires resting; recruiter gossip skips the check (presence is proof). |
+| `AiPlayerbot.HireAnywhere` | `0` | `0` | `0`: companions are hired only at a `<Mercenary Hire>` recruiter; `1`: `.bot hire` also works anywhere. Fees are the same either way. |
 | `AiPlayerbot.HireBaseCostCopper` / `HirePartyMult2/3/4` | `15000` / `1.66` / `2.66` / `4.66` | defaults | Level-scaled party cost curve (~15g total for 4 bots at 60). Set base to `0` for free hiring. |
 | `AiPlayerbot.HireRaidFlatCostCopper` | `10000` | `10000` | Flat per-bot rate for raid hires 5+ at 60 (1g). |
 | `AiPlayerbot.HireDisconnectGracePeriod` | `300` | `300` | Seconds a hired companion guards after its master disconnects before dismissing. |

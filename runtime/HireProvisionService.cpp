@@ -152,11 +152,10 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
         outcome.message = "Your account may not hire companions.";
         return outcome;
     }
-    if (!fromGossip && sPlayerbotAIConfig.hireRequiresResting &&
-        !requester->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
+    if (!fromGossip && !sPlayerbotAIConfig.hireAnywhere)
     {
-        outcome.status = HireStatus::RestingRequired;
-        outcome.message = "You must be resting in an inn or city to hire a companion. Speak to a <Mercenary Hire> recruiter, or rest first.";
+        outcome.status = HireStatus::RecruiterRequired;
+        outcome.message = "Companions are hired at a <Mercenary Hire> recruiter. Look for one in an inn.";
         return outcome;
     }
     if (!sel.classId || !sel.race || (sel.gender != GENDER_MALE && sel.gender != GENDER_FEMALE))

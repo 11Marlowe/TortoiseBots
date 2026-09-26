@@ -32,7 +32,7 @@ enum class HireStatus
     Ok,
     Disabled,
     NoPermission,
-    RestingRequired,
+    RecruiterRequired,
     InvalidChoice,
     GroupFull,
     CapReached,

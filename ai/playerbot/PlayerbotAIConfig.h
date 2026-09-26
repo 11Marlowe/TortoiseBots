@@ -272,9 +272,9 @@ public:
     // Maximum hired companions per player. Party hires cap at 4 regardless;
     // raise toward 39 to fill a full 40-man raid (player + hires).
     uint32 hireMaxBotsPerPlayer = 4;
-    // Require the resting flag for the fast `.bot hire` command. Gossip hires
-    // skip this: standing at the recruiter inside the inn is proof enough.
-    bool hireRequiresResting = true;
+    // Companions are hired at a <Mercenary Hire> recruiter. When set, the fast
+    // `.bot hire` command also works anywhere; fees are the same either way.
+    bool hireAnywhere = false;
     // Hiring fee in copper for the 1st companion at level 60 (default 15000 =
     // 1.5g). Hires 2-4 multiply by the party mults below; the full 4-bot
     // party totals ~15g at 60. Set to 0 for free hiring.

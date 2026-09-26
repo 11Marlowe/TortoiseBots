@@ -855,8 +855,8 @@ static bool HandleMatureCommand(ChatHandler* handler, char const* args)
 
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
 // Issue #192: fast-path companion hire. Same service, costs, and caps as the
-// <Mercenary Hire> gossip wizard; only the resting gate differs (enforced
-// here, skipped at the recruiter where presence is proof). Usage:
+// <Mercenary Hire> gossip wizard, but only available when the server sets
+// AiPlayerbot.HireAnywhere; otherwise it points players to a recruiter. Usage:
 //   .bot hire <class> [dps|tank|healer] [race] [male|female]
 // Tokens after the class may come in any order: "warrior tauren male tank",
 // "mage female frost", and "paladin protection" all parse. Bare spec words

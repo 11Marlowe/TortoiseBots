@@ -404,7 +404,7 @@ bool PlayerbotAIConfig::Initialize()
     hireMaxBotsPerPlayer = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireMaxBotsPerPlayer", 4));
     if (hireMaxBotsPerPlayer > 39)
         hireMaxBotsPerPlayer = 39;
-    hireRequiresResting = config.GetBoolDefault("AiPlayerbot.HireRequiresResting", true);
+    hireAnywhere = config.GetBoolDefault("AiPlayerbot.HireAnywhere", false);
     hireBaseCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireBaseCostCopper", 15000));
     if (hireBaseCostCopper > 100000000)
         hireBaseCostCopper = 100000000;
