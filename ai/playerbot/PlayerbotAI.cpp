@@ -1590,8 +1590,12 @@ void PlayerbotAI::Reset(bool full)
         bot->CombatStop();
     }
 
-    currentEngine = engines[(uint8)BotState::BOT_STATE_NON_COMBAT];
-    currentState = BotState::BOT_STATE_NON_COMBAT;
+    // A dead bot stays in the dead engine: the spirit healer's graveyard teleport ends in
+    // HandleTeleportAck -> Reset(), and a ghost dropped into non-combat travelled and
+    // grinded as a ghost instead of going for its corpse, for hours.
+    BotState const resetState = sServerFacade.IsAlive(bot) ? BotState::BOT_STATE_NON_COMBAT : BotState::BOT_STATE_DEAD;
+    currentEngine = engines[(uint8)resetState];
+    currentState = resetState;
     ResetAIInternalUpdateDelay();
     reactionEngine->Reset();
     whispers.clear();

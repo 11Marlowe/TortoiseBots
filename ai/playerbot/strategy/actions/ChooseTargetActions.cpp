@@ -18,6 +18,9 @@ bool DpsAssistAction::isUseful()
 
 bool AttackAnythingAction::isUseful()
 {
+    if (!bot->IsAlive()) // a ghost travelling or picking fights instead of going for its corpse
+        return false;
+
     if (!ai->AllowActivity(GRIND_ACTIVITY)) //Bot not allowed to be active
         return false;
 

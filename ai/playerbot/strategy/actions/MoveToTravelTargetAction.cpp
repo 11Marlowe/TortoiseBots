@@ -190,6 +190,9 @@ bool MoveToTravelTargetAction::Execute(Event& event)
 
 bool MoveToTravelTargetAction::isUseful()
 {
+    if (!bot->IsAlive()) // a ghost travelling or picking fights instead of going for its corpse
+        return false;
+
     if (!ai->AllowActivity(TRAVEL_ACTIVITY))
         return false;
 
