@@ -1,5 +1,24 @@
 #include "playerbot/playerbot.h"
 #include "UnstuckAction.h"
+#include "playerbot/TravelMgr.h"
+
+using namespace ai;
+
+// A random bot's homebind is usually still its racial starting inn: hearthing a level 40
+// bot "unstuck" parked it in Elwynn for good (2042 hearths in 4.7 h on a live realm).
+// Hearth only while home is in an area the bot has not outgrown; otherwise repop, which
+// brings it to the nearest graveyard.
+static bool HearthLeadsSomewhereUseful(PlayerbotAI* ai, Player* bot)
+{
+    if (!sPlayerbotAIConfig.unstuckHearthLevelFit || ai->HasRealPlayerMaster())
+        return true;
+
+    int32 homeLevel = 0;
+    if (!sTravelMgr.TryGetValidatedAreaLevel(bot->GetHomeBindAreaId(), homeLevel))
+        return false;
+
+    return homeLevel + 10 >= (int32)bot->GetLevel();
+}
 
 bool UnstuckAction::Execute(Event& event)
 {
@@ -25,7 +44,7 @@ bool UnstuckAction::Execute(Event& event)
     if (source.find("move long stuck") != std::string::npos)
     {
         ai->TellDebug(master, "Unstuck: Long move stuck detected, attempting hearthstone or repop.", "debug unstuck");
-        if (AI_VALUE2(bool, "action useful", "hearthstone") && bot->IsAlive())
+        if (AI_VALUE2(bool, "action useful", "hearthstone") && bot->IsAlive() && HearthLeadsSomewhereUseful(ai, bot))
         {
             return ai->DoSpecificAction("hearthstone", event, true);
         }
@@ -46,7 +65,7 @@ bool UnstuckAction::Execute(Event& event)
     if (source.find("combat long stuck") != std::string::npos)
     {
         ai->TellDebug(master, "Unstuck: Long combat stuck detected, attempting hearthstone or repop.", "debug unstuck");
-        if (AI_VALUE2(bool, "action useful", "hearthstone") && bot->IsAlive())
+        if (AI_VALUE2(bool, "action useful", "hearthstone") && bot->IsAlive() && HearthLeadsSomewhereUseful(ai, bot))
         {
             return ai->DoSpecificAction("hearthstone", event, true);
         }

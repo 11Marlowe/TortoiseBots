@@ -403,6 +403,7 @@ namespace ai
 
             creators["experience"] = [](PlayerbotAI* ai) { return new ExperienceValue(ai); };
             creators["honor"] = [](PlayerbotAI* ai) { return new HonorValue(ai); };
+            creators["money"] = [](PlayerbotAI* ai) { return new MoneyValue(ai); };
 
             creators["entry loot usage"] = [](PlayerbotAI* ai) { return new EntryLootUsageValue(ai); };
             creators["has upgrade"] = [](PlayerbotAI* ai) { return new HasUpgradeValue(ai); };

@@ -120,8 +120,12 @@ namespace ai
             }
 
             uint32 timeSinceLastXp = AI_VALUE2(uint32, "time since last change", "experience");
+            uint32 timeSinceLastMoney = AI_VALUE2(uint32, "time since last change", "money");
 
-            if (timeSinceLastXp < 15 * MINUTE)
+            // Progress is XP or money: a level-60 bot never gains XP and a town
+            // crafter/vendor barely moves, so either one changing in the last
+            // 15 min means the bot is earning, not stuck.
+            if (timeSinceLastXp < 15 * MINUTE || timeSinceLastMoney < 15 * MINUTE)
                 return false;
 
             uint32 distanceMoved = AI_VALUE2(uint32, "distance moved since", 15 * MINUTE);

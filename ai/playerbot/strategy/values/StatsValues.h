@@ -232,7 +232,7 @@ namespace ai
     {
     public:
         ExperienceValue(PlayerbotAI* ai, std::string name = "experience", uint32 checkInterval = 60) : MemoryCalculatedValue<uint32>(ai, name, checkInterval) {}
-        virtual bool EqualToLast(uint32 value) override { return value != lastValue; }
+        virtual bool EqualToLast(uint32 value) override { return value == lastValue; }
         virtual uint32 Calculate() override { return bot->GetUInt32Value(PLAYER_XP);}
 
         virtual std::string Format() override
@@ -246,7 +246,23 @@ namespace ai
     {
     public:
         HonorValue(PlayerbotAI* ai, std::string name = "honor", uint32 checkInterval = 60) : ExperienceValue(ai, name, checkInterval) {}
-        virtual bool EqualToLast(uint32 value) override { return value != lastValue; }
+        virtual bool EqualToLast(uint32 value) override { return value == lastValue; }
         virtual uint32 Calculate() override { return bot->GetUInt32Value(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS); }
+    };
+    // Money earned or spent is progress too: a level-60 bot (XP never moves),
+    // a town crafter/vendor, or a bot selling loot all change GetMoney() while
+    // standing still. Scalar Player field read: no DB, no world scan.
+    class MoneyValue : public MemoryCalculatedValue<uint32>
+    {
+    public:
+        MoneyValue(PlayerbotAI* ai, std::string name = "money", uint32 checkInterval = 60) : MemoryCalculatedValue<uint32>(ai, name, checkInterval) {}
+        virtual bool EqualToLast(uint32 value) override { return value == lastValue; }
+        virtual uint32 Calculate() override { return bot->GetMoney(); }
+
+        virtual std::string Format() override
+        {
+            std::ostringstream out; out << (int)this->Calculate() << " last change:" << LastChangeDelay() << "s";
+            return out.str();
+        }
     };
 }
