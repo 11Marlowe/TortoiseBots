@@ -1836,7 +1836,11 @@ static bool HandleRoster(ChatHandler* handler)
         requester->GetSession()->GetAccountId());
     for (auto it = rows.begin(); it != rows.end(); )
     {
-        if (it->characterGuid == requester->GetObjectGuid())
+        // The roster lists the player's own characters. Hired companions live on
+        // random-pool accounts; their ownership row stays after dismissal so a re-hire
+        // brings the same character back, but they are not alts and do not belong here.
+        if (it->characterGuid == requester->GetObjectGuid() ||
+            RandomBotAccountRegistry::Instance().IsRegistered(it->characterAccountId))
             it = rows.erase(it);
         else
             ++it;
