@@ -82,29 +82,121 @@ func TestDeadLongEpisode(t *testing.T) {
 	}
 }
 
-func TestAnomalyEpisodeExpires(t *testing.T) {
+func TestCounterOnlyAnomaliesNeverOpenEpisodes(t *testing.T) {
 	tr := newTestTracker()
 	base := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 
+	// ACTION_LOOP is counter-only: no episode, no archive.
 	tr.TouchAnomaly(model.AnomalyPayload{
 		Type: "ACTION_LOOP", GUID: 7, Bot: "Looper", Class: "mage", Level: 10,
 		ZoneID: 12, LastAction: "fireball", Target: "Boar",
 	}, base)
-	if got := tr.Snapshot().CountsByType["ACTION_LOOP"]; got != 1 {
-		t.Fatalf("action loop episode not opened: %d", got)
+	if got := len(tr.Snapshot().Active); got != 0 {
+		t.Fatalf("action loop opened an episode: %d", got)
+	}
+	tr.Observe([]model.BotSnapshot{anomalyBot("fireball")}, base.Add(3*time.Minute))
+	if got := len(tr.Snapshot().Resolved); got != 0 {
+		t.Fatalf("action loop archived an episode: %d", got)
 	}
 
-	// Within TTL, still doing the same action -> stays open.
-	tr.Observe([]model.BotSnapshot{anomalyBot("fireball")}, base.Add(30*time.Second))
+	// STUCK anomalies are counter-only too: the 60 s snapshot rule owns them.
+	tr.TouchAnomaly(model.AnomalyPayload{
+		Type: "STUCK", GUID: 7, Bot: "Looper", Class: "mage", Level: 10,
+		ZoneID: 12, LastAction: "move",
+	}, base)
+	if got := len(tr.Snapshot().Active); got != 0 {
+		t.Fatalf("stuck anomaly opened an episode: %d", got)
+	}
+
+	// BOT_DEATH never opens an episode either; deaths fold into DEAD_LONG.
+	tr.TouchAnomaly(model.AnomalyPayload{
+		Type: "BOT_DEATH", GUID: 7, Bot: "Looper", Class: "mage", Level: 10,
+		ZoneID: 12,
+	}, base)
+	if got := len(tr.Snapshot().Active); got != 0 {
+		t.Fatalf("death anomaly opened an episode: %d", got)
+	}
+}
+
+func TestUnreachableEpisodeExpires(t *testing.T) {
+	tr := newTestTracker()
+	base := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+
+	tr.TouchAnomaly(model.AnomalyPayload{
+		Type: "UNREACHABLE_TARGET", GUID: 7, Bot: "Looper", Class: "mage", Level: 10,
+		ZoneID: 12, LastAction: "fireball", Target: "Boar",
+	}, base)
+	if got := tr.Snapshot().CountsByType["UNREACHABLE_TARGET"]; got != 1 {
+		t.Fatalf("unreachable episode not opened: %d", got)
+	}
+
+	// Within TTL, still fighting the same target -> stays open.
+	fighting := anomalyBot("fireball")
+	fighting.Target = "Boar"
+	tr.Observe([]model.BotSnapshot{fighting}, base.Add(30*time.Second))
 	if got := len(tr.Snapshot().Active); got != 1 {
-		t.Fatalf("action loop episode expired too early: %d", got)
+		t.Fatalf("unreachable episode expired too early: %d", got)
 	}
 
 	// Past TTL it closes.
-	tr.Observe([]model.BotSnapshot{anomalyBot("fireball")}, base.Add(3*time.Minute))
+	tr.Observe([]model.BotSnapshot{fighting}, base.Add(3*time.Minute))
 	snap := tr.Snapshot()
 	if len(snap.Active) != 0 || len(snap.Resolved) != 1 {
-		t.Fatalf("action loop episode did not expire: %+v", snap)
+		t.Fatalf("unreachable episode did not expire: %+v", snap)
+	}
+}
+
+func TestUnreachableSurfacesAtTwoMinutes(t *testing.T) {
+	tr := newIssueTracker(5 * time.Minute)
+	base := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+
+	tr.TouchAnomaly(model.AnomalyPayload{
+		Type: "UNREACHABLE_TARGET", GUID: 7, Bot: "Looper", Class: "mage", Level: 10,
+		ZoneID: 12, Target: "Boar",
+	}, base)
+
+	// At 90 s the tracker knows it but the 2 min gate still hides it.
+	fighting := anomalyBot("fireball")
+	fighting.Target = "Boar"
+	tr.Observe([]model.BotSnapshot{fighting}, base.Add(90*time.Second))
+	if got := len(tr.Snapshot().Active); got != 0 {
+		t.Fatalf("unreachable surfaced before its gate: %d", got)
+	}
+
+	// Refreshed past 2 min: surfaced even though the global 5 min gate
+	// has not elapsed.
+	tr.TouchAnomaly(model.AnomalyPayload{
+		Type: "UNREACHABLE_TARGET", GUID: 7, Bot: "Looper", Class: "mage", Level: 10,
+		ZoneID: 12, Target: "Boar",
+	}, base.Add(150*time.Second))
+	tr.Observe([]model.BotSnapshot{fighting}, base.Add(150*time.Second))
+	if got := len(tr.Snapshot().Active); got != 1 {
+		t.Fatalf("unreachable hidden past its gate: %d", got)
+	}
+}
+
+func TestDeadSuppressedAfterSessionChange(t *testing.T) {
+	tr := newTestTracker()
+	base := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
+	tr.NoteSessionChange(base)
+
+	dead := movingBot(0)
+	dead.State = "dead"
+
+	// 2 min dead inside the 5 min blackout: no episode opens.
+	tr.Observe([]model.BotSnapshot{dead}, base.Add(2*time.Minute))
+	tr.Observe([]model.BotSnapshot{dead}, base.Add(4*time.Minute))
+	if got := len(tr.Snapshot().Active); got != 0 {
+		t.Fatalf("dead episode opened inside restart blackout: %d", got)
+	}
+
+	// 2 min of continuous death after the blackout ends: episode opens
+	// (the timer slid through the blackout, so nothing is backdated).
+	tr.Observe([]model.BotSnapshot{dead}, base.Add(6*time.Minute))
+	tr.Observe([]model.BotSnapshot{dead}, base.Add(8*time.Minute))
+	active := tr.Snapshot().Active
+	if len(active) != 1 || active[0].Type != "DEAD_LONG" {
+		t.Fatalf("dead episode did not open after blackout: %+v", active)
 	}
 }
 

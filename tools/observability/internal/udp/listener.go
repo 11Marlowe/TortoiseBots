@@ -187,6 +187,11 @@ func (l *Listener) processPacket(data []byte) {
 
 		saved := l.store.AddAnomaly(anomaly)
 		l.metricsReg.RecordAnomaly(&saved)
+		if anomaly.Type == "STUCK" {
+			// Counter-only: no incident row, no live push. The 60 s STUCK
+			// issue episode is the surfaced signal.
+			return
+		}
 		l.hub.Broadcast("anomaly", saved)
 	}
 }

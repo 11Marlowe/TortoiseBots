@@ -4,12 +4,15 @@ import "time"
 
 // ProtocolVersion is bumped whenever the C++ -> Go datagram layout changes in
 // a way the daemon must understand. It is carried in every datagram.
-const ProtocolVersion = 4
+const ProtocolVersion = 5
 
 // Anomaly types accepted from the game server. Anything else is rejected so
-// that Prometheus label cardinality stays bounded.
+// that Prometheus label cardinality stays bounded. STUCK is counter-only
+// (tortoisebots_anomalies_total): the 8 s emitter rule is row noise, the 60 s
+// STUCK issue episode is the surfaced signal, so STUCK never enters the
+// Incidents ring buffer.
 var AcceptedAnomalyTypes = map[string]bool{
-	"BOT_STUCK":          true,
+	"STUCK":              true,
 	"ACTION_LOOP":        true,
 	"UNREACHABLE_TARGET": true,
 	"BOT_DEATH":          true,
@@ -135,7 +138,7 @@ type Issue struct {
 	Bot         string  `json:"bot"`
 	Class       string  `json:"class"`
 	Level       uint32  `json:"level"`
-	Type        string  `json:"type"`     // STUCK, DEAD_LONG, ACTION_LOOP, UNREACHABLE_TARGET
+	Type        string  `json:"type"`     // STUCK, DEAD_LONG, UNREACHABLE_TARGET
 	Severity    string  `json:"severity"` // watch, persistent
 	DurationSec float64 `json:"duration_sec"`
 	Action      string  `json:"action,omitempty"`
@@ -165,7 +168,7 @@ type AnomalyPayload struct {
 	ID         int64     `json:"id,omitempty"`
 	TS         int64     `json:"ts"`
 	TimeStr    string    `json:"time_str,omitempty"`
-	Type       string    `json:"type"`     // "BOT_STUCK", "ACTION_LOOP", "UNREACHABLE_TARGET", "BOT_DEATH"
+	Type       string    `json:"type"`     // "STUCK", "ACTION_LOOP", "UNREACHABLE_TARGET", "BOT_DEATH"
 	Severity   string    `json:"severity"` // "WARN", "ERROR", "INFO"
 	Bot        string    `json:"bot"`
 	GUID       uint32    `json:"guid"`
