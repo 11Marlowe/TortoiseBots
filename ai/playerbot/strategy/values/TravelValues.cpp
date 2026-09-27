@@ -1,5 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "TravelValues.h"
+#include "playerbot/TravelMgr.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"
 #include "BudgetValues.h"
@@ -484,6 +485,37 @@ bool ShouldTravelNamedValue::Calculate()
     }
 
     return false;
+}
+
+bool ShouldLeaveOutgrownZoneValue::Calculate()
+{
+    if (!sPlayerbotAIConfig.leaveOutgrownZones)
+        return false;
+
+    if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
+        return false;
+
+    if (!bot->IsAlive())
+        return false;
+
+    if (bot->GetLevel() < 10)
+        return false;
+
+    // A bot already holding a travel target must not re-fire every tick: the
+    // request action only runs while no travel target is active, and the Grind
+    // filters then pick the level band.
+    if (AI_VALUE(TravelTarget*, "travel target")->IsActive())
+        return false;
+
+    if (WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL))
+        return false;
+
+    // Fail closed: unknown area levels never trigger the rule.
+    int32 areaLevel = 0;
+    if (!sTravelMgr.TryGetValidatedAreaLevel(sServerFacade.GetAreaId(bot), areaLevel) || areaLevel <= 0)
+        return false;
+
+    return areaLevel + 5 < (int32)bot->GetLevel();
 }
 
 bool TravelTargetActiveValue::Calculate()

@@ -50,6 +50,7 @@ void TravelStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
     //All the standard choose travel target actions using either a specific val trigger or a generic purpose trigger.
     const std::vector<std::tuple<std::string, TravelDestinationPurpose, float>> PurposeActions =
     {
+        {"val::should leave outgrown zone", TravelDestinationPurpose::Grind, 6.96f},   // Outgrown zone: above AH so shopping trips don't pre-empt it
         {"",TravelDestinationPurpose::AH, 6.95f},                                                //See isAllowed  90%
         {"",TravelDestinationPurpose::Vendor, 6.94f},                                                          // 90%
         {"",TravelDestinationPurpose::Repair, 6.93f},                                                          // 90%

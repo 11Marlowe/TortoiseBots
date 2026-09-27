@@ -453,6 +453,18 @@ bool RpgTravelDestination::IsPossible(const PlayerTravelInfo& info) const
         if (destAreaLevel > 0 && destAreaLevel > (int32)info.GetLevel() + 5)
             return false;
 
+        // Outgrown services: skip NPCs in zones the bot outlevels by 10+, unless
+        // the destination zone is a capital (class trainers, AH and bank live
+        // there). Unknown area ids fail closed (keep the destination).
+        if (sPlayerbotAIConfig.leaveOutgrownZones && destAreaLevel > 0 &&
+            destAreaLevel + 10 < (int32)info.GetLevel())
+        {
+            uint32 destZoneId = area ? (area->ZoneId ? area->ZoneId : area->Id) : 0;
+            AreaTableEntry const* destZone = destZoneId ? GetAreaEntryByAreaID(destZoneId) : nullptr;
+            if (!destZone || !(destZone->Flags & AREA_FLAG_CAPITAL))
+                return false;
+        }
+
         if (info.GetLevel() <= 5 && point->distance(info.getPosition()) > 1500.0f)
             return false;
     }

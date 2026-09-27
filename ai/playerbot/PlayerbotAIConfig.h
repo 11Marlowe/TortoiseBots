@@ -273,6 +273,10 @@ public:
     // Default on; off restores the old accept-all / clean-only-grey /
     // hand-in-at-5 behaviour.
     bool botQuestLogUpkeep = true;
+    // Leave outgrown zones: a random masterless bot that outlevels its zone walks to a
+    // level-fitting grind hub, avoids low-level services except in capitals, and refuses
+    // low-level homebinds. Default on; fail-closed on unknown area levels.
+    bool leaveOutgrownZones = true;
     // Default-on bounded LFT fill: observe native queue (GetQueuedPlayers),
     // identify human groups/instances and missing 1/1/3 roles, filter in-memory
     // Headless random candidates by authoritative Soromeister/LFT ranges,
