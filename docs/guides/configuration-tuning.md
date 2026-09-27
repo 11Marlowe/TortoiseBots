@@ -108,6 +108,15 @@ All autonomous services are fully bounded. LFT autofill and battleground auto-qu
 | `AiPlayerbot.ForceActiveWhenNearPlayer` | `0` | Also treat bots merely visible to a player as always reacting. |
 | `AiPlayerbot.DisableBotOptimizations` | `0` | Currently has **no effect** (read but unused). |
 
+### Server settings for many bots (`mangosd.conf`)
+
+Hundreds of always-active bots keep most of both continents busy, which the core's defaults don't expect. Two core settings matter most; the Docker stack renders them from `.env` (`CLEANUP_TERRAIN`, `PLAYER_SAVE_INTERVAL`).
+
+| Setting | Recommended | Why |
+| :--- | :---: | :--- |
+| `CleanupTerrain` | `0` | The core frees unused terrain every 60 s; bots re-enter it seconds later and the reload stalls the map tick. With 500 bots, slow (>200 ms) map ticks dropped from 126 to 20 per 10 minutes. Memory stays bounded by the continents' terrain (~2 GB extracted). Keep `1` on low-RAM machines. |
+| `PlayerSave.Interval` | `300000` | The 60 s default saves every bot in the same minute; 5 min removes that write wave. A crash loses at most this much progress. |
+
 ---
 
 ## 4. Combat & Reaction Thresholds
