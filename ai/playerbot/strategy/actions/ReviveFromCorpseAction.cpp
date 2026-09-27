@@ -402,6 +402,21 @@ bool SpiritHealerAction::Execute(Event& event)
     Corpse* corpse = bot->GetCorpse();
     if (!corpse)
     {
+        // A ghost whose corpse the core already removed has nothing to reclaim, and every
+        // graveyard lookup below is corpse-based: it used to fail here silently forever.
+        // Do what a player would: resurrect at the nearest spirit healer.
+        if (bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST))
+        {
+            sLog.outDetail("Bot #%d <%s> is a ghost without a corpse, reviving at the nearest graveyard", bot->GetGUIDLow(), bot->GetName());
+            bot->RepopAtGraveyard();
+            bot->ResurrectPlayer(0.5f, !ai->HasCheat(BotCheatMask::repair));
+            bot->DurabilityLossAll(0.25f, true);
+            bot->SaveToDB();
+            SET_AI_VALUE(bool, "corpse run", false);
+            sPlayerbotAIConfig.logEvent(ai, "ReviveFromSpiritHealerAction", "no corpse");
+            return true;
+        }
+
         ai->TellPlayerNoFacing(requester, "I am not a spirit");
         return false;
     }

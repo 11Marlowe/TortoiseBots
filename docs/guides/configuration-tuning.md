@@ -74,6 +74,8 @@ These flags control the behavior of autonomous random bots roaming the world:
 | `AiPlayerbot.EnableGreet` | `1` | `1` | Bots wave or say hello when passing players in towns and roads. |
 | `AiPlayerbot.RandomBotShowHelmet` / `ShowCloak`| `1` | `1` | Renders helmets and cloaks on bots. |
 | `AiPlayerbot.RandomBotSayWithoutMaster` | `0` | `0` | Masterless bots say in `/s` what they would whisper to an owner (travel plans, cast failures). `0` keeps them silent unless owned. Needs restart. |
+| `AiPlayerbot.RepopAtGraveyard` | `1` | `1` | Random bots without a player master repop at the nearest graveyard instead of their racial starting area. |
+| `AiPlayerbot.UnstuckHearthLevelFit` | `1` | `1` | A long-stuck random bot without a player master hearths only if its homebind area is within 10 levels of it; otherwise it repops. |
 | `AiPlayerbot.AllowIsolatedCustomStartingZones` | `0` | `0` | When 0, blocks random bots from custom isolated starter zones (Blackstone Island, Thalassian Highlands, Alah'Thalas) and normalizes them to mainland starter zones. |
 | `AiPlayerbot.HireEnabled` | `1` | `1` | Master switch for on-demand companion hiring (`.bot hire` + `<Mercenary Hire>` inn recruiters). |
 | `AiPlayerbot.HireMinAccountSecurity` | `0` | `0` | Minimum account security that may hire (`0` = everyone). |

@@ -242,6 +242,21 @@ namespace ai
             // (custom, player-only, bot-excluded) starting zone, with their homebind set to match.
             // GetPlayerInfo() below returns the real racial DBC spawn point instead, which would send
             // the bot right back to the excluded zone on death, so route these two races through homebind.
+            // A random bot without a player master comes back at the nearest graveyard, like a
+            // player at the spirit healer. The racial spawn point below sent every repopped bot
+            // back to its starting zone (85 repops in 43 minutes on a live realm).
+            if (sPlayerbotAIConfig.repopAtGraveyard && !ai->HasRealPlayerMaster())
+            {
+                WorldSafeLocsEntry const* grave = sObjectMgr.GetClosestGraveYard(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), bot->GetMapId(), bot->GetTeam());
+                if (grave)
+                {
+                    sLog.outDetail("Repop: Teleporting bot #%d %s:%d <%s> to the nearest graveyard", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName());
+                    bot->TeleportTo(grave->map_id, grave->x, grave->y, grave->z, bot->GetOrientation());
+                    sPlayerbotAIConfig.logEvent(ai, "RepopAction", "graveyard");
+                    return true;
+                }
+            }
+
             bool useHomebindOverride = bot->GetRace() == RACE_GOBLIN || bot->GetRace() == RACE_HIGH_ELF;
             PlayerInfo const* defaultPlayerInfo = useHomebindOverride ? nullptr : sObjectMgr.GetPlayerInfo(bot->GetRace(), bot->GetClass());
             if (defaultPlayerInfo)

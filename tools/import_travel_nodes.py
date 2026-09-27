@@ -85,7 +85,7 @@ def find_file(configured: str, defaults: List[str]) -> str:
 
 def sanitize_table_name(query: str) -> str:
     """Removes schema qualifiers like `classicmangos`. or `world`."""
-    return re.sub(r"`?[a-zA-Z0-9_]+`?\.`?([a-zA-Z0-9_]+)`?", r"`\1`", query)
+    return re.sub(r"(?<![\w.])`?[A-Za-z_]\w*`?\.`?([A-Za-z_]\w*)`?", r"`\1`", query)
 
 
 def parse_travel_nodes_file(path: str):

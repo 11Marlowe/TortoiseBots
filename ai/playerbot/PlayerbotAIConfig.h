@@ -248,6 +248,12 @@ public:
     // with 2+ deaths and no master/group, teleport once to a validated
     // level-fitting point and reset the death count. Default on; fail-closed.
     bool relocateHopelessDeaths = true;
+    // Repop brings a random masterless bot back at the nearest graveyard instead of its
+    // racial starting area, so evacuations stop draining bots into the starting zones.
+    bool repopAtGraveyard = true;
+    // "Long stuck" hearths a random masterless bot only when its homebind area is within
+    // 10 levels of the bot; otherwise it repops instead of flying home to a zone it outgrew.
+    bool unstuckHearthLevelFit = true;
     // Default-on bounded LFT fill: observe native queue (GetQueuedPlayers),
     // identify human groups/instances and missing 1/1/3 roles, filter in-memory
     // Headless random candidates by authoritative Soromeister/LFT ranges,

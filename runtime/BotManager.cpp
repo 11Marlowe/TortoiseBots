@@ -166,6 +166,10 @@ bool TryRandomTeleport(::Player* bot, BotRecord const& record)
     // cannot cross between them and their work.
     if (bot->GetLevel() < 10)
         return false;
+    // A bot that logs in dead or as a ghost stays with its corpse: scattering it would
+    // leave the corpse behind, possibly on another continent.
+    if (!bot->IsAlive())
+        return false;
     if (bot->IsBeingTeleported())
         return false;
     if (!bot->IsInWorld())
