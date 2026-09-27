@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-27
+
+### Core Sync & Fixes
+- Gave Mercenary Hire Recruiters explicit guids instead of `AUTO_INCREMENT`, eliminating collisions with core engine migrations that were spawning duplicate recruiter NPCs. [#314](https://github.com/Sagiroth/TortoiseBots/pull/314)
+- Fixed on the module side rather than shifting core guids: module SQL isn't hash-tracked by mangosd's DB Auto-Updater, so the change won't re-run on environments that already applied the old core migration. [#314](https://github.com/Sagiroth/TortoiseBots/pull/314)
+
+---
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
