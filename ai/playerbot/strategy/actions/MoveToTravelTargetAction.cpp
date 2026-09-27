@@ -155,6 +155,13 @@ bool MoveToTravelTargetAction::Execute(Event& event)
             ai->TellDebug(ai->GetMaster(), "The target is cooling down because we failed to move to it a few times in a row.", "debug travel");
             target->SetStatus(TravelStatus::TRAVEL_STATUS_COOLDOWN);
             target->SetForced(false);
+            // Six failed moves in a row means the spot is effectively
+            // unreachable from here (no path, other continent, geometry).
+            // COOLDOWN is still an active state, so requests stay shut while
+            // it lasts; stretch it to 5 min (the per-kind give-up window used
+            // for grind, ReachTargetActions.h) so the same purpose cannot be
+            // re-picked the moment the destination default (60 s) lapses.
+            target->SetExpireIn(5 * MINUTE * IN_MILLISECONDS);
         }
     }
     else

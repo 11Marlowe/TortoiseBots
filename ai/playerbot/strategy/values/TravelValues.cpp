@@ -501,14 +501,15 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     if (bot->GetLevel() < 10)
         return false;
 
-    // A bot already holding a travel target must not re-fire every tick: the
-    // request action only runs while no travel target is active, and the Grind
-    // filters then pick the level band.
-    if (AI_VALUE(TravelTarget*, "travel target")->IsActive())
-        return false;
+    // No IsActive early-out here: this value doubles as the travel condition
+    // stored on the Grind target it requests, and bailing while a target is
+    // active drops that target to cooldown on the first status check after it
+    // is picked. Re-fire is already gated - request actions only run while no
+    // travel target is active (RequestTravelTargetAction::isUseful,
+    // TravelActionMultiplier) - so a true value while traveling is harmless.
 
     // Capitals are service stops, not places to stay: a level 10+ bot idling
-    // in a capital (no active travel target, checked above) should leave.
+    // in a capital with no pending capital service need should leave.
     // Priority guard: the 6.96 row sits above AH (6.95)/Vendor (6.94)/Repair
     // (6.93)/trainer-class (6.89)/trainer-mount (6.87)/mount (6.86), and
     // request actions block each other via TRAVEL_STATUS_PREPARE, so an

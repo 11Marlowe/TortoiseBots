@@ -37,7 +37,43 @@ bool UnstuckAction::Execute(Event& event)
     if (source.find("move stuck") != std::string::npos)
     {
         ai->TellDebug(master, "Unstuck: Move stuck detected, resetting.", "debug unstuck");
-        return ai->DoSpecificAction("reset", event, true);
+
+        // The reset below nulls the travel target (PlayerbotAI::Reset(true)).
+        // A sticky need - e.g. an unvisited class trainer - then re-requests the
+        // same destination within seconds while the bot never moves: live bots
+        // re-picked 'trainer class' every ~5 s (this trigger's poll interval)
+        // instead of walking there. mod-playerbots' stuck reset never touches
+        // travel, so keep an active target across the reset; the move-retry
+        // cooldown still retires it if the spot is truly unreachable.
+        TravelTarget* travelTarget = AI_VALUE(TravelTarget*, "travel target");
+        bool const keepTravel = travelTarget && travelTarget->IsActive() &&
+            travelTarget->GetDestination() && travelTarget->getPosition();
+        TravelDestination* dest = keepTravel ? travelTarget->GetDestination() : nullptr;
+        WorldPosition* pos = keepTravel ? travelTarget->getPosition() : nullptr;
+        TravelStatus status = keepTravel ? travelTarget->GetStatus() : TravelStatus::TRAVEL_STATUS_NONE;
+        std::vector<std::string> conditions = keepTravel ? travelTarget->GetConditions() : std::vector<std::string>();
+        bool const forced = keepTravel && travelTarget->IsForced();
+        uint32 const moveRetry = keepTravel ? travelTarget->GetRetryCount(true) : 0;
+        uint32 const extendRetry = keepTravel ? travelTarget->GetRetryCount(false) : 0;
+        int32 const timeLeft = keepTravel ? travelTarget->GetTimeLeft() : 0;
+        GuidPosition groupCopy = keepTravel ? travelTarget->GetGroupmember() : GuidPosition();
+
+        bool const reset = ai->DoSpecificAction("reset", event, true);
+
+        if (keepTravel)
+        {
+            travelTarget->SetTarget(dest, pos);
+            travelTarget->SetStatus(status);
+            travelTarget->SetConditions(conditions);
+            travelTarget->SetForced(forced);
+            travelTarget->SetRetry(true, moveRetry);
+            travelTarget->SetRetry(false, extendRetry);
+            if (groupCopy)
+                travelTarget->SetGroupCopy(groupCopy);
+            travelTarget->SetExpireIn(timeLeft > 0 ? (uint32)timeLeft : 1000);
+        }
+
+        return reset;
     }
 
     // Handle long move stuck scenarios

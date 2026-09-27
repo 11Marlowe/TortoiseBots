@@ -860,7 +860,10 @@ bool RequestTravelTargetAction::Execute(Event& event)
 
     // Outgrown-zone observability: one line per actual request (not per value
     // tick). logEvent no-ops unless bot_events.csv is in AllowedLogFiles.
-    if (event.GetSource() == "val::should leave outgrown zone")
+    // ValueTrigger::Check emits the bare value name (Trigger::Check builds the
+    // event from getName(), which ValueTrigger sets to its qualifier), so the
+    // source here is "should leave outgrown zone", never "val::...".
+    if (event.GetSource() == "should leave outgrown zone")
     {
         std::string reason = WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL) ? "capital" : "outgrown";
         sPlayerbotAIConfig.logEvent(ai, "LeaveOutgrownZone", WorldPosition(bot).GetAreaName(true, true), reason);
