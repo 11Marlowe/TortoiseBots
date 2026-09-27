@@ -1324,7 +1324,56 @@ namespace ai
 
         bool IsActive() override
         {
-            return sPlayerbotAIConfig.botQuestLogUpkeep && AI_VALUE(uint8, "free quest log slots") <= 2;
+            if (!sPlayerbotAIConfig.botQuestLogUpkeep || !bot ||
+                ai->HasActivePlayerMaster() || !sRandomBotFacade.IsRandomBot(bot))
+                return false;
+            if (AI_VALUE(uint8, "free quest log slots") > 2)
+                return false;
+            // CleanQuestLogAction found nothing droppable recently: back off
+            // for five minutes so the 5s rescan does not keep queueing doomed
+            // work (the random-tick clean still covers slow changes meanwhile).
+            if (sRandomBotFacade.GetValue(bot, "quest clean empty") != 0)
+                return false;
+            return HasDroppableQuest();
+        }
+
+    private:
+        // Cheap pre-scan mirroring CleanQuestLogAction::IsDroppable (same
+        // predicate shape): class quests never droppable, level-0/scaling
+        // never grey, money shortfall never a drop reason, INCOMPLETE deliver
+        // quests droppable only when grey and itemless.
+        bool HasDroppableQuest()
+        {
+            for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            {
+                uint32 questId = GetQuestSlotIdCompat(bot, slot);
+                QuestStatus status = questId ? bot->GetQuestStatus(questId) : QUEST_STATUS_NONE;
+                if (!questId || (status != QUEST_STATUS_INCOMPLETE && status != QUEST_STATUS_COMPLETE))
+                    continue;
+                Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
+                if (!quest || quest->GetRequiredClasses())
+                    continue;
+                bool grey = quest->GetQuestLevel() > 0 &&
+                    bot->GetLevel() >= bot->GetQuestLevelForPlayer(quest) + 8;
+                if (status == QUEST_STATUS_INCOMPLETE)
+                {
+                    if (!grey)
+                        continue;
+                    if (!quest->HasSpecialFlag(QUEST_SPECIAL_FLAG_DELIVER))
+                        return true;
+                    for (uint8 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+                        if (quest->ReqItemCount[i] && bot->GetItemCount(quest->ReqItemId[i]) < quest->ReqItemCount[i])
+                            return true;
+                }
+                else if (!bot->CanRewardQuest(quest, false))
+                {
+                    if (quest->GetRewOrReqMoney() < 0 &&
+                        bot->GetMoney() < uint32(-quest->GetRewOrReqMoney()))
+                        continue;
+                    return true;
+                }
+            }
+            return false;
         }
     };
 }

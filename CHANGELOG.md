@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Quests
-- Masterless random bots now keep their quest logs moving: finished quests that can no longer be rewarded (e.g. delivered items sold) are dropped instead of pinning a slot forever, grey quests are skipped unless the reward is an equip upgrade, a nearly-full log is cleaned on a timer instead of only on the random tick, and turn-in travel wins at 2 finished quests instead of 5. Owned and alt bots are unaffected. Toggle: `AiPlayerbot.BotQuestLogUpkeep` (default `1`).
+- Masterless random bots now keep their quest logs moving: finished quests that can no longer be rewarded (except transient money blockers) are dropped instead of pinning a slot forever, as are grey incomplete deliver quests whose items are gone; grey quests are skipped unless the reward is an equip upgrade; a nearly-full log is cleaned on a timer only when something is droppable; turn-in travel starts at 2 finished quests and stays on until none remain. Owned and alt bots are unaffected. Toggle: `AiPlayerbot.BotQuestLogUpkeep` (default `1`).
 
 ---
 

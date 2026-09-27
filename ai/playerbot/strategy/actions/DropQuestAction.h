@@ -33,12 +33,19 @@ namespace ai
 
         virtual bool isUseful() override { return !ai->HasActivePlayerMaster(); }
 
+    private:
+        bool IsUpkeepBot();
+        bool IsGreyIncomplete(Quest const* quest);
+        bool HasRequiredDeliverItems(Quest const* quest);
+        bool IsDroppable(Quest const* quest, QuestStatus status, bool upkeep);
+        void NoteCleanNoOp();
+
 #ifdef GenerateBotHelp
         virtual std::string GetHelpName() { return "clean quest log"; }
         virtual std::string GetHelpDescription()
         {
             return "This command removes only safe stale quests to make room for new ones.\n"
-                   "Incomplete quests at least eight levels below the bot are eligible; finished quests that can no longer be rewarded are eligible too; class quests are preserved, incomplete delivery quests are preserved.\n";
+                   "Incomplete quests at least eight levels below the bot are eligible; finished quests that can no longer be rewarded (except transient money blockers) are eligible for masterless random bots too; class quests are preserved, incomplete delivery quests with their items intact are preserved.\n";
         }
         virtual std::vector<std::string> GetUsedActions() { return {}; }
         virtual std::vector<std::string> GetUsedValues() { return {}; }
