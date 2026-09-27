@@ -20,6 +20,19 @@
 ### Roster & Addon
 - Hired companions no longer show up in the `.bot roster` / addon Roster tab. Skips characters on registered random-pool accounts, so dismissed hires don't haunt your roster. [#311](https://github.com/Sagiroth/TortoiseBots/pull/311)
 
+### Dashboard & Observability
+
+- Issues tab now defaults to persistent problems (10+ minutes old), so you see actual ongoing issues instead of a wall of one-off noise nobody reads. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+- `BOT_STUCK` and `STUCK` collapsed into a single `STUCK` issue (counter-only on the anomaly side); `ACTION_LOOP` is counter-only too — no more duplicate rows for the same underlying problem. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+- 5-minute blackout after server restarts so `DEAD_LONG` stops flooding the feed while bots are still spinning up. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+- `UNREACHABLE_TARGET` surfaces after 2 minutes instead of 5 — faster signal on bots that can't path to their target. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+- Incidents panel is now explicitly labelled as a rolling window, so the scope of the numbers is no longer ambiguous. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+
+### Stats & Fixes
+
+- Players Online now counts real network sessions — it previously reported 0 for every human connection. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+- Corrected several panels showing wrong numbers, based on a live audit of the running dashboard. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
