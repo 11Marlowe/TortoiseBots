@@ -39,6 +39,7 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 | `.bot action attack` | Hostile Target | Controllable party DPS/tank bots engage your current target immediately (dedicated healers keep healing). |
 | `.bot action interrupt` | Casting Hostile | Evaluates party bots and orders the first party bot with a ready interrupt (e.g. *Kick*, *Pummel*, *Earth Shock*, *Counterspell*); if it is out of range the bot first closes distance and then casts. |
 | `.bot action stop` | None | Clears combat queues and stops current attacks. |
+| `.bot action flee` | None | Break off: bots drop combat (and any pull hold) and follow you in passive mode without attacking. The next tactical order — `attack`, `pull`, `pullback`, `focus skull`, `follow`, `stay` — ends the passive hold; a pull brings the whole party back. |
 | `.bot action pull [seconds]` | Hostile Target | Directs the party tank to pull your target with ranged attack/taunt and stay fighting there. Other bots hold at your position for `seconds` (0-60, default 10) after the pull lands, then join. Healers keep healing throughout. Released early by `.bot action attack` / `stop`. A body-pull (tank walks in, no ranged option) is reported in the ACK. |
 | `.bot action pullback [seconds]` | Hostile Target | Tank approaches only as close as needed, pulls (from range when it has a working ranged option, otherwise walks in and hits the mob in melee once — reported as `body-pull` in the ACK), then returns to your position and holds there. All other bots stand at that spot and attack `seconds` (0-60, default 3) after the tank is back. Released early by `.bot action attack` / `stop`. |
 | `.bot action come` | None | All bots sprint directly to the player's exact coordinates. |
@@ -123,6 +124,23 @@ Commands for checking bot state, lifecycle, and fleet metrics:
 | `.bot lease` | `[status]` | Reports autonomous activity lease counts (Idle, Grinding, Trading, LftQueued, BgQueued, PlayerMaster) and lists active lease timers. |
 | `.bot version` *(aliases `v`, `about`, `credits`)* | None | Prints the server build version (`TortoiseBots <UTC date>-v<N>`), then `TBM:VERSION|<version>` for the addon, then the author credit and source link (`TortoiseBots by Sagiroth - https://github.com/Sagiroth/TortoiseBots`); any player may use it. The same credit line is sent to every player on login and written to the startup log. |
 | `.bot help` *(alias `h`)* | None | Prints the enabled banner and server version (`TBM:VERSION|<version>`). |
+
+---
+
+## 4a. Bot Panel Commands (gear, bags, behaviour)
+
+Structured commands behind the TBM bot panel. They work on any online bot you control — owned alts and hired companions alike — and answer with `TBM:` lines only.
+
+| Command | What It Does |
+| :--- | :--- |
+| `.bot inv <Name>` *(alias `inventory`)* | Inventory snapshot: `TBM:INV_BEGIN\|<bot>\|<copper>`, one `TBM:INV_EQ\|<slot>\|<itemId>\|<durability>\|<max>` per equipped item, one `TBM:INV_ITEM\|<bag>\|<slot>\|<itemId>\|<count>\|<flags>` per bag item, then `TBM:INV_END\|<bot>\|<free>\|<total>`. Flags: `e` the bot can equip it, `u` the item-usage value rates it an upgrade, `b` it cannot be traded to you right now (soulbound/quest), `-` none. |
+| `.bot item <Name> trade` | The bot opens a trade window with you. Put items or gold in and accept; the bot accepts on its own. |
+| `.bot item <Name> equip <bag> <slot>` | The bot equips that exact bag item (bag/slot as reported by `.bot inv`). Answers an ACK/ERR and a fresh snapshot. |
+| `.bot item <Name> unequip <bag> <slot>` | The bot moves that equipped item (bag `255`, slot `0`-`18`) into its bags. Fails with `failed` when the bags are full. |
+| `.bot item <Name> give <bag> <slot>` | Puts that bag item into a trade window with you. Without an open trade the bot opens one and answers `pending`; repeat the command once the window shows (the addon does this automatically). Soulbound/quest items are refused up front (`no-trade`) because the core would cancel the whole trade. |
+| `.bot behavior <Name> <key> <on\|off>` *(alias `behaviour`)* | Per-bot behaviour toggle, persisted like the loot toggle. Keys: `loot` (loot corpses), `aoe` (`dps aoe`), `autocc` (`auto cc`), `savemana` (`conserve mana`), `boost` (offensive cooldowns), `threat` (ease off near tank threat), `potions` (reaction engine). Answers an ACK and the bot's `TBM:BOTSTATE` line. |
+
+Replies use the action protocol: `TBM:ACTION_ACK|item <op>|bot:<Name>|1|<itemId>[ pending]`, `TBM:ACTION_ACK|behavior <key>|bot:<Name>|1|<on|off>`, or `TBM:ACTION_ERR|<intent>|<code>|<message>`.
 
 ---
 
@@ -224,6 +242,12 @@ pre-battleground group, or an older module — and for every hand-typed command.
 - Request — addon message prefix `TBM`, body `<verb> [args]` (`action attack`).
 - Reply — addon message prefix `TBM`, one line per reply, `TBM:` protocol lines included.
 - Verdict — `TBM:TRANSPORT|party` or `TBM:TRANSPORT|none`, trailing each roster response.
+- Bot state — `TBM:BOTSTATE_BEGIN|<n>`, one `TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=on,aoe=off,autocc=off,savemana=off,boost=on,threat=on,potions=on`
+  per controllable party bot, then `TBM:BOTSTATE_END`, trailing each roster response. It drives
+  the addon's party switches, the Party tab movement label and the bot panel's behaviour tab.
+- Capabilities — `TBM:CAPS|pull-seconds,flee,inventory,behavior`: adjustable pull delays,
+  `.bot action flee`, `.bot inv`/`.bot item`, and `.bot behavior` with the BOTSTATE stream.
+  The addon hides the matching controls when a capability is missing.
 - Version — `TBM:VERSION|<UTC date>-v<N>` trails every roster response, and
   answers `.bot version` and `.bot help` directly. The addon shows it as
   `server <version>` in the `/tbm` window (`server ?` on older servers).

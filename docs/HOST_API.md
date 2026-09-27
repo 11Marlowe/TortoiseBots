@@ -343,12 +343,15 @@ add
 remove
 logout
 roster
-action attack|interrupt|stop|pull|pullback|come|stay|follow
+action attack|interrupt|stop|pull|pullback|come|stay|follow|flee
 action focus skull
 action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/skull (exclusive per-bot ownership; explicit name wins over target; unknown name -> ACTION_ERR no-bot; ACK scope bot:<Name>)
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
+inv <bot>  # TBM:INV_BEGIN/INV_EQ/INV_ITEM/INV_END inventory snapshot
+item <bot> trade | equip|unequip|give <bag> <slot>  # item order by server bag/slot; ACK/ERR intent "item <op>"
+behavior <bot> <loot|aoe|autocc|savemana|boost|threat|potions> <on|off>  # allowlisted per-bot strategy toggle; ACK + TBM:BOTSTATE line
 follow
 invite
 uninvite
@@ -377,8 +380,10 @@ explicit cross-account ownership rows from the module-owned durable table. It
 emits the stable six-field `TBM:ROSTER_BEGIN`, `TBM:ROSTER`, and
 `TBM:ROSTER_END` system-message stream, followed by a separate
 `TBM:CC_ASSIGN_BEGIN`, `TBM:CC_ASSIGN`, `TBM:CC_ASSIGN_END` stream for live
-AI assignments. Keeping CC metadata separate means an older addon can still
-consume the roster unchanged. The roster remains the source of truth for
+AI assignments, then a `TBM:BOTSTATE_BEGIN`, `TBM:BOTSTATE|<bot>|move=…,loot=on,…`,
+`TBM:BOTSTATE_END` stream with the movement mode and behaviour toggles of every
+controllable party bot (owned alts and hired companions). Keeping this metadata
+in separate streams means an older addon can still consume the roster unchanged. The roster remains the source of truth for
 offline and online owned rows; runtime `BotManager` records remain transient
 Headless lifecycle state.
 
