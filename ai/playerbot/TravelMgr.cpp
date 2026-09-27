@@ -44,6 +44,10 @@ PlayerTravelInfo::PlayerTravelInfo(Player* player)
     if (player->GetGroup())
         groupSize = player->GetGroup()->GetMembersCount();
 
+    // Same scope as ShouldLeaveOutgrownZoneValue: autonomous random bots only.
+    // Snapshot here so destination filtering (async, off-tick) cannot block an
+    // owned/hired bot from vendoring or repairing next to its player.
+    masterlessRandom = sRandomBotFacade.IsRandomBot(player) && !ai->HasRealPlayerMaster();
     focusList = AI_VALUE(focusQuestTravelList, "focus travel target");
 
     for (auto& [valueName, value] : boolValues)
@@ -452,6 +456,20 @@ bool RpgTravelDestination::IsPossible(const PlayerTravelInfo& info) const
         int32 destAreaLevel = point->GetAreaLevel();
         if (destAreaLevel > 0 && destAreaLevel > (int32)info.GetLevel() + 5)
             return false;
+
+        // Outgrown services: skip NPCs in zones the bot outlevels by 10+, unless
+        // the destination zone is a capital (class trainers, AH and bank live
+        // there). Autonomous masterless random bots only: an owned/hired bot
+        // with its player must still vendor/repair anywhere. Unknown area ids
+        // fail closed (keep the destination).
+        if (info.IsMasterlessRandom() && sPlayerbotAIConfig.leaveOutgrownZones &&
+            destAreaLevel > 0 && destAreaLevel + 10 < (int32)info.GetLevel())
+        {
+            uint32 destZoneId = area ? (area->ZoneId ? area->ZoneId : area->Id) : 0;
+            AreaTableEntry const* destZone = destZoneId ? GetAreaEntryByAreaID(destZoneId) : nullptr;
+            if (!destZone || !(destZone->Flags & AREA_FLAG_CAPITAL))
+                return false;
+        }
 
         if (info.GetLevel() <= 5 && point->distance(info.getPosition()) > 1500.0f)
             return false;
@@ -2317,7 +2335,7 @@ void TravelMgr::GetPartitionsLock(bool getLock)
     sTravelMgr.getDestinationVar.notify_one();
 }
 
-bool TravelMgr::IsLocationLevelValid(const WorldPosition& position, const PlayerTravelInfo& info, uint32 purposeFlag)
+bool TravelMgr::IsLocationLevelValid(const WorldPosition& position, const PlayerTravelInfo& info, uint32 purposeFlag, int32 grindZoneFloor)
 {
     bool canFightElite = info.GetBoolValue("can fight elite");
     int32 botLevel = (int32)info.GetLevel();
@@ -2377,6 +2395,13 @@ bool TravelMgr::IsLocationLevelValid(const WorldPosition& position, const Player
         float levelMod = botPowerLevel / 500.0f;
         float levelBoost = botPowerLevel / 50.0f;
         int32 grindMinLevel = std::max(rawLevel * (0.4f + levelMod), rawLevel - 12.0f + levelBoost);
+        // Leave-rule Grind must land in a zone that fits the bot: the zone
+        // itself must not be outgrown (zone + 5 >= bot level). The mob-window
+        // floor above still admits the old zone's top-tier mobs, so the
+        // caller's bot-level floor (botLevel - 5) wins whenever set.
+        // Ordinary Grind passes floor 0 and is unchanged.
+        if (grindZoneFloor > grindMinLevel)
+            grindMinLevel = grindZoneFloor;
         if ((int32)areaLevel <= grindMinLevel)
             return false;
     }
@@ -2384,7 +2409,7 @@ bool TravelMgr::IsLocationLevelValid(const WorldPosition& position, const Player
     return true;
 }
 
-PartitionedTravelList TravelMgr::GetPartitions(const WorldPosition& center, const std::vector<uint32>& distancePartitions, const PlayerTravelInfo& info, uint32 purposeFlag, const std::vector<int32>& entries, bool onlyPossible, float maxDistance) const
+PartitionedTravelList TravelMgr::GetPartitions(const WorldPosition& center, const std::vector<uint32>& distancePartitions, const PlayerTravelInfo& info, uint32 purposeFlag, const std::vector<int32>& entries, bool onlyPossible, float maxDistance, int32 grindZoneFloor) const
 {
     sTravelMgr.GetPartitionsLock();
 
@@ -2425,7 +2450,7 @@ PartitionedTravelList TravelMgr::GetPartitions(const WorldPosition& center, cons
         float minDistance = FLT_MAX;
         for (auto& position : points)
         {
-            if (!IsLocationLevelValid(*position, info, purposeFlag))
+            if (!IsLocationLevelValid(*position, info, purposeFlag, grindZoneFloor))
             {
                 probeRejectLevel++;
                 continue;

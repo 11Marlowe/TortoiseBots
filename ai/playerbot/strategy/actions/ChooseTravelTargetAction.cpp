@@ -164,7 +164,22 @@ void ChooseTravelTargetAction::setNewTarget(Player* requester, TravelTarget* new
         }
     }
 
+    // Travel-target observability: one line per newly chosen target (this runs
+    // only when SetBestTarget succeeded, so no log spam on failed picks).
+    // logEvent no-ops unless bot_events.csv is in AllowedLogFiles.
+    {
+        std::string purpose = GetTravelPurposeName(AI_VALUE2(std::string, "manual string", "future travel purpose"));
+        std::string destZone = (oldTarget->getPosition() && oldTarget->getPosition()->GetArea())
+            ? oldTarget->getPosition()->GetAreaName(true, true) : "";
+        sPlayerbotAIConfig.logEvent(ai, "TravelTarget", purpose, destZone);
+    }
+
     oldTarget->SetStatus(TravelStatus::TRAVEL_STATUS_READY);
+
+    // A genuinely new destination ends any stuck-keep streak (see UnstuckAction):
+    // the streak counts consecutive resets without progress toward one spot,
+    // so a fresh pick starts it over instead of inheriting a retirement.
+    RESET_AI_VALUE2(int32, "manual int", "stuck keep count");
 
     //Clear rpg and attack/grind target. We want to travel, not hang around some more.
     RESET_AI_VALUE(GuidPosition,"rpg target");
@@ -841,12 +856,34 @@ bool RequestTravelTargetAction::Execute(Event& event)
 
     ai->TellDebug(ai->GetMaster(), "Getting new destination ranges for " + TravelDestinationPurposeName.at(actionPurpose), "debug travel");
 
-    *AI_VALUE(FutureDestinations*, "future travel destinations") = std::async((sPlayerbotAIConfig.asyncTravelPartitions ? std::launch::async : std::launch::deferred), [partitions = travelPartitions, travelInfo = PlayerTravelInfo(bot), center, purpose = actionPurpose]() { return sTravelMgr.GetPartitions(center, partitions, travelInfo, (uint32)purpose); });
+    // Leave-rule Grind must land in a zone that fits the BOT: destination
+    // area level + 5 >= bot level (same shape as the leave rule itself),
+    // alongside the existing mob-level window. Zone-level first: a zone whose
+    // own level is outgrown can still field top-tier mobs inside the mob
+    // window, which re-picks the old zone forever. Ordinary Grind (floor 0)
+    // keeps its wider window.
+    bool const leavingOutgrown = event.GetSource() == "should leave outgrown zone";
+    int32 outgrownFloor = 0;
+    if (leavingOutgrown && actionPurpose == TravelDestinationPurpose::Grind)
+        outgrownFloor = (int32)bot->GetLevel() - 5;
+
+    *AI_VALUE(FutureDestinations*, "future travel destinations") = std::async((sPlayerbotAIConfig.asyncTravelPartitions ? std::launch::async : std::launch::deferred), [partitions = travelPartitions, travelInfo = PlayerTravelInfo(bot), center, purpose = actionPurpose, outgrownFloor]() { return sTravelMgr.GetPartitions(center, partitions, travelInfo, (uint32)purpose, {}, true, 10000.0f, outgrownFloor); });
 
     AI_VALUE(TravelTarget*, "travel target")->SetStatus(TravelStatus::TRAVEL_STATUS_PREPARE);
     SET_AI_VALUE2(std::string, "manual string", "future travel purpose", getQualifier());
     SET_AI_VALUE2(std::string, "manual string", "future travel condition", event.GetSource());
     SET_AI_VALUE2(int, "manual int", "future travel relevance", relevance * 100);
+
+    // Outgrown-zone observability: one line per actual request (not per value
+    // tick). logEvent no-ops unless bot_events.csv is in AllowedLogFiles.
+    // ValueTrigger::Check emits the bare value name (Trigger::Check builds the
+    // event from getName(), which ValueTrigger sets to its qualifier), so the
+    // source here is "should leave outgrown zone", never "val::...".
+    if (event.GetSource() == "should leave outgrown zone")
+    {
+        std::string reason = WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL) ? "capital" : "outgrown";
+        sPlayerbotAIConfig.logEvent(ai, "LeaveOutgrownZone", WorldPosition(bot).GetAreaName(true, true), reason);
+    }
 
     return true;
 }
@@ -864,8 +901,16 @@ bool RequestTravelTargetAction::isUseful() {
     if (AI_VALUE(bool, "travel target active"))
         return false;
 
+    // Time-boxed blacklist set by MoveToTravelTargetAction on repeated move
+    // failure (and by UnstuckAction when retiring a target): ManualSetValue
+    // has no expiry, so the timestamp recorded alongside clears it after 5
+    // min. Other purposes are unaffected throughout.
     if (AI_VALUE2(bool, "no active travel destinations", (getQualifier().empty() ? "quest" : getQualifier())))
-        return false;
+    {
+        if (AI_VALUE2(time_t, "manual time", "no travel purpose until::" + (getQualifier().empty() ? "quest" : getQualifier())) > time(0))
+            return false;
+        RESET_AI_VALUE2(bool, "no active travel destinations", (getQualifier().empty() ? "quest" : getQualifier()));
+    }
 
     if (!AI_VALUE(bool, "can move around"))
         return false;

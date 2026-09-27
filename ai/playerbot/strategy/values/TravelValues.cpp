@@ -1,5 +1,6 @@
 #include "playerbot/playerbot.h"
 #include "TravelValues.h"
+#include "playerbot/TravelMgr.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"
 #include "BudgetValues.h"
@@ -484,6 +485,125 @@ bool ShouldTravelNamedValue::Calculate()
     }
 
     return false;
+}
+
+namespace outgrown_yield
+{
+// A finished quest the bot can actually hand in: complete, unrewarded,
+// rewardable right now, not elite/dungeon unless the bot can fight bosses,
+// and the rpg-quest strategy is on (quest travel needs it). Anything else
+// would pin the leave rule forever behind an unturnable quest.
+bool HasHandInAbleQuest(PlayerbotAI* ai, Player* bot)
+{
+    if (!ai->HasStrategy("rpg quest", BotState::BOT_STATE_NON_COMBAT))
+        return false;
+    bool const canFightBoss = ai->GetAiObjectContext()->GetValue<bool>("can fight boss")->Get();
+    for (auto& [questId, questStatus] : bot->getQuestStatusMap())
+    {
+        if (questStatus.m_rewarded || questStatus.m_status != QUEST_STATUS_COMPLETE)
+            continue;
+        Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+        if ((quest->GetType() == QUEST_TYPE_ELITE || quest->GetType() == QUEST_TYPE_DUNGEON) && !canFightBoss)
+            continue;
+        if (!bot->CanRewardQuest(quest, false))
+            continue;
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
+bool ShouldLeaveOutgrownZoneValue::Calculate()
+{
+    if (!sPlayerbotAIConfig.leaveOutgrownZones)
+        return false;
+
+    if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
+        return false;
+
+    if (!bot->IsAlive())
+        return false;
+
+    if (bot->GetLevel() < 10)
+        return false;
+
+    // No IsActive early-out here: this value doubles as the travel condition
+    // stored on the Grind target it requests, and bailing while a target is
+    // active drops that target to cooldown on the first status check after it
+    // is picked. Re-fire is already gated - request actions only run while no
+    // travel target is active (RequestTravelTargetAction::isUseful,
+    // TravelActionMultiplier) - so a true value while traveling is harmless.
+
+    // Pending business first, everywhere - but only business the bot can
+    // actually do, and only for a bounded time. An unbounded yield deadlocks:
+    // an unhand-in-able quest (elite/dungeon solo, cross-continent turn-in,
+    // no rpg-quest strategy) or an unreachable local vendor would pin the bot
+    // in the outgrown zone forever. So: quests yield only while hand-in-able
+    // (rewardable now, not elite/dungeon unless the bot can fight bosses, rpg
+    // quest strategy on), vendor/repair yield only while a permitted vendor
+    // exists (not skipped by the outgrown service gate - i.e. same zone but
+    // fitting, or a capital), and after ~10 min outgrown the bot leaves
+    // anyway. All reads are 2-tick cached AI values plus a bounded quest-log
+    // walk - no world scan, no DB.
+    bool leaveAnyway = false;
+    {
+        int32 areaLevel = 0;
+        bool const areaKnown = sTravelMgr.TryGetValidatedAreaLevel(sServerFacade.GetAreaId(bot), areaLevel) && areaLevel > 0;
+        bool const outgrown = areaKnown && areaLevel + 5 < (int32)bot->GetLevel();
+        if (outgrown)
+        {
+            time_t outgrownSince = AI_VALUE2(time_t, "manual time", "outgrown since");
+            if (!outgrownSince)
+                SET_AI_VALUE2(time_t, "manual time", "outgrown since", time(0));
+            else if (time(0) - outgrownSince > 10 * MINUTE)
+                leaveAnyway = true;
+        }
+        else
+            SET_AI_VALUE2(time_t, "manual time", "outgrown since", (time_t)0);
+    }
+    if (!leaveAnyway)
+    {
+        // Outside capitals only hand-in-able quests hold the bot; selling and
+        // repairs happen at the next town that fits its level (the service
+        // gate skips low-zone vendors), so waiting for them here would deadlock.
+        if (outgrown_yield::HasHandInAbleQuest(ai, bot))
+            return false;
+    }
+
+    // Capitals are service stops, not places to stay: a level 10+ bot idling
+    // in a capital with no pending capital service need should leave.
+    // Same priority-guard reasoning as above, extended to the capital-only
+    // services (trainers, mount vendor, mailbox).
+    if (WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL))
+    {
+        if (AI_VALUE2(bool, "should travel named", "trainer class"))
+            return false;
+        if (AI_VALUE2(bool, "should travel named", "trainer mount"))
+            return false;
+        if (AI_VALUE2(bool, "should travel named", "trainer trade"))
+            return false;
+        if (AI_VALUE2(bool, "should travel named", "mount"))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::AH)))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Mail)))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Vendor)))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Repair)))
+            return false;
+        return true;
+    }
+
+    // Fail closed: unknown area levels never trigger the rule.
+    int32 areaLevel = 0;
+    if (!sTravelMgr.TryGetValidatedAreaLevel(sServerFacade.GetAreaId(bot), areaLevel) || areaLevel <= 0)
+        return false;
+
+    return areaLevel + 5 < (int32)bot->GetLevel();
 }
 
 bool TravelTargetActiveValue::Calculate()

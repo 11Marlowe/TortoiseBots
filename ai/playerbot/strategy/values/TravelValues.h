@@ -180,6 +180,14 @@ namespace ai
         virtual bool Calculate() override;
     };
 
+    class ShouldLeaveOutgrownZoneValue : public BoolCalculatedValue
+    {
+    public:
+        ShouldLeaveOutgrownZoneValue(PlayerbotAI* ai, std::string name = "should leave outgrown zone", int checkInterval = 30) : BoolCalculatedValue(ai, name, checkInterval) {};
+
+        virtual bool Calculate() override;
+    };
+
     class InOverworldValue : public BoolCalculatedValue
     {
     public:
