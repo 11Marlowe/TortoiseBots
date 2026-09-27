@@ -43,35 +43,68 @@ bool UnstuckAction::Execute(Event& event)
         // same destination within seconds while the bot never moves: live bots
         // re-picked 'trainer class' every ~5 s (this trigger's poll interval)
         // instead of walking there. mod-playerbots' stuck reset never touches
-        // travel, so keep an active target across the reset; the move-retry
-        // cooldown still retires it if the spot is truly unreachable.
+        // travel, so keep an active target across the reset - but bounded: a
+        // bot wedged in geometry dispatches movement fine (MoveTo true,
+        // retries decay), so an unbounded keep runs the same wall forever.
+        // After 3 consecutive stuck resets without real progress (30+ yd from
+        // where the keep streak started) the target is retired properly -
+        // nulled with its purpose blacklisted (see MoveToTravelTargetAction) -
+        // so other purposes (vendor/repair/quest/grind) keep working and the
+        // long-stuck hearth/repop path can fire. Fresh targets and real
+        // progress reset the streak.
         TravelTarget* travelTarget = AI_VALUE(TravelTarget*, "travel target");
         bool const keepTravel = travelTarget && travelTarget->IsActive() &&
-            travelTarget->GetDestination() && travelTarget->getPosition();
-        TravelDestination* dest = keepTravel ? travelTarget->GetDestination() : nullptr;
-        WorldPosition* pos = keepTravel ? travelTarget->getPosition() : nullptr;
-        TravelStatus status = keepTravel ? travelTarget->GetStatus() : TravelStatus::TRAVEL_STATUS_NONE;
-        std::vector<std::string> conditions = keepTravel ? travelTarget->GetConditions() : std::vector<std::string>();
-        bool const forced = keepTravel && travelTarget->IsForced();
-        uint32 const moveRetry = keepTravel ? travelTarget->GetRetryCount(true) : 0;
-        uint32 const extendRetry = keepTravel ? travelTarget->GetRetryCount(false) : 0;
-        int32 const timeLeft = keepTravel ? travelTarget->GetTimeLeft() : 0;
-        GuidPosition groupCopy = keepTravel ? travelTarget->GetGroupmember() : GuidPosition();
+            travelTarget->GetDestination() && travelTarget->getPosition() &&
+            typeid(*travelTarget->GetDestination()) != typeid(NullTravelDestination);
+        uint32 stuckKeeps = AI_VALUE2(uint32, "manual int", "stuck keep count");
+        WorldPosition stuckAnchor = AI_VALUE2(WorldPosition, "custom position", "stuck keep anchor");
+        if (!keepTravel)
+        {
+            SET_AI_VALUE2(uint32, "manual int", "stuck keep count", 0);
+            return ai->DoSpecificAction("reset", event, true);
+        }
+        if (stuckKeeps >= 3 && WorldPosition(bot).sqDistance(stuckAnchor) < 30.0f * 30.0f)
+        {
+            // No progress across 3 keeps (~15+ min stuck): retire the target
+            // instead of preserving it. Null + time-boxed blacklist of the
+            // purpose for 5 min so the same destination is not re-picked at
+            // once; anything else can still be requested immediately.
+            std::string const purpose = AI_VALUE2(std::string, "manual string", "future travel purpose");
+            sTravelMgr.SetNullTravelTarget(travelTarget);
+            RESET_AI_VALUE(bool, "travel target active");
+            if (!purpose.empty())
+            {
+                SET_AI_VALUE2(bool, "no active travel destinations", purpose, true);
+                SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + purpose, time(0) + 5 * MINUTE);
+            }
+            SET_AI_VALUE2(uint32, "manual int", "stuck keep count", 0);
+            ai->TellDebug(master, "Unstuck: retiring travel target after 3 stuck keeps without progress.", "debug unstuck");
+            return ai->DoSpecificAction("reset", event, true);
+        }
+        TravelDestination* dest = travelTarget->GetDestination();
+        WorldPosition* pos = travelTarget->getPosition();
+        TravelStatus status = travelTarget->GetStatus();
+        std::vector<std::string> conditions = travelTarget->GetConditions();
+        bool const forced = travelTarget->IsForced();
+        uint32 const moveRetry = travelTarget->GetRetryCount(true);
+        uint32 const extendRetry = travelTarget->GetRetryCount(false);
+        uint32 const relevance = travelTarget->GetRelevance();
+        GuidPosition groupCopy = travelTarget->GetGroupmember();
 
         bool const reset = ai->DoSpecificAction("reset", event, true);
 
-        if (keepTravel)
-        {
-            travelTarget->SetTarget(dest, pos);
-            travelTarget->SetStatus(status);
-            travelTarget->SetConditions(conditions);
-            travelTarget->SetForced(forced);
-            travelTarget->SetRetry(true, moveRetry);
-            travelTarget->SetRetry(false, extendRetry);
-            if (groupCopy)
-                travelTarget->SetGroupCopy(groupCopy);
-            travelTarget->SetExpireIn(timeLeft > 0 ? (uint32)timeLeft : 1000);
-        }
+        travelTarget->SetTarget(dest, pos);
+        travelTarget->SetStatus(status);
+        travelTarget->SetConditions(conditions);
+        travelTarget->SetForced(forced);
+        travelTarget->SetRetry(true, moveRetry);
+        travelTarget->SetRetry(false, extendRetry);
+        travelTarget->SetRelevance(relevance);
+        if (groupCopy)
+            travelTarget->SetGroupCopy(groupCopy);
+        if (stuckKeeps == 0 || !stuckAnchor.isValid())
+            SET_AI_VALUE2(WorldPosition, "custom position", "stuck keep anchor", WorldPosition(bot));
+        SET_AI_VALUE2(uint32, "manual int", "stuck keep count", stuckKeeps + 1);
 
         return reset;
     }

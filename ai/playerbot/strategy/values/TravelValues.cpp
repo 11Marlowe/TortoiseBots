@@ -487,6 +487,59 @@ bool ShouldTravelNamedValue::Calculate()
     return false;
 }
 
+namespace outgrown_yield
+{
+// A finished quest the bot can actually hand in: complete, unrewarded,
+// rewardable right now, not elite/dungeon unless the bot can fight bosses,
+// and the rpg-quest strategy is on (quest travel needs it). Anything else
+// would pin the leave rule forever behind an unturnable quest.
+bool HasHandInAbleQuest(PlayerbotAI* ai, Player* bot)
+{
+    if (!ai->HasStrategy("rpg quest", BotState::BOT_STATE_NON_COMBAT))
+        return false;
+    bool const canFightBoss = AI_VALUE(bool, "can fight boss");
+    for (auto& [questId, questStatus] : bot->getQuestStatusMap())
+    {
+        if (questStatus.m_rewarded || questStatus.m_status != QUEST_STATUS_COMPLETE)
+            continue;
+        Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
+        if (!quest)
+            continue;
+        if ((quest->GetType() == QUEST_TYPE_ELITE || quest->GetType() == QUEST_TYPE_DUNGEON) && !canFightBoss)
+            continue;
+        if (!bot->CanRewardQuest(quest, false))
+            continue;
+        return true;
+    }
+    return false;
+}
+
+// A vendor/repair NPC the outgrown service gate would NOT skip: same check as
+// RpgTravelDestination::IsPossible's outgrown-services block (fitting zone
+// level or capital). Yielding only for these avoids the deadlock where the
+// bot waits for a local vendor the gate forbids it to use.
+bool HasPermittedVendor(Player* bot, uint32 npcFlag)
+{
+    for (auto& creatureDataPair : WorldPosition().GetCreaturesNear())
+    {
+        CreatureData const cData = creatureDataPair->second;
+        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(cData.creature_id[0]);
+        if (!cInfo || !(cInfo->npc_flags & npcFlag))
+            continue;
+        WorldPosition npcPos(creatureDataPair);
+        AreaTableEntry const* area = npcPos.GetArea();
+        int32 destAreaLevel = npcPos.GetAreaLevel();
+        if (destAreaLevel <= 0 || destAreaLevel + 10 >= (int32)bot->GetLevel())
+            return true;
+        uint32 destZoneId = area ? (area->ZoneId ? area->ZoneId : area->Id) : 0;
+        if (AreaTableEntry const* destZone = destZoneId ? GetAreaEntryByAreaID(destZoneId) : nullptr)
+            if (destZone->Flags & AREA_FLAG_CAPITAL)
+                return true;
+    }
+    return false;
+}
+} // namespace
+
 bool ShouldLeaveOutgrownZoneValue::Calculate()
 {
     if (!sPlayerbotAIConfig.leaveOutgrownZones)
@@ -508,24 +561,45 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     // travel target is active (RequestTravelTargetAction::isUseful,
     // TravelActionMultiplier) - so a true value while traveling is harmless.
 
-    // Pending business first, everywhere: the 6.96 row sits above the Vendor
-    // (6.94)/Repair (6.93) rows, and request actions block each other via
-    // TRAVEL_STATUS_PREPARE, so an unguarded leave would march the bot off
-    // with full bags, broken gear, or finished quests in its log. Yield while
-    // any of those needs is true; the service/quest target is chosen first
-    // and leave re-fires after it clears. No starvation: at most one service
-    // cycle of delay. All four reads below are 2-tick cached AI values plus,
-    // for the quest scan, a bounded walk of the bot's own quest log -
-    // no world scan, no DB.
-    if (AI_VALUE(bool, "should sell") && (AI_VALUE(bool, "can sell") || AI_VALUE(bool, "can ah sell")))
-        return false;
-    if (AI_VALUE(bool, "should repair") && AI_VALUE(bool, "can repair"))
-        return false;
-    for (auto& [questId, questStatus] : bot->getQuestStatusMap())
+    // Pending business first, everywhere - but only business the bot can
+    // actually do, and only for a bounded time. An unbounded yield deadlocks:
+    // an unhand-in-able quest (elite/dungeon solo, cross-continent turn-in,
+    // no rpg-quest strategy) or an unreachable local vendor would pin the bot
+    // in the outgrown zone forever. So: quests yield only while hand-in-able
+    // (rewardable now, not elite/dungeon unless the bot can fight bosses, rpg
+    // quest strategy on), vendor/repair yield only while a permitted vendor
+    // exists (not skipped by the outgrown service gate - i.e. same zone but
+    // fitting, or a capital), and after ~10 min outgrown the bot leaves
+    // anyway. All reads are 2-tick cached AI values plus a bounded quest-log
+    // walk - no world scan, no DB.
+    bool leaveAnyway = false;
     {
-        if (questStatus.m_rewarded)
-            continue;
-        if (questStatus.m_status == QUEST_STATUS_COMPLETE)
+        int32 areaLevel = 0;
+        bool const areaKnown = sTravelMgr.TryGetValidatedAreaLevel(sServerFacade.GetAreaId(bot), areaLevel) && areaLevel > 0;
+        bool const outgrown = areaKnown && areaLevel + 5 < (int32)bot->GetLevel();
+        if (outgrown)
+        {
+            time_t outgrownSince = AI_VALUE2(time_t, "manual time", "outgrown since");
+            if (!outgrownSince)
+                SET_AI_VALUE2(time_t, "manual time", "outgrown since", time(0));
+            else if (time(0) - outgrownSince > 10 * MINUTE)
+                leaveAnyway = true;
+        }
+        else
+            SET_AI_VALUE2(time_t, "manual time", "outgrown since", (time_t)0);
+    }
+    if (!leaveAnyway)
+    {
+        // Order matters for cost: the quest-log walk is free (own data), the
+        // vendor scan touches nearby spawns, so check needs first and scan
+        // only while a need is actually active.
+        bool const needSell = AI_VALUE(bool, "should sell") && (AI_VALUE(bool, "can sell") || AI_VALUE(bool, "can ah sell"));
+        bool const needRepair = AI_VALUE(bool, "should repair") && AI_VALUE(bool, "can repair");
+        if (needSell && HasPermittedVendor(bot, UNIT_NPC_FLAG_VENDOR))
+            return false;
+        if (needRepair && HasPermittedVendor(bot, UNIT_NPC_FLAG_REPAIR))
+            return false;
+        if (HasHandInAbleQuest(ai, bot))
             return false;
     }
 

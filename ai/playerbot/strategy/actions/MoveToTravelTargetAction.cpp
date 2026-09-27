@@ -152,16 +152,28 @@ bool MoveToTravelTargetAction::Execute(Event& event)
 
         if (target->IsMaxRetry(true))
         {
-            ai->TellDebug(ai->GetMaster(), "The target is cooling down because we failed to move to it a few times in a row.", "debug travel");
-            target->SetStatus(TravelStatus::TRAVEL_STATUS_COOLDOWN);
-            target->SetForced(false);
-            // Six failed moves in a row means the spot is effectively
+            ai->TellDebug(ai->GetMaster(), "The target is unreachable, dropping it so other travel still works.", "debug travel");
+            // Six failed moves in a row means this spot is effectively
             // unreachable from here (no path, other continent, geometry).
-            // COOLDOWN is still an active state, so requests stay shut while
-            // it lasts; stretch it to 5 min (the per-kind give-up window used
-            // for grind, ReachTargetActions.h) so the same purpose cannot be
-            // re-picked the moment the destination default (60 s) lapses.
-            target->SetExpireIn(5 * MINUTE * IN_MILLISECONDS);
+            // Drop the target outright and blacklist just this purpose for 5
+            // min (the per-kind give-up window, ReachTargetActions.h): other
+            // purposes (vendor/repair/quest/grind) stay requestable, and the
+            // same destination is not re-picked at once. A COOLDOWN on the
+            // active target would instead freeze ALL travel (IsActive stays
+            // true, requests gate on it) for the whole window.
+            std::string const purpose = AI_VALUE2(std::string, "manual string", "future travel purpose");
+            target->SetForced(false);
+            sTravelMgr.SetNullTravelTarget(target);
+            RESET_AI_VALUE(bool, "travel target active");
+            if (!purpose.empty())
+            {
+                // Time-boxed, not permanent: ManualSetValue has no expiry, so
+                // record when the blacklist was set and let isUseful clear it
+                // after 5 min. Cleared early by any successful pick
+                // (setNewTarget clears all blacklists).
+                SET_AI_VALUE2(bool, "no active travel destinations", purpose, true);
+                SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + purpose, time(0) + 5 * MINUTE);
+            }
         }
     }
     else

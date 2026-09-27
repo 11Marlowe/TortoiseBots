@@ -176,6 +176,11 @@ void ChooseTravelTargetAction::setNewTarget(Player* requester, TravelTarget* new
 
     oldTarget->SetStatus(TravelStatus::TRAVEL_STATUS_READY);
 
+    // A genuinely new destination ends any stuck-keep streak (see UnstuckAction):
+    // the streak counts consecutive resets without progress toward one spot,
+    // so a fresh pick starts it over instead of inheriting a retirement.
+    RESET_AI_VALUE2(uint32, "manual int", "stuck keep count");
+
     //Clear rpg and attack/grind target. We want to travel, not hang around some more.
     RESET_AI_VALUE(GuidPosition,"rpg target");
     RESET_AI_VALUE(std::set<ObjectGuid>&, "ignore rpg target");
@@ -851,21 +856,16 @@ bool RequestTravelTargetAction::Execute(Event& event)
 
     ai->TellDebug(ai->GetMaster(), "Getting new destination ranges for " + TravelDestinationPurposeName.at(actionPurpose), "debug travel");
 
-    // Leave-rule Grind must land outside the outgrown zone: the mob-level gate
-    // below still accepts top-tier mobs of the current zone, so a bot ordered
-    // to leave would re-pick a local mob and grind in place forever. Raise the
-    // zone floor to the outgrown definition (area level + 5 >= bot level) for
-    // this request only; ordinary Grind keeps its wider window.
+    // Leave-rule Grind must land in a zone that fits the BOT: destination
+    // area level + 5 >= bot level (same shape as the leave rule itself),
+    // alongside the existing mob-level window. Zone-level first: a zone whose
+    // own level is outgrown can still field top-tier mobs inside the mob
+    // window, which re-picks the old zone forever. Ordinary Grind (floor 0)
+    // keeps its wider window.
     bool const leavingOutgrown = event.GetSource() == "should leave outgrown zone";
     int32 outgrownFloor = 0;
     if (leavingOutgrown && actionPurpose == TravelDestinationPurpose::Grind)
-    {
-        AreaTableEntry const* botArea = WorldPosition(bot).GetArea();
-        uint32 botZoneId = botArea ? (botArea->ZoneId ? botArea->ZoneId : botArea->Id) : sServerFacade.GetAreaId(bot);
-        int32 botAreaLevel = 0;
-        if (sTravelMgr.TryGetValidatedAreaLevel(botZoneId, botAreaLevel) && botAreaLevel > 0)
-            outgrownFloor = botAreaLevel + 5;
-    }
+        outgrownFloor = (int32)bot->GetLevel() - 5;
 
     *AI_VALUE(FutureDestinations*, "future travel destinations") = std::async((sPlayerbotAIConfig.asyncTravelPartitions ? std::launch::async : std::launch::deferred), [partitions = travelPartitions, travelInfo = PlayerTravelInfo(bot), center, purpose = actionPurpose, outgrownFloor]() { return sTravelMgr.GetPartitions(center, partitions, travelInfo, (uint32)purpose, {}, true, 10000.0f, outgrownFloor); });
 
@@ -901,8 +901,16 @@ bool RequestTravelTargetAction::isUseful() {
     if (AI_VALUE(bool, "travel target active"))
         return false;
 
+    // Time-boxed blacklist set by MoveToTravelTargetAction on repeated move
+    // failure (and by UnstuckAction when retiring a target): ManualSetValue
+    // has no expiry, so the timestamp recorded alongside clears it after 5
+    // min. Other purposes are unaffected throughout.
     if (AI_VALUE2(bool, "no active travel destinations", (getQualifier().empty() ? "quest" : getQualifier())))
-        return false;
+    {
+        if (AI_VALUE2(time_t, "manual time", "no travel purpose until::" + (getQualifier().empty() ? "quest" : getQualifier())) > time(0))
+            return false;
+        RESET_AI_VALUE2(bool, "no active travel destinations", (getQualifier().empty() ? "quest" : getQualifier()));
+    }
 
     if (!AI_VALUE(bool, "can move around"))
         return false;

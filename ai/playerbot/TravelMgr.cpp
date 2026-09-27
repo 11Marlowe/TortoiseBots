@@ -2395,10 +2395,11 @@ bool TravelMgr::IsLocationLevelValid(const WorldPosition& position, const Player
         float levelMod = botPowerLevel / 500.0f;
         float levelBoost = botPowerLevel / 50.0f;
         int32 grindMinLevel = std::max(rawLevel * (0.4f + levelMod), rawLevel - 12.0f + levelBoost);
-        // Leave-rule Grind must escape the outgrown zone: the mob-window floor
-        // above still admits the old zone's own top-tier mobs. The caller's
-        // zone floor (outgrown area level + 5) is strictly stronger whenever
-        // set, so it wins without changing ordinary Grind behaviour (floor 0).
+        // Leave-rule Grind must land in a zone that fits the bot: the zone
+        // itself must not be outgrown (zone + 5 >= bot level). The mob-window
+        // floor above still admits the old zone's top-tier mobs, so the
+        // caller's bot-level floor (botLevel - 5) wins whenever set.
+        // Ordinary Grind passes floor 0 and is unchanged.
         if (grindZoneFloor > grindMinLevel)
             grindMinLevel = grindZoneFloor;
         if ((int32)areaLevel <= grindMinLevel)
