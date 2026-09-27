@@ -511,13 +511,70 @@
   // web research for Balor/Northwind, provisional deDE translations for
   // 5601/5602. Areas with no name anywhere keep the "Zone N" fallback.
   let EXTRA_ZONE_NAMES = {};
+  // ZONE_BOUNDS (from /data/zones.json, the DBC bounds) is assigned by
+  // fetchZoneBounds below and doubles as the last-resort name source:
+  // zone_maps.json only covers zones with artwork, so custom zones like
+  // Moonwhisper (5642) would otherwise render as "Zone 5642".
 
   function getZoneName(zoneId) {
     if (zoneId === null || zoneId === undefined) return '-';
     const zone = ZONE_CONFIG[zoneId];
-    if (zone) return zone.name;
+    if (zone) return displayZoneName(zone.name);
     const extra = EXTRA_ZONE_NAMES[zoneId];
-    return extra ? extra.name : `Zone ${zoneId}`;
+    if (extra) return displayZoneName(extra.name);
+    if (ZONE_BOUNDS) {
+      for (const key in ZONE_BOUNDS) {
+        const zb = ZONE_BOUNDS[key];
+        if (zb && zb.area_id === zoneId && zb.name) return displayZoneName(zb.name);
+      }
+    }
+    return `Zone ${zoneId}`;
+  }
+
+  // DBC area names are CamelCase internals (SwampOfSorrows, ThunderBluff,
+  // AhnQiraj, GMIsland, ScarletMonastery2f). Insert spaces at case and
+  // letter/digit boundaries so every text surface reads the same. Short
+  // all-caps runs stay glued (AhnQiraj -> "Ahn Qiraj", not "Ahn Q Ira j")
+  // and small words keep natural casing ("Swamp of Sorrows").
+  function displayZoneName(name) {
+    if (!name) return name;
+    // Keep a trailing floor/digit suffix glued ("ScarletMonastery2f" ->
+    // "Scarlet Monastery 2f"); only a letter-followed-by-digit run splits.
+    // "RuinsofAhnQiraj" carries a DBC typo for "Ruins of"; fix it here so
+    // the one label reads correctly everywhere.
+    const spaced = String(name)
+      .replace(/^RuinsofAhnQiraj$/, 'Ruins of Ahn Qiraj')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/([a-zA-Z])(\d+[a-z]*)$/g, '$1 $2')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const words = spaced.split(' ');
+    return words
+      .map((w, idx) => (/^(of|the)$/i.test(w) && idx > 0 ? w.toLowerCase() : w))
+      .join(' ');
+  }
+
+  // GetSelectedUnit() returns the bot itself while it has no hostile target
+  // (follow/idle/wander states), so the wire target is the bot's own name.
+  // Render that as "self", never as if the bot were fighting itself.
+  function displayTarget(b) {
+    const t = b && b.target;
+    if (!t) return '-';
+    if (b && b.name && t === b.name) return 'self';
+    return t;
+  }
+
+  // The telemetry role is the AI combat-role signal (forced role, combat
+  // strategies, else talent/gearmarks), not a group slot. Bots without a
+  // master run their talent/gear role; label the column honestly until a
+  // dedicated group-role signal exists.
+  function roleBadgeClass(role) {
+    return role === 'tank' ? 'badge-info' : role === 'healer' ? 'badge-success' : 'badge-error';
+  }
+
+  function roleLabel(b) {
+    const role = (b && b.role) || 'dps';
+    return role.toUpperCase();
   }
 
   function appendConsoleLog(time, tag, text, level = 'info') {
@@ -648,7 +705,7 @@
     el.zoneSelect.innerHTML = '';
     const worldOpt = document.createElement('option');
     worldOpt.value = 'world';
-    worldOpt.textContent = '🌍 World (both continents)';
+    worldOpt.textContent = '🌍 World (one continent at a time)';
     el.zoneSelect.appendChild(worldOpt);
     const sorted = Object.entries(ZONE_CONFIG).sort((a, b) => a[1].name.localeCompare(b[1].name));
     const matching = sorted.filter(([id, z]) => !q || z.name.toLowerCase().includes(q));
@@ -664,7 +721,7 @@
       entries.forEach(([id, z]) => {
         const opt = document.createElement('option');
         opt.value = id;
-        opt.textContent = z.name;
+        opt.textContent = displayZoneName(z.name);
         og.appendChild(opt);
       });
       el.zoneSelect.appendChild(og);
@@ -758,6 +815,7 @@
     }
     renderMap();
   }
+
     // Zone art is not uniformly 3:2 (14 files are 4:3). Fit the viewport to
     // the loaded art so projected dots land on the artwork instead of a crop.
     if (el.mapImg) {
@@ -1165,9 +1223,9 @@
 
     if (el.roleTotals) {
       el.roleTotals.innerHTML = ['tank', 'healer', 'dps'].map(role => {
-        const badge = role === 'tank' ? 'badge-info' : role === 'healer' ? 'badge-success' : 'badge-error';
-        return `<span class="badge ${badge}">${byRole[role] || 0} ${role.toUpperCase()}</span>`;
-      }).join('');
+        const badge = roleBadgeClass(role);
+        return `<span class="badge ${badge}" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${byRole[role] || 0} ${role.toUpperCase()}</span>`;
+      }).join('') + `<div class="empty-hint" style="margin-top:6px;">AI combat roles, not group slots — random-pool bots run talent/gear auto-detect.</div>`;
     }
   }
 
@@ -1319,10 +1377,10 @@
         : '';
       el.mapTooltip.innerHTML = `
         <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})<br>
-        <span style="color: var(--text-muted);">Role:</span> ${esc((b.role || '').toUpperCase())}<br>
+        <span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>
         <span style="color: var(--text-muted);">Status:</span> ${esc(b.state || 'idle')}<br>
         <span style="color: var(--text-muted);">Zone:</span> ${esc(getZoneName(b.zone))}<br>
-        <span style="color: var(--text-muted);">Target:</span> ${esc(b.target || 'None')}
+        <span style="color: var(--text-muted);">Target:</span> ${esc(displayTarget(b))}
         ${issueLine}
       `;
       el.mapTooltip.style.display = 'block';
@@ -1428,7 +1486,7 @@
     el.drawerContent.innerHTML = `
       <div style="font-size: 1.15rem; font-weight: 700; color: #fff; margin-bottom: 4px;">${esc(b.name)}</div>
       <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 16px;">
-        Level ${esc(b.level)} ${esc(b.class)} · <span class="badge badge-info">${esc((b.role || '').toUpperCase())}</span>
+        Level ${esc(b.level)} ${esc(b.class)} · <span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(b))}</span>
       </div>
 
       <div style="margin-bottom: 14px;">
@@ -1447,7 +1505,7 @@
 
       <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px;">
         <div><span style="color: var(--text-muted);">Status:</span> <strong>${esc(b.state)}</strong></div>
-        <div><span style="color: var(--text-muted);">Target:</span> <strong style="color: #f85149;">${esc(b.target || 'None')}</strong></div>
+        <div><span style="color: var(--text-muted);">Target:</span> <strong style="color: #f85149;">${esc(displayTarget(b))}</strong></div>
         <div><span style="color: var(--text-muted);">Last action:</span> <span class="mono" style="font-size: 0.75rem;">${esc(b.last_action || '-')}</span></div>
         <div><span style="color: var(--text-muted);">Trigger:</span> <span class="mono" style="font-size: 0.75rem;">${esc(b.last_trigger || '-')}</span></div>
         <div><span style="color: var(--text-muted);">Strategy:</span> <span class="mono" style="font-size: 0.75rem;">${esc(b.strategy || 'default')}</span></div>
@@ -1545,7 +1603,7 @@
       const tr = document.createElement('tr');
       const hpPct = b.max_hp ? Math.round((b.hp / b.max_hp) * 100) : 100;
       const powerPct = b.max_power ? Math.round((b.power / b.max_power) * 100) : 0;
-      const roleBadge = b.role === 'tank' ? 'badge-info' : b.role === 'healer' ? 'badge-success' : 'badge-error';
+      const roleBadge = roleBadgeClass(b.role);
       const issue = issuesByGuid[b.guid];
       const issueBadge = issue
         ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
@@ -1554,7 +1612,7 @@
       tr.innerHTML = `
         <td style="font-weight: 600; cursor: pointer; color: #58a6ff;" data-guid="${esc(b.guid)}" title="Show on map">${esc(b.name)}${issueBadge}</td>
         <td>${esc(b.class)}</td>
-        <td><span class="badge ${roleBadge}">${esc((b.role || '').toUpperCase())}</span></td>
+        <td><span class="badge ${roleBadge}" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(b))}</span></td>
         <td>${esc(b.level)}</td>
         <td style="width: 130px;">
           <div style="font-size: 0.7rem; margin-bottom: 2px;">${esc(b.hp)}/${esc(b.max_hp)} (${hpPct}%)</div>
@@ -1565,7 +1623,7 @@
           <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${powerPct}%; background: var(--accent-blue-bright);"></div></div>
         </td>
         <td><span class="badge ${b.state === 'combat' ? 'badge-error' : b.state === 'dead' ? 'badge-warn' : 'badge-info'}">${esc(b.state || 'idle')}</span></td>
-        <td style="color: #f85149;">${esc(b.target || '-')}</td>
+        <td style="color: #f85149;">${esc(displayTarget(b))}</td>
         <td class="mono" style="font-size: 0.8rem;">${esc(getZoneName(b.zone))}</td>
       `;
       tr.querySelector('td[data-guid]').addEventListener('click', () => focusBot(b.guid));
@@ -2588,7 +2646,9 @@
     }
     if (el.armoryListBody) {
       el.armoryListBody.addEventListener('click', e => {
-        const td = e.target.closest('td[data-guid]');
+        // The guid lives on the name cell, but a headless/cached click may
+        // land on any cell: fall back to the row's first guid cell.
+        const td = e.target.closest('td[data-guid]') || e.target.closest('tr')?.querySelector('td[data-guid]');
         if (td) openArmory(parseInt(td.dataset.guid, 10));
       });
     }
@@ -2615,9 +2675,16 @@
       .catch(() => {});
   }
 
+  // INFO rows (notably every BOT_DEATH) are feed noise; the sidebar badge
+  // counts warn/error only, the same subset the owner reads.
+  function anomalyIsActionable(a) {
+    const sev = (a.severity || '').toLowerCase();
+    return sev === 'warn' || sev === 'error';
+  }
+
   function renderAnomalies() {
     if (!el.anomaliesTable) return;
-    if (el.anomaliesCount) el.anomaliesCount.textContent = state.anomalies.length;
+    if (el.anomaliesCount) el.anomaliesCount.textContent = state.anomalies.filter(anomalyIsActionable).length;
 
     const filtered = state.anomalies.filter(a => {
       const sev = (a.severity || '').toLowerCase();
@@ -2648,7 +2715,7 @@
         <td style="color: #fff; font-weight: 600;">${esc(a.bot || '-')}</td>
         <td class="mono" style="font-size: 0.75rem;">${esc(getZoneName(a.zone))}</td>
         <td style="color: var(--text-muted);">${esc(a.details || a.last_action || '-')}</td>
-        <td style="color: #f85149;">${esc(a.target || '-')}</td>
+        <td style="color: #f85149;">${esc(a.target && a.bot && a.target === a.bot ? 'self' : (a.target || '-'))}</td>
       `;
       el.anomaliesTable.appendChild(tr);
     });
@@ -2855,9 +2922,11 @@
   function updateIssueBadges() {
     const active = state.issues.active.length;
     const persistent = state.issues.active.filter(i => i.severity === 'persistent').length;
+    // The owner reads the persistent (>=10 min) subset only; watch episodes
+    // must not inflate the sidebar badge.
     if (el.issuesCount) {
-      el.issuesCount.textContent = active;
-      el.issuesCount.className = 'badge ' + (persistent > 0 ? 'badge-error' : active > 0 ? 'badge-warn' : 'badge-info');
+      el.issuesCount.textContent = persistent;
+      el.issuesCount.className = 'badge ' + (persistent > 0 ? 'badge-error' : 'badge-info');
     }
     if (el.metricIssues) {
       el.metricIssues.textContent = active;
@@ -2909,7 +2978,7 @@
         <td class="mono" style="color:${i.severity === 'persistent' ? '#f85149' : '#d29922'};">${esc(fmtDuration(i.duration_sec))}</td>
         ${actionCell}
         <td class="mono" style="font-size:0.75rem;">${esc(getZoneName(i.zone))}</td>
-        <td style="color:#f85149;">${esc(i.target || '-')}</td>`;
+        <td style="color:#f85149;">${esc(i.target && i.bot && i.target === i.bot ? 'self' : (i.target || '-'))}</td>`;
       tr.querySelector('td[data-guid]').addEventListener('click', () => focusBot(i.guid));
       el.issuesTable.appendChild(tr);
     });
