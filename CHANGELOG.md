@@ -74,6 +74,14 @@
 - Hand-in travel now starts at 2 finished quests and runs until the log is clear, fixing the lopsided ~5-taken-per-1-handed-in ratio. [#324](https://github.com/Sagiroth/TortoiseBots/pull/324)
 - Random bots only — player-owned and alt bots are untouched. Toggle with `AiPlayerbot.BotQuestLogUpkeep` (default on). [#324](https://github.com/Sagiroth/TortoiseBots/pull/324)
 
+### Bot Travel & Stuck Handling
+- Move-stuck resets no longer wipe a bot's travel target. A stalled bot keeps its destination for up to 3 attempts without progress before the target is retired, instead of silently re-rolling and repeating the trip. [#326](https://github.com/Sagiroth/TortoiseBots/pull/326)
+- Kills the pathological loop that had one bot make 122 identical trainer trips in 30 minutes. Quest hand-in runs also stop dying to the same reset. [#326](https://github.com/Sagiroth/TortoiseBots/pull/326)
+- A destination that fails repeatedly now pauses only its own purpose for 5 minutes. Every other trip type stays available, so bots keep circulating instead of idling. [#326](https://github.com/Sagiroth/TortoiseBots/pull/326)
+
+### Starter Zones & World
+- Random bots now leave outgrown zones and capitals rather than piling up in starting areas and major cities. [#326](https://github.com/Sagiroth/TortoiseBots/pull/326)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
