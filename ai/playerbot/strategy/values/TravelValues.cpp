@@ -508,24 +508,44 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     // travel target is active (RequestTravelTargetAction::isUseful,
     // TravelActionMultiplier) - so a true value while traveling is harmless.
 
+    // Pending business first, everywhere: the 6.96 row sits above the Vendor
+    // (6.94)/Repair (6.93) rows, and request actions block each other via
+    // TRAVEL_STATUS_PREPARE, so an unguarded leave would march the bot off
+    // with full bags, broken gear, or finished quests in its log. Yield while
+    // any of those needs is true; the service/quest target is chosen first
+    // and leave re-fires after it clears. No starvation: at most one service
+    // cycle of delay. All four reads below are 2-tick cached AI values plus,
+    // for the quest scan, a bounded walk of the bot's own quest log -
+    // no world scan, no DB.
+    if (AI_VALUE(bool, "should sell") && (AI_VALUE(bool, "can sell") || AI_VALUE(bool, "can ah sell")))
+        return false;
+    if (AI_VALUE(bool, "should repair") && AI_VALUE(bool, "can repair"))
+        return false;
+    for (auto& [questId, questStatus] : bot->getQuestStatusMap())
+    {
+        if (questStatus.m_rewarded)
+            continue;
+        if (questStatus.m_status == QUEST_STATUS_COMPLETE)
+            return false;
+    }
+
     // Capitals are service stops, not places to stay: a level 10+ bot idling
     // in a capital with no pending capital service need should leave.
-    // Priority guard: the 6.96 row sits above AH (6.95)/Vendor (6.94)/Repair
-    // (6.93)/trainer-class (6.89)/trainer-mount (6.87)/mount (6.86), and
-    // request actions block each other via TRAVEL_STATUS_PREPARE, so an
-    // unguarded capital case would pre-empt a pending trainer/AH need and
-    // starve legit capital business. Yield while any capital service need is
-    // true; the service target is chosen first and leave re-fires after it
-    // clears. No starvation: at most one service cycle of delay.
+    // Same priority-guard reasoning as above, extended to the capital-only
+    // services (trainers, mount vendor, mailbox).
     if (WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL))
     {
         if (AI_VALUE2(bool, "should travel named", "trainer class"))
             return false;
         if (AI_VALUE2(bool, "should travel named", "trainer mount"))
             return false;
+        if (AI_VALUE2(bool, "should travel named", "trainer trade"))
+            return false;
         if (AI_VALUE2(bool, "should travel named", "mount"))
             return false;
         if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::AH)))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Mail)))
             return false;
         if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Vendor)))
             return false;

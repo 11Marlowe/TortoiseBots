@@ -61,6 +61,10 @@ namespace ai
 		bool IsInRaid() const { return groupSize > 5; }
 		bool IsInGroup() const { return groupSize > 1 && groupSize <= 5; }
 		uint32 GetMoney() const { return money; }
+		// Autonomous random bot with no real player in charge: the only kind
+		// the outgrown-zone rules may constrain. Owned/hired bots follow their
+		// player and must vendor/repair anywhere.
+		bool IsMasterlessRandom() const { return masterlessRandom; }
 
 		bool HasFocusQuest() const {return !focusList.empty();}
 		bool IsFocusQuest(uint32 questId) const { return focusList.find(questId) != focusList.end(); }
@@ -79,6 +83,7 @@ namespace ai
 		uint16 skillMax[MAX_SKILL_TYPE] = { 0 };
 		uint8 groupSize = 0;
 		uint32 money = 0;
+		bool masterlessRandom = false;
 
 		focusQuestTravelList focusList = {};
 
@@ -447,8 +452,8 @@ namespace ai
 		EntryDestinationMap GetExploreLocs() const { return destinationMap.at(TravelDestinationPurpose::Explore); };
 		DestinationList GetDestinations(const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None, const std::vector<int32>& entries = {}, bool onlyPossible = true, float maxDistance = 10000.0f) const;
 		void GetPartitionsLock(bool getLock = true);
-		static bool IsLocationLevelValid(const WorldPosition& position, const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None);
-		PartitionedTravelList GetPartitions(const WorldPosition& center, const std::vector<uint32>& distancePartitions, const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None, const std::vector<int32>& entries = {}, bool onlyPossible = true, float maxDistance = 10000.0f) const;
+		static bool IsLocationLevelValid(const WorldPosition& position, const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None, int32 grindZoneFloor = 0);
+		PartitionedTravelList GetPartitions(const WorldPosition& center, const std::vector<uint32>& distancePartitions, const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None, const std::vector<int32>& entries = {}, bool onlyPossible = true, float maxDistance = 10000.0f, int32 grindZoneFloor = 0) const;
 		static void ShuffleTravelPoints(std::vector<TravelPoint>& points);
 
 		void SetNullTravelTarget(TravelTarget* target) const;

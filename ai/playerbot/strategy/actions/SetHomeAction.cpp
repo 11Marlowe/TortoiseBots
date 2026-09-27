@@ -9,10 +9,21 @@ using namespace ai;
 // Binding at an inn the bot has outgrown re-anchors its hearth to a low-level
 // zone (same +10 rule as UnstuckAction's HearthLeadsSomewhereUseful). Refuse
 // such binds while the flag is on; unknown inn levels fail closed (allow).
+// Capitals are always allowed: they log as level 10 in ai_playerbot_zone_level,
+// so without this every 21+ bot could never bind in Stormwind/Orgrimmar/etc.
 static bool InnLeadsSomewhereUseful(PlayerbotAI* ai, Player* bot, uint32 innAreaId)
 {
     if (!sPlayerbotAIConfig.leaveOutgrownZones || ai->HasRealPlayerMaster())
         return true;
+
+    if (AreaTableEntry const* innArea = GetAreaEntryByAreaID(innAreaId))
+    {
+        if (innArea->ZoneId)
+            innArea = GetAreaEntryByAreaID(innArea->ZoneId);
+
+        if (innArea && innArea->Flags & AREA_FLAG_CAPITAL)
+            return true;
+    }
 
     int32 innLevel = 0;
     if (!sTravelMgr.TryGetValidatedAreaLevel(innAreaId, innLevel))

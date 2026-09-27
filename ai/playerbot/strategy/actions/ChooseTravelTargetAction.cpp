@@ -851,7 +851,23 @@ bool RequestTravelTargetAction::Execute(Event& event)
 
     ai->TellDebug(ai->GetMaster(), "Getting new destination ranges for " + TravelDestinationPurposeName.at(actionPurpose), "debug travel");
 
-    *AI_VALUE(FutureDestinations*, "future travel destinations") = std::async((sPlayerbotAIConfig.asyncTravelPartitions ? std::launch::async : std::launch::deferred), [partitions = travelPartitions, travelInfo = PlayerTravelInfo(bot), center, purpose = actionPurpose]() { return sTravelMgr.GetPartitions(center, partitions, travelInfo, (uint32)purpose); });
+    // Leave-rule Grind must land outside the outgrown zone: the mob-level gate
+    // below still accepts top-tier mobs of the current zone, so a bot ordered
+    // to leave would re-pick a local mob and grind in place forever. Raise the
+    // zone floor to the outgrown definition (area level + 5 >= bot level) for
+    // this request only; ordinary Grind keeps its wider window.
+    bool const leavingOutgrown = event.GetSource() == "should leave outgrown zone";
+    int32 outgrownFloor = 0;
+    if (leavingOutgrown && actionPurpose == TravelDestinationPurpose::Grind)
+    {
+        AreaTableEntry const* botArea = WorldPosition(bot).GetArea();
+        uint32 botZoneId = botArea ? (botArea->ZoneId ? botArea->ZoneId : botArea->Id) : sServerFacade.GetAreaId(bot);
+        int32 botAreaLevel = 0;
+        if (sTravelMgr.TryGetValidatedAreaLevel(botZoneId, botAreaLevel) && botAreaLevel > 0)
+            outgrownFloor = botAreaLevel + 5;
+    }
+
+    *AI_VALUE(FutureDestinations*, "future travel destinations") = std::async((sPlayerbotAIConfig.asyncTravelPartitions ? std::launch::async : std::launch::deferred), [partitions = travelPartitions, travelInfo = PlayerTravelInfo(bot), center, purpose = actionPurpose, outgrownFloor]() { return sTravelMgr.GetPartitions(center, partitions, travelInfo, (uint32)purpose, {}, true, 10000.0f, outgrownFloor); });
 
     AI_VALUE(TravelTarget*, "travel target")->SetStatus(TravelStatus::TRAVEL_STATUS_PREPARE);
     SET_AI_VALUE2(std::string, "manual string", "future travel purpose", getQualifier());
