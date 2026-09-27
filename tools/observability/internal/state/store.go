@@ -199,9 +199,19 @@ func (s *Store) ApplyBatch(b *model.BotBatchPayload) bool {
 	return true
 }
 
-// AddAnomaly stores an anomaly and returns the persisted record. Anomaly types
-// that represent sustained problems also open/refresh an issue episode.
+// AddAnomaly stores an anomaly and returns the persisted record. Sustained
+// problems also open/refresh an issue episode. STUCK is counter-only: the
+// tracker never opens an episode for it, and it is not buffered as an
+// incident row — the 60 s STUCK issue episode is the surfaced signal.
 func (s *Store) AddAnomaly(a model.AnomalyPayload) model.AnomalyPayload {
+	if a.Type == "STUCK" {
+		s.mu.Lock()
+		now := s.now()
+		s.mu.Unlock()
+		s.issues.TouchAnomaly(a, now)
+		a.ReceivedAt = now
+		return a
+	}
 	saved := s.anomalies.Add(a)
 
 	s.mu.Lock()
@@ -355,6 +365,7 @@ func (s *Store) beginSessionLocked(session uint64) {
 	s.heartbeatAt = time.Time{}
 	s.lastSnapshotAt = time.Time{}
 	s.issues.Reset()
+	s.issues.NoteSessionChange(s.now())
 }
 
 func (s *Store) prunePendingLocked(now time.Time) {

@@ -11,32 +11,32 @@ Rules that keep its state honest:
 - Anomaly types are a closed set (`model.AcceptedAnomalyTypes`) so Prometheus label cardinality stays bounded.
 - Bump `kProtocolVersion` in `ObservabilityEmitter.cpp` and `model.ProtocolVersion` in `internal/model/types.go` together.
 
-## Telemetry surface (protocol v4)
+## Telemetry surface (protocol v5)
 
 Each `BOT_BATCH` bot entry carries: `name, guid, class, role, level, hp/max_hp, power/max_power, power_type, map, zone, x/y/z/o, target, strategy, state, last_action, last_trigger`.
 
 - `power_type` is the current resource (`mana`, `rage`, `energy`, `focus`, `happiness`); druids reflect their active form. Label bars by it, never hardcode "mana".
 - `last_action`/`last_trigger` feed repeated-action detection; they are sampled per 2s snapshot, not per execution.
-- Anomalies carry `guid` so the daemon can key episodes; accepted types are `BOT_STUCK`, `ACTION_LOOP`, `UNREACHABLE_TARGET`, `BOT_DEATH`.
+- Anomalies carry `guid` so the daemon can key episodes; accepted types are `STUCK`, `ACTION_LOOP`, `UNREACHABLE_TARGET`, `BOT_DEATH`.
+- `STUCK` and `ACTION_LOOP` are counter-only (`tortoisebots_anomalies_total`): `STUCK` never enters the Incidents ring buffer (the 60 s `STUCK` issue episode is the surfaced signal) and `ACTION_LOOP` never opens an issue episode (cooldown-gated to one event/30 s, so it almost never reaches a surface gate).
 - `BOT_DEATH` is emitted from `PlayerbotAI::OnDeath` (target/zone/position/level).
 - Anomaly emitters that can persist (`UNREACHABLE_TARGET`) re-report every cooldown window so the daemon has a liveness signal; do not make them fire-once.
-
-## Armory stats
-
-Online bots never log out, so the core `character_stats`/`character_armory_stats` tables stay empty for them. On each snapshot the emitter also writes the exact live `Player` stats of 10 bots (round-robin, ~100 s for 500) to `tortoise_bots_armory_stats` (enchants, talents, buffs included; rage in display units). The armory reads that table first (`stats.source = "module_stats"`), then the core tables, then an approximate rebuild from base values and item stats (`"live"`). Pool reset deletes the rows with the characters.
+- `humans` counts live network-transport sessions with an in-world player (`World::GetAllSessions` + `HasNetworkTransport`). Headless bot sessions never enter the network map, so the old `sessions - bots` math is gone.
 
 ## Issue episodes (`internal/state` issue tracker)
 
 Persistent problems are tracked as open/closed episodes per bot, surfaced in the dashboard Issues tab, map glow, roster badge, and `/api/v1/issues`.
 
 - Snapshot-derived: `STUCK` (moving state but position frozen >= 60s), `DEAD_LONG` (dead >= 2 min).
-- Anomaly-derived: `ACTION_LOOP`, `UNREACHABLE_TARGET` (refreshed by the emitter, expire after a 2 min TTL, or close early when a snapshot contradicts them).
-- **Minimum age**: only episodes that persist `ISSUE_MIN_AGE_SEC` (default 300s) are shown; shorter ones are discarded entirely. This is the guard against transient false positives — keep new detectors behind it.
-- Severity escalates `watch` (>= 1 min) -> `persistent` (>= 10 min).
+- Anomaly-derived: `UNREACHABLE_TARGET` only (refreshed by the emitter, expires after a 2 min TTL, or closes early when a snapshot contradicts it).
+- **Minimum age**: only episodes that persist past their gate are shown (`ISSUE_MIN_AGE_SEC`, default 300s); shorter ones are discarded entirely. `UNREACHABLE_TARGET` carries its own 2 min lower gate — it can only shorten the configured minimum age, never lengthen it — because the snapshot contradiction bounds its false-positive risk. This is the guard against transient false positives — keep new detectors behind it.
+- **Post-restart blackout**: no `DEAD_LONG` episode opens in the first 5 min after a game-server session change; the timer slides through the blackout so per-bot rows start timing only after it.
+- Severity escalates `watch` -> `persistent` (>= 10 min).
 - Resolved history survives a game-server restart (`Reset()` clears open episodes only); it is in-memory and bounded, so a daemon restart clears it.
-- Metrics: `tortoisebots_issues_active{type}`; anomalies counted by type (including `BOT_DEATH`).
+- Metrics: `tortoisebots_issues_active{type}`; anomalies counted by type (including `BOT_DEATH`, counter-only `STUCK`/`ACTION_LOOP`).
+- Incidents (`/api/v1/anomalies`) is a rolling last-1000-event window (~30 min at busy rates), not history; severity filters match case-insensitively.
 
-Dashboard UI: Bots roster supports status/class/role filters, "issues only", sortable columns, and a power bar; the Issues tab filters by type and minimum duration and highlights issue bots on the map.
+Dashboard UI: the Issues tab defaults to the ≥10 min (persistent) duration filter, hides the trigger column for anomaly rows (always empty — details carry the emitter text), and the resolved card shows "shown/total". The armory shows max-only power (no live current value exists) and the live telemetry zone for online bots.
 
 ## Validation
 

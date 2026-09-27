@@ -421,7 +421,7 @@
         <div style="margin-bottom: 20px;">
           <h1 class="tab-section-heading" style="font-size: 1.5rem; font-weight: 700; color: #fff; margin-bottom: 4px;">Persistent Issues</h1>
           <p style="color: var(--text-muted); font-size: 0.85rem;">
-            Only problems that persist <strong>5+ minutes</strong> are shown, so short hiccups are ignored. Red = 10+ minutes. Click a bot to jump to its map.
+            Only problems that persist are shown — unreachable targets 2+ minutes, everything else 5+ minutes — so short hiccups are ignored. Red = 10+ minutes. Click a bot to jump to its map.
           </p>
         </div>
 
@@ -455,13 +455,12 @@
                 <option value="all">All Types</option>
                 <option value="STUCK">Stuck</option>
                 <option value="DEAD_LONG">Dead (long)</option>
-                <option value="ACTION_LOOP">Action Loop</option>
                 <option value="UNREACHABLE_TARGET">Unreachable</option>
               </select>
               <select id="issue-duration-filter" class="btn" style="padding: 6px 12px;">
                 <option value="0">Any duration</option>
                 <option value="300">≥ 5 min</option>
-                <option value="600">≥ 10 min</option>
+                <option value="600" selected>≥ 10 min</option>
                 <option value="1800">≥ 30 min</option>
               </select>
             </div>
@@ -471,11 +470,11 @@
               <thead>
                 <tr>
                   <th>Bot</th><th>Class</th><th>Type</th><th>Duration</th>
-                  <th>Last Action</th><th>Trigger</th><th>Zone</th><th>Target</th>
+                  <th>Last Action</th><th>Zone</th><th>Target</th>
                 </tr>
               </thead>
               <tbody id="issues-table-body">
-                <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No active issues.</td></tr>
+                <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">No active issues.</td></tr>
               </tbody>
             </table>
           </div>
@@ -491,11 +490,14 @@
       <section id="tab-incidents" class="tab-view" style="display: none;">
         <div class="telemetry-card">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px;">
-            <h2 style="font-size: 1.15rem; font-weight: 700; color: #fff;">Incidents & Anomalies</h2>
+            <div>
+              <h2 style="font-size: 1.15rem; font-weight: 700; color: #fff;">Incidents & Anomalies</h2>
+              <p style="color: var(--text-muted); font-size: 0.8rem; margin: 4px 0 0;">Rolling window: the last 1000 events (~30 min at busy rates). A daemon restart clears it; "Deaths (session)" is this browser tab only.</p>
+            </div>
             <div style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
               <select id="anomaly-type-filter" class="btn" style="padding: 6px 12px;">
                 <option value="all">All Types</option>
-                <option value="BOT_STUCK">BOT_STUCK</option>
+                <option value="STUCK">STUCK</option>
                 <option value="ACTION_LOOP">ACTION_LOOP</option>
                 <option value="UNREACHABLE_TARGET">UNREACHABLE_TARGET</option>
                 <option value="BOT_DEATH">BOT_DEATH</option>

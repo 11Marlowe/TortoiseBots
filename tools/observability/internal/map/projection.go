@@ -39,6 +39,9 @@ func New(jsonData []byte) (*Engine, error) {
 }
 
 // Project converts world coords (x, y) for a given mapID and zoneID into map percentages (0%..100%).
+// Output is clamped to the box: a bot standing outside its zone's DBC rect
+// (e.g. Orgrimmar while mapped to the Barrens box) otherwise renders as an
+// off-canvas dot with a negative percentage.
 func (e *Engine) Project(mapID, zoneID uint32, x, y float64) (pctX, pctY float64, ok bool) {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
@@ -59,6 +62,8 @@ func (e *Engine) Project(mapID, zoneID uint32, x, y float64) (pctX, pctY float64
 	// pctY = ((locTop - X) / (locTop - locBottom)) * 100%
 	pctX = ((box.LocLeft - y) / (box.LocLeft - box.LocRight)) * 100.0
 	pctY = ((box.LocTop - x) / (box.LocTop - box.LocBottom)) * 100.0
+	pctX = min(max(pctX, 0), 100)
+	pctY = min(max(pctY, 0), 100)
 
 	return pctX, pctY, true
 }

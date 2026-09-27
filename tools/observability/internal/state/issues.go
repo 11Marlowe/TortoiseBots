@@ -10,15 +10,22 @@ import (
 )
 
 // Episode thresholds. Snapshot-derived conditions (stuck, dead) are detected
-// here; anomaly-derived ones (action loop, unreachable) are refreshed by the
-// emitter and expire if it stops reporting.
+// here; the anomaly-derived UNREACHABLE_TARGET is refreshed by the emitter
+// and expires if it stops reporting.
 const (
-	issueWatchAfter      = 60 * time.Second
 	issuePersistentAfter = 10 * time.Minute
 	issueStuckAfter      = 60 * time.Second
 	issueDeadAfter       = 2 * time.Minute
-	issueAnomalyTTL     = 2 * time.Minute
-	issueResolvedMax    = 200
+	issueAnomalyTTL      = 2 * time.Minute
+	issueResolvedMax     = 200
+	// issueUnreachableMinAge is the per-type surface gate for
+	// UNREACHABLE_TARGET. It is snapshot-contradicted, so a shorter gate is
+	// safe and surfaces real 2-5 min unreachables the global gate hid.
+	issueUnreachableMinAge = 2 * time.Minute
+	// deadSuppressAfter skips opening DEAD_LONG episodes right after a
+	// game-server restart: every pre-restart corpse reappears at once and
+	// would otherwise flood the tab with one backdated wave.
+	deadSuppressAfter = 5 * time.Minute
 	// DefaultIssueMinAge is how long a problem must persist before it is shown.
 	// Internal tracking starts immediately; shorter episodes are discarded.
 	DefaultIssueMinAge = 5 * time.Minute
@@ -51,6 +58,9 @@ type issueTracker struct {
 	active    map[issueKey]*activeIssue
 	detectors map[uint32]*botDetector
 	resolved  []model.Issue
+	// suppressDeadUntil ends the post-restart DEAD_LONG blackout. Set by
+	// NoteSessionChange; zero means no suppression.
+	suppressDeadUntil time.Time
 }
 
 func newIssueTracker(minAge time.Duration) *issueTracker {
@@ -71,13 +81,27 @@ func issueSeverity(d time.Duration) string {
 	return "watch"
 }
 
+// minAgeFor returns how long an episode must last before it is surfaced or
+// archived. UNREACHABLE_TARGET carries its own lower gate: it can only
+// shorten the configured minimum age, never lengthen it (so a zero test
+// config still surfaces immediately while production uses 2 min).
+func (t *issueTracker) minAgeFor(typ string) time.Duration {
+	if typ == "UNREACHABLE_TARGET" && t.minAge > issueUnreachableMinAge {
+		return issueUnreachableMinAge
+	}
+	return t.minAge
+}
+
+// NoteSessionChange starts the post-restart DEAD_LONG blackout at now.
+func (t *issueTracker) NoteSessionChange(now time.Time) {
+	t.suppressDeadUntil = now.Add(deadSuppressAfter)
+}
+
 // contradicts reports whether the live snapshot shows the issue condition is
 // no longer true, so stale episodes close before their TTL.
 //
-// ACTION_LOOP is left to the emitter's own re-emission plus the TTL: a bot can
-// fail one action while executing others, so the last action is not a reliable
-// "loop ended" signal. UNREACHABLE_TARGET is snapshot-confirmable: it persists
-// only while the bot is still in combat with the same target.
+// UNREACHABLE_TARGET is snapshot-confirmable: it persists only while the bot
+// is still in combat with the same target.
 func contradicts(typ string, issue model.Issue, b model.BotSnapshot) bool {
 	if typ != "UNREACHABLE_TARGET" {
 		return false
@@ -139,11 +163,16 @@ func (t *issueTracker) Observe(bots []model.BotSnapshot, now time.Time) {
 		}
 
 		// Dead long enough to be a problem rather than a normal corpse run.
+		// Right after a server restart every corpse reappears at once; slide
+		// the timer through the blackout so episodes start timing only after
+		// it instead of opening backdated.
 		if b.State == "dead" {
 			if d.deadSince.IsZero() {
 				d.deadSince = now
 			}
-			if now.Sub(d.deadSince) >= issueDeadAfter {
+			if now.Before(t.suppressDeadUntil) {
+				d.deadSince = now
+			} else if now.Sub(d.deadSince) >= issueDeadAfter {
 				present[issueKey{b.GUID, "DEAD_LONG"}] = cond{start: d.deadSince}
 			}
 		} else {
@@ -203,16 +232,17 @@ func (t *issueTracker) Observe(bots []model.BotSnapshot, now time.Time) {
 	}
 }
 
-// TouchAnomaly opens or refreshes an episode for anomaly types that cannot be
-// derived from a snapshot.
+// TouchAnomaly opens or refreshes an episode for the anomaly type that cannot
+// be derived from a snapshot. ACTION_LOOP is counter-only
+// (tortoisebots_anomalies_total): the emitter cooldown-gates it to one event
+// per 30 s, so it almost never reaches any surface gate; STUCK and BOT_DEATH
+// never open episodes either (STUCK has its own 60 s snapshot rule, deaths
+// are folded into DEAD_LONG).
 func (t *issueTracker) TouchAnomaly(a model.AnomalyPayload, now time.Time) {
-	var typ string
-	switch a.Type {
-	case "ACTION_LOOP", "UNREACHABLE_TARGET":
-		typ = a.Type
-	default:
+	if a.Type != "UNREACHABLE_TARGET" {
 		return
 	}
+	typ := a.Type
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -233,12 +263,12 @@ func (t *issueTracker) TouchAnomaly(a model.AnomalyPayload, now time.Time) {
 	}
 }
 
-// closeLocked ends an episode. Episodes that never reached the minimum age are
-// dropped entirely: a brief hiccup is not an incident worth surfacing.
+// closeLocked ends an episode. Episodes that never reached their minimum age
+// are dropped entirely: a brief hiccup is not an incident worth surfacing.
 func (t *issueTracker) closeLocked(key issueKey, ai *activeIssue, now time.Time) {
 	duration := now.Sub(ai.startedAt)
 	delete(t.active, key)
-	if duration < t.minAge {
+	if duration < t.minAgeFor(key.typ) {
 		return
 	}
 	issue := ai.issue
@@ -251,7 +281,7 @@ func (t *issueTracker) closeLocked(key issueKey, ai *activeIssue, now time.Time)
 }
 
 // Snapshot returns active issues (longest first), recently resolved ones
-// (newest first), and per-type active counts. Only episodes older than the
+// (newest first), and per-type active counts. Only episodes older than their
 // minimum age are surfaced.
 func (t *issueTracker) Snapshot() model.IssueSnapshot {
 	t.mu.Lock()
@@ -260,7 +290,7 @@ func (t *issueTracker) Snapshot() model.IssueSnapshot {
 	active := make([]model.Issue, 0, len(t.active))
 	counts := make(map[string]int)
 	for key, ai := range t.active {
-		if ai.issue.DurationSec < t.minAge.Seconds() {
+		if ai.issue.DurationSec < t.minAgeFor(key.typ).Seconds() {
 			continue
 		}
 		active = append(active, ai.issue)
