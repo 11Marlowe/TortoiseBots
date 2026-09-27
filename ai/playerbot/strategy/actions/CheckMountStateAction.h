@@ -46,4 +46,5 @@ namespace ai
         float MountBreakEvenDistance() const;
         bool Mount(Player* requester, bool limitSpeedToGroup = false);
         bool UnMount() const;
+    };
 }
