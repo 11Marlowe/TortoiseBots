@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "AcceptQuestAction.h"
+#include "playerbot/strategy/values/ItemUsageValue.h"
 
 using namespace ai;
 
