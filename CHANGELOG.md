@@ -56,6 +56,13 @@
 - Fixed bots being listed as their own target in the bot list. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
 - The map zone list retains custom zones, so filtering no longer ejects you from the zone you're viewing; the world view is now labelled as a single continent. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
 
+### Mounts & Riding
+- Random bots between levels 18–39 now get the Swift Riding Turtle (Torta's Egg reward) at creation and on dinging 18 — hired companions from the pool only, never a player's own alts. Tune with `AiPlayerbot.TurtleMountAtLevel` (default 18, `0` disables). [#323](https://github.com/Sagiroth/TortoiseBots/pull/323)
+- Mount speed now mirrors Turtle's riding-skill rules instead of a flat bonus — no skill: level/2%, 75: 60%, 150: 100%. The turtle finally counts as a real mount, skills the core would force-unmount on are rejected as unusable, and level 60 bots with riding 150 ride at full 100%. [#323](https://github.com/Sagiroth/TortoiseBots/pull/323)
+
+### Docs & Tooling
+- Maintenance-only PRs no longer clutter the release notes; hidden comments keep their numbers in the file so the generator won't re-add them. `CHANGELOG.md` only. [#322](https://github.com/Sagiroth/TortoiseBots/pull/322)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
