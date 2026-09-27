@@ -25,6 +25,9 @@
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 #include "../ai/playerbot/strategy/values/RtiTargetValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
+#include "../ai/playerbot/strategy/values/ItemUsageValue.h"
+#include "../ai/playerbot/strategy/actions/EquipAction.h"
+#include "../ai/playerbot/strategy/actions/UnequipAction.h"
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Chat.h"
@@ -561,6 +564,18 @@ static bool HandleNamedAction(ChatHandler* handler, char const* args, char const
     return true;
 }
 
+// `.bot action flee` parks bots in passive follow; an explicit tactical order
+// is the owner calling them back into the fight.
+static void EndFlee(PlayerbotAI* ai)
+{
+    if (!ai)
+        return;
+    if (ai->HasStrategy("passive", BotState::BOT_STATE_NON_COMBAT))
+        ai->ChangeStrategy("-passive", BotState::BOT_STATE_NON_COMBAT);
+    if (ai->HasStrategy("passive", BotState::BOT_STATE_COMBAT))
+        ai->ChangeStrategy("-passive", BotState::BOT_STATE_COMBAT);
+}
+
 // Tactical requests must be able to leave a prior stay/follow hold. The
 // movement and combat behavior itself remains owned by PlayerbotAI.
 static void RelaxTacticalMovement(PlayerbotAI* ai)
@@ -574,6 +589,7 @@ static void RelaxTacticalMovement(PlayerbotAI* ai)
     ai->ChangeStrategy("-stay", BotState::BOT_STATE_REACTION);
     ai->ChangeStrategy("-stay", BotState::BOT_STATE_NON_COMBAT);
     ai->ChangeStrategy("-stay,-follow", BotState::BOT_STATE_COMBAT);
+    EndFlee(ai);
 }
 
 static bool BindMovementMaster(Player* requester, Player* bot)
@@ -1805,6 +1821,51 @@ static char const* AddonCommandChannel(Player* requester)
     return "party";
 }
 
+// Per-bot behaviour toggles the TBM bot panel exposes. Each key maps to one
+// mature strategy on one engine; nothing outside this list is reachable from
+// `.bot behavior`, so the addon cannot be used as a generic strategy editor.
+struct BehaviorToggle
+{
+    char const* key;
+    char const* strategy;
+    BotState state;
+};
+
+static BehaviorToggle const BehaviorToggles[] = {
+    { "loot",     "loot",          BotState::BOT_STATE_NON_COMBAT },
+    { "aoe",      "dps aoe",       BotState::BOT_STATE_COMBAT },
+    { "autocc",   "auto cc",       BotState::BOT_STATE_COMBAT },
+    { "savemana", "conserve mana", BotState::BOT_STATE_COMBAT },
+    { "boost",    "boost",         BotState::BOT_STATE_COMBAT },
+    { "threat",   "threat",        BotState::BOT_STATE_COMBAT },
+    { "potions",  "potions",       BotState::BOT_STATE_REACTION },
+};
+
+static BehaviorToggle const* FindBehaviorToggle(std::string const& key)
+{
+    for (BehaviorToggle const& toggle : BehaviorToggles)
+        if (key == toggle.key)
+            return &toggle;
+    return nullptr;
+}
+
+// "TBM:BOTSTATE|<name>|move=follow,loot=on,..." - one line per live bot.
+// Flee parks a bot in passive follow, reported as its own movement mode so
+// the addon can show that the bot is holding off until the next order.
+static void SendBotStateLine(ChatHandler* handler, Player* bot)
+{
+    PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
+    if (!handler || !ai)
+        return;
+    std::string movement = MovementName(ai);
+    if (ai->HasStrategy("passive", BotState::BOT_STATE_NON_COMBAT))
+        movement = "flee";
+    std::string fields = "move=" + movement;
+    for (BehaviorToggle const& toggle : BehaviorToggles)
+        fields += std::string(",") + toggle.key + "=" + (ai->HasStrategy(toggle.strategy, toggle.state) ? "on" : "off");
+    handler->PSendSysMessage("TBM:BOTSTATE|%s|%s", ProtocolSafe(bot->GetName()).c_str(), fields.c_str());
+}
+
 static bool HandleRoster(ChatHandler* handler)
 {
     Player* requester = Requester(handler);
@@ -1886,12 +1947,27 @@ static bool HandleRoster(ChatHandler* handler)
         handler->PSendSysMessage("TBM:CC_ASSIGN|%s|%s", ProtocolSafe(assignment.first).c_str(),
             ProtocolSafe(assignment.second).c_str());
     handler->PSendSysMessage("TBM:CC_ASSIGN_END");
+    // Live behaviour snapshot for the controllable party bots (owned alts
+    // and hired companions alike): drives the addon's toggle states and the
+    // Party tab movement label. BEGIN/END replace the addon's whole set.
+    // The addon drops a snapshot whose row count differs from BEGIN, so
+    // count only the bots that will actually produce a line.
+    std::vector<Player*> stateBots;
+    for (Player* bot : BuildContext(requester).partyBots)
+        if (PlayerbotAIStorage::Instance().GetAI(bot))
+            stateBots.push_back(bot);
+    handler->PSendSysMessage("TBM:BOTSTATE_BEGIN|%u", static_cast<uint32>(stateBots.size()));
+    for (Player* bot : stateBots)
+        SendBotStateLine(handler, bot);
+    handler->PSendSysMessage("TBM:BOTSTATE_END");
     // Version trailer: the addon shows "server <version>" from this line and
     // falls back to "server ?" when an older module never sends it.
     handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
-    // Capability trailer: advertises adjustable pull/pullback delays
-    // (".bot action pull [seconds]", 0-60). Old addons ignore unknown lines.
-    handler->PSendSysMessage("TBM:CAPS|pull-seconds");
+    // Capability trailer: pull-seconds = adjustable pull/pullback delays
+    // (".bot action pull [seconds]", 0-60); flee = ".bot action flee";
+    // inventory = ".bot inv" / ".bot item"; behavior = ".bot behavior" and the
+    // BOTSTATE snapshot. Old addons ignore unknown lines and items.
+    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior");
     // Transport trailer: the addon sends its next commands over the addon
     // channel only while this says "party". See AddonCommandChannel.
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));
@@ -1919,6 +1995,328 @@ static bool HandleLogout(ChatHandler* handler, char const* args)
 
     // Remove/logout deliberately leaves tortoise_bots_owned_character intact.
     handler->PSendSysMessage("Bot %s logout requested; durable ownership was retained.", name.c_str());
+    return true;
+}
+
+// ── TBM bot panel: inventory snapshot, item orders, behaviour toggles ──────
+// The panel addresses items by the server's own bag/slot pair, so an order
+// always lands on the exact item the player clicked - never on "the first
+// item with this name" like the whisper grammar.
+
+// Mirrors WorldSession::HandleSetTradeItemOpcode, which cancels the whole
+// trade on a refused item: only offer items the core will accept.
+static bool CanTradeItemTo(Player* bot, Item* item, Player* requester)
+{
+    if (!bot || !item || !requester || !item->CanBeTraded())
+        return false;
+    if (item->IsSoulBound())
+        return bot->GetMapId() == item->GetOriginMapId() &&
+            bot->GetGroup() == requester->GetGroup() &&
+            item->CanTradeSoulBoundToPlayer(requester->GetObjectGuid());
+    return true;
+}
+
+// Flags: e = the bot can equip it, u = the mature item-usage value calls it
+// an upgrade, b = it cannot be traded to the requester right now.
+static std::string InventoryItemFlags(PlayerbotAI* ai, Player* bot, Player* requester, Item* item)
+{
+    std::string flags;
+    ItemPrototype const* proto = item->GetProto();
+    if (proto && proto->InventoryType != INVTYPE_NON_EQUIP && bot->CanUseItem(proto) == EQUIP_ERR_OK)
+    {
+        flags += 'e';
+        ai::ItemUsage usage = ai->GetAiObjectContext()->GetValue<ai::ItemUsage>("item usage",
+            ai::ItemQualifier(item).GetQualifier())->Get();
+        if (usage == ai::ItemUsage::ITEM_USAGE_EQUIP)
+            flags += 'u';
+    }
+    if (!CanTradeItemTo(bot, item, requester))
+        flags += 'b';
+    return flags.empty() ? "-" : flags;
+}
+
+// TBM:INV_BEGIN|<bot>|<copper>
+// TBM:INV_EQ|<slot>|<itemId>|<durability>|<maxDurability>
+// TBM:INV_ITEM|<bag>|<slot>|<itemId>|<count>|<flags>
+// TBM:INV_END|<bot>|<freeSlots>|<totalSlots>
+static void SendInventorySnapshot(ChatHandler* handler, Player* bot, Player* requester)
+{
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!handler || !bot || !ai)
+        return;
+    std::string const name = ProtocolSafe(bot->GetName());
+    handler->PSendSysMessage("TBM:INV_BEGIN|%s|%u", name.c_str(), bot->GetMoney());
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (!item)
+            continue;
+        handler->PSendSysMessage("TBM:INV_EQ|%u|%u|%u|%u", static_cast<uint32>(slot), item->GetEntry(),
+            item->GetUInt32Value(ITEM_FIELD_DURABILITY), item->GetUInt32Value(ITEM_FIELD_MAXDURABILITY));
+    }
+
+    uint32 freeSlots = 0;
+    uint32 totalSlots = 0;
+    auto emit = [&](uint8 bag, uint8 slot, Item* item)
+    {
+        ++totalSlots;
+        if (!item)
+        {
+            ++freeSlots;
+            return;
+        }
+        handler->PSendSysMessage("TBM:INV_ITEM|%u|%u|%u|%u|%s", static_cast<uint32>(bag),
+            static_cast<uint32>(slot), item->GetEntry(), item->GetCount(),
+            InventoryItemFlags(ai, bot, requester, item).c_str());
+    };
+    for (uint8 slot = INVENTORY_SLOT_ITEM_START; slot < INVENTORY_SLOT_ITEM_END; ++slot)
+        emit(INVENTORY_SLOT_BAG_0, slot, bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot));
+    for (uint8 bagSlot = INVENTORY_SLOT_BAG_START; bagSlot < INVENTORY_SLOT_BAG_END; ++bagSlot)
+    {
+        Bag* bag = (Bag*)bot->GetItemByPos(INVENTORY_SLOT_BAG_0, bagSlot);
+        if (!bag)
+            continue;
+        for (uint32 slot = 0; slot < bag->GetBagSize(); ++slot)
+            emit(bagSlot, static_cast<uint8>(slot), bag->GetItemByPos(static_cast<uint8>(slot)));
+    }
+    handler->PSendSysMessage("TBM:INV_END|%s|%u|%u", name.c_str(), freeSlots, totalSlots);
+}
+
+static bool HandleInventory(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    Player* bot = nullptr;
+    BotRecord* record = nullptr;
+    std::string name;
+    if (!requester || !ResolveOwnedBot(handler, args, bot, record, name) ||
+        !PlayerbotAIStorage::Instance().GetAI(bot))
+    {
+        SendActionError(handler, "inv", "no-bot", "Usage: .bot inv <online bot you control>");
+        return true;
+    }
+    SendInventorySnapshot(handler, bot, requester);
+    return true;
+}
+
+// Opens a trade window between the bot and the requester. The core creates
+// both trade records immediately; the requester's client opens its window
+// when TRADE_STATUS_BEGIN_TRADE arrives.
+static bool OpenTradeWith(Player* bot, Player* requester)
+{
+    if (bot->GetTrader() == requester)
+        return true;
+    if (bot->GetTrader() || requester->GetTrader())
+        return false;
+    WorldPacket packet(CMSG_INITIATE_TRADE, 8);
+    packet << requester->GetObjectGuid();
+    bot->GetSession()->HandleInitiateTradeOpcode(packet);
+    return bot->GetTrader() == requester;
+}
+
+// .bot item <bot> trade
+// .bot item <bot> equip|unequip|give <bag> <slot>
+// Every reply is one TBM:ACTION_ACK / TBM:ACTION_ERR with intent "item <op>";
+// equip and unequip follow it with a fresh inventory snapshot.
+static bool HandleItem(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    std::istringstream input(Trim(args ? args : ""));
+    std::string botName;
+    std::string op;
+    input >> botName >> op;
+    for (char& c : op)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string const intent = "item " + (op.empty() ? std::string("?") : op);
+    if (op != "trade" && op != "equip" && op != "unequip" && op != "give")
+    {
+        SendActionError(handler, intent, "invalid", "Usage: .bot item <bot> trade | equip/unequip/give <bag> <slot>");
+        return true;
+    }
+
+    Player* bot = nullptr;
+    BotRecord* record = nullptr;
+    std::string name;
+    PlayerbotAI* ai = nullptr;
+    if (!requester || !ResolveOwnedBot(handler, botName.c_str(), bot, record, name) ||
+        !(ai = PlayerbotAIStorage::Instance().GetAI(bot)))
+    {
+        SendActionError(handler, intent, "no-bot", "Unknown or uncontrollable bot name.");
+        return true;
+    }
+    std::string const scope = "bot:" + std::string(bot->GetName());
+    if (!bot->IsAlive())
+    {
+        SendActionError(handler, intent, "dead", "The bot must be alive.");
+        return true;
+    }
+
+    if (op == "trade")
+    {
+        if (!OpenTradeWith(bot, requester))
+        {
+            SendActionError(handler, intent, "busy", "Trade could not be opened (busy, too far, or in combat).");
+            return true;
+        }
+        SendActionAck(handler, intent, scope, 1, "open");
+        return true;
+    }
+
+    uint32 bag = 0;
+    uint32 slot = 0;
+    if (!(input >> bag >> slot) || bag > 255 || slot > 255)
+    {
+        SendActionError(handler, intent, "invalid", "Missing bag and slot.");
+        return true;
+    }
+    // Carried items only: equipment, backpack and equipped bags. Bank slots
+    // share bag 255 with the backpack and must never be reachable from here.
+    bool const equipped = Player::IsEquipmentPos(static_cast<uint8>(bag), static_cast<uint8>(slot));
+    if (!equipped && !Player::IsInventoryPos(static_cast<uint8>(bag), static_cast<uint8>(slot)))
+    {
+        SendActionError(handler, intent, "invalid", "Only carried items can be ordered.");
+        return true;
+    }
+    Item* item = bot->GetItemByPos(static_cast<uint8>(bag), static_cast<uint8>(slot));
+    if (!item || !item->GetProto())
+    {
+        SendActionError(handler, intent, "no-item", "That item is no longer there; refresh the bag view.");
+        SendInventorySnapshot(handler, bot, requester);
+        return true;
+    }
+    uint32 const itemId = item->GetEntry();
+
+    if (op == "equip")
+    {
+        ItemPrototype const* proto = item->GetProto();
+        if (equipped || proto->InventoryType == INVTYPE_NON_EQUIP || bot->CanUseItem(proto) != EQUIP_ERR_OK)
+        {
+            SendActionError(handler, intent, "cannot-equip", "The bot cannot equip this item.");
+            return true;
+        }
+        ai::EquipAction::EquipItem(ai, requester, item, true);
+        // Equip and bag slots all sit below the backpack range; ammo stays in
+        // the bag and is equipped through the ammo field instead.
+        bool const done = proto->InventoryType == INVTYPE_AMMO
+            ? bot->GetUInt32Value(PLAYER_AMMO_ID) == itemId
+            : item->GetBagSlot() == INVENTORY_SLOT_BAG_0 && item->GetSlot() < INVENTORY_SLOT_ITEM_START;
+        if (!done)
+            SendActionError(handler, intent, "failed", "The equip was refused (combat, level, or skill).");
+        else
+            SendActionAck(handler, intent, scope, 1, std::to_string(itemId));
+        SendInventorySnapshot(handler, bot, requester);
+        return true;
+    }
+
+    if (op == "unequip")
+    {
+        if (!equipped)
+        {
+            SendActionError(handler, intent, "not-equipped", "That item is not equipped.");
+            return true;
+        }
+        ai::UnequipAction::UnequipItem(ai, requester, item, true);
+        if (bot->GetItemByPos(static_cast<uint8>(bag), static_cast<uint8>(slot)) == item)
+            SendActionError(handler, intent, "failed", "No free bag space, or the item cannot be removed now.");
+        else
+            SendActionAck(handler, intent, scope, 1, std::to_string(itemId));
+        SendInventorySnapshot(handler, bot, requester);
+        return true;
+    }
+
+    // give: put the item into a trade window with the requester. Without an
+    // open trade the first request opens one and answers "pending"; the addon
+    // repeats the request once its trade window is shown.
+    if (equipped)
+    {
+        SendActionError(handler, intent, "equipped", "Unequip the item first.");
+        return true;
+    }
+    if (!CanTradeItemTo(bot, item, requester))
+    {
+        SendActionError(handler, intent, "no-trade", "This item cannot be traded (soulbound or quest item).");
+        return true;
+    }
+    if (bot->GetTrader() != requester)
+    {
+        if (!OpenTradeWith(bot, requester))
+        {
+            SendActionError(handler, intent, "busy", "Trade could not be opened (busy, too far, or in combat).");
+            return true;
+        }
+        SendActionAck(handler, intent, scope, 1, std::to_string(itemId) + " pending");
+        return true;
+    }
+    if (item->IsInTrade())
+    {
+        SendActionAck(handler, intent, scope, 1, std::to_string(itemId));
+        return true;
+    }
+    TradeData* trade = bot->GetTradeData();
+    int tradeSlot = -1;
+    for (uint8 i = 0; trade && i < TRADE_SLOT_TRADED_COUNT && tradeSlot < 0; ++i)
+        if (!trade->GetItem(TradeSlots(i)))
+            tradeSlot = i;
+    if (tradeSlot < 0)
+    {
+        SendActionError(handler, intent, "trade-full", "The trade window is full.");
+        return true;
+    }
+    WorldPacket packet(CMSG_SET_TRADE_ITEM, 3);
+    packet << static_cast<uint8>(tradeSlot) << static_cast<uint8>(bag) << static_cast<uint8>(slot);
+    bot->GetSession()->HandleSetTradeItemOpcode(packet);
+    if (!item->IsInTrade())
+    {
+        SendActionError(handler, intent, "failed", "The trade refused this item.");
+        return true;
+    }
+    SendActionAck(handler, intent, scope, 1, std::to_string(itemId));
+    return true;
+}
+
+// .bot behavior <bot> <key> <on|off> - allowlisted per-bot strategy toggles
+// (BehaviorToggles). Persisted through the mature AI store like loot/auto cc;
+// answers with an ACK and the bot's fresh TBM:BOTSTATE line.
+static bool HandleBehavior(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    std::istringstream input(Trim(args ? args : ""));
+    std::string botName;
+    std::string key;
+    std::string mode;
+    input >> botName >> key >> mode;
+    for (char& c : key)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    for (char& c : mode)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string const intent = "behavior " + (key.empty() ? std::string("?") : key);
+    BehaviorToggle const* toggle = FindBehaviorToggle(key);
+    if (!toggle || (mode != "on" && mode != "off"))
+    {
+        SendActionError(handler, intent, "invalid",
+            "Usage: .bot behavior <bot> <loot|aoe|autocc|savemana|boost|threat|potions> <on|off>");
+        return true;
+    }
+
+    Player* bot = nullptr;
+    BotRecord* record = nullptr;
+    std::string name;
+    PlayerbotAI* ai = nullptr;
+    if (!requester || !ResolveOwnedBot(handler, botName.c_str(), bot, record, name) ||
+        !(ai = PlayerbotAIStorage::Instance().GetAI(bot)))
+    {
+        SendActionError(handler, intent, "no-bot", "Unknown or uncontrollable bot name.");
+        return true;
+    }
+
+    bool const enable = mode == "on";
+    ai->ChangeStrategy((enable ? "+" : "-") + std::string(toggle->strategy), toggle->state);
+    sPlayerbotDbStore.Save(ai);
+    bool const now = ai->HasStrategy(toggle->strategy, toggle->state);
+    if (now != enable)
+        SendActionError(handler, intent, "failed", "This bot does not support that behaviour.");
+    else
+        SendActionAck(handler, intent, "bot:" + std::string(bot->GetName()), 1, now ? "on" : "off");
+    SendBotStateLine(handler, bot);
     return true;
 }
 
@@ -1992,7 +2390,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         first != "repair" && first != "sell" && first != "rest" &&
         first != "drink" && first != "eat" && first != "release" &&
         first != "corpse run" && first != "corpserun" && first != "learn" &&
-        first != "trade" && first != "raid")
+        first != "trade" && first != "raid" && first != "flee")
         return false;
 
     if (first == "raid")
@@ -2107,7 +2505,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds]/pullback [seconds]/come/stay/hold/follow/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
+        SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds]/pullback [seconds]/come/stay/hold/follow/flee/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
         return true;
     }
     if (!requester->IsInWorld() || !requester->IsAlive() || requester->IsBeingTeleported())
@@ -2397,6 +2795,9 @@ static bool HandleAction(ChatHandler* handler, char const* args)
 
         // Pulling requires tank movement: break stay!
         RelaxTacticalMovement(ai);
+        // A pull after a flee brings the whole party back, not just the tank.
+        for (Player* member : context.partyBots)
+            EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
         PausePartyDpsForPull(context, executor, joinDelay, pullback);
         // Snapshot the target GUID: the live selection can change between
         // command validation and the pull tick.
@@ -2482,6 +2883,20 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 continue;
             bot->GetMotionMaster()->Clear();
             accepted = ExecuteQuietAction(ai, "follow chat shortcut",
+                ai::Event(intent, "", requester));
+        }
+        else if (intent == "flee")
+        {
+            // Break off: drop combat and any pull hold, then the mature flee
+            // shortcut parks the bot in passive follow on the requester. The
+            // next tactical order (attack, pull, follow, stay...) ends it.
+            ReleasePartyDpsFromPull(context, bot);
+            bot->CombatStopWithPets(true);
+            ai->Reset(false);
+            bot->GetMotionMaster()->Clear();
+            if (!BindMovementMaster(requester, bot))
+                continue;
+            accepted = ExecuteQuietAction(ai, "flee chat shortcut",
                 ai::Event(intent, "", requester));
         }
         else if (intent == "stay")
@@ -3111,7 +3526,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/about/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/strategy/ah/pool");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/about/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/inv/item/behavior/strategy/ah/pool");
         return true;
     }
 
@@ -3209,6 +3624,12 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleTrade(handler, subArgs);
     if (cmd == "command")
         return HandleMatureCommand(handler, subArgs);
+    if (cmd == "inv" || cmd == "inventory")
+        return HandleInventory(handler, subArgs);
+    if (cmd == "item")
+        return HandleItem(handler, subArgs);
+    if (cmd == "behavior" || cmd == "behaviour")
+        return HandleBehavior(handler, subArgs);
     if (cmd == "strategy")
         return HandleStrategy(handler, subArgs);
     if (cmd == "help" || cmd == "h")
