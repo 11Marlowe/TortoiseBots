@@ -1559,7 +1559,46 @@ bool RequestQuestTravelTargetAction::Execute(Event& event)
                 finished++;
         }
 
-        if (finished >= 5 || active + 2 >= MAX_QUEST_LOG_SIZE)
+        // Quest-log upkeep for masterless random bots: enter hand-in mode at
+        // 2 finished quests (the old threshold of 5 sat above the observed
+        // ~2.7 backlog per bot, so turn-ins kept losing the distance race to
+        // objectives), then stay in it until the log drains to zero finished
+        // quests so one town trip hands everything in instead of ping-ponging
+        // out after the first turn-in drops the count to 1. Owned bots keep
+        // the old threshold. State lives in the upkeep predicate itself via
+        // the facade value store (no new value class).
+        bool upkeepBot = sPlayerbotAIConfig.botQuestLogUpkeep &&
+            !ai->HasActivePlayerMaster() &&
+            sRandomBotFacade.IsRandomBot(bot);
+        uint32 handInThreshold = upkeepBot ? 2 : 5;
+        if (upkeepBot)
+        {
+            bool draining = sRandomBotFacade.GetValue(bot, "quest hand-in") != 0;
+            if (!draining && finished >= handInThreshold)
+            {
+                draining = true;
+                sRandomBotFacade.SetValue(bot, "quest hand-in", 1, {}, 3600);
+            }
+            else if (draining && finished == 0)
+            {
+                draining = false;
+                sRandomBotFacade.SetValue(bot, "quest hand-in", 0);
+            }
+            if (draining || active + 2 >= MAX_QUEST_LOG_SIZE)
+            {
+                std::vector<std::tuple<uint32, int32, float>> handInOnly;
+                for (auto& fetch : destinationFetches)
+                    if (std::get<0>(fetch) & (uint32)TravelDestinationPurpose::QuestTaker)
+                        handInOnly.push_back(fetch);
+
+                // Only if there is somewhere to hand in. An empty list would fall
+                // through to the QuestGiver fetch below and send a bot that cannot
+                // accept anything off to collect more.
+                if (!handInOnly.empty())
+                    destinationFetches = handInOnly;
+            }
+        }
+        else if (finished >= handInThreshold || active + 2 >= MAX_QUEST_LOG_SIZE)
         {
             std::vector<std::tuple<uint32, int32, float>> handInOnly;
             for (auto& fetch : destinationFetches)

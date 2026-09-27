@@ -39,37 +39,108 @@ bool DropQuestAction::Execute(Event& event)
     return !questIds.empty();
 }
 
+bool CleanQuestLogAction::IsUpkeepBot()
+{
+    return sPlayerbotAIConfig.botQuestLogUpkeep &&
+        bot && !ai->HasActivePlayerMaster() && sRandomBotFacade.IsRandomBot(bot);
+}
+
+bool CleanQuestLogAction::IsGreyIncomplete(Quest const* quest)
+{
+    // QuestLevel <= 0 is scaling: GetQuestLevelForPlayer falls back to bot
+    // level, so such quests are never treated as grey.
+    if (!quest || quest->GetQuestLevel() <= 0)
+        return false;
+    return bot->GetLevel() >= bot->GetQuestLevelForPlayer(quest) + 8;
+}
+
+bool CleanQuestLogAction::HasRequiredDeliverItems(Quest const* quest)
+{
+    if (!quest->HasSpecialFlag(QUEST_SPECIAL_FLAG_DELIVER))
+        return true;
+    for (uint8 i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
+        if (quest->ReqItemCount[i] && bot->GetItemCount(quest->ReqItemId[i]) < quest->ReqItemCount[i])
+            return false;
+    return true;
+}
+
+bool CleanQuestLogAction::IsDroppable(Quest const* quest, QuestStatus status, bool upkeep)
+{
+    if (!quest || quest->GetRequiredClasses())
+        return false;
+    if (status == QUEST_STATUS_INCOMPLETE)
+    {
+        if (IsGreyIncomplete(quest) && !quest->HasSpecialFlag(QUEST_SPECIAL_FLAG_DELIVER))
+            return true;
+        // Core reverts DELIVER quests to INCOMPLETE when the required items
+        // are lost (Player::ItemRemovedQuestCheck), so plain !CanRewardQuest
+        // on COMPLETE can never see them — they arrive here instead. Drop
+        // only when grey AND the bot no longer holds the required items
+        // (still re-farmable elsewhere, and the log slot is otherwise pinned
+        // forever by a quest far below level). Money is never a drop reason.
+        if (upkeep && IsGreyIncomplete(quest) && !HasRequiredDeliverItems(quest))
+            return true;
+        return false;
+    }
+    if (status == QUEST_STATUS_COMPLETE && upkeep && !bot->CanRewardQuest(quest, false))
+    {
+        if (quest->GetRewOrReqMoney() < 0 &&
+            bot->GetMoney() < uint32(-quest->GetRewOrReqMoney()))
+            return false;
+        return true;
+    }
+    return false;
+}
+
+void CleanQuestLogAction::NoteCleanNoOp()
+{
+    // GetTrigger creates a fresh trigger when none is cached: use the
+    // context only to reach the trigger node registry would need a new
+    // accessor, so instead record the no-op on the bot itself. The trigger
+    // consults it via the facade value store (same pattern as the hand-in
+    // hysteresis in ChooseTravelTargetAction).
+    sRandomBotFacade.SetValue(bot, "quest clean empty", 1, {}, 300);
+}
+
 bool CleanQuestLogAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     if (ai->HasActivePlayerMaster())
         return false;
 
+    // The INCOMPLETE grey rule inside IsDroppable is the old behaviour and
+    // always runs. The COMPLETE branch and the INCOMPLETE itemless-deliver
+    // branch are quest-log upkeep for masterless random bots only: IsUpkeepBot
+    // gates on upkeep + no active master + IsRandomBot, so owned/alt bots
+    // never lose quests even with the master offline.
+    bool upkeep = IsUpkeepBot();
     bool dropped = false;
-    for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE;)
+    uint8 slot = 0;
+    while (slot < MAX_QUEST_LOG_SIZE)
     {
         uint32 questId = GetQuestSlotIdCompat(bot, slot);
-        if (!questId || bot->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
+        QuestStatus status = questId ? bot->GetQuestStatus(questId) : QUEST_STATUS_NONE;
+        if (!questId || (status != QUEST_STATUS_INCOMPLETE && status != QUEST_STATUS_COMPLETE))
         {
             ++slot;
             continue;
         }
 
         Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
-        if (!quest ||
-            bot->GetLevel() < quest->GetQuestLevel() + 8 ||
-            quest->GetRequiredClasses() ||
-            quest->HasSpecialFlag(QUEST_SPECIAL_FLAG_DELIVER))
-        {
-            ++slot;
+        bool drop = IsDroppable(quest, status, upkeep);
+
+        ++slot;
+        if (!drop)
             continue;
-        }
 
         ai->DropQuest(questId);
         ai->TellPlayer(requester, BOT_TEXT("quest_remove") + " " + chat->formatQuest(quest),
                        PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
         dropped = true;
     }
+
+    if (!dropped)
+        NoteCleanNoOp();
 
     return dropped;
 }

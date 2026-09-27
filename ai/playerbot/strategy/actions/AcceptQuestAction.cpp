@@ -1,8 +1,20 @@
 
 #include "playerbot/playerbot.h"
 #include "AcceptQuestAction.h"
+#include "playerbot/strategy/values/ItemUsageValue.h"
 
 using namespace ai;
+
+static bool IsFixedRewardUpgrade(AiObjectContext* context, Quest const* quest)
+{
+    for (uint8 i = 0; i < quest->GetRewItemsCount(); ++i)
+    {
+        ItemUsage usage = AI_VALUE2_LAZY(ItemUsage, "item usage", quest->RewItemId[i]);
+        if (usage == ItemUsage::ITEM_USAGE_EQUIP || usage == ItemUsage::ITEM_USAGE_BAD_EQUIP)
+            return true;
+    }
+    return false;
+}
 
 bool AcceptAllQuestsAction::ProcessQuest(Player* requester, Quest const* quest, WorldObject* questGiver)
 {
@@ -37,6 +49,23 @@ bool AcceptAllQuestsAction::ProcessQuest(Player* requester, Quest const* quest, 
     };
     if (tortoiseOnlyBlacklist.count(quest->GetQuestId()))
         return false;
+
+    // Quest-log upkeep for masterless random bots (donor IsQuestWorthDoing
+    // idea, own code): skip grey quests unless the reward is worth it. Grey
+    // here is quest level + low-level-hide-diff < bot level; the need-reward
+    // check below is the same "need quest reward" value the travel layer
+    // consults before fetching grey givers (QuestValues.cpp, TravelMgr.cpp),
+    // extended to fixed RewItemId upgrades as well as choice rewards.
+    if (sPlayerbotAIConfig.botQuestLogUpkeep &&
+        !ai->HasActivePlayerMaster() &&
+        sRandomBotFacade.IsRandomBot(bot) &&
+        !quest->GetRequiredClasses() &&
+        quest->GetQuestLevel() > 0 &&
+        bot->GetLevel() > bot->GetQuestLevelForPlayer(quest) + (uint32)sWorld.getConfig(CONFIG_INT32_QUEST_LOW_LEVEL_HIDE_DIFF) + 1)
+    {
+        if (!AI_VALUE2(bool, "need quest reward", (int32)quest->GetQuestId()) && !IsFixedRewardUpgrade(context, quest))
+            return false;
+    }
 
     if (AcceptQuest(requester, quest, questGiver->getObjectGuid()))
     {

@@ -189,6 +189,16 @@ AiPlayerbot.MountBreakEvenFactor = 1.5
 # parked outgrown bots in their starting zones). Default 1.
 AiPlayerbot.UnstuckHearthLevelFit = 1
 
+# Quest-log upkeep for random bots without a player master: drop finished
+# quests that can no longer be rewarded (except transient money blockers),
+# drop grey incomplete deliver quests whose items are gone, refuse grey
+# quests unless the reward is an equip upgrade, clean a nearly-full log only
+# when something is droppable, and stay in turn-in travel once 2 quests are
+# finished until none remain. Owned and alt bots are never affected. 0
+# restores the old accept-all / clean-only-grey / hand-in-at-5 behaviour.
+# Default 1.
+AiPlayerbot.BotQuestLogUpkeep = 1
+
 # Default-on bounded fill of human-waiting LFT queues with live random Headless bots.
 # Uses core #416 QueuePlayer/LeaveQueue/IsQueued/IsInOffer/AcceptOffer/
 # GetQueuedPlayers; core owns private queues, offers, cancellation and groups.
