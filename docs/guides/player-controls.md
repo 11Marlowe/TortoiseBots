@@ -73,7 +73,7 @@ These commands manage the login, party membership, and presence of your owned bo
 
 | Command | Syntax | What It Does |
 | :--- | :--- | :--- |
-| **Roster Snapshot** | `.bot roster` | Returns an authoritative snapshot of all owned characters on your account and their online/party state (emits structured `TBM:ROSTER`). |
+| **Roster Snapshot** | `.bot roster` | Returns an authoritative snapshot of all owned characters on your account and their online/party state (emits structured `TBM:ROSTER`). Hired companions (random-pool characters) are not listed, even after dismissal. |
 | **Login Bot** | `.bot add <Name>` | Logs in an owned character from your account as a headless bot. |
 | **Hire Companion** | `.bot hire <class> [role] [race] [gender]` | Recruits a fresh companion at your level from an inn: provisions talents, spells, skills, and spec-weighted gear, then invites it to your party. Requires resting (or use a `<Mercenary Hire>` recruiter). Costs level-scaled gold (party hires escalate, raid hires are flat). Druid spec words `cat`/`balance` hire Cat/Balance DPS, `bear`/`feral` hire a Bear tank. |
 | **Set Role** | `.bot role <Name> <tank|healer|dps|clear>`<br>`.bot role self <tank|healer|dps|clear>` | Designates an owned bot's party role and rebuilds its strategy kit; `self` sets the requesting player's runtime role override for bot role detection, and `clear` restores automatic inference. The requesting player's name is also accepted in place of `self`. |
