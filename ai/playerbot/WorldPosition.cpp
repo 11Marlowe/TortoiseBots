@@ -1,5 +1,6 @@
 #include "WorldPosition.h"
 #include "GuidPosition.h"
+#include "playerbot/PlayerbotAI.h"
 #include "playerbot/TravelMgr.h"
 #include "TravelNode.h"
 
@@ -436,6 +437,134 @@ bool WorldPosition::isEnemyHomeZoneFor(Team team) const
 
     return (areaTeam == AREATEAM_ALLY  && team == HORDE)
         || (areaTeam == AREATEAM_HORDE && team == ALLIANCE);
+}
+
+std::unordered_map<WorldPosition::HostileTownCellKey, std::vector<WorldPosition::HostileTownGuard>, WorldPosition::HostileTownCellKeyHash> WorldPosition::s_hostileTownCells[2];
+size_t WorldPosition::s_hostileTownGuards[2] = { 0, 0 };
+bool WorldPosition::s_hostileTownIndexBuilt = false;
+std::mutex WorldPosition::s_hostileTownMutex;
+
+// One-pass build over the static spawn table (~88k rows): template + faction
+// lookups only, no world objects, no DB, no map loads. Runs on the world
+// thread at first hostile-town query, so creature data is loaded; guarded by
+// mutex + built flag for concurrent first queries.
+void WorldPosition::EnsureHostileTownIndex()
+{
+    {
+        std::lock_guard<std::mutex> lock(s_hostileTownMutex);
+        if (s_hostileTownIndexBuilt)
+            return;
+    }
+    // Build into locals, publish under lock: concurrent queries see either
+    // the full index or nothing (flag flips last), never a half-built map.
+    std::unordered_map<HostileTownCellKey, std::vector<HostileTownGuard>, HostileTownCellKeyHash> cells[2];
+    size_t guards[2] = { 0, 0 };
+    struct HostileTownBuildWorker
+    {
+        std::unordered_map<HostileTownCellKey, std::vector<HostileTownGuard>, HostileTownCellKeyHash>* cells;
+        size_t* guards;
+        bool operator()(CreatureDataPair const& dataPair)
+        {
+            uint32 entry = dataPair.second.creature_id[0];
+            if (!entry)
+                return false;
+            CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(entry);
+            if (!info || !info->faction)
+                return false;
+            // Player templates: 1 = Alliance, 2 = Horde. Core IsHostileTo reads
+            // enemy/friend lists first, then the hostile mask — the exact static
+            // rule the query path used before the index (GetFactionReaction on
+            // both directions). Reputation/at-war/contested-flag states are
+            // per-player and stay at query time (unchanged: not evaluated here).
+            FactionTemplateEntry const* ally = sObjectMgr.GetFactionTemplateEntry(1);
+            FactionTemplateEntry const* horde = sObjectMgr.GetFactionTemplateEntry(2);
+            FactionTemplateEntry const* guardFaction = info->faction ? sObjectMgr.GetFactionTemplateEntry(info->faction) : nullptr;
+            if (!ally || !horde || !guardFaction)
+                return false;
+            bool toAlly = guardFaction->IsHostileTo(*ally) && ally->IsHostileTo(*guardFaction);
+            bool toHorde = guardFaction->IsHostileTo(*horde) && horde->IsHostileTo(*guardFaction);
+            if (!toAlly && !toHorde)
+                return false;
+            uint32 mapId = dataPair.second.position.mapId;
+            // Query radius is 2D (sqDistance2d at IsValid; GetCreaturesNear uses
+            // full sqDistance but Z differs by <2 yd for town spawns). Store the
+            // exact position so the query does the exact 2D distance check.
+            HostileTownCellKey key{ mapId,
+                HostileTownCellCoord(dataPair.second.position.x),
+                HostileTownCellCoord(dataPair.second.position.y) };
+            if (toAlly)
+            {
+                cells[0][key].push_back(HostileTownGuard{ dataPair.second.position.x, dataPair.second.position.y, info->level_max });
+                ++guards[0];
+            }
+            if (toHorde)
+            {
+                cells[1][key].push_back(HostileTownGuard{ dataPair.second.position.x, dataPair.second.position.y, info->level_max });
+                ++guards[1];
+            }
+            return false;
+        }
+    };
+    HostileTownBuildWorker worker{ cells, guards };
+    sObjectMgr.DoCreatureData(worker);
+    {
+        std::lock_guard<std::mutex> lock(s_hostileTownMutex);
+        if (!s_hostileTownIndexBuilt)
+        {
+            s_hostileTownCells[0] = std::move(cells[0]);
+            s_hostileTownCells[1] = std::move(cells[1]);
+            s_hostileTownGuards[0] = guards[0];
+            s_hostileTownGuards[1] = guards[1];
+            s_hostileTownIndexBuilt = true;
+        }
+    }
+}
+
+bool WorldPosition::isGuardedHostileTownFor(Player const* bot, float radius) const
+{
+    // O(1)-ish cell lookup: index built once (see EnsureHostileTownIndex),
+    // then the query cell + neighbours within radius, exact 2D distance +
+    // level gate (level_max >= bot+5) per guard. No spawn-table walk.
+    if (!bot)
+        return false;
+    Team team = bot->GetTeam();
+    if (team != ALLIANCE && team != HORDE)
+        return false;
+    EnsureHostileTownIndex();
+    uint32 teamIdx = HostileTownTeamIndex(team);
+    int32 minCX = HostileTownCellCoord(x - radius);
+    int32 maxCX = HostileTownCellCoord(x + radius);
+    int32 minCY = HostileTownCellCoord(y - radius);
+    int32 maxCY = HostileTownCellCoord(y + radius);
+    float const radiusSq = radius * radius;
+    uint32 botLevel = bot->GetLevel();
+    // Snapshot matching cells under lock (a few small vectors); distance and
+    // level checks run lock-free on the copies.
+    std::vector<std::vector<HostileTownGuard>> matched;
+    {
+        std::lock_guard<std::mutex> lock(s_hostileTownMutex);
+        auto const& cells = s_hostileTownCells[teamIdx];
+        for (int32 cx = minCX; cx <= maxCX; ++cx)
+            for (int32 cy = minCY; cy <= maxCY; ++cy)
+            {
+                auto it = cells.find(HostileTownCellKey{ mapId, cx, cy });
+                if (it != cells.end())
+                    matched.push_back(it->second);
+            }
+    }
+    for (auto const& guards : matched)
+        for (auto const& guard : guards)
+        {
+            // Town muscle only: same-level hostile quest mobs are fair fights,
+            // not +13 guard traps.
+            if ((int32)guard.levelMax < (int32)botLevel + 5)
+                continue;
+            float dx = guard.x - x;
+            float dy = guard.y - y;
+            if (dx * dx + dy * dy <= radiusSq)
+                return true;
+        }
+    return false;
 }
 
 std::string WorldPosition::getAreaName(const bool fullName, const bool zoneName) const

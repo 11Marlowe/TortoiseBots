@@ -83,6 +83,25 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
                 }
             }
 
+            // A masterless random bot that died to this named player recently does
+            // not proactively re-engage it; the trade-kill loop in Ashenvale ran
+            // every ~60 s because both sides kept re-selecting each other. Owned
+            // bots (real master) still obey their player. Retaliation still works:
+            // a killer actively attacking stays valid via the threat/victim path
+            // (PossibleAttackTargetsValue::IsValid), which this filter does not own.
+            if (PlayerbotAI* playerAi = PlayerbotAIStorage::Instance().GetAI(player))
+            {
+                if (!playerAi->HasRealPlayerMaster() && playerAi->ShouldAvoidPlayerKiller(enemyPlayer->GetName()))
+                {
+                    Unit* victim = enemyPlayer->GetVictim();
+                    bool fightingBack = victim == player || enemyPlayer->GetThreatManager().getThreat(player) > 0.0f;
+                    if (Pet* pet = player->GetPet())
+                        fightingBack = fightingBack || victim == pet || enemyPlayer->GetThreatManager().getThreat(pet) > 0.0f;
+                    if (!fightingBack)
+                        return false;
+                }
+            }
+
             return true;
         }
     }

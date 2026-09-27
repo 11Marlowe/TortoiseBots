@@ -1191,6 +1191,14 @@ void PlayerbotAI::SetLastKiller(Unit* killer)
     }
 }
 
+bool PlayerbotAI::ShouldAvoidPlayerKiller(std::string const& name) const
+{
+    // 10-minute window; empty name or expired window never avoids.
+    if (name.empty() || avoidPlayerKiller_.empty() || name != avoidPlayerKiller_)
+        return false;
+    return WorldTimer::getMSTime() - avoidPlayerKillerMs_ <= 10 * MINUTE * IN_MILLISECONDS;
+}
+
 void PlayerbotAI::OnDeath()
 {
     if (!IsStateActive(BotState::BOT_STATE_DEAD) && !sServerFacade.IsAlive(bot))
@@ -1256,6 +1264,17 @@ void PlayerbotAI::OnDeath()
                 }
                 prevKillerEntry_ = lastKiller_.entry;
                 prevKillerMs_ = nowMs;
+            }
+            // Killed by a player (entry == 0, not the environment): avoid that
+            // named killer for a while so two masterless random bots grinding the
+            // same spot stop trading kills every ~60 s. Same shape as the
+            // lethal-kind rule above, keyed on the killer name instead of the
+            // creature entry. Retaliation still works: an actual attacker stays
+            // a valid target through the threat/victim path.
+            if (!lastKiller_.entry && !lastKiller_.isEnvironment && !lastKiller_.name.empty())
+            {
+                SetAvoidPlayerKiller(lastKiller_.name);
+                TellDebug(GetMaster(), "Leaving " + lastKiller_.name + " alone for a while - it killed me", "debug move");
             }
 
             // Determine accurate killer name & level

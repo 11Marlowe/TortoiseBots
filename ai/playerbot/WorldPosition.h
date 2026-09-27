@@ -5,7 +5,10 @@
 #include "Spells/SpellMgr.h"
 #include "World.h"
 #include "Maps/PathFinder.h"
-
+#include <cstddef>
+#include <mutex>
+#include <unordered_map>
+#include <vector>
 class ByteBuffer;
 
 namespace G3D
@@ -322,6 +325,17 @@ namespace ai
         // zone's team - "The Crossroads" itself carries none, The Barrens does.
         bool isEnemyHomeZoneFor(Team team) const;
         bool IsEnemyHomeZoneFor(Team team) const { return isEnemyHomeZoneFor(team); }
+        // Does this position sit among town guards hostile to 'bot's team? O(1)-ish
+        // spatial lookup into a lazily built per-team guard index (map -> 64 yd
+        // cells -> guard level_max list), not a spawn-table walk: the world tick
+        // is already 100-218 ms and AttackersValue runs on the hot path.
+        // Random bots only (callers gate on AvoidHostileTowns + masterless).
+        bool isGuardedHostileTownFor(Player const* bot, float radius = 60.0f) const;
+        bool IsGuardedHostileTownFor(Player const* bot, float radius = 60.0f) const { return isGuardedHostileTownFor(bot, radius); }
+        // Test hook + diagnostics: index state without a bot.
+        static bool IsHostileTownIndexBuilt() { return s_hostileTownIndexBuilt; }
+        static size_t GetHostileTownIndexCells() { return s_hostileTownCells[0].size() + s_hostileTownCells[1].size(); }
+        static size_t GetHostileTownIndexGuards() { return s_hostileTownGuards[0] + s_hostileTownGuards[1]; }
         std::string getAreaName(const bool fullName = true, const bool zoneName = false) const;
         // Penqle does not expose CMaNGOS' WMO AreaNameInfo override. Use the
         // core terrain area as a truthful fallback instead of silently
@@ -367,8 +381,44 @@ namespace ai
         //GameObjects
         std::vector<GameObjectDataPair const*> getGameObjectsNear(const float radius = 0, const uint32 entry = 0) const;
         std::vector<GameObjectDataPair const*> GetGameObjectsNear(const float radius = 0, const uint32 entry = 0) const { return getGameObjectsNear(radius, entry); }
+    private:
+        // Hostile-town guard index: per team (0 = Alliance-hostile, 1 = Horde-hostile),
+        // per map, per 64 yd cell, the exact spawn positions + level_max of each
+        // hostile guard in the cell. Built once from static spawn data (no world
+        // scan, no DB); the bot+5 level gate runs at query time, so the index
+        // stores all levels. Positions enable the exact 2D distance check.
+        struct HostileTownGuard
+        {
+            float x = 0.0f;
+            float y = 0.0f;
+            uint32 levelMax = 0;
+        };
+        struct HostileTownCellKey
+        {
+            uint32 mapId = 0;
+            int32 cellX = 0;
+            int32 cellY = 0;
+            bool operator==(HostileTownCellKey const& o) const { return mapId == o.mapId && cellX == o.cellX && cellY == o.cellY; }
+        };
+        struct HostileTownCellKeyHash
+        {
+            size_t operator()(HostileTownCellKey const& k) const noexcept
+            {
+                size_t h = std::hash<uint32>()(k.mapId);
+                h ^= std::hash<int32>()(k.cellX) + 0x9e3779b9u + (h << 6) + (h >> 2);
+                h ^= std::hash<int32>()(k.cellY) + 0x9e3779b9u + (h << 6) + (h >> 2);
+                return h;
+            }
+        };
+        static constexpr float HostileTownCellSize() { return 64.0f; }
+        static int32 HostileTownCellCoord(float c) { return (int32)floorf(c / HostileTownCellSize()); }
+        static uint32 HostileTownTeamIndex(Team team) { return team == HORDE ? 1u : 0u; }
+        static void EnsureHostileTownIndex();
+        static std::unordered_map<HostileTownCellKey, std::vector<HostileTownGuard>, HostileTownCellKeyHash> s_hostileTownCells[2];
+        static size_t s_hostileTownGuards[2];
+        static bool s_hostileTownIndexBuilt;
+        static std::mutex s_hostileTownMutex;
     };
-
     inline ByteBuffer& operator<<(ByteBuffer& b, WorldPosition& guidP)
     {
         b << guidP.getMapId();

@@ -183,6 +183,12 @@ AiPlayerbot.TurtleMountAtLevel = 18
 AiPlayerbot.MountBreakEvenFactor = 1.5
 
 
+# Whether a random bot without a player master avoids hostile towns: 1 = travel
+# destinations and grind targets guarded by town guards hostile to its team are
+# refused (guards kill bots ~13 levels above them); 0 = the old behaviour, which
+# walked bots into enemy settlements. Default 1.
+AiPlayerbot.AvoidHostileTowns = 1
+
 # When a random bot without a player master is stuck for a long time it uses its
 # hearthstone. 1 = only if its homebind area is within 10 levels of the bot
 # (otherwise it repops instead); 0 = always hearth (the old behaviour, which

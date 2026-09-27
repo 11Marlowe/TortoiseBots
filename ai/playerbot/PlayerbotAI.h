@@ -724,9 +724,20 @@ public:
     };
     uint32 prevKillerEntry_ = 0; // the kind that killed the bot before (lethal-kind rule in OnDeath)
     uint32 prevKillerMs_ = 0;
+    // A player (usually another random bot) that killed this bot recently: name +
+    // expiry. While set, the victim does not proactively engage that killer
+    // (EnemyPlayersValue::IsValid refuses it) so a same-spot trade-kill loop
+    // breaks after the first death instead of every ~60 s. Retaliation still
+    // works: an actual attacker stays valid via the threat/victim path.
+    std::string avoidPlayerKiller_;
+    uint32 avoidPlayerKillerMs_ = 0;
     void SetLastKiller(Unit* killer);
     const LastKillerInfo& GetLastKiller() const { return lastKiller_; }
     void ClearLastKiller() { lastKiller_ = LastKillerInfo(); }
+    // 10-minute avoidance window after a player kill (matches the lethal-kind
+    // 15-min/30-min shape, shorter because the killer is one named player).
+    void SetAvoidPlayerKiller(std::string const& name) { avoidPlayerKiller_ = name; avoidPlayerKillerMs_ = WorldTimer::getMSTime(); }
+    bool ShouldAvoidPlayerKiller(std::string const& name) const;
 
     void SetActionDuration(const Action* action);
     void SetActionDuration(uint32 duration);
