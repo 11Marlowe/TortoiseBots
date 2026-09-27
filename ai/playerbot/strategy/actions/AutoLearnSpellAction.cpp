@@ -36,8 +36,11 @@ bool AutoLearnSpellAction::Execute(Event& event)
     return true;
 }
 
-// Issue #189: free spell learning is random-pool only. Owned bots keep the
-// paid trainer-with-gold path untouched (TrainerAction).
+// Issue #189: free spell learning is random-pool only. Pool bots include both
+// roaming pool bots and hired companions (Hire() keeps record->random true);
+// the player's own alts (same-account characters via .bot add) and free-alts
+// (non-pool accounts) are not pool bots and are excluded. Owned bots keep
+// the paid trainer-with-gold path untouched (TrainerAction).
 static bool IsFreeLearnBot(Player* bot)
 {
     return bot && sRandomBotFacade.IsRandomBot(bot);
@@ -61,11 +64,12 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
     // Free learning is random-pool only; the paid trainer path is untouched.
     bool const freeLearn = IsFreeLearnBot(bot);
 
-    // Turtle mount (quest 40302 equivalent): masterless random-pool bots that
-    // reach the gate earn the Swift Riding Turtle as if they did the quest.
-    // Player-owned/hired companions are excluded; see PlayerbotFactory::
-    // InitTurtleMount for the idempotent gate.
-    if (freeLearn && !ai->HasRealPlayerMaster() && !ai->IsOwnedBot())
+    // Turtle mount (quest 40302 equivalent): pool bots that reach the gate
+    // earn the Swift Riding Turtle as if they did the quest. The free-learn
+    // gate is pool identity only (no master check): a hire's AI has a live
+    // master, so the old HasRealPlayerMaster()/IsOwnedBot() exclusion denied
+    // companions hired below the gate when they later dinged 18.
+    if (freeLearn)
     {
         PlayerbotFactory turtle(bot, bot->GetLevel());
         turtle.InitTurtleMount();

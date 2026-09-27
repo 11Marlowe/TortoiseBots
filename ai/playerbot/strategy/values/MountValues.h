@@ -17,16 +17,30 @@ namespace ai
         const ItemPrototype* GetItemProto() { return proto; }
         uint32 GetSpellId() { return spellId; }
         uint32 GetSpeed() { return GetSpeed(spellId); }
-        // Dynamic speed for mount-aura spells: the core scales every mount
-        // from riding skill/level (0 -> ceil(level/2), 75 -> 60, 150 -> 100),
-        // except SPELL_CUSTOM_MOUNT_SPEED_100 (always 100) and
-        // SPELL_CUSTOM_IGNORE_RIDING_SKILL_MOUNT_SPEED (static DBC speed).
-        // All runtime selection and speed reporting must use this; the static
+        // Dynamic speed mirrors the core rider rule
+        // (HandleAuraModIncreaseMountedSpeed): SPELL_CUSTOM_MOUNT_SPEED_100
+        // -> 100, SPELL_CUSTOM_IGNORE_RIDING_SKILL_MOUNT_SPEED -> static DBC
+        // speed, else riding 0 -> level/2 (integer division on the uint
+        // level; ceil is a no-op on the truncated value), 75 -> 60,
+        // 150 -> 100. Any other riding value unmounts in the core, so the
+        // bot reports 0 (unusable) to avoid a cast->unmount loop. Runtime
+        // selection and speed reporting must use GetSpeedFor; static
         // GetSpeed stays for bot-less contexts (factory pool filter) and the
         // hardcoded non-mount forms (travel form/ghost wolf/AQ).
         uint32 GetSpeedFor(Player* bot) const;
+        // Precomputed-rider overload: same rule but reuses the caller's
+        // riderSpeed (no SKILL_RIDING lookup). Use it when scoring several
+        // mounts in one pass (sort) so the skill map is read once.
+        uint32 GetSpeedFor(Player* bot, uint32 riderSpeed) const;
         static uint32 GetDynamicMountSpeed(uint32 spellId, Player* bot);
-        static uint32 IsMountSpell(uint32 spellId) { return GetSpeed(spellId); }
+        static uint32 GetDynamicMountSpeed(uint32 spellId, uint32 riderSpeed);
+        // Rider speed once per call: one SKILL_RIDING lookup. 0/75/150 map to
+        // level/2, 60, 100; anything else is 0 (core unmounts).
+        static uint32 GetRiderMountSpeed(Player* bot);
+        // Core mount definition (SpellAuras.cpp ~3895:
+        // EffectApplyAuraName[0] == SPELL_AURA_MOUNTED). Static speed is never
+        // consulted, so 0-speed mounts (30174) still count.
+        static bool IsMountSpell(uint32 spellId);
         static uint32 GetSpeed(uint32 spellId);
         static uint32 GetMountSpell(uint32 itemId);
         bool IsValidLocation(Player* bot);

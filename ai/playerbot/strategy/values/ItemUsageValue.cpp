@@ -258,32 +258,37 @@ ItemUsage ItemUsageValue::Calculate()
             return ItemUsage::ITEM_USAGE_KEEP;
     }
 
-    //EQUIP
-    if (MountValue::GetMountSpell(itemId) && bot->CanUseItem(proto) == EQUIP_ERR_OK && MountValue::GetSpeed(MountValue::GetMountSpell(itemId)))
+    //EQUIP (bot-aware speed: dynamic mounts such as the 0-static-speed
+    // turtle 30174 score at the rider's real speed).
+    if (MountValue::GetMountSpell(itemId) && bot->CanUseItem(proto) == EQUIP_ERR_OK)
     {
-        std::vector<MountValue> mounts = AI_VALUE(std::vector<MountValue>, "mount list");
-
-        if (mounts.empty())
-            return ItemUsage::ITEM_USAGE_EQUIP;
-
-        uint32 newSpeed = MountValue::GetSpeed(MountValue::GetMountSpell(itemId));
-
-        bool hasBetterMount = false, hasSameMount = false;
-
-        for (auto& mount : mounts)
+        uint32 newSpell = MountValue::GetMountSpell(itemId);
+        uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
+        uint32 newSpeed = MountValue(newSpell).GetSpeedFor(bot, riderSpeed);
+        if (newSpeed)
         {
-            uint32 currentSpeed = mount.GetSpeed();
-            if (currentSpeed > newSpeed)
-                hasBetterMount = true;
-            else if (currentSpeed == newSpeed)
-                hasSameMount = true;
+            std::vector<MountValue> mounts = AI_VALUE(std::vector<MountValue>, "mount list");
 
-            if (hasBetterMount)
-                break;
+            if (mounts.empty())
+                return ItemUsage::ITEM_USAGE_EQUIP;
+
+            bool hasBetterMount = false, hasSameMount = false;
+
+            for (auto& mount : mounts)
+            {
+                uint32 currentSpeed = mount.GetSpeedFor(bot, riderSpeed);
+                if (currentSpeed > newSpeed)
+                    hasBetterMount = true;
+                else if (currentSpeed == newSpeed)
+                    hasSameMount = true;
+
+                if (hasBetterMount)
+                    break;
+            }
+
+            if (!hasBetterMount)
+                return hasSameMount ? ItemUsage::ITEM_USAGE_KEEP : ItemUsage::ITEM_USAGE_EQUIP;
         }
-
-        if (!hasBetterMount)
-            return hasSameMount ? ItemUsage::ITEM_USAGE_KEEP : ItemUsage::ITEM_USAGE_EQUIP;
     }
 
     ItemUsage equip = QueryItemUsageForEquip(itemQualifier, bot);

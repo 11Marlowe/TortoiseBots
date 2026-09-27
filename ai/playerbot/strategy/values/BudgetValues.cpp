@@ -234,11 +234,15 @@ uint32 MoneyNeededForValue::Calculate()
 
         moneyWanted = AI_VALUE2(uint32, "train cost", TRAINER_TYPE_MOUNTS);
 
+        // Bot-aware speed: a turtle rider with riding 75/150 counts as
+        // 60/100 in the mount budget, so it stops saving for a mount it
+        // already outruns.
+        uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
         for (auto& mount : AI_VALUE(std::vector<MountValue>, "mount list"))
         {
-            if (mount.GetSpeed() > maxMountSpeed)
+            if (mount.GetSpeedFor(bot, riderSpeed) > maxMountSpeed)
             {
-                maxMountSpeed = mount.GetSpeed();
+                maxMountSpeed = mount.GetSpeedFor(bot, riderSpeed);
             }
         }
 

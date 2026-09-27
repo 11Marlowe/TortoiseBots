@@ -396,12 +396,15 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
     std::vector<MountValue> mountList = AI_VALUE(std::vector<MountValue>, "mount list");
 
     std::shuffle(mountList.begin(), mountList.end(), *GetRandomGenerator());
+    // One SKILL_RIDING lookup per mount attempt; the sort must not probe
+    // the skill map on every comparison.
+    uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
     Player* sortBot = bot;
-    std::sort(mountList.begin(), mountList.end(), [sortBot](MountValue i, MountValue j) { return i.GetSpeedFor(sortBot) > j.GetSpeedFor(sortBot); });
+    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed](MountValue i, MountValue j) { return i.GetSpeedFor(sortBot, riderSpeed) > j.GetSpeedFor(sortBot, riderSpeed); });
 
     for (auto& mount : mountList)
     {
-        uint32 mountSpeed = mount.GetSpeedFor(bot);
+        uint32 mountSpeed = mount.GetSpeedFor(bot, riderSpeed);
         if (mountSpeed > maxSpeed)
             continue;
 
