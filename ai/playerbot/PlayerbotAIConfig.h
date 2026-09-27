@@ -257,7 +257,8 @@ public:
     uint32 turtleMountAtLevel = 18;
     // Safety factor on the mount break-even distance: bots mount for travel
     // only when the remaining trip exceeds
-    // 7 y/s * castTime / (mountSpeed/100) * this. Default 1.5.
+    // 7 y/s * castTime / (mountSpeed/100) * this. 0 disables the threshold
+    // (mount for any trip). Default 1.5.
     float mountBreakEvenFactor = 1.5f;
     // "Long stuck" hearths a random masterless bot only when its homebind area is within
     // 10 levels of the bot; otherwise it repops instead of flying home to a zone it outgrew.

@@ -105,10 +105,19 @@ bool MountValue::IsMountSpell(uint32 spellId)
     if (spellId == 783 || spellId == 2645)
         return true;
     SpellEntry const* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(spellId);
+    if (!spellInfo)
+        return false;
     // Core definition (HandleAuraModIncreaseMountedSpeed ~3895): the mount
     // aura sits in effect 0. Static speed is never consulted, so 0-speed
     // mounts (30174 Swift Riding Turtle) still count.
-    return spellInfo && spellInfo->EffectApplyAuraName[0] == SPELL_AURA_MOUNTED;
+    if (spellInfo->EffectApplyAuraName[0] == SPELL_AURA_MOUNTED)
+        return true;
+    // Legacy fallback: mounts GetSpeed already recognised before the
+    // aura-based check (Black Qiraji Battle Tank 26656, whose effect 0 is a
+    // dummy dispatching to 25863/26655 via the SpellEffects script, or a
+    // mount aura outside effect 0). Keeps them in the mount list and out of
+    // vendor/trash logic.
+    return GetSpeed(spellId) != 0;
 }
 
 uint32 MountValue::GetSpeedFor(Player* bot) const
@@ -214,11 +223,11 @@ uint32 CurrentMountSpeedValue::Calculate()
         return 0;
 
     uint32 mountSpeed = 0;
-
-    // The only aura types that can carry a mounted speed are the mounted
-    // aura (78) and its speed modifier (32). Skip the other ~280 types and
-    // only pay the dynamic path for mount auras.
-    static const AuraType kMountAuraTypes[] = { SPELL_AURA_MOUNTED, SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED };
+    // Mount, mounted-speed, and shapeshift auras: travel form 783 / ghost
+    // wolf 2645 ride on SPELL_AURA_MOD_SHAPESHIFT, not SPELL_AURA_MOUNTED.
+    // Without this the value reports 0 while shifted and Mount() cancels
+    // the form, stops, and recasts it every tick.
+    static const AuraType kMountAuraTypes[] = { SPELL_AURA_MOUNTED, SPELL_AURA_MOD_INCREASE_MOUNTED_SPEED, SPELL_AURA_MOD_SHAPESHIFT };
     Player* speedBot = (unit->GetTypeId() == TYPEID_PLAYER) ? static_cast<Player*>(unit) : nullptr;
     uint32 riderSpeed = speedBot ? MountValue::GetRiderMountSpeed(speedBot) : 0;
     for (uint32 t = 0; t < sizeof(kMountAuraTypes) / sizeof(kMountAuraTypes[0]); ++t)
@@ -237,8 +246,8 @@ uint32 CurrentMountSpeedValue::Calculate()
             SpellEntry const* auraSpell = aura->GetSpellProto();
             if (!auraSpell)
                 continue;
-            // Only mount-aura spells report speed; any other buff sharing
-            // these types (none today) falls back to cheap static speed.
+            // Only known mounts/forms report speed; any other buff sharing
+            // these types falls back to cheap static speed (0 for non-mounts).
             uint32 auraSpeed = (speedBot && MountValue::IsMountSpell(auraSpell->Id))
                 ? MountValue(auraSpell->Id).GetSpeedFor(speedBot, riderSpeed)
                 : MountValue::GetSpeed(auraSpell->Id);

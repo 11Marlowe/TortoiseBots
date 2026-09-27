@@ -361,14 +361,26 @@ float CheckMountStateAction::GetAttackDistance() const
 
 float CheckMountStateAction::MountBreakEvenDistance() const
 {
-    // Best usable mount at the rider's real speed: one SKILL_RIDING lookup,
-    // then bot-aware scoring (turtle 9% at 18, 60 at 75, 100 at 150).
+    // 0 disables the threshold (mount for any travel/RPG trip).
+    if (sPlayerbotAIConfig.mountBreakEvenFactor <= 0.0f)
+        return 0.0f;
+    // Best mount usable HERE at the rider's real speed: one SKILL_RIDING
+    // lookup, then bot-aware scoring (turtle 9% at 18, 60 at 75, 100 at
+    // 150). Same usability gates as Mount(): location first, then item
+    // presence and spell ownership, so an AQ-only 99% mount outside AQ (or
+    // a missing item) cannot collapse the threshold.
     uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
     std::vector<MountValue> mounts = AI_VALUE(std::vector<MountValue>, "mount list");
     uint32 bestSpeed = 0;
     uint32 bestSpell = 0;
     for (auto& mount : mounts)
     {
+        if (!mount.IsValidLocation(bot))
+            continue;
+        if (mount.IsItem() && !FindItemByEntryCompat(bot, mount.GetItemProto()->ItemId))
+            continue;
+        if (!mount.IsItem() && !ai->HasSpell(mount.GetSpellId()))
+            continue;
         uint32 speed = mount.GetSpeedFor(bot, riderSpeed);
         if (speed > bestSpeed)
         {
@@ -378,20 +390,15 @@ float CheckMountStateAction::MountBreakEvenDistance() const
     }
     if (!bestSpeed)
         return FLT_MAX;
-    // Mount cast time from the spell itself; 3000 ms fallback (classic
-    // mounts and the turtle all cast ~3 s).
+    // Real cast time of the winning mount: instant forms (travel form 783)
+    // report 0 ms (usable on the move) and mount for any trip. Only when
+    // the DBC entry is missing do we fall back to 3000 ms.
     float castSec = 3.0f;
     if (SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(bestSpell))
-    {
-        uint32 castMs = GetSpellCastTime(spellInfo, bot);
-        if (castMs > 0)
-            castSec = castMs / 1000.0f;
-    }
+        castSec = GetSpellCastTime(spellInfo, bot) / 1000.0f;
     // breakEven = runSpeed * castTime / (mountBonus), where mountBonus is
     // the fractional gain (speed % / 100). Base run is 7 y/s in 1.12.
-    float factor = sPlayerbotAIConfig.mountBreakEvenFactor > 0.0f
-        ? sPlayerbotAIConfig.mountBreakEvenFactor : 1.5f;
-    return 7.0f * castSec / (bestSpeed / 100.0f) * factor;
+    return 7.0f * castSec / (bestSpeed / 100.0f) * sPlayerbotAIConfig.mountBreakEvenFactor;
 }
 
 bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
