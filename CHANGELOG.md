@@ -47,7 +47,6 @@
 
 - Configuration guide now covers many-bot realms: set `CleanupTerrain = 0` and `PlayerSave.Interval = 300000` to cut slow map ticks from 126 down to 20 per 10 minutes on a 500-bot realm [#318](https://github.com/Sagiroth/TortoiseBots/pull/318)
 - Documented the catch: disabling terrain cleanup holds roughly 2 GB of continent terrain in memory, so keep `CleanupTerrain = 1` on low-RAM boxes [#318](https://github.com/Sagiroth/TortoiseBots/pull/318)
-- The Docker stack now ships these defaults out of the box (tortoise-docker-penqle#17), so containerized servers get the tuning without editing configs by hand [#318](https://github.com/Sagiroth/TortoiseBots/pull/318)
 
 ## 2026-09-26
 
