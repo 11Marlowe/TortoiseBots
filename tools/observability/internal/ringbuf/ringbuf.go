@@ -1,6 +1,7 @@
 package ringbuf
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -67,7 +68,9 @@ func (r *RingBuffer) GetAll() []model.AnomalyPayload {
 	return result
 }
 
-// GetRecent returns the last N events (newest first).
+// GetRecent returns the last N events (newest first). The severity filter is
+// case-insensitive: the emitter sends "WARN"/"INFO" while the UI options are
+// lowercase, and a direct API query should accept either.
 func (r *RingBuffer) GetRecent(limit int, typeFilter, severityFilter string) []model.AnomalyPayload {
 	all := r.GetAll()
 	var filtered []model.AnomalyPayload
@@ -75,10 +78,10 @@ func (r *RingBuffer) GetRecent(limit int, typeFilter, severityFilter string) []m
 	// Iterate in reverse (newest first)
 	for i := len(all) - 1; i >= 0; i-- {
 		e := all[i]
-		if typeFilter != "" && e.Type != typeFilter {
+		if typeFilter != "" && !strings.EqualFold(e.Type, typeFilter) {
 			continue
 		}
-		if severityFilter != "" && e.Severity != severityFilter {
+		if severityFilter != "" && !strings.EqualFold(e.Severity, severityFilter) {
 			continue
 		}
 		filtered = append(filtered, e)

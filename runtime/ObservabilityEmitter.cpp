@@ -27,6 +27,7 @@
 #include "Database/DatabaseEnv.h"
 #include "Player.h"
 #include "World.h"
+#include "WorldSession.h"
 #include "Log.h"
 #include "../host/ModuleLog.h"
 #include "Timer.h"
@@ -44,7 +45,7 @@ namespace {
 
 // Datagram schema version. The Go daemon ignores datagrams it cannot parse;
 // this is bumped when the wire format changes incompatibly.
-constexpr int kProtocolVersion = 4;
+constexpr int kProtocolVersion = 5;
 
 // Snapshot cadence and batching. Datagrams are kept well under the loopback
 // MTU so a large roster arrives as several unpredictable chunks; the receiver
@@ -98,7 +99,7 @@ enum AnomalyTypeId : uint8
 
 uint8 AnomalyTypeIdFromName(std::string const& type)
 {
-    if (type == "BOT_STUCK") return ANOMALY_STUCK;
+    if (type == "STUCK") return ANOMALY_STUCK;
     if (type == "ACTION_LOOP") return ANOMALY_ACTION_LOOP;
     if (type == "UNREACHABLE_TARGET") return ANOMALY_UNREACHABLE;
     return ANOMALY_UNKNOWN;
@@ -633,7 +634,10 @@ void ObservabilityEmitter::Update(uint32 diff)
                     std::ostringstream dss;
                     dss << "Coordinates stationary for " << (track.stationaryMovementMs / 1000.0f)
                         << "s while in active movement state";
-                    EmitAnomaly("BOT_STUCK", "WARN", bot, dss.str(), "",
+                    // Counter-only: the daemon counts STUCK in Prometheus but
+                    // keeps it out of the Incidents ring buffer. The 60 s STUCK
+                    // issue episode is the surfaced signal.
+                    EmitAnomaly("STUCK", "WARN", bot, dss.str(), "",
                                 FormatStrategies(ai), "move");
                 }
             }
@@ -827,10 +831,19 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
     };
 
     uint64 seq = ++m_snapshotSeq;
-
-    uint32 activeSessions = sWorld.GetActiveSessionCount();
+    // Network sessions only: headless bot sessions never enter the
+    // account-keyed network map, so GetActiveSessionCount() already excludes
+    // them. The old "sessions minus bots" math read 0 for any human count
+    // below the bot count; count real sessions with a live networked player
+    // instead.
+    uint32 humanCount = 0;
+    for (auto const& pair : sWorld.GetAllSessions())
+    {
+        WorldSession* sess = pair.second;
+        if (sess && sess->HasNetworkTransport() && sess->GetPlayer() && sess->GetPlayer()->IsInWorld())
+            ++humanCount;
+    }
     uint32 botCount = static_cast<uint32>(botSnapshots.size());
-    uint32 humanCount = activeSessions > botCount ? (activeSessions - botCount) : 0;
 
     std::map<std::pair<std::string, std::string>, uint32> countMap;
     for (BotTelemetrySnapshot const& b : botSnapshots)

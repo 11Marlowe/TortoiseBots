@@ -33,7 +33,7 @@ When the daemon is running, sign in with a game account of GM rank ≥ 2 (or run
 - **2D World Map:** Live rendering of Kalimdor and Eastern Kingdoms with continent tabs, zone chips, and real-time bot position markers.
 - **Roster & Health Overview:** Real-time list of all active bots, class names (icons exist only for items/spells/talents), current levels, health/mana percentages, and target units.
 - **Macro-State Breakdown:** Fleet-wide visualization showing how many bots are currently in `combat`, `moving`, `resting`, `idle`, or `dead`.
-- **Persistent Issue Tracker:** Any bot that gets stuck, loops an action, or fails to reach a target for 5+ minutes is automatically logged as a tracked episode. You can inspect the root cause; episodes auto-close (short ones are discarded, resolved history is read-only) — only incidents/anomalies have a clear button.
+- **Persistent Issue Tracker:** Bots stuck (60 s frozen while moving), dead long (2+ min), or unable to reach a combat target (2+ min, auto-closes when the snapshot contradicts it) are tracked as episodes. The tab defaults to the ≥10 min persistent filter — the subset worth reading; only episodes past their gate are shown, short ones are discarded, and no dead-long rows open in the first 5 min after a server restart. Incidents is a rolling last-1000-event window, not history.
 - **Mobile & Tablet Friendly:** Fully responsive layout for phones (360–430 px) and tablets (768 px) featuring an off-canvas navigation drawer, stacked grids, scrollable tables, and touch-friendly controls while preserving the desktop layout.
 
 ---

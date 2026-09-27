@@ -53,7 +53,7 @@
     lastSnapshotAt: 0,
     issues: { active: [], resolved: [], counts_by_type: {} },
     issueTypeFilter: 'all',
-    issueDurationFilter: 0,
+    issueDurationFilter: 600,
     issueHistory: { t: [], series: {} },
     armoryGuid: null,
     armoryProfile: null,
@@ -336,9 +336,9 @@
     23: 'Held In Off-hand', 24: 'Ammo', 25: 'Thrown', 26: 'Ranged', 27: 'Quiver', 28: 'Relic'
   };
 
-  const ISSUE_TYPES = ['STUCK', 'DEAD_LONG', 'ACTION_LOOP', 'UNREACHABLE_TARGET'];
-  const ISSUE_LABELS = { STUCK: 'Stuck', DEAD_LONG: 'Dead long', ACTION_LOOP: 'Action loop', UNREACHABLE_TARGET: 'Unreachable' };
-  const ISSUE_COLORS = { STUCK: '#d29922', DEAD_LONG: '#8b949e', ACTION_LOOP: '#f85149', UNREACHABLE_TARGET: '#a371f7' };
+  const ISSUE_TYPES = ['STUCK', 'DEAD_LONG', 'UNREACHABLE_TARGET'];
+  const ISSUE_LABELS = { STUCK: 'Stuck', DEAD_LONG: 'Dead long', UNREACHABLE_TARGET: 'Unreachable' };
+  const ISSUE_COLORS = { STUCK: '#d29922', DEAD_LONG: '#8b949e', UNREACHABLE_TARGET: '#a371f7' };
   const ISSUE_HISTORY_MAX = 300;
 
   const HIST_MAX = 300; // 2s samples -> 10 minutes
@@ -400,8 +400,9 @@
     mapCanvas: document.getElementById('map-canvas'),
     mapTooltip: document.getElementById('map-tooltip'),
     mapLegend: document.getElementById('map-legend'),
-    worldView: document.getElementById('world-view'),
+    toggleTrails: document.getElementById('toggle-trails'),
     zoneView: document.getElementById('zone-view'),
+    worldView: document.getElementById('world-view'),
     worldViewport: document.getElementById('world-viewport'),
     worldImg: document.getElementById('world-img'),
     worldCanvas: document.getElementById('world-canvas'),
@@ -432,7 +433,6 @@
     armoryProfileView: document.getElementById('armory-profile-view'),
     armoryListBody: document.getElementById('armory-list-body'),
     armoryListSearch: document.getElementById('armory-list-search'),
-    armoryNavCount: document.getElementById('armory-nav-count'),
     armoryBack: document.getElementById('armory-back'),
     armoryMapBtn: document.getElementById('armory-map-btn'),
     armoryOnline: document.getElementById('armory-online'),
@@ -497,7 +497,8 @@
   }
 
   function formatUptime(seconds) {
-    if (!seconds) return '0m';
+    seconds = Math.max(0, parseInt(seconds, 10) || 0);
+    if (seconds < 60) return `${seconds}s`;
     const m = Math.floor(seconds / 60);
     const h = Math.floor(m / 60);
     const remM = m % 60;
@@ -1121,10 +1122,24 @@
     renderTickChart();
   }
 
-  // Bots by class (heartbeat counts), with role totals.
+  // Bots by class (heartbeat counts when the socket is live, roster-derived
+  // while the socket is down so the panel never sticks on "Waiting...").
+  function compositionCounts() {
+    if ((state.counts || []).length > 0) return state.counts;
+    const agg = new Map();
+    state.bots.forEach(b => {
+      const key = `${b.class || 'unknown'}|${b.role || 'unknown'}`;
+      agg.set(key, (agg.get(key) || 0) + 1);
+    });
+    return [...agg.entries()].map(([key, count]) => {
+      const [cls, role] = key.split('|');
+      return { class: cls, role, count };
+    });
+  }
+
   function renderComposition() {
     if (!el.classBreakdown) return;
-    const counts = state.counts || [];
+    const counts = compositionCounts();
     if (counts.length === 0) {
       el.classBreakdown.innerHTML = '<div class="empty-hint">Waiting for bot telemetry...</div>';
       if (el.roleTotals) el.roleTotals.innerHTML = '';
@@ -1170,9 +1185,11 @@
     let dead = 0, low = 0, inCombat = 0;
     const zones = new Map();
     bots.forEach(b => {
-      const pct = b.max_hp ? b.hp / b.max_hp : 1;
+      // A missing max_hp means "unknown", not "full health": those bots skew
+      // neither the LOW HP nor the healthy side.
+      const pct = b.max_hp ? b.hp / b.max_hp : null;
       if (b.state === 'dead' || b.hp === 0) dead++;
-      else if (pct < 0.35) low++;
+      else if (pct !== null && pct < 0.35) low++;
       if (b.state === 'combat') inCombat++;
       zones.set(b.zone, (zones.get(b.zone) || 0) + 1);
     });
@@ -1269,7 +1286,7 @@
     if (el.playersVal) el.playersVal.textContent = s.online ? s.humans : 0;
     if (el.metricBotsOnline) el.metricBotsOnline.textContent = botCount;
     if (el.metricHumansOnline) el.metricHumansOnline.textContent = s.online ? s.humans : 0;
-    if (el.metricUptime) el.metricUptime.textContent = s.online ? formatUptime(s.uptime) : '0m';
+    if (el.metricUptime) el.metricUptime.textContent = s.online ? formatUptime(s.uptime) : '0s';
 
     const diff = s.diff || 0;
     if (el.gaugeTickVal) el.gaugeTickVal.textContent = s.online ? `${diff}ms` : '–';
@@ -1747,7 +1764,6 @@
       })
       .then(bots => {
         if (!Array.isArray(bots)) throw new Error('bad payload');
-        if (!q && el.armoryNavCount) el.armoryNavCount.textContent = String(bots.length);
         if (!bots.length) {
           el.armoryListBody.innerHTML = `<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 24px;">No bots match “${esc(q)}”.</td></tr>`;
           return;
@@ -1798,7 +1814,13 @@
       el.armoryName.textContent = s.name;
       el.armoryName.style.color = classColor(clsName);
     }
-    if (el.armorySubtitle) el.armorySubtitle.textContent = `Level ${s.level} ${raceNameById(s.race)} ${clsName}`;
+    // Online bots keep moving: DB zone/position rows lag, so prefer the live
+    // roster snapshot (authoritative telemetry) whenever it has this bot.
+    const live = state.bots.find(b => b.guid === s.guid);
+    const zoneTxt = live
+      ? `${getZoneName(live.zone)} (live)`
+      : (s.online ? 'Online — position pending' : 'Offline');
+    if (el.armorySubtitle) el.armorySubtitle.textContent = `Level ${s.level} ${raceNameById(s.race)} ${clsName} · ${zoneTxt}`;
     if (el.armoryMoney) el.armoryMoney.innerHTML = formatMoney(s.money);
     if (el.armoryPlayed) el.armoryPlayed.textContent = formatPlayed(s.totaltime);
     if (el.armoryOnline) {
@@ -1836,20 +1858,21 @@
     if (hpBar) hpBar.style.width = `${hpPct}%`;
     if (hpText) hpText.textContent = `${fmtNum(curHp)} / ${fmtNum(maxHp)} HP`;
 
-    // Power Bar (Mana / Rage / Energy)
+    // Power Bar (Mana / Rage / Energy). The armory stats tables carry only
+    // max values — no live current power — so render max only, never a
+    // faked full "cur = max" bar.
     const cls = s.class || 0;
     const powerLabel = cls === 1 ? 'Rage' : cls === 4 ? 'Energy' : 'Mana';
     const powerClass = cls === 1 ? 'stat-bar-fill stat-bar-rage' : cls === 4 ? 'stat-bar-fill stat-bar-energy' : 'stat-bar-fill stat-bar-mana';
     const maxPow = cls === 1 ? (st.maxpower2 || 100) : cls === 4 ? (st.maxpower4 || 100) : (st.maxpower1 || 1);
-    const curPow = maxPow;
-    const powPct = Math.min(100, Math.max(0, Math.round((curPow / maxPow) * 100)));
     const powBar = el.armoryPowBar || document.getElementById('armory-pow-bar');
     const powText = el.armoryPowText || document.getElementById('armory-pow-text');
     if (powBar) {
       powBar.className = powerClass;
-      powBar.style.width = `${powPct}%`;
+      // No live current value: leave the bar empty rather than full.
+      powBar.style.width = '0%';
     }
-    if (powText) powText.textContent = `${fmtNum(curPow)} / ${fmtNum(maxPow)} ${powerLabel}`;
+    if (powText) powText.textContent = `Max ${fmtNum(maxPow)} ${powerLabel}`;
 
     if (el.armoryError) el.armoryError.style.display = 'none';
     if (el.armoryBody) el.armoryBody.style.display = 'block';
@@ -2674,7 +2697,7 @@
         updateDashboardMetrics();
         if (state.activeTab === 'map') renderMap();
         if (state.activeTab === 'roster') renderRoster();
-        if (state.activeTab === 'dashboard') renderFleetHealth();
+        if (state.activeTab === 'dashboard') { renderFleetHealth(); renderComposition(); }
       })
       .catch(() => {});
   }
@@ -2848,7 +2871,6 @@
     if (el.issueActive) el.issueActive.textContent = active.length;
     if (el.issuePersistent) el.issuePersistent.textContent = active.filter(i => i.severity === 'persistent').length;
     if (el.issueWatch) el.issueWatch.textContent = active.filter(i => i.severity === 'watch').length;
-    if (el.issueResolved) el.issueResolved.textContent = state.issues.resolved.length;
     if (el.issueDeaths) el.issueDeaths.textContent = state.anomalies.filter(a => a.type === 'BOT_DEATH').length;
 
     renderIssueTable();
@@ -2865,7 +2887,7 @@
       .sort((a, b) => b.duration_sec - a.duration_sec);
 
     if (filtered.length === 0) {
-      el.issuesTable.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px;">No matching issues.</td></tr>`;
+      el.issuesTable.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">No matching issues.</td></tr>`;
       return;
     }
 
@@ -2873,13 +2895,19 @@
     filtered.forEach(i => {
       const tr = document.createElement('tr');
       const sevBadge = i.severity === 'persistent' ? 'badge-error' : 'badge-warn';
+      // Anomaly-derived rows (UNREACHABLE_TARGET) never carry a trigger: the
+      // column is hidden for them so it does not render an always-empty "-".
+      // Details carry the emitter's unreachable description instead; snapshot
+      // rows (STUCK) keep their trigger appended so no context is lost.
+      const actionCell = (i.type === 'UNREACHABLE_TARGET' && i.details)
+        ? `<td class="mono" style="font-size:0.75rem;">${esc(i.details)}</td>`
+        : `<td class="mono" style="font-size:0.75rem;">${esc(i.action || i.details || '-')}${i.trigger ? ` <span style="color:var(--text-muted);">· ${esc(i.trigger)}</span>` : ''}</td>`;
       tr.innerHTML = `
         <td style="font-weight:600;color:#58a6ff;cursor:pointer;" data-guid="${esc(i.guid)}">${esc(i.bot)}</td>
         <td>${esc(i.class || '-')}</td>
         <td><span class="badge ${sevBadge}">${esc(ISSUE_LABELS[i.type] || i.type)}</span></td>
         <td class="mono" style="color:${i.severity === 'persistent' ? '#f85149' : '#d29922'};">${esc(fmtDuration(i.duration_sec))}</td>
-        <td class="mono" style="font-size:0.75rem;">${esc(i.action || '-')}</td>
-        <td class="mono" style="font-size:0.75rem;color:var(--text-muted);">${esc(i.trigger || '-')}</td>
+        ${actionCell}
         <td class="mono" style="font-size:0.75rem;">${esc(getZoneName(i.zone))}</td>
         <td style="color:#f85149;">${esc(i.target || '-')}</td>`;
       tr.querySelector('td[data-guid]').addEventListener('click', () => focusBot(i.guid));
@@ -2964,9 +2992,12 @@
     });
   }
 
+  // Resolved card counts every archived episode; the list shows the newest
+  // slice so the DOM stays small. Keep the two in sync with one label.
   function renderResolvedList() {
     if (!el.issuesResolved) return;
     const list = state.issues.resolved.slice(0, 12);
+    if (el.issueResolved) el.issueResolved.textContent = state.issues.resolved.length ? `${list.length}/${state.issues.resolved.length}` : '0';
     if (list.length === 0) {
       el.issuesResolved.innerHTML = '<div class="empty-hint">No resolved episodes yet.</div>';
       return;
