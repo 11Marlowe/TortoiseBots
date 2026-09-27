@@ -84,50 +84,21 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
             }
 
             // A masterless random bot that died to this named player recently does
-            // not proactively re-engage it; the trade-kill loop in Ashenvale ran
+            // not INITIATE a fight with it; the trade-kill loop in Ashenvale ran
             // every ~60 s because both sides kept re-selecting each other. Owned
-            // bots (real master) still obey their player. Retaliation still works:
-            // the killer is valid while it is actively attacking the bot — read
-            // from the bot's own attacker set and target/selection GUIDs, which
-            // the core maintains for melee AND spells (Unit::Attack only sets
-            // m_attacking/GetVictim for melee; players never carry a threat list,
-            // so GetThreatManager is always 0 for a player killer — see
-            // Unit::CanHaveThreatList). Kept signals: killer in bot's attacker
-            // set, killer targeting the bot (UNIT_FIELD_TARGET, casters hold it
-            // while casting), bot targeting/selecting the killer back.
+            // bots (real master) still obey their player. The gate is the bot's
+            // own combat state: while the bot is out of combat and has no
+            // attackers, the avoided killer is refused; as soon as the bot is in
+            // combat (IsInCombat or any attacker — melee, ranged or caster, the
+            // core sets UNIT_FLAG_IN_COMBAT for spells via SetInCombatWith),
+            // normal target selection applies and retaliation works with no new
+            // heuristics. Selection/target GUIDs deliberately never count: a
+            // player merely clicking the bot must not provoke it.
             if (PlayerbotAI* playerAi = PlayerbotAIStorage::Instance().GetAI(player))
             {
                 if (!playerAi->HasRealPlayerMaster() && playerAi->ShouldAvoidPlayerKiller(enemyPlayer->GetName()))
                 {
-                    bool fightingBack = false;
-                    for (Unit* attacker : player->GetAttackers())
-                        if (attacker == enemyPlayer)
-                        {
-                            fightingBack = true;
-                            break;
-                        }
-                    if (!fightingBack && enemyPlayer->GetTargetGuid() == player->getObjectGuid())
-                        fightingBack = true;
-                    if (!fightingBack && enemyPlayer->GetSelectionGuid() == player->getObjectGuid())
-                        fightingBack = true;
-                    if (!fightingBack && player->GetTargetGuid() == enemyPlayer->getObjectGuid())
-                        fightingBack = true;
-                    if (!fightingBack && player->GetSelectionGuid() == enemyPlayer->getObjectGuid())
-                        fightingBack = true;
-                    if (!fightingBack)
-                    {
-                        Pet* pet = player->GetPet();
-                        if (pet)
-                        {
-                            for (Unit* attacker : pet->GetAttackers())
-                                if (attacker == enemyPlayer)
-                                {
-                                    fightingBack = true;
-                                    break;
-                                }
-                        }
-                    }
-                    if (!fightingBack)
+                    if (!player->IsInCombat() && player->GetAttackers().empty())
                         return false;
                 }
             }

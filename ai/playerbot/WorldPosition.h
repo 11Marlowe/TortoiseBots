@@ -384,18 +384,33 @@ namespace ai
         std::vector<GameObjectDataPair const*> getGameObjectsNear(const float radius = 0, const uint32 entry = 0) const;
         std::vector<GameObjectDataPair const*> GetGameObjectsNear(const float radius = 0, const uint32 entry = 0) const { return getGameObjectsNear(radius, entry); }
     private:
-        // Hostile-town guard index: per team (0 = Alliance-hostile, 1 = Horde-hostile),
-        // per map, per 64 yd cell, the exact spawn positions of each opposing-faction
-        // town guard in the cell. A "town guard" for team T is a spawn whose template
-        // carries CREATURE_FLAG_EXTRA_GUARD and whose faction is hostile to T but
-        // friendly (or at least not hostile) to T's enemy — i.e. an opposing-faction
-        // NPC, not a wild mob that happens to hate everyone. Built once from static
-        // spawn data (no world scan, no DB). No level gate: same-level enemy towns
-        // (Lakeshire 55s vs level 50s, Splintertree 40s vs level 36s) kill too.
+        // Hostile-town guard index. Rule (stated once, enforced in the build
+        // worker below and the query in WorldPosition.cpp):
+        //   A spawn is a "town guard" iff its template is guard-like: carries
+        //   CREATURE_FLAG_EXTRA_GUARD (bit 0x400, Creature.h:62) OR its template
+        //   name contains Guard/Sentinel/Sentry/Deathguard/Brave/Grunt/Watcher/
+        //   Elite/Cavalryman/Mountaineer (plus FR/DE/ES locales) — the DB is
+        //   inconsistent (Splintertree 12903, Nijel's 8151, Guard Clarke 934,
+        //   all Braves/Grunts/Watchers/Elites carry 0x80000 WITHOUT 0x400), and
+        //   is not a civilian (info->civilian). Battleground maps (not 0/1) are
+        //   never indexed, so AV bunker sentries stay out.
+        //   A guard threatens team T iff the LIVE bot is hostile to the guard's
+        //   faction (bot template IsHostileTo, or at-war / forced-rank via the
+        //   bot's ReputationMgr — same call the core's GetReactionTo uses), OR
+        //   the guard is a neutral-town bruiser (guard-bit faction neutral to
+        //   both baseline templates: Booty Bay 121, Gadgetzan 475, Ratchet 637,
+        //   Everlook 854) — those kill whoever fights in town regardless of
+        //   standing, so both teams avoid their 60 yd radius unconditionally.
+        // Per team (0 = Alliance-danger, 1 = Horde-danger), per map, per 64 yd
+        // cell: guard positions + faction template id (for the live check).
+        // Built once from static spawn data (no world scan, no DB). No level
+        // gate: same-level enemy towns (Lakeshire 55s, Splintertree 40s) kill too.
         struct HostileTownGuard
         {
             float x = 0.0f;
             float y = 0.0f;
+            uint32 factionTemplate = 0;
+            bool neutralBruiser = false;
         };
         struct HostileTownCellKey
         {
