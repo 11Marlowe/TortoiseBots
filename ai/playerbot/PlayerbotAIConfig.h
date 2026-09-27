@@ -260,6 +260,10 @@ public:
     // 7 y/s * castTime / (mountSpeed/100) * this. 0 disables the threshold
     // (mount for any trip). Default 1.5.
     float mountBreakEvenFactor = 1.5f;
+    // Avoid hostile towns: a random masterless bot refuses travel destinations and
+    // grind targets sitting among guards hostile to its team (12.6% of deaths are
+    // +13-level town guards). Static spawn data, scanned once per candidate point.
+    bool avoidHostileTowns = true;
     // "Long stuck" hearths a random masterless bot only when its homebind area is within
     // 10 levels of the bot; otherwise it repops instead of flying home to a zone it outgrew.
     bool unstuckHearthLevelFit = true;

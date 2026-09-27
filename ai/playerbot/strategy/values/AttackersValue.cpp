@@ -365,6 +365,27 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
             return false;
         }
 
+        // A masterless random bot that died to this named player recently does not
+        // INITIATE a fight with it again; the Ashenvale loop ran every ~60 s because
+        // both sides kept re-selecting each other after each revive. Owned bots (real
+        // master) are exempt. Same gate as EnemyPlayersValue: while the bot is out of
+        // combat with no attackers the avoided killer is refused (duel/RTI paths below
+        // still apply); once the bot is in combat, normal selection applies and
+        // retaliation works against melee, ranged and casters with no new heuristics.
+        if (PlayerbotAI* playerAi = PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst))
+        {
+            if (!playerAi->HasRealPlayerMaster() && playerAi->ShouldAvoidPlayerKiller(enemyPlayer->GetName()))
+            {
+                if (!player->IsInCombat() && player->GetAttackers().empty())
+                {
+                    Unit* rtiTarget = nullptr;
+                    if (!playerAi->HasActivePlayerMaster())
+                        rtiTarget = PAI_VALUE(Unit*, "rti target");
+                    if (target != rtiTarget)
+                        return false;
+                }
+            }
+        }
         // If the enemy player is in a PVP Prohibited zone
         if (inPvPProhibitedZone)
         {
@@ -502,6 +523,13 @@ bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)
             if (AreaEntry const* area = AreaEntry::GetById(zone))
                 capital = (area->Flags & AREA_FLAG_CAPITAL) != 0;
         if (capital)
+            return true;
+        // Hostile-town guard: target stands among guards hostile to this bot's team
+        // (static spawn data, 60 yd around the target). Random masterless bots only;
+        // retaliation preserved (NON_COMBAT gate above): a guard that attacks the bot
+        // is fought like any other. Own-team guards never trigger the helper.
+        if (sPlayerbotAIConfig.avoidHostileTowns && !ai->HasRealPlayerMaster() &&
+            WorldPosition(target).IsGuardedHostileTownFor(playerToCheckAgainst))
             return true;
     }
 

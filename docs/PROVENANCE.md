@@ -1868,3 +1868,47 @@ Local validation:
 
 | Level-appropriate bot enchant selection (candidate pool + weight scorer + proc model) | `mod-playerbots` `src/Bot/Factory/PlayerbotFactory.cpp:5105-5290` (`ApplyEnchantAndGemsNew`: per-slot DBC scan, `IsFitToSpellRequirements` mask fit, `StatsWeightCalculator::CalculateEnchant` best-pick) + `Player::CastItemCombatSpell` proc-chance formula (`tortoise-wow` `src/game/Objects/Player.cpp:8995-9001`) | `mod-playerbots` donor behavior per research-enchant-code.md §7 (live-path reference, no SHA pinned) / core proc formula read 2026-09-25 | `ai/playerbot/RandomItemMgr.{h,cpp}` (`LoadBotEnchantCandidates`, `CalculateBestBotEnchantId`, `CalculateProcEnchantWeight`), `ai/playerbot/PlayerbotFactory.{h,cpp}` (`ApplyBestEnchant`), `ai/playerbot/strategy/actions/UpdateGearAction.{h,cpp}`, `data/sql/world/20260925150000_world.sql` | Reimplemented: curated SQL candidate pool (slot/min-level/tier/rep/premium from DBC+DB research, not a live DBC scan) with owner quality ceiling (grey none, white min_level+10, green min_level+5, blue non-premium, epic premium); proc scoring via expected-damage PPM model instead of donor's unweighted path | `python3 tools/verify_okf.py`, `bash tools/verify_all.sh`, `git diff --check`; module build by orchestrator (workers do not run the docker builder); armory per-bot enchant verification pending |
 | Masterless random-bot quest-log upkeep (drop COMPLETE-but-unrewardable quests, grey accept gate unless equip upgrade, hand-in travel at 2 finished, clean on nearly-full timer) | `mod-playerbots` `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp` (`IsQuestWorthDoing`/`IsQuestCapableDoing` `:556-587`, `OrganizeQuestLog` `:590-691`, donor `src/PlayerbotAIConfig.cpp:717` `AiPlayerbot.DropObsoleteQuests`) @ b6696bdbd3740e575598d167d69f39f68cc0b907 | `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp:556-693` | `ai/playerbot/strategy/actions/DropQuestAction.{h,cpp}` (COMPLETE `!CanRewardQuest` drop, class-protected, log-nearly-full timer), `ai/playerbot/strategy/actions/AcceptQuestAction.cpp` (grey = `GetQuestLevelForPlayer+5 < level` unless `NeedQuestRewardValue` upgrade), `ai/playerbot/strategy/actions/ChooseTravelTargetAction.cpp` (hand-in at 2 for masterless randoms), `ai/playerbot/strategy/triggers/GenericTriggers.h` + `TriggerContext.h` (`quest log nearly full`), `ai/playerbot/strategy/generic/MaintenanceStrategy.cpp`, `ai/playerbot/PlayerbotAIConfig.{h,cpp}` + `aiplayerbot.conf.dist.in` (`AiPlayerbot.BotQuestLogUpkeep`, default 1) | Reimplemented as this tree's own predicates and trigger wiring (donor idea only, no donor code copied): donor grey threshold uses `CONFIG_QUEST_LOW_LEVEL_HIDE_DIFF`, this tree uses core quest-color `+5` per the task spec; DELIVER/incomplete rules and upkeep gating are tree-local | `tools/verify_all.sh`, `git diff --check`; no docker build or runtime (per task constraints) |
+
+## Hostile-town avoidance + player-killer avoidance — 2026-09-27
+
+Feature: random masterless bots refuse travel destinations, travel-node route
+legs and grind targets guarded by town guards hostile to their team
+(`AiPlayerbot.AvoidHostileTowns = 1`), and a bot killed by a named player
+avoids re-engaging that killer for 10 minutes (retaliation preserved).
+
+Source repository: `mod-playerbots` @ `b6696bdb` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+- `src/Bot/RandomPlayerbotMgr.cpp:1661-1665` (RandomTeleport enemy-zone reject:
+  `if (zone->team == 4 && bot->GetTeamId() == TEAM_ALLIANCE) continue;` and the
+  Horde mirror), `:1861-1870` (same in GetPlayerZoneTeleportLocations),
+  `:3200-3203` (battlemaster hub team reject).
+- `src/Ai/Base/Value/EnemyPlayerValue.cpp:20-33` (NearestEnemyPlayersValue:
+  opposing + flagged + not-prohibited + master-flagged).
+- `src/Ai/Base/Value/AttackersValue.cpp:176-202` (unflagged-player reject,
+  both-sides prohibited reject).
+
+Copied / ported / independently reimplemented: reimplemented, not copied. The
+donor filters whole zones by `AreaTable.team` at teleport time and has no
+random-vs-random PvP exemption (its bots fight on PvP realms). This change
+fills the gap the donor leaves: contested-zone towns (Splintertree, Booty Bay,
+Southshore, Menethil) carry no enemy zone team, so the check is per-spawn —
+static `creature` spawn data + faction-template hostility + guard-level gate
+(level_max >= bot+5) — at the three module choke points that already own
+faction gating (`SetBestTarget`, `RouteIsSurvivable`, `AttackersValue::
+IgnoreTarget`), plus a 10-minute named-killer avoidance (donor has none)
+keyed like the existing lethal-kind rule in `PlayerbotAI::OnDeath`.
+
+Reason: live 500-bot realm 2026-09-27: 12.6% of deaths are +13-level town
+guards (Splintertree, Nijel's Point, Lakeshire, Menethil, Theramore,
+Astranaar, Southshore, Booty Bay elites); 11% are bot-vs-bot PvP with a
+5-bot Ashenvale cluster trading kills every 48-64 s for 10+ min.
+
+Local validation:
+- `python3 tools/verify_okf.py`, `bash tools/verify_tortoise_surface.sh`,
+  `python3 tools/verify_action_trigger_wiring.py`, `bash tools/verify_all.sh`;
+  `git diff --check`.
+- Live verification (no docker build in this worktree): guard-faction masks
+  from `tw_world` SELECTs, `deaths.csv` killer breakdown, `bot_events.csv`
+  `debug travel` skip lines after the next module build.

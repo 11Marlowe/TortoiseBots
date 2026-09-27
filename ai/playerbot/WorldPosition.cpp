@@ -1,5 +1,6 @@
 #include "WorldPosition.h"
 #include "GuidPosition.h"
+#include "playerbot/PlayerbotAI.h"
 #include "playerbot/TravelMgr.h"
 #include "TravelNode.h"
 
@@ -16,6 +17,7 @@
 
 #include <numeric>
 #include <iomanip>
+#include <cstring>
 
 using namespace ai;
 using namespace MaNGOS;
@@ -436,6 +438,209 @@ bool WorldPosition::isEnemyHomeZoneFor(Team team) const
 
     return (areaTeam == AREATEAM_ALLY  && team == HORDE)
         || (areaTeam == AREATEAM_HORDE && team == ALLIANCE);
+}
+
+std::once_flag WorldPosition::s_hostileTownOnceFlag;
+std::unordered_map<WorldPosition::HostileTownCellKey, std::vector<WorldPosition::HostileTownGuard>, WorldPosition::HostileTownCellKeyHash> WorldPosition::s_hostileTownCells[2];
+size_t WorldPosition::s_hostileTownGuards[2] = { 0, 0 };
+std::atomic<bool> WorldPosition::s_hostileTownIndexBuilt{ false };
+
+// One-pass build over the static spawn table (~88k rows): template + faction
+// lookups only, no world objects, no DB, no map loads. Runs once via call_once
+// on the first hostile-town query (creature data is loaded by then); bot AI
+// runs on parallel map threads, so no double-checked locking — after the build
+// the maps are immutable and queries never take a lock.
+void WorldPosition::EnsureHostileTownIndex()
+{
+    std::call_once(s_hostileTownOnceFlag, []()
+    {
+        // Build into locals, then move in: readers only ever run after
+        // call_once returns, so they see the full index or (before the first
+        // build finishes) block inside call_once — never a half-built map.
+        std::unordered_map<HostileTownCellKey, std::vector<HostileTownGuard>, HostileTownCellKeyHash> cells[2];
+        size_t guards[2] = { 0, 0 };
+        struct HostileTownBuildWorker
+        {
+            std::unordered_map<HostileTownCellKey, std::vector<HostileTownGuard>, HostileTownCellKeyHash>* cells;
+            size_t* guards;
+            bool operator()(CreatureDataPair const& dataPair)
+            {
+                uint32 entry = dataPair.second.creature_id[0];
+                if (!entry)
+                    return false;
+                uint32 mapId = dataPair.second.position.mapId;
+                // Open world only: battleground/dungeon sentries (e.g. AV map 30
+                // bunkers) are objectives, not towns — indexing them would make
+                // bots refuse to assault towers as "hostile towns".
+                if (mapId != 0 && mapId != 1)
+                    return false;
+                CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(entry);
+                if (!info || !info->faction)
+                    return false;
+                // Civilians never guard: excludes vendors/quest NPCs whose name
+                // happens to contain a guard word (e.g. Fanny Forgeguard 62463,
+                // an Ironforge vendor). Note some "Guard"-labeled quest NPCs ARE
+                // civilian-flagged (Guard Parker 464) — they don't aggro, out.
+                if (info->civilian)
+                    return false;
+                // Guard identity: CREATURE_FLAG_EXTRA_GUARD bit (0x400,
+                // Creature.h:62) OR a guard-title name match. The DB is
+                // inconsistent: Splintertree 12903, Nijel's 8151, Guard Clarke
+                // 934, all Braves/Grunts/Watchers/Elites/Cavalrymen carry 0x80000
+                // (PVP) WITHOUT 0x400, yet kill bots. Titles cover EN + FR/DE/ES
+                // client locales. Numeric literal: the cmangos shim only aliases
+                // the INVISIBLE bit. strstr cost is build-time only.
+                uint32 constexpr GUARD_EXTRA_FLAG = 0x00000400;
+                bool isGuard = (info->flags_extra & GUARD_EXTRA_FLAG) != 0;
+                if (!isGuard && info->name.c_str() != nullptr)
+                {
+                    const char* n = info->name.c_str();
+                    isGuard = strstr(n, "Guard") != nullptr ||
+                        strstr(n, "Sentinel") != nullptr || strstr(n, "Sentry") != nullptr ||
+                        strstr(n, "Deathguard") != nullptr || strstr(n, "Brave") != nullptr ||
+                        strstr(n, "Grunt") != nullptr || strstr(n, "Watcher") != nullptr ||
+                        strstr(n, "Elite") != nullptr || strstr(n, "Cavalryman") != nullptr ||
+                        strstr(n, "Mountaineer") != nullptr || strstr(n, "Gardien") != nullptr ||
+                        strstr(n, "Schildwache") != nullptr || strstr(n, "Guardia") != nullptr;
+                }
+                if (!isGuard)
+                    return false;
+                // Faction routing (data-driven, core IsHostileTo: enemy/friend
+                // lists first, then hostile mask). Player templates: 1 = Alliance,
+                // 2 = Horde.
+                FactionTemplateEntry const* ally = sObjectMgr.GetFactionTemplateEntry(1);
+                FactionTemplateEntry const* horde = sObjectMgr.GetFactionTemplateEntry(2);
+                FactionTemplateEntry const* guardFaction = info->faction ? sObjectMgr.GetFactionTemplateEntry(info->faction) : nullptr;
+                if (!ally || !horde || !guardFaction)
+                    return false;
+                auto hostileTo = [](FactionTemplateEntry const* guard, FactionTemplateEntry const* player)
+                {
+                    return guard->IsHostileTo(*player);
+                };
+                // Neutral-town bruisers: guard-bit faction neutral to BOTH baseline
+                // templates (Booty Bay 121, Gadgetzan 475, Ratchet 637, Everlook
+                // 854 — all our 1 / hostile 8). They kill whoever fights in town
+                // regardless of standing, so both teams avoid them unconditionally
+                // (query skips the live check for these).
+                bool neutralBruiser = !hostileTo(guardFaction, ally) && !hostileTo(guardFaction, horde);
+                // Opposing-faction guard: hostile to T, NOT hostile to T's enemy
+                // (keeps out monster-team mobs that hate everyone — no town).
+                // Faction id stored for the query-time live check (bot hostile to
+                // the guard faction via template, at-war or forced-rank).
+                bool threatensAlly = hostileTo(guardFaction, ally) && !hostileTo(guardFaction, horde);
+                bool threatensHorde = hostileTo(guardFaction, horde) && !hostileTo(guardFaction, ally);
+                if (!neutralBruiser && !threatensAlly && !threatensHorde)
+                    return false;
+                // Query radius is 2D (sqDistance2d at IsValid). Store the exact
+                // position so the query does the exact 2D distance check.
+                HostileTownCellKey key{ mapId,
+                    HostileTownCellCoord(dataPair.second.position.x),
+                    HostileTownCellCoord(dataPair.second.position.y) };
+                auto push = [&](uint32 teamIdx)
+                {
+                    cells[teamIdx][key].push_back(HostileTownGuard{ dataPair.second.position.x, dataPair.second.position.y, info->faction, neutralBruiser });
+                    ++guards[teamIdx];
+                };
+                if (neutralBruiser)
+                {
+                    push(0);
+                    push(1);
+                }
+                else
+                {
+                    if (threatensAlly)
+                        push(0);
+                    if (threatensHorde)
+                        push(1);
+                }
+                return false;
+            }
+        };
+        HostileTownBuildWorker worker{ cells, guards };
+        sObjectMgr.DoCreatureData(worker);
+        s_hostileTownCells[0] = std::move(cells[0]);
+        s_hostileTownCells[1] = std::move(cells[1]);
+        s_hostileTownGuards[0] = guards[0];
+        s_hostileTownGuards[1] = guards[1];
+        s_hostileTownIndexBuilt.store(true, std::memory_order_release);
+    });
+}
+
+// Diagnostics only: 0 until the one-time build completes (callers must check
+// IsHostileTownIndexBuilt() first). After the build the maps are immutable, so
+// size reads need no lock.
+size_t WorldPosition::GetHostileTownIndexCells()
+{
+    if (!s_hostileTownIndexBuilt.load(std::memory_order_acquire))
+        return 0;
+    return s_hostileTownCells[0].size() + s_hostileTownCells[1].size();
+}
+
+size_t WorldPosition::GetHostileTownIndexGuards()
+{
+    if (!s_hostileTownIndexBuilt.load(std::memory_order_acquire))
+        return 0;
+    return s_hostileTownGuards[0] + s_hostileTownGuards[1];
+}
+
+bool WorldPosition::isGuardedHostileTownFor(Player const* bot, float radius) const
+{
+    // O(1)-ish lock-free cell lookup after the one-time build: the query cell
+    // + neighbours within radius, exact 2D distance per guard, then the live
+    // hostility check below. No level gate: same-level enemy towns (Lakeshire
+    // 55s, Splintertree 40s) kill too. No spawn-table walk, no DB, no map
+    // loads, no per-query allocation.
+    if (!bot)
+        return false;
+    Team team = bot->GetTeam();
+    if (team != ALLIANCE && team != HORDE)
+        return false;
+    EnsureHostileTownIndex();
+    uint32 teamIdx = HostileTownTeamIndex(team);
+    int32 minCX = HostileTownCellCoord(x - radius);
+    int32 maxCX = HostileTownCellCoord(x + radius);
+    int32 minCY = HostileTownCellCoord(y - radius);
+    int32 maxCY = HostileTownCellCoord(y + radius);
+    float const radiusSq = radius * radius;
+    FactionTemplateEntry const* botFaction = bot->GetFactionTemplateEntry();
+    auto const& cells = s_hostileTownCells[teamIdx];
+    for (int32 cx = minCX; cx <= maxCX; ++cx)
+        for (int32 cy = minCY; cy <= maxCY; ++cy)
+        {
+            auto it = cells.find(HostileTownCellKey{ mapId, cx, cy });
+            if (it == cells.end())
+                continue;
+            for (auto const& guard : it->second)
+            {
+                float dx = guard.x - x;
+                float dy = guard.y - y;
+                if (dx * dx + dy * dy > radiusSq)
+                    continue;
+                // Neutral-town bruisers (Booty Bay/Gadgetzan/Ratchet/Everlook)
+                // kill whoever fights in town regardless of standing: always
+                // guarded inside the radius.
+                if (guard.neutralBruiser)
+                    return true;
+                // Live check per the rule: hostile to the bot only if the bot is
+                // hostile to the guard's faction. Static template reaction first
+                // (covers the indexed opposing-faction case with zero reputation
+                // traffic), then the bot's live standing: forced-rank override,
+                // else at-war state — the same two calls the core's GetReactionTo
+                // consults before the mask math.
+                FactionTemplateEntry const* guardFaction = sObjectMgr.GetFactionTemplateEntry(guard.factionTemplate);
+                if (!guardFaction || !botFaction)
+                    continue;
+                if (!botFaction->IsHostileTo(*guardFaction))
+                    continue;
+                if (bot->GetReputationMgr().GetForcedRankIfAny(guardFaction) != nullptr)
+                    return true;
+                if (FactionEntry const* factionEntry = sObjectMgr.GetFactionEntry(guardFaction->faction))
+                    if (bot->GetReputationMgr().IsAtWar(factionEntry))
+                        return true;
+                return true;
+            }
+        }
+    return false;
 }
 
 std::string WorldPosition::getAreaName(const bool fullName, const bool zoneName) const

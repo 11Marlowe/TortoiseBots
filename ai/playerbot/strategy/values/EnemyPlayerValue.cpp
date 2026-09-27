@@ -83,6 +83,26 @@ bool EnemyPlayersValue::IsValid(Unit* target, Player* player)
                 }
             }
 
+            // A masterless random bot that died to this named player recently does
+            // not INITIATE a fight with it; the trade-kill loop in Ashenvale ran
+            // every ~60 s because both sides kept re-selecting each other. Owned
+            // bots (real master) still obey their player. The gate is the bot's
+            // own combat state: while the bot is out of combat and has no
+            // attackers, the avoided killer is refused; as soon as the bot is in
+            // combat (IsInCombat or any attacker — melee, ranged or caster, the
+            // core sets UNIT_FLAG_IN_COMBAT for spells via SetInCombatWith),
+            // normal target selection applies and retaliation works with no new
+            // heuristics. Selection/target GUIDs deliberately never count: a
+            // player merely clicking the bot must not provoke it.
+            if (PlayerbotAI* playerAi = PlayerbotAIStorage::Instance().GetAI(player))
+            {
+                if (!playerAi->HasRealPlayerMaster() && playerAi->ShouldAvoidPlayerKiller(enemyPlayer->GetName()))
+                {
+                    if (!player->IsInCombat() && player->GetAttackers().empty())
+                        return false;
+                }
+            }
+
             return true;
         }
     }

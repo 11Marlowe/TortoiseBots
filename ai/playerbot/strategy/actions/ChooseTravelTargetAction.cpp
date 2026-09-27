@@ -359,6 +359,12 @@ static bool RouteIsSurvivable(Player* bot, WorldPosition* position, std::string&
     }
     int32 const limit = (int32)bot->GetLevel() + 5;
     bool ok = true;
+    // Hostile-town route leg (cheap: only the named route nodes are scanned, no
+    // extra spawn-table walk beyond the per-node guard check; start/end legs and
+    // the 1000 yd short-hop bypass above are untouched). Random masterless bots
+    // only; the check needs an ai for the master gate, so callers pass it in.
+    PlayerbotAI* routeAi = PlayerbotAIStorage::Instance().GetAI(bot);
+    bool const avoidTowns = sPlayerbotAIConfig.avoidHostileTowns && routeAi && !routeAi->HasRealPlayerMaster();
     for (TravelNode* node : route.getNodes())
     {
         WorldPosition* p = node ? node->getPosition() : nullptr;
@@ -368,6 +374,12 @@ static bool RouteIsSurvivable(Player* bot, WorldPosition* position, std::string&
         if (level > 0 && level > limit)
         {
             blocker = p->getAreaName(true, true) + " (level " + std::to_string(level) + ")";
+            ok = false;
+            break;
+        }
+        if (avoidTowns && p->IsGuardedHostileTownFor(bot))
+        {
+            blocker = p->getAreaName(true, true) + " (hostile town guards)";
             ok = false;
             break;
         }
@@ -413,6 +425,18 @@ bool ChooseTravelTargetAction::SetBestTarget(Player* requester, TravelTarget* ta
                     if (position->IsEnemyHomeZoneFor(bot->GetTeam()))
                     {
                         ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - enemy home zone", "debug travel");
+                        continue;
+                    }
+
+                    // Hostile-town guard: destination sits among guards hostile to this
+                    // bot's team (static spawn data, 60 yd). Random masterless bots
+                    // only; owned/alt bots obey their player. Enemy home zones are
+                    // already skipped above; this covers contested-zone towns
+                    // (Splintertree, Booty Bay, Southshore, Menethil...).
+                    if (sPlayerbotAIConfig.avoidHostileTowns && !ai->HasRealPlayerMaster() &&
+                        position->IsGuardedHostileTownFor(bot))
+                    {
+                        ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - hostile town guards", "debug travel");
                         continue;
                     }
 
