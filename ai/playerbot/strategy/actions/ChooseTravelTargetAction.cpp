@@ -1559,7 +1559,14 @@ bool RequestQuestTravelTargetAction::Execute(Event& event)
                 finished++;
         }
 
-        if (finished >= 5 || active + 2 >= MAX_QUEST_LOG_SIZE)
+        // Quest-log upkeep for masterless random bots turns at 2 finished
+        // quests (the old threshold of 5 sat above the observed ~2.7 backlog
+        // per bot, so turn-ins kept losing the distance race to objectives).
+        // Owned bots keep the old threshold.
+        uint32 handInThreshold = (sPlayerbotAIConfig.botQuestLogUpkeep &&
+            !ai->HasActivePlayerMaster() &&
+            sRandomBotFacade.IsRandomBot(bot)) ? 2 : 5;
+        if (finished >= handInThreshold || active + 2 >= MAX_QUEST_LOG_SIZE)
         {
             std::vector<std::tuple<uint32, int32, float>> handInOnly;
             for (auto& fetch : destinationFetches)

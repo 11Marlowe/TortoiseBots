@@ -263,6 +263,12 @@ public:
     // "Long stuck" hearths a random masterless bot only when its homebind area is within
     // 10 levels of the bot; otherwise it repops instead of flying home to a zone it outgrew.
     bool unstuckHearthLevelFit = true;
+    // Quest-log upkeep for masterless random bots: drop finished quests that
+    // can no longer be rewarded, refuse grey quests unless the reward is an
+    // equip upgrade, and prefer turn-in travel once 2 quests are finished.
+    // Default on; off restores the old accept-all / clean-only-grey /
+    // hand-in-at-5 behaviour.
+    bool botQuestLogUpkeep = true;
     // Default-on bounded LFT fill: observe native queue (GetQueuedPlayers),
     // identify human groups/instances and missing 1/1/3 roles, filter in-memory
     // Headless random candidates by authoritative Soromeister/LFT ranges,

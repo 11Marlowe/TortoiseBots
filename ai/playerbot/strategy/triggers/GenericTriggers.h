@@ -1317,6 +1317,16 @@ namespace ai
 
         bool IsActive() override;
     };
+    class QuestLogNearlyFullTrigger : public Trigger
+    {
+    public:
+        QuestLogNearlyFullTrigger(PlayerbotAI* ai) : Trigger(ai, "quest log nearly full", 5) {}
+
+        bool IsActive() override
+        {
+            return sPlayerbotAIConfig.botQuestLogUpkeep && AI_VALUE(uint8, "free quest log slots") <= 2;
+        }
+    };
 }
 
 class PotionCooldownTrigger : public ai::ItemBuffReadyTrigger

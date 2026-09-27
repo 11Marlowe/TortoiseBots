@@ -3,6 +3,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "QuestAction.h"
+#include "playerbot/strategy/values/ItemUsageValue.h"
 
 namespace ai
 {

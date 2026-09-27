@@ -38,7 +38,7 @@ namespace ai
         virtual std::string GetHelpDescription()
         {
             return "This command removes only safe stale quests to make room for new ones.\n"
-                   "Incomplete quests at least eight levels below the bot are eligible; class and delivery quests are preserved.\n";
+                   "Incomplete quests at least eight levels below the bot are eligible; finished quests that can no longer be rewarded are eligible too; class quests are preserved, incomplete delivery quests are preserved.\n";
         }
         virtual std::vector<std::string> GetUsedActions() { return {}; }
         virtual std::vector<std::string> GetUsedValues() { return {}; }

@@ -45,21 +45,44 @@ bool CleanQuestLogAction::Execute(Event& event)
     if (ai->HasActivePlayerMaster())
         return false;
 
+    // The INCOMPLETE grey rule below is the old behaviour and always runs.
+    // The COMPLETE branch is quest-log upkeep for masterless random bots.
+    bool upkeep = sPlayerbotAIConfig.botQuestLogUpkeep;
+
     bool dropped = false;
     for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE;)
     {
         uint32 questId = GetQuestSlotIdCompat(bot, slot);
-        if (!questId || bot->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
+        QuestStatus status = questId ? bot->GetQuestStatus(questId) : QUEST_STATUS_NONE;
+        if (!questId || (status != QUEST_STATUS_INCOMPLETE && status != QUEST_STATUS_COMPLETE))
         {
             ++slot;
             continue;
         }
 
         Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
-        if (!quest ||
-            bot->GetLevel() < quest->GetQuestLevel() + 8 ||
-            quest->GetRequiredClasses() ||
-            quest->HasSpecialFlag(QUEST_SPECIAL_FLAG_DELIVER))
+        // Class quests are never dropped.
+        if (!quest || quest->GetRequiredClasses())
+        {
+            ++slot;
+            continue;
+        }
+
+        bool drop = false;
+        if (status == QUEST_STATUS_INCOMPLETE)
+        {
+            drop = bot->GetLevel() >= quest->GetQuestLevel() + 8 &&
+                !quest->HasSpecialFlag(QUEST_SPECIAL_FLAG_DELIVER);
+        }
+        else if (upkeep && !bot->CanRewardQuest(quest, false))
+        {
+            // Finished but no longer rewardable (e.g. delivered items were
+            // sold): no taker destination will ever be built for it, so it
+            // would pin a log slot forever.
+            drop = true;
+        }
+
+        if (!drop)
         {
             ++slot;
             continue;

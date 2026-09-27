@@ -9,6 +9,12 @@ void MaintenanceStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &trigger
     triggers.push_back(new TriggerNode(
         "random",
         NextAction::array(0, new NextAction("clean quest log", 6.0f), NULL)));
+    // Quest-log upkeep: when the log is nearly full, clean on a 5s timer
+    // instead of waiting for the 1/7 random tick, so the bot makes room
+    // before the giver side starts refusing (free slots < 5/10).
+    triggers.push_back(new TriggerNode(
+        "quest log nearly full",
+        NextAction::array(0, new NextAction("clean quest log", 8.0f), NULL)));
 
     triggers.push_back(new TriggerNode(
         "random",

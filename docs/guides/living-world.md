@@ -51,7 +51,8 @@ Autonomous bots roam the open world, reacting dynamically to nearby players and 
 | **Zone Exploration & Travel** | Bots take flight paths, ride zeppelins and boats, run along roads between towns, and use hearthstones to return to inns. |
 | **Grinding & Combat** | Bots seek out level-appropriate hostile mobs, pull with class-appropriate ranged abilities, execute standard rotations, and rest with food and water between fights. |
 | **Beginner Grinding (Level 1–4)** | Fresh bots in starter valleys (Valley of Trials, Camp Narache, Northshire, Coldridge, Shadowglen) target mobs up to their own level and are permitted to hunt coinless starter beasts (e.g. Mottled Boars, Scorpids, Plainstriders) while ignoring critters. |
-| **Questing & Progression** | Bots pick up quests from quest givers, track quest objectives (killing specific mobs or collecting items), and turn them in for XP and gold rewards. |
+| **Questing & Progression** | Bots pick up level-appropriate quests from quest givers, track quest objectives (killing specific mobs or collecting items), and turn them in for XP and gold rewards. |
+| **Quest-log upkeep (masterless random bots)** | Finished quests that can no longer be rewarded (e.g. delivered items sold) are dropped instead of pinning a log slot; grey quests are skipped unless the reward is an equip upgrade; a nearly-full log is cleaned on a timer; turn-in travel wins once 2 quests are finished. Owned and alt bots are unaffected. Toggle: `AiPlayerbot.BotQuestLogUpkeep` (default `1`). |
 | **Gathering & Professions** | Bots with Herbalism, Mining, or Skinning actively travel to resources and hunt skinning targets to gather materials for crafting and the Auction House. |
 | **Town Life & Immersion** | In towns, bots visit class trainers to learn new spell ranks, repair yellow/red durability gear at blacksmiths, vendor junk items, and wave or say hello when passing human players. |
 
