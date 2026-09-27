@@ -8,6 +8,18 @@
 
 ---
 
+### World & Bot Population
+- Random bots (levels 10–60) now stay scattered across level-appropriate zones instead of draining back to racial starting zones and capitals (~80% of the population was piling up there). [#312](https://github.com/Sagiroth/TortoiseBots/pull/312)
+- Travel-node graph is now actually usable, with a fallback path so bots can navigate when the graph has no route — no more mass "long stuck" pileups. [#312](https://github.com/Sagiroth/TortoiseBots/pull/312)
+- Ghost recovery works properly: bots no longer teleport back to their racial spawn point on repop (was ~351 repops in 4.7h). [#312](https://github.com/Sagiroth/TortoiseBots/pull/312)
+- Unstuck hearthstones no longer yank bots home to the starting inn (~2042 uses in 4.7h from `move long stuck` / `combat long stuck`). Homebind behavior is far less disruptive. [#312](https://github.com/Sagiroth/TortoiseBots/pull/312)
+
+### Core Sync & Fixes
+- Fixed inverted `ExperienceValue::EqualToLast` check that falsely flagged actively-levelling bots in tight camps as "stuck" — this was the root cause of the spammy unstuck hearths. [#312](https://github.com/Sagiroth/TortoiseBots/pull/312)
+
+### Roster & Addon
+- Hired companions no longer show up in the `.bot roster` / addon Roster tab. Skips characters on registered random-pool accounts, so dismissed hires don't haunt your roster. [#311](https://github.com/Sagiroth/TortoiseBots/pull/311)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
