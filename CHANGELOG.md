@@ -2,6 +2,8 @@
 
 ## 2026-09-27
 
+<!-- Maintenance PRs kept out of the notes: #319 #320 -->
+
 ### Core Sync & Fixes
 - Gave Mercenary Hire Recruiters explicit guids instead of `AUTO_INCREMENT`, eliminating collisions with core engine migrations that were spawning duplicate recruiter NPCs. [#314](https://github.com/Sagiroth/TortoiseBots/pull/314)
 - Fixed on the module side rather than shifting core guids: module SQL isn't hash-tracked by mangosd's DB Auto-Updater, so the change won't re-run on environments that already applied the old core migration. [#314](https://github.com/Sagiroth/TortoiseBots/pull/314)
@@ -53,12 +55,6 @@
 - The Issues badge only counts persistent problems and disappears at zero, while Incidents now tracks warnings/errors instead of every bot death — signals you can trust at a glance. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
 - Fixed bots being listed as their own target in the bot list. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
 - The map zone list retains custom zones, so filtering no longer ejects you from the zone you're viewing; the world view is now labelled as a single continent. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
-
-### Tooling & CI
-- New manual workflow lets maintainers edit an already-posted Discord changelog message by dropping lines containing a given text, reusing the existing webhook secret. Scoped to `.github/workflows`, so the changelog workflow itself won't fire. [#320](https://github.com/Sagiroth/TortoiseBots/pull/320)
-
-### Docs
-- Removed a stray `CHANGELOG.md` line referencing a private deployment stack that isn't part of this project. [#319](https://github.com/Sagiroth/TortoiseBots/pull/319)
 
 ## 2026-09-26
 
