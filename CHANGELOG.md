@@ -1,9 +1,5 @@
 # Changelog
 
-## Unreleased
-
-- Random bots that outlevel their zone now walk to a level-fitting grind hub (`AiPlayerbot.LeaveOutgrownZones = 1`, default on): level 10+ random masterless bots in a non-capital zone 5+ below their level — or idling in a capital with no pending trainer/mount/AH/Vendor/Repair need — request a Grind travel target above shopping-trip relevance, skip services and inn homebinds in zones 10+ below them (capitals excepted), and travel organically via the travel graph — no teleports. Fires counted in `bot_events.csv` (`LeaveOutgrownZone` = zone/outgrown|capital, `TravelTarget` = purpose/destination zone).
-
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
