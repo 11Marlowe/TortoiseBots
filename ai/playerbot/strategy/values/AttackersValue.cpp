@@ -318,9 +318,31 @@ void AttackersValue::AddTargetsOf(Player* player, std::set<Unit*>& targets, std:
 
 bool AttackersValue::InCombat(Unit* target, Player* player, bool checkPullTargets)
 {
-    // Check if the the target is attacking the player
+    // Check if the the target is attacking the player. Threat + victim cover
+    // creatures; for player targets both are melee-only signals (players never
+    // carry a threat list — Unit::CanHaveThreatList — and GetVictim is only set
+    // by melee Unit::Attack), so a ranged/caster player killer would read as
+    // "not in combat" forever. The attacker-set and target/selection GUIDs are
+    // maintained for spells too (SetInCombatWithAggressor/Victim) and close it.
     bool inCombat = (target->GetThreatManager().getThreat(player) > 0.0f) ||
                     (target->GetVictim() && (target->GetVictim() == player));
+    if (!inCombat && target->getObjectGuid().IsPlayer() && player)
+    {
+        for (Unit* attacker : player->GetAttackers())
+            if (attacker == target)
+            {
+                inCombat = true;
+                break;
+            }
+        if (!inCombat && target->GetTargetGuid() == player->getObjectGuid())
+            inCombat = true;
+        if (!inCombat)
+        {
+            if (Player* targetPlayer = dynamic_cast<Player*>(target))
+                if (targetPlayer->GetSelectionGuid() == player->getObjectGuid())
+                    inCombat = true;
+        }
+    }
 
     // Check if the target is attacking the player's pet
     if(!inCombat)
@@ -330,6 +352,15 @@ bool AttackersValue::InCombat(Unit* target, Player* player, bool checkPullTarget
         {
             inCombat = (target->GetThreatManager().getThreat(pet) > 0.0f) ||
                        (target->GetVictim() && (target->GetVictim() == pet));
+            if (!inCombat && target->getObjectGuid().IsPlayer())
+            {
+                for (Unit* attacker : pet->GetAttackers())
+                    if (attacker == target)
+                    {
+                        inCombat = true;
+                        break;
+                    }
+            }
         }
     }
 
@@ -369,15 +400,34 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
         // proactively pick it again; the Ashenvale loop ran every ~60 s because both
         // sides kept re-selecting each other after each revive. Owned bots (real
         // master) are exempt. Retaliation and duel/RTI paths below still apply: an
-        // avoided killer that is actively fighting the bot (or is the duel opponent
-        // or RTI target) stays valid, so this only breaks the re-engage half.
+        // avoided killer that is actively fighting the bot (attacker set or
+        // target/selection GUIDs either direction — melee AND spells; players
+        // never carry a threat list so GetThreatManager is always 0 for them)
+        // stays valid, so this only breaks the re-engage half.
         if (PlayerbotAI* playerAi = PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst))
         {
             if (!playerAi->HasRealPlayerMaster() && playerAi->ShouldAvoidPlayerKiller(enemyPlayer->GetName()))
             {
                 bool const isDuel = player->m_duel && player->m_duel->opponent == target->getObjectGuid();
-                bool fighting = !isDuel && InCombat(target, player, (player == owner));
-                if (!fighting && !isDuel)
+                bool fighting = isDuel;
+                if (!fighting)
+                {
+                    for (Unit* attacker : player->GetAttackers())
+                        if (attacker == enemyPlayer)
+                        {
+                            fighting = true;
+                            break;
+                        }
+                }
+                if (!fighting && enemyPlayer->GetTargetGuid() == player->getObjectGuid())
+                    fighting = true;
+                if (!fighting && enemyPlayer->GetSelectionGuid() == player->getObjectGuid())
+                    fighting = true;
+                if (!fighting && player->GetTargetGuid() == enemyPlayer->getObjectGuid())
+                    fighting = true;
+                if (!fighting && player->GetSelectionGuid() == enemyPlayer->getObjectGuid())
+                    fighting = true;
+                if (!fighting)
                 {
                     Unit* rtiTarget = nullptr;
                     if (!playerAi->HasActivePlayerMaster())

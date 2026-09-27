@@ -6,10 +6,10 @@
 #include "World.h"
 #include "Maps/PathFinder.h"
 #include <cstddef>
+#include <atomic>
 #include <mutex>
 #include <unordered_map>
 #include <vector>
-class ByteBuffer;
 
 namespace G3D
 {
@@ -326,16 +326,18 @@ namespace ai
         bool isEnemyHomeZoneFor(Team team) const;
         bool IsEnemyHomeZoneFor(Team team) const { return isEnemyHomeZoneFor(team); }
         // Does this position sit among town guards hostile to 'bot's team? O(1)-ish
-        // spatial lookup into a lazily built per-team guard index (map -> 64 yd
-        // cells -> guard level_max list), not a spawn-table walk: the world tick
-        // is already 100-218 ms and AttackersValue runs on the hot path.
+        // lock-free spatial lookup into a call_once-built per-team guard index
+        // (map -> 64 yd cells -> guard positions), not a spawn-table walk: the
+        // world tick is already 100-218 ms and AttackersValue runs on the hot path.
         // Random bots only (callers gate on AvoidHostileTowns + masterless).
         bool isGuardedHostileTownFor(Player const* bot, float radius = 60.0f) const;
         bool IsGuardedHostileTownFor(Player const* bot, float radius = 60.0f) const { return isGuardedHostileTownFor(bot, radius); }
-        // Test hook + diagnostics: index state without a bot.
-        static bool IsHostileTownIndexBuilt() { return s_hostileTownIndexBuilt; }
-        static size_t GetHostileTownIndexCells() { return s_hostileTownCells[0].size() + s_hostileTownCells[1].size(); }
-        static size_t GetHostileTownIndexGuards() { return s_hostileTownGuards[0] + s_hostileTownGuards[1]; }
+        // Test hook + diagnostics: index state without a bot. Built flag is
+        // atomic (release on build, acquire on read); cell/guard counts only
+        // meaningful after Built() returns true.
+        static bool IsHostileTownIndexBuilt() { return s_hostileTownIndexBuilt.load(std::memory_order_acquire); }
+        static size_t GetHostileTownIndexCells();
+        static size_t GetHostileTownIndexGuards();
         std::string getAreaName(const bool fullName = true, const bool zoneName = false) const;
         // Penqle does not expose CMaNGOS' WMO AreaNameInfo override. Use the
         // core terrain area as a truthful fallback instead of silently
@@ -383,15 +385,17 @@ namespace ai
         std::vector<GameObjectDataPair const*> GetGameObjectsNear(const float radius = 0, const uint32 entry = 0) const { return getGameObjectsNear(radius, entry); }
     private:
         // Hostile-town guard index: per team (0 = Alliance-hostile, 1 = Horde-hostile),
-        // per map, per 64 yd cell, the exact spawn positions + level_max of each
-        // hostile guard in the cell. Built once from static spawn data (no world
-        // scan, no DB); the bot+5 level gate runs at query time, so the index
-        // stores all levels. Positions enable the exact 2D distance check.
+        // per map, per 64 yd cell, the exact spawn positions of each opposing-faction
+        // town guard in the cell. A "town guard" for team T is a spawn whose template
+        // carries CREATURE_FLAG_EXTRA_GUARD and whose faction is hostile to T but
+        // friendly (or at least not hostile) to T's enemy — i.e. an opposing-faction
+        // NPC, not a wild mob that happens to hate everyone. Built once from static
+        // spawn data (no world scan, no DB). No level gate: same-level enemy towns
+        // (Lakeshire 55s vs level 50s, Splintertree 40s vs level 36s) kill too.
         struct HostileTownGuard
         {
             float x = 0.0f;
             float y = 0.0f;
-            uint32 levelMax = 0;
         };
         struct HostileTownCellKey
         {
@@ -414,10 +418,12 @@ namespace ai
         static int32 HostileTownCellCoord(float c) { return (int32)floorf(c / HostileTownCellSize()); }
         static uint32 HostileTownTeamIndex(Team team) { return team == HORDE ? 1u : 0u; }
         static void EnsureHostileTownIndex();
+        // call_once build: bot AI runs on parallel map threads; after the build
+        // the maps are immutable and queries never take the lock.
+        static std::once_flag s_hostileTownOnceFlag;
         static std::unordered_map<HostileTownCellKey, std::vector<HostileTownGuard>, HostileTownCellKeyHash> s_hostileTownCells[2];
         static size_t s_hostileTownGuards[2];
-        static bool s_hostileTownIndexBuilt;
-        static std::mutex s_hostileTownMutex;
+        static std::atomic<bool> s_hostileTownIndexBuilt;
     };
     inline ByteBuffer& operator<<(ByteBuffer& b, WorldPosition& guidP)
     {
