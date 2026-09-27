@@ -4,6 +4,7 @@
 #include "playerbot/strategy/Trigger.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/RandomBotFacade.h"
 #include "Spells/SpellAuraDefines.h"
 #include "DungeonTriggers.h"
 
