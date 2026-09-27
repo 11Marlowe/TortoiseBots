@@ -507,8 +507,31 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     if (AI_VALUE(TravelTarget*, "travel target")->IsActive())
         return false;
 
+    // Capitals are service stops, not places to stay: a level 10+ bot idling
+    // in a capital (no active travel target, checked above) should leave.
+    // Priority guard: the 6.96 row sits above AH (6.95)/Vendor (6.94)/Repair
+    // (6.93)/trainer-class (6.89)/trainer-mount (6.87)/mount (6.86), and
+    // request actions block each other via TRAVEL_STATUS_PREPARE, so an
+    // unguarded capital case would pre-empt a pending trainer/AH need and
+    // starve legit capital business. Yield while any capital service need is
+    // true; the service target is chosen first and leave re-fires after it
+    // clears. No starvation: at most one service cycle of delay.
     if (WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL))
-        return false;
+    {
+        if (AI_VALUE2(bool, "should travel named", "trainer class"))
+            return false;
+        if (AI_VALUE2(bool, "should travel named", "trainer mount"))
+            return false;
+        if (AI_VALUE2(bool, "should travel named", "mount"))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::AH)))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Vendor)))
+            return false;
+        if (AI_VALUE2(bool, "need travel purpose", std::to_string((uint32)TravelDestinationPurpose::Repair)))
+            return false;
+        return true;
+    }
 
     // Fail closed: unknown area levels never trigger the rule.
     int32 areaLevel = 0;

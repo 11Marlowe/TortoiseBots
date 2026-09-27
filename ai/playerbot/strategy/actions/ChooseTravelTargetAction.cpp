@@ -164,6 +164,16 @@ void ChooseTravelTargetAction::setNewTarget(Player* requester, TravelTarget* new
         }
     }
 
+    // Travel-target observability: one line per newly chosen target (this runs
+    // only when SetBestTarget succeeded, so no log spam on failed picks).
+    // logEvent no-ops unless bot_events.csv is in AllowedLogFiles.
+    {
+        std::string purpose = GetTravelPurposeName(AI_VALUE2(std::string, "manual string", "future travel purpose"));
+        std::string destZone = (oldTarget->getPosition() && oldTarget->getPosition()->GetArea())
+            ? oldTarget->getPosition()->GetAreaName(true, true) : "";
+        sPlayerbotAIConfig.logEvent(ai, "TravelTarget", purpose, destZone);
+    }
+
     oldTarget->SetStatus(TravelStatus::TRAVEL_STATUS_READY);
 
     //Clear rpg and attack/grind target. We want to travel, not hang around some more.
@@ -847,6 +857,14 @@ bool RequestTravelTargetAction::Execute(Event& event)
     SET_AI_VALUE2(std::string, "manual string", "future travel purpose", getQualifier());
     SET_AI_VALUE2(std::string, "manual string", "future travel condition", event.GetSource());
     SET_AI_VALUE2(int, "manual int", "future travel relevance", relevance * 100);
+
+    // Outgrown-zone observability: one line per actual request (not per value
+    // tick). logEvent no-ops unless bot_events.csv is in AllowedLogFiles.
+    if (event.GetSource() == "val::should leave outgrown zone")
+    {
+        std::string reason = WorldPosition(bot).HasAreaFlag(AREA_FLAG_CAPITAL) ? "capital" : "outgrown";
+        sPlayerbotAIConfig.logEvent(ai, "LeaveOutgrownZone", WorldPosition(bot).GetAreaName(true, true), reason);
+    }
 
     return true;
 }
