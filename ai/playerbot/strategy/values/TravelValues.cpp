@@ -497,7 +497,7 @@ bool HasHandInAbleQuest(PlayerbotAI* ai, Player* bot)
 {
     if (!ai->HasStrategy("rpg quest", BotState::BOT_STATE_NON_COMBAT))
         return false;
-    bool const canFightBoss = AI_VALUE(bool, "can fight boss");
+    bool const canFightBoss = ai->GetAiObjectContext()->GetValue<bool>("can fight boss")->Get();
     for (auto& [questId, questStatus] : bot->getQuestStatusMap())
     {
         if (questStatus.m_rewarded || questStatus.m_status != QUEST_STATUS_COMPLETE)
@@ -514,30 +514,6 @@ bool HasHandInAbleQuest(PlayerbotAI* ai, Player* bot)
     return false;
 }
 
-// A vendor/repair NPC the outgrown service gate would NOT skip: same check as
-// RpgTravelDestination::IsPossible's outgrown-services block (fitting zone
-// level or capital). Yielding only for these avoids the deadlock where the
-// bot waits for a local vendor the gate forbids it to use.
-bool HasPermittedVendor(Player* bot, uint32 npcFlag)
-{
-    for (auto& creatureDataPair : WorldPosition().GetCreaturesNear())
-    {
-        CreatureData const cData = creatureDataPair->second;
-        CreatureInfo const* cInfo = sObjectMgr.GetCreatureTemplate(cData.creature_id[0]);
-        if (!cInfo || !(cInfo->npc_flags & npcFlag))
-            continue;
-        WorldPosition npcPos(creatureDataPair);
-        AreaTableEntry const* area = npcPos.GetArea();
-        int32 destAreaLevel = npcPos.GetAreaLevel();
-        if (destAreaLevel <= 0 || destAreaLevel + 10 >= (int32)bot->GetLevel())
-            return true;
-        uint32 destZoneId = area ? (area->ZoneId ? area->ZoneId : area->Id) : 0;
-        if (AreaTableEntry const* destZone = destZoneId ? GetAreaEntryByAreaID(destZoneId) : nullptr)
-            if (destZone->Flags & AREA_FLAG_CAPITAL)
-                return true;
-    }
-    return false;
-}
 } // namespace
 
 bool ShouldLeaveOutgrownZoneValue::Calculate()
@@ -590,16 +566,10 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     }
     if (!leaveAnyway)
     {
-        // Order matters for cost: the quest-log walk is free (own data), the
-        // vendor scan touches nearby spawns, so check needs first and scan
-        // only while a need is actually active.
-        bool const needSell = AI_VALUE(bool, "should sell") && (AI_VALUE(bool, "can sell") || AI_VALUE(bool, "can ah sell"));
-        bool const needRepair = AI_VALUE(bool, "should repair") && AI_VALUE(bool, "can repair");
-        if (needSell && HasPermittedVendor(bot, UNIT_NPC_FLAG_VENDOR))
-            return false;
-        if (needRepair && HasPermittedVendor(bot, UNIT_NPC_FLAG_REPAIR))
-            return false;
-        if (HasHandInAbleQuest(ai, bot))
+        // Outside capitals only hand-in-able quests hold the bot; selling and
+        // repairs happen at the next town that fits its level (the service
+        // gate skips low-zone vendors), so waiting for them here would deadlock.
+        if (outgrown_yield::HasHandInAbleQuest(ai, bot))
             return false;
     }
 
