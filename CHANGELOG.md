@@ -63,6 +63,17 @@
 ### Docs & Tooling
 - Maintenance-only PRs no longer clutter the release notes; hidden comments keep their numbers in the file so the generator won't re-add them. `CHANGELOG.md` only. [#322](https://github.com/Sagiroth/TortoiseBots/pull/322)
 
+### Random Bot Survival & AI
+- Random bots now skip hostile towns as travel destinations, route legs, and grind targets — including neutral towns whose local faction hates them — cutting the ~12.6% of deaths that came from wandering into enemy guards. [#325](https://github.com/Sagiroth/TortoiseBots/pull/325)
+- Bots remember who killed them and avoid that player, so the ~11% of deaths from a handful of bots feeding the same kill spot every minute dries up. [#325](https://github.com/Sagiroth/TortoiseBots/pull/325)
+- Player-owned bots are unaffected and still obey their owner. Toggle with `AiPlayerbot.AvoidHostileTowns` (default on). [#325](https://github.com/Sagiroth/TortoiseBots/pull/325)
+
+### Quests & Progression
+- Random bots stop hoarding grey quests: they're skipped unless a reward is a genuine upgrade, and otherwise dropped. [#324](https://github.com/Sagiroth/TortoiseBots/pull/324)
+- Quest logs get cleaned of greys and of finished quests that can no longer be handed in; a money shortfall never blocks a hand-in. Cleanup also fires when the log is nearly full, but only if something is actually droppable. [#324](https://github.com/Sagiroth/TortoiseBots/pull/324)
+- Hand-in travel now starts at 2 finished quests and runs until the log is clear, fixing the lopsided ~5-taken-per-1-handed-in ratio. [#324](https://github.com/Sagiroth/TortoiseBots/pull/324)
+- Random bots only — player-owned and alt bots are untouched. Toggle with `AiPlayerbot.BotQuestLogUpkeep` (default on). [#324](https://github.com/Sagiroth/TortoiseBots/pull/324)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
