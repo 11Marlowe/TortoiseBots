@@ -33,6 +33,16 @@
 - Players Online now counts real network sessions — it previously reported 0 for every human connection. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
 - Corrected several panels showing wrong numbers, based on a live audit of the running dashboard. [#315](https://github.com/Sagiroth/TortoiseBots/pull/315)
 
+### Combat & AI
+- Added `.bot action flee`: bots instantly drop combat and any pull hold, then fall back in passive follow using the existing mature flee shortcut. The next tactical order (attack, pull, pullback, focus skull, follow, stay) clears passive, and a fresh pull drags the whole party back into the fight [#317](https://github.com/Sagiroth/TortoiseBots/pull/317)
+
+### Observability & Engine
+- Roster trailer now advertises `TBM:BOTSTATE_*` snapshots so addons can read live bot state (movement mode: follow / stay / guard / free / flee, plus behavior) without polling or guesswork [#317](https://github.com/Sagiroth/TortoiseBots/pull/317)
+- Added server-side bot panel commands backing the TBM addon; the addon hides these controls until the server advertises support, so mismatched client/server versions stay safe [#317](https://github.com/Sagiroth/TortoiseBots/pull/317)
+
+### Core Sync & Fixes
+- All changes are self-contained in `commands/BotCommands.cpp` — no core or host modifications, so nothing else in the module needs to be revalidated [#317](https://github.com/Sagiroth/TortoiseBots/pull/317)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
