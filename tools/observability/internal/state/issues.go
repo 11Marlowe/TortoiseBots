@@ -94,6 +94,8 @@ func (t *issueTracker) minAgeFor(typ string) time.Duration {
 
 // NoteSessionChange starts the post-restart DEAD_LONG blackout at now.
 func (t *issueTracker) NoteSessionChange(now time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.suppressDeadUntil = now.Add(deadSuppressAfter)
 }
 

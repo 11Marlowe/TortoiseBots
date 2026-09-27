@@ -1869,7 +1869,8 @@
     const powText = el.armoryPowText || document.getElementById('armory-pow-text');
     if (powBar) {
       powBar.className = powerClass;
-      powBar.style.width = '100%';
+      // No live current value: leave the bar empty rather than full.
+      powBar.style.width = '0%';
     }
     if (powText) powText.textContent = `Max ${fmtNum(maxPow)} ${powerLabel}`;
 
@@ -3001,6 +3002,9 @@
       el.issuesResolved.innerHTML = '<div class="empty-hint">No resolved episodes yet.</div>';
       return;
     }
+    el.issuesResolved.innerHTML = list.map(i =>
+      `<div class="resolved-row"><span class="badge badge-info">${esc(ISSUE_LABELS[i.type] || i.type)}</span><strong style="color:#fff;">${esc(i.bot)}</strong><span style="color:var(--text-muted);">${esc(getZoneName(i.zone))}</span><span class="mono" style="margin-left:auto;color:#2ea043;">${esc(fmtDuration(i.duration_sec))}</span></div>`
+    ).join('');
   }
 
   function focusBot(guid) {
