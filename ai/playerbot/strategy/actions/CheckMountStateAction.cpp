@@ -179,8 +179,10 @@ bool CheckMountStateAction::Execute(Event& event)
 
     if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT) && !hasEnemy)
     {
-        //Mounting to travel.
-        if (AI_VALUE(bool, "travel target traveling") && AI_VALUE(bool, "can move around"))
+        //Mounting to travel: only when the remaining trip is long enough
+        // for the cast to pay off (see MountBreakEvenDistance).
+        if (AI_VALUE(bool, "travel target traveling") && AI_VALUE(bool, "can move around") &&
+            AI_VALUE2(float, "distance", "travel target") > MountBreakEvenDistance())
         {
             if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT) && !IsMounted)
                 ai->TellPlayerNoFacing(requester, "Mount. Traveling some place.");
@@ -190,7 +192,7 @@ bool CheckMountStateAction::Execute(Event& event)
         else if (!hasAttackers)
         {
             //Mounting to move to rpg target.
-            if (AI_VALUE(GuidPosition, "rpg target") && sServerFacade.IsDistanceGreaterThan(AI_VALUE2(float, "distance", "rpg target"), sPlayerbotAIConfig.sightDistance))
+            if (AI_VALUE(GuidPosition, "rpg target") && sServerFacade.IsDistanceGreaterThan(AI_VALUE2(float, "distance", "rpg target"), std::max(sPlayerbotAIConfig.sightDistance, MountBreakEvenDistance())))
             {
                 if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT) && !IsMounted)
                     ai->TellPlayerNoFacing(requester, "Mount. Rpg target far away.");
@@ -198,8 +200,11 @@ bool CheckMountStateAction::Execute(Event& event)
                 return Mount(requester, true);
             }
 
-            //Mounting in safe place.
-            if (!ai->HasStrategy("guard", ai->GetState()) && !ai->HasStrategy("stay", ai->GetState()) && !AI_VALUE(std::list<ObjectGuid>, "possible rpg targets").empty() && urand(0, 100) > 50)
+            //Mounting in safe place: only for bots with a real-player master
+            // (pre-mounted so they can follow when the party moves). Random
+            // masterless bots never coin-flip a mount here: a 3 s cast for a
+            // speculative hop is pure loss.
+            if (ai->HasRealPlayerMaster() && !ai->HasStrategy("guard", ai->GetState()) && !ai->HasStrategy("stay", ai->GetState()) && !AI_VALUE(std::list<ObjectGuid>, "possible rpg targets").empty() && urand(0, 100) > 50)
             {
                 if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT) && !IsMounted)
                     ai->TellPlayerNoFacing(requester, "Mount. Near rpg targets.");
@@ -352,6 +357,41 @@ float CheckMountStateAction::GetAttackDistance() const
         return 40.0f;
 
     return 35.0f;
+}
+
+float CheckMountStateAction::MountBreakEvenDistance() const
+{
+    // Best usable mount at the rider's real speed: one SKILL_RIDING lookup,
+    // then bot-aware scoring (turtle 9% at 18, 60 at 75, 100 at 150).
+    uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
+    std::vector<MountValue> mounts = AI_VALUE(std::vector<MountValue>, "mount list");
+    uint32 bestSpeed = 0;
+    uint32 bestSpell = 0;
+    for (auto& mount : mounts)
+    {
+        uint32 speed = mount.GetSpeedFor(bot, riderSpeed);
+        if (speed > bestSpeed)
+        {
+            bestSpeed = speed;
+            bestSpell = mount.GetSpellId();
+        }
+    }
+    if (!bestSpeed)
+        return FLT_MAX;
+    // Mount cast time from the spell itself; 3000 ms fallback (classic
+    // mounts and the turtle all cast ~3 s).
+    float castSec = 3.0f;
+    if (SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(bestSpell))
+    {
+        uint32 castMs = GetSpellCastTime(spellInfo, bot);
+        if (castMs > 0)
+            castSec = castMs / 1000.0f;
+    }
+    // breakEven = runSpeed * castTime / (mountBonus), where mountBonus is
+    // the fractional gain (speed % / 100). Base run is 7 y/s in 1.12.
+    float factor = sPlayerbotAIConfig.mountBreakEvenFactor > 0.0f
+        ? sPlayerbotAIConfig.mountBreakEvenFactor : 1.5f;
+    return 7.0f * castSec / (bestSpeed / 100.0f) * factor;
 }
 
 bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)

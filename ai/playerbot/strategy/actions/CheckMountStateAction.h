@@ -35,9 +35,14 @@ namespace ai
     private:
         bool CanMountInBg() const;
         float GetAttackDistance() const;
+        // Break-even trip length (yards) for the best usable mount: the
+        // remaining distance at which the cast-time loss is repaid by the
+        // speed gain, times AiPlayerbot.MountBreakEvenFactor. Uses the real
+        // rider speed (GetRiderMountSpeed/GetSpeedFor) and the best mount's
+        // own cast time (3 s fallback). FLT_MAX when nothing is usable.
+        float MountBreakEvenDistance() const;
 
     private:
         bool Mount(Player* requester, bool limitSpeedToGroup = false);
         bool UnMount() const;
-    };
 }
