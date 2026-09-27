@@ -251,6 +251,10 @@ public:
     // Repop brings a random masterless bot back at the nearest graveyard instead of its
     // racial starting area, so evacuations stop draining bots into the starting zones.
     bool repopAtGraveyard = true;
+    // Turtle mount (quest 40302 "Torta's Egg" -> item 23720 -> spell 30174):
+    // minimum level at which random bots learn the Swift Riding Turtle.
+    // 0 disables. Default 18.
+    uint32 turtleMountAtLevel = 18;
     // "Long stuck" hearths a random masterless bot only when its homebind area is within
     // 10 levels of the bot; otherwise it repops instead of flying home to a zone it outgrew.
     bool unstuckHearthLevelFit = true;

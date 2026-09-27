@@ -53,6 +53,51 @@ uint32 MountValue::GetSpeed(uint32 spellId)
     return 0;
 }
 
+// Mirror of the core dynamic-speed rule for mount auras
+// (HandleAuraModIncreaseMountedSpeed): SPELL_CUSTOM_MOUNT_SPEED_100 -> 100,
+// SPELL_CUSTOM_IGNORE_RIDING_SKILL_MOUNT_SPEED -> static DBC speed, else
+// riding 0 -> ceil(level/2), 75 -> 60, 150 -> 100. Uses the bot's live
+// skill/level; called on the world thread from selection/speed values only.
+uint32 MountValue::GetDynamicMountSpeed(uint32 spellId, Player* bot)
+{
+    if (!bot)
+        return 0;
+    SpellEntry const* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(spellId);
+    if (!spellInfo)
+        return 0;
+    if (spellInfo->Custom & SPELL_CUSTOM_MOUNT_SPEED_100)
+        return 100;
+    if (spellInfo->Custom & SPELL_CUSTOM_IGNORE_RIDING_SKILL_MOUNT_SPEED)
+        return GetSpeed(spellId);
+    switch (bot->GetSkillValue(SKILL_RIDING))
+    {
+    case 75:
+        return 60;
+    case 150:
+        return 100;
+    default:
+        return static_cast<uint32>(ceil(bot->GetLevel() / 2.0));
+    }
+}
+
+uint32 MountValue::GetSpeedFor(Player* bot) const
+{
+    if (!bot)
+        return GetSpeed(spellId);
+    SpellEntry const* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(spellId);
+    if (!spellInfo)
+        return 0;
+    // Hardcoded non-mount forms keep their static speeds (travel form,
+    // ghost wolf, AQ mount above); only real mount-aura spells scale.
+    bool isMountAura = false;
+    for (int i = 0; i < 3; i++)
+        if (spellInfo->EffectApplyAuraName[i] == SPELL_AURA_MOUNTED)
+            isMountAura = true;
+    if (!isMountAura)
+        return GetSpeed(spellId);
+    return GetDynamicMountSpeed(spellId, bot);
+}
+
 uint32 MountValue::GetMountSpell(uint32 itemId)
 {
     // Tortoise collection mounts use a generic item spell (46499) and keep the
@@ -147,8 +192,10 @@ uint32 CurrentMountSpeedValue::Calculate()
                 continue;
 
             SpellEntry const* auraSpell = aura->GetSpellProto();
-
-            uint32 auraSpeed = MountValue::GetSpeed(auraSpell->Id);
+            Player* speedBot = (unit && unit->GetTypeId() == TYPEID_PLAYER) ? static_cast<Player*>(unit) : nullptr;
+            uint32 auraSpeed = speedBot
+                ? MountValue(auraSpell->Id).GetSpeedFor(speedBot)
+                : MountValue::GetSpeed(auraSpell->Id);
 
             if (auraSpeed < mountSpeed)
                 continue;
@@ -202,7 +249,7 @@ std::vector<MountValue> MountListValue::Calculate()
 
     for (PlayerSpellMap::iterator itr = bot->GetSpellMap().begin(); itr != bot->GetSpellMap().end(); ++itr)
         if (itr->second.state != PLAYERSPELL_REMOVED && !itr->second.disabled && !IsPassiveSpell(itr->first))
-            if(MountValue::IsMountSpell(itr->first))
+            if (MountValue::IsMountSpell(itr->first) || itr->first == 30174)
                 mounts.push_back(MountValue(itr->first));
 
     return mounts;
@@ -215,7 +262,7 @@ uint32 MaxMountSpeedValue::Calculate()
     uint32 maxSpeed = 0;
 
     for (auto& mount : mounts)
-        maxSpeed = std::max(maxSpeed, mount.GetSpeed());
+        maxSpeed = std::max(maxSpeed, mount.GetSpeedFor(bot));
 
     return maxSpeed;
 }
@@ -225,7 +272,7 @@ std::string MountListValue::Format()
     std::ostringstream out; out << "{";
     for (auto& mount : this->Calculate())
     {
-        std::string speed = std::to_string(mount.GetSpeed() + 1) + "%";
+        std::string speed = std::to_string(mount.GetSpeedFor(bot) + 1) + "%";
         out << (mount.IsItem() ? "(item)" : "(spell)") << chat->formatSpell(mount.GetSpellId()) << "(" << speed << "),";
     }
     out << "}";

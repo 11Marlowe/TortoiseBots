@@ -17,6 +17,15 @@ namespace ai
         const ItemPrototype* GetItemProto() { return proto; }
         uint32 GetSpellId() { return spellId; }
         uint32 GetSpeed() { return GetSpeed(spellId); }
+        // Dynamic speed for mount-aura spells: the core scales every mount
+        // from riding skill/level (0 -> ceil(level/2), 75 -> 60, 150 -> 100),
+        // except SPELL_CUSTOM_MOUNT_SPEED_100 (always 100) and
+        // SPELL_CUSTOM_IGNORE_RIDING_SKILL_MOUNT_SPEED (static DBC speed).
+        // All runtime selection and speed reporting must use this; the static
+        // GetSpeed stays for bot-less contexts (factory pool filter) and the
+        // hardcoded non-mount forms (travel form/ghost wolf/AQ).
+        uint32 GetSpeedFor(Player* bot) const;
+        static uint32 GetDynamicMountSpeed(uint32 spellId, Player* bot);
         static uint32 IsMountSpell(uint32 spellId) { return GetSpeed(spellId); }
         static uint32 GetSpeed(uint32 spellId);
         static uint32 GetMountSpell(uint32 itemId);

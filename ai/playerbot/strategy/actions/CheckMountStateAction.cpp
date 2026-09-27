@@ -396,11 +396,13 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
     std::vector<MountValue> mountList = AI_VALUE(std::vector<MountValue>, "mount list");
 
     std::shuffle(mountList.begin(), mountList.end(), *GetRandomGenerator());
-    std::sort(mountList.begin(), mountList.end(), [](MountValue i, MountValue j) {return i.GetSpeed() > j.GetSpeed(); });
+    Player* sortBot = bot;
+    std::sort(mountList.begin(), mountList.end(), [sortBot](MountValue i, MountValue j) { return i.GetSpeedFor(sortBot) > j.GetSpeedFor(sortBot); });
 
     for (auto& mount : mountList)
     {
-        if (mount.GetSpeed() > maxSpeed)
+        uint32 mountSpeed = mount.GetSpeedFor(bot);
+        if (mountSpeed > maxSpeed)
             continue;
 
         if (currentSpeed > maxSpeed)
@@ -413,7 +415,7 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
         if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT))
             ai->TellPlayerNoFacing(requester, "Try to mount with " + chat->formatSpell(mount.GetSpellId()));
 
-        if (currentSpeed >= mount.GetSpeed())
+        if (currentSpeed >= mountSpeed)
         {
             if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT))
                 ai->TellPlayerNoFacing(requester, "Speed not faster than current.");
@@ -477,7 +479,7 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
             uint32 castDuration;
             if (ai->CastSpell(mount.GetSpellId(), bot, nullptr, true, &castDuration))
             {
-                sPlayerbotAIConfig.logEvent(ai, "CheckMountStateAction", sServerFacade.LookupSpellInfo(mount.GetSpellId())->SpellName[0], std::to_string(mount.GetSpeed()));
+                sPlayerbotAIConfig.logEvent(ai, "CheckMountStateAction", sServerFacade.LookupSpellInfo(mount.GetSpellId())->SpellName[0], std::to_string(mountSpeed));
                 SetDuration(castDuration);
                 didMount = true;
             }

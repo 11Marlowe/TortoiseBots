@@ -61,6 +61,16 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
     // Free learning is random-pool only; the paid trainer path is untouched.
     bool const freeLearn = IsFreeLearnBot(bot);
 
+    // Turtle mount (quest 40302 equivalent): masterless random-pool bots that
+    // reach the gate earn the Swift Riding Turtle as if they did the quest.
+    // Player-owned/hired companions are excluded; see PlayerbotFactory::
+    // InitTurtleMount for the idempotent gate.
+    if (freeLearn && !ai->HasRealPlayerMaster() && !ai->IsOwnedBot())
+    {
+        PlayerbotFactory turtle(bot, bot->GetLevel());
+        turtle.InitTurtleMount();
+    }
+
     if (freeLearn && sPlayerbotAIConfig.autoLearnQuestSpells)
         LearnQuestSpells(out);
 
