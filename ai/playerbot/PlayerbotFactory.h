@@ -43,6 +43,10 @@ public:
     void AddConsumes() { return AddConsumables(); }
     void AddFood() { return InitFood(); }
     void InitAmmo();
+    // Turtle mount (quest 40302 equivalent, spell 30174): idempotent grant
+    // for TurtleMountAtLevel..39, no-op at 40+ and when disabled. Called from
+    // InitMounts (seed path) and the level-up spell hook.
+    void InitTurtleMount();
     void InitPet();
     void InitPetSpells();
 

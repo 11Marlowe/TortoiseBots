@@ -3264,8 +3264,34 @@ void PlayerbotFactory::InitAmmo()
         bot->SetAmmo(entry);
 }
 
+void PlayerbotFactory::InitTurtleMount()
+{
+    uint32 gate = sPlayerbotAIConfig.turtleMountAtLevel;
+    if (!gate || bot->GetLevel() < gate || bot->GetLevel() >= 40)
+        return;
+    // Pool bots only. Hired companions are pool bots (record->random stays
+    // true after Hire() claims them), so recruiter hires at 18-39 come
+    // through InitMounts and get the turtle here. The player's own alts
+    // (same-account characters driven via .bot add) are not pool bots, so
+    // this gate keeps them quest-bound. Free-alts are non-pool accounts and
+    // never reach here either.
+    if (!sRandomBotFacade.IsRandomBot(bot))
+        return;
+    // Same as using item 23720: the core collection script teaches the mapped
+    // mount spell (30174) from collection_mount. Item is class/race agnostic
+    // (allowable masks -1) and has no required level, so the gate above is the
+    // only filter; the quest MinLevel (18) is the default value.
+    if (bot->HasSpell(30174))
+        return;
+    bot->LearnSpell(30174, false);
+    sLog.outDetail("Bot %d (%d) learned turtle mount 30174", bot->GetGUIDLow(), bot->GetLevel());
+}
+
 void PlayerbotFactory::InitMounts()
 {
+    // Sub-40 turtle first: seed/refresh at 18..39 grants the Swift Riding
+    // Turtle the same way item use would, without touching the 40/60 path.
+    InitTurtleMount();
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Mounts");
     uint32 firstmount =
         40
