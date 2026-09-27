@@ -199,7 +199,10 @@ AiPlayerbot.UnstuckHearthLevelFit = 1
 #AiPlayerbot.HireEnabled = 1
 #AiPlayerbot.HireMinAccountSecurity = 0
 #AiPlayerbot.HireMaxBotsPerPlayer = 4
-#AiPlayerbot.HireRequiresResting = 1
+# HireAnywhere: 0 = hire only at a <Mercenary Hire> recruiter (the .bot hire
+# command points players to one); 1 = .bot hire also works anywhere. Fees are
+# the same either way.
+#AiPlayerbot.HireAnywhere = 0
 #AiPlayerbot.HireBaseCostCopper = 15000
 #AiPlayerbot.HirePartyMult2 = 1.66
 #AiPlayerbot.HirePartyMult3 = 2.66
