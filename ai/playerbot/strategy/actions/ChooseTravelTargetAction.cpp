@@ -179,7 +179,7 @@ void ChooseTravelTargetAction::setNewTarget(Player* requester, TravelTarget* new
     // A genuinely new destination ends any stuck-keep streak (see UnstuckAction):
     // the streak counts consecutive resets without progress toward one spot,
     // so a fresh pick starts it over instead of inheriting a retirement.
-    RESET_AI_VALUE2(uint32, "manual int", "stuck keep count");
+    RESET_AI_VALUE2(int32, "manual int", "stuck keep count");
 
     //Clear rpg and attack/grind target. We want to travel, not hang around some more.
     RESET_AI_VALUE(GuidPosition,"rpg target");

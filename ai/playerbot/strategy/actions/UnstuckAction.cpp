@@ -56,11 +56,11 @@ bool UnstuckAction::Execute(Event& event)
         bool const keepTravel = travelTarget && travelTarget->IsActive() &&
             travelTarget->GetDestination() && travelTarget->getPosition() &&
             typeid(*travelTarget->GetDestination()) != typeid(NullTravelDestination);
-        uint32 stuckKeeps = AI_VALUE2(uint32, "manual int", "stuck keep count");
+        int32 stuckKeeps = AI_VALUE2(int32, "manual int", "stuck keep count");
         WorldPosition stuckAnchor = AI_VALUE2(WorldPosition, "custom position", "stuck keep anchor");
         if (!keepTravel)
         {
-            SET_AI_VALUE2(uint32, "manual int", "stuck keep count", 0);
+            SET_AI_VALUE2(int32, "manual int", "stuck keep count", 0);
             return ai->DoSpecificAction("reset", event, true);
         }
         if (stuckKeeps >= 3 && WorldPosition(bot).sqDistance(stuckAnchor) < 30.0f * 30.0f)
@@ -77,7 +77,7 @@ bool UnstuckAction::Execute(Event& event)
                 SET_AI_VALUE2(bool, "no active travel destinations", purpose, true);
                 SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + purpose, time(0) + 5 * MINUTE);
             }
-            SET_AI_VALUE2(uint32, "manual int", "stuck keep count", 0);
+            SET_AI_VALUE2(int32, "manual int", "stuck keep count", 0);
             ai->TellDebug(master, "Unstuck: retiring travel target after 3 stuck keeps without progress.", "debug unstuck");
             return ai->DoSpecificAction("reset", event, true);
         }
@@ -104,7 +104,7 @@ bool UnstuckAction::Execute(Event& event)
             travelTarget->SetGroupCopy(groupCopy);
         if (stuckKeeps == 0 || !stuckAnchor.isValid())
             SET_AI_VALUE2(WorldPosition, "custom position", "stuck keep anchor", WorldPosition(bot));
-        SET_AI_VALUE2(uint32, "manual int", "stuck keep count", stuckKeeps + 1);
+        SET_AI_VALUE2(int32, "manual int", "stuck keep count", stuckKeeps + 1);
 
         return reset;
     }
