@@ -48,6 +48,18 @@
 - Configuration guide now covers many-bot realms: set `CleanupTerrain = 0` and `PlayerSave.Interval = 300000` to cut slow map ticks from 126 down to 20 per 10 minutes on a 500-bot realm [#318](https://github.com/Sagiroth/TortoiseBots/pull/318)
 - Documented the catch: disabling terrain cleanup holds roughly 2 GB of continent terrain in memory, so keep `CleanupTerrain = 1` on low-RAM boxes [#318](https://github.com/Sagiroth/TortoiseBots/pull/318)
 
+### Observability & Engine
+- Zone names now render naturally everywhere, including custom zones (`Moonwhisper` instead of `Zone 5642`), and instanced bots show their instance rather than the outdoor entrance — no more guessing where a bot actually is. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
+- The Issues badge only counts persistent problems and disappears at zero, while Incidents now tracks warnings/errors instead of every bot death — signals you can trust at a glance. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
+- Fixed bots being listed as their own target in the bot list. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
+- The map zone list retains custom zones, so filtering no longer ejects you from the zone you're viewing; the world view is now labelled as a single continent. [#321](https://github.com/Sagiroth/TortoiseBots/pull/321)
+
+### Tooling & CI
+- New manual workflow lets maintainers edit an already-posted Discord changelog message by dropping lines containing a given text, reusing the existing webhook secret. Scoped to `.github/workflows`, so the changelog workflow itself won't fire. [#320](https://github.com/Sagiroth/TortoiseBots/pull/320)
+
+### Docs
+- Removed a stray `CHANGELOG.md` line referencing a private deployment stack that isn't part of this project. [#319](https://github.com/Sagiroth/TortoiseBots/pull/319)
+
 ## 2026-09-26
 
 ### Dungeon Finder & Battlegrounds
