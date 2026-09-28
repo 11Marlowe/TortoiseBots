@@ -9,6 +9,13 @@
 
 ---
 
+### Server Performance & Engine
+
+- Bot travel planning no longer re-sorts its entire search queue on every step — it now uses a proper priority queue, so route search stays cheap as bot counts climb [#328](https://github.com/Sagiroth/TortoiseBots/pull/328)
+- Nearby travel node sorting computes each distance once instead of on every comparison, which previously meant a portal lookup plus a memory allocation per check [#328](https://github.com/Sagiroth/TortoiseBots/pull/328)
+- Cross-map (portal) distance checks are allocation-free now, removing constant allocator churn from the main thread [#328](https://github.com/Sagiroth/TortoiseBots/pull/328)
+- Big win for high-population realms: with 500 bots online, travel planning was eating roughly two thirds of main-thread time with world ticks of 1.2–3.5s — that headroom now goes back to the server [#328](https://github.com/Sagiroth/TortoiseBots/pull/328)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
