@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-28
+
+### Database & Migrations
+
+- Rolled the Mercenary Hire recruiter migration (`20260918120000_world.sql`) back to its exact shipped content (SHA1 `46221D0C71DDFDF72C4CAF2927155A067D3F1049`), so hash-checking migration runners stop aborting with *"previously applied migration changed"*. [#327](https://github.com/Sagiroth/TortoiseBots/pull/327)
+- Fixed recruiter spawn guids (4000000–4000066) and the opposite-gender recruiter adjustments now land via a new migration instead of a retro-edited one, so realms that only track filenames no longer silently keep stale guids. [#327](https://github.com/Sagiroth/TortoiseBots/pull/327)
+
+---
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
