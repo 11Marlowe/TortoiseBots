@@ -23,6 +23,10 @@
 - On a 500-bot test realm this path was still eating roughly three quarters of main-thread time even after the route-search speedups in #328, so expect a large drop in server tick cost with big bot populations — [#329](https://github.com/Sagiroth/TortoiseBots/pull/329)
 - Verdicts expire after 5 minutes, so a bot re-checks eventually rather than being stuck with a stale route choice forever — [#329](https://github.com/Sagiroth/TortoiseBots/pull/329)
 
+### Combat & AI
+- Bots that can't find a destination for a travel goal now park that goal for a minute instead of re-running a full destination search every tick, so they actually get on with their other plans [#330](https://github.com/Sagiroth/TortoiseBots/pull/330)
+- Fixed the goal cooldown clearing itself immediately and a key mismatch that left quest travel cooldowns disabled entirely — no more low-level bots endlessly "skinning with nowhere to go" [#330](https://github.com/Sagiroth/TortoiseBots/pull/330)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
