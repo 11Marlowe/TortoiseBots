@@ -79,7 +79,12 @@ bool ChooseTravelTargetAction::Execute(Event& event)
 
     if (!SetBestTarget(requester, &newTarget, destinationList))
     {
-        SET_AI_VALUE2(bool, "no active travel destinations", futureTravelPurpose, true);
+        // Park this purpose for a minute. RequestTravelTargetAction clears the
+        // flag as soon as its "no travel purpose until" time has passed, and
+        // without one it re-requested (and re-searched) on the very next tick.
+        std::string const purposeKey = futureTravelPurpose.empty() ? "quest" : futureTravelPurpose;
+        SET_AI_VALUE2(bool, "no active travel destinations", purposeKey, true);
+        SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + purposeKey, time(0) + MINUTE);
         ai->TellDebug(ai->GetMaster(), "No target set", "debug travel");
 
         // TEMPORARY, see the probe in RequestQuestTravelTargetAction. Destinations
@@ -98,6 +103,14 @@ bool ChooseTravelTargetAction::Execute(Event& event)
 }
 
 bool ChooseTravelTargetAction::isUseful()
+{
+    // Only a prepared request has destinations to choose from; otherwise the
+    // "not travel target active" trigger would run this every tick just to fail.
+    return CanChooseTravel() &&
+        AI_VALUE(TravelTarget*, "travel target")->GetStatus() == TravelStatus::TRAVEL_STATUS_PREPARE;
+}
+
+bool ChooseTravelTargetAction::CanChooseTravel()
 {
     if (!ai->AllowActivity(TRAVEL_ACTIVITY))
         return false;
@@ -770,7 +783,7 @@ bool ChooseGroupTravelTargetAction::isUseful()
     if (!bot->GetGroup())
         return false;
 
-    if (!ChooseTravelTargetAction::isUseful())
+    if (!CanChooseTravel())
         return false;
 
     if (AI_VALUE(TravelTarget*, "travel target")->GetStatus() == TravelStatus::TRAVEL_STATUS_PREPARE)
@@ -850,7 +863,7 @@ bool RefreshTravelTargetAction::isUseful()
     if (bot->InBattleGround())
         return false;
 
-    if (!ChooseTravelTargetAction::isUseful())
+    if (!CanChooseTravel())
         return false;
 
     if (AI_VALUE(TravelTarget*, "travel target")->GetStatus() == TravelStatus::TRAVEL_STATUS_PREPARE)
@@ -891,7 +904,7 @@ bool ResetTargetAction::isUseful()
     if (bot->InBattleGround())
         return false;
 
-    if (!ChooseTravelTargetAction::isUseful())
+    if (!CanChooseTravel())
         return false;
 
     if (AI_VALUE(TravelTarget*, "travel target")->GetStatus() == TravelStatus::TRAVEL_STATUS_PREPARE)
