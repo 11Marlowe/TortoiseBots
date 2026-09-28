@@ -1452,19 +1452,30 @@ void TravelNodeMap::fullLinkNode(TravelNode* startNode, Unit* bot)
 
 std::vector<TravelNode*> TravelNodeMap::getNodes(WorldPosition pos, float range, uint32 transportEntry)
 {
-    std::vector<TravelNode*> retVec;
+    // Score each candidate once, then sort by the cached key. The old code
+    // re-ran the portal-aware distance() (with a vector alloc per call) on
+    // every comparison: O(n log n) portal-table walks instead of O(n).
+    std::vector<std::pair<TravelNode*, float>> scored;
+    scored.reserve(m_map_nodes[pos.GetMapId()].size());
     for (auto& node : m_map_nodes[pos.GetMapId()])
     {
-        if (range >= 0 && node->getDistance(pos) > range)
-            continue;
-
         if (transportEntry && node->GetTransportId() != transportEntry)
             continue;
 
-        retVec.push_back(node);
+        float dist = node->getDistance(pos);
+
+        if (range >= 0 && dist > range)
+            continue;
+
+        scored.emplace_back(node, dist * dist);
     }
 
-    std::sort(retVec.begin(), retVec.end(), [pos](TravelNode* i, TravelNode* j) { return i->getPosition()->distance(pos) < j->getPosition()->distance(pos); });
+    std::sort(scored.begin(), scored.end(), [](auto& i, auto& j) { return i.second < j.second; });
+
+    std::vector<TravelNode*> retVec;
+    retVec.reserve(scored.size());
+    for (auto& [node, dist] : scored)
+        retVec.push_back(node);
 
     return retVec;
 }
@@ -1510,7 +1521,18 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
 
     float f, g, h;
 
-    std::vector<TravelNodeStub*> open, closed;
+    // Open list: min-heap of (f at push time, stub), smallest f popped first.
+    // Keys are copied into the entry, so a stub whose f improves later gets
+    // a new entry and the old one stays valid heap data until it pops and is
+    // skipped as stale (its stored f no longer matches the stub).
+    typedef std::pair<float, TravelNodeStub*> OpenEntry;
+    std::vector<OpenEntry> open;
+    auto const openLess = [](OpenEntry const& i, OpenEntry const& j)
+    {
+        if (i.first != j.first)
+            return i.first > j.first;
+        return std::less<TravelNodeStub*>()(j.second, i.second); // deterministic tie-break
+    };
 
     std::vector<TravelNode*> portNodes;
 
@@ -1563,8 +1585,8 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
                     childNode->m_h = childNode->dataNode->fDist(goal) / unitSpeed;
                     childNode->m_f = childNode->m_g + childNode->m_h;
 
-                    open.push_back(childNode);
-                    std::push_heap(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
+                    open.emplace_back(childNode->m_f, childNode);
+                    std::push_heap(open.begin(), open.end(), openLess);
                     childNode->open = true;
                     portNodes.push_back(portNode);
                 }
@@ -1615,8 +1637,8 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
             childNode->m_h = childNode->dataNode->fDist(goal) / unitSpeed;
             childNode->m_f = childNode->m_g + childNode->m_h;
 
-            open.push_back(childNode);
-            std::push_heap(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
+            open.emplace_back(childNode->m_f, childNode);
+            std::push_heap(open.begin(), open.end(), openLess);
             childNode->open = true;
             portNodes.push_back(portNode);
         }
@@ -1630,24 +1652,21 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
         return TravelNodeRoute();
     }
 
-    std::make_heap(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
-
-    open.push_back(startStub);
-    std::push_heap(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
+    open.emplace_back(startStub->m_f, startStub);
+    std::push_heap(open.begin(), open.end(), openLess);
     startStub->open = true;
 
     while (!open.empty())
     {
-        std::sort(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
-
-        currentNode = open.front(); // pop n node from open for which f is minimal
-
-        std::pop_heap(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
+        std::pop_heap(open.begin(), open.end(), openLess); // pop the entry with minimal f
+        float const poppedF = open.back().first;
+        currentNode = open.back().second;
         open.pop_back();
+        if (!currentNode->open || currentNode->m_f != poppedF)
+            continue; // stale entry: the stub was re-queued with a better f or already expanded
         currentNode->open = false;
 
         currentNode->close = true;
-        closed.push_back(currentNode);
 
         if (currentNode->dataNode == goal)
         {
@@ -1712,12 +1731,11 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
 
             if (childNode->close)
                 childNode->close = false;
-            if (!childNode->open)
-            {
-                open.push_back(childNode);
-                std::push_heap(open.begin(), open.end(), [](TravelNodeStub* i, TravelNodeStub* j) {return i->m_f < j->m_f; });
-                childNode->open = true;
-            }
+            // New, reopened or improved stub: queue an entry with the new f.
+            // An older entry for an already-open stub is skipped when popped.
+            open.emplace_back(childNode->m_f, childNode);
+            std::push_heap(open.begin(), open.end(), openLess);
+            childNode->open = true;
         }
     }
 
