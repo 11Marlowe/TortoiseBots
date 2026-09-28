@@ -47,6 +47,11 @@
 - Bots that can't afford any of their available spells now shelve the trainer for 10 minutes instead of marching back every ~20 seconds — on one test realm that was 525 pointless trips against 30 actual lessons in 20 minutes. [#334](https://github.com/Sagiroth/TortoiseBots/pull/334)
 - While the trainer is on cooldown, "visit the trainer" no longer counts as pending town business, so bots get back to grinding, questing, and vendoring instead of standing around waiting. [#334](https://github.com/Sagiroth/TortoiseBots/pull/334)
 
+### Gear & Inventory
+- Bots now re-scan their bags for upgrades on every level-up and on a rolling timer, so gear looted at low level actually gets equipped once they can use it [#335](https://github.com/Sagiroth/TortoiseBots/pull/335)
+- Fixed the periodic gear-check that was never actually running — the root cause of bots hoarding upgrades in their bags indefinitely [#335](https://github.com/Sagiroth/TortoiseBots/pull/335)
+- Covers the everyday offenders: stronger weapons left unused, empty slots with a matching item in bags, and ignored off-hands for casters [#335](https://github.com/Sagiroth/TortoiseBots/pull/335)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
