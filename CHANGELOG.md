@@ -16,6 +16,13 @@
 - Cross-map (portal) distance checks are allocation-free now, removing constant allocator churn from the main thread [#328](https://github.com/Sagiroth/TortoiseBots/pull/328)
 - Big win for high-population realms: with 500 bots online, travel planning was eating roughly two thirds of main-thread time with world ticks of 1.2–3.5s — that headroom now goes back to the server [#328](https://github.com/Sagiroth/TortoiseBots/pull/328)
 
+### Performance & Travel Planning
+
+- Bots now remember the verdict for a travel destination for 5 minutes, instead of re-running a full route survivability search on every single pick — [#329](https://github.com/Sagiroth/TortoiseBots/pull/329)
+- Rejected or unreachable destinations were the most expensive case and got searched over and over; that redundant work is now gone — [#329](https://github.com/Sagiroth/TortoiseBots/pull/329)
+- On a 500-bot test realm this path was still eating roughly three quarters of main-thread time even after the route-search speedups in #328, so expect a large drop in server tick cost with big bot populations — [#329](https://github.com/Sagiroth/TortoiseBots/pull/329)
+- Verdicts expire after 5 minutes, so a bot re-checks eventually rather than being stuck with a stale route choice forever — [#329](https://github.com/Sagiroth/TortoiseBots/pull/329)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
