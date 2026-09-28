@@ -1410,8 +1410,10 @@ void PlayerbotAI::OnResurrected()
     if (sServerFacade.IsAlive(bot))
     {
         deathHandled_ = false; // alive again: the next death is a new one
-        // Phase 2: 15s full-rate scan grace after revive (spawn-camp guard).
-        m_reviveGraceUntilMs = WorldTimer::getMSTime() + PlayerbotAI::kReviveTeleportGraceMs;
+        // 60 s full-rate scan grace after revive (spawn-camp guard): the revive
+        // lands at 50% HP on the death spot and re-dies fast live, so the first
+        // minute runs the full scan. Teleport grace stays 15 s (HandleTeleportAck).
+        m_reviveGraceUntilMs = WorldTimer::getMSTime() + PlayerbotAI::kReviveGraceMs;
     }
 
     if (IsStateActive(BotState::BOT_STATE_DEAD) && sServerFacade.IsAlive(bot))
@@ -1424,6 +1426,12 @@ void PlayerbotAI::OnResurrected()
         }
 
         ClearLastKiller();
+        // The corpse run is over whichever path revived the bot: without this,
+        // a revive that bypasses ReviveFromCorpseAction (combat res, GM command)
+        // leaves "corpse run" set and the next death skips the wait-for-master
+        // gate via the manual override.
+        if (aiObjectContext)
+            aiObjectContext->GetValue<bool>("corpse run")->Set(false);
         ChangeEngine(BotState::BOT_STATE_NON_COMBAT);
     }
 }
@@ -1466,6 +1474,31 @@ void PlayerbotAI::UpdateAIInternal(uint32 elapsed, bool minimal)
     SC_PHASE("UpdateAIInternal.entry", bot ? bot->GetName() : "(null)");
     if (bot->IsBeingTeleported() || !bot->IsInWorld())
         return;
+    // Self-heal for the "alive but engine DEAD" mismatch: a bot the core reports
+    // alive while the engine still sits in DEAD runs only the dead strategy, so it
+    // never travels, never grinds, and reads dead on the dashboard for minutes.
+    // The normal flip lives in OnResurrected (engine flip + 60 s revive grace +
+    // follow/stay stop), which the reaction engine fires every tick via the
+    // "resurrect" trigger - but the flip is missed when the alive transition
+    // lands outside the resurrect path (teleport while dead, instance-entrance
+    // revive, core/AI ordering). If the core has reported alive for a full 5 s
+    // window and the engine is still DEAD, call OnResurrected() directly - same
+    // path as the trigger, not a parallel flip, so grace and the follow/stay
+    // stop apply too.
+    if (sServerFacade.IsAlive(bot) && IsStateActive(BotState::BOT_STATE_DEAD))
+    {
+        uint32 nowMs = WorldTimer::getMSTime();
+        if (!m_aliveWhileDeadSinceMs)
+            m_aliveWhileDeadSinceMs = nowMs;
+        else if (WorldTimer::getMSTimeDiff(m_aliveWhileDeadSinceMs, nowMs) >= 5000)
+        {
+            sLog.outDetail("[BOT CORPSE] %s: alive for 5s+ while engine DEAD, running OnResurrected", bot->GetName());
+            m_aliveWhileDeadSinceMs = 0;
+            OnResurrected();
+        }
+    }
+    else
+        m_aliveWhileDeadSinceMs = 0;
 
     std::unique_ptr<PerformanceMonitorOperation> pmo;
     if (sPlayerbotAIConfig.perfMonEnabled)
@@ -8422,8 +8455,9 @@ bool PlayerbotAI::ShouldReuseSpatialScan()
     }
     m_lastMana = mana;
     uint32 nowMs = WorldTimer::getMSTime();
-    // Post-revive / post-teleport grace: full rate for 15s. Future timestamps
-    // mean grace is active (wraparound-safe: diff grace->now is huge).
+    // Post-revive / post-teleport grace: full rate while a grace window is open
+    // (revive 60 s, teleport 15 s). Future timestamps mean grace is active
+    // (wraparound-safe: diff grace->now is huge).
     if (WorldTimer::getMSTimeDiff(m_reviveGraceUntilMs, nowMs) > (UINT32_MAX / 2) ||
         WorldTimer::getMSTimeDiff(m_teleportGraceUntilMs, nowMs) > (UINT32_MAX / 2))
         return false;
