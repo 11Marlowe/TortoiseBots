@@ -35,6 +35,13 @@
 - `bot_events.csv` travel rows no longer log resets as trips to Alterac Mountains; empty goals at 0,0,0 were falsely recorded as new destinations, so travel entries now show real destinations only — [#332](https://github.com/Sagiroth/TortoiseBots/pull/332)
 - Bot behavior is unchanged since no decision logic used this value, but log-based analysis is no longer misleading — [#332](https://github.com/Sagiroth/TortoiseBots/pull/332)
 
+### Bots & Inventories
+
+- Caster bots now spawn with just 2 weapon oils instead of 5–10, freeing up bag slots that were being wasted on unstackable copies. [#333](https://github.com/Sagiroth/TortoiseBots/pull/333)
+- Oils are now level-appropriate: each bot gets the best tier it can actually use, matching mod-playerbots behavior. No more dead weight from low-level mana oils. [#333](https://github.com/Sagiroth/TortoiseBots/pull/333)
+- Caster specialization is respected — mages, warlocks and shadow priests get wizard oil (spell damage), other priests get mana oil (regen). [#333](https://github.com/Sagiroth/TortoiseBots/pull/333)
+- Outdated lower-tier oils, stones and poisons are stripped on spawn, but any better consumables the bot already owns — including raid-tier ones — are preserved. [#333](https://github.com/Sagiroth/TortoiseBots/pull/333)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
