@@ -2,10 +2,11 @@
 #include "playerbot/playerbot.h"
 #include "EquipAction.h"
 
+#include <set>
+
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/ItemCountValue.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
-#include "UnequipAction.h"
 
 using namespace ai;
 
@@ -360,14 +361,14 @@ bool EquipUpgradesAction::Execute(Event& event)
         }
     }
 
-    Item* oldMainhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
-    Item* oldOffhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-
-    if (oldMainhand)
-        UnequipAction::UnequipItem(ai, bot, oldMainhand, true);
-    if (oldOffhand)
-        UnequipAction::UnequipItem(ai, bot, oldOffhand, true);
-
+    // QueryItemUsageForEquip compares a bag item against whatever is in its
+    // destination slot, so the equipped weapons must stay where they are.
+    // Unequipping MH/OH first (donor lineage, present since the 204-file
+    // forward-port 450365a) made every bag weapon read as an empty-slot
+    // upgrade, left the spec-transition comparison in ItemUsageValue with no
+    // old weapon to look at, and cost two packet round-trips plus a visible
+    // flicker and swing-timer reset on every run. Evaluate against live
+    // equipment instead.
     context->ClearExpiredValues("item usage", 10); //Clear old item usage.
 
     std::list<Item*> items;
@@ -378,32 +379,104 @@ bool EquipUpgradesAction::Execute(Event& event)
     ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
     items = visitor.GetResult();
 
-    bool didEquip = false;
+    // EQUIP (a real upgrade over what is equipped) before BAD_EQUIP (fills an
+    // empty slot), then by stat weight: a heavier off-spec weapon must not
+    // claim a slot ahead of the spec weapon that belongs there. The
+    // mainhand-first tiebreaker only decides between two equal-weight EQUIP
+    // weapons.
+    PlayerbotAI* sortAi = ai;
+    AiObjectContext* sortContext = sortAi->GetAiObjectContext();
+    items.sort([sortContext, plr = bot](Item* i, Item* j) {
+        ItemUsage iUsage = sortContext->GetValue<ItemUsage>("item usage", ItemQualifier(i).GetQualifier())->Get();
+        ItemUsage jUsage = sortContext->GetValue<ItemUsage>("item usage", ItemQualifier(j).GetQualifier())->Get();
+        if (iUsage != jUsage)
+            return iUsage < jUsage;
 
-    items.sort([plr = bot](Item* i, Item* j) {
+        uint32 iWeight = sRandomItemMgr.ItemStatWeight(plr, i);
+        uint32 jWeight = sRandomItemMgr.ItemStatWeight(plr, j);
+        if (iWeight != jWeight)
+            return iWeight > jWeight;
+
         bool iMain = i->GetProto()->InventoryType == INVTYPE_WEAPONMAINHAND;
         bool jMain = j->GetProto()->InventoryType == INVTYPE_WEAPONMAINHAND;
 
         if (iMain != jMain)
             return iMain; // mainhand comes first
 
-        return sRandomItemMgr.ItemStatWeight(plr, i) > sRandomItemMgr.ItemStatWeight(plr, j); });
+        if (i->GetProto()->ItemLevel != j->GetProto()->ItemLevel)
+            return i->GetProto()->ItemLevel > j->GetProto()->ItemLevel;
+
+        return i->GetProto()->ItemId < j->GetProto()->ItemId; });
+
+    bool didEquip = false;
+    std::set<uint8> filledSlots;
 
     for (auto& item : items)
     {
-
-        ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", ItemQualifier(item).GetQualifier());
-        if (usage == ItemUsage::ITEM_USAGE_EQUIP || usage == ItemUsage::ITEM_USAGE_BAD_EQUIP)
+        // Re-score against the equipment as it stands now: the visitor scored
+        // every candidate before the loop ran, so after equipping one item a
+        // later candidate would still carry the usage it got for the slot it
+        // would have taken then. Re-resolving the slot below can point it at a
+        // different, stronger slot (Ring A took the weak finger, Ring B now
+        // resolves to the strong one), and a stale EQUIP would overwrite and
+        // downgrade it. Reset forces Calculate() to run again this tick.
+        ItemQualifier qualifier(item);
+        RESET_AI_VALUE2(ItemUsage, "item usage", qualifier.GetQualifier());
+        ItemUsage usage = AI_VALUE2(ItemUsage, "item usage", qualifier.GetQualifier());
+        if (usage != ItemUsage::ITEM_USAGE_EQUIP && usage != ItemUsage::ITEM_USAGE_BAD_EQUIP)
         {
-            sLog.outDetail("Bot #%d <%s> auto equips item %d (%s)", bot->GetGUIDLow(), bot->GetName(), item->GetProto()->ItemId, usage == ItemUsage::ITEM_USAGE_EQUIP ? "better than current" : usage == ItemUsage::ITEM_USAGE_BAD_EQUIP ? "wrong item but empty slot" : "");
-            ai->TellDebug(ai->GetMaster(), "Equipping: " + chat->formatItem(item) + " - " + ItemUsageValue::ReasonForNeed(usage, item, 1, bot), "debug equip");
+            continue;
+        }
 
-            EquipItem(ai, GetMaster(), item, item == oldMainhand || item == oldOffhand);
-            didEquip = true;
+        // Compare against (and equip into) the weaker of the item's eligible
+        // slots: core only ever reports the primary one once a ring/trinket
+        // pair or a dual-wield hand is full. Re-resolve every iteration, since
+        // equipping one item moves the slot the next candidate would land in
+        // (a 2H weapon frees the off hand, the first of two rings takes the
+        // other finger slot).
+        uint8 slot = ItemUsageValue::GetPreferredEquipSlot(bot, item, item->GetProto());
+        if (slot == NULL_SLOT || filledSlots.count(slot))
+        {
+            continue; // no eligible slot, or one item per target slot per run
+        }
+
+        uint16 dest;
+        if (bot->CanEquipItem(slot, dest, item, true) != EQUIP_ERR_OK || (dest & 0xFF) != slot)
+        {
+            continue;
+        }
+
+        // BAD_EQUIP means "fills an empty slot", so it must never swap out
+        // something already equipped; otherwise the next audit trades the
+        // two items back and the bot ping-pongs.
+        if (usage == ItemUsage::ITEM_USAGE_BAD_EQUIP && bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+        {
+            continue;
+        }
+
+        filledSlots.insert(slot);
+        didEquip = true;
+
+        sLog.outDetail("Bot #%d <%s> auto equips item %d (%s)", bot->GetGUIDLow(), bot->GetName(), item->GetProto()->ItemId, usage == ItemUsage::ITEM_USAGE_EQUIP ? "better than current" : "wrong item but empty slot");
+        ai->TellDebug(ai->GetMaster(), "Equipping: " + chat->formatItem(item) + " - " + ItemUsageValue::ReasonForNeed(usage, item, 1, bot), "debug equip");
+
+        // Use the auto-equip packet when core would pick the same slot, the
+        // explicit-slot packet when the chosen slot is the weaker secondary
+        // one that FindEquipSlot(NULL_SLOT) never returns.
+        uint16 defaultDest;
+        if (bot->CanEquipItem(NULL_SLOT, defaultDest, item, true) == EQUIP_ERR_OK && (defaultDest & 0xFF) == slot)
+        {
+            EquipItem(ai, GetMaster(), item);
+        }
+        else
+        {
+            EquipItemToSlot(GetMaster(), item, slot);
         }
     }
 
-    // Check if main-hand has higher top-end damage than off-hand
+    // Put the higher top-end damage weapon in the main hand. Only when core
+    // can actually swap the two (neither weapon is locked to its own hand) and
+    // only when both are weapons the bot's spec may wield.
     if (didEquip && bot->CanDualWield())
     {
         Item* mh = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
@@ -412,19 +485,39 @@ bool EquipUpgradesAction::Execute(Event& event)
         if (mh && oh
             && mh->GetProto()->Class == ITEM_CLASS_WEAPON
             && oh->GetProto()->Class == ITEM_CLASS_WEAPON
-            && mh->GetProto()->InventoryType != INVTYPE_2HWEAPON)
+            && mh->GetProto()->InventoryType != INVTYPE_2HWEAPON
+            && mh->GetProto()->InventoryType != INVTYPE_WEAPONMAINHAND
+            && oh->GetProto()->InventoryType != INVTYPE_WEAPONOFFHAND)
         {
-            float mhMaxDmg = mh->GetProto()->Damage[0].DamageMax;
-            float ohMaxDmg = oh->GetProto()->Damage[0].DamageMax;
+            uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
 
-            if (ohMaxDmg > mhMaxDmg)
+            if (sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, mh->GetProto())
+                && sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, oh->GetProto()))
             {
-                uint16 srcPos = ((INVENTORY_SLOT_BAG_0 << 8) | EQUIPMENT_SLOT_MAINHAND);
-                uint16 dstPos = ((INVENTORY_SLOT_BAG_0 << 8) | EQUIPMENT_SLOT_OFFHAND);
-                bot->SwapItem(srcPos, dstPos);
+                float mhMaxDmg = mh->GetProto()->Damage[0].DamageMax;
+                float ohMaxDmg = oh->GetProto()->Damage[0].DamageMax;
 
-                sLog.outDetail("Bot #%d <%s> swapped MH/OH weapons to put higher top-end damage (%.1f) in main hand",
-                    bot->GetGUIDLow(), bot->GetName(), ohMaxDmg);
+                if (ohMaxDmg > mhMaxDmg)
+                {
+                    uint16 destMH, destOH;
+                    if (bot->CanEquipItem(EQUIPMENT_SLOT_MAINHAND, destMH, oh, true) == EQUIP_ERR_OK
+                        && bot->CanEquipItem(EQUIPMENT_SLOT_OFFHAND, destOH, mh, true) == EQUIP_ERR_OK)
+                    {
+                        uint16 srcPos = ((INVENTORY_SLOT_BAG_0 << 8) | EQUIPMENT_SLOT_MAINHAND);
+                        uint16 dstPos = ((INVENTORY_SLOT_BAG_0 << 8) | EQUIPMENT_SLOT_OFFHAND);
+                        bot->SwapItem(srcPos, dstPos);
+
+                        // Only claim success when the swap really happened.
+                        if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND) == oh)
+                        {
+                            RESET_AI_VALUE2(ItemUsage, "item usage", ItemQualifier(oh).GetQualifier());
+                            RESET_AI_VALUE2(ItemUsage, "item usage", ItemQualifier(mh).GetQualifier());
+
+                            sLog.outDetail("Bot #%d <%s> swapped MH/OH weapons to put higher top-end damage (%.1f) in main hand",
+                                bot->GetGUIDLow(), bot->GetName(), ohMaxDmg);
+                        }
+                    }
+                }
             }
         }
     }
