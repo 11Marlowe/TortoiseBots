@@ -42,6 +42,11 @@
 - Caster specialization is respected — mages, warlocks and shadow priests get wizard oil (spell damage), other priests get mana oil (regen). [#333](https://github.com/Sagiroth/TortoiseBots/pull/333)
 - Outdated lower-tier oils, stones and poisons are stripped on spawn, but any better consumables the bot already owns — including raid-tier ones — are preserved. [#333](https://github.com/Sagiroth/TortoiseBots/pull/333)
 
+### Bot AI & Training
+
+- Bots that can't afford any of their available spells now shelve the trainer for 10 minutes instead of marching back every ~20 seconds — on one test realm that was 525 pointless trips against 30 actual lessons in 20 minutes. [#334](https://github.com/Sagiroth/TortoiseBots/pull/334)
+- While the trainer is on cooldown, "visit the trainer" no longer counts as pending town business, so bots get back to grinding, questing, and vendoring instead of standing around waiting. [#334](https://github.com/Sagiroth/TortoiseBots/pull/334)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
