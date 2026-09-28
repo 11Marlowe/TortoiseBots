@@ -27,6 +27,10 @@
 - Bots that can't find a destination for a travel goal now park that goal for a minute instead of re-running a full destination search every tick, so they actually get on with their other plans [#330](https://github.com/Sagiroth/TortoiseBots/pull/330)
 - Fixed the goal cooldown clearing itself immediately and a key mismatch that left quest travel cooldowns disabled entirely — no more low-level bots endlessly "skinning with nowhere to go" [#330](https://github.com/Sagiroth/TortoiseBots/pull/330)
 
+### Combat & AI
+- Ghosts now resurrect the instant the server allows it (39 yd), fixing bots that sat at the graveyard for minutes because they kept re-picking the spot they were already standing on. [#331](https://github.com/Sagiroth/TortoiseBots/pull/331)
+- Bots grouped with a player now wait up to 90 s for a resurrection instead of immediately bailing on the group. [#331](https://github.com/Sagiroth/TortoiseBots/pull/331)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
