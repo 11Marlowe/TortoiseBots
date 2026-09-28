@@ -31,6 +31,10 @@
 - Ghosts now resurrect the instant the server allows it (39 yd), fixing bots that sat at the graveyard for minutes because they kept re-picking the spot they were already standing on. [#331](https://github.com/Sagiroth/TortoiseBots/pull/331)
 - Bots grouped with a player now wait up to 90 s for a resurrection instead of immediately bailing on the group. [#331](https://github.com/Sagiroth/TortoiseBots/pull/331)
 
+### Observability & Engine
+- `bot_events.csv` travel rows no longer log resets as trips to Alterac Mountains; empty goals at 0,0,0 were falsely recorded as new destinations, so travel entries now show real destinations only — [#332](https://github.com/Sagiroth/TortoiseBots/pull/332)
+- Bot behavior is unchanged since no decision logic used this value, but log-based analysis is no longer misleading — [#332](https://github.com/Sagiroth/TortoiseBots/pull/332)
+
 ## 2026-09-27
 
 <!-- Maintenance PRs kept out of the notes: #319 #320 -->
