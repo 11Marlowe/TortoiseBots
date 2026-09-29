@@ -80,6 +80,10 @@
 - Every termination path deletes the hire: kicked from group or group disbanded (instant), master offline past the grace period, and `.bot remove` / `.bot logout` on a companion. [#349](https://github.com/Sagiroth/TortoiseBots/pull/349)
 - Re-hiring is a fresh paid transaction — no more level-and-gear hand-me-downs polluting a fresh realm's organic population. [#349](https://github.com/Sagiroth/TortoiseBots/pull/349)
 
+### Skills & Progression
+- Dual Wield is now gated by class level (warrior 10, rogue 10, hunter 20) instead of leaking into every low-level bot's ability pass — no more level-5 warriors and hunters swinging off-hands they shouldn't have. [#350](https://github.com/Sagiroth/TortoiseBots/pull/350)
+- Root cause was the world DB overriding the skill's class requirement (`skill_race_class_info_mod` id 132), so the game data's "requirement" was effectively no gate; bots now follow trainer data. [#350](https://github.com/Sagiroth/TortoiseBots/pull/350)
+
 ## 2026-09-28
 
 ### Database & Migrations
