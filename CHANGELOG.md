@@ -51,6 +51,11 @@
 - The random pool now ticks in round-robin with a cursor persisted between ticks, so work is spread across passes instead of bloating a single world tick to 1-3 s. [#345](https://github.com/Sagiroth/TortoiseBots/pull/345)
 - Both priority checks are O(1), so the fast path for player-relevant bots adds effectively zero overhead at scale. [#345](https://github.com/Sagiroth/TortoiseBots/pull/345)
 
+### Combat & AI
+- `.bot action pull` and `.bot action pullback` now actually work: tanks shoot to pull, hold position, and hand the mob back to the group instead of cancelling the shot and standing around — [#346](https://github.com/Sagiroth/TortoiseBots/pull/346)
+- Fixed pulled mobs being dropped every tick (target was only set as `current target`, not `attack target`, so the combat engine cleared it and re-issued the pull loop) — [#346](https://github.com/Sagiroth/TortoiseBots/pull/346)
+- Resolved leftover `stay` state after a pull fight ends; bots now correctly return to `follow` — [#346](https://github.com/Sagiroth/TortoiseBots/pull/346)
+
 ## 2026-09-28
 
 ### Database & Migrations
