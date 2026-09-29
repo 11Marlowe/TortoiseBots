@@ -43,6 +43,9 @@
 - Misc-class weapons are now skipped by equip scoring entirely; the tools they actually need are still bought and kept by the skill rules. [#343](https://github.com/Sagiroth/TortoiseBots/pull/343)
 - Quest items that happen to be misc weapons still count as quest items, so quest logic is untouched. [#343](https://github.com/Sagiroth/TortoiseBots/pull/343)
 
+### Combat & AI
+- Bots with a bow, gun, crossbow, or thrown weapon now actually know how to shoot — the core's weapon-skill reward pass is re-run for ranged skills (Bows, Guns, Crossbows, Thrown, Wands) during skill seeding, so `Shoot Bow`/`Shoot Gun`/`Shoot Crossbow`/`Throw` are properly learned and `.bot action pull` / `pullback` ranged pulls and the ranged fallback work as intended for both fresh pool bots and hired companions. [#344](https://github.com/Sagiroth/TortoiseBots/pull/344)
+
 ## 2026-09-28
 
 ### Database & Migrations
