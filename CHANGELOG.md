@@ -9,6 +9,12 @@
 
 ---
 
+### Commands & Summoning
+
+- `.bot summon <Name>` no longer trips over the GM-only `NonGmFreeSummon = 0` gate — normal players can once again summon bots they control (own account or master-bound hired companions). The command already scoped itself to bots the requester owns, so the check only ever blocked legit use. [#338](https://github.com/Sagiroth/TortoiseBots/pull/338)
+- Fixed the addon's Summon button spitting out "Summoning is restricted to GameMasters" for regular players. [#338](https://github.com/Sagiroth/TortoiseBots/pull/338)
+- `NonGmFreeSummon` still works as intended for the in-chat summon order (instant teleport vs. walk / meeting stone) — its config description and docs now actually say that instead of implying a GM lock. [#338](https://github.com/Sagiroth/TortoiseBots/pull/338)
+
 ## 2026-09-28
 
 ### Database & Migrations
