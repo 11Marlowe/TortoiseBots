@@ -56,6 +56,14 @@
 - Fixed pulled mobs being dropped every tick (target was only set as `current target`, not `attack target`, so the combat engine cleared it and re-issued the pull loop) — [#346](https://github.com/Sagiroth/TortoiseBots/pull/346)
 - Resolved leftover `stay` state after a pull fight ends; bots now correctly return to `follow` — [#346](https://github.com/Sagiroth/TortoiseBots/pull/346)
 
+### Core Sync & Fixes
+- Bots are now classified by **real ownership** instead of their `PlayerMaster` lease, so bot-group leaders no longer get counted as "a player's bot." [#347](https://github.com/Sagiroth/TortoiseBots/pull/347)
+- The unbudgeted first pass now only runs bots actually owned by a real player — the rest of the pool stays in the **budgeted random pool** and gets throttled when the world tick is overloaded. [#347](https://github.com/Sagiroth/TortoiseBots/pull/347)
+- Fixes a live-pool regression where ~212 bots (every non-leader bot in an all-bot group) bypassed tick budgeting on a 500-bot pool. [#347](https://github.com/Sagiroth/TortoiseBots/pull/347)
+
+### Observability & Engine
+- The `BOTPERF` line no longer misreports `playerBots` counts — it now reflects bots with a genuine player master, making tick-budget diagnostics trustworthy again. [#347](https://github.com/Sagiroth/TortoiseBots/pull/347)
+
 ## 2026-09-28
 
 ### Database & Migrations
