@@ -84,6 +84,10 @@
 - Dual Wield is now gated by class level (warrior 10, rogue 10, hunter 20) instead of leaking into every low-level bot's ability pass — no more level-5 warriors and hunters swinging off-hands they shouldn't have. [#350](https://github.com/Sagiroth/TortoiseBots/pull/350)
 - Root cause was the world DB overriding the skill's class requirement (`skill_race_class_info_mod` id 132), so the game data's "requirement" was effectively no gate; bots now follow trainer data. [#350](https://github.com/Sagiroth/TortoiseBots/pull/350)
 
+### Core Sync & Fixes
+- Shaman bots (and any other class outside warrior/rogue/hunter) now lose the illegally-seeded Dual Wield spell, skill, and session flag at login — no more bogus level-10 dual wield from the old hard-coded seeding. [#351](https://github.com/Sagiroth/TortoiseBots/pull/351)
+- Cleanup is flag-and-skill only: equipped items are left untouched, so existing bots keep their gear without manual intervention. [#351](https://github.com/Sagiroth/TortoiseBots/pull/351)
+
 ## 2026-09-28
 
 ### Database & Migrations
