@@ -73,6 +73,13 @@
 - Tanks stop dropping their starter shield and running around with an empty off hand — off-hand gear is preserved instead of being silently lost. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
 - Second weapons stay equipped, so Dual Wield bots look and fight like the spec they were rolled with. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
 
+### Hire System & Companions
+
+- Hired companions are now a temporary service: when the hire ends, the character is deleted instead of hearting home and joining the roaming pool. [#349](https://github.com/Sagiroth/TortoiseBots/pull/349)
+- Hires persist only while the hiring player is online plus a disconnect grace window (`HireDisconnectGracePeriod`, default 300s) before the character is wiped. [#349](https://github.com/Sagiroth/TortoiseBots/pull/349)
+- Every termination path deletes the hire: kicked from group or group disbanded (instant), master offline past the grace period, and `.bot remove` / `.bot logout` on a companion. [#349](https://github.com/Sagiroth/TortoiseBots/pull/349)
+- Re-hiring is a fresh paid transaction — no more level-and-gear hand-me-downs polluting a fresh realm's organic population. [#349](https://github.com/Sagiroth/TortoiseBots/pull/349)
+
 ## 2026-09-28
 
 ### Database & Migrations
