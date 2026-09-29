@@ -27,6 +27,13 @@
 - Skinning order is now items first, then skin the beast corpse, so bots don't skip lootable drops in favor of leather. [#340](https://github.com/Sagiroth/TortoiseBots/pull/340)
 - New `LootMoney` event line records the coin taken, giving server operators and log-parsers a clean signal for bot economy tracking. [#340](https://github.com/Sagiroth/TortoiseBots/pull/340)
 
+### Inventory & Bags
+
+- Hunters now keep a bag slot free for a quiver, and seeded ammo goes there instead of being shoved into an occupied slot — the core no longer eats the quiver on login. [#341](https://github.com/Sagiroth/TortoiseBots/pull/341)
+- Quiver upgrades across tiers actually work now: the slot lookup was returning nothing once a quiver was worn, so a better quiver was never equipped. It swaps correctly even with ammo inside. [#341](https://github.com/Sagiroth/TortoiseBots/pull/341)
+- Warlocks get their first soul bag reliably; a bigger soul bag replaces a smaller one, and the smallest plain bag is the one evicted. Soul bags never steal a hunter's quiver slot. [#341](https://github.com/Sagiroth/TortoiseBots/pull/341)
+- Bag swaps read live container state instead of stale cached data, cutting down destroyed or duplicated items during gear and bag churn. [#341](https://github.com/Sagiroth/TortoiseBots/pull/341)
+
 ## 2026-09-28
 
 ### Database & Migrations
