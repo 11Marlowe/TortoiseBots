@@ -64,6 +64,15 @@
 ### Observability & Engine
 - The `BOTPERF` line no longer misreports `playerBots` counts — it now reflects bots with a genuine player master, making tick-budget diagnostics trustworthy again. [#347](https://github.com/Sagiroth/TortoiseBots/pull/347)
 
+### Combat & AI
+- Bots now actually learn the abilities their skills unlock — Dual Wield, Shoot Bow, Block — instead of just holding the skill and never using it. Live data showed 22 of 24 Dual Wield bots had no spell, and 0 of 244 Bows bots could shoot. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
+- `EnsureSkillRewardedSpells` walks the skill list and teaches the matching spell, so the #344 skill re-issue now lands as a usable ability rather than a dead flag. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
+- Ranged bots are back on the field: bows finally fire, which also unblocks debugging for other weapon-skill gaps. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
+
+### Bots & Inventories
+- Tanks stop dropping their starter shield and running around with an empty off hand — off-hand gear is preserved instead of being silently lost. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
+- Second weapons stay equipped, so Dual Wield bots look and fight like the spec they were rolled with. [#348](https://github.com/Sagiroth/TortoiseBots/pull/348)
+
 ## 2026-09-28
 
 ### Database & Migrations
