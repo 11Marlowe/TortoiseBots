@@ -34,6 +34,10 @@
 - Warlocks get their first soul bag reliably; a bigger soul bag replaces a smaller one, and the smallest plain bag is the one evicted. Soul bags never steal a hunter's quiver slot. [#341](https://github.com/Sagiroth/TortoiseBots/pull/341)
 - Bag swaps read live container state instead of stale cached data, cutting down destroyed or duplicated items during gear and bag churn. [#341](https://github.com/Sagiroth/TortoiseBots/pull/341)
 
+### Combat & AI
+- Bag audits (`equip upgrades`) no longer fire mid-combat — bots were rewriting worn gear when the level-up packet arrived on a killing blow, which made nearby mobs reset to full HP and drop the fight. [#342](https://github.com/Sagiroth/TortoiseBots/pull/342)
+- Upgrades now defer to the next out-of-combat audit cycle (~5 min periodic pass), so level-ups still get equipped without breaking active pulls. [#342](https://github.com/Sagiroth/TortoiseBots/pull/342)
+
 ## 2026-09-28
 
 ### Database & Migrations
