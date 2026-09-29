@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "DestroyItemAction.h"
 #include "playerbot/strategy/values/ItemCountValue.h"
+#include "playerbot/strategy/values/MaintenanceValues.h"
 
 using namespace ai;
 
@@ -33,6 +34,67 @@ void DestroyItemAction::DestroyItem(FindItemVisitor* visitor, Player* requester)
     }
 }
 
+bool SmartDestroyItemAction::DestroyGreyJunk(Player* requester)
+{
+    //Item ids, never item pointers: DestroyItem() frees every stack carrying
+    //the id, so a second stack of an id already thrown away would be a
+    //dangling pointer. Stacks of one id are merged while reading, then the
+    //ids are ordered by value so the cheapest grey goes first - a map alone
+    //would only order them by item id.
+    std::map<uint32, uint32> valueById;
+    for (Item* item : AI_VALUE2(std::list<Item*>, "inventory items", "usage " + std::to_string((uint8)ItemUsage::ITEM_USAGE_VENDOR)))
+    {
+        ItemPrototype const* proto = item->GetProto();
+
+        if (proto && proto->Quality == ITEM_QUALITY_POOR)
+            valueById[proto->ItemId] += proto->SellPrice * item->GetCount();
+    }
+
+    std::list<std::pair<uint32, uint32>> cheapestFirst(valueById.begin(), valueById.end());
+    cheapestFirst.sort([](std::pair<uint32, uint32> const& left, std::pair<uint32, uint32> const& right) { return left.second < right.second; });
+
+    for (auto& grey : cheapestFirst)
+    {
+        if (HAS_AI_VALUE2("force item usage", grey.first))
+            continue;
+
+        FindItemByIdVisitor visitor(grey.first);
+        DestroyItem(&visitor, requester);
+
+        if (AI_VALUE(uint8, "bag space") < 90)
+            return true;
+    }
+
+    return false;
+}
+
+//Destroys the listed usages in order, newest item of each usage first, and
+//stops as soon as the bags are back under the 90% threshold. Returns true
+//when that happened.
+bool SmartDestroyItemAction::DestroyUsages(Player* requester, std::vector<ItemUsage> const& usages)
+{
+    for (auto& usage : usages)
+    {
+        std::list<uint32> items = AI_VALUE2(std::list<uint32>, "inventory item ids", "usage " + std::to_string((uint8)usage));
+
+        items.reverse();
+
+        for (auto& item : items)
+        {
+            if (HAS_AI_VALUE2("force item usage", item))
+                continue;
+
+            FindItemByIdVisitor visitor(item);
+            DestroyItem(&visitor, requester);
+
+            if (AI_VALUE(uint8, "bag space") < 90)
+                return true;
+        }
+    }
+
+    return false;
+}
+
 bool SmartDestroyItemAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
@@ -52,17 +114,20 @@ bool SmartDestroyItemAction::Execute(Event& event)
     // only destroy grey items if with real player/guild
     if (onlyDestroyGray)
     {
-        std::set<Item*> items;
+        //Item ids, not item pointers: destroying one id frees every stack of
+        //it, so a later stack of the same id would already be dangling.
+        std::set<uint32> itemIds;
         FindItemsToTradeByQualityVisitor visitor(ITEM_QUALITY_POOR, 5);
         ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
-        items.insert(visitor.GetResult().begin(), visitor.GetResult().end());
+        for (Item* item : visitor.GetResult())
+            itemIds.insert(item->GetProto()->ItemId);
 
-        for (auto& item : items)
+        for (auto& itemId : itemIds)
         {
-            if (HAS_AI_VALUE2("force item usage", item->GetProto()->ItemId))
+            if (HAS_AI_VALUE2("force item usage", itemId))
                 continue;
 
-            FindItemByIdVisitor visitor(item->GetProto()->ItemId);
+            FindItemByIdVisitor visitor(itemId);
             DestroyItem(&visitor, requester);
 
             bagSpace = AI_VALUE(uint8, "bag space");
@@ -74,11 +139,16 @@ bool SmartDestroyItemAction::Execute(Event& event)
         return true;
     }
 
+    //We need money: keep quest items and anything a vendor would buy (sell
+    //first), destroy only genuinely useless stuff.
+    bool const needsMoney = AI_VALUE(bool, "should get money") || ShouldSellValue::CantAffordNextSpell(ai);
+
     std::vector<ItemUsage> bestToDestroy = { ItemUsage::ITEM_USAGE_NONE }; //First destroy anything useless.
 
-    if (!AI_VALUE(bool, "can sell") && AI_VALUE(bool, "should get money")) //We need money so quest items are less important since they can't directly be sold.
+    if (needsMoney)
     {
-        bestToDestroy.push_back(ItemUsage::ITEM_USAGE_QUEST);
+        if (!AI_VALUE(bool, "can sell")) //Quest items can't directly be sold.
+            bestToDestroy.push_back(ItemUsage::ITEM_USAGE_QUEST);
     }
     else //We don't need money so destroy the cheapest stuff.
     {
@@ -87,32 +157,17 @@ bool SmartDestroyItemAction::Execute(Event& event)
         bestToDestroy.push_back(ItemUsage::ITEM_USAGE_AH);
     }
 
+    if (DestroyUsages(requester, bestToDestroy))
+        return true;
+
+    //A full bag must never cost the bot its potions and food to protect grey
+    //trash worth a few copper, so grey goes before profession stock and
+    //consumables - cheapest first, keeping what is worth selling.
+    if (needsMoney && DestroyGreyJunk(requester))
+        return true;
+
     //If we still need room
-    bestToDestroy.push_back(ItemUsage::ITEM_USAGE_SKILL); //Items that might help tradeskill are more important than above but still expendable.
-    bestToDestroy.push_back(ItemUsage::ITEM_USAGE_USE); //These are more likely to be useful 'soon' but still expendable.
-
-    for (auto& usage : bestToDestroy)
-    {
-        std::list<uint32> items = AI_VALUE2(std::list<uint32>, "inventory item ids", "usage " + std::to_string((uint8)usage));
-
-        items.reverse();
-
-        for (auto& item : items)
-        {
-            if (HAS_AI_VALUE2("force item usage", item))
-                continue;
-
-            FindItemByIdVisitor visitor(item);
-            DestroyItem(&visitor, requester);
-
-            bagSpace = AI_VALUE(uint8, "bag space");
-
-            if(bagSpace < 90)
-                return true;
-        }
-    }
-
-    return false;
+    return DestroyUsages(requester, { ItemUsage::ITEM_USAGE_SKILL, ItemUsage::ITEM_USAGE_USE }); //Items that might help tradeskill are more important than above but still expendable. These are more likely to be useful 'soon' but still expendable.
 }
 
 bool DestroyAllGrayItemsAction::Execute(Event& event)
