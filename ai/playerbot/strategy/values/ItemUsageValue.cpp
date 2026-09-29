@@ -7,6 +7,7 @@
 #include "GuildValues.h"
 
 #include "playerbot/RandomItemMgr.h"
+#include "playerbot/AiFactory.h"
 #include "playerbot/ServerFacade.h"
 
 using namespace ai;
@@ -604,6 +605,59 @@ uint8 ItemUsageValue::GetPreferredEquipSlot(Player* bot, Item* item, ItemPrototy
     return emptySlot != NULL_SLOT ? emptySlot : best;
 }
 
+// A shield is only worth keeping for a bot that can still end up in a
+// one-hander-and-shield setup: a spec that lists the shield as its off-hand
+// (protection warrior/paladin, holy paladin) or the tank role the roster gave
+// the bot. Two-hander specs (arms, fury, retribution) never get back to it, so
+// for them a shield stays ordinary loot.
+static bool BotCanReturnToShield(Player* bot, uint32 specId, ItemPrototype const* proto)
+{
+    if (sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto))
+        return true;
+
+    return (AiFactory::GetPlayerRoles(bot) & BOT_ROLE_TANK) != 0;
+}
+
+// True when nothing else the bot carries is a better shield: the off-hand and
+// every bag are scanned, and ties are broken by quality and then by item guid so
+// exactly one of two otherwise identical shields wins.
+static bool IsBestOwnedShield(Player* bot, Item* myself, ItemPrototype const* proto)
+{
+    bool better = false;
+    auto consider = [&](Item* item)
+    {
+        if (!item || item == myself)
+            return;
+
+        ItemPrototype const* other = item->GetProto();
+        if (!other || other->Class != ITEM_CLASS_ARMOR || other->SubClass != ITEM_SUBCLASS_ARMOR_SHIELD)
+            return;
+
+        // A shield the bot cannot wear must not outrank one it can keep.
+        if (bot->CanUseItem(item) != EQUIP_ERR_OK)
+            return;
+
+        if (other->ItemLevel > proto->ItemLevel ||
+            (other->ItemLevel == proto->ItemLevel &&
+             (other->Quality > proto->Quality ||
+              (other->Quality == proto->Quality && item->GetGUIDLow() > (myself ? myself->GetGUIDLow() : 0)))))
+            better = true;
+    };
+
+    consider(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND));
+    for (uint8 slotPos = INVENTORY_SLOT_ITEM_START; slotPos < INVENTORY_SLOT_ITEM_END; ++slotPos)
+        consider(bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slotPos));
+    for (uint8 bag = INVENTORY_SLOT_BAG_START; bag < INVENTORY_SLOT_BAG_END; ++bag)
+    {
+        Bag const* pBag = (Bag const*)bot->GetItemByPos(INVENTORY_SLOT_BAG_0, bag);
+        uint32 size = pBag ? pBag->GetBagSize() : 0;
+        for (uint32 slotPos = 0; slotPos < size; ++slotPos)
+            consider(bot->GetItemByPos(bag, static_cast<uint8>(slotPos)));
+    }
+
+    return !better;
+}
+
 ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, Player* bot)
 {
     PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
@@ -631,9 +685,31 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
         bot->GetClass() == CLASS_HUNTER &&
         bot->GetWeaponForAttack(WeaponAttackType::RANGED_ATTACK, false, false) != nullptr);
 
+    uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
+    if (!specId)
+        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
+
     uint8 slot = ItemUsageValue::GetPreferredEquipSlot(bot, bagItem, itemProto);
     if (slot == NULL_SLOT && !isQuiverUpgradeCandidate)
+    {
+        // A two-hander in the main hand makes core resolve no off-hand slot, so
+        // every shield the bot could wear reads as useless here and the next
+        // vendor visit sells it (Turtle keeps buyback rows in the DB, which is
+        // where the pool's "shield still in the bag" actually sat). Keep it
+        // instead: equipping stays a no-op while the two-hander is worn, and the
+        // next audit puts the shield on as soon as a one-hander takes the main
+        // hand. Only a bot that can return to a one-hander and shield keeps one,
+        // and only the best shield it owns - the rest stay ordinary loot, so the
+        // bags of an arms/fury/retribution bot do not fill up with spares.
+        if (itemProto->Class == ITEM_CLASS_ARMOR &&
+            itemProto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD &&
+            bot->IsTwoHandUsed() &&
+            BotCanReturnToShield(bot, specId, itemProto) &&
+            IsBestOwnedShield(bot, bagItem, itemProto))
+            return ItemUsage::ITEM_USAGE_EQUIP;
+
         return ItemUsage::ITEM_USAGE_NONE;
+    }
 
     uint16 dest = ((INVENTORY_SLOT_BAG_0 << 8) | slot);
 
@@ -737,9 +813,6 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
 
     bool shouldEquip = false;
     bool armorForSpec = true;
-    uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
-    if (!specId)
-        specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
 
     uint32 statWeight = sRandomItemMgr.ItemStatWeight(bot, itemQualifier);
     if (statWeight)
