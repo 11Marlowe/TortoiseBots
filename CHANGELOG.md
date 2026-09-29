@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-09-29
+
+### Combat & AI
+- Automatic bag audit (`equip upgrades`) is disabled again; it was causing mobs to reset to full HP and stop fighting back when triggered by the maintenance strategy or on level-up. [#337](https://github.com/Sagiroth/TortoiseBots/pull/337)
+- The rest of the upgrade work from #335 (slot selection, weapon spec transition, dual slots) stays intact, and equipping from loot, vendors, and quests continues to work as before. [#337](https://github.com/Sagiroth/TortoiseBots/pull/337)
+- Bots no longer run a periodic bag audit, so expect normal, non-resetting mob behavior in combat again. [#337](https://github.com/Sagiroth/TortoiseBots/pull/337)
+
+---
+
 ## 2026-09-28
 
 ### Database & Migrations
