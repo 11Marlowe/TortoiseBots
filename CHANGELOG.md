@@ -38,6 +38,11 @@
 - Bag audits (`equip upgrades`) no longer fire mid-combat — bots were rewriting worn gear when the level-up packet arrived on a killing blow, which made nearby mobs reset to full HP and drop the fight. [#342](https://github.com/Sagiroth/TortoiseBots/pull/342)
 - Upgrades now defer to the next out-of-combat audit cycle (~5 min periodic pass), so level-ups still get equipped without breaking active pulls. [#342](https://github.com/Sagiroth/TortoiseBots/pull/342)
 
+### Combat & AI
+- Bots no longer score profession tools (Mining Pick, Blacksmith Hammer, Skinning Knife, Arclight Spanner, Woodcutting Axe) as weapon upgrades — no more random picks in hand or chat spam announcing it. [#343](https://github.com/Sagiroth/TortoiseBots/pull/343)
+- Misc-class weapons are now skipped by equip scoring entirely; the tools they actually need are still bought and kept by the skill rules. [#343](https://github.com/Sagiroth/TortoiseBots/pull/343)
+- Quest items that happen to be misc weapons still count as quest items, so quest logic is untouched. [#343](https://github.com/Sagiroth/TortoiseBots/pull/343)
+
 ## 2026-09-28
 
 ### Database & Migrations
