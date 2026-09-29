@@ -1,9 +1,28 @@
 
 #include "playerbot/playerbot.h"
 #include "playerbot/strategy/PassiveMultiplier.h"
+#include "../../runtime/BotManager.h"
+#include "../../runtime/PlayerbotAIStorage.h"
+#include "playerbot/GroupMembers.h"
 #include "PullStrategy.h"
 
 using namespace ai;
+
+void ai::ReleaseHeldPartyNow(Player* tank)
+{
+    if (!tank)
+        return;
+    for (Player* member : LiveGroupMembers(tank->GetGroup()))
+    {
+        if (!member || member == tank || !TortoiseBots::BotManager::Instance().IsBot(member->GetObjectGuid()))
+            continue;
+        PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+        if (!memberAi || !memberAi->GetAiObjectContext())
+            continue;
+        memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(0);
+        memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
+    }
+}
 
 class PullStrategyActionNodeFactory : public NamedObjectFactory<ActionNode>
 {
@@ -43,9 +62,11 @@ PullStrategy::PullStrategy(PlayerbotAI* ai, std::string pullAction, std::string 
 , pendingToStart(false)
 , pullActionCompleted(false)
 , pullStartTime(0)
+, pullActionCastMs(0)
 , commandPullback(false)
 , commandActive(false)
 , hadPullBack(false)
+, pullBackIntent(false)
 , commandJoinDelay(0)
 , returnStartTime(0)
 , petReactState(REACT_DEFENSIVE)
@@ -243,6 +264,23 @@ void PullStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "pull end",
         NextAction::array(0, new NextAction("pull end", ACTION_MOVE), NULL)));
+
+    // The puller's own anchor hold (a pullback parks the tank at the anchor
+    // for the fight) is released by the same action the held DPS bots use,
+    // once that fight is over.
+    triggers.push_back(new TriggerNode(
+        "pull anchor done",
+        NextAction::array(0, new NextAction("release pull hold", ACTION_HIGH), NULL)));
+}
+
+void PullStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
+{
+    // A pull cannot outlive the puller. The dead engine has to run the pull
+    // end too: a tank that dies mid-pull would otherwise keep the party held
+    // until their wait window expires, with nobody left to bring them in.
+    triggers.push_back(new TriggerNode(
+        "pull end",
+        NextAction::array(0, new NextAction("pull end", ACTION_HIGH), NULL)));
 }
 
 void PullStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -308,17 +346,37 @@ void PullStrategy::OnPullActionCompleted()
     pendingToStart = false;
     pullActionCompleted = true;
     pullStartTime = time(0);
-    if (commandActive && commandPullback && !returnStartTime)
+    if (IsPullBackIntent() && !returnStartTime)
         returnStartTime = time(0);
 }
+
+void PullStrategy::NotePullActionCast()
+{
+    pullActionCastMs = WorldTimer::getMSTime();
+    if (!pullActionCastMs)
+        pullActionCastMs = 1; // 0 is "no cast yet"
+    // The pull time cap is for the approach; the wait for the arrow gets its own
+    // window, so a long walk to the mob must not eat it.
+    pullStartTime = time(0);
+}
+
+uint32 PullStrategy::GetPullActionCastAgeMs() const
+{
+    if (!pullActionCastMs)
+        return 0;
+    return WorldTimer::getMSTimeDiff(pullActionCastMs, WorldTimer::getMSTime());
+}
+
 void PullStrategy::OnPullEnded()
 {
     pendingToStart = false;
     pullActionCompleted = false;
     pullStartTime = 0;
+    pullActionCastMs = 0;
     commandActive = false;
     commandPullback = false;
     hadPullBack = false;
+    pullBackIntent = false;
     commandJoinDelay = 0;
     returnStartTime = 0;
     SetTarget(nullptr);
@@ -337,19 +395,22 @@ void PullStrategy::RequestPull(Unit* target, bool resetTime)
 {
     SetTarget(target);
     pendingToStart = true;
+
+    // Return-leg intent, fixed for the whole pull: the command's own mode when
+    // it owns this pull, else the tank's configured "pull back" behaviour (the
+    // fallback for its automatic dungeon pulls). Snapshotting it here keeps the
+    // decision out of reach of later strategy changes - the pull end restores
+    // the tank's default "pull back", and the return trigger must not read that
+    // as "this pull was a pullback".
+    pullBackIntent = commandActive ? commandPullback
+        : ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT);
+
     if(resetTime)
     {
         pullActionCompleted = false;
         pullStartTime = time(0);
+        pullActionCastMs = 0;
     }
-}
-
-void PullStrategy::NoteReturnedToAnchor()
-{
-    // Called when the tank reaches the anchor: stop the return clock so the
-    // end trigger holds the anchor for the join window instead of ending
-    // the pull the instant the tank arrives.
-    returnStartTime = 0;
 }
 float PullMultiplier::GetValue(Action* action)
 {

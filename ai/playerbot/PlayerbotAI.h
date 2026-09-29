@@ -349,6 +349,10 @@ public:
     void SetMovementStrategy(const std::string& movement);
     bool HasActiveMovementStrategy();
     void EnsureDefaultMovementStrategy(Player* requester = nullptr);
+    // Drop a pull's anchor hold ("pull hold" + the stay it owns) and go back to
+    // the bot's default movement. A no-op when no hold is placed, and never
+    // touches a stay the player asked for (that drops the hold marker first).
+    void ReleasePullHold();
 	std::string HandleRemoteCommand(std::string command);
     void HandleCommand(uint32 type, const std::string& text, Player& fromPlayer, const uint32 lang = LANG_UNIVERSAL);
     void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);
@@ -746,6 +750,12 @@ public:
 
     void SetActionDuration(const Action* action);
     void SetActionDuration(uint32 duration);
+
+    // Human orders act now: drop the bot's own action clock instead of letting
+    // a leftover delay (teleport grace, failed cast, blocked tick) stall the
+    // command's next step. The pull commands need it - they force one tick
+    // inline, but the pull itself continues on the bot's own ticks.
+    void ClearActionClock() { ResetAIInternalUpdateDelay(); }
 
     const Action* GetLastExecutedAction(BotState state) const;
 

@@ -12,9 +12,54 @@ using namespace ai;
 
 namespace
 {
+// The core fires the first ranged auto-shot up to 500 ms after the cast
+// (Unit::_UpdateAutoRepeatSpell's first-cast grace) plus the bow's swing.
+// Past this the pull goes on regardless: a pull that cannot land must not hold
+// the tank - and with it the party's join window - at the pull spot.
+constexpr uint32 kPullShotWaitMs = 4000;
+
+// True once the pulled target has actually come for us: the arrow's damage put
+// the bot or a party member on its threat list, it picked one of us as its
+// victim, or it is in combat at all.
+bool PullTargetEngaged(Unit* target, Player* bot)
+{
+    if (!target || !bot)
+        return false;
+    if (target->GetVictim() == bot)
+        return true;
+    if (target->GetThreatManager().getThreat(bot) > 0.0f)
+        return true;
+
+    // A body pull lands the moment the bot's attack request is accepted: the
+    // core puts the bot on the target's attacker list (Unit::Attack) before the
+    // first swing has set a victim or threat, and the list is emptied when the
+    // creature resets, so it cannot keep a pull that fell apart alive. Ranged
+    // pulls reach the list only through the arrow's damage, never the cast.
+    if (target->GetAttackers().count(bot) || bot->GetVictim() == target)
+        return true;
+
+    // The pull engages the party, not only the tank: a mob that went for the
+    // healer who healed too early is just as engaged as one that came for the
+    // tank, and the pull must hand it over the same way.
+    if (Group* group = bot->GetGroup())
+    {
+        for (Player* member : LiveGroupMembers(group))
+        {
+            if (!member || member == bot)
+                continue;
+            if (target->GetVictim() == member)
+                return true;
+            if (target->GetThreatManager().getThreat(member) > 0.0f)
+                return true;
+        }
+    }
+
+    return target->IsInCombat();
+}
+
 // Re-stamp every held party bot's combat-start clock, optionally narrowing
-// its wait window (arrival path). Shared by the landing (PullAction) and the
-// anchor arrival (arrival brake): one helper, not two loops.
+// its wait window. Shared by the pull landing (once the cast lands) and the
+// pull end (when a pullback's tank is back and takes the fight over).
 void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
 {
     if (!tank)
@@ -130,6 +175,13 @@ bool PullRequestAction::Execute(Event& event)
     posMap["pull"] = pullPosition;
 
     strategy->RequestPull(target);
+
+    // Keep the pulled mob as the explicit attack target for the whole approach:
+    // it is not in combat until the shot lands, and without this the combat
+    // engine drops it every few ticks and re-paths the walk to the mob.
+    AiObjectContext* pullContext = ai->GetAiObjectContext();
+    pullContext->GetValue<ObjectGuid>("attack target")->Set(target->getObjectGuid());
+    pullContext->GetValue<bool>("invalid target", "current target")->Reset();
 
     // Force change combat state to have a faster reaction time
     ai->OnCombatStarted();
@@ -247,25 +299,66 @@ bool PullAction::Execute(Event& event)
 
             std::string actionName = strategy->GetPullActionName();
 
-            // Execute the pull action
+            // Execute the pull action. The AI's "current target" and the bot's
+            // selection GUID must name the same unit: InvalidTargetValue reads
+            // a mismatch as "invalid target", and the combat engine then wipes
+            // the target and calls AttackStop() (the tank stood at the anchor
+            // doing nothing while the mob beat on it). CastSpell restores the
+            // pre-cast selection, so the selection is re-asserted after the
+            // spell branch too.
             SET_AI_VALUE(Unit*, "current target", GetTarget());
+
+            // The pulled mob is not in combat until the shot lands, and
+            // InvalidTargetValue only lets a not-yet-engaged target through
+            // when it is the bot's explicit "attack target". Without it the
+            // combat engine drops the target every tick ("select new target"),
+            // which cancels the shot before the arrow flies.
+            AiObjectContext* pullContext = ai->GetAiObjectContext();
+            pullContext->GetValue<ObjectGuid>("attack target")->Set(target->getObjectGuid());
+            pullContext->GetValue<bool>("invalid target", "current target")->Reset();
+
             if (actionName == "reach pull")
             {
-                if (!bot->Attack(target, true))
-                    return false;
-
+                // Body pull: the tank is in melee reach of the target, so the
+                // pull has landed. Do not fail on the attack request itself -
+                // a mounted tank cannot attack (Unit::Attack) and a repeated
+                // request on the same victim returns false; failing here used
+                // to leave the tank muted at the mob until the pull timeout.
+                if (bot->IsMounted())
+                    ai->Unmount();
+                bot->Attack(target, true);
+                bot->SetSelectionGuid(target->getObjectGuid());
                 strategy->OnPullActionCompleted();
+                return true;
+            }
+            else if (strategy->HasPullActionCast())
+            {
+                // The cast went out: wait for the arrow itself. In this core
+                // "Shoot Bow" only opens the ranged auto-repeat - the arrow
+                // flies a swing later (Unit::_UpdateAutoRepeatSpell), and the
+                // next cast or any movement cancels it. Completing the pull on
+                // the cast made the tank run back during the windup, so the
+                // arrow never landed and the mob never aggroed.
+                // Re-arm the pull request (no time reset): that is what keeps
+                // this poll queued every tick while the tank stands still.
+                strategy->RequestPull(target, false);
+
+                if (PullTargetEngaged(target, bot) || strategy->GetPullActionCastAgeMs() >= kPullShotWaitMs)
+                {
+                    strategy->OnPullActionCompleted();
+                    // Anchor the DPS join delay to the landing, not to the
+                    // command: re-stamp every held party bot's combat-start
+                    // clock so an ordinary pull holds for the full delay after
+                    // the shot lands. Pullbacks keep the wide return-covering
+                    // window here; the pull end narrows it to the join delay.
+                    RestampPullParty(bot, 0, false);
+                }
                 return true;
             }
             else if (ai->DoSpecificAction(actionName, event, true))
             {
-                strategy->OnPullActionCompleted();
-                // Anchor the DPS join delay to the landing, not to the
-                // command: re-stamp every held party bot's combat-start clock
-                // so an ordinary pull holds for the full delay after the cast
-                // lands. Pullbacks keep the wide return-covering window here;
-                // the arrival brake narrows it to the join delay.
-                RestampPullParty(bot, 0, false);
+                bot->SetSelectionGuid(target->getObjectGuid());
+                strategy->NotePullActionCast();
                 return true;
             }
             else
@@ -283,6 +376,12 @@ bool PullAction::isPossible()
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy)
     {
+        // Waiting for the arrow: the spell cannot be cast again (that would
+        // restart the ranged swing) and there is nothing left to check - the
+        // action only has to observe the shot.
+        if (strategy->HasPullActionCast())
+            return true;
+
         if (strategy->GetPullActionName() == "reach pull")
             return true;
 
@@ -320,6 +419,17 @@ void PullAction::InitPullAction()
     }
 }
 
+bool PullAction::isUseful()
+{
+    // Waiting for the arrow: the spell's own usefulness no longer applies, and
+    // the action has to stay eligible or the wait would never be observed.
+    PullStrategy* strategy = PullStrategy::Get(ai);
+    if (strategy && strategy->HasPullActionCast())
+        return true;
+
+    return CastSpellAction::isUseful();
+}
+
 bool PullEndAction::Execute(Event& event)
 {
     PullStrategy* strategy = PullStrategy::Get(ai);
@@ -348,27 +458,97 @@ bool PullEndAction::Execute(Event& event)
                 BotState::BOT_STATE_ALL);
         }
 
+        // A pull cannot outlive its tank (the dead-engine "pull end" trigger
+        // has already released the held party): finish the bookkeeping, but do
+        // not park a corpse on the anchor or re-stamp the party's join window.
+        const bool alive = bot->IsAlive();
+
+        // Did the pull land at all? Only a mob that came for the party can be
+        // handed to the tank's rotation; a pull that never landed (blocked
+        // shot, target in evade, approach timeout) leaves it untouched.
+        Unit* pullTarget = alive ? strategy->GetTarget() : nullptr;
+        const bool landed = pullTarget && PullTargetEngaged(pullTarget, bot) &&
+            pullTarget->IsAlive() && pullTarget->IsInWorld() &&
+            pullTarget->GetMapId() == bot->GetMapId() && bot->IsValidAttackTarget(pullTarget);
+
+        // The tank is back and takes the fight over here: this is the moment a
+        // pullback's join window counts from. Narrow every held party bot's
+        // wait window to the join delay and restart its clock, so the DPS
+        // arrive joinDelay after the tank is back instead of after the wide
+        // return-covering window placed at the command.
+        if (landed && wasCommand && wasPullback)
+            RestampPullParty(bot, strategy->GetCommandJoinDelay(), true);
+
         // Remove the saved pull position
         AiObjectContext* context = ai->GetAiObjectContext();
+
+        if (landed)
+        {
+            // Hand the pulled mob over to the tank's own rotation. OnPullEnded
+            // below drops the pull target, and a target that only lived there
+            // left the tank idle: InvalidTargetValue reads an AI "current
+            // target" that does not match the bot selection GUID as "invalid
+            // target", so the combat engine wiped it and called AttackStop()
+            // instead of fighting. Keep the mob as the live target (selection,
+            // current target, attack target) and the tank's normal rotation
+            // takes it from here - for a pullback it does so at the anchor,
+            // where the mob comes to it.
+            context->GetValue<ObjectGuid>("attack target")->Set(pullTarget->getObjectGuid());
+            SET_AI_VALUE(Unit*, "current target", pullTarget);
+            bot->SetSelectionGuid(pullTarget->getObjectGuid());
+        }
+        else
+        {
+            // The pull failed: nothing is engaged, so there is no fight to hand
+            // over. Drop every trace of the target the request stamped on the
+            // bot. A live, hostile "attack target" is what CombatEndTrigger
+            // waits on, so leaving it behind kept the tank inside the combat
+            // engine - no fight, no follow - for good, and (in a dungeon) also
+            // blocked every later "should pull". Clearing it lets the combat
+            // state end and the tank go back to following the party.
+            context->GetValue<ObjectGuid>("attack target")->Reset();
+            SET_AI_VALUE(Unit*, "current target", nullptr);
+            bot->SetSelectionGuid(ObjectGuid());
+
+            // Free the party now: the wait window they were given exists to
+            // cover the pull that is coming, and it is not. They release
+            // themselves on their next tick ("pull hold expired").
+            ReleaseHeldPartyNow(bot);
+        }
+
         PositionMap& posMap = AI_VALUE(PositionMap&, "position");
         PositionEntry stayPosition = posMap["pull"];
         if (stayPosition.isSet())
         {
-            // After a pullback the tank holds the anchor for the join window:
-            // drop a stay at the anchor position so the tank fights the
-            // incoming mob in the corner instead of drifting back out.
-            if (wasCommand && wasPullback)
+            // After a pullback that landed, the tank holds the anchor for the
+            // join window: drop a stay at the anchor position so the tank
+            // fights the incoming mob in the corner instead of drifting back
+            // out. The same anchor goes into "pull hold" as the tank's own
+            // copy, so the hold can be released once that fight is over -
+            // without it the tank would stand there for good. A pull that never
+            // landed parks nobody: there is no fight at the anchor.
+            if (landed && wasCommand && wasPullback)
             {
                 PositionEntry tankStay = posMap["stay"];
                 tankStay.Set(stayPosition.x, stayPosition.y, stayPosition.z, stayPosition.mapId);
-                posMap["stay"] = tankStay;
                 ai->SetMovementStrategy("stay");
+                posMap["stay"] = tankStay;
+                posMap["pull hold"] = tankStay;
             }
             posMap.erase("pull");
         }
         // The held party releases itself per bot once its own join window
         // elapses ("pull hold expired" trigger): the tank must not drop the
         // wait window here, or the join delay would be zero.
+
+        // Back to a normal movement mode. The tactical request that started the
+        // pull dropped the tank's previous hold (RelaxTacticalMovement), and a
+        // bot that was parked before it would otherwise be left with no
+        // movement strategy at all - standing where the pull ended until the
+        // next order. The anchor hold (a landed pullback) is a movement
+        // strategy of its own, so this leaves it alone.
+        if (!ai->HasActiveMovementStrategy())
+            ai->EnsureDefaultMovementStrategy();
 
         strategy->OnPullEnded();
         return true;
@@ -380,19 +560,10 @@ bool PullEndAction::Execute(Event& event)
 bool ReleasePullHoldAction::Execute(Event& event)
 {
     (void)event;
+    // Dropping the wait window *is* the release: PlayerbotAI::ChangeStrategy
+    // frees the anchor hold (marker + the stay it owns) whenever "wait for
+    // attack" goes away, so the hold cannot outlive its own guard and there is
+    // one rule instead of one per caller.
     ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
-    AiObjectContext* context = ai->GetAiObjectContext();
-    PositionMap& posMap = AI_VALUE(PositionMap&, "position");
-    PositionEntry holdPos = posMap["pull hold"];
-    if (!holdPos.isSet())
-        return true;
-    PositionEntry stayPos = posMap["stay"];
-    if (stayPos.isSet() && stayPos.mapId == holdPos.mapId &&
-        stayPos.x == holdPos.x && stayPos.y == holdPos.y)
-    {
-        ai->SetMovementStrategy("follow");
-        posMap.erase("stay");
-    }
-    posMap.erase("pull hold");
     return true;
 }
