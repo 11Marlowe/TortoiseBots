@@ -51,6 +51,54 @@ LootObject::LootObject(Player* bot, ObjectGuid guid)
     Refresh(bot, guid);
 }
 
+// May this bot open the corpse's loot window? This is the core's own entitlement test -- the one
+// that masks the loot sparkle on a real client (Object::BuildValuesUpdate -> Player::IsAllowedToLoot)
+// with the two clauses trimmed that exist only so that a *player* standing at the corpse can open
+// it on behalf of the party:
+//
+//  * GROUP_LOOT / NEED_BEFORE_GREED: an unblocked over-threshold item makes IsAllowedToLoot true
+//    for every member, so anybody may open the corpse and start the roll. A bot never needs the
+//    walk for that -- the roll packet reaches it wherever it is and LootRollAction answers it --
+//    while the corpse itself is opened by the member whose turn it is. Keeping the clause made
+//    the whole party leave its targets for every green drop and keep walking back for the rest
+//    of the 60s roll window (Loot::hasOverThresholdItem does not look at is_blocked).
+//  * MASTER_LOOT: the same clause let any member open the corpse, in the overworld too (the
+//    module's own master-looter check only covered dungeons): the first bot to reach a world
+//    boss received MASTER_PERMISSION and the master loot list instead of the assigned looter,
+//    who is the one expected to distribute.
+//
+// Everything else stays with the core rule: free-for-all, the round-robin turn, a solo tap (and
+// the allowed-looter set recorded at the kill), and the quest/FFA/conditional items that are
+// personal to this bot. A corpse the assigned member never opens stays unlooted -- the same as
+// for a group of players in 1.12, where only that member can see and release the items.
+//
+// One deliberate exclusion: a creature tapped and killed by the bot's *pet* only (the owner never
+// damaged it) is refused, and rightly so. Unit::Kill sets pPlayerTap = null for a pet recipient,
+// so that kill is never credited: no loot is ever rolled for the corpse and Player::SendLoot
+// refuses it (Creature::GetLootRecipient() resolves the pet guid to nothing). "Always tag the mob
+// yourself or the pet kill gives no loot and no XP" is the vanilla rule, not a module bug; making
+// such corpses lootable needs the core to credit the pet's owner, not a change here.
+static bool MayLootCorpse(Player* bot, Creature* creature)
+{
+    if (!bot->IsAllowedToLoot(creature))
+        return false;
+
+    Group* group = bot->GetGroup();
+    if (!group || group->isBGGroup() || group->GetLootMethod() == FREE_FOR_ALL)
+        return true;                                        // the core grants every member this corpse
+
+    Loot const& loot = creature->loot;
+    if (loot.roundRobinPlayer == 0 || loot.roundRobinPlayer == bot->GetObjectGuid())
+        return true;                                        // no turn assigned (released) or this bot's turn
+
+    // The assigned master looter opens its corpses even if the turn recorded at the kill went
+    // elsewhere (the turn is the tapper when the group had no looter guid yet).
+    if (group->GetLootMethod() == MASTER_LOOT && group->GetLooterGuid() == bot->GetObjectGuid())
+        return true;
+
+    return loot.hasItemFor(bot);                            // another member's turn: personal loot only
+}
+
 void LootObject::Refresh(Player* bot, ObjectGuid guid, bool debug)
 {
     skillId = SKILL_NONE;
@@ -62,25 +110,34 @@ void LootObject::Refresh(Player* bot, ObjectGuid guid, bool debug)
     Creature* creature = ai->GetCreature(guid);
     if (creature && sServerFacade.GetDeathState(creature) == CORPSE)
     {
+        // Corpse items come first: while loot is left, "open loot" must use the regular
+        // CMSG_LOOT path, also on a corpse the core already flagged skinnable. Skinning such a
+        // corpse is refused (Spell::CheckCast -> SPELL_FAILED_TARGET_NOT_LOOTED while
+        // !loot.isLooted()), so preferring the skin path here parked skinners next to an
+        // unlootable-and-unskinnable beast casting Skinning every tick.
         if (creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
         {
-            // The lootable flag is set group-wide on a tapped corpse, so it alone does not mean
-            // this bot may loot it. Require tap rights, otherwise the bot walks to and kneels on
-            // corpses whose loot belongs to someone else (e.g. the master's round-robin kill).
-            if (creature->IsTappedBy(bot))
+            // The lootable flag is not a right: the core masks it per viewer with Player::IsAllowedToLoot
+            // (Object::BuildValuesUpdate), where the round-robin rule lives. Without that test every
+            // grouped bot queues the same corpse and walks to it -- opening an empty window and taking
+            // the gold out of turn -- while the member whose round-robin kill it is finds nothing left.
+            if (MayLootCorpse(bot, creature))
             {
                 if (debug)
                     ai->TellDebug(ai->GetMaster(), "Creature flag lootable.", "debug loot");
 
                 this->guid = guid;
+                return;
             }
-            else if (debug)
-            {
-                ai->TellDebug(ai->GetMaster(), "Creature lootable but not tapped by bot.", "debug loot");
-            }
+
+            if (debug)
+                ai->TellDebug(ai->GetMaster(), "Creature lootable but not this bot's to loot.", "debug loot");
         }
 
-        if (creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE))
+        // Skinnable only once the corpse loot is gone (same condition the core applies to the
+        // Skinning spell) and only while the core would let this bot skin it.
+        if (creature->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_SKINNABLE) && creature->loot.isLooted() &&
+            creature->IsSkinnableBy(bot))
         {
             skillId = SKILL_SKINNING;
             uint32 targetLevel = creature->GetLevel();
@@ -91,9 +148,9 @@ void LootObject::Refresh(Player* bot, ObjectGuid guid, bool debug)
                     ai->TellDebug(ai->GetMaster(), "Creature flag skinnable and has skill.", "debug loot");
                 this->guid = guid;
             }
-
-            if (debug)
+            else if (debug)
                 ai->TellDebug(ai->GetMaster(), "Creature flag skinnable not enough skill.", "debug loot");
+
             return;
         }
 
@@ -307,8 +364,70 @@ bool LootObject::IsLootPossible(Player* bot)
     return true;
 }
 
+// Mirrors the range the server itself enforces when a loot window is requested, so the bot
+// keeps approaching until the server will really open the object instead of standing a few
+// yards off it: creatures use the 3D Player::GetMaxLootDistance rule (Player::SendLoot ->
+// Object::_IsWithinDist with SizeFactor::None), game objects the plain INTERACTION_DISTANCE
+// check. A plain 2D "distance" comparison here once let "can loot" fire (2D <= 5) while
+// "open loot" failed the 3D gate on sloped ground, which re-fired every tick.
+bool LootObject::IsInLootRange(Player* bot)
+{
+    if (IsEmpty())
+        return false;
+
+    WorldObject* wo = GetWorldObject(bot);
+    if (!wo)
+        return false;
+
+    if (wo->IsCreature())
+    {
+        Creature* creature = (Creature*)wo;
+        return creature->IsWithinDistInMap(bot, bot->GetMaxLootDistance(creature), true, SizeFactor::None);
+    }
+
+    return sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(bot, wo), INTERACTION_DISTANCE);
+}
+
+void LootObjectStack::NoteApproachFailure(ObjectGuid guid)
+{
+    time_t now = time(0);
+
+    // Drop aged-out memory (cheap: only a handful of entries, only on failure).
+    for (std::map<ObjectGuid, std::pair<uint32, time_t> >::iterator i = approachFailures.begin(); i != approachFailures.end();)
+    {
+        if (now - i->second.second > APPROACH_FAILURE_TTL)
+            i = approachFailures.erase(i);
+        else
+            ++i;
+    }
+
+    std::pair<uint32, time_t>& entry = approachFailures[guid];
+    entry.first++;
+    entry.second = now;
+}
+
+bool LootObjectStack::IsAbandoned(ObjectGuid guid)
+{
+    std::map<ObjectGuid, std::pair<uint32, time_t> >::iterator i = approachFailures.find(guid);
+    if (i == approachFailures.end())
+        return false;
+
+    if (time(0) - i->second.second > APPROACH_FAILURE_TTL)
+    {
+        approachFailures.erase(i);
+        return false;
+    }
+
+    return i->second.first >= MAX_APPROACH_FAILURES;
+}
+
 bool LootObjectStack::Add(ObjectGuid guid)
 {
+    // A corpse we repeatedly failed to reach stays out of the stack until the
+    // failure memory ages out, even if a later "add all loot" sweep re-adds it.
+    if (IsAbandoned(guid))
+        return false;
+
     if (!availableLoot.insert(guid).second)
         return false;
 
@@ -332,6 +451,7 @@ void LootObjectStack::Remove(ObjectGuid guid)
 void LootObjectStack::Clear()
 {
     availableLoot.clear();
+    approachFailures.clear();
 }
 
 bool LootObjectStack::CanLoot(float maxDistance)
@@ -344,6 +464,23 @@ LootObject LootObjectStack::GetLoot(float maxDistance)
 {
     std::vector<LootObject> ordered = OrderByDistance(maxDistance);
     return ordered.empty() ? LootObject() : *ordered.begin();
+}
+
+bool LootObjectStack::IsWithinMasterLootRange(LootObject& loot)
+{
+    if (loot.IsEmpty())
+        return true;
+
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    Player* master = ai->GetMaster();
+    if (!master || master == bot)
+        return true;
+
+    Creature* creature = ai->GetCreature(loot.guid);
+    if (!creature || sServerFacade.GetDeathState(creature) != CORPSE)
+        return true;
+
+    return sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(master, creature), sPlayerbotAIConfig.lootDistance);
 }
 
 std::vector<LootObject> LootObjectStack::OrderByDistance(float maxDistance)
@@ -359,8 +496,18 @@ std::vector<LootObject> LootObjectStack::OrderByDistance(float maxDistance)
     for (LootTargetList::iterator i = safeCopy.begin(); i != safeCopy.end(); i++)
     {
         ObjectGuid guid = i->guid;
+        if (IsAbandoned(guid))
+            continue;
+
         LootObject lootObject(bot, guid);
         if (!lootObject.IsLootPossible(bot))
+            continue;
+
+        // A corpse out of the master's safe range is not available loot: "loot" refuses it and
+        // "far from current loot" gives up on it, so listing it here only made the loot action
+        // fire every tick without ever selecting a target (and never approaching one), while
+        // follow starved behind it.
+        if (!IsWithinMasterLootRange(lootObject))
             continue;
 
         float distance = bot->GetDistance(lootObject.GetWorldObject(bot));

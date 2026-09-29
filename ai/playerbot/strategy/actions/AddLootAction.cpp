@@ -82,7 +82,7 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
         else
             ai->TellDebug(requester, "for trying to add loot from " + ChatHelper::formatWorldobject(wo), "debug loot");
 
-        sLog.outDebug("[BOT LOOT] %s: AddLoot reject guid=%lu (no lootable WorldObject: corpse not tapped/looted-by-bot or wrong type)",
+        sLog.outDebug("[BOT LOOT] %s: AddLoot reject guid=%lu (no lootable WorldObject: creature corpse not this bot's to loot (round robin/tap), already looted, or wrong type)",
             bot->GetName(), guid.GetRawValue());
         return false;
     }
@@ -94,7 +94,7 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
     if (loot.IsEmpty())
     {
         ai->TellDebug(requester, "Loot object is empty.", "debug loot");
-        sLog.outDebug("[BOT LOOT] %s: AddLoot reject guid=%lu (loot object empty / not lootable-tapped)",
+        sLog.outDebug("[BOT LOOT] %s: AddLoot reject guid=%lu (loot object empty: nothing lootable for this bot)",
             bot->GetName(), guid.GetRawValue());
         return false;
     }
@@ -120,23 +120,13 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
     Group* group = bot->GetGroup();
 
     bool isInGroup = group ? true : false;
-    bool isInDungeon = bot->GetMap()->IsDungeon();
 
     if (isInGroup)
     {
-        //if is not master looter (and loot is set to MASTER_LOOT)
-        //NOTE: They are !unable to loot quests items! too if so
-        if (isInDungeon
-            && group->GetLootMethod() == LootMethod::MASTER_LOOT
-            && group->GetLooterGuid()
-            && group->GetLooterGuid() != bot->getObjectGuid())
-        {
-            ai->TellDebug(requester, "Not master looter.", "debug loot");
-            sLog.outDebug("[BOT LOOT] %s: AddLoot reject guid=%lu (dungeon MASTER_LOOT, not master looter)",
-                bot->GetName(), guid.GetRawValue());
-            return false;
-        }
-
+        // MASTER_LOOT and another member's loot turn are already handled centrally: the corpse
+        // only reaches this action when LootObjectStack::Refresh's entitlement check let it
+        // (MayLootCorpse), which covers the overworld too - the old dungeon-only check here left
+        // master-looted world bosses open to whichever bot arrived first.
         if (ai->IsGroupLeader())
         {
             lootDistanceToUse = sPlayerbotAIConfig.lootDistance;
@@ -146,8 +136,8 @@ bool AddAllLootAction::AddLoot(Player* requester, ObjectGuid guid)
             if (ai->HasActivePlayerMaster())
             {
                 // Alt bots: use the full loot distance. Downstream safety checks
-                // (safe-range in LootAction, free-move range expansion) already
-                // prevent the bot from straying too far from the master.
+                // (the master safe range in LootObjectStack::OrderByDistance, free-move
+                // range expansion) already prevent the bot from straying too far from the master.
                 lootDistanceToUse = sPlayerbotAIConfig.lootDistance;
             }
             else

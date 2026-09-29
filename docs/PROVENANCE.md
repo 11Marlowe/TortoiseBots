@@ -1949,3 +1949,69 @@ re-seed purge; `InitReagents` overshot its target every run.
 Local validation:
 - `bash tools/verify_all.sh`; `git diff --check`.
 - Module build by orchestrator (workers do not run the docker builder).
+
+## Loot every kill; bounded give-up on unreachable corpses; money loot event — 2026-09-28
+
+Feature: after combat, a bot loots every corpse it (or its group) killed and is
+allowed to loot — nearest first — before pulling the next mob, instead of only
+when already standing on a corpse or when no hostile is in range. A corpse that
+cannot be pathed to is abandoned after a bounded number of failed approaches.
+Looting money now writes a `LootMoney` row (copper amount) to
+`bot_events.csv`, so money income is measurable.
+
+Source repository: `mod-playerbots` @ `5397110` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+- `src/Ai/Base/Trigger/LootTriggers.cpp:12-56` — `LootAvailableTrigger`
+  (donor: in-range OR `all targets` empty, plus a "stale target that became
+  not loot-possible is reported active so `loot` can pick another") and
+  `FarFromCurrentLootTrigger` (`>= INTERACTION_DISTANCE - 2`).
+
+Copied / ported / independently reimplemented: reimplemented, not copied.
+Kept the donor's stale-selection rescue; dropped the `all targets` empty gate
+(it only loots when hostiles are gone, which starves the chain in the dense
+grind zones here). Added a native bounded give-up (`LootObjectStack`
+approach-failure memory: `Add` refuses and `OrderByDistance` skips an abandoned
+guid until the memory ages out) wired from `MoveToLootAction`, and a
+`StoreLootAction` money log line. Donor has no equivalent give-up or money row.
+
+Reason: the live economy trace (2026-09-28) found ~22% of kills looted;
+`attack anything` (5.0) pulled the next mob before the loot-selection action
+ever ran while hostiles were near, so the "far from current loot" ->
+"move to loot" path never started.
+
+Local validation:
+- `bash tools/verify_all.sh`; `git diff --check`.
+- Module build by orchestrator (workers do not run the docker builder).
+
+### Follow-up 2026-09-29 — the ported triggers now use the core's own loot rules
+
+No new donor code; the ported triggers above were re-pointed at the core rules
+after the 2026-09-28 economy review showed the donor shape fighting them:
+
+- Loot range is one predicate now (`LootObject::IsInLootRange`): 3D
+  `Player::GetMaxLootDistance` for corpses (what `Player::SendLoot` enforces),
+  `INTERACTION_DISTANCE` for game objects. The donor's `>= INTERACTION_DISTANCE - 2`
+  2D shape left `can loot` (8.0) firing while `open loot` failed the server's 3D
+  gate every tick on sloped ground, so `move to loot` (7.0) never ran.
+- Corpse entitlement is `LootObjectStack.cpp`'s `MayLootCorpse`: the core's
+  `Player::IsAllowedToLoot` (the same call that masks `UNIT_DYNFLAG_LOOTABLE` per
+  viewer, i.e. where the round-robin turn lives) with two clauses trimmed that
+  only exist so that a *player* at the corpse can open it for the party:
+  an unblocked over-threshold item no longer entitles the whole party (the roll
+  reaches bots wherever they are, the turn holder opens the corpse) and under
+  MASTER_LOOT only the master looter -- in the overworld too -- or a bot with
+  personal quest/FFA loot opens it (the module's own check only covered
+  dungeons). Free-for-all, the allowed-looter set and per-player items stay with
+  the core. A pet-only kill stays excluded: `Unit::Kill` credits no player for
+  it, so no loot is ever rolled and `Player::SendLoot` refuses the corpse.
+- Corpse items are looted before skinning (`LootObject::Refresh` takes the loot
+  path first and arms the skin path only when `loot.isLooted()` and
+  `Creature::IsSkinnableBy`), matching the Skinning conditions in
+  `Spell::CheckCast`.
+- The master safe-range rule (`AiPlayerbot.LootDistance`) is applied inside
+  `LootObjectStack::OrderByDistance`, so "has available loot", target selection
+  and "far from current loot" cannot disagree.
+- `MoveToLootAction` counts a launched-but-stationary approach as a failure, so
+  the bounded give-up also covers navmesh paths that degrade to a direct spline.
