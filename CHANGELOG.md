@@ -21,6 +21,12 @@
 - Vendor trips now trigger when the next trainer spell is actually unaffordable, and only if the sellable stock covers the shortfall or the bot is genuinely buried in junk (8+ items, 60%+ bag usage). No more cross-zone pilgrimages for a single grey item. [#339](https://github.com/Sagiroth/TortoiseBots/pull/339)
 - Junk destroy order tightened up for critically full bags, keeping inventory flowing so bots keep training and questing instead of standing around over-encumbered. [#339](https://github.com/Sagiroth/TortoiseBots/pull/339)
 
+### Loot & Economy
+- Bots now loot every corpse they're entitled to before pulling the next mob, fixing the case where they walked away from ~78% of their own kills. Expect noticeably better money, cloth, and vendor trash income in group play. [#340](https://github.com/Sagiroth/TortoiseBots/pull/340)
+- Loot range now uses a single shared rule for the range check, the approach, and the open — previously a 2D check vs. a 3D open could deadlock a bot next to a corpse on a slope, retrying forever. Bots no longer stall on uneven terrain. [#340](https://github.com/Sagiroth/TortoiseBots/pull/340)
+- Skinning order is now items first, then skin the beast corpse, so bots don't skip lootable drops in favor of leather. [#340](https://github.com/Sagiroth/TortoiseBots/pull/340)
+- New `LootMoney` event line records the coin taken, giving server operators and log-parsers a clean signal for bot economy tracking. [#340](https://github.com/Sagiroth/TortoiseBots/pull/340)
+
 ## 2026-09-28
 
 ### Database & Migrations
