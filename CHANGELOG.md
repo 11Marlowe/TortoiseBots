@@ -15,6 +15,12 @@
 - Fixed the addon's Summon button spitting out "Summoning is restricted to GameMasters" for regular players. [#338](https://github.com/Sagiroth/TortoiseBots/pull/338)
 - `NonGmFreeSummon` still works as intended for the in-chat summon order (instant teleport vs. walk / meeting stone) — its config description and docs now actually say that instead of implying a GM lock. [#338](https://github.com/Sagiroth/TortoiseBots/pull/338)
 
+### Economy & Trainer Progression
+
+- Bots no longer hoard a phantom repair reserve — they repair for free, so the freed-up coin now goes toward class spells instead of stalling the 1-60 loop around level 5-8. [#339](https://github.com/Sagiroth/TortoiseBots/pull/339)
+- Vendor trips now trigger when the next trainer spell is actually unaffordable, and only if the sellable stock covers the shortfall or the bot is genuinely buried in junk (8+ items, 60%+ bag usage). No more cross-zone pilgrimages for a single grey item. [#339](https://github.com/Sagiroth/TortoiseBots/pull/339)
+- Junk destroy order tightened up for critically full bags, keeping inventory flowing so bots keep training and questing instead of standing around over-encumbered. [#339](https://github.com/Sagiroth/TortoiseBots/pull/339)
+
 ## 2026-09-28
 
 ### Database & Migrations
