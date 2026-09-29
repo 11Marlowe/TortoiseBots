@@ -46,6 +46,11 @@
 ### Combat & AI
 - Bots with a bow, gun, crossbow, or thrown weapon now actually know how to shoot — the core's weapon-skill reward pass is re-run for ranged skills (Bows, Guns, Crossbows, Thrown, Wands) during skill seeding, so `Shoot Bow`/`Shoot Gun`/`Shoot Crossbow`/`Throw` are properly learned and `.bot action pull` / `pullback` ranged pulls and the ranged fallback work as intended for both fresh pool bots and hired companions. [#344](https://github.com/Sagiroth/TortoiseBots/pull/344)
 
+### Performance & Tick
+- Bots owned by a real player, plus master-bound bots (hired companions, dungeon party), are now updated first every tick with no budget — no more 3-5 s command/movement lag even with a 500-bot random pool. [#345](https://github.com/Sagiroth/TortoiseBots/pull/345)
+- The random pool now ticks in round-robin with a cursor persisted between ticks, so work is spread across passes instead of bloating a single world tick to 1-3 s. [#345](https://github.com/Sagiroth/TortoiseBots/pull/345)
+- Both priority checks are O(1), so the fast path for player-relevant bots adds effectively zero overhead at scale. [#345](https://github.com/Sagiroth/TortoiseBots/pull/345)
+
 ## 2026-09-28
 
 ### Database & Migrations
