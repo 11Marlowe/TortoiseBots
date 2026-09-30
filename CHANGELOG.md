@@ -107,6 +107,11 @@
 ### Starter Zones & World
 - Fixes Coldridge Valley's dead-end grind loop: wolves and troggs sit 185–240 yd out, well beyond the 60 yd scan, so 86% of grind searches previously found nothing and the only reachable mobs were two rabbits. Bots now walk out to the field. [#374](https://github.com/Sagiroth/TortoiseBots/pull/374)
 
+### Combat & AI
+- Bots no longer lock onto mobs they physically can't reach — grind target selection now refuses any creature the core has flagged as unreachable for that bot, and drops a held target the moment it gets flagged. [#375](https://github.com/Sagiroth/TortoiseBots/pull/375)
+- Kills the evade spiral around Fargodeep mine shafts, embankments, and similar geometry: the core flags a creature after 3 s but doesn't send it home until 24 s, and bots were burning that entire window chasing nothing (56 of 60 evade samples showed the "not reachable" flag with the mob still aggroed). [#375](https://github.com/Sagiroth/TortoiseBots/pull/375)
+- Verified via `tools/verify_all.sh` plus runtime testing on the combined build — module builds clean. [#375](https://github.com/Sagiroth/TortoiseBots/pull/375)
+
 ## 2026-09-29
 
 ### Combat & AI
