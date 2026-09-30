@@ -121,6 +121,12 @@
 - Activity census rewritten: "idle" now means genuinely doing nothing for a while, while looting, eating, casting, and standing at a travel target all count as busy [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
 - Fixes the old single 2s sample that flagged every pause as idle — dashboards showed ~50-60% idle when only ~6% of bots actually were [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
 
+### Docs & Guides
+- Guides swept up to match the wave of merges from #369–#376, so the docs no longer contradict live behavior. [#377](https://github.com/Sagiroth/TortoiseBots/pull/377)
+- Mechanics and living-world guides now cover first-login intros, the grind XP check and critter rule, unreachable target handling, beginners walking to the grind field, no pool groups, chatter silence, and even start zones. [#377](https://github.com/Sagiroth/TortoiseBots/pull/377)
+- Configuration guide lists every new or changed key with its default, plus the recommended `DynamicRespawn.MaxReductionRate = 0.75` and `MinRespawnTime = 15` for bot-heavy `mangosd.conf` setups (core ships 0.25 / 25) — tune these if respawns feel starved. [#377](https://github.com/Sagiroth/TortoiseBots/pull/377)
+- Observability guide documents the combat / moving / busy / idle states the engine exposes, making it easier to read bot activity at a glance. [#377](https://github.com/Sagiroth/TortoiseBots/pull/377)
+
 ## 2026-09-29
 
 ### Combat & AI
