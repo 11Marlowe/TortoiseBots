@@ -22,14 +22,16 @@
 #include "PlayerbotAIStorage.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
+#include "../ai/playerbot/TravelMgr.h"
+#include "../ai/playerbot/strategy/values/TravelValues.h"
+// (kept: sServerFacade.IsAlive/IsInCombat/IsHostileTo used below)
 #include "../ai/playerbot/ServerFacade.h"
-#include "Config/Config.h"
-#include "Database/DatabaseEnv.h"
-#include "Player.h"
 #include "World.h"
+#include "SystemConfig.h"
 #include "WorldSession.h"
 #include "Log.h"
 #include "../host/ModuleLog.h"
+#include "../host/ModuleVersion.h"
 #include "Timer.h"
 #include "MotionMaster.h"
 #include <algorithm>
@@ -45,7 +47,7 @@ namespace {
 
 // Datagram schema version. The Go daemon ignores datagrams it cannot parse;
 // this is bumped when the wire format changes incompatibly.
-constexpr int kProtocolVersion = 5;
+constexpr int kProtocolVersion = 6;
 
 // Snapshot cadence and batching. Datagrams are kept well under the loopback
 // MTU so a large roster arrives as several unpredictable chunks; the receiver
@@ -72,9 +74,10 @@ enum MacroState : uint8
 {
     STATE_COMBAT = 0,
     STATE_MOVING = 1,
-    STATE_RESTING = 2,
-    STATE_DEAD = 3,
-    STATE_IDLE = 4,
+    STATE_BUSY = 2,
+    STATE_RESTING = 3,
+    STATE_DEAD = 4,
+    STATE_IDLE = 5,
 };
 
 char const* MacroStateName(uint8 state)
@@ -83,6 +86,7 @@ char const* MacroStateName(uint8 state)
     {
         case STATE_COMBAT:  return "combat";
         case STATE_MOVING:  return "moving";
+        case STATE_BUSY:    return "busy";
         case STATE_RESTING: return "resting";
         case STATE_DEAD:    return "dead";
         default:            return "idle";
@@ -187,7 +191,7 @@ std::string GetBotRole(Player* bot, PlayerbotAI* ai)
     return "dps";
 }
 
-uint8 DetermineMacroState(Player* bot, PlayerbotAI* ai)
+uint8 BaseMacroState(Player* bot, PlayerbotAI* ai)
 {
     if (!sServerFacade.IsAlive(bot) || (ai && ai->GetState() == BotState::BOT_STATE_DEAD))
         return STATE_DEAD;
@@ -205,7 +209,92 @@ uint8 DetermineMacroState(Player* bot, PlayerbotAI* ai)
     if (bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_RESTING))
         return STATE_RESTING;
 
+    // Standing still but doing something: looting, casting, sitting to
+    // eat/drink, or an active travel destination being worked. Member reads
+    // only; the work-target flag is refreshed at snapshot cadence.
+    if (bot->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_LOOTING))
+        return STATE_BUSY;
+    if (bot->IsNonMeleeSpellCasted(false))
+        return STATE_BUSY;
+    if (bot->GetStandState() == UNIT_STAND_STATE_SIT)
+        return STATE_BUSY;
+
     return STATE_IDLE;
+}
+// Whether the bot holds an active travel destination (snapshot cadence
+// only, never per tick): the AI is working something even while standing
+// still (vendoring, gathering, questing). Cached value lookup.
+bool HasActiveWorkTarget(PlayerbotAI* ai)
+{
+    if (!ai || !ai->GetAiObjectContext())
+        return false;
+    ai::Value<ai::TravelTarget*>* travel =
+        ai->GetAiObjectContext()->GetValue<ai::TravelTarget*>("travel target");
+    if (!travel)
+        return false;
+    ai::TravelTarget* target = travel->Get();
+    return target && target->IsActive();
+}
+
+// True when the bot did anything observable this tick: moved since the 1 s
+// position sample, executed a new AI action, casts, loots, sits, or holds an
+// active work target flag (refreshed at snapshot cadence, see Update).
+// Member reads + one name compare; no DB, no scans, no AI-value lookup.
+bool NoteActivity(Player* bot, bool hasWorkTarget, ObservabilityEmitter::BotTrackState& track, uint32 nowMs, char const* actionName)
+{
+    bool active = false;
+    float dx = bot->GetPositionX() - track.lastX;
+    float dy = bot->GetPositionY() - track.lastY;
+    if (dx * dx + dy * dy >= 0.25f)
+        active = true;
+    if (actionName && *actionName && track.lastActionName != actionName)
+        active = true;
+    if (bot->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_LOOTING))
+        active = true;
+    if (bot->IsNonMeleeSpellCasted(false))
+        active = true;
+    if (bot->GetStandState() == UNIT_STAND_STATE_SIT)
+        active = true;
+    if (hasWorkTarget)
+        active = true;
+    if (active)
+        track.lastActivityMs = nowMs;
+    if (actionName && *actionName)
+        track.lastActionName = actionName;
+    return active;
+}
+// Active travel destination for the grinding panel. Cached AI values only
+// (the value object already exists; Get() returns the pointer); GetShortName/
+// GetTitle are cheap string builders on the already-chosen destination. Idle
+// bots contribute empty strings so the pool rollup can count not-travelling.
+// Active travel destination for the grinding panel. Cached AI values only
+// (the value object already exists; Get() returns the pointer); GetShortName/
+// GetTitle are cheap string builders on the already-chosen destination. Idle
+// bots contribute empty strings so the pool rollup can count not-travelling.
+void FillTravelInfo(PlayerbotAI* ai, std::string& purpose, std::string& to)
+{
+    purpose.clear();
+    to.clear();
+    if (!ai || !ai->GetAiObjectContext())
+        return;
+    ai::Value<ai::TravelTarget*>* value =
+        ai->GetAiObjectContext()->GetValue<ai::TravelTarget*>("travel target");
+    if (!value)
+        return;
+    ai::TravelTarget* target = value->Get();
+    if (!target || !target->IsActive())
+        return;
+    ai::TravelDestination* dest = target->GetDestination();
+    if (!dest)
+        return;
+    purpose = dest->GetShortName();
+    if (purpose == "unknown" || purpose == "idle" || purpose == "none" || purpose.empty())
+    {
+        purpose.clear();
+        to.clear();
+        return;
+    }
+    to = dest->GetTitle();
 }
 
 } // anonymous namespace
@@ -382,6 +471,7 @@ void ObservabilityEmitter::Shutdown()
 
     m_enabled = false;
     m_snapshotTimerMs = 0;
+    m_serverInfoTimerMs = 0;
     m_snapshotSeq = 0;
     m_stateBucketIndex = 0;
     m_stateBucketElapsedMs = 0;
@@ -602,7 +692,30 @@ void ObservabilityEmitter::Update(uint32 diff)
         PlayerbotAI* ai = GET_PLAYERBOT_AI(bot);
         BotTrackState& track = m_botTracking[bot->GetGUIDLow()];
 
-        uint8 state = DetermineMacroState(bot, ai);
+        // Last-action name without the non-const getName() call: read once
+        // here, reused for the activity check and the snapshot below.
+        char const* lastActionName = "";
+        if (ai)
+        {
+            if (Action const* last = ai->GetLastExecutedAction(ai->GetState()))
+                lastActionName = const_cast<Action*>(last)->getName().c_str();
+        }
+        // Fresh tracks start idle (unknown past), not busy: when the
+        // first observation shows no activity, the 45 s clock starts
+        // expired instead of granting a grace window. Active newcomers
+        // keep the timestamp NoteActivity just stamped.
+        bool fresh = track.lastActivityMs == 0 && track.lastActionName.empty();
+        NoteActivity(bot, track.hasWorkTarget, track, nowMs, lastActionName);
+        if (fresh && track.lastActivityMs == 0)
+            track.lastActivityMs = nowMs - kIdleAfterMs;
+
+        uint8 state = BaseMacroState(bot, ai);
+        // Idle means really doing nothing: base IDLE with no observable
+        // activity for >= kIdleAfterMs stays busy (between actions). Combat,
+        // moving, resting and dead are instant states, never gated.
+        if (state == STATE_IDLE && track.lastActivityMs != 0 &&
+            (nowMs - track.lastActivityMs) < kIdleAfterMs)
+            state = STATE_BUSY;
         track.stateIndex = state;
         track.lastSeenMs = nowMs;
         AddStateTime(state, diff);
@@ -697,10 +810,30 @@ void ObservabilityEmitter::Update(uint32 diff)
         }
     }
 
+    // Server-info cadence runs on every world tick (real time), not inside
+    // the 2 s snapshot gate: the snapshot block below returns early 39/40
+    // ticks, which previously diluted the 5-min interval to ~200 min.
+    m_serverInfoTimerMs += diff;
+    if (m_serverInfoTimerMs == diff || m_serverInfoTimerMs >= 300000)
+    {
+        m_serverInfoTimerMs = 0;
+        EmitServerInfo();
+    }
+
     m_snapshotTimerMs += diff;
     if (m_snapshotTimerMs < kSnapshotIntervalMs)
         return;
     m_snapshotTimerMs = 0;
+
+    // Refresh per-bot work-target flags at snapshot cadence (one AI-value
+    // lookup per bot per 2 s, not per tick), then run the snapshot.
+    for (Player* bot : activeBots)
+    {
+        if (!bot || !bot->IsInWorld())
+            continue;
+        BotTrackState& track = m_botTracking[bot->GetGUIDLow()];
+        track.hasWorkTarget = HasActiveWorkTarget(GET_PLAYERBOT_AI(bot));
+    }
 
     PruneState(nowMs);
     EmitSnapshotCycle(activeBots, diff);
@@ -776,7 +909,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
 
         PlayerbotAI* ai = GET_PLAYERBOT_AI(bot);
         auto trackIt = m_botTracking.find(bot->GetGUIDLow());
-        uint8 state = trackIt != m_botTracking.end() ? trackIt->second.stateIndex : DetermineMacroState(bot, ai);
+        uint8 state = trackIt != m_botTracking.end() ? trackIt->second.stateIndex : BaseMacroState(bot, ai);
 
         BotTelemetrySnapshot snap;
         snap.name = bot->GetName();
@@ -784,6 +917,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         snap.className = GetBotClassName(bot->GetClass());
         snap.role = GetBotRole(bot, ai);
         snap.level = bot->GetLevel();
+        snap.xp = bot->GetUInt32Value(PLAYER_XP);
+        snap.nextXp = bot->GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
         snap.hp = bot->GetHealth();
         snap.maxHp = bot->GetMaxHealth();
         snap.power = bot->GetPower(bot->GetPowerType());
@@ -804,8 +939,14 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         snap.o = bot->GetOrientation();
         Unit* target = bot->GetSelectedUnit();
         snap.target = target ? target->GetName() : "";
+        snap.targetLevel = 0;
+        // Any unit target (creature or player, e.g. a follow master) carries
+        // a level; only self-selection (the no-hostile-target case) is 0.
+        if (target && target != bot)
+            snap.targetLevel = static_cast<uint32>(target->GetLevel());
         snap.strategy = FormatStrategies(ai);
         snap.state = MacroStateName(state);
+        FillTravelInfo(ai, snap.travelPurpose, snap.travelTo);
 
         if (ai)
         {
@@ -815,12 +956,11 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 snap.lastAction = const_cast<Action*>(last)->getName();
             snap.lastTrigger = ai->GetLastEvent().getSource();
         }
-
         botSnapshots.push_back(snap);
     }
 
     // Rolling window ratios: how bots spent the recent window, not all time.
-    uint64 totals[kStateCount] = {0, 0, 0, 0, 0};
+    uint64 totals[kStateCount] = {0};
     for (size_t b = 0; b < kStateBucketCount; ++b)
         for (size_t s = 0; s < kStateCount; ++s)
             totals[s] += m_stateWindow[b][s];
@@ -867,6 +1007,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
        << ",\"states\":{"
        << "\"combat\":" << std::fixed << std::setprecision(3) << ratio(STATE_COMBAT) << ","
        << "\"moving\":" << ratio(STATE_MOVING) << ","
+       << "\"busy\":" << ratio(STATE_BUSY) << ","
        << "\"resting\":" << ratio(STATE_RESTING) << ","
        << "\"dead\":" << ratio(STATE_DEAD) << ","
        << "\"idle\":" << ratio(STATE_IDLE)
@@ -909,6 +1050,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"class\":\"" << EscapeJson(b.className) << "\""
                 << ",\"role\":\"" << EscapeJson(b.role) << "\""
                 << ",\"level\":" << b.level
+                << ",\"xp\":" << b.xp
+                << ",\"next_xp\":" << b.nextXp
                 << ",\"hp\":" << b.hp
                 << ",\"max_hp\":" << b.maxHp
                 << ",\"power\":" << b.power
@@ -921,14 +1064,86 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"z\":" << b.z
                 << ",\"o\":" << std::setprecision(2) << b.o
                 << ",\"target\":\"" << EscapeJson(b.target) << "\""
+                << ",\"target_level\":" << b.targetLevel
                 << ",\"strategy\":\"" << EscapeJson(b.strategy) << "\""
                 << ",\"state\":\"" << EscapeJson(b.state) << "\""
                 << ",\"last_action\":\"" << EscapeJson(b.lastAction) << "\""
-                << ",\"last_trigger\":\"" << EscapeJson(b.lastTrigger) << "\"}";
+                << ",\"last_trigger\":\"" << EscapeJson(b.lastTrigger) << "\""
+                << ",\"travel_purpose\":\"" << EscapeJson(b.travelPurpose) << "\""
+                << ",\"travel_to\":\"" << EscapeJson(b.travelTo) << "\"}";
         }
         bss << "]}";
         SendDatagram(bss.str());
     }
+}
+// Effective running settings for the dashboard Server panel. Reads live core
+// rate getters and AiPlayerbot fields — never .env or conf files — so what
+// the panel shows is what the server actually runs. Small (~1 KB) JSON,
+// sent at startup then every 5 min; no per-tick cost, no secrets.
+void ObservabilityEmitter::EmitServerInfo()
+{
+    auto flag = [](bool on) -> char const* { return on ? "1" : "0"; };
+    std::ostringstream ss;
+    ss << "{\"v\":" << kProtocolVersion
+       << ",\"session\":" << m_sessionId
+       << ",\"seq\":" << m_snapshotSeq
+       << ",\"ts\":" << time(nullptr)
+       << ",\"type\":\"SERVER_INFO\""
+       << ",\"module_version\":\"" << EscapeJson(BuildVersion()) << "\""
+       << ",\"core_revision\":\"" << EscapeJson(REVISION_HASH) << "\""
+       << ",\"core_date\":\"" << EscapeJson(REVISION_DATE) << "\""
+       << ",\"uptime\":" << sWorld.GetUptime()
+       << ",\"max_level\":" << sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL)
+       << ",\"rates\":{"
+       << "\"xp_kill\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL)
+       << ",\"xp_kill_elite\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_XP_KILL_ELITE)
+       << ",\"xp_quest\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_XP_QUEST)
+       << ",\"xp_explore\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_XP_EXPLORE)
+       << ",\"drop_money\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_MONEY)
+       << ",\"drop_poor\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_ITEM_POOR)
+       << ",\"drop_normal\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_ITEM_NORMAL)
+       << ",\"drop_uncommon\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_ITEM_UNCOMMON)
+       << ",\"drop_rare\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_ITEM_RARE)
+       << ",\"drop_epic\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_ITEM_EPIC)
+       << ",\"drop_legendary\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_DROP_ITEM_LEGENDARY)
+       << ",\"honor\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_HONOR)
+       << ",\"rep_gain\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_REPUTATION_GAIN)
+       << ",\"rep_low_kill\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_KILL)
+       << ",\"rep_low_quest\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_REPUTATION_LOWLEVEL_QUEST)
+       << ",\"talent\":" << sWorld.getConfig(CONFIG_FLOAT_RATE_TALENT)
+       << ",\"bot_xp_mult\":" << sPlayerbotAIConfig.playerbotsXPrate
+       << "}"
+       << ",\"bots\":{"
+       << "\"min_random\":" << sPlayerbotAIConfig.minRandomBots
+       << ",\"max_random\":" << sPlayerbotAIConfig.maxRandomBots
+       << ",\"update_interval\":" << sPlayerbotAIConfig.randomBotUpdateInterval
+       << ",\"max_level\":" << sPlayerbotAIConfig.randomBotMaxLevel
+       << ",\"group_nearby\":\"" << flag(sPlayerbotAIConfig.randomBotGroupNearby) << "\""
+       << ",\"raid_nearby\":\"" << flag(sPlayerbotAIConfig.randomBotRaidNearby) << "\""
+       << ",\"invite_player\":\"" << flag(sPlayerbotAIConfig.randomBotInvitePlayer) << "\""
+       << ",\"timed_logout\":\"" << flag(sPlayerbotAIConfig.randomBotTimedLogout) << "\""
+       << ",\"disable_random_levels\":\"" << flag(sPlayerbotAIConfig.disableRandomLevels) << "\""
+       << ",\"level_ladder\":\"" << flag(sPlayerbotAIConfig.levelLadder) << "\""
+       << ",\"auto_do_quests\":\"" << flag(sPlayerbotAIConfig.autoDoQuests) << "\""
+       << ",\"disable_activity\":\"" << flag(sPlayerbotAIConfig.disableActivityPriorities) << "\""
+       << ",\"active_alone\":" << sPlayerbotAIConfig.botActiveAlone
+       << ",\"force_active_near\":\"" << flag(sPlayerbotAIConfig.forceActiveWhenNearPlayer) << "\""
+       << ",\"limit_combat\":\"" << flag(sPlayerbotAIConfig.limitCombatActivity) << "\""
+       << ",\"pool_budget_us\":" << sPlayerbotAIConfig.poolTickBudgetUs
+       << ",\"pool_budget_gate_ms\":" << sPlayerbotAIConfig.poolBudgetWhenTickOverMs
+       << ",\"ah_buyer\":\"" << flag(sPlayerbotAIConfig.ahMarketBuyer) << "\""
+       << ",\"lft\":\"" << flag(sPlayerbotAIConfig.randomBotLftEnabled) << "\""
+       << ",\"bg\":\"" << flag(sPlayerbotAIConfig.randomBotBgEnabled) << "\""
+       << ",\"avoid_towns\":\"" << flag(sPlayerbotAIConfig.avoidHostileTowns) << "\""
+       << ",\"leave_zones\":\"" << flag(sPlayerbotAIConfig.leaveOutgrownZones) << "\""
+       << "}"
+       << ",\"diagnostics\":{"
+       << "\"perf_mon\":\"" << flag(sPlayerbotAIConfig.perfMonEnabled) << "\""
+       << ",\"bot_events\":\"" << flag(sPlayerbotAIConfig.hasLog("bot_events.csv")) << "\""
+       << ",\"unreachable\":\"" << flag(sPlayerbotAIConfig.hasLog("unreachable_targets.csv")) << "\""
+       << ",\"deaths\":\"" << flag(sPlayerbotAIConfig.hasLog("deaths.csv")) << "\""
+       << "}}";
+    SendDatagram(ss.str());
 }
 
 } // namespace TortoiseBots

@@ -4,7 +4,7 @@ import "time"
 
 // ProtocolVersion is bumped whenever the C++ -> Go datagram layout changes in
 // a way the daemon must understand. It is carried in every datagram.
-const ProtocolVersion = 5
+const ProtocolVersion = 6
 
 // Anomaly types accepted from the game server. Anything else is rejected so
 // that Prometheus label cardinality stays bounded. STUCK is counter-only
@@ -25,6 +25,8 @@ type BotSnapshot struct {
 	Class    string  `json:"class"`
 	Role     string  `json:"role"`
 	Level    uint32  `json:"level"`
+	XP       uint32  `json:"xp,omitempty"`      // PLAYER_XP: progress into the current level
+	NextXP   uint32  `json:"next_xp,omitempty"` // PLAYER_NEXT_LEVEL_XP: XP needed to finish the level
 	HP       uint32  `json:"hp"`
 	MaxHP    uint32  `json:"max_hp"`
 	Power     uint32 `json:"power"`
@@ -37,10 +39,21 @@ type BotSnapshot struct {
 	Z        float64 `json:"z"`
 	O        float64 `json:"o"`
 	Target      string `json:"target"`
+	TargetLevel uint32 `json:"target_level,omitempty"` // selected-unit target level (0 = none/self)
 	Strategy    string `json:"strategy"`
 	State       string `json:"state"` // "combat", "moving", "resting", "dead", "idle"
 	LastAction  string `json:"last_action,omitempty"`
 	LastTrigger string `json:"last_trigger,omitempty"`
+	// TravelPurpose/TravelTo describe the active travel destination ("grind",
+	// "vendor", ... + title); empty when the bot is not travelling.
+	TravelPurpose string `json:"travel_purpose,omitempty"`
+	TravelTo      string `json:"travel_to,omitempty"`
+
+	// XpPerHour is daemon-derived from successive XP samples (level-up
+	// aware), not on the wire. XpGainAgeSec is seconds since the last
+	// positive XP delta (-1 = no gain observed yet).
+	XpPerHour    float64 `json:"xp_per_hour"`
+	XpGainAgeSec float64 `json:"xp_gain_age_sec"`
 
 	// Calculated 2D projection percentages on the active zone map. Projected
 	// distinguishes a real (0,0) edge coordinate from "no mapping available".
@@ -60,10 +73,13 @@ type Coordinate struct {
 }
 
 // StateRatios holds the share of time spent across bot macro states. Values
-// are a rolling-window ratio (0.0 - 1.0), not a lifetime average.
+// are a rolling-window ratio (0.0 - 1.0), not a lifetime average. Busy means
+// standing still but doing something (looting, casting, eating, working a
+// travel target); idle means no observable activity for >= 45 s.
 type StateRatios struct {
 	Combat  float64 `json:"combat"`
 	Moving  float64 `json:"moving"`
+	Busy    float64 `json:"busy"`
 	Resting float64 `json:"resting"`
 	Dead    float64 `json:"dead"`
 	Idle    float64 `json:"idle"`
@@ -105,6 +121,54 @@ type BotBatchPayload struct {
 	TotalBatches int           `json:"total_batches"`
 	Bots         []BotSnapshot `json:"bots"`
 }
+// ServerInfoPayload is the effective running configuration the emitter sends
+// at startup and every few minutes. Every value is a live getter result
+// (core sWorld rates, AiPlayerbot fields), never a config-file read, and
+// carries no secrets: numbers and on/off only.
+type ServerInfoPayload struct {
+	V             int                `json:"v"`
+	Session       uint64             `json:"session"`
+	Seq           uint64             `json:"seq"`
+	TS            int64              `json:"ts"`
+	Type          string             `json:"type"`
+	ModuleVersion string             `json:"module_version"`
+	CoreRevision  string             `json:"core_revision"`
+	CoreDate      string             `json:"core_date"`
+	Uptime        uint32             `json:"uptime"`
+	MaxLevel      uint32             `json:"max_level"`
+	Rates         map[string]float64 `json:"rates"`
+	Bots          map[string]string  `json:"bots"`
+	Diagnostics   map[string]string  `json:"diagnostics"`
+}
+
+// GrindingSummary is the daemon's pool-wide "are they grinding" rollup,
+// computed from live XP deltas, combat state, and travel purpose. Deaths are
+// BOT_DEATH anomalies (a bot dying, not a bot killing): they measure pool
+// casualties, not grinding productivity.
+type GrindingSummary struct {
+	BotsTracked   int            `json:"bots_tracked"`
+	BotsGainingXP int            `json:"bots_gaining_xp"`
+	PctGainingXP  float64        `json:"pct_gaining_xp"`
+	MedianXpHour  float64        `json:"median_xp_hour"`
+	TotalXpHour   float64        `json:"total_xp_hour"`
+	DeathsPerMin  float64        `json:"deaths_per_min"`
+	PctDied5Min   float64        `json:"pct_died_5min"`
+	// StateCounts is the single authoritative per-state census (roster
+	// states, not the 3-min rolling ratios): combat/moving/busy/resting/
+	// dead/idle counts. The dashboard Activity block renders counts + %
+	// from here; Fleet Health and Grinding no longer duplicate them.
+	StateCounts map[string]int `json:"state_counts"`
+	// LevelBands is adaptive: per level while the pool is narrow (e.g.
+	// L1..L7 during launch), widening to 1-9/10-19/.../60 as it spreads.
+	LevelBands []LevelBand `json:"level_bands"`
+}
+
+// LevelBand is one adaptive level bucket: [Lo, Hi] with Count bots.
+type LevelBand struct {
+	Lo    uint32 `json:"lo"`
+	Hi    uint32 `json:"hi"`
+	Count int    `json:"count"`
+}
 
 // ServerStatus is the daemon's single authoritative view of the game server
 // and the freshness of the last complete roster snapshot.
@@ -125,10 +189,12 @@ type ServerStatus struct {
 
 // SnapshotPayload is the coherent roster handed to REST and WebSocket clients.
 type SnapshotPayload struct {
-	Seq    uint64        `json:"seq"`
-	Server ServerStatus  `json:"server"`
-	Bots   []BotSnapshot `json:"bots"`
-	Issues IssueSnapshot `json:"issues"`
+	Seq      uint64          `json:"seq"`
+	Server   ServerStatus    `json:"server"`
+	Bots     []BotSnapshot   `json:"bots"`
+	Issues   IssueSnapshot   `json:"issues"`
+	Grinding GrindingSummary `json:"grinding"`
+	Info     *ServerInfoPayload `json:"info,omitempty"`
 }
 
 // Issue is one persistent bot problem tracked as an episode (open while the

@@ -22,6 +22,8 @@
     worldMapId: 0,
     bots: [],
     anomalies: [],
+    grinding: { bots_tracked: 0, bots_gaining_xp: 0, pct_gaining_xp: 0, median_xp_hour: 0, total_xp_hour: 0, deaths_per_min: 0, pct_died_5min: 0, state_counts: {}, level_bands: [] },
+    serverInfo: null,
     server: {
       online: false,
       stale: true,
@@ -29,7 +31,7 @@
       diff: 0,
       humans: 0,
       bots: 0,
-      states: { combat: 0, moving: 0, resting: 0, dead: 0, idle: 0 }
+      states: { combat: 0, moving: 0, busy: 0, resting: 0, dead: 0, idle: 0 }
     },
     history: {
       t: [],
@@ -573,6 +575,39 @@
     if (b && b.name && t === b.name) return 'self';
     return t;
   }
+  // XP bar: next_xp == 0 means "no data" (old emitter, max level) — render
+  // nothing rather than a fake 0% or 100% bar.
+  function xpPct(b) {
+    if (!b || !b.next_xp) return null;
+    const pct = Math.round((b.xp || 0) / b.next_xp * 100);
+    return Math.min(100, Math.max(0, pct));
+  }
+
+  function fmtXpRate(v) {
+    if (!v || v <= 0) return '–';
+    if (v >= 1000) return `${(v / 1000).toFixed(1)}k/h`;
+    return `${Math.round(v)}/h`;
+  }
+
+  function fmtGainAge(sec) {
+    if (sec === null || sec === undefined || sec < 0) return 'no gain yet';
+    if (sec < 60) return `${Math.round(sec)}s ago`;
+    const m = Math.floor(sec / 60);
+    if (m < 60) return `${m}m ago`;
+    return `${Math.floor(m / 60)}h ${m % 60}m ago`;
+  }
+  // Roster XP cell: progress bar + XP/hour + last-gain age. next_xp == 0 is
+  // "no data" (old emitter, max level), never a fake bar.
+  function xpCell(b) {
+    const pct = xpPct(b);
+    if (pct === null) return '<span style="color: var(--text-muted);">–</span>';
+    const rate = fmtXpRate(b.xp_per_hour);
+    const age = fmtGainAge(b.xp_gain_age_sec);
+    const title = `${b.xp}/${b.next_xp} XP · ${rate} · last gain ${age}`;
+    return `
+      <div style="font-size: 0.7rem; margin-bottom: 2px;" title="${esc(title)}">${esc(b.xp)}/${esc(b.next_xp)} (${pct}%) · ${esc(rate)}</div>
+      <div class="progress-bar-bg" title="${esc(title)}"><div class="progress-bar-fill" style="width: ${pct}%; background: var(--accent-yellow);"></div></div>`;
+  }
 
   // The telemetry role is the AI combat-role signal (forced role, combat
   // strategies, else talent/gearmarks), not a group slot. Bots without a
@@ -656,7 +691,8 @@
       renderDashboardCharts();
       renderComposition();
       renderFleetHealth();
-      renderMacroBar(state.server.states);
+      renderActivity();
+      renderGrinding();
     }
   }
 
@@ -1258,10 +1294,16 @@
       </div>`).join('');
 
     if (el.roleTotals) {
-      el.roleTotals.innerHTML = ['tank', 'healer', 'dps'].map(role => {
-        const badge = roleBadgeClass(role);
-        return `<span class="badge ${badge}" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${byRole[role] || 0} ${role.toUpperCase()}</span>`;
-      }).join('') + `<div class="empty-hint" style="margin-top:6px;">AI combat roles, not group slots — random-pool bots run talent/gear auto-detect.</div>`;
+      // Pool rosters are ~all AI-role DPS: 0/0/500 badges are noise. Show
+      // roles only when a real mix exists (tanks or healers present).
+      if ((byRole.tank || 0) + (byRole.healer || 0) === 0) {
+        el.roleTotals.innerHTML = '';
+      } else {
+        el.roleTotals.innerHTML = ['tank', 'healer', 'dps'].map(role => {
+          const badge = roleBadgeClass(role);
+          return `<span class="badge ${badge}" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${byRole[role] || 0} ${role.toUpperCase()}</span>`;
+        }).join('') + `<div class="empty-hint" style="margin-top:6px;">AI combat roles, not group slots.</div>`;
+      }
     }
   }
 
@@ -1276,7 +1318,7 @@
       return;
     }
 
-    let dead = 0, low = 0, inCombat = 0;
+    let dead = 0, low = 0;
     const zones = new Map();
     bots.forEach(b => {
       // A missing max_hp means "unknown", not "full health": those bots skew
@@ -1284,13 +1326,13 @@
       const pct = b.max_hp ? b.hp / b.max_hp : null;
       if (b.state === 'dead' || b.hp === 0) dead++;
       else if (pct !== null && pct < 0.35) low++;
-      if (b.state === 'combat') inCombat++;
       zones.set(`${b.map}_${b.zone}`, (zones.get(`${b.map}_${b.zone}`) || 0) + 1);
     });
 
+    // Combat/dead live in the Activity block (single source); health keeps
+    // LOW HP + DEAD (dead needs no map click, combat does not belong here).
     el.fleetHealth.innerHTML = `
       <div class="role-row" style="margin-top: 0;">
-        <span class="badge badge-error">${inCombat} IN COMBAT</span>
         <span class="badge badge-warn">${low} LOW HP</span>
         <span class="badge badge-info">${dead} DEAD</span>
       </div>`;
@@ -1306,6 +1348,62 @@
       });
     }
   }
+  // Activity block: the single authoritative states census (counts + %,
+  // same snapshot as the roster). Replaces the scattered combat/dead
+  // duplicates that used to live in Fleet Health and Grinding.
+  const ACTIVITY_ORDER = [
+    ['combat', '#f85149', 'In combat or pulling'],
+    ['moving', '#58a6ff', 'A movement generator owns the bot'],
+    ['busy', '#d29922', 'Standing still but doing something (loot, cast, eat, travel work, recent action)'],
+    ['resting', '#2ea043', 'Rest flag'],
+    ['idle', '#9aa4b2', 'No activity for 45+ s — really doing nothing'],
+    ['dead', '#c9d1d9', 'Dead'],
+  ];
+  function renderActivity() {
+    const host = document.getElementById('activity-panel');
+    const g = state.grinding || {};
+    if (!host) return;
+    const counts = g.state_counts || {};
+    const n = g.bots_tracked || state.bots.length || 0;
+    if (!n) {
+      host.innerHTML = '<div class="empty-hint">Waiting for bot roster...</div>';
+      return;
+    }
+    host.innerHTML = ACTIVITY_ORDER.map(([key, color, title]) => {
+      const c = counts[key] || 0;
+      const pct = Math.round((c / n) * 100);
+      return `<div class="comp-row" title="${esc(title)}"><span class="comp-name">${key[0].toUpperCase() + key.slice(1)}</span><span class="comp-bar-bg"><span class="comp-bar" style="width: ${pct}%; background: ${color};"></span></span><span class="comp-count">${c} · ${pct}%</span></div>`;
+    }).join('');
+  }
+  // Grinding panel: XP gains + deaths only. States moved to the Activity
+  // block above; grind-travel merged into the Levels footnote (it duplicated
+  // Moving without explaining the split).
+  function renderGrinding() {
+    const host = document.getElementById('grinding-panel');
+    const bands = document.getElementById('level-bands');
+    const g = state.grinding || {};
+    if (!host) return;
+    if (!g.bots_tracked) {
+      host.innerHTML = '<div class="empty-hint">Waiting for XP samples...</div>';
+      if (bands) bands.innerHTML = '';
+      return;
+    }
+    const gainingTitle = `${g.bots_gaining_xp} of ${g.bots_tracked} bots gained XP in the last 10 min — quest turn-ins, discovery and kills all count, not just combat`;
+    host.innerHTML = `
+      <div class="role-row" style="margin-top: 0;">
+        <span class="badge badge-success" title="${esc(gainingTitle)}">${esc(g.bots_gaining_xp)}/${esc(g.bots_tracked)} GAINING XP</span>
+        <span class="badge badge-info" title="Median XP/hour over ALL tracked bots (idle included)">${esc(fmtXpRate(g.median_xp_hour))} MEDIAN</span>
+        <span class="badge badge-error" title="BOT_DEATH bot deaths per minute, last 10 min">${esc((g.deaths_per_min || 0).toFixed(1))} DEATHS/MIN</span>
+      </div>
+      <div class="comp-row" title="Share of tracked bots that died in the last 5 min (distinct bots, not death events)"><span class="comp-name">Died 5m</span><span class="comp-bar-bg"><span class="comp-bar" style="width: ${Math.round(g.pct_died_5min || 0)}%; background: #d29922;"></span></span><span class="comp-count">${Math.round(g.pct_died_5min || 0)}%</span></div>`;
+    if (bands) {
+      const lb = Array.isArray(g.level_bands) ? g.level_bands : [];
+      const max = Math.max(1, ...lb.map(b => b.count || 0));
+      const label = b => (b.lo === b.hi ? `L${b.lo}` : `${b.lo}-${b.hi}`);
+      bands.innerHTML = `<div class="section-label" style="margin: 8px 0 6px;">LEVELS</div>` + lb.map(b => `
+        <div class="comp-row"><span class="comp-name">${esc(label(b))}</span><span class="comp-bar-bg"><span class="comp-bar" style="width: ${Math.round(((b.count || 0) / max) * 100)}%; background: #2ea043;"></span></span><span class="comp-count">${b.count || 0}</span></div>`).join('');
+    }
+  }
 
   // Art-less zones (custom zones like Northwind) open a dark zone view with
   // an explanatory badge: bounds exist so dots still plot, only paint is missing.
@@ -1317,14 +1415,98 @@
     return true;
   }
 
-  function renderMacroBar(r) {
-    if (!r) return;
-    ['combat', 'moving', 'resting', 'idle', 'dead'].forEach(key => {
-      const pct = Math.round((r[key] || 0) * 100);
-      const bar = document.getElementById(`macro-bar-${key}`);
-      const txt = document.getElementById(`macro-pct-${key}`);
-      if (bar) bar.style.width = `${pct}%`;
-      if (txt) txt.textContent = `${pct}%`;
+  // Server panel: effective running settings (rates / bots / diagnostics)
+  // from the SERVER_INFO payload — live getters, never config files.
+  function flagBadge(v) {
+    return v === '1' || v === 1 || v === true
+      ? '<span class="badge badge-success">on</span>'
+      : '<span class="badge">off</span>';
+  }
+
+  function serverGroup(title, rows) {
+    return `<div class="section-label" style="margin: 12px 0 6px;">${esc(title)}</div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 4px 16px; font-size: 0.78rem;">
+      ${rows.map(row => `<div style="display: flex; justify-content: space-between; gap: 8px;">${row.map(cell => `<span style="color: var(--text-muted);">${cell}</span>`).join('<span style="color: var(--text-dim);">·</span>')}</div>`).join('')}
+      </div>`;
+  }
+
+  function renderServerPanel() {
+    const host = document.getElementById('server-panel');
+    if (!host) return;
+    const info = state.serverInfo;
+    if (!info) {
+      host.innerHTML = '<div class="empty-hint">Waiting for server info (sent at startup, then every 5 min)...</div>';
+      return;
+    }
+    const rates = info.rates || {}, bots = info.bots || {}, diag = info.diagnostics || {};
+    const num = v => (v === undefined || v === null || v === '' ? '–' : esc(v));
+    host.innerHTML = `
+      <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 4px;">
+        TortoiseBots <strong class="mono" style="color: #fff;">${esc(info.module_version || '?')}</strong>
+        · core <strong class="mono" style="color: #fff;">${esc(info.core_revision || '?')}</strong>
+        <span style="color: var(--text-dim);">${esc(info.core_date || '')}</span>
+        · max level ${esc(info.max_level || '?')}
+      </div>
+      ${serverGroup('RATES', [
+        [[esc('XP kill'), num(rates.xp_kill)], [esc('XP elite'), num(rates.xp_kill_elite)],
+        [esc('XP quest'), num(rates.xp_quest)], [esc('XP explore'), num(rates.xp_explore)],
+        [esc('Drop money'), num(rates.drop_money)], [esc('Honor'), num(rates.honor)],
+        [esc('Rep gain'), num(rates.rep_gain)], [esc('Talent'), num(rates.talent)],
+        [esc('Bot XP mult'), num(rates.bot_xp_mult)]],
+      ])}
+      ${serverGroup('BOTS', [
+        [[esc('Min/max random'), `${num(bots.min_random)} / ${num(bots.max_random)}`],
+        [esc('Update interval'), num(bots.update_interval)], [esc('Max level'), num(bots.max_level)],
+        [esc('Group nearby'), flagBadge(bots.group_nearby)], [esc('Raid nearby'), flagBadge(bots.raid_nearby)],
+        [esc('Invite player'), flagBadge(bots.invite_player)], [esc('Timed logout'), flagBadge(bots.timed_logout)],
+        [esc('Random levels off'), flagBadge(bots.disable_random_levels)], [esc('Level ladder'), flagBadge(bots.level_ladder)],
+        [esc('Auto quests'), flagBadge(bots.auto_do_quests)], [esc('Activity off'), flagBadge(bots.disable_activity)],
+        [esc('Active alone'), num(bots.active_alone)], [esc('Force near'), flagBadge(bots.force_active_near)], [esc('Limit combat'), flagBadge(bots.limit_combat)],
+        [esc('Pool budget'), `${num(bots.pool_budget_us)}us / ${num(bots.pool_budget_gate_ms)}ms`],
+        [esc('AH buyer'), flagBadge(bots.ah_buyer)], [esc('LFT'), flagBadge(bots.lft)], [esc('BG'), flagBadge(bots.bg)],
+        [esc('Avoid towns'), flagBadge(bots.avoid_towns)], [esc('Leave zones'), flagBadge(bots.leave_zones)]],
+      ])}
+      ${serverGroup('DIAGNOSTICS', [
+        [[esc('PerfMon'), flagBadge(diag.perf_mon)], [esc('bot_events'), flagBadge(diag.bot_events)],
+        [esc('unreachable'), flagBadge(diag.unreachable)], [esc('deaths'), flagBadge(diag.deaths)]],
+      ])}`;
+  }
+
+  // Compact plain-text diagnostic report for bug reports (GitHub/Discord).
+  // Versions + effective settings + pool health only — no IPs, hosts,
+  // account names, or passwords anywhere in this payload.
+  function buildDiagReport() {
+    const info = state.serverInfo || {};
+    const rates = info.rates || {}, bots = info.bots || {}, diag = info.diagnostics || {};
+    const g = state.grinding || {};
+    const on = v => (v === '1' || v === 1 || v === true) ? 'on' : 'off';
+    return [
+      '# TortoiseBots diagnostic report',
+      `- module: ${info.module_version || '?'} / core: ${info.core_revision || '?'} (${info.core_date || '?'}) / max level: ${info.max_level || '?'}`,
+      `- rates: xp_kill=${rates.xp_kill ?? '?'} xp_elite=${rates.xp_kill_elite ?? '?'} xp_quest=${rates.xp_quest ?? '?'} xp_explore=${rates.xp_explore ?? '?'} drop_money=${rates.drop_money ?? '?'} honor=${rates.honor ?? '?'} rep=${rates.rep_gain ?? '?'} talent=${rates.talent ?? '?'} bot_xp_mult=${rates.bot_xp_mult ?? '?'}`,
+      `- bots: min/max=${bots.min_random ?? '?'}/${bots.max_random ?? '?'} update=${bots.update_interval ?? '?'} maxlvl=${bots.max_level ?? '?'} group=${on(bots.group_nearby)} raid=${on(bots.raid_nearby)} invite=${on(bots.invite_player)} timed_logout=${on(bots.timed_logout)} no_rand_levels=${on(bots.disable_random_levels)} ladder=${on(bots.level_ladder)} quests=${on(bots.auto_do_quests)} no_activity=${on(bots.disable_activity)} alone=${bots.active_alone ?? '?'} pool=${bots.pool_budget_us ?? '?'}us/${bots.pool_budget_gate_ms ?? '?'}ms ah=${on(bots.ah_buyer)} lft=${on(bots.lft)} bg=${on(bots.bg)}`,
+      `- diag: perfmon=${on(diag.perf_mon)} bot_events=${on(diag.bot_events)} unreachable=${on(diag.unreachable)} deaths=${on(diag.deaths)}`,
+      `- pool: tracked=${g.bots_tracked || 0} gaining=${g.bots_gaining_xp || 0} (${Math.round(g.pct_gaining_xp || 0)}%) median_xp/h=${Math.round(g.median_xp_hour || 0)} total_xp/h=${Math.round(g.total_xp_hour || 0)} deaths/min=${(g.deaths_per_min || 0).toFixed(1)} died5m=${Math.round(g.pct_died_5min || 0)}% states=${['combat', 'moving', 'busy', 'resting', 'idle', 'dead'].map(k => `${k}=${((g.state_counts || {})[k]) || 0}`).join(' ')}`,
+      `- levels: ${(Array.isArray(g.level_bands) ? g.level_bands : []).map(b => `${b.lo === b.hi ? `L${b.lo}` : `${b.lo}-${b.hi}`}=${b.count || 0}`).join(' ')}`,
+      `- issues: active=${state.issues.active.length} persistent=${state.issues.active.filter(i => i.severity === 'persistent').length}`,
+      `- server: online=${state.server.online} stale=${state.server.stale} uptime=${state.server.uptime}s tick=${state.server.diff}ms humans=${state.server.humans} bots=${state.server.bots}`,
+    ].join('\n');
+  }
+
+  function initDiagButton() {
+    const btn = document.getElementById('copy-diag-btn');
+    if (!btn || btn.dataset.bound) return;
+    btn.dataset.bound = '1';
+    btn.addEventListener('click', async () => {
+      const text = buildDiagReport();
+      try {
+        await navigator.clipboard.writeText(text);
+        btn.textContent = 'Copied!';
+      } catch (e) {
+        btn.textContent = 'Copy failed';
+        window.prompt('Diagnostic report (copy manually):', text);
+      }
+      setTimeout(() => { btn.textContent = 'Copy diagnostic report'; }, 2000);
     });
   }
 
@@ -1394,7 +1576,6 @@
 
     updateSnapshotAge();
     setStatusPill();
-    if (state.activeTab === 'dashboard') renderMacroBar(s.states);
   }
 
   function makeBotDot(b, issue, pctX, pctY) {
@@ -1540,9 +1721,19 @@
         <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${powerPct}%; background: var(--accent-blue-bright);"></div></div>
       </div>
 
+      ${(() => { const p = xpPct(b); return p === null ? '' : `
+      <div style="margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.75rem; margin-bottom: 4px;">
+          <span>XP</span><strong>${esc(b.xp)} / ${esc(b.next_xp)} (${p}%) · ${esc(fmtXpRate(b.xp_per_hour))}</strong>
+        </div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${p}%; background: var(--accent-yellow);"></div></div>
+        <div style="font-size: 0.7rem; color: var(--text-muted); margin-top: 2px;">last gain ${esc(fmtGainAge(b.xp_gain_age_sec))}</div>
+      </div>`; })()}
+
       <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-color); border-radius: 6px; padding: 10px; font-size: 0.8rem; display: flex; flex-direction: column; gap: 6px;">
         <div><span style="color: var(--text-muted);">Status:</span> <strong>${esc(b.state)}</strong></div>
-        <div><span style="color: var(--text-muted);">Target:</span> <strong style="color: #f85149;">${esc(displayTarget(b))}</strong></div>
+        <div><span style="color: var(--text-muted);">Target:</span> <strong style="color: #f85149;">${esc(displayTarget(b))}${b.target_level ? ` (L${esc(b.target_level)})` : ''}</strong></div>
+        ${b.travel_purpose ? `<div><span style="color: var(--text-muted);">Travel:</span> <strong>${esc(b.travel_purpose)}</strong><span style="color: var(--text-muted);"> → ${esc(b.travel_to || '')}</span></div>` : ''}
         <div><span style="color: var(--text-muted);">Last action:</span> <span class="mono" style="font-size: 0.75rem;">${esc(b.last_action || '-')}</span></div>
         <div><span style="color: var(--text-muted);">Trigger:</span> <span class="mono" style="font-size: 0.75rem;">${esc(b.last_trigger || '-')}</span></div>
         <div><span style="color: var(--text-muted);">Strategy:</span> <span class="mono" style="font-size: 0.75rem;">${esc(b.strategy || 'default')}</span></div>
@@ -1585,6 +1776,7 @@
   function rosterSortValue(b, key) {
     switch (key) {
       case 'level': return b.level || 0;
+      case 'xp': return (b.next_xp ? (b.xp || 0) / b.next_xp : -1);
       case 'hp': return b.max_hp ? b.hp / b.max_hp : 0;
       case 'power': return b.max_power ? b.power / b.max_power : 0;
       case 'class': return (b.class || '').toLowerCase();
@@ -1631,7 +1823,7 @@
     updateRosterSortIndicators();
 
     if (filtered.length === 0) {
-      el.rosterTable.innerHTML = `<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">No matching bots.</td></tr>`;
+      el.rosterTable.innerHTML = `<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No matching bots.</td></tr>`;
       return;
     }
 
@@ -1651,6 +1843,7 @@
         <td>${esc(b.class)}</td>
         <td><span class="badge ${roleBadge}" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(b))}</span></td>
         <td>${esc(b.level)}</td>
+        <td style="width: 150px;">${xpCell(b)}</td>
         <td style="width: 130px;">
           <div style="font-size: 0.7rem; margin-bottom: 2px;">${esc(b.hp)}/${esc(b.max_hp)} (${hpPct}%)</div>
           <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${hpPct}%; background: var(--accent-green-bright);"></div></div>
@@ -1660,7 +1853,7 @@
           <div class="progress-bar-bg"><div class="progress-bar-fill" style="width: ${powerPct}%; background: var(--accent-blue-bright);"></div></div>
         </td>
         <td><span class="badge ${b.state === 'combat' ? 'badge-error' : b.state === 'dead' ? 'badge-warn' : 'badge-info'}">${esc(b.state || 'idle')}</span></td>
-        <td style="color: #f85149;">${esc(displayTarget(b))}</td>
+        <td style="color: #f85149;">${esc(displayTarget(b))}${b.target_level ? ` <span style="color: var(--text-muted);">L${esc(b.target_level)}</span>` : ''}</td>
         <td class="mono" style="font-size: 0.8rem;">${esc(getZoneName(b.zone, b.map))}</td>
       `;
       tr.querySelector('td[data-guid]').addEventListener('click', () => focusBot(b.guid));
@@ -1968,6 +2161,28 @@
       powBar.style.width = '0%';
     }
     if (powText) powText.textContent = `Max ${fmtNum(maxPow)} ${powerLabel}`;
+
+    // XP bar from live telemetry (same source as the roster XP column).
+    // The armory DB has no per-level XP row, so offline bots show nothing
+    // rather than a fake bar.
+    const xpWrap = document.getElementById('armory-xp-wrap');
+    const xpBar = document.getElementById('armory-xp-bar');
+    const xpText = document.getElementById('armory-xp-text');
+    if (xpWrap) {
+      const pct = live ? xpPct(live) : null;
+      if (pct === null) {
+        xpWrap.style.display = 'none';
+      } else {
+        xpWrap.style.display = '';
+        if (xpBar) xpBar.style.width = `${pct}%`;
+        if (xpText) {
+          const rate = fmtXpRate(live.xp_per_hour);
+          xpText.textContent = rate !== '–'
+            ? `${live.xp} / ${live.next_xp} XP (${pct}%) · ${rate}`
+            : `${live.xp} / ${live.next_xp} XP (${pct}%)`;
+        }
+      }
+    }
 
     if (el.armoryError) el.armoryError.style.display = 'none';
     if (el.armoryBody) el.armoryBody.style.display = 'block';
@@ -2339,13 +2554,14 @@
     if (tab === 'stats') tab = 'bags';
     state.armorySubtab = tab;
     document.querySelectorAll('.armory-subtab').forEach(b => b.classList.toggle('active', b.dataset.subtab === tab));
-    ['bags', 'talents', 'spells', 'skills'].forEach(t => {
+    ['bags', 'talents', 'spells', 'professions', 'skills'].forEach(t => {
       const panel = document.getElementById(`armory-content-${t}`);
       if (panel) panel.style.display = t === tab ? 'block' : 'none';
     });
     if (tab === 'bags') renderArmoryBags(p);
     else if (tab === 'talents') renderArmoryTalents(p);
     else if (tab === 'spells') renderArmorySpells(p);
+    else if (tab === 'professions') renderArmoryProfessions(p);
     else if (tab === 'skills') renderArmorySkills(p);
   }
 
@@ -2522,22 +2738,27 @@
     const active = state.armoryTalentTab || 0;
     const tabs = trees.map((t, i) => `<button class="armory-subtab${i === active ? ' active' : ''}" data-ttab="${i}">${esc(t.name)} (${esc(t.points)})</button>`).join('');
     const tree = trees[Math.min(active, trees.length - 1)];
-    const byRow = {};
-    (tree.talents || []).forEach(n => { (byRow[n.row] = byRow[n.row] || []).push(n); });
-    const rows = Object.keys(byRow).map(Number).sort((a, b) => a - b).map(r => {
-      const need = r * 5;
-      const cells = byRow[r].slice().sort((a, b) => a.col - b.col).map(n => {
+    // 1.12 talent frame: 7 tiers x 4 columns. Index by (row, col) so each
+    // talent sits in its DBC tier/column cell; empty cells stay as gaps.
+    const maxRow = Math.max(0, ...(tree.talents || []).map(n => n.row || 0));
+    const grid = [];
+    for (let r = 0; r <= Math.max(maxRow, 6); r++) {
+      const cells = [];
+      for (let c = 0; c < 4; c++) {
+        const n = (tree.talents || []).find(t => (t.row || 0) === r && (t.col || 0) === c);
+        if (!n) { cells.push(`<div class="talent-cell-empty"></div>`); continue; }
         const cls = n.rank > 0 ? (n.rank >= n.max_rank ? 'learned' : 'partial') : 'unlearned';
         const iconUrl = getItemIconUrl(n.icon);
         const iconHtml = iconUrl
           ? `<img src="${iconUrl}" alt="${esc(n.name)}" onerror="this.onerror=null; this.style.display='none';" class="talent-icon-img">`
           : `<div class="talent-icon-placeholder">${esc((n.name || 'T')[0])}</div>`;
         const tip = talentTooltipHtml(tree.name, n, p);
-        return `<div class="talent-node-box ${cls}" data-sptip="${esc(tip)}"><div class="talent-node-icon-wrap">${iconHtml}<div class="talent-rank-badge">${esc(n.rank)}/${esc(n.max_rank)}</div></div><div class="talent-node-name">${esc(n.name || `Talent ${n.talent_id}`)}</div></div>`;
-      }).join('');
-      return `<div class="talent-tier"><div class="talent-tier-label">Tier ${r + 1}<span>req ${need}</span></div><div class="talent-tier-nodes">${cells}</div></div>`;
-    }).join('');
-    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 10px;">${esc(spent)} point(s) spent</div><div class="armory-subtabs" style="border-bottom: none; padding-bottom: 0;">${tabs}</div><div class="talent-tree"><div class="talent-tree-head"><span>${esc(tree.name)}</span><span class="badge badge-info">${esc(tree.points)} pts</span></div>${rows || '<div class="empty-hint">—</div>'}</div>`;
+        cells.push(`<div class="talent-node-box ${cls}" data-sptip="${esc(tip)}"><div class="talent-node-icon-wrap">${iconHtml}<div class="talent-rank-badge">${esc(n.rank)}/${esc(n.max_rank)}</div></div><div class="talent-node-name">${esc(n.name || `Talent ${n.talent_id}`)}</div></div>`);
+      }
+      const need = r * 5;
+      grid.push(`<div class="talent-tier"><div class="talent-tier-label">Tier ${r + 1}<span>req ${need}</span></div><div class="talent-tier-nodes">${cells.join('')}</div></div>`);
+    }
+    host.innerHTML = `<div class="empty-hint" style="margin-bottom: 10px;">${esc(spent)} point(s) spent</div><div class="armory-subtabs" style="border-bottom: none; padding-bottom: 0;">${tabs}</div><div class="talent-tree"><div class="talent-tree-head"><span>${esc(tree.name)}</span><span class="badge badge-info">${esc(tree.points)} pts</span></div>${grid.join('')}</div>`;
     bindSpellTooltips(host);
     host.querySelectorAll('[data-ttab]').forEach(btn => {
       btn.addEventListener('click', () => { state.armoryTalentTab = parseInt(btn.dataset.ttab, 10) || 0; renderArmoryTalents(p); });
@@ -2583,7 +2804,7 @@
         const g = spellBucket(sp);
         (groups[g] = groups[g] || []).push(sp);
       });
-      ['Class spells', 'Abilities', 'Auras & Forms', 'Pet & Minions', 'Professions'].forEach(g => {
+      ['Class spells', 'Abilities', 'Auras & Forms', 'Pet & Minions'].forEach(g => {
         const list = (groups[g] || []).slice(0, 500);
         if (!list.length) return;
         // Passives are never cast (talent effects, trigger-only auras), so they
@@ -2598,6 +2819,10 @@
           html += spellTable(passive);
         }
       });
+      const prof = (groups['Professions'] || []).slice(0, 500);
+      if (prof.length) {
+        html += `<div class="empty-hint" style="margin-top: 12px;">${prof.length} profession spell(s) moved to the <strong>Professions</strong> tab.</div>`;
+      }
     }
     host.innerHTML = html;
     bindSpellTooltips(host);
@@ -2642,23 +2867,62 @@
       </tr>`;
     }).join('')}</tbody></table></div>`;
   }
+  // Professions tab: profession skills with live levels from character_skills,
+  // plus the profession's own spells. Class spells stay in the Spells tab;
+  // weapon/armor/language rows stay in Skills.
+  function renderArmoryProfessions(p) {
+    const host = document.getElementById('armory-content-professions');
+    if (!host) return;
+    const byId = {};
+    (p.skills || []).forEach(sk => {
+      if (!byId[sk.skill] || (sk.value || 0) > (byId[sk.skill].value || 0)) byId[sk.skill] = sk;
+    });
+    const profSkills = PROFESSION_SKILL_IDS.map(id => byId[id]).filter(Boolean);
+    const spells = (p.spells || []).filter(sp => spellBucket(sp) === 'Professions');
+    if (!profSkills.length && !spells.length) {
+      host.innerHTML = `<div class="empty-hint">No professions learned yet.</div>`;
+      return;
+    }
+    let html = '';
+    if (profSkills.length) {
+      html += `<div class="section-label" style="margin: 0 0 8px;">PROFESSIONS · ${profSkills.length}</div>${skillTable(profSkills)}`;
+    }
+    if (spells.length) {
+      const active = spells.filter(sp => !sp.passive);
+      const passive = spells.filter(sp => sp.passive);
+      html += `<div class="section-label" style="margin: 14px 0 8px;">PROFESSION SPELLS · ${spells.length}</div>`;
+      if (active.length) html += spellTable(active);
+      if (passive.length) {
+        html += `<div class="section-label" style="margin: 10px 0 6px; font-size: 0.7rem; color: var(--text-muted);">PASSIVE · ${passive.length}</div>`;
+        html += spellTable(passive);
+      }
+    }
+    host.innerHTML = html;
+    bindSpellTooltips(host);
+  }
 
   function renderArmorySkills(p) {
     const host = document.getElementById('armory-content-skills');
     if (!host) return;
-    const skills = p.skills || [];
+    // Dedupe: character_skills has one row per skill, but UNION-style profile
+    // assembly (or a stale double-read) can surface the same id twice. One
+    // row per id, highest value wins; professions live in their own tab now.
+    const byId = {};
+    (p.skills || []).forEach(sk => {
+      if (!byId[sk.skill] || (sk.value || 0) > (byId[sk.skill].value || 0)) byId[sk.skill] = sk;
+    });
+    const skills = Object.values(byId).filter(sk => !PROFESSION_SKILL_IDS.includes(sk.skill));
     if (!skills.length) {
       host.innerHTML = `<div class="empty-hint">No skill rows recorded for this bot.</div>`;
       return;
     }
     const groupOf = id => COMBAT_SKILL_IDS.includes(id) ? 0
-      : (ARMOR_SKILL_IDS.includes(id) ? 1
-      : (PROFESSION_SKILL_IDS.includes(id) ? 2 : 3));
+      : (ARMOR_SKILL_IDS.includes(id) ? 1 : 2);
 
     const sorted = [...skills].sort((a, b) => groupOf(a.skill) - groupOf(b.skill) || skillNameById(a.skill).localeCompare(skillNameById(b.skill)));
-    const groups = [[], [], [], []];
+    const groups = [[], [], []];
     sorted.forEach(sk => groups[groupOf(sk.skill)].push(sk));
-    const titles = ['Weapons & Defense', 'Armor Proficiencies', 'Professions', 'Languages & Secondary Skills'];
+    const titles = ['Weapons & Defense', 'Armor Proficiencies', 'Languages'];
     host.innerHTML = groups.map((g, i) => g.length ? `<div class="section-label" style="margin: 14px 0 8px;">${titles[i]}</div>${skillTable(g)}` : '').join('') || `<div class="empty-hint">No skills.</div>`;
   }
 
@@ -2801,9 +3065,22 @@
         updateDashboardMetrics();
         if (state.activeTab === 'map') renderMap();
         if (state.activeTab === 'roster') renderRoster();
-        if (state.activeTab === 'dashboard') { renderFleetHealth(); renderComposition(); }
+        if (state.activeTab === 'dashboard') { renderFleetHealth(); renderActivity(); renderComposition(); renderGrinding(); }
       })
       .catch(() => {});
+    fetch('/api/v1/grinding').then(r => r.json()).then(g => {
+      if (g && typeof g.bots_tracked === 'number') {
+        state.grinding = g;
+        renderActivity();
+        renderGrinding();
+      }
+    }).catch(() => {});
+    fetch('/api/v1/server-info').then(r => {
+      if (!r.ok) return null;
+      return r.json();
+    }).then(info => {
+      if (info && !info.error) { state.serverInfo = info; renderServerPanel(); }
+    }).catch(() => {});
   }
 
   function applyServerStatus(s) {
@@ -2859,6 +3136,8 @@
 
       const prevCount = state.bots.length;
       state.bots = Array.isArray(data.bots) ? data.bots : [];
+      if (data.grinding) state.grinding = data.grinding;
+      if (data.info) { state.serverInfo = data.info; renderServerPanel(); }
       state.lastSnapshotAt = Date.now();
       applyServerStatus(data.server);
       applyIssues(data.issues);
@@ -2869,7 +3148,7 @@
 
       if (state.activeTab === 'map') renderMap();
       if (state.activeTab === 'roster') renderRoster();
-      if (state.activeTab === 'dashboard') renderFleetHealth();
+      if (state.activeTab === 'dashboard') { renderFleetHealth(); renderActivity(); renderGrinding(); }
 
       if (state.bots.length !== prevCount) {
         populateClassFilter();
@@ -2901,6 +3180,8 @@
     } else if (msg.event === 'status') {
       applyServerStatus(msg.data);
       updateDashboardMetrics();
+    } else if (msg.event === 'server_info') {
+      if (msg.data) { state.serverInfo = msg.data; renderServerPanel(); }
     } else if (msg.event === 'anomaly') {
       const a = msg.data;
       if (a) {
@@ -3148,7 +3429,7 @@
       state.server.online = false;
       state.server.stale = true;
       if (state.server.states) {
-        state.server.states = { combat: 0, moving: 0, resting: 0, dead: 0, idle: 0 };
+        state.server.states = { combat: 0, moving: 0, busy: 0, resting: 0, dead: 0, idle: 0 };
       }
       updateDashboardMetrics();
       if (state.activeTab === 'dashboard') renderDashboardCharts();
@@ -3159,6 +3440,8 @@
   // Init
   initZoneSelector();
   initArmory();
+  initDiagButton();
+  renderServerPanel();
   fetchBots();
   fetchAnomalies();
   fetchIssues();

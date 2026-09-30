@@ -21,6 +21,8 @@ struct BotTelemetrySnapshot
     std::string className;
     std::string role;
     uint32 level = 0;
+    uint32 xp = 0;        // PLAYER_XP: progress into the current level
+    uint32 nextXp = 0;    // PLAYER_NEXT_LEVEL_XP: XP needed to finish the level
     uint32 hp = 0;
     uint32 maxHp = 0;
     uint32 power = 0;
@@ -33,10 +35,13 @@ struct BotTelemetrySnapshot
     float z = 0.0f;
     float o = 0.0f;
     std::string target;
+    uint32 targetLevel = 0;  // combat target level (0 = none/non-unit)
     std::string strategy;
     std::string state;       // "combat", "moving", "resting", "dead", "idle"
     std::string lastAction;  // last action the AI executed (loop detection)
     std::string lastTrigger; // event source that drove the last action
+    std::string travelPurpose; // active travel destination short name ("grind", "vendor", ...)
+    std::string travelTo;      // active travel destination title (empty when idle)
 };
 
 // ObservabilityEmitter sends non-blocking loopback UDP telemetry to the
@@ -62,6 +67,33 @@ public:
     // Called once per world tick with the world update diff.
     void Update(uint32 diff);
 
+    struct BotTrackState
+    {
+        float lastX = 0.0f;
+        float lastY = 0.0f;
+        float lastZ = 0.0f;
+        uint32 lastSeenMs = 0;
+        uint8 stateIndex = 0;
+        uint32 stationaryMovementMs = 0;
+        bool stuckReported = false;
+        uint32 lastSampleMs = 0;      // when lastX/lastY were sampled (once a second)
+        // Last world-tick time the bot did anything observable: moved,
+        // executed an AI action, cast, looted, or held an active travel
+        // target (flag refreshed at snapshot cadence, not per tick).
+        // Idle requires none of these for >= kIdleAfterMs.
+        uint32 lastActivityMs = 0;
+        bool hasWorkTarget = false;
+        // Last executed action name, to notice a new action without string
+        // compares against history: any pointer/name change is activity.
+        std::string lastActionName;
+
+        uint64 unreachableTargetGuid = 0;
+        uint32 unreachableDurationMs = 0;
+        bool unreachableReported = false;
+        uint32 lastUnreachableReportMs = 0;
+    };
+
+public:
     void EmitAnomaly(std::string const& type,
                      std::string const& severity,
                      Player* bot,
@@ -92,6 +124,11 @@ private:
     bool AnomalyAllowed(uint32 guid, uint8 typeId, uint32 nowMs);
     void AddStateTime(size_t stateIndex, uint32 diff);
     void EmitSnapshotCycle(std::vector<Player*> const& activeBots, uint32 diff);
+    // Effective running settings for the dashboard Server panel (Addendum 2):
+    // core rate getters + AiPlayerbot flags, sent at startup and on a slow
+    // cadence. No strings from config files, no secrets — numbers and on/off.
+    void EmitServerInfo();
+    uint32 m_serverInfoTimerMs = 0;
     // Exact server-side stats for the dashboard armory
     // (tortoise_bots_armory_stats); a few bots per snapshot, round-robin.
     void WriteArmoryStats(Player* bot);
@@ -132,22 +169,6 @@ private:
     uint64 m_sessionId;
     uint64 m_snapshotSeq;
 
-    struct BotTrackState
-    {
-        float lastX = 0.0f;
-        float lastY = 0.0f;
-        float lastZ = 0.0f;
-        uint32 lastSeenMs = 0;
-        uint8 stateIndex = 0;
-        uint32 stationaryMovementMs = 0;
-        bool stuckReported = false;
-        uint32 lastSampleMs = 0;      // when lastX/lastY were sampled (once a second)
-
-        uint64 unreachableTargetGuid = 0;
-        uint32 unreachableDurationMs = 0;
-        bool unreachableReported = false;
-        uint32 lastUnreachableReportMs = 0;
-    };
     std::map<uint32, BotTrackState> m_botTracking;
 
     // Optional roster contributor from another module (world thread only).
@@ -169,9 +190,14 @@ private:
     // Rolling macro-state histogram: kStateBuckets buckets of kStateBucketMs
     // each, one column per state. Ratios therefore describe the recent window
     // instead of an all-time average.
+    // States: combat, moving, busy (looting/casting/eating/working a travel
+    // or rpg target — doing something while standing still), resting, dead,
+    // idle (no movement, action, cast, loot, or active target for >=
+    // kIdleAfterMs). Idle means really doing nothing, not "between actions".
     static constexpr size_t kStateBucketCount = 90;
     static constexpr uint32 kStateBucketMs = 2000;
-    static constexpr size_t kStateCount = 5; // combat, moving, resting, dead, idle
+    static constexpr size_t kStateCount = 6; // combat, moving, busy, resting, dead, idle
+    static constexpr uint32 kIdleAfterMs = 45000;
     uint64 m_stateWindow[kStateBucketCount][kStateCount];
     size_t m_stateBucketIndex;
     uint32 m_stateBucketElapsedMs;

@@ -28,6 +28,15 @@ const (
 	// minTrailMoveSq skips trail points for bots that have not meaningfully
 	// moved, so stationary bots do not render as a blob.
 	minTrailMoveSq = 0.05 * 0.05
+	// xpWindow is how far back XP deltas are kept per bot for the XP/hour
+	// rate. Level-ups reset the baseline so a ding never counts as a 4000
+	// XP burst in one snapshot.
+	xpWindow = 30 * time.Minute
+	// maxTrackedXP bounds the per-bot XP sample map; evicted with the roster.
+	maxTrackedXP = 5000
+	// minXpRateWindowSec floors XP/hour windows so one fast kill cannot
+	// extrapolate to 100k XP/h.
+	minXpRateWindowSec = 60
 )
 
 // Config tunes retention. Zero values fall back to the defaults.
@@ -42,6 +51,21 @@ type Config struct {
 type botEntry struct {
 	snap  model.BotSnapshot
 	trail []model.Coordinate
+}
+
+// xpSample is one published per-bot XP observation.
+type xpSample struct {
+	at    time.Time
+	level uint32
+	xp    uint32
+}
+
+// xpTrack holds the sliding XP observations plus the last positive-gain time
+// behind one bot's XpPerHour / XpGainAgeSec fields.
+type xpTrack struct {
+	samples []xpSample
+	lastGain time.Time
+	hasGain  bool
 }
 
 type pendingCycle struct {
@@ -74,6 +98,13 @@ type Store struct {
 
 	anomalies *ringbuf.RingBuffer
 	issues    *issueTracker
+
+	// xpTracks holds per-bot XP observations for XP/hour derivation. Keyed
+	// by GUID like the roster; pruned on publish and session reset.
+	xpTracks map[uint32]*xpTrack
+	// serverInfo is the latest SERVER_INFO payload (effective settings).
+	// Stored verbatim; cleared on session change only.
+	serverInfo *model.ServerInfoPayload
 }
 
 // New creates an empty store. The ring buffer is owned by the caller and is
@@ -104,6 +135,7 @@ func New(cfg Config, anomalies *ringbuf.RingBuffer) *Store {
 		pending:   make(map[uint64]*pendingCycle),
 		anomalies: anomalies,
 		issues:    newIssueTracker(cfg.IssueMinAge),
+		xpTracks:  make(map[uint32]*xpTrack),
 	}
 }
 
@@ -246,6 +278,7 @@ func (s *Store) Evict() bool {
 	}
 	if s.lastSnapshotAt.IsZero() || now.Sub(s.lastSnapshotAt) > s.cfg.RosterTTL {
 		s.bots = make(map[uint32]*botEntry)
+		s.xpTracks = make(map[uint32]*xpTrack)
 		s.issues.Reset()
 		return true
 	}
@@ -284,12 +317,273 @@ func (s *Store) Snapshot() model.SnapshotPayload {
 	}
 	sort.Slice(bots, func(i, j int) bool { return bots[i].Name < bots[j].Name })
 
-	return model.SnapshotPayload{
-		Seq:    s.lastSeq,
-		Server: s.statusLocked(now),
-		Bots:   bots,
-		Issues: s.issues.Snapshot(),
+	out := model.SnapshotPayload{
+		Seq:      s.lastSeq,
+		Server:   s.statusLocked(now),
+		Bots:     bots,
+		Issues:   s.issues.Snapshot(),
+		Grinding: s.grindingLocked(bots, now),
 	}
+	if s.serverInfo != nil {
+		cp := *s.serverInfo
+		out.Info = &cp
+	}
+	return out
+}
+
+// ApplyServerInfo stores the latest SERVER_INFO payload verbatim. Stale
+// sessions are rejected so a delayed datagram from a previous server process
+// cannot overwrite the current one.
+func (s *Store) ApplyServerInfo(info *model.ServerInfoPayload) {
+	if info == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.session != 0 && info.Session != 0 && info.Session != s.session {
+		return
+	}
+	// Adopt the session when none is established yet (SERVER_INFO won the
+	// race against the first heartbeat); otherwise a same-process heartbeat
+	// would wipe freshly arrived info via beginSessionLocked.
+	if s.session == 0 && info.Session != 0 {
+		s.session = info.Session
+	}
+	cp := *info
+	s.serverInfo = &cp
+}
+
+// ServerInfo returns the latest effective-settings payload, or nil.
+func (s *Store) ServerInfo() *model.ServerInfoPayload {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.serverInfo == nil {
+		return nil
+	}
+	cp := *s.serverInfo
+	return &cp
+}
+
+// observeXPLocked folds one published roster into the per-bot XP tracks and
+// stamps XpPerHour / XpGainAgeSec onto the stored snaps. Level-ups reset the
+// baseline to the ding remainder (never a burst); bots at max level or
+// without wire XP keep a zero rate. Samples older than the window are
+// pruned, so a flat bot's rate decays to 0.
+func (s *Store) observeXPLocked(bots []model.BotSnapshot, now time.Time) {
+	if s.xpTracks == nil {
+		s.xpTracks = make(map[uint32]*xpTrack)
+	}
+	seen := make(map[uint32]bool, len(bots))
+	for i := range bots {
+		b := &bots[i]
+		if b.GUID == 0 {
+			continue
+		}
+		seen[b.GUID] = true
+		tr := s.xpTracks[b.GUID]
+		if tr == nil {
+			tr = &xpTrack{}
+			s.xpTracks[b.GUID] = tr
+		}
+		// Prune samples outside the rate window.
+		kept := tr.samples[:0]
+		for _, sm := range tr.samples {
+			if now.Sub(sm.at) <= xpWindow {
+				kept = append(kept, sm)
+			}
+		}
+		tr.samples = kept
+		prev := xpSample{}
+		hasPrev := len(tr.samples) > 0
+		if hasPrev {
+			prev = tr.samples[len(tr.samples)-1]
+		}
+		if b.NextXP == 0 || b.XP > b.NextXP {
+			// No wire data (old emitter) or corrupt sample: no rate.
+			b.XpPerHour = 0
+		} else if !hasPrev {
+			tr.samples = append(tr.samples, xpSample{at: now, level: b.Level, xp: b.XP})
+			b.XpPerHour = 0
+		} else if b.Level != prev.level {
+			// Ding: keep the pre-ding baseline so the window survives;
+			// the ding remainder is the new head, never a burst.
+			tr.samples = append(tr.samples, xpSample{at: now, level: b.Level, xp: b.XP})
+			// A ding is itself proof of gain.
+			tr.lastGain = now
+			tr.hasGain = true
+			b.XpPerHour = xpRateLocked(tr.samples, now)
+		} else if b.XP > prev.xp {
+			tr.samples = append(tr.samples, xpSample{at: now, level: b.Level, xp: b.XP})
+			tr.lastGain = now
+			tr.hasGain = true
+			b.XpPerHour = xpRateLocked(tr.samples, now)
+		} else {
+			// No forward progress: keep the window, report the windowed rate
+			// (decays to 0 as old samples age out).
+			b.XpPerHour = xpRateLocked(tr.samples, now)
+		}
+		if tr.hasGain {
+			b.XpGainAgeSec = now.Sub(tr.lastGain).Seconds()
+		} else {
+			b.XpGainAgeSec = -1
+		}
+	}
+	// Drop tracks for departed bots; bound the map against roster churn.
+	for guid := range s.xpTracks {
+		if !seen[guid] {
+			delete(s.xpTracks, guid)
+		}
+	}
+	for len(s.xpTracks) > maxTrackedXP {
+		for guid := range s.xpTracks {
+			delete(s.xpTracks, guid)
+			break
+		}
+	}
+}
+
+// xpRateLocked computes XP/hour across the in-window samples. Cross-level
+// spans credit the pre-ding progress plus the ding remainder (levels gained
+// x typical level cost is unknowable here, so only same-window XP counts).
+// Windows shorter than minXpRateWindowSec return 0 so a single fast kill
+// cannot extrapolate to 100k XP/h.
+func xpRateLocked(samples []xpSample, now time.Time) float64 {
+	if len(samples) < 2 {
+		return 0
+	}
+	base := samples[0]
+	last := samples[len(samples)-1]
+	secs := now.Sub(base.at).Seconds()
+	if secs < minXpRateWindowSec {
+		return 0
+	}
+	if last.level == base.level {
+		if last.xp <= base.xp {
+			return 0
+		}
+		return float64(last.xp-base.xp) * 3600 / secs
+	}
+	// Ding inside the window: progress to finish the old level + remainder.
+	if last.level <= base.level || last.xp > 1000000 {
+		return 0
+	}
+	gain := 0
+	prevLvl, prevXP := base.level, base.xp
+	for _, sm := range samples[1:] {
+		if sm.level == prevLvl && sm.xp > prevXP {
+			gain += int(sm.xp) - int(prevXP)
+		}
+		prevLvl, prevXP = sm.level, sm.xp
+	}
+	if gain <= 0 {
+		return 0
+	}
+	return float64(gain) * 3600 / secs
+}
+
+// grindingLocked builds the pool-wide "are they grinding" rollup. Kills come
+// from BOT_DEATH anomalies in the ring buffer (no new emitter counter), XP
+// from the derived per-bot rates, combat/travel from the roster itself.
+func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.GrindingSummary {
+	out := model.GrindingSummary{}
+	n := len(bots)
+	if n == 0 {
+		return out
+	}
+	out.BotsTracked = n
+	out.StateCounts = map[string]int{}
+	rates := make([]float64, 0, n)
+	for _, b := range bots {
+		rates = append(rates, b.XpPerHour)
+		if b.XpGainAgeSec >= 0 && now.Sub(s.lastSnapshotAt) <= 10*time.Minute {
+			// Counted as gaining when the last positive delta is recent.
+			// 10 min matches the "died in last 5 min" scale below.
+			if b.XpGainAgeSec <= 600 {
+				out.BotsGainingXP++
+			}
+		}
+		if b.XpPerHour > 0 {
+			out.TotalXpHour += b.XpPerHour
+		}
+		out.StateCounts[b.State]++
+	}
+	sort.Float64s(rates)
+	if len(rates) > 0 {
+		out.MedianXpHour = rates[len(rates)/2]
+	}
+	out.PctGainingXP = float64(out.BotsGainingXP) / float64(n) * 100
+	out.LevelBands = levelBands(bots)
+	// BOT_DEATH anomalies are bot deaths, not bot kills: last-5-min
+	// distinct dead bots + per-min casualty rate.
+	if s.anomalies != nil {
+		recent := s.anomalies.GetRecent(1000, "BOT_DEATH", "")
+		cutoff := now.Add(-5 * time.Minute)
+		seen := map[uint32]bool{}
+		for _, a := range recent {
+			if a.ReceivedAt.IsZero() || a.ReceivedAt.After(cutoff) {
+				seen[a.GUID] = true
+			}
+		}
+		out.PctDied5Min = float64(len(seen)) / float64(n) * 100
+		// Rate over the last 10 min window (or less when young).
+		winStart := now.Add(-10 * time.Minute)
+		count := 0
+		for _, a := range recent {
+			if a.ReceivedAt.IsZero() || a.ReceivedAt.After(winStart) {
+				count++
+			}
+		}
+		out.DeathsPerMin = float64(count) / 10
+	}
+	return out
+}
+
+// levelBands builds adaptive buckets from the roster itself: per level
+// while the pool spans <= 10 levels (launch: L1..L7 visible), otherwise the
+// classic 1-9/10-19/.../50-59/60 bands. A single "1-9: 500" row can never
+// hide progress again.
+func levelBands(bots []model.BotSnapshot) []model.LevelBand {
+	if len(bots) == 0 {
+		return nil
+	}
+	minLvl, maxLvl := bots[0].Level, bots[0].Level
+	for _, b := range bots[1:] {
+		if b.Level < minLvl {
+			minLvl = b.Level
+		}
+		if b.Level > maxLvl {
+			maxLvl = b.Level
+		}
+	}
+	if minLvl < 1 {
+		minLvl = 1
+	}
+	if maxLvl-minLvl <= 10 {
+		out := make([]model.LevelBand, 0, maxLvl-minLvl+1)
+		for lvl := minLvl; lvl <= maxLvl; lvl++ {
+			out = append(out, model.LevelBand{Lo: lvl, Hi: lvl})
+		}
+		for _, b := range bots {
+			if b.Level >= minLvl && b.Level <= maxLvl {
+				out[b.Level-minLvl].Count++
+			}
+		}
+		return out
+	}
+	bounds := [][2]uint32{{1, 9}, {10, 19}, {20, 29}, {30, 39}, {40, 49}, {50, 59}, {60, 60}}
+	out := make([]model.LevelBand, 0, len(bounds))
+	for _, bd := range bounds {
+		out = append(out, model.LevelBand{Lo: bd[0], Hi: bd[1]})
+	}
+	for _, b := range bots {
+		for i, bd := range bounds {
+			if b.Level >= bd[0] && b.Level <= bd[1] {
+				out[i].Count++
+				break
+			}
+		}
+	}
+	return out
 }
 
 // publishLocked replaces the roster with the contents of a complete cycle.
@@ -321,6 +615,15 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 	s.lastSeq = seq
 	s.lastSnapshotAt = now
 	s.snapshotsPublished++
+	s.observeXPLocked(bots, now)
+	// Stamp the derived XP fields onto the stored roster so Snapshot serves
+	// them without recomputation.
+	for _, b := range bots {
+		if e, ok := s.bots[b.GUID]; ok {
+			e.snap.XpPerHour = b.XpPerHour
+			e.snap.XpGainAgeSec = b.XpGainAgeSec
+		}
+	}
 	s.issues.Observe(bots, now)
 }
 
@@ -364,6 +667,8 @@ func (s *Store) beginSessionLocked(session uint64) {
 	s.heartbeat = nil
 	s.heartbeatAt = time.Time{}
 	s.lastSnapshotAt = time.Time{}
+	s.xpTracks = make(map[uint32]*xpTrack)
+	s.serverInfo = nil
 	s.issues.Reset()
 	s.issues.NoteSessionChange(s.now())
 }

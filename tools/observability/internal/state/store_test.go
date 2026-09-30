@@ -344,3 +344,127 @@ func TestConflictingTotalBatchesRestartsCycle(t *testing.T) {
 		t.Fatal("out-of-range batch published a cycle")
 	}
 }
+func xbot(guid uint32, name string, level, xp, next uint32) model.BotSnapshot {
+	b := bot(guid, name, 0)
+	b.Level, b.XP, b.NextXP = level, xp, next
+	return b
+}
+
+func TestXpRateDerivesFromWindowedDeltas(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+
+	s.ApplyHeartbeat(heartbeat(1, 1))
+	s.ApplyBatch(batch(1, 0, 1, xbot(1, "Alpha", 10, 100, 1000)))
+	if got := s.Snapshot().Bots[0].XpPerHour; got != 0 {
+		t.Fatalf("first sample must not produce a rate, got %v", got)
+	}
+	if got := s.Snapshot().Bots[0].XpGainAgeSec; got != -1 {
+		t.Fatalf("no gain yet must be -1, got %v", got)
+	}
+
+	// +300 XP over 6 minutes => 3000 XP/h.
+	c.Advance(6 * time.Minute)
+	s.ApplyHeartbeat(heartbeat(2, 1))
+	s.ApplyBatch(batch(2, 0, 1, xbot(1, "Alpha", 10, 400, 1000)))
+	got := s.Snapshot().Bots[0]
+	if got.XpPerHour < 2999 || got.XpPerHour > 3001 {
+		t.Fatalf("expected ~3000 XP/h, got %v", got.XpPerHour)
+	}
+	if got.XpGainAgeSec != 0 {
+		t.Fatalf("gain age must be 0 right after a gain, got %v", got.XpGainAgeSec)
+	}
+
+	// A ding keeps the window: pre-ding progress + remainder still rate,
+	// never a burst, never erased.
+	c.Advance(2 * time.Second)
+	s.ApplyHeartbeat(heartbeat(3, 1))
+	s.ApplyBatch(batch(3, 0, 1, xbot(1, "Alpha", 11, 50, 2000)))
+	if got := s.Snapshot().Bots[0].XpPerHour; got < 2900 || got > 3100 {
+		t.Fatalf("ding must preserve the windowed rate, got %v", got)
+	}
+
+	// Old samples age out of the 30 min window: a flat bot decays to 0 and
+	// its gain age goes stale.
+	c.Advance(31 * time.Minute)
+	s.ApplyHeartbeat(heartbeat(4, 1))
+	s.ApplyBatch(batch(4, 0, 1, xbot(1, "Alpha", 11, 50, 2000)))
+	got = s.Snapshot().Bots[0]
+	if got.XpPerHour != 0 {
+		t.Fatalf("stale window must decay to 0, got %v", got.XpPerHour)
+	}
+	if got.XpGainAgeSec < 1800 {
+		t.Fatalf("gain age must reflect the stale ding, got %v", got.XpGainAgeSec)
+	}
+}
+
+func TestGrindingSummaryCountsAndBands(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+
+	a := xbot(1, "Alpha", 10, 0, 1000)
+	a.State = "combat"
+	b := xbot(2, "Beta", 11, 0, 1000)
+	b.State = "idle"
+	s.ApplyHeartbeat(heartbeat(1, 2))
+	s.ApplyBatch(batch(1, 0, 1, a, b))
+
+	g := s.Snapshot().Grinding
+	if g.BotsTracked != 2 {
+		t.Fatalf("expected 2 tracked, got %d", g.BotsTracked)
+	}
+	if g.StateCounts["combat"] != 1 || g.StateCounts["idle"] != 1 {
+		t.Fatalf("state counts wrong: %+v", g.StateCounts)
+	}
+	// Narrow pool (10-11): adaptive per-level bands.
+	if len(g.LevelBands) != 2 || g.LevelBands[0].Lo != 10 || g.LevelBands[1].Count != 1 {
+		t.Fatalf("adaptive bands wrong: %+v", g.LevelBands)
+	}
+}
+
+func TestLevelBandsWidenWhenSpread(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+
+	s.ApplyHeartbeat(heartbeat(1, 3))
+	s.ApplyBatch(batch(1, 0, 1, xbot(1, "A", 1, 0, 400), xbot(2, "B", 30, 0, 1000), xbot(3, "C", 60, 0, 0)))
+
+	g := s.Snapshot().Grinding
+	if len(g.LevelBands) != 7 {
+		t.Fatalf("spread pool must use 7 classic bands, got %+v", g.LevelBands)
+	}
+	if g.LevelBands[0].Count != 1 || g.LevelBands[3].Count != 1 || g.LevelBands[6].Count != 1 {
+		t.Fatalf("spread bands misbucketed: %+v", g.LevelBands)
+	}
+}
+
+func TestServerInfoStoredAndSessionGated(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+	if s.ServerInfo() != nil {
+		t.Fatal("expected no server info initially")
+	}
+	// Establish session 7 with a complete cycle.
+	hb := heartbeat(1, 1)
+	hb.Session = 7
+	s.ApplyHeartbeat(hb)
+	b := batch(1, 0, 1, bot(1, "Alpha", 0))
+	b.Session = 7
+	s.ApplyBatch(b)
+	s.ApplyServerInfo(&model.ServerInfoPayload{Session: 7, ModuleVersion: "test"})
+	if got := s.ServerInfo(); got == nil || got.ModuleVersion != "test" {
+		t.Fatalf("server info not stored: %+v", got)
+	}
+	// A delayed datagram from another session must not overwrite.
+	s.ApplyServerInfo(&model.ServerInfoPayload{Session: 8, ModuleVersion: "stale"})
+	if got := s.ServerInfo(); got.ModuleVersion != "test" {
+		t.Fatalf("stale session overwrote server info: %+v", got)
+	}
+	// A session change clears it.
+	hb2 := heartbeat(1, 0)
+	hb2.Session = 9
+	s.ApplyHeartbeat(hb2)
+	if s.ServerInfo() != nil {
+		t.Fatal("session change must clear server info")
+	}
+}

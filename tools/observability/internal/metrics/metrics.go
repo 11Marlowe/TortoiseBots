@@ -24,6 +24,11 @@ type Registry struct {
 	stateRatio     *prometheus.GaugeVec
 	issuesActive   *prometheus.GaugeVec
 	snapshotsTotal prometheus.Counter
+	// Grinding panel: pool-wide XP and kill rates derived per snapshot.
+	grindingXpHour  prometheus.Gauge
+	grindingGaining prometheus.Gauge
+	grindingKills   prometheus.Gauge
+	grindingCombat  prometheus.Gauge
 }
 
 func New() *Registry {
@@ -60,6 +65,22 @@ func New() *Registry {
 			Name: "tortoisebots_snapshots_total",
 			Help: "Complete bot roster snapshots published by the daemon",
 		}),
+		grindingXpHour: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "tortoisebots_grinding_xp_per_hour_total",
+			Help: "Pool-wide XP per hour summed over bots with a positive windowed rate",
+		}),
+		grindingGaining: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "tortoisebots_grinding_bots_gaining",
+			Help: "Bots with an XP gain in the last 10 minutes",
+		}),
+		grindingKills: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "tortoisebots_grinding_deaths_per_min",
+			Help: "BOT_DEATH bot deaths per minute over the last 10 minutes",
+		}),
+		grindingCombat: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "tortoisebots_grinding_pct_in_combat",
+			Help: "Percent of the roster in combat state (0-100)",
+		}),
 	}
 
 	// Initialize server as offline until the first pulse.
@@ -92,6 +113,7 @@ func (r *Registry) RecordHeartbeat(p *model.HeartbeatPayload) {
 
 	r.stateRatio.WithLabelValues("combat").Set(p.States.Combat)
 	r.stateRatio.WithLabelValues("moving").Set(p.States.Moving)
+	r.stateRatio.WithLabelValues("busy").Set(p.States.Busy)
 	r.stateRatio.WithLabelValues("resting").Set(p.States.Resting)
 	r.stateRatio.WithLabelValues("dead").Set(p.States.Dead)
 	r.stateRatio.WithLabelValues("idle").Set(p.States.Idle)
@@ -114,6 +136,18 @@ func (r *Registry) RecordAnomaly(a *model.AnomalyPayload) {
 
 func (r *Registry) RecordSnapshot() {
 	r.snapshotsTotal.Inc()
+}
+
+// RecordGrinding mirrors the dashboard grinding panel so alerts can use it.
+func (r *Registry) RecordGrinding(g model.GrindingSummary) {
+	r.grindingXpHour.Set(g.TotalXpHour)
+	r.grindingGaining.Set(float64(g.BotsGainingXP))
+	r.grindingKills.Set(g.DeathsPerMin)
+	if n := g.BotsTracked; n > 0 {
+		r.grindingCombat.Set(float64(g.StateCounts["combat"]) / float64(n) * 100)
+	} else {
+		r.grindingCombat.Set(0)
+	}
 }
 
 func (r *Registry) RecordIssues(snap model.IssueSnapshot) {
@@ -144,7 +178,11 @@ func (r *Registry) markOffline() {
 	r.playersOnline.Set(0)
 	r.botActiveCount.Reset()
 	r.issuesActive.Reset()
-	for _, state := range []string{"combat", "moving", "resting", "dead", "idle"} {
+	r.grindingXpHour.Set(0)
+	r.grindingGaining.Set(0)
+	r.grindingKills.Set(0)
+	r.grindingCombat.Set(0)
+	for _, state := range []string{"combat", "moving", "busy", "resting", "dead", "idle"} {
 		r.stateRatio.WithLabelValues(state).Set(0)
 	}
 }
