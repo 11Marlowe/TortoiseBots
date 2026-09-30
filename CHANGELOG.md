@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-09-30
+
+### Loot & Grinding
+
+- Bots now loot their own kills before pulling the next mob, instead of wandering off and leaving roughly two thirds of corpses to rot or expire — expect a big jump in collected drops on fresh pools [#355](https://github.com/Sagiroth/TortoiseBots/pull/355)
+- A bot won't start walking to a corpse while an add is charging it; loot waits until the fight is actually over [#355](https://github.com/Sagiroth/TortoiseBots/pull/355)
+- Kept intact from #340: shared 3D loot range checks, skinning after items, and group loot rules [#355](https://github.com/Sagiroth/TortoiseBots/pull/355)
+
+### Observability & Engine
+
+- `BotDeath` is now a real event in `bot_events.csv` with killer, level, and position, so deaths are no longer mixed in with respawns of stuck bots [#356](https://github.com/Sagiroth/TortoiseBots/pull/356)
+- `deaths.csv` is append-only, so a pool reset no longer nukes your death history mid-session [#356](https://github.com/Sagiroth/TortoiseBots/pull/356)
+- `AutoSetTalentsAction` is only logged when talents actually change, killing the spam of no-op entries on every sub-level-10 level-up [#356](https://github.com/Sagiroth/TortoiseBots/pull/356)
+- Bot behaviour itself is unchanged — this is purely cleaner data for pool analysis [#356](https://github.com/Sagiroth/TortoiseBots/pull/356)
+
+---
+
 ## 2026-09-29
 
 ### Combat & AI
