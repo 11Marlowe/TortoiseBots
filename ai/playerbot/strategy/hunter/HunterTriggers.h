@@ -1,9 +1,15 @@
 #pragma once
 
 #include "playerbot/strategy/triggers/GenericTriggers.h"
+#include "playerbot/strategy/hunter/HunterActions.h"
 
 namespace ai
 {
+    // Below this level a hunter cannot kite back into ranged once melee starts:
+    // SwitchToRangedTrigger refuses to switch back (its kiting toolkit - snares
+    // and traps - is not there yet).
+    uint32 const HUNTER_KITING_LEVEL = 10;
+
     HAS_AURA_TRIGGER_TIME(FeignDeathTrigger, "feign death", 2);
 
     BEGIN_TRIGGER(HunterNoStingsActiveTrigger, Trigger)
@@ -223,7 +229,7 @@ private:
             // reopen ranged distance (which the "target->GetVictim() != bot" case below would
             // otherwise attempt even against a target just as fast as the bot, e.g. whenever
             // the pet currently has aggro, regardless of what happens if aggro flips back).
-            if (bot->GetClass() == CLASS_HUNTER && bot->GetLevel() < 10)
+            if (bot->GetClass() == CLASS_HUNTER && bot->GetLevel() < HUNTER_KITING_LEVEL)
                 return false;
 
             bool hasAmmo = ai->HasCheat(BotCheatMask::item) || AI_VALUE2(uint32, "item count", "ammo");
@@ -240,6 +246,35 @@ private:
         }
     };
 
+    // The shot's own minimum range is the hunter's dead zone: inside it no
+    // ranged attack is possible, and the generic "enemy too close for spell"
+    // flee is suppressed while a fast target is glued to the bot (RangeTriggers.h
+    // "can't add distance" guard) - the state that otherwise leaves an armed
+    // low-level hunter standing. This trigger is that step back, at the exact
+    // boundary the shot itself uses (CastSpellAction::isPossible).
+    class EnemyTooCloseForAutoShotTrigger : public Trigger
+    {
+    public:
+        EnemyTooCloseForAutoShotTrigger(PlayerbotAI* ai) : Trigger(ai, "enemy too close for auto shot", 1) {}
+
+        bool IsActive() override
+        {
+            if (!ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT) || !HunterHasLoadedRangedWeapon(ai))
+                return false;
+
+            Unit* target = AI_VALUE(Unit*, "current target");
+            if (!target)
+                return false;
+
+            float maxRange = 0.0f;
+            float minRange = 0.0f;
+            if (!ai->GetSpellRange("auto shot", &maxRange, &minRange) || minRange <= 0.0f)
+                return false;
+
+            return bot->GetDistance(target, SizeFactor::CombatReach) < minRange;
+        }
+    };
+
     class SwitchToMeleeTrigger : public Trigger
     {
     public:
@@ -247,6 +282,16 @@ private:
 
         bool IsActive() override
         {
+            // A hunter below the kiting level keeps its ranged kit:
+            // SwitchToRangedTrigger never switches back below
+            // HUNTER_KITING_LEVEL, and the auto shot that the kit keeps running
+            // is gated on the "ranged" strategy - one melee switch here ends the
+            // hunter's sustained ranged attack for the rest of the level. The
+            // melee fallback stays for a hunter with no loaded ranged weapon (no
+            // weapon, wrong or no ammo, spent thrown stack).
+            if (bot->GetClass() == CLASS_HUNTER && bot->GetLevel() < HUNTER_KITING_LEVEL && HunterHasLoadedRangedWeapon(ai))
+                return false;
+
             bool hasAmmo = ai->HasCheat(BotCheatMask::item) || AI_VALUE2(uint32, "item count", "ammo");
             if (!hasAmmo)
                 return true;
