@@ -6,7 +6,24 @@ using namespace ai;
 
 bool LootAvailableTrigger::IsActive()
 {
-    if (AI_VALUE2(bool, "combat", "self target") || AI_VALUE2(bool, "mounted", "self target"))
+    // The loot chain only exists in the non-combat engine, and that engine's state comes from the
+    // "combat start"/"combat end" reaction (has attackers) - not from UNIT_FLAG_IN_COMBAT, which
+    // lingers for a moment after every kill. Testing the flag here suppressed "loot" (6.0) for
+    // exactly the window in which the bot must loot before picking its next target, so
+    // "attack anything" (5.0, GrindingStrategy) ordered the next pull instead: live measurement
+    // showed that a kill followed by an attack order within 2s produced loot on 7% of corpses,
+    // against 43% when the bot stayed quiet for 5-10s. The corpse then expired unopened.
+    // "combat" also counted any group member in combat within reactDistance (150y), so a bot
+    // party stopped looting while anyone nearby fought.
+    //
+    // bot->GetAttackers() replaces it with the core's own "attacking me right now" set, which has
+    // neither of those two defects: it is filled in Unit::Attack (the moment an add aggros, before
+    // its first hit) and drained in CombatStop/AttackStop (the moment it dies or evades). That
+    // closes the engine's blind spot - "has attackers" is a 2s-cached list, so a corpse could make
+    // the bot kneel for lootDelay next to an add that already had it as its victim - while a kill
+    // still loots at once (the dead mob is gone from the set) and a corpse held up by a real fight
+    // waits in the stack for LOOT_OBJECT_TTL_SECONDS instead of being lost.
+    if (AI_VALUE2(bool, "mounted", "self target") || !bot->GetAttackers().empty())
         return false;
 
     if (!AI_VALUE(bool, "has available loot"))
