@@ -84,6 +84,14 @@
 - Direct replies to player commands still work as before — only the unprompted narration is suppressed, so nearby players stop getting spammed in `/say` [#372](https://github.com/Sagiroth/TortoiseBots/pull/372)
 - `AiPlayerbot.BroadcastChanceSuggestSell` now defaults to `0` (down from `300`), killing the "WTS" broadcasts out of the box. Operators who actually want that noise can raise the value in config [#372](https://github.com/Sagiroth/TortoiseBots/pull/372)
 
+### Core Sync & Fixes
+- Pool bots no longer invite each other into bot-only groups, eliminating ~110 phantom groups per 500-bot pool and the travel loops and idle followers they caused [#371](https://github.com/Sagiroth/TortoiseBots/pull/371)
+- `AiPlayerbot.RandomBotGroupNearby` now defaults to `0` (matching mod-playerbots); set it to `1` to restore the old bot-to-bot grouping behavior [#371](https://github.com/Sagiroth/TortoiseBots/pull/371)
+
+### Grouping & Invites
+- Real-player invites (`RandomBotInvitePlayer`) are unaffected — bots still accept and group with humans regardless of the new default [#371](https://github.com/Sagiroth/TortoiseBots/pull/371)
+- Groups containing a real player continue to function normally; only bot-led, bot-only groups are suppressed [#371](https://github.com/Sagiroth/TortoiseBots/pull/371)
+
 ## 2026-09-29
 
 ### Combat & AI
