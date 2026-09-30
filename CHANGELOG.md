@@ -29,6 +29,11 @@
 - Hearthstone rescue now only fires when the bot is genuinely far from homebind (`AiPlayerbot.UnstuckHearthMinDistance`, default 300 yd); closer in, the unstuck chain repops instead. Previously bots burned ~480 hearthstones in 100 minutes, 95% of them within 300 yd of where they started. [#353](https://github.com/Sagiroth/TortoiseBots/pull/353)
 - `move long stuck` and `combat long stuck` now require 15 minutes of zero XP *and* zero money before the "no movement for 10 minutes" branch can trigger — no more false positives from a bot that's just slowly grinding. [#353](https://github.com/Sagiroth/TortoiseBots/pull/353)
 
+### Observability & Engine
+
+- Hunters now write two new `bot_events.csv` events: ranged auto-attack starts and ranged↔melee kit switches — so you can finally confirm whether they're actually shooting, since ammo counts lie (pool bots refill). [#358](https://github.com/Sagiroth/TortoiseBots/pull/358)
+- Purely telemetry: no hunter behavior changes ship with this. The ranged-kit tweaks from the test run were dropped after hunters led the death charts, so consider this a measurement tool first. [#358](https://github.com/Sagiroth/TortoiseBots/pull/358)
+
 ## 2026-09-29
 
 ### Combat & AI
