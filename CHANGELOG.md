@@ -112,6 +112,15 @@
 - Kills the evade spiral around Fargodeep mine shafts, embankments, and similar geometry: the core flags a creature after 3 s but doesn't send it home until 24 s, and bots were burning that entire window chasing nothing (56 of 60 evade samples showed the "not reachable" flag with the mob still aggroed). [#375](https://github.com/Sagiroth/TortoiseBots/pull/375)
 - Verified via `tools/verify_all.sh` plus runtime testing on the combined build — module builds clean. [#375](https://github.com/Sagiroth/TortoiseBots/pull/375)
 
+### Observability & Engine
+- Per-bot XP bar (current / next level) plus XP/h now shows up in the roster, the bot drawer, and the Armory profile header — you can finally see who's actually levelling [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
+- New grinding panel tracks bots gaining XP, median XP/h, and kills/min, with adaptive level bands so the numbers stay meaningful across the whole level range [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
+- Server panel exposes the effective rates and TortoiseBots runtime info in one place for quick sanity checks [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
+
+### Activity & Idle Tracking
+- Activity census rewritten: "idle" now means genuinely doing nothing for a while, while looting, eating, casting, and standing at a travel target all count as busy [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
+- Fixes the old single 2s sample that flagged every pause as idle — dashboards showed ~50-60% idle when only ~6% of bots actually were [#376](https://github.com/Sagiroth/TortoiseBots/pull/376)
+
 ## 2026-09-29
 
 ### Combat & AI
