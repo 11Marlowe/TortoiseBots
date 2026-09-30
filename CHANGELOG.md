@@ -79,6 +79,11 @@
 - Newly created bots no longer get stuck in their race intro on first login. While the intro plays the server won't let creatures target that character, so bots would hit a mob, the mob would find nobody to fight, evade, and heal to full. The module now ends the intro on world entry — no core change required. [#369](https://github.com/Sagiroth/TortoiseBots/pull/369)
 - Also covers the second intro path via camera game objects (RPG use / cinematics), so bots don't silently re-enter an untargetable state afterward. [#369](https://github.com/Sagiroth/TortoiseBots/pull/369)
 
+### Chat & Bot Behavior
+- Pool bots no longer narrate their own autonomous actions in public or party chat; travel lines, "Selling [item]" spam, and bot-to-bot trade/enchant chatter are now silent unless a real player prompted them [#372](https://github.com/Sagiroth/TortoiseBots/pull/372)
+- Direct replies to player commands still work as before — only the unprompted narration is suppressed, so nearby players stop getting spammed in `/say` [#372](https://github.com/Sagiroth/TortoiseBots/pull/372)
+- `AiPlayerbot.BroadcastChanceSuggestSell` now defaults to `0` (down from `300`), killing the "WTS" broadcasts out of the box. Operators who actually want that noise can raise the value in config [#372](https://github.com/Sagiroth/TortoiseBots/pull/372)
+
 ## 2026-09-29
 
 ### Combat & AI
