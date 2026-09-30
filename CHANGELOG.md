@@ -34,6 +34,13 @@
 - Hunters now write two new `bot_events.csv` events: ranged auto-attack starts and ranged↔melee kit switches — so you can finally confirm whether they're actually shooting, since ammo counts lie (pool bots refill). [#358](https://github.com/Sagiroth/TortoiseBots/pull/358)
 - Purely telemetry: no hunter behavior changes ship with this. The ranged-kit tweaks from the test run were dropped after hunters led the death charts, so consider this a measurement tool first. [#358](https://github.com/Sagiroth/TortoiseBots/pull/358)
 
+### Quests & Progression
+- Hand-in trips to a quest giver now outrank *starting* a fight, so bots stop getting distracted mid-delivery and actually finish the quests they've already completed — defending against mobs that attack first is untouched [#354](https://github.com/Sagiroth/TortoiseBots/pull/354)
+- Upkeep-bot hand-in latch dropped from 2 to 1, matching the real backlog of a single finished quest and cutting the stale-quest pileup [#354](https://github.com/Sagiroth/TortoiseBots/pull/354)
+
+### Observability & Engine
+- New `bot_events.csv` entries `QuestCompleted` and `QuestRewarded` make it possible to audit quest throughput and confirm hand-ins actually land instead of guessing from accepted-quest counts [#354](https://github.com/Sagiroth/TortoiseBots/pull/354)
+
 ## 2026-09-29
 
 ### Combat & AI
