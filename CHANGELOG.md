@@ -52,6 +52,25 @@
 ### Bot Pool & Availability
 - Bots that missed their scheduled return after the 6-hour timed logout are no longer parked on a stale 1-hour hold — timed logouts are handled separately from quick logouts, so a lapsed hold can't keep a bot out of the world. Recovers roughly 105 bots (~6.7% of pool capacity), mostly levels 1–4. [#362](https://github.com/Sagiroth/TortoiseBots/pull/362)
 
+### Hunter & Pets
+
+- Pool hunters now get their pet at level 10 instead of level 1 — seeded pets below 10 are dropped at login, and a fresh, level-fitting pet is granted on reaching 10. Player-owned hunters, hired companions, and party bots are untouched. [#366](https://github.com/Sagiroth/TortoiseBots/pull/366)
+- Hunters below level 10 no longer lose their ranged kit permanently: the "switch to melee" path is no longer a dead end below 10, and hunters keep a rule to preserve distance with bow or gun in hand. [#368](https://github.com/Sagiroth/TortoiseBots/pull/368)
+- A hunter stuck in Auto Shot's 8-yard dead zone with a mob on it now steps back out instead of standing still and whiffing shots. [#368](https://github.com/Sagiroth/TortoiseBots/pull/368)
+
+### Combat & Targeting
+
+- Bots no longer pick, order, or hold onto creatures stuck in evade mode — the mob that walks home invulnerable and regenerating is skipped, so fights actually end in kills instead of endless poking. [#364](https://github.com/Sagiroth/TortoiseBots/pull/364)
+
+### Movement & Grinding
+
+- Grind orders now actually walk the bot to its target: the always-on `StopMoving()` on `attack anything` was fixed, `reach` actions get engine time, and `select new target` no longer wipes the target every tick. This fixes the 53% of pool bots frozen in place and the 3–6% kill rate on leveling. [#361](https://github.com/Sagiroth/TortoiseBots/pull/361)
+- Follow-up cleanup on the reach flow: the grind order no longer overrides reach's movement wait (kills a tick of jitter), and the sub-10 leveling druid's out-of-melee trigger now matches the registered name, so it actually gets its reach in combat. [#365](https://github.com/Sagiroth/TortoiseBots/pull/365)
+
+### Chat & Social
+
+- Fresh pool bots stop spamming greetings and emotes at each other in starting zones. Real players still get greetings (limited), and hire/summon/reunite greetings for a real master are unchanged — `AiPlayerbot.RandomBotGreet` defaults to off for the pool. [#367](https://github.com/Sagiroth/TortoiseBots/pull/367)
+
 ## 2026-09-29
 
 ### Combat & AI
