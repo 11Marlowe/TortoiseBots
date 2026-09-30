@@ -100,6 +100,13 @@
 - Population is counted once per creation batch, so bulk pool resets stay balanced rather than front-loading one zone. [#373](https://github.com/Sagiroth/TortoiseBots/pull/373)
 - New config `AiPlayerbot.RandomBotEvenStartZones` (default `1`) toggles the behavior; set it to `0` to restore the old random-race picks. [#373](https://github.com/Sagiroth/TortoiseBots/pull/373)
 
+### Combat & AI
+- Level 1–3 bots no longer park at their spawn hub waiting for respawns. The Grind travel purpose now actually fires for beginners, so a bot with nothing in range walks to a real grind spot instead of idling (the native equivalent of mod-playerbots' `GO_GRIND`). [#374](https://github.com/Sagiroth/TortoiseBots/pull/374)
+- Wild XP-granting critter-type beasts (deer, cows) are no longer skipped by the critter filter — the check now uses the grey-level test, so lowbies get XP from the wildlife around starter hubs instead of ignoring free kills. [#374](https://github.com/Sagiroth/TortoiseBots/pull/374)
+
+### Starter Zones & World
+- Fixes Coldridge Valley's dead-end grind loop: wolves and troggs sit 185–240 yd out, well beyond the 60 yd scan, so 86% of grind searches previously found nothing and the only reachable mobs were two rabbits. Bots now walk out to the field. [#374](https://github.com/Sagiroth/TortoiseBots/pull/374)
+
 ## 2026-09-29
 
 ### Combat & AI
