@@ -17,6 +17,18 @@
 
 ---
 
+### Combat & AI
+- Low-level masterless bots (under level 10) now cap their grind targets at +1 level instead of +4, so they stop picking fights they can't finish — melee kill rates were sitting at 1-4% versus 23% for mages. Quest mobs stay exempt from the gate. [#352](https://github.com/Sagiroth/TortoiseBots/pull/352)
+- Auto-attack is now armed whenever a bot has no ranged option, not just for melee specs. Low-level druids and elemental shamans without a wand or bow can finally swing back instead of standing there. [#352](https://github.com/Sagiroth/TortoiseBots/pull/352)
+
+### Vendor & Economy
+- Level 1-4 bots can now visit a camp vendor to sell starter loot, with low-level-friendly thresholds. A fresh pool of 500 bots was averaging ~2.7 copper each after two hours because lowbies never vendored anything. [#357](https://github.com/Sagiroth/TortoiseBots/pull/357)
+- The batch vendor-trip rule no longer waits on a missing spell rank — a bag worth the trip is enough to trigger the run. The broader RPG town guard is untouched, so bots still don't wander into cities. [#357](https://github.com/Sagiroth/TortoiseBots/pull/357)
+
+### Unstuck & Recovery
+- Hearthstone rescue now only fires when the bot is genuinely far from homebind (`AiPlayerbot.UnstuckHearthMinDistance`, default 300 yd); closer in, the unstuck chain repops instead. Previously bots burned ~480 hearthstones in 100 minutes, 95% of them within 300 yd of where they started. [#353](https://github.com/Sagiroth/TortoiseBots/pull/353)
+- `move long stuck` and `combat long stuck` now require 15 minutes of zero XP *and* zero money before the "no movement for 10 minutes" branch can trigger — no more false positives from a bot that's just slowly grinding. [#353](https://github.com/Sagiroth/TortoiseBots/pull/353)
+
 ## 2026-09-29
 
 ### Combat & AI
