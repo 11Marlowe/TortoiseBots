@@ -64,6 +64,7 @@ bool ai::AttackAnythingAction::Execute(Event& event)
             if (!grindName.empty())
             {
                 sPlayerbotAIConfig.logEvent(ai, "AttackAnythingAction", grindName + " (lvl " + std::to_string(grindTarget->GetLevel()) + ")", std::to_string(grindTarget->GetEntry()));
+                LogRepeatOrder(grindTarget);
 
                 if (ai->HasStrategy("pull", BotState::BOT_STATE_COMBAT))
                 {
@@ -92,6 +93,42 @@ bool ai::AttackAnythingAction::Execute(Event& event)
     }
 
     return result;
+}
+
+void ai::AttackAnythingAction::LogRepeatOrder(Unit* target)
+{
+    // A second order on the same mob inside this window is a repeat: a bot that killed a
+    // mob and moved on does not come back to the same creature in under a minute.
+    uint32 const repeatWindowMs = 60 * IN_MILLISECONDS;
+    // Logging starts at the third repeat (a single repeat is normal - target re-selected
+    // after a reset) and then at most one row per window.
+    uint32 const minRepeatsToLog = 3;
+
+    uint32 const nowMs = WorldTimer::getMSTime();
+    bool const repeat = lastGrindOrderMs && lastGrindTarget == target->getObjectGuid() &&
+        WorldTimer::getMSTimeDiff(lastGrindOrderMs, nowMs) < repeatWindowMs;
+
+    lastGrindTarget = target->getObjectGuid();
+    lastGrindOrderMs = nowMs;
+    grindRepeatCount = repeat ? grindRepeatCount + 1 : 0;
+
+    if (grindRepeatCount < minRepeatsToLog)
+        return;
+
+    if (lastRepeatLogMs && WorldTimer::getMSTimeDiff(lastRepeatLogMs, nowMs) < repeatWindowMs)
+        return;
+
+    lastRepeatLogMs = nowMs;
+
+    std::ostringstream out;
+    out << "guid=" << target->getObjectGuid().GetRawValue();
+    out << " entry=" << target->GetEntry();
+    out << " dz=" << (int)(bot->GetPositionZ() - target->GetPositionZ());
+    out << " dist=" << (int)sServerFacade.getDistance2d(bot, target);
+    out << " incombat=" << (int)bot->IsInCombat();
+    out << " victim=" << (int)(target->GetVictim() == bot);
+    out << " repeats=" << grindRepeatCount;
+    sPlayerbotAIConfig.logEvent(ai, "GrindTargetRepeat", out.str(), std::to_string(target->GetEntry()));
 }
 
 bool AttackEnemyPlayerAction::isUseful()
