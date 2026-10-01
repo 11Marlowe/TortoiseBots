@@ -5,6 +5,30 @@
 
 namespace ai
 {
+    // Issue #T7: several buffers in one party picked the same target in the same
+    // tick - a freshly hired member has no auras yet, so every buffer decided
+    // "it lacks my buff" before the first cast (1.5 s) had landed the aura, and
+    // all of them cast the same spell. This tiny registry is shared by every bot
+    // in the process: the caster claims the target (or the whole group for the
+    // area buffs) right before casting and the other casters stand down while a
+    // claim is live. Claims are time-bounded only - a caster that dies, leaves
+    // or logs out is harmless, its entry simply expires.
+    class BuffClaimRegistry
+    {
+    public:
+        // Claim a scope (a target's guid, or GroupScope()) for spell.
+        static void Claim(ObjectGuid const& caster, ObjectGuid const& scope, std::string const& spell);
+        // True when a caster other than `caster` holds a live claim on scope.
+        static bool IsClaimedByOther(ObjectGuid const& caster, ObjectGuid const& scope, std::string const& spell);
+        // Stable group scope for a bot: its group id when grouped (one id for the
+        // whole party, so two separate parties never interfere), its own guid
+        // when solo.
+        static ObjectGuid GroupScope(Player* bot);
+        // True when another bot holds a live claim on target, or on the caster's
+        // group for this spell (the group scope covers the area buffs).
+        static bool IsTargetClaimedByOther(Player* caster, Unit* target, std::string const& spell);
+    };
+
     class CastSpellAction : public Action
     {
     public:
@@ -157,15 +181,33 @@ namespace ai
         virtual bool Execute(Event& event) override;
 
     protected:
+        // Issue #378: retry window for one attempt on one target, out of combat.
+        // The party group buffs widen it (see GreaterBuffOnPartyAction): a single
+        // cast covers the whole (sub)group and spends a reagent, so a target that
+        // cannot receive the area buff must not burn another reagent every 3 s.
+        virtual uint32 GetBuffRetryCooldown() const;
+
+        // Issue #T7: the scopes this cast claims before it is attempted, so other
+        // bots stop duplicating it. Default: the resolved target. The greater
+        // (area) buffs override it to claim the caster's whole group, under both
+        // the greater and the lower single-target name.
+        virtual void ClaimBuffCast(Unit* target);
+
+        // Issue #378: out of combat an upkeep buff is not worth its mana while the
+        // bot is below its floor. Combat casts (seals, totems, shields, charge
+        // re-applies) are never gated. Percentage-cost spells and shapeshift forms
+        // are handled inside; see the .cpp for the exemptions.
+        bool HasManaForBuff();
+
         // Issue #359: an upkeep buff has no retry cooldown of its own. Its trigger
         // re-evaluates every tick (BuffTrigger interval < 2) and the engine's
         // failure backoff deliberately exempts bots with a real player master, so a
         // buff whose aura is still missing after the attempt (drink in progress, out
         // of range or LOS, not enough mana, master moving away) was re-attempted on
         // every AI tick - the hired priest "buffs itself, drinks and repeats" loop.
-        // One attempt per target per BUFF_RETRY_COOLDOWN seconds, out of combat only;
-        // the aura gate in CastAuraSpellAction::isUseful still decides whether the
-        // buff is needed at all.
+        // One attempt per target per GetBuffRetryCooldown() seconds, out of combat
+        // only; the aura gate in CastAuraSpellAction::isUseful still decides whether
+        // the buff is needed at all.
         ObjectGuid lastAttemptTarget;
         time_t lastAttemptTime = 0;
 
@@ -318,15 +360,27 @@ namespace ai
     class GreaterBuffOnPartyAction : public CastBuffSpellAction, public PartyMemberActionNameSupport
     {
     public:
-        GreaterBuffOnPartyAction(PlayerbotAI* ai, std::string spell, bool ignoreTanks = false) : CastBuffSpellAction(ai, spell), PartyMemberActionNameSupport(spell), ignoreTanks(ignoreTanks) {}
+        GreaterBuffOnPartyAction(PlayerbotAI* ai, std::string spell, bool ignoreTanks = false, std::string lowerSpell = "") : CastBuffSpellAction(ai, spell), PartyMemberActionNameSupport(spell), ignoreTanks(ignoreTanks), lowerSpell(lowerSpell) {}
 
     protected:
         virtual std::string getName() override { return PartyMemberActionNameSupport::getName(); }
         virtual std::string GetTargetName() override { return "party member without aura"; }
-        virtual std::string GetTargetQualifier() override { return GetSpellName() + "-" + (ignoreTanks ? "1" : "0"); }
+        // Greater buffs get the long retry window: the cast is area-wide and costs
+        // a reagent, so a member the area never covers is only re-attempted once a
+        // minute. While it is cooling down isUseful() is false and the engine runs
+        // the lower-priority single-target buff for that member instead.
+        virtual uint32 GetBuffRetryCooldown() const override;
+        // Issue #T7: a greater buff covers the whole (sub)group from one cast, so
+        // the claim is on the group (under the greater and the lower spell name)
+        // and every other bot stands down for both casts.
+        virtual void ClaimBuffCast(Unit* target) override;
+        // Must match GreaterBuffOnPartyTrigger::GetTargetValue(): the member has
+        // to lack the lower single-target buff as well (issue #378).
+        virtual std::string GetTargetQualifier() override { return GetSpellName() + (lowerSpell.empty() ? "" : "," + lowerSpell) + "-" + (ignoreTanks ? "1" : "0"); }
 
     private:
         bool ignoreTanks;
+        std::string lowerSpell;
     };
 
     //---------------------------------------------------------------------------------------------------------------------

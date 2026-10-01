@@ -7,6 +7,7 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/AoeValues.h"
 #include "playerbot/strategy/actions/AttackAction.h"
+#include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 
 #include <regex>
@@ -216,6 +217,13 @@ bool BuffTrigger::IsActive()
     // pool that starts at level 1 (donor bots are max-level, never affected).
     if (!ai->HasSpell(spell))
         return false;
+
+    // Issue #T7: another bot is already casting this spell on the target (or, for
+    // the area buffs, on the whole group). Stay inactive this tick rather than
+    // pick the next member - that would re-create the same race for the others.
+    if (BuffClaimRegistry::IsTargetClaimedByOther(bot, target, spell))
+        return false;
+
     return target && !ai->HasAura(spell, target, false, checkIsOwner) && target->IsAlive();
 }
 
@@ -235,7 +243,14 @@ Value<Unit*>* BuffOnPartyTrigger::GetTargetValue()
 
 Value<Unit*>* GreaterBuffOnPartyTrigger::GetTargetValue()
 {
-    const std::string qualifier = spell + "-" + (ignoreTanks ? "1" : "0");
+    // The greater buff only pays off for a member that still lacks the lower
+    // single-target buff too: with the lower spell alone in the qualifier a
+    // member that already has it (e.g. Power Word: Fortitude) would be picked,
+    // the trigger would then fail its own lower-aura check, and the group
+    // version would never be cast for the rest of the session (issue #378).
+    // Spelled exactly like GreaterBuffOnPartyAction::GetTargetQualifier(), so the
+    // trigger and the action always resolve the same target.
+    const std::string qualifier = spell + (lowerSpell.empty() ? "" : "," + lowerSpell) + "-" + (ignoreTanks ? "1" : "0");
     return context->GetValue<Unit*>("party member without aura", qualifier);
 }
 
