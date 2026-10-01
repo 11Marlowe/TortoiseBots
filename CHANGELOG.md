@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026-10-01
+
+### Party Buffs & Hire Cleanup
+
+- Group buffs now actually go out: Prayer of Fortitude, Arcane Brilliance, Gift of the Wild, and the Prayers pick a party member missing *both* the group aura and the single-target buff, instead of picking someone who already has Power Word: Fortitude and then bailing — which was starving the group version for the entire session [#380](https://github.com/Sagiroth/TortoiseBots/pull/380)
+- Hired priests stop hemorrhaging mana on redundant single-target buffs; the group version wins the cast decision when someone needs it [#380](https://github.com/Sagiroth/TortoiseBots/pull/380)
+- Hires are now properly cleaned up when the player leaves the group — no more orphaned priest bots loitering in the world [#380](https://github.com/Sagiroth/TortoiseBots/pull/380)
+
+---
+
 ## 2026-09-30
 
 ### Loot & Grinding
