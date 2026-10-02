@@ -105,6 +105,18 @@ type Store struct {
 	// serverInfo is the latest SERVER_INFO payload (effective settings).
 	// Stored verbatim; cleared on session change only.
 	serverInfo *model.ServerInfoPayload
+
+	// Activity rollup fed by the BOT_EVENTS datagrams: per-bot counters plus
+	// the pool-wide loot/quest/level feeds. Cleared with the roster.
+	activity  map[uint32]*botActivityState
+	lootFeed  []model.LootFeedItem
+	questFeed []model.QuestFeedItem
+	levelFeed []model.ActivityLevelItem
+
+	// gear is the daemon's periodic equipped-gear sweep, keyed by GUID.
+	// Replaced wholesale by SetGear on every sweep (it is DB truth, not
+	// session state), so it stays bounded by the pool that sweep saw.
+	gear map[uint32]model.BotGear
 }
 
 // New creates an empty store. The ring buffer is owned by the caller and is
@@ -136,6 +148,8 @@ func New(cfg Config, anomalies *ringbuf.RingBuffer) *Store {
 		anomalies: anomalies,
 		issues:    newIssueTracker(cfg.IssueMinAge),
 		xpTracks:  make(map[uint32]*xpTrack),
+		activity:  make(map[uint32]*botActivityState),
+		gear:      make(map[uint32]model.BotGear),
 	}
 }
 
@@ -279,6 +293,7 @@ func (s *Store) Evict() bool {
 	if s.lastSnapshotAt.IsZero() || now.Sub(s.lastSnapshotAt) > s.cfg.RosterTTL {
 		s.bots = make(map[uint32]*botEntry)
 		s.xpTracks = make(map[uint32]*xpTrack)
+		s.resetActivityLocked()
 		s.issues.Reset()
 		return true
 	}
@@ -313,6 +328,8 @@ func (s *Store) Snapshot() model.SnapshotPayload {
 			snap.Trail = make([]model.Coordinate, len(entry.trail))
 			copy(snap.Trail, entry.trail)
 		}
+		snap.Activity = s.activityForLocked(snap.GUID)
+		snap.Gear = s.gearForLocked(snap.GUID)
 		bots = append(bots, snap)
 	}
 	sort.Slice(bots, func(i, j int) bool { return bots[i].Name < bots[j].Name })
@@ -362,6 +379,25 @@ func (s *Store) ServerInfo() *model.ServerInfoPayload {
 	}
 	cp := *s.serverInfo
 	return &cp
+}
+
+// SetGear replaces the equipped-gear sweep keyed by bot GUID. Called by the
+// daemon's slow DB loop (minutes, not ticks); the map it stores is the query's
+// whole current answer, so bots that left the pool drop out with it.
+func (s *Store) SetGear(stats map[uint32]model.BotGear) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gear = stats
+}
+
+// gearForLocked returns a copy of one bot's gear summary, or nil when the last
+// sweep did not cover it (the UI shows "–" rather than a fake 0).
+func (s *Store) gearForLocked(guid uint32) *model.BotGear {
+	g, ok := s.gear[guid]
+	if !ok {
+		return nil
+	}
+	return &g
 }
 
 // observeXPLocked folds one published roster into the per-bot XP tracks and
@@ -512,7 +548,7 @@ func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.Gr
 		out.MedianXpHour = rates[len(rates)/2]
 	}
 	out.PctGainingXP = float64(out.BotsGainingXP) / float64(n) * 100
-	out.LevelBands = levelBands(bots)
+	out.LevelBands = levelBands(bots, s.gear)
 	// BOT_DEATH anomalies are bot deaths, not bot kills: last-5-min
 	// distinct dead bots + per-min casualty rate.
 	if s.anomalies != nil {
@@ -538,11 +574,13 @@ func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.Gr
 	return out
 }
 
-// levelBands builds adaptive buckets from the roster itself: per level
-// while the pool spans <= 10 levels (launch: L1..L7 visible), otherwise the
-// classic 1-9/10-19/.../50-59/60 bands. A single "1-9: 500" row can never
-// hide progress again.
-func levelBands(bots []model.BotSnapshot) []model.LevelBand {
+// levelBands builds adaptive buckets from the roster itself: per level while
+// the pool spans <= 10 levels (launch: L1..L7 visible), otherwise fixed
+// five-level buckets 1-5, 6-10, ... 56-60. A single "1-9: 500" row can never
+// hide progress again. Each band also carries the mean equipped item level of
+// its bots (from the periodic gear sweep), so the pool panel shows whether gear
+// keeps pace with level.
+func levelBands(bots []model.BotSnapshot, gear map[uint32]model.BotGear) []model.LevelBand {
 	if len(bots) == 0 {
 		return nil
 	}
@@ -558,29 +596,52 @@ func levelBands(bots []model.BotSnapshot) []model.LevelBand {
 	if minLvl < 1 {
 		minLvl = 1
 	}
-	if maxLvl-minLvl <= 10 {
-		out := make([]model.LevelBand, 0, maxLvl-minLvl+1)
+
+	narrow := maxLvl-minLvl <= 10
+	var bounds [][2]uint32
+	if narrow {
+		bounds = make([][2]uint32, 0, maxLvl-minLvl+1)
 		for lvl := minLvl; lvl <= maxLvl; lvl++ {
-			out = append(out, model.LevelBand{Lo: lvl, Hi: lvl})
+			bounds = append(bounds, [2]uint32{lvl, lvl})
 		}
-		for _, b := range bots {
-			if b.Level >= minLvl && b.Level <= maxLvl {
-				out[b.Level-minLvl].Count++
-			}
+	} else {
+		for lo := uint32(1); lo <= 56; lo += 5 {
+			bounds = append(bounds, [2]uint32{lo, lo + 4})
 		}
-		return out
 	}
-	bounds := [][2]uint32{{1, 9}, {10, 19}, {20, 29}, {30, 39}, {40, 49}, {50, 59}, {60, 60}}
+	bandOf := func(level uint32) int {
+		if narrow {
+			return int(level - minLvl)
+		}
+		if level < 1 {
+			return 0
+		}
+		i := int((level - 1) / 5)
+		if i >= len(bounds) {
+			i = len(bounds) - 1
+		}
+		return i
+	}
+
 	out := make([]model.LevelBand, 0, len(bounds))
 	for _, bd := range bounds {
 		out = append(out, model.LevelBand{Lo: bd[0], Hi: bd[1]})
 	}
+	sums := make([]float64, len(bounds))
 	for _, b := range bots {
-		for i, bd := range bounds {
-			if b.Level >= bd[0] && b.Level <= bd[1] {
-				out[i].Count++
-				break
-			}
+		i := bandOf(b.Level)
+		if i < 0 || i >= len(out) {
+			continue
+		}
+		out[i].Count++
+		if g, ok := gear[b.GUID]; ok {
+			sums[i] += g.ItemLevel
+			out[i].GearBots++
+		}
+	}
+	for i := range out {
+		if out[i].GearBots > 0 {
+			out[i].AvgItemLevel = sums[i] / float64(out[i].GearBots)
 		}
 	}
 	return out
@@ -616,6 +677,14 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 	s.lastSnapshotAt = now
 	s.snapshotsPublished++
 	s.observeXPLocked(bots, now)
+	s.observeLevelsLocked(bots, now)
+	// Drop activity for bots the roster no longer carries; the map stays
+	// bounded by the live population instead of growing with bot churn.
+	for guid := range s.activity {
+		if _, ok := next[guid]; !ok {
+			delete(s.activity, guid)
+		}
+	}
 	// Stamp the derived XP fields onto the stored roster so Snapshot serves
 	// them without recomputation.
 	for _, b := range bots {
@@ -668,9 +737,19 @@ func (s *Store) beginSessionLocked(session uint64) {
 	s.heartbeatAt = time.Time{}
 	s.lastSnapshotAt = time.Time{}
 	s.xpTracks = make(map[uint32]*xpTrack)
+	s.resetActivityLocked()
 	s.serverInfo = nil
 	s.issues.Reset()
 	s.issues.NoteSessionChange(s.now())
+}
+
+// resetActivityLocked drops every activity counter and feed. Called with the
+// roster: a new game-server process, or a roster wipe, invalidates them.
+func (s *Store) resetActivityLocked() {
+	s.activity = make(map[uint32]*botActivityState)
+	s.lootFeed = nil
+	s.questFeed = nil
+	s.levelFeed = nil
 }
 
 func (s *Store) prunePendingLocked(now time.Time) {

@@ -113,6 +113,24 @@ func main() {
 	}
 	log.Printf("[Armory] Service initialized for %s and %s", *dbChar, *dbWorld)
 
+	// Equipped-gear sweep: one aggregate character-DB query every few minutes
+	// (never per tick) feeding the roster item-level column, the armory gear
+	// panel and the per-level-band averages. Runs immediately, then on the
+	// timer; a failed sweep keeps the previous numbers.
+	go func() {
+		const gearInterval = 5 * time.Minute
+		for {
+			stats, err := armoryService.GearRollup()
+			if err != nil {
+				log.Printf("[Gear] sweep failed: %v", err)
+			} else {
+				store.SetGear(stats)
+				log.Printf("[Gear] swept %d bots", len(stats))
+			}
+			time.Sleep(gearInterval)
+		}
+	}()
+
 	// 5. WebSocket hub and UDP ingestion
 	hub := ws.NewHub()
 	udpListener := udp.NewListener(*udpHost, *udpPort, store, metricsRegistry, projectionEngine, hub)
@@ -262,6 +280,51 @@ func main() {
 		writeJSON(w, store.Snapshot().Grinding)
 	}))
 
+	// Issue episodes (active + recently resolved). The dashboard fetches this
+	// on init and on Refresh to recover the issue tab/badge when a WebSocket
+	// event was missed.
+	mux.HandleFunc("/api/v1/issues", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, store.Issues())
+	}))
+
+	// Activity: per-bot counters (quests, loot, money, kills, deaths, vendor
+	// trips, ...) rolled up from the BOT_EVENTS datagrams, plus the pool-wide
+	// loot/quest feeds. Sampled and bounded; no per-tick DB reads.
+	mux.HandleFunc("/api/v1/activity", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, store.Activity())
+	}))
+
+	mux.HandleFunc("/api/v1/activity/loot", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := state.LootFilter{
+			MinQuality: qUint(q.Get("min_quality")),
+			MinLevel:   qUint(q.Get("min_level")),
+			MaxLevel:   qUint(q.Get("max_level")),
+			Class:      q.Get("class"),
+			Bot:        q.Get("bot"),
+			Limit:      int(qUint(q.Get("limit"))),
+		}
+		if f.Limit <= 0 {
+			f.Limit = 200
+		}
+		if f.Limit > 2000 {
+			f.Limit = 2000
+		}
+		writeJSON(w, store.LootFeed(f))
+	}))
+
+	mux.HandleFunc("/api/v1/activity/quests", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		f := state.QuestFilter{Bot: q.Get("bot"), Limit: int(qUint(q.Get("limit")))}
+		if f.Limit <= 0 {
+			f.Limit = 200
+		}
+		if f.Limit > 2000 {
+			f.Limit = 2000
+		}
+		writeJSON(w, store.QuestFeed(f))
+	}))
+
 	mux.HandleFunc("/api/v1/server-info", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if info := store.ServerInfo(); info != nil {
 			writeJSON(w, info)
@@ -370,4 +433,17 @@ func main() {
 func writeJSON(w http.ResponseWriter, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// qUint parses an optional unsigned query parameter; absent or malformed
+// values are 0 (the filters treat 0 as "no constraint").
+func qUint(s string) uint32 {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseUint(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return uint32(v)
 }
