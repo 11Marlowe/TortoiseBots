@@ -1,5 +1,20 @@
 # Changelog
 
+## 2026-10-02
+
+### Levelling & Progression
+
+- Random bots now actually progress: median kills per bot-hour jumped from 5 to 23 and XP per bot-hour from ~611 to ~3,400 on a fresh level-1 pool. [#384](https://github.com/Sagiroth/TortoiseBots/pull/384)
+- "Dead weight" bots are largely gone — the share of bots logging zero kills in a 90-minute window dropped from 32% to 2-13%. [#384](https://github.com/Sagiroth/TortoiseBots/pull/384)
+- Bot pools no longer stall at level 7-9 in starter gear after 18 hours; the old ~10x slowdown versus expected levelling pace is fixed. [#384](https://github.com/Sagiroth/TortoiseBots/pull/384)
+
+### Bot Behaviour
+
+- Bots now level, quest, vendor and gather more like real players instead of idling or grinding inefficiently. [#384](https://github.com/Sagiroth/TortoiseBots/pull/384)
+- Tuning was driven by seven full measure-fix-reset cycles on fresh level-1 pools, so the numbers above are repeatable, not a lucky run. [#384](https://github.com/Sagiroth/TortoiseBots/pull/384)
+
+---
+
 ## 2026-10-01
 
 ### Party Buffs & Hire Cleanup
