@@ -122,12 +122,15 @@ uint8 AnomalyTypeIdFromName(std::string const& type)
 // Activity whitelist: the bot_events.csv rows the dashboard's per-bot activity
 // rollup consumes. Everything else (travel churn, buffs, evade probes) stays
 // out of the UDP stream.
+// QuestUpdateCompleteAction is packet-driven and never fires for a headless bot
+// session, so the quest-complete counters ride on QuestCompleted, which
+// BotPlayerAdapter emits from the core's own quest-complete hook.
 bool IsActivityEvent(std::string const& event)
 {
     static std::set<std::string> const whitelist = {
         // quests
         "QuestRewarded", "AcceptQuestAction", "AcceptQuestShareAction",
-        "TalkToQuestGiverAction", "QuestUpdateCompleteAction", "QuestDropped",
+        "TalkToQuestGiverAction", "QuestUpdateCompleteAction", "QuestCompleted", "QuestDropped",
         // loot & money
         "StoreLootAction", "GatherLoot", "LootMoney",
         // vendor / trainer / repair / auction
@@ -1258,8 +1261,8 @@ void ObservabilityEmitter::EmitServerInfo()
        << ",\"ts\":" << time(nullptr)
        << ",\"type\":\"SERVER_INFO\""
        << ",\"module_version\":\"" << EscapeJson(BuildVersion()) << "\""
-       << ",\"core_revision\":\"" << EscapeJson(REVISION_HASH) << "\""
-       << ",\"core_date\":\"" << EscapeJson(REVISION_DATE) << "\""
+       << ",\"core_revision\":\"" << EscapeJson(CoreRevision()) << "\""
+       << ",\"core_date\":\"" << EscapeJson(CoreRevisionDate()) << "\""
        << ",\"uptime\":" << sWorld.GetUptime()
        << ",\"max_level\":" << sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL)
        << ",\"rates\":{"
@@ -1304,6 +1307,13 @@ void ObservabilityEmitter::EmitServerInfo()
        << ",\"bg\":\"" << flag(sPlayerbotAIConfig.randomBotBgEnabled) << "\""
        << ",\"avoid_towns\":\"" << flag(sPlayerbotAIConfig.avoidHostileTowns) << "\""
        << ",\"leave_zones\":\"" << flag(sPlayerbotAIConfig.leaveOutgrownZones) << "\""
+       << ",\"bot_loot_uncommon\":" << sPlayerbotAIConfig.botLootRateUncommon
+       << ",\"bot_loot_rare\":" << sPlayerbotAIConfig.botLootRateRare
+       << ",\"ah_market\":\"" << flag(sPlayerbotAIConfig.ahMarketEnabled) << "\""
+       << ",\"auto_learn_trainer_spells\":\"" << flag(sPlayerbotAIConfig.autoLearnTrainerSpells) << "\""
+       << ",\"auto_learn_quest_spells\":\"" << flag(sPlayerbotAIConfig.autoLearnQuestSpells) << "\""
+       << ",\"level_up_mounts\":\"" << flag(sPlayerbotAIConfig.levelUpMounts) << "\""
+       << ",\"turtle_mount_at_level\":" << sPlayerbotAIConfig.turtleMountAtLevel
        << "}"
        << ",\"diagnostics\":{"
        << "\"perf_mon\":\"" << flag(sPlayerbotAIConfig.perfMonEnabled) << "\""
