@@ -12,6 +12,7 @@
 #include "PlayerbotAI.h"
 #include "playerbot/RandomBotFacade.h"
 #include "ObjectAccessor.h"
+#include "Formulas.h"
 
 using namespace ai;
 using namespace MaNGOS;
@@ -129,6 +130,16 @@ bool QuestRelationTravelDestination::IsPossible(const PlayerTravelInfo& info) co
         if (!forceThisQuest && (int32)quest->GetQuestLevel() >= (int32)info.GetLevel() + (int32)5)
             return false;
 
+        // No trip back for a grey quest: the same XP grey rule the grind and
+        // quest-log upkeep use (MaNGOS::XP::GetGrayLevel). A quest the bot
+        // outlevels pays no XP, and the giver sits in the starter area whose
+        // mobs are grey too, so the walk only parks the bot among no-XP mobs.
+        // QuestLevel 0 is scaling (GetQuestLevelForPlayer falls back to bot
+        // level): never grey. Scoped to givers; hand-ins always pay out.
+        if (!forceThisQuest && quest->GetQuestLevel() > 0 &&
+            (int32)quest->GetQuestLevel() <= (int32)MaNGOS::XP::GetGrayLevel(info.GetLevel()))
+            return false;
+
         // MaxLevel 0 is "no upper bound" in this core, not "level 0": the take
         // gate reads it as `if (pQuest->GetMaxLevel() && pQuest->GetMaxLevel() <
         // GetLevel())` (Player::CanTakeQuest). 6,509 of the 7,190 quest templates
@@ -176,12 +187,24 @@ bool QuestRelationTravelDestination::IsPossible(const PlayerTravelInfo& info) co
         }
     }
 
-    // Don't send a bot to a quest giver in a zone far above its level, or cross-zone for lowbies
+    // Don't send a bot to a quest giver in a zone far above its level, or cross-zone for lowbies.
+    // A giver in an area the bot has outgrown is the same trip in the other
+    // direction: the starter valley holds only grey mobs for it, so it walks
+    // back into no-XP country. The floor mirrors the grind ladder
+    // (GrindSpotPolicy.h: botLevel - GRIND_LEVEL_UNDER): below it the bot
+    // earns nothing there. Unknown areas (level 0) fail open; capitals stay
+    // reachable (trainers/AH live there); takers always pay out, so only
+    // givers are floored.
     WorldPosition* point = GetClosestPoint(info.getPosition());
     if (point)
     {
         int32 destAreaLevel = point->GetAreaLevel();
         if (destAreaLevel > 0 && destAreaLevel > (int32)info.GetLevel() + 5)
+            return false;
+
+        if (GetRelation() == 0 && !forceThisQuest && destAreaLevel > 0 &&
+            destAreaLevel + GRIND_LEVEL_UNDER < (int32)info.GetLevel() &&
+            !point->HasAreaFlag(AREA_FLAG_CAPITAL))
             return false;
 
         if (info.GetLevel() <= 5 && point->distance(info.getPosition()) > 1500.0f)
@@ -634,7 +657,16 @@ bool ExploreTravelDestination::IsActive(Player* bot, const PlayerTravelInfo& inf
 
 bool GrindTravelDestination::IsPossible(const PlayerTravelInfo& info) const
 {
-    if (info.GetBoolValue("should sell") && (info.GetBoolValue("can sell") || info.GetBoolValue("can ah sell")))
+    // The old veto read the cached "should sell" && "can sell" pair, which a fresh
+    // pool bot satisfies with one grey pelt in its bags: the next grind search
+    // found nothing, so the stranded beginner kept its empty result and its NPC.
+    // Read the live vendor need instead ("vendor trip needed", snapshotted in the
+    // constructor from VendorTripNeeded: repair, a spell the stock actually pays
+    // for, rations it can afford). A parked vendor purpose (fruitless errand,
+    // issue #393) is no need at all - the trip is not happening - so grind stays
+    // a destination and the bot walks instead of idling. The park timestamp still
+    // gates the vendor row itself.
+    if (info.GetBoolValue("vendor trip needed"))
         return false;
 
     CreatureInfo const* cInfo = GetCreatureInfo();
