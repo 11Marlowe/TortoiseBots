@@ -46,6 +46,23 @@
 - Companions with a real master now skip autonomous travel-target selection while on an instance map. Cheap map check before any search, so no more seconds-long stalls on the bot-update pass when a full raid of companions zones into a dungeon. [#391](https://github.com/Sagiroth/TortoiseBots/pull/391)
 - Open-world travel is untouched — following the master, explicit travel commands and normal outdoor behavior all still work. [#391](https://github.com/Sagiroth/TortoiseBots/pull/391)
 
+### Hiring & Raids
+- Recruiter spec selection now applies to every class, not just druids — one shared policy table drives both the gossip menu and the talent path, so a requested spec actually arrives as requested ([#386](https://github.com/Sagiroth/TortoiseBots/issues/386)). [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+- Premade specs are cropped to the bot's current level before validation, preventing out-of-range talent requests from silently falling back to the wrong build. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+
+### Dungeon Combat & AI
+- Explicit ranged pulls inside dungeons now point-move the bot to a valid firing position instead of yanking from wherever they happen to stand. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+- Pull positioning validates reachability before committing, so bots no longer path into walls or unreachable ledges trying to set up a shot. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+
+### Quests & World
+- Quest takers that bots cannot physically reach are now handled gracefully, cutting down on stuck bots and wasted pathing loops in crowded zones. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+
+### Roleplay & Idle Behavior
+- Idle roleplay behavior has been tightened up so bots stop spamming emotes or looping chatter when they should be chilling. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+
+### Dashboard & Observability
+- Follow-up fixes rolled in for the dashboard activity panels introduced in the previous release, keeping bot activity reporting in sync with actual behavior. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
+
 ## 2026-10-01
 
 ### Party Buffs & Hire Cleanup
