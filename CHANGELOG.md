@@ -34,6 +34,18 @@
 
 - Dashboard numbers were cross-checked against the database and the discrepancies found during that audit are fixed, so what you see on screen matches reality [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
 
+### Death & Resurrection
+- Bots now revive at the graveyard **closest to where they actually died**, instead of wherever the phantom `(0,0,0)` null travel target pointed (the middle of Alterac). No more level-5 bots waking up in Hillsbrad or Tarren Mill after an Elwynn death. [#392](https://github.com/Sagiroth/TortoiseBots/pull/392)
+- Kills the 70 % of spirit-healer revives that landed 500+ yd away (median 1,229 yd, worst case 8,854 yd) — corpses, graveyards and spirit healers are consistent again. Ghost runs stop being a cross-continent field trip. [#392](https://github.com/Sagiroth/TortoiseBots/pull/392)
+
+### Companions & Hires
+- Raid hires are no longer gated by subgroup: arrival, reunite and master-left-group paths now use same-raid membership instead of same-subgroup. The 5th, 6th, 9th hire actually joins you instead of standing around ungrouped. [#390](https://github.com/Sagiroth/TortoiseBots/pull/390)
+- 5-man parties behave exactly as before — the two checks are identical below raid size. [#390](https://github.com/Sagiroth/TortoiseBots/pull/390)
+
+### Travel & Instances
+- Companions with a real master now skip autonomous travel-target selection while on an instance map. Cheap map check before any search, so no more seconds-long stalls on the bot-update pass when a full raid of companions zones into a dungeon. [#391](https://github.com/Sagiroth/TortoiseBots/pull/391)
+- Open-world travel is untouched — following the master, explicit travel commands and normal outdoor behavior all still work. [#391](https://github.com/Sagiroth/TortoiseBots/pull/391)
+
 ## 2026-10-01
 
 ### Party Buffs & Hire Cleanup
