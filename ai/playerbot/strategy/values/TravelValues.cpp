@@ -1,6 +1,7 @@
 #include "playerbot/playerbot.h"
 #include "TravelValues.h"
 #include "playerbot/TravelMgr.h"
+#include "MaintenanceValues.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"
 #include "BudgetValues.h"
@@ -34,6 +35,30 @@ EntryGuidps EntryGuidpsValue::Calculate()
     }
 
     return guidps;
+}
+
+// The gathering skill a game object's lock requires (herbalism / mining). Creatures no longer
+// carry a gather purpose: a skinnable spawn point is a live mob, not a corpse, so those
+// destinations were removed (see the map builder and NeedTravelPurposeValue).
+static uint32 GameObjectLockSkill(GameObjectInfo const* gInfo)
+{
+    if (!gInfo)
+        return SKILL_NONE;
+
+    LockEntry const* lockInfo = sLockStore.LookupEntry(gInfo->GetLockId());
+    if (!lockInfo)
+        return SKILL_NONE;
+
+    for (int i = 0; i < 8; ++i)
+    {
+        if (lockInfo->Type[i] != LOCK_KEY_SKILL)
+            continue;
+
+        if (uint32 skillId = SkillByLockType(LockType(lockInfo->Index[i])))
+            return skillId;
+    }
+
+    return SKILL_NONE;
 }
 
 EntryTravelPurposeMap EntryTravelPurposeMapValue::Calculate()
@@ -101,32 +126,15 @@ EntryTravelPurposeMap EntryTravelPurposeMapValue::Calculate()
         }
 
 
-        if (cInfo->gold_min > 0)
-        {
+        // Coinless creatures are grind destinations too: wildlife (wolves, boars,
+        // spiders, scorpids, bears) carries no copper at all - it pays in XP, grey
+        // vendor loot and skins - and is the bread-and-butter hunt of every level.
+        // Only critters stay out (zero XP, not worth a walk). The per-bot rule that
+        // owns this purpose (GrindTravelDestination::IsPossible) keeps owned and
+        // hired bots on the old copper-only set; the map itself is team- and
+        // bot-blind, so it has to offer both.
+        if (cInfo->gold_min > 0 || cInfo->type != CREATURE_TYPE_CRITTER)
             purpose |= (uint32)TravelDestinationPurpose::Grind;
-        }
-        else
-        {
-            switch (entry)
-            {
-                case 28611: //Scarlet Captain           1
-                case 28530: //Scarlet Commander         2
-                case 28936: //Scarlet Commander         4
-                case 29000: //Scarlet Commander Rodrick 4
-                case 28529: //Scarlet Crusader          2
-                case 28940: //Scarlet Crusader          4
-                case 28609: //Scarlet Infantryman       1
-                case 28610: //Scarlet Marksman          4
-                case 28608: //Scarlet Medic             1
-                case 28819: //Scarlet Miner             1
-                case 28822: //Scarlet Miner             1
-                case 28557: //Scarlet Peasant           1
-                case 28594: //Scarlet Preacher          2
-                case 28939: //Scarlet Preacher          4
-                    purpose |= (uint32)TravelDestinationPurpose::Grind;
-                    break;
-            }
-        }
 
         if (cInfo->rank == CREATURE_ELITE_ELITE || cInfo->rank == CREATURE_ELITE_RAREELITE || cInfo->rank == CREATURE_ELITE_WORLDBOSS || cInfo->rank == CREATURE_ELITE_RARE)
         {
@@ -139,20 +147,11 @@ EntryTravelPurposeMap EntryTravelPurposeMapValue::Calculate()
                 purpose |= (uint32)TravelDestinationPurpose::Boss;
         }
 
-        if (cInfo->skinning_loot_id && GetRequiredLootSkillCompat(cInfo) == SKILL_SKINNING)
-        {
-            purpose |= (uint32)TravelDestinationPurpose::GatherSkinning;
-        }
-
-        if (uint32 skillId = SkillIdToGatherEntry(entry))
-        {
-            if (skillId == SKILL_SKINNING)
-                purpose |= (uint32)TravelDestinationPurpose::GatherSkinning;
-            if (skillId == SKILL_MINING)
-                purpose |= (uint32)TravelDestinationPurpose::GatherMining;
-            if (skillId == SKILL_HERBALISM)
-                purpose |= (uint32)TravelDestinationPurpose::GatherHerbalism;
-        }
+        // No gather purpose for creatures: a skinnable spawn point is a *live* mob, so the
+        // destination could only ever deliver a grind, never a corpse to skin (skinning is a
+        // corpse of the bot's own kill). Until now every skinnable entry got a GatherSkinning
+        // destination whose points are static spawn coordinates - the source of the 600 yd-plus
+        // skin errands (see NeedTravelPurposeValue).
 
         if (purpose > 0)
             entryPurposeMap[entry] = purpose;
@@ -190,13 +189,11 @@ EntryTravelPurposeMap EntryTravelPurposeMapValue::Calculate()
             }
         }
 
-        if (uint32 skillId = SkillIdToGatherEntry(goEntry))
+        if (uint32 skillId = GameObjectLockSkill(gInfo))
         {
-            if (skillId == SKILL_SKINNING)
-                purpose |= (uint32)TravelDestinationPurpose::GatherSkinning;
             if (skillId == SKILL_MINING)
                 purpose |= (uint32)TravelDestinationPurpose::GatherMining;
-            if (skillId == SKILL_HERBALISM)
+            else if (skillId == SKILL_HERBALISM)
                 purpose |= (uint32)TravelDestinationPurpose::GatherHerbalism;
         }
 
@@ -207,52 +204,31 @@ EntryTravelPurposeMap EntryTravelPurposeMapValue::Calculate()
     return entryPurposeMap;
 }
 
-uint32 EntryTravelPurposeMapValue::SkillIdToGatherEntry(int32 entry)
-{
-    if (entry > 0)
-    {
-        CreatureInfo const* cInfo = sCreatureStorage.LookupEntry<CreatureInfo>(entry);
-
-        if (!cInfo->skinning_loot_id)
-            return 0;
-
-        return GetRequiredLootSkillCompat(cInfo);
-    }
-    else
-    {
-        GameObjectInfo const* gInfo = sObjectMgr.GetGameObjectInfo(entry * -1);
-
-        if (uint32 lockId = gInfo->GetLockId())
-        {
-            LockEntry const* lockInfo = sLockStore.LookupEntry(lockId);
-            if (lockInfo)
-            {
-                uint32 skillId = SKILL_NONE;
-
-                for (int i = 0; i < 8; ++i)
-                {
-                    if (lockInfo->Type[i] != LOCK_KEY_SKILL)
-                        continue;
-
-                    if (SkillByLockType(LockType(lockInfo->Index[i])) == 0)
-                        continue;
-
-                    return SkillByLockType(LockType(lockInfo->Index[i]));
-                }
-            }
-        }
-    }
-
-    return 0;
-}
-
 bool NeedTravelPurposeValue::Calculate()
 {
     TravelDestinationPurpose purpose = TravelDestinationPurpose(stoi(getQualifier()));
 
+    // Gather errands have two hard limits, applied before the per-purpose skill check below.
+    //
+    // Skinning is never a travel purpose. A GatherSkinning destination is a static spawn point of
+    // a *live* skinnable creature, and a bot can only skin a corpse it looted itself - so the
+    // errand can never pay off, while live it was the largest death cause of the beginner pool
+    // (215 of 676 deaths in a 43-minute stage-2 window: level 1-5 bots walking into level 5-6
+    // mobs for a spawn 600+ yd away). Skinning now happens where it belongs, on the bot's own
+    // kill, right after that kill is looted (LootObjectStack + LootAction). The donor,
+    // mod-playerbots, has no gather travel purpose at all.
+    if (purpose == TravelDestinationPurpose::GatherSkinning)
+        return false;
+
+    // Herb and ore trips start at level 10. Below that every errand is a walk through mobs the
+    // bot cannot fight (live: 147 herb/mining errand deaths, all with a killer above the bot's
+    // level), and the nodes it passes on its way are picked up by the walk-past scan anyway.
+    if ((purpose == TravelDestinationPurpose::GatherMining || purpose == TravelDestinationPurpose::GatherHerbalism) &&
+        bot->GetLevel() < 10)
+        return false;
+
     const std::map<TravelDestinationPurpose, SkillType> gatheringSkills =
     { {TravelDestinationPurpose::GatherFishing, SKILL_FISHING}
-        , {TravelDestinationPurpose::GatherSkinning, SKILL_SKINNING}
         , {TravelDestinationPurpose::GatherMining, SKILL_MINING}
         , {TravelDestinationPurpose::GatherHerbalism, SKILL_HERBALISM}
     };
@@ -268,11 +244,17 @@ bool NeedTravelPurposeValue::Calculate()
             return true;
         break;
     case TravelDestinationPurpose::Vendor:
-        if (AI_VALUE2(bool, "group or", "should sell,can sell,following party"))
-            return true;
-        if (AI_VALUE2(bool, "has strategy", "free") && AI_VALUE(bool, "should sell") && AI_VALUE(bool, "can sell"))
-            return true;
-        break;
+        //Real need only (issue #379 follow-up): the `should sell` && `can sell`
+        //pair this replaces was true for every pool bot the moment it held food
+        //or drink, because the random-bot item cheat skipped the consumable
+        //decision and classified rations as vendor trash - live cycle 4 walked
+        //2,300 vendor errands in 65 minutes (1,286 of the 4,394 sale rows were the
+        //bot's own food and drink) and BuyAction never fired. A journey now needs
+        //stock a vendor pays for and that is worth the walk, a durability below
+        //the repair threshold, or an empty food/drink bag the bot can pay to
+        //refill - plus the bag-pressure valve below for a bot whose bags are full
+        //in the field. Both sides read the same ten-minute fruitless-errand park.
+        return VendorTripNeeded(ai) || BagPressureVendorTrip(ai);
     case TravelDestinationPurpose::AH:
         if (AI_VALUE2(bool, "group or", "should ah sell,can ah sell,following party"))
             return true;
@@ -282,7 +264,6 @@ bool NeedTravelPurposeValue::Calculate()
     case TravelDestinationPurpose::GatherFishing:
         if (!AI_VALUE2(bool, "has strategy", "tfish"))
             return false;
-    case TravelDestinationPurpose::GatherSkinning:
     case TravelDestinationPurpose::GatherMining:
     case TravelDestinationPurpose::GatherHerbalism:
         skill = gatheringSkills.at(purpose);
@@ -443,13 +424,6 @@ bool ShouldTravelNamedValue::Calculate()
         if (ai->HasRealPlayerMaster())
             return false;
 
-        // A fruitless visit parks the trainer (TrainerAction). Read the park
-        // time, not the flag: any successful pick clears the flag early.
-        // Without this the need stays true during the park and keeps a bot
-        // in a capital (should leave outgrown zone waits for it).
-        if (AI_VALUE2(time_t, "manual time", "no travel purpose until::" + name) > time(0))
-            return false;
-
         TrainerType trainerType = TRAINER_TYPE_CLASS;
         NeedMoneyFor budgetType = NeedMoneyFor::spells;
 
@@ -485,10 +459,53 @@ bool ShouldTravelNamedValue::Calculate()
         if (minSpellCost == UINT32_MAX)
             return false;
 
-        if (AI_VALUE2(uint32, "free money for", (uint32)budgetType) < minSpellCost)
+        uint32 const freeMoney = AI_VALUE2(uint32, "free money for", (uint32)budgetType);
+        bool const canAfford = freeMoney >= minSpellCost;
+
+        // One trainer journey at a time. "train cost" is summed over every trainer in
+        // the world, so this need stays true for as long as any affordable rank exists
+        // anywhere - and the row outranks Grind (6.89 vs 6.35), so every time the
+        // bot's travel target died before arrival it re-requested a trainer instead of
+        // grinding. Measured on the cycle-3 pool at level 5: 1,124 trainer-class picks
+        // from 172 bots in 90 min (cycle 2: 497) against only ~130 learns, 57% of them
+        // from 15 stationary bots, 638 of 952 consecutive picks made from the same
+        // coordinate - the bot never walked, it only re-picked. The park below only
+        // covers a visit that reached a trainer; a trip that never got there (travel
+        // target expired on its short timer, unstuck reset, drop) left nothing behind,
+        // so the loop was unbounded. This timestamp is set when an errand is actually
+        // started (RequestNamedTravelTargetAction) and cleared by a successful learn
+        // (TrainerAction) or a level-up (AutoLearnSpellAction, next to the park clear),
+        // so the bot tries the walk once and grinds until the window is up.
+        time_t const trainerTripSince = AI_VALUE2(time_t, "manual time", "trainer trip since");
+        if (trainerTripSince && time(0) - trainerTripSince < 10 * MINUTE)
             return false;
 
-        return true;
+        // A fruitless visit parks the trainer (TrainerAction). The park is a
+        // cooling-off for the training need that visit found, not a ban, and it must
+        // not outlive it. A park set because nothing was affordable ends the moment
+        // the purse covers the cheapest rank - that is exactly the change that makes
+        // the visit worth repeating - while a park set because the trainer had nothing
+        // to teach is held: money is not what made it fruitless, so the bot is not sent
+        // back there the moment it loots. A level-up lifts either kind
+        // (AutoLearnSpellAction, the ding handler that already expires the travel
+        // target). The timestamp is what every reader of the park consults, so
+        // clearing it unblocks the nearby-trainer service as well; the
+        // "no active travel destinations" flag alone would not, it is cleared by the
+        // next successful pick of any purpose while the timestamp survives. While the
+        // park holds it also keeps the need from pinning a bot in a capital: the
+        // leave-outgrown-zone rule waits for trainer needs.
+        std::string const parkKey = "no travel purpose until::" + name;
+
+        if (AI_VALUE2(time_t, "manual time", parkKey) > time(0))
+        {
+            bool const moneyPark = AI_VALUE2(bool, "manual bool", "trainer park needs money");
+            if (!canAfford || !moneyPark)
+                return false;
+
+            RESET_AI_VALUE2(time_t, "manual time", parkKey);
+        }
+
+        return canAfford;
     }
 
     return false;

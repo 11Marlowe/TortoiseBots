@@ -49,7 +49,26 @@ namespace ai
         uint32 lastRepeatLogMs = 0;
         uint32 grindRepeatCount = 0;
 
+        // Give-up bookkeeping for the other half of that record: a creature the
+        // bot orders over and over while it never gets into the fight *and*
+        // never gets closer is unreachable from where it stands, and nothing
+        // else in the loop ever says so (see GiveUpOnGrindTarget).
+        ObjectGuid grindUnreachableTarget;
+        uint32 grindUnreachableSinceMs = 0;
+        float grindUnreachableBestDist = 0.0f;
+        uint32 grindUnreachableOrders = 0;
+
+        // The creature just given up on is never enough to condemn its whole kind: a single
+        // thug spawned inside geometry must not hide every reachable thug in the zone (and the
+        // species is also a grind destination, so the bot would walk off the camp). The kind is
+        // set aside only when a *second, different* creature of it strands the bot inside the
+        // window, mirroring the reach action's two-in-a-row rule.
+        uint32 grindGiveUpEntry = 0;
+        ObjectGuid grindGiveUpEntryTarget;
+        uint32 grindGiveUpEntryMs = 0;
+
         void LogRepeatOrder(Unit* target);
+        bool GiveUpOnGrindTarget(Unit* target);
 
     public:
         AttackAnythingAction(PlayerbotAI* ai) : AttackAction(ai, "attack anything") {}

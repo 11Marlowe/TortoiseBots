@@ -329,6 +329,7 @@ namespace ai
             creators["can use item on"] = [](PlayerbotAI* ai) { return new CanUseItemOn(ai); };
             creators["quest reward"] = [](PlayerbotAI* ai) { return new QuestRewardValue(ai); };
             creators["has nearby quest taker"] = [](PlayerbotAI* ai) { return new HasNearbyQuestTakerValue(ai); };
+            creators["has rewardable finished quest"] = [](PlayerbotAI* ai) { return new HasFinishedQuestValue(ai); };
 
             creators["money needed for"] = [](PlayerbotAI* ai) { return new MoneyNeededForValue(ai); };
             creators["total money needed for"] = [](PlayerbotAI* ai) { return new TotalMoneyNeededForValue(ai); };
@@ -346,6 +347,8 @@ namespace ai
             creators["can repair"] = [](PlayerbotAI* ai) { return new CanRepairValue(ai); };
             creators["should sell"] = [](PlayerbotAI* ai) { return new ShouldSellValue(ai); };
             creators["can sell"] = [](PlayerbotAI* ai) { return new CanSellValue(ai); };
+            creators["nearby service target"] = [](PlayerbotAI* ai) { return new NearbyServiceTargetValue(ai); };
+            creators["should service nearby npc"] = [](PlayerbotAI* ai) { return new ShouldServiceNearbyNpcValue(ai); };
             creators["can buy"] = [](PlayerbotAI* ai) { return new CanBuyValue(ai); };
             creators["should ah sell"] = [](PlayerbotAI* ai) { return new ShouldAHSellValue(ai); };
             creators["can ah sell"] = [](PlayerbotAI* ai) { return new CanAHSellValue(ai); };

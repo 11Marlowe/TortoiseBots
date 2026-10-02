@@ -2366,3 +2366,248 @@ player's party — they keep the leash so grind picks stay inside the follow
 recall radius.
 
 Local validation: `bash tools/verify_all.sh`; `git diff --check`.
+
+## Level-appropriate grind destinations (`GrindSpotPolicy`) — 2026-10-01
+
+Feature: a grind *destination* must be able to pay level-appropriate XP. For
+autonomous (masterless random) bots the accepted creature window is now
+`[botLevel - 2, botLevel + 1]` instead of the old "roughly half the bot's level"
+window; owned/hired bots keep the old conservative window. Because the window
+travels with the bot, outgrowing a spot invalidates the travel target that led
+there (`GrindTravelDestination::IsActive` -> `IsPossible`), the cooldown forces a
+new request, and the next request walks the bot through the travel graph (foot,
+taxi, boat, zeppelin - no teleports) to the nearest field/zone whose creatures
+still fit. Same window at every level, so the ladder runs 1 -> 60.
+
+Source project: `mod-playerbots` (NewRPG "go grind": level-bracketed random grind
+POIs and their re-roll), plus donor report items 1-2.
+
+Source commit: `mod-playerbots@b6696bdbd3740e575598d167d69f39f68cc0b907`.
+
+Source files: donor `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp:964-1015`
+(`SelectRandomGrindPos`: uniform pick from the level's POI set, 500 yd / 2500 yd
+ranges, `/3` below level 5), donor `src/Mgr/Travel/TravelMgr.cpp:4812-4828` (POI
+cache bucketed per level as `[midLevel - RandomBotTeleLowerLevel,
+midLevel + RandomBotTeleHigherLevel]`), donor `conf/playerbots.conf.dist:1599,1604`
+(`RandomBotTeleLowerLevel = 1`, `RandomBotTeleHigherLevel = 3`); local
+`ai/playerbot/TravelMgr.cpp:620-648` (`GrindTravelDestination::IsPossible`),
+`ai/playerbot/GrindSpotPolicy.h` (new), `ai/playerbot/TravelMgr.cpp:2431-2444`
+(`IsLocationLevelValid` zone floor, unchanged, now the second half of the same
+gate), `ai/playerbot/strategy/values/GrindTargetValue.cpp:23-31`
+(`MaxGrindLevelOverBot`, the order cap the new ceiling respects).
+
+Ported / reimplemented: donor picks a random POI from a level-bracketed set and
+re-rolls on its RPG timeout; we filter the existing per-entry grind destinations
+by the same kind of level bracket and let the existing destination-validity and
+travel-target-expiry machinery do the re-roll - no new status machine, no new
+timer, no teleport. Donor's lower bound (creature level >= bot level - 1) is our
+`- 2` and donor's upper (bot level + 3) is our `+ 1`: our own order cap refuses
+targets more than one level above a sub-10 bot (`MaxGrindLevelOverBot`), so a
+destination further up would only ever be walked to for nothing. Beginner clamp
+(levels 1-4 = own level) and the coinless-starter-beast rule are preserved for
+owned bots, and subsumed by the ladder window for autonomous ones.
+
+Reason: measured on the live pool (2026-10-01, 500 fresh level-1 bots). At level
+5 the old window collapsed to exactly `level_max == 3` creatures and the zone
+floor built on the same numbers rejected the point's own starting valley, so
+level-5 bots received *zero* `Grind` travel targets (0 of 2,308 targets in the
+last hour: 732 trainer, 683 skinning, 601 generic RPG, 258 herbalism, 34 mining)
+and sat at level 5 - 157/500 after 90 minutes, 5 -> 6 never completing, raw XP
+per kill down to 31.7 (against ~50 at levels 1-4). Offline replay against the
+live world DB for a level-5 bot at the Northshire camp (1500 yd, gold-bearing,
+non-elite, matching the purpose map): old band admitted exactly one creature kind
+(Kobold Worker, level 3, 164 yd, inside the rejected starter area); new band
+admits the Goldshire field (Defias Cutpurse 5-6 at 331 yd, Kobold Tunneler 5-6 at
+921 yd) and, with the unchanged area gates, the camp itself is left behind.
+Durotar/Valley of Trials: new band admits Vile Familiar (3-4), Yarrog Baneshadow
+(5) and Kul Tiras Sailor (5-6, Tiragarde).
+
+Local validation: `tools/test_grind_spot_policy.cpp` (band shape at levels 5/6/8/
+60, monotone ladder 1-60, grey-level floor, owned-bot windows unchanged,
+gear-condition independence) via `bash tools/verify_all.sh`; `git diff --check`;
+module build via `build-commit.sh` (no deploy). Live indicators to watch after
+deploy: `TravelTarget` rows with purpose `Grind` for level 5+ bots (should stop
+being zero), `LeaveOutgrownZone` unchanged, XP per kill at levels 5-10 rising
+toward the level-appropriate value, and the level-5 population draining.
+
+### Follow-up 2026-10-01 — review of the grind ladder: coinless wildlife, level-10 ceiling, per-spot spread, outgrow expiry
+
+The ladder as first landed (`06d1058`) had one arithmetic fix and three
+follow-on defects, found in review against the live realm data and fixed in four
+commits (`9f611ac`, `b868299`, `09522e2`, `4a6e62c`).
+
+Feature: (1) coinless creatures are grind destinations for autonomous bots at
+every level (critters stay out; owned/hired bots keep the copper-only set);
+(2) the destination ceiling is +1 below level 10 (the grinder's own order cap) and
++2 from level 10 (combat cap is +4 there, but autonomous bots run on weak gear);
+(3) a grind destination is skipped once as many travel targets hold it as it has
+room for - a third of its spawn points, never fewer than two - so a backlog
+spreads across the zone instead of stacking on the nearest field; (4) a grind
+destination that went inactive because the bot outgrew it expires at once instead
+of freezing the bot for the standard 60 s cooldown.
+
+Source project: `mod-playerbots` (NewRPG go-grind level bracket and random POI
+pick), plus the review report `review-ladder-report.md` (this task).
+
+Source commit: `mod-playerbots@b6696bdbd3740e575598d167d69f39f68cc0b907`.
+
+Source files: donor `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp:964-1015`
+(`SelectRandomGrindPos` picks uniformly from the level's POI set), donor
+`src/Mgr/Travel/TravelMgr.cpp:4812-4828` (POI cache bucketed per level), donor
+`conf/playerbots.conf.dist:1599,1604` (`RandomBotTeleLowerLevel = 1`,
+`RandomBotTeleHigherLevel = 3`); local `ai/playerbot/GrindSpotPolicy.h`
+(`GrindPreyAllowed`, `GrindSpotCapacity`, the split ceiling),
+`ai/playerbot/strategy/values/TravelValues.cpp:104-112` (purpose map),
+`ai/playerbot/TravelMgr.cpp` (`IsPossible` prey gate, `AcquireGrindSpot` /
+`ReleaseGrindSpot` / `IsGrindSpotCrowded` / `DropCrowdedGrindPoints`,
+`TravelTarget::SetTarget` / `~TravelTarget`, `GrindSpotOutgrown` + `CheckStatus`),
+`ai/playerbot/strategy/actions/ChooseTravelTargetAction.cpp:58-63` (crowd filter),
+`ai/playerbot/strategy/values/GrindTargetValue.cpp:23-29` (`MaxGrindLevelOverBot`,
+the cap the sub-10 ceiling mirrors).
+
+Ported / reimplemented: donor gets its spread from a uniform `urand` pick over
+the level-bracketed POI set (50% within 500 yd, else 2500 yd). Ours keeps the
+existing nearest-range pick (so everyday hunts stay local and short) and adds the
+demand cap instead: a spot only takes the bots it has spawns to feed, and the
+existing distance partitions push the surplus outward. Demand is a per-destination
+counter kept incrementally by `TravelTarget` (assign / release / destruction) -
+one hash lookup per candidate, never a scan over the bot population; the counter
+map is intentionally never destroyed because pool bots log out during shutdown
+and their destructors can run after static destruction. The purpose map change is
+global (team- and bot-blind), so the per-bot rule lives where the bot is known:
+`GrindPreyAllowed(goldMin, critter, autonomous, beginner)`.
+
+Reason: review of `06d1058` against the live realm. (a) The purpose map handed
+`Grind` only to coin-bearing creatures, so beasts - wolves, boars, spiders,
+scorpids, bears - were not destinations at all; at level 5 within 1500 yd of each
+starter camp the eligible pool was 3-10 creature kinds, all humanoid camps
+(Durotar: Vile Familiar + Kul Tiras Sailor + one rare, capacity 23 for 29 level-5
+bots), which is why the review predicted a swarm on Tiragarde Keep and the
+Frostmane camps. With wildlife in, the same radius holds 11-27 kinds and 91-147
+slots (wildlife alone 58-94), so the same bots spread over open field. (b) The
+`+1` ceiling starved the ladder from level 10 (`MaxGrindLevelOverBot` allows +4
+there). (c) Nearest-first picking stacked every bot on one spot. (d)
+`CheckStatus` sent an outgrown destination to the 60 s cooldown, during which the
+target still counted as active and blocked the next request, freezing the bot on
+every ding.
+
+Local validation: `tools/test_grind_spot_policy.cpp` (band at 5/6/8/9/10/60,
+monotone 1-60, grey floor, owned windows, gear independence, `GrindPreyAllowed`
+matrix, `GrindSpotCapacity`) via `bash tools/verify_all.sh`; `git diff --check`;
+module build via `build-commit.sh` (no deploy). Offline replay against the live
+world DB: eligible level-5 creatures within 1500 yd of each starter camp, before
+vs after. Live indicators to watch after deploy: `Grind` travel targets for level
+5+ bots (was zero), the spread of `TravelTarget` areas per zone, XP per kill at
+levels 5-10, and the level-5 population draining.
+
+Out of scope for this bundle (noted by the review, not implemented): social aggro
+and low-health flee behaviour of humanoid camps is a combat-AI matter (pull
+discipline, runner handling), not a destination-selection one.
+
+### Correction to `06d1058`
+
+The first version of this bundle also claimed the beginner gold exemption in
+`IsPossible` let start-valley bots grind coinless beasts. It could not: the
+purpose map never gave those creatures a `Grind` purpose, so the exemption could
+only ever see the old Scarlet whitelist. `GrindPreyAllowed` now owns both halves
+of the rule (purpose map + per-bot gate).
+
+## Hunter dead-zone melee fallback below level 10 — 2026-10-02
+
+Feature: `SwitchToMeleeTrigger` / `SwitchToRangedTrigger` lose their sub-10 level
+gates, so a hunter below level 10 whose target is glued inside the shot's dead
+zone trades into melee (melee auto-attack + *Raptor Strike*) instead of holding a
+ranged kit that cannot fire, and hands the ranged kit back whenever the target is
+off the bot, immobilized, too slow to follow, or out of melee.
+
+Source project: `mod-playerbots` (hunter "ranged" / "close" kit switches).
+
+Source commit: `mod-playerbots@5397110cba484a9b7209bc9f632652e9d4bd6a70` (same
+checkpoint recorded above for the class-strategy port).
+
+Source files: donor `src/Ai/Class/Hunter/HunterTriggers.cpp:112-126`
+(`SwitchToRangedTrigger`: `close && victim != bot && distance > 8`;
+`SwitchToMeleeTrigger`: `ranged && victim == bot && distance <= 8` — neither has a
+level gate); local `ai/playerbot/strategy/hunter/HunterTriggers.h`
+(`SwitchToRangedTrigger`, `SwitchToMeleeTrigger`, removal of the
+`HUNTER_KITING_LEVEL` constant), `ai/playerbot/strategy/hunter/HunterStrategy.cpp`
+(dead-zone step-back comment). `docs/classes/hunter.md` §Ranged Combat updated.
+
+Ported / reimplemented: donor behavior matched where it applies — no level gate
+on either switch, and the step back to ranged happens only when the target is not
+on the bot and the bot is out of melee. Our `SwitchToRangedTrigger` keeps its
+existing richer conditions (target immobilized / too slow to follow / distance >
+8) rather than the donor's bare `victim != bot && distance > 8`. No new action,
+trigger, config key or spell: `SwitchToMeleeAction` already does
+`bot->Attack(target, true)` + `-ranged,+close`, and the existing `enemy is close`
+→ `raptor strike` trigger covers the melee ability.
+
+Reason: measured on the live cycle-3 pool (2026-10-01, 94 hunter bots, 90 min).
+At levels 1-9 the hunter has no rotation (Auto Shot only; Arcane Shot and Serpent
+Sting are unlearned because the pool cannot pay the trainer), and the custom
+sub-10 gate turned the weapon's 8-yd minimum range into a no-damage state: 100 %
+of 3,177 `AutoShot` rows were `ranged=1,close=0`, 0 `SwitchToMelee` /
+`SwitchToRanged` rows, 17 % of shot (re)starts at 9-11 yd and 8 starts per kill —
+a bot repeatedly re-opening fire instead of fighting or holding position. Hunters
+were the lowest-throughput class (median 573 XP/bot-h vs warrior 1,298). This
+change grants no gold and no spells (owner rule).
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`; module build via
+`build-commit.sh` (no deploy). Runtime not verified here: the worktree is for
+morning review and was not deployed.
+
+## Pre-pull rest threshold: free-food bots rest to MediumHealth (`UseFoodStrategy`) — 2026-10-02
+
+Feature: a bot whose food and drink are free (the item cheat granted by
+`AiPlayerbot.RndBotCheats = repair,breath,item`) rests to
+`AiPlayerbot.MediumHealth` (70%) before it takes its next fight, instead of
+stopping at `AiPlayerbot.LowHealth` (50%). `UseFoodStrategy` registers the
+`food` action on the critical/low/medium health bands for those bots and
+`ShouldEatValue` uses `MediumHealth` as its threshold; bots without the cheat
+keep the `LowHealth` band and threshold unchanged. The `food` action sits at
+relevance 6.0, above `attack anything` (5.0) and the travel chain (1.0), so the
+pull is deferred until the bar is back.
+
+Source repository: `mod-playerbots` @
+`b6696bdbd3740e575598d167d69f39f68cc0b907` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Base/Strategy/UseFoodStrategy.cpp` (with `BotCheatMask::food`,
+`"medium health"` -> `food`; without it, `"low health"` -> `food`),
+`src/Ai/Base/Trigger/HealthTriggers.h` (`MediumHealthTrigger` spans `[0,
+MediumHealth)`) and `src/Ai/Base/Actions/NonCombatActions.cpp`
+(`EatAction::isUseful` is `health < 100`, so the trigger alone owns the band).
+
+Copied / ported / reimplemented: ported with a local adaptation. This module
+has no `food` cheat mask — the free rations ride on `BotCheatMask::item`, which
+`EatAction`/`DrinkAction` already branch on — so the donor's food-cheat branch
+is keyed on `item`. The donor's `MediumHealthTrigger` covers `[0, 70)`; here it
+is `[LowHealth, MediumHealth)` and `LowHealthTrigger` is
+`[CriticalHealth, LowHealth)`, so the strategy names the critical, low and
+medium bands to cover the same range (the engine executes at most one action
+per tick, so the repeated trigger is free).
+
+Reason: the item cheat feeds a bot conjured rations but only the `LowHealth`
+band asked for them, so every pool bot ate to half a health bar, stopped, and
+pulled the next mob from there. On the live level 6-9 pool
+(`test/stage7` `9cd56ea`, 04:00-07:06Z, 3,153 deaths) 38% of deaths ended with
+the killer already under half health and another 32% with the killer untouched
+at 100% HP (an add), i.e. fights a fuller starting bar decides; the deaths
+clustered on quest-objective camps at the bot's own level (46% on
+kill-objective travel, killer below the bot in 37% of deaths, above in 39%).
+
+Local validation: module build via `build-commit.sh` (no deploy); `bash
+tools/verify_all.sh`; `git diff --check`. Live indicators to watch after
+deploy: the share of `Food(24005)` casts per bot-hour (should rise), the
+`tortoisebots_state_ratio{state="resting"}` fraction, deaths per bot-hour in
+the level 6-10 bracket, and the share of deaths whose killer is under 50% HP
+(the class a fuller bar should convert).
+
+Measured but not implemented in this bundle (for the record): the ~30% of
+deaths whose killer the bot never damaged (adds/social pulls) is a pull-
+discipline question — a per-candidate "another hostile within assist range"
+scan on the grind pick — and the 17% of deaths to a killer two or more levels
+above the bot is largely the same add; both need a design that keeps the pick
+scan off the per-tick world (the module's performance rule), so they are left
+for a follow-up rather than bolted onto the destination gate.

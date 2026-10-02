@@ -262,6 +262,12 @@ public:
     // minimum level at which random bots learn the Swift Riding Turtle.
     // 0 disables. Default 18.
     uint32 turtleMountAtLevel = 18;
+    // Organic level-up mounts: a random pool bot that dings 40 or 60 learns
+    // the same racial/collection mount set the seed/hire path grants (slow at
+    // 40, epic at 60; riding skill is level-gated separately). 1 = on; 0 =
+    // off, so a bot levelling from 1 only gets a 40/60 mount when re-seeded.
+    // Default true.
+    bool levelUpMounts = true;
     // Safety factor on the mount break-even distance: bots mount for travel
     // only when the remaining trip exceeds
     // 7 y/s * castTime / (mountSpeed/100) * this. 0 disables the threshold
@@ -303,6 +309,14 @@ public:
     // crosses level 5+ mobs; a beginner may still reach its own camp vendor, so the
     // trip is capped to this radius instead (and to the starting-zone level band).
     float lowLevelVendorMaxDistance = 600.0f;
+    // Bot-only green/blue drop boost. Masterless pool bots roll each quality-2/3
+    // entry of a creature's loot template one extra time per kill, at
+    // (multiplier - 1) x the entry's DB chance, so the expected number of
+    // greens/blues per kill is roughly the multiplier times the normal rate.
+    // Players and hired/alt bots keep the server's own rates; group loot is never
+    // touched. 1.0 = off (no extra roll at all).
+    float botLootRateUncommon = 1.0f;
+    float botLootRateRare = 1.0f;
     // Default-on bounded LFT fill: observe native queue (GetQueuedPlayers),
     // identify human groups/instances and missing 1/1/3 roles, filter in-memory
     // Headless random candidates by authoritative Soromeister/LFT ranges,

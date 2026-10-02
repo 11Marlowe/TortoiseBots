@@ -27,11 +27,20 @@ float RpgActionMultiplier::GetValue(Action* action)
 
 void RpgStrategy::OnStrategyAdded(BotState state)
 {
-    ai->ChangeStrategy("+rpg quest,+rpg vendor,+rpg explore,+rpg maintenance,+rpg player,+rpg bg,+rpg guild", state);
+    // Progression-only children. This cascade is now actually live (the engine
+    // is registered before its defaults are attached, see PlayerbotAI::SetEngine),
+    // so the family has to be the one the pool may run unattended: quest travel
+    // and the town errands (vendor/explore/maintenance) that every bot needs.
+    // "rpg player" and "rpg guild" are deliberately not here - they act on real
+    // players (trade windows and duel popups from RpgTradeUsefulAction /
+    // RpgDuelAction, guild-charter petition offers from PetitionOfferNearbyAction,
+    // 10 s per charter) and must stay opt-in. "rpg bg" is inert: its only trigger
+    // needs the "free bg join" action, which no action context creates.
+    ai->ChangeStrategy("+rpg quest,+rpg vendor,+rpg explore,+rpg maintenance", state);
 }
 void RpgStrategy::OnStrategyRemoved(BotState state)
 {
-    ai->ChangeStrategy("-rpg quest,-rpg vendor,-rpg explore,-rpg maintenance,-rpg player,-rpg bg,-rpg guild", state);
+    ai->ChangeStrategy("-rpg quest,-rpg vendor,-rpg explore,-rpg maintenance", state);
 }
 
 void RpgStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
@@ -39,6 +48,18 @@ void RpgStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
     triggers.push_back(new TriggerNode(
         "no rpg target",
         NextAction::array(0, new NextAction("choose rpg target", 5.0f), NULL)));
+
+    //Idle near-service errand (issue #379). Above every "request travel
+    //target" purpose (6.28-6.96) on purpose: a bot with no journey in flight
+    //that is standing next to the trainer or vendor it needs must use it,
+    //rather than start a journey it may never finish - the travel layer's
+    //purposes outrank the whole rpg layer (5.0) and used to pre-empt it, which
+    //is how a bot ended up idling three metres from the NPC (or dying on a
+    //cross-zone trainer trip). Still far below the utility triggers (100), so
+    //mail/upkeep checks keep their precedence.
+    triggers.push_back(new TriggerNode(
+        "val::should service nearby npc",
+        NextAction::array(0, new NextAction("service nearby npc", 6.97f), NULL)));
 
     triggers.push_back(new TriggerNode(
         "far from rpg target",

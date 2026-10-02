@@ -402,6 +402,7 @@ bool PlayerbotAIConfig::Initialize()
     relocateHopelessDeaths = config.GetBoolDefault("AiPlayerbot.RelocateHopelessDeaths", true);
     repopAtGraveyard = config.GetBoolDefault("AiPlayerbot.RepopAtGraveyard", true);
     turtleMountAtLevel = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.TurtleMountAtLevel", 18));
+    levelUpMounts = config.GetBoolDefault("AiPlayerbot.LevelUpMounts", true);
     mountBreakEvenFactor = config.GetFloatDefault("AiPlayerbot.MountBreakEvenFactor", 1.5f);
     avoidHostileTowns = config.GetBoolDefault("AiPlayerbot.AvoidHostileTowns", true);
     unstuckHearthLevelFit = config.GetBoolDefault("AiPlayerbot.UnstuckHearthLevelFit", true);
@@ -413,6 +414,8 @@ bool PlayerbotAIConfig::Initialize()
     lowLevelVendorBatchMinCount = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.LowLevelVendorBatchMinCount", 3));
     lowLevelVendorBatchMinBagSpace = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.LowLevelVendorBatchMinBagSpace", 25));
     lowLevelVendorMaxDistance = config.GetFloatDefault("AiPlayerbot.LowLevelVendorMaxDistance", 600.0f);
+    botLootRateUncommon = config.GetFloatDefault("AiPlayerbot.BotLootRateUncommon", 1.0f);
+    botLootRateRare = config.GetFloatDefault("AiPlayerbot.BotLootRateRare", 1.0f);
     randomBotLftEnabled = config.GetBoolDefault("AiPlayerbot.RandomBotLftEnabled", true);
     randomBotLftUpdateInterval = config.GetIntDefault("AiPlayerbot.RandomBotLftUpdateInterval", 15000);
     randomBotLftMaxFillsPerInterval = config.GetIntDefault("AiPlayerbot.RandomBotLftMaxFillsPerInterval", 1);

@@ -360,7 +360,7 @@ namespace ai
 	public:
 		TravelTarget(PlayerbotAI* ai);
 		TravelTarget(PlayerbotAI* ai, TravelDestination* tDestination1, WorldPosition* wPosition1) : AiObject(ai) { SetTarget(tDestination1, wPosition1); }
-		~TravelTarget() = default;
+		~TravelTarget();
 
 		float Distance(Player* bot) const { WorldPosition pos(bot);  return wPosition->distance(pos); };
 		TravelDestination* GetDestination() const { return tDestination; };
@@ -405,7 +405,9 @@ namespace ai
 		void SetGroupCopy(GuidPosition member) { groupMember = member; }
 
 		void IncRetry(bool isMove) { if (isMove) moveRetryCount+=2; else extendRetryCount++; }
-		void DecRetry(bool isMove) { if (isMove && moveRetryCount > 0) moveRetryCount--; else if (extendRetryCount > 0) extendRetryCount--; }
+		// Each counter decays on its own: a successful move must not eat into
+		// the re-point budget (or the other way round).
+		void DecRetry(bool isMove) { if (isMove) { if (moveRetryCount > 0) moveRetryCount--; } else if (extendRetryCount > 0) extendRetryCount--; }
 
 		void CopyTarget(TravelTarget* const target);
 	private:
@@ -455,6 +457,16 @@ namespace ai
 		static bool IsLocationLevelValid(const WorldPosition& position, const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None, int32 grindZoneFloor = 0);
 		PartitionedTravelList GetPartitions(const WorldPosition& center, const std::vector<uint32>& distancePartitions, const PlayerTravelInfo& info, uint32 purposeFlag = (uint32)TravelDestinationPurpose::None, const std::vector<int32>& entries = {}, bool onlyPossible = true, float maxDistance = 10000.0f, int32 grindZoneFloor = 0) const;
 		static void ShuffleTravelPoints(std::vector<TravelPoint>& points);
+
+		// Grind-spot demand: how many travel targets currently hold a destination.
+		// Kept incrementally by TravelTarget (assign / release / destruction), so the
+		// destination picker can spread bots across spots without ever walking the bot
+		// population. Only Grind destinations are counted; every other purpose and the
+		// null destination is ignored.
+		void AcquireGrindSpot(TravelDestination* destination);
+		void ReleaseGrindSpot(TravelDestination* destination);
+		bool IsGrindSpotCrowded(TravelDestination* destination) const;
+		void DropCrowdedGrindPoints(PartitionedTravelList& points) const;
 
 		void SetNullTravelTarget(TravelTarget* target) const;
 

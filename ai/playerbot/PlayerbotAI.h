@@ -561,6 +561,16 @@ public:
     // a friend class. Read-only.
     Engine* GetCurrentEngine() { return currentEngine; }
 
+    // Registers an engine in the per-state array. The factory that builds an
+    // engine calls this before it attaches that engine's default strategies:
+    // a strategy's OnStrategyAdded reaches its engine through
+    // PlayerbotAI::ChangeStrategy, which walks this array, and a change aimed at
+    // an engine that is not in it yet is silently dropped. That is how "rpg"
+    // ended up without its children ("rpg quest" and the rest, added only by
+    // RpgStrategy::OnStrategyAdded), which in turn disabled quest-giver/taker
+    // destinations and the quest-travel request rows.
+    void SetEngine(BotState state, Engine* engine) { engines[(uint8)state] = engine; }
+
     // Heartbeat-cadence accumulator used by ::TickHeartbeat.
     // Public so the helper can advance it in-place every UpdateAI tick;
     // there's no behavior risk since it's a pure accumulator (no class
@@ -734,6 +744,13 @@ public:
     };
     uint32 prevKillerEntry_ = 0; // the kind that killed the bot before (lethal-kind rule in OnDeath)
     uint32 prevKillerMs_ = 0;
+    // Death-cluster escape (see OnDeath): deaths inside one small area within a
+    // window, whatever killed the bot, and where that area is.
+    uint32 deathClusterCount_ = 0;
+    uint32 deathClusterMs_ = 0;
+    uint32 deathClusterMapId_ = 0;
+    float deathClusterX_ = 0.0f;
+    float deathClusterY_ = 0.0f;
     // A player (usually another random bot) that killed this bot recently: name +
     // expiry. While set, the victim does not proactively engage that killer
     // (EnemyPlayersValue::IsValid refuses it) so a same-spot trade-kill loop

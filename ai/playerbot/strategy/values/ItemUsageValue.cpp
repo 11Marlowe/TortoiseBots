@@ -19,6 +19,36 @@ uint32 GetAuctionItemCount(AuctionEntry const& auction)
     Item* item = sAuctionMgr.GetAItem(auction.itemGuidLow);
     return item ? item->GetCount() : 0;
 }
+
+// What a piece changes on the character sheet when it carries no stat the
+// bot's weight scale knows: armour and block for armour, DPS for weapons.
+// ItemStatWeight scores such a piece 0 for every spec but protection paladin
+// and feral tank (only those weight "armor" in ai_playerbot_weightscale_data),
+// so two low-level pieces tie at 0 and the winner used to come from quality +
+// item level - which let the white ilvl-1 starter kit outrank grey drops with
+// ten times the armour. Used only to break an exact tie of the weighted
+// scores, so a piece with a real stat always outranks a bigger stat-less one.
+float ItemSheetValue(ItemPrototype const* proto)
+{
+    if (proto->IsWeapon())
+    {
+        if (proto->Delay <= 0)
+            return 0;
+
+        float best = 0;
+        for (int i = 0; i < MAX_ITEM_PROTO_DAMAGES; ++i)
+        {
+            if (proto->Damage[i].DamageMax == 0)
+                continue;
+
+            best = std::max(best, (proto->Damage[i].DamageMin + proto->Damage[i].DamageMax) / 2.0f / (proto->Delay / 1000.0f));
+        }
+
+        return best;
+    }
+
+    return static_cast<float>(proto->Armor) + static_cast<float>(proto->Block);
+}
 }
 
 std::unordered_map<uint32, std::unordered_set<uint32>> ItemUsageValue::m_reagentItemIdsForCraftingSkills;
@@ -199,7 +229,7 @@ ItemUsage ItemUsageValue::Calculate()
     if (proto->Class == ITEM_CLASS_KEY)
         return ItemUsage::ITEM_USAGE_USE;
 
-    if (proto->Class == ITEM_CLASS_CONSUMABLE && !ai->HasCheat(BotCheatMask::item))
+    if (proto->Class == ITEM_CLASS_CONSUMABLE)
     {
         std::string foodType = "";
 
@@ -235,6 +265,20 @@ ItemUsage ItemUsageValue::Calculate()
 
         if (isAppropriateConsumable && bot->CanUseItem(proto) == EQUIP_ERR_OK)
         {
+            //A consumable the bot can actually use is never vendor trash - with
+            //or without the item cheat. The random pool runs with
+            //AiPlayerbot.RndBotCheats = repair,breath,item, and the old
+            //`&& !HasCheat(BotCheatMask::item)` on this block skipped the whole
+            //decision for every pool bot: their food and drink fell through to
+            //the VENDOR branch, so every sell path handed them over (live cycle
+            //4: 1,286 of the 4,394 sale rows were the bot's own food and drink)
+            //and that same VENDOR answer is what armed the 2,300 vendor errands.
+            //
+            //The cheat only makes the "buy more" signal moot - the bot never has
+            //to shop - it is not a licence to sell rations.
+            if (ai->HasCheat(BotCheatMask::item))
+                return ItemUsage::ITEM_USAGE_KEEP;
+
             float stacks = BetterStacks(proto, foodType);
 
             if (stacks < 1)
@@ -243,20 +287,20 @@ ItemUsage ItemUsageValue::Calculate()
 
                 if (stacks < 1)
                     return ItemUsage::ITEM_USAGE_USE; //Buy some to get to 1 stack
-                else if (stacks < 2)
-                    return ItemUsage::ITEM_USAGE_KEEP; //Keep the item if less than 2 stack
             }
+
+            return ItemUsage::ITEM_USAGE_KEEP; //Never sell what the bot eats, drinks or bandages with.
         }
     }
 
     if (proto->Class == ITEM_CLASS_REAGENT && SpellsUsingItem(proto->ItemId, bot).size())
     {
-        float stacks = CurrentStacks(ai, proto);
-
-        if (stacks < 1)
+        //A reagent one of the bot's own spells consumes is never vendor trash,
+        //however many stacks it holds.
+        if (CurrentStacks(ai, proto) < 1)
             return ItemUsage::ITEM_USAGE_USE;
-        else if (stacks < 2)
-            return ItemUsage::ITEM_USAGE_KEEP;
+
+        return ItemUsage::ITEM_USAGE_KEEP;
     }
 
     //EQUIP (bot-aware speed: dynamic mounts such as the 0-static-speed
@@ -332,6 +376,11 @@ ItemUsage ItemUsageValue::Calculate()
             return ItemUsage::ITEM_USAGE_KEEP;
     }
 
+    //A quest item the bot carries is never vendor trash, whether or not it holds
+    //the quest that needs it right now.
+    if (proto->Class == ItemClass::ITEM_CLASS_QUEST)
+        return ItemUsage::ITEM_USAGE_KEEP;
+
     // AMMO
 if ((proto->Class == ITEM_CLASS_PROJECTILE ||
      (proto->Class == ITEM_CLASS_WEAPON && proto->SubClass == ITEM_SUBCLASS_WEAPON_THROWN)) &&
@@ -403,8 +452,8 @@ if ((proto->Class == ITEM_CLASS_PROJECTILE ||
 
                 if (totalStacks < needAmmo)            // Not enough ammo, buy more
                     return ItemUsage::ITEM_USAGE_AMMO;
-                else if (totalStacks < needAmmo + 1)   // Enough ammo, but keep it
-                    return ItemUsage::ITEM_USAGE_KEEP;
+
+                return ItemUsage::ITEM_USAGE_KEEP;     //Ammo for the equipped ranged weapon is never vendor trash.
             }
         }
     }
@@ -564,10 +613,12 @@ uint8 ItemUsageValue::GetPreferredEquipSlot(Player* bot, Item* item, ItemPrototy
     if (!specId)
         specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
 
+    bool const canDualWield = bot->CanDualWield();
+
     // A spec-allowed weapon should take over a hand that still holds a weapon
     // the spec forbids (the spec transition), and that hand can be the off one.
     bool const newWeaponForSpec = proto->Class == ITEM_CLASS_WEAPON &&
-        sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto);
+        sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto, canDualWield);
 
     uint8 emptySlot = NULL_SLOT;
     uint8 best = NULL_SLOT;
@@ -584,7 +635,7 @@ uint8 ItemUsageValue::GetPreferredEquipSlot(Player* bot, Item* item, ItemPrototy
         }
 
         if (newWeaponForSpec && equipped->GetProto()->Class == ITEM_CLASS_WEAPON &&
-            !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, equipped->GetProto()))
+            !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, equipped->GetProto(), canDualWield))
         {
             // An empty main hand is worse than an off-spec off hand: without a
             // main hand the bot cannot auto-attack or use main-hand abilities
@@ -612,7 +663,7 @@ uint8 ItemUsageValue::GetPreferredEquipSlot(Player* bot, Item* item, ItemPrototy
 // for them a shield stays ordinary loot.
 static bool BotCanReturnToShield(Player* bot, uint32 specId, ItemPrototype const* proto)
 {
-    if (sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto))
+    if (sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto, bot->CanDualWield()))
         return true;
 
     return (AiFactory::GetPlayerRoles(bot) & BOT_ROLE_TANK) != 0;
@@ -688,6 +739,8 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     uint32 specId = sRandomItemMgr.GetPlayerSpecId(bot);
     if (!specId)
         specId = sRandomItemMgr.GetFallbackSpecId(bot->GetClass());
+
+    bool const canDualWield = bot->CanDualWield();
 
     uint8 slot = ItemUsageValue::GetPreferredEquipSlot(bot, bagItem, itemProto);
     if (slot == NULL_SLOT && !isQuiverUpgradeCandidate)
@@ -818,7 +871,7 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     if (statWeight)
         shouldEquip = true;
 
-    if (itemProto->Class == ITEM_CLASS_WEAPON && !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto))
+    if (itemProto->Class == ITEM_CLASS_WEAPON && !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto, canDualWield))
         shouldEquip = false;
     if (itemProto->Class == ITEM_CLASS_ARMOR)
     {
@@ -832,7 +885,7 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     ai->TellDebug(ai->GetMaster(), "Checking equip: " + chat->formatItem(itemProto) + " to " + chat->formatSlot(slot) + " vs " + (oldItem ? chat->formatItem(oldItem->GetProto()) : "empty"), "debug equip");
 
     if (itemProto->Class == ITEM_CLASS_WEAPON &&
-        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto))
+        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto, canDualWield))
     {
         if (oldItem)
             return ItemUsage::ITEM_USAGE_NONE;
@@ -903,9 +956,22 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     }
 
     uint32 oldStatWeight = sRandomItemMgr.ItemStatWeight(bot, oldItem);
-    if (statWeight && oldStatWeight)
+
+    // When the weighted scores tie - the common case for low-level gear, since
+    // armour-only pieces score 0 for nearly every spec - the sheet value breaks
+    // the tie before quality and item level do. A real stat item still outranks
+    // a bigger stat-less one, because only an exact tie reaches it.
+    float const sheetValue = ItemSheetValue(itemProto);
+    float const oldSheetValue = ItemSheetValue(oldItemProto);
+    bool const weightsTied = statWeight == oldStatWeight;
+
+    if (!weightsTied)
     {
         shouldEquip = statWeight >= oldStatWeight;
+    }
+    else if (sheetValue != oldSheetValue)
+    {
+        shouldEquip = sheetValue > oldSheetValue;
     }
     else
     {
@@ -915,11 +981,21 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     if (AI_VALUE2_EXISTS(ForceItemUsage, "force item usage", itemProto->ItemId, ForceItemUsage::FORCE_USAGE_NONE) == ForceItemUsage::FORCE_USAGE_EQUIP) //New item is forced. Always equip it.
         return ItemUsage::ITEM_USAGE_EQUIP;
 
+    // Wrong armour class for the spec still has to win the compare below, but it
+    // must get the chance to. The spec armour sets describe the endgame class;
+    // below the level a class can wear its best armour the bot is dressed in the
+    // creation kit (a protection warrior starts in cloth), and demanding both a
+    // higher subclass and a strictly higher stat weight rejected exactly the
+    // upgrades that fit those slots. Legality stays with CanUseItem above - this
+    // is only a preference.
+    //
+    // A stat advantage alone must not buy the swap: the ARMOR case below accepts
+    // a higher stat weight on its own, so without the sheet floor a plate wearer
+    // would trade hundreds of armour for a better-statted cloth piece. A wrong
+    // armour class is therefore only ever allowed while it gives up no armour.
     if (itemProto->Class == ITEM_CLASS_ARMOR && !armorForSpec)
     {
-        if (oldItemProto->Class != ITEM_CLASS_ARMOR ||
-            itemProto->SubClass >= oldItemProto->SubClass ||
-            statWeight <= oldStatWeight)
+        if (oldItemProto->Class != ITEM_CLASS_ARMOR || sheetValue < oldSheetValue)
             return ItemUsage::ITEM_USAGE_NONE;
 
         shouldEquip = true;
@@ -932,10 +1008,17 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     // skipped; class rules (CanUseItem above) and the weapon spec gate still
     // apply to the new item.
     bool const newWeaponForSpec = (itemProto->Class == ITEM_CLASS_WEAPON &&
-        sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto));
+        sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, itemProto, canDualWield));
     bool const oldWeaponAgainstSpec = (oldItemProto->Class == ITEM_CLASS_WEAPON &&
-        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, oldItemProto));
-    if (newWeaponForSpec && oldWeaponAgainstSpec)
+        !sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, oldItemProto, canDualWield));
+
+    // The two-hander a fury warrior leveled on before it could dual wield is not
+    // an off-spec mistake: learning Dual Wield must not downgrade it to the
+    // first one-hander in the bags. Only the weight race below may replace it.
+    bool const standInTwoHander = canDualWield &&
+        oldItemProto->InventoryType == INVTYPE_2HWEAPON && itemProto->InventoryType != INVTYPE_2HWEAPON;
+
+    if (newWeaponForSpec && oldWeaponAgainstSpec && !standInTwoHander)
         return ItemUsage::ITEM_USAGE_EQUIP;
 
     bool existingShouldEquip = true;
@@ -948,9 +1031,11 @@ ItemUsage ItemUsageValue::QueryItemUsageForEquip(ItemQualifier& itemQualifier, P
     bool isBetter = false;
     if (statWeight > oldStatWeight)
         isBetter = true;
-    else if (statWeight == oldStatWeight && itemProto->Quality > oldItemProto->Quality)
+    else if (weightsTied && sheetValue != oldSheetValue)
+        isBetter = sheetValue > oldSheetValue;
+    else if (weightsTied && itemProto->Quality > oldItemProto->Quality)
         isBetter = true;
-    else if (statWeight == oldStatWeight && itemProto->Quality == oldItemProto->Quality && itemProto->ItemLevel > oldItemProto->ItemLevel)
+    else if (weightsTied && itemProto->Quality == oldItemProto->Quality && itemProto->ItemLevel > oldItemProto->ItemLevel)
         isBetter = true;
 
     Item* item = CurrentItem(itemProto, bot);

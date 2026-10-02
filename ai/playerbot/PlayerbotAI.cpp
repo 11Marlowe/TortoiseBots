@@ -104,6 +104,40 @@ static void SanitizeCommandLikeChat(std::string& msg)
         msg.insert(0, " ");
     }
 }
+
+// Would Spell::prepare() refuse this cast for lack of power?
+//
+// The throwaway Spell the CanCastSpell probes build never runs prepare(), and
+// m_powerCost is documented as "initialized only in Spell::prepare"
+// (Spells/Spell.h), so CheckCast(true) approves every power-starved cast. The
+// action was then selected, executed and refused by prepare() with
+// SPELL_FAILED_NO_POWER - 88k of 190k live cast failures over 47 minutes, and
+// nearly all of them rogue energy for Sinister Strike/Eviscerate. This mirrors
+// the core's own gate (Spell::CheckPower) for the probe, so the AI picks
+// something else instead of burning the attempt on a cast that cannot start.
+//
+// The cost is deliberately computed without caster spellmods: ApplySpellMod()
+// spends mod charges (Player::DropModCharge) and a probe must not consume the
+// charge the real cast needs. Cost-reduction procs (Clearcasting and the like)
+// are therefore not priced in, so such a cast waits until the bot could pay
+// the full price anyway; the probe never approves a cast the core will refuse.
+SpellCastResult CheckSpellPower(SpellEntry const* spellInfo, Unit* caster, Item* castItem)
+{
+    // Item casts pay no power (Spell::CheckPower).
+    if (!spellInfo || !caster || castItem)
+        return SPELL_CAST_OK;
+
+    // POWER_HEALTH sits outside MAX_POWERS and needs health, not power, so it
+    // is the one "invalid" power type that must still be measured.
+    if (spellInfo->powerType >= MAX_POWERS && spellInfo->powerType != POWER_HEALTH)
+        return SPELL_CAST_OK;
+
+    uint32 const cost = Spell::CalculatePowerCost(spellInfo, caster, nullptr, nullptr);
+    if (spellInfo->powerType == POWER_HEALTH)
+        return caster->GetHealth() > cost ? SPELL_CAST_OK : SPELL_FAILED_CASTER_AURASTATE;
+
+    return caster->GetPower(Powers(spellInfo->powerType)) < cost ? SPELL_FAILED_NO_POWER : SPELL_CAST_OK;
+}
 }
 
 static uint32 GetQuestSlotQuestId(Player* player, uint16 slot)
@@ -1216,6 +1250,19 @@ bool PlayerbotAI::ShouldAvoidPlayerKiller(std::string const& name) const
     return WorldTimer::getMSTime() - avoidPlayerKillerMs_ <= 10 * MINUTE * IN_MILLISECONDS;
 }
 
+// Death-cluster escape (OnDeath): how many deaths inside one hunting ground,
+// within how long, before the bot leaves it, and for how long the
+// destination/kind stays blacklisted. Calibrated on the cycle-3 pool's 769
+// deaths: a bot's consecutive deaths sit a median 142 s and 142 yd apart (p90
+// 492 yd), so a tight camp radius catches almost nothing (60 yd: 6 clusters) -
+// 300 yd is the hunting-ground size that matters, where 3 deaths in 15 minutes
+// covers 109 of the 769 deaths (14%) across 25 bots. Half an hour off matches
+// the lethal-kind rule's cooldown.
+static constexpr uint32 kDeathClusterDeaths = 3;
+static constexpr uint32 kDeathClusterWindowMs = 15 * MINUTE * IN_MILLISECONDS;
+static constexpr float kDeathClusterRadiusYd = 300.0f;
+static constexpr uint32 kDeathClusterBlacklistMs = 30 * MINUTE * IN_MILLISECONDS;
+
 void PlayerbotAI::OnDeath()
 {
     if (!IsStateActive(BotState::BOT_STATE_DEAD) && !sServerFacade.IsAlive(bot))
@@ -1281,6 +1328,57 @@ void PlayerbotAI::OnDeath()
                 }
                 prevKillerEntry_ = lastKiller_.entry;
                 prevKillerMs_ = nowMs;
+            }
+            // Death-cluster escape: kDeathClusterDeaths deaths inside one small area
+            // within a window mean the bot is looping on a camp it cannot survive
+            // there, whatever the killer kind is. The per-kind rule above only trips
+            // on two consecutive deaths to the same creature, so a camp whose mobs
+            // rotate as they kill the bot slips through it (cycle-3 measurement: a
+            // third of all deaths arrive within two kills of the previous death).
+            // Blacklist the grind destination the bot was working - the same per-bot
+            // list the unreachable give-up and the lethal-kind rule use - so its
+            // travel target drops and the destination picker sends the bot elsewhere.
+            if (context)
+            {
+                uint32 const nowClusterMs = WorldTimer::getMSTime();
+                float const dxCluster = bot->GetPositionX() - deathClusterX_;
+                float const dyCluster = bot->GetPositionY() - deathClusterY_;
+                bool const sameSpot = deathClusterCount_ > 0 &&
+                    bot->GetMapId() == deathClusterMapId_ &&
+                    nowClusterMs - deathClusterMs_ <= kDeathClusterWindowMs &&
+                    dxCluster * dxCluster + dyCluster * dyCluster <= kDeathClusterRadiusYd * kDeathClusterRadiusYd;
+
+                if (sameSpot)
+                    deathClusterCount_++;
+                else
+                {
+                    deathClusterCount_ = 1;
+                    deathClusterMs_ = nowClusterMs;
+                    deathClusterMapId_ = bot->GetMapId();
+                    deathClusterX_ = bot->GetPositionX();
+                    deathClusterY_ = bot->GetPositionY();
+                }
+
+                if (deathClusterCount_ >= kDeathClusterDeaths)
+                {
+                    deathClusterCount_ = 0; // the next death starts a fresh cluster
+
+                    uint32 clusterEntry = 0;
+                    TravelTarget* clusterTarget = AI_VALUE(TravelTarget*, "travel target");
+                    GrindTravelDestination* clusterGrind = clusterTarget
+                        ? dynamic_cast<GrindTravelDestination*>(clusterTarget->GetDestination()) : nullptr;
+                    if (clusterGrind)
+                        clusterEntry = clusterGrind->GetEntry();
+                    else if (lastKiller_.entry)
+                        clusterEntry = lastKiller_.entry; // no Grind destination: leave the kind that kills here
+
+                    if (clusterEntry)
+                    {
+                        context->GetValue<std::map<uint32, uint32>&>("unreachable entries")->Get()[clusterEntry] = nowClusterMs + kDeathClusterBlacklistMs;
+                        sPlayerbotAIConfig.logEvent(this, "DeathClusterEscape", std::to_string(clusterEntry), WorldPosition(bot).GetAreaName());
+                        TellDebug(GetMaster(), "Leaving this hunting ground for a while - it killed me " + std::to_string(kDeathClusterDeaths) + " times", "debug move");
+                    }
+                }
             }
             // Killed by a player (entry == 0, not the environment): avoid that
             // named killer for a while so two masterless random bots grinding the
@@ -4512,6 +4610,39 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
         return false;
     }
 
+    // Spell::prepare() refuses a new cast while another non-melee spell is
+    // still being cast, and that is where SPELL_FAILED_SPELL_IN_PROGRESS comes
+    // from. CheckCast(true) alone does not cover it, so without the same gate
+    // here the AI re-attempted the spell every tick from the moment the cast
+    // bar ended until the server's spell state cleared - 98k of 190k live cast
+    // failures over 47 minutes (Smite, Shadow Bolt, Fireball, heals). The
+    // expression is spelled exactly as Spell::prepare() spells it: channeled
+    // and auto-repeat spells are not "in progress" for this purpose.
+    if (bot->IsNonMeleeSpellCasted(false, true, true))
+    {
+        if (checkResult)
+        {
+            *checkResult = SPELL_FAILED_SPELL_IN_PROGRESS;
+        }
+
+        return false;
+    }
+
+    // Spell::prepare() also refuses a cast the caster cannot pay for, but only
+    // because it is the one place that fills in m_powerCost; this probe never
+    // runs prepare(), so CheckCast(true) approved power-starved casts.
+    Item* castItem = itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get();
+    SpellCastResult powerResult = CheckSpellPower(spellInfo, bot, castItem);
+    if (powerResult != SPELL_CAST_OK)
+    {
+        if (checkResult)
+        {
+            *checkResult = powerResult;
+        }
+
+        return false;
+    }
+
     // already active next melee swing spell
     if (IsNextMeleeSwingSpell(spellInfo))
     {
@@ -4612,7 +4743,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
 	Spell *spell = new Spell(bot, spellInfo, false);
 
     spell->m_targets.setUnitTarget(target);
-    spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get());
+    spell->SetCastItem(castItem);
     spell->m_targets.setItemTarget(spell->m_targets.getItemTarget());
 
     SpellCastResult result = spell->CheckCast(true);
@@ -4941,6 +5072,22 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
         // pet overload owns the actual attempt/result from this point.
         botdiag::BotActionLog::Write(this, "CAST_GATE", "spell=%u targetGuid=0x%llx reason=pet-redirect", spellId, (unsigned long long)target->getObjectGuid().GetRawValue());
         return CastPetSpell(spellId, target);
+    }
+
+    // Spell::prepare() refuses a second non-melee cast while one is still running, and that is
+    // where SPELL_FAILED_SPELL_IN_PROGRESS comes from. CanCastSpell() mirrors the gate for every
+    // caller that asks before casting (CastSpellAction::isPossible and the cast triggers), but the
+    // loot chain calls this overload directly: OpenLootAction::DoLoot starts Skinning / Herb
+    // Gathering / Mining and the opening spells from its own action. While the 2s gather cast ran,
+    // "can loot" stayed true - the loot target is still valid until the cast completes and the
+    // corpse is skinned - so the chain re-issued the cast every tick and the server refused each
+    // one. Live: 545 of the 750 SPELL_IN_PROGRESS refusals in a 47-minute window were Skinning,
+    // plus the herb/ore/opening spells of the same path. Same expression as prepare(): a channeled
+    // or auto-repeat spell does not count as "in progress".
+    if (bot->IsNonMeleeSpellCasted(false, true, true))
+    {
+        botdiag::BotActionLog::Write(this, "CAST_GATE", "spell=%u targetGuid=0x%llx reason=cast-in-progress", spellId, (unsigned long long)target->getObjectGuid().GetRawValue());
+        return false;
     }
 
     aiObjectContext->GetValue<LastMovement&>("last movement")->Get().Set(NULL);

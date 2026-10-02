@@ -61,6 +61,21 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
         }
     }
 
+    // A level-up is exactly what can make a fruitless class-trainer visit fruitful
+    // again: new ranks appear at the trainer, and the training need is recomputed from
+    // the new level. The ten-minute park such a visit sets (TrainerAction) is a
+    // cooling-off for the need of the level it was set at, so it must not outlive that
+    // level - otherwise a bot that dings 6 a minute after a fruitless level-5 visit
+    // sits on its new ranks for the rest of the park. The trainer-travel value lifts
+    // the park the same way once the purse covers the cheapest rank.
+    RESET_AI_VALUE2(time_t, "manual time", "no travel purpose until::trainer class");
+
+    // Same reason as the park above, for the "one trainer journey at a time"
+    // window (ShouldTravelNamedValue): new ranks at the new level are exactly
+    // what the next trip is for, so a bot that dinged must not sit out the rest
+    // of the ten-minute window before it may walk to its trainer.
+    RESET_AI_VALUE2(time_t, "manual time", "trainer trip since");
+
     // Free learning is random-pool only; the paid trainer path is untouched.
     bool const freeLearn = IsFreeLearnBot(bot);
 
@@ -71,8 +86,17 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
     // companions hired below the gate when they later dinged 18.
     if (freeLearn)
     {
-        PlayerbotFactory turtle(bot, bot->GetLevel());
-        turtle.InitTurtleMount();
+        PlayerbotFactory mounts(bot, bot->GetLevel());
+        mounts.InitTurtleMount();
+
+        // Organic level-up mounts (AiPlayerbot.LevelUpMounts): a bot that
+        // dings 40 or 60 earns the same mount set the seed/hire path grants
+        // (slow mount at 40, epic at 60); nothing else teaches them while a
+        // bot levels from 1. Riding skill follows from InitSkills below and
+        // InitMounts is idempotent per tier, so seeding and a repeated
+        // level-up packet are no-ops.
+        if (sPlayerbotAIConfig.levelUpMounts && (bot->GetLevel() == 40 || bot->GetLevel() == 60))
+            mounts.InitMounts();
     }
 
     if (freeLearn && sPlayerbotAIConfig.autoLearnQuestSpells)

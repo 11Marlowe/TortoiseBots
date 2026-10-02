@@ -100,6 +100,64 @@ namespace ai
         virtual bool Calculate() override { return ai->HasStrategy("rpg vendor", BotState::BOT_STATE_NON_COMBAT) && AI_VALUE2(uint32, "item count", "usage " + std::to_string((uint8)ItemUsage::ITEM_USAGE_VENDOR)) > 0; };
     };
 
+    //The nearest quest giver, class trainer or vendor a waiting bot has a real
+    //reason to use, or an empty GuidPosition when there is nothing to do or
+    //nobody close enough to do it with. Empty unless the bot is idle (not
+    //preparing or walking a journey, no fight, no player master) and the NPC is
+    //within a short walk: a bot standing next to the NPC that would unblock it
+    //must use it instead of starting a journey it may never finish (issue #379).
+    GuidPosition NearbyServiceTarget(PlayerbotAI* ai);
+
+    //True when the bot holds a finished quest it can actually be paid for. A
+    //quest that is complete but cannot be rewarded (full bags, a money
+    //requirement) would park the bot at the taker failing every tick, so the
+    //nearby hand-in waits until the reward would go through - the same
+    //CanRewardQuest test the travel layer builds its taker fetch from.
+    bool HasRewardableFinishedQuest(PlayerbotAI* ai);
+
+    //Bag pressure in the field: bags at the pressure line, stock a vendor
+    //actually wants, and no vendor within the near-service radius. True means
+    //the bot must request the existing Vendor travel target instead of waiting
+    //for one to walk past. False once nothing sellable is left, so a bot cannot
+    //loop on trips that cannot empty its bags.
+    bool BagPressureVendorTrip(PlayerbotAI* ai);
+
+    //Is there a real reason to walk to a vendor? Stock a vendor pays for and
+    //that is worth the walk, a durability below the repair threshold, or an
+    //empty food/drink bag the bot can pay to refill - and never while the Vendor
+    //purpose is parked after a fruitless errand (ParkVendorErrand). The rpg
+    //vendor travel request reads this instead of the loose `should sell` &&
+    //`can sell` pair, which a starting bot satisfied with its own food.
+    bool VendorTripNeeded(PlayerbotAI* ai);
+
+    //May the bag-pressure vendor errand start while a travel target is set?
+    //Yes while that target is merely parked at its destination (arrived,
+    //working it, or in cooldown) and no while a journey is in flight; and only
+    //for the Vendor purpose, so other request actions keep the old churn guard.
+    //The travel request action and the travel multiplier both ask this, so they
+    //cannot disagree.
+    bool VendorErrandWhileParked(PlayerbotAI* ai, const std::string& qualifier);
+
+    //A vendor errand that found nothing vendor-usable cannot be finished by
+    //standing there. Park the Vendor travel purpose the way TrainerAction parks
+    //a fruitless trainer visit: the same key ChooseTravelTargetAction sets when
+    //a destination search comes up empty, cleared early by any successful pick.
+    void ParkVendorErrand(PlayerbotAI* ai, uint32 minutes);
+
+    class NearbyServiceTargetValue : public GuidPositionCalculatedValue
+    {
+    public:
+        NearbyServiceTargetValue(PlayerbotAI* ai, std::string name = "nearby service target", int checkInterval = 5) : GuidPositionCalculatedValue(ai, name, checkInterval) {}
+        virtual GuidPosition Calculate() override { return NearbyServiceTarget(ai); }
+    };
+
+    class ShouldServiceNearbyNpcValue : public BoolCalculatedValue
+    {
+    public:
+        ShouldServiceNearbyNpcValue(PlayerbotAI* ai, std::string name = "should service nearby npc", int checkInterval = 5) : BoolCalculatedValue(ai, name, checkInterval) {}
+        virtual bool Calculate() override { return (bool)AI_VALUE(GuidPosition, "nearby service target"); }
+    };
+
     class CanBuyValue : public BoolCalculatedValue
     {
     public:
@@ -226,7 +284,14 @@ namespace ai
         ShouldEatValue(PlayerbotAI* ai) : BoolCalculatedValue(ai, "should eat", 2) {}
         virtual bool Calculate() override
         {
-            if (AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.lowHealth)
+            // Matches the trigger band UseFoodStrategy installs: a bot with free
+            // conjured rations (the item cheat) tops up to MediumHealth before it
+            // takes another fight, everyone else still stops at LowHealth. Without
+            // this the action would refuse to run for the [LowHealth, MediumHealth)
+            // band the strategy just made it responsible for.
+            uint32 eatBelow = ai->HasCheat(BotCheatMask::item)
+                ? sPlayerbotAIConfig.mediumHealth : sPlayerbotAIConfig.lowHealth;
+            if (AI_VALUE2(uint8, "health", "self target") >= eatBelow)
                 return false;
 
             Player* master = ai->GetMaster();

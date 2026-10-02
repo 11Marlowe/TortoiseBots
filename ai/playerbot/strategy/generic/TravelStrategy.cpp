@@ -2,6 +2,8 @@
 #include "playerbot/playerbot.h"
 #include "TravelStrategy.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/strategy/actions/ChooseTravelTargetAction.h"
+#include "playerbot/strategy/values/MaintenanceValues.h"
 
 using namespace ai;
 
@@ -20,6 +22,18 @@ float TravelActionMultiplier::GetValue(Action* action)
             return 1.0f;
         if (name.find("guild order") != std::string::npos)
             return 1.0f;
+
+        // A bag-pressure vendor errand may start while the bot is merely parked
+        // at its destination (arrived, working it, or in cooldown): the bags are
+        // at the pressure line and there is no vendor within walking distance, so
+        // standing there until the current target expires is what left the pool
+        // with 0 SellAction rows. Only the Vendor purpose and only while the
+        // valve is open - every other request keeps the churn guard.
+        if (RequestTravelTargetAction* request = dynamic_cast<RequestTravelTargetAction*>(action))
+        {
+            if (VendorErrandWhileParked(ai, request->getQualifier()))
+                return 1.0f;
+        }
 
         return 0.0f;
     }
@@ -57,9 +71,8 @@ void TravelStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         {"val::and::{should get money,can get mail,should get mail}", TravelDestinationPurpose::Mail, 6.79f},  //100%
         {"val::should get money", TravelDestinationPurpose::Grind, 6.77f},                                     // 90%
         {"",TravelDestinationPurpose::Mail, 6.6f},                                                             // 30%
-        {"",TravelDestinationPurpose::GatherMining, 6.5f},                                                     // 90%/40% in group
-        {"",TravelDestinationPurpose::GatherSkinning, 6.5f},                                                   // 90%/40% in group
-        {"",TravelDestinationPurpose::GatherHerbalism, 6.5f},                                                  // 90%/40% in group
+        {"",TravelDestinationPurpose::GatherMining, 6.5f},                                                     // 90%/40% in group, level 10+
+        {"",TravelDestinationPurpose::GatherHerbalism, 6.5f},                                                  // 90%/40% in group, level 10+
         {"",TravelDestinationPurpose::GatherFishing, 6.5f},                                                    // 90%/40% in group
         {"",TravelDestinationPurpose::Boss, 6.4f},                                                             // 50%
         // Grind was 6.27 here - dead last, one step below GenericRpg (6.28). Live data
@@ -97,6 +110,22 @@ void TravelStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         {"val::not::travel target active","refresh travel target", 6.7f},                                     // 90%
         {"val::not::travel target active","choose group travel target", 6.65f},                               // 50%
         {"val::should travel named::trainer trade","request named travel target::trainer trade", 6.51f},      // 25%
+        // A finished quest outranks the next grind errand. The plain quest row
+        // below sits at 6.3, one hair under Grind (6.35), and that is the whole
+        // reason a bot never walked to a taker: on a live stage-2 realm ~1597
+        // complete quests sat unrewarded across 484 bots with 0 QuestTravelToTaker
+        // events, so every one of the 544 QuestRewarded rows came from a taker the
+        // bot was already standing next to (the 50 yd nearby-service radius covered
+        // 140 of the 1597; 1264 of the other 1457 had their ender inside 1000 yd).
+        // Ranked at 6.36 - one step above Grind, below every service errand (vendor
+        // 6.94, repair 6.93, trainer class 6.89) - the hand-in wins the tick without
+        // pre-empting the #379 vendor/repair/trainer trips. Only a quest that is
+        // rewardable right now qualifies, so a finished quest blocked by a full bag
+        // or a money requirement cannot park the bot at the taker. While the bot
+        // carries finished work the request itself already narrows to taker-only
+        // destinations (the log-upkeep latch), so this row cannot start a hunt for
+        // new quests.
+        {"val::and::{has strategy::rpg quest,has rewardable finished quest}","request quest travel target", 6.36f}, // 95%
         {"val::has strategy::rpg quest", "request quest travel target", 6.3f}                                 // 95%
     };
 
