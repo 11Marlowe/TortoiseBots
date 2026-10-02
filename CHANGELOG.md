@@ -15,6 +15,25 @@
 
 ---
 
+### Observability & Dashboard
+
+- New per-bot **Activity tab** streams each bot's progress live in the dashboard, so you can track leveling without tailing logs or querying the DB by hand [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+- Dashboard counters now report trainer visits and spells learned, vendor sales, repairs, quest hand-in trips, give-ups, gathering and profession skill-ups, and AH listings per bot [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+
+### Quests & Loot Feeds
+
+- Quest events are surfaced with names — accepted, completed, and handed in — making it easy to spot stuck bots or stalled quest chains [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+- Notable loot is logged with item name, quality, and source, so upgrades and lucky drops are visible at a glance [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+- Level-ups appear as first-class events in the activity stream instead of being inferred from stat deltas [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+
+### Gear & Progress Tracking
+
+- Gear item level is now tracked and displayed per bot, giving a quick read on whether a bot is actually gearing up as it levels [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+
+### Dashboard Fixes
+
+- Dashboard numbers were cross-checked against the database and the discrepancies found during that audit are fixed, so what you see on screen matches reality [#385](https://github.com/Sagiroth/TortoiseBots/pull/385)
+
 ## 2026-10-01
 
 ### Party Buffs & Hire Cleanup
