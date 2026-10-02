@@ -63,6 +63,20 @@
 ### Dashboard & Observability
 - Follow-up fixes rolled in for the dashboard activity panels introduced in the previous release, keeping bot activity reporting in sync with actual behavior. [#395](https://github.com/Sagiroth/TortoiseBots/pull/395)
 
+### Combat & AI
+- Autonomous pool bots no longer initiate combat with grey (no-XP) creatures — grey candidates are skipped outright instead of slipping through the grind target lean. On live realms this was bleeding ~17% of all attack orders into zero-reward mobs, mostly from level 6-8 bots. [#397](https://github.com/Sagiroth/TortoiseBots/pull/397)
+- Bots still defend themselves: if a grey mob attacks first, the bot fights back. Owned (non-pool) bots and explicit player-issued orders are untouched. [#397](https://github.com/Sagiroth/TortoiseBots/pull/397)
+
+### Quests & Progression
+- Quest-giver trips now skip quests that are grey for the bot, and skip givers sitting in areas the bot has outgrown (area level below the grind band floor), with capitals exempt. No more wasted cross-zone walks for zero-XP turn-ins. [#397](https://github.com/Sagiroth/TortoiseBots/pull/397)
+- Quest hand-ins are unchanged — only pickup routing is filtered. Completed quests still get turned in as before. [#397](https://github.com/Sagiroth/TortoiseBots/pull/397)
+
+### Behavior & Idle Handling
+- Fixed idle beginner bots so freshly spawned low-level bots stop standing around and get into the grind loop. [#397](https://github.com/Sagiroth/TortoiseBots/pull/397)
+
+### Dashboard & UI
+- Fixed dashboard navigation issues that broke moving between dashboard views. [#397](https://github.com/Sagiroth/TortoiseBots/pull/397)
+
 ## 2026-10-01
 
 ### Party Buffs & Hire Cleanup
