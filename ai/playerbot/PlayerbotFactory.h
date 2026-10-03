@@ -32,8 +32,16 @@ public:
     void UpgradeGearBest() { return InitEquipment(true, false, false); }
     // Weapon/armour/riding skills plus two class-appropriate professions and the
     // secondary skills, all bounded by the current level. Public so the runtime can
-    // give it to persistent-level bots on first login.
+    // give it to persistent-level bots on first login. Primaries are granted from
+    // level PRIMARY_PROFESSION_MIN_LEVEL (5); below that only secondaries land.
     void InitAllSkills();
+    // Idempotent primary-pair grant at the level gate (Professions-at-5):
+    // rolls the class pair and teaches it when the bot is at/above the gate
+    // and holds no primary; never touches a bot that already has one. Public
+    // so the level-up spell hook can grant it on ding.
+    void EnsurePrimaryProfessions();
+    // True when the bot holds any primary profession (never re-roll those).
+    bool HasAnyPrimaryProfession() const;
     // Issue #189 Phase 1: idempotent "make complete" for random-pool bots.
     // Talents first, then knob-gated free spells, then skills, then gear —
     // same result whether first run at 1, 10, 40 or 60. Owned bots keep
@@ -53,6 +61,11 @@ public:
     void AddConsumes() { return AddConsumables(); }
     void AddFood() { return InitFood(); }
     void InitAmmo();
+    void InitThrown();
+    // Idempotent #401 starter-set backstop for the live pool (login and
+    // level-up): thrown first, then bags, then ammo. Never touches real
+    // players - callers gate on the random-pool record.
+    void EnsureStarterKit();
     // Turtle mount (quest 40302 equivalent, spell 30174): idempotent grant
     // for TurtleMountAtLevel..39, no-op at 40+ and when disabled. Called from
     // InitMounts (seed path) and the level-up spell hook.
@@ -87,8 +100,11 @@ private:
     bool SelectPremadeSpecNo();
     // Idempotent kit helpers shared by the fresh-seed and restock paths.
     // InitBags keeps the hunter quiver/pouch logic intact; InitLevelBags
-    // upgrades plain container slots to a level-tier vendor bag first.
+    // upgrades plain container slots to a level-tier vendor bag first,
+    // InitStarterBags fills the #401 starter set (3x 14-slot 3914, warlock
+    // soul pouch 22243).
     void InitLevelBags();
+    void InitStarterBags();
     void SeedFreshMoney();
     void InitBandages();
     void InitPotions();

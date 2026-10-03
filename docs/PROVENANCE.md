@@ -2645,3 +2645,80 @@ roughly half of every grey candidate through.
 
 Local validation: `bash tools/verify_all.sh`; `git diff --check`; module
 build via `build-commit.sh` (no deploy).
+
+## Neutral starter wildlife as grind prey (issue #393) — 2026-10-02
+
+Feature: `GrindTravelDestination::IsActive` no longer requires the prey entry
+to be hostile to the bot. Hostile entries stay prey; friendly entries never
+are; neutral entries are prey when they are XP-paying wildlife (no NPC flag,
+non-zero `xp_multiplier`). The rule is `GrindHostilityAllowed` in
+`ai/playerbot/GrindSpotPolicy.h`, next to the other prey rules.
+
+Source project: `mod-playerbots`
+`src/Ai/Base/Value/GrindTargetValue.cpp:66-74` (loot-carrying neutrals are
+kept — `lootid` + reaction gate — only non-hostile NPCs are refused) @
+`b6696bdbd3740e575598d167d69f39f68cc0b907`, adapted from the live-target
+filter to the destination gate (static `CreatureInfo`: `npc_flags`,
+`xp_multiplier`).
+
+Source files: donor `GrindTargetValue.cpp:66-74`; core reaction
+`tortoise-wow` `src/game/Objects/Object.cpp:3526-3566`
+(`GetFactionReactionTo`), faction data `tw_world.faction_template`
+(ids 115/189/7), `src/game/Objects/Creature.h:191-243` (`CreatureInfo`).
+
+Reason: live `bot_events.csv` (2026-10-02-1540, 235,780 rows): Teldrassil
+level-2 bots log ~16 throttled `QuestTripNoTarget` rows each and never hold
+a grind destination, while the same-zone starter beasts (Young Thistle Boar
+faction 189, Young Nightsaber faction 7 — both REP_NEUTRAL against a player
+faction template) are the only prey in range. The #397 beginner repark only
+shortened the quest park; the grind search still came back empty because
+`IsActive` rejected every neutral entry, so the bot re-searched quests every
+minute instead of walking 200 yd to its wolves.
+
+Local validation: `tools/test_grind_hostility_policy.cpp`
+(5 groups: neutral wildlife in, hostile always in, friendly out, neutral
+NPCs out, neutral no-XP out); `bash tools/verify_all.sh`;
+`git diff --check`; no deploy (orchestrator compiles).
+## Pool bots buy vendor weapon upgrades with their own gold (feat/vendor-weapons) — 2026-10-02
+
+Feature: a masterless pool bot standing at a vendor during an existing errand
+(rpg buy trigger / nearby-service sell visit) buys at most one weapon per
+visit when that weapon is a real upgrade — spec-allowed type, usable now
+(`CanUseItem`), better by the module's own scoring (`QueryItemUsageForEquip`
+EQUIP, the same answer the equip audit uses) — and affordable out of its own
+purse with the next trainer ranks kept funded (`VendorWeaponUpgradeAffordable`
+against total money needed for spells). Bought weapons equip via the existing
+`equip upgrades` path. No free gear, no gold injection, no extra shopping
+trips, no player-character behavior change (owned/mastered bots untouched).
+
+Source project: `mod-playerbots`
+`src/Ai/Base/Actions/BuyAction.cpp` (vendor loop sorted by score, usage →
+`NeedMoneyFor::gear` afford check, `equip upgrades` after EQUIP buys) @
+`b6696bdbd3740e575598d167d69f39f68cc0b907`, adapted: donor checks
+`AI_VALUE2(ItemUsage, "item usage")` EQUIP directly, but our classifier only
+scores items seen in bags — vendor stock the bot does not own answers NONE —
+so the fallback re-scores unseen weapons via `QueryItemUsageForEquip`
+(`RandomBotFacade::CanEquipUnseenItem` slot probe) gated by the pure
+tool/ammo filter and the trainer-first affordability rule; donor sorts by
+stat score, ours keeps the existing ItemLevel order and equips one per visit.
+
+Source files: donor `BuyAction.cpp`; `BudgetValues.cpp:170-171`
+(`NeedMoneyFor::gear = level^3`) and `BudgetValues.h:69-70` (reserve order —
+our pool inherits donor reserve semantics: spells rank above gear).
+
+Ported / reimplemented: `ai/playerbot/strategy/actions/BuyAction.cpp`
+(weapon-upgrade fallback buy + `equip upgrades`), `ai/playerbot/strategy/values/VendorValues.cpp`
+(`vendor has useful item` upgrade arm so the rpg buy trigger fires),
+`ai/playerbot/strategy/values/VendorWeaponUpgradePolicy.h` (pure
+candidate/affordability rules), `tools/test_vendor_weapon_upgrade_policy.cpp`
+(standalone g++ test, registered in `tools/verify_all.sh`).
+
+Reason: live pool 2026-10-02-1540 froze 60/67 rogues on the starter Worn
+Dagger (see snapshot `a-gear-bags.md` §1-2: loot never offers a spec-legal
+sword/mace/dagger, while vendors sell Shortsword 54c / Stiletto 401c /
+Gladius 536c — all within a level-10 purse once trainer ranks are reserved).
+
+Local validation: `bash tools/verify_all.sh` (OKF, surface, wiring
+`queued=1542 live-missing=0`, policy tests incl. new weapon test, decision
+trail); `git diff --check`. Module build + runtime deploy left to the
+orchestrator (worktree rule: no docker builds here).

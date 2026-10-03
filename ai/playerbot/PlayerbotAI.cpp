@@ -39,6 +39,7 @@
 #include "strategy/values/PositionValue.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/DeathClusterPolicy.h"
 #include "Movement/spline/MoveSplineInitArgs.h"
 #include "Maps/InstanceData.h"
 #include "ChatHelper.h"
@@ -708,6 +709,42 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         }
         if (HasCheat(BotCheatMask::item) && (bot->GetClass() == CLASS_HUNTER || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_WARRIOR))
         {
+            // Server-managed ammo (Issue #401): InitAmmo picks the
+            // level/weapon-appropriate ammo, and a gun<->bow swap leaves a
+            // stale ammo id behind. Resync through InitAmmo first so the
+            // refill below tops up the right stack instead of the old one.
+            // Throttled to one attempt a minute: when bags are full the
+            // mismatch cannot resolve and must not busy-loop every tick.
+            bool ammoMismatch = false;
+            if (Item* ranged = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED))
+            {
+                uint32 wantSub = 0;
+                switch (ranged->GetProto()->SubClass)
+                {
+                case ITEM_SUBCLASS_WEAPON_GUN:
+                    wantSub = ITEM_SUBCLASS_BULLET;
+                    break;
+                case ITEM_SUBCLASS_WEAPON_BOW:
+                case ITEM_SUBCLASS_WEAPON_CROSSBOW:
+                    wantSub = ITEM_SUBCLASS_ARROW;
+                    break;
+                case ITEM_SUBCLASS_WEAPON_THROWN:
+                    break;
+                }
+                uint32 ammoId = bot->GetUInt32Value(PLAYER_AMMO_ID);
+                ItemPrototype const* ammoProto = ammoId ? sObjectMgr.GetItemPrototype(ammoId) : nullptr;
+                if (wantSub && (!ammoProto || ammoProto->Class != ITEM_CLASS_PROJECTILE || ammoProto->SubClass != wantSub))
+                    ammoMismatch = true;
+            }
+            if (ammoMismatch)
+            {
+                uint32 nowMs = WorldTimer::getMSTime();
+                if (!m_lastAmmoResyncMs || nowMs - m_lastAmmoResyncMs >= 60 * 1000)
+                {
+                    m_lastAmmoResyncMs = nowMs;
+                    PlayerbotFactory(bot, bot->GetLevel(), 0).InitAmmo();
+                }
+            }
             uint32 itemId = bot->GetUInt32Value(PLAYER_AMMO_ID);
             if (itemId && bot->GetItemCount(itemId))
             {
@@ -1250,6 +1287,11 @@ bool PlayerbotAI::ShouldAvoidPlayerKiller(std::string const& name) const
     return WorldTimer::getMSTime() - avoidPlayerKillerMs_ <= 10 * MINUTE * IN_MILLISECONDS;
 }
 
+bool PlayerbotAI::IsDeathSpotAvoided(uint32 mapId, float x, float y, uint32 nowMs) const
+{
+    return ai::IsDeathPositionAvoided(mapId, x, y, nowMs, deathAvoidSpots_, ai::kDeathAvoidSpots);
+}
+
 // Death-cluster escape (OnDeath): how many deaths inside one hunting ground,
 // within how long, before the bot leaves it, and for how long the
 // destination/kind stays blacklisted. Calibrated on the cycle-3 pool's 769
@@ -1377,6 +1419,48 @@ void PlayerbotAI::OnDeath()
                         context->GetValue<std::map<uint32, uint32>&>("unreachable entries")->Get()[clusterEntry] = nowClusterMs + kDeathClusterBlacklistMs;
                         sPlayerbotAIConfig.logEvent(this, "DeathClusterEscape", std::to_string(clusterEntry), WorldPosition(bot).GetAreaName());
                         TellDebug(GetMaster(), "Leaving this hunting ground for a while - it killed me " + std::to_string(kDeathClusterDeaths) + " times", "debug move");
+                        // Rotating killers defeat the kind blacklist above (issue
+                        // #398: median 7 killer kinds per loop bot), so the second
+                        // escape inside the avoidance window escalates to the spot
+                        // itself: grind and quest-objective picks inside the camp
+                        // are refused for a while and the bot walks elsewhere.
+                        // Lowbies (<= 5, stuck in their starter valley) avoid a
+                        // smaller camp for a shorter while; a ding clears the
+                        // list. Owned bots and bots with a real player master
+                        // stay out - their player decides where to hunt.
+                        if (!HasRealPlayerMaster())
+                        {
+                            deathEscapeCount_ = ai::NextDeathEscapeCount(deathEscapeCount_, nowClusterMs, deathLastEscapeMs_);
+                            deathLastEscapeMs_ = nowClusterMs;
+                            if (ai::DeathAvoidanceEscalated(deathEscapeCount_))
+                            {
+                                uint32 const botLevel = bot->GetLevel();
+                                ai::AddDeathAvoidSpot(deathAvoidSpots_, ai::kDeathAvoidSpots, bot->GetMapId(),
+                                    bot->GetPositionX(), bot->GetPositionY(), nowClusterMs,
+                                    ai::DeathAvoidDurationMs(botLevel), ai::DeathAvoidRadiusYd(botLevel));
+                                sPlayerbotAIConfig.logEvent(this, "DeathSpotAvoided", WorldPosition(bot).GetAreaName());
+                                // The bot is standing in the camp it must leave:
+                                // drop the current target now so the corpse run
+                                // and the next pick start from a clean slate
+                                // instead of walking back to the same point.
+                                // SetBestTarget's per-point filter (not the
+                                // whole-destination IsActive gates) decides
+                                // where the next pick lands.
+                                TravelTarget* escapeTarget = AI_VALUE(TravelTarget*, "travel target");
+                                if (escapeTarget && escapeTarget->GetDestination() &&
+                                    typeid(*escapeTarget->GetDestination()) != typeid(NullTravelDestination))
+                                {
+                                    WorldPosition* escapePoint = escapeTarget->getPosition();
+                                    if (escapePoint && IsDeathSpotAvoided(escapePoint->GetMapId(), escapePoint->getX(),
+                                        escapePoint->getY(), nowClusterMs))
+                                    {
+                                        sTravelMgr.SetNullTravelTarget(escapeTarget);
+                                        escapeTarget->SetStatus(TravelStatus::TRAVEL_STATUS_EXPIRED);
+                                        escapeTarget->SetExpireIn(1000);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

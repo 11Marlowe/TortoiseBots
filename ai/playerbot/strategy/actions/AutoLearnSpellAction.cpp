@@ -4,6 +4,7 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/TravelMgr.h"
 #include "playerbot/PlayerbotFactory.h"
+#include "../../../../runtime/ProfessionGrantPolicy.h"
 #include "Objects/Item.h"
 #include <Mail/Mail.h>
 #include <map>
@@ -61,6 +62,11 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
         }
     }
 
+    // A ding outgrows the band that killed the bot: the death-spot avoidance
+    // (issue #398) is a cooling-off for the level it was set at, so it must
+    // not strand a lowbie outside its starter-valley camps after it dings.
+    ai->ClearDeathAvoidance();
+
     // A level-up is exactly what can make a fruitless class-trainer visit fruitful
     // again: new ranks appear at the trainer, and the training need is recomputed from
     // the new level. The ten-minute park such a visit sets (TrainerAction) is a
@@ -75,6 +81,12 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
     // what the next trip is for, so a bot that dinged must not sit out the rest
     // of the ten-minute window before it may walk to its trainer.
     RESET_AI_VALUE2(time_t, "manual time", "trainer trip since");
+
+    // Same for the "one vendor journey at a time" window (issue #399,
+    // "vendor trip since"): new ranks at the new level are exactly what the
+    // next vendor trip funds. Dings through the XP hook (XpGainAction) clear
+    // the same key next to their own travel-target expiry.
+    RESET_AI_VALUE2(time_t, "manual time", "vendor trip since");
 
     // Free learning is random-pool only; the paid trainer path is untouched.
     bool const freeLearn = IsFreeLearnBot(bot);
@@ -124,6 +136,20 @@ void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
     {
         PlayerbotFactory factory(bot, bot->GetLevel());
         factory.InitSkills();
+        // Professions-at-5 backstop: a pool bot that dings 5 without primaries
+        // (created before the gate, or seeded below it) earns its class pair
+        // here, plus the matching tools. Gated on the same tested policy
+        // helper as the seed path (GrantAll only); the helpers no-op for bots
+        // that already hold a primary or own the tools.
+        TortoiseBots::ProfessionGrantInputs grantInputs;
+        grantInputs.level = bot->GetLevel();
+        grantInputs.isPoolBot = true; // freeLearn already pins pool identity
+        grantInputs.hasPrimaryProfession = factory.HasAnyPrimaryProfession();
+        if (TortoiseBots::DecideProfessionGrant(grantInputs) == TortoiseBots::ProfessionGrantDecision::GrantAll)
+        {
+            factory.EnsurePrimaryProfessions();
+            factory.AddTools();
+        }
     }
 }
 

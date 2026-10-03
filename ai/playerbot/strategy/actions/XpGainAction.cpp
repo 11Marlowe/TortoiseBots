@@ -1,6 +1,6 @@
-
 #include "playerbot/playerbot.h"
 #include "XpGainAction.h"
+#include "playerbot/PlayerbotFactory.h"
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/TravelMgr.h"
 #include "playerbot/strategy/actions/LootAction.h"
@@ -101,10 +101,24 @@ bool XpGainAction::Execute(Event& event)
     {
         sLog.outBasic("Bot #%d <%s> levelled %d->%d (Execute hook), expiring travel target",
             bot->GetGUIDLow(), bot->GetName(), levelBefore, levelAfter);
+        // Issue #401: the ammo container, thrown tier and soul pouch are
+        // server-managed by level. Re-check the starter set on ding so a
+        // bot that levels past a tier boundary picks it up without waiting
+        // for the next login. Idempotent; free pool bots only (never hired
+        // companions or owned alts - their kit is the player's business).
+        if (sRandomBotFacade.IsFreeBot(bot))
+        {
+            PlayerbotFactory kit(bot, bot->GetLevel());
+            kit.EnsureStarterKit();
+        }
         TravelTarget* travelTarget = AI_VALUE(TravelTarget*, "travel target");
         sTravelMgr.SetNullTravelTarget(travelTarget);
         travelTarget->SetStatus(TravelStatus::TRAVEL_STATUS_EXPIRED);
         travelTarget->SetExpireIn(1000);
+        // A ding changes what the stock is worth (new spell ranks to fund), so
+        // the "one vendor journey at a time" window (issue #399) ends with the
+        // old level's trip instead of suppressing the next one.
+        RESET_AI_VALUE2(time_t, "manual time", "vendor trip since");
     }
 
     return false;

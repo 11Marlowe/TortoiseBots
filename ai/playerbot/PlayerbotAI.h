@@ -11,6 +11,7 @@
 #include <stack>
 #include "strategy/IterateItemsMask.h"
 #include "BotDiagnostics.h"
+#include "playerbot/DeathClusterPolicy.h"
 #include "../../runtime/BotManager.h"
 
 class Player;
@@ -751,6 +752,20 @@ public:
     uint32 deathClusterMapId_ = 0;
     float deathClusterX_ = 0.0f;
     float deathClusterY_ = 0.0f;
+    // Death-spot avoidance (issue #398): the camps the bot keeps dying in, and
+    // until when (WorldTimer ms) each stays off limits for grind and quest
+    // picks. Set on the second cluster escape inside the avoidance window; an
+    // expiry of 0 means the slot is free. Owned bots and bots with a real
+    // player master never set it (OnDeath guards them out). A ding clears the
+    // list (AutoLearnSpellAction): the band that killed the bot no longer
+    // applies at the new level.
+    uint32 deathEscapeCount_ = 0;
+    uint32 deathLastEscapeMs_ = 0;
+    ai::DeathAvoidSpot deathAvoidSpots_[ai::kDeathAvoidSpots] = {};
+    void ClearDeathAvoidance() { for (auto& spot : deathAvoidSpots_) spot = ai::DeathAvoidSpot(); }
+    // A death-spot query needs only plain data (map + coordinates), so the
+    // travel layer can ask without pulling in the policy header.
+    bool IsDeathSpotAvoided(uint32 mapId, float x, float y, uint32 nowMs) const;
     // A player (usually another random bot) that killed this bot recently: name +
     // expiry. While set, the victim does not proactively engage that killer
     // (EnemyPlayersValue::IsValid refuses it) so a same-spot trade-kill loop
@@ -862,6 +877,9 @@ protected:
     uint32 m_lastSpatialScanMs = 0;
     uint32 m_reviveGraceUntilMs = 0;
     uint32 m_teleportGraceUntilMs = 0;
+    // Last ms clock InitAmmo ran from the per-tick ammo refill (#401): a
+    // failed resync (bags full) retries at most once a minute, never busy-loops.
+    uint32 m_lastAmmoResyncMs = 0;
     // First tick (ms clock) the core reported alive while the engine was still DEAD;
     // 0 = not currently mismatched. Backs the 5 s alive-but-DEAD self-heal window.
     uint32 m_aliveWhileDeadSinceMs = 0;
