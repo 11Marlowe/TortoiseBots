@@ -46,6 +46,11 @@
 - Combat-stuck give-ups no longer blacklist an entire mob kind: only the single offending mob is skipped, so common starters stay valid targets. Fixes bot progression being pushed onto mobs 3+ levels above them (deaths to over-leveled mobs had climbed from ~20% to 31%). [#417](https://github.com/Sagiroth/TortoiseBots/pull/417)
 - Give-up now skips targets that are actively attacking the bot instead of dropping the whole entry, cutting down the 608 stuck-cycles / 174 bots and 19% death-within-a-minute spike observed in the post-#412 live check. [#417](https://github.com/Sagiroth/TortoiseBots/pull/417)
 
+### Travel & Questing
+- Low-level quest trips now obey the same +1 level cap as grinding: below level 10, a quest objective creature must fit the target's level window before bots will travel to it [#418](https://github.com/Sagiroth/TortoiseBots/pull/418)
+- Removed the "quest-needed" exemption that let level-2 bots get sent into fields of level 5-6 Defias Cutpurses, Mangy Wolves, and Forest Spiders — no more suicide runs for Tough Wolf Meat [#418](https://github.com/Sagiroth/TortoiseBots/pull/418)
+- When no valid quest target fits the cap, the purpose parks like any other empty search instead of forcing a bad trip, cutting the ~62.5% of low-level deaths caused by 2+ level-difference mobs [#418](https://github.com/Sagiroth/TortoiseBots/pull/418)
+
 ## 2026-10-02
 
 ### Levelling & Progression
