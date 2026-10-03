@@ -171,6 +171,12 @@
 - Hired bots now post their spec and spell summary exactly once in party chat after joining the group, instead of leaking (or silently dropping) the level-up automation echo [#445](https://github.com/Sagiroth/TortoiseBots/pull/445)
 - Fixes the flaky "no message at all" case caused by stale master pointers, bots not yet grouped, or nothing new to report [#445](https://github.com/Sagiroth/TortoiseBots/pull/445)
 
+### Professions & World Activities
+- Pool bots now actually fish: when the travel table has no fishing spot, they fall back to the ported mod-playerbots open-water search, so idle bots get a rare side activity instead of standing around. [#446](https://github.com/Sagiroth/TortoiseBots/pull/446)
+- Strict "levelling first" gating: at most one fishing session per hour (5 casts over 5 minutes), and never while the bot has real work — travel errands, quest turn-ins, selling, trainer, repair, money runs, or bags over 90% full. Fishing relevance sits below questing and grinding. [#446](https://github.com/Sagiroth/TortoiseBots/pull/446)
+- Bounded server cost: coarse radial search (~88 probes), throttled per bot, with a 30-minute shared per-cell water cache and a 15-minute park on dry spots so bots don't re-scan dead ground. [#446](https://github.com/Sagiroth/TortoiseBots/pull/446)
+- No gear churn: the weapon goes back on immediately after the session ends, so fishing never leaves bots running around unequipped. [#446](https://github.com/Sagiroth/TortoiseBots/pull/446)
+
 ## 2026-10-02
 
 ### Levelling & Progression
