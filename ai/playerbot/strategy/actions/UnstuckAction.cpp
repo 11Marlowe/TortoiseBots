@@ -1,6 +1,10 @@
+#include <map>
+
 #include "playerbot/playerbot.h"
 #include "UnstuckAction.h"
 #include "playerbot/LongStuckRescuePolicy.h"
+#include "playerbot/TravelRepickPolicy.h"
+#include "playerbot/CombatStuckPolicy.h"
 #include "playerbot/TravelMgr.h"
 
 using namespace ai;
@@ -149,6 +153,52 @@ static bool LongStuckRescue(PlayerbotAI* ai, Event& event, Player* bot, Player* 
     return LongStuckFallbackTeleport(ai, bot, master);
 }
 
+// The combat-stuck give-up (m-stuck section 5.3): a bare reset left the
+// combat order armed, so the bot re-engaged the same wedged mob and the
+// trip fired again 5 s later. Blacklist the combat target the way
+// ReachTargetAction does (guid + creature kind, five minutes) and drop the
+// order with it, so target selection and grind picks steer elsewhere. The
+// order clear must come after the blacklist snapshot: Reset clears the same
+// values, and a "current target" that survives the reset keeps the bot in
+// combat with a creature it just gave up on. Corpses and the bot itself are
+// never blacklisted; a corpse stays targeted for looting.
+static void GiveUpCombatStuckTarget(PlayerbotAI* ai, Player* bot)
+{
+    AiObjectContext* context = ai->GetAiObjectContext();
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    ObjectGuid attackGuid = AI_VALUE(ObjectGuid, "attack target");
+    if (!target && attackGuid)
+        target = ai->GetUnit(attackGuid);
+    if (!ShouldGiveUpCombatStuckTarget(target != nullptr,
+        target && !sServerFacade.UnitIsDead(target), target == bot))
+        return;
+
+    uint32 const nowMs = WorldTimer::getMSTime();
+    uint32 const expiresAt = CombatStuckBlacklistExpiry(nowMs);
+    context->GetValue<std::map<ObjectGuid, uint32>&>("unreachable targets")->Get()[target->getObjectGuid()] = expiresAt;
+    if (ShouldBlacklistCombatStuckEntry(target->IsCreature()))
+        context->GetValue<std::map<uint32, uint32>&>("unreachable entries")->Get()[target->GetEntry()] = expiresAt;
+
+    std::string const targetName = target->GetName();
+    uint32 const targetEntry = target->IsCreature() ? target->GetEntry() : 0;
+    float const distanceToTarget = bot->GetDistance(target);
+    bool const inLos = bot->IsWithinLOSInMap(target, true);
+    context->GetValue<ObjectGuid>("attack target")->Set(ObjectGuid());
+    context->GetValue<ObjectGuid>("explicit attack target")->Set(ObjectGuid());
+    context->GetValue<Unit*>("current target")->Set(nullptr);
+    bot->AttackStop();
+
+    std::ostringstream giveUpInfo;
+    giveUpInfo << CombatStuckGiveUpReason();
+    if (targetEntry)
+        giveUpInfo << "|entry=" << targetEntry;
+    giveUpInfo << "|dist=" << static_cast<int>(distanceToTarget)
+        << "|los=" << (inLos ? "1" : "0");
+    sPlayerbotAIConfig.logEvent(ai, "ReachGiveUp", targetName, giveUpInfo.str());
+    ai->TellDebug(ai->GetMaster(), "Giving up on " + targetName + " - combat stuck, no progress for 5 min", "debug move");
+}
+
 // UnstuckTrip volume control. MoveStuckTrigger polls every 5 s and counts a bot
 // as stuck while it moves under 50 yd in 10 minutes or stands still for 5, so
 // slow-grinding bots keep it active for hours: per-trip logging wrote ~200 rows
@@ -241,15 +291,16 @@ bool UnstuckAction::Execute(Event& event)
             // No progress across 3 keeps (~15+ min stuck): retire the target
             // instead of preserving it. Null + time-boxed blacklist of the
             // purpose for 5 min so the same destination is not re-picked at
-            // once; anything else can still be requested immediately.
+            // once; anything else can still be requested immediately. Filed
+            // under the park key the request gate reads back (see the drop
+            // path in MoveToTravelTargetAction); the park survives picks of
+            // other purposes.
             std::string const purpose = AI_VALUE2(std::string, "manual string", "future travel purpose");
+            std::string const parkKey = TravelPurposeParkKey(purpose);
             sTravelMgr.SetNullTravelTarget(travelTarget);
             RESET_AI_VALUE(bool, "travel target active");
-            if (!purpose.empty())
-            {
-                SET_AI_VALUE2(bool, "no active travel destinations", purpose, true);
-                SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + purpose, time(0) + 5 * MINUTE);
-            }
+            SET_AI_VALUE2(bool, "no active travel destinations", parkKey, true);
+            SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + parkKey, time(0) + 5 * MINUTE);
             SET_AI_VALUE2(int32, "manual int", "stuck keep count", 0);
             ai->TellDebug(master, "Unstuck: retiring travel target after 3 stuck keeps without progress.", "debug unstuck");
             return ai->DoSpecificAction("reset", event, true);
@@ -263,6 +314,7 @@ bool UnstuckAction::Execute(Event& event)
         uint32 const extendRetry = travelTarget->GetRetryCount(false);
         uint32 const relevance = travelTarget->GetRelevance();
         GuidPosition groupCopy = travelTarget->GetGroupmember();
+        std::string const keptPurpose = AI_VALUE2(std::string, "manual string", "future travel purpose");
 
         bool const reset = ai->DoSpecificAction("reset", event, true);
 
@@ -273,6 +325,8 @@ bool UnstuckAction::Execute(Event& event)
         travelTarget->SetRetry(true, moveRetry);
         travelTarget->SetRetry(false, extendRetry);
         travelTarget->SetRelevance(relevance);
+        if (!keptPurpose.empty())
+            SET_AI_VALUE2(std::string, "manual string", "future travel purpose", keptPurpose);
         if (groupCopy)
             travelTarget->SetGroupCopy(groupCopy);
         if (stuckKeeps == 0 || !stuckAnchor.isValid())
@@ -289,11 +343,85 @@ bool UnstuckAction::Execute(Event& event)
         return LongStuckRescue(ai, event, bot, master, hearthAttemptLeftBotInPlace);
     }
 
-    // Handle combat stuck scenarios
+    // Handle combat stuck scenarios. A combat-stuck plain reset used to null
+    // the travel target while move-stuck preserved it, so a bot wedged
+    // mid-fight re-requested and re-picked its quest target every few seconds
+    // while standing still (Khapuzarae: a pick every 4-6 s after the combat
+    // UnstuckTrip). Keep an active target across this reset exactly like the
+    // move-stuck path above: same keep rule, same 3-keep retirement, same
+    // save/restore of destination, position, status, conditions, forced flag,
+    // retry counters, relevance and group copy. See TravelRepickPolicy.h.
     if (source.find("combat stuck") != std::string::npos)
     {
         ai->TellDebug(master, "Unstuck: Combat stuck detected, resetting position.", "debug unstuck");
-        return ai->DoSpecificAction("reset", event, true);
+        // Give up the wedged mob BEFORE the reset clears the order: the
+        // reset alone re-armed the same target and the trip re-fired. A
+        // corpse is intentionally left alone (looting), and a missing
+        // target is a no-op - travel handling below is unchanged.
+        GiveUpCombatStuckTarget(ai, bot);
+        TravelTarget* combatTarget = AI_VALUE(TravelTarget*, "travel target");
+        TravelDestination* combatDestProbe = combatTarget ? combatTarget->GetDestination() : nullptr;
+        bool const keepCombatTravel = ShouldKeepTravelAcrossStuckReset(combatTarget != nullptr,
+            combatTarget && combatTarget->IsActive(),
+            combatDestProbe != nullptr,
+            combatTarget && combatTarget->getPosition() != nullptr,
+            combatDestProbe && typeid(*combatDestProbe) == typeid(NullTravelDestination));
+        int32 combatKeeps = AI_VALUE2(int32, "manual int", "stuck keep count");
+        WorldPosition combatAnchor = AI_VALUE2(WorldPosition, "custom position", "stuck keep anchor");
+        if (!keepCombatTravel)
+        {
+            SET_AI_VALUE2(int32, "manual int", "stuck keep count", 0);
+            return ai->DoSpecificAction("reset", event, true);
+        }
+        if (ShouldRetireStuckTravelKeep(combatKeeps, WorldPosition(bot).sqDistance(combatAnchor)))
+        {
+            // No progress across 3 keeps: retire the target instead of
+            // preserving it, like the move-stuck path. Null + time-boxed
+            // blacklist of the purpose for 5 min so the same destination is
+            // not re-picked at once; anything else can still be requested.
+            // Filed under the park key the request gate reads back (see the
+            // drop path in MoveToTravelTargetAction).
+            std::string const combatPurpose = AI_VALUE2(std::string, "manual string", "future travel purpose");
+            std::string const combatParkKey = TravelPurposeParkKey(combatPurpose);
+            sTravelMgr.SetNullTravelTarget(combatTarget);
+            RESET_AI_VALUE(bool, "travel target active");
+            SET_AI_VALUE2(bool, "no active travel destinations", combatParkKey, true);
+            SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + combatParkKey, time(0) + 5 * MINUTE);
+            SET_AI_VALUE2(int32, "manual int", "stuck keep count", 0);
+            ai->TellDebug(master, "Unstuck: retiring travel target after 3 stuck keeps without progress.", "debug unstuck");
+            return ai->DoSpecificAction("reset", event, true);
+        }
+        TravelDestination* combatDest = combatTarget->GetDestination();
+        WorldPosition* combatPos = combatTarget->getPosition();
+        TravelStatus combatStatus = combatTarget->GetStatus();
+        std::vector<std::string> combatConditions = combatTarget->GetConditions();
+        bool const combatForced = combatTarget->IsForced();
+        uint32 const combatMoveRetry = combatTarget->GetRetryCount(true);
+        uint32 const combatExtendRetry = combatTarget->GetRetryCount(false);
+        uint32 const combatRelevance = combatTarget->GetRelevance();
+        GuidPosition combatGroupCopy = combatTarget->GetGroupmember();
+        std::string const combatKeptPurpose = AI_VALUE2(std::string, "manual string", "future travel purpose");
+        bool const combatReset = ai->DoSpecificAction("reset", event, true);
+        // Reset(true) clears "future travel purpose" while this path keeps the
+        // travel target: without the restore the drop would park "" while
+        // requests check "quest", so the 5-min park never matched (m-stuck
+        // section 5.4, 514 empty fails + 1,658 empty drops). Snapshot before
+        // the reset - reading after returns the wiped value.
+        combatTarget->SetTarget(combatDest, combatPos);
+        combatTarget->SetStatus(combatStatus);
+        combatTarget->SetConditions(combatConditions);
+        combatTarget->SetForced(combatForced);
+        combatTarget->SetRetry(true, combatMoveRetry);
+        combatTarget->SetRetry(false, combatExtendRetry);
+        combatTarget->SetRelevance(combatRelevance);
+        if (!combatKeptPurpose.empty())
+            SET_AI_VALUE2(std::string, "manual string", "future travel purpose", combatKeptPurpose);
+        if (combatGroupCopy)
+            combatTarget->SetGroupCopy(combatGroupCopy);
+        if (combatKeeps == 0 || !combatAnchor.isValid())
+            SET_AI_VALUE2(WorldPosition, "custom position", "stuck keep anchor", WorldPosition(bot));
+        SET_AI_VALUE2(int32, "manual int", "stuck keep count", combatKeeps + 1);
+        return combatReset;
     }
 
     // Handle long combat stuck scenarios

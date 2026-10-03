@@ -1,5 +1,7 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <vector>
 
 // Pure policy for the idle near-service rule (issue #379): a bot that is
@@ -75,6 +77,22 @@ namespace ai
         return static_cast<int>(kind);
     }
 
+    // A verb that ran but changed nothing is a failure for the park logic,
+    // not a success (issue #407 follow-up: a trainer that taught nothing
+    // logged 6 NearbyService successes in 1 s and re-queued every tick).
+    // The caller re-evaluates the verb's own applicability after a done==true
+    // run (TurnIn: still rewardable + can-turn-in; Accept: still offers an
+    // acceptable quest; Trainer: still teaches an affordable spell) and asks
+    // here: still applicable means nothing moved. Vendor needs no re-check:
+    // SellAction already returns false when it sold nothing, so done==true
+    // always means stock moved.
+    inline bool NearbyServiceVerbMadeProgress(NearbyServiceKind kind, bool stillApplicable)
+    {
+        if (kind == NearbyServiceKind::Vendor)
+            return true;
+        return !stillApplicable;
+    }
+
     // One NPC the rule could walk to. rank: lower is serviced first - see
     // NearbyServiceRankOf() - negative = not a service target at all. Ties go to
     // the nearest NPC.
@@ -106,4 +124,115 @@ namespace ai
 
         return best;
     }
+
+    // A verb that keeps failing on the same NPC+kind is never finished by
+    // standing there (issue #407: 34 ACTION_LOOP rows on 30 bots). Park that
+    // pair briefly instead of retrying every tick: the bot walks on, and the
+    // park expires on its own. 90 s is long enough to break the tick loop but
+    // far short of the 10-min trainer/travel parks, so a quest hand-in or a
+    // rank that becomes affordable is only delayed, never missed - the target
+    // selector keeps offering the NPC for its other verbs meanwhile.
+    constexpr int NEARBY_SERVICE_FAIL_PARK_SECONDS = 90;
+    constexpr int NEARBY_SERVICE_FAIL_PARK_TRIPS = 3;
+
+    // True while `parkedUntil` (0 = never parked) still holds at `now`.
+    inline bool NearbyServiceTargetParked(time_t parkedUntil, time_t now)
+    {
+        return parkedUntil != 0 && now < parkedUntil;
+    }
+
+    // True once `failures` consecutive fails on one NPC+verb earn a park.
+    inline bool NearbyServiceShouldPark(int failures)
+    {
+        return failures >= NEARBY_SERVICE_FAIL_PARK_TRIPS;
+    }
+
+    // Fixed-size per-bot record of repeatedly failing NPC+verb pairs (issue
+    // #407 review). A "manual time/int" value per NPC guid would grow the value
+    // store without bound (every NPC the bot ever looks at leaves a heap
+    // entry), so the park state lives here instead: at most MAX entries, never
+    // allocated per NPC. Owned by the per-bot AI context (see
+    // NearbyServiceFailParksValue), so it dies with the bot and needs no manual
+    // cleanup. Slots hold raw NPC guids + the verb kind so one parked verb
+    // never blocks the NPC's other verbs.
+    constexpr std::size_t NEARBY_SERVICE_FAIL_SLOTS = 4;
+
+    struct NearbyServiceFailSlot
+    {
+        uint64_t npcGuid = 0;
+        int verb = static_cast<int>(NearbyServiceKind::None);
+        int fails = 0;
+        time_t parkedUntil = 0;
+    };
+
+    struct NearbyServiceFailParks
+    {
+        NearbyServiceFailSlot slots[NEARBY_SERVICE_FAIL_SLOTS]{};
+
+        // Slot for this pair, or -1. Expired parks do not match: call with
+        // now to ignore them, or 0 to match regardless of expiry.
+        int Find(uint64_t npcGuid, int verb, time_t now) const
+        {
+            for (std::size_t i = 0; i < NEARBY_SERVICE_FAIL_SLOTS; ++i)
+            {
+                NearbyServiceFailSlot const& slot = slots[i];
+                if (slot.npcGuid != npcGuid || slot.verb != verb)
+                    continue;
+                if (now != 0 && slot.parkedUntil != 0 && now >= slot.parkedUntil)
+                    continue;
+                return static_cast<int>(i);
+            }
+            return -1;
+        }
+
+        // True while this pair's park holds at now.
+        bool Parked(uint64_t npcGuid, int verb, time_t now) const
+        {
+            int const i = Find(npcGuid, verb, now);
+            return i >= 0 && NearbyServiceTargetParked(slots[i].parkedUntil, now);
+        }
+
+        // Record one failure; parks on the Nth consecutive fail. Reuses the
+        // pair's slot, else the first expired/empty slot, else slot 0 (all
+        // slots live - rare with 4 verbs max per NPC; one live park is
+        // dropped early). Never grows.
+        void RecordFail(uint64_t npcGuid, int verb, time_t now)
+        {
+            int i = Find(npcGuid, verb, 0);
+            if (i < 0)
+            {
+                for (std::size_t s = 0; s < NEARBY_SERVICE_FAIL_SLOTS; ++s)
+                {
+                    if (slots[s].npcGuid == 0 ||
+                        (slots[s].parkedUntil != 0 && now >= slots[s].parkedUntil))
+                    {
+                        i = static_cast<int>(s);
+                        break;
+                    }
+                }
+                if (i < 0)
+                    i = 0;
+                slots[i].npcGuid = npcGuid;
+                slots[i].verb = verb;
+                slots[i].fails = 0;
+                slots[i].parkedUntil = 0;
+            }
+            NearbyServiceFailSlot& slot = slots[i];
+            if (slot.parkedUntil != 0 && now < slot.parkedUntil)
+                return;
+            ++slot.fails;
+            if (NearbyServiceShouldPark(slot.fails))
+            {
+                slot.parkedUntil = now + NEARBY_SERVICE_FAIL_PARK_SECONDS;
+                slot.fails = 0;
+            }
+        }
+
+        void Clear(uint64_t npcGuid, int verb)
+        {
+            int const i = Find(npcGuid, verb, 0);
+            if (i >= 0)
+                slots[i] = NearbyServiceFailSlot{};
+        }
+    };
 }

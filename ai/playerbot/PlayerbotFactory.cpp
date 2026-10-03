@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotFactory.h"
 #include "playerbot/PerformanceMonitor.h"
+#include "playerbot/SurvivePolicy.h"
 #include "../../runtime/HunterPetPolicy.h"
 #include "../../runtime/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
@@ -2731,8 +2732,11 @@ void PlayerbotFactory::EnsurePrimaryProfessions()
     uint16 secondSkill = sRandomBotFacade.GetValue(bot, "secondSkill");
     if ((!firstSkill || !secondSkill) && grantPair)
     {
-        // Every random bot owns at least one gathering primary: a craft is dead
-        // weight without the gathering that feeds its reagents, it can never skill
+        // Every random bot owns at least one gathering primary, with one
+        // owner-decided exception (runtime/ProfessionGrantPolicy.h): cloth
+        // classes (mage, priest, warlock) may roll Tailoring + Enchanting
+        // together, about 1 in 3 of them. Otherwise a craft is dead weight
+        // without the gathering that feeds its reagents, it can never skill
         // up or earn. The second primary is either that fed craft or a second
         // gathering, never a second craft. The pairs are explicit because two
         // independent candidate lists (the previous shape) cross-product into
@@ -2756,8 +2760,18 @@ void PlayerbotFactory::EnsurePrimaryProfessions()
             pairs.push_back(SkillPair(SKILL_SKINNING, SKILL_MINING));
             break;
         default:
-            // Casters keep the four pairs they always had; none of them pairs two
-            // crafts. (0, 6) used to leave three casters in seven without any
+            // About 1 in 3 cloth bots takes the Tailoring + Enchanting pair
+            // (tested rule RollsTailorEnchantPair); the rest keep the four
+            // gathering pairs below. Enchanting's rod (16207) already comes
+            // from InitInventorySkill; Tailoring needs no tool.
+            uint32 tailorRoll = urand(0, TortoiseBots::TAILOR_ENCHANT_SHARE_DENOMINATOR - 1);
+            if (TortoiseBots::RollsTailorEnchantPair(bot->GetClass(), tailorRoll))
+            {
+                pairs.push_back(SkillPair(SKILL_TAILORING, SKILL_ENCHANTING));
+                break;
+            }
+            // Four gathering pairs as before; none of them pairs two crafts.
+            // (0, 6) used to leave three casters in seven without any
             // profession (firstSkill and secondSkill stayed 0, SetRandomSkill(0)
             // is a no-op).
             pairs.push_back(SkillPair(SKILL_HERBALISM, SKILL_ALCHEMY));
@@ -3985,6 +3999,21 @@ void PlayerbotFactory::InitPotions()
 void PlayerbotFactory::InitFood()
 {
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "PlayerbotFactory_Food");
+    // Level-appropriate rations that never run out (owner addendum): every
+    // pool bot holds the best vendor food for its level (GetFood ladder),
+    // and mana users hold the matching water - one full stack each, never
+    // used up while the item cheat rides (per-tick refill below, like
+    // ammo), stale lower tiers replaced on level-up (no bag clutter).
+    // Warrior (rage) and rogue (energy) get no water - same gate as the
+    // drink action, via ShouldSeedDrink(GetPowerType() == POWER_MANA).
+    // Owned/hired bots keep today's behaviour unless they already carry
+    // the item cheat: the pool path below is cheat-gated, and Refresh()
+    // (the no-cheat restock path) still tops their rations up the old way.
+    if (ai && ai->HasCheat(BotCheatMask::item) && sRandomBotFacade.IsRandomBot(bot))
+    {
+        InitPoolRations();
+        return;
+    }
     uint32 categories[] = { 11, 59 };
     for (int i = 0; i < 2; ++i)
     {
@@ -4021,6 +4050,46 @@ void PlayerbotFactory::InitFood()
 
         uint32 maxCount = proto->GetMaxStackSize();
         Item* newItem = bot->StoreNewItemInInventorySlot(itemId, urand(maxCount / 2, maxCount));
+   }
+}
+
+void PlayerbotFactory::InitPoolRations()
+{
+    uint32 categories[] = { 11, 59 };
+    for (int i = 0; i < 2; ++i)
+    {
+        uint32 category = categories[i];
+
+        if (category == 59 && !ai::ShouldSeedDrink(bot->GetPowerType() == POWER_MANA))
+            continue;
+
+        uint32 itemId = sRandomItemMgr.GetFood(level, category);
+        if (!itemId)
+        {
+            sLog.outDetail("No food (category %d) available for bot %s (%d level)", category, bot->GetName(), bot->GetLevel());
+            continue;
+        }
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+        if (!proto) continue;
+
+        // Same tier rule as the companion path, but a full stack: the
+        // per-tick refill below keeps it there, so one stack each is the
+        // steady state and ding-through tiers never pile up.
+        FindFoodVisitor visitor(bot, category);
+        ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+        bool haveGood = false;
+        for (Item* foodItem : visitor.GetResult())
+        {
+            if (!foodItem || !foodItem->GetProto())
+                continue;
+            if (foodItem->GetEntry() == itemId || foodItem->GetProto()->ItemLevel >= proto->ItemLevel)
+                haveGood = true;
+            else
+                bot->DestroyItem(foodItem->GetBagSlot(), foodItem->GetSlot(), true);
+        }
+        if (haveGood) continue;
+
+        bot->StoreNewItemInInventorySlot(itemId, proto->GetMaxStackSize());
    }
 }
 

@@ -1,6 +1,7 @@
 #include "../ai/playerbot/strategy/values/NearbyServicePolicy.h"
 
 #include <cstdlib>
+#include <ctime>
 #include <iostream>
 
 #define CHECK(x) do { \
@@ -11,11 +12,18 @@
 } while (0)
 
 using ai::BestNearbyServiceCandidate;
+using ai::NEARBY_SERVICE_FAIL_PARK_SECONDS;
+using ai::NEARBY_SERVICE_FAIL_PARK_TRIPS;
+using ai::NEARBY_SERVICE_FAIL_SLOTS;
 using ai::NearbyServiceBagPressure;
 using ai::NearbyServiceCandidate;
+using ai::NearbyServiceFailParks;
 using ai::NearbyServiceKind;
 using ai::NearbyServiceRangeSq;
 using ai::NearbyServiceRankOf;
+using ai::NearbyServiceShouldPark;
+using ai::NearbyServiceTargetParked;
+using ai::NearbyServiceVerbMadeProgress;
 
 static NearbyServiceCandidate Candidate(NearbyServiceKind kind, float sqDistance)
 {
@@ -133,6 +141,125 @@ int main()
     CHECK(ai::JourneyInFlightOwnsBot(5) == false);                                         // cooldown
     CHECK(ai::JourneyInFlightOwnsBot(6) == false);                                         // expired
     std::cout << "  [PASS] only a journey in flight blocks the rule\n";
+
+    // A verb that keeps failing on one NPC+kind earns a brief park (issue
+    // #407): 3 consecutive fails trip it, the park lasts 90 s, and it must not
+    // approach the 10-min trainer/travel parks - a hand-in or affordable rank
+    // is only delayed, never missed.
+    CHECK(NEARBY_SERVICE_FAIL_PARK_TRIPS == 3);
+    CHECK(NEARBY_SERVICE_FAIL_PARK_SECONDS == 90);
+    CHECK(!NearbyServiceShouldPark(0));
+    CHECK(!NearbyServiceShouldPark(NEARBY_SERVICE_FAIL_PARK_TRIPS - 1));
+    CHECK(NearbyServiceShouldPark(NEARBY_SERVICE_FAIL_PARK_TRIPS));
+    CHECK(NearbyServiceShouldPark(NEARBY_SERVICE_FAIL_PARK_TRIPS + 5));
+    std::cout << "  [PASS] three consecutive fails earn a park\n";
+
+    {
+        std::time_t const now = 1'000'000;
+        CHECK(!NearbyServiceTargetParked(0, now));
+        CHECK(NearbyServiceTargetParked(now + NEARBY_SERVICE_FAIL_PARK_SECONDS, now));
+        CHECK(NearbyServiceTargetParked(now + NEARBY_SERVICE_FAIL_PARK_SECONDS - 1, now));
+        CHECK(!NearbyServiceTargetParked(now + NEARBY_SERVICE_FAIL_PARK_SECONDS, now + NEARBY_SERVICE_FAIL_PARK_SECONDS));
+        CHECK(!NearbyServiceTargetParked(now - 1, now));
+    }
+    std::cout << "  [PASS] fail park holds 90 s then expires\n";
+
+    // The fixed-size tracker behind the real code (issue #407 review): 3
+    // consecutive fails park one NPC+verb for 90 s, other verbs on the same
+    // NPC stay live, success clears, expiry re-arms, and the table never
+    // grows past its slots.
+    {
+        std::time_t const now = 2'000'000;
+        NearbyServiceFailParks parks;
+        uint64_t const npc = 12345;
+        int const turnIn = NearbyServiceRankOf(NearbyServiceKind::TurnIn);
+        int const vendor = NearbyServiceRankOf(NearbyServiceKind::Vendor);
+
+        CHECK(!parks.Parked(npc, turnIn, now));
+        parks.RecordFail(npc, turnIn, now);
+        parks.RecordFail(npc, turnIn, now);
+        CHECK(!parks.Parked(npc, turnIn, now));
+        parks.RecordFail(npc, turnIn, now);
+        CHECK(parks.Parked(npc, turnIn, now));
+        // Same NPC, other verb: unaffected.
+        CHECK(!parks.Parked(npc, vendor, now));
+        // Expiry re-arms.
+        CHECK(!parks.Parked(npc, turnIn, now + NEARBY_SERVICE_FAIL_PARK_SECONDS));
+        parks.RecordFail(npc, turnIn, now + NEARBY_SERVICE_FAIL_PARK_SECONDS);
+        CHECK(!parks.Parked(npc, turnIn, now + NEARBY_SERVICE_FAIL_PARK_SECONDS));
+
+        // Success clears the pair.
+        parks.RecordFail(npc, vendor, now);
+        parks.RecordFail(npc, vendor, now);
+        parks.RecordFail(npc, vendor, now);
+        CHECK(parks.Parked(npc, vendor, now));
+        parks.Clear(npc, vendor);
+        CHECK(!parks.Parked(npc, vendor, now));
+    }
+    std::cout << "  [PASS] tracker parks one verb, spares the others\n";
+
+    {
+        std::time_t const now = 3'000'000;
+        NearbyServiceFailParks parks;
+        // Fill every slot with a live park, then force a fifth pair in: the
+        // table must still hold at most NEARBY_SERVICE_FAIL_SLOTS entries.
+        for (std::size_t s = 0; s < NEARBY_SERVICE_FAIL_SLOTS; ++s)
+        {
+            uint64_t const npc = 1000 + s;
+            int const verb = NearbyServiceRankOf(NearbyServiceKind::Vendor);
+            parks.RecordFail(npc, verb, now);
+            parks.RecordFail(npc, verb, now);
+            parks.RecordFail(npc, verb, now);
+            CHECK(parks.Parked(npc, verb, now));
+        }
+        parks.RecordFail(9999, NearbyServiceRankOf(NearbyServiceKind::Trainer), now);
+        parks.RecordFail(9999, NearbyServiceRankOf(NearbyServiceKind::Trainer), now);
+        parks.RecordFail(9999, NearbyServiceRankOf(NearbyServiceKind::Trainer), now);
+        CHECK(parks.Parked(9999, NearbyServiceRankOf(NearbyServiceKind::Trainer), now));
+        int live = 0;
+        for (std::size_t s = 0; s < NEARBY_SERVICE_FAIL_SLOTS; ++s)
+            if (parks.slots[s].npcGuid != 0)
+                ++live;
+        CHECK(live <= (int)NEARBY_SERVICE_FAIL_SLOTS);
+    }
+    std::cout << "  [PASS] tracker never grows past its slots\n";
+
+    // A verb that ran but changed nothing counts as a failure, not a success
+    // (issue #407 follow-up: a trainer that taught nothing logged 6
+    // NearbyService successes in 1 s and re-queued every tick). The caller
+    // re-evaluates the verb's own applicability after a done==true run; an
+    // unchanged answer means nothing moved.
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::TurnIn, false) == true);
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::TurnIn, true) == false);
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Accept, false) == true);
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Accept, true) == false);
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Trainer, false) == true);
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Trainer, true) == false);
+    std::cout << "  [PASS] unchanged verb state after a run counts as a fail\n";
+
+    // Vendor needs no re-check: SellAction returns false when it sold nothing,
+    // so done==true always means stock moved.
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Vendor, false) == true);
+    CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Vendor, true) == true);
+    std::cout << "  [PASS] vendor success always counts as progress\n";
+
+    // And the three-strike park still applies to no-progress runs: the sixth
+    // 1-second trainer success in the live log would have been the third
+    // consecutive fail and parked the pair for 90 s instead.
+    {
+        std::time_t const now = 4'000'000;
+        NearbyServiceFailParks parks;
+        uint64_t const npc = 777;
+        int const trainer = NearbyServiceRankOf(NearbyServiceKind::Trainer);
+
+        CHECK(NearbyServiceVerbMadeProgress(NearbyServiceKind::Trainer, true) == false);
+        parks.RecordFail(npc, trainer, now);
+        parks.RecordFail(npc, trainer, now);
+        CHECK(!parks.Parked(npc, trainer, now));
+        parks.RecordFail(npc, trainer, now);
+        CHECK(parks.Parked(npc, trainer, now));
+    }
+    std::cout << "  [PASS] no-progress fails trip the 90 s park\n";
 
     std::cout << "All idle near-service policy checks PASSED!\n";
     return 0;

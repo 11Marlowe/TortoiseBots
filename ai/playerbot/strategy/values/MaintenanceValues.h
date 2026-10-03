@@ -4,6 +4,8 @@
 #include "playerbot/strategy/Value.h"
 #include "ItemUsageValue.h"
 #include "BudgetValues.h"
+#include "NearbyServicePolicy.h"
+
 
 namespace ai
 {
@@ -121,7 +123,6 @@ namespace ai
     //nearby hand-in waits until the reward would go through - the same
     //CanRewardQuest test the travel layer builds its taker fetch from.
     bool HasRewardableFinishedQuest(PlayerbotAI* ai);
-
     //Bag pressure in the field: bags at the pressure line, stock a vendor
     //actually wants, and no vendor within the near-service radius. True means
     //the bot must request the existing Vendor travel target instead of waiting
@@ -156,6 +157,17 @@ namespace ai
     public:
         NearbyServiceTargetValue(PlayerbotAI* ai, std::string name = "nearby service target", int checkInterval = 5) : GuidPositionCalculatedValue(ai, name, checkInterval) {}
         virtual GuidPosition Calculate() override { return NearbyServiceTarget(ai); }
+    };
+
+    // Fixed-size per-bot record of repeatedly failing nearby-service NPC+verb
+    // pairs (issue #407 review): a single value holding the whole
+    // NearbyServiceFailParks struct, so the park state never grows with the
+    // number of NPCs the bot looks at and dies with the bot's context.
+    class NearbyServiceFailParksValue : public ManualSetValue<NearbyServiceFailParks>
+    {
+    public:
+        NearbyServiceFailParksValue(PlayerbotAI* ai, std::string name = "nearby service fail parks") :
+            ManualSetValue<NearbyServiceFailParks>(ai, NearbyServiceFailParks(), name) {}
     };
     // Snapshot of VendorTripNeeded for the travel destination search, which runs
     // async off-tick and cannot call the live predicate there: true only for a
@@ -268,7 +280,12 @@ namespace ai
             if (!bot->GetPower(POWER_MANA) > 0)
                 return false;
 
-            if (AI_VALUE2(uint8, "mana", "self target") >= 85)
+            // Stop at almost-full for cheat bots, 85 otherwise: the drink
+            // trigger ("high mana") still opens below its line, but a
+            // cheat-bot caster that stops at 85 re-pulls half-oom and
+            // chain-pulls OOM the same way a wounded bot chain-pulls dead.
+            if (AI_VALUE2(uint8, "mana", "self target") >= DrinkStopManaPct(
+                ai->HasCheat(BotCheatMask::item), sPlayerbotAIConfig.almostFullHealth))
                 return false;
 
             Player* master = ai->GetMaster();
@@ -308,12 +325,15 @@ namespace ai
         virtual bool Calculate() override
         {
             // Matches the trigger band UseFoodStrategy installs: a bot with free
-            // conjured rations (the item cheat) tops up to MediumHealth before it
-            // takes another fight, everyone else still stops at LowHealth. Without
-            // this the action would refuse to run for the [LowHealth, MediumHealth)
-            // band the strategy just made it responsible for.
-            uint32 eatBelow = ai->HasCheat(BotCheatMask::item)
-                ? sPlayerbotAIConfig.mediumHealth : sPlayerbotAIConfig.lowHealth;
+            // conjured rations (the item cheat) tops up to AlmostFullHealth
+            // before it takes another fight, everyone else still stops at
+            // LowHealth. Without this the action would refuse to run for the
+            // [MediumHealth, AlmostFullHealth) band the strategy just made it
+            // responsible for. Start threshold unchanged: the band still opens
+            // at critical/low/medium, only the stop rises.
+            uint32 eatBelow = RestStopHealthPct(ai->HasCheat(BotCheatMask::item),
+                sPlayerbotAIConfig.mediumHealth, sPlayerbotAIConfig.lowHealth,
+                sPlayerbotAIConfig.almostFullHealth);
             if (AI_VALUE2(uint8, "health", "self target") >= eatBelow)
                 return false;
 

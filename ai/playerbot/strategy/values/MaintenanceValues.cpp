@@ -225,20 +225,27 @@ GuidPosition ai::NearbyServiceTarget(PlayerbotAI* ai)
         //Not a service target: a random NPC, a quest giver with nothing to
         //offer, a wrong-class trainer. The order below is the ranking order in
         //NearbyServicePolicy.h, so an NPC that could serve two kinds gets the
-        //stronger one.
+        //stronger one. A verb parked after repeated failures (issue #407) is
+        //skipped in its own branch, so the NPC stays eligible for its other
+        //verbs - a parked hand-in never hides a vendor on the same NPC.
         NearbyServiceKind kind = NearbyServiceKind::None;
         bool const isQuestGiver = guidP.HasNpcFlag(UNIT_NPC_FLAG_QUESTGIVER);
+        NearbyServiceFailParks const parks = AI_VALUE(NearbyServiceFailParks, "nearby service fail parks");
 
-        if (needsTurnIn && isQuestGiver && AI_VALUE2(bool, "can turn in quest npc", guidP.GetEntry()))
+        if (needsTurnIn && isQuestGiver && AI_VALUE2(bool, "can turn in quest npc", guidP.GetEntry()) &&
+            !parks.Parked(guidP.GetRawValue(), NearbyServiceRankOf(NearbyServiceKind::TurnIn), time(0)))
             kind = NearbyServiceKind::TurnIn;
         else if (needsAccept && isQuestGiver && AI_VALUE2(bool, "can accept quest npc", guidP.GetEntry()) &&
-            AcceptAllQuestsAction::OffersAcceptableQuest(ai, bot, guidP.GetWorldObject(bot->GetInstanceId())))
+            AcceptAllQuestsAction::OffersAcceptableQuest(ai, bot, guidP.GetWorldObject(bot->GetInstanceId())) &&
+            !parks.Parked(guidP.GetRawValue(), NearbyServiceRankOf(NearbyServiceKind::Accept), time(0)))
             kind = NearbyServiceKind::Accept;
-        else if (needsVendor && guidP.HasNpcFlag(UNIT_NPC_FLAG_VENDOR))
+        else if (needsVendor && guidP.HasNpcFlag(UNIT_NPC_FLAG_VENDOR) &&
+            !parks.Parked(guidP.GetRawValue(), NearbyServiceRankOf(NearbyServiceKind::Vendor), time(0)))
             kind = NearbyServiceKind::Vendor;
         else if (needsTrainer && guidP.HasNpcFlag(UNIT_NPC_FLAG_TRAINER) &&
             RpgTrainTrigger::IsTrainerOf(guidP.GetCreatureTemplate(), bot) &&
-            RpgTrainTrigger::TeachesAffordableSpell(ai, guidP, bot))
+            RpgTrainTrigger::TeachesAffordableSpell(ai, guidP, bot) &&
+            !parks.Parked(guidP.GetRawValue(), NearbyServiceRankOf(NearbyServiceKind::Trainer), time(0)))
             kind = NearbyServiceKind::Trainer;
 
         nearby.push_back(guidP);
