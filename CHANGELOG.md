@@ -82,6 +82,14 @@
 ### Professions & Tools
 - Mining and skinning allowlists now accept every pick and skinning knife that exists in 1.12, instead of one hardcoded item each. [#430](https://github.com/Sagiroth/TortoiseBots/pull/430)
 
+### Observability & Telemetry
+- Skinning loot is now detected via the server-side loot type (the 1.12 client mislabels it as pickpocketing), so GatherLoot rows and the dashboard skinning counter actually populate. [#431](https://github.com/Sagiroth/TortoiseBots/pull/431)
+- Per-revive `hopeless check ... not eligible` lines are demoted to quiet — relocations still fire (4 logged on 2026-10-02), only the log noise was dialed down. [#431](https://github.com/Sagiroth/TortoiseBots/pull/431)
+
+### Vendors & Trading
+- Trading activity lease now outlives the auction house post tick, eliminating premature lease expiry warnings. [#431](https://github.com/Sagiroth/TortoiseBots/pull/431)
+- Vendor-flagged NPCs with no goods (e.g. Terry Palin) are no longer treated as vendors, stopping the `empty trading item list` error spam. [#431](https://github.com/Sagiroth/TortoiseBots/pull/431)
+
 ## 2026-10-02
 
 ### Levelling & Progression
