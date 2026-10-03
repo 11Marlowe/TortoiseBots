@@ -209,6 +209,9 @@
 ### Core Sync & Fixes
 - Fishing no longer takes the server down when no fish spot exists in the dataset — the bot now bails to open-water fallback or picks another activity instead of dereferencing an empty result. [#453](https://github.com/Sagiroth/TortoiseBots/pull/453)
 
+### Movement & Pathing
+- Fixed unwatched bots teleporting across continents: the walk-skip hop now only triggers on the bot's current map, so a Valley of Trials troll can't end up stranded in the Hinterlands. Cross-map path points fall back to normal walking. [#454](https://github.com/Sagiroth/TortoiseBots/pull/454)
+
 ## 2026-10-02
 
 ### Levelling & Progression
