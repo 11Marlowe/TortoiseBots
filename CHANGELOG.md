@@ -42,6 +42,10 @@
 ### Documentation
 - README overview rewritten to stay high-level: highlights core features and configurable playstyles (fresh level-1 realm or bots at every level) without leaking implementation details, with the docs carrying the rest. [#416](https://github.com/Sagiroth/TortoiseBots/pull/416)
 
+### Combat & AI
+- Combat-stuck give-ups no longer blacklist an entire mob kind: only the single offending mob is skipped, so common starters stay valid targets. Fixes bot progression being pushed onto mobs 3+ levels above them (deaths to over-leveled mobs had climbed from ~20% to 31%). [#417](https://github.com/Sagiroth/TortoiseBots/pull/417)
+- Give-up now skips targets that are actively attacking the bot instead of dropping the whole entry, cutting down the 608 stuck-cycles / 174 bots and 19% death-within-a-minute spike observed in the post-#412 live check. [#417](https://github.com/Sagiroth/TortoiseBots/pull/417)
+
 ## 2026-10-02
 
 ### Levelling & Progression
