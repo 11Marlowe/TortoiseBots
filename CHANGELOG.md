@@ -191,6 +191,11 @@
 - Below level 10, pool bots no longer default to the spirit healer just because of their death count — the corpse run is the default again, so they stop piling up in Brill, Goldshire, Kharanos, Razor Hill, Bloodhoof, and Dolanaar. Stalled corpse walks and long dead timers still trigger a rescue. [#449](https://github.com/Sagiroth/TortoiseBots/pull/449)
 - Added an extra safety net around revive and rescue teleports so a bot that does get moved can't just drift off to the next town unchecked. [#449](https://github.com/Sagiroth/TortoiseBots/pull/449)
 
+### Starter Zones & World
+
+- Fresh level 1-4 pool bots no longer dead-end on quest search in their starting valley. The zone ceiling (Camp Narache 6, Dun Morogh 7, Durotar 8) used to reject every objective, leaving e.g. 57 of 64 tauren bots standing around at Camp Narache — quest objectives and quest givers now get the same level 1-4 exemption grinding already had. [#450](https://github.com/Sagiroth/TortoiseBots/pull/450)
+- Safety rails intact: each quest's own level and danger checks still run, so this only unblocks *level-appropriate* errands. Player-owned and hired bots are untouched — no behavior change for anyone's actual characters. [#450](https://github.com/Sagiroth/TortoiseBots/pull/450)
+
 ## 2026-10-02
 
 ### Levelling & Progression
