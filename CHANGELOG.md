@@ -31,6 +31,11 @@
 - Pack compiles clean and passes `tools/verify_all.sh`. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
 - Not yet measured live — deploy on a fresh pool and diff against `tools/pool_kpi_report.py` before trusting the death/loop numbers. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
 
+### Documentation
+
+- README now has a "What It Does" section spelling out the module's actual feature set — living pool, recovery behaviour, starter kit, own party / hires, class AI, and observability — so newcomers can grok the scope without digging through the docs map. [#413](https://github.com/Sagiroth/TortoiseBots/pull/413)
+- Docs are now aligned with the behaviour shipping in main, cutting down on stale-description confusion for server operators evaluating the module. [#413](https://github.com/Sagiroth/TortoiseBots/pull/413)
+
 ## 2026-10-02
 
 ### Levelling & Progression
