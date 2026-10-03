@@ -115,6 +115,13 @@
 - Level-ups refresh poisons, weightstones, oils, and bandages to your current tier for pool bots, and full-bag cleanups keep them instead of vendoring or destroying them. No more re-buying consumables every ding. [#435](https://github.com/Sagiroth/TortoiseBots/pull/435)
 - Warlocks harvest soul shards organically: Drain Soul will finish off an XP-giving target when shards run low, and Healthstones/Soulstones are created from real shards instead of conjured out of thin air. [#435](https://github.com/Sagiroth/TortoiseBots/pull/435)
 
+### Combat & AI
+- AoE fears — Psychic Scream, Intimidating Shout, and Howl of Terror — are no longer cast inside instances, so bots stop yanking extra packs mid-dungeon pull. [#436](https://github.com/Sagiroth/TortoiseBots/pull/436)
+
+### Classes & Spells
+- Spell teaching now validates the taught spell's own level, not just the trainer row's, and any over-level rank granted during provisioning is stripped and replaced with the highest legal rank. No more level-16 priests rocking max-rank Power Word: Fortitude. [#436](https://github.com/Sagiroth/TortoiseBots/pull/436)
+- Rank correction runs after provisioning for every class, so hire-time downgrade edge cases stay fixed going forward. [#436](https://github.com/Sagiroth/TortoiseBots/pull/436)
+
 ## 2026-10-02
 
 ### Levelling & Progression
