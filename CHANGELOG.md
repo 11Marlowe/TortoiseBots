@@ -139,6 +139,12 @@
 ### Combat & AI
 - Service NPCs that can't be reached — indoors, on ledges, or otherwise unreachable — no longer trap bots in a failing approach loop every tick. Three failed approaches park that NPC for 90 s, matching the existing failing-verb behavior, and dead or unloaded NPCs are skipped outright (finishes the #407 nearby service loop cleanup). [#439](https://github.com/Sagiroth/TortoiseBots/pull/439)
 
+### Travel & Pool Bots
+- Pool bots now search local windows for grind and camp spots (500 yd near / 2500 yd far, scaled down below level 5) instead of a 10000 yd sweep, so they stop ping-ponging across the zone. [#441](https://github.com/Sagiroth/TortoiseBots/pull/441)
+- Outgrown-zone travel keeps the long-range search, so bots still relocate when it's actually time to move on. [#441](https://github.com/Sagiroth/TortoiseBots/pull/441)
+- Radius change is request-side only — no extra world scans, no added server cost. [#441](https://github.com/Sagiroth/TortoiseBots/pull/441)
+- Plays nice with existing level/point-danger gates and the idle-starter fallback scan. Closes #424. [#441](https://github.com/Sagiroth/TortoiseBots/pull/441)
+
 ## 2026-10-02
 
 ### Levelling & Progression
