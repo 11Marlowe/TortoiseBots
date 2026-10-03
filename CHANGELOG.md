@@ -36,6 +36,9 @@
 - README now has a "What It Does" section spelling out the module's actual feature set — living pool, recovery behaviour, starter kit, own party / hires, class AI, and observability — so newcomers can grok the scope without digging through the docs map. [#413](https://github.com/Sagiroth/TortoiseBots/pull/413)
 - Docs are now aligned with the behaviour shipping in main, cutting down on stale-description confusion for server operators evaluating the module. [#413](https://github.com/Sagiroth/TortoiseBots/pull/413)
 
+### Docs & Configuration
+- README overview no longer implies every pool bot starts at level 1 — pool bots default to a spread across levels 1–60, and a fresh-realm level-1 start is just one setting via `RandomBotStartLevelMin` / `RandomBotStartLevelMax`. [#414](https://github.com/Sagiroth/TortoiseBots/pull/414)
+
 ## 2026-10-02
 
 ### Levelling & Progression
