@@ -71,6 +71,9 @@
 - Neutral wildlife and vendors don't count as threats, so lowbies still turn in, buy, and grind in safe areas normally. [#428](https://github.com/Sagiroth/TortoiseBots/pull/428)
 - Owned/hired bots and all level 10+ bots are unchanged — no impact on established characters or player-controlled companions. [#428](https://github.com/Sagiroth/TortoiseBots/pull/428)
 
+### Core Sync & Fixes
+- Fixed a build break on main caused by travel code calling `WorldPosition::GetHighestHostileLevelNear`, which was still in the private section. Both accessors are now public, so the module compiles cleanly again. [#429](https://github.com/Sagiroth/TortoiseBots/pull/429)
+
 ## 2026-10-02
 
 ### Levelling & Progression
