@@ -51,6 +51,11 @@
 - Removed the "quest-needed" exemption that let level-2 bots get sent into fields of level 5-6 Defias Cutpurses, Mangy Wolves, and Forest Spiders — no more suicide runs for Tough Wolf Meat [#418](https://github.com/Sagiroth/TortoiseBots/pull/418)
 - When no valid quest target fits the cap, the purpose parks like any other empty search instead of forcing a bad trip, cutting the ~62.5% of low-level deaths caused by 2+ level-difference mobs [#418](https://github.com/Sagiroth/TortoiseBots/pull/418)
 
+### Bot Supplies & Rations
+- Pool bots now buy plain vendor food and drink matching their level tier (1/5/15/25/35/45) instead of buff food like Spiced Wolf Meat, Smoked Sagefish, or Dirge's Chimaerok Chops — no more wasted Well Fed items burned as cheap rations. [#419](https://github.com/Sagiroth/TortoiseBots/pull/419)
+- Cleaned up the drink lists: Tough Jerky and Smoked Sagefish are no longer miscategorized as beverages. [#419](https://github.com/Sagiroth/TortoiseBots/pull/419)
+- Each bot now sticks to one stable ration per tier rather than re-rolling a new random pick on every 30 s top-up, so bags won't slowly fill with a dozen half-stacks of assorted food. [#419](https://github.com/Sagiroth/TortoiseBots/pull/419)
+
 ## 2026-10-02
 
 ### Levelling & Progression
