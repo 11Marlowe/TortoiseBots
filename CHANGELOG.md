@@ -163,6 +163,10 @@
 - Fully **backward compatible** with old baselines — existing stored reports still parse, no re-baselining required [#443](https://github.com/Sagiroth/TortoiseBots/pull/443)
 - Metrics documented in the observability guide so server operators can read the new fields without reverse-engineering the script [#443](https://github.com/Sagiroth/TortoiseBots/pull/443)
 
+### Economy & Auctions
+- The AH buyer no longer sits idle: bids only happen when a pool bot has actually reached an auctioneer on its own, using a bounded rotating pool scan instead of teleporting bots into place. [#444](https://github.com/Sagiroth/TortoiseBots/pull/444)
+- Added organic auction demand: level 10+ pool bots with at least 5 gold spendable above reserves and an auction house on their own continent can take the normal AH travel errand (~5% of the pool per hour, 10-minute cooldown) and bid on arrival. [#444](https://github.com/Sagiroth/TortoiseBots/pull/444)
+
 ## 2026-10-02
 
 ### Levelling & Progression
