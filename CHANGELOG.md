@@ -122,6 +122,11 @@
 - Spell teaching now validates the taught spell's own level, not just the trainer row's, and any over-level rank granted during provisioning is stripped and replaced with the highest legal rank. No more level-16 priests rocking max-rank Power Word: Fortitude. [#436](https://github.com/Sagiroth/TortoiseBots/pull/436)
 - Rank correction runs after provisioning for every class, so hire-time downgrade edge cases stay fixed going forward. [#436](https://github.com/Sagiroth/TortoiseBots/pull/436)
 
+### Combat & AI
+- Bots can now opt into AoE fears (Psychic Scream, Howl of Terror, Intimidating Shout) inside dungeons/raids and under a real player master via `co +aoe fear` (whisper or `.bot strategy`), and back out with `co -aoe fear` — defaults stay safe so PUGs and raids don't get surprise feared packs. [#437](https://github.com/Sagiroth/TortoiseBots/pull/437)
+- Per-spell suppression still works everywhere through the skip-spell list (`ss`), so you can keep a single fear on lockdown while leaving the rest of the toolkit available. [#437](https://github.com/Sagiroth/TortoiseBots/pull/437)
+- Behavior and commands documented in the player controls guide. [#437](https://github.com/Sagiroth/TortoiseBots/pull/437)
+
 ## 2026-10-02
 
 ### Levelling & Progression
