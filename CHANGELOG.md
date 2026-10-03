@@ -110,6 +110,11 @@
 - Fixed the taker-area check that mis-scored start valleys (Camp Narache 6, Dun Morogh 7, Durotar 8) as far above fresh bots, which was blocking in-valley hand-ins ([#434](https://github.com/Sagiroth/TortoiseBots/pull/434))
 - Only the leave-the-valley case is now gated: a hand-in in a different area than the bot's for a quest above its level waits its turn ([#434](https://github.com/Sagiroth/TortoiseBots/pull/434))
 
+### Consumables & Class Fixes
+- Rogues now actually poison their weapons in the open world — Instant on main hand, Deadly or Instant on off hand. The upkeep hooks it relied on were never registered, so it silently never ran. [#435](https://github.com/Sagiroth/TortoiseBots/pull/435)
+- Level-ups refresh poisons, weightstones, oils, and bandages to your current tier for pool bots, and full-bag cleanups keep them instead of vendoring or destroying them. No more re-buying consumables every ding. [#435](https://github.com/Sagiroth/TortoiseBots/pull/435)
+- Warlocks harvest soul shards organically: Drain Soul will finish off an XP-giving target when shards run low, and Healthstones/Soulstones are created from real shards instead of conjured out of thin air. [#435](https://github.com/Sagiroth/TortoiseBots/pull/435)
+
 ## 2026-10-02
 
 ### Levelling & Progression
