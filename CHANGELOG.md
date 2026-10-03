@@ -90,6 +90,11 @@
 - Trading activity lease now outlives the auction house post tick, eliminating premature lease expiry warnings. [#431](https://github.com/Sagiroth/TortoiseBots/pull/431)
 - Vendor-flagged NPCs with no goods (e.g. Terry Palin) are no longer treated as vendors, stopping the `empty trading item list` error spam. [#431](https://github.com/Sagiroth/TortoiseBots/pull/431)
 
+### Combat & AI
+- Shaman weapon upkeep (Rockbiter) now stands down when it can't progress — sitting, eating, casting, or already enchanted — instead of firing every tick and getting refused by the cast gate's stand-or-facing delay [#432](https://github.com/Sagiroth/TortoiseBots/pull/432)
+- Nearby-service selector no longer acts on stale cached answers; it stays quiet when there's nothing to hand in, accept, sell, or train at the current NPC [#432](https://github.com/Sagiroth/TortoiseBots/pull/432)
+- Loot loop gets the same stand-down treatment, cutting wasted ticks when there's nothing to pick up [#432](https://github.com/Sagiroth/TortoiseBots/pull/432)
+
 ## 2026-10-02
 
 ### Levelling & Progression
