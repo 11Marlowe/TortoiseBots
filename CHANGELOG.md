@@ -61,6 +61,10 @@
 - Replaces six hard-coded breadcrumb quest IDs with level-aware gating, so new starter-zone delivery chains are covered automatically instead of needing manual ID maintenance [#420](https://github.com/Sagiroth/TortoiseBots/pull/420)
 - Owned/hired bots and level 10+ pool bots keep their existing behavior — no change to player-controlled or established bots [#420](https://github.com/Sagiroth/TortoiseBots/pull/420)
 
+### Combat & AI
+
+- Bots that decline a duel — whether they're too low level or too low on health — no longer immediately accept it anyway; the handler now returns after sending the cancel instead of falling through to the accept packet [#421](https://github.com/Sagiroth/TortoiseBots/pull/421)
+
 ## 2026-10-02
 
 ### Levelling & Progression
