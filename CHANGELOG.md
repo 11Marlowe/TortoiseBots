@@ -104,6 +104,12 @@
 - Bots no longer roll need on duplicate uniques they already own [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
 - Bots refrain from voting entirely in free-for-all and master-loot rolls, matching mod-playerbots' `LootRollAction` gates [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
 
+### Starter Zones & World
+
+- Bots no longer rot in their start valley: ordinary quests are once again open up to +3 (green/yellow), restoring hand-ins and XP flow after the post-#420/#428 quest-trip collapse ([#434](https://github.com/Sagiroth/TortoiseBots/pull/434))
+- Fixed the taker-area check that mis-scored start valleys (Camp Narache 6, Dun Morogh 7, Durotar 8) as far above fresh bots, which was blocking in-valley hand-ins ([#434](https://github.com/Sagiroth/TortoiseBots/pull/434))
+- Only the leave-the-valley case is now gated: a hand-in in a different area than the bot's for a quest above its level waits its turn ([#434](https://github.com/Sagiroth/TortoiseBots/pull/434))
+
 ## 2026-10-02
 
 ### Levelling & Progression
