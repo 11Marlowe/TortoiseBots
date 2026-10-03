@@ -212,6 +212,11 @@
 ### Movement & Pathing
 - Fixed unwatched bots teleporting across continents: the walk-skip hop now only triggers on the bot's current map, so a Valley of Trials troll can't end up stranded in the Hinterlands. Cross-map path points fall back to normal walking. [#454](https://github.com/Sagiroth/TortoiseBots/pull/454)
 
+### Starter Zones & World
+- Level 1–4 pool bots now stay in their own zone and within 500 yd of their homebind, so Valley of Trials recruits stop wandering into The Barrens to get eaten by level-9 Dreadmaw Crocolisks [#455](https://github.com/Sagiroth/TortoiseBots/pull/455)
+- Same zone-lock keeps Northshire bots out of Goldshire's wolf and Defias camps; all starter quests and mobs still fit inside the tighter radius [#455](https://github.com/Sagiroth/TortoiseBots/pull/455)
+- Kills the old ~830 yd search radius fallback that ignored the area-level ceiling for exempted lowbies — fewer early deaths, fewer corpse runs [#455](https://github.com/Sagiroth/TortoiseBots/pull/455)
+
 ## 2026-10-02
 
 ### Levelling & Progression
