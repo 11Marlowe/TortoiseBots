@@ -39,6 +39,9 @@
 ### Docs & Configuration
 - README overview no longer implies every pool bot starts at level 1 — pool bots default to a spread across levels 1–60, and a fresh-realm level-1 start is just one setting via `RandomBotStartLevelMin` / `RandomBotStartLevelMax`. [#414](https://github.com/Sagiroth/TortoiseBots/pull/414)
 
+### Documentation
+- README overview rewritten to stay high-level: highlights core features and configurable playstyles (fresh level-1 realm or bots at every level) without leaking implementation details, with the docs carrying the rest. [#416](https://github.com/Sagiroth/TortoiseBots/pull/416)
+
 ## 2026-10-02
 
 ### Levelling & Progression
