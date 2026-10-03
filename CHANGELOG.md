@@ -183,6 +183,10 @@
 - Bots walk to the flight master first, board, pay the normal fare from their own gold (trainer reserve kept intact), then walk the last leg to the destination. [#447](https://github.com/Sagiroth/TortoiseBots/pull/447)
 - Taxi node zones are now cached once at startup, so travel pathing stops re-resolving terrain/VMAP lookups on every tick. [#447](https://github.com/Sagiroth/TortoiseBots/pull/447)
 
+### Travel & Zone Migration
+
+- **Outgrown-zone leaves now actually leave.** The leave-errand grind search was picking the nearest active grind point — which was still in the zone the bot was vacating (Galwurth "left" Durotar three times and re-picked Durotar every time). The search now excludes the zone being left, so bots roll into a level-appropriate spot in the next zone instead of ping-ponging in place. Travel graph already had the hops (including Teldrassil → Darkshore via the Darnassus/Rut'theran portal), so no pathing work was needed. Capital-idle leaves unchanged. [#448](https://github.com/Sagiroth/TortoiseBots/pull/448)
+
 ## 2026-10-02
 
 ### Levelling & Progression
