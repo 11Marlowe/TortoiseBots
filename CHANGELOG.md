@@ -95,6 +95,15 @@
 - Nearby-service selector no longer acts on stale cached answers; it stays quiet when there's nothing to hand in, accept, sell, or train at the current NPC [#432](https://github.com/Sagiroth/TortoiseBots/pull/432)
 - Loot loop gets the same stand-down treatment, cutting wasted ticks when there's nothing to pick up [#432](https://github.com/Sagiroth/TortoiseBots/pull/432)
 
+### Quests & Progression
+- Bots now prune their quest log when it runs low: failed, far over-level, elite/dungeon/raid, group-suggested, and other-zone quests get dropped, so the log stops filling with content they can never finish [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
+- Quests are triaged using the same logic as mod-playerbots (donor `OrganizeQuestLog`), keeping parity between pool bots and native bots [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
+
+### Loot & Rolls
+- No more greed rolls on soulbound recipes the bot can't learn — wasted rolls and dead loot are gone [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
+- Bots no longer roll need on duplicate uniques they already own [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
+- Bots refrain from voting entirely in free-for-all and master-loot rolls, matching mod-playerbots' `LootRollAction` gates [#433](https://github.com/Sagiroth/TortoiseBots/pull/433)
+
 ## 2026-10-02
 
 ### Levelling & Progression
