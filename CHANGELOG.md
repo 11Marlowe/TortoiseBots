@@ -133,6 +133,12 @@
 - The gear budget now also covers replacing bad or broken gear, not just filling empty slots, so bots stop running around in shredded equipment. [#438](https://github.com/Sagiroth/TortoiseBots/pull/438)
 - Trainer-money reserve still applies — bots won't blow their training funds on vendor loot. [#438](https://github.com/Sagiroth/TortoiseBots/pull/438)
 
+### Starter Zones & World
+- Fresh level 1–4 pool bots no longer get vetoed by the area-average level ceiling in starter zones (Durotar, Dun Morogh ratings sit above new characters), so they can actually pick grind points and level up instead of standing idle. Mob level bands, point danger, grey/elite checks, and route gates still apply. [#439](https://github.com/Sagiroth/TortoiseBots/pull/439)
+
+### Combat & AI
+- Service NPCs that can't be reached — indoors, on ledges, or otherwise unreachable — no longer trap bots in a failing approach loop every tick. Three failed approaches park that NPC for 90 s, matching the existing failing-verb behavior, and dead or unloaded NPCs are skipped outright (finishes the #407 nearby service loop cleanup). [#439](https://github.com/Sagiroth/TortoiseBots/pull/439)
+
 ## 2026-10-02
 
 ### Levelling & Progression
