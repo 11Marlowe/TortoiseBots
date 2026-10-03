@@ -18,6 +18,19 @@
 
 ---
 
+### Combat & AI
+- Pool bots no longer open a fresh grind pull while under ~70% health/mana unless they're already under attack — cuts the "died within a minute of the last kill" cluster that accounted for ~33% of deaths. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+- The opportunistic "attack before being attacked" strike while travelling is now gated to a lone mob inside the current grind level cap, so bots stop picking suicidal fights on the way to camp. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+- Bots carrying free food now rest up properly instead of limping into the next fight at low resources. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+
+### Movement & Recovery
+- Levelling pack 2 targets the root causes found in the overnight run: deaths, stuck bots, ghost runs, and action loops. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+- Ration handling folded into the levelling behaviour so bots resupply instead of stalling or repeating the same action. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+
+### Observability & Validation
+- Pack compiles clean and passes `tools/verify_all.sh`. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+- Not yet measured live — deploy on a fresh pool and diff against `tools/pool_kpi_report.py` before trusting the death/loop numbers. [#412](https://github.com/Sagiroth/TortoiseBots/pull/412)
+
 ## 2026-10-02
 
 ### Levelling & Progression
