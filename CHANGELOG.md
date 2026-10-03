@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-03
+
+### Levelling & Progression
+- Levelling pack validated on a fresh 500-bot pool overnight (XPRate 3): quests turned in +25% and gathering +55% versus the previous cycle, with levels 5 and 6 reached 6–8 minutes sooner. [#411](https://github.com/Sagiroth/TortoiseBots/pull/411)
+- Starter kit, vendor-sourced weapons, and professions available at level 5 give fresh pool bots a functional loadout instead of scavenging bare-handed. [#411](https://github.com/Sagiroth/TortoiseBots/pull/411)
+
+### Death & Recovery
+- Death loops are now self-correcting: after two escapes from the same death cluster within an hour, a bot avoids that spot — 100 yd / 15 min at level 5 and below, 300 yd / 60 min above. A level-up clears the entry, and up to 3 spots are tracked. [#411](https://github.com/Sagiroth/TortoiseBots/pull/411)
+- Stuck-bot rescue pulls stranded bots back into the levelling flow rather than letting them idle out in the world. [#411](https://github.com/Sagiroth/TortoiseBots/pull/411)
+
+### Vendors & Economy
+- Vendor re-picks down 75%: one vendor journey at a time, with a 10-minute window cleared by any sale or level-up. Full bags still always get through. [#411](https://github.com/Sagiroth/TortoiseBots/pull/411)
+
+### Observability & Engine
+- AI pass timing is unchanged at ~51 ms with 500 bots — all the new routing and vendoring logic costs nothing measurable on the server tick. [#411](https://github.com/Sagiroth/TortoiseBots/pull/411)
+
+---
+
 ## 2026-10-02
 
 ### Levelling & Progression
