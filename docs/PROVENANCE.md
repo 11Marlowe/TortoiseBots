@@ -3083,6 +3083,76 @@ level-4 case, travelling +1 ceiling; registered in `tools/verify_all.sh`);
 `bash tools/verify_all.sh`; `git diff --check`. No deploy (orchestrator
 compiles).
 
+## Open-water fishing search for pool bots (#402)
+
+Feature: masterless pool bots fish nearby open water when the travel fish
+table is empty — visible fishing holes first, otherwise the nearest fishable
+shore inside 40 yd with at most a short step to the bank, the cast aimed at
+the water, the zone skill-gated like the travel fish errand, guarded shores
+refused, failed searches rested a minute. Owned/hired bots never take the
+path. No destination is picked and no route is walked, so the travel/level
+gates (#418, #428, #434) are not bypassed.
+
+Source project: `mod-playerbots` @ `b6696bd`
+(`playerbots-references/mod-playerbots` local checkout).
+
+Source files: `src/Ai/Base/Actions/FishingAction.cpp` (`FindWaterRadial`,
+`FindFishingHole`, `HasFishableWaterOrLand`, `FindLandFromPosition` shape,
+`MIN/MAX_DISTANCE_TO_WATER`, `SEARCH_INCREMENT`, fishing `FISHING_DISTANCE`
+40 yd / `FISHING_DISTANCE_FROM_MASTER` 10 yd, `CanFishValue` swim/combat
+exclusion), `src/Ai/Base/Value/FishValues.cpp` (`CanFishValue`,
+`CanUseFishingBobberValue`), `conf/playerbots.conf.dist` (fishing distance
+comments, incl. "Currently not relevant since masterless bots will not
+fish").
+
+Copied / ported / reimplemented: reimplemented — the radial/ring search,
+hole scan and shore-stand geometry follow the donor, but liquid comes from
+`TerrainInfo::GetWaterLevel` / `getLiquidStatus` (not donor `LiquidData`),
+line of sight from `Map::isInLineOfSight`, skill from
+`sObjectMgr.GetFishingBaseSkillLevel` with the travel errand's -5 head
+start, guard from the existing `IsFishingSpotGuarded`, movement from the
+existing `MoveTo` (no donor `MoveNearWater`/`fishing spot` value port).
+Donor `master fishing` / `use bobber` / `EquipFishingPole` strategies are
+not ported: the bot already owns a pole (factory seed), equips it in
+`FishAction`, and opens its own bobber.
+
+Reason: all 500 pool bots know fishing and carry a pole with `tfish` on,
+but `FISH_LOCATION_*` is empty and generation is off, so `GetFishSpot`
+never returns and the issue measures 0 casts in 2 h 46 min.
+
+Local validation: `tools/test_fishing_spot_policy.cpp` (scope, windows,
+cast range, depth, skill gate, dry stand; registered in
+`tools/verify_all.sh`); `bash tools/verify_all.sh`;
+`python3 tools/verify_action_trigger_wiring.py` (0 missing);
+`git diff --check`. No deploy (orchestrator compiles).
+
+### Review fixes (levelling first, fishing as a side activity)
+
+Review verdict on `ac1df6f`: the `qualifier != "travel"` gate made the
+fallback dead code for every `tfish` pool bot, the uncapped relevance-10
+trigger would stall levelling on first water contact, and the 336-probe
+search with a 60 s retry would cost ~117k terrain/raycast queries per
+minute. Fixed on this branch:
+
+- Qualifier: the fallback now runs inside the `tfish` (`::travel`) path —
+  when the travel fish table yields nothing and the travel target is idle.
+- Budget: `FishingSpotPolicy.h` session rules — one session/hour, max 5
+  casts / 5 min, wrap-safe `WorldTimer` arithmetic; `CanFishValue`,
+  `MoveToFishAction` and `FishAction` all enforce it; `FishStrategy`
+  relevance drops to 3/4 (below quest 6.36 / grind 6.35). Never while a
+  travel errand, rewardable finished quest, vendor/trainer/money/repair
+  need, or >90% bags.
+- Cost: 5 yd rings x 8 dirs (~88 probes), 15 s per-bot search throttle,
+  15 min per-bot no-water park, shared per-map-cell water verdict cache
+  (30 min, mutex-guarded).
+- Combat: session ends at once on combat (`FishAction`, `PlayerbotAI`
+  wake-up), `equip upgrades` fires immediately at session end, and the
+  `DoneFishingValue` 30 s pole delay is skipped in combat.
+
+Local validation: extended `tools/test_fishing_spot_policy.cpp` (session
+budget incl. wrap, throttle/cache windows, cell keys); `bash
+tools/verify_all.sh` green; `verify_action_trigger_wiring.py` 0 missing;
+`git diff --check` clean.
 ## Organic AH buyer: in-place bids plus spare-gold travel demand (issue #405) — 2026-10-03, review 2
 Feature: `AhMarketService::BuyAuctionCandidate` bids only with a pool bot
 ALREADY standing at an auctioneer serving the listing's house object (no buyer
