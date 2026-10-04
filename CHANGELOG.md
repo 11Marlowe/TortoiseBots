@@ -30,6 +30,9 @@
 ### Observability & Engine
 - Full daily changelog posting to Discord is now on main so the manual re-post workflow can run; changelog tooling only, no gameplay changes. [#482](https://github.com/Sagiroth/TortoiseBots/pull/482)
 
+### Combat & AI
+- Mages and priests can kite straight away from mobs again; the flee-direction memory that caused sideways zig-zagging and roughly doubled deaths is disabled for normal flees until a smarter version lands, [#487](https://github.com/Sagiroth/TortoiseBots/pull/487).
+
 ## 2026-10-03
 
 ### Levelling & Progression
