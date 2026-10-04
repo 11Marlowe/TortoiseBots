@@ -24,6 +24,12 @@
 ### Configuration & Options
 - Additional owned-bot options exposed in this batch. [#481](https://github.com/Sagiroth/TortoiseBots/pull/481)
 
+### Combat & AI
+- Low-level bots now fight back against tougher mobs attacking them while en route to a quest giver or trainer, and their stable approach points stop them from falling off platform edges near busy NPCs in Dolanaar, Valley of Trials, and Kharanos. [#484](https://github.com/Sagiroth/TortoiseBots/pull/484)
+
+### Observability & Engine
+- Full daily changelog posting to Discord is now on main so the manual re-post workflow can run; changelog tooling only, no gameplay changes. [#482](https://github.com/Sagiroth/TortoiseBots/pull/482)
+
 ## 2026-10-03
 
 ### Levelling & Progression
