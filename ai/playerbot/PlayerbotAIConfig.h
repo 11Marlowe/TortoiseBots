@@ -357,6 +357,26 @@ public:
     // Seconds a hired companion waits on guard after its master disconnects
     // before dismissing (default 300 = 5 minutes).
     uint32 hireDisconnectGracePeriod = 300;
+    // Issue #473: opt-in alternative play style for owned/hired bots only.
+    // Every part defaults off and never touches pool bots. The maintenance
+    // command refreshes one owned bot's kit (consumables/reagents/ammo/
+    // repair); autogear re-gears an owned bot to its level within the
+    // quality/ilvl caps; summon-on-group-accept teleports the joining bot
+    // to its inviter when the extra condition knobs pass.
+    bool ownedBotMaintenanceEnabled = false;
+    bool ownedBotAutogearEnabled = false;
+    uint32 ownedBotAutogearQualityCap = 2;
+    uint32 ownedBotAutogearIlvlCap = 0;
+    bool ownedBotSummonWhenGroup = false;
+    bool ownedBotSummonAllowInCombat = false;
+    bool ownedBotSummonAllowMasterDead = false;
+    bool ownedBotSummonAllowBotDead = false;
+    bool ownedBotSummonRevive = false;
+    bool ownedBotSummonRepair = false;
+    // Seconds between summon-on-accept teleports per bot (default 300 = 5
+    // minutes). An uninvite/invite cycle inside the window is refused, so it
+    // cannot be macroed into a free in-combat rez/repair.
+    uint32 ownedBotSummonCooldown = 300;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Universal raid survival knobs (issue #201): bomb carriers run
@@ -411,6 +431,13 @@ public:
     bool instantRandomize;
     bool gearscorecheck;
     int32 levelCheck;
+    // Pool-bot trade safety (issue #469, donor EnableRandomBotTrading 0-3
+    // plus our open 4): 0 off / 1 trusted (master, group, hire master) /
+    // 2 buy-only / 3 sell-only / 4 on. Out-of-range fails closed to 0.
+    int32 poolBotTradeMode;
+    // Addon chatter prefixes that never drive the trade action
+    // (donor TradeActionExcludedPrefixes parity, e.g. Questie/DBM lines).
+    std::list<std::string> tradeActionExcludedPrefixes;
 	bool randomBotPreQuests;
     float playerbotsXPrate;
     bool disableBotOptimizations;

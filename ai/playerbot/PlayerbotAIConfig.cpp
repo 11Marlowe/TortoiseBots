@@ -457,6 +457,22 @@ bool PlayerbotAIConfig::Initialize()
     hireDisconnectGracePeriod = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireDisconnectGracePeriod", 300));
     if (hireDisconnectGracePeriod > 3600)
         hireDisconnectGracePeriod = 3600;
+    // Issue #473: opt-in owned/hired-bot quality of life (all off by default).
+    ownedBotMaintenanceEnabled = config.GetBoolDefault("AiPlayerbot.OwnedBotMaintenanceEnabled", false);
+    ownedBotAutogearEnabled = config.GetBoolDefault("AiPlayerbot.OwnedBotAutogearEnabled", false);
+    ownedBotAutogearQualityCap = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotAutogearQualityCap", 2));
+    if (ownedBotAutogearQualityCap > 5)
+        ownedBotAutogearQualityCap = 5;
+    ownedBotAutogearIlvlCap = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotAutogearIlvlCap", 0));
+    ownedBotSummonWhenGroup = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonWhenGroup", false);
+    ownedBotSummonAllowInCombat = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowInCombat", false);
+    ownedBotSummonAllowMasterDead = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowMasterDead", false);
+    ownedBotSummonAllowBotDead = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowBotDead", false);
+    ownedBotSummonRevive = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonRevive", false);
+    ownedBotSummonRepair = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonRepair", false);
+    ownedBotSummonCooldown = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotSummonCooldown", 300));
+    if (ownedBotSummonCooldown > 3600)
+        ownedBotSummonCooldown = 3600;
      openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
@@ -677,6 +693,10 @@ bool PlayerbotAIConfig::Initialize()
     gearscorecheck = config.GetBoolDefault("AiPlayerbot.GearScoreCheck", false);
     levelCheck = config.GetIntDefault("AiPlayerbot.LevelCheck", 30);
 	randomBotPreQuests = config.GetBoolDefault("AiPlayerbot.PreQuests", false);
+    // Issue #469: pool-bot trading defaults to safe (0 = off). Out-of-range
+    // values fail closed in ParsePoolBotTradeMode, never open.
+    poolBotTradeMode = config.GetIntDefault("AiPlayerbot.PoolBotTradeMode", 0);
+    LoadListString<std::list<std::string>>(config.GetStringDefault("AiPlayerbot.TradeActionExcludedPrefixes", "RPLL_H_,DBMv4"), tradeActionExcludedPrefixes);
     randomBotSayWithoutMaster = config.GetBoolDefault("AiPlayerbot.RandomBotSayWithoutMaster", false);
     randomBotInvitePlayer = config.GetBoolDefault("AiPlayerbot.RandomBotInvitePlayer", true);
     randomBotGroupNearby = config.GetBoolDefault("AiPlayerbot.RandomBotGroupNearby", false);

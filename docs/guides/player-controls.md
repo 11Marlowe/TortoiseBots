@@ -28,6 +28,8 @@ Whisper commands (`/w <BotName> <command>`) and `.bot command <BotName> <command
 
 Refused commands answer with a short reason in chat; addon-originated requests additionally receive exactly one `TBM:ACTION_ERR|<command>|denied|<reason>` line so the `/tbm` UI can surface it.
 
+**Pool-bot trading (issue #469):** a masterless pool bot refuses a real-player stranger's trade window (`AiPlayerbot.PoolBotTradeMode = 0`, the default) and ignores Trade-channel chatter unless the speaker addresses it directly. Owned and hired bots always trade with their master; `1` limits the pool to master/group/hire-master trades, `2`/`3` allow buy-only/sell-only, `4` restores unrestricted trading. Bot-to-bot trade life (RPG giveaways, enchants, `WTS`/`WTB`) is untouched.
+
 ---
 
 ## 1. Tactical Party Actions (`.bot action <intent>`)
@@ -82,6 +84,9 @@ These commands manage the login, party membership, and presence of your owned bo
 | **Invite to Party** | `.bot invite <Name>` | Sends a party invite to an online bot on your account. |
 | **Uninvite from Party**| `.bot uninvite <Name>` *(or `kick`)*| Removes an owned bot from your group. Removing a hired companion from the group ends the hire and deletes its character, with no grace period. |
 | **Summon** | `.bot summon <Name>` | Teleports one owned bot safely to your location out of combat. Works for your own bots and hired companions; no config switch needed. |
+| **Maintenance** | `.bot maintenance <Name>` | Refreshes one owned bot's kit (consumables, reagents, ammo, repair). Opt-in alternative play style for owned bots and hired companions (never pool bots): needs `AiPlayerbot.OwnedBotMaintenanceEnabled = 1`, otherwise the command replies that the feature is disabled. |
+| **Autogear** | `.bot autogear <Name> [quality\|ilvl]` | Re-gears one owned bot to its level within the quality/ilvl caps (default green, optional e.g. `blue` or `200`). Opt-in like maintenance (`AiPlayerbot.OwnedBotAutogearEnabled = 1`, caps `OwnedBotAutogearQualityCap`/`OwnedBotAutogearIlvlCap`); pool bots keep progressing organically. |
+| **Summon on group accept** | automatic | When `AiPlayerbot.OwnedBotSummonWhenGroup = 1`, an owned bot (or hired companion) that accepts your group invite is summoned to you if it is far away (beyond sight distance, same map). Condition knobs: `OwnedBotSummonAllowInCombat`, `OwnedBotSummonAllowMasterDead`, `OwnedBotSummonAllowBotDead` (+ `OwnedBotSummonRevive`), `OwnedBotSummonRepair`. Revive/repair run only out of combat unless `AllowInCombat` is also on; a per-bot cooldown (`OwnedBotSummonCooldown`, 300 s) bounds uninvite/invite abuse. All off by default except the cooldown. |
 | **Release Spirit** | `.bot release` | Commands dead companion bots to release spirit to the graveyard. Also available as `.bot action release`. |
 | **Corpse Run** | `.bot corpse run` | Commands spirit bots to run back to their corpse or instance entrance. Also available as `.bot action corpse run`. |
 | **Learn Spells** | `.bot learn` | Commands companion bots near matching trainers to learn affordable spells. Also available as `.bot action learn`. |

@@ -123,6 +123,23 @@ void PlayerbotFactory::PruneDuplicateEquipRows()
         guid);
 }
 
+// Issue #473: incremental-only re-gear of an owned bot at its level within
+// a quality cap and an optional item-level cap. The quality selects the band
+// start (same itemQuality plumbing as every other gear path); the ilvl cap
+// is threaded into InitEquipment as an argument (0 = the global
+// randomGearMaxLevel), never through global config mutation. No wipe, no
+// master sync.
+void PlayerbotFactory::AutogearOwned(uint32 cappedQuality, uint32 ilvlCap)
+{
+    if (!bot)
+        return;
+    if (cappedQuality > ITEM_QUALITY_LEGENDARY)
+        cappedQuality = ITEM_QUALITY_LEGENDARY;
+    itemQuality = cappedQuality;
+    InitEquipment(true, false, sPlayerbotAIConfig.randomGearProgression, false, ilvlCap);
+    bot->SaveToDB();
+}
+
 // Issue #192: spells + skills + incremental gear for a hired companion.
 // Public wrapper around the private init steps so the provisioner never
 // touches wiping paths. Talents are owned by the provisioner (role-matching
@@ -1089,7 +1106,7 @@ static bool PassesSeedProvenance(Player* bot, uint32 newItemId)
     return false;
 }
 
-void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool progressive, bool partialUpgrade)
+void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool progressive, bool partialUpgrade, uint32 maxItemLevelOverride)
 {
     // Bots below level 5 stay in their starting outfit: gear DB has little for them,
     // and specId is often 0 at low levels which would strip them naked (DestroyItemsVisitor
@@ -1261,7 +1278,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
         uint32 searchLevel = level;
         uint32 quality = ITEM_QUALITY_POOR;
-        uint32 maxItemLevel = sPlayerbotAIConfig.randomGearMaxLevel;
+        uint32 maxItemLevel = maxItemLevelOverride != 0 ? maxItemLevelOverride : sPlayerbotAIConfig.randomGearMaxLevel;
         bool progressiveGear = progressive;
         if(syncWithMaster && ai->GetMaster())
         {
