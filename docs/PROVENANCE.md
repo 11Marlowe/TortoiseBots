@@ -3527,6 +3527,36 @@ Local validation: `tools/test_quest_taker_level_policy.cpp` section 4
 (exempt 1/4 masterless, bound at 5, owned/hired excluded, level 60
 excluded); `bash tools/verify_all.sh`; `git diff --check`. No deploy
 (orchestrator compiles).
+
+## Rogue spec weapon types: subtlety joins the dagger-only set (task K) — 2026-10-04
+Feature: `RandomItemMgr::ShouldEquipWeaponForSpec` treats the `subtle`
+weight scale like `assas` (MH/OH daggers only) via the shared
+`ai/playerbot/strategy/values/RogueWeaponPolicy.h:RogueSpecWantsDaggers`
+predicate. Combat keeps swords/maces/fists; other classes unchanged. This
+flows through the existing equip logic (equip audit, `QueryItemUsageForEquip`
+spec transition, vendor weapon upgrades, loot/roll need) with no new rules.
+
+Copied / ported / reimplemented: reimplemented from donor behaviour
+(mod-playerbots `src/Mgr/Item/RandomItemMgr.cpp:ShouldEquipWeaponForSpec`
+dagger-only rogue gate + `src/Mgr/Item/StatsWeightCalculator.cpp:699-701`
+dagger 1.5x for assassination/subtlety and `:999-1005` slow-dagger-MH /
+fast-dagger-OH speed bonus, at local `playerbots-references/mod-playerbots`
+`b6696bdb`).
+
+Reason: the `else` fallback let subtlety rogues keep swords/maces, but the
+spec's Backstab/Ambush openers need a dagger main hand (core
+`Spell::CheckItems` refuses the cast: `SPELL_FAILED_EQUIPPED_ITEM_CLASS`),
+so a subtlety rogue wielding a sword queued doomed openers exactly like an
+assassination rogue would. Live 2026-10-04: 69 online pool rogues, 64 at
+level 10+; talent-marker census (ass 8, combat 27, subtle 12) found 8/12
+subtlety rogues with a non-dagger main hand (maces/swords outscoring plain
+daggers on `mledps`), 0/8 assassination rogues mismatched, and 1/107
+NotBehind vs 479 BadTargets on Backstab casts (positioning, not weapons).
+
+Local validation: `tools/test_rogue_weapon_policy.cpp` (assas/subtle
+dagger-only, combat/other excluded; registered in `tools/verify_all.sh`);
+`bash tools/verify_all.sh`; `git diff --check`. No deploy (orchestrator
+compiles).
 | Hunter dead-zone switch hysteresis + revenge-before-travel self-defence | mod-playerbots `src/Ai/Class/Hunter/HunterTriggers.cpp:112-128` (SwitchToRanged victim!=bot/immobilized/slow/dist>8; SwitchToMelee victim==bot AND dist<=8, no level gate either side) + `src/Ai/Base/Actions/ChooseTargetActions.cpp:104-133` (AttackAnythingAction::isUseful with no facing gate) | `ai/playerbot/HunterSwitchPolicy.h` (ShouldSwitchToMelee/ShouldSwitchToRanged + 5/10 yd edges), `ai/playerbot/strategy/hunter/HunterTriggers.h` (triggers delegate, AND/OR shapes unchanged), `ai/playerbot/strategy/actions/ChooseTargetActions.cpp` (revenge victim==bot answers first with no isInFront gate, before the QuestTaker walk-through exemption and the wounded-pool gate; pre-emptive strike keeps the front arc) | Reimplemented: donor switch shapes kept, only the shared 8 yd distance edge becomes a 5/10 yd hysteresis band; revenge reorder is donor-parity (no facing gate) | Pool hunters flipped kits every few ticks at the shared 8 yd line (inter-switch p50 15 s, 37% within 10 s, each flip rebuilding the combat trigger graph); travelling bots on completed hand-in walks never faced their attacker so the isInFront revenge gate never fired (taker trips fought back 5% vs 60-93% elsewhere) | `tools/test_hunter_switch_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check` |
 
 ## Quest accept/drop churn + banned quests + Bone Chew Toy — 2026-10-04
