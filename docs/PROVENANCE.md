@@ -3528,6 +3528,47 @@ Local validation: `tools/test_quest_taker_level_policy.cpp` section 4
 excluded); `bash tools/verify_all.sh`; `git diff --check`. No deploy
 (orchestrator compiles).
 
+## Rotation gaps: Demonology Immolate, Elemental/Enhancement Flame Shock, BM Intimidation (issue #467) — 2026-10-04
+Feature: Demonology keeps `immolate` up (`ACTION_NORMAL + 1`, same slot as
+Destruction); Elemental/Enhancement keep `flame shock` up first via a new
+`flame shock upkeep` trigger (`FlameShockTrigger`, plain `DebuffTrigger`: no
+flame-shock aura on target) above the generic `shock` -> `earth shock` line
+and the separate `earth shock interrupt` duty — `ShockTrigger` stays blind
+to the flame-shock aura so `earth shock` still spends the shared cooldown
+while the DoT ticks; Beast
+Mastery fires `intimidation` on cooldown via a new `IntimidationTrigger`
+(`SpellCanBeCastedTrigger` on `self target`: the self-cast fails core
+`CanCastSpell` with `SPELL_FAILED_TARGET_ENEMY` against the hostile current
+target, plus a live-pet gate like `KillCommandTrigger` since the stun lands
+via the pet) below `kill command` (`ACTION_NORMAL + 3` vs `+ 4`).
+
+Copied / ported / reimplemented: reimplemented (donor
+`mod-playerbots @ b6696bdbd3740e575598d167d69f39f68cc0b907`:
+`src/Ai/Class/Warlock/Strategy/DemonologyWarlockStrategy.cpp` (immolate
+upkeep 17.5 + immolate on attacker 19.0), `src/Ai/Class/Shaman/Strategy/
+ElementalShamanStrategy.cpp` (flame shock 5.3) and `EnhancementShaman-
+Strategy.cpp` (flame shock 19.0), `src/Ai/Class/Hunter/Strategy/
+BeastMasteryHunterStrategy.cpp` (intimidation 40.0). Donor extras not
+ported: `immolate/corruption on attacker` spread, `earth shock execute`,
+`lava burst`/`maelstrom`/`feral spirit` kit, `kill command`/`kill shot`/
+`serpent sting` kit — no matching 1.12 spells or engine values here; donor
+`DebuffTrigger` target-lifetime gate (`estimated group dps`) not ported
+either, ours already gates via shared-cooldown state. Donor `BuffTrigger`
+refresh-ahead vs ours missing-aura-only kept as-is: re-casts land only
+after full expiry).
+
+Reason: the three specs queued no upkeep for those spells — Demonology had
+no `immolate` node at all (Affliction/Destruction do), Elemental/Enhancement
+queued only the generic `shock` -> `earth shock` line (`ShamanStrategy.cpp`
+falls back to `flame shock` only when `earth shock` is unknown, and
+`ShockTrigger` refuses to fire while any shock aura is present, so the DoT
+never refreshed), and BM registered `intimidation` only as the scatter-shot
+node fallback with no trigger pushing it (`intimidation on snare target`
+needs a snare-state target and never fires as a cooldown).
+
+Local validation: `python3 tools/verify_action_trigger_wiring.py` (0 live
+missing), `bash tools/verify_all.sh`; `git diff --check`. No deploy
+(orchestrator compiles).
 ## Shield ping-pong reverse guard + vendor shield-first (review #465) — 2026-10-04
 Feature: the slot-aware spec weapon policy (`SpecWeaponPolicy.h`, new) pins
 the owner weapon matrix as pure rules - prot warrior/paladin 1H main hand +
