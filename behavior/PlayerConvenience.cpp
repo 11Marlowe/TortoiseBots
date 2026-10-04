@@ -100,6 +100,61 @@ bool PlayerConvenience::RequestSummon(Player* requester, Player* bot)
         bot->GetName(), state.destX, state.destY, state.destZ, state.destMap, requester->GetName());
     return true;
 }
+// Issue #473: summon-on-group-accept with the donor summon-condition knobs.
+// Only the inviter's own bot is ever summoned (caller gates owned/hired).
+// Combat: the native flow refuses combat on either side unless allowInCombat
+// opens it. Dead master: refused unless allowMasterDead opens it (the queued
+// summon still cancels if the master dies before arrival). Dead bot:
+// refused unless allowBotDead opens it, and only revived when revive is set
+// too. Revive/repair run only out of combat unless allowInCombat opens it,
+// so a combat summon is a reposition, never a free rez. A per-bot cooldown
+// (seconds, 0 = off) bounds uninvite/invite macro abuse.
+bool PlayerConvenience::RequestGroupSummon(Player* requester, Player* bot, SummonConditions const& conditions)
+{
+    if (!requester || !bot || !requester->IsInWorld() || requester->IsBeingTeleported() ||
+        requester->IsTaxiFlying())
+        return false;
+    if (!requester->IsAlive() && !conditions.allowMasterDead)
+        return false;
+    if (!bot->IsInWorld() || !bot->GetSession() || !bot->GetSession()->IsHeadless() ||
+        bot->IsBeingTeleported() || bot->IsTaxiFlying())
+        return false;
+    // The native flow never summons into or out of combat; the knob opens
+    // both sides at once, matching the donor allowSummonInCombat meaning.
+    bool inCombat = requester->IsInCombat() || bot->IsInCombat();
+    if (inCombat && !conditions.allowInCombat)
+        return false;
+    if (conditions.cooldown > 0)
+    {
+        uint32 key = bot->GetObjectGuid().GetCounter();
+        time_t now = time(nullptr);
+        auto it = m_groupSummonAt.find(key);
+        if (it != m_groupSummonAt.end() && now - it->second < static_cast<time_t>(conditions.cooldown))
+            return false;
+    }
+    if (!bot->IsAlive())
+    {
+        if (!conditions.allowBotDead)
+            return false;
+        // Out of combat by default: a combat summon repositions a live bot,
+        // it never battle-rezes — unless allowInCombat explicitly opens it
+        // (still bounded by the per-bot cooldown above). Same for repair.
+        if (conditions.revive && (!inCombat || conditions.allowInCombat))
+        {
+            bot->ResurrectPlayer(1.0f, false);
+            bot->SpawnCorpseBones();
+        }
+        if (!bot->IsAlive())
+            return false;
+    }
+    if (!RequestSummon(requester, bot))
+        return false;
+    if (conditions.cooldown > 0)
+        m_groupSummonAt[bot->GetObjectGuid().GetCounter()] = time(nullptr);
+    if (conditions.repair && (!inCombat || conditions.allowInCombat))
+        bot->DurabilityRepairAll(false, 0.0f);
+    return true;
+}
 
 bool PlayerConvenience::IsBusy(ObjectGuid botGuid) const
 {
