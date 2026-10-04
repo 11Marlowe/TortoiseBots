@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-10-04
+
+### Travel & Pathing
+- Bots no longer get yanked to a random auctioneer on another continent while questing, fixing the "bot respawned in a far zone and then came back" reports. [#477](https://github.com/Sagiroth/TortoiseBots/pull/477)
+- Trips to the auction house, banker, vendor, trainer, and mailbox now finish reliably: bots count as arrived once they stand at the NPC instead of circling the counter. If truly stuck and nobody is watching, they are placed at the destination (at most once per 30 minutes). [#477](https://github.com/Sagiroth/TortoiseBots/pull/477)
+
+---
+
 ## 2026-10-03
 
 ### Levelling & Progression
