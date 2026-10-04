@@ -8,6 +8,22 @@
 
 ---
 
+### Travel & Pathing
+- Fixed bots stalling out when their route shrinks to a single step — they now keep walking instead of giving up a few yards from the target. Genuinely unreachable targets are still dropped as before. [#475](https://github.com/Sagiroth/TortoiseBots/pull/475)
+
+### Group Buffs & Party
+- Bots now refresh buffs *before* they expire, so groups stop losing uptime mid-fight. [#476](https://github.com/Sagiroth/TortoiseBots/pull/476)
+- With three or more party members missing a buff, bots cast the group version when they know it and carry the reagent — Gift of the Wild, Arcane Brilliance, and the Prayer of Fortitude/Spirit/Shadow Protection line. [#476](https://github.com/Sagiroth/TortoiseBots/pull/476)
+
+### Trade & Economy
+- New config switch gates pool-bot trading with strangers. Off by default, so existing setups behave exactly as before unless you opt in. [#478](https://github.com/Sagiroth/TortoiseBots/pull/478)
+
+### Combat & AI
+- Combat spread behavior adjusted for the daily batch. [#481](https://github.com/Sagiroth/TortoiseBots/pull/481)
+
+### Configuration & Options
+- Additional owned-bot options exposed in this batch. [#481](https://github.com/Sagiroth/TortoiseBots/pull/481)
+
 ## 2026-10-03
 
 ### Levelling & Progression
