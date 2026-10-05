@@ -301,6 +301,18 @@ static void TestSaygeActionEncoding()
         CHECK(DecodeBuyIndex(action) == kWorldBuffBuySayge);
         CHECK(DecodeSaygePick(action) == pick);
     }
+    // Confirm page: the buy action survives intact and the quoted head
+    // count (1..40) rides in the high bits.
+    for (uint32_t people = 1; people <= 40; ++people)
+    {
+        uint32_t sayge = EncodeConfirmAction(EncodeSaygeAction(kWorldBuffBuySayge, 8), people);
+        CHECK(DecodeConfirmCount(sayge) == people);
+        CHECK(DecodeBuyIndex(DecodeConfirmBuyAction(sayge)) == kWorldBuffBuySayge);
+        CHECK(DecodeSaygePick(DecodeConfirmBuyAction(sayge)) == 8);
+        uint32_t rally = EncodeConfirmAction(kWorldBuffBuyRally, people);
+        CHECK(DecodeConfirmCount(rally) == people);
+        CHECK(DecodeConfirmBuyAction(rally) == kWorldBuffBuyRally);
+    }
 }
 
 static void TestAuraUnlockFastCheck()
@@ -326,6 +338,25 @@ static void TestAuraUnlockFastCheck()
     CHECK(IsAuraUnlockSpell(0) == false);
 }
 
+static void TestUnlockFees()
+{
+    CHECK(IsRaidUnlockQuest(90000) && IsRaidUnlockQuest(90005));
+    CHECK(!IsRaidUnlockQuest(90006) && !IsRaidUnlockQuest(90013) && !IsRaidUnlockQuest(89999));
+    CHECK(WorldBuffFeeText(2000000) == "200 gold");
+    CHECK(WorldBuffFeeText(15000) == "1 gold 50 silver");
+    CHECK(WorldBuffFeeText(75) == "75 copper");
+    CHECK(WorldBuffFeeText(10001) == "1 gold 1 copper");
+    CHECK(WorldBuffFeeText(0).empty());
+    std::string const shipped = "Slay Onyxia, then return to a Mercenary Hire broker.";
+    std::string const fee200 = "Slay Onyxia, then return to a Mercenary Hire broker with the 200 gold processing fee.";
+    CHECK(WorldBuffObjectivesWithFee(shipped, 2000000) == fee200);
+    CHECK(WorldBuffObjectivesWithFee(fee200, 500000) == "Slay Onyxia, then return to a Mercenary Hire broker with the 50 gold processing fee.");
+    CHECK(WorldBuffObjectivesWithFee(fee200, 0) == shipped);
+    CHECK(WorldBuffObjectivesWithFee(fee200, 2000000) == fee200);
+    CHECK(WorldBuffObjectivesWithFee("Kill things.", 2000000) == "Kill things.");
+    CHECK(WorldBuffObjectivesWithFee(fee200 + " Tail.", 0) == shipped + " Tail.");
+}
+
 int main()
 {
     TestGating();
@@ -341,6 +372,7 @@ int main()
     TestServiceSpells();
     TestSaygeActionEncoding();
     TestAuraUnlockFastCheck();
+    TestUnlockFees();
     std::printf("world buff policy: %d checks passed\n", checks);
     return 0;
 }

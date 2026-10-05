@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace TortoiseBots
 {
@@ -21,6 +22,7 @@ constexpr uint32_t kWorldBuffSenderRoot = 505;
 constexpr uint32_t kWorldBuffSenderBuy = 506;
 constexpr uint32_t kWorldBuffSenderSayge = 507;
 constexpr uint32_t kWorldBuffSenderBack = 508;
+constexpr uint32_t kWorldBuffSenderConfirm = 509;
 
 // Root-menu actions (sender 505).
 constexpr uint32_t kWorldBuffRootHire = 1;
@@ -224,6 +226,24 @@ inline uint32_t DecodeSaygePick(uint32_t action)
     return (action >> 8) & 0xFF;
 }
 
+// Confirm page (sender 509): the buy action in the low 16 bits and the head
+// count the price was quoted for in the high 16, so a changed group is
+// re-quoted instead of charged.
+inline uint32_t EncodeConfirmAction(uint32_t buyAction, uint32_t people)
+{
+    return (people << 16) | (buyAction & 0xFFFF);
+}
+
+inline uint32_t DecodeConfirmBuyAction(uint32_t action)
+{
+    return action & 0xFFFF;
+}
+
+inline uint32_t DecodeConfirmCount(uint32_t action)
+{
+    return action >> 16;
+}
+
 // Fast check for the aura unlock hot path.
 inline bool IsAuraUnlockSpell(uint32_t spellId)
 {
@@ -280,6 +300,53 @@ inline bool ShouldRestoreAfterTeleport(bool keepInRaids, uint32_t mapId)
 inline bool ShouldStripUpperKara(bool keepInRaids, uint32_t mapId)
 {
     return !keepInRaids && mapId == kWorldBuffUpperKaraMap;
+}
+
+// Unlock fees are config (raid-boss quests vs the rest) but live in the quest
+// rows, which core loads before any module code runs. The module rewrites
+// RewOrReqMoney and the fee sentence at startup; the new fee is live from
+// the next restart.
+constexpr uint32_t kWorldBuffUnlockFeeMaxCopper = 100000000;
+
+inline bool IsRaidUnlockQuest(uint32_t questId)
+{
+    return questId >= kWorldBuffQuestRallyA && questId <= kWorldBuffQuestZandalarH;
+}
+
+// "200 gold", "1 gold 50 silver", "75 copper"; empty for 0.
+inline std::string WorldBuffFeeText(uint32_t copper)
+{
+    std::string text;
+    uint32_t const parts[3] = { copper / 10000, (copper / 100) % 100, copper % 100 };
+    char const* const names[3] = { " gold", " silver", " copper" };
+    for (int i = 0; i < 3; ++i)
+    {
+        if (!parts[i])
+            continue;
+        if (!text.empty())
+            text += ' ';
+        text += std::to_string(parts[i]) + names[i];
+    }
+    return text;
+}
+
+// Rewrites the closing sentence of a quest's Objectives to name the fee:
+// "...then return to a Mercenary Hire broker with the 200 gold processing
+// fee." (no fee: "...broker."). Text without the sentence is left alone.
+inline std::string WorldBuffObjectivesWithFee(std::string const& objectives, uint32_t copper)
+{
+    static char const kAnchor[] = "then return to a Mercenary Hire broker";
+    std::string::size_type pos = objectives.find(kAnchor);
+    if (pos == std::string::npos)
+        return objectives;
+    std::string::size_type end = objectives.find('.', pos);
+    std::string out = objectives.substr(0, pos + sizeof(kAnchor) - 1);
+    if (copper)
+        out += " with the " + WorldBuffFeeText(copper) + " processing fee";
+    out += '.';
+    if (end != std::string::npos)
+        out += objectives.substr(end + 1);
+    return out;
 }
 
 } // namespace TortoiseBots
