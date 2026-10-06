@@ -1,5 +1,23 @@
 # Changelog
 
+## 2026-10-06
+
+### Observability & Engine
+
+- When `AiPlayerbot.Enabled = 0`, the world-update hook now bails out before calling any AI services, killing the empty `BOTPERF` window that `BotManager` spammed into the log every 30 seconds. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+- `HireLifecycle` no longer runs its 60-second stale-hire recovery loop against an unvalidated managed-pool registry while AI is disabled, removing pointless retries during normal (AI-off) play. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+- This early return also covers a missing AI config file, so broken/absent config no longer ticks half-initialized services behind your back. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+- With AI enabled, service tick order and behavior are unchanged — no gameplay impact for servers running bots. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+
+---
+
+### Combat & AI
+- Fixed mana-using bots at exactly 0 mana being rejected from the noncombat drink action; `ShouldDrinkValue` now checks mana power type and the existing drink stop threshold instead of misreading current mana as the bot’s power type. [#513](https://github.com/Sagiroth/TortoiseBots/pull/513)
+- Added focused policy tests for zero mana, the threshold boundary, and non-mana users to prevent regressions. [#513](https://github.com/Sagiroth/TortoiseBots/pull/513)
+
+### Combat & AI
+- Heal interruption now sees cast-time heals in the native `PREPARING` state, so bots cancel direct single-target heals that would land on a full or >90% target before mana is spent — no more finishing wasted heals while another healer already topped the target up. [#512](https://github.com/Sagiroth/TortoiseBots/pull/512)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters

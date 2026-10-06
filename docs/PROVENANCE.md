@@ -3813,3 +3813,9 @@ Local validation:
   PR5 amend for private `FindQuestSlot` → public `GetQuestStatus`).
 - Not yet observed: live in-game flow (menu, purchase, credit, raid keep).
   Needs the deployed server with the migration applied.
+
+## Native pre-cast healing cancellation
+
+Independent correction against `tortoise-wow/tortoise-wow` core `d94947b0db60c33e7248523ad0ba7f58af97fd09`, `src/game/Spells/Spell.cpp` (`Spell::Update`, `handle_immediate`) and `Spell.h` (`SpellState`). The cast bar is PREPARING; CASTING is the already-started channel. No donor code copied.
+
+Files: `ai/playerbot/HealingCastPolicy.h`, `ai/playerbot/strategy/triggers/HealthTriggers.cpp`, `tools/test_healing_cast_policy.cpp`. Preserves the optional strategy and conservative 90%-health/50%-waste boundary, excludes multi-target and hybrid spells, and uses the real cast target for preheal prediction. Validation: standalone cancellation boundary/safety cases and full native-module/core compile; runtime verification still required.

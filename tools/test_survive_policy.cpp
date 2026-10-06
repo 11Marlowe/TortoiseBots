@@ -17,6 +17,7 @@ using ai::IsDeathAttackerSnapshotFresh;
 using ai::RestStopHealthPct;
 using ai::ShouldFleeAtCriticalHealth;
 using ai::ShouldSeedDrink;
+using ai::ShouldDrinkAtManaPct;
 using ai::DeathAttackerEntry;
 
 int main()
@@ -38,6 +39,10 @@ int main()
     // Drink (and water seeding) is mana users only: warrior/rogue get none.
     CHECK(ShouldSeedDrink(true));
     CHECK(!ShouldSeedDrink(false));
+    CHECK(ShouldDrinkAtManaPct(true, 0, 85));
+    CHECK(ShouldDrinkAtManaPct(true, 84, 85));
+    CHECK(!ShouldDrinkAtManaPct(true, 85, 85));
+    CHECK(!ShouldDrinkAtManaPct(false, 0, 85));
 
     // The restored critical-health flee is pool-only: no real player master.
     CHECK(ShouldFleeAtCriticalHealth(false));

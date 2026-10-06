@@ -26,15 +26,23 @@ std::vector<LootItem*> LootAccess::GetLootContentFor(Player* player) const
 	// Penqle's items vector holds LootItem values; bot consumers want pointers.
 	// Cast away const to publish as ptr — bot consumers treat as read-only via const accessors.
 	for (auto const& item : loot->items)
+	{
+		if (item.is_looted)
+			continue;
+		// FFA and conditional items have a per-player looted flag. Read those
+		// through the lists below instead of bypassing that flag here.
+		if (player && (item.freeforall || item.conditionId))
+			continue;
 		retvec.push_back(const_cast<LootItem*>(&item));
+	}
 
 	if (!player)
 		return retvec;
 
 	// Quest drops live outside loot->items, in the core's per-player quest/FFA/
 	// conditional lists. Without them a corpse whose only loot for this bot is
-	// a quest item looks empty. Skip entries already looted (either flag) and
-	// FFA/conditional entries already covered by the shared list above.
+	// a quest item looks empty. Read personal copies through these lists and
+	// skip entries already looted (either the global or per-player flag).
 	uint32 const guidLow = player->GetGUIDLow();
 
 	QuestItemMap const* maps[3] = { &loot->GetPlayerQuestItems(), &loot->GetPlayerFFAItems(), &loot->GetPlayerNonQuestNonFFAConditionalItems() };

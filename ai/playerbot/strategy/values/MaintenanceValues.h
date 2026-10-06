@@ -283,15 +283,15 @@ namespace ai
         ShouldDrinkValue(PlayerbotAI* ai) : BoolCalculatedValue(ai, "should drink", 2) {}
         virtual bool Calculate() override
         {
-            if (!bot->GetPower(POWER_MANA) > 0)
-                return false;
-
+            // Exactly zero mana is still a mana user who needs to drink.
             // Stop at almost-full for cheat bots, 85 otherwise: the drink
             // trigger ("high mana") still opens below its line, but a
             // cheat-bot caster that stops at 85 re-pulls half-oom and
             // chain-pulls OOM the same way a wounded bot chain-pulls dead.
-            if (AI_VALUE2(uint8, "mana", "self target") >= DrinkStopManaPct(
-                ai->HasCheat(BotCheatMask::item), sPlayerbotAIConfig.almostFullHealth))
+            uint8 const manaPct = AI_VALUE2(uint8, "mana", "self target");
+            uint32 const stopManaPct = DrinkStopManaPct(
+                ai->HasCheat(BotCheatMask::item), sPlayerbotAIConfig.almostFullHealth);
+            if (!ShouldDrinkAtManaPct(bot->GetPowerType() == POWER_MANA, manaPct, stopManaPct))
                 return false;
 
             Player* master = ai->GetMaster();
