@@ -137,12 +137,11 @@ func main() {
 	}
 	log.Printf("[Armory] Service initialized for %s and %s", *dbChar, *dbWorld)
 
-	// Equipped-gear sweep: one aggregate character-DB query every few minutes
-	// (never per tick) feeding the roster item-level column, the armory gear
-	// panel and the per-level-band averages. Runs immediately, then on the
-	// timer; a failed sweep keeps the previous numbers.
+	// Background DB sweeps: runs immediately then every 5 minutes.
+	// 1. Equipped-gear rollup feeding roster item-level and armory.
+	// 2. Lifetime completed quests and spells backfill from character DB.
 	go func() {
-		const gearInterval = 5 * time.Minute
+		const sweepInterval = 5 * time.Minute
 		for {
 			stats, err := armoryService.GearRollup()
 			if err != nil {
@@ -151,7 +150,26 @@ func main() {
 				store.SetGear(stats)
 				log.Printf("[Gear] swept %d bots", len(stats))
 			}
-			time.Sleep(gearInterval)
+
+			quests, qErr := armoryService.CompletedQuestsRollup()
+			spells, sErr := armoryService.SpellsLearnedRollup()
+			openQuests, oErr := armoryService.OpenQuestsRollup()
+			if qErr == nil && sErr == nil && oErr == nil {
+				store.BackfillActivityFromDB(quests, spells, openQuests)
+				log.Printf("[Activity] backfilled lifetime quests (%d bots), spells (%d bots), open quests (%d bots) from DB", len(quests), len(spells), len(openQuests))
+			} else {
+				if qErr != nil {
+					log.Printf("[Activity] quest backfill failed: %v", qErr)
+				}
+				if sErr != nil {
+					log.Printf("[Activity] spell backfill failed: %v", sErr)
+				}
+				if oErr != nil {
+					log.Printf("[Activity] open quests backfill failed: %v", oErr)
+				}
+			}
+
+			time.Sleep(sweepInterval)
 		}
 	}()
 
