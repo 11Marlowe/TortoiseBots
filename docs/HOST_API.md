@@ -74,6 +74,13 @@ TortoiseBots: b9c7784accb8c719e8d7aadd2f6a9e0bda8d07a2
 The exact tested core/module pair must be recorded whenever the core changes;
 do not infer compatibility from a branch name.
 
+The world-update hook returns immediately while `AiPlayerbot.Enabled = 0`,
+including when the AI configuration file is missing. Services are not ticked
+against configuration or the managed-pool registry that disabled startup did
+not initialize; periodic `BOTPERF` reporting and stale-hire recovery resume
+only after restarting with AI enabled. Startup and shutdown diagnostics remain
+available.
+
 ## 3. Session transport
 
 `WorldSession` distinguishes transport capability from gameplay identity:
