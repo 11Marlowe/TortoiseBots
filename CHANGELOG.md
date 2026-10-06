@@ -37,6 +37,9 @@
 - Make mimicry opt-in via `.bot behavior <bot> mimic on|off`, default OFF; `mimic consumables` strategy runs on the non-combat engine only. [#514](https://github.com/Sagiroth/TortoiseBots/pull/514)
 - Use virtual casts via `BotUseItemSpell::Create + ForceSpellStart` with no inventory items, plus `EMOTE_ONESHOT_EAT` feedback. [#514](https://github.com/Sagiroth/TortoiseBots/pull/514)
 
+### Core Sync & Fixes
+- Module shutdown now cleanly removes and saves every tracked bot session — including hired companions outside `m_candidates` — before core map/database teardown, preventing bot state loss and shutdown-time errors. [#517](https://github.com/Sagiroth/TortoiseBots/pull/517)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
