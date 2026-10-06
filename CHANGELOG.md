@@ -18,6 +18,10 @@
 ### Combat & AI
 - Heal interruption now sees cast-time heals in the native `PREPARING` state, so bots cancel direct single-target heals that would land on a full or >90% target before mana is spent — no more finishing wasted heals while another healer already topped the target up. [#512](https://github.com/Sagiroth/TortoiseBots/pull/512)
 
+### Loot & Items
+- Bots no longer hover over corpses for items already taken — globally looted entries are now filtered out of the shared loot view before `ShouldLootObject` runs. [#510](https://github.com/Sagiroth/TortoiseBots/pull/510)
+- Personal FFA and conditional loot is now read only through the per-player lists, so each bot's own looted flag is honored instead of being bypassed by the initial shared insertion. [#510](https://github.com/Sagiroth/TortoiseBots/pull/510)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
