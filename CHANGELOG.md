@@ -15,6 +15,9 @@
 - Fixed mana-using bots at exactly 0 mana being rejected from the noncombat drink action; `ShouldDrinkValue` now checks mana power type and the existing drink stop threshold instead of misreading current mana as the bot’s power type. [#513](https://github.com/Sagiroth/TortoiseBots/pull/513)
 - Added focused policy tests for zero mana, the threshold boundary, and non-mana users to prevent regressions. [#513](https://github.com/Sagiroth/TortoiseBots/pull/513)
 
+### Combat & AI
+- Heal interruption now sees cast-time heals in the native `PREPARING` state, so bots cancel direct single-target heals that would land on a full or >90% target before mana is spent — no more finishing wasted heals while another healer already topped the target up. [#512](https://github.com/Sagiroth/TortoiseBots/pull/512)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
