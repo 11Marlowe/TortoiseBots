@@ -45,6 +45,7 @@
 #include "generic/AvoidMobsStrategy.h"
 #include "generic/WanderStrategy.h"
 #include "generic/ConsumableStrategy.h"
+#include "generic/MimicConsumableStrategy.h"
 // #include "generic/WorldBuffTravelStrategy.h" // E2E green: excluded to avoid GetSource mismatches
 #include "generic/DungeonStrategy.h"
 #include "generic/OnyxiasLairDungeonStrategies.h"
@@ -153,6 +154,7 @@ namespace ai
             creators["nowar"] = [](PlayerbotAI* ai) { return new NoWarStrategy(ai); };
             creators["ai chat"] = [](PlayerbotAI* ai) { return new AIChatStrategy(ai); };
 
+            creators["mimic consumables"] = [](PlayerbotAI* ai) { return new MimicConsumableStrategy(ai); };
             // Dungeon Strategies
             creators["dungeon"] = [](PlayerbotAI* ai) { return new DungeonStrategy(ai); };
             creators["onyxia's lair"] = [](PlayerbotAI* ai) { return new OnyxiasLairDungeonStrategy(ai); };

@@ -26,6 +26,7 @@
 #include "PetitionSignAction.h"
 #include "BattleGroundJoinAction.h"
 #include "UnlockTradedItemAction.h"
+#include "MimicConsumableAction.h"
 
 namespace ai
 {
@@ -79,6 +80,7 @@ namespace ai
             creators["inventory change failure"] = [](PlayerbotAI* ai) { return new InventoryChangeFailureAction(ai); };
             creators["petition sign"] = [](PlayerbotAI* ai) { return new PetitionSignAction(ai); };
             creators["unlock traded item"] = [](PlayerbotAI* ai) { return new UnlockTradedItemAction(ai); };
+            creators["mimic consumable"] = [](PlayerbotAI* ai) { return new MimicConsumableAction(ai); };
         }
     };
 };

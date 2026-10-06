@@ -1847,6 +1847,7 @@ static BehaviorToggle const BehaviorToggles[] = {
     { "boost",    "boost",         BotState::BOT_STATE_COMBAT },
     { "threat",   "threat",        BotState::BOT_STATE_COMBAT },
     { "potions",  "potions",       BotState::BOT_STATE_REACTION },
+    { "mimic",    "mimic consumables", BotState::BOT_STATE_NON_COMBAT },
 };
 
 static BehaviorToggle const* FindBehaviorToggle(std::string const& key)
@@ -2409,7 +2410,7 @@ static bool HandleBehavior(ChatHandler* handler, char const* args)
     if (!toggle || (mode != "on" && mode != "off"))
     {
         SendActionError(handler, intent, "invalid",
-            "Usage: .bot behavior <bot> <loot|aoe|autocc|savemana|boost|threat|potions> <on|off>");
+            "Usage: .bot behavior <bot> <loot|aoe|autocc|savemana|boost|threat|potions|mimic> <on|off>");
         return true;
     }
 

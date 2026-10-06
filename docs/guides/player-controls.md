@@ -144,7 +144,7 @@ Structured commands behind the TBM bot panel. They work on any online bot you co
 | `.bot item <Name> equip <bag> <slot>` | The bot equips that exact bag item (bag/slot as reported by `.bot inv`). Answers an ACK/ERR and a fresh snapshot. |
 | `.bot item <Name> unequip <bag> <slot>` | The bot moves that equipped item (bag `255`, slot `0`-`18`) into its bags. Fails with `failed` when the bags are full. |
 | `.bot item <Name> give <bag> <slot>` | Puts that bag item into a trade window with you. Without an open trade the bot opens one and answers `pending`; repeat the command once the window shows (the addon does this automatically). Soulbound/quest items are refused up front (`no-trade`) because the core would cancel the whole trade. |
-| `.bot behavior <Name> <key> <on\|off>` *(alias `behaviour`)* | Per-bot behaviour toggle, persisted like the loot toggle. Keys: `loot` (loot corpses), `aoe` (`dps aoe`), `autocc` (`auto cc`), `savemana` (`conserve mana`), `boost` (offensive cooldowns), `threat` (ease off near tank threat), `potions` (reaction engine). Answers an ACK and the bot's `TBM:BOTSTATE` line. |
+| `.bot behavior <Name> <key> <on\|off>` *(alias `behaviour`)* | Per-bot behaviour toggle, persisted like the loot toggle. Keys: `loot` (loot corpses), `aoe` (`dps aoe`), `autocc` (`auto cc`), `savemana` (`conserve mana`), `boost` (offensive cooldowns), `threat` (ease off near tank threat), `potions` (reaction engine), `mimic` (`mimic consumables`, off by default: the bot drinks the class/spec/level-appropriate equivalent when you use an elixir, flask, scroll, weapon imbue, protection potion or stat food out of combat). Small groups (up to 4 bots) whisper what they use; larger raids stay silent and you get one `[Raid Mimic]` summary line. Answers an ACK and the bot's `TBM:BOTSTATE` line. |
 
 Replies use the action protocol: `TBM:ACTION_ACK|item <op>|bot:<Name>|1|<itemId>[ pending]`, `TBM:ACTION_ACK|behavior <key>|bot:<Name>|1|<on|off>`, or `TBM:ACTION_ERR|<intent>|<code>|<message>`.
 
@@ -265,7 +265,7 @@ pre-battleground group, or an older module — and for every hand-typed command.
 - Request — addon message prefix `TBM`, body `<verb> [args]` (`action attack`).
 - Reply — addon message prefix `TBM`, one line per reply, `TBM:` protocol lines included.
 - Verdict — `TBM:TRANSPORT|party` or `TBM:TRANSPORT|none`, trailing each roster response.
-- Bot state — `TBM:BOTSTATE_BEGIN|<n>`, one `TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=on,aoe=off,autocc=off,savemana=off,boost=on,threat=on,potions=on`
+- Bot state — `TBM:BOTSTATE_BEGIN|<n>`, one `TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=on,aoe=off,autocc=off,savemana=off,boost=on,threat=on,potions=on,mimic=off`
   per controllable party bot, then `TBM:BOTSTATE_END`, trailing each roster response. It drives
   the addon's party switches, the Party tab movement label and the bot panel's behaviour tab.
 - Capabilities — `TBM:CAPS|pull-seconds,flee,inventory,behavior`: adjustable pull delays,

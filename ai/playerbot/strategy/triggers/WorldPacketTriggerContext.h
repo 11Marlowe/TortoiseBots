@@ -58,6 +58,7 @@ namespace ai
             creators["receive emote"] = [](PlayerbotAI* ai) { return new WorldPacketTrigger(ai, "receive emote"); };
             creators["receive text emote"] = [](PlayerbotAI* ai) { return new WorldPacketTrigger(ai, "receive text emote"); };
             creators["summon request"] = [](PlayerbotAI* ai) { return new WorldPacketTrigger(ai, "summon request"); };
+            creators["master use item"] = [](PlayerbotAI* ai) { return new WorldPacketTrigger(ai, "master use item"); };
         }
     };
 };

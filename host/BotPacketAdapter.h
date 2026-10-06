@@ -18,6 +18,10 @@ public:
 
 private:
     void DispatchMasterIncoming(WorldSession* session, WorldPacket const& packet);
+    // Raid anti-spam: when more than kMimicSummaryBots bots share the master,
+    // the mimic actions stay silent and the master gets one summary line.
+    static constexpr uint32_t kMimicSummaryBots = 4;
+    void MaybeSendMimicSummary(Player* master, WorldPacket const& packet);
 };
 
 } // namespace TortoiseBots
