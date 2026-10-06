@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "HealthTriggers.h"
+#include "playerbot/HealingCastPolicy.h"
 
 using namespace ai;
 
@@ -80,49 +81,70 @@ bool AoeHealTrigger::IsActive()
 bool HealTargetFullHealthTrigger::IsActive()
 {
     Spell* currentSpell = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
-    if (currentSpell && (currentSpell->getState() == SPELL_STATE_CASTING) && (currentSpell->GetCastedTime() > 0U))
-    {
-        // Interrupt pre casted heals if target is not injured.
-        if (PlayerbotAI::IsHealSpell(currentSpell->m_spellInfo))
-        {
-            std::string status = "fullhp";
-            if (Unit* pTarget = currentSpell->m_targets.getUnitTarget())
-            {
-                bool hpFull = pTarget->GetHealth() == pTarget->GetMaxHealth();
-                if (!hpFull && (pTarget->GetHealthPercent() > 90.f))
-                {
-                    uint64 healValue = 0;
-                    for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
-                    {
-                        uint32 effectType = currentSpell->m_spellInfo->Effect[effect];
-                        if (effectType != SPELL_EFFECT_HEAL &&
-                            effectType != SPELL_EFFECT_HEAL_MAX_HEALTH &&
-                            effectType != SPELL_EFFECT_HEAL_MECHANICAL)
-                            continue;
+    // Native Spell::Update counts down normal cast bars in PREPARING. CASTING
+    // is the channel phase, after mana was spent; the old check missed normal heals.
+    if (!currentSpell || currentSpell->getState() != SPELL_STATE_PREPARING || !currentSpell->GetCastedTime())
+        return false;
 
-                        int32 amount = currentSpell->CalculateDamage(SpellEffectIndex(effect), pTarget);
-                        if (amount > 0)
-                            healValue += static_cast<uint32>(amount);
-                    }
-                    uint32 needHeal = pTarget->GetMaxHealth() - pTarget->GetHealth();
-                    if (healValue > needHeal && float((needHeal * 100.0f) / healValue) < 50.0f)
-                    {
-                        status = "almost fullhp";
-                        hpFull = true;
-                    }
-                }
-                if (hpFull)
-                {
-                    uint32 manaCost = currentSpell->GetPowerCost();
-                    if (ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
-                    {
-                        std::string msg = "target " + status + ", can save " + std::to_string(manaCost) + " mana, cast left : " + std::to_string(currentSpell->GetCastedTime()) + "ms";
-                        ai->TellPlayerNoFacing(GetMaster(), msg);
-                    }
-                    return true;
-                }
-            }
+    SpellEntry const* info = currentSpell->m_spellInfo;
+    if (!info || info->IsChanneledSpell() || info->IsAreaOfEffectSpell())
+        return false;
+
+    bool directHeal = false;
+    for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+    {
+        if (!info->Effect[effect])
+            continue;
+        if (info->EffectChainTarget[effect] > 1 ||
+            (info->Effect[effect] != SPELL_EFFECT_HEAL &&
+             info->Effect[effect] != SPELL_EFFECT_HEAL_MAX_HEALTH &&
+             info->Effect[effect] != SPELL_EFFECT_HEAL_MECHANICAL))
+            return false;
+        directHeal = true;
+    }
+    // Hybrid heals such as Regrowth may still supply a wanted HoT at full health.
+    if (!directHeal)
+        return false;
+
+    Unit* target = currentSpell->m_targets.getUnitTarget();
+    if (!target || !target->IsInWorld() || !target->IsAlive() || target->GetMap() != bot->GetMap())
+        return false;
+
+    if (target->GetHealthPercent() <= 90.0f)
+        return false;
+
+    uint64 incomingDamage = 0;
+    if (ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT))
+    {
+        // Use the actual in-flight target, not the selector's next cached target.
+        for (Unit* attacker : target->GetAttackers())
+            if (attacker->CanReachWithMeleeAutoAttack(target))
+                incomingDamage += uint32((attacker->GetFloatValue(UNIT_FIELD_MINDAMAGE) +
+                    attacker->GetFloatValue(UNIT_FIELD_MAXDAMAGE)) / 2);
+    }
+
+    uint64 healValue = 0;
+    if (target->GetHealth() < target->GetMaxHealth() || incomingDamage)
+    {
+        for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+        {
+            if (!info->Effect[effect])
+                continue;
+            int32 const amount = currentSpell->CalculateDamage(SpellEffectIndex(effect), target);
+            if (amount > 0)
+                healValue += static_cast<uint32>(amount);
         }
     }
-    return false;
+
+    HealingCastState const cast{true, directHeal, currentSpell->GetCastedTime(),
+        target->GetHealth(), target->GetMaxHealth(), incomingDamage, healValue};
+    if (!ShouldCancelWastefulHeal(cast))
+        return false;
+    if (ai->HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT))
+    {
+        std::string msg = "target healed, can save " + std::to_string(currentSpell->GetPowerCost()) +
+            " mana, cast left: " + std::to_string(currentSpell->GetCastedTime()) + "ms";
+        ai->TellPlayerNoFacing(GetMaster(), msg);
+    }
+    return true;
 }
