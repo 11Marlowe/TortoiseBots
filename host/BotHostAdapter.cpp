@@ -128,6 +128,11 @@ void BotHostAdapter::OnStartup()
 }
 void BotHostAdapter::OnUpdate(uint32 diff)
 {
+    // Initialization stops before service configuration when AI is disabled.
+    // Do not tick those services against an uninitialized registry/config.
+    if (!sPlayerbotAIConfig.enabled)
+        return;
+
     ++m_ticks;
     // Expire stale leases before services select candidates (issue #89).
     BotActivityLeaseManager::Instance().Update(diff);

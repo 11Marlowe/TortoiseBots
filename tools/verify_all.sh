@@ -20,9 +20,10 @@ python3 tools/verify_action_trigger_wiring.py | grep -E "^(queued=|known|skip)"
 echo "✓ Action and trigger wiring verified (0 missing live creators)."
 
 echo ""
-echo "=== 4. Running Engine Unit Tests (AoE Density & Walk Gating) ==="
+echo "=== 4. Running Engine Unit Tests (AoE Density, Walk Gating & Disabled World Updates) ==="
 python3 -m unittest tools/test_attackers_aoe_density.py
 python3 -m unittest tools/test_engine_walk_gating.py
+python3 -m unittest tools/test_disabled_world_update.py
 echo "✓ Engine unit tests passed."
 
 echo ""
