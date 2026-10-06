@@ -15,12 +15,15 @@ bool MimicConsumableAction::isPossible()
 {
     if (!ai->HasStrategy("mimic consumables", BotState::BOT_STATE_NON_COMBAT))
         return false;
+    // Strictly out of combat on both sides; dead/ghost/mounted/taxi bots skip.
     if (!bot->IsAlive() || bot->IsInCombat())
+        return false;
+    if (bot->HasAuraType(SPELL_AURA_GHOST))
         return false;
     if (bot->IsMounted() || bot->IsTaxiFlying() || bot->IsBeingTeleported())
         return false;
     Player* master = ai->GetMaster();
-    if (!master || !master->IsAlive())
+    if (!master || !master->IsAlive() || master->IsInCombat())
         return false;
     if (bot->GetMapId() != master->GetMapId())
         return false;
@@ -49,6 +52,9 @@ uint32_t MimicConsumableAction::ResolveBotItem(MimicPurpose purpose, uint32_t ma
         case MimicPurpose::FLASK:
         case MimicPurpose::PROT_POTION:
         case MimicPurpose::FOOD_BUFF:
+        case MimicPurpose::ALCOHOL_BUFF:
+        case MimicPurpose::SPECIAL_RAID:
+        case MimicPurpose::UTILITY:
         case MimicPurpose::WEAPON_IMBUE:
             return resolution.singleItemId;
         default:
@@ -106,6 +112,23 @@ void MimicConsumableAction::RemoveConflictingAura(MimicPurpose purpose, uint32_t
         bot->RemoveAurasDueToSpell(FLASK_WISDOM_AURA_ID);
         bot->RemoveAurasDueToSpell(FLASK_SUPREME_AURA_ID);
         bot->RemoveAurasDueToSpell(FLASK_CHROMATIC_AURA_ID);
+    }
+    else if (purpose == MimicPurpose::FOOD_BUFF)
+    {
+        // 1 Well Fed rule: the new tier overwrites the previous one.
+        bot->RemoveAurasDueToSpell(FOOD_SQUID_AURA_ID);
+        bot->RemoveAurasDueToSpell(FOOD_CHIMAEROK_AURA_ID);
+        bot->RemoveAurasDueToSpell(FOOD_DUMPLINGS_AURA_ID);
+        bot->RemoveAurasDueToSpell(FOOD_NIGHTFIN_AURA_ID);
+        bot->RemoveAurasDueToSpell(FOOD_TUBER_AURA_ID);
+    }
+    else if (purpose == MimicPurpose::SPECIAL_RAID)
+    {
+        // 1 Zanza rule: a new Zanza overwrites the previous one
+        // (24382 spirit, 24417 sheen, 24383 swiftness).
+        bot->RemoveAurasDueToSpell(24382);
+        bot->RemoveAurasDueToSpell(24417);
+        bot->RemoveAurasDueToSpell(24383);
     }
 }
 
@@ -178,11 +201,13 @@ bool MimicConsumableAction::ApplyWeaponImbue(uint32_t stoneItemId)
     };
 
     bool ok = imbueOne(mainWeapon);
-    // Dual-wield warriors mirror the stone onto the off-hand.
+    // Dual-wield warriors mirror the stone onto the off-hand weapon.
+    // A shield in the off-hand is not a weapon: MH only.
     if (bot->GetClass() == CLASS_WARRIOR)
     {
         Item* offWeapon = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-        if (offWeapon)
+        if (offWeapon && offWeapon->GetProto() &&
+            offWeapon->GetProto()->Class == ITEM_CLASS_WEAPON)
             ok = imbueOne(offWeapon) || ok;
     }
     if (ok)
@@ -312,8 +337,20 @@ bool MimicConsumableAction::Execute(Event& event)
             return false;
         if (bot->GetClass() == CLASS_ROGUE)
         {
-            // Rogue poisons go through the existing upkeep actions (cheat or
-            // real item path inside ApplyPoisonAction): instant MH, deadly OH.
+            // Levels 1-19 (before poisons unlock at 20): stones on
+            // daggers/swords like everyone else.
+            if (resolution.singleItemId)
+            {
+                ItemPrototype const* stoneProto = sObjectMgr.GetItemPrototype(resolution.singleItemId);
+                if (!stoneProto)
+                    return false;
+                if (!ApplyWeaponImbue(resolution.singleItemId))
+                    return false;
+                Feedback(stoneProto->Name1.c_str(), silent);
+                return true;
+            }
+            // Level 20+: poisons through the existing upkeep actions
+            // (cheat or real item path inside ApplyPoisonAction).
             bool mh = ai->DoSpecificAction("apply instant poison main hand");
             bool oh = ai->DoSpecificAction("apply deadly poison off hand");
             if (!mh && !oh)
@@ -347,7 +384,8 @@ bool MimicConsumableAction::Execute(Event& event)
 
     bool eatEmote = purpose == MimicPurpose::BATTLE_PHYS_STR || purpose == MimicPurpose::BATTLE_PHYS_AGI ||
                     purpose == MimicPurpose::BATTLE_CASTER || IsGuardianElixirPurpose(purpose) ||
-                    purpose == MimicPurpose::FLASK || purpose == MimicPurpose::FOOD_BUFF;
+                    purpose == MimicPurpose::FLASK || purpose == MimicPurpose::FOOD_BUFF ||
+                    purpose == MimicPurpose::ALCOHOL_BUFF || purpose == MimicPurpose::SPECIAL_RAID;
     if (!CastMimicItem(botItemId, eatEmote))
         return false;
 

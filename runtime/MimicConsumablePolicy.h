@@ -71,8 +71,166 @@ enum class MimicPurpose : uint8_t
     WEAPON_IMBUE,      // stones, oils, poisons
     FLASK,             // persistent flasks
     PROT_POTION,       // elemental absorption shields
-    FOOD_BUFF          // Well Fed stat food
+    FOOD_BUFF,         // Well Fed stat food
+    ALCOHOL_BUFF,      // stamina/spirit alcohol (stacks with Well Fed)
+    SPECIAL_RAID,      // Firewater, Juju, Blasted Lands buffs, Zanza
+    UTILITY            // invisibility, swiftness, free/living action
 };
+
+// Anti-abuse level bands: the bot's pick is capped by the MASTER's item
+// band, so a level 60 master drinking a level 1 consumable grants Band 1
+// equivalents, never BiS. effectiveLevel = min(botLevel, bandCeiling).
+inline constexpr uint8_t BAND_1_CEILING = 15;
+inline constexpr uint8_t BAND_2_CEILING = 29;
+inline constexpr uint8_t BAND_3_CEILING = 39;
+inline constexpr uint8_t BAND_4_CEILING = 49;
+inline constexpr uint8_t BAND_5_CEILING = 60;
+
+// Required level of the master's item (core item_template). Unknown items
+// return 0 (no cap info -> caller treats as NONE purpose anyway).
+inline uint8_t MasterItemReqLevel(uint32_t masterItemId)
+{
+    switch (masterItemId)
+    {
+        case 2454: return 1;
+        case 3391: return 20;
+        case 9206: return 38;
+        case 13453: return 45;
+        case 2457: return 2;
+        case 3390: return 18;
+        case 8949: return 27;
+        case 9187: return 38;
+        case 13452: return 46;
+        case 6373: return 18;
+        case 21546: return 40;
+        case 9155: return 37;
+        case 13454: return 47;
+        case 17708: return 28;
+        case 9264: return 40;
+        case 50237: return 48;
+        case 5997: return 1;
+        case 3389: return 16;
+        case 8951: return 29;
+        case 13445: return 43;
+        case 2458: return 2;
+        case 3825: return 25;
+        case 3826: return 26;
+        case 20004: return 53;
+        case 3383: return 10;
+        case 9179: return 37;
+        case 13447: return 44;
+        case 20007: return 40;
+        case 2862: case 3239: return 1;
+        case 2863: case 3240: return 5;
+        case 2871: case 3241: return 15;
+        case 7964: case 7965: return 25;
+        case 12404: case 12643: return 35;
+        case 18262: case 23122: case 23123: return 50;
+        case 20744: return 5;
+        case 20746: return 30;
+        case 20750: return 40;
+        case 20749: return 45;
+        case 20745: return 20;
+        case 20747: return 40;
+        case 20748: return 45;
+        case 13510: case 13511: case 13512: case 13513: return 50;
+        case 6049: return 23;
+        case 6050: case 6052: return 28;
+        case 6048: return 17;
+        case 6051: return 10;
+        case 13457: case 13456: case 13458: case 13459: case 13460: case 13461: return 48;
+        case 6888: return 1;
+        case 2682: case 2683: case 6316: return 5;
+        case 3728: return 20;
+        case 3729: case 12213: return 25;
+        case 17222: case 13928: case 13931: return 35;
+        case 12218: return 40;
+        case 20452: case 18254: return 45;
+        case 21023: return 55;
+        case 12820: return 45;
+        case 20079: case 20080: case 20081: return 55;
+        case 9172: return 37;
+        case 3823: return 23;
+        case 2459: return 5;
+        case 5634: return 20;
+        case 20008: return 47;
+        default: break;
+    }
+    // Scrolls I-IV.
+    switch (masterItemId)
+    {
+        case 1181: case 3013: return 1;
+        case 1180: case 955: return 5;
+        case 954: case 3012: return 10;
+        case 1712: case 1478: return 15;
+        case 1711: case 2290: return 20;
+        case 2289: case 1477: return 25;
+        case 4424: case 4421: return 30;
+        case 4422: case 4419: return 35;
+        case 4426: case 4425: return 40;
+        case 10306: case 10305: return 45;
+        case 10308: case 10307: return 50;
+        case 10310: case 10309: return 55;
+        default: break;
+    }
+    // Poisons by prototype req.
+    switch (masterItemId)
+    {
+        case 6947: case 3775: return 20;
+        case 6949: return 28;
+        case 2892: return 30;
+        case 6950: return 36;
+        case 2893: return 38;
+        case 8926: return 44;
+        case 8984: return 46;
+        case 3776: return 50;
+        case 8927: return 52;
+        case 8985: return 54;
+        case 8928: case 20844: return 60;
+        default: break;
+    }
+    // Alcohol / Blasted Lands / Juju: no level gate in core (req 0);
+    // banded by effect tier instead (see BandCeilingForMasterItem).
+    return 0;
+}
+
+// Master's item -> band ceiling for the mimic pick.
+inline uint8_t BandCeilingForMasterItem(uint32_t masterItemId)
+{
+    uint8_t req = MasterItemReqLevel(masterItemId);
+    if (req > 0)
+    {
+        if (req <= 15)
+            return BAND_1_CEILING;
+        if (req <= 29)
+            return BAND_2_CEILING;
+        if (req <= 39)
+            return BAND_3_CEILING;
+        if (req <= 49)
+            return BAND_4_CEILING;
+        return BAND_5_CEILING;
+    }
+    // Req-0 items: alcohol and quest/world buffs banded by effect tier.
+    switch (masterItemId)
+    {
+        case 21151: case 18269: case 18284: // alcohol: low effect
+        case 8410: case 8411: case 8412: case 8423: case 8424: // Blasted Lands
+            return BAND_1_CEILING;
+        case 12450: case 12451: case 12455: case 12460: // Juju: endgame world buffs
+        case 20079: case 20080: case 20081: // Zanza: endgame
+            return BAND_5_CEILING;
+        default:
+            break;
+    }
+    return BAND_5_CEILING;
+}
+
+// Anti-abuse cap: the bot never mimics above the master's item band.
+inline uint32_t EffectiveMimicLevel(uint32_t botLevel, uint32_t masterItemId)
+{
+    uint8_t ceiling = BandCeilingForMasterItem(masterItemId);
+    return botLevel < ceiling ? botLevel : ceiling;
+}
 
 enum class MimicRole : uint8_t
 {
@@ -256,13 +414,57 @@ inline MimicPurpose PurposeForMasterItem(uint32_t itemId)
         case 13460:
         case 13461:
             return MimicPurpose::PROT_POTION;
-        // food_buff: Squid 13928(35) Nightfin 13931(35) Dumplings 20452(45)
-        // Chimaerok Chops 21023(55); 21024 is the raw ingredient, not food
+        // food_buff: Band 1: Herb Baked Egg 6888(1), Cooked Crab Claw 2682(5),
+        // Crab Cake 2683(5), Loch Frenzy 6316(5); Band 2: Tasty Lion 3728(20),
+        // Turtle Bisque 3729(25), Carrion Surprise 12213(25); Band 3: Spider
+        // Sausage 17222(35), Squid 13928(35), Nightfin 13931(35); Band 4:
+        // Monster Omelet 12218(40), Dumplings 20452(45), Runn Tum Tuber
+        // 18254(45); Band 5: Chimaerok 21023(55); 21024 is raw, not food
+        case 6888:
+        case 2682:
+        case 2683:
+        case 6316:
+        case 3728:
+        case 3729:
+        case 12213:
+        case 17222:
         case 13928:
         case 13931:
+        case 12218:
         case 20452:
+        case 18254:
         case 21023:
             return MimicPurpose::FOOD_BUFF;
+        // alcohol_buff: Rumsey Black Label 21151, Gordok Grog 18269,
+        // Kreeg's Stout 18284 (stack with Well Fed, mimicked directly)
+        case 21151:
+        case 18269:
+        case 18284:
+            return MimicPurpose::ALCOHOL_BUFF;
+        // special_raid: Firewater 12820, Juju 12450/12451/12455/12460,
+        // Blasted Lands 8410/8411/8412/8423/8424, Zanza 20079/20080/20081
+        case 12820:
+        case 12450:
+        case 12451:
+        case 12455:
+        case 12460:
+        case 8410:
+        case 8411:
+        case 8412:
+        case 8423:
+        case 8424:
+        case 20079:
+        case 20080:
+        case 20081:
+            return MimicPurpose::SPECIAL_RAID;
+        // utility: Invisibility 9172, Lesser Invisibility 3823, Swiftness
+        // 2459, Free Action 5634, Living Action 20008
+        case 9172:
+        case 3823:
+        case 2459:
+        case 5634:
+        case 20008:
+            return MimicPurpose::UTILITY;
         default:
             break;
     }
@@ -341,12 +543,43 @@ inline constexpr uint32_t FLASK_WISDOM_AURA_ID = 17627;
 inline constexpr uint32_t FLASK_SUPREME_AURA_ID = 17628;
 inline constexpr uint32_t FLASK_CHROMATIC_AURA_ID = 17629;
 
-// Well-fed food items + buff auras (auras mirror knownFoodBuffAuras).
-inline constexpr MimicTier FOOD_LADDER[] = { { 13928, 35 }, { 13931, 35 }, { 20452, 45 }, { 21023, 55 } };
+// Well-fed food ladders 1-60 + buff auras (auras mirror knownFoodBuffAuras).
+// Bands 1-2 are universal STA/SPI; Band 3+ specialize by role: AGI for
+// physical (Squid), MP5 for casters (Nightfin), STA for tanks, STR for
+// melee (Dumplings), INT for casters (Tuber).
+inline constexpr MimicTier FOOD_BAND1_LADDER[] = { { 6888, 1 }, { 2682, 5 }, { 2683, 5 }, { 6316, 5 } };
+inline constexpr MimicTier FOOD_BAND2_LADDER[] = { { 3728, 20 }, { 3729, 25 }, { 12213, 25 } };
+inline constexpr MimicTier FOOD_AGI_LADDER[] = { { 13928, 35 } };
+inline constexpr MimicTier FOOD_MP5_LADDER[] = { { 13931, 35 } };
+inline constexpr MimicTier FOOD_STA_LADDER[] = { { 17222, 35 }, { 12218, 40 }, { 21023, 55 } };
+inline constexpr MimicTier FOOD_STR_LADDER[] = { { 20452, 45 } };
+inline constexpr MimicTier FOOD_INT_LADDER[] = { { 18254, 45 } };
 inline constexpr uint32_t FOOD_SQUID_AURA_ID = 18230;
 inline constexpr uint32_t FOOD_CHIMAEROK_AURA_ID = 25660;
 inline constexpr uint32_t FOOD_DUMPLINGS_AURA_ID = 24800;
 inline constexpr uint32_t FOOD_NIGHTFIN_AURA_ID = 18233;
+inline constexpr uint32_t FOOD_TUBER_AURA_ID = 22731;
+
+// Alcohol mimicked directly (stacks with Well Fed, same item both sides).
+inline constexpr uint32_t ALCOHOL_RUMSEY_ITEM_ID = 21151;
+inline constexpr uint32_t ALCOHOL_GORDOK_ITEM_ID = 18269;
+inline constexpr uint32_t ALCOHOL_KREEG_ITEM_ID = 18284;
+
+// Special raid buffs: Firewater/Juju direct-mirror; Zanza by role.
+inline constexpr uint32_t FIREWATER_ITEM_ID = 12820;
+inline constexpr uint32_t JUJU_MIGHT_ITEM_ID = 12460; // +AP melee
+inline constexpr uint32_t JUJU_POWER_ITEM_ID = 12451; // +STR melee
+inline constexpr uint32_t JUJU_EMBER_ITEM_ID = 12455; // spell-ish
+inline constexpr uint32_t JUJU_FLURRY_ITEM_ID = 12450; // haste-ish melee
+inline constexpr uint32_t ZANZA_SPIRIT_ITEM_ID = 20079; // STA/SPI
+inline constexpr uint32_t ZANZA_SHEEN_ITEM_ID = 20080; // INT-ish
+inline constexpr uint32_t ZANZA_SWIFTNESS_ITEM_ID = 20081; // run speed
+
+// Utility potions mirrored directly at the bot's tier.
+inline constexpr MimicTier INVIS_LADDER[] = { { 3823, 23 }, { 9172, 37 } };
+inline constexpr uint32_t SWIFTNESS_ITEM_ID = 2459;
+inline constexpr uint32_t FREE_ACTION_ITEM_ID = 5634;
+inline constexpr uint32_t LIVING_ACTION_ITEM_ID = 20008;
 
 // Protection potions echo the master's element (lesser 10-28, greater 48).
 inline constexpr MimicTier PROT_FIRE_LADDER[] = { { 6049, 23 }, { 13457, 48 } };
@@ -475,9 +708,84 @@ inline uint32_t ResolveFlask(uint32_t playerClass, uint32_t spec, uint32_t botLe
     return botLevel >= FLASK_TITANS_REQ ? FLASK_TITANS_ITEM_ID : 0;
 }
 
-inline uint32_t ResolveFood(uint32_t botLevel)
+// Role food at the effective level: Bands 1-2 universal STA/SPI, Band 3+
+// specialize (AGI physical, MP5 casters, STA tanks, STR melee, INT casters).
+inline uint32_t ResolveFood(uint32_t playerClass, uint32_t spec, uint32_t level)
 {
-    return BestTierForLevel(FOOD_LADDER, botLevel);
+    MimicRole role = RoleForSpec(playerClass, spec);
+    if (level <= BAND_1_CEILING)
+        return BestTierForLevel(FOOD_BAND1_LADDER, level);
+    if (level <= BAND_2_CEILING)
+        return BestTierForLevel(FOOD_BAND2_LADDER, level);
+    switch (role)
+    {
+        case MimicRole::MELEE_DPS:
+            if (playerClass == MIMIC_CLASS_WARRIOR_ID || playerClass == MIMIC_CLASS_PALADIN_ID ||
+                playerClass == MIMIC_CLASS_SHAMAN_ID)
+            {
+                uint32_t str = BestTierForLevel(FOOD_STR_LADDER, level);
+                if (str)
+                    return str;
+            }
+            return BestTierForLevel(FOOD_AGI_LADDER, level);
+        case MimicRole::RANGED_AGI:
+            return BestTierForLevel(FOOD_AGI_LADDER, level);
+        case MimicRole::TANK:
+            return BestTierForLevel(FOOD_STA_LADDER, level);
+        case MimicRole::CASTER_DPS:
+            {
+                uint32_t mp5 = BestTierForLevel(FOOD_MP5_LADDER, level);
+                uint32_t intel = BestTierForLevel(FOOD_INT_LADDER, level);
+                return intel ? intel : mp5;
+            }
+        case MimicRole::HEALER:
+            {
+                uint32_t mp5 = BestTierForLevel(FOOD_MP5_LADDER, level);
+                return mp5 ? mp5 : BestTierForLevel(FOOD_BAND2_LADDER, level);
+            }
+        default:
+            break;
+    }
+    return BestTierForLevel(FOOD_STA_LADDER, level);
+}
+
+// Special raid buff at the effective level. Firewater/Juju direct-mirror;
+// Zanza picks by role (spirit tanks/melee, sheen casters/healers,
+// swiftness mirrored); Blasted Lands buffs direct-mirror.
+inline uint32_t ResolveSpecialRaid(uint32_t masterItemId, uint32_t playerClass, uint32_t spec, uint32_t level)
+{
+    switch (masterItemId)
+    {
+        case 12820: case 12450: case 12451: case 12455: case 12460:
+        case 8410: case 8411: case 8412: case 8423: case 8424:
+            return masterItemId;
+        case 20079: case 20080: case 20081:
+            {
+                MimicRole role = RoleForSpec(playerClass, spec);
+                if (role == MimicRole::CASTER_DPS || role == MimicRole::HEALER)
+                    return ZANZA_SHEEN_ITEM_ID;
+                return ZANZA_SPIRIT_ITEM_ID;
+            }
+        default:
+            break;
+    }
+    (void)level;
+    return 0;
+}
+
+// Utility potion at the bot's tier: invisibility ladder, direct mirrors.
+inline uint32_t ResolveUtility(uint32_t masterItemId, uint32_t level)
+{
+    switch (masterItemId)
+    {
+        case 9172: case 3823:
+            return BestTierForLevel(INVIS_LADDER, level);
+        case 2459: case 5634: case 20008:
+            return masterItemId;
+        default:
+            break;
+    }
+    return 0;
 }
 
 // Same-element protection potion at the bot's level, or 0.
@@ -517,10 +825,8 @@ struct MimicResolution
     bool skipWeaponImbue = false;
 };
 
-// Top-level mimic decision: master item -> bot's own equivalent.
-// Flask masters make bots flask (both elixir slots collapse into the
-// flask); single-slot masters resolve only their own slot so the bot
-// keeps whatever it already has in the other slot.
+// Top-level mimic decision: master item -> bot's own equivalent, capped by
+// the master's item band (anti-abuse: effectiveLevel = min(bot, ceiling)).
 inline MimicResolution ResolveMimicItem(uint32_t masterItemId, uint32_t playerClass, uint32_t spec, uint32_t botLevel)
 {
     MimicResolution out;
@@ -530,53 +836,77 @@ inline MimicResolution ResolveMimicItem(uint32_t masterItemId, uint32_t playerCl
         out.purpose = MimicPurpose::NONE;
         return out;
     }
+    uint32_t level = EffectiveMimicLevel(botLevel, masterItemId);
 
     switch (out.purpose)
     {
         case MimicPurpose::BATTLE_PHYS_STR:
         case MimicPurpose::BATTLE_PHYS_AGI:
         case MimicPurpose::BATTLE_CASTER:
-            out.battleItemId = ResolveBattleElixir(playerClass, spec, botLevel);
+            out.battleItemId = ResolveBattleElixir(playerClass, spec, level);
             break;
         case MimicPurpose::GUARDIAN_ARMOR:
         case MimicPurpose::GUARDIAN_HEALTH:
         case MimicPurpose::GUARDIAN_MANA:
-            out.guardianItemId = ResolveGuardianElixir(playerClass, spec, botLevel);
+            out.guardianItemId = ResolveGuardianElixir(playerClass, spec, level);
             break;
         case MimicPurpose::SCROLL_STAT:
-            out.singleItemId = ResolveScroll(playerClass, spec, botLevel);
+            out.singleItemId = ResolveScroll(playerClass, spec, level);
             break;
         case MimicPurpose::WEAPON_IMBUE:
-            // Rogues use poisons (handled by the action); shaman respect
-            // class imbues; feral druids skip stones in animal forms
-            // (stat-sticks). Melee take stones, casters/healers take oils.
-            if (playerClass == MIMIC_CLASS_ROGUE_ID || playerClass == MIMIC_CLASS_SHAMAN_ID ||
-                playerClass == MIMIC_CLASS_DRUID_ID)
+            // Rogues use poisons (handled by the action; levels 1-19 may
+            // use sharpening stones before poisons unlock at 20); shaman
+            // respect class imbues; feral druids skip stones in animal
+            // forms (stat-sticks). Melee take stones, casters/healers oils.
+            if (playerClass == MIMIC_CLASS_ROGUE_ID)
             {
-                out.skipWeaponImbue = (playerClass != MIMIC_CLASS_ROGUE_ID);
+                if (level < 20)
+                {
+                    out.singleItemId = BestTierForLevel(SHARPENING_LADDER, level);
+                    out.skipWeaponImbue = false;
+                }
+                else
+                {
+                    out.skipWeaponImbue = false;
+                    out.singleItemId = 0;
+                }
+                break;
+            }
+            if (playerClass == MIMIC_CLASS_SHAMAN_ID || playerClass == MIMIC_CLASS_DRUID_ID)
+            {
+                out.skipWeaponImbue = true;
                 out.singleItemId = 0;
                 break;
             }
             if (playerClass == MIMIC_CLASS_WARRIOR_ID || playerClass == MIMIC_CLASS_PALADIN_ID ||
                 playerClass == MIMIC_CLASS_HUNTER_ID)
             {
-                out.singleItemId = BestTierForLevel(SHARPENING_LADDER, botLevel);
+                out.singleItemId = BestTierForLevel(SHARPENING_LADDER, level);
                 break;
             }
             // Casters take wizard oil, healers take mana oil.
             if (RoleForSpec(playerClass, spec) == MimicRole::HEALER)
-                out.singleItemId = BestTierForLevel(MANA_OIL_LADDER, botLevel);
+                out.singleItemId = BestTierForLevel(MANA_OIL_LADDER, level);
             else
-                out.singleItemId = BestTierForLevel(WIZARD_OIL_LADDER, botLevel);
+                out.singleItemId = BestTierForLevel(WIZARD_OIL_LADDER, level);
             break;
         case MimicPurpose::FLASK:
-            out.singleItemId = ResolveFlask(playerClass, spec, botLevel);
+            out.singleItemId = ResolveFlask(playerClass, spec, level);
             break;
         case MimicPurpose::PROT_POTION:
-            out.singleItemId = ResolveProtPotion(masterItemId, botLevel);
+            out.singleItemId = ResolveProtPotion(masterItemId, level);
             break;
         case MimicPurpose::FOOD_BUFF:
-            out.singleItemId = ResolveFood(botLevel);
+            out.singleItemId = ResolveFood(playerClass, spec, level);
+            break;
+        case MimicPurpose::ALCOHOL_BUFF:
+            out.singleItemId = masterItemId;
+            break;
+        case MimicPurpose::SPECIAL_RAID:
+            out.singleItemId = ResolveSpecialRaid(masterItemId, playerClass, spec, level);
+            break;
+        case MimicPurpose::UTILITY:
+            out.singleItemId = ResolveUtility(masterItemId, level);
             break;
         default:
             out.purpose = MimicPurpose::NONE;

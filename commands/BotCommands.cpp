@@ -2390,9 +2390,10 @@ static bool HandleItem(ChatHandler* handler, char const* args)
     return true;
 }
 
-// .bot behavior <bot> <key> <on|off> - allowlisted per-bot strategy toggles
-// (BehaviorToggles). Persisted through the mature AI store like loot/auto cc;
-// answers with an ACK and the bot's fresh TBM:BOTSTATE line.
+// .bot behavior <bot|party|raid> <key> <on|off> - allowlisted per-bot
+// strategy toggles (BehaviorToggles). Persisted through the mature AI store
+// like loot/auto cc; answers with an ACK and the bot's fresh TBM:BOTSTATE
+// line. "party"/"raid" fans out to every live owned bot in the scope.
 static bool HandleBehavior(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -2405,12 +2406,43 @@ static bool HandleBehavior(ChatHandler* handler, char const* args)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     for (char& c : mode)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string loweredBot = botName;
+    for (char& c : loweredBot)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     std::string const intent = "behavior " + (key.empty() ? std::string("?") : key);
     BehaviorToggle const* toggle = FindBehaviorToggle(key);
     if (!toggle || (mode != "on" && mode != "off"))
     {
         SendActionError(handler, intent, "invalid",
-            "Usage: .bot behavior <bot> <loot|aoe|autocc|savemana|boost|threat|potions|mimic> <on|off>");
+            "Usage: .bot behavior <bot|party|raid> <loot|aoe|autocc|savemana|boost|threat|potions|mimic> <on|off>");
+        return true;
+    }
+
+    bool const enable = mode == "on";
+    if (loweredBot == "party" || loweredBot == "raid")
+    {
+        if (!requester)
+            return true;
+        BotCommandContext context = BuildContext(requester);
+        std::vector<Player*> scope = ResolveDynamicScope(context);
+        if (scope.empty())
+        {
+            SendActionError(handler, intent, "no-bot", "No live owned party bots are controllable.");
+            return true;
+        }
+        uint32_t succeeded = 0;
+        for (Player* bot : scope)
+        {
+            PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!ai)
+                continue;
+            ai->ChangeStrategy((enable ? "+" : "-") + std::string(toggle->strategy), toggle->state);
+            sPlayerbotDbStore.Save(ai);
+            if (ai->HasStrategy(toggle->strategy, toggle->state) == enable)
+                ++succeeded;
+            SendBotStateLine(handler, bot);
+        }
+        SendActionAck(handler, intent, loweredBot + ":" + key, succeeded, enable ? "on" : "off");
         return true;
     }
 
@@ -2425,7 +2457,6 @@ static bool HandleBehavior(ChatHandler* handler, char const* args)
         return true;
     }
 
-    bool const enable = mode == "on";
     ai->ChangeStrategy((enable ? "+" : "-") + std::string(toggle->strategy), toggle->state);
     sPlayerbotDbStore.Save(ai);
     bool const now = ai->HasStrategy(toggle->strategy, toggle->state);

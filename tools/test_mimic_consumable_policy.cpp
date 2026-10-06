@@ -184,18 +184,17 @@ static void TestProtPotions()
 // Top-level resolution: slot isolation (battle master -> battle slot only).
 static void TestResolveMimicItem()
 {
-    // Warrior master drinks Giants (battle STR); rogue bot answers Mongoose.
+    // Warrior master drinks Giants (Band 3, req 38); rogue bot answers the
+    // Band 3 AGI equivalent (Greater Agility), not Mongoose (Band 4).
     MimicResolution r = ResolveMimicItem(9206, 4, SPEC_ROGUE_COMBAT, 60);
     CHECK(r.purpose == MimicPurpose::BATTLE_PHYS_STR);
-    CHECK(r.battleItemId == 13452);
-    CHECK(r.guardianItemId == 0);
-    CHECK(r.singleItemId == 0);
+    CHECK(r.battleItemId == 9187);
 
     // Mage master drinks Greater Arcane; holy paladin bot has no battle answer.
 
     // Healers take mana oil, casters wizard oil, hunters stones.
     CHECK(ResolveMimicItem(20750, 5, SPEC_PRIEST_HOLY, 60).singleItemId == 20748); // mana oil
-    CHECK(ResolveMimicItem(20745, 8, SPEC_MAGE_FIRE, 60).singleItemId == 20749); // wizard oil
+    CHECK(ResolveMimicItem(20746, 8, SPEC_MAGE_FIRE, 60).singleItemId == 20746); // Band 3 oil -> Band 3 wizard oil
     CHECK(ResolveMimicItem(18262, 3, SPEC_HUNTER_MM, 60).singleItemId == 23122); // stone
     CHECK(ResolveMimicItem(18262, 2, SPEC_PALADIN_RETRIBUTION, 60).singleItemId == 23122); // ret: stone
     CHECK(ResolveMimicItem(18262, 9, SPEC_WARLOCK_DESTRUCTION, 60).singleItemId == 20749); // lock: wizard
@@ -206,11 +205,44 @@ static void TestResolveMimicItem()
     CHECK(g.guardianItemId == 13445);
     CHECK(g.battleItemId == 0);
 
-    // Scroll / flask / prot / food resolve to single items.
+    // Scroll / flask / prot / food resolve to single items (capped by band).
     CHECK(ResolveMimicItem(10310, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 10310);
     CHECK(ResolveMimicItem(13510, 8, SPEC_MAGE_FIRE, 60).singleItemId == 13512);
-    CHECK(ResolveMimicItem(6049, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 13457);
-    CHECK(ResolveMimicItem(13928, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 21023);
+    CHECK(ResolveMimicItem(13457, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 13457);
+    CHECK(ResolveMimicItem(21023, 1, SPEC_WARRIOR_PROTECTION, 60).singleItemId == 21023);
+
+    // Anti-abuse: level 60 master drinking Band 1 grants Band 1 only.
+    CHECK(ResolveMimicItem(2454, 4, SPEC_ROGUE_COMBAT, 60).battleItemId == 2457); // Lion -> Minor Agility
+    CHECK(ResolveMimicItem(6888, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 6316); // Band 1 master -> top Band 1 food
+    CHECK(ResolveMimicItem(2862, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 2871); // Band 1 master -> top Band 1 stone
+    CHECK(ResolveMimicItem(13452, 4, SPEC_ROGUE_COMBAT, 60).battleItemId == 13452); // Mongoose -> Mongoose
+    CHECK(ResolveMimicItem(21023, 1, SPEC_WARRIOR_PROTECTION, 60).singleItemId == 21023);
+    CHECK(EffectiveMimicLevel(60, 2454) == 15);
+    CHECK(EffectiveMimicLevel(60, 13452) == 49);
+    CHECK(EffectiveMimicLevel(30, 13452) == 30);
+
+    // New purposes classify.
+    CHECK(PurposeForMasterItem(21151) == MimicPurpose::ALCOHOL_BUFF);
+    CHECK(PurposeForMasterItem(12820) == MimicPurpose::SPECIAL_RAID);
+    CHECK(PurposeForMasterItem(12460) == MimicPurpose::SPECIAL_RAID);
+    CHECK(PurposeForMasterItem(20079) == MimicPurpose::SPECIAL_RAID);
+    CHECK(PurposeForMasterItem(9172) == MimicPurpose::UTILITY);
+    CHECK(PurposeForMasterItem(5634) == MimicPurpose::UTILITY);
+    CHECK(PurposeForMasterItem(6888) == MimicPurpose::FOOD_BUFF);
+    CHECK(PurposeForMasterItem(2682) == MimicPurpose::FOOD_BUFF);
+    // Alcohol mirrors directly; Firewater/Juju mirror; Zanza by role.
+    CHECK(ResolveMimicItem(21151, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 21151);
+    CHECK(ResolveMimicItem(12820, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 12820);
+    CHECK(ResolveMimicItem(12460, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 12460);
+    CHECK(ResolveMimicItem(20079, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 20079);
+    CHECK(ResolveMimicItem(20079, 8, SPEC_MAGE_FIRE, 60).singleItemId == 20080);
+    CHECK(ResolveMimicItem(9172, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 9172);
+    CHECK(ResolveMimicItem(3823, 1, SPEC_WARRIOR_ARMS, 30).singleItemId == 3823);
+    CHECK(ResolveMimicItem(5634, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 5634);
+    // Role food: rogue Band 3 gets Squid, mage Tuber at 45, melee keeps Dumplings (Chimaerok is Band 5).
+    CHECK(ResolveMimicItem(13928, 4, SPEC_ROGUE_COMBAT, 60).singleItemId == 13928);
+    CHECK(ResolveMimicItem(18254, 8, SPEC_MAGE_FIRE, 60).singleItemId == 18254);
+    CHECK(ResolveMimicItem(20452, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 20452);
 
     // Unknown master item / zero level: no-op.
     CHECK(ResolveMimicItem(9999, 1, SPEC_WARRIOR_ARMS, 60).purpose == MimicPurpose::NONE);
@@ -221,13 +253,14 @@ static void TestResolveMimicItem()
     CHECK(w.purpose == MimicPurpose::WEAPON_IMBUE);
     CHECK(w.singleItemId == 0);
     CHECK(!w.skipWeaponImbue);
+    // Lowbie rogue (level 10) gets top usable stone (2863, req 5).
+    CHECK(ResolveMimicItem(2862, 4, SPEC_ROGUE_COMBAT, 10).singleItemId == 2863);
     // Shaman / feral skip stones (class imbues / stat-sticks).
     CHECK(ResolveMimicItem(18262, 7, SPEC_SHAMAN_ENHANCEMENT, 60).skipWeaponImbue);
     CHECK(ResolveMimicItem(18262, 11, SPEC_DRUID_FERAL, 60).skipWeaponImbue);
     // Warrior takes the top sharpening stone.
     CHECK(ResolveMimicItem(18262, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 23122);
 }
-
 int main()
 {
     TestPurposeClassification();
