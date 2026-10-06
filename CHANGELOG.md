@@ -40,6 +40,11 @@
 ### Core Sync & Fixes
 - Module shutdown now cleanly removes and saves every tracked bot session — including hired companions outside `m_candidates` — before core map/database teardown, preventing bot state loss and shutdown-time errors. [#517](https://github.com/Sagiroth/TortoiseBots/pull/517)
 
+### AI & Performance
+- Replaced per-bot Auction House map lookups with a cached map set built once via `std::call_once` and zero-copy reference lookups, removing `EntryGuidps` deep copies from `AhBuyerTripNeeded` and turning the hot-path check into an O(1) `GetMapId()` call. [#519](https://github.com/Sagiroth/TortoiseBots/pull/519)
+- Added an early financial exit for `spendable < ai::kBuyerTripMinSpareCopper`, so broke AH buyers skip travel evaluation entirely and stop burning world-thread CPU. [#519](https://github.com/Sagiroth/TortoiseBots/pull/519)
+- Gated the city buyer trip path to avoid unnecessary travel evaluations on the world thread when the AH buyer flow already covers the bot’s needs. [#519](https://github.com/Sagiroth/TortoiseBots/pull/519)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
