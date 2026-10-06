@@ -38,6 +38,12 @@ namespace ai
         return hasItemCheat ? almostFullHealth : normalStop;
     }
 
+    inline bool ShouldDrinkAtManaPct(bool usesMana, std::uint32_t manaPct,
+        std::uint32_t stopManaPct)
+    {
+        return usesMana && manaPct < stopManaPct;
+    }
+
     // Drink is only for mana users: warriors (rage) and rogues (energy) get
     // no water, druids/shamans/paladins/hunters (mana) do. Callers pass
     // bot->GetPowerType() == POWER_MANA.
