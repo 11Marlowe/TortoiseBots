@@ -12,10 +12,9 @@
 } while (0)
 
 using ai::FleeHeadingDistance;
-using ai::IsFleeHeadingFree;
+using ai::FleeFailureMemory;
 using ai::IsSpreadExemptOwned;
 using ai::IsSpreadOnCooldown;
-using ai::kFleeAngleEmpty;
 using ai::kSpreadStepCooldownMs;
 using ai::ShouldCombatSpread;
 
@@ -31,28 +30,96 @@ int main()
     CHECK(FleeHeadingDistance(0.0f, 3.1415926536f) > 3.14f);
     std::cout << "  [PASS] heading distance wraps at a full turn\n";
 
-    // A repeated flee heading is vetoed: same vector and near neighbours
-    // (within 45deg) are skipped so the bot steps elsewhere.
-    float past[2] = { 0.0f, kFleeAngleEmpty };
-    CHECK(!IsFleeHeadingFree(0.0f, past, 2));
-    CHECK(!IsFleeHeadingFree(0.5f, past, 2));
-    CHECK(IsFleeHeadingFree(1.0f, past, 2));
-    CHECK(IsFleeHeadingFree((float)M_PI, past, 2));
-    std::cout << "  [PASS] repeated flee heading vetoed within 45deg\n";
+    // Dispatching an escape never vetoes it. Successful separation clears
+    // the observation and the same heading may be used repeatedly.
+    FleeFailureMemory success;
+    for (unsigned i = 0; i < 5; ++i)
+    {
+        unsigned const now = 1000 + i * 1000;
+        success.BeginAttempt(1, 0, 0.0f, 5.0f, now);
+        CHECK(success.IsHeadingFree(0.0f, now));
+        success.Observe(1, 0, 7.0f, now + 100);
+        CHECK(!success.IsPending());
+        CHECK(success.IsHeadingFree(0.0f, now + 100));
+    }
+    std::cout << "  [PASS] successful kiting repeatedly uses the same heading\n";
 
-    // Empty memory vetoes nothing: first flee after a fresh start or a
-    // teleport (values cleared) keeps the full ring.
-    float empty[2] = { kFleeAngleEmpty, kFleeAngleEmpty };
-    CHECK(IsFleeHeadingFree(0.0f, empty, 2));
-    CHECK(IsFleeHeadingFree(2.0f, empty, 2));
-    std::cout << "  [PASS] empty flee memory vetoes nothing\n";
+    FleeFailureMemory failed;
+    failed.BeginAttempt(1, 0, 0.0f, 5.0f, 1000);
+    failed.Observe(1, 0, 5.0f, 3999);
+    CHECK(failed.IsHeadingFree(0.0f, 3999));
+    failed.Observe(1, 0, 5.0f, 4000);
+    CHECK(!failed.IsPending());
+    CHECK(!failed.IsHeadingFree(0.0f, 4000));
+    CHECK(!failed.IsHeadingFree(0.5f, 4000));
+    CHECK(failed.IsHeadingFree(1.0f, 4000));
+    CHECK(failed.IsHeadingFree(0.0f, 9000));
+    std::cout << "  [PASS] only observed failures veto, then expire at 5 s\n";
 
-    // Second slot vetoes too: alternating A/B/A no longer oscillates.
-    float both[2] = { 0.0f, (float)M_PI / 2.0f };
-    CHECK(!IsFleeHeadingFree(0.1f, both, 2));
-    CHECK(!IsFleeHeadingFree(1.6f, both, 2));
-    CHECK(IsFleeHeadingFree((float)M_PI, both, 2));
-    std::cout << "  [PASS] both remembered headings veto\n";
+    // Re-dispatching an unresolved heading must not postpone its verdict.
+    FleeFailureMemory repeated;
+    repeated.BeginAttempt(1, 0, 0.0f, 5.0f, 1000);
+    repeated.BeginAttempt(1, 0, 0.0f, 5.0f, 2000);
+    repeated.BeginAttempt(1, 0, 0.0f, 5.0f, 3000);
+    repeated.Observe(1, 0, 5.0f, 4000);
+    CHECK(!repeated.IsHeadingFree(0.0f, 4000));
+    // The all-vetoed fallback can redeem a previously bad direction.
+    repeated.BeginAttempt(1, 0, 0.0f, 5.0f, 4100);
+    repeated.Observe(1, 0, 7.0f, 4200);
+    CHECK(repeated.IsHeadingFree(0.0f, 4200));
+    std::cout << "  [PASS] repeated dispatches do not hide failure; success redeems it\n";
+
+    // Store normalized headings, including the second half of a full turn.
+    FleeFailureMemory wrapped;
+    wrapped.BeginAttempt(1, 0, 4.7123889804f, 5.0f, 1000);
+    wrapped.Observe(1, 0, 5.0f, 4000);
+    CHECK(!wrapped.IsHeadingFree(-1.5707963268f, 4000));
+    wrapped.BeginAttempt(1, 0, 0.0f, 5.0f, 4100);
+    wrapped.Observe(1, 0, 5.0f, 7100);
+    CHECK(!wrapped.IsHeadingFree(0.0f, 7100));
+    CHECK(!wrapped.IsHeadingFree(-1.5707963268f, 7100));
+    CHECK(wrapped.IsHeadingFree((float)M_PI, 7100));
+    std::cout << "  [PASS] both failed-heading slots work across angle wrap\n";
+
+    // A different threat, a map transition, or an explicit clear loses all
+    // old evidence. Observations too late to be attributable never veto.
+    wrapped.Observe(2, 0, 5.0f, 7200);
+    CHECK(wrapped.IsHeadingFree(0.0f, 7200));
+    wrapped.BeginAttempt(2, 0, 0.0f, 5.0f, 7300);
+    wrapped.Observe(2, 1, 5.0f, 10300);
+    CHECK(wrapped.IsHeadingFree(0.0f, 10300));
+    wrapped.BeginAttempt(2, 1, 0.0f, 5.0f, 10400);
+    wrapped.Observe(2, 1, 5.0f, 15401);
+    CHECK(wrapped.IsHeadingFree(0.0f, 15401));
+    CHECK(!wrapped.IsPending());
+    wrapped.BeginAttempt(2, 1, 0.0f, 5.0f, 16000);
+    wrapped.Observe(2, 1, 5.0f, 19000);
+    CHECK(!wrapped.IsHeadingFree(0.0f, 19000));
+    wrapped.Clear();
+    CHECK(wrapped.Anchor() == 0);
+    CHECK(!wrapped.IsPending());
+    CHECK(wrapped.IsHeadingFree(0.0f, 19000));
+    std::cout << "  [PASS] threat/map/reset and stale observations cannot poison memory\n";
+
+    FleeFailureMemory timerWrap;
+    timerWrap.BeginAttempt(1, 0, 0.0f, 5.0f, 0xFFFFFF00u);
+    timerWrap.Observe(1, 0, 5.0f, 0xFFFFFF00u + 3000u);
+    CHECK(!timerWrap.IsHeadingFree(0.0f, 0xFFFFFF00u + 3000u));
+    CHECK(timerWrap.IsHeadingFree(0.0f, 0xFFFFFF00u + 8000u));
+    std::cout << "  [PASS] observation and expiry clocks tolerate 32-bit wrap\n";
+
+    FleeFailureMemory interrupted;
+    interrupted.BeginAttempt(1, 0, 0.0f, 5.0f, 1000, 10);
+    interrupted.Observe(1, 0, 5.0f, 4000, 11);
+    CHECK(!interrupted.IsPending());
+    CHECK(interrupted.IsHeadingFree(0.0f, 4000));
+    // Same-vector redispatches change the spline but retain the original
+    // observation clock. An unrelated replacement instead discards it.
+    interrupted.BeginAttempt(1, 0, 0.0f, 5.0f, 5000, 20);
+    interrupted.BeginAttempt(1, 0, 0.0f, 5.0f, 6000, 21);
+    interrupted.Observe(1, 0, 5.0f, 8000, 21);
+    CHECK(!interrupted.IsHeadingFree(0.0f, 8000));
+    std::cout << "  [PASS] replaced splines never manufacture failed headings\n";
 
     // Spread gate: combat only, pool bots only, no hold order.
     CHECK(ShouldCombatSpread(true, false, false, false, false, false));

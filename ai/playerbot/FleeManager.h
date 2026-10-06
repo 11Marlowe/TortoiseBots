@@ -7,6 +7,7 @@ class Player;
 namespace ai
 {
     class Engine;
+    class FleeFailureMemory;
 
 
 
@@ -42,7 +43,8 @@ namespace ai
 		}
 
 	public:
-		bool CalculateDestination(float* rx, float* ry, float* rz);
+		bool CalculateDestination(float* rx, float* ry, float* rz,
+            FleeFailureMemory const* failures = nullptr, uint32 nowMs = 0);
         bool isUseful();
         bool IsUseful() { return isUseful(); }
 
@@ -50,7 +52,8 @@ namespace ai
 		void calculatePossibleDestinations(std::list<FleePoint*> &points);
 		void calculateDistanceToCreatures(FleePoint *point);
 		void cleanup(std::list<FleePoint*> &points);
-		FleePoint* selectOptimalDestination(std::list<FleePoint*> &points);
+		FleePoint* selectOptimalDestination(std::list<FleePoint*> &points,
+            FleeFailureMemory const* failures, uint32 nowMs);
 		bool isBetterThan(FleePoint* point, FleePoint* other);
 		bool isTooCloseToEdge(float x, float y, float z, float angle);
 

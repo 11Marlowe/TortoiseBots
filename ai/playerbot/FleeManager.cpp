@@ -2,6 +2,7 @@
 #include "playerbot.h"
 #include "../../runtime/PlayerbotAIStorage.h" // Headless storage, not Player::GetPlayerbotAI
 #include "FleeManager.h"
+#include "CombatSpreadPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "Group/Group.h"
 #include "strategy/values/MoveStyleValue.h"
@@ -138,37 +139,45 @@ bool FleeManager::isBetterThan(FleePoint* point, FleePoint* other)
     return point->sumDistance - other->sumDistance > 0;
 }
 
-FleePoint* FleeManager::selectOptimalDestination(std::list<FleePoint*> &points)
+FleePoint* FleeManager::selectOptimalDestination(std::list<FleePoint*> &points,
+    FleeFailureMemory const* failures, uint32 nowMs)
 {
-	FleePoint* best = NULL;
-	for (std::list<FleePoint*>::iterator i = points.begin(); i != points.end(); i++)
+    FleePoint* best = nullptr;
+    FleePoint* fallback = nullptr;
+    for (FleePoint* point : points)
     {
-		FleePoint* point = *i;
+        if (!fallback || isBetterThan(point, fallback))
+            fallback = point;
+        float const heading = startPosition.GetAngleTo(
+            WorldPosition(startPosition.GetMapId(), point->x, point->y, point->z));
+        if (failures && !failures->IsHeadingFree(heading, nowMs))
+            continue;
         if (!best || isBetterThan(point, best))
             best = point;
-	}
-
-	return best;
+    }
+    // Failure memory must never leave a bot with no escape at all.
+    return best ? best : fallback;
 }
 
-bool FleeManager::CalculateDestination(float* rx, float* ry, float* rz)
+bool FleeManager::CalculateDestination(float* rx, float* ry, float* rz,
+    FleeFailureMemory const* failures, uint32 nowMs)
 {
     std::list<FleePoint*> points;
-	calculatePossibleDestinations(points);
+    calculatePossibleDestinations(points);
 
-    FleePoint* point = selectOptimalDestination(points);
+    FleePoint* point = selectOptimalDestination(points, failures, nowMs);
     if (!point)
     {
         cleanup(points);
         return false;
     }
 
-	*rx = point->x;
-	*ry = point->y;
-	*rz = point->z;
+    *rx = point->x;
+    *ry = point->y;
+    *rz = point->z;
 
     cleanup(points);
-	return true;
+    return true;
 }
 
 bool FleeManager::isUseful()

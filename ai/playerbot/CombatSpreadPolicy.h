@@ -8,22 +8,24 @@
 // Adapted: the donor stores a "recently flee info" FleeInfo list value and an
 // opt-in "disperse distance" knob; here the last two flee headings live on
 // LastMovement (no extra value plumbing) and spread is trigger-gated.
+// Issue #486 replaces dispatch history with observed failures only.
 // No core includes: callers translate game state into plain inputs so the
 // rules stay testable in tools/test_combat_spread_policy.cpp.
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
 namespace ai
 {
-    // Empty-slot marker for LastMovement::lastFleeAngles. 10 rad exceeds any
+    // Empty-slot marker for failure memory. 10 rad exceeds any
     // real heading (valid range -PI..PI), mirroring the donor's -1 default
     // for "disperse distance" (disabled).
     constexpr float kFleeAngleEmpty = 10.0f;
 
     // Donor veto half-width (CheckLastFlee: fabs(revAngle - curAngle) < PI/4):
-    // a candidate heading within 45 degrees of a remembered flee destination
-    // is skipped so repeated flees/spreads fan out.
+    // a candidate heading within 45 degrees of a failed destination is
+    // deprioritized. A successful escape remains repeatable.
     constexpr float kFleeAngleVetoHalfWidth = 0.7853981634f; // PI/4
 
     // How many flee headings are remembered. Two matches the donor's
@@ -53,19 +55,116 @@ namespace ai
         return diff;
     }
 
-    // True when candidate heading is free to use: no remembered slot within
-    // the veto half-width. Empty slots (kFleeAngleEmpty) never veto.
-    inline bool IsFleeHeadingFree(float candidate, float const* past, std::size_t count)
+    // A dispatch is not an outcome. Observe separation from the same anchor
+    // for up to 5 s; 2 yd gained clears the attempt, while no gain after 3 s
+    // remembers its heading for 5 s. Flee and spread use separate instances.
+    class FleeFailureMemory
     {
-        for (std::size_t i = 0; i < count; ++i)
+    public:
+        static constexpr std::uint32_t kObservationMs = 3000;
+        static constexpr std::uint32_t kMaxObservationMs = 5000;
+        static constexpr std::uint32_t kFailureTtlMs = 5000;
+        static constexpr float kSeparationGain = 2.0f;
+
+        void Clear() { *this = FleeFailureMemory(); }
+        std::uint64_t Anchor() const { return anchor; }
+        bool IsPending() const { return pending; }
+
+        void Observe(std::uint64_t newAnchor, std::uint32_t newMap,
+            float distance, std::uint32_t nowMs, std::uint32_t currentSpline = 0)
         {
-            if (past[i] > 3.1415926536f)
-                continue;
-            if (FleeHeadingDistance(candidate, past[i]) < kFleeAngleVetoHalfWidth)
-                return false;
+            if (anchor != newAnchor || map != newMap)
+            {
+                Clear();
+                anchor = newAnchor;
+                map = newMap;
+            }
+            if (!pending)
+                return;
+            if (spline != currentSpline)
+            {
+                pending = false; // Interrupted/replaced movement has no attributable outcome.
+                return;
+            }
+            std::uint32_t const elapsed = nowMs - startedMs;
+            if (!std::isfinite(distance) || elapsed > kMaxObservationMs)
+            {
+                pending = false; // No timely evidence: do not invent a failure.
+                return;
+            }
+            if (distance >= startDistance + kSeparationGain)
+            {
+                // A fallback may have succeeded in a previously failed heading.
+                for (auto& failure : failures)
+                    if (FleeHeadingDistance(heading, failure.angle) < kFleeAngleVetoHalfWidth)
+                        failure = Failure();
+                pending = false;
+            }
+            else if (elapsed >= kObservationMs)
+            {
+                RecordFailure(heading, nowMs);
+                pending = false;
+            }
         }
-        return true;
-    }
+
+        void BeginAttempt(std::uint64_t newAnchor, std::uint32_t newMap,
+            float newHeading, float distance, std::uint32_t nowMs, std::uint32_t newSpline = 0)
+        {
+            Observe(newAnchor, newMap, distance, nowMs, spline);
+            if (!newAnchor || !std::isfinite(newHeading) || !std::isfinite(distance))
+                return;
+            newHeading = std::remainder(newHeading, 6.2831853072f);
+            // Frequent re-dispatches of the same vector must not restart the
+            // observation clock and hide a bot that is making no progress.
+            if (pending && FleeHeadingDistance(heading, newHeading) < kFleeAngleVetoHalfWidth)
+            {
+                spline = newSpline;
+                return;
+            }
+            spline = newSpline;
+            pending = true;
+            heading = newHeading;
+            startDistance = distance;
+            startedMs = nowMs;
+        }
+
+    private:
+        void RecordFailure(float failedHeading, std::uint32_t nowMs)
+        {
+            if (!anchor || !std::isfinite(failedHeading))
+                return;
+            failedHeading = std::remainder(failedHeading, 6.2831853072f);
+            if (FleeHeadingDistance(failedHeading, failures[0].angle) >= kFleeAngleVetoHalfWidth)
+                failures[1] = failures[0];
+            failures[0] = { failedHeading, nowMs };
+        }
+
+    public:
+        bool IsHeadingFree(float candidate, std::uint32_t nowMs) const
+        {
+            for (auto const& failure : failures)
+                if (failure.angle != kFleeAngleEmpty &&
+                    (nowMs - failure.atMs) < kFailureTtlMs &&
+                    FleeHeadingDistance(candidate, failure.angle) < kFleeAngleVetoHalfWidth)
+                    return false;
+            return true;
+        }
+
+    private:
+        struct Failure
+        {
+            float angle = kFleeAngleEmpty;
+            std::uint32_t atMs = 0;
+        };
+        Failure failures[kFleeAngleSlots];
+        std::uint64_t anchor = 0;
+        std::uint32_t map = 0;
+        bool pending = false;
+        float heading = 0.0f;
+        float startDistance = 0.0f;
+        std::uint32_t startedMs = 0;
+        std::uint32_t spline = 0;
+    };
 
     // Combat-spread gate for the "raid spread needed" trigger: spread applies
     // only while fighting, never for owned/hired bots answering to a real

@@ -45,6 +45,7 @@
 #include "playerbot/DeathClusterPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "Movement/spline/MoveSplineInitArgs.h"
+#include "Movement/spline/MoveSpline.h"
 #include "Maps/InstanceData.h"
 #include "ChatHelper.h"
 #include "strategy/values/BudgetValues.h"
@@ -1270,6 +1271,11 @@ void PlayerbotAI::OnCombatEnded()
                 explicitAttackTarget->Reset();
         }
 
+        // Failure evidence belongs to this engagement only.
+        LastMovement& movement = aiObjectContext->GetValue<LastMovement&>("last movement")->Get();
+        movement.fleeFailures.Clear();
+        movement.spreadFailures.Clear();
+
         // Reset the combat start timestamp
         aiObjectContext->GetValue<time_t>("combat start time")->Set(0);
 
@@ -1976,6 +1982,10 @@ void PlayerbotAI::Reset(bool full)
     RESET_AI_VALUE(LootObject,"loot target");
     RESET_AI_VALUE(time_t,"combat start time");
     bot->SetSelectionGuid(ObjectGuid());
+
+    LastMovement& movement = AI_VALUE(LastMovement&, "last movement");
+    movement.fleeFailures.Clear();
+    movement.spreadFailures.Clear();
 
     LastSpellCast & lastSpell = AI_VALUE(LastSpellCast&,"last spell cast");
     lastSpell.Reset();
@@ -2878,9 +2888,33 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
 
     if (!bot->IsInWorld() || bot->IsBeingTeleported() || (GetMaster() && GetMaster()->IsBeingTeleported()))
     {
+        LastMovement& movement = aiObjectContext->GetValue<LastMovement&>("last movement")->Get();
+        movement.fleeFailures.Clear();
+        movement.spreadFailures.Clear();
         explicitActivityOverride = previousActivityOverride;
         SetAIInternalUpdateDelay(sPlayerbotAIConfig.globalCoolDown);
         return;
+    }
+
+    // Sample actual separation before another flee/spread can replace its
+    // pending observation. A new heading is never bad merely for being used.
+    LastMovement& movement = aiObjectContext->GetValue<LastMovement&>("last movement")->Get();
+    if (movement.fleeFailures.IsPending() || movement.spreadFailures.IsPending())
+    {
+        bool const canObserve = sServerFacade.IsInCombat(bot) && CanMove();
+        uint32 const nowMs = WorldTimer::getMSTime();
+        for (FleeFailureMemory* memory : { &movement.fleeFailures, &movement.spreadFailures })
+        {
+            if (!memory->IsPending())
+                continue;
+            Unit* anchor = GetUnit(ObjectGuid(memory->Anchor()));
+            if (!canObserve || !anchor || !sServerFacade.IsAlive(anchor) ||
+                anchor->GetMapId() != bot->GetMapId())
+                memory->Clear();
+            else
+                memory->Observe(memory->Anchor(), bot->GetMapId(),
+                    sServerFacade.getDistance2d(bot, anchor), nowMs, bot->movespline->GetId());
+        }
     }
 
     // if in combat but stuck with old data - clear targets

@@ -13,6 +13,7 @@
 #include "playerbot/strategy/values/Stances.h"
 #include "Movement/TargetedMovementGenerator.h"
 #include "Movement/spline/MoveSplineInit.h"
+#include "Movement/spline/MoveSpline.h"
 #include "playerbot/TravelMgr.h"
 #include "playerbot/TravelRepickPolicy.h"
 #include "Transports/Transport.h"
@@ -1750,8 +1751,14 @@ bool MovementAction::Flee(Unit *target)
     if (!sPlayerbotAIConfig.fleeingEnabled)
         return false;
 
+    LastMovement& fleeMovement = AI_VALUE(LastMovement&, "last movement");
+    uint32 const nowMs = WorldTimer::getMSTime();
+    fleeMovement.fleeFailures.Observe(target->GetObjectGuid().GetRawValue(),
+        target->GetMapId(), sServerFacade.getDistance2d(bot, target), nowMs, bot->movespline->GetId());
+
     if (!ai->CanMove())
     {
+        fleeMovement.fleeFailures.Clear();
         ai->TellError(GetMaster(), "I am stuck while fleeing");
         return false;
     }
@@ -1888,6 +1895,9 @@ bool MovementAction::Flee(Unit *target)
 
     if (!ai->HasRealPlayerMaster() && !ai->IsRealPlayer(target))
     {
+        // Continuous chase computes its own heading: no point-dispatch
+        // outcome is attributable to it, so retain the existing behavior.
+        fleeMovement.fleeFailures.Clear();
         bool fullDistance = false;
         if (target->IsPlayer())
             fullDistance = true;
@@ -1950,12 +1960,15 @@ bool MovementAction::Flee(Unit *target)
         }
 
         float rx, ry, rz;
-        if (!manager.CalculateDestination(&rx, &ry, &rz))
+        if (!manager.CalculateDestination(&rx, &ry, &rz, &fleeMovement.fleeFailures, nowMs))
         {
             ai->TellError(GetMaster(), "Nowhere to flee");
             return false;
         }
 
+        float const fleeHeading = WorldPosition(bot).GetAngleTo(
+            WorldPosition(target->GetMapId(), rx, ry, rz));
+        float const fleeStartDistance = sServerFacade.getDistance2d(bot, target);
         if(MoveTo(target->GetMapId(), rx, ry, rz))
         {
             LastMovement& lm = AI_VALUE(LastMovement&, "last movement");
@@ -1968,13 +1981,8 @@ bool MovementAction::Flee(Unit *target)
                 lm.fleeCount = 1;
             lm.lastFleeAttempt = now;
             lm.lastFlee = time(0);
-            // Donor "recently flee info": remember the dispatched destination
-            // heading so the next flee/spread steps elsewhere. Absolute world
-            // heading, same frame as FleeManager's ring and RaidSpreadAction.
-            lm.lastFleeAngles[1] = lm.lastFleeAngles[0];
-            lm.lastFleeAngles[0] = WorldPosition(bot).GetAngleTo(WorldPosition(target->GetMapId(), rx, ry, rz));
-            if (lm.lastFleeAngleCount < 2)
-                ++lm.lastFleeAngleCount;
+            lm.fleeFailures.BeginAttempt(target->GetObjectGuid().GetRawValue(),
+                target->GetMapId(), fleeHeading, fleeStartDistance, nowMs, bot->movespline->GetId());
             lm.lastSpreadStepMs = WorldTimer::getMSTime();
             succeeded = true;
         }
