@@ -11,6 +11,10 @@
 
 ---
 
+### Combat & AI
+- Fixed mana-using bots at exactly 0 mana being rejected from the noncombat drink action; `ShouldDrinkValue` now checks mana power type and the existing drink stop threshold instead of misreading current mana as the bot’s power type. [#513](https://github.com/Sagiroth/TortoiseBots/pull/513)
+- Added focused policy tests for zero mana, the threshold boundary, and non-mana users to prevent regressions. [#513](https://github.com/Sagiroth/TortoiseBots/pull/513)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
