@@ -56,6 +56,8 @@ bool BotPacketAdapter::CanPacketReceive(WorldSession* session, WorldPacket const
         return true;
 
     DispatchMasterIncoming(session, packet);
+    if (packet.getOpcode() == CMSG_USE_ITEM)
+        MaybeSendMimicSummary(session->GetPlayer(), packet);
     return true;
 }
 
@@ -82,5 +84,48 @@ void BotPacketAdapter::DispatchMasterIncoming(WorldSession* session, WorldPacket
             ai->HandleMasterIncomingPacket(packet);
     }
 }
+void BotPacketAdapter::MaybeSendMimicSummary(Player* master, WorldPacket const& packet)
+{
+    if (!master)
+        return;
+    // Decode which bag slot the master used; unreadable packets are ignored.
+    WorldPacket copy(packet);
+    copy.rpos(0);
+    uint8_t bagIndex = 0, slot = 0, spellCount = 0;
+    if (copy.size() < 3)
+        return;
+    copy >> bagIndex >> slot >> spellCount;
+    Item* masterItem = master->GetItemByPos(bagIndex, slot);
+    if (!masterItem || !masterItem->GetProto())
+        return;
+
+    std::vector<Player*> bots = BotManager::Instance().GetBotsForMaster(master->GetObjectGuid());
+    if (bots.size() <= kMimicSummaryBots)
+        return;
+
+    // Only mimic-enabled bots count; the first one relays the summary so the
+    // master sees one line instead of one whisper per bot.
+    uint32_t mimicCount = 0;
+    Player* relay = nullptr;
+    for (Player* bot : bots)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai || !ai->HasStrategy("mimic consumables", BotState::BOT_STATE_NON_COMBAT))
+            continue;
+        if (!relay)
+            relay = bot;
+        ++mimicCount;
+    }
+    if (!relay || mimicCount <= kMimicSummaryBots)
+        return;
+
+    ItemPrototype const* proto = masterItem->GetProto();
+    std::string what = proto->Name1.empty() ? "consumables" : proto->Name1;
+    std::ostringstream out;
+    out << "[Raid Mimic]: " << mimicCount << " bots mimicked " << what << " with role equivalents";
+    if (PlayerbotAI* relayAi = PlayerbotAIStorage::Instance().GetAI(relay))
+        relayAi->TellPlayerNoFacing(master, out.str());
+}
+
 
 } // namespace TortoiseBots
