@@ -311,7 +311,6 @@ func (s *Store) Evict() bool {
 	if s.lastSnapshotAt.IsZero() || now.Sub(s.lastSnapshotAt) > s.cfg.RosterTTL {
 		s.bots = make(map[uint32]*botEntry)
 		s.xpTracks = make(map[uint32]*xpTrack)
-		s.resetActivityLocked()
 		s.resetAnomalyTotalsLocked()
 		s.issues.Reset()
 		return true
@@ -698,13 +697,6 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 	s.snapshotsPublished++
 	s.observeXPLocked(bots, now)
 	s.observeLevelsLocked(bots, now)
-	// Drop activity for bots the roster no longer carries; the map stays
-	// bounded by the live population instead of growing with bot churn.
-	for guid := range s.activity {
-		if _, ok := next[guid]; !ok {
-			delete(s.activity, guid)
-		}
-	}
 	// Stamp the derived XP fields onto the stored roster so Snapshot serves
 	// them without recomputation.
 	for _, b := range bots {
@@ -740,17 +732,19 @@ func appendTrail(trail []model.Coordinate, snap model.BotSnapshot, limit int) []
 	return trail
 }
 
-// beginSessionLocked resets sequence and roster state when a different
-// game-server process starts. The daemon outlives server restarts, and the
-// emitter's seq restarts at 1; without this, every cycle from the new process
-// would be rejected as old.
+// beginSessionLocked resets sequence and transient roster state when a
+// different game-server process starts. Sequence numbers start from 1 on each
+// server launch. Cumulative activity counters and recent feeds persist across
+// restarts.
 func (s *Store) beginSessionLocked(session uint64) {
 	if session == 0 || session == s.session {
 		return
 	}
 
 	s.session = session
-	s.sessionSince = s.now()
+	if s.sessionSince.IsZero() {
+		s.sessionSince = s.now()
+	}
 	s.lastSeq = 0
 	s.pending = make(map[uint64]*pendingCycle)
 	s.bots = make(map[uint32]*botEntry)
@@ -758,20 +752,74 @@ func (s *Store) beginSessionLocked(session uint64) {
 	s.heartbeatAt = time.Time{}
 	s.lastSnapshotAt = time.Time{}
 	s.xpTracks = make(map[uint32]*xpTrack)
-	s.resetActivityLocked()
+	// Re-anchor money tracking for bots so offline balance changes are not treated as delta.
+	for _, a := range s.activity {
+		a.hasMoney = false
+		a.deadAt = time.Time{}
+	}
 	s.resetAnomalyTotalsLocked()
 	s.serverInfo = nil
 	s.issues.Reset()
 	s.issues.NoteSessionChange(s.now())
 }
 
-// resetActivityLocked drops every activity counter and feed. Called with the
-// roster: a new game-server process, or a roster wipe, invalidates them.
-func (s *Store) resetActivityLocked() {
-	s.activity = make(map[uint32]*botActivityState)
-	s.lootFeed = nil
-	s.questFeed = nil
-	s.levelFeed = nil
+// BackfillActivityFromDB merges authoritative lifetime quest completions,
+// spells known, and active open quests from character-DB rollups into the activity state.
+func (s *Store) BackfillActivityFromDB(quests map[uint32]uint64, spells map[uint32]uint64, openQuests map[uint32][]uint32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.activity == nil {
+		s.activity = make(map[uint32]*botActivityState)
+	}
+
+	now := s.now().Unix()
+	if !s.sessionSince.IsZero() {
+		now = s.sessionSince.Unix()
+	}
+
+	for guid, qCount := range quests {
+		a := s.activity[guid]
+		if a == nil {
+			a = &botActivityState{openQuest: make(map[uint32]bool)}
+			a.counters.FirstSeen = now
+			s.activity[guid] = a
+		}
+		if a.counters.QuestsRewarded < int(qCount) {
+			a.counters.QuestsRewarded = int(qCount)
+		}
+		if a.counters.QuestsCompleted < int(qCount) {
+			a.counters.QuestsCompleted = int(qCount)
+		}
+	}
+
+	for guid, sCount := range spells {
+		a := s.activity[guid]
+		if a == nil {
+			a = &botActivityState{openQuest: make(map[uint32]bool)}
+			a.counters.FirstSeen = now
+			s.activity[guid] = a
+		}
+		if a.counters.SpellsLearned < int(sCount) {
+			a.counters.SpellsLearned = int(sCount)
+		}
+	}
+
+	for guid, qList := range openQuests {
+		a := s.activity[guid]
+		if a == nil {
+			a = &botActivityState{openQuest: make(map[uint32]bool)}
+			a.counters.FirstSeen = now
+			s.activity[guid] = a
+		}
+		if a.openQuest == nil {
+			a.openQuest = make(map[uint32]bool)
+		}
+		for _, qID := range qList {
+			a.openQuest[qID] = true
+		}
+		a.counters.OpenQuests = len(a.openQuest)
+	}
 }
 
 func (s *Store) prunePendingLocked(now time.Time) {

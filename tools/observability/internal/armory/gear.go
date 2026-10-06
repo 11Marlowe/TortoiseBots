@@ -83,3 +83,86 @@ func (s *Service) GearRollup() (map[uint32]model.BotGear, error) {
 	}
 	return out, nil
 }
+
+// CompletedQuestsRollup returns the lifetime completed quest count for every pool bot.
+func (s *Service) CompletedQuestsRollup() (map[uint32]uint64, error) {
+	query := `
+		SELECT c.guid, COUNT(*)
+		FROM character_queststatus qs
+		JOIN characters c ON c.guid = qs.guid
+		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		WHERE c.deleteDate IS NULL AND qs.status = 1
+		GROUP BY c.guid`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[uint32]uint64)
+	for rows.Next() {
+		var guid uint32
+		var count uint64
+		if err := rows.Scan(&guid, &count); err != nil {
+			return nil, err
+		}
+		out[guid] = count
+	}
+	return out, rows.Err()
+}
+
+// SpellsLearnedRollup returns the lifetime known spell count for every pool bot.
+func (s *Service) SpellsLearnedRollup() (map[uint32]uint64, error) {
+	query := `
+		SELECT c.guid, COUNT(*)
+		FROM character_spell cs
+		JOIN characters c ON c.guid = cs.guid
+		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		WHERE c.deleteDate IS NULL AND cs.active = 1
+		GROUP BY c.guid`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[uint32]uint64)
+	for rows.Next() {
+		var guid uint32
+		var count uint64
+		if err := rows.Scan(&guid, &count); err != nil {
+			return nil, err
+		}
+		out[guid] = count
+	}
+	return out, rows.Err()
+}
+
+// OpenQuestsRollup returns the currently active (in progress or ready to hand in) quests for every pool bot.
+func (s *Service) OpenQuestsRollup() (map[uint32][]uint32, error) {
+	query := `
+		SELECT c.guid, qs.quest
+		FROM character_queststatus qs
+		JOIN characters c ON c.guid = qs.guid
+		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		WHERE c.deleteDate IS NULL AND qs.status IN (0, 3)`
+
+	rows, err := s.db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[uint32][]uint32)
+	for rows.Next() {
+		var guid uint32
+		var quest uint32
+		if err := rows.Scan(&guid, &quest); err != nil {
+			return nil, err
+		}
+		out[guid] = append(out[guid], quest)
+	}
+	return out, rows.Err()
+}

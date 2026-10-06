@@ -119,7 +119,7 @@ func (s *Store) RestoreActivity(path string) (int, error) {
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return 0, err
 	}
-	if snap.V != activityStateVersion || snap.Session == 0 {
+	if snap.V != activityStateVersion {
 		return 0, nil
 	}
 
@@ -134,7 +134,7 @@ func (s *Store) RestoreActivity(path string) (int, error) {
 			class:     b.Class,
 			level:     b.Level,
 			lastMoney: b.LastMoney,
-			hasMoney:  b.HasMoney,
+			hasMoney:  false, // re-anchor on first live event
 			lastLevel: b.LastLevel,
 			openQuest: make(map[uint32]bool, len(b.OpenQuests)),
 		}
