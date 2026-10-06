@@ -22,6 +22,9 @@
 - Bots no longer hover over corpses for items already taken — globally looted entries are now filtered out of the shared loot view before `ShouldLootObject` runs. [#510](https://github.com/Sagiroth/TortoiseBots/pull/510)
 - Personal FFA and conditional loot is now read only through the per-player lists, so each bot's own looted flag is honored instead of being bypassed by the initial shared insertion. [#510](https://github.com/Sagiroth/TortoiseBots/pull/510)
 
+### Combat & AI
+- Flee/spread movement no longer vetoes headings just because a destination was dispatched; destination-based fleeing and combat spread now track failures in separate two-entry caches, only recording a heading if the bot gains less than 2 yd of separation after 3 s, preventing successful straight retreats from being blocked later. [#511](https://github.com/Sagiroth/TortoiseBots/pull/511)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
