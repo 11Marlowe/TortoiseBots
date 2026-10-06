@@ -45,6 +45,11 @@
 - Added an early financial exit for `spendable < ai::kBuyerTripMinSpareCopper`, so broke AH buyers skip travel evaluation entirely and stop burning world-thread CPU. [#519](https://github.com/Sagiroth/TortoiseBots/pull/519)
 - Gated the city buyer trip path to avoid unnecessary travel evaluations on the world thread when the AH buyer flow already covers the bot’s needs. [#519](https://github.com/Sagiroth/TortoiseBots/pull/519)
 
+### Performance & Travel
+- Replaced O(N×M) hash-map scans in `TravelMgr::GetDestinations` with direct `entryDests.find(entry)` lookups, so ID-based quest/destination fetches no longer linearly scan every `destinationMap[purpose]` entry. [#521](https://github.com/Sagiroth/TortoiseBots/pull/521)
+- Optimized destination filtering across `ChooseTravelTargetAction` / `TravelMgr::GetDestinations` / `TravelMgr::GetPartitions` / `WorldSquare`, reducing hot-path CPU during travel target evaluation. [#521](https://github.com/Sagiroth/TortoiseBots/pull/521)
+- Reduced expensive cross-map distance query work in travel target selection, improving bot responsiveness and server CPU headroom. [#521](https://github.com/Sagiroth/TortoiseBots/pull/521)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
