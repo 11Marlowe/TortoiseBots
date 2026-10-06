@@ -25,6 +25,18 @@
 ### Combat & AI
 - Flee/spread movement no longer vetoes headings just because a destination was dispatched; destination-based fleeing and combat spread now track failures in separate two-entry caches, only recording a heading if the bot gains less than 2 yd of separation after 3 s, preventing successful straight retreats from being blocked later. [#511](https://github.com/Sagiroth/TortoiseBots/pull/511)
 
+### Observability & Engine
+- Persist cumulative bot activity metrics across server sessions and daemon restarts, avoiding state wipes on session start. [#515](https://github.com/Sagiroth/TortoiseBots/pull/515)
+- Add `OpenQuestsRollup` in `gear.go` and `store.go` to query and sync active in-progress quests from `character_queststatus`. [#515](https://github.com/Sagiroth/TortoiseBots/pull/515)
+- Add `tools/backfill_activity_logs.py` to import historical loot items, mob coin drops, creature kills, deaths, vendor visits, AH listings, and quest cash rewards from server archives into `activity-state.json`. [#515](https://github.com/Sagiroth/TortoiseBots/pull/515)
+- Add economic reconciliation to keep persisted activity/economy state consistent. [#515](https://github.com/Sagiroth/TortoiseBots/pull/515)
+
+### Combat & AI
+- Implement consumable mimicry according to `MIMIC_CONSUMABLES_PLAN.md`. [#514](https://github.com/Sagiroth/TortoiseBots/pull/514)
+- When the master uses an elixir/flask/scroll/weapon imbue/protection potion/stat food out of combat, bots with `mimic` enabled drink the class/spec/level-appropriate equivalent, choosing the highest usable tier with `req <= level`; all item IDs and required levels verified against core `sql/base/tw_world_item_template.sql`. [#514](https://github.com/Sagiroth/TortoiseBots/pull/514)
+- Make mimicry opt-in via `.bot behavior <bot> mimic on|off`, default OFF; `mimic consumables` strategy runs on the non-combat engine only. [#514](https://github.com/Sagiroth/TortoiseBots/pull/514)
+- Use virtual casts via `BotUseItemSpell::Create + ForceSpellStart` with no inventory items, plus `EMOTE_ONESHOT_EAT` feedback. [#514](https://github.com/Sagiroth/TortoiseBots/pull/514)
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
