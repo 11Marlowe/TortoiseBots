@@ -99,6 +99,7 @@ public:
     void OnPlayerBeforeLogout(Player* player);
     void OnPlayerLogout(Player* player);
     void ReleaseToClient(Player* player);
+    void Shutdown();
 
     // Manual control for testing — bool success; core owns Headless session
 // pi-lens-ignore: clang:unknown_typename

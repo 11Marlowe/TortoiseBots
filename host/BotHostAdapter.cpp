@@ -151,6 +151,7 @@ void BotHostAdapter::OnShutdown()
 {
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
+    BotManager::Instance().Shutdown();
     RandomBotService::Instance().Shutdown();
     BotActivityLeaseManager::Instance().Clear();
     TB_LOG_BASIC("TortoiseBots: native module shutting down after %u world ticks", m_ticks);

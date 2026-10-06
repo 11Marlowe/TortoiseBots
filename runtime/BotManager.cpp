@@ -981,6 +981,17 @@ void BotManager::ReleaseToClient(::Player* player)
     BotActivityLeaseManager::Instance().ReleaseMaster(guidLow);
 }
 
+void BotManager::Shutdown()
+{
+    std::vector<::ObjectGuid> guids;
+    guids.reserve(m_bots.size());
+    for (auto const& pair : m_bots)
+        guids.push_back(pair.second.record.characterGuid);
+
+    for (auto const& guid : guids)
+        RemoveBot(guid, true);
+}
+
 bool BotManager::RunPendingAddRemoveTest(uint32_t accountId, ::ObjectGuid guid)
 {
     HeadlessSessionState st = BotSessionAdapter::GetHeadlessSessionState(guid);
