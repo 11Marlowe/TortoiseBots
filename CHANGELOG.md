@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-06
+
+### Observability & Engine
+
+- When `AiPlayerbot.Enabled = 0`, the world-update hook now bails out before calling any AI services, killing the empty `BOTPERF` window that `BotManager` spammed into the log every 30 seconds. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+- `HireLifecycle` no longer runs its 60-second stale-hire recovery loop against an unvalidated managed-pool registry while AI is disabled, removing pointless retries during normal (AI-off) play. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+- This early return also covers a missing AI config file, so broken/absent config no longer ticks half-initialized services behind your back. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+- With AI enabled, service tick order and behavior are unchanged — no gameplay impact for servers running bots. [#509](https://github.com/Sagiroth/TortoiseBots/pull/509)
+
+---
+
 ## 2026-10-05
 
 ### World Buffs & Capital Recruiters
