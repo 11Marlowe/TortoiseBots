@@ -5,6 +5,7 @@
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/CombatSpreadPolicy.h"
+#include "Movement/spline/MoveSpline.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"
@@ -396,10 +397,11 @@ bool RaidSpreadAction::Execute(Event& event)
     const WorldPosition botPos(bot);
     const WorldPosition nearPos(nearest);
     float away = nearPos.GetAngleTo(botPos);
-    // Donor "recently flee info" (mod-playerbots MovementAction::CheckLastFlee):
-    // first pass skips step-out headings within ~45deg of the last two flee
-    // destinations so repeated spreads fan out; the second pass takes vetoed
-    // headings so a spread is never blocked outright.
+    uint32 const nowMs = WorldTimer::getMSTime();
+    lastMove.spreadFailures.Observe(nearest->GetObjectGuid().GetRawValue(),
+        bot->GetMapId(), nearestDist, nowMs, bot->movespline->GetId());
+    // Prefer headings that have not failed to gain spacing. A second pass
+    // allows remembered failures so the cache can never block every route.
     const float spread = sPlayerbotAIConfig.hazardEvasionDistance;
     const float angles[] = { 0.0f, 0.6f, -0.6f, 1.2f, -1.2f, (float)M_PI };
     WorldPosition out(botPos);
@@ -409,15 +411,13 @@ bool RaidSpreadAction::Execute(Event& event)
         for (float d : angles)
         {
             float heading = away + d;
-            if (!vetoSecondPass && !IsFleeHeadingFree(heading, lastMove.lastFleeAngles, kFleeAngleSlots))
+            if (!vetoSecondPass && !lastMove.spreadFailures.IsHeadingFree(heading, nowMs))
                 continue;
             if (FindStep(ai, bot, botPos, heading, spread, out) &&
                 MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true))
             {
-                lastMove.lastFleeAngles[1] = lastMove.lastFleeAngles[0];
-                lastMove.lastFleeAngles[0] = heading;
-                if (lastMove.lastFleeAngleCount < 2)
-                    ++lastMove.lastFleeAngleCount;
+                lastMove.spreadFailures.BeginAttempt(nearest->GetObjectGuid().GetRawValue(),
+                    bot->GetMapId(), botPos.GetAngleTo(out), nearestDist, nowMs, bot->movespline->GetId());
                 lastMove.lastSpreadStepMs = WorldTimer::getMSTime();
                 return true;
             }

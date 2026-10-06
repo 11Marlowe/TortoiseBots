@@ -25,6 +25,7 @@ python3 -m unittest tools/test_attackers_aoe_density.py
 python3 -m unittest tools/test_engine_walk_gating.py
 python3 -m unittest tools/test_disabled_world_update.py
 python3 -m unittest tools/test_loot_content.py
+python3 -m unittest tools/test_flee_selection.py
 echo "✓ Engine unit tests passed."
 
 echo ""
