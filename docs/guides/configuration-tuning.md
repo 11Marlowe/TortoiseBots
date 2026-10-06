@@ -166,7 +166,7 @@ The pool is only throttled when the server is already struggling. On an average 
 
 Tuning: raise `PoolTickBudgetUs` (e.g. `25000`–`50000`) if pool bots feel sluggish while the tick is long; lower it if player-owned bots still lag. The budget is checked between bots, so a pass can overshoot by one bot's work. With 500 bots on a slow machine every choice means *someone* waits — the gate only decides whether it is the player's party or the pool.
 
-The module reports the pass once per ~30 s of world-tick time at `TortoiseBots.LogLevel = 1` or higher (default `2`):
+With AI enabled (`AiPlayerbot.Enabled = 1`), the module reports the pass once per ~30 s of world-tick time at `TortoiseBots.LogLevel = 1` or higher (default `2`):
 
 ```
 TortoiseBots: BOTPERF passUs=812 playerBots=5 ownedBots=5 masterBots=0 poolBots=495 poolProcessed=4 budgetHit=1 maxUs=9820 ticks=62
