@@ -279,3 +279,5 @@ pre-battleground group, or an older module — and for every hand-typed command.
 
 Hand-typed `.bot` commands keep their chat replies, so the CLI and macro surface
 is unchanged.
+
+Talent links accept at most three trees (two `-` separators); malformed extra trees are rejected before parsing.
