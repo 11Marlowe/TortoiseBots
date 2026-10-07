@@ -1692,23 +1692,45 @@ void BotManager::UpdateBots(uint32_t diff)
     for (uint32_t guidLow : playerGuids)
         updateOneBot(guidLow);
 
-    // Pass 2: pool bots in combat, always, before the rotation. A bot that is
-    // fighting (or just died: IsInCombat lingers through death, so the death
-    // pipeline gets its tick too) must never wait ~40 passes for its turn: no
-    // heal, no flee, no revive between ticks is how the silent-death wave
-    // happens. The check is one FindPlayer + flag read per pool bot, no DB, no
-    // allocation; idle bots lose nothing, they share whatever budget remains
-    // exactly as before.
-    for (auto const& kv : m_bots)
+    // Pass 2: pool bots in combat, prioritized before the idle pool rotation.
+    // A bot in combat gets prioritized ticks so it can heal, flee, attack, etc.
+    // If there are many bots in combat, we cap Pass 2 to combatTickBudgetUs
+    // using a round-robin cursor to ensure all combat bots get fair CPU time across ticks.
+    uint64_t const combatBudgetUs = sPlayerbotAIConfig.combatTickBudgetUs;
+    uint64_t const combatStartUs = (combatBudgetUs > 0) ?
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count()) : 0;
+
+    uint32_t const poolSize = static_cast<uint32_t>(poolGuids.size());
+    if (poolSize > 0)
     {
-        BotEntry const& entry = kv.second;
-        if (entry.record.lifecycle != BotLifecycle::InWorld || entry.record.masterGuid.IsEmpty() == false)
-            continue;
-        if (IsPlayerOwnedBot(ClassifyBot(entry)))
-            continue;
-        ::Player* p = sObjectAccessor.FindPlayer(entry.record.characterGuid);
-        if (p && p->IsInCombat())
-            updateOneBot(kv.first);
+        if (m_combatCursor >= poolSize)
+            m_combatCursor = 0;
+
+        uint32_t const startCursor = m_combatCursor;
+        for (uint32_t i = 0; i < poolSize; ++i)
+        {
+            uint32_t const idx = (startCursor + i) % poolSize;
+            m_combatCursor = (idx + 1) % poolSize;
+
+            uint32_t const guidLow = poolGuids[idx];
+            auto it = m_bots.find(guidLow);
+            if (it == m_bots.end() || it->second.record.lifecycle != BotLifecycle::InWorld)
+                continue;
+
+            ::Player* p = sObjectAccessor.FindPlayer(it->second.record.characterGuid);
+            if (p && p->IsInCombat())
+            {
+                updateOneBot(guidLow);
+                if (combatBudgetUs > 0)
+                {
+                    uint64_t const now = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                        std::chrono::steady_clock::now().time_since_epoch()).count());
+                    if (now - combatStartUs >= combatBudgetUs)
+                        break;
+                }
+            }
+        }
     }
     // Pass 3: the pool, resuming at the rotation cursor. The budget is checked
     // between bots (so a pass can overshoot by one bot's work, the

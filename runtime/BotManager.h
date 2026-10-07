@@ -216,6 +216,8 @@ private:
     // cursor that lets a budgeted pass resume where the previous tick stopped
     // (see PoolPassRotation.h).
     PoolPassRotation m_poolRotation;
+    // Cursor for budgeted Pass 2 (combat bots) round-robin iteration.
+    uint32_t m_combatCursor = 0;
     // BOTPERF window: UpdateBots pass cost accumulated over ~30 s of tick time.
     uint64_t m_perfPassUsSum = 0;
     uint64_t m_perfPassUsMax = 0;
