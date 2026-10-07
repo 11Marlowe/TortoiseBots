@@ -1266,6 +1266,7 @@ bool PlayerbotAIConfig::openLog(std::string fileName, char const* mode, bool has
 
     if (fileOpen) //close log file
         fclose(file);
+    logFileIt->second = {nullptr, false};
 
     std::string m_logsDir = sConfig.GetStringDefault("LogsDir", "");
     if (!m_logsDir.empty())
@@ -1275,7 +1276,15 @@ bool PlayerbotAIConfig::openLog(std::string fileName, char const* mode, bool has
     }
 
 
-    file = fopen((m_logsDir + fileName).c_str(), mode);
+    std::string const path = m_logsDir + fileName;
+    std::error_code rotationError;
+    if (!logRotation.Prepare(path, mode, rotationError))
+    {
+        sLog.outError("Could not rotate bot log file %s: %s. Existing file preserved.",
+            path.c_str(), rotationError.message().c_str());
+        return false;
+    }
+    file = fopen(path.c_str(), mode);
 
     // fopen fails whenever the logs directory does not exist yet, which on a
     // fresh install it usually does not. This used to mark the file open all the

@@ -1755,9 +1755,10 @@ void TravelMgr::LoadQuestTravelTable()
         sLog.outString("Running analysis.");
     }
 
-    sLog.outString("Clearing log files.");
+    sLog.outString("Opening log files (previous run retained as .1).");
 
      //Clear these logs files
+     // Start fresh per-run logs; openLog preserves the previous run.
     sPlayerbotAIConfig.openLog("zones.csv", "w");
     sPlayerbotAIConfig.openLog("creatures.csv", "w");
     sPlayerbotAIConfig.openLog("gos.csv", "w");

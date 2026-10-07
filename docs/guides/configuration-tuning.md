@@ -276,3 +276,13 @@ and listed here so nobody tunes a dead knob:
 `RespawnModNeutral`, `RespawnModHostile`, `RespawnModThreshold`,
 `RespawnModMax`, `RespawnModForPlayerBots`, `RespawnModForInstances`,
 `TweakValue`.
+
+### Previous-run bot logs
+
+Enabled logs opened in write mode (including `bot_events.csv` and startup
+travel/pathfinding dumps) retain the previous file as `<filename>.1`. Rotation
+happens once per filename per process; later dump refreshes leave that backup
+alone. Append-only logs retain their existing behavior. No CSV columns change.
+If rotation fails, the truncating open is refused and an error is logged; later
+ordinary log writes may append to the preserved current file. Disabled logs
+are not touched. Keep copies elsewhere if more than one previous run is needed.
