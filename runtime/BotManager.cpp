@@ -40,7 +40,8 @@
 #include "../ai/playerbot/WorldPosition.h"
 #include "../ai/playerbot/strategy/values/TravelValues.h"
 #include "../ai/playerbot/LowbieGraveyardPolicy.h"
-
+// Full Corpse type for SweepDeadBots (IsWithinDistInMap on the reclaim check).
+#include "Objects/Corpse.h"
 #include "Database/DatabaseEnv.h"
 #include "../host/ModuleLog.h"
 
@@ -274,6 +275,14 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why =
 constexpr uint32_t STRANDED_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 constexpr time_t STRANDED_GRACE_SEC = 15 * 60;
 
+// Dead-bot sweep cadence and patience: release a stuck corpse quickly (its AI
+// may be starved by the pool budget), revive a stalled ghost only after it sat
+// through the whole grace window. Own sweep clock so neither depends on an AI
+// tick of the dead bot itself.
+constexpr uint32_t DEAD_SWEEP_INTERVAL_MS = 30 * 1000;
+constexpr time_t DEAD_RELEASE_GRACE_SEC = 30;
+constexpr time_t DEAD_REVIVE_GRACE_SEC = 90;
+
 // Shared destination leg: below level 10 the bot belongs at its race start
 // (a capital the picker would choose lies behind zones it cannot cross
 // alive, and the home bind may sit in another race's zone). Home bind stays
@@ -329,6 +338,100 @@ bool TeleportMisplacedBot(::Player* bot, int32 areaLevel, const std::string& cau
     return true;
 }
 } // namespace
+
+void BotManager::SweepDeadBots(uint32_t diff)
+{
+    m_deadSweepElapsedMs += diff;
+    if (m_deadSweepElapsedMs < DEAD_SWEEP_INTERVAL_MS)
+        return;
+    m_deadSweepElapsedMs = 0;
+    uint32_t released = 0, revived = 0, watched = 0;
+    time_t now = time(nullptr);
+    for (auto& [key, entry] : m_bots)
+    {
+        BotRecord& rec = entry.record;
+        if (!rec.random || rec.lifecycle != BotLifecycle::InWorld || !rec.masterGuid.IsEmpty())
+        {
+            m_deadSince.erase(key);
+            continue;
+        }
+        ::Player* p = sObjectAccessor.FindPlayer(rec.characterGuid);
+        if (!p || !p->GetSession() || !p->GetSession()->IsHeadless() || !p->IsInWorld() ||
+            p->IsBeingTeleported() || p->InBattleGround() || GroupHasRealPlayer(p) ||
+            HireLifecycle::Instance().IsHired(rec.characterGuid) ||
+            BotActivityLeaseManager::Instance().GetActivity(key) == BotActivity::Dungeon ||
+            sRandomBotFacade.IsPinnedBot(key))
+        {
+            m_deadSince.erase(key);
+            continue;
+        }
+        if (p->IsAlive())
+        {
+            m_deadSince.erase(key);
+            continue;
+        }
+        auto it = m_deadSince.find(key);
+        if (it == m_deadSince.end())
+        {
+            m_deadSince.emplace(key, now);
+            continue;
+        }
+        time_t deadFor = now - it->second;
+        if (deadFor < 0)
+        {
+            m_deadSince.erase(it);
+            continue;
+        }
+        ++watched;
+        bool const isGhost = p->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST);
+        // Stuck corpse (ghost or not): the AI release never ran, e.g. its tick
+        // was starved by the pool budget. HandleRepopRequestOpcode needs only
+        // "dead and not a ghost", a corpse object may well exist, so no
+        // GetCorpse() precondition here (that hole stranded the 11:50 wave).
+        // Mirror AutoReleaseSpiritAction (dungeon crew waits for its own rez).
+        if (!isGhost)
+        {
+            if (deadFor < DEAD_RELEASE_GRACE_SEC)
+                continue;
+            m_deadSince.erase(it);
+            WorldPacket packet(CMSG_REPOP_REQUEST);
+            packet << uint8(0);
+            p->GetSession()->HandleRepopRequestOpcode(packet);
+            if (p->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST))
+                ++released;
+            continue;
+        }
+        // Ghost standing on its corpse: the reclaim never fires (starved AI
+        // tick or a dropped reclaim). Same rescue the AI spirit-healer path
+        // runs, without needing the AI: resurrect at half health, spawn bones,
+        // clear the corpse run so the next death starts clean.
+        if (p->GetCorpse() &&
+            p->GetCorpse()->IsWithinDistInMap(p, (float)CORPSE_RECLAIM_RADIUS, true))
+        {
+            if (deadFor < DEAD_REVIVE_GRACE_SEC)
+                continue;
+            m_deadSince.erase(it);
+            p->ResurrectPlayer(0.5f, false);
+            p->SpawnCorpseBones();
+            p->SaveToDB();
+            ++revived;
+            continue;
+        }
+        // Ghost walking its corpse run, or corpse in reclaim delay: leave it
+        // to the normal AI path.
+    }
+    for (auto it = m_deadSince.begin(); it != m_deadSince.end();)
+    {
+        if (m_bots.find(it->first) == m_bots.end())
+            it = m_deadSince.erase(it);
+        else
+            ++it;
+    }
+    // One counted line per sweep (outString is visible at default log level;
+    // outDetail is not, which left the first version of this sweep blind).
+    sLog.outString("TortoiseBots: dead sweep: watching %u dead, released %u, revived %u",
+        watched, released, revived);
+}
 
 bool BotManager::RelocateHopelessBot(::Player* bot)
 {
@@ -1589,11 +1692,29 @@ void BotManager::UpdateBots(uint32_t diff)
     for (uint32_t guidLow : playerGuids)
         updateOneBot(guidLow);
 
-    // Pass 2: the pool, resuming at the rotation cursor. The budget is checked
+    // Pass 2: pool bots in combat, always, before the rotation. A bot that is
+    // fighting (or just died: IsInCombat lingers through death, so the death
+    // pipeline gets its tick too) must never wait ~40 passes for its turn: no
+    // heal, no flee, no revive between ticks is how the silent-death wave
+    // happens. The check is one FindPlayer + flag read per pool bot, no DB, no
+    // allocation; idle bots lose nothing, they share whatever budget remains
+    // exactly as before.
+    for (auto const& kv : m_bots)
+    {
+        BotEntry const& entry = kv.second;
+        if (entry.record.lifecycle != BotLifecycle::InWorld || entry.record.masterGuid.IsEmpty() == false)
+            continue;
+        if (IsPlayerOwnedBot(ClassifyBot(entry)))
+            continue;
+        ::Player* p = sObjectAccessor.FindPlayer(entry.record.characterGuid);
+        if (p && p->IsInCombat())
+            updateOneBot(kv.first);
+    }
+    // Pass 3: the pool, resuming at the rotation cursor. The budget is checked
     // between bots (so a pass can overshoot by one bot's work, the
     // AhMarketService convention) and only engages once the previous world
-    // tick ran long; a healthy tick gives the pool the same full pass it
-    // always got.
+    // always got. Bots already served by pass 2 simply get a second tick when
+    // the rotation reaches them; correctness first, the rotation stays fair.
     uint32_t const playerBots = static_cast<uint32_t>(playerGuids.size());
     uint32_t const poolBots = m_poolRotation.Size();
     uint64_t const budgetUs = sPlayerbotAIConfig.poolTickBudgetUs;
@@ -1785,6 +1906,7 @@ void BotManager::OnWorldUpdate(uint32_t diff)
     PlayerbotAI::ProcessDelayedPackets();
     sRandomBotFacade.SyncNativePlayers();
     UpdateBots(diff);
+    SweepDeadBots(diff);
     SweepStrandedBots(diff);
 
     if (m_autoTestEnabled)

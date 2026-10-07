@@ -3,6 +3,7 @@
 #include "Common.h"
 #include <cstdint>
 #include <map>
+#include <unordered_map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -194,7 +195,7 @@ private:
     uint64 m_sessionId;
     uint64 m_snapshotSeq;
 
-    std::map<uint32, BotTrackState> m_botTracking;
+    std::unordered_map<uint32, BotTrackState> m_botTracking;
 
     // Optional roster contributor from another module (world thread only).
     std::function<void(std::vector<Player*>&)> m_externalRosterProvider;
@@ -207,10 +208,10 @@ private:
         bool reported = false;
         uint32 lastReportMs = 0;
     };
-    std::map<std::string, ActionFailureRecord> m_actionFailures;
+    std::unordered_map<std::string, ActionFailureRecord> m_actionFailures;
 
     // key = guid << 8 | anomaly type id
-    std::map<uint64, uint32> m_anomalyCooldowns;
+    std::unordered_map<uint64, uint32> m_anomalyCooldowns;
 
     // Rolling macro-state histogram: kStateBuckets buckets of kStateBucketMs
     // each, one column per state. Ratios therefore describe the recent window

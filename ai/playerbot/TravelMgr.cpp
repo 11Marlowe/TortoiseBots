@@ -2647,6 +2647,9 @@ bool TravelMgr::IsLocationLevelValid(const WorldPosition& position, const Player
         botLevel -= (int32)(2 + info.GetUint32Value("death count"));
     }
 
+    if (info.IsMasterlessRandom() && position.GetMapId() != info.getPosition().GetMapId())
+        return false;
+
     if (botLevel < 1)
         botLevel = 1;
 

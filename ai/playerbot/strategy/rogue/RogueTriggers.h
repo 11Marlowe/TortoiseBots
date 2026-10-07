@@ -233,13 +233,33 @@ namespace ai
     class ApplyPoisonTrigger : public Trigger
     {
     public:
-        ApplyPoisonTrigger(PlayerbotAI* ai, bool inMainHand, const std::vector<uint32>& inPoisonEnchantIds, std::string name = "apply poison")
+        ApplyPoisonTrigger(PlayerbotAI* ai, bool inMainHand, const std::vector<uint32>& inPoisonEnchantIds, const std::vector<uint32>& inPoisonItemIds, std::string name = "apply poison")
         : Trigger(ai, name, 5)
         , mainHand(inMainHand)
-        , poisonEnchantIds(inPoisonEnchantIds) {}
+        , poisonEnchantIds(inPoisonEnchantIds)
+        , poisonItemIds(inPoisonItemIds) {}
+
+        bool HasPoisonItem() const
+        {
+            if (ai->HasCheat(BotCheatMask::item))
+                return true;
+            for (const uint32 itemId : poisonItemIds)
+            {
+                const ItemPrototype* proto = sObjectMgr.GetItemPrototype(itemId);
+                if (proto && (bot->GetLevel() >= proto->RequiredLevel))
+                {
+                    if (bot->HasItemCount(itemId, 1))
+                        return true;
+                }
+            }
+            return false;
+        }
 
         bool IsActive() override
         {
+            if (!HasPoisonItem())
+                return false;
+
             Item* weapon = mainHand ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND) : bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
             if (weapon)
             {
@@ -259,36 +279,37 @@ namespace ai
     private:
         bool mainHand;
         std::vector<uint32> poisonEnchantIds;
+        std::vector<uint32> poisonItemIds;
     };
 
     class ApplyDeadlyPoisonTrigger : public ApplyPoisonTrigger
     {
     public:
-        ApplyDeadlyPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 7, 8, 626, 627, 2630, 2642, 2643, 3770, 3771 }, "apply deadly poison main hand") {}
+        ApplyDeadlyPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 7, 8, 626, 627, 2630, 2642, 2643, 3770, 3771 }, { 2892, 2893, 8984, 8985, 20844, 22053, 22054 }, "apply deadly poison main hand") {}
     };
 
     class ApplyCripplingPoisonTrigger : public ApplyPoisonTrigger
     {
     public:
-        ApplyCripplingPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 22, 603 }, "apply crippling poison main hand") {}
+        ApplyCripplingPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 22, 603 }, { 3775, 3776 }, "apply crippling poison main hand") {}
     };
 
     class ApplyMindPoisonTrigger : public ApplyPoisonTrigger
     {
     public:
-        ApplyMindPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 35, 23, 643 }, "apply mind poison main hand") {}
+        ApplyMindPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 35, 23, 643 }, { 5237, 6951, 9186 }, "apply mind poison main hand") {}
     };
 
     class ApplyInstantPoisonTrigger : public ApplyPoisonTrigger
     {
     public:
-        ApplyInstantPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 323, 324, 325, 623, 624, 625, 2641, 3768, 3769 }, "apply instant poison main hand") {}
+        ApplyInstantPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 323, 324, 325, 623, 624, 625, 2641, 3768, 3769 }, { 6947, 6949, 6950, 8926, 8927, 8928, 21927 }, "apply instant poison main hand") {}
     };
 
     class ApplyWoundPoisonTrigger : public ApplyPoisonTrigger
     {
     public:
-        ApplyWoundPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 703, 704, 705, 706, 2644, 3772, 3773 }, "apply wound poison main hand") {}
+        ApplyWoundPoisonTrigger(PlayerbotAI* ai, bool inMainHand) : ApplyPoisonTrigger(ai, inMainHand, { 703, 704, 705, 706, 2644, 3772, 3773 }, { 10918, 10920, 10921, 10922, 22055 }, "apply wound poison main hand") {}
     };
 
     // Donor parity (mod-playerbots RogueTriggers.h): plain "is the weapon

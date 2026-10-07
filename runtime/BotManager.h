@@ -229,12 +229,21 @@ private:
     enum class AutoState { Idle, LoggingIn, InWorld, Saving, LoggingOut, Relogging, CleaningUp, Done };
     AutoState m_autoState = AutoState::Idle;
     bool m_autoTestPassed = false;
-
     bool m_packetTestEnabled = false;
     uint32_t m_packetTestAccount = 0;
     ObjectGuid m_packetTestMasterGuid;
     ObjectGuid m_packetTestBotGuid;
     uint32_t m_packetTestTicks = 0;
+    // Dead-bot sweep (module-side safety net, independent of the pool AI
+    // rotation): releases stuck corpses and revives stalled ghosts that never
+    // got an AI tick. Own cadence from OnWorldUpdate, so a starved pool budget
+    // cannot strand the dead.
+    void SweepDeadBots(uint32_t diff);
+    uint32_t m_deadSweepElapsedMs = 0;
+    // First-seen timestamps (time(nullptr)) for dead bots awaiting release /
+    // revive. A bot seen alive (or gone) drops out; only a bot dead across the
+    // whole grace window is touched. Key = guid counter.
+    std::unordered_map<uint32_t, time_t> m_deadSince;
     void SweepStrandedBots(uint32_t diff);
     uint32_t m_strandedSweepElapsedMs = 0;
     std::unordered_map<uint32_t, time_t> m_strandedSince; // key = guid counter

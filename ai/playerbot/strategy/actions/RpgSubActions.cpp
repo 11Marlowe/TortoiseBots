@@ -30,7 +30,7 @@ void RpgHelper::BeforeExecute()
 
 void RpgHelper::AfterExecute(bool doDelay, bool waitForGroup, std::string nextAction)
 {
-    uint32 goToDifferentTargetChance = 10;
+    uint32 goToDifferentTargetChance = 50;
     if (ai->HasRealPlayerMaster() || bot->GetGroup())
         goToDifferentTargetChance = 30;
 

@@ -936,9 +936,14 @@ void ObservabilityEmitter::Update(uint32 diff)
         Unit* combatTarget = bot->GetSelectedUnit();
         if (state == STATE_COMBAT && combatTarget && sServerFacade.IsHostileTo(bot, combatTarget))
         {
-            bool inLos = bot->IsWithinLOSInMap(combatTarget, true);
             float dist = bot->GetDistance(combatTarget);
-            bool unreachable = (!inLos || dist > 45.0f);
+            bool inLos = true;
+            bool unreachable = (dist > 45.0f);
+            if (!unreachable && (track.unreachableDurationMs > 0 || track.lastSampleMs == nowMs))
+            {
+                inLos = bot->IsWithinLOSInMap(combatTarget, true);
+                unreachable = !inLos;
+            }
 
             if (unreachable)
             {
