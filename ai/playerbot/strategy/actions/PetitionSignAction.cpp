@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "PetitionSignAction.h"
+#include "../../../runtime/HireLifecycle.h"
 
 using namespace ai;
 
@@ -32,6 +33,12 @@ bool PetitionSignAction::Execute(Event& event)
         if (bot->GetGuildIdInvited())
         {
             ai->TellError(requester, "Sorry, I am invited to a guild already");
+            accept = false;
+        }
+
+        if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
+        {
+            ai->TellError(requester, "I am a hired mercenary and cannot sign a guild charter.");
             accept = false;
         }
 

@@ -6,6 +6,7 @@
 #include "Guild/GuildMgr.h"
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../runtime/HireLifecycle.h"
 
 using namespace ai;
 
@@ -44,6 +45,15 @@ bool GuildAcceptAction::Execute(Event& event)
 
         if (sServerFacade.getDistance2d(bot, inviter) < sPlayerbotAIConfig.spellDistance * 1.5 && PlayerbotAIStorage::Instance().GetAI(inviter))
             bot->Say(BOT_TEXT2("Sorry, I am in a guild already %name.", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+
+        accept = false;
+    }
+    else if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
+    {
+        ai->TellError(requester, "I am a hired mercenary and cannot join a guild.");
+
+        if (sServerFacade.getDistance2d(bot, inviter) < sPlayerbotAIConfig.spellDistance * 1.5 && PlayerbotAIStorage::Instance().GetAI(inviter))
+            bot->Say(BOT_TEXT2("I am a hired mercenary and cannot join a guild %name.", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
 
         accept = false;
     }
@@ -96,9 +106,10 @@ bool GuildAcceptAction::Execute(Event& event)
             uint32 botGuidLow = bot->GetGUIDLow();
             bool const isAlreadyClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(botGuidLow);
             bool const isOpposingFaction = bot->GetTeam() != inviter->GetTeam();
-            if (!TortoiseBots::MayClaimBot(true, true, isAlreadyClaimed, isOpposingFaction))
+            bool const isHired = TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+            if (!TortoiseBots::MayClaimBot(true, true, isAlreadyClaimed, isOpposingFaction, isHired))
             {
-                sLog.outBasic("TortoiseBots: claim refused for bot %u (already claimed or opposing faction)", botGuidLow);
+                sLog.outBasic("TortoiseBots: claim refused for bot %u (already claimed, opposing faction, or hired)", botGuidLow);
             }
             else if (TortoiseBots::ClaimLifecycle::Instance().Claim(botGuidLow, inviterAccountId, inviterGuidLow, guildId))
             {
