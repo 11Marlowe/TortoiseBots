@@ -8,11 +8,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "tools/observability/**"
-      - "runtime/ObservabilityEmitter.cpp"
-      - "runtime/ObservabilityEmitter.h"
-      - ".github/workflows/dashboard-binaries.yml"
+    paths-ignore:
+      - 'CHANGELOG.md'
+      - 'VERSION'
   workflow_dispatch:
 
 permissions:

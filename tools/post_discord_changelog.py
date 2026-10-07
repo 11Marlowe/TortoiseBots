@@ -111,7 +111,7 @@ def main():
 
     for idx, chunk in enumerate(chunks, start=1):
         embed_title = f"🐢 {args.title}"
-        if args.tag:
+        if args.tag and args.tag not in args.title and args.tag.lstrip("v") not in args.title:
             embed_title += f" • {args.tag}"
         if total_parts > 1:
             embed_title += f" (Part {idx}/{total_parts})"
