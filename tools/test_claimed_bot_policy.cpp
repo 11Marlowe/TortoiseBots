@@ -1,4 +1,4 @@
-#include "runtime/ClaimedBotPolicy.h"
+#include "../runtime/ClaimedBotPolicy.h"
 
 #include <cassert>
 #include <iostream>

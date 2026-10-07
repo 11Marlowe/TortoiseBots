@@ -50,6 +50,15 @@ bool ClaimLifecycle::Claim(uint32_t botGuidLow, uint32_t ownerAccountId, uint32_
     if (!botGuidLow || !ownerPlayerGuidLow || !guildId)
         return false;
 
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (m_claimedByBotGuid.find(botGuidLow) != m_claimedByBotGuid.end())
+        {
+            sLog.outError("TortoiseBots: claim refused for already-claimed bot %u (no steal)", botGuidLow);
+            return false;
+        }
+    }
+
     ClaimedBotRecord record;
     record.botGuidLow = botGuidLow;
     record.ownerAccountId = ownerAccountId;
@@ -57,7 +66,7 @@ bool ClaimLifecycle::Claim(uint32_t botGuidLow, uint32_t ownerAccountId, uint32_
     record.guildId = guildId;
 
     if (!CharacterDatabase.DirectPExecute(
-            "REPLACE INTO `tortoise_bots_claimed` "
+            "INSERT INTO `tortoise_bots_claimed` "
             "(`bot_guid`, `owner_account_id`, `owner_player_guid`, `guild_id`) "
             "VALUES ('%u', '%u', '%u', '%u')",
             botGuidLow, ownerAccountId, ownerPlayerGuidLow, guildId))

@@ -5,6 +5,7 @@
 #include "playerbot/RandomBotFacade.h"
 #include "Guild/GuildMgr.h"
 #include "../../../runtime/ClaimLifecycle.h"
+#include "../../../runtime/ClaimedBotPolicy.h"
 
 using namespace ai;
 
@@ -83,14 +84,26 @@ bool GuildAcceptAction::Execute(Event& event)
 
         TalentSpec::SetPublicNote(bot);
 
-        // Issue #489: Claim a wandering world bot into the player's guild
+        // Issue #489: Claim a wandering world bot into the player's guild.
+        // The bot already passed the unguilded gates above (inviter has a guild,
+        // bot has none). Enforce the remaining MayClaimBot gates here: pool bot,
+        // not already claimed, same faction.
         if (inviter && inviter->GetSession() && !inviter->GetSession()->IsHeadless() &&
             sRandomBotFacade.IsRandomBot(bot))
         {
             uint32 inviterAccountId = inviter->GetSession()->GetAccountId();
             uint32 inviterGuidLow = inviter->GetGUIDLow();
-            TortoiseBots::ClaimLifecycle::Instance().Claim(bot->GetGUIDLow(), inviterAccountId, inviterGuidLow, guildId);
-            ai->Whisper("I am honored to join your guild! I will keep my gear ready for your raids.", inviter->GetName());
+            uint32 botGuidLow = bot->GetGUIDLow();
+            bool const isAlreadyClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(botGuidLow);
+            bool const isOpposingFaction = bot->GetTeam() != inviter->GetTeam();
+            if (!TortoiseBots::MayClaimBot(true, true, isAlreadyClaimed, isOpposingFaction))
+            {
+                sLog.outBasic("TortoiseBots: claim refused for bot %u (already claimed or opposing faction)", botGuidLow);
+            }
+            else if (TortoiseBots::ClaimLifecycle::Instance().Claim(botGuidLow, inviterAccountId, inviterGuidLow, guildId))
+            {
+                ai->Whisper("I am honored to join your guild! I will keep my gear ready for your raids.", inviter->GetName());
+            }
         }
 
         sPlayerbotAIConfig.logEvent(ai, "GuildAcceptAction", guild->GetName(), std::to_string(guild->GetMemberSize()));
