@@ -14,6 +14,11 @@
 ### Guild Bots & Roster
 - Claimed Guild Bots now use a dedicated policy: level 60 gear locks preserve equipped gear, guild members get full control, and roster state streams over the TBM protocol. Verified clean via `verify_all.sh`, standalone claimed-policy tests, and cached mangosd build. [#523](https://github.com/Sagiroth/TortoiseBots/pull/523)
 
+### Observability & Engine
+- CI now runs `go vet` + `go test` and ships static `tortoise-observability-linux-amd64` / `-windows-amd64.exe` binaries, uploaded to per-merge tags and the daily `vYYYY-MM-DD` release — no more manual `go run` to get the dashboard up for external builds. [#524](https://github.com/Sagiroth/TortoiseBots/pull/524)
+- The build also triggers on changes to `runtime/ObservabilityEmitter.*`, keeping the wire protocol and dashboard binaries in lockstep. [#524](https://github.com/Sagiroth/TortoiseBots/pull/524)
+- New `tools/observability/run-dashboard.sh` / `.ps1` helpers pull the binary straight from the release and auto-read `LoginDatabase.Info` / `WorldDatabase.Info` / `CharacterDatabase.Info` from `mangosd.conf`, so setup works without Docker or a local Go toolchain. [#524](https://github.com/Sagiroth/TortoiseBots/pull/524)
+
 ## 2026-10-06
 
 ### Observability & Engine
