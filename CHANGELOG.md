@@ -11,6 +11,9 @@
 - Write-mode bot logs now preserve one previous run as `<filename>.1`, including `bot_events.csv`, so restart no longer truncates evidence needed for live troubleshooting. [#522](https://github.com/Sagiroth/TortoiseBots/pull/522)
 - Rotation runs once per filename per process, leaving the previous run intact across later dump refreshes; failed rotation refuses the destructive open, and append-only logs/CSV formats remain unchanged. [#522](https://github.com/Sagiroth/TortoiseBots/pull/522)
 
+### Guild Bots & Roster
+- Claimed Guild Bots now use a dedicated policy: level 60 gear locks preserve equipped gear, guild members get full control, and roster state streams over the TBM protocol. Verified clean via `verify_all.sh`, standalone claimed-policy tests, and cached mangosd build. [#523](https://github.com/Sagiroth/TortoiseBots/pull/523)
+
 ## 2026-10-06
 
 ### Observability & Engine
