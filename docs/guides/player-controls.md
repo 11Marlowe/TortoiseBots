@@ -279,3 +279,5 @@ pre-battleground group, or an older module — and for every hand-typed command.
 
 Hand-typed `.bot` commands keep their chat replies, so the CLI and macro surface
 is unchanged.
+
+Hazard avoidance preserves accepted waypoint detours in the path sent to movement. If neither side is valid, it does not invent a replacement waypoint.

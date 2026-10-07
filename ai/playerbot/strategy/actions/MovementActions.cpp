@@ -2130,6 +2130,7 @@ bool MovementAction::GeneratePathAvoidingHazards(std::vector<WorldPosition>& mov
         else
         {
             firstPoint = false;
+            movePath[i] = pathPoint;
             previousPosition.x = pathPoint.getX();
             previousPosition.y = pathPoint.getY();
             previousPosition.z = pathPoint.getZ();
