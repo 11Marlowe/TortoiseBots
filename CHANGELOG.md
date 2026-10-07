@@ -28,6 +28,12 @@
 ### Login & Chat Polish
 - Follow-up polish for in-game login/chat messages after #524 to clean up player-facing text. [#525](https://github.com/Sagiroth/TortoiseBots/pull/525)
 
+### Guild Systems & Hired Bots
+
+- Hired mercenary bots now refuse guild invitations: `/ginvite` gets a polite "I am a hired mercenary and cannot join a guild." and the invite packet is declined immediately. [#526](https://github.com/Sagiroth/TortoiseBots/pull/526)
+- Hired bots can no longer be used to sign guild charters (`MSG_PETITION_SHOW_SIGNATURES`), closing a loophole around guild creation requirements. [#526](https://github.com/Sagiroth/TortoiseBots/pull/526)
+- Hardened the `MayClaimBot` policy gate in `runtime/ClaimedBotPolicy.h` to reject hired bots as defense-in-depth, with matching unit test coverage in `tools/test_claimed_bot_policy.cpp`. [#526](https://github.com/Sagiroth/TortoiseBots/pull/526)
+
 ## 2026-10-06
 
 ### Observability & Engine
