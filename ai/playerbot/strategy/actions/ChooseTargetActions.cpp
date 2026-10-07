@@ -7,6 +7,7 @@
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "playerbot/PullRegenPolicy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/strategy/values/GrindTargetValue.h"
 #include <map>
 
 bool DpsAssistAction::isUseful()
@@ -109,6 +110,10 @@ bool ai::AttackAnythingAction::isPossible()
 
 bool ai::AttackAnythingAction::Execute(Event& event)
 {
+    // Recheck cached picks before AttackAction can arm a target or start moving.
+    if (!GrindTargetValue::IsAllowedInstanceTarget(ai, GetTarget()))
+        return false;
+
     bool result = AttackAction::Execute(event);
     if (result)
     {

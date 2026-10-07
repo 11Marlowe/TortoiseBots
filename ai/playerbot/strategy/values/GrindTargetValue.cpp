@@ -1,6 +1,8 @@
 
 #include "playerbot/playerbot.h"
 #include "GrindTargetValue.h"
+#include "playerbot/GroupMembers.h"
+#include "RtiTargetValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
 #include "playerbot/ServerFacade.h"
@@ -29,6 +31,37 @@ int MaxGrindLevelOverBot(Player* bot, PlayerbotAI* ai)
 {
     return ai::PullGrindLevelCap(bot->GetLevel(), ai->HasRealPlayerMaster());
 }
+}
+
+bool GrindTargetValue::IsAllowedInstanceTarget(PlayerbotAI* ai, Unit* target)
+{
+    if (!target) return false;
+    Player* bot = ai->GetBot();
+    Group* group = bot->GetGroup();
+    Player* master = ai->GetMaster();
+    if (!group || !ai->HasRealPlayerMaster() || !master || master->GetGroup() != group ||
+        !bot->IsInWorld() || !bot->GetMap()->IsDungeon())
+        return true;
+
+    AiObjectContext* context = ai->GetAiObjectContext();
+    if (AI_VALUE(ObjectGuid, "explicit attack target") == target->GetObjectGuid()) return true;
+    int const mark = RtiTargetValue::GetRtiIndex(AI_VALUE(std::string, "rti"));
+    if (mark >= 0 && ObjectGuid(group->GetTargetIcon(mark)) == target->GetObjectGuid()) return true;
+
+    // A global combat flag can belong to another party. Require this group's
+    // actual victim/threat relationship, never a stale autonomous attack order.
+    if (!target->IsInCombat() || !target->IsInMap(bot)) return false;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (!member->IsInWorld() || !member->IsAlive() || !member->IsInMap(bot)) continue;
+        auto engaged = [target](Unit* unit)
+        {
+            return unit && (target->GetVictim() == unit || unit->GetVictim() == target ||
+                target->GetThreatManager().getThreat(unit) > 0.0f);
+        };
+        if (engaged(member) || engaged(member->GetPet())) return true;
+    }
+    return false;
 }
 
 Unit* GrindTargetValue::Calculate()
@@ -106,7 +139,7 @@ Unit* GrindTargetValue::FindTargetForGrinding(int assistCount)
     for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); i++)
     {
         Unit* unit = ai->GetUnit(*i);
-        if (!unit || !sServerFacade.IsAlive(unit))
+        if (!unit || !sServerFacade.IsAlive(unit) || !IsAllowedInstanceTarget(ai, unit))
             continue;
 
         // Belt and braces: "possible attack targets" is built from "attackers", which
@@ -185,7 +218,7 @@ Unit* GrindTargetValue::FindTargetForGrinding(int assistCount)
     for (std::list<ObjectGuid>::iterator tIter = targets.begin(); tIter != targets.end(); tIter++)
     {
         Unit* unit = ai->GetUnit(*tIter);
-        if (!unit)
+        if (!unit || !IsAllowedInstanceTarget(ai, unit))
             continue;
 
 
@@ -394,7 +427,7 @@ Unit* GrindTargetValue::FindIdleFallbackTarget()
 
     for (Unit* unit : units)
     {
-        if (!unit || !sServerFacade.IsAlive(unit))
+        if (!unit || !sServerFacade.IsAlive(unit) || !IsAllowedInstanceTarget(ai, unit))
             continue;
 
         Creature* creature = dynamic_cast<Creature*>(unit);
