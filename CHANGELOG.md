@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-10-07
+
+### Combat & AI
+- Four Horsemen mark comments in `DungeonTriggers.h` and `ReactionStrategy.cpp` now match reality: marks only trigger at 3+ stacks and map to a generic "move away from hazard" action — no rotation, no tank assignment, no safety check was ever implemented. Comment-only change; no behavior impact, but nobody should build expectations on a phantom rotation. [#520](https://github.com/Sagiroth/TortoiseBots/pull/520)
+
+---
+
 ## 2026-10-06
 
 ### Observability & Engine
