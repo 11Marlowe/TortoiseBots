@@ -34,6 +34,16 @@
 - Hired bots can no longer be used to sign guild charters (`MSG_PETITION_SHOW_SIGNATURES`), closing a loophole around guild creation requirements. [#526](https://github.com/Sagiroth/TortoiseBots/pull/526)
 - Hardened the `MayClaimBot` policy gate in `runtime/ClaimedBotPolicy.h` to reject hired bots as defense-in-depth, with matching unit test coverage in `tools/test_claimed_bot_policy.cpp`. [#526](https://github.com/Sagiroth/TortoiseBots/pull/526)
 
+### Observability & Engine
+
+- Cut ObservabilityEmitter line-of-sight cost: targets beyond 45yd short-circuit and VMap raycasts are now sampled, eliminating 140+ raycasts per world tick. [#527](https://github.com/Sagiroth/TortoiseBots/pull/527)
+- Telemetry tracking maps switched to `std::unordered_map` for constant-time lookups, removing per-lookup scan overhead. [#527](https://github.com/Sagiroth/TortoiseBots/pull/527)
+
+### World, Travel & Pathing
+
+- Masterless random bots can no longer pick cross-map travel destinations (trainers, vendors, grind spots) via `IsLocationLevelValid`, killing cross-continent pathing failures and wedged retry loops. [#527](https://github.com/Sagiroth/TortoiseBots/pull/527)
+- Travel and RPG priorities are now aligned so `ChooseRpgTarget` no longer hijacks an in-progress travel decision and leaves bots thrashing between goals. [#527](https://github.com/Sagiroth/TortoiseBots/pull/527)
+
 ## 2026-10-06
 
 ### Observability & Engine
