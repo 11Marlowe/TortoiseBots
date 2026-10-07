@@ -71,7 +71,7 @@ constexpr char const* kModuleLicence = "AGPL-3.0";
 
 inline std::string AttributionLine()
 {
-    return std::string("TortoiseBots by ") + kModuleAuthor + " - " + kModuleSourceUrl +
+    return std::string("by ") + kModuleAuthor + " - " + kModuleSourceUrl +
         " (" + kModuleLicence + ", source available)";
 }
 

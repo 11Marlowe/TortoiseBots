@@ -23,7 +23,7 @@ while [[ $# -gt 0 ]]; do
     --tag=*) TAG="${1#*=}" ;;
     --tag) shift; TAG="${1:?missing tag}" ;;
     -h|--help)
-      sed -n '2,9p' "$0"
+      sed -n '2,14p' "$0"
       exit 0
       ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;

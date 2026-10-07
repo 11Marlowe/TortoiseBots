@@ -3862,7 +3862,6 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleStrategy(handler, subArgs);
     if (cmd == "help" || cmd == "h")
     {
-        handler->PSendSysMessage("TortoiseBots: Enabled");
         handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
         return true;
     }
