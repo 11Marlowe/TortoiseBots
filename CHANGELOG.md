@@ -19,6 +19,15 @@
 - The build also triggers on changes to `runtime/ObservabilityEmitter.*`, keeping the wire protocol and dashboard binaries in lockstep. [#524](https://github.com/Sagiroth/TortoiseBots/pull/524)
 - New `tools/observability/run-dashboard.sh` / `.ps1` helpers pull the binary straight from the release and auto-read `LoginDatabase.Info` / `WorldDatabase.Info` / `CharacterDatabase.Info` from `mangosd.conf`, so setup works without Docker or a local Go toolchain. [#524](https://github.com/Sagiroth/TortoiseBots/pull/524)
 
+### CI & Release
+- Dashboard binaries workflow now uses `paths-ignore: ['CHANGELOG.md', 'VERSION']` instead of a path inclusion filter, so daily `vYYYY-MM-DD` release tags reliably build and attach static dashboard binaries. [#525](https://github.com/Sagiroth/TortoiseBots/pull/525)
+
+### Discord & Tooling
+- Discord changelog poster avoids appending ` • {tag}` when the title already contains the release tag or date, preventing duplicate headers. [#525](https://github.com/Sagiroth/TortoiseBots/pull/525)
+
+### Login & Chat Polish
+- Follow-up polish for in-game login/chat messages after #524 to clean up player-facing text. [#525](https://github.com/Sagiroth/TortoiseBots/pull/525)
+
 ## 2026-10-06
 
 ### Observability & Engine
