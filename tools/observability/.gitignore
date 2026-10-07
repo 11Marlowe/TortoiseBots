@@ -1,4 +1,8 @@
 tortoise-observability
+tortoise-observability-linux-amd64
+tortoise-observability.tag
 *.exe
 *.test
 *.out
+.icon-cache/
+dashboard.log

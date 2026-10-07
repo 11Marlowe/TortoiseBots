@@ -1,0 +1,92 @@
+name: Dashboard binaries
+
+# Prebuilt tortoise-observability binaries for operators who build core +
+# module themselves and have no Go toolchain. Runs per merge (per-merge tag)
+# and attaches linux/windows binaries to the daily release (vYYYY-MM-DD).
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/observability/**"
+      - "runtime/ObservabilityEmitter.cpp"
+      - "runtime/ObservabilityEmitter.h"
+      - ".github/workflows/dashboard-binaries.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build dashboard binaries
+        working-directory: tools/observability
+        run: |
+          go vet ./...
+          go test ./...
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tortoise-observability-linux-amd64 ./cmd/server
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o tortoise-observability-windows-amd64.exe ./cmd/server
+          ls -la tortoise-observability-*
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: tortoise-observability
+          path: |
+            tools/observability/tortoise-observability-linux-amd64
+            tools/observability/tortoise-observability-windows-amd64.exe
+
+      - name: Compute per-merge build version
+        id: version
+        run: |
+          python3 tools/generate_changelog.py \
+            --out-version /tmp/VERSION \
+            --out-build-number /tmp/build_number.txt \
+            --dry-run
+          echo "build_version=$(cat /tmp/VERSION)" >> "$GITHUB_OUTPUT"
+          echo "release_tag=v$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Attach binaries to per-merge tag and daily release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BUILD_VERSION="${{ steps.version.outputs.build_version }}"
+          RELEASE_TAG="${{ steps.version.outputs.release_tag }}"
+          # Per-merge tag (created by the changelog workflow on the same push;
+          # retry briefly in case this job wins the race).
+          for i in 1 2 3 4 5 6; do
+            if git rev-parse "$BUILD_VERSION" >/dev/null 2>&1; then
+              break
+            fi
+            sleep 10
+            git fetch --tags origin main
+          done
+          if git rev-parse "$BUILD_VERSION" >/dev/null 2>&1; then
+            gh release upload "$BUILD_VERSION" \
+              tools/observability/tortoise-observability-linux-amd64 \
+              tools/observability/tortoise-observability-windows-amd64.exe \
+              --clobber
+          else
+            echo "::warning::per-merge tag $BUILD_VERSION not found; skipping its upload"
+          fi
+          # Daily release (created/edited by the changelog workflow).
+          if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              tools/observability/tortoise-observability-linux-amd64 \
+              tools/observability/tortoise-observability-windows-amd64.exe \
+              --clobber
+          else
+            echo "::warning::daily release $RELEASE_TAG not found yet; binaries stay on $BUILD_VERSION"
+          fi
