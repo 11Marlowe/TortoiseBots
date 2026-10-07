@@ -17,6 +17,8 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "HireGroupAdapter.h"
 // pi-lens-ignore: clang:pp_file_not_found
+#include "ClaimGuildAdapter.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "WorldBuffKillAdapter.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "WorldBuffAuraAdapter.h"
@@ -39,6 +41,8 @@ void RegisterScripts()
     // Issue #192: on-demand companion hiring (module-only gossip + group hooks).
     new HireRecruiterAdapter();
     new HireGroupAdapter();
+    // Issue #489: guild departure / disband hooks for claimed bots.
+    new ClaimGuildAdapter();
     // Issue #492: Onyxia/Nefarian -> invisible Rally credit for the group.
     new WorldBuffKillAdapter();
     // Issue #492: aura-gain unlocks (receiver only, recruiter casters out).

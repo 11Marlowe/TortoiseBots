@@ -8,6 +8,8 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/ItemCountValue.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
+#include "../../../runtime/ClaimLifecycle.h"
+#include "../../../runtime/ClaimedBotPolicy.h"
 
 using namespace ai;
 
@@ -407,6 +409,11 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
 bool EquipUpgradesAction::Execute(Event& event)
 {
     if (!sPlayerbotAIConfig.autoEquipUpgradeLoot && !sRandomBotFacade.IsRandomBot(bot))
+        return false;
+
+    // Issue #489: Claimed bots at max level (60) NEVER auto-replace gear on their own
+    bool const isClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow());
+    if (!TortoiseBots::MayClaimedBotSelfEquip(bot->GetLevel(), isClaimed))
         return false;
 
     // Worn gear is never touched in combat. This action is reachable from the

@@ -4,6 +4,7 @@
 #include "../runtime/BotManager.h"
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/HireLifecycle.h"
+#include "../runtime/ClaimLifecycle.h"
 #include "../runtime/HireProvisionService.h"
 #include "BotCommandContext.h"
 #include "../behavior/PlayerConvenience.h"
@@ -1956,6 +1957,45 @@ static bool HandleRoster(ChatHandler* handler)
         handler->PSendSysMessage("TBM:CC_ASSIGN|%s|%s", ProtocolSafe(assignment.first).c_str(),
             ProtocolSafe(assignment.second).c_str());
     handler->PSendSysMessage("TBM:CC_ASSIGN_END");
+    // Issue #489: Claimed guild bots snapshot for the player's raid roster
+    std::vector<uint32> claimedGuids = ClaimLifecycle::Instance().GetClaimedBotsForPlayer(requester->GetGUIDLow());
+    handler->PSendSysMessage("TBM:CLAIMED_BEGIN|%u", static_cast<uint32>(claimedGuids.size()));
+    for (uint32 botGuidLow : claimedGuids)
+    {
+        ObjectGuid botGuid(HIGHGUID_PLAYER, botGuidLow);
+        Player* player = sObjectAccessor.FindPlayer(botGuid);
+        BotRecord* record = BotManager::Instance().FindBot(botGuid);
+        std::string name = "-";
+        uint32 classId = 0;
+        uint32 level = 0;
+        uint32 mapId = 0, zoneId = 0, areaId = 0;
+        uint32 grouped = 0;
+        uint32 gearLocked = 0;
+
+        if (player)
+        {
+            name = player->GetName();
+            classId = player->GetClass();
+            level = player->GetLevel();
+            mapId = player->GetMapId();
+            zoneId = player->GetZoneId();
+            areaId = player->GetAreaId();
+            grouped = requester->GetGroup() && requester->GetGroup()->IsMember(botGuid) ? 1u : 0u;
+            gearLocked = (level >= 60) ? 1u : 0u;
+        }
+        else if (PlayerCacheData const* data = sObjectMgr.GetPlayerDataByGUID(botGuidLow))
+        {
+            name = data->sName;
+        }
+
+        std::string state = RosterState(player, record);
+        handler->PSendSysMessage("TBM:CLAIMED|%u|%s|%u|%u|%s|%u|%s|%u",
+            botGuidLow, ProtocolSafe(name).c_str(), classId, level,
+            ProtocolSafe(state).c_str(), grouped,
+            ProtocolSafe(RosterLocation(mapId, zoneId, areaId)).c_str(),
+            gearLocked);
+    }
+    handler->PSendSysMessage("TBM:CLAIMED_END");
     // Live behaviour snapshot for the controllable party bots (owned alts
     // and hired companions alike): drives the addon's toggle states and the
     // Party tab movement label. BEGIN/END replace the addon's whole set.
@@ -1976,7 +2016,7 @@ static bool HandleRoster(ChatHandler* handler)
     // (".bot action pull [seconds]", 0-60); flee = ".bot action flee";
     // inventory = ".bot inv" / ".bot item"; behavior = ".bot behavior" and the
     // BOTSTATE snapshot. Old addons ignore unknown lines and items.
-    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior");
+    handler->PSendSysMessage("TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster");
     // Transport trailer: the addon sends its next commands over the addon
     // channel only while this says "party". See AddonCommandChannel.
     handler->PSendSysMessage("TBM:TRANSPORT|%s", AddonCommandChannel(requester));

@@ -6,6 +6,7 @@
 #include "ChatHelper.h"
 #include "playerbot/ServerFacade.h"
 #include "LFG/LFGMgr.h"
+#include "../runtime/ClaimLifecycle.h"
 
 PlayerbotSecurity::PlayerbotSecurity(Player* const bot) : bot(bot), account(0)
 {
@@ -25,6 +26,11 @@ PlayerbotSecurityLevel PlayerbotSecurity::LevelFor(Player* from, DenyReason* rea
     }
     // Check if the bot is an alt bot of the requester
     else if ( from->GetSession()->GetAccountId() == account)
+    {
+        return PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL;
+    }
+    // Issue #489: Check if the bot is claimed by the requester into their guild
+    else if (TortoiseBots::ClaimLifecycle::Instance().IsClaimedByPlayer(bot->GetGUIDLow(), from->GetGUIDLow()))
     {
         return PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL;
     }

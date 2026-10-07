@@ -4,6 +4,7 @@
 #include "playerbot/RandomBotFacade.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/RandomItemMgr.h"
+#include "../../../runtime/ClaimLifecycle.h"
 
 using namespace ai;
 
@@ -125,6 +126,10 @@ bool UpdateGearAction::Execute(Event& event)
 
 bool UpdateGearAction::isUseful()
 {
+    // Issue #489: Claimed bots never use synthetic gear progression updates
+    if (TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow()))
+        return false;
+
     if (sPlayerbotAIConfig.gearProgressionSystemEnabled)
     {
         // Only for max level random bots that are playing with a real player

@@ -5,6 +5,7 @@
 #include "HunterPetPolicy.h"
 #include "ProfessionGrantPolicy.h"
 #include "HireLifecycle.h"
+#include "ClaimLifecycle.h"
 #include "PlayerbotAIAdapter.h"
 #include "PlayerbotAIStorage.h"
 #include "RandomBotAccountRegistry.h"
@@ -774,7 +775,8 @@ void BotManager::OnPlayerLogin(::Player* player)
 
     bool freshBot = TortoiseBots::NeedsInitialGearSeeding(
         player->GetTotalPlayedTime(), sRandomBotFacade.GetValue(botGuidLow, "seeded"));
-    if (record.random && !hired && sPlayerbotAIConfig.randomGearUpgradeEnabled && player->GetLevel() >= 5 && freshBot)
+    bool const claimed = ClaimLifecycle::Instance().IsClaimed(botGuidLow);
+    if (record.random && !hired && !claimed && sPlayerbotAIConfig.randomGearUpgradeEnabled && player->GetLevel() >= 5 && freshBot)
     {
         sRandomBotFacade.UpdateGearSpells(player);
         sRandomBotFacade.SetValue(botGuidLow, "seeded", 1);

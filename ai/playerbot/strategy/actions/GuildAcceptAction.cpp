@@ -2,7 +2,9 @@
 #include "playerbot/playerbot.h"
 #include "GuildAcceptAction.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/RandomBotFacade.h"
 #include "Guild/GuildMgr.h"
+#include "../../../runtime/ClaimLifecycle.h"
 
 using namespace ai;
 
@@ -80,6 +82,16 @@ bool GuildAcceptAction::Execute(Event& event)
         bot->GetSession()->HandleGuildAcceptOpcode(packet);
 
         TalentSpec::SetPublicNote(bot);
+
+        // Issue #489: Claim a wandering world bot into the player's guild
+        if (inviter && inviter->GetSession() && !inviter->GetSession()->IsHeadless() &&
+            sRandomBotFacade.IsRandomBot(bot))
+        {
+            uint32 inviterAccountId = inviter->GetSession()->GetAccountId();
+            uint32 inviterGuidLow = inviter->GetGUIDLow();
+            TortoiseBots::ClaimLifecycle::Instance().Claim(bot->GetGUIDLow(), inviterAccountId, inviterGuidLow, guildId);
+            ai->Whisper("I am honored to join your guild! I will keep my gear ready for your raids.", inviter->GetName());
+        }
 
         sPlayerbotAIConfig.logEvent(ai, "GuildAcceptAction", guild->GetName(), std::to_string(guild->GetMemberSize()));
     }
