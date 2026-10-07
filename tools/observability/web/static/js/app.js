@@ -1381,8 +1381,11 @@
     }
     ctx.fillStyle = '#6e7681';
     ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.fillText(String(Math.round(maxVal)), 3, padTop + 9);
-    ctx.fillText('0', 3, h - padBottom - 2);
+    for (let i = 0; i <= 4; i++) {
+      const val = maxVal * (1 - i / 4);
+      const y = padTop + (h - padTop - padBottom) * (i / 4);
+      ctx.fillText(String(Math.round(val)), 3, i === 0 ? y + 9 : y - 2);
+    }
   }
 
   function drawTimeAxis(ctx, w, h) {
@@ -1523,10 +1526,18 @@
     }
 
     const last = series[series.length - 1];
+    const avg = Math.round(series.reduce((a, v) => a + v, 0) / series.length);
     if (el.tickNow) {
-      el.tickNow.textContent = `${last} ms (nominal 50, lag >100)`;
+      el.tickNow.textContent = `${last} ms (avg ${avg}, nominal 50, lag >100)`;
       el.tickNow.style.color = last > 100 ? '#f85149' : last > 70 ? '#d29922' : 'var(--text-muted)';
     }
+    const avgEl = document.getElementById('metric-tick-avg');
+    if (avgEl) avgEl.textContent = `avg ${avg} ms (10 min)`;
+    // Dashed average line across the chart.
+    ctx.setLineDash([6, 3]);
+    ctx.strokeStyle = 'rgba(88, 166, 255, 0.6)';
+    ctx.beginPath(); ctx.moveTo(0, yFor(avg)); ctx.lineTo(w, yFor(avg)); ctx.stroke();
+    ctx.setLineDash([]);
   }
 
   function renderOverviewCharts() {

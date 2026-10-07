@@ -5385,7 +5385,16 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
     SpellCastTargets targets;
     if ((pSpellInfo->Targets & TARGET_FLAG_ITEM) || spellId == 1804)
     {
-        spell->SetCastItem(itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get());
+        // Crash guard (core SIGSEGV in Spell::cast via SpellEvent::Execute):
+        // the core keeps a raw m_CastItem pointer with no lifetime check. If
+        // the item left the bot's inventory between pick and cast (sold,
+        // consumed, moved by another tick), the core dereferences a dangling
+        // pointer. Validate ownership here; on mismatch cast without the item
+        // instead of crashing. Remove when the core GetValidatedCastItem fix
+        // ships in the running binary.
+        Item* castItem = itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get();
+        if (castItem && bot->GetItemByGuid(castItem->GetObjectGuid()) != castItem)
+            castItem = nullptr;
         targets.setItemTarget(spell->m_targets.getItemTarget());
 
         if (bot->GetTradeData())
