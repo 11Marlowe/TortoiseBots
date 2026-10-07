@@ -21,6 +21,9 @@ static void TestEligibility()
 
     // Opposing faction -> rejected
     assert(!MayClaimBot(true, true, false, true));
+
+    // Hired bot -> rejected
+    assert(!MayClaimBot(true, true, false, false, true));
 }
 
 static void TestSelfEquip()
