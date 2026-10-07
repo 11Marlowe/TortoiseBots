@@ -7,6 +7,10 @@
 
 ---
 
+### Observability & Engine
+- Write-mode bot logs now preserve one previous run as `<filename>.1`, including `bot_events.csv`, so restart no longer truncates evidence needed for live troubleshooting. [#522](https://github.com/Sagiroth/TortoiseBots/pull/522)
+- Rotation runs once per filename per process, leaving the previous run intact across later dump refreshes; failed rotation refuses the destructive open, and append-only logs/CSV formats remain unchanged. [#522](https://github.com/Sagiroth/TortoiseBots/pull/522)
+
 ## 2026-10-06
 
 ### Observability & Engine
