@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include "Config/Config.h"
 #include "Talentspec.h"
+#include "LogFileRotation.h"
 #include "SharedDefines.h"
 #include "SystemConfig.h"
 
@@ -638,6 +639,7 @@ public:
     float jumpHSpeed;
 
     std::mutex m_logMtx;
+    ai::LogFileRotation logRotation;
 
     std::list<std::string> allowedLogFiles;
     std::list<std::string> debugFilter;
