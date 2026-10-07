@@ -34,32 +34,21 @@ bool PetIsDeadValue::Calculate()
     if ((bot->GetLevel() < TortoiseBots::HUNTER_PET_MIN_LEVEL && bot->GetClass() == CLASS_HUNTER) || bot->IsMounted())
         return false;
 
-#ifdef MANGOS
-    PetDatabaseStatus status = Pet::GetStatusFromDB(bot);
-    if (status == PET_DB_DEAD)
-#endif
-    if (!bot->GetPet())
-    {
-        uint32 ownerid = bot->GetGUIDLow();
-        auto result = CharacterDatabase.PQuery("SELECT id FROM character_pet WHERE owner = '%u'", ownerid);
-        std::unique_ptr<QueryResult> result_guard(result);
-        return result != nullptr;
-    }
-    if (bot->GetPetGuid() && !bot->GetPet())
+    if (bot->GetPet())
+        return sServerFacade.GetDeathState(bot->GetPet()) != ALIVE;
+
+    if (bot->GetPetGuid())
         return true;
 
-    return bot->GetPet() && sServerFacade.GetDeathState(bot->GetPet()) != ALIVE;
+    return false;
 }
 
 bool PetIsHappyValue::Calculate()
 {
-#ifndef CMANGOS
-    PetDatabaseStatus status = Pet::GetStatusFromDB(bot);
-    if (status == PET_DB_DEAD)
+    if (!bot->GetPet())
         return true;
-#endif
 
-    return !bot->GetPet() || bot->GetPet()->GetHappinessState() == HAPPY;
+    return bot->GetPet()->GetHappinessState() == HAPPY;
 }
 
 

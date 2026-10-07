@@ -1707,11 +1707,6 @@ void BotManager::UpdateBots(uint32_t diff)
         if (IsPlayerOwnedBot(ClassifyBot(entry)))
             continue;
         ::Player* p = sObjectAccessor.FindPlayer(entry.record.characterGuid);
-        if (p && !p->IsAlive())
-        {
-            updateOneBot(kv.first);
-            continue;
-        }
         if (p && p->IsInCombat())
             updateOneBot(kv.first);
     }
