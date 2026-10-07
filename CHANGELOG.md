@@ -44,6 +44,10 @@
 - Masterless random bots can no longer pick cross-map travel destinations (trainers, vendors, grind spots) via `IsLocationLevelValid`, killing cross-continent pathing failures and wedged retry loops. [#527](https://github.com/Sagiroth/TortoiseBots/pull/527)
 - Travel and RPG priorities are now aligned so `ChooseRpgTarget` no longer hijacks an in-progress travel decision and leaves bots thrashing between goals. [#527](https://github.com/Sagiroth/TortoiseBots/pull/527)
 
+### Combat & AI
+- Added `AiPlayerbot.CombatTickBudgetUs` (default 15ms) for Pass 2 combat bots, capping how much combat AI work can run per world tick. [#528](https://github.com/Sagiroth/TortoiseBots/pull/528)
+- Combat updates now use a round-robin `m_combatCursor` across pool bots for fair distribution when many bots fight, preventing world tick spikes; live 2000-bot testing dropped world ticks from ~150–250ms to ~70ms steady. [#528](https://github.com/Sagiroth/TortoiseBots/pull/528)
+
 ## 2026-10-06
 
 ### Observability & Engine
