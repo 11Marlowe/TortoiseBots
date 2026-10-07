@@ -1,0 +1,74 @@
+name: Dashboard binaries
+
+# Prebuilt tortoise-observability binaries for operators who build core +
+# module themselves and have no Go toolchain. Attaches linux/windows binaries
+# to the daily release (vYYYY-MM-DD); per-merge tags are plain git tags, not
+# GitHub Releases, so `gh release upload` to them fails.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "tools/observability/**"
+      - "runtime/ObservabilityEmitter.cpp"
+      - "runtime/ObservabilityEmitter.h"
+      - ".github/workflows/dashboard-binaries.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build dashboard binaries
+        working-directory: tools/observability
+        run: |
+          go vet ./...
+          go test ./...
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tortoise-observability-linux-amd64 ./cmd/server
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o tortoise-observability-windows-amd64.exe ./cmd/server
+          ls -la tortoise-observability-*
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: tortoise-observability
+          path: |
+            tools/observability/tortoise-observability-linux-amd64
+            tools/observability/tortoise-observability-windows-amd64.exe
+
+      - name: Attach binaries to daily release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RELEASE_TAG="v$(date -u +%Y-%m-%d)"
+          # The changelog workflow creates/edits the daily release on the same
+          # push (after its AI summary, tens of seconds). Wait for it instead
+          # of racing it; uploads happen only to the daily Release object.
+          for i in $(seq 1 12); do
+            if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+              break
+            fi
+            echo "waiting for daily release $RELEASE_TAG ($i/12) ..."
+            sleep 30
+          done
+          if ! gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+            echo "::error::daily release $RELEASE_TAG not found after 6 min; binaries stay as workflow artifacts"
+            exit 1
+          fi
+          gh release upload "$RELEASE_TAG" \
+            tools/observability/tortoise-observability-linux-amd64 \
+            tools/observability/tortoise-observability-windows-amd64.exe \
+            --clobber

@@ -45,7 +45,29 @@ When the daemon is running, sign in with a game account of GM rank ≥ 2 (or run
 
 ## 2. Enabling Observability
 
-### Step 1: Enable Telemetry in `tortoise_bots.conf`
+### No Go toolchain? Use the one-command setup (Linux / Windows)
+
+Prebuilt dashboard binaries ship with every daily release — no Go, no Docker:
+
+```bash
+# Linux: from the module checkout
+./tools/observability/run-dashboard.sh --mangosd-conf /path/to/etc/mangosd.conf
+# Windows (PowerShell): from the module checkout
+.\tools\observability\run-dashboard.ps1 -MangosdConf C:\path\to\etc\mangosd.conf
+```
+
+The script downloads the latest `tortoise-observability` binary, reads the
+database connection from `mangosd.conf` (`LoginDatabase.Info` /
+`WorldDatabase.Info` / `CharacterDatabase.Info`), enables
+`AiPlayerbot.Observability = 1` in `aiplayerbot.conf` next to it, and starts
+the daemon. Open `http://localhost:8095/dashboard` and sign in with a game
+account of GM rank ≥ 2, then restart `mangosd` so the telemetry flag takes
+effect. Re-running the script while the dashboard is up is a no-op: stop the
+daemon first to update the binary (`--tag vYYYY-MM-DD` pins a version).
+
+### Manual setup (developers)
+
+#### Step 1: Enable Telemetry in `tortoise_bots.conf`
 ```ini
 [TortoiseBotsConf]
 AiPlayerbot.Observability = 1
@@ -53,7 +75,7 @@ AiPlayerbot.ObservabilityHost = 127.0.0.1
 AiPlayerbot.ObservabilityPort = 9195
 ```
 
-### Step 2: Run the Daemon
+#### Step 2: Run the Daemon
 
 You can run the daemon directly or via Docker:
 
