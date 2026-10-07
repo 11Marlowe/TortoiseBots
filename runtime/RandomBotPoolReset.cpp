@@ -139,7 +139,9 @@ bool RandomBotPoolReset::SnapshotTargets(std::string& error)
     std::string accounts = RandomBotAccountRegistry::Instance().AccountIdList();
     std::unique_ptr<QueryResult> rows(CharacterDatabase.PQuery(
         "SELECT `guid`, `account`, `name` FROM `characters` "
-        "WHERE `deleteDate` IS NULL AND `account` IN (%s) ORDER BY `account`, `guid`", accounts.c_str()));
+        "WHERE `deleteDate` IS NULL AND `account` IN (%s) "
+        "AND `guid` NOT IN (SELECT `bot_guid` FROM `tortoise_bots_claimed`) "
+        "ORDER BY `account`, `guid`", accounts.c_str()));
     if (!rows)
     {
         uint32 remaining = 0;

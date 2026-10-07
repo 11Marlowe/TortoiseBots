@@ -4,6 +4,8 @@
 #include "playerbot/strategy/ItemVisitors.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/strategy/values/MaintenanceValues.h"
+#include "../../../runtime/ClaimLifecycle.h"
+#include "../../../runtime/ClaimedBotPolicy.h"
 
 using namespace ai;
 
@@ -55,8 +57,19 @@ bool SellAction::Execute(Event& event)
     //straight back. Liquidation is then all or nothing.
     bool const allOrNothing = event.GetSource() == "rpg action" && ShouldSellValue::CantAffordNextSpell(ai);
 
+    bool const isClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow());
+
     for (std::list<Item*>::iterator i = items.begin(); i != items.end(); ++i)
     {
+        // Issue #489: Claimed bots never auto-vendor gear at level 60, and never vendor blue/epic items while leveling
+        if (isClaimed && event.GetSource() == "rpg action")
+        {
+            ItemPrototype const* proto = (*i)->GetProto();
+            uint32 quality = proto ? proto->Quality : 0;
+            if (!TortoiseBots::MayClaimedBotAutoVendor(bot->GetLevel(), quality, true))
+                continue;
+        }
+
         if (Sell(requester, *i))
             soldItems++;
 

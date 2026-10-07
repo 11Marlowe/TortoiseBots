@@ -4,6 +4,7 @@
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/BotManager.h"
 #include "../runtime/HireLifecycle.h"
+#include "../runtime/ClaimLifecycle.h"
 #include "../runtime/HireProvisionService.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/AhMarketService.h"
@@ -87,6 +88,7 @@ void BotHostAdapter::OnStartup()
     HireRecruiterScript::SyncUnlockFees();
     RandomBotService::Instance().Initialize();
     BattlegroundQueueService::Instance().Initialize();
+    ClaimLifecycle::Instance().Initialize();
 
     if (sConfig.GetBoolDefault("TortoiseBots.PendingAddRemoveTest", false))
     {

@@ -159,6 +159,7 @@ void DeleteCharacterEverywhere(uint32 guidLow, uint32 accountId)
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_owned_character` WHERE `character_guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_armory_stats` WHERE `guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_hire` WHERE `character_guid` = '%u'", guidLow);
+    CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_claimed` WHERE `bot_guid` = '%u'", guidLow);
 }
 
 } // namespace TortoiseBots

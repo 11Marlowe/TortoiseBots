@@ -268,8 +268,10 @@ pre-battleground group, or an older module — and for every hand-typed command.
 - Bot state — `TBM:BOTSTATE_BEGIN|<n>`, one `TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=on,aoe=off,autocc=off,savemana=off,boost=on,threat=on,potions=on,mimic=off`
   per controllable party bot, then `TBM:BOTSTATE_END`, trailing each roster response. It drives
   the addon's party switches, the Party tab movement label and the bot panel's behaviour tab.
-- Capabilities — `TBM:CAPS|pull-seconds,flee,inventory,behavior`: adjustable pull delays,
-  `.bot action flee`, `.bot inv`/`.bot item`, and `.bot behavior` with the BOTSTATE stream.
+- Capabilities — `TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster`: adjustable pull delays,
+  `.bot action flee`, `.bot inv`/`.bot item`, `.bot behavior` with the BOTSTATE stream, and the
+  `TBM:CLAIMED_BEGIN|<n>` / `TBM:CLAIMED|<guid>|<name>|<class>|<level>|<state>|<grouped>|<location>|<gearLocked>` /
+  `TBM:CLAIMED_END` claimed-guild-bot snapshot (issue #489) for the addon's Guild tab.
   The addon hides the matching controls when a capability is missing.
 - Version — `TBM:VERSION|<UTC date>-v<N>` trails every roster response, and
   answers `.bot version` and `.bot help` directly. The addon shows it as

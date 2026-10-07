@@ -5,6 +5,7 @@
 #include "playerbot/PlayerbotAI.h"
 #include "GearSeedingGuard.h"
 #include "HireLifecycle.h"
+#include "ClaimLifecycle.h"
 #include "../host/BotSessionAdapter.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -1608,7 +1609,8 @@ void RandomBotService::Update(uint32_t diff)
             uint32 timerGuidLow = player->GetGUIDLow();
             bool freshTimerBot = TortoiseBots::NeedsInitialGearSeeding(
                 player->GetTotalPlayedTime(), sRandomBotFacade.GetValue(timerGuidLow, "seeded"));
-            if (player->GetLevel() >= 5 && freshTimerBot)
+            bool const claimedTimerBot = ClaimLifecycle::Instance().IsClaimed(timerGuidLow);
+            if (player->GetLevel() >= 5 && freshTimerBot && !claimedTimerBot)
             {
                 sRandomBotFacade.UpdateGearSpells(player);
                 sRandomBotFacade.SetValue(timerGuidLow, "seeded", 1);

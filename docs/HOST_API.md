@@ -180,6 +180,7 @@ Current adapters:
 | `BotPacketAdapter` | packet bridge into Existing PlayerBots (primarily AzerothCore/mod-playerbots) |
 | `HireRecruiterAdapter` | `<Mercenary Hire>` recruiter gossip (`Hire bots` wizard + capital `World buffs` branch, issue #492; pure logic in `runtime/WorldBuffPolicy.h` + `runtime/WorldBuffService.h`) |
 | `HireGroupAdapter` | hired-companion group hooks |
+| `ClaimGuildAdapter` | `GuildScript::OnRemoveMember`/`OnDisband`: unclaims a claimed guild bot (issue #489) back to the wandering pool |
 | `WorldBuffKillAdapter` | `PlayerScript::OnCreatureKill`: Onyxia/Nefarian → invisible Rally credit 95100 via `RewardPlayerAndGroupAtEvent` (issue #492) |
 | `WorldBuffAuraAdapter` | `UnitScript::OnAuraApply`: DM/Sayge/Songflower aura → receiver-only event credit via `AreaExploredOrEventHappens`, recruiter casters ignored (issue #492) |
 | `WorldBuffPvpAdapter` | `PlayerScript::OnPVPKill`: opposite-faction kill in Silithus (zone 1377) → Silithyst credit 95101 via `RewardPlayerAndGroupAtEvent` (issue #492) |
@@ -224,6 +225,7 @@ This is module-internal scheduling and needs no core seam.
 | Durable master GUID | `BotRecord.masterGuid` |
 | Live master pointer | `PlayerbotAI` |
 | Durable hire ledger | `HireLifecycle` (`tortoise_bots_hire`) |
+| Durable claimed-guild-bot ledger | `ClaimLifecycle` (`tortoise_bots_claimed`, issue #489) |
 
 A second owner for session lifetime, AI state, movement or master identity is an
 architecture warning.
@@ -685,7 +687,7 @@ Related-data handling keeps the core bot-agnostic and needs **no core change**:
   before the first deletion.
 - **Module rows** for each deleted character (`ai_playerbot_db_store`,
   `ai_playerbot_custom_strategy`, `tortoise_bots_owned_character`,
-  `tortoise_bots_armory_stats`, `tortoise_bots_hire`) are removed explicitly —
+  `tortoise_bots_armory_stats`, `tortoise_bots_hire`, `tortoise_bots_claimed`) are removed explicitly —
   the shared `CharacterCleanup` helper — and re-verified; character-owned data
   (inventory, mail, pets, groups, instances, petitions, guild membership) stays
   with `Player::DeleteFromDB`.
@@ -749,9 +751,33 @@ hire ends its character is deleted (`.bot hire`, `<Mercenary Hire>`, and the
   unaffected: the freed slot is refilled by the same bounded auto-create pass
   that fills any other missing pool character. A character whose ledger row is
   `dismissed` is **not** counted against the per-account character limit when
-  the next hire picks an account, so releasing a companion and hiring again
   immediately reuses the freed slot instead of being pushed onto a brand-new
   pool account (or rejected while the deletion queue drains).
+
+## 18.3 Claimed guild bots are protected pool alts (issue #489)
+
+A wandering pool bot invited into a player's guild via `/ginvite` becomes a
+**claimed guild bot**: it stays on its pool account (avoiding the
+10-character player account cap) but is owned by the claiming player for
+control, gear, and raid assembly. `ClaimLifecycle` (runtime/) owns the
+durable `tortoise_bots_claimed` ledger end to end:
+
+- **Claim.** `GuildAcceptAction` records `(bot_guid, owner_account_id,
+  owner_player_guid, guild_id)` when a random pool bot accepts a real
+  player's guild invite. Policy gates live in `runtime/ClaimedBotPolicy.h`
+  (unit-tested in `tools/test_claimed_bot_policy.cpp`).
+- **Gear lock.** Claimed bots at level 60 never self-equip upgrades
+  (`EquipAction`), never run synthetic gear updates (`UpdateGearAction`,
+  `RandomBotService`/`BotManager` seeding), and never auto-vendor
+  (`SellAction`). Below 60 they equip upgrades but preserve blue/epic items.
+- **Control.** Guild members control claimed bots (`BotCommandContext`,
+  `PlayerbotSecurity`); the roster streams a `TBM:CLAIMED_*` snapshot plus a
+  `claimed-roster` capability for the addon's Guild tab.
+- **Protection.** Claimed guids are excluded from pool-reset snapshots and
+  managed-character counts (`RandomBotPoolReset`, `RandomBotAccountRegistry`);
+  `CharacterCleanup` drops the claim row with a deleted character, and
+  `ClaimGuildAdapter` unclaims on guild removal/disband, returning the bot to
+  the wandering pool.
 
 ## 19. Battleground auto-queue (optional, default-on)
 

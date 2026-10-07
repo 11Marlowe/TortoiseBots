@@ -2,6 +2,7 @@
 
 #include "../host/BotSessionAdapter.h"
 #include "../runtime/PlayerbotAIStorage.h"
+#include "../runtime/ClaimLifecycle.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/strategy/Engine.h"
 #include "../ai/playerbot/strategy/Action.h"
@@ -40,7 +41,14 @@ bool CanControlBot(Player* requester, BotRecord const* record)
         return true;
 
     uint32_t ownerAccount = record->ownerAccountId ? record->ownerAccountId : record->accountId;
-    return ownerAccount != 0 && ownerAccount == requester->GetSession()->GetAccountId();
+    if (ownerAccount != 0 && ownerAccount == requester->GetSession()->GetAccountId())
+        return true;
+
+    // Issue #489: Claimed guild bot owned by this player
+    if (ClaimLifecycle::Instance().IsClaimedByPlayer(record->characterGuid.GetCounter(), requester->GetGUIDLow()))
+        return true;
+
+    return false;
 }
 
 bool IsLiveHeadlessBot(Player* bot, BotRecord const* suppliedRecord)
