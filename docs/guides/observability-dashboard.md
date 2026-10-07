@@ -62,8 +62,8 @@ database connection from `mangosd.conf` (`LoginDatabase.Info` /
 `AiPlayerbot.Observability = 1` in `aiplayerbot.conf` next to it, and starts
 the daemon. Open `http://localhost:8095/dashboard` and sign in with a game
 account of GM rank ≥ 2, then restart `mangosd` so the telemetry flag takes
-effect. Re-running the script updates the binary when a newer release exists
-(`--tag vYYYY-MM-DD` pins one) and is a no-op while the dashboard is up.
+effect. Re-running the script while the dashboard is up is a no-op: stop the
+daemon first to update the binary (`--tag vYYYY-MM-DD` pins a version).
 
 ### Manual setup (developers)
 

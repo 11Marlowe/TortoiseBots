@@ -4,15 +4,13 @@
 #
 # Usage:
 #   .\run-dashboard.ps1 [-MangosdConf C:\path\to\mangosd.conf] [-Tag v2026-10-07]
-$ErrorActionPreference = "Stop"
-
 param(
   [string]$MangosdConf = $env:MANGOSD_CONF,
   [string]$Tag = "",
   [int]$HttpPort = 8095,
   [int]$UdpPort = 9195
 )
-
+$ErrorActionPreference = "Stop"
 $Repo = "Sagiroth/TortoiseBots"
 $Here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Bin = Join-Path $Here "tortoise-observability.exe"
@@ -21,9 +19,11 @@ $LogFile = Join-Path $Here "dashboard.log"
 function Find-Conf {
   if ($MangosdConf -and (Test-Path $MangosdConf)) { return $MangosdConf }
   foreach ($c in @(
+    ".\mangosd.conf",
+    ".\etc\mangosd.conf",
+    (Join-Path $Here "..\..\..\etc\mangosd.conf"),
     (Join-Path $Here "..\etc\mangosd.conf"),
-    (Join-Path $Here "etc\mangosd.conf"),
-    ".\etc\mangosd.conf"
+    (Join-Path $Here "etc\mangosd.conf")
   )) {
     if (Test-Path $c) { return (Resolve-Path $c).Path }
   }
@@ -40,14 +40,14 @@ function Get-DbField($Key, $Index, $Conf) {
 
 function Resolve-Tag {
   if ($Tag) { return $Tag }
-  $resp = Invoke-WebRequest "https://github.com/${Repo}/releases/latest" -MaximumRedirection 0 -SkipHttpErrorCheck
-  $loc = $resp.Headers.Location
-  if (-not $loc) {
-    # Followed redirect already; fall back to the API.
-    $rel = Invoke-RestMethod "https://api.github.com/repos/${Repo}/releases/latest"
+  # GitHub API directly: works on Windows PowerShell 5.1 (no
+  # -SkipHttpErrorCheck, which is PS 7+ only) and on PS 7.
+  try {
+    $rel = Invoke-RestMethod "https://api.github.com/repos/${Repo}/releases/latest" -UseBasicParsing
     return $rel.tag_name
+  } catch {
+    throw "Failed to resolve latest release tag: $_"
   }
-  return ($loc -split "/")[-1]
 }
 
 $Conf = Find-Conf
@@ -58,9 +58,17 @@ Write-Host "release: $WantTag"
 $HaveTag = ""
 if (Test-Path "$Bin.tag") { $HaveTag = (Get-Content "$Bin.tag" -Raw).Trim() }
 if ((-not (Test-Path $Bin)) -or ($HaveTag -ne $WantTag)) {
+  # Probe first: a running .exe is locked by the OS and cannot be replaced.
+  # Updating requires stopping the dashboard first.
+  try {
+    Invoke-WebRequest "http://127.0.0.1:${HttpPort}/metrics" -TimeoutSec 2 -UseBasicParsing | Out-Null
+    Write-Host "dashboard already running at http://localhost:${HttpPort}/dashboard"
+    Write-Host "stop it first to update the binary."
+    exit 0
+  } catch { }
   Write-Host "downloading tortoise-observability $WantTag ..."
   $url = "https://github.com/${Repo}/releases/download/${WantTag}/tortoise-observability-windows-amd64.exe"
-  Invoke-WebRequest $url -OutFile "$Bin.new"
+  Invoke-WebRequest $url -OutFile "$Bin.new" -UseBasicParsing
   Move-Item "$Bin.new" $Bin -Force
   Set-Content "$Bin.tag" $WantTag -NoNewline
 } else {
@@ -135,12 +143,15 @@ New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
 $env:ICON_CACHE_DIR = $iconDir
 
 Write-Host "starting dashboard (logs: $LogFile) ..."
-$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $LogFile -RedirectStandardError $LogFile -PassThru
+# stdout and stderr need separate files: one path for both throws
+# IOException (both streams open it with exclusive write access).
+$ErrFile = Join-Path $Here "dashboard.err.log"
+$proc = Start-Process -FilePath $Bin -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile -PassThru
 Start-Sleep -Seconds 2
 try {
   Invoke-WebRequest "http://127.0.0.1:${HttpPort}/metrics" -TimeoutSec 3 -UseBasicParsing | Out-Null
   Write-Host "dashboard up at http://localhost:${HttpPort}/dashboard"
 } catch {
-  Write-Error "start failed; see $LogFile"
+  Write-Error "start failed; see $LogFile and $ErrFile"
   exit 1
 }

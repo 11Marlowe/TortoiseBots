@@ -7,10 +7,11 @@
 #   ./run-dashboard.sh [--mangosd-conf /path/to/mangosd.conf] [--tag v2026-10-07]
 #
 # mangosd.conf discovery: --mangosd-conf, else MANGOSD_CONF env, else
-# ../etc/mangosd.conf | ./etc/mangosd.conf | /opt/turtle/etc/mangosd.conf.
+# ./mangosd.conf | ./etc/mangosd.conf | <module>/../../../etc/mangosd.conf
+# (module inside core modules/) | /opt/turtle/etc/mangosd.conf.
 # The binary lands next to this script. Re-runs only replace the binary when
-# --tag (or the daily release) is newer than the cached one.
-set -euo pipefail
+# --tag (or the daily release) is newer than the cached one; a running
+# dashboard is never replaced underneath itself (stop it first to update).
 
 REPO="Sagiroth/TortoiseBots"
 TAG=""
@@ -38,23 +39,24 @@ UDP_PORT="${UDP_PORT:-9195}"
 find_conf() {
   if [[ -n "$CONF_OVERRIDE" ]]; then echo "$CONF_OVERRIDE"; return; fi
   if [[ -n "${MANGOSD_CONF:-}" ]]; then echo "$MANGOSD_CONF"; return; fi
-  for c in "$HERE/../etc/mangosd.conf" "$HERE/etc/mangosd.conf" \
-           ./etc/mangosd.conf /opt/turtle/etc/mangosd.conf; do
+  for c in ./mangosd.conf ./etc/mangosd.conf \
+           "$HERE/../../../etc/mangosd.conf" "$HERE/../etc/mangosd.conf" \
+           "$HERE/etc/mangosd.conf" /opt/turtle/etc/mangosd.conf; do
     if [[ -f "$c" ]]; then echo "$c"; return; fi
   done
   echo ""
 }
 
 # "host;port;user;pass;db" from e.g. LoginDatabase.Info = "127.0.0.1;3306;mangos;mangos;tw_logon"
-# Fields are 1-based: 1 host, 2 port, 3 user, 4 pass, 5 db.
+# Fields are 1-based: 1 host, 2 port, 3 user, 4 pass, 5 db. Uses cut (not awk)
+# so an empty password ("host;port;user;;db") keeps its field position.
 db_field() {
   local key="$1" idx="$2" conf="$3" line val
   line="$(grep -E "^[[:space:]]*${key}[[:space:]]*=" "$conf" | tail -n1 || true)"
   if [[ -z "$line" ]]; then return 1; fi
   val="${line#*=}"
-  val="$(echo "$val" | tr -d ' "\"\t\r')"
-  val="${val//;/ }"
-  echo "$val" | awk -v i="$idx" '{print $i}'
+  val="$(echo "$val" | sed -E 's/^[[:space:]]*"//; s/"[[:space:]]*$//; s/\r$//')"
+  echo "$val" | cut -d';' -f"$idx"
 }
 
 resolve_tag() {
@@ -86,6 +88,15 @@ main() {
   CONF="$(find_conf)"
   [[ -z "$CONF" ]] && { echo "mangosd.conf not found (use --mangosd-conf PATH)" >&2; exit 1; }
   echo "mangosd.conf: $CONF"
+
+  # Probe first: never replace the binary underneath a running instance
+  # (on Linux the old process would keep running; on Windows the .exe is
+  # locked). Updating requires stopping the dashboard first.
+  if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${HTTP_PORT}/metrics" 2>/dev/null; then
+    echo "dashboard already running at http://localhost:${HTTP_PORT}/dashboard"
+    echo "stop it first to update the binary."
+    exit 0
+  fi
 
   WANT_TAG="$(resolve_tag)"
   echo "release: $WANT_TAG"
@@ -131,11 +142,6 @@ main() {
     echo "telemetry enabled in $AI_CONF (restart mangosd to apply)"
   else
     echo "note: $AI_CONF not found; set AiPlayerbot.Observability = 1 yourself" >&2
-  fi
-
-  if curl -fsS -o /dev/null --max-time 2 "http://127.0.0.1:${HTTP_PORT}/metrics" 2>/dev/null; then
-    echo "dashboard already running at http://localhost:${HTTP_PORT}/dashboard"
-    exit 0
   fi
 
   export DB_HOST="$HOST" DB_PORT="$PORT" DB_USER="$USER" DB_PASSWORD="$PASS"
