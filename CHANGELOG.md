@@ -21,6 +21,10 @@
 
 - Graveyard trade-kills in contested zones are addressed — the spirit-healer fights where one side farms bots straight off resurrection should be far less common. [#542](https://github.com/Sagiroth/TortoiseBots/pull/542)
 
+### Bots & AI
+- Bots now leave a trainer or vendor as soon as they're done — previously a trip stayed "at work" for a full five minutes after arrival, so a bot that learned all its spells in one second loitered next to the trainer for the remaining time. [#543](https://github.com/Sagiroth/TortoiseBots/pull/543)
+- Fixed the "standing around between errands" pattern at scale (2000 bots): most idle bots weren't broken, just blocked on activities that take minutes while only getting a decision every 15–25 seconds — those waits now resolve instead of parking bots in the world. [#543](https://github.com/Sagiroth/TortoiseBots/pull/543)
+
 ## 2026-10-07
 
 ### Combat & AI
