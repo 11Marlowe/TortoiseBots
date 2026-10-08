@@ -31,6 +31,31 @@
 - Migration tracking is by file name, so realms that already applied these changes won't have them re-run or double-applied. [#544](https://github.com/Sagiroth/TortoiseBots/pull/544)
 - Reinstalling the module no longer overwrites your edited configs — admin tweaks survive an update. [#544](https://github.com/Sagiroth/TortoiseBots/pull/544)
 
+### Combat & AI
+- Dungeon/raid bots grouped with a human master no longer initiate fresh grind pulls on untouched packs; they still defend the group/pets and attack explicit targets or configured raid marks. [#538](https://github.com/Sagiroth/TortoiseBots/pull/538)
+
+### Talents & Commands
+- `talents shift <link>` now recounts the bot's current allocation before applying differences, so requested builds actually spend all available points instead of stopping short. [#536](https://github.com/Sagiroth/TortoiseBots/pull/536)
+- Talent link validation rejects malformed extra tree separators like `1---2` before they reach `stoi("-")`; valid one/two/three-tree links still parse. [#531](https://github.com/Sagiroth/TortoiseBots/pull/531)
+
+### Movement & Pathing
+- Hazard avoidance now writes accepted waypoint detours back into the path instead of sending the unchanged route to movement. [#530](https://github.com/Sagiroth/TortoiseBots/pull/530)
+- Travel route distance now includes the final edge, so two-node routes don't report zero and multi-edge routes don't undercount. [#540](https://github.com/Sagiroth/TortoiseBots/pull/540)
+- Restored idle after hazard-chase movement clears the MotionMaster stack, preventing core `!empty()` assertions on the next player movement update. [#539](https://github.com/Sagiroth/TortoiseBots/pull/539)
+
+### Threat & Stats
+- Threat-rate queries return zero when history is cold instead of dereferencing an empty `list::front()`. [#532](https://github.com/Sagiroth/TortoiseBots/pull/532)
+- Threat history now records accepted changes instead of dropping them and logging duplicate reads, preserving the samples needed by 10/15-minute movement checks. [#533](https://github.com/Sagiroth/TortoiseBots/pull/533)
+- Threat sampling survives a missing current target by using an empty GUID, keeping reset/zero-threat behavior intact. [#534](https://github.com/Sagiroth/TortoiseBots/pull/534)
+- Threat helpers recheck the victim after friendly-target redirection and return zero threat instead of null-dereferencing when no victim exists. [#535](https://github.com/Sagiroth/TortoiseBots/pull/535)
+- Mana percentage returns zero for units without a mana pool, avoiding 0/0 and invalid float-to-byte conversion. [#537](https://github.com/Sagiroth/TortoiseBots/pull/537)
+
+### Outfits & Persistence
+- Saved-outfit parsing uses full-width string positions instead of `uint8`, so outfits over 255 characters no longer wrap and block listing/loading. [#541](https://github.com/Sagiroth/TortoiseBots/pull/541)
+
+### Core Sync & Fixes
+- Landed @waterys419's twelve-fix batch #530–#541 together, since they all add tests to the same check script and conflict if merged individually. [#545](https://github.com/Sagiroth/TortoiseBots/pull/545)
+
 ## 2026-10-07
 
 ### Combat & AI
