@@ -1219,9 +1219,9 @@ std::ostringstream TravelPath::print()
 float TravelNodeRoute::getTotalDistance()
 {
     float totalLength = 0;
-    for (uint32 i = 0; i < nodes.size() - 2; i++)
+    for (size_t i = 1; i < nodes.size(); i++)
     {
-        totalLength += nodes[i]->linkDistanceTo(nodes[i + 1]);
+        totalLength += nodes[i - 1]->linkDistanceTo(nodes[i]);
     }
 
     return totalLength;

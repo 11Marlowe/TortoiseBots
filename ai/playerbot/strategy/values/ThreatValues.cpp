@@ -12,10 +12,11 @@ float MyThreatValue::Calculate()
 {
     Unit* target = AI_VALUE(Unit*, qualifier);
 
-    if (target->getObjectGuid() != lastTarget) //Reset history if we switched target.
+    ObjectGuid targetGuid = target ? target->getObjectGuid() : ObjectGuid();
+    if (targetGuid != lastTarget) //Reset history if we switched target.
         LogCalculatedValue::Reset();
 
-    lastTarget = target->getObjectGuid();
+    lastTarget = targetGuid;
 
     return ThreatValue::GetThreat(bot, target);
 }
@@ -66,7 +67,7 @@ float ThreatValue::GetThreat(Player* player, Unit* target)
     if (sServerFacade.IsFriendlyTo(target, player))
         target = target->GetVictim();
 
-    if (target->getObjectGuid().IsPlayer())
+    if (!target || target->getObjectGuid().IsPlayer())
         return 0;
 
     float botThreat = sServerFacade.GetThreatManager(target).getThreat(player);
@@ -82,7 +83,7 @@ float ThreatValue::GetTankThreat(PlayerbotAI* ai, Unit* target)
     if (sServerFacade.IsFriendlyTo(target, ai->GetBot()))
         target = target->GetVictim();
 
-    if (target->getObjectGuid().IsPlayer())
+    if (!target || target->getObjectGuid().IsPlayer())
         return 0;
 
     Group* group = ai->GetBot()->GetGroup();

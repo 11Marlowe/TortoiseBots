@@ -12,11 +12,17 @@ bool TalentSpec::CheckTalentLink(std::string link, std::ostringstream* out) {
     std::string validChar = "-";
     std::string validNums = "012345";
     int nums = 0;
+    int separators = 0;
 
     for (char& c : link) {
         if (validChar.find(c) == std::string::npos && validNums.find(c) == std::string::npos)
         {
             *out << "talent link is invalid. Must be in format 0-0-0 (see end of wowhead talent calculator url) or a part of a predefined spec as shown with command 'talents list'";
+            return false;
+        }
+        if (c == '-' && ++separators > 2)
+        {
+            *out << "talent link is invalid. At most three talent trees are allowed.";
             return false;
         }
         if (validNums.find(c) != std::string::npos)
@@ -502,6 +508,9 @@ void TalentSpec::ShiftTalents(TalentSpec* currentSpec, Player* bot)
 
     //Start from the current spec.
     talents = currentSpec->talents;
+    points = 0;
+    for (auto const& entry : talents)
+        points += entry.rank;
 
     for (auto& entry : deltaList)
     {

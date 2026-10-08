@@ -1586,6 +1586,7 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
         {
             float distance = botPosition.GetPathLength(path);
             mm.Clear(false, true);
+            mm.MoveIdle(); // A raw spline does not restore the default movement generator.
 
             std::vector<G3D::Vector3> pointsArray = WorldPosition().toPointsArray(path);
             Movement::MoveSplineInit init(*bot, "ChaseTo");
@@ -2130,6 +2131,7 @@ bool MovementAction::GeneratePathAvoidingHazards(std::vector<WorldPosition>& mov
         else
         {
             firstPoint = false;
+            movePath[i] = pathPoint;
             previousPosition.x = pathPoint.getX();
             previousPosition.y = pathPoint.getY();
             previousPosition.z = pathPoint.getZ();

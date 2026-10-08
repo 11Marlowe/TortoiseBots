@@ -24,9 +24,21 @@ echo "=== 4. Running Engine Unit Tests (AoE Density, Walk Gating & Disabled Worl
 python3 -m unittest tools/test_log_open_rotation.py
 python3 -m unittest tools/test_attackers_aoe_density.py
 python3 -m unittest tools/test_engine_walk_gating.py
+python3 -m unittest tools/test_instance_grind_target.py
 python3 -m unittest tools/test_disabled_world_update.py
 python3 -m unittest tools/test_loot_content.py
 python3 -m unittest tools/test_flee_selection.py
+python3 -m unittest tools/test_hazard_waypoint.py
+python3 -m unittest tools/test_talent_link_validation.py
+python3 -m unittest tools/test_threat_history.py
+python3 -m unittest tools/test_history_sampling.py
+python3 -m unittest tools/test_my_threat_target.py
+python3 -m unittest tools/test_friendly_threat_target.py
+python3 -m unittest tools/test_talent_shift_budget.py
+python3 -m unittest tools/test_mana_percentage.py
+python3 -m unittest tools/test_hazard_chase_motion.py
+python3 -m unittest tools/test_travel_route_distance.py
+python3 -m unittest tools/test_outfit_item_parser.py
 echo "✓ Engine unit tests passed."
 
 echo ""

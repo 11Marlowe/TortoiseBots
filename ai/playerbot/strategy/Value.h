@@ -159,7 +159,7 @@ namespace ai
     {
     public:
         LogCalculatedValue(PlayerbotAI* ai, std::string name = "value", int checkInterval = 1) : MemoryCalculatedValue<T>(ai, name, checkInterval) {};
-        virtual bool UpdateChange() override { if (MemoryCalculatedValue<T>::UpdateChange()) return false; valueLog.push_back(std::make_pair(this->value, time(0))); if (valueLog.size() > logLength) valueLog.pop_front(); return true; }
+        virtual bool UpdateChange() override { if (!MemoryCalculatedValue<T>::UpdateChange() && !valueLog.empty()) return false; valueLog.push_back(std::make_pair(this->value, time(0))); if (valueLog.size() > logLength) valueLog.pop_front(); return true; }
 
         virtual T Get() override { return MemoryCalculatedValue<T>::Get(); }
 
@@ -169,7 +169,7 @@ namespace ai
         T GetValueOn(time_t t) { return GetLogOn(t)->first; }
         T GetTimeOn(time_t t) { return GetTimeOn(t)->second; }
 
-        virtual T GetDelta(uint32 window) { std::pair<T, time_t> log = GetLogOn(time(0) - window); if (log.second == time(0)) return Get() - Get(); return (Get() - log.first) / float(time(0) - log.second); }
+        virtual T GetDelta(uint32 window) { if (valueLog.empty()) return T{}; std::pair<T, time_t> log = GetLogOn(time(0) - window); if (log.second == time(0)) return Get() - Get(); return (Get() - log.first) / float(time(0) - log.second); }
 
         virtual void Reset() override { MemoryCalculatedValue<T>::Reset(); valueLog.clear(); }
     protected:
