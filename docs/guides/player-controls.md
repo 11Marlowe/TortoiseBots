@@ -34,6 +34,9 @@ Refused commands answer with a short reason in chat; addon-originated requests a
 
 ## 1. Tactical Party Actions (`.bot action <intent>`)
 
+Hazard-avoiding chase movement keeps an idle movement generator while its detour spline runs, so the next movement update has a valid default.
+
+
 The modern control plane operates on **player intent**. Instead of micromanaging each bot, you issue high-level tactical commands; the server resolves target scope and selects appropriate bot executors:
 
 | Command | Target Required | What It Does |

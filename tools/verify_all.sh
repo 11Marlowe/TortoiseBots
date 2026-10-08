@@ -36,6 +36,7 @@ python3 -m unittest tools/test_my_threat_target.py
 python3 -m unittest tools/test_friendly_threat_target.py
 python3 -m unittest tools/test_talent_shift_budget.py
 python3 -m unittest tools/test_mana_percentage.py
+python3 -m unittest tools/test_hazard_chase_motion.py
 echo "✓ Engine unit tests passed."
 
 echo ""
