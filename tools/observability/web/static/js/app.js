@@ -49,6 +49,10 @@
       stale: true,
       uptime: 0,
       diff: 0,
+      diff_avg: 0,
+      diff_worst: 0,
+      lag_p50: 0,
+      lag_p95: 0,
       humans: 0,
       bots: 0
     },
@@ -56,7 +60,8 @@
       t: [],
       bots: [],
       humans: [],
-      diff: []
+      diff: [],
+      lag50: []
     },
     showTrails: true,
     // Bots tab
@@ -1479,6 +1484,12 @@
   }
 
   // World tick timeline with nominal (50ms) and lag (100ms) references.
+  // Player lag thresholds (server side, before the player's own ping): under
+  // 100 ms keeps a typical 50 ms-ping player under 150 ms in total.
+  const LAG_GOOD_MS = 100;
+  const LAG_BAD_MS = 150;
+  const lagColor = v => v > LAG_BAD_MS ? '#f85149' : v > LAG_GOOD_MS ? '#d29922' : '#3fb950';
+
   function renderTickChart() {
     const canvas = el.tickChart;
     const prepared = prepCanvas(canvas);
@@ -1486,6 +1497,7 @@
     const { ctx, w, h } = prepared;
 
     const series = state.history.diff;
+    const median = state.history.lag50;
     const padTop = 8, padBottom = 14;
 
     if (series.length === 0) {
@@ -1495,7 +1507,7 @@
       return;
     }
 
-    const maxVal = Math.max(100, ...series) * 1.1;
+    const maxVal = Math.max(LAG_BAD_MS, ...series) * 1.1;
     const yFor = v => padTop + (h - padTop - padBottom) * (1 - v / maxVal);
     const stepX = series.length > 1 ? w / (series.length - 1) : 0;
     const xFor = i => series.length > 1 ? i * stepX : w / 2;
@@ -1503,20 +1515,24 @@
     drawGrid(ctx, w, h, padTop, padBottom, maxVal);
 
     ctx.setLineDash([4, 4]);
-    ctx.strokeStyle = 'rgba(46, 160, 67, 0.5)';
-    ctx.beginPath(); ctx.moveTo(0, yFor(50)); ctx.lineTo(w, yFor(50)); ctx.stroke();
-    ctx.strokeStyle = 'rgba(248, 81, 73, 0.5)';
-    ctx.beginPath(); ctx.moveTo(0, yFor(100)); ctx.lineTo(w, yFor(100)); ctx.stroke();
+    ctx.strokeStyle = 'rgba(210, 153, 34, 0.6)';
+    ctx.beginPath(); ctx.moveTo(0, yFor(LAG_GOOD_MS)); ctx.lineTo(w, yFor(LAG_GOOD_MS)); ctx.stroke();
+    ctx.strokeStyle = 'rgba(248, 81, 73, 0.6)';
+    ctx.beginPath(); ctx.moveTo(0, yFor(LAG_BAD_MS)); ctx.lineTo(w, yFor(LAG_BAD_MS)); ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.beginPath();
-    series.forEach((v, i) => {
-      if (i === 0) ctx.moveTo(xFor(i), yFor(v));
-      else ctx.lineTo(xFor(i), yFor(v));
-    });
-    ctx.strokeStyle = '#f0883e';
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
+    const line = (values, color) => {
+      ctx.beginPath();
+      values.forEach((v, i) => {
+        if (i === 0) ctx.moveTo(xFor(i), yFor(v));
+        else ctx.lineTo(xFor(i), yFor(v));
+      });
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    };
+    line(median, 'rgba(88, 166, 255, 0.8)');
+    line(series, '#f0883e');
 
     if (series.length === 1) {
       ctx.fillStyle = '#f0883e';
@@ -1525,19 +1541,12 @@
       ctx.fill();
     }
 
-    const last = series[series.length - 1];
-    const avg = Math.round(series.reduce((a, v) => a + v, 0) / series.length);
+    const last = Math.round(series[series.length - 1]);
+    const lastMedian = Math.round(median[median.length - 1] || 0);
     if (el.tickNow) {
-      el.tickNow.textContent = `${last} ms (avg ${avg}, nominal 50, lag >100)`;
-      el.tickNow.style.color = last > 100 ? '#f85149' : last > 70 ? '#d29922' : 'var(--text-muted)';
+      el.tickNow.textContent = `p95 ${last} ms · median ${lastMedian} ms`;
+      el.tickNow.style.color = lagColor(last);
     }
-    const avgEl = document.getElementById('metric-tick-avg');
-    if (avgEl) avgEl.textContent = `avg ${avg} ms (10 min)`;
-    // Dashed average line across the chart.
-    ctx.setLineDash([6, 3]);
-    ctx.strokeStyle = 'rgba(88, 166, 255, 0.6)';
-    ctx.beginPath(); ctx.moveTo(0, yFor(avg)); ctx.lineTo(w, yFor(avg)); ctx.stroke();
-    ctx.setLineDash([]);
   }
 
   function renderOverviewCharts() {
@@ -1834,12 +1843,15 @@
     state.history.t.push(Date.now());
     state.history.bots.push(s.online ? s.bots : 0);
     state.history.humans.push(s.online ? s.humans : 0);
-    state.history.diff.push(s.diff || 0);
+    // Older modules send no lag percentiles; fall back to the tick average.
+    state.history.diff.push(s.lag_p95 || s.diff_avg || s.diff || 0);
+    state.history.lag50.push(s.lag_p50 || s.diff_avg || s.diff || 0);
     if (state.history.t.length > HIST_MAX) {
       state.history.t.shift();
       state.history.bots.shift();
       state.history.humans.shift();
       state.history.diff.shift();
+      state.history.lag50.shift();
     }
   }
 
@@ -1854,14 +1866,18 @@
 
   function updateOverviewMetrics() {
     const s = state.server;
-    const diff = s.diff || 0;
+    const lag = s.lag_p95 || s.diff_avg || s.diff || 0;
     if (el.metricBotsOnline) el.metricBotsOnline.textContent = s.online ? s.bots : 0;
     if (el.metricHumansOnline) el.metricHumansOnline.textContent = s.online ? s.humans : 0;
     if (el.metricUptime) el.metricUptime.textContent = s.online ? `up ${formatUptime(s.uptime)}` : 'offline';
     if (el.metricTick) {
-      el.metricTick.textContent = s.online ? `${diff} ms` : '–';
-      el.metricTick.className = `kpi-value ${!s.online ? '' : diff > 100 ? 'kpi-red' : diff > 70 ? 'kpi-amber' : 'kpi-green'}`;
+      el.metricTick.textContent = s.online ? `${Math.round(lag)} ms` : '–';
+      el.metricTick.className = `kpi-value ${!s.online ? '' : lag > LAG_BAD_MS ? 'kpi-red' : lag > LAG_GOOD_MS ? 'kpi-amber' : 'kpi-green'}`;
     }
+    const tickSub = document.getElementById('metric-tick-avg');
+    if (tickSub && s.online) tickSub.textContent = s.lag_p50
+      ? `median ${Math.round(s.lag_p50)} · worst tick ${Math.round(s.diff_worst)} ms`
+      : `worst tick ${Math.round(s.diff_worst || s.diff || 0)} ms`;
     updateSnapshotAge();
     setStatusPill();
   }
@@ -1917,6 +1933,7 @@
       <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})<br>
       <span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>
       <span style="color: var(--text-muted);">Status:</span> ${esc(b.state || 'idle')}<br>
+      ${b.killer ? `<span style="color: var(--text-muted);">Killed by:</span> ${esc(b.killer)}${b.killer_level ? ` (${b.killer_level})` : ''}<br>` : ''}
       <span style="color: var(--text-muted);">Zone:</span> ${esc(getZoneName(b.zone, b.map))}<br>
       <span style="color: var(--text-muted);">Target:</span> ${esc(displayTarget(b))}
       ${issueLine}
@@ -4017,6 +4034,10 @@
     state.server.stale = !!s.stale;
     state.server.uptime = s.uptime || 0;
     state.server.diff = s.diff || 0;
+    state.server.diff_avg = s.diff_avg || 0;
+    state.server.diff_worst = s.diff_worst || 0;
+    state.server.lag_p50 = s.lag_p50 || 0;
+    state.server.lag_p95 = s.lag_p95 || 0;
     state.server.humans = s.humans || 0;
     state.server.bots = s.bots || 0;
   }
@@ -4094,6 +4115,10 @@
       state.server.stale = false;
       state.server.uptime = d.uptime || 0;
       state.server.diff = d.diff || 0;
+      state.server.diff_avg = d.diff_avg || 0;
+      state.server.diff_worst = d.diff_worst || 0;
+      state.server.lag_p50 = d.lag_p50 || 0;
+      state.server.lag_p95 = d.lag_p95 || 0;
       state.server.humans = d.humans || 0;
       state.server.bots = d.bots || 0;
       pushHistory();

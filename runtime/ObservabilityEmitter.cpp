@@ -606,7 +606,8 @@ void ObservabilityEmitter::EmitAnomaly(std::string const& type,
                                         std::string const& details,
                                         std::string const& targetName,
                                         std::string const& strategy,
-                                        std::string const& lastAction)
+                                        std::string const& lastAction,
+                                        uint32 killerLevel)
 {
     if (!IsEnabled())
         return;
@@ -619,6 +620,9 @@ void ObservabilityEmitter::EmitAnomaly(std::string const& type,
     bool const rateLimited = type != "BOT_DEATH";
     if (bot && rateLimited && !AnomalyAllowed(bot->GetGUIDLow(), AnomalyTypeIdFromName(type), WorldTimer::getMSTime()))
         return;
+
+    if (type == "BOT_DEATH" && bot)
+        NoteDeathKiller(bot->GetGUIDLow(), targetName, killerLevel);
 
     // Callers that pass no strategy (the death path) still report the bot's
     // active strategy list, so every row carries the same context.
@@ -815,10 +819,22 @@ void ObservabilityEmitter::PruneState(uint32 nowMs)
     }
 }
 
+void ObservabilityEmitter::NoteDeathKiller(uint32 guid, std::string const& name, uint32 level)
+{
+    if (m_deathKillers.size() >= kMaxDeathKillers && m_deathKillers.find(guid) == m_deathKillers.end())
+        return;
+    DeathKillerInfo info;
+    info.name = name.empty() ? "unknown" : name;
+    info.level = level;
+    info.time = time(nullptr);
+    m_deathKillers[guid] = std::move(info);
+}
+
 void ObservabilityEmitter::Update(uint32 diff)
 {
     if (!IsEnabled())
         return;
+    m_tickWindow.Add(diff);
 
     if (!m_hostResolved)
         RetryHostResolution(diff);
@@ -1008,7 +1024,7 @@ void ObservabilityEmitter::Update(uint32 diff)
 
     for (size_t i = 0; i < kArmoryBotsPerSnapshot && i < activeBots.size(); ++i)
     {
-        Player* bot = activeBots[m_armoryCursor++ % activeBots.size()];
+        Player* bot = activeBots[m_armoryOffset++ % activeBots.size()];
         if (bot && bot->IsInWorld())
             WriteArmoryStats(bot);
     }
@@ -1115,6 +1131,17 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         if (target && target != bot)
             snap.targetLevel = static_cast<uint32>(target->GetLevel());
         snap.strategy = FormatStrategies(ai);
+        if (!bot->IsAlive())
+        {
+            auto killerIt = m_deathKillers.find(bot->GetGUIDLow());
+            if (killerIt != m_deathKillers.end())
+            {
+                snap.killer = killerIt->second.name;
+                snap.killerLevel = killerIt->second.level;
+            }
+        }
+        else
+            m_deathKillers.erase(bot->GetGUIDLow());
         snap.state = MacroStateName(state);
         FillTravelInfo(ai, snap.travelPurpose, snap.travelTo);
 
@@ -1163,6 +1190,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
     for (BotTelemetrySnapshot const& b : botSnapshots)
         countMap[{b.className, b.role}]++;
 
+    PlayerLagWindow::Stats const tick = m_tickWindow.Compute();
     std::ostringstream ss;
     ss << "{\"v\":" << kProtocolVersion
        << ",\"session\":" << m_sessionId
@@ -1171,6 +1199,10 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
        << ",\"type\":\"HEARTBEAT\""
        << ",\"uptime\":" << sWorld.GetUptime()
        << ",\"diff\":" << diff
+       << ",\"diff_avg\":" << tick.avgMs
+       << ",\"diff_worst\":" << tick.worstMs
+       << ",\"lag_p50\":" << tick.p50Ms
+       << ",\"lag_p95\":" << tick.p95Ms
        << ",\"window_secs\":" << (kStateBucketCount * kStateBucketMs / 1000)
        << ",\"humans\":" << humanCount
        << ",\"bots\":" << botCount
@@ -1241,6 +1273,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"o\":" << std::setprecision(2) << b.o
                 << ",\"target\":\"" << EscapeJson(b.target) << "\""
                 << ",\"target_level\":" << b.targetLevel
+                << ",\"killer\":\"" << EscapeJson(b.killer) << "\""
+                << ",\"killer_level\":" << b.killerLevel
                 << ",\"strategy\":\"" << EscapeJson(b.strategy) << "\""
                 << ",\"state\":\"" << EscapeJson(b.state) << "\""
                 << ",\"last_action\":\"" << EscapeJson(b.lastAction) << "\""

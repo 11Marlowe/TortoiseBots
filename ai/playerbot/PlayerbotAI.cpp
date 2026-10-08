@@ -1633,7 +1633,7 @@ void PlayerbotAI::OnDeath()
                     deathDetails << " to " << killerName << " (" << killerLevel << ")";
 
                 sObservabilityEmitter.EmitAnomaly("BOT_DEATH", "INFO", bot, deathDetails.str(),
-                    killerName, "", "death");
+                    killerName, "", "death", killerLevel);
             }
 
             // Death gets its own bot_events.csv row: logEvent also records the
@@ -6320,6 +6320,32 @@ uint32 PlayerbotAI::GetMaxPreferedGuildSize()
     return (maxSize * (100 - memberMod)) / 100;
 }
 
+// Real (network) players in the world, rebuilt once per world loop. The
+// donor's HasPlayerNearby walks its real-player registry; GetPlayers() here
+// holds the headless random bots instead, so every call scanned the whole
+// pool (2000 FindPlayer lookups, ~11% of bot AI time) and treated any
+// nearby bot as a watching player.
+static std::vector<ObjectGuid> const& RealPlayerGuids()
+{
+    static std::vector<ObjectGuid> guids;
+    static uint32 builtAtLoop = 0;
+    static bool built = false;
+    uint32 const loop = World::m_worldLoopCounter;
+    if (built && builtAtLoop == loop)
+        return guids;
+    built = true;
+    builtAtLoop = loop;
+    guids.clear();
+    for (auto const& entry : sWorld.GetAllSessions())
+    {
+        WorldSession* session = entry.second;
+        if (session && session->HasNetworkTransport())
+            if (Player* player = session->GetPlayer())
+                guids.push_back(player->GetObjectGuid());
+    }
+    return guids;
+}
+
 bool PlayerbotAI::HasPlayerNearby(WorldPosition pos, float range)
 {
     if (!range)
@@ -6327,11 +6353,9 @@ bool PlayerbotAI::HasPlayerNearby(WorldPosition pos, float range)
 
     float sqRange = range * range;
     bool nearPlayer = false;
-    for (auto& i : sRandomBotFacade.GetPlayers())
+    for (ObjectGuid const& guid : RealPlayerGuids())
     {
-        // The facade map is only re-synced periodically; entries can outlive
-        // their Player under bot churn, so resolve by GUID before any deref.
-        Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, i.first));
+        Player* player = sObjectAccessor.FindPlayer(guid);
         if (!player || !player->IsInWorld())
             continue;
 
@@ -6360,28 +6384,6 @@ bool PlayerbotAI::HasPlayerNearby(WorldPosition pos, float range)
 bool PlayerbotAI::HasPlayerNearby(float range)
 {
     return HasPlayerNearby(bot, range);
-}
-
-bool PlayerbotAI::HasManyPlayersNearby(uint32 trigerrValue, float range)
-{
-    float sqRange = range * range;
-    uint32 found = 0;
-
-    for (auto& i : sRandomBotFacade.GetPlayers())
-    {
-        Player* player = sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, i.first));
-        if (!player || !player->IsInWorld())
-            continue;
-
-        if ((!player->IsGameMaster() || player->IsGMVisible()) && sServerFacade.getDistance2d(player, bot) < sqRange)
-        {
-            found++;
-
-            if (found >= trigerrValue)
-                return true;
-        }
-    }
-    return false;
 }
 
 bool PlayerbotAI::ChannelHasRealPlayer(std::string channelName)

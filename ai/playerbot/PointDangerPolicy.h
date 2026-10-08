@@ -18,7 +18,7 @@ namespace ai
     // 1-4 killed by mobs 2+ above, most of them on quest/grind trips whose
     // destination entry was itself in cap.
     //
-    // Rule: a pool bot below level 10 walks no quest-objective / quest-loot /
+    // Rule: a masterless pool bot walks no quest-objective / quest-loot /
     // grind point whose surroundings (hostile spawns within
     // POINT_DANGER_RADIUS_YD, static spawn data) hold a creature past its
     // grind cap (PullGrindLevelCap, same numbers the order cap uses). When
@@ -39,12 +39,11 @@ namespace ai
     // the bot standing there: aggro range plus wander, in yards.
     constexpr float POINT_DANGER_RADIUS_YD = 40.0f;
 
-    // The gate only binds pool bots below level 10: from 10 the +4 order cap
-    // and the area gates carry the risk, and owned/hired bots follow their
-    // player anywhere.
-    inline bool PointDangerApplies(std::uint32_t botLevel, bool masterlessRandom)
+    // The gate binds all masterless random pool bots: owned/hired bots follow
+    // their player anywhere.
+    inline bool PointDangerApplies(std::uint32_t /*botLevel*/, bool masterlessRandom)
     {
-        return masterlessRandom && botLevel < 10;
+        return masterlessRandom;
     }
 
     // Whether the highest hostile spawn near the point bars a bot of this
