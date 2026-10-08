@@ -8286,11 +8286,11 @@ ItemIds PlayerbotAI::InventoryParseOutfitItems(std::string text)
 {
     ItemIds itemIds;
 
-    uint8 pos = text.find("=") + 1;
+    std::string::size_type pos = text.find("=") + 1;
     while (pos < text.size())
     {
-        int endPos = text.find(',', pos);
-        if (endPos == -1)
+        std::string::size_type endPos = text.find(',', pos);
+        if (endPos == std::string::npos)
             endPos = text.size();
 
         std::string idC = text.substr(pos, endPos - pos);
