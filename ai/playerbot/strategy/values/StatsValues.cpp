@@ -73,6 +73,8 @@ uint8 ManaValue::Calculate()
     Unit* target = GetTarget();
     if (!target)
         return 100;
+    if (!target->GetMaxPower(POWER_MANA))
+        return 0;
     return (static_cast<float> (target->GetPower(POWER_MANA)) / target->GetMaxPower(POWER_MANA)) * 100;
 }
 
