@@ -25,6 +25,12 @@
 - Bots now leave a trainer or vendor as soon as they're done — previously a trip stayed "at work" for a full five minutes after arrival, so a bot that learned all its spells in one second loitered next to the trainer for the remaining time. [#543](https://github.com/Sagiroth/TortoiseBots/pull/543)
 - Fixed the "standing around between errands" pattern at scale (2000 bots): most idle bots weren't broken, just blocked on activities that take minutes while only getting a decision every 15–25 seconds — those waits now resolve instead of parking bots in the world. [#543](https://github.com/Sagiroth/TortoiseBots/pull/543)
 
+### Install & Migrations
+
+- Character-database migrations are now in `data/sql/character`, matching the folder the core's auto-updater reads from `mangosd.conf` — they finally run on a normal build instead of being silently skipped. [#544](https://github.com/Sagiroth/TortoiseBots/pull/544)
+- Migration tracking is by file name, so realms that already applied these changes won't have them re-run or double-applied. [#544](https://github.com/Sagiroth/TortoiseBots/pull/544)
+- Reinstalling the module no longer overwrites your edited configs — admin tweaks survive an update. [#544](https://github.com/Sagiroth/TortoiseBots/pull/544)
+
 ## 2026-10-07
 
 ### Combat & AI
