@@ -28,6 +28,7 @@ python3 -m unittest tools/test_disabled_world_update.py
 python3 -m unittest tools/test_loot_content.py
 python3 -m unittest tools/test_flee_selection.py
 python3 -m unittest tools/test_hazard_waypoint.py
+python3 -m unittest tools/test_talent_link_validation.py
 echo "✓ Engine unit tests passed."
 
 echo ""
