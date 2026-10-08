@@ -74,6 +74,12 @@ The modern control plane operates on **player intent**. Instead of micromanaging
 
 These commands manage the login, party membership, and presence of your owned bots:
 
+Inside dungeons and raids, autonomous grind/attack-anything selection does not
+start fresh pulls while a bot shares a group with its connected human master.
+It can defend enemies already fighting group members or their pets. Explicit
+attack targets and configured attack raid marks remain allowed; manual
+attack/pull commands, open-world grinding and solo bots are unchanged.
+
 | Command | Syntax | What It Does |
 | :--- | :--- | :--- |
 | **Roster Snapshot** | `.bot roster` | Returns an authoritative snapshot of all owned characters on your account and their online/party state (emits structured `TBM:ROSTER`). Hired companions (random-pool characters) are not listed: a hire's character is deleted when the hire ends. |

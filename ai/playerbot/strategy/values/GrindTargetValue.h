@@ -14,6 +14,7 @@ namespace ai
 
     public:
         Unit* Calculate() override;
+        static bool IsAllowedInstanceTarget(PlayerbotAI* ai, Unit* target);
 
     private:
         int GetTargetingPlayerCount(Unit* unit);
