@@ -508,6 +508,9 @@ void TalentSpec::ShiftTalents(TalentSpec* currentSpec, Player* bot)
 
     //Start from the current spec.
     talents = currentSpec->talents;
+    points = 0;
+    for (auto const& entry : talents)
+        points += entry.rank;
 
     for (auto& entry : deltaList)
     {

@@ -180,6 +180,7 @@ In addition to high-level `.bot action` party commands, you can delegate command
 | | `share` | Shares eligible quests from the bot's quest log with party members. |
 | **Training & Skills** | `trainer` | Automatically learns all currently available spells and ranks from a class trainer! |
 | | `talents` | Prints spent talent points and tree distribution. |
+| | `talents shift <link>` | Counts currently allocated ranks before spending remaining talent points toward the requested build. |
 | | `spells` | Lists known spells and highest learned spell ranks. |
 | **Travel & Life** | `home` | Interacts with an innkeeper to bind the bot's Hearthstone. |
 | | `taxi <destination>` | Purchases a flight path to the specified flight master destination. |
