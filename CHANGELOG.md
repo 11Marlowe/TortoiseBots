@@ -11,6 +11,16 @@
 
 ---
 
+### Bots & Behavior
+
+- Trainer trips now actually run to completion — the "one trip at a time" rule was checked while the trip was already running, so every trip cancelled itself on its first step and bots stood still for minutes; trips now walk, and the sub-1% rate of trips that taught anything should be a thing of the past. [#542](https://github.com/Sagiroth/TortoiseBots/pull/542)
+- Bots now look for a trainer nearby (500 yd at level 5) instead of burning their one decision on a dead-end walk. [#542](https://github.com/Sagiroth/TortoiseBots/pull/542)
+- Idle bots no longer waste their single decision tick on no-op actions — with a big bot pool each bot only decides every 10-20 seconds, so any wasted decision showed up as bots standing around doing nothing. [#542](https://github.com/Sagiroth/TortoiseBots/pull/542)
+
+### Combat & AI
+
+- Graveyard trade-kills in contested zones are addressed — the spirit-healer fights where one side farms bots straight off resurrection should be far less common. [#542](https://github.com/Sagiroth/TortoiseBots/pull/542)
+
 ## 2026-10-07
 
 ### Combat & AI
