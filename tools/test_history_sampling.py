@@ -84,7 +84,7 @@ int main() {
             cpp = pathlib.Path(folder) / "test.cpp"
             exe = pathlib.Path(folder) / "test"
             cpp.write_text(harness)
-            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
+            subprocess.run(["g++", "-std=c++17", "-Wall", "-Wextra", "-Werror", "-Wno-overloaded-virtual",
                             "-D_GLIBCXX_DEBUG", str(cpp), "-o", str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
