@@ -61,6 +61,11 @@
 - Rescue teleports now land bots on the nearest walkable ground instead of right next to the trainer, so bots sent to upper floors and balconies no longer get stranded — this alone was leaving ~100 bots stuck in Stormwind. [#546](https://github.com/Sagiroth/TortoiseBots/pull/546)
 - Fixed the graveyard loop: a bot that revived and couldn't path out was "rescued" by teleporting it to the nearest graveyard — the exact one it was already standing on. Rescue now actually moves it somewhere it can walk from. [#546](https://github.com/Sagiroth/TortoiseBots/pull/546)
 
+### Observability & Engine
+- Dashboard timelines (bots online, lag, issues over time) now survive page refreshes: the service keeps a rolling 10-minute window in memory and the page loads it on open, so you no longer wait for charts to refill. [#547](https://github.com/Sagiroth/TortoiseBots/pull/547)
+- New read-only endpoint `GET /api/v1/history` exposes dashboard history with the same login as the rest of the API. [#547](https://github.com/Sagiroth/TortoiseBots/pull/547)
+- History is bounded to 300 samples, one per heartbeat, and nothing is written to disk—restarting the game server starts the charts fresh so new sessions never show old numbers. [#547](https://github.com/Sagiroth/TortoiseBots/pull/547)
+
 ## 2026-10-07
 
 ### Combat & AI
