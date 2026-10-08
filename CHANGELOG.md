@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-08
+
+### Combat & AI
+- Bot pools at 2000 no longer freeze: each bot is now timed off real seconds since its own last update, instead of counting every pool visit as a world tick — global cooldowns, pauses and timers no longer run 15–40x slow, so bots move and react in combat. [#529](https://github.com/Sagiroth/TortoiseBots/pull/529)
+- Large pools (1000–2000 bots) behave again: far fewer corpses lying around, bots that actually move and fight, and noticeably faster levelling. [#529](https://github.com/Sagiroth/TortoiseBots/pull/529)
+
+### Observability & Engine
+- The dashboard now shows how long the server makes a player wait, replacing a world-tick number that hid the lag spikes. [#529](https://github.com/Sagiroth/TortoiseBots/pull/529)
+
+---
+
 ## 2026-10-07
 
 ### Combat & AI
