@@ -56,6 +56,11 @@
 ### Core Sync & Fixes
 - Landed @waterys419's twelve-fix batch #530–#541 together, since they all add tests to the same check script and conflict if merged individually. [#545](https://github.com/Sagiroth/TortoiseBots/pull/545)
 
+### Combat & AI
+
+- Rescue teleports now land bots on the nearest walkable ground instead of right next to the trainer, so bots sent to upper floors and balconies no longer get stranded — this alone was leaving ~100 bots stuck in Stormwind. [#546](https://github.com/Sagiroth/TortoiseBots/pull/546)
+- Fixed the graveyard loop: a bot that revived and couldn't path out was "rescued" by teleporting it to the nearest graveyard — the exact one it was already standing on. Rescue now actually moves it somewhere it can walk from. [#546](https://github.com/Sagiroth/TortoiseBots/pull/546)
+
 ## 2026-10-07
 
 ### Combat & AI
