@@ -12,10 +12,11 @@ float MyThreatValue::Calculate()
 {
     Unit* target = AI_VALUE(Unit*, qualifier);
 
-    if (target->getObjectGuid() != lastTarget) //Reset history if we switched target.
+    ObjectGuid targetGuid = target ? target->getObjectGuid() : ObjectGuid();
+    if (targetGuid != lastTarget) //Reset history if we switched target.
         LogCalculatedValue::Reset();
 
-    lastTarget = target->getObjectGuid();
+    lastTarget = targetGuid;
 
     return ThreatValue::GetThreat(bot, target);
 }
