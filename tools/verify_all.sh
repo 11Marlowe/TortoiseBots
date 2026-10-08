@@ -32,6 +32,7 @@ python3 -m unittest tools/test_talent_link_validation.py
 python3 -m unittest tools/test_threat_history.py
 python3 -m unittest tools/test_history_sampling.py
 python3 -m unittest tools/test_my_threat_target.py
+python3 -m unittest tools/test_friendly_threat_target.py
 echo "✓ Engine unit tests passed."
 
 echo ""

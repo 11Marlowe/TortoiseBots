@@ -67,7 +67,7 @@ float ThreatValue::GetThreat(Player* player, Unit* target)
     if (sServerFacade.IsFriendlyTo(target, player))
         target = target->GetVictim();
 
-    if (target->getObjectGuid().IsPlayer())
+    if (!target || target->getObjectGuid().IsPlayer())
         return 0;
 
     float botThreat = sServerFacade.GetThreatManager(target).getThreat(player);
@@ -83,7 +83,7 @@ float ThreatValue::GetTankThreat(PlayerbotAI* ai, Unit* target)
     if (sServerFacade.IsFriendlyTo(target, ai->GetBot()))
         target = target->GetVictim();
 
-    if (target->getObjectGuid().IsPlayer())
+    if (!target || target->getObjectGuid().IsPlayer())
         return 0;
 
     Group* group = ai->GetBot()->GetGroup();
