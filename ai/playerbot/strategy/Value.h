@@ -169,7 +169,7 @@ namespace ai
         T GetValueOn(time_t t) { return GetLogOn(t)->first; }
         T GetTimeOn(time_t t) { return GetTimeOn(t)->second; }
 
-        virtual T GetDelta(uint32 window) { std::pair<T, time_t> log = GetLogOn(time(0) - window); if (log.second == time(0)) return Get() - Get(); return (Get() - log.first) / float(time(0) - log.second); }
+        virtual T GetDelta(uint32 window) { if (valueLog.empty()) return T{}; std::pair<T, time_t> log = GetLogOn(time(0) - window); if (log.second == time(0)) return Get() - Get(); return (Get() - log.first) / float(time(0) - log.second); }
 
         virtual void Reset() override { MemoryCalculatedValue<T>::Reset(); valueLog.clear(); }
     protected:
