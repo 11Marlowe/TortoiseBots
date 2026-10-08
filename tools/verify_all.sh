@@ -27,6 +27,7 @@ python3 -m unittest tools/test_engine_walk_gating.py
 python3 -m unittest tools/test_disabled_world_update.py
 python3 -m unittest tools/test_loot_content.py
 python3 -m unittest tools/test_flee_selection.py
+python3 -m unittest tools/test_hazard_chase_motion.py
 echo "✓ Engine unit tests passed."
 
 echo ""
