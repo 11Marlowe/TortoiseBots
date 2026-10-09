@@ -14,7 +14,9 @@
 using ai::GetGrindLevelBand;
 using ai::GrindLevelBand;
 using ai::GrindIdleFallbackAllowed;
+using ai::IdleWanderAllowed;
 using ai::GRIND_IDLE_FALLBACK_RANGE_YD;
+using ai::IDLE_WANDER_RANGE_YD;
 using ai::GrindLevelFits;
 using ai::GrindPreyAllowed;
 using ai::GrindSpotCapacity;
@@ -200,19 +202,23 @@ int main()
     }
 
     // -------------------------------------------------------------
-    // Test 9: idle-starter fallback gate
+    // Test 9: idle fallback gate
     // -------------------------------------------------------------
     {
-        // An idle level 1-5 masterless bot with no journey and an empty normal
-        // pick may take the wider fallback scan.
+        // An idle masterless bot with no journey and an empty normal pick
+        // may take the wider fallback scan at any level (idle brief: bots
+        // above 5 stood through whole quest parks with no other rule moving
+        // them). The cap, range and per-mob gates are unchanged.
         CHECK(GrindIdleFallbackAllowed(true, 1, false, false, false, true, true, true));
         CHECK(GrindIdleFallbackAllowed(true, 5, false, false, false, true, true, true));
+        CHECK(GrindIdleFallbackAllowed(true, 37, false, false, false, true, true, true));
+        CHECK(GrindIdleFallbackAllowed(true, 60, false, false, false, true, true, true));
         // Owned/hired bots keep today's behaviour.
         CHECK(!GrindIdleFallbackAllowed(false, 1, false, false, false, true, true, true));
-        // Above the starter band the travel layer owns longer walks.
-        CHECK(!GrindIdleFallbackAllowed(true, 6, false, false, false, true, true, true));
+        CHECK(!GrindIdleFallbackAllowed(false, 60, false, false, false, true, true, true));
         // A bot with a journey keeps walking it.
         CHECK(!GrindIdleFallbackAllowed(true, 1, true, false, false, true, true, true));
+        CHECK(!GrindIdleFallbackAllowed(true, 60, true, false, false, true, true, true));
         // Fighting, battleground, instance and stuck bots are excluded.
         CHECK(!GrindIdleFallbackAllowed(true, 1, false, true, false, true, true, true));
         CHECK(!GrindIdleFallbackAllowed(true, 1, false, false, true, true, true, true));
@@ -222,7 +228,7 @@ int main()
         CHECK(!GrindIdleFallbackAllowed(true, 1, false, false, false, true, true, false));
         // The fallback reaches past the 60 yd combat scan but stays nearby.
         CHECK(GRIND_IDLE_FALLBACK_RANGE_YD == 150.0f);
-        std::cout << "  [PASS] idle-starter fallback gate is tight\n";
+        std::cout << "  [PASS] idle fallback gate is tight\n";
     }
 
     {
@@ -241,6 +247,29 @@ int main()
         CHECK(!BeginnerValleyLeashAllows(true, 14, 14, false, 0.0f));
         CHECK(BEGINNER_HOME_LEASH_YD == 500.0f);
         std::cout << "  [PASS] starter-valley leash keeps exempted picks home\n";
+    }
+
+    // -------------------------------------------------------------
+    // Test 10: idle-wander gate
+    // -------------------------------------------------------------
+    {
+        // A masterless bot with no journey and nothing else going on may
+        // take one short drift. Beside the prey rule, not under it: a held
+        // but unattackable grind pick must not veto the only motion that
+        // can break the standstill (the attack row still wins whenever the
+        // prey is usable, 5.0 over 0.6).
+        CHECK(IdleWanderAllowed(true, false, false, false, true, true));
+        // A journey or an owner vetoes it.
+        CHECK(!IdleWanderAllowed(true, true, false, false, true, true));
+        CHECK(!IdleWanderAllowed(false, false, false, false, true, true));
+        // Fighting, battleground, instance and stuck bots are excluded.
+        CHECK(!IdleWanderAllowed(true, false, true, false, true, true));
+        CHECK(!IdleWanderAllowed(true, false, false, true, true, true));
+        CHECK(!IdleWanderAllowed(true, false, false, false, false, true));
+        CHECK(!IdleWanderAllowed(true, false, false, false, true, false));
+        // One short drift, donor step scale.
+        CHECK(IDLE_WANDER_RANGE_YD == 50.0f);
+        std::cout << "  [PASS] idle-wander gate drifts beside the prey rule\n";
     }
 
     std::cout << "All grind-spot level-band tests passed.\n";

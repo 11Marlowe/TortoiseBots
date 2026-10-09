@@ -32,7 +32,7 @@ Ally Health 50%-70% (medium) ──► Heal / Lesser Heal
 Ally Health 70%-90% (almost) ──► Renew
 Multiple Injured              ──► Prayer of Healing (Party AoE heal)
 ```
-*Desperate Prayer* is a self-only emergency heal and never lands on allies.
+*Desperate Prayer* is a self-only emergency heal and never lands on allies. A heal is never skipped for mana reasons on a target at or below the low-health line: danger always outbids efficiency. Above the medium line the bot refuses oversized or merely average-efficiency heals (a 50%-bar *Heal* on an 85% target waits for a cheaper window), and while its own mana sits below the medium-mana line it refuses mana-hungry heals (*Flash Heal*) in favor of efficient ones (*Renew*, *Power Word: Shield*). Tanks count the expected heal at two-thirds (bigger bars).
 
 ### Healer Off-Spec Damage & Wand
 A grouped Holy priest only damages while **nobody in the party is below 90% health** and its mana is comfortable (85% reserve on easy pulls, 65% on normal ones, the medium-mana line on hard ones). Then it uses *Shadow Word: Pain*, *Holy Fire*, *Smite*, *Starshards* or *Mind Blast* at the lowest priority, so every heal outbids it, and *Holy Nova* when a pack stands in melee range. When the party is healthy but mana is not, it wands the target instead. A solo priest damages freely.
@@ -40,6 +40,8 @@ A grouped Holy priest only damages while **nobody in the party is below 90% heal
 ### Power Word: Shield & Weakened Soul Refusal
 The bot checks for the *Weakened Soul* debuff (6788) before attempting *Power Word: Shield*. If the target already has Weakened Soul, the shield is skipped in favor of a direct heal, preventing wasted cast attempts.
 
+### Threat Drop
+Climbing toward the top of the threat table without holding aggro fires *Fade* at high priority in any group (solo priests have nobody to shed to, so they keep healing instead); raids keep the additional emergency-slot fade.
 ---
 
 ## Shadow DPS Rotation
@@ -64,7 +66,8 @@ The bot checks for the *Weakened Soul* debuff (6788) before attempting *Power Wo
 
 ## Buffs & Crowd Control
 
-- **Party Buffs:** Maintains *Power Word: Fortitude* (Stamina), *Divine Spirit* (Spirit), and *Shadow Protection*. Once known, the group versions (*Prayer of Fortitude*, *Prayer of Spirit*, *Prayer of Shadow Protection*) replace the per-member single-target casts once known, trained and stocked and at least three same-map members lack both auras, and the bot picks a member that still lacks both. Buffs expiring within 15 s count as missing, so they are refreshed before they drop (issue #468). Single-target *Power Word: Fortitude* is also allowed in combat at the lowest priority, so a priest following a master who chain-pulls still buffs the party in the quiet moments of a fight. Out of combat the bot also casts *Resurrection* (removing *Shadowform* first) and uses *Fade* for threat management (raid medium-threat and after *Psychic Scream*). *Prayer of Fortitude* has no trainer on this realm: a hired priest learns rank 1 at level 48 and rank 2 at 60, and the reagent seeding follows those rank levels (Holy Candle 17028 at levels 48–59, Sacred Candle 17029 from 60 — a level-60 priest always casts the highest known rank, so it never spends a Holy Candle). With several priests in one party, a short shared *buff claim* keeps them from duplicating each other: while one priest's cast is in flight the others stand down and wait for the aura instead of casting the same buff on the same member (issue #378).
+- **Party Buffs:** Maintains *Power Word: Fortitude* (Stamina), *Divine Spirit* (Spirit), and *Shadow Protection*. Once known, the group versions (*Prayer of Fortitude*, *Prayer of Spirit*, *Prayer of Shadow Protection*) replace the per-member single-target casts once known, trained and stocked and at least three same-map members lack both auras, and the bot picks a member that still lacks both. Buffs expiring within 15 s count as missing, so they are refreshed before they drop (issue #468). Single-target *Power Word: Fortitude* and *Divine Spirit* are also allowed in combat at the lowest priority, so a priest following a master who chain-pulls still buffs the party in the quiet moments of a fight. Out of combat the bot also casts *Resurrection* (removing *Shadowform* first) and…
+- **Buff scheduling:** Out of combat, catching up to the master runs below the party buffs, so a pending buff whose target is in range wins the tick and follow resumes next tick (far behind, the buff target is out of range and follow still wins). Upkeep buffs wait for 40% mana (70% for charge buffs like *Inner Fire*); with a real player master the floors drop to 20%/40% — the master watches the bar, and heals keep their own reserve. A failed buff attempt no longer starts the retry window or the duplicate-cast claim; only a cast that actually starts does.
 - **Dispels:** Proactively uses *Dispel Magic* on self and allies (to clear magic debuffs), and *Cure Disease* on diseased allies. The enemy-target dispel action is registered but has no trigger, so the bot never offensively dispels.
 - **Crowd Control:**
   - Casts *Shackle Undead* when assigned CC on Undead targets.

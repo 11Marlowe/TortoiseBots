@@ -1376,9 +1376,36 @@ void PlayerbotAI::RefillPoolRations()
     }
 }
 
+void PlayerbotAI::NoteDamager(Unit* damager)
+{
+    if (!damager || damager == bot)
+        return;
+    lastDamager_.name = damager->GetName();
+    lastDamager_.level = damager->GetLevel();
+    lastDamager_.isEnvironment = false;
+    lastDamager_.time = WorldTimer::getMSTime();
+    lastDamager_.entry = damager->IsCreature() ? damager->GetEntry() : 0;
+    lastDamager_.healthPct = damager->GetHealthPercent();
+}
+
 void PlayerbotAI::SetLastKiller(Unit* killer)
 {
     lastKiller_.time = WorldTimer::getMSTime();
+    // Spirit of Redemption: the core saves the priest as a spirit (aura
+    // 27827) instead of killing it, then self-kills the spirit when the
+    // aura expires (spell 27965) - so the death hook arrives with killer
+    // == the bot itself and the real killing blow is only in the damager
+    // memory above. Fall back to it (96% of "Environment" deaths are
+    // priests 30+, Oct 2026 pool); a true self-kill with no remembered
+    // damager keeps the old Environment verdict. Only a recent damager counts
+    // (the spirit lasts 15 s), so a fall long after a fight stays Environment.
+    if ((!killer || killer == bot) && !lastDamager_.name.empty() &&
+        WorldTimer::getMSTimeDiff(lastDamager_.time, lastKiller_.time) <= 30000)
+    {
+        lastKiller_ = lastDamager_;
+        lastKiller_.time = WorldTimer::getMSTime();
+        return;
+    }
     if (!killer || killer == bot)
     {
         lastKiller_.name = "Environment";
@@ -1392,6 +1419,7 @@ void PlayerbotAI::SetLastKiller(Unit* killer)
         lastKiller_.level = killer->GetLevel();
         lastKiller_.isEnvironment = false;
         lastKiller_.entry = killer->IsCreature() ? killer->GetEntry() : 0;
+        lastKiller_.healthPct = killer->GetHealthPercent();
     }
 }
 
@@ -1536,14 +1564,14 @@ void PlayerbotAI::OnDeath()
                         sPlayerbotAIConfig.logEvent(this, "DeathClusterEscape", std::to_string(clusterEntry), WorldPosition(bot).GetAreaName());
                         TellDebug(GetMaster(), "Leaving this hunting ground for a while - it killed me " + std::to_string(kDeathClusterDeaths) + " times", "debug move");
                         // Rotating killers defeat the kind blacklist above (issue
-                        // #398: median 7 killer kinds per loop bot), so the second
-                        // escape inside the avoidance window escalates to the spot
-                        // itself: grind and quest-objective picks inside the camp
-                        // are refused for a while and the bot walks elsewhere.
-                        // Lowbies (<= 5, stuck in their starter valley) avoid a
-                        // smaller camp for a shorter while; a ding clears the
-                        // list. Owned bots and bots with a real player master
-                        // stay out - their player decides where to hunt.
+                        // #398: median 7 killer kinds per loop bot), so the escape
+                        // escalates to the spot itself at once: grind and
+                        // quest-objective picks inside the camp are refused for
+                        // a while and the bot walks elsewhere. Lowbies (<= 5,
+                        // stuck in their starter valley) avoid a smaller camp
+                        // for a shorter while; a ding clears the list. Owned
+                        // bots and bots with a real player master stay out -
+                        // their player decides where to hunt.
                         if (!HasRealPlayerMaster())
                         {
                             deathEscapeCount_ = ai::NextDeathEscapeCount(deathEscapeCount_, nowClusterMs, deathLastEscapeMs_);
@@ -1662,10 +1690,20 @@ void PlayerbotAI::OnDeath()
 
                 botPos.printWKT(out);
 
+                // Killer health is read at the killing blow (death hook), not
+                // from "current target" here: the old read wrote 100 for 92%
+                // of deaths, even for bots seen fighting ~36 s before dying
+                // (Oct 2026 roster poll), so the target no longer matches by
+                // the time the AI handles the death.
                 float killerHealth = 100.0f;
-                Unit* ctarget = AI_VALUE(Unit*, "current target");
-                if (ctarget && (!killerName.empty() && ctarget->GetName() == killerName))
-                    killerHealth = ctarget->GetHealthPercent();
+                if (!lastKiller_.name.empty() && lastKiller_.name == killerName)
+                    killerHealth = lastKiller_.healthPct;
+                else
+                {
+                    Unit* ctarget = AI_VALUE(Unit*, "current target");
+                    if (ctarget && (!killerName.empty() && ctarget->GetName() == killerName))
+                        killerHealth = ctarget->GetHealthPercent();
+                }
 
                 if (!killerName.empty())
                 {
@@ -5390,11 +5428,11 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
         // the item left the bot's inventory between pick and cast (sold,
         // consumed, moved by another tick), the core dereferences a dangling
         // pointer. Validate ownership here; on mismatch cast without the item
-        // instead of crashing. Remove when the core GetValidatedCastItem fix
-        // ships in the running binary.
+        // instead of crashing. The core has no such check, so this stays.
         Item* castItem = itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get();
         if (castItem && bot->GetItemByGuid(castItem->GetObjectGuid()) != castItem)
             castItem = nullptr;
+        spell->SetCastItem(castItem);
         targets.setItemTarget(spell->m_targets.getItemTarget());
 
         if (bot->GetTradeData())
@@ -5993,8 +6031,12 @@ bool PlayerbotAI::HasAuraToDispel(Unit* target, uint32 dispelType)
 			if (!isPositiveSpell && !isFriend)
 				continue;
 
+			// A short aura (totem pulse, brief snare) is not worth a dispel,
+			// but it must not blind the rest of the scan: skip it and keep
+			// looking (donor `continue`s here; `return false` dropped every
+			// real debuff behind one short aura).
 			if (sPlayerbotAIConfig.dispelAuraDuration && aura->GetAuraDuration() && aura->GetAuraDuration() < (int32)sPlayerbotAIConfig.dispelAuraDuration)
-			    return false;
+			    continue;
 
 			if (canDispel(entry, dispelType))
 				return true;

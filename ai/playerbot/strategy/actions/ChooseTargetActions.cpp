@@ -6,6 +6,7 @@
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "playerbot/PullRegenPolicy.h"
+#include "playerbot/SurvivePolicy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/GrindTargetValue.h"
 #include <map>
@@ -38,9 +39,6 @@ bool AttackAnythingAction::isUseful()
     if (!target || !ai->IsSafe(target))
         return false;
 
-    if (ai->ContainsStrategy(STRATEGY_TYPE_HEAL) && !ai->HasStrategy("offdps", BotState::BOT_STATE_COMBAT))
-        return false;
-
     // Revenge first: a mob already fighting the bot (victim set) is always
     // answered, even wounded and even while travelling - this is self-defence
     // on every trip, including a completed hand-in walk. Like the donor (whose
@@ -50,9 +48,23 @@ bool AttackAnythingAction::isUseful()
     // fighting back (quest-taker trips: 5% fought back within 90 s vs 60-93%
     // elsewhere, Oct 2026 pool). Answering an attacker that already holds the
     // bot as victim pulls nothing new, so there is no adds risk.
-    if (!target->IsPlayer() && target->IsHostileTo(bot) &&
-        target->GetVictim() == bot)
+    bool const isRevenge = !target->IsPlayer() && target->IsHostileTo(bot) &&
+        ai::ShouldAnswerAttacker(target->GetVictim() == bot);
+    if (isRevenge)
         return true;
+
+    // Healers start no fights on their own: without a dps kit (offdps) the
+    // order would arm a target the combat engine never swings at. Revenge
+    // above already answered, so this gate only ever refuses a NEW pull.
+    if (ai->ContainsStrategy(STRATEGY_TYPE_HEAL) && !ai->HasStrategy("offdps", BotState::BOT_STATE_COMBAT))
+        return false;
+
+    // A pool bot fresh from a revive (50% health, standing where it died or
+    // at the graveyard) pulls nothing for the revive grace minute: it rests
+    // first. Over half of all revives died again within 10 min (Oct 2026
+    // pool). Revenge above still answers anything that attacks it.
+    if (ai->InReviveGrace() && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster())
+        return false;
 
     // A finished quest waiting at its taker is the bot's own business: the walk
     // to the hand-in must not lose to "attack before being attacked", or a bot

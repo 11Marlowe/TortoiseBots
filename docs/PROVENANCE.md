@@ -3310,6 +3310,39 @@ registered in `tools/verify_all.sh`);
 `bash tools/verify_all.sh`; `git diff --check`. No deploy (orchestrator
 compiles).
 
+## Giver-stall release (night2 idlecheck) — 2026-10-09
+
+Feature: `TravelAction::Execute` expires a quest-giver target on arrival
+(status WORK) when the giver NPC is within talk range and its menu holds no
+rewardable hand-in and no acceptable quest (`AcceptAllQuestsAction::
+OffersAcceptableQuest`, the same predicate the nearby-service rule uses, so
+the two cannot drift). Donor `mod-playerbots` invalidates a questgiver
+purpose whose arrival yields nothing (validity gates flip false once the
+errand is done: `TravelMgr.cpp:1141-1215` questgiver/taker gates, `NewRpg`
+watchdog expiry + arrival-noop back to idle); ours held WORK for the full
+5-min expiry with the stay-alive conditions still green, so the bot idled at
+the NPC on the 0.5-relevance `check values` floor. Takers keep their own
+hand-in path (including the stuck-hand-in settle); pool upkeep bots only.
+One `bot_events.csv` row per release (`QuestGiverStalled`).
+
+Source project: `mod-playerbots` (gold-standard behaviour donor).
+
+Source files: `src/Mgr/Travel/TravelMgr.cpp:1141-1215` (questgiver/taker
+validity gates), `src/Ai/World/Rpg/Action/NewRpgAction.cpp:271-327,383-412`
+(watchdog expiry, NPC arrival-noop back to idle).
+
+Copied / ported / reimplemented: reimplemented (donor flips destination
+validity; ours expires the arrived target once, the next tick re-picks).
+
+Reason: live 2026-10-08 pool — 115 of 153 still questgiver bots showed no
+accept, move-fail or drop after their giver pick; 30 old-idle
+check-values/very-often bots split questgiver 10 / grind 8 / none 7 with the
+questgiver share arrived-and-exhausted (accepted everything offered, WORK
+held to expiry).
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`. No deploy
+(orchestrator compiles).
+
 ## Local grind and camp picks (issue #424) — 2026-10-03
 
 Feature: pool bots search the grind errand inside the donor's local window
@@ -3699,6 +3732,11 @@ dagger-only, combat/other excluded; registered in `tools/verify_all.sh`);
 `bash tools/verify_all.sh`; `git diff --check`. No deploy (orchestrator
 compiles).
 | Hunter dead-zone switch hysteresis + revenge-before-travel self-defence | mod-playerbots `src/Ai/Class/Hunter/HunterTriggers.cpp:112-128` (SwitchToRanged victim!=bot/immobilized/slow/dist>8; SwitchToMelee victim==bot AND dist<=8, no level gate either side) + `src/Ai/Base/Actions/ChooseTargetActions.cpp:104-133` (AttackAnythingAction::isUseful with no facing gate) | `ai/playerbot/HunterSwitchPolicy.h` (ShouldSwitchToMelee/ShouldSwitchToRanged + 5/10 yd edges), `ai/playerbot/strategy/hunter/HunterTriggers.h` (triggers delegate, AND/OR shapes unchanged), `ai/playerbot/strategy/actions/ChooseTargetActions.cpp` (revenge victim==bot answers first with no isInFront gate, before the QuestTaker walk-through exemption and the wounded-pool gate; pre-emptive strike keeps the front arc) | Reimplemented: donor switch shapes kept, only the shared 8 yd distance edge becomes a 5/10 yd hysteresis band; revenge reorder is donor-parity (no facing gate) | Pool hunters flipped kits every few ticks at the shared 8 yd line (inter-switch p50 15 s, 37% within 10 s, each flip rebuilding the combat trigger graph); travelling bots on completed hand-in walks never faced their attacker so the isInFront revenge gate never fired (taker trips fought back 5% vs 60-93% elsewhere) | `tools/test_hunter_switch_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check` |
+| Party threat back-off for real-master non-tank bots | `mod-playerbots` @ 5397110 `src/Ai/Base/Strategy/ThreatStrategy.cpp:11-60` (single >= 80 / AoE >= 50 veto, group-gated) | `ai/playerbot/AiFactory.cpp` (`AddDefaultCombatStrategies`: add `threat` for non-tank bots with a real player master, outside BGs) | Reimplemented wiring only: the multiplier already existed (`generic/ThreatStrategy.cpp`); previously never added to any engine. Pool bots unchanged; ThreatValue returns 0 with no tank so solo/no-tank parties unaffected | `bash tools/verify_all.sh`; `git diff --check`. Runtime pull-aggro check pending deploy |
+| Warrior base-combat interrupts (Arms/Fury pummel + shield bash) | `mod-playerbots` `src/Ai/Class/Warrior/WarriorTriggers.h` (pummel/shield-bash interrupt + enemy-healer triggers) | `ai/playerbot/strategy/warrior/WarriorStrategy.cpp` (`WarriorStrategy::InitCombatTriggers`: four rows at ACTION_INTERRUPT) | Ported trigger rows; creators/actions/stance nodes already existed (`WarriorTriggers.h`, `WarriorAiObjectContext.cpp`). Pummel stance-dances via its berserker-stance node; shield bash has no stance gate so one always fires | `python3 tools/verify_action_trigger_wiring.py` (0 live-missing); `bash tools/verify_all.sh`. Runtime interrupt check pending deploy |
+| Paladin tank taunt (Hand of Reckoning + Righteous Defense fallback) | `mod-playerbots` `src/Ai/Class/Paladin/Strategy/TankPaladinStrategy.cpp:116-121` + node factory (`hand_of_reckoning` -> `righteous defense` alternative) | `ai/playerbot/strategy/paladin/TankPaladinStrategy.cpp` (lose-aggro row + `TankPaladinStrategyActionNodeFactory`) | Ported row + node, mirroring live `ProtectionPaladinStrategy`. Turtle core: Hand of Reckoning is trainer spell 51303 (level 10); Righteous Defense ranks are 51328-51330 (`spell_paladin_righteous_defense`); DBC `Spell.dbc` names both plus Righteous Fury. Actions resolve via `PaladinAiObjectContext`. Note: file is an unregistered forward-port; live tanks run Protection (already correct) | `python3 tools/verify_action_trigger_wiring.py` (0 live-missing); `bash tools/verify_all.sh`. Runtime taunt check pending deploy |
+| Protection righteous fury upkeep in combat | `mod-playerbots` `src/Ai/Class/Paladin/Strategy/TankPaladinStrategy.cpp:147-154` (righteous-fury trigger row) | `ai/playerbot/strategy/paladin/ProtectionPaladinStrategy.cpp` (`ProtectionPaladinBuffStrategy::InitCombatTriggers`) | Ported: prior live row existed only in `InitNonCombatTriggers`, so mid-pull loss (death/bubble) stayed off all fight. Same trigger, buff-level priority so taunts and Holy Shield win the tick. Dropped donor pieces stay dropped: seal of corruption/vengeance, shield of righteousness, hammer of the righteous, avenger's shield, avenging wrath, divine sacrifice (WotLK-only); live already covers taunt, holy shield, 2+ consecration, sanctuary/kings, righteousness seal | `bash tools/verify_all.sh`; `git diff --check`. Runtime fury-uptime check pending deploy |
+| Ranged keep-away verification (no change) | `mod-playerbots` `src/Ai/Base/Strategy/RangedCombatStrategy.cpp:10-16` (enemy-too-close -> flee) | `ai/playerbot/strategy/generic/RangedCombatStrategy.cpp:7-22` (already has `enemy too close for spell` -> `flee` at ACTION_MOVE + `enemy out of spell` -> `reach spell`) | Verified present; no edit. Applies to every bot with the `ranged` kit, pool bots included (unchanged behavior, as required) | Code read; `bash tools/verify_all.sh` |
 
 ## Quest accept/drop churn + banned quests + Bone Chew Toy — 2026-10-04
 Feature: masterless pool bots refuse war-effort item turn-ins (AQ sort
@@ -3827,3 +3865,660 @@ Original module implementation; no donor code. `LogFileRotation.h` and
 Motivation: a restart discarded the bot-event evidence for a live healer report.
 Validation: filesystem fixture covers first/second startup, repeated refresh,
 append mode and failed rotation with both current and previous data preserved.
+
+## Party tank-face + melee rear (night2 research gap 2) — 2026-10-08
+
+Feature: in a real-player-master party a tank bot holding a mob sidesteps so
+the mob's front points away from the party (`tank face needed` trigger →
+`tank face away` action on the `close` strategy); melee DPS on a mob that
+targets someone else works its rear via `set behind` (`behind` strategy now
+on every melee DPS kit, including retribution and enhancement, which lacked
+it). Pool bots unchanged (trigger requires a real player master).
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Ai/Base/Actions/MovementActions.cpp:2405-2471` (`TankFaceAction::Execute`: has-aggro + melee + stationary gates, party-average angle, +-3PI/5 near-point sidestep, 90-degree hysteresis)
+- `src/Ai/Base/Actions/MovementActions.cpp:2327-2367` (`AverageGroupAngle`)
+- `src/Ai/Base/Strategy/CombatStrategy.cpp:74-86` (`TankFaceStrategy` default action)
+- `src/Ai/Base/Strategy/MeleeCombatStrategy.cpp:18-23` (`SetBehindCombatStrategy` wiring)
+
+Copied / ported / independently reimplemented: ported, adapted to the 1.12
+codebase. Trigger/action geometry (average party angle, +-108-degree
+destinations, nearest-side pick, LOS/terrain check, 90-degree fire window) is
+behavior-identical; the flee-info anti-oscillation cache is replaced by the
+hysteresis window plus a 2 s trigger interval. Local additions: explicit-hold
+exemptions (`stay`, `wait for attack`), creature-only scope, LOS fallback
+mirroring `SetBehindTargetAction`. The raid-dragon `dragon flank` /
+`dragon tank face away` paths are untouched (entry-gated raid geometry).
+`SetBehindTargetAction` itself is unchanged — only its strategy coverage grew.
+
+Reason: tank bots never turned mobs away (cleaves hit the party) and
+retribution/enhancement DPS never left the mob's front (no `behind` kit).
+
+Local validation: `python3 tools/verify_okf.py` + `bash tools/verify_all.sh`
+(see commit); `git diff --check` clean. No build (per task constraints);
+live in-game check pending: tank sidesteps on pull, melee work the rear,
+no jitter, pool bots unchanged.
+
+## Combat rotation ports: rogue finisher dump, hunter feign, druid rejuv gate, warlock tap (night2 rotations) — 2026-10-08
+
+Feature: four small donor-parity rotation fixes from night2 research. (1)
+Rogue: an almost-dead target (<=25% health) eats whatever combo points are
+banked (1+) as *Eviscerate* at HIGH+2, ahead of the gated SnD/4CP finishers,
+so points land as damage instead of dying with the mob. (2) Hunter: `medium
+threat` fires `feign death threat` (HIGH) instead of the distracting-shot
+taunt; the base kit already covers open-world combat, so feign now drops
+aggro outside raids too. (3) Druid: the leveling kit casts *Rejuvenation*
+only below the low-health line with mana to spare (scratches no longer
+outbid the damage kit), and a 10+ druid sitting in Bear/Dire Bear/Cat form
+idles the caster wrath/moonfire/heal nodes at HIGH while shifted so they
+never outbid the feral form rotation. (4) Warlock: *Life Tap* fires at the
+medium-mana line (default 40, health floor unchanged) at NORMAL+2, above the
+dot upkeep it feeds, instead of waiting until 15% and wanding the rest of
+the fight.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Ai/Class/Rogue/Strategy/DpsRogueStrategy.cpp:129-137` (`target with combo points almost dead` -> eviscerate HIGH+2, no CP gate)
+- `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:71` (`medium threat` -> feign death 35)
+- `src/Ai/Class/Druid/Strategy/BalanceDruidStrategy.cpp` (ranged defaults + no sub-100% heal trigger; rejuv gate is a local 1.12 adaptation)
+- `src/Ai/Class/Warlock/Strategy/AfflictionWarlockStrategy.cpp` + `src/Ai/Class/Warlock/Strategy/GenericWarlockStrategy.cpp:22-30` (life-tap mana<85% at relevance 95)
+
+Copied / ported / independently reimplemented: reimplemented against the
+live list-based engine (NOT the unregistered new-style forward-ports:
+`GenericMageStrategy`, `GenericWarlockStrategy`, `DpsRogueStrategy`,
+`TankWarriorStrategy` remain untouched dead code). Rogue: new
+`AlmostDeadFinisherTrigger` (1+ CP, target <=25%, eviscerate ready) instead
+of the donor's group-DPS lifetime estimate — no `estimated lifetime` value
+is registered in our context, and a flat execute band matches the existing
+`target critical health` (20%) conventions nearby. Hunter: remapped the live
+`medium threat` node to the existing `feign death threat` action node
+(stand-up included); distracting-shot action kept for manual use. Druid: new
+`InFeralFormTrigger` (Bear/Dire Bear/Cat aura state) + relevance-only
+stand-down node carrying the existing `melee` default action; healer-party
+behavior unchanged (restoration kit + offheal untouched). Warlock: threshold
+mediumMana (40) rather than donor 85% — a 1.12 leveling adaptation keeping
+the health floor; relevance NORMAL+2 above dots, below execute.
+
+Reason: night2 rotation research (report-class-rotations.md D2/D3/D1/D4):
+rogues never landed eviscerate (CP died with the mob), hunters taunted on
+medium threat and died (9.7k deaths), 10+ druids chain-cast rejuvenation at
+chip damage in the sub-10 kit (4/7 live druids mid-rejuv, 80 deaths/capita),
+warlocks OOM-wanded the second half of every fight.
+
+Local validation: `python3 tools/verify_okf.py` + `bash tools/verify_all.sh`
+green on each of the four commits; `git diff --check` clean. No build (per
+task constraints); live in-game check pending: rogue eviscerate in combat
+last_action distribution, hunter feign rows + falling death rate, druid
+rejuv share collapse, warlock tap-before-wand ordering.
+
+## Combat rotation ports batch 2: mage blink-back, warrior rage/stack discipline, paladin builder, priest fade, shaman strike order (night2 rotations) — 2026-10-08
+
+Feature: four small donor-parity rotation fixes, the honorable mentions of
+night2 research. (1) Mage: new `BlinkBackTrigger` (live melee target inside
+8 yd, blink off cooldown, not rooted/stunned) drives a HIGH+5 `blink` node
+in the live base combat list, below the EMERGENCY root/stun blink and the
+cc-strategy frost-nova pack root — a mob walking up to the mage now eats a
+blink, then the nuke loop resumes. (2) Warrior: `HeroicStrikeTrigger` holds
+heroic strike until 60 rage for every spec (the old 15-rage floor for
+untalented levelers starved slam/shield-slam/MS/BT above it), and
+`SunderArmorDebuffTrigger` stops at a full 5-stack (re-sunder only to
+refresh). (3) Paladin: `crusader strike` promoted to NORMAL+2 above `holy
+strike` NORMAL+1 in the live ret list — main builder first, seal/judge
+upkeep untouched. (4) Priest: `medium threat` -> `fade` at HIGH in the base
+combat list (any group; the action's group requirement keeps solo priests
+on heals), alongside the existing raid EMERG-adjacent node. (5) Shaman:
+`stormstrike` promoted to NORMAL+2 above the shield-consuming `lightning
+strike` NORMAL+1, so the nature-vulnerability debuff lands first.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Ai/Class/Mage/Strategy/GenericMageStrategy.cpp:105` (`enemy too close for spell` -> blink back 35)
+- `src/Ai/Class/Warrior/Strategy/TankWarriorStrategy.cpp:185-191,331-335` (slam HIGH+2 above high-rage-gated heroic)
+- `src/Ai/Class/Paladin/Strategy/DpsPaladinStrategy.cpp:104-111` (crusader strike default+0.4 second builder)
+- `src/Ai/Class/Priest/Strategy/GenericPriestStrategy.cpp:21` (medium threat -> fade 55)
+- `src/Ai/Class/Shaman/Strategy/EnhancementShamanStrategy.cpp` (stormstrike top of default chain)
+
+Copied / ported / independently reimplemented: reimplemented against the
+live list-based engine; the dead new-style forward-ports stay untouched.
+Mage blink id 1953 checked via `sServerFacade.IsSpellReady`; the 8 yd band
+mirrors the hunter dead-zone hysteresis already in-tree. Crusader Strike
+verified as an already-wired live trigger + action node
+(`CrusaderStrikeTrigger` CD_TRIGGER, `CastCrusaderStrikeAction` melee
+spell); only the priority moved. Skipped as not-small in this batch: mage
+fire-immune fallback, scorch exclusivity/HP gate, blizzard 10s gate (D5
+M-items); prot disarm/block/panic/intervene/overpower/thunder items, arms
+death-wish/stance/execute (D6 S-items beyond the two rage/stack gates); ret
+exorcism split, double-bubble, blessing refresh (D7); priest mana recovery,
+ranged default, self-shield (D8); shaman totem bloat, earthbind, heal
+protection (D9).
+
+Reason: night2 rotation research (report-class-rotations.md D5-D9): mages
+died to even-level melee with no escape (+0 killer gap, 10.9k deaths),
+heroic spam starved slam while sunder stacked forever, crusader strike
+fired last, priests never faded outside raids (11.3k deaths, most of any
+class), lightning strike burned the shield before the nature debuff.
+
+Local validation: `python3 tools/verify_okf.py` + `bash tools/verify_all.sh`
+green on each of the commits; `git diff --check` clean. No build (per
+task constraints); live in-game check pending: mage blink rows vs melee
+deaths, heroic/slam cast split + sunder aura stacks capped at 5, ret
+builder split, priest fade rows in groups, enh opener order.
+
+## Combat rotation ports batch 3: prot thunder/disarm, mage nova gate, hunter wing clip (night2 rotations) — 2026-10-09
+
+Feature: four small donor-parity rotation fixes, party-play first. (1)
+Warrior: `medium rage available` -> `thunder clap` at HIGH+1 in the live
+prot combat list — the base AoE tree gates thunder clap behind the opt-in
+aoe toggle, so party-pull tanks never clapped; 40+ rage sits with
+sunder/revenge below slam. (2) Warrior: prot `disarm` NORMAL -> HIGH+1,
+where it can actually win a relevance contest (mitigation). (3) Mage: new `CastFrostNovaAction::isUseful`
+veto (already-frozen target via `sServerFacade.IsFrozen`, freeze-immune
+target via `IsImmuneToSpellEffect` over the spell effects), so the GCD
+goes to damage instead of a wasted re-nova. (4) Hunter: `wing clip` as
+second NextAction under `raptor strike` on the live `enemy is close` node
+(donor melee chain order), so a mob that closes in eats the snare.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `b6696bdbd3740e575598d167d69f39f68cc0b907` (local
+`playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Ai/Class/Warrior/Strategy/TankWarriorStrategy.cpp:209-216` (disarm HIGH+1) and `:338-345` (medium rage -> thunder clap HIGH+1)
+- `src/Ai/Class/Mage/MageActions.cpp:67-78` (`CastFrostNovaAction::isUseful`: not-frozen, no freeze-mechanic immunity, 10 yd)
+- `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:80-82` (melee chain: mongoose bite 22, wing clip 21)
+
+Copied / ported / independently reimplemented: reimplemented against the
+live list-based engine; the dead new-style forward-ports stay untouched.
+Thunder Clap 6343/8198/8204/8205 (Battle+Defensive stances) and Wing Clip
+2974/14267 verified in Turtle `tw_world_spell_template.sql`; disarm 676
+is a pre-existing live trigger/action pair. Skipped in
+this batch (already live, not small or not a clear gain): rogue expose
+armor above the damage finishers (a solo-levelling DPS loss on trash), warrior overpower (live twice:
+arms HIGH + prot stance-dance; donor taste-for-blood path is WotLK-only),
+paladin blessing refresh (live blessing-on-party ladder is a superset of
+the donor per-buff strategies), priest inner fire upkeep + self-shield
+(both live; no melee-gated shield donor source exists), shaman earthbind
+vs fleeing (no donor wiring — donor snares fleeing via frost shock; novel
+totem-slot behavior), mage scorch exclusivity/HP gate (donor list is WotLK
+raid-debuff homogenization), hunter/warlock pet sanity (live pet-attack
+trigger strictly stronger than donor; donor comments it out of combat),
+fear ward on main tank (needs a new main-tank target value — not small).
+
+Reason: night2 rotation research (report-class-rotations.md D3/D5/D6):
+prot tanks with zero thunder-clap coverage in normal pulls, disarm never
+firing at NORMAL, nova GCDs
+wasted on frozen mobs, hunters with a registered-but-unpushed wing clip.
+
+Local validation: `python3 tools/verify_okf.py` + `bash tools/verify_all.sh`
+green on each of the commits; `git diff --check` clean. No build (per
+task constraints); live in-game check pending: prot thunder-clap cast
+share, disarm rows, nova casts per frozen
+target, wing-clip casts in melee.
+
+## Ranged party keep-away (caster steps out of melee toward tank) — 2026-10-09
+Feature: non-hunter casters in a group step out when a mob is in melee
+reach of THEM even while the tank holds it. Donor `enemy too close for
+spell` fires at melee range regardless of victim
+(`src/Ai/Base/Trigger/RangeTriggers.cpp:14-18`); the module's victim gate
+(`RangeTriggers.h`, "casters flee only when the mob targets them") means a
+tank-held mob standing on the mage/priest/lock never fires it, so the
+caster stands in melee and eats cleaves.
+
+Source repository: `mod-playerbots` @
+`b6696bdbd3740e575598d167d69f39f68cc0b907` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Base/Strategy/RangedCombatStrategy.cpp:10-16` (`enemy too close for
+spell` -> flee) + `src/Ai/Base/Actions/MovementActions.cpp:1367-1399`
+(victim==bot -> flee to tank) + `src/Ai/Base/Trigger/RangeTriggers.cpp:14-18`
+(victim-independent melee-range fire condition).
+
+Copied / ported / reimplemented: reimplemented as a narrow gate inside the
+live `EnemyTooCloseForSpellTrigger`, ahead of the victim gate: non-hunter,
+grouped, mob in melee reach of this bot (`CanReachWithMeleeAutoAttack`),
+live same-map tank groupmate (`LiveGroupMembers` + `ai->IsTank`) -> true.
+The existing `flee` action then runs to the tank (victim==bot branch,
+`MovementActions.cpp:1824-1837`) or steps out via FleeManager when no tank
+is near. Deliberately narrower than donor: no trigger when solo (slow-kite
+guard still refuses: chasing a mob you cannot outrun only stops the casts),
+no trigger for hunters (own dead-zone trigger), melee-reach instead of the
+spell-band fraction so it is a short step out of melee, not a long kite.
+Solo pool bots and hunters: unchanged.
+
+Reason: night2 party-combat gap 6 ("ranged has no keep-away/flee-to-tank
+equivalent of donor `enemy too close`"): the base flee row + flee-to-tank
+endpoint were already ported (prior "keep-away verification" row), only the
+firing condition was missing for the tank-holds-it case.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`. No build
+(per task constraints); live in-game check pending: party caster steps out
+of melee toward the tank while the tank holds the mob, no long kite, solo
+casters unaffected.
+
+## Idle wander beside the prey rule (night2 idlefallback) — 2026-10-09
+Feature: `idle wander` no longer waits for the grind target to come back
+empty. Donor `mod-playerbots` idles through local motion (`NewRpg`
+`WanderRandom`/`WanderNpc` + `MoveRandomNear`, `getNewTarget` falling
+through to local grind/rpg/wander instead of parking); the module gated
+its drift on no-grind-target-at-all, so a held-but-never-attacked pick
+(out of the front arc, leader travelling, tapped since the pick) vetoed
+the only motion that could break the standstill — live night2 pool: 0
+wander rows for ~289 parked purpose-None bots while `attack anything`
+refused the held prey. The drift (50 yd, relevance 0.6, `often` trigger,
+mesh-vetted reachable point + ordinary core path) now fires beside the
+prey rule; the attack row (5.0) still wins whenever the prey is usable.
+No travel destination is touched, no park is re-armed: unreachable spots
+cannot be re-picked by this change. Pool (masterless random) bots only.
+
+Source repository: `mod-playerbots` @
+`b6696bdbd3740e575598d167d69f39f68cc0b907` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:42-178`
+(`getNewTarget` fallthrough to `SetGrindTarget`, idle only if grind fails)
++ `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp:240-280`
+(`MoveRandomNear`) and `:964-1062` (`SelectRandomGrindPos` local window).
+
+Copied / ported / reimplemented: reimplemented (one predicate parameter
+dropped in `GrindSpotPolicy.h::IdleWanderAllowed` + call site in
+`IdleWanderAction::isUseful`; trigger row unchanged).
+
+Reason: night2 idlefallback quantify — 289 purpose-None stalled bots, 123
+earning no XP in 12 min, wander firing 0x pool-wide while the local prey
+path served the other 166.
+
+Local validation: `tools/test_grind_spot_policy.cpp` test 10 (gate beside
+the prey rule); `bash tools/verify_all.sh`; `python3 tools/verify_okf.py`;
+`git diff --check`. No build/deploy (orchestrator compiles); live check
+pending: `idle wander` rows for parked purpose-None bots, stalled share,
+no change in grind pick/re-park rates.
+
+
+## Party buffs batch 2: blessing claim + in-combat motw/AI/spirit fallback — 2026-10-09
+Feature: two paladins no longer double-cast the same blessing on one member,
+and mark of the wild / arcane intellect / divine spirit land in the quiet
+moments of long fights. Native work (no donor port): the blessing picker was
+a bare CastSpellAction with no claim, and only priest fortitude had an
+in-combat fallback row.
+
+Source files (module, modified):
+`ai/playerbot/strategy/paladin/PaladinActions.{h,cpp}`
+(`CastBlessingOnPartyAction`: `isUseful` stands down while another bot holds
+a live claim on the resolved blessing+target, `Execute` claims the resolved
+pair only on a cast that actually starts) +
+`ai/playerbot/strategy/{druid/DruidStrategy,mage/MageStrategy,priest/PriestStrategy}.cpp`
+(combat fallback rows for the single-target party buffs at ACTION_DEFAULT,
+the priest-fortitude shape: below every heal and attack).
+
+Copied / ported / reimplemented: reimplemented from the module's own
+patterns. Claim reuses the shared BuffClaimRegistry (4 s TTL) exactly like
+CastBuffSpellAction::Execute (stamp on cast start, never on a whiff).
+Fallback rows reuse the existing fortitude precedent (plain combat row at
+ACTION_DEFAULT, no master/mana gate in the row: the buff trigger's own aura
+gate plus the upkeep mana floor and retry cooldown in CastBuffSpellAction
+already decide whether the cast is worth it). Cure tiering (task item 3)
+deliberately untouched: live paladin/druid/shaman rows already match the
+donor's flat self/party split (donor tiers nothing across dispel types).
+Buff rank by target level (task item 4) skipped: no rank-selection helper
+exists (SpellIdValue only reads the global mana save level), plumbing target
+level through is not small.
+
+Reason: night2 buffs-live findings 1+4: chain-pulling masters starve every
+party buff except fortitude (follow beats out-of-combat buffs; combat rows
+were empty), and two paladins resolve the same member through the same
+shared value with no cross-bot coordination.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`. No build
+(per task constraints); live in-game check pending: blessing double-cast
+rate with two paladins, buffs-active share across long fights.
+
+## Party gaps round 2: pre-pull RTI marks + between-pull regen wait (night2 partygaps2) — 2026-10-09
+Feature: two small donor-parity party fixes from night2 research. (1) RTI
+marks resolve pre-pull: `RtiTargetValue::Calculate` no longer requires the
+marked unit to sit in "possible targets" (units already fighting the bot);
+it accepts a marked unit on legality + sight range + LOS instead. The
+mage's moon-sheep and the party's skull pre-focus now work on approach,
+not only after someone takes a hit. (2) The party waits for regen between
+pulls: `GroupReadyValue` drops the live `hasAttackers` conjunct on the
+health wait, restoring the donor's unconditional between-pull hold, so
+travel/grind/RPG movement stays parked while members sit wounded or OOM
+and the party drinks/eats together.
+
+Source repository: `mod-playerbots` @
+`b6696bdbd3740e575598d167d69f39f68cc0b907` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Base/Value/RtiTargetValue.cpp:35-78` (marked-unit resolution with
+the attackers gate deleted, LOS + sight range + master-distance guards) +
+`src/Ai/Base/Value/GroupValues.cpp:134-174` (`GroupReadyValue`, no
+attacker gate on the health/mana wait).
+
+Source files (module, modified):
+`ai/playerbot/strategy/values/RtiTargetValue.h` (pre-pull resolution via
+`PossibleAttackTargetsValue::IsPossibleTarget` sight-range/legality check
++ `IsWithinLOSInMap`; the old possible-targets membership test removed) +
+`ai/playerbot/strategy/values/GroupValues.cpp` (`GroupReadyValue` health
+wait without the `hasAttackers` conjunct; in-combat skip, mana gate,
+dungeon alive-gate and master-distance skip unchanged).
+
+Copied / ported / reimplemented: reimplemented inside the live values. The
+donor's master-distance chase guard is already covered live by the
+master-distance member skip above the wait. The donor's 2D range shape is
+already covered live by `IsPossibleTarget`'s `IsWithinDistInMap`.
+
+Reason: night2 partygaps2 research: with prior merges (threat, interrupts,
+tank-face, formation, healer mana, buff claim) landed, the two most visible
+remaining party gaps were CC/focus marks ignored before the pull and bots
+walking on while the party sat to drink.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`. No build
+(per task constraints); live in-game check pending: moon-sheep on approach,
+skull pre-focus before first hit, party idle between pulls until topped up.
+
+## Party gaps round 3: warlock CC type gates, resto chain-lightning range, healer LOS tie-break, balance hurricane (night2 partygaps3) — 2026-10-09
+Feature: four small donor-parity party fixes from night2 research. (1)
+Warlock CC legality: `CastFearOnCcAction::isPossible` refuses undead and
+mechanical marks, `CastBanishOnCcAction::isPossible` accepts only demon
+and elemental marks (players excluded outright: `GetCreatureType` answers
+with the shapeshift form for players, so a bear-form druid reads as
+beast). The core rejects illegal types, so firing there wasted mana and
+the GCD. (2) Resto healer-DPS chain lightning: the dead-tree row queued
+bare `medium aoe and healer should attack`, which has no creator (a
+`TwoTriggers` on an unregistered name is a silent no-op); registered the
+`ranged medium aoe and healer should attack` combo (3 attackers, spell
+range — the melee one is PBAoE range, wrong for a 30 yd cast) and pointed
+the row at it. (3) Healer target pick: `PartyMemberToHeal` tie-breaks the
+missing-health sort on LOS — when the most urgent member is out of LOS and
+another is within 30% of the top target's max health (the medium-health
+band width), the reachable one goes first. Never a filter: a dying member
+behind a pillar still outranks a scratched one in the open, and the reach
+action still walks the healer into LOS for genuinely urgent picks. (4)
+Balance hurricane: the only rows lived in the dead vector-style
+`GenericDruid` tree (bare `medium aoe` has no creator); added one
+`ranged medium aoe` (3 attackers, spell range) row to the live
+`BalanceDruidStrategy`, covering pve/pvp/raid via inheritance. Gap 3
+(auto-mark combat gate) confirmed moot: `MarkRtiStrategy` only queues on
+`no rti target` in combat.
+
+## Held pick outranks a new errand, starved bots only (night2 heldprey2) — 2026-10-09
+Feature: `TravelActionMultiplier` vetoes travel request actions while the
+bot holds a grind pick and has no active travel target, but only once the
+bot's own recent travel searches prove starved: three or more of the
+twelve counted purposes (quest errand + every numeric travel purpose -
+Grind, GenericRpg, Explore, GatherMining/Herbalism/Fishing, Boss, Vendor,
+Repair, AH, Mail) still inside their `no travel purpose until::<key>`
+park. A successful pick sets no park, so a bot whose searches succeed
+keeps questing exactly as today - its requests return 1.0 here. Named
+errands (trainer class, city, ...) stay out of the count: their parks are
+common on healthy bots (a trainer with nothing affordable parks ten
+minutes), and counting them would veto questing bots that are succeeding
+everywhere else. Healers without `offdps` exempt (they start no fights);
+travelling bots untouched (the hasTarget veto still owns those ticks);
+owned/hired bots keep today's order (player-ordered journeys). Scoped
+down from round 1 (`agent/heldprey` 41990572, NOT merged), which vetoed
+on the held pick alone and would have pinned a bot that just finished a
+trip wherever mobs stand - no quests, trainers, vendors. Pure predicate
+(`TravelSearchesStarved` + `TravelStarvedParkKeys`,
+`TRAVEL_STARVED_PARKED_PURPOSES = 3`) in `TravelRepickPolicy.h`, tested
+in `tools/test_travel_repick_policy.cpp`; both veto reads are
+already-cached values (grind pick 2 s, manual timestamps free), no extra
+world scan.
+
+Source repository: `mod-playerbots` @
+`b6696bdbd3740e575598d167d69f39f68cc0b907` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Class/Warlock/WarlockActions.cpp:33-63` (banish demon/elemental
+only, fear not on mechanical/undead) +
+`src/Ai/Class/Shaman/Strategy/RestoShamanStrategy.cpp:63` (chain
+lightning on `medium aoe and healer should attack`) +
+`src/Ai/Base/Value/PartyMemberToHeal.cpp:124-136` (`Check`: same map, not
+charmed, 2x heal distance, in LOS) +
+`src/Ai/Class/Druid/Strategy/GenericDruidStrategy.cpp:170-179`
+(hurricane on `medium aoe`) + `src/Ai/Base/TriggerContext.h:102,106,313`
+(`medium aoe` = 3 attackers at 8 yd; the healer combo).
+
+Source files (module, modified):
+`ai/playerbot/strategy/warlock/WarlockActions.h` (both OnCc `isPossible`
+gates) + `ai/playerbot/strategy/triggers/TriggerContext.h` (registered
+the ranged healer combo) +
+`ai/playerbot/strategy/shaman/RestoShamanStrategy.cpp` (row retargeted) +
+`ai/playerbot/strategy/values/PartyMemberToHeal.cpp` (LOS tie-break after
+the missing-health sort, before the multi-healer spread) +
+`ai/playerbot/strategy/druid/BalanceDruidStrategy.cpp` (hurricane row) +
+`docs/classes/warlock.md`, `docs/classes/druid.md` (behaviour lines).
+
+Copied / ported / reimplemented: reimplemented in place. Deviations from
+the donor, all deliberate: (a) donor's heal `Check` is a hard LOS filter;
+live keeps out-of-LOS members as candidates (the reach action closes the
+gap) and uses LOS only as a bounded tie-break, so a dying tank behind a
+pillar is never ignored; (b) donor's chain-lightning trigger is the bare
+`medium aoe` name (WotLK tree still registers it); live has only
+ranged/melee splits, so the row keys off `ranged medium aoe`; (c) donor's
+hurricane rows sit in its generic tree; live's generic druid tree is dead,
+so the row goes on the live balance strategy. Turtle creature types match
+the donor 1:1 (`SharedDefines.h`: demon 3, elemental 4, undead 6,
+mechanical 9); all four spells/mechanics exist in 1.12.
+
+Reason: night2 partygaps3 research: after parts 1-2 (marks, regen, solo
+guard) these were the remaining ranked small items — wrong-CC-type casts,
+a healer-DPS row that could never fire, LOS-blind heal picks, and a
+missing balance pack cast.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`; wiring
+audit `python3 tools/verify_action_trigger_wiring.py` (0 live-missing
+before and after; `medium aoe and healer should attack` refs drop from 2
+to 1 — the remaining one is the donor-faithful priest row in the dead
+`GenericPriestStrategy.cpp`). No build (per task constraints); live
+in-game check pending: no fear on undead/mechanical marks, no banish on
+non-demon/elemental, resto chain lightning on ranged packs when nobody
+needs healing, reachable-first heal picks, balance hurricane at 3+.
+
+`src/Ai/Base/Strategy/GrindingStrategy.cpp:23-25`
+(`no target` -> `attack anything` 4.0, no per-tick travel competition) +
+`src/Ai/Base/Actions/ChooseTargetActions.cpp:88-102`
+(`AttackAnythingAction::Execute` carries the approach: sets `pull target`,
+clears the motion master, never breaks the walk).
+
+Copied / ported / reimplemented: reimplemented (starved-gated veto branch
+in `TravelActionMultiplier::GetValue`,
+`ai/playerbot/strategy/generic/TravelStrategy.cpp`; local shape only — the
+donor needs no equivalent because its travel decisions run on the manager
+sweep, not in the per-tick queue).
+
+Reason: night2 heldprey quantify — post-01:21-UK build, 01:24/01:32 snapshots
+(2000/1996 bots): 41 purpose-None bots still 8 min apart, 16 earning XP via
+the local path, ~5 attack orders per 40 still bots per 10 min while
+`TravelSearchEmpty` rows rotate across purposes (empty/rejected) and zero
+sub-6.x actions win; `EvadeProbe` 0 rows on the cohort (no wedged orders —
+the picks are ordinary, the rank is the block).
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`. No
+build/deploy (orchestrator compiles); live check pending:
+`AttackAnythingAction` rows for standing purpose-None bots with picks,
+stalled-None share, no rise in over-level orders (level cap + adds gates
+unchanged), `QuestRewarded` lag only on the no-XP cohort.
+
+## Loot open-failure give-up (night2 lootfrozen) — 2026-10-09
+Feature: `OpenLootAction::Execute` (`ai/playerbot/strategy/actions/LootAction.cpp`)
+counts each failed open on the loot stack's existing per-corpse failure
+memory (`LootObjectStack::NoteApproachFailure`, the same counter `move to
+loot` uses for unreachable corpses) and drops the corpse once it is
+abandoned (3 failures inside the 120 s window), clearing `loot target`
+so `loot` selects the next corpse. Covers every `DoLoot` "not now"
+path that previously retried forever with no counter: failed
+open/skin/gather casts, a contended game object, no opening spell.
+Player-ordered looting (`.bot` loot orders via `ChatCommandHandlerStrategy`)
+issues the action once per order and can never fill a counter that
+needs repeated failures. Documented in
+`docs/concepts/bot-mechanics-and-quirks.md` (Loot Open-Failure Give-Up).
+
+Source repository: `mod-playerbots` @
+`5397110` (local checkout
+`../playerbots-references/mod-playerbots`, read-only) —
+`src/Ai/Base/Actions/LootAction.cpp` (open removes the corpse only on
+success; no per-object attempt counter or timeout anywhere in the
+donor loot chain) + `src/Mgr/Item/LootObjectStack.cpp` (stack-wide 30 s
+TTL + 200-cap eviction only). No donor behavior to port: the donor has
+the same unbounded retry on failed opens; the counter reuses our own
+`MoveToLootAction` abandonment shape.
+
+Reason: night2 lootfrozen live measure — two 120 s-apart dashboard
+snapshots (01:30/01:33 UTC, 1999 bots) + `bot_events.csv` window:
+30-44 of ~550-740 alive-out-of-combat frozen bots carry a loot
+last_action, but only 6 persist across both snapshots and 5 of those
+log loot progress in-window (StoreLoot/GatherLoot/LootMoney —
+skinning chains and multi-corpse clears, not wedges). The hard wedge
+is rare (~2/2000: `open loot`/`can loot` pinned 240 s+ with zero
+displacement and no loot events). Bag-full is lossy but not a wedge
+(per-item skip + release); solo pool bots show no group roll waits.
+
+Local validation: `bash tools/verify_all.sh`; `python3
+tools/verify_okf.py`; `git diff --check`. No build/deploy
+(orchestrator compiles); live check pending: `open loot` last_action
+share of frozen bots, `giving up on guid=... after repeated failed
+opens` debug rate, no change to player-ordered loot completion.
+
+## Rogue low-health vanish fallback (night2 deaths) — 2026-10-09
+Feature: the live rogue low-health node was evasion -> feint. Evasion keeps
+the kill when ready, but on its 5-minute cooldown (death loops hit the same
+bot within 600 s 36-41% of the time) the bot feinted - a threat drop with
+no tank to take over for a solo pool bot - and died. Vanish now sits
+between them (evasion, vanish, feint): grouped rogues keep today's order
+(evasion first, feint last for the tank save); solo rogues with evasion
+spent break combat instead of dying. No new actions/triggers; same trigger,
+same EMERGENCY relevance; untrained rogues fall through to feint via the
+existing impossible-action path.
+
+## Party gaps round 4: shaman off-target interrupt, cat cower in parties, paladin self-first cleanse (night2 partygaps4) — 2026-10-09
+Feature: three XS donor-parity party fixes from night2 research. (1)
+Shaman interrupt: new `EarthShockInterruptEnemyHealerSpellTrigger`
+(`InterruptEnemyHealerTrigger` on "earth shock") + `earth shock on enemy
+healer` row at ACTION_INTERRUPT+2 in base `ShamanStrategy`, so shamans
+interrupt a second attacker casting a heal like every other interrupt
+class (warrior/rogue/mage/druid/warlock all had the pair). (2) Cat
+threat: `medium threat` -> `cower` moves from `DpsFeralDruidRaidStrategy`
+to base `DpsFeralDruidStrategy`, so 5-man/party cats back off like the
+donor (raid inherits). (3) Paladin cleanse: self rows at ACTION_DISPEL+2
+above party rows at +1, matching the donor stagger (was: all six flat at
+DISPEL).
+
+Source repository: `mod-playerbots` @
+`b6696bdbd3740e575598d167d69f39f68cc0b907` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Class/Rogue/Strategy/DpsRogueStrategy.cpp:141` (vanish on medium
+threat) + `:150` (evasion HIGH+9 / feint HIGH+8 on low health). Deviations,
+deliberate: donor vanishes on threat (group-tank context); solo pool bots
+have no threat signal worth reacting to, so the low-health band carries it,
+behind evasion so winnable fights still end in kills, not resets.
+
+Reason: night2 deaths research — post-02:20-UK build pool telemetry:
+rogue 2.20/bot-h (#2 killer after mage 3.76), 173 fair-fight (<=+4, fought)
+deaths/h with killer left at 55% HP; evasion casts pool-wide while vanish
+casts zero (both self-casts, identically observable in bot_events.csv
+SelfBuff rows), rogues dying with evasion up pre-death. The critical-band
+blind -> vanish chain exists but never executes a vanish live.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`. No
+build/deploy (orchestrator compiles); live check pending: `vanish` rows in
+bot_events.csv SelfBuffs, rogue deaths/bot-hour, repeat-death share for
+rogues (41% pool-wide within 600 s), adds>0 share must stay flat (vanish
+pulls nothing new).
+
+`src/Ai/Class/Warrior/WarriorTriggers.h:57-62` +
+`src/Ai/Class/Warlock/WarlockTriggers.h:154-158` (interrupt pairs incl.
+healer variants; donor shaman interrupt is WotLK-only wind shear
+`src/Ai/Class/Shaman/ShamanTriggers.h:141-151`, no 1.12 equivalent — live
+earth shock covers it) +
+`src/Ai/Class/Druid/Strategy/CatDruidStrategy.cpp:194-197` (cower at
+medium threat in base combat) +
+`src/Ai/Class/Paladin/Strategy/GenericPaladinStrategy.cpp:40-54` (cleanse
+self DISPEL+2 above party DISPEL+1).
+
+Source files (module, modified):
+`ai/playerbot/strategy/shaman/ShamanTriggers.h`,
+`ai/playerbot/strategy/shaman/ShamanActions.h`,
+`ai/playerbot/strategy/shaman/ShamanAiObjectContext.cpp`,
+`ai/playerbot/strategy/shaman/ShamanStrategy.cpp` (healer trigger, action,
+creators, row) + `ai/playerbot/strategy/druid/DpsFeralDruidStrategy.cpp`
+(cower row moved to base) +
+`ai/playerbot/strategy/paladin/PaladinStrategy.cpp` (cleanse stagger) +
+`docs/classes/shaman.md`, `docs/classes/druid.md`,
+`docs/classes/paladin.md` (behaviour lines).
+
+Copied / ported / reimplemented: reimplemented in place. Deviations from
+the donor, all deliberate: (a) earth shock keeps its debuff-spell action
+class (`CastRangedDebuffSpellAction`) — only the targeting comes from the
+new healer action; (b) no new spells — all three fixes are row/trigger
+wiring on existing 1.12 spells; (c) the cross-cutting heal-vs-dispel
+priority inversion (live dispels 50-53 lose to heals 60-82; donor dispels
+beat heals) is recorded but NOT changed — heal-first may be intended
+Tortoise tuning, needs owner call. Deferred: mage/warlock threat dumps
+(no 1.12 mirror image/soulshatter), tank-aggro open gating (neither tree
+has it), formation spread (no donor-portable trigger set live).
+
+Reason: night2 partygaps4 research: interrupts/dispels/threat/positioning
+comparison found rogue/mage/druid interrupts at parity (cc is default-on
+for all classes), dispel coverage at parity, melee-behind and ranged
+band-keeping at parity; these three were the ranked XS gaps.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`; wiring
+audit via verify_all (0 live-missing). No build (per task constraints);
+live in-game check pending: shaman earth shocks off-target healers, cat
+cowers in 5-mans, paladin cleanses self first.
+
+## Workidle empty-destination release (2026-10-09)
+
+Donor: mod-playerbots NewRpg (`b6696bdbd3740e575598d167d69f39f68cc0b907`):
+`src/Ai/World/Rpg/Action/NewRpgAction.cpp:248-256` (GO_GRIND returns to
+WANDER_RANDOM on arrival; GO_CAMP to WANDER_NPC),
+`src/Ai/World/Rpg/Action/NewRpgAction.cpp:375-410`
+(NewRpgWanderNpcAction returns to IDLE when no NPC can be found),
+`src/Ai/World/Rpg/Action/NewRpgAction.cpp:528-551,622-629`
+(5-min no-progress POI verdict marks the quest low-priority and returns to
+IDLE), `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp:1223-1230`
+(WANDER_RANDOM requires a live grind target; IDLE re-rolls).
+
+Source files (module, modified): `ai/playerbot/WorkIdlePolicy.h` (new pure
+rule: 30 s horizon, anchor upkeep, stale verdict),
+`ai/playerbot/TravelMgr.cpp` (CheckStatus WORK release for masterless pool
+bots), `tools/test_work_idle_policy.cpp` (new standalone test) +
+`docs/concepts/bot-mechanics-and-quirks.md`, `CHANGELOG.md` (doc lines).
+
+Copied / ported / reimplemented: reimplemented in place. Deviations from
+the donor, all deliberate: (a) no IDLE/WANDER state machine exists here, so
+the release expires the travel target (TRAVEL_STATUS_EXPIRED, like the
+GrindSpotOutgrown/quest-errand expiry) and the next visit requests a new
+one; (b) the verdict is time-based (~30 s, three pool visits) on the
+already-cached "grind target" pick plus the core attacker set, not a
+destination re-search, so no per-tick DB/world scans; (c) quest-objective
+POI tracking stays with the existing 5-min QuestStallPolicy - this rule
+only covers the nothing-to-do hold, any prey or attacker holds the stay;
+(d) masterless pool bots only, owned/hired bots unchanged.
+
+Reason: live 2000-bot pool: a masterless bot that arrives with nothing to
+do holds WORK (blocks requests and idle drift) until the ~5-min timer
+expires; ~20% of all stall time sits in WORK.
+
+Local validation: `bash tools/verify_all.sh` (run before commit); `git diff
+--check`. No build (per task constraints); live in-game check pending.

@@ -332,10 +332,12 @@ Activity NoteActivity(Player* bot, bool hasWorkTarget, ObservabilityEmitter::Bot
 // (the value object already exists; Get() returns the pointer); GetShortName/
 // GetTitle are cheap string builders on the already-chosen destination. Idle
 // bots contribute empty strings so the pool rollup can count not-travelling.
-void FillTravelInfo(PlayerbotAI* ai, std::string& purpose, std::string& to)
+void FillTravelInfo(PlayerbotAI* ai, std::string& purpose, std::string& to, std::string& status, int32& dist)
 {
     purpose.clear();
     to.clear();
+    status.clear();
+    dist = -1;
     if (!ai || !ai->GetAiObjectContext())
         return;
     ai::Value<ai::TravelTarget*>* value =
@@ -356,6 +358,10 @@ void FillTravelInfo(PlayerbotAI* ai, std::string& purpose, std::string& to)
         return;
     }
     to = dest->GetTitle();
+    static char const* const statusNames[] = { "none", "prepare", "ready", "travel", "work", "cooldown", "expired" };
+    uint8 const st = static_cast<uint8>(target->GetStatus());
+    status = st < 7 ? statusNames[st] : "unknown";
+    dist = static_cast<int32>(target->Distance(ai->GetBot()));
 }
 
 } // anonymous namespace
@@ -874,20 +880,37 @@ void ObservabilityEmitter::Update(uint32 diff)
             track.churnSinceMs = nowMs;
         if (fresh && track.lastActivityMs == 0)
             track.lastActivityMs = nowMs - kIdleAfterMs;
-
+        // Spawn-camp recency: a bot fighting in place or banking XP is doing
+        // real work even when standing still between pulls. Both signals are
+        // member reads already paid for (combat state) or beside (XP/level)
+        // this tick's classification.
         uint8 state = BaseMacroState(bot, ai);
+        if (state == STATE_COMBAT)
+            track.lastCombatMs = nowMs;
+        uint32 curXp = bot->GetUInt32Value(PLAYER_XP);
+        uint32 curLevel = bot->GetLevel();
+        if (track.lastSeenMs != 0 && (curXp != track.lastXp || curLevel != track.lastLevel))
+            track.lastXpMs = nowMs;
+        track.lastXp = curXp;
+        track.lastLevel = curLevel;
+
         // Idle means really doing nothing: a base IDLE bot that did anything
         // inside kIdleAfterMs is busy while it made real progress, and stalled
         // when its only activity was churn (a travel target or action-name
         // changes) for that whole window. Combat, moving, resting and dead are
-        // instant states, never gated.
+        // instant states, never gated. A recent fight or XP gain (kill, quest,
+        // ding) inside kRecentFightMs vetoes stalled: the bot is camping a
+        // spawn between pulls, not standing with a destination and getting
+        // nowhere.
         if (state == STATE_IDLE)
         {
             if (track.lastActivityMs != 0 && (nowMs - track.lastActivityMs) < kIdleAfterMs)
             {
                 bool churnOnly = track.churnSinceMs != 0 &&
                     (nowMs - track.churnSinceMs) >= kIdleAfterMs;
-                state = churnOnly ? STATE_STALLED : STATE_BUSY;
+                bool recentFight = (track.lastCombatMs != 0 && (nowMs - track.lastCombatMs) < kRecentFightMs) ||
+                    (track.lastXpMs != 0 && (nowMs - track.lastXpMs) < kRecentFightMs);
+                state = (churnOnly && !recentFight) ? STATE_STALLED : STATE_BUSY;
             }
             else
             {
@@ -1143,7 +1166,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         else
             m_deathKillers.erase(bot->GetGUIDLow());
         snap.state = MacroStateName(state);
-        FillTravelInfo(ai, snap.travelPurpose, snap.travelTo);
+        FillTravelInfo(ai, snap.travelPurpose, snap.travelTo, snap.travelStatus, snap.travelDist);
+        BotManager::Instance().GetAiVisitInfo(bot->GetGUIDLow(), snap.aiVisits, snap.aiAgeMs);
 
         if (ai)
         {
@@ -1280,7 +1304,11 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"last_action\":\"" << EscapeJson(b.lastAction) << "\""
                 << ",\"last_trigger\":\"" << EscapeJson(b.lastTrigger) << "\""
                 << ",\"travel_purpose\":\"" << EscapeJson(b.travelPurpose) << "\""
-                << ",\"travel_to\":\"" << EscapeJson(b.travelTo) << "\"}";
+                << ",\"travel_to\":\"" << EscapeJson(b.travelTo) << "\""
+                << ",\"travel_status\":\"" << b.travelStatus << "\""
+                << ",\"travel_dist\":" << b.travelDist
+                << ",\"ai_visits\":" << b.aiVisits
+                << ",\"ai_age_ms\":" << b.aiAgeMs << "}";
         }
         bss << "]}";
         SendDatagram(bss.str());

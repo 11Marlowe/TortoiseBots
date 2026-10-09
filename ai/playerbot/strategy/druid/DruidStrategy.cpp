@@ -229,6 +229,17 @@ void DruidCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CureStrategy::InitCombatTriggers(triggers);
 
+    // Night2 gap 6 (donor DruidCureStrategy: curse 57 > poison 51): curses
+    // (hex, magic dust) lock a party member out of the fight; poison ticks
+    // through it. Curse rows outbid poison rows both for self and party.
+    triggers.push_back(new TriggerNode(
+        "remove curse",
+        NextAction::array(0, new NextAction("remove curse", ACTION_DISPEL + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "party member remove curse",
+        NextAction::array(0, new NextAction("remove curse on party", ACTION_DISPEL + 2), NULL)));
+
     triggers.push_back(new TriggerNode(
         "cure poison",
         NextAction::array(0, new NextAction("abolish poison", ACTION_DISPEL), NULL)));
@@ -236,14 +247,6 @@ void DruidCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "party member cure poison",
         NextAction::array(0, new NextAction("abolish poison on party", ACTION_DISPEL), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "remove curse",
-        NextAction::array(0, new NextAction("remove curse", ACTION_DISPEL), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "party member remove curse",
-        NextAction::array(0, new NextAction("remove curse on party", ACTION_DISPEL), NULL)));
 
     triggers.push_back(new TriggerNode(
         "rooted",
@@ -349,6 +352,13 @@ void DruidBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     BuffStrategy::InitCombatTriggers(triggers);
 
+    // Same shape as the priest Fortitude fallback below: the out-of-combat
+    // Mark kept losing to follow on a moving master and never landed on the
+    // party in long fights. Also allow it in combat, below every heal and
+    // attack, for the quiet moments of a fight.
+    triggers.push_back(new TriggerNode(
+        "mark of the wild on party",
+        NextAction::array(0, new NextAction("mark of the wild on party", ACTION_DEFAULT), NULL)));
 }
 
 void DruidBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

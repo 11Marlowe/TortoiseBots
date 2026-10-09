@@ -43,7 +43,9 @@ namespace
     std::uint32_t const QUEST_GIVER = 1u << 0;
     std::uint32_t const QUEST_TAKER = 1u << 5;
     std::uint32_t const VENDOR = 1u << 9;
-
+    std::uint32_t const GATHER_MINE = 1u << 15;
+    std::uint32_t const GATHER_HERB = 1u << 16;
+    std::uint32_t const GATHER_FISH = 1u << 17;
     void AvoidOne(DeathAvoidSpot* spots, float x, float y, std::uint32_t nowMs, std::uint32_t level)
     {
         AddDeathAvoidSpot(spots, kDeathAvoidSpots, MAP, x, y, nowMs, DeathAvoidDurationMs(level),
@@ -55,19 +57,16 @@ int main()
 {
     std::cout << "Starting TortoiseBots death-cluster escalation tests...\n";
 
-    // -------------------------------------------------------------
-    // Test 1: a lone escape only blacklists the kind, no escalation
-    // -------------------------------------------------------------
+    // Test 1: the first escape already avoids the spot: rotating killers
+    // defeat the kind-only blacklist, so waiting costs three more deaths.
     {
         std::uint32_t count = NextDeathEscapeCount(0, NOW, 0);
         CHECK(count == 1);
-        CHECK(!DeathAvoidanceEscalated(count));
-        CHECK(kDeathAvoidEscapes == 2);
+        CHECK(DeathAvoidanceEscalated(count));
+        CHECK(kDeathAvoidEscapes == 1);
     }
 
-    // -------------------------------------------------------------
-    // Test 2: a second escape inside the hour escalates to avoidance
-    // -------------------------------------------------------------
+    // Test 2: a second escape inside the hour stays escalated
     {
         std::uint32_t count = NextDeathEscapeCount(1, NOW, NOW - 11 * 60 * 1000); // median loop gap 10.7 min
         CHECK(count == 2);
@@ -78,13 +77,12 @@ int main()
         CHECK(DeathAvoidanceEscalated(count));
     }
 
-    // -------------------------------------------------------------
-    // Test 3: an escape after the window starts a fresh streak
-    // -------------------------------------------------------------
+    // Test 3: an escape after the window starts a fresh streak - which still
+    // avoids, since one escape is enough
     {
         std::uint32_t count = NextDeathEscapeCount(2, NOW, NOW - kDeathAvoidWindowMs - 1);
         CHECK(count == 1);
-        CHECK(!DeathAvoidanceEscalated(count));
+        CHECK(DeathAvoidanceEscalated(count));
         // Exactly on the window edge still belongs to the loop.
         count = NextDeathEscapeCount(1, NOW, NOW - kDeathAvoidWindowMs);
         CHECK(count == 2);
@@ -185,6 +183,17 @@ int main()
         CHECK(IsDeathGatedPurpose(QUEST_GIVER, GRIND, QUEST_ALL | QUEST_GIVER | QUEST_TAKER));
         CHECK(IsDeathGatedPurpose(QUEST_TAKER, GRIND, QUEST_ALL | QUEST_GIVER | QUEST_TAKER));
         CHECK(!IsDeathGatedPurpose(VENDOR, GRIND, QUEST_ALL | QUEST_GIVER | QUEST_TAKER));
+        // Mining/herbalism nodes in the avoided camp are gated too (the
+        // default gather mask keeps the old behaviour for older callers);
+        // fishing and services stay walkable.
+        std::uint32_t const questMask = QUEST_ALL | QUEST_GIVER | QUEST_TAKER;
+        std::uint32_t const gatherMask = GATHER_MINE | GATHER_HERB;
+        CHECK(!IsDeathGatedPurpose(GATHER_MINE, GRIND, questMask));
+        CHECK(IsDeathGatedPurpose(GATHER_MINE, GRIND, questMask, gatherMask));
+        CHECK(IsDeathGatedPurpose(GATHER_HERB, GRIND, questMask, gatherMask));
+        CHECK(!IsDeathGatedPurpose(GATHER_FISH, GRIND, questMask, gatherMask));
+        CHECK(!IsDeathGatedPurpose(VENDOR, GRIND, questMask, gatherMask));
+        CHECK(IsDeathGatedPurpose(GRIND, GRIND, questMask, gatherMask));
     }
 
     std::cout << "All death-cluster escalation tests passed.\n";

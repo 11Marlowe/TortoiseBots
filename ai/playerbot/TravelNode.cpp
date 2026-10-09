@@ -13,6 +13,7 @@
 #include "strategy/values/BudgetValues.h"
 #include "strategy/values/LastMovementValue.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/RandomBotFacade.h"
 #include "Maps/MoveMap.h"
 #include "strategy/values/HazardsValue.h"
 
@@ -128,6 +129,20 @@ float TravelNodePath::getCost(Unit* unit, uint32 cGold)
                 if (map)
                     if (at && at->requiredCondition && !sObjectMgr.IsConditionSatisfied(at->requiredCondition, bot, map, nullptr, (ConditionSource)CONDITION_FROM_AREATRIGGER_TELEPORT))
                         return -1;
+            }
+
+            // Closed by AreaTriggerAction after the server refused to teleport this bot.
+            if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+            {
+                if (ai->GetAiObjectContext()->GetValue<time_t>("manual time", "area trigger refused::" + std::to_string(triggerId))->Get() > time(0))
+                    return -1;
+
+                // The Deeprun Tram is crossed by riding the train, which bots
+                // cannot board: a bot routed through it stood on the platform
+                // for good (13 of 2000 pool bots, live 2026-10-09). Masterless
+                // bots walk or fly between Stormwind and Ironforge instead.
+                if (at && at->destination.mapId == MAP_DEEPRUN_TRAM && !ai->HasRealPlayerMaster())
+                    return -1;
             }
         }
 
@@ -1751,6 +1766,44 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
     return TravelNodeRoute();
 }
 
+// How close a walk leg to/from the node route must end to count as reaching it.
+static float const TRAVEL_WALK_LEG_REACH_YD = 5.0f;
+
+bool LeaveDeeprunTram(PlayerbotAI* ai, Player* bot, WorldPosition const& goal)
+{
+    if (bot->GetMapId() != MAP_DEEPRUN_TRAM || ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot) ||
+        bot->IsInCombat() || !bot->IsAlive() || bot->IsBeingTeleported())
+        return false;
+
+    // The station exits are the tram map's own area triggers leading back to
+    // Stormwind and Ironforge: a bot routed in before tram links were refused
+    // (TravelNodePath::getCost) has no other way out.
+    AreaTriggerTeleport const* best = nullptr;
+    float bestDistance = 0.0f;
+    for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); i++)
+    {
+        AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(i);
+        if (!atEntry || atEntry->mapid != MAP_DEEPRUN_TRAM)
+            continue;
+        AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(i);
+        if (!at || at->destination.mapId == MAP_DEEPRUN_TRAM)
+            continue;
+        WorldPosition const exit(at->destination.mapId, at->destination.x, at->destination.y, at->destination.z);
+        float const distance = goal.GetMapId() == exit.GetMapId() ? exit.distance(goal) : 0.0f;
+        if (!best || distance < bestDistance)
+        {
+            best = at;
+            bestDistance = distance;
+        }
+    }
+
+    if (!best || !bot->TeleportTo(best->destination.mapId, best->destination.x, best->destination.y, best->destination.z, best->destination.o))
+        return false;
+
+    sPlayerbotAIConfig.logEvent(ai, "TramExitTeleport", std::to_string(best->destination.mapId), std::to_string((int32)bestDistance));
+    return true;
+}
+
 TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition endPos, std::vector<WorldPosition>& startPath, std::vector<WorldPosition>& endPath, Unit* unit)
 {
     if (m_nodes.empty())
@@ -1766,6 +1819,7 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
 
     if (startNodes.empty() || endNodes.empty())
     {
+        LastRouteFail() = startNodes.empty() ? "nostartnode" : "noendnode";
         sLog.outDetail("TortoiseBots: Travel route unreachable from (map %u, %.1f, %.1f, %.1f) to (map %u, %.1f, %.1f, %.1f): %s",
             startPos.getMapId(), startPos.getX(), startPos.getY(), startPos.getZ(),
             endPos.getMapId(), endPos.getX(), endPos.getY(), endPos.getZ(),
@@ -1785,6 +1839,7 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
     uint64 uid = urand(0, UINT32_MAX) * urand(0, UINT32_MAX);
 
     std::vector<TravelNode*> badStartNodes, badEndNodes;
+    uint32 noRouteCombos = 0;
 
     //Cycle over the combinations of these 5 nodes.
     for (auto& endNode : endNodes)
@@ -1798,7 +1853,7 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
             WorldPosition startNodePosition = *startNode->getPosition();
             WorldPosition endNodePosition = *endNode->getPosition();
 
-            float maxStartDistance = startNode->IsTransport() ? 20.0f : 1.0f;
+            float maxStartDistance = startNode->IsTransport() ? 20.0f : TRAVEL_WALK_LEG_REACH_YD;
 
             TravelNodeRoute route = getRoute(startNode, endNode, unit);
 
@@ -1806,7 +1861,10 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
                 return route;
 
             if (route.isEmpty())
+            {
+                ++noRouteCombos;
                 continue;
+            }
 
             if (endPath.empty())
             {
@@ -1814,7 +1872,11 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
                 {
                     endPath = endNodePosition.GetPathTo(endPos, unit);
 
-                    bool hasPath = endPos.isPathTo(endPath, 1.0f);
+                    // 5 yd, not 1: a target a step off the mesh (npc in a doorway,
+                    // on a bridge) refused the whole route. 395 of 453 nopath
+                    // failures were these walk legs (live 2026-10-09); arrival is
+                    // judged by interaction range anyway.
+                    bool hasPath = endPos.isPathTo(endPath, TRAVEL_WALK_LEG_REACH_YD);
 
                     if (!hasPath)
                     {
@@ -1823,7 +1885,7 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
                         if (surfaceNode.setAtWaterSurface() || surfaceEnd.setAtWaterSurface())
                         {
                             endPath = surfaceNode.GetPathTo(surfaceEnd, unit);
-                            hasPath = surfaceEnd.isPathTo(endPath, 1.0f);
+                            hasPath = surfaceEnd.isPathTo(endPath, TRAVEL_WALK_LEG_REACH_YD);
                         }
                     }
 
@@ -1924,6 +1986,15 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
         }
     }
 
+    // Dominant cause over the tried combinations: node graph split, the last
+    // walk from an end node to the target, or the first walk to a start node.
+    if (!badEndNodes.empty() && badEndNodes.size() == endNodes.size())
+        LastRouteFail() = "endwalk";
+    else if (noRouteCombos && badStartNodes.empty())
+        LastRouteFail() = "nolink";
+    else
+        LastRouteFail() = "startwalk";
+
     sLog.outDetail("TortoiseBots: Travel route unreachable from (map %u, %.1f, %.1f, %.1f) to (map %u, %.1f, %.1f, %.1f): no navigable node combination",
         startPos.getMapId(), startPos.getX(), startPos.getY(), startPos.getZ(),
         endPos.getMapId(), endPos.getX(), endPos.getY(), endPos.getZ());
@@ -1935,6 +2006,7 @@ TravelPath TravelNodeMap::getFullPath(WorldPosition startPos, WorldPosition endP
 {
     TravelPath movePath;
     std::vector<WorldPosition> beginPath, endPath;
+    LastRouteFail().clear();
 
     beginPath = endPos.GetPathFromPath({ startPos }, unit, 40);
 

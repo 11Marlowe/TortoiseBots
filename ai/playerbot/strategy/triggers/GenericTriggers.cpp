@@ -1,4 +1,5 @@
 #include "playerbot/playerbot.h"
+#include "playerbot/GroupMembers.h"
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "GenericTriggers.h"
@@ -105,10 +106,16 @@ bool HasAggroTrigger::IsActive()
 
 bool PanicTrigger::IsActive()
 {
-    return !ai->IsInPvp() &&
-           AI_VALUE2(uint8, "health", "self target") < sPlayerbotAIConfig.criticalHealth &&
-		   (!AI_VALUE2(bool, "has mana", "self target") ||
-            AI_VALUE2(uint8, "mana", "self target") < sPlayerbotAIConfig.lowMana);
+    // Cheap gates first (perf): health/mana are scalar value reads, while
+    // IsInPvp walks the enemy-player grid scan. Same && verdict, only
+    // reordered: a bot above critical health, or with mana to fight on,
+    // refuses whatever the PvP scan finds.
+    if (AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.criticalHealth)
+        return false;
+    if (AI_VALUE2(bool, "has mana", "self target") &&
+        AI_VALUE2(uint8, "mana", "self target") >= sPlayerbotAIConfig.lowMana)
+        return false;
+    return !ai->IsInPvp();
 }
 
 bool CriticalHealthNoMasterTrigger::IsActive()
@@ -181,9 +188,17 @@ bool OutNumberedTrigger::IsActive()
     int32 botLevel = bot->GetLevel();
     float healthMod = bot->GetHealthPercent() / 100.0f;
     uint32 friendPower = 100 + 100 * healthMod, foePower = 0;
-    for (auto &attacker : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible attack targets")->Get())
+    // Only mobs actually fighting this bot count, like the donor (mod-playerbots
+    // weighs "attackers"). The old loop weighed every hostile in "possible attack
+    // targets", so idle mobs standing near a fair one-on-one fight made a pool
+    // bot under 70% health "outnumbered": it stopped swinging to flee, covered
+    // no ground (median 0 yd) and died - 76% of deaths had a flee in their last
+    // 30 s (Oct 2026 roster poll, 571 deaths). bot->GetAttackers() rather than
+    // the "attackers" value, which also shares nearby players' targets.
+    uint32 attackerCount = 0;
+    for (Unit* attacker : bot->GetAttackers())
     {
-        Creature* creature = ai->GetCreature(attacker);
+        Creature* creature = attacker ? attacker->ToCreature() : nullptr;
         if (!creature)
             continue;
 
@@ -195,10 +210,19 @@ bool OutNumberedTrigger::IsActive()
         healthMod = creature->GetHealthPercent() / 100.0f;
 
         if(dLevel > -10)
+        {
             foePower += std::max(100 + 10 * dLevel, dLevel * 200) * healthMod;
+            ++attackerCount;
+        }
     }
 
-    if (!foePower)
+    // Outnumbered means more than one: a pool bot does not run from a single
+    // mob. Its flee cannot outpace the mob (median 0 yd covered, Oct 2026
+    // poll), so breaking off a one-on-one only stops the swings - the weights
+    // above made any mob two levels up "outnumber" a bot under 70% health.
+    // The genuine near-death escape stays with the panic / critical health
+    // triggers.
+    if (!foePower || attackerCount < 2)
         return false;
 
     for (auto & helper : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid> >("nearest friendly players")->Get())
@@ -221,7 +245,13 @@ bool OutNumberedTrigger::IsActive()
 
 bool BuffTrigger::IsActive()
 {
-    Unit* target = GetTarget();
+    // Cheap gates first (perf): the old order ran GetTarget (a "self target"
+    // unit value read) before the two O(1) refuses. HasSpell is a spellbook
+    // hit, the claim is two map lookups under one short lock; both are
+    // cheaper than resolving and liveness-checking the target, and the aura
+    // scan below is the most expensive step. Same verdict, only reordered:
+    // a missing spell or a live claim refuses whatever the target is, and
+    // IsTargetClaimedByOther already returns false for a null target.
     // A buff that was never trained can never appear as an aura, so without
     // this the trigger stays active forever and the cast fails every tick
     // (observed ACTION_LOOPs: inner fire / lightning shield / aspect of the
@@ -233,9 +263,10 @@ bool BuffTrigger::IsActive()
     // Issue #T7: another bot is already casting this spell on the target (or, for
     // the area buffs, on the whole group). Stay inactive this tick rather than
     // pick the next member - that would re-create the same race for the others.
-    if (BuffClaimRegistry::IsTargetClaimedByOther(bot, target, spell))
+    if (BuffClaimRegistry::IsTargetClaimedByOther(bot, GetTarget(), spell))
         return false;
 
+    Unit* target = GetTarget();
     if (!target || !target->IsAlive())
         return false;
 
@@ -779,6 +810,58 @@ bool IsNotBehindTargetTrigger::IsActive()
 bool IsNotFacingTargetTrigger::IsActive()
 {
     return !AI_VALUE2(bool, "facing", "current target");
+}
+
+bool TankFaceNeededTrigger::IsActive()
+{
+    // Scope: real-player-master parties only. Pool bots keep old behaviour.
+    if (!ai->HasRealPlayerMaster())
+        return false;
+    if (!ai->IsTank(bot))
+        return false;
+    // Explicit holds win: a tank parked by stay/wait-for-attack does not
+    // sidestep (mirrors the spread exemption in RaidSpreadNeededTrigger).
+    if (ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+        return false;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !target->IsCreature() || !sServerFacade.IsAlive(target))
+        return false;
+    // Only while the tank holds the mob: it turns to face the tank, so
+    // stepping to the far side of the mob points its front at the tank.
+    if (!target->GetVictim() || target->GetVictim()->getObjectGuid() != bot->getObjectGuid())
+        return false;
+    if (!bot->CanReachWithMeleeAutoAttack(target) || target->IsMoving())
+        return false;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+    // Average angle from the mob to the live party (donor AverageGroupAngle).
+    // Needs at least one other member: alone, there is nobody to protect.
+    float sumX = 0.0f, sumY = 0.0f;
+    int count = 0;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (!member || member == bot || !sServerFacade.IsAlive(member))
+            continue;
+        if (member->GetMapId() != bot->GetMapId())
+            continue;
+        sumX += member->GetPositionX() - target->GetPositionX();
+        sumY += member->GetPositionY() - target->GetPositionY();
+        ++count;
+    }
+    if (!count)
+        return false;
+    float averageAngle = atan2(sumY, sumX);
+    // Hysteresis (donor TankFaceAction, tolerable = PI/2): fire only while
+    // the mob's front points at the party side. After the sidestep the tank
+    // sits ~108 degrees off, outside this window, so it does not jitter.
+    float delta = averageAngle - target->GetAngle(bot);
+    while (delta > M_PI)
+        delta -= 2.0f * M_PI;
+    while (delta < -M_PI)
+        delta += 2.0f * M_PI;
+    return fabs(delta) <= M_PI / 2.0f;
 }
 
 bool HasCcTargetTrigger::IsActive()

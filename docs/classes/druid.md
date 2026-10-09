@@ -16,10 +16,13 @@ Druids are the ultimate hybrid class, able to fulfill Tank, Healer, Melee DPS, o
 ## Supported Specs & Roles
 
 - **Feral (Bear Tank):** Dire Bear Form tank specializing in *Growl*, *Maul*, *Swipe*, and *Demoralizing Roar*, with *Frenzied Regeneration*, *Challenging Roar*, *Mangle (Bear)*, *Faerie Fire (Feral)*, and *Enrage* also wired.
-- **Feral (Cat Melee DPS):** Cat Form stealth and energy specialist utilizing *Claw*, *Rake*, *Shred* (with *Mangle (Cat)* as fallback), *Rip*, and *Ferocious Bite*, with *Pounce*, *Ravage*, and *Tiger's Fury* also wired.
+- **Feral (Cat Melee DPS):** Cat Form stealth and energy specialist utilizing *Claw*, *Rake*, *Shred* (with *Mangle (Cat)* as fallback), *Rip*, and *Ferocious Bite*, with *Pounce*, *Ravage*, and *Tiger's Fury* also wired. Backs off with *Cower* at medium threat in any group, not just raids.
 - **Restoration (Healer):** HoT-focused healing with *Rejuvenation*, *Regrowth*, *Healing Touch*, and *Swiftmend*, with *Nature's Swiftness* and *Tranquility* also wired.
 - **Balance (Ranged DPS):** Moonkin caster driving Nature and Arcane damage via *Moonfire*, *Wrath*, *Starfire*, and *Insect Swarm*.
+- **Balance AoE:** casts *Hurricane* on packs of 3+ attackers in spell range.
 - **Below level 10 (`leveling` kit):** Neither the Feral nor the Balance kit is affordable yet, so the bot runs the dedicated leveling set: it fights in melee (auto-attack is its default action), keeps *Moonfire* applied, and heals itself with *Healing Touch*/*Rejuvenation*. It closes distance like every other melee kit — an out-of-melee enemy is walked into contact, and *Wrath* lands whenever the bot cannot move (rooted, stunned, or a target it gave up reaching).
+- **Rejuvenation gating:** the leveling kit casts *Rejuvenation* only below the low-health line (default 50%) with mana to spare — scratches no longer outbid the damage kit mid-fight.
+- **Shapeshifted stand-down:** a 10+ druid sitting in Bear/Dire Bear/Cat form runs its feral kit; the leveling caster nodes idle at high relevance while shifted so they never outbid the form rotation.
 
 ---
 
@@ -30,7 +33,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - If designated as **Melee DPS**, the bot stays in **Cat Form**.
 - If designated as **Ranged DPS**, the bot stays in **Moonkin Form** (if talented) or Humanoid form.
 - If designated as **Healer**, the bot stays in **Humanoid Form** or **Tree of Life Form**.
-- **Caster Shifting:** The bot automatically shifts out of feral forms when out of combat to cast party buffs (*Mark of the Wild*, *Thorns*), dispel poisons (*Abolish Poison*, with *Cure Poison* as the fallback), or consume water.
+- **Caster Shifting:** The bot automatically shifts out of feral forms when out of combat to cast party buffs (*Mark of the Wild*, *Thorns*), dispel poisons (*Abolish Poison*, with *Cure Poison* as the fallback) or curses (*Remove Curse*, which outbids poison: a hex locks the member out of the fight), or consume water.
 
 ---
 
@@ -44,6 +47,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - **Swiftmend HoT-Gating (Spell ID 18562):**
   - Consumes the shortest remaining active *Rejuvenation* or *Regrowth* HoT on an ally to deliver instantaneous burst healing.
   - The bot verifies that an active HoT exists on the target before attempting cast, preventing wasted cooldown triggers.
+  - *Rejuvenation* and *Regrowth* are never stacked on a party member that already carries the aura; the heal ladder falls through to a direct heal instead. Same mana sense as the other healers: no veto at or below the low-health line, no oversized or average-efficiency heals above the medium line, no mana-hungry heals below the medium-mana line.
 
 ---
 
@@ -62,7 +66,8 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - **Barkskin:**
   - Balance/Restoration cast *Barkskin* on own-health triggers (medium-health band in the Balance/Restoration combat sets, almost-full-health band in the generic set); never wired for Feral (Cat/Bear lose form bonuses under Turtle 1.18.1 attack-speed and shapeshift penalties).
 - **Party Buffs:**
-  - Maintains *Mark of the Wild* (armor, stats, resistances) and *Thorns* (reflective nature damage) on party members, upgrading *Mark of the Wild* to *Gift of the Wild* once known, trained and stocked (the group version outbids the single-target cast once at least three same-map members lack both auras, and only targets a member that lacks both). Buffs expiring within 15 s count as missing, so they are refreshed before they drop (issue #468). With several druids in one party, a short shared *buff claim* keeps them from duplicating each other: while one druid's cast is in flight the others stand down and wait for the aura instead of casting the same buff on the same member (issue #378).
+  - Maintains *Mark of the Wild* (armor, stats, resistances) and *Thorns* (reflective nature damage) on party members, upgrading *Mark of the Wild* to *Gift of the Wild* once known, trained and stocked (the group version outbids the single-target cast once at least three same-map members lack both auras, and only targets a member that lacks both). Buffs expiring within 15 s count as missing, so they are refreshed before they drop (issue #468). Single-target *Mark of the Wild* is also allowed in combat at the lowest priority, so a druid following a master who chain-pulls still buffs the party in the quiet moments of a fight. With several druids in one party, a short shared *buff claim* keeps them from duplicating each other: while one druid's cast is in flight the others stand down and wait for the aura instead of casting the same buff on the same member (issue #378).
+  - Out of combat, catching up to the master runs below the party buffs (a pending buff in range wins the tick, follow resumes next). Upkeep buffs wait for 40% mana, 20% with a real player master. A failed buff attempt no longer starts the retry window or the duplicate-cast claim; only a cast that actually starts does.
 
 ---
 

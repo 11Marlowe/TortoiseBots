@@ -57,6 +57,7 @@ namespace ai
             creators["healer should attack"] = [](PlayerbotAI* ai) { return new HealerShouldAttackTrigger(ai); };
             creators["healer should wand"] = [](PlayerbotAI* ai) { return new HealerShouldAttackTrigger(ai, "healer should wand", false); };
             creators["melee medium aoe and healer should attack"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "melee medium aoe", "healer should attack"); };
+            creators["ranged medium aoe and healer should attack"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "ranged medium aoe", "healer should attack"); };
 
             creators["party member critical health"] = [](PlayerbotAI* ai) { return new PartyMemberCriticalHealthTrigger(ai); };
             creators["party member low health"] = [](PlayerbotAI* ai) { return new PartyMemberLowHealthTrigger(ai); };
@@ -146,6 +147,7 @@ namespace ai
             creators["behind target"] = [](PlayerbotAI* ai) { return new IsBehindTargetTrigger(ai); };
             creators["not behind target"] = [](PlayerbotAI* ai) { return new IsNotBehindTargetTrigger(ai); };
             creators["not facing target"] = [](PlayerbotAI* ai) { return new IsNotFacingTargetTrigger(ai); };
+            creators["tank face needed"] = [](PlayerbotAI* ai) { return new TankFaceNeededTrigger(ai); };
             creators["far from master"] = [](PlayerbotAI* ai) { return new FarFromMasterTrigger(ai); };
             creators["not near master"] = [](PlayerbotAI* ai) { return new NotNearMasterTrigger(ai); };
             creators["out of react range"] = [](PlayerbotAI* ai) { return new OutOfReactRangeTrigger(ai); };

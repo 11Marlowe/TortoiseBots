@@ -35,12 +35,13 @@ Rogues provide premier single-target melee physical DPS, invaluable pre-combat c
 - **Slice and Dice Priority:** Combat ranks *Slice and Dice* above *Eviscerate*; Assassination and Subtlety rank *Eviscerate* above *Slice and Dice*.
 - **Finishers:**
   - 4–5 Combo Points: Casts *Eviscerate* for burst damage (falling back to *Rupture* when the debuff is missing; Assassination/Subtlety also cast *Rupture* from 3+ combo points, on any target).
+  - Almost-dead dump: a target at 25% health or less eats whatever combo points are banked (1+) as *Eviscerate*, ahead of the gated finishers, so points land as damage instead of dying with the mob.
   - Interrupts are covered by *Kick* (*Cheap Shot* while stealthed); *Kidney Shot* is only a fallback when *Kick* cannot run.
 
 ### 3. Burst Cooldowns
 - Combat casts *Adrenaline Rush* and *Blade Flurry* during tough encounters or multi-mob pulls; Assassination fires *Cold Blood* and Subtlety fires *Preparation*.
-- Activates *Evasion* (with *Feint*) on the low-health trigger (own HP in the low band), regardless of aggro source.
-- Activates *Vanish* if health falls below 20% to wipe threat.
+- Activates *Evasion* on the low-health trigger (own HP in the low band), regardless of aggro source; when evasion is spent (5-minute cooldown, e.g. death loops), *Vanish* breaks combat instead of a solo-useless *Feint*, which stays last for grouped rogues with a tank to save.
+- Activates *Vanish* if health falls below 20% to wipe threat (after *Blind*).
 
 ---
 

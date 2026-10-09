@@ -62,6 +62,12 @@ void MageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "blink",
         NextAction::array(0, new NextAction("blink", ACTION_EMERGENCY), NULL)));
 
+    // Kite escape below the root/stun blink and the frost-nova pack root:
+    // a live melee mob inside 8 yd eats a blink, then the nuke loop resumes.
+    triggers.push_back(new TriggerNode(
+        "blink back",
+        NextAction::array(0, new NextAction("blink", ACTION_HIGH + 5), NULL)));
+
     triggers.push_back(new TriggerNode(
         "low mana",
         NextAction::array(0, new NextAction("mana gem", ACTION_HIGH + 4), NULL)));
@@ -240,6 +246,14 @@ void MageBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "low health",
         NextAction::array(0, new NextAction("mana shield", ACTION_HIGH), NULL)));
+
+    // Same shape as the priest Fortitude fallback: the out-of-combat
+    // Intellect kept losing to follow on a moving master and never landed on
+    // the party in long fights. Also allow it in combat, below every heal
+    // and attack, for the quiet moments of a fight.
+    triggers.push_back(new TriggerNode(
+        "arcane intellect on party",
+        NextAction::array(0, new NextAction("arcane intellect on party", ACTION_DEFAULT), NULL)));
 }
 
 void MageBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

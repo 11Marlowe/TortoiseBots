@@ -18,8 +18,14 @@ using ai::TravelInvalidParkKey;
 using ai::TravelIsNoRouteFallbackPoint;
 using ai::TravelIsResetToNull;
 using ai::TravelMoveFailPathTag;
+using ai::TravelMoveFailBlacklistsKind;
 using ai::TravelPurposeParkKey;
 using ai::TravelTargetIsNull;
+using ai::GiverRepickParksQuest;
+using ai::GIVER_REPICK_PARK_AFTER;
+using ai::TRAVEL_STARVED_PARKED_PURPOSES;
+using ai::TravelSearchesStarved;
+using ai::TravelStarvedParkKeys;
 
 int main()
 {
@@ -113,6 +119,9 @@ int main()
     // (h) NOPATH trap: three NOPATH targets from one spot inside the window
     // trigger the rescue; moving away, an expired window or the first failure
     // start a fresh streak, and a non-NOPATH drop leaves the streak alone.
+    // The streak restarts after a relocation (hearth, repop, taxi): the next
+    // failure lands far from the stale anchor, so the caller re-anchors.
+    // Same x/y on another floor (Stormwind upper levels) restarts too.
     CHECK(NoPathTrapStreak(0, true, false, false) == 1);
     CHECK(NoPathTrapStreak(1, true, true, false) == 2);
     CHECK(NoPathTrapStreak(2, true, true, false) == 3);
@@ -122,7 +131,72 @@ int main()
     CHECK(NoPathTrapStreak(2, true, true, true) == 1);
     CHECK(NoPathTrapStreak(2, false, true, false) == 2);
     CHECK(NoPathTrapStreak(0, false, false, false) == 0);
+    CHECK(NoPathTrapStreak(2, true, true, false, false) == 1);
+    CHECK(NoPathTrapStreak(2, true, true, false, true) == 3);
+    CHECK(NoPathTrapStreak(0, true, false, false, false) == 1);
+    CHECK(ai::NOPATH_TRAP_FLOOR_Z_YD == 10.0f);
     std::cout << "  [PASS] nopath trap streak counts targets from one spot\n";
+
+    // (i) Move-fail kind give-up: a mesh-proven NOPATH walk to a grind
+    // spot blacklists the creature kind for a masterless pool bot.
+    // Anything else keeps the target pickable: owned bots (their player
+    // may walk them there), non-grind destinations (their own settle
+    // paths), cross-map/unloaded probes (no mesh verdict), and
+    // entry-less destinations (nothing to blacklist).
+    CHECK(TravelMoveFailBlacklistsKind(true, true, true, 4389));
+    CHECK(!TravelMoveFailBlacklistsKind(false, true, true, 4389));
+    CHECK(!TravelMoveFailBlacklistsKind(true, false, true, 4389));
+    CHECK(!TravelMoveFailBlacklistsKind(true, true, false, 4389));
+    CHECK(!TravelMoveFailBlacklistsKind(true, true, true, 0));
+    CHECK(!TravelMoveFailBlacklistsKind(true, true, true, -5));
+    CHECK(!TravelMoveFailBlacklistsKind(false, false, false, 0));
+    std::cout << "  [PASS] move-fail kind give-up needs a mesh nopath to grind\n";
+
+    // (j) Never-arrived cooldown park: a pool trip that cooled down while
+    // still travelling parks its purpose (the 6-fail drop never fires - the
+    // 60 s cooldown expires first - so without this the same zone is
+    // re-picked every ~2.5 min). An arrived (WORK) trip keeps today's
+    // behaviour, and owned bots keep player control.
+    CHECK(ai::TravelCooldownParksPurpose(true, true));
+    CHECK(!ai::TravelCooldownParksPurpose(true, false));
+    CHECK(!ai::TravelCooldownParksPurpose(false, true));
+    CHECK(!ai::TravelCooldownParksPurpose(false, false));
+    CHECK(ai::TRAVEL_COOLDOWN_PARK_SECONDS == 5 * 60);
+    std::cout << "  [PASS] cooldown parks the purpose only for never-arrived pool trips\n";
+
+    // Giver re-pick loop: the 1st and 2nd consecutive same-quest picks ride
+    // through, the 3rd parks the quest errand (caller resets the streak on
+    // any other pick).
+    CHECK(!GiverRepickParksQuest(1));
+    CHECK(!GiverRepickParksQuest(2));
+    CHECK(GiverRepickParksQuest(3));
+    CHECK(GiverRepickParksQuest(4));
+    CHECK(GIVER_REPICK_PARK_AFTER == 3);
+    std::cout << "  [PASS] giver re-pick parks quest on the 3rd same-quest pick\n";
+
+    // Held-prey veto starved gate: fewer than three parked purposes is an
+    // ordinary questing bot between trips (no veto), three or more is a
+    // rotation failing broadly (veto while the pick is held). The key list
+    // covers the quest errand plus every numeric travel purpose, and stays
+    // clear of named errands (trainer class, city) whose parks are common
+    // on healthy bots.
+    CHECK(!TravelSearchesStarved(0));
+    CHECK(!TravelSearchesStarved(1));
+    CHECK(!TravelSearchesStarved(2));
+    CHECK(TravelSearchesStarved(3));
+    CHECK(TravelSearchesStarved(5));
+    CHECK(TRAVEL_STARVED_PARKED_PURPOSES == 3);
+    CHECK(TravelStarvedParkKeys().size() == 12);
+    CHECK(TravelStarvedParkKeys().front() == "no travel purpose until::quest");
+    CHECK(TravelStarvedParkKeys()[1] == "no travel purpose until::4096");
+    {
+        bool trainerCounted = false;
+        for (std::string const& key : TravelStarvedParkKeys())
+            if (key.find("trainer") != std::string::npos)
+                trainerCounted = true;
+        CHECK(!trainerCounted);
+    }
+    std::cout << "  [PASS] starved gate needs 3 parked purposes, named errands out\n";
 
     std::cout << "travel repick policy: OK\n";
     return 0;

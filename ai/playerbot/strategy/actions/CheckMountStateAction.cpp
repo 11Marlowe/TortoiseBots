@@ -136,6 +136,18 @@ bool CheckMountStateAction::Execute(Event& event)
         }
     }
 
+    // At a herb/ore node: the loot chain refuses mounted bots, and a gather trip
+    // can stop a few yards short of the node while its status still reads
+    // TRAVEL, so the "working" rule below never dismounted it (live 2026-10-09:
+    // bots mounted 3-14 yd from their node until the 5-min move-stuck reset).
+    if (IsMounted)
+    {
+        TravelTarget* gatherTarget = AI_VALUE(TravelTarget*, "travel target");
+        if (gatherTarget && dynamic_cast<GatherTravelDestination*>(gatherTarget->GetDestination()) &&
+            AI_VALUE2(float, "distance", "travel target") < 20.0f)
+            return UnMount();
+    }
+
     //Doing stuff nearby.
     if (AI_VALUE(bool, "travel target working"))
     {
@@ -180,9 +192,18 @@ bool CheckMountStateAction::Execute(Event& event)
     if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT) && !hasEnemy)
     {
         //Mounting to travel: only when the remaining trip is long enough
-        // for the cast to pay off (see MountBreakEvenDistance).
+        // for the cast to pay off (see MountBreakEvenDistance), and only while
+        // the bot is already walking to the target (or already mounted). A 3 s
+        // mount cast consumes the whole tick - it always beats "move to travel
+        // target" on relevance ties - so a standing bot whose cast never sticks
+        // re-casts instead of walking: 63 same-spot repeat groups live
+        // (Oct 2026, e.g. a shaman casting every ~31 s for 14 min with zero
+        // displacement). Walking first means a failed cast degrades to run-speed
+        // travel instead of a standstill, and a wedged walk counts toward the
+        // travel move-failure drop instead of being starved by re-casts.
         if (AI_VALUE(bool, "travel target traveling") && AI_VALUE(bool, "can move around") &&
-            AI_VALUE2(float, "distance", "travel target") > MountBreakEvenDistance())
+            AI_VALUE2(float, "distance", "travel target") > MountBreakEvenDistance() &&
+            (bot->IsMounted() || sServerFacade.isMoving(bot)))
         {
             if (ai->HasStrategy("debug mount", BotState::BOT_STATE_NON_COMBAT) && !IsMounted)
                 ai->TellPlayerNoFacing(requester, "Mount. Traveling some place.");

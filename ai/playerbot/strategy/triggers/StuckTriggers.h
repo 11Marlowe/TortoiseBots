@@ -47,6 +47,16 @@ namespace ai
                 return false;
             }
 
+            // Stays true for up to 10 min after the bot last moved little, and
+            // every 5 s poll ran a full reset that stops movement and clears the
+            // target - so a flagged bot was halted again seconds after it set
+            // off and never escaped the flag (196 of 2000 live bots stalled 75%+
+            // of the time, 79 of them in this loop, 2026-10-09). mod-playerbots
+            // maps "move stuck" to an unregistered "reset" action, a no-op.
+            // One reset, then two minutes to walk away.
+            if (time(0) - AI_VALUE2(time_t, "manual time", "move stuck reset at") < 2 * MINUTE)
+                return false;
+
             WorldPosition botPos(bot);
 
             uint32 timeSinceLastMove = AI_VALUE2(uint32, "time since last change", "current position");
@@ -193,7 +203,14 @@ namespace ai
 
             WorldPosition botPos(bot);
 
-            uint32 timeSinceCombatChange = AI_VALUE2(uint32, "time since last change", "combat::self target");
+            // Time in this fight, from the combat start stamp (set on combat start,
+            // cleared on combat end). The old "time since last change" of the
+            // "combat" value was only sampled here, inside combat, so it never
+            // saw the gap between fights: after a bot's first fight every later
+            // one counted as stuck within seconds and "unstuck" dropped the
+            // target mid-fight (Oct 2026: in the 5 min before 45% of deaths).
+            time_t const combatStart = AI_VALUE(time_t, "combat start time");
+            uint32 timeSinceCombatChange = combatStart ? uint32(time(0) - combatStart) : 0;
 
             if (timeSinceCombatChange > 5 * MINUTE)
             {
@@ -241,7 +258,8 @@ namespace ai
 
             WorldPosition botPos(bot);
 
-            uint32 timeSinceCombatChange = AI_VALUE2(uint32, "time since last change", "combat::self target");
+            time_t const combatStart = AI_VALUE(time_t, "combat start time");
+            uint32 timeSinceCombatChange = combatStart ? uint32(time(0) - combatStart) : 0;
 
             // Same false "stuck" class as MoveLongStuckTrigger: 15 minutes of
             // uninterrupted combat is normal for a bot chaining pulls in a dense

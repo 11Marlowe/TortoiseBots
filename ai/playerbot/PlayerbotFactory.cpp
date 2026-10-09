@@ -140,6 +140,27 @@ void PlayerbotFactory::AutogearOwned(uint32 cappedQuality, uint32 ilvlCap)
     bot->SaveToDB();
 }
 
+void PlayerbotFactory::LearnSeedLevelSpells()
+{
+    if (!bot)
+        return;
+    InitAvailableSpells();
+    // Seeded hunters now know Call Pet: without a pet they cast it forever
+    // (41% of pool hunters frozen on "call pet", Oct 2026). Same pet step as
+    // ProvisionSpellsAndGear below. A login that just moved the bot off an
+    // isolated start zone is mid far-teleport with no map, and pet creation
+    // needs one (GetMap asserted, Oct 2026); the "initialize pet" action
+    // covers that bot once it lands.
+    if (!bot->FindMap() || bot->IsBeingTeleportedFar())
+        return;
+    if ((bot->GetClass() == CLASS_HUNTER && bot->GetLevel() >= TortoiseBots::HUNTER_PET_MIN_LEVEL) ||
+        bot->GetClass() == CLASS_WARLOCK)
+    {
+        InitPet();
+        InitPetSpells();
+    }
+}
+
 // Issue #192: spells + skills + incremental gear for a hired companion.
 // Public wrapper around the private init steps so the provisioner never
 // touches wiping paths. Talents are owned by the provisioner (role-matching
@@ -2584,7 +2605,8 @@ void PlayerbotFactory::InitClassLevelSpells()
     }
 
     std::set<std::pair<bool, uint32>> processedTrainers;
-    auto learnTrainerSpells = [this, classFamily = classEntry->spellfamily](TrainerSpellData const* trainerSpells)
+    uint32 learnedThisPass = 0;
+    auto learnTrainerSpells = [this, classFamily = classEntry->spellfamily, &learnedThisPass](TrainerSpellData const* trainerSpells)
     {
         if (!trainerSpells)
             return;
@@ -2629,7 +2651,11 @@ void PlayerbotFactory::InitClassLevelSpells()
                     learnedSpell->spellLevel != 0, true))
                 continue;
 
-            if (teachingSpell->SpellFamilyName != classFamily)
+            // Turtle trainer rows teach through generic-family (0) spells, so
+            // the taught spell's family decides too: checking the teaching
+            // spell alone sent every mage/priest rank into the skill filter
+            // below, and seeded mages knew no Fireball (Oct 2026).
+            if (teachingSpell->SpellFamilyName != classFamily && learnedSpell->SpellFamilyName != classFamily)
             {
                 SkillLineAbilityMapBounds bounds = sSpellMgr.GetSkillLineAbilityMapBoundsBySpellId(learnedSpellId);
                 if (bounds.first == bounds.second)
@@ -2670,11 +2696,15 @@ void PlayerbotFactory::InitClassLevelSpells()
                     !teachingSpell->EffectTriggerSpell[effect])
                     continue;
 
+                if (!bot->HasSpell(teachingSpell->EffectTriggerSpell[effect]))
+                    ++learnedThisPass;
                 bot->LearnSpell(teachingSpell->EffectTriggerSpell[effect], false);
             }
         }
     };
 
+    // Collect this class's trainer lists once (one scan of the creature map).
+    std::vector<TrainerSpellData const*> trainerLists;
     for (auto const& creatureEntry : sObjectMgr.GetCreatureInfoMap())
     {
         CreatureInfo const* creature = creatureEntry.second.get();
@@ -2682,14 +2712,24 @@ void PlayerbotFactory::InitClassLevelSpells()
             creature->trainer_class != bot->GetClass())
             continue;
 
-        if (creature->trainer_id)
-        {
-            if (processedTrainers.insert({ true, creature->trainer_id }).second)
-                learnTrainerSpells(sObjectMgr.GetNpcTrainerTemplateSpells(creature->trainer_id));
-        }
+        if (creature->trainer_id && processedTrainers.insert({ true, creature->trainer_id }).second)
+            trainerLists.push_back(sObjectMgr.GetNpcTrainerTemplateSpells(creature->trainer_id));
 
         if (processedTrainers.insert({ false, creature->entry }).second)
-            learnTrainerSpells(sObjectMgr.GetNpcTrainerSpells(creature->entry));
+            trainerLists.push_back(sObjectMgr.GetNpcTrainerSpells(creature->entry));
+    }
+
+    // A rank is GREEN only once the rank below it is known, so one pass over
+    // the lists teaches little beyond rank 1 (pool mages seeded at 50+ knew no
+    // Fireball rank past 1, Oct 2026). Repeat until a pass adds nothing; each
+    // pass climbs every chain by at least one rank.
+    for (uint32 pass = 0; pass < 20; ++pass)
+    {
+        learnedThisPass = 0;
+        for (TrainerSpellData const* trainerSpells : trainerLists)
+            learnTrainerSpells(trainerSpells);
+        if (!learnedThisPass)
+            break;
     }
 }
 

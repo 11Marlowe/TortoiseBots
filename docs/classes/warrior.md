@@ -27,8 +27,8 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 1. **Pull & Engagement:** Charges on enemy-out-of-melee, then swaps to Defensive Stance (no Battle Stance prep in code).
 2. **Threat Generation:**
    - Keeps *Shield Block* active on cooldown to enable *Revenge*.
-   - Re-applies *Sunder Armor* unconditionally on the current target (no stack counting, no spreading to secondary mobs; AoE threat is *Challenging Shout*).
-   - Casts *Shield Slam* or *Heroic Strike* as rage dump.
+   - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh, never to over-stack; no spreading to secondary mobs; AoE threat is *Challenging Shout*).
+   - *Thunder Clap* fires on spare rage (40+) as extra threat, since the AoE toggle the base tree gates it behind is normally off in party pulls.
 3. **Emergency Mitigation:**
    - *Last Stand* (12975, per game data) triggers on the critical-health trigger (default 20).
    - *Shield Wall* triggers under severe incoming damage.
@@ -57,7 +57,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 
 ## Utility & Interrupts
 
-- **Interrupts:** Protection: *Shield Bash* · Fury: *Pummel* (auto-Berserker) · Arms: none wired. *Shield Bash* has no stance precondition in code.
+- **Interrupts:** Protection: *Shield Bash* (+enemy-healer row) · Fury: *Pummel* (auto-Berserker) · Arms/Fury base: *Pummel* first, *Shield Bash* as the no-stance-dance fallback (both at ACTION_INTERRUPT, plus enemy-healer rows). Pummel stance-dances via its berserker-stance node; shield bash has no stance gate, so one of the two always fires without per-cast dancing.
 - **Shouts:** Automatically maintains *Battle Shout* on party members (all specs); only Protection wires *Demoralizing Shout*. *Intimidating Shout* (AoE fear) never fires inside a dungeon or raid, or for a bot grouped with a real player (a feared mob pulls neighbouring packs); outdoors with no master to disrupt, a critical-health bot may still shout to make space.
 
 ---

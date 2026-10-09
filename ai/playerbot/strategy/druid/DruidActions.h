@@ -34,22 +34,22 @@ namespace ai
         CastHealingTouchAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "healing touch") {}
     };
 
-    class CastRejuvenationOnPartyAction : public HealPartyMemberAction
+    class CastRejuvenationOnPartyAction : public HealHotPartyMemberAction
     {
     public:
-        CastRejuvenationOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "rejuvenation") {}
+        CastRejuvenationOnPartyAction(PlayerbotAI* ai) : HealHotPartyMemberAction(ai, "rejuvenation", 15, HealManaEfficiency::VERY_HIGH) {}
     };
 
-    class CastRegrowthOnPartyAction : public HealPartyMemberAction
+    class CastRegrowthOnPartyAction : public HealHotPartyMemberAction
     {
     public:
-        CastRegrowthOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "regrowth") {}
+        CastRegrowthOnPartyAction(PlayerbotAI* ai) : HealHotPartyMemberAction(ai, "regrowth", 35, HealManaEfficiency::HIGH) {}
     };
 
     class CastHealingTouchOnPartyAction : public HealPartyMemberAction
     {
     public:
-        CastHealingTouchOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "healing touch") {}
+        CastHealingTouchOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "healing touch", 50, HealManaEfficiency::MEDIUM) {}
     };
 
     class CastSwiftmendAction : public CastHealingSpellAction
@@ -636,9 +636,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc tank feral pve", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc tank feral pve", strategiesRequired);
 
-            strategiesRequired = { "tank feral/bear/tank", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth tank feral pve", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth tank feral pve", strategiesRequired);
 
             strategiesRequired = { "tank feral/bear/tank", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure tank feral pve", strategiesRequired);
@@ -696,9 +693,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc restoration pve", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc restoration pve", strategiesRequired);
 
-            strategiesRequired = { "restoration/heal", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth restoration pve", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth restoration pve", strategiesRequired);
 
             strategiesRequired = { "restoration/heal", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure restoration pve", strategiesRequired);
@@ -732,9 +726,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc balance pve", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc balance pve", strategiesRequired);
 
-            strategiesRequired = { "balance", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth balance pve", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth balance pve", strategiesRequired);
 
             strategiesRequired = { "balance", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure balance pve", strategiesRequired);
@@ -773,9 +764,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc tank feral pvp", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc tank feral pvp", strategiesRequired);
 
-            strategiesRequired = { "tank feral/bear/tank", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth tank feral pvp", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth tank feral pvp", strategiesRequired);
 
             strategiesRequired = { "tank feral/bear/tank", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure tank feral pvp", strategiesRequired);
@@ -833,9 +821,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc restoration pvp", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc restoration pvp", strategiesRequired);
 
-            strategiesRequired = { "restoration/heal", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth restoration pvp", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth restoration pvp", strategiesRequired);
 
             strategiesRequired = { "restoration/heal", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure restoration pvp", strategiesRequired);
@@ -869,9 +854,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc balance pvp", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc balance pvp", strategiesRequired);
 
-            strategiesRequired = { "balance", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth balance pvp", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth balance pvp", strategiesRequired);
 
             strategiesRequired = { "balance", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure balance pvp", strategiesRequired);
@@ -910,9 +892,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc tank feral raid", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc tank feral raid", strategiesRequired);
 
-            strategiesRequired = { "tank feral/bear/tank", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth tank feral raid", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth tank feral raid", strategiesRequired);
 
             strategiesRequired = { "tank feral/bear/tank", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure tank feral raid", strategiesRequired);
@@ -970,9 +949,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc restoration raid", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc restoration raid", strategiesRequired);
 
-            strategiesRequired = { "restoration/heal", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth restoration raid", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth restoration raid", strategiesRequired);
 
             strategiesRequired = { "restoration/heal", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure restoration raid", strategiesRequired);
@@ -1006,9 +982,6 @@ namespace ai
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cc balance raid", strategiesRequired);
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "cc balance raid", strategiesRequired);
 
-            strategiesRequired = { "balance", "stealth" };
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "stealth balance raid", strategiesRequired);
-            strategiesToUpdate.emplace_back(BotState::BOT_STATE_NON_COMBAT, "stealth balance raid", strategiesRequired);
 
             strategiesRequired = { "balance", "cure" };
             strategiesToUpdate.emplace_back(BotState::BOT_STATE_COMBAT, "cure balance raid", strategiesRequired);

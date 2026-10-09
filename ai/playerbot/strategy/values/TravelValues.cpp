@@ -1,6 +1,8 @@
 #include "playerbot/playerbot.h"
+#include <algorithm>
 #include "TravelValues.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/LocalPickPolicy.h"
 #include "MaintenanceValues.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"
@@ -286,12 +288,29 @@ bool NeedTravelPurposeValue::Calculate()
     case TravelDestinationPurpose::GatherMining:
     case TravelDestinationPurpose::GatherHerbalism:
         skill = gatheringSkills.at(purpose);
-        if (bot->GetSkillValue(skill) < std::min(bot->GetSkillMax(skill), bot->GetSkillMaxForLevel(bot)))
+        if (bot->GetSkillValue(skill) >= std::min(bot->GetSkillMax(skill), bot->GetSkillMaxForLevel(bot)))
+            return false;
+
+        // Empty-search probe, same shape as the trainer class/trade probe
+        // below: skill headroom alone raised the need while no node in the
+        // window would be accepted, so the bot requested, searched, parked
+        // a minute and re-asked (live: 414 empty GatherMining + 107 empty
+        // GatherHerbalism searches in 23 min, mostly "0:empty"). Refuse
+        // when no destination in the request window is active. Same window
+        // the purpose request searches (RequestTravelTargetAction), same
+        // entry source (all entries) and same acceptance (IsActive): a
+        // picked node is always inside the window it was picked from, so
+        // this stays true while walking its own trip.
         {
-            return true;
+            PlayerTravelInfo const info(bot);
+            DestinationList const nodes = sTravelMgr.GetDestinations(info,
+                (uint32)purpose, {}, true, 10000.0f);
+            if (std::none_of(nodes.begin(), nodes.end(),
+                    [&](TravelDestination* node) { return node->IsActive(bot, info); }))
+                return false;
         }
 
-        return false;
+        return true;
     case TravelDestinationPurpose::Boss:
         return AI_VALUE(bool, "can fight boss");
     case TravelDestinationPurpose::Mail:
@@ -460,9 +479,21 @@ bool ShouldTravelNamedValue::Calculate()
     }
     else if (name.find("trainer") == 0)
     {
-        if (ai->HasRealPlayerMaster())
+        // Park pre-gate (perf): a parked trainer need stays parked until the
+        // purse covers the cheapest rank (money park) or a level-up clears it
+        // (AutoLearnSpellAction). The full probe below walks the trainer map
+        // and the destination window; skip it while the park timestamp the
+        // tail of this branch reads is still in the future and the purse
+        // cannot have lifted it. Same verdict, no destination walk: a money
+        // park with no new money still refuses, a teaching park still refuses.
+        // The tail re-reads the timestamp, so a park that expired (or was
+        // cleared by a ding) since the last visit falls through to the probe.
+        if (AI_VALUE2(time_t, "manual time", "no travel purpose until::" + name) > time(0) &&
+            !AI_VALUE2(bool, "manual bool", "trainer park needs money"))
             return false;
 
+        if (ai->HasRealPlayerMaster())
+            return false;
         TrainerType trainerType = TRAINER_TYPE_CLASS;
         NeedMoneyFor budgetType = NeedMoneyFor::spells;
 
@@ -484,6 +515,42 @@ bool ShouldTravelNamedValue::Calculate()
 
         if (AI_VALUE2(uint32, "train cost", trainerType) == 0) //Has nothing to train
             return false;
+
+        // Class and trade trips need a trainer of the bot's OWN class/craft in
+        // reach: "train cost" counts every green rank in the world, so without
+        // this a bot with nothing learnable nearby still raised the trigger,
+        // requested, and parked for a minute, every minute (live: ~1000 empty
+        // + ~400 rejected "trainer class" searches in 20 min, ~33 wasted trade
+        // picks/h at level 5). The search uses the same window. The need
+        // doubles as the in-flight trip's stored condition, so this must stay
+        // true while walking: a picked trainer is always inside the window it
+        // was picked from, and learning only ever removes entries, which is
+        // exactly when the trip should end.
+        if (name == "trainer class" || name == "trainer trade")
+        {
+            std::vector<int32> entries =
+                AI_VALUE2(std::vector<int32>, "available trainers", (uint32)trainerType);
+            if (entries.empty())
+                return false;
+
+            bool const masterless = sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+            // Same window the request searches (ChooseTravelTargetAction).
+            float const window = name == "trainer class" ?
+                ClassTrainerRequestMaxDistance(masterless, bot->GetLevel(),
+                    AI_VALUE2(std::vector<TrainerSpell const*>, "trainable spells", (uint32)TRAINER_TYPE_CLASS).size(), 10000.0f) :
+                CampRequestMaxDistance(masterless, bot->GetLevel(), 10000.0f);
+            // Only trainers the pick would accept: possible (level, outgrown
+            // town) and active (not hostile, not just visited). Counting every
+            // listed trainer raised the need for an enemy-faction or outgrown
+            // trainer nearby, and the search then refused them all and parked
+            // a minute, every minute (1836 "inactive" refusals in 20 min).
+            PlayerTravelInfo const info(bot);
+            DestinationList const trainers = sTravelMgr.GetDestinations(info,
+                (uint32)TravelDestinationPurpose::Trainer, entries, true, window);
+            if (std::none_of(trainers.begin(), trainers.end(),
+                    [&](TravelDestination* trainer) { return trainer->IsActive(bot, info); }))
+                return false;
+        }
 
         // Partial-purse rule: travel when at least the cheapest trainable spell
         // fits the free-money budget. The old "has all money for" check demanded
@@ -655,6 +722,16 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
             return false;
         return true;
     }
+
+    // A zone that is not outgrown can still be barren for this bot: two
+    // Grind searches in a row found nothing (all spots out of level, out of
+    // reach or in enemy territory). Leaving it is the same move - grind in
+    // another zone that fits the bot's level - instead of standing between
+    // empty searches (83 of 2000 pool bots had no target for a whole 5-min
+    // window, live 2026-10-09).
+    if (AI_VALUE2(int32, "manual int", "grind empty streak") >= 2 &&
+        AI_VALUE2(time_t, "manual time", "grind empty at") + 10 * MINUTE > time(0))
+        return true;
 
     // Fail closed: unknown area levels never trigger the rule (zoneKnown
     // above covers the unresolvable/unknown case).

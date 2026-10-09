@@ -73,8 +73,33 @@ bool OpenLootAction::Execute(Event& event)
     {
         AI_VALUE(LootObjectStack*, "available loot")->Remove(lootObject.guid);
         context->GetValue<LootObject>("loot target")->Set(LootObject());
+        return true;
     }
-    return result;
+
+    // Bounded give-up: DoLoot says "not now" without dropping the corpse on several
+    // paths (failed open/skin/gather cast, a contended game object, no opening spell),
+    // so without a counter the same target re-fires every tick while the bot stands
+    // still. Count consecutive failures per corpse on the stack's failure memory (the
+    // same one "move to loot" uses for unreachable corpses); once it is abandoned the
+    // stack drops it and "loot" selects the next corpse. Player-ordered looting only
+    // issues the action once per order, so a counter that needs repeated failures can
+    // never veto a fresh order.
+    if (!lootObject.IsEmpty())
+    {
+        LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+        if (lootStack)
+        {
+            lootStack->NoteApproachFailure(lootObject.guid);
+            if (lootStack->IsAbandoned(lootObject.guid))
+            {
+                sLog.outDebug("[BOT LOOT] %s: giving up on guid=%lu after repeated failed opens",
+                    bot->GetName(), lootObject.guid.GetRawValue());
+                lootStack->Remove(lootObject.guid);
+                context->GetValue<LootObject>("loot target")->Set(LootObject());
+            }
+        }
+    }
+    return false;
 }
 
 bool OpenLootAction::DoLoot(LootObject& lootObject)
@@ -123,6 +148,12 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
     // them) and left skinners casting Skinning on an unlooted corpse every tick forever.
     if (creature && creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
     {
+        // Dismount in the open step (mod-playerbots LootAction.cpp:93-98): the select
+        // triggers veto mounted bots, so without this a bot that mounted after picking
+        // a corpse waits for the mount-state round-trip before the chain can run.
+        if (bot->IsMounted())
+            ai->Unmount();
+
         if (!lootObject.IsLootPossible(bot)) //Clear loot if bot can't loot it.
         {
             sLog.outDebug("[BOT LOOT] %s: IsLootPossible=false on lootable corpse, clearing (corpse stays lootable -> may re-add)",
@@ -176,6 +207,14 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
             return ai->HasSkill(SKILL_SKINNING) ? ai->CastSpell(SKINNING, creature) : false;
         }
     }
+
+    // Dismount for a game-object node like the corpse path above: the loot
+    // chain refuses mounted bots, so without this a bot that rode to its
+    // node burns its approach failures on casts that never start, the node
+    // is abandoned, and the travel action re-walks the same last yards.
+
+    if (bot->IsMounted())
+        ai->Unmount();
 
     GameObject* go = ai->GetGameObject(lootObject.guid);
     if (go && (go->getLootState() == GO_ACTIVATED || go->GetGoState() == GO_STATE_ACTIVE))

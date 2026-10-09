@@ -26,15 +26,17 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 ### 1. Holy (Healing)
 - **Emergency:** Casts *Lay on Hands* on any party member at critical health (default 20). Casts *Divine Favor* as a standalone buff trigger on medium/low mana; no code chains it into *Holy Light*.
 - **Maintenance:** Maintains *Flash of Light* on injured allies. Casts *Holy Shock* on low-health bands only (no movement condition).
+- **Mana sense:** Never skips a target at or below the low-health line for mana reasons; above the medium line it refuses oversized or average-efficiency heals, and below the medium-mana line it refuses mana-hungry heals in favor of *Flash of Light* (efficient) over *Holy Light* (heavy). Tanks count the expected heal at two-thirds.
 - **Self-Defense:** Pops *Divine Shield* (Bubble) if personal health drops into danger, continuing to heal the group while immune.
 
 ### 2. Protection (Tank)
-- **Aggro Mechanics:** Always keeps *Righteous Fury* active.
-- **AoE Holding:** Drops *Consecration* on mob clusters to maintain lock on multiple targets. Keeps *Holy Shield* active on cooldown for block rating and reflective holy damage.
+- **Aggro Mechanics:** Keeps *Righteous Fury* up in and out of combat (re-cast on loss mid-pull, e.g. after death or bubble). On lose-aggro the tank taunts with *Hand of Reckoning* (Turtle trainer spell 51303, level 10), falling back to *Righteous Defense* (ranks 51328-51330); *Judgement* is damage rotation, not the taunt path.
+- **AoE Holding:** Drops *Consecration* on 2+ attackers in reach (3+, or 2 at 70%+ mana) with the AoE kit active. Keeps *Holy Shield* active on cooldown for block rating and reflective holy damage.
 - **Burst Threat:** Judges *Seal of Righteousness* on primary target.
 
 ### 3. Retribution (DPS)
 - **Seals & Judgement:** Maintains *Seal of Command* (falling back to *Seal of Righteousness* on spell availability, with no weapon-speed check) and unleashes *Judgement* on cooldown. The rotation also wires *Exorcism* (instant with the Art of War proc), *Holy Strike*, and *Crusader Strike*.
+- **Builder order:** *Crusader Strike* is the main builder and outranks *Holy Strike* within the normal band; seal/judge upkeep still outbids both.
 - **Finishers:** Casts *Hammer of Wrath* when target falls below 20% health.
 
 ---
@@ -54,9 +56,10 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 
 ## Utility, Blessings & Auras
 
-- **Blessings:** Coordinates blessings across party classes (*Blessing of Kings*, *Might*, *Wisdom*, *Salvation*, *Sanctuary*, *Light*). Automatically avoids overriding higher-tier blessings.
+- **Blessings:** Coordinates blessings across party classes (*Blessing of Kings*, *Might*, *Wisdom*, *Salvation*, *Sanctuary*, *Light*). Automatically avoids overriding higher-tier blessings. With two paladins in one party, a short shared *buff claim* keeps them from double-casting: while one paladin's blessing cast is in flight the other stands down on that member instead of overwriting it.
+- **Blessing scheduling:** Out of combat, catching up to the master runs below the blessings (a pending blessing in range wins the tick, follow resumes next). Upkeep blessings wait for 40% mana, 20% with a real player master.
 - **Auras:** Each spec keeps a fixed default aura (Holy → Concentration, Protection → Retribution, Retribution → Sanctity); otherwise the bot casts the first missing aura in a fixed list. No damage-type or group-composition detection exists.
-- **Cleansing:** Uses *Cleanse* and *Purify* to remove poisons, diseases, and magic debuffs from party members.
+- **Cleansing:** Uses *Cleanse* and *Purify* to remove poisons, diseases, and magic debuffs from party members (self first, then party).
 - **Crowd Control:** Stuns dangerous casters or runners using *Hammer of Justice*. *Repentance* fires automatically from interrupt, enemy-healer and snare triggers with no humanoid restriction; the Paladin CC-strategy spell is *Turn Undead*, and `.bot action cc` assigns marks rather than ordering a spell.
 
 ---

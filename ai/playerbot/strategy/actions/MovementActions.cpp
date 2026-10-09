@@ -15,6 +15,7 @@
 #include "Movement/spline/MoveSplineInit.h"
 #include "Movement/spline/MoveSpline.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/GrindSpotPolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
 #include "Transports/Transport.h"
 #include "playerbot/strategy/generic/CombatStrategy.h"
@@ -2398,6 +2399,65 @@ bool SetBehindTargetAction::isPossible()
     return false;
 }
 
+bool TankFaceAwayAction::Execute(Event& event)
+{
+    (void)event;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !sServerFacade.IsAlive(target))
+        return false;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+    // Average angle from the mob to the live party (donor
+    // CombatFormationMoveAction::AverageGroupAngle, self excluded).
+    float sumX = 0.0f, sumY = 0.0f;
+    int count = 0;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (!member || member == bot || !sServerFacade.IsAlive(member))
+            continue;
+        if (member->GetMapId() != bot->GetMapId())
+            continue;
+        sumX += member->GetPositionX() - target->GetPositionX();
+        sumY += member->GetPositionY() - target->GetPositionY();
+        ++count;
+    }
+    if (!count)
+        return false;
+    float averageAngle = atan2(sumY, sumX);
+    // Donor TankFaceAction destinations: averageAngle +- 3*PI/5 puts the
+    // ranged clump behind the tank, outside the frontal cone, while staying
+    // in melee. Nearest of the two wins.
+    const float dist = std::max(sServerFacade.getDistance2d(bot, target), 3.0f);
+    const float sides[] = { averageAngle + 3.0f * M_PI / 5.0f, averageAngle - 3.0f * M_PI / 5.0f };
+    float bestX = 0.0f, bestY = 0.0f, bestZ = 0.0f, bestDist = FLT_MAX;
+    bool found = false;
+    for (float side : sides)
+    {
+        float x = target->getPositionX() + cos(side) * dist;
+        float y = target->getPositionY() + sin(side) * dist;
+        float z = target->getPositionZ();
+        bot->UpdateGroundPositionZ(x, y, z);
+        float ox, oy, oz;
+        target->GetPosition(ox, oy, oz);
+        target->GetMap()->GetLosHitPosition(ox, oy, oz + bot->GetCollisionHeight(), x, y, z, -0.5f);
+        if (!target->IsWithinLOS(x, y, z + bot->GetCollisionHeight(), true))
+            continue;
+        float d = sServerFacade.getDistance2d(bot, x, y);
+        if (d < bestDist)
+        {
+            bestDist = d;
+            bestX = x;
+            bestY = y;
+            bestZ = z;
+            found = true;
+        }
+    }
+    if (!found)
+        return false;
+    return MoveTo(bot->GetMapId(), bestX, bestY, bestZ);
+}
+
 bool MoveOutOfCollisionAction::Execute(Event& event)
 {
     WorldPosition botPos(bot);
@@ -2450,6 +2510,43 @@ bool MoveRandomAction::Execute(Event& event)
 bool MoveRandomAction::isUseful()
 {
     return !ai->HasRealPlayerMaster() && ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid> >("nearest friendly players")->Get().size() > urand(25, 100);
+}
+
+bool IdleWanderAction::Execute(Event& event)
+{
+    // One short drift to a near reachable point (donor mod-playerbots
+    // MoveRandomNear, same shape): 8 sampled candidates, height + static
+    // line-of-sight vetted inside GetReachableRandomPointOnGround, and the
+    // ordinary core path runs the winner. A bad roll returns false and the
+    // next often tick tries again - never a blind walk.
+    WorldPosition botPos(bot);
+    WorldPosition wanderTo = botPos;
+    if (!wanderTo.GetReachableRandomPointOnGround(bot, ai::IDLE_WANDER_RANGE_YD))
+        return false;
+    // The helper may return a point underfoot when every sample fails open;
+    // standing still is not a wander.
+    if (wanderTo.sqDistance2d(botPos) < 5.0f * 5.0f)
+        return false;
+    return MoveTo(bot->GetMapId(), wanderTo.getX(), wanderTo.getY(), wanderTo.getZ());
+}
+
+bool IdleWanderAction::isUseful()
+{
+    if (!MovementAction::isUseful())
+        return false;
+    // No grind-target clause: a held-but-unattackable pick must not veto the
+    // only motion that can break the standstill (see IdleWanderAllowed). The
+    // attack row (5.0) outranks this drift (0.6), so a usable prey still wins.
+    if (!ai::IdleWanderAllowed(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster(),
+        AI_VALUE(bool, "travel target active"), sServerFacade.IsInCombat(bot),
+        bot->InBattleGround(), WorldPosition(bot).isOverworld(),
+        AI_VALUE(bool, "can move around")))
+        return false;
+    // A bot already walking to its held prey is not standing still: never
+    // turn that approach into a drift.
+    if (bot->IsMoving() && AI_VALUE(Unit*, "grind target"))
+        return false;
+    return true;
 }
 
 bool MoveToAction::Execute(Event& event)

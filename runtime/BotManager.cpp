@@ -382,8 +382,11 @@ void BotManager::SweepDeadBots(uint32_t diff)
     // At most a handful of releases/revives per sweep: a sweep that revived
     // 189 in one tick is the freeze this cap exists to prevent. The rest keep
     // their timers for the next 30s sweep.
-    constexpr uint32_t kMaxReleasesPerSweep = 8;
-    constexpr uint32_t kMaxRevivesPerSweep = 8;
+    // Releases and in-place revives are cheap; teleports (corpse moves) keep
+    // the small cap so a sweep never moves a batch.
+    constexpr uint32_t kMaxReleasesPerSweep = 30;
+    constexpr uint32_t kMaxRevivesPerSweep = 30;
+    constexpr uint32_t kMaxMovesPerSweep = 8;
     uint32_t released = 0, revived = 0, watched = 0, moved = 0;
     uint32_t skipNotRandom = 0, skipHasMaster = 0, skipNoPlayer = 0, skipNotHeadless = 0;
     uint32_t skipNotInWorld = 0, skipTeleport = 0, skipBattleground = 0, skipGrouped = 0;
@@ -549,9 +552,9 @@ void BotManager::SweepDeadBots(uint32_t diff)
         // the AI tick that would walk it is starved. Move one bot onto its
         // corpse and let the next sweep revive it. No corpse: only the
         // existing hopeless/lowbie relocate, never a resurrect in place.
-        // Shares the revive cap so a sweep cannot teleport a batch.
+        // Own small cap (kMaxMovesPerSweep) so a sweep cannot teleport a batch.
         constexpr time_t kGhostMoveGraceSec = 180;
-        if (deadFor >= kGhostMoveGraceSec && revived + moved < kMaxRevivesPerSweep)
+        if (deadFor >= kGhostMoveGraceSec && moved < kMaxMovesPerSweep)
         {
             if (Corpse* corpse = p->GetCorpse())
             {
@@ -1023,8 +1026,16 @@ void BotManager::OnPlayerLogin(::Player* player)
         if (player->GetLevel() < seedLevel)
         {
             player->GiveLevel(seedLevel);
+            // A bot born at level N never walked levels 1..N-1, so it never
+            // bought their spells: pool mages seeded at 50+ knew no Fireball or
+            // Frostbolt and went 0.3 kills to 8.4 deaths (Oct 2026 pool). Give
+            // the seeded level's spells once, like a hired companion gets them;
+            // every later level is still trained at a trainer.
+            size_t const spellsBefore = player->GetSpellMap().size();
+            PlayerbotFactory(player, seedLevel).LearnSeedLevelSpells();
             sRandomBotFacade.SetValue(player->GetGUIDLow(), "levelSeeded", 1);
-            TB_LOG_DETAIL("TortoiseBots: seeded fresh bot %s to level %u.", player->GetName(), seedLevel);
+            TB_LOG_DETAIL("TortoiseBots: seeded fresh bot %s to level %u (+%u spells).", player->GetName(), seedLevel,
+                uint32(player->GetSpellMap().size() - spellsBefore));
         }
     }
 
@@ -1872,6 +1883,7 @@ void BotManager::UpdateBots(uint32_t diff)
                 ? std::min(WorldTimer::getMSTimeDiff(entry.lastAiUpdateMs, nowMs), kMaxAiElapsedMs)
                 : diff;
             entry.lastAiUpdateMs = nowMs ? nowMs : 1;
+            ++entry.aiVisits;
             entry.aiAdapter->Update(elapsed);
 
             if (PlayerbotAI* stepAi = entry.aiAdapter->GetAI())
@@ -1941,8 +1953,13 @@ void BotManager::UpdateBots(uint32_t diff)
             if (it == m_bots.end() || it->second.record.lifecycle != BotLifecycle::InWorld)
                 continue;
 
+            // Dead bots ride this pass too: a death is a chain of decisions
+            // (release, corpse run legs, revive or spirit healer), and at one
+            // pool-rotation visit per ~26 s each step waited a full lap - the
+            // dead sweep then ran at its cap every 30 s with ~165 corpses
+            // queued and some lay dead 12+ min (Oct 2026, 2000 bots).
             ::Player* p = sObjectAccessor.FindPlayer(it->second.record.characterGuid);
-            if (p && p->IsInCombat())
+            if (p && (p->IsInCombat() || !p->IsAlive()))
             {
                 updateOneBot(guidLow);
                 if (combatBudgetUs > 0)
@@ -2576,3 +2593,14 @@ void BotManager::UpdateAutoTest(uint32_t diff)
 }
 
 } // namespace TortoiseBots
+
+void TortoiseBots::BotManager::GetAiVisitInfo(uint32_t guidLow, uint32_t& visits, uint32_t& ageMs) const
+{
+    visits = 0;
+    ageMs = 0;
+    auto it = m_bots.find(guidLow);
+    if (it == m_bots.end() || !it->second.lastAiUpdateMs)
+        return;
+    visits = it->second.aiVisits;
+    ageMs = WorldTimer::getMSTimeDiff(it->second.lastAiUpdateMs, WorldTimer::getMSTime());
+}
