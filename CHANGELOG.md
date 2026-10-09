@@ -60,6 +60,10 @@
 - Fewer stuck bots. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
 - AI performance improvements. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
 
+### Core Sync & Fixes
+
+- GM chat badge no longer breaks bot commands: the `|c1049e6ff…|r` wrapper the core adds to every GM message is stripped before parsing, so `/p wander` and whispered orders like `attackers` work again — item and spell links (with their inner `|H`) are untouched. [#554](https://github.com/Sagiroth/TortoiseBots/pull/554)
+
 ## 2026-10-08
 
 ### Combat & AI
