@@ -44,6 +44,21 @@
 
 ---
 
+### Party Combat
+- Tanks turn the mob away from the party, and melee DPS stands behind the target. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+- Protection paladins keep Righteous Fury up. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+- Hand of Reckoning fires when the tank loses aggro. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+- Protection warriors use Thunder Clap on spare rage and Disarm. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+- Healers stop wasting mana on overheals. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+- At similar urgency, healers prioritize a visible party member over one behind a pillar. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+
+### Class Rotations
+- Behavior ported from mod-playerbots where 1.12 spells allow it. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+
+### Stability & Performance
+- Fewer stuck bots. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+- AI performance improvements. [#553](https://github.com/Sagiroth/TortoiseBots/pull/553)
+
 ## 2026-10-08
 
 ### Combat & AI
