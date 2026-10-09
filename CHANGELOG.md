@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-10-09
+
+### Observability & Engine
+
+- Fixed the `internal/state` tests to match the now-cumulative bot activity model (session re-anchor, roster wipes, and no more pruning of departed bots), so `dashboard-binaries.yml` can finally get past `go test ./...` on every run. [#552](https://github.com/Sagiroth/TortoiseBots/pull/552)
+- Dashboard binaries now ship with a published `sha256`, letting operators verify the `tortoise-observability-*` artifacts before deploying. [#552](https://github.com/Sagiroth/TortoiseBots/pull/552)
+
+### Core Sync & Fixes
+
+- Renamed the `near` local in `BotManager::UpdateBots`'s teleport-ack path — it collided with an MSVC keyword and produced a wall of `C2513`/`C2059`/`C2143` errors, so Windows builds compile again. [#548](https://github.com/Sagiroth/TortoiseBots/pull/548)
+
+---
+
 ## 2026-10-08
 
 ### Combat & AI
