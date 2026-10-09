@@ -65,6 +65,10 @@
 
 - GM chat badge no longer breaks bot commands: the `|c1049e6ff…|r` wrapper the core adds to every GM message is stripped before parsing, so `/p wander` and whispered orders like `attackers` work again — item and spell links (with their inner `|H`) are untouched. [#554](https://github.com/Sagiroth/TortoiseBots/pull/554)
 
+### Combat & AI
+- Fixed ShareTargets copying **empty** attacker lists: bots no longer flicker in and out of combat every ~2 s, and the bot actually taking hits now reliably starts combat. [#555](https://github.com/Sagiroth/TortoiseBots/pull/555)
+- Copied targets are now validated against group members and the master, not just the bot itself, so grouped bots engage mobs hitting a groupmate instead of dropping them. [#555](https://github.com/Sagiroth/TortoiseBots/pull/555)
+
 ## 2026-10-08
 
 ### Combat & AI
