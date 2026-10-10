@@ -336,6 +336,23 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "POST_TARGETS")
       "${CMAKE_SOURCE_DIR}/src/game/Movement/spline"
       "${CMAKE_SOURCE_DIR}/src/game/Transports"
       "${CMAKE_SOURCE_DIR}/src/game/vmap")
+    # zlib: the module packs bot logs (gzip) since upstream #676, so it does
+    # #include <zlib.h>. The core builds a bundled "zlib" target whose headers
+    # are only directory-scope-included (include_directories), which does NOT
+    # propagate to consumers, and on Windows <zlib.h> is not on any default
+    # include path. Wire the include dir + link in explicitly (system zlib.h is
+    # found by default on *nix).
+    if(ZLIB_INCLUDE_DIRS)
+      target_include_directories("${TORTOISEBOTS_TARGET}" PRIVATE ${ZLIB_INCLUDE_DIRS})
+    elseif(EXISTS "${CMAKE_SOURCE_DIR}/dep/windows/include/zlib/zlib.h")
+      target_include_directories("${TORTOISEBOTS_TARGET}" PRIVATE
+        "${CMAKE_SOURCE_DIR}/dep/windows/include/zlib")
+    endif()
+    if(TARGET zlib)
+      target_link_libraries("${TORTOISEBOTS_TARGET}" PRIVATE zlib)
+    elseif(ZLIB_LIBRARIES)
+      target_link_libraries("${TORTOISEBOTS_TARGET}" PRIVATE ${ZLIB_LIBRARIES})
+    endif()
     # TortoiseBots headers assume the compatibility precompiled header
     # (ai/botpch.h) is in scope. Honor the core's PCH option: use it when
     # precompiled headers are enabled, and force-include the same header when
