@@ -2525,6 +2525,11 @@ AiPlayerbot.RndBotCheats = repair,breath,item
 # AiPlayerbot.ToggleAlwaysOnlineChars =
 
 
+# Directory for the module's log files (bot_events.csv, deaths.csv, bot_test_results.log, ...),
+# relative to the server directory. Empty = use the core's LogsDir. Set e.g. "Bot_Logs" to keep
+# bot diagnostics in their own folder, separate from the server logs.
+AiPlayerbot.LogsDir =
+
 # Allowed log files. See SPP_MAP for more information
 # https://github.com/mostlikely4r/spp-map
 # On by default so a bug report can carry them: bot_events.csv (bot decisions), deaths.csv (bot deaths and killers).

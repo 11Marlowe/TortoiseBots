@@ -975,8 +975,9 @@ bool PlayerbotAIConfig::Initialize()
     actionLogMaxFileMB = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.ActionLogMaxFileMB", 100)));
     actionCountsLog = config.GetBoolDefault("AiPlayerbot.ActionCountsLog", false);
     botLogFile = config.GetStringDefault("AiPlayerbot.BotLogFile", "");
+    botLogsDir = config.GetStringDefault("AiPlayerbot.LogsDir", "");
     {
-        std::string logsDir = sConfig.GetStringDefault("LogsDir", "");
+        std::string logsDir = logsDirPath();
         bool botLogDebug = config.GetBoolDefault("AiPlayerbot.BotLogDebug", false);
         BotLog::Instance().Initialize(botLogFile.c_str(), logsDir.c_str(), botLogDebug);
     }
@@ -1607,7 +1608,12 @@ bool PlayerbotAIConfig::openLogLocked(std::string const& fileName, char const* m
 
 std::string PlayerbotAIConfig::logsDirPath()
 {
-    std::string logsDir = sConfig.GetStringDefault("LogsDir", "");
+    // Module logs go to AiPlayerbot.LogsDir when set (a directory relative to
+    // the server dir), otherwise the core's LogsDir. Keeping the two separate
+    // lets bot diagnostics live in their own folder, away from the server logs.
+    std::string logsDir = botLogsDir;
+    if (logsDir.empty())
+        logsDir = sConfig.GetStringDefault("LogsDir", "");
     if (!logsDir.empty())
     {
         if ((logsDir.at(logsDir.length() - 1) != '/') && (logsDir.at(logsDir.length() - 1) != '\\'))
