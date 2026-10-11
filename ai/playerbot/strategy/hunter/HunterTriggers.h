@@ -429,19 +429,29 @@ private:
         }
     };
 
-    // [Turtle] Steady Shot filler (trainer ranks 3035..45974, cast time, no
-    // cooldown, 1.5s GCD). The core pauses the repeating Auto Shot while a
-    // timed cast runs and re-arms its 0.5s windup afterwards, so only start
-    // the cast when it ends before the next Auto Shot is due. Not known,
-    // not castable, or no room in the Auto Shot window: auto shot continues.
+    // [Turtle] Steady Shot filler (ranks 3035..45974: timed cast, no
+    // cooldown, 1.5s GCD). Core: every timed cast pauses the repeating Auto
+    // Shot and sets m_AutoRepeatFirstCast, so on resume the ranged timer is
+    // raised to kAutoShotWindupMs if lower (Unit::_UpdateAutoRepeatSpell).
+    // Auto Shot is therefore not delayed only if, when the cast starts,
+    // timer > cast time + windup + a margin for bot tick and latency.
+    // Otherwise (also when the timer is 0) the bot keeps auto-shooting.
     class SteadyShotTrigger : public Trigger
     {
     public:
+        static constexpr uint32 kAutoShotWindupMs = 500;
+        static constexpr uint32 kWeaveMarginMs = 150;
+
         SteadyShotTrigger(PlayerbotAI* ai) : Trigger(ai, "steady shot", 1) {}
         virtual std::string GetTargetName() override { return "current target"; }
 
         virtual bool IsActive() override
         {
+            // Cheapest check first: no cast fits below windup + margin.
+            uint32 const timer = bot->GetAttackTimer(RANGED_ATTACK);
+            if (timer <= kAutoShotWindupMs + kWeaveMarginMs)
+                return false;
+
             uint32 const spellId = AI_VALUE2(uint32, "spell id", "steady shot");
             if (!spellId || !HunterHasRangedAmmo(ai))
                 return false;
@@ -450,11 +460,9 @@ private:
             if (!target || !ai->CanCastSpell("steady shot", target, true, nullptr, true))
                 return false;
 
-            // Weave only: finish the cast before the next Auto Shot is due.
-            // Timer 0 (shot ready, or Auto Shot not running) means no room.
             SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
             uint32 const castTime = GetSpellCastTime(spellInfo, bot);
-            return bot->GetAttackTimer(RANGED_ATTACK) > castTime;
+            return timer > castTime + kAutoShotWindupMs + kWeaveMarginMs;
         }
     };
 
