@@ -30,6 +30,16 @@ namespace ai
         bool IsActive() override;
     };
 
+    // A wand is running while Frostbolt or Fireball is held back only by the
+    // GCD each wand shot renews on Turtle (MageWandPolicy.h): stop the wand
+    // so the mage casts again instead of wanding at full mana.
+    class WandBlocksNukeTrigger : public Trigger
+    {
+    public:
+        WandBlocksNukeTrigger(PlayerbotAI* ai) : Trigger(ai, "wand blocks nuke") {}
+        bool IsActive() override;
+    };
+
     class ArcaneIntellectOnPartyTrigger : public BuffOnPartyTrigger
     {
     public:

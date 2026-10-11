@@ -7643,3 +7643,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Mage: cast instead of wanding at full mana — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | ---: | --- |
+| Mage stops a running wand while Frostbolt/Fireball is held back only by the GCD each Turtle wand shot renews (`wand blocks nuke` → `stop wand`, `ACTION_NORMAL + 5`; pure rule in `ai/playerbot/MageWandPolicy.h`) | `mod-playerbots` (behaviour: nukes rank above Shoot, the wand is filler only) + `tortoise-wow` core (wand GCD rule) | `79bd428` / core read 2026-10-11 | `src/Ai/Class/Mage/Strategy/FrostMageStrategy.cpp:16-24` (default list frostbolt 5.4 above shoot 5.1) / core `src/game/Objects/Unit.cpp` `Unit::_UpdateAutoRepeatSpell` (wand shot adds category-133 GCD for the ranged swing) | Reimplemented: the donor needs no stop because its core's wand does not touch the GCD; here a mage trigger probes Frostbolt/Fireball with `CanCastSpell` and stops the wand only when the refusal is `SPELL_FAILED_NOT_READY` (or none), then sleeps until the last shot's GCD lapses. Raid group + aggro and the <5% `no mana` → shoot row keep the wand | Live audit (batch 2, item 1): mages wanded at mana p50 100% across consecutive samples while dying; Frostbolt under 1% of mage combat samples | `bash tools/verify_all.sh` (incl. new `tools/test_mage_wand_policy.cpp`), `git diff --check`; code review + build pending; in-game pending |
