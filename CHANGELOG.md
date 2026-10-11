@@ -59,6 +59,13 @@
 - A fresh level-1 pool is now actually spread evenly over the starting zones — bots that reached level 2-3 while the pool was still being created stopped counting toward their zone, so the zones where bots level fastest kept getting more (Dun Morogh ended up with twice its share), and high elves were sent to Dun Morogh or Teldrassil instead of Elwynn where they had been counted.
 - Wandering bots no longer stand around after picking a camp or explore errand — the activity they rolled was refused again by a second dice roll (half or nine times in ten), and nothing else was allowed until the choice expired; the roll now decides alone. Your own and hired bots are unchanged.
 
+## 2026-10-11
+
+### Core Sync & Fixes
+- Fixed Windows compilation failures (`zlib.h` not found) by adding `${ZLIB_INCLUDE_DIRS}` to the TortoiseBots CMake target include paths [#682](https://github.com/Sagiroth/TortoiseBots/pull/682)
+
+---
+
 ## 2026-10-10
 
 ### Combat & AI
