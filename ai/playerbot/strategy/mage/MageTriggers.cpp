@@ -78,7 +78,7 @@ bool NoImprovedScorchDebuffTrigger::IsActive()
 {
     // Fire Vulnerability talent ranks (Turtle ids, same set as
     // NoFireVulnerabilityTrigger).
-    if (!bot->HasSpell(11095) && !bot->HasSpell(12872) && !bot->HasSpell(12873))
+    if (!bot->HasSpell(11095) && !bot->HasSpell(12872) && !bot->HasSpell(12873) && !bot->HasSpell(12874) && !bot->HasSpell(12875))
         return false;
 
     Unit* target = GetTarget();
