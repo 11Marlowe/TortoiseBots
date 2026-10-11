@@ -25,14 +25,25 @@ bool ai::HunterHasLoadedRangedWeapon(PlayerbotAI* playerbotAi)
     return HunterHasRangedAmmo(playerbotAi);
 }
 
+// Viper Sting leeches the target's mana to the hunter, so it is only worth the global when the hunter is
+// the one short on mana (mod-playerbots: own mana < 50) and the target has mana to give. Serpent Sting is the
+// default sting otherwise. An explicit 'sting viper' order bypasses the own-mana gate.
+static bool HunterWantsViperSting(PlayerbotAI* ai, const std::string& targetName)
+{
+    if (!ai->HasSpell("viper sting") || AI_VALUE2(uint8, "mana", targetName) < 10)
+        return false;
+
+    return ai->HasStrategy("sting viper", BotState::BOT_STATE_COMBAT) || AI_VALUE2(uint8, "mana", "self target") < 50;
+}
+
 bool CastSerpentStingAction::isUseful()
 {
-    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "health", GetTargetName()) > 50 && !(AI_VALUE2(uint8, "mana", GetTargetName()) >= 10);
+    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "health", GetTargetName()) > 50 && !HunterWantsViperSting(ai, GetTargetName());
 }
 
 bool CastViperStingAction::isUseful()
 {
-    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "mana", GetTargetName()) >= 10;
+    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && HunterWantsViperSting(ai, GetTargetName());
 }
 
 bool FeedPetAction::Execute(Event& event)
