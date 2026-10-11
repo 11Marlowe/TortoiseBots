@@ -24,6 +24,7 @@ Warlocks provide sustained Shadow and Fire DPS through curses and damage-over-ti
 ## Combat Rotations & Priorities
 
 ### 1. DoT Upkeep & Shard Economy
+- **Immune targets:** Damage spells (*Immolate*, *Shadow Bolt*, *Corruption*, ...) are skipped on a target immune to their school (e.g. *Immolate* on a fire-immune mob), and the rotation falls through to the next row.
 - **Curses:** Defaults to *Curse of Agony*; other curses only when you enable them manually.
 - **DoTs:** Only *Corruption* is health-gated (skipped at/below 20% target health); *Immolate* has no gate and is kept up by all three specs. Affliction also maintains *Siphon Life*. *Immolate* spreads to extra attackers (aoe strategy, plus Demonology/Destruction at spec level) under the 16-debuff cap.
 - **DoTs:** Only *Corruption* is health-gated (skipped at/below 20% target health); *Immolate* has no gate and is kept up by all three specs. Affliction also maintains *Siphon Life*. Affliction spreads *Corruption* and *Siphon Life* to extra attackers, Demonology spreads *Corruption*, at spec level even with the aoe strategy off (its rows still win when it is on); spreading runs below single-target upkeep and mana recovery, under the 16-debuff cap.

@@ -4003,8 +4003,9 @@ Mage blink id 1953 checked via `sServerFacade.IsSpellReady`; the 8 yd band
 mirrors the hunter dead-zone hysteresis already in-tree. Crusader Strike
 verified as an already-wired live trigger + action node
 (`CrusaderStrikeTrigger` CD_TRIGGER, `CastCrusaderStrikeAction` melee
-spell); only the priority moved. Skipped as not-small in this batch: mage
-fire-immune fallback, scorch exclusivity/HP gate, blizzard 10s gate (D5
+spell); only the priority moved. Skipped as not-small in this batch (the mage
+fire-immune fallback was later closed, see "Skip damage spells on immune
+targets" at the end of this file): scorch exclusivity/HP gate, blizzard 10s gate (D5
 M-items); prot disarm/block/panic/intervene/overpower/thunder items, arms
 death-wish/stance/execute (D6 S-items beyond the two rage/stack gates); ret
 exorcism split, double-bubble, blessing refresh (D7); priest mana recovery,
@@ -7643,3 +7644,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Skip damage spells on immune targets
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Skip damage spells the target is fully immune to (school/spell immunity); Fireball/Scorch fall back to Frostbolt | mod-playerbots | 79bd428 | src/Bot/PlayerbotAI.cpp ~3469-3472 (`IsImmunedToSpell` before cast) | Reimplemented with the Turtle core's `Unit::IsImmuneToDamage` / `Unit::IsImmuneToSpell` in `PlayerbotAI::CanCastSpell`; fallback via the mage fireball/scorch action-node alternative | Fire mages cast Fireball at fire-immune mobs for zero damage and never switched spell | Not compiled, not tested in game; `tools/verify_all.sh` docs gates only |
