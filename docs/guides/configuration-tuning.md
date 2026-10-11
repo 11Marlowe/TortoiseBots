@@ -209,6 +209,7 @@ Fine-tune how aggressively bots heal, rest, or drink:
 | `AiPlayerbot.AlmostFullHealth` | `90` | Health ceiling above which bots stop casting heals to conserve mana. |
 | `AiPlayerbot.LowMana` | `15` | Mana floor where casters switch to low-cost wanding or conserve mana. |
 | `AiPlayerbot.MediumMana` | `40` | Threshold where bots consider conservative rotations. |
+| `AiPlayerbot.RandomBotCombatStrategies` | `+dps,+dps assist,-threat` | Strategy changes applied to every pool bot's combat set after the spec defaults (at login/reset and again on each periodic strategy refresh). A tank (Protection warrior/paladin, bear) keeps its `tank assist`: when this list's `+dps assist` swaps it out, it is put back, so the row cannot turn tanks into dps target pickers. |
 
 ---
 

@@ -455,7 +455,13 @@ void RandomBotFacade::ChangeStrategy(Player* player)
 
     if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player))
     {
+        // Same guard as AiFactory::AddDefaultCombatStrategies: the list's
+        // "+dps assist" must not swap a tank's sibling "tank assist" out.
+        bool const tankAssist = ai->HasStrategy("tank assist", BotState::BOT_STATE_COMBAT);
         ai->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies, BotState::BOT_STATE_COMBAT);
+        if (tankAssist && !ai->HasStrategy("tank assist", BotState::BOT_STATE_COMBAT) &&
+            ai->HasStrategy("dps assist", BotState::BOT_STATE_COMBAT))
+            ai->ChangeStrategy("+tank assist", BotState::BOT_STATE_COMBAT);
         ai->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies, BotState::BOT_STATE_NON_COMBAT);
     }
 }
