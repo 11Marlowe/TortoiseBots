@@ -79,9 +79,10 @@ bool ExposeArmorTrigger::IsActive()
         return false;
 
     // Donor: mod-playerbots ExposeArmorTrigger skips when sunder armor is on the
-    // target. Our own Expose keeps the regular refresh logic above.
+    // target. Our own Expose upkeep is unchanged (the base trigger above
+    // already goes quiet while our Expose is up).
     Unit* target = AI_VALUE(Unit*, "current target");
-    if (target && ai->HasAura("sunder armor", target) && !ai->HasMyAura("expose armor", target))
+    if (target && ai->HasAura("sunder armor", target))
         return false;
 
     return true;
