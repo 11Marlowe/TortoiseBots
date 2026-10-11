@@ -66,6 +66,12 @@
 
 ---
 
+### Core & Configuration
+- World DB names are no longer hardcoded to a single expected string: any backtick-quoted name the query can hold (e.g. `tw-world`) now works, surrounding spaces in the config token get trimmed, and a bad value is logged exactly once from the thread-safe static init instead of a racy plain `static bool`. [#681](https://github.com/Sagiroth/TortoiseBots/pull/681)
+
+### Build & Platform
+- Windows builds now link zlib into the module target, so a dynamically loaded module DLL resolves `gzopen`/`gzwrite`/`gzclose` without relying on mangosd's own zlib linkage — fixes module load failures on Windows servers. Not yet compile-tested on Windows. [#682](https://github.com/Sagiroth/TortoiseBots/pull/682)
+
 ## 2026-10-10
 
 ### Combat & AI
