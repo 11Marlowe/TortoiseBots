@@ -72,6 +72,9 @@
 ### Build & Platform
 - Windows builds now link zlib into the module target, so a dynamically loaded module DLL resolves `gzopen`/`gzwrite`/`gzclose` without relying on mangosd's own zlib linkage — fixes module load failures on Windows servers. Not yet compile-tested on Windows. [#682](https://github.com/Sagiroth/TortoiseBots/pull/682)
 
+### Stability & Performance
+- Server startup no longer freezes for 8–24 seconds: missing area levels are resolved without scanning every creature spawn in the world, so the world thread stays responsive instead of loading terrain per lookup. [#686](https://github.com/Sagiroth/TortoiseBots/pull/686)
+
 ## 2026-10-10
 
 ### Combat & AI
