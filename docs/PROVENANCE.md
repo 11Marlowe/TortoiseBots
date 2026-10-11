@@ -7643,3 +7643,18 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## A real player's pool bot keeps `follow` after the non-combat list — 2026-10-11
+Feature: `AiFactory::RealMasterSafeNonCombatStrategies` applies
+`RandomBotNonCombatStrategies` without its `+grind/+travel/+tfish/+rpg/
++rpg craft/+wander` entries while the bot's master is a real player, in the
+factory's grouped-bot branch and in `RandomBotFacade::ChangeStrategy` (timed
+re-apply). Source: mod-playerbots 79bd428, `src/Bot/Factory/AiFactory.cpp`
+(`AddDefaultNonCombatStrategies`: a grouped bot gets `follow` and no
+grind/rpg; `conf/playerbots.conf.dist` ships `RandomBotNonCombatStrategies`
+empty). Reimplemented as a list filter (same entry set as the Issue #218
+instance filter). Reason: `wander` is a sibling of `follow` in the movement
+strategy context, so the list's `+wander` replaced a player's bot's `follow`
+(in-game A/B at acd9e01: tank and healer showed `wander`, the tester
+whispered `follow` each time). Masterless pool bots keep the full list.
+Validation: code review + build pending; in-game pending.

@@ -7,6 +7,7 @@
 #include "runtime/BotActivityLease.h"
 
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/AiFactory.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/PlayerbotFactory.h"
 #include "../ai/playerbot/BotState.h"
@@ -456,7 +457,8 @@ void RandomBotFacade::ChangeStrategy(Player* player)
     if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player))
     {
         ai->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies, BotState::BOT_STATE_COMBAT);
-        ai->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies, BotState::BOT_STATE_NON_COMBAT);
+        // A bot in a real player's party keeps its follow on the timed re-apply too.
+        ai->ChangeStrategy(AiFactory::RealMasterSafeNonCombatStrategies(ai, sPlayerbotAIConfig.randomBotNonCombatStrategies), BotState::BOT_STATE_NON_COMBAT);
     }
 }
 

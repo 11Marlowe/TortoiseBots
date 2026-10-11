@@ -31,4 +31,10 @@ public:
     static std::map<uint32, int32> GetPlayerSpecTabs(const Player* player);
     static BotRoles GetPlayerRoles(uint8 cls, uint8 specTab);
     static BotRoles GetPlayerRoles(const Player* player);
+
+    // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
+    // tfish, rpg, rpg craft, wander) while the bot's master is a real player.
+    static std::string RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies);
+    // The list with every "+grind/+travel/+tfish/+rpg/+rpg craft/+wander" entry removed.
+    static std::string StripOpenWorldNonCombatStrategies(std::string const& strategies);
 };
