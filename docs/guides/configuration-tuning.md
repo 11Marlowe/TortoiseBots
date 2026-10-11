@@ -209,6 +209,7 @@ Fine-tune how aggressively bots heal, rest, or drink:
 | `AiPlayerbot.AlmostFullHealth` | `90` | Health ceiling above which bots stop casting heals to conserve mana. |
 | `AiPlayerbot.LowMana` | `15` | Mana floor where casters switch to low-cost wanding or conserve mana. |
 | `AiPlayerbot.MediumMana` | `40` | Threshold where bots consider conservative rotations. |
+| `AiPlayerbot.PoolMeleeHoldGround` | `0` | Opt-in. `1` = pool and free warriors and rogues get no generic `flee` combat strategy (`panic`, `outnumbered`, `critical health no master`), so they fight on with their own defensive kit instead of breaking off, like mod-playerbots melee. Other classes and bots with a real player master are unaffected. Takes effect after a server restart. |
 
 ---
 

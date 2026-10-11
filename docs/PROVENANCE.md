@@ -7643,3 +7643,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Pool melee hold ground (opt-in) — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | ---: | --- |
+| `AiPlayerbot.PoolMeleeHoldGround`: pool warriors/rogues not granted the generic `flee` strategy (`panic` / `outnumbered` / `critical health no master`) | `mod-playerbots` (no generic flee strategy; `flee` only as ranged spacing in `src/Ai/Base/Strategy/RangedCombatStrategy.cpp:14-15` and caster/hunter class rows, melee fight on with defensive cooldowns, e.g. `src/Ai/Class/Warrior/Strategy/ArmsWarriorStrategy.cpp:228`, `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:158`) | `79bd4281` | `ai/playerbot/AiFactory.cpp` (pool `flee` grant), `ai/playerbot/SurvivePolicy.h` (`ShouldGrantPoolFlee`), `PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`, `tools/test_survive_policy.cpp` | Reimplemented (behaviour only, no donor code); behind an opt-in key, off by default, because the flee nodes are deliberate module behaviour | Live pool (500 bots, 18d4d14): flee 15% of warrior and 13% of rogue combat samples (`outnumbered`/`panic`), 42% of sampled deaths had a flee in the prior 30 s; rage/energy users skip `PanicTrigger`'s mana gate and cannot outrun a mob | `bash tools/verify_all.sh`, `git diff --check`; code review + build pending; in-game pending |
