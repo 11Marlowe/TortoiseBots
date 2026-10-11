@@ -81,6 +81,12 @@
 - Clarified in `AllowedLogFiles` and `LogRetentionDays` how to turn bot logs off: empty `AllowedLogFiles` to disable `bot_events.csv`/`deaths.csv` (which also stops the hourly packs), and the dashboard keeps working without them. Defaults are untouched. [#685](https://github.com/Sagiroth/TortoiseBots/pull/685)
 - Cleaned up the stale `BotDiagnostics` comment that still referenced the now-removed log file. [#685](https://github.com/Sagiroth/TortoiseBots/pull/685)
 
+### Observability & Engine
+- Fixed the stale log open/rotation test harness after the log rotation refactor—it still compiled the old `openLog` slice referencing `logsDirPath`, `CompressLogPiece`, `archiveLog`, `logHour`, and `rotateLogHourly`, which had moved into member functions plus `LogFileRotation`. [#687](https://github.com/Sagiroth/TortoiseBots/pull/687)
+- `tools/test_log_open_rotation.py` now declares the current member surface, links `-lz`, and uses a synchronous pack twin so the test builds and runs against real zlib compression. [#687](https://github.com/Sagiroth/TortoiseBots/pull/687)
+- Assertions cover the full rotation contract: disabled log is untouched, first open packs the prior run, same-run reopen truncates, new-run packs again, hourly roll packs, and rename-failure keeps the live file with a single error. [#687](https://github.com/Sagiroth/TortoiseBots/pull/687)
+- Append mode verified to pack-then-append, keeping log packing correct for long-running servers that append to existing csv.gz packs. [#687](https://github.com/Sagiroth/TortoiseBots/pull/687)
+
 ## 2026-10-10
 
 ### Combat & AI
