@@ -7643,3 +7643,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Melee keeps a live mob that hits the party (reach give-up exemption) — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | ---: | --- |
+| Reach give-up spares a creature in sight that is hitting the bot, its master, a group member or their pets (`ReachTargetAction::Execute`, `hitsOurSide`) | `mod-playerbots` | `79bd4281` | `src/Ai/Base/Actions/ReachTargetActions.cpp` (`ReachTargetAction::Execute` -> `ReachCombatTo`, no give-up at all) | Reimplemented: TortoiseBots keeps its 15 s no-headway give-up for stuck spots and only widens the existing "it is hitting the bot" exception to the bot's side, the donor behaviour of never abandoning a live group fight | In-game repro 2026-10-11 (party vs one 30000-HP Silvermane Wolf): rogue and tank dropped the living mob mid-fight once it turned to the mage, and the 5-min `unreachable entries` mark kept the tank idle on the next wolves | code review + `tools/verify_all.sh`; build pending; in-game pending |
