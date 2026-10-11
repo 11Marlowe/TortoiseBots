@@ -95,6 +95,10 @@
 - Both knobs are off by default, so existing servers see no change to their random bot population after updating. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
 - When the faction ratio isn't `50`, the login ladder prefers whichever faction is under its target so the population converges. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
 
+### Starter Zones & World
+
+- Random bots now spread evenly across start zones and factions at any level, fixing the level 1–9-only counting that starved Dun Morogh and Teldrassil and skewed the faction split; the old level-band helper and its test are gone [#689](https://github.com/Sagiroth/TortoiseBots/pull/689)
+
 ## 2026-10-10
 
 ### Combat & AI
