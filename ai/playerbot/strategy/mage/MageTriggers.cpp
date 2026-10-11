@@ -4,7 +4,6 @@
 #include "playerbot/FlamestrikeWindowPolicy.h"
 #include "playerbot/strategy/values/LastSpellCastValue.h"
 #include "playerbot/HotStreakPolicy.h"
-#include "playerbot/MageWandPolicy.h"
 #include "MageTriggers.h"
 #include "MageActions.h"
 
@@ -25,24 +24,9 @@ bool BlinkBackTrigger::IsActive()
     return sServerFacade.getDistance2d(bot, target) <= 8.0f;
 }
 
-namespace
-{
-// One nuke probe: castable now, refused by the GCD alone, or refused for
-// any other reason. Range is ignored: the wand shares the nukes' 30 yd and
-// the core stops it by itself out of range.
-MageNukeProbe ProbeMageNuke(PlayerbotAI* ai, std::string const& spell, Unit* target)
-{
-    SpellCastResult result = SPELL_FAILED_DONT_REPORT;
-    if (ai->CanCastSpell(spell, target, 0, nullptr, true, false, false, &result))
-        return MageNukeProbe::Castable;
-    return result == SPELL_FAILED_NOT_READY ? MageNukeProbe::GlobalCooldownOnly : MageNukeProbe::Blocked;
-}
-}
-
 bool WandBlocksNukeTrigger::IsActive()
 {
-    Spell* autoRepeat = bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
-    if (!autoRepeat || !autoRepeat->m_spellInfo || autoRepeat->m_spellInfo->Category != MAGE_WAND_SHOOT_CATEGORY)
+    if (!IsWanding())
         return false;
 
     Unit* target = AI_VALUE(Unit*, "current target");
@@ -51,23 +35,21 @@ bool WandBlocksNukeTrigger::IsActive()
 
     // The raid strategy wands on purpose while the mage holds aggro
     // ("has aggro" -> shoot, MageRaidStrategy); leave that wand alone.
-    Group* group = bot->GetGroup();
-    bool const keepWandForThreat = group && group->isRaidGroup() && AI_VALUE2(bool, "has aggro", "current target");
+    bool const keepWandForThreat = RaidAggroWand();
     if (keepWandForThreat)
         return false;
 
-    // Below 5% mana the "no mana" -> shoot row (MageStrategy, same line as
-    // NoManaTrigger) wands on purpose; stopping it would only ping-pong.
-    bool const noManaRowActive = AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 5;
+    // Below 5% mana the "no mana" -> shoot row (MageStrategy) wands on purpose.
+    bool const noManaRowActive = NoManaRowActive();
     if (noManaRowActive)
         return false;
 
-    MageWandState const state{
+    WandState const state{
         true,
-        BetterNukeProbe(ProbeMageNuke(ai, "frostbolt", target), ProbeMageNuke(ai, "fireball", target)),
+        BetterWandSpellProbe(ProbeSpell("frostbolt", target), ProbeSpell("fireball", target)),
         keepWandForThreat,
         noManaRowActive};
-    return ShouldStopWandForNuke(state);
+    return ShouldStopWandToCast(state);
 }
 
 bool AnyMageArmorTrigger::IsActive()

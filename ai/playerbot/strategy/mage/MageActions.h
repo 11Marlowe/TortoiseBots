@@ -1,6 +1,5 @@
 #pragma once
 
-#include "playerbot/MageWandPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/UseItemAction.h"
@@ -267,29 +266,6 @@ namespace ai
 	    CastEvocationAction(PlayerbotAI* ai) : CastSpellAction(ai, "evocation") {}
 	    virtual std::string GetTargetName() override { return "self target"; }
 	};
-
-    // Stops a running wand so the next tick can cast (see MageWandPolicy.h).
-    // The GCD of the last wand shot runs until the next shot would fire, so
-    // the bot waits that long instead of re-picking "shoot" on the way.
-    class StopWandAction : public Action
-    {
-    public:
-        StopWandAction(PlayerbotAI* ai) : Action(ai, "stop wand") {}
-
-        bool isUseful() override
-        {
-            Spell* autoRepeat = bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
-            return autoRepeat && autoRepeat->m_spellInfo && autoRepeat->m_spellInfo->Category == MAGE_WAND_SHOOT_CATEGORY;
-        }
-
-        bool Execute(Event& event) override
-        {
-            uint32 const wait = MageWandStopWaitMs(bot->GetAttackTimer(RANGED_ATTACK), bot->GetAttackTime(RANGED_ATTACK), sPlayerbotAIConfig.reactDelay);
-            bot->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
-            SetDuration(wait);
-            return true;
-        }
-    };
 
     class CastCounterspellOnEnemyHealerAction : public CastSpellOnEnemyHealerAction
     {
