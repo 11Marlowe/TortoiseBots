@@ -721,6 +721,9 @@ namespace ai
     {
     public:
         CastImmolateOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "immolate") {}
+
+    protected:
+        std::string GetTargetName() override { return "attacker without my aura"; }
     };
 
     class CastConflagrateAction : public CastSpellAction

@@ -71,7 +71,7 @@ namespace ai
         bool IsActive() override;
     };
 
-        // Periodic damage stacks per caster in the core (Unit.cpp dmgPeriodic rule),
+    // Periodic damage stacks per caster in the core (Unit.cpp dmgPeriodic rule),
     // so Corruption, Siphon Life and Immolate ask "is MY DoT on the target".
     class CorruptionTrigger : public DebuffTrigger
     {
@@ -165,7 +165,7 @@ namespace ai
         SiphonLifeOnAttackerTrigger(PlayerbotAI* ai) : DebuffOnAttackerTrigger(ai, "siphon life", true) {}
     };
 
-        class ImmolateTrigger : public DebuffTrigger
+    class ImmolateTrigger : public DebuffTrigger
     {
     public:
         ImmolateTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "immolate", 1, true) {}
@@ -174,7 +174,7 @@ namespace ai
     class ImmolateOnAttackerTrigger : public DebuffOnAttackerTrigger
     {
     public:
-        ImmolateOnAttackerTrigger(PlayerbotAI* ai) : DebuffOnAttackerTrigger(ai, "immolate") {}
+        ImmolateOnAttackerTrigger(PlayerbotAI* ai) : DebuffOnAttackerTrigger(ai, "immolate", true) {}
     };
 
     class ShadowTranceTrigger : public HasAuraTrigger
