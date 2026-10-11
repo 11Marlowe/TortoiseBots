@@ -7643,3 +7643,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Warlock DoTs check for their own aura
+
+Behaviour reimplemented from mod-playerbots `79bd428`, `src/Ai/Class/Warlock/WarlockTriggers.h` (`CorruptionTrigger`, `ImmolateTrigger`: `DebuffTrigger(..., checkIsOwner=true)`). Reimplemented, not copied: Corruption, Immolate and Siphon Life triggers (and the spread-to-attackers variants via a new `attacker without my aura` value) ask for the bot's own aura, because the core stacks periodic damage per caster (`tortoise-wow` `src/game/Objects/Unit.cpp`, `dmgPeriodic` rule in `RemoveNoStackAurasDueToAuraHolder`). Deliberate deviation: Curse of Agony stays any-owner (the core keeps one curse rank per target, a same-rank curse from another warlock replaces it; the donor's WotLK rule differs).
+
+Files: `ai/playerbot/strategy/warlock/WarlockTriggers.{h,cpp}`, `WarlockActions.h`, `triggers/GenericTriggers.{h,cpp}`, `values/AttackerWithoutAuraTargetValue.{h,cpp}`, `values/ValueContext.h`. Validation: code review + build pending; in-game pending.
