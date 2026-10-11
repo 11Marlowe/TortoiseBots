@@ -7643,3 +7643,31 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Voidwalker Sacrifice off the autocast sweep — 2026-10-11
+
+Feature: the autonomous pet-autocast sweep (`toggle pet spell`, E01) no
+longer switches *Sacrifice* (7812, 19438, 19440-19443) back on, so a solo
+pool Voidwalker stops killing itself in the first fight after a sweep.
+
+Copied / ported / reimplemented: 1.12 adaptation of the existing E01 port.
+Donor `mod-playerbots` @ 79bd428 `src/Ai/Base/Actions/PetsAction.cpp:41-47`
+(`disabledPetSpells`) does not list Sacrifice because on 3.3.5a it no longer
+kills the Voidwalker; in `tw_world.spell_template` every rank still has
+effect2 = 1 (SPELL_EFFECT_INSTAKILL, target self) and the core PetAI
+(`src/game/AI/PetAI.cpp` `UpdateSpells`) autocasts it as soon as the pet has
+a victim. Added to `runtime/PetUpkeepPolicy.h` `kDisabledPetAutocastSpells`,
+matching the teach-time default already in `runtime/PetSpellRankPolicy.h`.
+The explicit `critical health` -> `sacrifice` emergency row is unchanged.
+
+Reason: live yulon-ubuntu 2026-10-11 (acd9e01, 500 pool bots): 80 summons
+for 70 kills (window 2: 100 for 95). Of the resummons with the warlock alive
+after a won fight (15 + 19), every one whose previous pet is known had a
+Voidwalker out, warlock HP mostly 90-100%, all at level 18+ (Sacrifice rank
+1 is pet level 16). The imp-then-voidwalker double summons and the Drain Soul
+shard feed follow from that loss (shardless fallback to the Imp, then the
+`wrong pet` upgrade once a shard drops); that swap is the deliberate solo
+pet policy (`runtime/WarlockPetPolicy.h`) and is left as is.
+
+Validation: code review + build pending; in-game pending.
+`bash tools/verify_all.sh` (incl. `test_pet_upkeep_policy`), `git diff --check`.
