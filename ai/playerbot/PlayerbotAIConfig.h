@@ -528,6 +528,10 @@ public:
     // all sLog calls from bot .cpp files are redirected there instead of
     // writing to the main server log. Default: "bots.log". Empty = disabled.
     std::string botLogFile;
+    // Directory (relative to the server dir) for the module's log files
+    // (bot_events.csv, deaths.csv, bot_test_results.log, ...). Empty = use the
+    // core's LogsDir. Set by AiPlayerbot.LogsDir.
+    std::string botLogsDir;
     bool enableOffSpecStrategies;
     bool useWanderAsDefaultFollowStrategy;
     std::string defaultFormation;
