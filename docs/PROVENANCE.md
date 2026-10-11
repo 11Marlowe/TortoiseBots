@@ -7643,3 +7643,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Pool turn queue counts AI combat as combat — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | ---: | --- |
+| Pool turn situation: a bot whose AI is in its combat state is scheduled as Combat (400 ms cap) even without the core's combat flag | `mod-playerbots` | `79bd428` | `src/Bot/PlayerbotAI.cpp:6777-6778` (`GetReactDelay`: `bot->IsInCombat() \|\| currentState == BOT_STATE_COMBAT` gives the combat delay) | Reimplemented: `TurnFacts`/`TurnSituationFrom` in `runtime/BotTurnScheduler.h`, fed by `TurnSituationOf(player, ai)` in `runtime/BotManager.cpp` (one AI member read per pool bot in the existing scan; no lookups, no allocations). Same rule the dashboard already uses (`ObservabilityEmitter.cpp` `BaseMacroState`) | Bots closing on or pulling a target are AI-combat before the core flags them, and waited in the 3 s Normal class: live combat-state `ai_age_ms` p90 6.7 s | `tools/test_bot_turn_scheduler.cpp` (new `TestAiCombatCountsAsCombat`); `bash tools/verify_all.sh`; `git diff --check`. Build pending; in-game pending |
