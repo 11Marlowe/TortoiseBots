@@ -75,6 +75,12 @@
 ### Stability & Performance
 - Server startup no longer freezes for 8–24 seconds: missing area levels are resolved without scanning every creature spawn in the world, so the world thread stays responsive instead of loading terrain per lookup. [#686](https://github.com/Sagiroth/TortoiseBots/pull/686)
 
+### Observability & Engine
+
+- Removed the stray `openLog` call in the travel-node reload that recreated `bot_test_results.log` on every run — that file no longer gets dropped into your server folder. [#685](https://github.com/Sagiroth/TortoiseBots/pull/685)
+- Clarified in `AllowedLogFiles` and `LogRetentionDays` how to turn bot logs off: empty `AllowedLogFiles` to disable `bot_events.csv`/`deaths.csv` (which also stops the hourly packs), and the dashboard keeps working without them. Defaults are untouched. [#685](https://github.com/Sagiroth/TortoiseBots/pull/685)
+- Cleaned up the stale `BotDiagnostics` comment that still referenced the now-removed log file. [#685](https://github.com/Sagiroth/TortoiseBots/pull/685)
+
 ## 2026-10-10
 
 ### Combat & AI
