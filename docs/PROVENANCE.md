@@ -7643,3 +7643,32 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## War Stomp: cast in place, only when ready — 2026-10-11
+
+Feature: Tauren War Stomp no longer queues a reach step. `CastWarStompAction`
+is a `CastMeleeAoeSpellAction` (8-yd radius, no reach prerequisite, cast
+range = radius) that is useful only while War Stomp is off cooldown;
+`WarStompTrigger` also returns false while the spell is unknown or cooling
+down. The trigger's existing conditions (target within 8 yd plus low health,
+3+ attackers or a casting target) and the 71.0 relevance are unchanged.
+
+Source: mod-playerbots `79bd428`,
+`src/Ai/Base/Strategy/RacialsStrategy.cpp:51-55` (War Stomp only on
+`medium aoe`) and `src/Ai/Base/Actions/GenericSpellActions.h:286-290`
+(`CastWarStompAction : CastMeleeSpellAction`).
+
+Copied / ported / reimplemented: reimplemented. The donor's melee-range cast
+is expressed with this module's `CastMeleeAoeSpellAction` (the Frost Nova
+pattern), which casts where the bot stands instead of the donor's
+`reach melee`, so hunters and casters never walk in for it. The cooldown
+gate is local: the engine runs a prerequisite before `isPossible`, so the
+old `reach spell::war stomp` ran every tick of the 2.5-min cooldown (Turtle
+20549: range self, radius index 14 = 8 yd, recovery 150 s).
+
+Reason: live data (yulon-ubuntu, acd9e01, batch 3 item 2): `reach spell |
+war stomp` was 14.0 % and 12.7 % of Tauren combat samples in two windows,
+runs up to 30 s, about 4 actual Stomps in 6 min; hunters walked into melee.
+
+Validation: code review + build pending; in-game pending.
+`bash tools/verify_all.sh` and `git diff --check` run locally.
