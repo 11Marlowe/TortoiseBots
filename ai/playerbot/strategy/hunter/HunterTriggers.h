@@ -429,6 +429,35 @@ private:
         }
     };
 
+    // [Turtle] Steady Shot filler (trainer ranks 3035..45974, cast time, no
+    // cooldown, 1.5s GCD). The core pauses the repeating Auto Shot while a
+    // timed cast runs and re-arms its 0.5s windup afterwards, so only start
+    // the cast when it ends before the next Auto Shot is due. Not known,
+    // not castable, or no room in the Auto Shot window: auto shot continues.
+    class SteadyShotTrigger : public Trigger
+    {
+    public:
+        SteadyShotTrigger(PlayerbotAI* ai) : Trigger(ai, "steady shot", 1) {}
+        virtual std::string GetTargetName() override { return "current target"; }
+
+        virtual bool IsActive() override
+        {
+            uint32 const spellId = AI_VALUE2(uint32, "spell id", "steady shot");
+            if (!spellId || !HunterHasRangedAmmo(ai))
+                return false;
+
+            Unit* target = GetTarget();
+            if (!target || !ai->CanCastSpell("steady shot", target, true, nullptr, true))
+                return false;
+
+            // Weave only: finish the cast before the next Auto Shot is due.
+            // Timer 0 (shot ready, or Auto Shot not running) means no room.
+            SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
+            uint32 const castTime = GetSpellCastTime(spellInfo, bot);
+            return bot->GetAttackTimer(RANGED_ATTACK) > castTime;
+        }
+    };
+
     // PET-5 (donor NoPetTrigger shape): purely petless + unmounted. The old
     // local addition gated this on Call Pet being unavailable, which starved
     // both call-pet nodes exactly when a dismissed pet waited to be called.
