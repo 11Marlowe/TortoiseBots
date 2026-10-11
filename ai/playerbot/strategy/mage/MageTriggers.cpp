@@ -76,12 +76,18 @@ bool HotStreakTrigger::IsActive()
 
 bool NoImprovedScorchDebuffTrigger::IsActive()
 {
-    if (bot->HasSpell(11095) || bot->HasSpell(12872) || bot->HasSpell(12873))
-    {
-        return DebuffTrigger::IsActive();
-    }
+    // Fire Vulnerability talent ranks (Turtle ids, same set as
+    // NoFireVulnerabilityTrigger).
+    if (!bot->HasSpell(11095) && !bot->HasSpell(12872) && !bot->HasSpell(12873))
+        return false;
 
-    return false;
+    Unit* target = GetTarget();
+    if (!target || !target->IsAlive() || target->IsPlayer())
+        return false;
+
+    // Fire Vulnerability debuff (22959) missing: open with Scorch. Stack and
+    // refresh upkeep stays with NoFireVulnerabilityTrigger.
+    return ai->GetAura(22959, target) == nullptr;
 }
 
 bool ArcanePowerTrigger::IsActive()

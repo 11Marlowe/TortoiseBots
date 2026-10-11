@@ -223,7 +223,16 @@ namespace ai
         }
     };
 
-    DEBUFF_TRIGGER_A(NoImprovedScorchDebuffTrigger, "improved scorch");
+    // Turtle names the talent ranks (11095/12872/12873...) and the target
+    // debuff (22959) "Fire Vulnerability"; no spell is called "Improved
+    // Scorch", so a name-based DebuffTrigger never matched. Id-based instead.
+    class NoImprovedScorchDebuffTrigger : public Trigger
+    {
+    public:
+        NoImprovedScorchDebuffTrigger(PlayerbotAI* ai) : Trigger(ai, "no improved scorch") {}
+        virtual bool IsActive() override;
+        virtual std::string GetTargetName() override { return "current target"; }
+    };
 
     class NoFireVulnerabilityTrigger : public Trigger
     {
