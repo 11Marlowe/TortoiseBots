@@ -7643,3 +7643,33 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Hostile-town death loop relocation (2026-10-11)
+
+Feature: a masterless random bot killed near the guards of a hostile town
+twice within 30 minutes is relocated by the post-rez rescue
+(`BotManager::RelocateHopelessBot`) on its next revive and its travel target
+is dropped; `PickLevelFittingPoint` no longer picks points within 120 yd of
+hostile town guards.
+
+Source: `mod-playerbots` at `79bd428`, `src/Bot/RandomPlayerbotMgr.cpp`
+(`RandomPlayerbotMgr::ProcessBot` dead branch -> `Revive` ->
+`RandomTeleportGrindForLevel`): a dead random bot is revived and teleported
+to level-appropriate grind ground, so it never walks back into what killed it.
+
+Ported / reimplemented: reimplemented (behaviour only, no donor code). The
+donor teleports every dead random bot; here the existing conditional rescue
+is extended with one more hopeless condition (two hostile-town deaths in 30
+minutes, counted in `PlayerbotAI::OnDeath`), behind the existing
+`AiPlayerbot.AvoidHostileTowns` and `AiPlayerbot.RelocateHopelessDeaths`
+toggles. Files: `ai/playerbot/PlayerbotAI.{h,cpp}`, `runtime/BotManager.cpp`.
+
+Reason: live pool on 2026-10-10 (yulon-ubuntu, 18d4d14): 52 of 836 deaths
+were to town guards, 25 of them to Lakeshire Guard. Horde bots revived at
+the Redridge spirit healer and walked their travel target through Lakeshire
+(one rogue died 12 times in 16 minutes). The route check covers named route
+nodes only, not the start leg or trips under 1,000 yd, and the existing
+in-town rescue only looked at the revive spot, which lies outside the town.
+
+Local validation: code review, `bash tools/verify_all.sh`, `git diff
+--check`; build pending; in-game pending.
