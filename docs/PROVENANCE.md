@@ -7643,3 +7643,18 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Keep `follow` after a strategy reset for a real player's bot — 2026-10-11
+Feature: `AiFactory::AddDefaultNonCombatStrategies` installs `follow` (not
+the `UseWanderAsDefaultFollowStrategy` choice) when the bot's master is a
+real player (network session). Source: mod-playerbots 79bd428,
+`src/Bot/Factory/AiFactory.cpp` (`AddDefaultNonCombatStrategies` always adds
+`follow` outside battlegrounds). Reimplemented (one-line branch change).
+Reason: `.bot role`, a respec and group (re)joins call `ResetStrategies()`;
+the reset installed `wander` (config default 1) for every bot, so a player's
+tank/healer lost the `follow` it got on invite (in-game A/B at acd9e01:
+Crishyrcrar/Malshorhyrs showed `wander`, no `follow`, after `.bot role` and
+after party reshuffles). Matches the module's own `GetDefaultMovementStrategy`
+(player master -> follow). Masterless bots keep the config choice; a stored
+explicit `wander` still replays from the strategy snapshot.
+Validation: code review + build pending; in-game pending.
