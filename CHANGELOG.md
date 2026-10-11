@@ -87,6 +87,14 @@
 - Assertions cover the full rotation contract: disabled log is untouched, first open packs the prior run, same-run reopen truncates, new-run packs again, hourly roll packs, and rename-failure keeps the live file with a single error. [#687](https://github.com/Sagiroth/TortoiseBots/pull/687)
 - Append mode verified to pack-then-append, keeping log packing correct for long-running servers that append to existing csv.gz packs. [#687](https://github.com/Sagiroth/TortoiseBots/pull/687)
 
+### Bot Generation & Config
+- New `AiPlayerbot.RandomBotFactionRatio` (default `50`) sets the percent of freshly generated random bots that roll Alliance; `50` is unbiased and reproduces current behavior. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
+- New `AiPlayerbot.RandomBotStartZoneWeights` accepts weighted names like `Durotar=100,Elwynn=50`; leaving it empty keeps today's even spread across start zones. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
+- Malformed weight strings print a single error and fall back to the even spread instead of blocking random bot generation. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
+- Faction is now rolled first, then the start zone is chosen within that faction, so zone weights only apply inside the selected side. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
+- Both knobs are off by default, so existing servers see no change to their random bot population after updating. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
+- When the faction ratio isn't `50`, the login ladder prefers whichever faction is under its target so the population converges. [#688](https://github.com/Sagiroth/TortoiseBots/pull/688)
+
 ## 2026-10-10
 
 ### Combat & AI
