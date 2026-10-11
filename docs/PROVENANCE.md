@@ -7643,3 +7643,9 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Discipline priest keeps its spec under a forced healer role — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | --- | --- |
+| Forced healer role keeps a Discipline priest on `discipline` (`PlayerbotAI::ResetStrategies`) | `mod-playerbots` | `79bd428` | `src/Bot/Factory/AiFactory.cpp:298-305` (talent tab picks `disc` or `holy heal`, both healers), `src/Ai/Class/Priest/PriestAiObjectContext.cpp:55-62` (`heal` aliases the disc strategy, so a healer role never swaps a disc priest away) | Reimplemented: the forced `heal` role is skipped on an engine that already carries `discipline`; the `heal` alias itself still maps to Holy here | `.bot role <Name> healer` and dungeon-finder heal slots swapped Discipline priests to Holy because `heal` aliases the Holy placeholder and `addStrategy` drops sibling specs | Code review + build pending; in-game pending |
