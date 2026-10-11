@@ -209,6 +209,7 @@ Fine-tune how aggressively bots heal, rest, or drink:
 | `AiPlayerbot.AlmostFullHealth` | `90` | Health ceiling above which bots stop casting heals to conserve mana. |
 | `AiPlayerbot.LowMana` | `15` | Mana floor where casters switch to low-cost wanding or conserve mana. |
 | `AiPlayerbot.MediumMana` | `40` | Threshold where bots consider conservative rotations. |
+| `AiPlayerbot.RandomBotCombatStrategies` | `+dps assist,-threat` | Strategy changes applied to every pool bot's combat set after the spec defaults. Leave `+dps` out: for a priest `dps` is the Shadow spec, so it moves Holy and Discipline pool priests onto the Shadow rotation without the Shadow talents (they fill with *Smite*). |
 
 ---
 
