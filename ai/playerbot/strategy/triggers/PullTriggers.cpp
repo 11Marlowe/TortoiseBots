@@ -118,17 +118,15 @@ bool PullEndTrigger::IsActive()
 
 bool PullHoldExpiredTrigger::IsActive()
 {
+    // Keyed on the window's own clock, not on the anchor marker or the combat
+    // clock: combat end, death and movement orders drop the marker and zero
+    // the combat clock, and a window read through them was never ended.
+    if (!ai->HasPullWindow())
+        return false;
     AiObjectContext* context = ai->GetAiObjectContext();
     if (!context)
         return false;
-    PositionMap& posMap = AI_VALUE(PositionMap&, "position");
-    if (!posMap["pull hold"].isSet())
-        return false;
-    time_t combatStart = AI_VALUE(time_t, "combat start time");
-    if (combatStart <= 0)
-        return true;
-    uint8 waitSeconds = AI_VALUE(uint8, "wait for attack time");
-    return time(0) - combatStart >= static_cast<time_t>(waitSeconds);
+    return ai->PullWindowExpired(AI_VALUE(uint8, "wait for attack time"));
 }
 
 bool PullAnchorDoneTrigger::IsActive()

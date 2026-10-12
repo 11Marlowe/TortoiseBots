@@ -266,7 +266,10 @@ Player* ResolvePullExecutor(BotCommandContext const& context, bool allowSelected
 // "wait for attack" gate the rotation already honors (AttackAction skips
 // bot->Attack and the multiplier zeroes combat actions), plus an explicit
 // stay hold so the allowed "keep safe distance" action cannot drift the bots
-// toward the mob. The stay is released together with the wait window.
+// toward the mob. The stay is released together with the wait window, or
+// earlier by combat end, death or a movement order; the window itself only
+// ends on its own clock or with its strategy (attack, flee, co -wait for
+// attack; see PullJoinWindowPolicy.h).
 // joinDelaySeconds is clamped to the uint8 value range (0-60 at the parser).
 // For a pullback the DPS must additionally wait out the tank's return leg:
 // the window is widened to cover the capped return plus the join delay, and
@@ -303,7 +306,14 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
         posMap["pull hold"] = holdPos;
         ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(windowSeconds));
+        // A "wait for attack" the player set is theirs and outlives this
+        // window; one an earlier pull left (a chain pull) stays the pull's.
+        bool const playerWindow = ai->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT) &&
+            !ai->PullWindowOwnsStrategy();
         ai->ChangeStrategy("+wait for attack", BotState::BOT_STATE_ALL);
+        // The window runs on its own clock from here (PullJoinWindowPolicy.h):
+        // started after the add, which would otherwise hand it to the player.
+        ai->StartPullWindow(playerWindow);
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
         // Re-stamped when the pull lands (plain pull) or when the tank

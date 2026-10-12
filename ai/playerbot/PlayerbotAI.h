@@ -13,6 +13,7 @@
 #include "BotDiagnostics.h"
 #include "playerbot/DeathClusterPolicy.h"
 #include "playerbot/GatherSpotPolicy.h"
+#include "playerbot/PullJoinWindowPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "../../runtime/BotManager.h"
 
@@ -361,6 +362,21 @@ public:
     // the bot's default movement. A no-op when no hold is placed, and never
     // touches a stay the player asked for (that drops the hold marker first).
     void ReleasePullHold();
+    // The join window an ordered pull placed on this held DPS bot
+    // (PullJoinWindowPolicy.h). In memory only, never stored with the bot.
+    // playerWindow: the bot already had the player's own "wait for attack".
+    void StartPullWindow(bool playerWindow) { pullWindow_.Start(time(0), playerWindow); }
+    void RestampPullWindow() { pullWindow_.Restamp(time(0)); }
+    bool HasPullWindow() const { return pullWindow_.Running(); }
+    bool PullWindowExpired(uint8 seconds) const { return pullWindow_.Expired(time(0), seconds); }
+    bool PullWindowOwnsStrategy() const { return pullWindow_.ReleaseDropsStrategy(); }
+    // End the window: drops "wait for attack" when the pull put it there
+    // (which frees the anchor hold with it, see ChangeStrategy), otherwise
+    // only the anchor hold, so a player's own setting stays.
+    void EndPullWindow();
+    // A reload of stored strategies (relog, reset, preset) ends any pull: drop
+    // the window and an anchor hold the snapshot or the old state still had.
+    void DropPullAfterReload();
     // An order that sends the bot at a target ends a stay and a flee's
     // passive hold: drop "passive" and "stay", then, when that leaves no
     // movement mode, put the default (follow for a player's bot) back so it
@@ -1002,6 +1018,7 @@ protected:
     LastKillerInfo lastKiller_;
     LastKillerInfo lastDamager_; // last non-self damager (UNITHOOK_ON_DAMAGE); SoR fallback for SetLastKiller
     bool deathHandled_ = false; // this death was logged and counted; cleared when the bot is seen alive again
+    ai::PullJoinWindow pullWindow_; // see StartPullWindow
 
     // Evade probe (diagnostics only): samples the health and evade state of the creature
     // this bot is fighting, and logs the cases where the mob evades or regenerates faster

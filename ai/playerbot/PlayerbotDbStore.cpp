@@ -73,6 +73,10 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
 
         ai->GetAiObjectContext()->Load(values);
     }
+
+    // No pull survives a reload (relog, reset, preset): the stored set was
+    // never given the pull's window, and its anchor has nothing left to end it.
+    ai->DropPullAfterReload();
 }
 
 void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
@@ -107,10 +111,22 @@ void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
         SaveValue(guid, preset, "value", *i);
     }
 
-    SaveValue(guid, preset, "co", FormatStrategies("co", ai->GetStrategies(BotState::BOT_STATE_COMBAT)));
-    SaveValue(guid, preset, "nc", FormatStrategies("nc", ai->GetStrategies(BotState::BOT_STATE_NON_COMBAT)));
-    SaveValue(guid, preset, "dead", FormatStrategies("dead", ai->GetStrategies(BotState::BOT_STATE_DEAD)));
-    SaveValue(guid, preset, "react", FormatStrategies("react", ai->GetStrategies(BotState::BOT_STATE_REACTION)));
+    // A pull's own join window is never stored: it belongs to that pull, and a
+    // snapshot restored after a relog has no pull left to end it, so the bot
+    // would hold back at the start of every fight from then on. A "wait for
+    // attack" the player set is stored as usual (PullJoinWindowPolicy.h).
+    bool const dropPullWindow = ai->PullWindowOwnsStrategy();
+    auto stored = [ai, dropPullWindow](BotState state)
+    {
+        std::list<std::string_view> strategies = ai->GetStrategies(state);
+        if (dropPullWindow)
+            strategies.remove(std::string_view("wait for attack"));
+        return strategies;
+    };
+    SaveValue(guid, preset, "co", FormatStrategies("co", stored(BotState::BOT_STATE_COMBAT)));
+    SaveValue(guid, preset, "nc", FormatStrategies("nc", stored(BotState::BOT_STATE_NON_COMBAT)));
+    SaveValue(guid, preset, "dead", FormatStrategies("dead", stored(BotState::BOT_STATE_DEAD)));
+    SaveValue(guid, preset, "react", FormatStrategies("react", stored(BotState::BOT_STATE_REACTION)));
 
     if (ownTransaction)
         CharacterDatabase.CommitTransaction();

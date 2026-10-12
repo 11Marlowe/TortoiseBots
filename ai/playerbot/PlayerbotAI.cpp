@@ -3480,7 +3480,15 @@ void PlayerbotAI::ChangeStrategy(const std::string& names, BotState type)
     // with it. One rule here beats repeating the release at every caller; a
     // hold left without its guard would keep the bot on stay for good.
     if (names.find("-wait for attack") != std::string::npos)
+    {
+        pullWindow_.Clear();
         ReleasePullHold();
+    }
+    // Added by anyone but the pull itself (PausePartyDpsForPull starts its
+    // window after its own add): the setting is the player's from now on and
+    // the pull window's end must not take it away.
+    else if (names.find("+wait for attack") != std::string::npos)
+        pullWindow_.OnStrategyAdded();
 
     if(type == BotState::BOT_STATE_ALL)
     {
@@ -7416,6 +7424,34 @@ void PlayerbotAI::ReleasePullHold()
         posMap.erase("stay");
         EnsureDefaultMovementStrategy();
     }
+}
+
+void PlayerbotAI::EndPullWindow()
+{
+    // The pull's own gate: dropping it frees the anchor hold too and clears
+    // the window (ChangeStrategy).
+    if (pullWindow_.ReleaseDropsStrategy())
+    {
+        ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
+        return;
+    }
+
+    // A "wait for attack" the player set stays; only the pull's anchor goes.
+    // Also the release of the puller's own anchor ("pull anchor done"), which
+    // never had a window.
+    pullWindow_.Clear();
+    ReleasePullHold();
+}
+
+void PlayerbotAI::DropPullAfterReload()
+{
+    // Whatever the window was, its strategy was just replaced by the stored
+    // set, and a stored set never holds a pull's own window (PlayerbotDbStore::
+    // Save). A "pull hold" marker in the restored or the old position map has
+    // no pull left to end it: release it now, or the bot would stand at an old
+    // anchor after a relog.
+    pullWindow_.Clear();
+    ReleasePullHold();
 }
 
 void PlayerbotAI::EndStayForOrder()
