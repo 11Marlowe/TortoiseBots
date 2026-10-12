@@ -7715,3 +7715,105 @@ Files: `ai/playerbot/strategy/warlock/WarlockTriggers.{h,cpp}`, `WarlockActions.
 | Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
 | --- | --- | --- | --- | --- | ---: | --- |
 | Priest stops a running wand while a wanted heal (*Flash Heal*/*Lesser Heal*; *Renew* between the medium and almost-full line, the only heal that band's row casts) or nuke (*Mind Flay*/*Smite*) is held back only by the GCD each Turtle wand shot renews (`wand blocks cast` → `stop wand`, `ACTION_NORMAL + 5`); warlock does the same for *Shadow Bolt* (`wand blocks nuke`). Mage rule generalised into `ai/playerbot/WandPolicy.h` (heal probe added), `stop wand` moved to `GenericSpellActions` | `mod-playerbots` (behaviour: heal rows far above everything, nukes above Shoot, the wand is filler only) + `tortoise-wow` core (wand GCD rule) | `79bd428` / core read 2026-10-11 | `src/Ai/Class/Priest/Strategy/ShadowPriestStrategy.cpp:22`, `DiscPriestStrategy.cpp:18`, `HolyPriestStrategy.cpp:111`, `src/Ai/Class/Warlock/Strategy/{Affliction,Demonology,Destruction}WarlockStrategy.cpp:23-25` (Shoot only as the lowest default action, `ACTION_DEFAULT` / 5.0) / core `src/game/Objects/Unit.cpp` `Unit::_UpdateAutoRepeatSpell` | Reimplemented on the mage mechanism (no code copied): the donor's core never puts the GCD on wand shots. Heals stop the wand even below the 5% `no mana` line; nukes respect it and, for Holy/Discipline, only count while `healer should attack` holds; warlock raid `has aggro` keeps the wand. Same silence/lockout/form/line-of-sight gate on `NOT_READY` as the mage (heals skip the form check: every heal row drops Shadowform first); the `wand blocks …` triggers run on a 2 s check interval (1-2 s real) to bound the per-tick `Spell` allocation | Code audit: same lock as the mage (batch 2, item 1) through the priest `no mana`/`healer should wand`/smite→shoot and warlock `no mana`/pull wand entries; heals were blocked too | `bash tools/verify_all.sh` (incl. `tools/test_wand_policy.cpp`), `git diff --check`; code review + build pending; in-game pending |
+## Hunter keeps range while the pet or a tank holds the mob — 2026-10-11
+
+Donor: mod-playerbots @ `79bd4281`,
+`src/Ai/Base/Trigger/RangeTriggers.cpp` (`EnemyTooCloseForSpellTrigger` and
+`EnemyTooCloseForAutoShotTrigger`: flee only while the mob is not on the bot,
+or is frozen/rooted, and is within melee range).
+
+Source file (module, modified):
+`ai/playerbot/strategy/triggers/RangeTriggers.h`
+(`EnemyTooCloseForSpellTrigger::IsActive`, hunter branch).
+
+Copied / ported / reimplemented: reimplemented in place, behaviour only.
+When the mob is NOT targeting the hunter, the trigger fires only inside the
+hunter's dead zone: the *Auto Shot* minimum range read through
+`PlayerbotAI::GetSpellRange` (the boundary `enemy too close for auto shot`
+already uses), with `CanReachWithMeleeAutoAttack` as fallback (the donor's
+melee-range test). The previous rule fired at 40 % of (spell range + reach),
+about 12-18 yd. When the mob IS on the hunter the old band, the slow-kite
+speed guard, the rooted shortcut and the follow/guard/wander 5 yd exemption
+are unchanged; other classes are unchanged.
+
+Reason: live sample (38 pool hunters 36+, 527 combat samples in 5 min) had
+`flee` at 38 %, top trigger `enemy too close for spell`, Auto Shot 19 and
+Steady/Arcane/Aimed/Multi almost never: hunters ran from mobs their pet was
+tanking instead of shooting.
+
+Local validation: code review + build pending; in-game pending.
+`bash tools/verify_all.sh`; `git diff --check`.
+
+## Hunter returns to the ranged kit while the pet or a tank holds the mob — 2026-10-11
+
+Donor: mod-playerbots @ `79bd4281`,
+`src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp` (no melee kit
+switch at all; `enemy too close for auto shot` → disengage 35 / flee 34
+outranks `enemy within melee` → mongoose bite 22 / wing clip 21) and
+`src/Ai/Base/Trigger/RangeTriggers.cpp` (`EnemyTooCloseForAutoShotTrigger`:
+step out only while the mob is not on the bot).
+
+Source files (module, modified):
+`ai/playerbot/HunterSwitchPolicy.h` (`ShouldSwitchToRanged`),
+`ai/playerbot/strategy/hunter/HunterTriggers.h` (new
+`HunterEnemyIsCloseTrigger`), `HunterAiObjectContext.cpp` (registers
+`hunter enemy is close`), `HunterStrategy.cpp` (the Raptor Strike /
+Wing Clip row uses it), `tools/test_hunter_switch_policy.cpp`.
+
+Copied / ported / reimplemented: reimplemented, behaviour only. The local
+melee kit switch stays (victim on the bot and inside 8 yd), but the ranged
+kit now comes back as soon as the mob is off the bot, at any distance; the
+old "and past 8 yd" half never fired because the melee kit's `reach melee`
+keeps the hunter inside 8 yd. In the ranged kit the 5 yd Raptor Strike /
+Wing Clip row fires only for a mob on the hunter, as the donor ranks the
+step-back above its melee row. The melee kit (mob on the hunter, or no
+ammo) is unchanged. Stacked on the previous entry (dead-zone flee).
+
+Reason: live sample (38 pool hunters 36+, 561 combat samples) had top
+triggers `enemy is close` 136 and `enemy too close for spell` 99, actions
+raptor strike 118, wing clip 44, reach melee 33, shots almost never; an
+in-game tester saw hunters switch to `-ranged,+close` and melee mobs their
+pet was holding.
+
+Local validation: code review + build pending; in-game pending.
+`bash tools/verify_all.sh`; `git diff --check`.
+
+## Hunter dead-zone step-out and kit dwell (fix round) — 2026-10-11
+
+Donor: mod-playerbots @ `79bd4281`,
+`src/Ai/Base/Actions/MovementActions.cpp` (`MovementAction::MoveAway`: a
+fixed step away from the target, fanned in pi/8 steps up to pi/2 to either
+side; `FleeAction` uses it) and
+`src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp`
+(`enemy too close for auto shot` → disengage / flee, mob not on the bot).
+
+Source files (module): `ai/playerbot/HunterSwitchPolicy.h` (dwell, step-out
+episode, `ShouldSwitchToMelee`/`ShouldSwitchToRanged` inputs),
+`strategy/hunter/HunterValues.h` (new, `hunter kit state` value),
+`strategy/hunter/HunterTriggers.h` (`HunterDeadZoneStepOutTrigger`, switch
+triggers, `enemy too close for auto shot` now mob-on-hunter only),
+`strategy/hunter/HunterActions.{h,cpp}` (`HunterStepOutAction`),
+`HunterAiObjectContext.cpp`, `HunterStrategy.cpp`,
+`strategy/actions/CombatActions.cpp` (switch time stamp),
+`strategy/triggers/RangeTriggers.h` (hunter branch defers to the step-out),
+`tools/test_hunter_switch_policy.cpp`.
+
+Copied / ported / reimplemented: reimplemented, behaviour only. One point
+move per mob and episode, straight back then fanned like `MoveAway`, landing
+3 yd past the Auto Shot minimum range, checked for LOS and a path; held while
+it runs. Local additions: if the step fails (no spot, stops inside, 3 s) the
+hunter trades into its melee kit (the donor has none) and holds it while the
+mob stays in the dead zone, up to 10 s; every kit switch waits for 4 s on
+the current kit (REVIEW-batch2 finding 4), out of ammo and the failed step
+excepted.
+
+Reason: live sample with fixes 11 and 17 merged: hunters 36+ spent 57-63 %
+of combat samples on `flee` from `enemy too close for spell` (429 of 720
+samples in 5 min; 28-31 % before), deaths/bot-hour 3.2 → 5.5. For pool bots
+`MovementAction::Flee` is a `MoveChase` at flee range, which the core chase
+generator answers with "stay put" while the target stands still within 1.4x
+that range, so the flee returned success every tick without moving.
+
+Local validation: code review + build pending; in-game pending.
+`bash tools/verify_all.sh` (incl. the extended hunter-switch policy test);
+`git diff --check`.

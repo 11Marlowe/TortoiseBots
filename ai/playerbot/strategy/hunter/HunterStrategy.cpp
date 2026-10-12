@@ -65,9 +65,17 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // may switch still gets its melee switch first; this step-back covers the
     // cases the switch leaves alone (target immobilized or too slow to close, or
     // no melee weapon), keeping the hunter from standing inside the dead zone.
+    // Mob on the hunter only; a pet- or tank-held mob gets the row below.
     triggers.push_back(new TriggerNode(
         "enemy too close for auto shot",
         NextAction::array(0, new NextAction("flee", static_cast<float>(ACTION_MOVE) - 1.0f), NULL)));
+
+    // Pet- or tank-held mob inside the dead zone: one step out per mob
+    // (HunterSwitchPolicy.h), then shots. If the step cannot get the hunter
+    // out, "switch to melee" takes over instead of fleeing again.
+    triggers.push_back(new TriggerNode(
+        "hunter dead zone step out",
+        NextAction::array(0, new NextAction("hunter step out", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "counterattack",
@@ -112,9 +120,11 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("steady shot", ACTION_NORMAL - 1), NULL)));
 
     // Wing clip snare under raptor strike (donor melee chain): when a mob
-    // closes in, slow it so the hunter keeps range; raptor stays first.
+    // closes in, slow it so the hunter keeps range; raptor stays first. In the
+    // ranged kit only for a mob on the hunter: a pet- or tank-held mob gets
+    // the dead-zone step-back and shots instead (HunterEnemyIsCloseTrigger).
     triggers.push_back(new TriggerNode(
-        "enemy is close",
+        "hunter enemy is close",
         NextAction::array(0, new NextAction("raptor strike", ACTION_NORMAL + 1),
                              new NextAction("wing clip", ACTION_NORMAL), NULL)));
 
