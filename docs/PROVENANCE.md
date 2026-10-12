@@ -7643,3 +7643,32 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Check mount state acts only when the mount state must change — 2026-10-12
+
+Feature: `CheckMountStateAction::isUseful` runs the mount decision in a
+plan-only mode (`Decide` with `planOnly`) and is useful only when it would
+mount, dismount or cast. A bot already mounted at its best speed on a trip,
+or on foot where the rules say dismount, no longer runs the action as a
+failure every tick (live 2026-10-12: 58 `check mount state` ACTION_LOOP
+anomalies from 47 pool bots in 50 min; the sampled ones were riding at
+~11-13 y/s on `travel target traveling`). `Mount()` now checks location,
+item and spell before it cancels a form or stops the bot.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd4281` (local `playerbots-references/mod-playerbots` checkout).
+
+Source files: `src/Ai/Base/Actions/CheckMountStateAction.cpp`
+(`Execute`: a masterless bot calls `Mount()` only when not mounted, and
+dismounts only when mounted).
+
+Source files (module, modified):
+`ai/playerbot/strategy/actions/CheckMountStateAction.{h,cpp}`.
+
+Copied / ported / reimplemented: reimplemented. The donor behaviour (change
+the mount state only when it differs from the wanted one) is applied to the
+existing TortoiseBots decision tree instead of replacing it, so travel
+break-even, group speed limits and follow-master mounting are unchanged.
+
+Local validation: code review + build pending; in-game pending.
