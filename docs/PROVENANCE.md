@@ -8791,3 +8791,49 @@ Reason: a full 5-man fighting one or two elites lands in the easy tier. There a 
 Validation: `tools/test_healer_mana_policy.cpp` (floor per tier, monotonic ladder, the Uldaman balance case); `bash tools/verify_all.sh`, `git diff --check`; build pending; in-game pending.
 
 | No jumping in dungeons/raids (audit fix 125) | `mod-playerbots` | `79bd4281` | none: mod-playerbots has no jump strategies or action at all | Reimplemented (restriction only) | Jump strategies (`chase jump`, `follow jump`, `rpg jump`) can strand bots on raised instance platforms with no navmesh link down (Uldaman Hall of the Keepers). Gated in `JumpAction::Execute` (explicit `jump` command still works) via `ai/playerbot/JumpPolicy.h` on `Map::IsDungeon()` (instances and raids; battlegrounds and open world unchanged). | `tools/test_jump_policy.cpp` in `verify_all.sh`; code review + build pending; in-game pending |
+
+## Mage "blink back" turns away from the target first — 2026-10-12
+
+Feature: the "blink back" trigger (a live current target within 8 yd, Blink
+ready, not rooted or stunned) now runs a new action, `blink back`
+(`CastBlinkBackAction`), instead of the plain `blink`. It stops the bot's
+movement, sets its orientation to the angle away from the current target
+(`ServerFacade::SetFacingTo(..., force = true)`: instant `SetOrientation`
+plus a heartbeat) and then casts Blink. The root/stun `blink` row is
+unchanged and still goes the way the mage faces.
+
+Why the facing must be set before the cast: Blink 1953 is a leap
+(`SPELL_EFFECT_LEAP`), and the core fills its destination in
+`Spell::FillTargetMap` for `TARGET_LOCATION_CASTER_FRONT_LEAP` from the
+caster's orientation (`tortoise-wow` 1181dev 5784fb0,
+`src/game/Spells/Spell.cpp`; `Spell::EffectLeapForward` in `SpellEffects.cpp`
+then teleports to that point). Blink has a GCD, so a non-triggered cast fires
+on the next spell update (`Spell::prepare` -> `Spell::update`), not inside the
+action. A running spline, or a chase generator (it turns a player back toward
+its target once its spline is finalised, `TargetedMovementGenerator.cpp`),
+could overwrite the facing in between, so the action stops movement first.
+`PlayerbotAI::CastSpell` also simulates the destination from the same
+orientation, and its face-the-target step does nothing for a self cast.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Mage/MageActions.cpp:151-159`
+(`CastBlinkBackAction::Execute`: `SetOrientation(GetAngle(target) + M_PI)`,
+then cast), `src/Ai/Class/Mage/MageActions.h:139-142`,
+`src/Ai/Class/Mage/MageAiObjectContext.cpp:236,297`.
+
+Module files: `ai/playerbot/strategy/mage/{MageActions.h,MageActions.cpp,MageAiObjectContext.cpp,MageStrategy.cpp}`.
+
+Copied / ported / reimplemented: ported. Differences: the module stops
+movement before turning and uses its own `ServerFacade::SetFacingTo` (force),
+so the new facing reaches the client and survives until the queued cast
+fires; the action is a self-target buff cast like the module's `blink`.
+
+Reason: audit "moon follow-ups, build 16" finding C. In all three moon_sheep
+runs every Blink moved the mage toward the pack (run 2: it ended 3.5 yd from
+the Moon mob), and the Blink GCD sat right before the first Polymorph.
+
+Validation: `c++ -fsyntax-only` of the changed files; `tools/verify_all.sh`.
+Not compiled into a server, not tested in game.
