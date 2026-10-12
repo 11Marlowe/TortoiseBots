@@ -92,6 +92,34 @@ bool FindNonCcTargetStrategy::OnlyCcMarksLeft(Unit* except)
     return true;
 }
 
+bool CcGuard::IsHeldCcMark(Unit* unit)
+{
+    if (!unit || !IsCcTarget(unit))
+        return false;
+    if (onlyMarksLeft < 0)
+        onlyMarksLeft = OnlyCcMarksLeft() ? 1 : 0;
+    return onlyMarksLeft == 0;
+}
+
+bool CcGuard::ProtectedEnemyNear(WorldObject* center, float radius, bool includeMarks)
+{
+    if (!center)
+        return false;
+    Player* bot = ai->GetBot();
+    std::list<ObjectGuid> attackers = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get();
+    for (ObjectGuid const& guid : attackers)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !sServerFacade.IsAlive(unit) || !center->IsWithinDistInMap(unit, radius, false))
+            continue;
+        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
+            return true;
+        if (includeMarks && IsHeldCcMark(unit))
+            return true;
+    }
+    return false;
+}
+
 bool FindNonCcTargetStrategy::IsCcTarget(Unit* attacker)
 {
     Group* group = ai->GetBot()->GetGroup();

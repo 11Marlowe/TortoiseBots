@@ -50,6 +50,28 @@ namespace ai
 
     };
 
+    // Crowd control the party must not break, checked outside a target
+    // tournament (current target, snare/DoT picks, splash). Build one per
+    // decision: the "only CC marks left" answer is computed once, on need.
+    class CcGuard : public FindNonCcTargetStrategy
+    {
+    public:
+        CcGuard(PlayerbotAI* ai) : FindNonCcTargetStrategy(ai), onlyMarksLeft(-1) {}
+        void CheckAttacker(Unit* /*attacker*/, ThreatManager* /*threatManager*/) override {}
+
+        // A CC mark (Moon or a bot's "rti cc" mark) while any other enemy
+        // still fights the group: nobody targets, taunts, DoTs or splashes it
+        // (it is killed last, see TargetValue::FindLastCcTarget).
+        bool IsHeldCcMark(Unit* unit);
+        // An enemy fighting the group within `radius` of `center` (bounding
+        // radii included) that holds a damage-breakable CC, or with
+        // `includeMarks` is a held CC mark about to be crowd-controlled.
+        bool ProtectedEnemyNear(WorldObject* center, float radius, bool includeMarks);
+
+    private:
+        int onlyMarksLeft;
+    };
+
     class TargetValue : public UnitCalculatedValue
 	{
 	public:
