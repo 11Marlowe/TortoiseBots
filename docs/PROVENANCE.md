@@ -8987,3 +8987,33 @@ Reason: Uldaman's Hall of the Keepers has 17 raised daises the navmesh cuts off 
 Validation: `tools/test_ledge_step_down_policy.cpp` (gate, height band, horizontal radius, candidate order, Uldaman dais with its edge point, needs-path rule, NORMAL path off the mesh, unsafe landing per point, both legs' clear line, edge point through walls and holes, no ground / fall / climbable step / wide dais, narrow ledge, pacing with the failed-look and step caps and clock wrap); `bash tools/verify_all.sh`, `git diff --check`; `c++ -fsyntax-only` of `MovementActions.cpp` and `ReachTargetActions.cpp` against the core headers; full build pending; in-game pending (Uldaman: `.go xyz -190 66 -46 70`, summon the party onto the dais, pull the Rockchewer; bots should run off the edge and drop to the floor within a few seconds).
 
 Review fixes (2026-10-12, REVIEW-126): (1) the landing must be on the navmesh (path start within 1 / 1.5 yd) and free of magma/slime, checked per candidate; (2) the move is a two-leg spline over the lip instead of a straight foot-to-foot line through the platform, with a low (+0.5 yd) line check per leg for railings; (3) a hazard rejects only its candidate; (4) only probes without floor count towards the give-up, launched steps have their own cap of three; (5) docs say "per action" for the pacing.
+
+
+## Feral druid prowl lock out of combat (2026-10-12)
+
+Donor: mod-playerbots (`79bd428`): `src/Ai/Class/Druid/Strategy/CatDruidStrategy.cpp`
+(`prowl` trigger → `prowl` action, combat triggers only),
+`src/Ai/Class/Druid/Action/DruidCatActions.h` (`CastProwlAction` is a plain
+buff; `ravage`/`pounce` gate on the prowl aura), `src/Ai/Class/Druid/DruidTriggers.cpp`
+(`ProwlTrigger`). The donor has no action whitelist while prowling, in or out
+of combat.
+
+Source files (module): `ai/playerbot/strategy/druid/DpsFeralDruidStrategy.cpp`
+(`DpsFeralDruidStealthedStrategy::InitNonCombatMultipliers` now installs no
+multiplier), `ai/playerbot/strategy/druid/DruidActions.h` (`DruidStealthAction`
+and `CheckStealthAction` add `stealthed` to the combat engine only; removal
+still clears both engines).
+
+Copied / ported / reimplemented: reimplemented behaviour (out of combat a
+prowling druid acts as if not prowling). Kept: the in-combat `stealthed`
+whitelist (openers, BG play), unlike the donor.
+
+Reason: fix 138 / audit batch 9 item 1. The druid non-combat engine has no
+`stealth` strategy, so no `check stealth`/`unstealth` trigger runs there, yet
+prowl added the `stealthed` whitelist to it. A druid that left combat prowling
+could only eat/drink/assist; once healed it stood still (last action `food`,
+trigger `almost full health`) until `RandomBotStallRelogMinutes` (45 min).
+m910q: Nalcraecrur frozen 100/100 samples with `stealthed` in its non-combat
+list; Zararkorn and Tharorcush STUCK on `food` ~2700 s.
+
+Validation: code review + build pending; in-game pending.
