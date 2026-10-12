@@ -87,6 +87,7 @@ void BotHostAdapter::OnStartup()
 
     bool configured = sPlayerbotAIConfig.Initialize();
     HireRecruiterScript::SyncUnlockFees();
+    HireRecruiterScript::SyncHireUnlockChain();
     // Issue #490: static hire-gear sets, one pass over the table rows.
     HireGearCache::Instance().Load();
     RandomBotService::Instance().Initialize();

@@ -17,7 +17,9 @@ namespace TortoiseBots
 // Companion choice as gathered from gossip or the `.bot hire` command.
 // role uses the ai::BOT_ROLE_* bits (tank 0x01, healer 0x02, dps 0x04).
 // specIndex is the gossip spec-menu position (SpecsFor order); -1 when the
-// request came from `.bot hire` without a spec word (role only).
+// request came from `.bot hire` without a spec word (role only). gearTier is
+// the chosen equipment tier (0 = today's random gear); validated against the
+// unlock at hire time, ignored below level 60.
 struct HireSelection
 {
     uint8 classId = 0;
@@ -25,6 +27,7 @@ struct HireSelection
     uint8 gender = 0;
     uint8 role = 0;
     int specIndex = -1;
+    uint8 gearTier = 0;
 };
 
 enum class HireStatus
@@ -79,6 +82,10 @@ public:
     // Live hired companions owned by master (grace-period resilient).
     uint32_t CountHired(Player* master) const;
 
+    // Issue #490 PR 2: highest gear tier the player may hire at (start tier
+    // or highest rewarded unlock quest). One small lookup per page/command.
+    static uint8_t HighestUnlockedHireTierFor(Player* player);
+
     static bool ClassCanRole(uint8 classId, uint8 role);
     static uint8 DefaultRoleForClass(uint8 classId);
 
@@ -99,6 +106,9 @@ public:
         uint8 targetLevel = 1;
         uint8 role = 0;
         int specIndex = -1;
+        // Chosen equipment tier (0 = today's random gear). Set at hire time
+        // after the unlock check; the static pass reads it, not the config.
+        uint8 gearTier = 0;
         time_t queuedAt = 0;
         // Issue #281: heavy provisioning (level/talents/spells/gear/SaveToDB)
         // runs exactly once per hire; retries only redo teleport/grouping.
