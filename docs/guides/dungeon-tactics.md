@@ -113,6 +113,10 @@ If your group wipes, follow this checklist to recover quickly:
 * It does not step down while a mob is hitting it in melee. It waits 2 s of standing still before it looks and looks at most every 3 s (each reach and follow action keeps its own pace). After three looks that find no floor, or three steps for the same target (something keeps putting it back up), it leaves that target alone for 30 s. There is no setting; it is always on in instances and never runs in the open world.
 * It never climbs up: a bot below a target that stands on a dais does not move. If no floor point qualifies (a sheer drop over 8 yd, a wall in the way), use `.bot summon <Name>` out of combat.
 
+### Running Ahead Past Packs
+* Bots that are far behind follow the navmesh route to you, and that route can pass right next to a pack you skipped (Uldaman: the only way north runs ~3 yd from the west-room pack). They will pull it on their own.
+* With `AiPlayerbot.DungeonFollowHoldBeforePacks = 1` (off by default), a bot more than 30 yd behind you, with nobody in combat, stops just outside the aggro range of the first unpulled pack on its route and whispers you (its master) `Pack in the way: <name>`. It stands there without eating or drinking while it holds; it rests through the normal out-of-combat flow once the hold ends. Pull the pack, or walk back within 25 yd and the bot follows normally again.
+
 ### Elevators, Boats & Ledges
 * In complex vertical dungeons (Gnomeregan, Sunken Temple, Blackrock Spire), bots can occasionally desync when riding elevators or dropping off ledges.
 * Bots never jump inside dungeons or raids: the `chase jump`, `follow jump` and `rpg jump` strategies do nothing there (an explicit `jump` command from you still works) (a jump could land a bot on a raised platform with no way back down, e.g. Uldaman Hall of the Keepers). Open world is unchanged; battleground scripted routes are unaffected.
