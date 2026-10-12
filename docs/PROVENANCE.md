@@ -8159,3 +8159,29 @@ Local validation: code review + build pending; in-game pending.
 | Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
 | --- | --- | --- | --- | --- | ---: | --- |
 | A masterless pool bot walking to a quest taker clears its travel move budget whenever it is 5 yd closer to the taker than its best distance so far on that trip, so the move-failure drop (and its 5-min quest-errand park) only fires after six failures with no new progress | `mod-playerbots` | `79bd428` | `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp:90-121` (`MoveFarTo`: `nearestMoveFarDis`, a 5 yd improvement resets `stuckAttempts`), `src/Ai/Base/Actions/MoveToTravelTargetAction.cpp:113-121` (a successful move resets the move retry count) | Reimplemented: the donor's progress-resets-the-stuck-count rule applied to this module's existing move budget (`TravelTarget::IsMaxRetry`); the donor's teleport fallback is not ported, a bot that stops closing the gap still drops the trip as before. Module files `ai/playerbot/TravelRepickPolicy.h` (`HandInTripProgressed`), `ai/playerbot/TravelMgr.{h,cpp}` (per-trip best distance, reset in `SetTarget`), `ai/playerbot/strategy/actions/MoveToTravelTargetAction.cpp`, test `tools/test_travel_repick_policy.cpp` | Batch 5 live audit finding 2 and a 12.5-min live re-sample (m910q, 500 pool bots): hand-in trips are 21 % of pool time but about one in five ends in a hand-in; most ended with the bot alive after a 5-19 s stand on a long walk, and most of those bots then held no quest errand for 5 min (the move-failure drop's park) | Code review + build pending; in-game pending. `bash tools/verify_all.sh` (incl. the extended travel repick policy test) and `git diff --check` clean |
+## Reach melee is not useful inside melee reach (fix 91) — 2026-10-12
+
+Feature: `ReachMeleeAction::isUseful` returns false while the bot can reach
+its target with melee auto-attack in line of sight
+(`CanReachWithMeleeAutoAttack`), the test melee strikes (`CastMeleeSpellAction`,
+range `ATTACK_DISTANCE`) use for `isPossible` and the `enemy out of melee`
+trigger uses. Before, the qualified prerequisite `reach melee::<strike>` took
+its range from the strike's DBC range (combat range = the bot's own combat
+reach, ~1.5 yd) and compared it with the bounding-radius edge distance, so
+between ~2 yd and the end of melee reach it ran instead of the strike.
+Observed live (build 8, Tanaris, 2026-10-12 09:57:11-09:57:23): rogue
+Bretorria showed `reach melee` (triggers `enemy out of melee` and `target
+with combo points`) while its white swings landed on a Wastewander Assassin
+every 1-2 s; one Eviscerate and no Sinister Strike in ~13 s at 52-70 energy.
+
+Donor: `mod-playerbots` @ 79bd428
+`src/Ai/Base/Actions/ReachTargetActions.cpp` (`ReachTargetAction::isUseful`:
+`!bot->IsWithinCombatRange(target, distance)`, reach melee distance =
+`MeleeDistance`) + `ReachTargetActions.h` (`ReachMeleeAction`).
+
+Module file: `ai/playerbot/strategy/actions/ReachTargetActions.h`
+(`ReachMeleeAction::isUseful` override). Reach spell / pull / heal reach,
+the give-up clocks and `ChaseTo` are unchanged.
+Reimplemented (donor rule expressed with the module's melee test).
+Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
