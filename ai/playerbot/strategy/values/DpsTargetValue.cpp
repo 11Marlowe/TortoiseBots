@@ -4,12 +4,44 @@
 #include "LeastHpTargetValue.h"
 #include "PossibleAttackTargetsValue.h"
 #include "playerbot/DpsTargetPolicy.h"
+#include "playerbot/FourHorsemenRotationPolicy.h"
 #include "playerbot/GroupMembers.h"
 
 using namespace ai;
 
 namespace
 {
+    // Four Horsemen mark rotation (FourHorsemenRotateAction): while the
+    // bot's stored corner choice holds, its dps target is the horseman at
+    // that corner. Without this "dps assist" resets the target to the tank's
+    // horseman and the bot walks back into the mark it just left. A stay
+    // order parks the bot, so the override stands down with it.
+    Unit* FourHorsemenRotationTarget(PlayerbotAI* ai, Player* bot)
+    {
+        if (bot->GetMapId() != 533)
+            return nullptr;
+        AiObjectContext* context = ai->GetAiObjectContext();
+        const int fromIdx = context->GetValue<int32>("manual int", kFourHorsemenFromKey)->Get() - 1;
+        const int toIdx = context->GetValue<int32>("manual int", kFourHorsemenToKey)->Get() - 1;
+        auto getStacks = [&](uint32 markSpell) -> uint32
+        {
+            Aura* aura = ai->GetAura(markSpell, bot);
+            return aura ? aura->GetStackAmount() : 0;
+        };
+        auto findHorseman = [&](int idx) -> Unit*
+        {
+            for (ObjectGuid const& guid : context->GetValue<std::list<ObjectGuid>>("attackers")->Get())
+            {
+                Unit* unit = ai->GetUnit(guid);
+                if (unit && unit->IsAlive() && unit->GetEntry() == kFourHorsemenEntries[idx])
+                    return unit;
+            }
+            return nullptr;
+        };
+        return FourHorsemenRotationTargetRaw<Unit>(fromIdx, toIdx, getStacks, findHorseman,
+            ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT));
+    }
+
     // Wasted DPS targets (mod-playerbots RaidMcStrategy::AppendTargetExclusions,
     // plus the vanilla Razuvious Understudies): Majordomo cannot die, Core
     // Ragers heal to full while Golemagg lives, and Understudies are the
@@ -35,6 +67,7 @@ namespace
         }
         return false;
     }
+
 
     // mod-playerbots DPS target tournament (LD-1/LD-4): lifetime buckets per
     // bot type instead of flat least-HP, CC-moon skip, skull snap. The
@@ -296,6 +329,11 @@ Unit* DpsTargetValue::Calculate()
     // Explicit orders and raid marks remain ahead of tank assistance.
     if (Unit* explicitTarget = GetExplicitAttackTarget())
         return explicitTarget;
+
+    // A Four Horsemen mark carrier fights the horseman at its new corner
+    // (a raid mark on another corner would walk it back into the mark).
+    if (Unit* horseman = FourHorsemenRotationTarget(ai, bot))
+        return horseman;
 
     Unit* rti = RtiTargetValue::Calculate();
     if (rti) return rti;

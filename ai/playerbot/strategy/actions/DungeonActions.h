@@ -84,6 +84,26 @@ namespace ai
         bool isPossible() override { return MovementAction::isPossible() && ai->CanMove(); }
     };
 
+    // Four Horsemen mark rotation (Naxxramas): at 3+ stacks of one mark
+    // the bot moves to the next horseman's corner clockwise (fewest own
+    // stacks first). Tanks and DPS switch to that horseman, healers stand
+    // off it toward the room. Rules: FourHorsemenRotationPolicy.h.
+    class FourHorsemenRotateAction : public MovementAction
+    {
+    public:
+        FourHorsemenRotateAction(PlayerbotAI* ai, std::string name = "four horsemen rotate") : MovementAction(ai, name) {}
+        bool Execute(Event& event) override;
+        bool isPossible() override { return MovementAction::isPossible() && ai->CanMove(); }
+        // A stay order (.bot action stay, a pull hold) vetoes the move in
+        // any engine state: the player parked this bot on purpose.
+        bool isUseful() override
+        {
+            return MovementAction::isUseful() &&
+                !ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT) &&
+                !ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
+        }
+    };
+
     // Universal raid survival: dragon flank. Sidesteps out of the frontal
     // breath cone and rear tail cone to the boss's flank; tanks hold the
     // head via the explicit .bot raid tankface command instead.

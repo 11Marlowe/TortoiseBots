@@ -3,9 +3,44 @@
 #include "TankTargetValue.h"
 #include "PossibleAttackTargetsValue.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/FourHorsemenRotationPolicy.h"
 #include "../../../../runtime/PlayerbotAIStorage.h"
 
 using namespace ai;
+
+namespace
+{
+    // Four Horsemen mark rotation: a rotating tank keeps the horseman at
+    // its new corner the same way DPS does, or "tank assist" (via the tank
+    // target) pulls it back to the group tank's horseman every tick while
+    // the move walks it the other way. Same stored choice, same lapse
+    // rules, shared helper; a stay order stands the override down.
+    Unit* FourHorsemenRotationTarget(PlayerbotAI* ai, Player* bot)
+    {
+        if (bot->GetMapId() != 533)
+            return nullptr;
+        AiObjectContext* context = ai->GetAiObjectContext();
+        const int fromIdx = context->GetValue<int32>("manual int", kFourHorsemenFromKey)->Get() - 1;
+        const int toIdx = context->GetValue<int32>("manual int", kFourHorsemenToKey)->Get() - 1;
+        auto getStacks = [&](uint32 markSpell) -> uint32
+        {
+            Aura* aura = ai->GetAura(markSpell, bot);
+            return aura ? aura->GetStackAmount() : 0;
+        };
+        auto findHorseman = [&](int idx) -> Unit*
+        {
+            for (ObjectGuid const& guid : context->GetValue<std::list<ObjectGuid>>("attackers")->Get())
+            {
+                Unit* unit = ai->GetUnit(guid);
+                if (unit && unit->IsAlive() && unit->GetEntry() == kFourHorsemenEntries[idx])
+                    return unit;
+            }
+            return nullptr;
+        };
+        return FourHorsemenRotationTargetRaw<Unit>(fromIdx, toIdx, getStacks, findHorseman,
+            ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT));
+    }
+} // namespace
 
 // mod-playerbots FindTankTargetSmartStrategy (a63c6b67, refined by 0a76fc1d):
 // bucket attackers by GetIntervalLevel instead of a flat lowest-threat
@@ -113,6 +148,12 @@ Unit* TankTargetValue::Calculate()
 {
     if (Unit* explicitTarget = GetExplicitAttackTarget())
         return explicitTarget;
+
+    // A Four Horsemen mark carrier fights the horseman at its new corner:
+    // the rotation outranks raid marks here, or the mark walks the tank
+    // back into the mark it just left (DpsTargetValue keeps the same order).
+    if (Unit* horseman = FourHorsemenRotationTarget(ai, bot))
+        return horseman;
 
     // mod-playerbots conditional tank RTI (LD-5, TankTargetValue.cpp:110-131):
     // take the marked target only when its victim is a non-tank (peel for

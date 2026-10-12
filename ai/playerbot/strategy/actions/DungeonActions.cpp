@@ -9,6 +9,7 @@
 #include "playerbot/VaelPolicy.h"
 #include "playerbot/DebuffSpreadPolicy.h"
 #include "playerbot/BombRunoutPolicy.h"
+#include "playerbot/FourHorsemenRotationPolicy.h"
 #include "Movement/spline/MoveSpline.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
@@ -352,6 +353,122 @@ bool RaidBombRunoutAction::Execute(Event& event)
         }
     }
     return false;
+}
+
+bool FourHorsemenRotateAction::Execute(Event& event)
+{
+    (void)event;
+    if (bot->GetMapId() != 533)
+        return false;
+    HorsemanSpot spots[kFourHorsemenCount];
+    Unit* horsemen[kFourHorsemenCount] = { nullptr, nullptr, nullptr, nullptr };
+    for (std::size_t i = 0; i < kFourHorsemenCount; ++i)
+    {
+        if (Aura* aura = ai->GetAura(kFourHorsemenMarks[i], bot))
+            spots[i].stacks = aura->GetStackAmount();
+    }
+    const int stackingIdx = FourHorsemenStackingIndex(spots);
+    if (stackingIdx < 0)
+        return false;
+    // Live horsemen from the cached attackers list (no world scan): where
+    // the tanks hold them is their corner (the core gives no fixed spots).
+    const std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (const ObjectGuid& guid : attackers)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !sServerFacade.IsAlive(unit) || unit->GetMapId() != bot->GetMapId())
+            continue;
+        const int idx = FourHorsemenIndexForEntry(unit->GetEntry());
+        if (idx < 0 || horsemen[idx])
+            continue;
+        horsemen[idx] = unit;
+        spots[idx].alive = true;
+        spots[idx].x = unit->GetPositionX();
+        spots[idx].y = unit->GetPositionY();
+    }
+    // The corner the bot stands at now = its nearest living horseman.
+    int currentIdx = -1;
+    float currentDist = FLT_MAX;
+    for (std::size_t i = 0; i < kFourHorsemenCount; ++i)
+    {
+        if (!horsemen[i])
+            continue;
+        const float dist = sServerFacade.getDistance2d(bot, horsemen[i]);
+        if (dist < currentDist)
+        {
+            currentDist = dist;
+            currentIdx = static_cast<int>(i);
+        }
+    }
+    // Keep the corner chosen earlier while that choice holds, so a bot
+    // walking diagonally is not captured by whichever horseman is nearest
+    // mid-walk; otherwise the corner it stands at now.
+    const int storedFrom = AI_VALUE2(int32, "manual int", kFourHorsemenFromKey) - 1;
+    const int storedTo = AI_VALUE2(int32, "manual int", kFourHorsemenToKey) - 1;
+    const bool keepChoice = FourHorsemenChoiceHolds(spots, storedFrom, storedTo);
+    const int nextIdx = FourHorsemenNextIndex(spots, stackingIdx, keepChoice ? storedTo : currentIdx);
+    if (nextIdx < 0)
+        return false;
+    // A tank bot only leaves a corner another tank already covers: walking
+    // off with no handover drags the horseman through the raid with nobody
+    // to pick it up. Covered = another tank (bot or player, alive, same
+    // map) already at / heading to the leaving corner — within handover
+    // range of that horseman, or walking it via its own stored rotation
+    // choice. Non-tanks always rotate; an unheld corner needs no handover.
+    if (ai->IsTank(bot) && currentIdx >= 0 && currentIdx != nextIdx && horsemen[currentIdx])
+    {
+        bool handedOver = false;
+        if (Group* group = bot->GetGroup())
+        {
+            for (Player* member : LiveGroupMembers(group))
+            {
+                if (!member || member == bot || !sServerFacade.IsAlive(member))
+                    continue;
+                if (member->GetMapId() != bot->GetMapId() || !PlayerbotAI::IsTank(member))
+                    continue;
+                if (sServerFacade.getDistance2d(member, horsemen[currentIdx]) <= kFourHorsemenHandoverYd)
+                {
+                    handedOver = true;
+                    break;
+                }
+                if (PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member))
+                {
+                    const int memberTo = memberAi->GetAiObjectContext()->GetValue<int32>(
+                        "manual int", kFourHorsemenToKey)->Get() - 1;
+                    if (memberTo == currentIdx)
+                    {
+                        handedOver = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!handedOver)
+            return false;
+    }
+    // Remember the choice; the dps/tank target values read it so assists
+    // keep the bot on this horseman instead of the group tank's (no
+    // ping-pong).
+    if (!keepChoice || nextIdx != storedTo)
+    {
+        SET_AI_VALUE2(int32, "manual int", kFourHorsemenFromKey, stackingIdx + 1);
+        SET_AI_VALUE2(int32, "manual int", kFourHorsemenToKey, nextIdx + 1);
+    }
+    Unit* next = horsemen[nextIdx];
+    const bool healer = ai->IsHeal(bot);
+    // Tanks pick the horseman up, DPS hit the one they now stand at (melee
+    // could not reach the old one anyway); healers keep their heal target.
+    if (!healer && AI_VALUE(Unit*, "current target") != next)
+        SET_AI_VALUE(Unit*, "current target", next);
+    const bool standOff = healer || (!ai->IsTank(bot) && ai->IsRanged(bot));
+    const float offset = standOff ? kFourHorsemenRangedOffsetYd : kFourHorsemenMeleeOffsetYd;
+    if (FourHorsemenArrived(currentIdx == nextIdx, sServerFacade.getDistance2d(bot, next), offset))
+        return false;
+    float x = 0.0f, y = 0.0f;
+    FourHorsemenCornerSpot(spots, nextIdx, offset, x, y);
+    WorldPosition point(bot->GetMapId(), x, y, next->GetPositionZ());
+    point.setZ(point.GetHeight());
+    return MoveTo(bot->GetMapId(), point.getX(), point.getY(), point.getZ(), false, IsReaction(), false, true);
 }
 
 bool DragonFlankAction::Execute(Event& event)

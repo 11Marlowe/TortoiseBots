@@ -8717,3 +8717,64 @@ raid or into unpulled trash.
 
 Validation: `tools/test_bomb_runout_policy.cpp` + code review; build
 pending; in-game pending.
+
+## Four Horsemen mark rotation (Naxxramas, 2026-10-12)
+
+Donor: mod-playerbots (`79bd4281`):
+`src/Ai/Raid/Naxx/Action/NaxxActions_FourHorsemen.cpp`
+(`FourHorsemenAttractAlternativelyAction`, `FourHorsemenAttackInOrderAction`),
+`src/Ai/Raid/Naxx/NaxxBossHelper.h` (`FourHorsemenBossHelper`: 3.x clock over
+two fixed WotLK spots for Lady and Sir).
+
+Source files (module): `ai/playerbot/FourHorsemenRotationPolicy.h` (new pure
+rules), `ai/playerbot/strategy/actions/DungeonActions.{h,cpp}`
+(`FourHorsemenRotateAction`), `ai/playerbot/strategy/actions/ActionContext.h`
+(creator), `ai/playerbot/strategy/generic/ReactionStrategy.cpp` (the
+`four horsemen mark` trigger now queues `four horsemen rotate` instead of the
+no-op `move away from hazard`), `tools/test_four_horsemen_rotation_policy.cpp`.
+
+Copied / ported / reimplemented: reimplemented behaviour (bots trade horsemen
+so no one keeps stacking a mark). Deviations, all deliberate: the donor's
+fixed positions and timer are 3.x-only (stationary caster horsemen); in the
+Tortoise core the four spawn in a line (`tw_world_creature` guids
+88752-88755, 2513-2524 / -2955..-2944, z 245.64) with no waypoints
+(`boss_four_horsemen.cpp`), so each horseman's corner is wherever the raid
+tanks it and is read live from the `attackers` list. The rotation is
+stack-driven (3+ stacks of one mark, the legacy trigger threshold): next
+living horseman clockwise around the horsemen's centre, fewest own stacks
+first; a bot stays at its new corner until that mark reaches 3 too. Tanks and
+DPS switch target to that horseman; healers stand 20yd off it toward the room.
+Fix round (cold review batch 7): the chosen corner is stored per bot
+("manual int" `four horsemen rotate from/to`) and kept until the mark it left
+drops under 3 or the chosen mark reaches 3, so the nearest horseman mid-walk
+no longer captures the bot; `DpsTargetValue` returns that horseman while the
+choice holds (after explicit attack orders, before raid marks), so "dps
+assist" stops pulling DPS back to the tank's horseman; a `stay` order vetoes
+the move and the target override. Also touches
+`ai/playerbot/strategy/values/DpsTargetValue.cpp`.
+No kill order port (needs the tank-role work from the raid audit).
+
+Reason: batch-7 raid audit finding 5 — the old wiring called the hazard
+step-out, which only moves inside registered hazards, so marks stacked until
+death while the docs said carriers rotate.
+
+Fix round 2 (review of this PR): `TankTargetValue` returns the rotated
+horseman while the stored choice holds (same hook and ordering as
+`DpsTargetValue`: explicit orders, then the rotation, then raid marks), and
+`TankAssistTrigger` vetoes the assist while it holds, so a rotating tank is
+no longer pulled back to the group tank's horseman. `FourHorsemenRotateAction`
+holds a tank bot at its corner until another tank (bot or player, alive, same
+map) is within `kFourHorsemenHandoverYd` (30yd) of the leaving horseman or is
+itself rotating to that corner; the rotation-outranks-skull/RTI ordering is
+now stated in `docs/guides/dungeon-tactics.md` and the tank row of
+`docs/concepts/bot-mechanics-and-quirks.md`. The shared game-state lookup
+(`FourHorsemenRotationTargetRaw` in `FourHorsemenRotationPolicy.h`) feeds all
+three call sites, with `tools/test_four_horsemen_rotation_policy.cpp`
+covering its hold/lapse matrix. Also touches
+`ai/playerbot/strategy/values/TankTargetValue.{h,cpp}`,
+`ai/playerbot/strategy/triggers/GenericTriggers.{h,cpp}`,
+`docs/guides/dungeon-tactics.md`,
+`docs/concepts/bot-mechanics-and-quirks.md`.
+
+Validation: `tools/test_four_horsemen_rotation_policy.cpp` + code review;
+build pending; in-game pending.
