@@ -71,11 +71,15 @@ void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
         PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
         if (!memberAi || !memberAi->GetAiObjectContext())
             continue;
-        if (!memberAi->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+        // Only the bots this pull holds: a "wait for attack" of the player's
+        // own on a bot the pull did not park keeps its own delay and clock.
+        if (!memberAi->HasPullWindow())
             continue;
         if (narrowWindow)
             memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(waitSeconds));
         memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
+        // The window's own clock ("pull hold expired").
+        memberAi->RestampPullWindow();
     }
 }
 } // namespace
@@ -566,10 +570,10 @@ bool PullEndAction::Execute(Event& event)
 bool ReleasePullHoldAction::Execute(Event& event)
 {
     (void)event;
-    // Dropping the wait window *is* the release: PlayerbotAI::ChangeStrategy
-    // frees the anchor hold (marker + the stay it owns) whenever "wait for
-    // attack" goes away, so the hold cannot outlive its own guard and there is
-    // one rule instead of one per caller.
-    ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
+    // Ending the pull's window is the release: dropping its own "wait for
+    // attack" frees the anchor hold (marker + the stay it owns) with it
+    // (PlayerbotAI::ChangeStrategy), and a "wait for attack" the player set
+    // stays while only the anchor goes.
+    ai->EndPullWindow();
     return true;
 }

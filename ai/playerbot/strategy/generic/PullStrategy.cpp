@@ -19,6 +19,11 @@ void ai::ReleaseHeldPartyNow(Player* tank)
         PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
         if (!memberAi || !memberAi->GetAiObjectContext())
             continue;
+        // Only the bots this pull holds. Zeroing the delay ends their window
+        // on the next tick, which then puts their own delay back; a bot with a
+        // "wait for attack" of the player's own and no pull window keeps it.
+        if (!memberAi->HasPullWindow())
+            continue;
         memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(0);
         memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
     }

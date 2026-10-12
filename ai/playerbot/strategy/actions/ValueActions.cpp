@@ -212,7 +212,9 @@ bool SetWaitForAttackTimeAction::Execute(Event& event)
             const int newTime = std::stoi(newTimeStr.c_str());
             if (newTime <= 99)
             {
-                ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(newTime);
+                // Kept for the end of a running pull window, which holds the
+                // pull's own delay until then (PullJoinWindowPolicy.h).
+                ai->SetPlayerWaitForAttackTime(static_cast<uint8>(newTime));
                 std::ostringstream out; out << "Wait for attack time set to " << newTime << " seconds";
                 ai->TellPlayerNoFacing(requester, out);
                 return true;

@@ -21,6 +21,13 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
     uint64 guid = ai->GetBot()->getObjectGuid().GetRawValue();
     CharacterDatabase.escape_string(preset);
 
+    // No pull survives a reload (relog, reset, preset). Ended before the
+    // replay: its own copies of "wait for attack" go and the player's delay
+    // comes back, so the stored set and values below are what is left (a
+    // snapshot without "co"/"nc" rows leaves the live engines alone, and a
+    // preset's own "wait for attack time" must win over the pre-pull one).
+    ai->EndPullWindow();
+
     auto results = CharacterDatabase.PQuery("SELECT `key`,`value` FROM `ai_playerbot_db_store` WHERE `guid` = '%lu' AND `preset` = '%s'", guid, preset.c_str());
     if (results)
     {
@@ -73,6 +80,10 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
 
         ai->GetAiObjectContext()->Load(values);
     }
+
+    // An anchor ("pull hold") restored from the snapshot has no pull left to
+    // end it.
+    ai->ReleasePullHold();
 }
 
 void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
@@ -102,15 +113,32 @@ void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
     Reset(ai, preset);
 
     std::list<std::string> data = ai->GetAiObjectContext()->Save();
+    // While a pull's window runs, "wait for attack time" holds the pull's
+    // delay: store the player's own value from before the pull instead.
+    std::string const waitTimeRow = "wait for attack time>";
     for (std::list<std::string>::iterator i = data.begin(); i != data.end(); ++i)
     {
+        if (ai->HasPullWindow() && i->compare(0, waitTimeRow.size(), waitTimeRow) == 0)
+            *i = waitTimeRow + std::to_string(ai->PullWindowSavedSeconds());
         SaveValue(guid, preset, "value", *i);
     }
 
-    SaveValue(guid, preset, "co", FormatStrategies("co", ai->GetStrategies(BotState::BOT_STATE_COMBAT)));
-    SaveValue(guid, preset, "nc", FormatStrategies("nc", ai->GetStrategies(BotState::BOT_STATE_NON_COMBAT)));
-    SaveValue(guid, preset, "dead", FormatStrategies("dead", ai->GetStrategies(BotState::BOT_STATE_DEAD)));
-    SaveValue(guid, preset, "react", FormatStrategies("react", ai->GetStrategies(BotState::BOT_STATE_REACTION)));
+    // A pull's own join window is never stored: it belongs to that pull, and a
+    // snapshot restored after a relog has no pull left to end it, so the bot
+    // would hold back at the start of every fight from then on. Only the
+    // engines the pull added "wait for attack" to are left out; a copy the
+    // player set is stored as usual (PullJoinWindowPolicy.h).
+    auto stored = [ai](BotState state)
+    {
+        std::list<std::string_view> strategies = ai->GetStrategies(state);
+        if (ai->PullWindowAdded(state))
+            strategies.remove(std::string_view("wait for attack"));
+        return strategies;
+    };
+    SaveValue(guid, preset, "co", FormatStrategies("co", stored(BotState::BOT_STATE_COMBAT)));
+    SaveValue(guid, preset, "nc", FormatStrategies("nc", stored(BotState::BOT_STATE_NON_COMBAT)));
+    SaveValue(guid, preset, "dead", FormatStrategies("dead", stored(BotState::BOT_STATE_DEAD)));
+    SaveValue(guid, preset, "react", FormatStrategies("react", stored(BotState::BOT_STATE_REACTION)));
 
     if (ownTransaction)
         CharacterDatabase.CommitTransaction();
