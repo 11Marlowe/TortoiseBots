@@ -1,0 +1,2067 @@
+item_id,name,tier,flags,evidence
+811,Axe of the Deep Woods,1,,loot:t1
+867,Gloves of Holy Might,1,,proc-craft
+868,Ardent Custodian,1,,proc-craft
+871,Flurry Axe,1,,loot:t1
+942,Freezing Band,1,,loot:t1
+943,Warden Staff,1,,loot:t1
+1131,Totem of Infliction,0,,quest:101;quest-chain
+1168,Skullflame Shield,1,,loot:t1
+1728,Teebu's Blazing Longsword,1,,loot:t1
+2040,Troll Protector,1,,proc-craft
+2099,Dwarven Hand Cannon,1,,loot:t1
+2100,Precisely Calibrated Boomstick,1,,loot:t1
+2244,Krol Blade,1,,loot:t1
+2246,Myrmidon's Signet,1,,loot:t1
+2662,Ribbly's Quiver,1,,loot:t1
+2801,Blade of Hanna,1,,loot:t1
+3360,Stitches' Femur,,unobtainable,
+3573,Hunting Quiver,0,,quest:531;quest-chain
+3605,Quiver of the Night Watch,0,,quest:58;quest-chain
+4130,Smotts' Compass,0,,quest:618;quest-chain
+4332,Bright Yellow Shirt,0,,recipe:t0:pattern-vendor
+5267,Scarlet Kris,1,,loot:t1
+7371,Heavy Quiver,0,,vendor;vendor
+7710,Loksey's Training Stick,1,,proc-craft
+7719,Raging Berserker's Helm,1,,proc-craft
+7722,Triune Amulet,,unobtainable,
+8190,Hanzo Sword,0,,loot:t0
+8217,Quickdraw Quiver,1,,proc-craft
+8262,Serpentskin Leggings,0,,loot:t0
+8300,Traveler's Leggings,0,,loot:t0
+8345,Wolfshead Helm,1,,proc-craft
+8663,Mithril Insignia,,pvp+unobtainable,
+9413,The Rockpounder,1,,proc-craft
+9449,Manual Crowd Pummeler,1,,proc-craft
+9479,Embrace of the Lycan,1,,proc-craft
+9647,Failed Flying Experiment,0,,quest:2767;quest-chain
+10041,Dreamweave Circlet,1,,proc-craft
+10112,Wanderer's Leggings,0,,loot:t0
+10135,High Councillor's Tunic,1,,loot:t1
+10136,High Councillor's Bracers,0,,loot:t0
+10137,High Councillor's Boots,1,,loot:t1
+10138,High Councillor's Cloak,0,,loot:t0
+10139,High Councillor's Circlet,1,,loot:t1
+10142,High Councillor's Mantle,1,,loot:t1
+10143,High Councillor's Robe,1,,loot:t1
+10146,Mighty Boots,1,,loot:t1
+10149,Mighty Gauntlets,1,,loot:t1
+10152,Mighty Leggings,1,,loot:t1
+10153,Mighty Spaulders,1,,loot:t1
+10159,Mercurial Cloak,0,,loot:t0
+10188,Swashbuckler's Leggings,0,,loot:t0
+10210,Elegant Mantle,0,,loot:t0
+10211,Elegant Boots,0,,loot:t0
+10213,Elegant Bracers,0,,loot:t0
+10221,Nightshade Girdle,0,,loot:t0
+10222,Nightshade Boots,0,,loot:t0
+10225,Nightshade Gloves,0,,loot:t0
+10227,Nightshade Leggings,1,,loot:t1
+10246,Master's Vest,1,,loot:t1
+10247,Master's Boots,1,,loot:t1
+10248,Master's Bracers,1,,loot:t1
+10249,Master's Cloak,1,,loot:t1
+10250,Master's Hat,1,,loot:t1
+10253,Master's Mantle,1,,loot:t1
+10254,Master's Robe,1,,loot:t1
+10256,Adventurer's Bracers,1,,loot:t1
+10257,Adventurer's Boots,1,,loot:t1
+10258,Adventurer's Cape,0,,loot:t0
+10259,Adventurer's Belt,1,,loot:t1
+10260,Adventurer's Gloves,1,,loot:t1
+10261,Adventurer's Bandana,1,,loot:t1
+10262,Adventurer's Legguards,1,,loot:t1
+10263,Adventurer's Shoulders,1,,loot:t1
+10264,Adventurer's Tunic,1,,loot:t1
+10267,Masterwork Cape,1,,loot:t1
+10504,Green Lens,,unobtainable,
+10645,Gnomish Death Ray,1,,proc-craft
+10659,Shard of Afrasa,0,,quest:2701;quest-chain
+10698,Enchanted Azsharite Felbane Staff,0,,quest:3625;quest-chain;token:t0
+10779,Demon's Blood,0,,quest:3628;quest-chain;token:t0
+10783,Atal'ai Spaulders,,unobtainable,
+10787,Atal'ai Gloves,1,,proc-craft
+10795,Drakeclaw Band,1,,proc-craft
+10796,Drakestone,1,,proc-craft
+10837,Tooth of Eranikus,1,,proc-craft
+10845,Warrior's Embrace,1,,proc-craft
+11623,Spritecaster Cape,1,,loot:t1
+11624,Kentic Amice,1,,loot:t1
+11626,Blackveil Cape,1,,loot:t1
+11632,Earthslag Shoulders,1,,loot:t1
+11633,Spiderfang Carapace,1,,proc-craft
+11647,Lesser Arcanum of Voracity,1,,quest:4484;quest-chain;token:t1
+11662,Ban'thok Sash,1,,proc-craft
+11669,Naglering,1,,loot:t1
+11675,Shadefiend Boots,,unobtainable,
+11684,Ironfoe,1,,loot:t1
+11686,Girdle of Beastial Fury,1,,proc-craft
+11726,Savage Gladiator Chain,,unobtainable,
+11731,Savage Gladiator Greaves,,unobtainable,
+11735,Ragefury Eyepatch,1,,proc-craft
+11746,Golem Skull Helm,1,,loot:t1
+11748,Pyric Caduceus,1,,loot:t1
+11755,Verek's Collar,1,,loot:t1
+11764,Cinderhide Armsplints,1,,loot:t1
+11765,Pyremail Wristguards,1,,loot:t1
+11766,Flameweave Cuffs,1,,loot:t1
+11782,Boreal Mantle,1,,loot:t1
+11787,Shalehusk Boots,1,,loot:t1
+11805,Rubidium Hammer,1,,loot:t1
+11810,Force of Will,1,,loot:t1
+11811,Smoking Heart of the Mountain,1,,recipe:t1:pattern-loot:t1
+11815,Hand of Justice,1,,loot:t1
+11819,Second Wind,1,,loot:t1
+11821,Warstrife Leggings,1,,loot:t1
+11822,Omnicast Boots,1,,loot:t1
+11824,Cyclopean Band,1,,proc-craft
+11832,Burst of Knowledge,1,,loot:t1
+11841,Senior Designer's Pantaloons,1,,loot:t1
+11842,Lead Surveyor's Mantle,1,,loot:t1
+11855,Tork Wrench,0,,quest:3924;quest-chain;token:t0
+11904,Spirit of Aquementas,0,,quest:3962;quest-chain;token:t0
+11910,Bejeweled Legguards,0,,quest:4491;quest-chain
+11921,Impervious Giant,1,,loot:t1
+11923,The Hammer of Grace,1,,loot:t1
+11924,Robes of the Royal Crown,1,,loot:t1
+11925,Ghostshroud,1,,loot:t1
+11926,Deathdealer Breastplate,1,,loot:t1
+11927,Legplates of the Eternal Guardian,1,,loot:t1
+11928,Thaurissan's Royal Scepter,1,,loot:t1
+11931,Dreadforge Retaliator,1,,loot:t1
+11933,Imperial Jewel,1,,loot:t1
+11962,Manacle Cuffs,1,,quest:4201;quest-chain;token:t1
+12082,Wyrmhide Spaulders,0,,quest:4024;quest-chain;token:t0
+12103,Star of Mystaria,1,,loot:t1
+12115,Stalwart Clutch,1,,quest:3907;quest-chain;token:t1
+12470,Sandstalker Ankleguards,,unobtainable,
+12527,Ribsplitter,1,,loot:t1
+12543,Songstone of Ironforge,0,,quest:4363;quest-chain
+12544,Thrall's Resolve,0,,quest:4004;quest-chain
+12545,Eye of Orgrimmar,0,,quest:4004;quest-chain
+12548,Magni's Will,0,,quest:4363;quest-chain
+12550,Runed Golem Shackles,1,,loot:t1
+12551,Stoneshield Cloak,1,,loot:t1
+12552,Blisterbane Wrap,1,,loot:t1
+12553,Swiftwalker Boots,1,,loot:t1
+12554,Hands of the Exalted Herald,1,,loot:t1
+12555,Battlechaser's Greaves,1,,loot:t1
+12557,Ebonsteel Spaulders,1,,loot:t1
+12584,Veteran's Longsword,7,pvp,nodisenchant-quarantine
+12587,Eye of Rend,1,,loot:t1
+12590,Felstriker,1,,loot:t1
+12592,Blackblade of Shahram,1,,loot:t1
+12602,Draconian Deflector,1,,loot:t1
+12603,Nightbrace Tunic,1,,proc-craft
+12618,Enchanted Thorium Breastplate,2,,recipe:t2:reagents:t2
+12619,Enchanted Thorium Leggings,0,,recipe:t0:pattern-quest:7650
+12620,Enchanted Thorium Helm,2,,recipe:t2:reagents:t2
+12625,Dawnbringer Shoulders,3,,recipe:t3:pattern-loot:t3
+12628,Demon Forged Breastplate,1,,recipe:t1:reagents:t1
+12633,Whitesoul Helm,0,,recipe:t0:pattern-loot:t0
+12634,Chiselbrand Girdle,1,,proc-craft
+12640,Lionheart Helm,2,,recipe:t2:pattern-loot:t2
+12651,Blackcrow,1,,loot:t1
+12653,Riphook,1,,loot:t1
+12709,Finkle's Skinner,1,,loot:t1
+12757,Breastplate of Bloodthirst,1,,quest:5068;quest-chain;token:t1
+12783,Heartseeker,1,,recipe:t1:pattern-loot:t1
+12784,Arcanite Reaper,0,,recipe:t0:pattern-trainer
+12793,Mixologist's Tunic,1,,loot:t1
+12798,Annihilator,1,,recipe:t1:pattern-loot:t1
+12895,Chestplate of the Chromatic Flight,1,,quest:5166;quest-chain;token:t1
+12903,Legguards of the Chromatic Defier,1,,quest:5167;quest-chain;token:t1
+12927,Truestrike Shoulders,1,,loot:t1
+12930,Briarwood Reed,1,,loot:t1
+12935,Warmaster Legguards,1,,loot:t1
+12936,Battleborn Armbraces,1,,loot:t1
+12939,Dal'Rend's Tribal Guardian,1,,loot:t1
+12940,Dal'Rend's Sacred Charge,1,,loot:t1
+12952,Gyth's Skull,1,,proc-craft
+12953,Dragoneye Coif,1,,proc-craft
+12963,Blademaster Leggings,1,,loot:t1
+12966,Blackmist Armguards,1,,loot:t1
+13001,Maiden's Circle,1,,loot:t1
+13013,Elder Wizard's Mantle,0,,loot:t0
+13047,Twig of the World Tree,0,,loot:t0
+13066,Wyrmslayer Spaulders,0,,loot:t0
+13072,Stonegrip Gauntlets,0,,loot:t0
+13089,Skibi's Pendant,1,,loot:t1
+13091,Medallion of Grand Marshal Morris,0,,loot:t0
+13098,Painweaver Band,1,,loot:t1
+13102,Cassandra's Grace,1,,loot:t1
+13107,Magiskull Cuffs,1,,loot:t1
+13116,Spaulders of the Unseen,1,,loot:t1
+13118,Serpentine Sash,0,,loot:t0
+13120,Deepfury Bracers,0,,loot:t0
+13141,Tooth of Gnarr,1,,loot:t1
+13142,Brigam Girdle,1,,loot:t1
+13143,Mark of the Dragon Lord,1,,loot:t1
+13162,Reiver Claws,1,,loot:t1
+13167,Fist of Omokk,1,,loot:t1
+13168,Plate of the Shaman King,1,,loot:t1
+13170,Skyshroud Leggings,1,,loot:t1
+13171,Smokey's Lighter,0,,quest:5214;quest-chain
+13177,Talisman of Evasion,1,,loot:t1
+13178,Rosewine Circle,1,,proc-craft
+13208,Bleak Howler Armguards,1,,proc-craft
+13209,Seal of the Dawn,1,,quest:5213;quest-chain;token:t1
+13210,Pads of the Dread Wolf,1,,loot:t1
+13211,Slashclaw Bracers,1,,loot:t1
+13212,Halycon's Spiked Collar,1,,loot:t1
+13216,Crown of the Penitent,1,,quest:5243;quest-chain;token:t1
+13217,Band of the Penitent,1,,quest:5243;quest-chain;token:t1
+13243,Argent Defender,1,,quest:5265;quest-chain;token:t1
+13252,Cloudrunner Girdle,1,,loot:t1
+13253,Hands of Power,1,,loot:t1
+13258,Slaghide Gauntlets,,unobtainable,
+13259,Ribsteel Footguards,,unobtainable,
+13285,The Blackrock Slicer,1,,loot:t1
+13286,Rivenspike,1,,loot:t1
+13289,Egan's Blaster,1,,proc-craft
+13314,Alanna's Embrace,1,,loot:t1
+13340,Cape of the Black Baron,1,,loot:t1
+13344,Dracorian Gauntlets,1,,loot:t1
+13346,Robes of the Exalted,1,,loot:t1
+13349,Scepter of the Unholy,1,,loot:t1
+13358,Wyrmtongue Shoulders,1,,loot:t1
+13359,Crown of Tyranny,1,,loot:t1
+13372,Slavedriver's Cane,,unobtainable,
+13373,Band of Flesh,,unobtainable,
+13381,Master Cannoneer Boots,1,,loot:t1
+13384,Rainbow Girdle,1,,loot:t1
+13385,Tome of Knowledge,1,,loot:t1
+13386,Archivist Cape,1,,loot:t1
+13394,Skul's Cold Embrace,1,,loot:t1
+13395,Skul's Fingerbone Claws,1,,loot:t1
+13396,Skul's Ghastly Touch,1,,loot:t1
+13397,Stoneskin Gargoyle Cape,1,,loot:t1
+13400,Vambraces of the Sadist,1,,proc-craft
+13404,Mask of the Unforgiven,1,,proc-craft
+13405,Wailing Nightbane Pauldrons,1,,proc-craft
+13409,Tearfall Bracers,,unobtainable,
+13502,Handcrafted Mastersmith Girdle,1,,loot:t1
+13505,Runeblade of Baron Rivendare,1,,loot:t1
+13515,Ramstein's Lightning Bolts,1,,proc-craft
+13937,Headmaster's Charge,1,,proc-craft
+13938,Bonecreeper Stylus,1,,proc-craft
+13944,Tombstone Breastplate,1,,proc-craft
+13951,Vigorsteel Vambraces,,unobtainable,
+13954,Verdant Footpads,1,,loot:t1
+13955,Stoneform Shoulders,,unobtainable,
+13956,Clutch of Andros,1,,proc-craft
+13957,Gargoyle Slashers,1,,proc-craft
+13959,Omokk's Girth Restrainer,1,,quest:4903;quest-chain;token:t1
+13962,Vosh'gajin's Strand,1,,quest:4903;quest-chain;token:t1
+13963,Voone's Vice Grips,1,,quest:4903;quest-chain;token:t1
+13964,Witchblade,1,,proc-craft
+13965,Blackhand's Breadth,1,,quest:4974;quest-chain;token:t1
+13966,Mark of Tyranny,1,,quest:4974;quest-chain;token:t1
+13967,Windreaver Greaves,1,,proc-craft
+13968,Eye of the Beast,1,,quest:4974;quest-chain;token:t1
+13969,Loomguard Armbraces,1,,proc-craft
+13982,Warblade of Caer Darrow,1,,quest:5466;quest-chain;token:t1
+14106,Felcloth Robe,1,,recipe:t1:reagents:t1
+14107,Felcloth Pants,1,,recipe:t1:reagents:t1
+14111,Felcloth Hood,1,,recipe:t1:reagents:t1
+14112,Felcloth Shoulders,1,,recipe:t1:reagents:t1
+14136,Robe of Winter Night,1,,recipe:t1:reagents:t1
+14143,Ghostweave Belt,0,,recipe:t0:pattern-trainer
+14146,Gloves of Spell Mastery,1,,recipe:t1:pattern-loot:t1
+14152,Robe of the Archmage,2,,recipe:t2:reagents:t2
+14153,Robe of the Void,1,,recipe:t1:reagents:t1
+14154,Truefaith Vestments,1,,recipe:t1:pattern-loot:t1
+14310,Celestial Slippers,1,,loot:t1
+14312,Celestial Crown,1,,loot:t1
+14316,Celestial Pauldrons,1,,loot:t1
+14325,Resplendent Epaulets,1,,loot:t1
+14328,Eternal Chestguard,1,,loot:t1
+14330,Eternal Bindings,1,,loot:t1
+14331,Eternal Cloak,1,,loot:t1
+14332,Eternal Crown,1,,loot:t1
+14335,Eternal Spaulders,1,,loot:t1
+14336,Eternal Wraps,1,,loot:t1
+14340,Freezing Lich Robes,1,,loot:t1
+14465,Elunarian Belt,1,,loot:t1
+14502,Frostbite Girdle,1,,loot:t1
+14503,Death's Clutch,1,,loot:t1
+14525,Boneclenched Gauntlets,1,,loot:t1
+14539,Bone Ring Helm,1,,loot:t1
+14549,Boots of Avoidance,3,,loot:t3
+14551,Edgemaster's Handguards,1,,loot:t1
+14552,Stockade Pauldrons,1,,loot:t1
+14553,Sash of Mercy,1,,loot:t1
+14554,Cloudkeeper Legplates,1,,loot:t1
+14555,Alcor's Sunrazor,1,,loot:t1
+14558,Lady Maye's Pendant,1,,loot:t1
+14616,Bloodmail Boots,1,,loot:t1
+14620,Deathbone Girdle,1,,loot:t1
+14621,Deathbone Sabatons,1,,loot:t1
+14622,Deathbone Gauntlets,1,,loot:t1
+14623,Deathbone Legguards,1,,loot:t1
+14624,Deathbone Chestplate,1,,loot:t1
+14636,Cadaverous Belt,1,,loot:t1
+14637,Cadaverous Armor,1,,loot:t1
+14638,Cadaverous Leggings,1,,loot:t1
+14640,Cadaverous Gloves,1,,loot:t1
+14641,Cadaverous Walkers,1,,loot:t1
+14670,Pridelord Armor,1,,loot:t1
+14672,Pridelord Bands,1,,loot:t1
+15047,Red Dragonscale Breastplate,1,,recipe:t1:pattern-loot:t1
+15050,Black Dragonscale Breastplate,1,,recipe:t1:reagents:t1
+15051,Black Dragonscale Shoulders,1,,recipe:t1:pattern-loot:t1
+15052,Black Dragonscale Leggings,1,,recipe:t1:pattern-loot:t1
+15057,Stormshroud Pants,1,,recipe:t1:reagents:t1
+15058,Stormshroud Shoulders,1,,recipe:t1:reagents:t1
+15060,Living Leggings,1,,recipe:t1:reagents:t1
+15061,Living Shoulders,1,,recipe:t1:reagents:t1
+15062,Devilsaur Leggings,1,,recipe:t1:reagents:t1
+15063,Devilsaur Gauntlets,1,,recipe:t1:reagents:t1
+15064,Warbear Harness,1,,recipe:t1:pattern-loot:t1
+15065,Warbear Woolies,1,,recipe:t1:reagents:t1
+15180,Praetorian Girdle,1,,loot:t1
+15186,Praetorian Leggings,1,,loot:t1
+15189,Grand Boots,1,,loot:t1
+15191,Grand Belt,1,,loot:t1
+15192,Grand Gauntlets,1,,loot:t1
+15193,Grand Crown,1,,loot:t1
+15194,Grand Legguards,1,,loot:t1
+15247,Bloodstrike Dagger,1,,loot:t1
+15278,Solstice Staff,0,,loot:t0
+15282,Dragon Finger,0,,loot:t0
+15283,Lunar Wand,1,,loot:t1
+15388,Jadefire Belt,1,,loot:t1
+15411,Mark of Fordring,1,,quest:5944;quest-chain;token:t1
+15413,Ornate Adamantium Breastplate,1,,quest:5944;quest-chain;token:t1
+15421,Shroud of the Exile,1,,quest:5944;quest-chain;token:t1
+15426,Peerless Boots,1,,loot:t1
+15428,Peerless Belt,1,,loot:t1
+15429,Peerless Gloves,1,,loot:t1
+15431,Peerless Leggings,1,,loot:t1
+15434,Supreme Sash,1,,loot:t1
+15435,Supreme Shoes,1,,loot:t1
+15438,Supreme Gloves,1,,loot:t1
+15439,Supreme Crown,1,,loot:t1
+15440,Supreme Leggings,1,,loot:t1
+15441,Supreme Shoulders,1,,loot:t1
+15693,Grand Shoulders,1,,loot:t1
+15805,Penelope's Rose,1,,quest:5384;quest-chain;token:t1
+15806,Mirah's Song,1,,quest:5384;quest-chain;token:t1
+15855,Ring of Protection,0,,quest:5942;quest-chain
+15861,Swiftfoot Treads,1,,quest:4765;quest-chain;token:t1
+15930,Imperial Red Scepter,0,,loot:t0
+15941,High Councillor's Scepter,1,,loot:t1
+15942,Master's Rod,1,,loot:t1
+15963,Stonecloth Branch,1,,loot:t1
+15967,Highborne Star,1,,loot:t1
+15989,Eternal Rod,1,,loot:t1
+15999,Spellpower Goggles Xtreme Plus,3,,recipe:t3:pattern-loot:t3
+16058,Fordring's Seal,1,,quest:5944;quest-chain;token:t1
+16341,Sergeant's Cloak,0,pvp,vendor;vendor
+16342,Sergeant's Cape,0,pvp,vendor;vendor
+16345,Veteran's Blade,7,pvp,nodisenchant-quarantine
+16446,Marshal's Leather Footguards,7,pvp,nodisenchant-quarantine
+16448,Marshal's Dragonhide Gauntlets,7,pvp,nodisenchant-quarantine
+16449,Field Marshal's Dragonhide Spaulders,7,pvp,nodisenchant-quarantine
+16450,Marshal's Dragonhide Legguards,7,pvp,nodisenchant-quarantine
+16451,Field Marshal's Dragonhide Helmet,7,pvp,nodisenchant-quarantine
+16452,Field Marshal's Dragonhide Breastplate,7,pvp,nodisenchant-quarantine
+16453,Field Marshal's Leather Chestpiece,7,pvp,nodisenchant-quarantine
+16454,Marshal's Leather Handgrips,7,pvp,nodisenchant-quarantine
+16455,Field Marshal's Leather Mask,7,pvp,nodisenchant-quarantine
+16456,Marshal's Leather Leggings,7,pvp,nodisenchant-quarantine
+16457,Field Marshal's Leather Epaulets,7,pvp,nodisenchant-quarantine
+16459,Marshal's Dragonhide Boots,7,pvp,nodisenchant-quarantine
+16462,Marshal's Chain Boots,7,pvp,nodisenchant-quarantine
+16463,Marshal's Chain Grips,7,pvp,nodisenchant-quarantine
+16465,Field Marshal's Chain Helm,7,pvp,nodisenchant-quarantine
+16466,Field Marshal's Chain Breastplate,,pvp+unobtainable,
+16467,Marshal's Chain Legguards,7,pvp,nodisenchant-quarantine
+16468,Field Marshal's Chain Spaulders,7,pvp,nodisenchant-quarantine
+16471,Marshal's Lamellar Gloves,7,pvp,nodisenchant-quarantine
+16472,Marshal's Lamellar Boots,7,pvp,nodisenchant-quarantine
+16473,Field Marshal's Lamellar Chestplate,7,pvp,nodisenchant-quarantine
+16474,Field Marshal's Lamellar Faceguard,7,pvp,nodisenchant-quarantine
+16475,Marshal's Lamellar Legplates,7,pvp,nodisenchant-quarantine
+16476,Field Marshal's Lamellar Pauldrons,7,pvp,nodisenchant-quarantine
+16479,Marshal's Plate Legguards,7,pvp,nodisenchant-quarantine
+16543,General's Plate Leggings,7,pvp,nodisenchant-quarantine
+16549,Warlord's Dragonhide Hauberk,7,pvp,nodisenchant-quarantine
+16550,Warlord's Dragonhide Helmet,7,pvp,nodisenchant-quarantine
+16551,Warlord's Dragonhide Epaulets,7,pvp,nodisenchant-quarantine
+16552,General's Dragonhide Leggings,7,pvp,nodisenchant-quarantine
+16554,General's Dragonhide Boots,7,pvp,nodisenchant-quarantine
+16555,General's Dragonhide Gloves,7,pvp,nodisenchant-quarantine
+16558,General's Leather Treads,7,pvp,nodisenchant-quarantine
+16560,General's Leather Mitts,7,pvp,nodisenchant-quarantine
+16561,Warlord's Leather Helm,7,pvp,nodisenchant-quarantine
+16562,Warlord's Leather Spaulders,7,pvp,nodisenchant-quarantine
+16563,Warlord's Leather Breastplate,7,pvp,nodisenchant-quarantine
+16564,General's Leather Legguards,7,pvp,nodisenchant-quarantine
+16565,Warlord's Chain Chestpiece,,pvp+unobtainable,
+16566,Warlord's Chain Helmet,7,pvp,nodisenchant-quarantine
+16567,General's Chain Legguards,7,pvp,nodisenchant-quarantine
+16568,Warlord's Chain Shoulders,7,pvp,nodisenchant-quarantine
+16569,General's Chain Boots,7,pvp,nodisenchant-quarantine
+16571,General's Chain Gloves,7,pvp,nodisenchant-quarantine
+16573,General's Mail Boots,7,pvp,nodisenchant-quarantine
+16580,Warlord's Mail Spaulders,7,pvp,nodisenchant-quarantine
+16675,Beaststalker's Boots,1,,loot:t1
+16677,Beaststalker's Cap,,unobtainable,
+16681,Beaststalker's Bindings,1,,loot:t1
+16683,Magister's Bindings,1,,loot:t1
+16697,Devout Bracers,1,,loot:t1
+16707,Shadowcraft Cap,,unobtainable,
+16708,Shadowcraft Spaulders,1,,loot:t1
+16709,Shadowcraft Pants,1,,loot:t1
+16710,Shadowcraft Bracers,1,,loot:t1
+16713,Shadowcraft Belt,1,,loot:t1
+16721,Shadowcraft Tunic,1,,loot:t1
+16722,Lightforge Bracers,1,,loot:t1
+16723,Lightforge Belt,1,,loot:t1
+16728,Lightforge Legplates,1,,loot:t1
+16730,Breastplate of Valor,1,,loot:t1
+16731,Helm of Valor,,unobtainable,
+16732,Legplates of Valor,1,,loot:t1
+16733,Spaulders of Valor,1,,loot:t1
+16735,Bracers of Valor,1,,loot:t1
+16737,Gauntlets of Valor,,unobtainable,
+16768,Furbolg Medicine Pouch,0,rep,vendor;vendor
+16795,Arcanist Crown,3,,loot:t3
+16796,Arcanist Leggings,3,,loot:t3
+16799,Arcanist Bindings,3,,loot:t3
+16800,Arcanist Boots,3,,loot:t3
+16801,Arcanist Gloves,3,,loot:t3
+16803,Felheart Slippers,3,,loot:t3
+16805,Felheart Gloves,3,,loot:t3
+16806,Felheart Belt,3,,loot:t3
+16810,Felheart Pants,3,,loot:t3
+16811,Boots of Prophecy,3,,loot:t3
+16812,Gloves of Prophecy,3,,loot:t3
+16813,Circlet of Prophecy,3,,loot:t3
+16814,Pants of Prophecy,3,,loot:t3
+16815,Robes of Prophecy,3,,loot:t3
+16816,Mantle of Prophecy,3,,loot:t3
+16817,Girdle of Prophecy,3,,loot:t3
+16818,Netherwind Belt,4,,loot:t4
+16819,Vambraces of Prophecy,3,,loot:t3
+16820,Nightslayer Chestpiece,3,,loot:t3
+16821,Nightslayer Cover,3,,loot:t3
+16822,Nightslayer Pants,3,,loot:t3
+16823,Nightslayer Shoulder Pads,3,,loot:t3
+16824,Nightslayer Boots,3,,loot:t3
+16825,Nightslayer Bracelets,3,,loot:t3
+16826,Nightslayer Gloves,3,,loot:t3
+16827,Nightslayer Belt,3,,loot:t3
+16828,Cenarion Belt,3,,loot:t3
+16829,Cenarion Boots,3,,loot:t3
+16831,Cenarion Gloves,3,,loot:t3
+16832,Bloodfang Spaulders,4,,loot:t4
+16833,Cenarion Vestments,3,,loot:t3
+16835,Cenarion Leggings,3,,loot:t3
+16836,Cenarion Spaulders,3,,loot:t3
+16838,Earthfury Belt,3,,loot:t3
+16839,Earthfury Gloves,3,,loot:t3
+16841,Earthfury Chestpiece,3,,loot:t3
+16842,Earthfury Helmet,3,,loot:t3
+16843,Earthfury Pants,3,,loot:t3
+16844,Earthfury Spaulders,3,,loot:t3
+16845,Giantstalker's Breastplate,3,,loot:t3
+16846,Giantstalker's Helmet,3,,loot:t3
+16847,Giantstalker's Leggings,3,,loot:t3
+16848,Giantstalker's Epaulets,3,,loot:t3
+16849,Giantstalker's Boots,3,,loot:t3
+16850,Giantstalker's Bracers,3,,loot:t3
+16851,Giantstalker's Belt,3,,loot:t3
+16852,Giantstalker's Gloves,3,,loot:t3
+16853,Lawbringer Breastplate,3,,loot:t3
+16857,Lawbringer Bracers,3,,loot:t3
+16861,Bracers of Might,3,,loot:t3
+16862,Sabatons of Might,3,,loot:t3
+16863,Gauntlets of Might,3,,loot:t3
+16864,Belt of Might,3,,loot:t3
+16865,Breastplate of Might,3,,loot:t3
+16866,Helm of Might,3,,loot:t3
+16867,Legplates of Might,3,,loot:t3
+16868,Pauldrons of Might,3,,loot:t3
+16897,Stormrage Chestguard,4,,loot:t4
+16898,Stormrage Boots,4,,loot:t4
+16899,Stormrage Gloves,4,,loot:t4
+16900,Stormrage Cover,3,,loot:t3
+16901,Stormrage Legguards,3,,loot:t3
+16902,Stormrage Pauldrons,4,,loot:t4
+16903,Stormrage Belt,4,,loot:t4
+16904,Stormrage Bracers,4,,loot:t4
+16905,Bloodfang Chestpiece,4,,loot:t4
+16906,Bloodfang Boots,4,,loot:t4
+16907,Bloodfang Gloves,4,,loot:t4
+16908,Bloodfang Hood,3,,loot:t3
+16909,Bloodfang Pants,3,,loot:t3
+16910,Bloodfang Belt,4,,loot:t4
+16911,Bloodfang Bracers,4,,loot:t4
+16913,Netherwind Gloves,4,,loot:t4
+16914,Netherwind Crown,3,,loot:t3
+16915,Netherwind Pants,3,,loot:t3
+16916,Netherwind Robes,4,,loot:t4
+16919,Boots of Transcendence,4,,loot:t4
+16920,Handguards of Transcendence,4,,loot:t4
+16921,Halo of Transcendence,3,,loot:t3
+16922,Leggings of Transcendence,3,,loot:t3
+16923,Robes of Transcendence,4,,loot:t4
+16924,Pauldrons of Transcendence,4,,loot:t4
+16925,Belt of Transcendence,4,,loot:t4
+16926,Bindings of Transcendence,4,,loot:t4
+16927,Nemesis Slippers,4,,loot:t4
+16928,Nemesis Gloves,4,,loot:t4
+16929,Nemesis Skullcap,3,,loot:t3
+16930,Nemesis Pants,3,,loot:t3
+16931,Nemesis Robes,4,,loot:t4
+16932,Nemesis Spaulders,4,,loot:t4
+16933,Nemesis Belt,4,,loot:t4
+16934,Nemesis Bracers,4,,loot:t4
+16935,Dragonstalker's Bracers,4,,loot:t4
+16936,Dragonstalker's Belt,4,,loot:t4
+16937,Dragonstalker's Spaulders,4,,loot:t4
+16938,Dragonstalker's Legguards,3,,loot:t3
+16939,Dragonstalker's Helm,3,,loot:t3
+16940,Dragonstalker's Gauntlets,4,,loot:t4
+16941,Dragonstalker's Greaves,4,,loot:t4
+16942,Dragonstalker's Breastplate,4,,loot:t4
+16943,Bindings of Ten Storms,4,,loot:t4
+16944,Sash of Ten Storms,4,,loot:t4
+16946,Legplates of Ten Storms,3,,loot:t3
+16947,Visor of Ten Storms,3,,loot:t3
+16948,Gauntlets of Ten Storms,4,,loot:t4
+16950,Raiments of Ten Storms,4,,loot:t4
+16951,Judgement Bracers,4,,loot:t4
+16952,Judgement Belt,4,,loot:t4
+16953,Judgement Spaulders,4,,loot:t4
+16954,Judgement Legplates,3,,loot:t3
+16955,Judgement Helm,3,,loot:t3
+16956,Judgement Gloves,4,,loot:t4
+16957,Judgement Boots,4,,loot:t4
+16958,Judgement Breastplate,4,,loot:t4
+16959,Bracelets of Wrath,4,,loot:t4
+16960,Waistband of Wrath,4,,loot:t4
+16961,Pauldrons of Wrath,4,,loot:t4
+16962,Legplates of Wrath,3,,loot:t3
+16963,Helm of Wrath,3,,loot:t3
+16964,Gauntlets of Wrath,4,,loot:t4
+16965,Sabatons of Wrath,4,,loot:t4
+16966,Breastplate of Wrath,4,,loot:t4
+16983,Molten Helm,3,,recipe:t3:reagents:t3
+16984,Black Dragonscale Boots,3,,recipe:t3:reagents:t3
+16996,Gorewood Bow,0,,quest:6148;quest-chain;token:t0
+16997,Stormrager,0,,quest:6148;quest-chain;token:t0
+17044,Will of the Martyr,1,,quest:5125;quest-chain;token:t1
+17063,Band of Accuria,3,,loot:t3
+17064,Shard of the Scale,3,,loot:t3
+17065,Medallion of Steadfast Might,3,,loot:t3
+17066,Drillborer Disk,3,,loot:t3
+17067,Ancient Cornerstone Grimoire,3,,loot:t3
+17068,Deathbringer,3,,loot:t3
+17069,Striker's Mark,3,,loot:t3
+17070,Fang of the Mystics,3,,loot:t3
+17071,Gutgore Ripper,3,,loot:t3
+17072,Blastershot Launcher,3,,loot:t3
+17075,Vis'kag the Bloodletter,3,,loot:t3
+17076,Bonereaver's Edge,3,,loot:t3
+17078,Sapphiron Drape,3,,loot:t3
+17102,Cloak of the Shrouded Mists,3,,loot:t3
+17103,Azuresong Mageblade,3,,loot:t3
+17104,Spinal Reaper,3,,loot:t3
+17105,Aurastone Hammer,3,,loot:t3
+17106,Malistar's Defender,3,,loot:t3
+17107,Dragon's Blood Cape,3,,loot:t3
+17109,Choker of Enlightenment,3,,loot:t3
+17111,Blazefury Medallion,3,,loot:t3
+17112,Empyrean Demolisher,3,,loot:t3
+17113,Amberseal Keeper,3,,loot:t3
+17182,Sulfuras; Hand of Ragnaros,,legendary+unobtainable,
+17578,Field Marshal's Coronal,7,pvp,nodisenchant-quarantine
+17579,Marshal's Dreadweave Leggings,7,pvp,nodisenchant-quarantine
+17580,Field Marshal's Dreadweave Shoulders,7,pvp,nodisenchant-quarantine
+17583,Marshal's Dreadweave Boots,7,pvp,nodisenchant-quarantine
+17584,Marshal's Dreadweave Gloves,7,pvp,nodisenchant-quarantine
+17586,General's Dreadweave Boots,7,pvp,nodisenchant-quarantine
+17588,General's Dreadweave Gloves,7,pvp,nodisenchant-quarantine
+17590,Warlord's Dreadweave Mantle,7,pvp,nodisenchant-quarantine
+17591,Warlord's Dreadweave Hood,7,pvp,nodisenchant-quarantine
+17593,General's Dreadweave Pants,7,pvp,nodisenchant-quarantine
+17602,Field Marshal's Headdress,7,pvp,nodisenchant-quarantine
+17603,Marshal's Satin Pants,7,pvp,nodisenchant-quarantine
+17604,Field Marshal's Satin Mantle,7,pvp,nodisenchant-quarantine
+17605,Field Marshal's Satin Vestments,7,pvp,nodisenchant-quarantine
+17607,Marshal's Satin Sandals,7,pvp,nodisenchant-quarantine
+17608,Marshal's Satin Gloves,7,pvp,nodisenchant-quarantine
+17618,General's Satin Boots,7,pvp,nodisenchant-quarantine
+17620,General's Satin Gloves,7,pvp,nodisenchant-quarantine
+17622,Warlord's Satin Mantle,7,pvp,nodisenchant-quarantine
+17623,Warlord's Satin Cowl,7,pvp,nodisenchant-quarantine
+17624,Warlord's Satin Robes,7,pvp,nodisenchant-quarantine
+17625,General's Satin Leggings,7,pvp,nodisenchant-quarantine
+17713,Blackstone Ring,1,,proc-craft
+17714,Bracers of the Stone Princess,1,,proc-craft
+17719,Inventor's Focal Sword,1,,proc-craft
+17774,Mark of the Chosen,0,,quest:7067;quest-chain
+17901,Stormpike Insignia Rank 3,0,rep+pvp,quest:7169;quest-chain;token:t0
+17902,Stormpike Insignia Rank 4,0,rep+pvp,quest:7170;quest-chain;token:t0
+17903,Stormpike Insignia Rank 5,0,rep+pvp,quest:7171;quest-chain;token:t0
+17904,Stormpike Insignia Rank 6,0,rep+pvp,quest:7172;quest-chain;token:t0
+17906,Frostwolf Insignia Rank 3,0,rep+pvp,quest:7164;quest-chain;token:t0
+17907,Frostwolf Insignia Rank 4,0,rep+pvp,quest:7165;quest-chain;token:t0
+17908,Frostwolf Insignia Rank 5,0,rep+pvp,quest:7166;quest-chain;token:t0
+17909,Frostwolf Insignia Rank 6,0,rep+pvp,quest:7167;quest-chain;token:t0
+18048,Mastersmith's Hammer,1,,loot:t1
+18102,Dragonrider Boots,1,,loot:t1
+18103,Band of Rumination,1,,loot:t1
+18104,Feralsurge Girdle,1,,loot:t1
+18168,Force Reactive Disk,3,,recipe:t3:pattern-loot:t3
+18204,Eskhandar's Pelt,3,,loot:t3
+18205,Eskhandar's Collar,3,,loot:t3
+18208,Drape of Benediction,3,,loot:t3
+18263,Flarecore Wraps,3,,recipe:t3:pattern-loot:t3
+18289,Barbed Thorn Necklace,1,,loot:t1
+18296,Marksman Bands,1,,loot:t1
+18301,Lethtendris's Wand,1,,loot:t1
+18309,Gloves of Restoration,1,,loot:t1
+18313,Helm of Awareness,1,,loot:t1
+18314,Ring of Demonic Guile,1,,loot:t1
+18317,Tempest Talisman,1,,loot:t1
+18322,Waterspout Boots,1,,loot:t1
+18323,Satyr's Bow,1,,loot:t1
+18325,Felhide Cap,1,,loot:t1
+18327,Whipvine Cord,1,,loot:t1
+18348,Quel'Serrar,1,,quest:7509;quest-chain;token:t1
+18349,Gauntlets of Accuracy,1,,loot:t1
+18350,Amplifying Cloak,1,,loot:t1
+18366,Gordok's Handguards,1,,quest:1318;quest-chain;token:t1
+18370,Vigilance Charm,1,,loot:t1
+18371,Mindtap Talisman,1,,loot:t1
+18372,Blade of the New Moon,1,,loot:t1
+18373,Chestplate of Tranquility,1,,loot:t1
+18374,Flamescarred Shoulders,1,,loot:t1
+18375,Bracers of the Eclipse,1,,loot:t1
+18376,Timeworn Mace,1,,loot:t1
+18377,Quickdraw Gloves,1,,loot:t1
+18380,Eldritch Reinforced Legplates,1,,loot:t1
+18381,Evil Eye Pendant,1,,loot:t1
+18383,Force Imbued Gauntlets,1,,loot:t1
+18384,Bile-etched Spaulders,1,,loot:t1
+18385,Robe of Everlasting Night,1,,loot:t1
+18386,Padre's Trousers,1,,loot:t1
+18389,Cloak of the Cosmos,1,,loot:t1
+18391,Eyestalk Cord,1,,loot:t1
+18393,Warpwood Binding,1,,loot:t1
+18404,Onyxia Tooth Pendant,3,,quest:7491;quest-chain;token:t3
+18405,Belt of the Archmage,1,,recipe:t1:pattern-loot:t1
+18406,Onyxia Blood Talisman,3,,quest:7491;quest-chain;token:t3
+18407,Felcloth Gloves,1,,recipe:t1:pattern-loot:t1
+18413,Cloak of Warding,1,,recipe:t1:pattern-loot:t1
+18420,Bonecrusher,0,,quest:7462;quest-chain
+18421,Backwood Helm,0,,quest:7462;quest-chain
+18425,Kreeg's Mug,1,,loot:t1
+18459,Gallant's Wristguards,1,,loot:t1
+18465,Royal Seal of Eldre'Thalas,1,,quest:7498;quest-chain;token:t1
+18466,Royal Seal of Eldre'Thalas,1,,quest:7499;quest-chain;token:t1
+18467,Royal Seal of Eldre'Thalas,1,,quest:7502;quest-chain;token:t1
+18469,Royal Seal of Eldre'Thalas,1,,quest:7504;quest-chain;token:t1
+18470,Royal Seal of Eldre'Thalas,1,,quest:7506;quest-chain;token:t1
+18473,Royal Seal of Eldre'Thalas,1,,quest:7503;quest-chain;token:t1
+18481,Skullcracking Mace,1,,loot:t1
+18483,Mana Channeling Wand,1,,loot:t1
+18490,Insightful Hood,1,,loot:t1
+18493,Bulky Iron Spaulders,1,,loot:t1
+18494,Denwatcher's Shoulders,1,,loot:t1
+18495,Redoubt Cloak,1,,loot:t1
+18496,Heliotrope Cloak,1,,loot:t1
+18497,Sublime Wristguards,1,,loot:t1
+18498,Hedgecutter,1,,loot:t1
+18499,Barrier Shield,1,,loot:t1
+18500,Tarnished Elven Ring,1,,loot:t1
+18503,Kromcrush's Chestplate,1,,loot:t1
+18505,Mugger's Belt,1,,loot:t1
+18506,Mongoose Boots,1,,recipe:t1:pattern-loot:t1
+18507,Boots of the Full Moon,1,,loot:t1
+18508,Swift Flight Bracers,2,,recipe:t2:reagents:t2
+18510,Hide of the Wild,2,,recipe:t2:reagents:t2
+18511,Shifting Cloak,1,,recipe:t1:pattern-loot:t1
+18520,Barbarous Blade,1,,loot:t1
+18521,Grimy Metal Boots,1,,loot:t1
+18522,Band of the Ogre King,1,,loot:t1
+18523,Brightly Glowing Stone,1,,loot:t1
+18525,Bracers of Prosperity,1,,loot:t1
+18527,Harmonious Gauntlets,1,,loot:t1
+18530,Ogre Forged Hauberk,1,,loot:t1
+18531,Unyielding Maul,1,,loot:t1
+18532,Mindsurge Robe,1,,loot:t1
+18534,Rod of the Ogre Magi,1,,loot:t1
+18537,Counterattack Lodestone,1,,loot:t1
+18538,Treant's Bane,1,,loot:t1
+18541,Puissant Cape,3,,loot:t3
+18544,Doomhide Gauntlets,3,,loot:t3
+18545,Leggings of Arcane Supremacy,3,,loot:t3
+18608,Benediction,3,,proc-craft
+18609,Anathema,3,,proc-craft
+18672,Elemental Ember,1,,proc-craft
+18674,Hardened Stone Band,1,,proc-craft
+18681,Burial Shawl,1,,loot:t1
+18682,Ghoul Skin Leggings,1,,loot:t1
+18691,Dark Advisor's Pendant,1,,loot:t1
+18696,Intricately Runed Shield,1,,loot:t1
+18700,Malefic Bracers,1,,loot:t1
+18702,Belt of the Ordained,1,,loot:t1
+18709,Arena Wristguards,0,,loot:t0
+18713,Rhok'delar; Longbow of the Ancient Keepers,3,,proc-craft
+18714,Ancient Sinew Wrapped Lamina,3,,quest:7634;quest-chain;token:t3
+18715,Lok'delar; Stave of the Ancient Keepers,3,,proc-craft
+18716,Ash Covered Boots,1,,loot:t1
+18720,Shroud of the Nathrezim,1,,loot:t1
+18721,Barrage Girdle,1,,loot:t1
+18722,Death Grips,1,,loot:t1
+18723,Animated Chain Necklace,1,,proc-craft
+18725,Peacemaker,1,,loot:t1
+18727,Crimson Felt Hat,1,,loot:t1
+18728,Anastari Heirloom,1,,loot:t1
+18735,Maleki's Footwraps,1,,loot:t1
+18736,Plaguehound Leggings,1,,loot:t1
+18737,Bone Slicing Hatchet,1,,loot:t1
+18738,Carapace Spine Crossbow,1,,loot:t1
+18740,Thuzadin Sash,1,,loot:t1
+18743,Gracious Cape,1,,loot:t1
+18745,Sacred Cloth Leggings,1,,loot:t1
+18754,Fel Hardened Bracers,1,,proc-craft
+18756,Dreadguard's Protector,,unobtainable,
+18757,Diabolic Mantle,1,,proc-craft
+18761,Oblivion's Touch,,unobtainable,
+18805,Core Hound Tooth,3,,loot:t3
+18806,Core Forged Greaves,3,,loot:t3
+18808,Gloves of the Hypnotic Flame,3,,loot:t3
+18809,Sash of Whispered Secrets,3,,loot:t3
+18810,Wild Growth Spaulders,3,,loot:t3
+18812,Wristguards of True Flight,3,,loot:t3
+18814,Choker of the Fire Lord,3,,loot:t3
+18815,Essence of the Pure Flame,3,,loot:t3
+18816,Perdition's Blade,3,,loot:t3
+18817,Crown of Destruction,3,,loot:t3
+18820,Talisman of Ephemeral Power,3,,loot:t3
+18821,Quick Strike Ring,3,,loot:t3
+18822,Obsidian Edged Blade,3,,loot:t3
+18823,Aged Core Leather Gloves,3,,loot:t3
+18827,Veteran's Handaxe,7,pvp,nodisenchant-quarantine
+18828,Veteran's Cleaver,7,pvp,nodisenchant-quarantine
+18829,Deep Earth Spaulders,3,,loot:t3
+18830,Veteran's Sunderer,7,pvp,nodisenchant-quarantine
+18831,Veteran's Battle Axe,7,pvp,nodisenchant-quarantine
+18832,Brutality Blade,3,,loot:t3
+18836,Veteran's Repeater,7,pvp,nodisenchant-quarantine
+18837,Veteran's Crossbow,7,pvp,nodisenchant-quarantine
+18838,Veteran's Dirk,7,pvp,nodisenchant-quarantine
+18840,Veteran's Razor,7,pvp,nodisenchant-quarantine
+18842,Staff of Dominance,3,,loot:t3
+18843,Veteran's Right Hand Blade,7,pvp,nodisenchant-quarantine
+18844,Veteran's Right Claw,7,pvp,nodisenchant-quarantine
+18855,Veteran's Hand Cannon,7,pvp,nodisenchant-quarantine
+18860,Veteran's Street Sweeper,7,pvp,nodisenchant-quarantine
+18861,Flamewaker Legplates,3,,loot:t3
+18865,Veteran's Punisher,7,pvp,nodisenchant-quarantine
+18866,Veteran's Bludgeon,7,pvp,nodisenchant-quarantine
+18867,Veteran's Battle Hammer,7,pvp,nodisenchant-quarantine
+18868,Veteran's Pulverizer,7,pvp,nodisenchant-quarantine
+18870,Helm of the Lifegiver,3,,loot:t3
+18871,Veteran's Pig Sticker,7,pvp,nodisenchant-quarantine
+18872,Manastorm Leggings,3,,loot:t3
+18873,Executioner's Stave,7,pvp,nodisenchant-quarantine
+18874,Executioner's War Staff,7,pvp,nodisenchant-quarantine
+18875,Salamander Scale Pants,3,,loot:t3
+18876,Veteran's Claymore,7,pvp,nodisenchant-quarantine
+18877,Veteran's Greatsword,7,pvp,nodisenchant-quarantine
+18878,Sorcerous Dagger,3,,loot:t3
+18879,Heavy Dark Iron Ring,3,,loot:t3
+19019,Thunderfury; Blessed Blade of the Windseeker,3,legendary,quest:7787;quest-chain;token:t3
+19024,Arena Grand Master,0,,quest:7838;quest-chain;token:t0
+19044,Might of the Timbermaw,1,,recipe:t1:reagents:t1
+19049,Timbermaw Brawlers,1,,recipe:t1:reagents:t1
+19050,Mantle of the Timbermaw,2,,recipe:t2:reagents:t2
+19052,Dawn Treaders,1,,recipe:t1:reagents:t1
+19058,Golden Mantle of the Dawn,0,,recipe:t0:pattern-vendor
+19083,Frostwolf Legionnaire's Cloak,7,pvp,nodisenchant-quarantine
+19084,Stormpike Soldier's Cloak,7,pvp,nodisenchant-quarantine
+19086,Stormpike Sage's Cloak,7,pvp,nodisenchant-quarantine
+19087,Frostwolf Plate Belt,,pvp+unobtainable,
+19089,Frostwolf Leather Belt,,pvp+unobtainable,
+19090,Frostwolf Cloth Belt,7,pvp,nodisenchant-quarantine
+19091,Stormpike Plate Girdle,,pvp+unobtainable,
+19093,Stormpike Leather Girdle,,pvp+unobtainable,
+19094,Stormpike Cloth Girdle,7,pvp,nodisenchant-quarantine
+19096,Frostwolf Advisor's Pendant,7,pvp,nodisenchant-quarantine
+19098,Stormpike Sage's Pendant,7,pvp,nodisenchant-quarantine
+19103,Frostbite,,pvp+unobtainable,
+19104,Stormstrike Hammer,,pvp+unobtainable,
+19107,Bloodseeker,7,pvp,quest:8271;raid-quest
+19108,Wand of Biting Cold,7,pvp,quest:8271;raid-quest
+19120,Rune of the Guard Captain,0,,quest:7862;quest-chain
+19130,Cold Snap,3,,loot:t3
+19131,Snowblind Shoes,3,,loot:t3
+19132,Crystal Adorned Crown,3,,loot:t3
+19133,Fel Infused Leggings,3,,loot:t3
+19134,Flayed Doomguard Belt,3,,loot:t3
+19135,Blacklight Bracer,3,,loot:t3
+19136,Mana Igniting Cord,3,,loot:t3
+19137,Onslaught Girdle,3,,loot:t3
+19138,Band of Sulfuras,3,,loot:t3
+19139,Fireguard Shoulders,3,,loot:t3
+19140,Cauterizing Band,3,,loot:t3
+19142,Fire Runed Grimoire,3,,loot:t3
+19143,Flameguard Gauntlets,3,,loot:t3
+19145,Robe of Volatile Power,3,,loot:t3
+19146,Wristguards of Stability,3,,loot:t3
+19147,Ring of Spell Power,3,,loot:t3
+19149,Lava Belt,3,,recipe:t3:reagents:t3
+19156,Flarecore Robe,3,,recipe:t3:reagents:t3
+19157,Chromatic Gauntlets,3,,recipe:t3:reagents:t3
+19162,Corehound Belt,3,,recipe:t3:reagents:t3
+19163,Molten Belt,3,,recipe:t3:reagents:t3
+19165,Flarecore Leggings,3,,recipe:t3:reagents:t3
+19168,Blackguard,3,,recipe:t3:reagents:t3
+19169,Nightfall,3,,recipe:t3:reagents:t3
+19170,Ebon Hand,3,,recipe:t3:reagents:t3
+19288,Darkmoon Card: Blue Dragon,0,,quest:7907;quest-chain
+19289,Darkmoon Card: Maelstrom,0,,quest:7929;quest-chain
+19308,Tome of Arcane Domination,2,pvp,proc-craft
+19309,Tome of Shadow Force,2,pvp,proc-craft
+19310,Tome of the Ice Lord,2,pvp,proc-craft
+19312,Lei of the Lifegiver,2,pvp,proc-craft
+19315,Therazane's Touch,2,pvp,proc-craft
+19319,Harpy Hide Quiver,1,pvp,proc-craft
+19321,The Immovable Object,2,pvp,proc-craft
+19323,The Unstoppable Force,2,pvp,proc-craft
+19325,Don Julio's Band,2,pvp,proc-craft
+19334,The Untamed Blade,4,,loot:t4
+19335,Spineshatter,4,,loot:t4
+19337,The Black Book,4,,loot:t4
+19339,Mind Quickening Gem,4,,loot:t4
+19340,Rune of Metamorphosis,4,,loot:t4
+19341,Lifegiving Gem,4,,loot:t4
+19343,Scrolls of Blinding Light,4,,loot:t4
+19344,Natural Alignment Crystal,4,,loot:t4
+19346,Dragonfang Blade,4,,loot:t4
+19347,Claw of Chromaggus,4,,loot:t4
+19348,Red Dragonscale Protector,4,,loot:t4
+19349,Elementium Reinforced Bulwark,4,,loot:t4
+19350,Heartstriker,4,,loot:t4
+19351,Maladath; Runed Blade of the Black Flight,4,,loot:t4
+19352,Chromatically Tempered Sword,4,,loot:t4
+19353,Drake Talon Cleaver,4,,loot:t4
+19355,Shadow Wing Focus Staff,4,,loot:t4
+19356,Staff of the Shadow Flame,4,,loot:t4
+19357,Herald of Woe,4,,loot:t4
+19358,Draconic Maul,4,,loot:t4
+19360,Lok'amir il Romathis,4,,loot:t4
+19361,Ashjre'thul; Crossbow of Smiting,4,,loot:t4
+19362,Doom's Edge,4,,loot:t4
+19363,Crul'shorukh; Edge of Chaos,4,,loot:t4
+19364,Ashkandi; Greatsword of the Brotherhood,4,,loot:t4
+19366,Master Dragonslayer's Orb,4,,quest:7782;quest-chain;token:t4
+19367,Dragon's Touch,4,,loot:t4
+19368,Dragonbreath Hand Cannon,4,,loot:t4
+19369,Gloves of Rapid Evolution,4,,loot:t4
+19370,Mantle of the Blackwing Cabal,4,,loot:t4
+19371,Pendant of the Fallen Dragon,4,,loot:t4
+19372,Helm of Endless Rage,4,,loot:t4
+19373,Black Brood Pauldrons,4,,loot:t4
+19374,Bracers of Arcane Accuracy,4,,loot:t4
+19375,Mish'undare; Circlet of the Mind Flayer,4,,loot:t4
+19376,Archimtiros' Ring of Reckoning,4,,loot:t4
+19377,Prestor's Talisman of Connivery,4,,loot:t4
+19378,Cloak of the Brood Lord,4,,loot:t4
+19379,Neltharion's Tear,4,,loot:t4
+19380,Therazane's Link,4,,loot:t4
+19381,Boots of the Shadow Flame,4,,loot:t4
+19382,Pure Elementium Band,4,,loot:t4
+19383,Master Dragonslayer's Medallion,4,,quest:7782;quest-chain;token:t4
+19384,Master Dragonslayer's Ring,4,,quest:7782;quest-chain;token:t4
+19385,Empowered Leggings,4,,loot:t4
+19386,Elementium Threaded Cloak,4,,loot:t4
+19387,Chromatic Boots,4,,loot:t4
+19388,Angelista's Grasp,4,,loot:t4
+19389,Taut Dragonhide Shoulderpads,4,,loot:t4
+19390,Taut Dragonhide Gloves,4,,loot:t4
+19391,Shimmering Geta,4,,loot:t4
+19392,Girdle of the Fallen Crusader,4,,loot:t4
+19393,Primalist's Linked Waistguard,4,,loot:t4
+19394,Drake Talon Pauldrons,4,,loot:t4
+19395,Rejuvenating Gem,4,,loot:t4
+19396,Taut Dragonhide Belt,4,,loot:t4
+19397,Ring of Blackrock,4,,loot:t4
+19398,Cloak of Firemaw,4,,loot:t4
+19400,Firemaw's Clutch,4,,loot:t4
+19402,Legguards of the Fallen Crusader,4,,loot:t4
+19403,Band of Forced Concentration,4,,loot:t4
+19405,Malfurion's Blessed Bulwark,4,,loot:t4
+19406,Drake Fang Talisman,4,,loot:t4
+19407,Ebony Flame Gloves,4,,loot:t4
+19426,Orb of the Darkmoon,0,,quest:7940;quest-chain
+19430,Shroud of Pure Thought,4,,loot:t4
+19431,Styleen's Impeding Scarab,4,,loot:t4
+19432,Circle of Applied Force,4,,loot:t4
+19434,Band of Dark Dominion,4,,loot:t4
+19435,Essence Gatherer,4,,loot:t4
+19436,Cloak of Draconic Might,4,,loot:t4
+19437,Boots of Pure Thought,4,,loot:t4
+19438,Ringo's Blizzard Boots,4,,loot:t4
+19439,Interlaced Shadow Jerkin,4,,loot:t4
+19491,Amulet of the Darkmoon,0,,quest:7981;quest-chain
+19510,Legionnaire's Band,,pvp+unobtainable,
+19514,Protector's Band,,unobtainable,
+19522,Lorekeeper's Ring,2,,proc-craft
+19526,Battle Healer's Cloak,2,,proc-craft
+19530,Caretaker's Cape,2,,proc-craft
+19534,Scout's Medallion,,unobtainable,
+19538,Sentinel's Medallion,,unobtainable,
+19542,Scout's Blade,,unobtainable,
+19546,Sentinel's Blade,,unobtainable,
+19558,Outrider's Bow,,pvp+unobtainable,
+19562,Outrunner's Bow,,pvp+unobtainable,
+19578,Berserker Bracers,,unobtainable,
+19582,Windtalker's Wristguards,3,,proc-craft
+19587,Forest Stalker's Bracers,,unobtainable,
+19589,Forest Stalker's Bracers,,unobtainable,
+19590,Forest Stalker's Bracers,,unobtainable,
+19594,The All-Seeing Eye of Zuldazar,2,rep,quest:8052;raid-rep-quest:t2;raid-rep:t2
+19595,Dryad's Wrist Bindings,3,,proc-craft
+19605,Kezan's Unstoppable Taint,2,rep,quest:8109;raid-rep-quest:t2;raid-rep:t2
+19613,Pristine Enchanted South Seas Kelp,2,rep,quest:8113;raid-rep-quest:t2;raid-rep:t2
+19617,Zandalarian Shadow Mastery Talisman,2,rep,quest:8144;raid-rep-quest:t2;raid-rep:t2
+19621,Maelstrom's Wrath,2,rep,quest:8148;raid-rep-quest:t2;raid-rep:t2
+19682,Bloodvine Vest,2,,recipe:t2:reagents:t2
+19683,Bloodvine Leggings,2,,recipe:t2:reagents:t2
+19684,Bloodvine Boots,2,,recipe:t2:reagents:t2
+19685,Primal Batskin Jerkin,2,,recipe:t2:reagents:t2
+19686,Primal Batskin Gloves,2,,recipe:t2:reagents:t2
+19687,Primal Batskin Bracers,2,,recipe:t2:reagents:t2
+19689,Blood Tiger Shoulders,2,,recipe:t2:reagents:t2
+19690,Bloodsoul Breastplate,2,,recipe:t2:reagents:t2
+19691,Bloodsoul Shoulders,2,,recipe:t2:reagents:t2
+19692,Bloodsoul Gauntlets,2,,recipe:t2:reagents:t2
+19812,Rune of the Dawn,1,,quest:5213;quest-chain;token:t1
+19822,Zandalar Vindicator's Breastplate,2,,quest:8079;raid-quest;token:t2
+19823,Zandalar Vindicator's Belt,2,,quest:8078;raid-quest;token:t2
+19824,Zandalar Vindicator's Armguards,2,,quest:8058;raid-quest;token:t2
+19825,Zandalar Freethinker's Breastplate,2,,quest:8055;raid-quest;token:t2
+19828,Zandalar Augur's Hauberk,2,,quest:8075;raid-quest;token:t2
+19829,Zandalar Augur's Belt,2,,quest:8074;raid-quest;token:t2
+19830,Zandalar Augur's Bracers,2,,quest:8056;raid-quest;token:t2
+19831,Zandalar Predator's Mantle,2,,quest:8067;raid-quest;token:t2
+19832,Zandalar Predator's Belt,2,,quest:8066;raid-quest;token:t2
+19833,Zandalar Predator's Bracers,2,,quest:8062;raid-quest;token:t2
+19834,Zandalar Madcap's Tunic,2,,quest:8073;raid-quest;token:t2
+19835,Zandalar Madcap's Mantle,2,,quest:8072;raid-quest;token:t2
+19836,Zandalar Madcap's Bracers,2,,quest:8063;raid-quest;token:t2
+19838,Zandalar Haruspex's Tunic,2,,quest:8065;raid-quest;token:t2
+19839,Zandalar Haruspex's Belt,2,,quest:8064;raid-quest;token:t2
+19840,Zandalar Haruspex's Bracers,2,,quest:8057;raid-quest;token:t2
+19841,Zandalar Confessor's Mantle,2,,quest:8071;raid-quest;token:t2
+19842,Zandalar Confessor's Bindings,2,,quest:8070;raid-quest;token:t2
+19843,Zandalar Confessor's Wraps,2,,quest:8061;raid-quest;token:t2
+19848,Zandalar Demoniac's Wraps,2,,quest:8059;raid-quest;token:t2
+19849,Zandalar Demoniac's Mantle,2,,quest:8076;raid-quest;token:t2
+19852,Ancient Hakkari Manslayer,2,,loot:t2
+19853,Gurubashi Dwarf Destroyer,2,,loot:t2
+19854,Zin'rokh; Destroyer of Worlds,2,,loot:t2
+19855,Bloodsoaked Legplates,2,,loot:t2
+19856,The Eye of Hakkar,2,,loot:t2
+19857,Cloak of Consumption,2,,loot:t2
+19859,Fang of the Faceless,2,,loot:t2
+19861,Touch of Chaos,2,,loot:t2
+19862,Aegis of the Blood God,2,,loot:t2
+19863,Primalist's Seal,2,,loot:t2
+19864,Bloodcaller,2,,loot:t2
+19865,Warblade of the Hakkari,2,,loot:t2
+19866,Warblade of the Hakkari,2,,loot:t2
+19867,Bloodlord's Defender,2,,loot:t2
+19869,Blooddrenched Grips,2,,loot:t2
+19870,Hakkari Loa Cloak,2,,loot:t2
+19871,Talisman of Protection,2,,loot:t2
+19873,Overlord's Crimson Band,2,,loot:t2
+19874,Halberd of Smiting,2,,loot:t2
+19875,Bloodstained Coif,2,,loot:t2
+19876,Soul Corrupter's Necklace,2,,loot:t2
+19877,Animist's Leggings,2,,loot:t2
+19878,Bloodsoaked Pauldrons,2,,loot:t2
+19884,Jin'do's Judgement,2,,loot:t2
+19885,Jin'do's Evil Eye,2,,loot:t2
+19886,The Hexxer's Cover,2,,loot:t2
+19887,Bloodstained Legplates,2,,loot:t2
+19888,Overlord's Embrace,2,,loot:t2
+19889,Blooddrenched Leggings,2,,loot:t2
+19890,Jin'do's Hexxer,2,,loot:t2
+19891,Jin'do's Bag of Whammies,2,,loot:t2
+19892,Animist's Boots,2,,loot:t2
+19893,Zanzil's Seal,2,,loot:t2
+19894,Bloodsoaked Gauntlets,2,,loot:t2
+19895,Bloodtinged Kilt,2,,loot:t2
+19897,Betrayer's Boots,2,,loot:t2
+19898,Seal of Jin,2,,loot:t2
+19899,Ritualistic Legguards,2,,loot:t2
+19900,Zulian Stone Axe,2,,loot:t2
+19903,Fang of Venoxis,2,,loot:t2
+19904,Runed Bloodstained Hauberk,2,,loot:t2
+19905,Zanzil's Band,2,,loot:t2
+19906,Blooddrenched Footpads,2,,loot:t2
+19907,Zulian Tigerhide Cloak,2,,loot:t2
+19909,Will of Arlokk,2,,loot:t2
+19912,Overlord's Onyx Band,2,,loot:t2
+19919,Bloodstained Greaves,2,,loot:t2
+19920,Primalist's Band,2,,loot:t2
+19921,Zulian Hacker,2,,loot:t2
+19922,Arlokk's Hoodoo Stick,2,,loot:t2
+19923,Jeklik's Opaline Talisman,2,,loot:t2
+19925,Band of Jin,2,,loot:t2
+19927,Mar'li's Touch,2,,loot:t2
+19928,Animist's Spaulders,2,,loot:t2
+19929,Bloodtinged Gloves,2,,loot:t2
+19930,Mar'li's Eye,2,,loot:t2
+19944,Nat Pagle's Fish Terminator,2,,loot:t2
+19945,Foror's Eyepatch,2,,loot:t2
+19947,Nat Pagle's Broken Reel,2,,loot:t2
+19949,Zandalarian Hero Medallion,2,,quest:8183;quest-chain;token:t2
+19950,Zandalarian Hero Charm,2,,quest:8183;quest-chain;token:t2
+19953,Renataki's Charm of Beasts,2,,proc-craft
+19957,Hazza'rah's Charm of Destruction,2,,proc-craft
+19958,Hazza'rah's Charm of Healing,2,,proc-craft
+19961,Gri'lek's Grinder,2,,proc-craft
+19962,Gri'lek's Carver,2,,proc-craft
+19964,Renataki's Soul Conduit,2,,proc-craft
+19965,Wushoolay's Poker,2,,proc-craft
+19967,Thoughtblighter,2,,proc-craft
+19968,Fiery Retributer,2,,proc-craft
+19984,Ebon Mask,0,,quest:8236;quest-chain
+19990,Blessed Prayer Beads,0,,quest:8257;quest-chain;token:t0
+19991,Devilsaur Eye,0,,quest:8232;quest-chain
+19999,Bloodvine Goggles,2,,recipe:t2:reagents:t2
+20032,Flowing Ritual Robes,2,,loot:t2
+20033,Zandalar Demoniac's Robe,2,,quest:8077;raid-quest;token:t2
+20037,Arcane Crystal Pendant,0,,quest:8253;quest-chain
+20038,Mandokir's Sting,2,,loot:t2
+20041,Highlander's Plate Girdle,7,rep+pvp,nodisenchant-quarantine
+20042,Highlander's Lamellar Girdle,7,rep+pvp,nodisenchant-quarantine
+20043,Highlander's Chain Girdle,7,rep+pvp,nodisenchant-quarantine
+20045,Highlander's Leather Girdle,7,rep+pvp,nodisenchant-quarantine
+20047,Highlander's Cloth Girdle,7,rep+pvp,nodisenchant-quarantine
+20048,Highlander's Plate Greaves,7,rep+pvp,nodisenchant-quarantine
+20049,Highlander's Lamellar Greaves,7,rep+pvp,nodisenchant-quarantine
+20050,Highlander's Chain Greaves,7,rep+pvp,nodisenchant-quarantine
+20052,Highlander's Leather Boots,7,rep+pvp,nodisenchant-quarantine
+20053,Highlander's Lizardhide Boots,7,rep+pvp,nodisenchant-quarantine
+20055,Highlander's Chain Pauldrons,7,rep+pvp,nodisenchant-quarantine
+20057,Highlander's Plate Spaulders,7,rep+pvp,nodisenchant-quarantine
+20058,Highlander's Lamellar Spaulders,7,rep+pvp,nodisenchant-quarantine
+20059,Highlander's Leather Shoulders,7,rep+pvp,nodisenchant-quarantine
+20060,Highlander's Lizardhide Shoulders,7,rep+pvp,nodisenchant-quarantine
+20061,Highlander's Epaulets,7,rep+pvp,nodisenchant-quarantine
+20068,Deathguard's Cloak,3,rep+pvp,proc-craft
+20069,Ironbark Staff,3,rep+pvp,proc-craft
+20070,Sageclaw,3,rep+pvp,proc-craft
+20073,Cloak of the Honor Guard,3,rep+pvp,proc-craft
+20112,Highlander's Leather Boots,7,rep+pvp,nodisenchant-quarantine
+20115,Highlander's Leather Girdle,7,rep+pvp,nodisenchant-quarantine
+20130,Diamond Flask,0,,quest:8425;quest-chain
+20134,Skyfury Helm,1,,quest:8258;quest-chain;token:t1
+20150,Defiler's Chain Girdle,7,rep+pvp,nodisenchant-quarantine
+20154,Defiler's Chain Greaves,7,rep+pvp,nodisenchant-quarantine
+20158,Defiler's Chain Pauldrons,7,rep+pvp,nodisenchant-quarantine
+20163,Defiler's Cloth Girdle,7,rep+pvp,nodisenchant-quarantine
+20167,Defiler's Lizardhide Boots,7,rep+pvp,nodisenchant-quarantine
+20175,Defiler's Lizardhide Shoulders,7,rep+pvp,nodisenchant-quarantine
+20176,Defiler's Epaulets,7,rep+pvp,nodisenchant-quarantine
+20186,Defiler's Leather Boots,7,rep+pvp,nodisenchant-quarantine
+20189,Defiler's Leather Boots,7,rep+pvp,nodisenchant-quarantine
+20190,Defiler's Leather Girdle,7,rep+pvp,nodisenchant-quarantine
+20193,Defiler's Leather Girdle,7,rep+pvp,nodisenchant-quarantine
+20194,Defiler's Leather Shoulders,7,rep+pvp,nodisenchant-quarantine
+20203,Defiler's Mail Pauldrons,7,rep+pvp,nodisenchant-quarantine
+20204,Defiler's Plate Girdle,7,rep+pvp,nodisenchant-quarantine
+20208,Defiler's Plate Greaves,7,rep+pvp,nodisenchant-quarantine
+20212,Defiler's Plate Spaulders,7,rep+pvp,nodisenchant-quarantine
+20214,Mindfang,3,rep+pvp,proc-craft
+20216,Belt of Preserved Heads,2,,quest:8201;raid-quest;token:t2
+20217,Belt of Tiny Heads,2,,quest:8201;raid-quest;token:t2
+20218,Faded Hakkari Cloak,1,,quest:8181;quest-chain;token:t1
+20257,Seafury Gauntlets,2,,loot:t2
+20258,Zulian Ceremonial Staff,2,,loot:t2
+20259,Shadow Panther Hide Gloves,2,,loot:t2;quest:50215
+20261,Shadow Panther Hide Belt,2,,loot:t2
+20262,Seafury Boots,2,,loot:t2
+20264,Peacekeeper Gauntlets,2,,loot:t2
+20265,Peacekeeper Boots,2,,loot:t2
+20266,Peacekeeper Leggings,2,,loot:t2
+20479,Spitfire Breastplate,2,,recipe:t2:reagents:t2
+20481,Spitfire Bracers,2,,recipe:t2:reagents:t2
+20503,Enamored Water Spirit,2,,quest:8413;quest-chain;token:t2
+20549,Darkrune Gauntlets,1,,recipe:t1:reagents:t1
+20577,Nightmare Blade,3,,loot:t3
+20578,Emerald Dragonfang,3,,loot:t3
+20580,Hammer of Bestial Fury,3,,loot:t3
+20581,Staff of Rampant Growth,3,,loot:t3
+20582,Trance Stone,3,,loot:t3
+20599,Polished Ironwood Crossbow,3,,loot:t3
+20615,Dragonspur Wraps,3,,loot:t3
+20616,Dragonbone Wristguards,3,,loot:t3
+20617,Ancient Corroded Leggings,3,,loot:t3
+20618,Gloves of Delusional Power,3,,loot:t3
+20623,Circlet of Restless Dreams,3,,loot:t3
+20624,Ring of the Unliving,3,,loot:t3
+20626,Black Bark Wristbands,3,,loot:t3
+20627,Dark Heart Pants,3,,loot:t3
+20628,Deviate Growth Cap,3,,loot:t3
+20629,Malignant Footguards,3,,loot:t3
+20631,Mendicant's Slippers,3,,loot:t3
+20632,Mindtear Band,3,,loot:t3
+20634,Boots of Fright,3,,loot:t3
+20635,Jade Inlaid Vestments,3,,loot:t3
+20636,Hibernation Crystal,3,,loot:t3
+20638,Leggings of the Demented Mind,3,,loot:t3
+20640,Southsea Head Bucket,0,,quest:8366;quest-chain
+20652,Abyssal Cloth Slippers,,unobtainable,
+20656,Abyssal Mail Sabatons,,unobtainable,
+20658,Abyssal Leather Boots,,unobtainable,
+20665,Abyssal Leather Leggings,1,,proc-craft
+20668,Abyssal Mail Legguards,1,,proc-craft
+20674,Abyssal Cloth Pants,1,,proc-craft
+20680,Abyssal Mail Pauldrons,2,,proc-craft
+20681,Abyssal Leather Bracers,,unobtainable,
+20682,Elemental Focus Band,2,,proc-craft
+20683,Abyssal Plate Epaulets,2,,proc-craft
+20684,Abyssal Mail Armguards,,unobtainable,
+20685,Wavefront Necklace,2,,proc-craft
+20686,Abyssal Cloth Amice,2,,proc-craft
+20689,Abyssal Leather Shoulders,2,,proc-craft
+20690,Abyssal Cloth Wristbands,,unobtainable,
+20691,Windshear Cape,2,,proc-craft
+20696,Crystal Spiked Maul,0,,loot:t0
+20697,Crystalline Threaded Cape,0,,loot:t0
+20698,Elemental Attuned Blade,0,,loot:t0
+20715,Dunestalker's Boots,0,,quest:8378;quest-chain
+20716,Sandworm Skin Gloves,0,,quest:8381;quest-chain
+20717,Desert Bloom Gloves,0,,quest:8379;quest-chain
+21126,Death's Sting,5,,loot:t5
+21128,Staff of the Qiraji Prophets,5,,loot:t5
+21134,Dark Edge of Insanity,5,,loot:t5
+21178,Gloves of Earthen Power,0,,quest:8548;quest-chain
+21180,Earthstrike,0,,quest:8573;quest-chain
+21182,Band of Earthen Might,0,,quest:8572;quest-chain
+21183,Earthpower Vest,0,,quest:8572;quest-chain
+21185,Earthcalm Orb,0,,quest:8574;quest-chain
+21186,Rockfury Bracers,0,,quest:8574;quest-chain
+21187,Earthweave Cloak,0,,quest:8548;quest-chain
+21188,Fist of Cenarius,0,,quest:8573;quest-chain
+21189,Might of Cenarius,0,,quest:8574;quest-chain
+21190,Wrath of Cenarius,0,,quest:8573;quest-chain
+21196,Signet Ring of the Bronze Dragonflight,5,rep,quest:8747;quest-chain;raid-rep:t5
+21198,Signet Ring of the Bronze Dragonflight,5,rep,quest:8749;quest-chain;raid-rep:t5
+21199,Signet Ring of the Bronze Dragonflight,5,rep,quest:8750;quest-chain;raid-rep:t5
+21200,Signet Ring of the Bronze Dragonflight,5,rep,quest:8751;quest-chain;token:t2;raid-rep:t5
+21201,Signet Ring of the Bronze Dragonflight,5,rep,quest:8752;quest-chain;raid-rep:t5
+21202,Signet Ring of the Bronze Dragonflight,5,rep,quest:8753;quest-chain;raid-rep:t5
+21203,Signet Ring of the Bronze Dragonflight,5,rep,quest:8754;quest-chain;raid-rep:t5
+21204,Signet Ring of the Bronze Dragonflight,5,rep,quest:8755;quest-chain;raid-rep:t5
+21205,Signet Ring of the Bronze Dragonflight,5,rep,quest:8756;quest-chain;token:t2;raid-rep:t5
+21208,Signet Ring of the Bronze Dragonflight,5,rep,quest:8759;quest-chain;raid-rep:t5
+21209,Signet Ring of the Bronze Dragonflight,5,rep,quest:8760;quest-chain;raid-rep:t5
+21210,Signet Ring of the Bronze Dragonflight,5,rep,quest:8761;quest-chain;token:t2;raid-rep:t5
+21244,Blessed Qiraji Pugio,5,,quest:8789;raid-quest;token:t5
+21268,Blessed Qiraji War Hammer,5,,quest:8790;raid-quest;token:t5
+21269,Blessed Qiraji Bulwark,5,,quest:8789;raid-quest;token:t5
+21273,Blessed Qiraji Acolyte Staff,5,,quest:8790;raid-quest;token:t5
+21275,Blessed Qiraji Augur Staff,5,,quest:8790;raid-quest;token:t5
+21318,Earth Warder's Gloves,0,,quest:8464;quest-chain
+21319,Gloves of the Pathfinder,0,,quest:8464;quest-chain
+21330,Conqueror's Spaulders,5,,quest:8544;raid-quest;token:t5
+21334,Doomcaller's Robes,5,,quest:8661;raid-quest;token:t5
+21335,Doomcaller's Mantle,5,,quest:8664;raid-quest;token:t5
+21336,Doomcaller's Trousers,5,,quest:8663;raid-quest;token:t5
+21337,Doomcaller's Circlet,5,,quest:8662;raid-quest;token:t5
+21338,Doomcaller's Footwraps,5,,quest:8660;raid-quest;token:t5
+21343,Enigma Robes,5,,quest:8633;raid-quest;token:t5
+21344,Enigma Boots,5,,quest:8634;raid-quest;token:t5
+21348,Coronet of the Oracle,5,,quest:8592;raid-quest;token:t5
+21349,Footwraps of the Oracle,5,,quest:8596;raid-quest;token:t5
+21350,Mantle of the Oracle,5,,quest:8594;raid-quest;token:t5
+21351,Raiments of the Oracle,5,,quest:8603;raid-quest;token:t5
+21352,Pants of the Oracle,5,,quest:8593;raid-quest;token:t5
+21353,Genesis Circlet,5,,quest:8667;raid-quest;token:t5
+21354,Genesis Mantle,5,,quest:8669;raid-quest;token:t5
+21355,Genesis Slippers,5,,quest:8665;raid-quest;token:t5
+21356,Genesis Trousers,5,,quest:8668;raid-quest;token:t5
+21357,Genesis Vest,5,,quest:8666;raid-quest;token:t5
+21359,Deathdealer's Boots,5,,quest:8637;raid-quest;token:t5
+21360,Deathdealer's Helm,5,,quest:8639;raid-quest;token:t5
+21361,Deathdealer's Spaulders,5,,quest:8641;raid-quest;token:t5
+21362,Deathdealer's Leggings,5,,quest:8640;raid-quest;token:t5
+21364,Deathdealer's Vest,5,,quest:8638;raid-quest;token:t5
+21365,Striker's Footguards,5,,quest:8626;raid-quest;token:t5
+21366,Striker's Diadem,5,,quest:8657;raid-quest;token:t5
+21367,Striker's Pauldrons,5,,quest:8659;raid-quest;token:t5
+21368,Striker's Leggings,5,,quest:8658;raid-quest;token:t5
+21370,Striker's Hauberk,5,,quest:8656;raid-quest;token:t5
+21372,Stormcaller's Diadem,5,,quest:8623;raid-quest;token:t5
+21373,Stormcaller's Greaves,5,,quest:8621;raid-quest;token:t5
+21374,Stormcaller's Hauberk,5,,quest:8622;raid-quest;token:t5
+21375,Stormcaller's Legplates,5,,quest:8624;raid-quest;token:t5
+21376,Stormcaller's Epaulets,5,,quest:8602;raid-quest;token:t5
+21387,Avenger's Crown,5,,quest:8628;raid-quest;token:t5
+21388,Avenger's Sabatons,5,,quest:8655;raid-quest;token:t5
+21389,Avenger's Chestplate,5,,quest:8627;raid-quest;token:t5
+21390,Avenger's Leggings,5,,quest:8629;raid-quest;token:t5
+21391,Avenger's Pauldrons,5,,quest:8630;raid-quest;token:t5
+21396,Ring of Eternal Justice,2,,quest:8703;raid-quest;token:t2
+21398,Hammer of the Gathering Storm,2,,quest:8706;raid-quest;token:t2
+21401,Scythe of the Unseen Path,2,,quest:8712;raid-quest;token:t2
+21402,Signet of the Unseen Path,2,,quest:8704;raid-quest;token:t2
+21403,Cloak of the Unseen Path,2,,quest:8696;raid-quest;token:t2
+21404,Dagger of Veiled Shadows,2,,quest:8709;raid-quest;token:t2
+21406,Cloak of Veiled Shadows,2,,quest:8693;raid-quest;token:t2
+21407,Mace of Unending Life,2,,quest:8708;raid-quest;token:t2
+21409,Cloak of Unending Life,2,,quest:8692;raid-quest;token:t2
+21410,Gavel of Infinite Wisdom,2,,quest:8705;raid-quest;token:t2
+21412,Shroud of Infinite Wisdom,2,,quest:8689;raid-quest;token:t2
+21416,Kris of Unspoken Names,2,,quest:8710;raid-quest;token:t2
+21417,Ring of Unspoken Names,2,,quest:8702;raid-quest;token:t2
+21418,Shroud of Unspoken Names,2,,quest:8694;raid-quest;token:t2
+21452,Staff of the Ruins,2,,loot:t2
+21453,Mantle of the Horusath,2,,loot:t2
+21455,Southwind Helm,2,,loot:t2
+21456,Sandstorm Cloak,2,,loot:t2
+21457,Bracers of Brutality,2,,loot:t2
+21458,Gauntlets of New Life,2,,loot:t2
+21459,Crossbow of Imminent Doom,2,,loot:t2
+21460,Helm of Domination,2,,loot:t2
+21461,Leggings of the Black Blizzard,2,,loot:t2
+21462,Gloves of Dark Wisdom,2,,loot:t2
+21463,Ossirian's Binding,2,,loot:t2
+21464,Shackles of the Unscarred,2,,loot:t2
+21466,Stinger of Ayamiss,2,,loot:t2
+21467,Thick Silithid Chestguard,2,,loot:t2
+21468,Mantle of Maz'Nadir,2,,loot:t2
+21469,Gauntlets of Southwind,2,,loot:t2
+21470,Cloak of the Savior,2,,loot:t2
+21471,Talon of Furious Concentration,2,,loot:t2
+21472,Dustwind Turban,2,,loot:t2
+21473,Eye of Moam,2,,loot:t2
+21474,Chitinous Shoulderguards,2,,loot:t2
+21475,Legplates of the Destroyer,2,,loot:t2
+21477,Ring of Fury,2,,loot:t2
+21479,Gauntlets of the Immovable,2,,loot:t2
+21482,Boots of the Fiery Sands,2,,loot:t2
+21483,Ring of the Desert Winds,2,,loot:t2
+21485,Buru's Skull Fragment,2,,loot:t2
+21487,Slimy Scaled Gauntlets,2,,loot:t2
+21489,Quicksand Waders,2,,loot:t2
+21491,Scaled Bracers of the Gorger,2,,loot:t2
+21492,Manslayer of the Qiraji,2,,loot:t2
+21493,Boots of the Vanguard,2,,loot:t2
+21494,Southwind's Grasp,2,,loot:t2
+21496,Bracers of Qiraji Command,2,,loot:t2
+21497,Boots of the Qiraji General,2,,loot:t2
+21498,Qiraji Sacrificial Dagger,2,,loot:t2
+21499,Vestments of the Shifting Sands,2,,loot:t2
+21500,Belt of the Inquisition,2,,loot:t2
+21501,Toughened Silithid Hide Gloves,2,,loot:t2
+21502,Sand Reaver Wristguards,2,,loot:t2
+21504,Charm of the Shifting Sands,2,,quest:8791;raid-quest;token:t2
+21505,Choker of the Shifting Sands,2,,quest:8791;raid-quest;token:t2
+21506,Pendant of the Shifting Sands,2,,quest:8791;raid-quest;token:t2
+21507,Amulet of the Shifting Sands,2,,quest:8791;raid-quest;token:t2
+21517,Gnomish Turban of Psychic Might,5,rep,quest:8620;quest-chain;token:t4;raid-rep:t5
+21520,Ravencrest's Legacy,5,rep,quest:8745;quest-chain;raid-rep:t5
+21521,Runesword of the Red,5,rep,quest:8745;quest-chain;raid-rep:t5
+21522,Shadowsong's Sorrow,5,rep,quest:8745;quest-chain;raid-rep:t5
+21523,Fang of Korialstrasz,5,rep,quest:8745;quest-chain;raid-rep:t5
+21531,Drake Tooth Necklace,5,rep,quest:8736;quest-chain;token:t4;raid-rep:t5
+21532,Drudge Boots,5,rep,quest:8736;quest-chain;token:t4;raid-rep:t5
+21565,Rune of Perfection,1,,proc-craft
+21566,Rune of Perfection,1,,proc-craft
+21581,Gauntlets of Annihilation,5,,loot:t5
+21582,Grasp of the Old God,5,,loot:t5
+21583,Cloak of Clarity,5,,loot:t5
+21585,Dark Storm Gauntlets,5,,loot:t5
+21586,Belt of Never-ending Agony,5,,loot:t5
+21596,Ring of the Godslayer,5,,loot:t5
+21597,Royal Scepter of Vek'lor,5,,loot:t5
+21598,Royal Qiraji Belt,5,,loot:t5
+21599,Vek'lor's Gloves of Devastation,5,,loot:t5
+21600,Boots of Epiphany,5,,loot:t5
+21601,Ring of Emperor Vek'lor,5,,loot:t5
+21602,Qiraji Execution Bracers,5,,loot:t5
+21603,Wand of Qiraji Nobility,5,,loot:t5
+21604,Bracelets of Royal Redemption,5,,loot:t5
+21605,Gloves of the Hidden Temple,5,,loot:t5
+21606,Belt of the Fallen Emperor,5,,loot:t5
+21607,Grasp of the Fallen Emperor,5,,loot:t5
+21608,Amulet of Vek'nilash,5,,loot:t5
+21609,Regenerating Belt of Vek'nilash,5,,loot:t5
+21610,Wormscale Blocker,5,,loot:t5
+21611,Burrower Bracers,5,,loot:t5
+21613,Wormhide Boots,5,,loot:t5
+21615,Don Rigoberto's Lost Hat,5,,loot:t5
+21616,Huhuran's Stinger,5,,loot:t5
+21617,Wasphide Gauntlets,5,,loot:t5
+21618,Hive Defiler Wristguards,5,,loot:t5
+21619,Gloves of the Messiah,5,,loot:t5
+21620,Ring of the Martyr,5,,loot:t5
+21621,Cloak of the Golden Hive,5,,loot:t5
+21622,Sharpened Silithid Femur,5,,loot:t5
+21623,Gauntlets of the Righteous Champion,5,,loot:t5
+21624,Gauntlets of Kalimdor,5,,loot:t5
+21625,Scarab Brooch,5,,loot:t5
+21635,Barb of the Sand Reaver,5,,loot:t5
+21639,Pauldrons of the Unrelenting,5,,loot:t5
+21645,Hive Tunneler's Boots,5,,loot:t5
+21647,Fetish of the Sand Reaver,5,,loot:t5
+21648,Recomposed Boots,5,,loot:t5
+21650,Ancient Qiraji Ripper,5,,loot:t5
+21651,Scaled Sand Reaver Leggings,5,,loot:t5
+21663,Robes of the Guardian Saint,5,,loot:t5
+21664,Barbed Choker,5,,loot:t5
+21665,Mantle of Wicked Revenge,5,,loot:t5
+21666,Sartura's Might,5,,loot:t5
+21667,Legplates of Blazing Light,5,,loot:t5
+21668,Scaled Leggings of Qiraji Fury,5,,loot:t5
+21669,Creeping Vine Helm,5,,loot:t5
+21670,Badge of the Swarmguard,5,,loot:t5
+21671,Robes of the Battleguard,5,,loot:t5
+21672,Gloves of Enforcement,5,,loot:t5
+21673,Silithid Claw,5,,loot:t5
+21674,Gauntlets of Steadfast Determination,5,,loot:t5
+21675,Thick Qirajihide Belt,5,,loot:t5
+21677,Ring of the Qiraji Fury,5,,loot:t5
+21680,Vest of Swift Execution,5,,loot:t5
+21681,Ring of the Devoured,5,,loot:t5
+21682,Bile-Covered Gauntlets,5,,loot:t5
+21683,Mantle of the Redeemed Prophecy,5,,loot:t5
+21684,Mantle of the Fallen Prophet,5,,loot:t5
+21685,Petrified Scarab,5,,loot:t5
+21688,Boots of the Fallen Hero,5,,loot:t5
+21689,Gloves of Ebru,5,,loot:t5
+21690,Angelista's Charm,5,,loot:t5
+21693,Guise of the Devourer,5,,loot:t5
+21694,Ternary Mantle,5,,loot:t5
+21695,Angelista's Touch,5,,loot:t5
+21696,Robes of the Triumvirate,5,,loot:t5
+21697,Cape of the Trinity,5,,loot:t5
+21698,Leggings of Immersion,5,,loot:t5
+21699,Barrage Shoulders,5,,loot:t5
+21700,Pendant of the Qiraji Guardian,5,,loot:t5
+21701,Cloak of Concentrated Hatred,5,,loot:t5
+21703,Hammer of Ji'zhi,5,,loot:t5
+21704,Boots of the Redeemed Prophecy,5,,loot:t5
+21705,Boots of the Fallen Prophet,5,,loot:t5
+21706,Boots of the Unwavering Will,5,,loot:t5
+21707,Ring of Swarming Thought,5,,loot:t5
+21708,Beetle Scaled Wristguards,5,,loot:t5
+21709,Ring of the Fallen God,5,,quest:8802;quest-chain;token:t5
+21710,Cloak of the Fallen God,5,,quest:8802;quest-chain;token:t5
+21712,Amulet of the Fallen God,5,,quest:8802;quest-chain;token:t5
+21715,Sand Polished Hammer,2,,loot:t2
+21801,Antenna of Invigoration,2,,loot:t2
+21802,The Lost Kris of Zedd,2,,loot:t2
+21803,Helm of the Holy Avenger,2,,loot:t2
+21805,Polished Obsidian Pauldrons,2,,loot:t2
+21809,Fury of the Forgotten Swarm,2,,loot:t2
+21810,Treads of the Wandering Nomad,2,,loot:t2
+21814,Breastplate of Annihilation,5,,loot:t5
+21836,Ritssyn's Ring of Chaos,5,,loot:t5
+21838,Garb of Royal Ascension,5,,loot:t5
+21839,Scepter of the False Prophet,5,,loot:t5
+21856,Neretzek; The Blood Drinker,5,,loot:t5
+21888,Gloves of the Immortal,5,,loot:t5
+21889,Gloves of the Redeemed Prophecy,5,,loot:t5
+21891,Shard of the Fallen Star,5,,loot:t5
+22002,Darkmantle Belt,1,,quest:8935;quest-chain;token:t1
+22003,Darkmantle Boots,1,,quest:8956;quest-chain;token:t1
+22004,Darkmantle Bracers,1,,quest:8910;quest-chain;token:t1
+22005,Darkmantle Cap,1,,quest:9004;quest-chain;token:t1
+22006,Darkmantle Gloves,1,,quest:8935;quest-chain;token:t1
+22007,Darkmantle Pants,1,,quest:8956;quest-chain;token:t1
+22008,Darkmantle Spaulders,1,,quest:8956;quest-chain;token:t1
+22009,Darkmantle Tunic,1,,quest:9004;quest-chain;token:t1
+22010,Beastmaster's Belt,1,,quest:8931;quest-chain;token:t1
+22013,Beastmaster's Cap,1,,quest:9000;quest-chain;token:t1
+22015,Beastmaster's Gloves,1,,quest:8931;quest-chain;token:t1
+22017,Beastmaster's Pants,1,,quest:8952;quest-chain;token:t1
+22060,Beastmaster's Tunic,1,,quest:9000;quest-chain;token:t1
+22061,Beastmaster's Boots,1,,quest:8952;quest-chain;token:t1
+22070,Deathmist Belt,1,,quest:8936;quest-chain;token:t1
+22074,Deathmist Mask,1,,quest:9005;quest-chain;token:t1
+22077,Deathmist Wraps,1,,quest:8936;quest-chain;token:t1
+22078,Virtuous Belt,1,,quest:8934;quest-chain;token:t1
+22079,Virtuous Bracers,1,,quest:8909;quest-chain;token:t1
+22080,Virtuous Crown,1,,quest:9003;quest-chain;token:t1
+22081,Virtuous Gloves,1,,quest:8934;quest-chain;token:t1
+22082,Virtuous Mantle,1,,quest:8955;quest-chain;token:t1
+22083,Virtuous Robe,1,,quest:9003;quest-chain;token:t1
+22084,Virtuous Sandals,1,,quest:8955;quest-chain;token:t1
+22085,Virtuous Skirt,1,,quest:8955;quest-chain;token:t1
+22086,Soulforge Belt,1,,quest:8933;quest-chain;token:t1
+22087,Soulforge Boots,1,,quest:8954;quest-chain;token:t1
+22088,Soulforge Bracers,1,,quest:8908;quest-chain;token:t1
+22089,Soulforge Breastplate,1,,quest:9002;quest-chain;token:t1
+22090,Soulforge Gauntlets,1,,quest:8933;quest-chain;token:t1
+22091,Soulforge Helm,1,,quest:9002;quest-chain;token:t1
+22092,Soulforge Legplates,1,,quest:8954;quest-chain;token:t1
+22093,Soulforge Spaulders,1,,quest:8954;quest-chain;token:t1
+22096,Boots of The Five Thunders,1,,quest:8957;quest-chain;token:t1
+22099,Gauntlets of The Five Thunders,1,,quest:8942;quest-chain;token:t1
+22107,Moonheart Boots,1,,quest:8951;quest-chain;token:t1
+22109,Moonheart Cowl,1,,quest:8999;quest-chain;token:t1
+22111,Moonheart Kilt,1,,quest:8951;quest-chain;token:t1
+22112,Moonheart Spaulders,1,,quest:8951;quest-chain;token:t1
+22113,Moonheart Vest,1,,quest:8999;quest-chain;token:t1
+22150,Beads of Ogre Might,1,,quest:8949;quest-chain;token:t1
+22191,Obsidian Mail Tunic,2,,recipe:t2:reagents:t2
+22194,Black Grasp of the Destroyer,2,,recipe:t2:pattern-loot:t2
+22195,Light Obsidian Belt,2,,recipe:t2:reagents:t2
+22204,Wristguards of Renown,1,,loot:t1
+22207,Sash of the Grand Hunt,1,,loot:t1
+22223,Foreman's Head Protector,1,,loot:t1
+22225,Dragonskin Cowl,1,,proc-craft
+22231,Kayser's Boots of Precision,1,,loot:t1
+22232,Marksman's Girdle,1,,proc-craft
+22234,Mantle of Lost Hope,1,,loot:t1
+22241,Dark Warder's Pauldrons,1,,loot:t1
+22242,Verek's Leash,1,,loot:t1
+22247,Faith Healer's Boots,1,,loot:t1
+22253,Tome of the Lost,1,,loot:t1
+22254,Wand of Eternal Light,1,,loot:t1
+22255,Magma Forged Band,1,,loot:t1
+22267,Spellweaver's Turban,1,,loot:t1
+22268,Draconic Infused Emblem,1,,loot:t1
+22269,Shadow Prowler's Cloak,1,,loot:t1
+22272,Forest's Embrace,0,,quest:9053;quest-chain;token:t0
+22274,Grizzled Pelt,0,,quest:9053;quest-chain;token:t0
+22275,Firemoss Boots,1,,proc-craft
+22314,Huntsman's Harpoon,1,,loot:t1
+22319,Tome of Divine Right,1,,loot:t1
+22321,Heart of Wyrmthalak,1,,loot:t1
+22325,Belt of the Trickster,1,,loot:t1
+22328,Legplates of Vigilance,1,,loot:t1
+22329,Scepter of Interminable Focus,1,,loot:t1
+22330,Shroud of Arcane Mastery,1,,loot:t1
+22331,Band of the Steadfast Hero,1,,loot:t1
+22334,Band of Mending,1,,loot:t1
+22335,Lord Valthalak's Staff of Command,1,,loot:t1
+22336,Draconian Aegis of the Legion,1,,loot:t1
+22337,Shroud of Domination,1,,loot:t1
+22339,Rune Band of Wizardry,1,,loot:t1
+22340,Pendant of Celerity,1,,loot:t1
+22342,Leggings of Torment,1,,loot:t1
+22347,Fahrad's Reloading Repeater,2,,quest:9023;raid-quest;token:t2
+22348,Doomulus Prime,2,,quest:9023;raid-quest;token:t2
+22377,The Thunderwood Poker,2,,quest:9023;raid-quest;token:t2
+22380,Simone's Cultivating Hammer,2,,quest:9023;raid-quest;token:t2
+22383,Sageblade,3,,recipe:t3:pattern-loot:t3
+22385,Titanic Leggings,3,,recipe:t3:pattern-loot:t3
+22395,Totem of Rage,1,,loot:t1
+22396,Totem of Life,5,,loot:t5
+22397,Idol of Ferocity,1,,loot:t1
+22398,Idol of Rejuvenation,1,,loot:t1
+22399,Idol of Health,5,,loot:t5
+22400,Libram of Truth,1,,loot:t1
+22401,Libram of Hope,1,,loot:t1
+22402,Libram of Grace,5,,loot:t5
+22403,Diana's Pearl Necklace,1,,loot:t1
+22405,Mantle of the Scarlet Crusade,1,,loot:t1
+22406,Redemption,1,,loot:t1
+22408,Ritssyn's Wand of Bad Mojo,1,,loot:t1
+22409,Tunic of the Crescent Moon,1,,loot:t1
+22410,Gauntlets of Deftness,1,,loot:t1
+22416,Dreadnaught Breastplate,6,rep,quest:9034;quest-chain;token:t6;raid-rep:t6
+22417,Dreadnaught Legplates,6,rep,quest:9036;quest-chain;token:t6;raid-rep:t6
+22418,Dreadnaught Helmet,6,rep,quest:9037;quest-chain;token:t6;raid-rep:t6
+22419,Dreadnaught Pauldrons,6,rep,quest:9038;quest-chain;token:t6;raid-rep:t6
+22420,Dreadnaught Sabatons,6,rep,quest:9039;quest-chain;token:t6;raid-rep:t6
+22421,Dreadnaught Gauntlets,6,rep,quest:9040;quest-chain;token:t6;raid-rep:t6
+22422,Dreadnaught Waistguard,6,rep,quest:9041;quest-chain;token:t6;raid-rep:t6
+22423,Dreadnaught Bracers,6,rep,quest:9042;quest-chain;token:t6;raid-rep:t6
+22424,Redemption Bracers,6,rep,quest:9050;quest-chain;token:t6;raid-rep:t6
+22425,Redemption Tunic,6,rep,quest:9043;quest-chain;token:t6;raid-rep:t6
+22426,Redemption Gloves,6,rep,quest:9048;quest-chain;token:t6;raid-rep:t6
+22427,Redemption Pants,6,rep,quest:9044;quest-chain;token:t6;raid-rep:t6
+22428,Redemption Helm,6,rep,quest:9045;quest-chain;token:t6;raid-rep:t6
+22429,Redemption Spaulders,6,rep,quest:9046;quest-chain;token:t6;raid-rep:t6
+22430,Redemption Boots,6,rep,quest:9047;quest-chain;token:t6;raid-rep:t6
+22431,Redemption Belt,6,rep,quest:9049;quest-chain;token:t6;raid-rep:t6
+22433,Don Mauricio's Band of Domination,1,,proc-craft
+22436,Cryptstalker Tunic,6,rep,quest:9054;quest-chain;token:t6;raid-rep:t6
+22437,Cryptstalker Legguards,6,rep,quest:9055;quest-chain;token:t6;raid-rep:t6
+22438,Cryptstalker Headpiece,6,rep,quest:9056;quest-chain;token:t6;raid-rep:t6
+22439,Cryptstalker Spaulders,6,rep,quest:9057;quest-chain;token:t6;raid-rep:t6
+22440,Cryptstalker Boots,6,rep,quest:9058;quest-chain;token:t6;raid-rep:t6
+22441,Cryptstalker Handguards,6,rep,quest:9059;quest-chain;token:t6;raid-rep:t6
+22442,Cryptstalker Girdle,6,rep,quest:9060;quest-chain;token:t6;raid-rep:t6
+22443,Cryptstalker Wristguards,6,rep,quest:9061;quest-chain;token:t6;raid-rep:t6
+22464,Earthshatter Tunic,6,rep,quest:9068;quest-chain;token:t6;raid-rep:t6
+22465,Earthshatter Legguards,6,rep,quest:9069;quest-chain;token:t6;raid-rep:t6
+22466,Earthshatter Headpiece,6,rep,quest:9070;quest-chain;token:t6;raid-rep:t6
+22467,Earthshatter Spaulders,6,rep,quest:9071;quest-chain;token:t6;raid-rep:t6
+22468,Earthshatter Boots,6,rep,quest:9072;quest-chain;token:t6;raid-rep:t6
+22469,Earthshatter Handguards,6,rep,quest:9073;quest-chain;token:t6;raid-rep:t6
+22470,Earthshatter Belt,6,rep,quest:9074;quest-chain;token:t6;raid-rep:t6
+22471,Earthshatter Wristguards,6,rep,quest:9075;quest-chain;token:t6;raid-rep:t6
+22472,Boots of Ferocity,1,,loot:t1
+22476,Bonescythe Breastplate,6,rep,quest:9077;quest-chain;token:t6;raid-rep:t6
+22477,Bonescythe Legplates,6,rep,quest:9078;quest-chain;token:t6;raid-rep:t6
+22478,Bonescythe Helmet,6,rep,quest:9079;quest-chain;token:t6;raid-rep:t6
+22479,Bonescythe Pauldrons,6,rep,quest:9080;quest-chain;token:t6;raid-rep:t6
+22480,Bonescythe Sabatons,6,rep,quest:9081;quest-chain;token:t6;raid-rep:t6
+22481,Bonescythe Gauntlets,6,rep,quest:9082;quest-chain;token:t6;raid-rep:t6
+22482,Bonescythe Waistguard,6,rep,quest:9083;quest-chain;token:t6;raid-rep:t6
+22483,Bonescythe Bracers,6,rep,quest:9084;quest-chain;token:t6;raid-rep:t6
+22488,Dreamwalker Tunic,6,rep,quest:9086;quest-chain;token:t6;raid-rep:t6
+22489,Dreamwalker Legguards,6,rep,quest:9087;quest-chain;token:t6;raid-rep:t6
+22490,Dreamwalker Headpiece,6,rep,quest:9088;quest-chain;token:t6;raid-rep:t6
+22491,Dreamwalker Spaulders,6,rep,quest:9089;quest-chain;token:t6;raid-rep:t6
+22492,Dreamwalker Boots,6,rep,quest:9090;quest-chain;token:t6;raid-rep:t6
+22493,Dreamwalker Handguards,6,rep,quest:9091;quest-chain;token:t6;raid-rep:t6
+22494,Dreamwalker Belt,6,rep,quest:9092;quest-chain;token:t6;raid-rep:t6
+22495,Dreamwalker Bracers,6,rep,quest:9093;quest-chain;token:t6;raid-rep:t6
+22496,Frostfire Robe,6,rep,quest:9095;quest-chain;token:t6;raid-rep:t6
+22498,Frostfire Circlet,6,rep,quest:9097;quest-chain;token:t6;raid-rep:t6
+22500,Frostfire Sandals,6,rep,quest:9099;quest-chain;token:t6;raid-rep:t6
+22504,Plagueheart Robe,6,rep,quest:9103;quest-chain;token:t6;raid-rep:t6
+22505,Plagueheart Pants,6,rep,quest:9104;quest-chain;token:t6;raid-rep:t6
+22506,Plagueheart Circlet,6,rep,quest:9105;quest-chain;token:t6;raid-rep:t6
+22507,Plagueheart Shoulderpads,6,rep,quest:9106;quest-chain;token:t6;raid-rep:t6
+22508,Plagueheart Sandals,6,rep,quest:9107;quest-chain;token:t6;raid-rep:t6
+22509,Plagueheart Gloves,6,rep,quest:9108;quest-chain;token:t6;raid-rep:t6
+22510,Plagueheart Belt,6,rep,quest:9109;quest-chain;token:t6;raid-rep:t6
+22511,Plagueheart Bracers,6,rep,quest:9110;quest-chain;token:t6;raid-rep:t6
+22512,Robe of Faith,6,rep,quest:9111;quest-chain;token:t6;raid-rep:t6
+22513,Leggings of Faith,6,rep,quest:9112;quest-chain;token:t6;raid-rep:t6
+22514,Circlet of Faith,6,rep,quest:9113;quest-chain;token:t6;raid-rep:t6
+22515,Mantle of Faith,6,rep,quest:9114;quest-chain;token:t6;raid-rep:t6
+22516,Sandals of Faith,6,rep,quest:9115;quest-chain;token:t6;raid-rep:t6
+22517,Gloves of Faith,6,rep,quest:9116;quest-chain;token:t6;raid-rep:t6
+22518,Belt of Faith,6,rep,quest:9117;quest-chain;token:t6;raid-rep:t6
+22519,Bindings of Faith,6,rep,quest:9118;quest-chain;token:t6;raid-rep:t6
+22589,Atiesh; Greatstaff of the Guardian,6,legendary,quest:9270;quest-chain;token:t6
+22630,Atiesh; Greatstaff of the Guardian,6,legendary,quest:9271;quest-chain;token:t6
+22631,Atiesh; Greatstaff of the Guardian,6,legendary,quest:9257;quest-chain;token:t6
+22632,Atiesh; Greatstaff of the Guardian,6,legendary,quest:9269;quest-chain;token:t6
+22657,Amulet of the Dawn,6,rep,quest:9222;quest-chain;raid-rep:t6
+22659,Medallion of the Dawn,6,rep,quest:9222;quest-chain;raid-rep:t6
+22661,Polar Tunic,6,rep,recipe:t6:reagents:t6;quest:9243;token:t6;raid-rep:t6
+22662,Polar Gloves,6,,recipe:t6:reagents:t6;quest:9242;token:t6
+22663,Polar Bracers,6,,recipe:t6:reagents:t6;quest:9241;token:t6
+22667,Bracers of Hope,6,rep,quest:9222;quest-chain;raid-rep:t6
+22668,Bracers of Subterfuge,6,rep,quest:9222;quest-chain;raid-rep:t6
+22673,Outrider's Chain Leggings,7,pvp,nodisenchant-quarantine
+22676,Outrider's Mail Leggings,7,pvp,nodisenchant-quarantine
+22678,Talisman of Ascendance,6,rep,quest:9222;quest-chain;raid-rep:t6
+22680,Band of Resolution,6,rep,quest:9221;quest-chain;raid-rep:t6
+22681,Band of Piety,6,rep,quest:9221;quest-chain;raid-rep:t6
+22689,Sanctified Leather Helm,6,rep,quest:9221;quest-chain;raid-rep:t6
+22690,Leggings of the Plague Hunter,6,rep,quest:9221;quest-chain;raid-rep:t6
+22691,Corrupted Ashbringer,6,,loot:t6
+22701,Polar Leggings,6,,quest:9232;quest-chain;token:t6
+22711,Cloak of the Hakkari Worshipers,2,,loot:t2
+22712,Might of the Tribe,2,,loot:t2
+22714,Sacrificial Gauntlets,2,,loot:t2
+22715,Gloves of the Tormented,2,,loot:t2
+22716,Belt of Untapped Power,2,,loot:t2
+22718,Blooddrenched Mask,2,,loot:t2
+22720,Zulian Headdress,2,,loot:t2
+22721,Band of Servitude,2,,loot:t2;quest:50220
+22722,Seal of the Gurubashi Berserker,2,,loot:t2
+22730,Eyestalk Waist Cord,5,,loot:t5
+22731,Cloak of the Devoured,5,,loot:t5
+22732,Mark of C'Thun,5,,loot:t5
+22740,Outrider's Leather Pants,7,pvp,nodisenchant-quarantine
+22741,Outrider's Lizardhide Pants,7,pvp,nodisenchant-quarantine
+22747,Outrider's Silk Leggings,7,pvp,nodisenchant-quarantine
+22748,Sentinel's Chain Leggings,3,,proc-craft
+22749,Sentinel's Leather Pants,3,,proc-craft
+22750,Sentinel's Lizardhide Pants,3,,proc-craft
+22752,Sentinel's Silk Leggings,3,,proc-craft
+22753,Sentinel's Lamellar Legguards,3,,proc-craft
+22798,Might of Menethil,6,,loot:t6
+22799,Soulseeker,6,,loot:t6
+22800,Brimstone Staff,6,,loot:t6
+22801,Spire of Twilight,6,,loot:t6
+22802,Kingsfall,6,,loot:t6
+22803,Midnight Haze,6,,loot:t6
+22804,Maexxna's Fang,6,,loot:t6
+22806,Widow's Remorse,6,,loot:t6
+22807,Wraith Blade,6,,loot:t6
+22808,The Castigator,6,,loot:t6
+22809,Maul of the Redeemed Crusader,6,,loot:t6
+22810,Toxin Injector,6,,loot:t6
+22811,Soulstring,6,,loot:t6
+22812,Nerubian Slavemaker,6,,loot:t6
+22813,Claymore of Unholy Might,6,,loot:t6
+22815,Severance,6,,loot:t6
+22816,Hatchet of Sundered Bone,6,,loot:t6
+22818,The Plague Bearer,6,,loot:t6
+22819,Shield of Condemnation,6,,loot:t6
+22820,Wand of Fates,6,,loot:t6
+22821,Doomfinger,6,,loot:t6
+22843,Blood Guard's Chain Greaves,,pvp+unobtainable,
+22852,Blood Guard's Dragonhide Treads,2,,proc-craft
+22855,Blood Guard's Dreadweave Walkers,2,,proc-craft
+22859,Blood Guard's Satin Walkers,2,,proc-craft
+22860,Blood Guard's Silk Walkers,2,,proc-craft
+22862,Blood Guard's Chain Vices,2,,proc-craft
+22865,Blood Guard's Dreadweave Handwraps,2,,proc-craft
+22869,Blood Guard's Satin Handwraps,2,,proc-craft
+22873,Legionnaire's Plate Leggings,7,pvp,nodisenchant-quarantine
+22874,Legionnaire's Chain Hauberk,7,pvp,nodisenchant-quarantine
+22875,Legionnaire's Chain Legguards,7,pvp,nodisenchant-quarantine
+22876,Legionnaire's Mail Hauberk,7,pvp,nodisenchant-quarantine
+22877,Legionnaire's Dragonhide Chestpiece,7,pvp,nodisenchant-quarantine
+22878,Legionnaire's Dragonhide Leggings,7,pvp,nodisenchant-quarantine
+22879,Legionnaire's Leather Chestpiece,7,pvp,nodisenchant-quarantine
+22880,Legionnaire's Leather Legguards,7,pvp,nodisenchant-quarantine
+22881,Legionnaire's Dreadweave Legguards,7,pvp,nodisenchant-quarantine
+22882,Legionnaire's Satin Legguards,7,pvp,nodisenchant-quarantine
+22883,Legionnaire's Silk Legguards,7,pvp,nodisenchant-quarantine
+22885,Legionnaire's Satin Tunic,7,pvp,nodisenchant-quarantine
+22936,Wristguards of Vengeance,6,,loot:t6
+22937,Gem of Nerubis,6,,loot:t6
+22938,Cryptfiend Silk Cloak,6,,loot:t6
+22939,Band of Unanswered Prayers,6,,loot:t6
+22941,Polar Shoulder Pads,6,,loot:t6
+22942,The Widow's Embrace,6,,loot:t6
+22943,Malice Stone Pendant,6,,loot:t6
+22947,Pendant of Forgotten Names,6,,loot:t6
+22954,Kiss of the Spider,6,,loot:t6
+22960,Cloak of Suturing,6,,loot:t6
+22961,Band of Reanimation,6,,loot:t6
+22981,Gluth's Missing Collar,6,,loot:t6
+22983,Rime Covered Mantle,6,,loot:t6
+22988,The End of Dreams,6,,loot:t6
+22994,Digested Hand of Power,6,,loot:t6
+23000,Plated Abomination Ribcage,6,,loot:t6
+23001,Eye of Diminution,6,,loot:t6
+23004,Idol of Longevity,6,,loot:t6
+23006,Libram of Light,6,,loot:t6
+23009,Wand of the Whispering Dead,6,,loot:t6
+23014,Iblis; Blade of the Fallen Seraph,6,,loot:t6
+23017,Veil of Eclipse,6,,loot:t6
+23018,Signet of the Fallen Defender,6,,loot:t6
+23020,Polar Helmet,6,,loot:t6
+23021,The Soul Harvester's Bindings,6,,loot:t6
+23023,Sadist's Collar,6,,loot:t6
+23025,Seal of the Damned,6,,loot:t6
+23027,Warmth of Forgiveness,6,,loot:t6
+23028,Hailstone Band,6,,loot:t6
+23029,Noth's Frigid Heart,6,,loot:t6
+23030,Cloak of the Scourge,6,,loot:t6
+23031,Band of the Inevitable,6,,loot:t6
+23035,Preceptor's Hat,6,,loot:t6
+23036,Necklace of Necropsy,6,,loot:t6
+23037,Ring of Spiritual Fervor,6,,loot:t6
+23038,Band of Unnatural Forces,6,,loot:t6
+23039,The Eye of Nerub,6,,loot:t6
+23040,Glyph of Deflection,6,,loot:t6
+23041,Slayer's Crest,6,,loot:t6
+23042,Loatheb's Reflection,6,,loot:t6
+23043,The Face of Death,6,,loot:t6
+23044,Harbinger of Doom,6,,loot:t6
+23045,Shroud of Dominion,6,,loot:t6
+23046,The Restrained Essence of Sapphiron,6,,loot:t6
+23047,Eye of the Dead,6,,loot:t6
+23048,Sapphiron's Right Eye,6,,loot:t6
+23049,Sapphiron's Left Eye,6,,loot:t6
+23050,Cloak of the Necropolis,6,,loot:t6
+23053,Stormrage's Talisman of Seething,6,,loot:t6
+23054,Gressil; Dawn of Ruin,6,,loot:t6
+23056,Hammer of the Twisting Nether,6,,loot:t6
+23057,Gem of Trapped Innocents,6,,loot:t6
+23059,Ring of the Dreadnaught,6,,quest:41433;quest-chain;token:t6
+23060,Bonescythe Ring,6,,quest:41633;quest-chain;token:t6
+23061,Ring of Faith,6,,quest:41450;quest-chain;token:t6
+23062,Frostfire Ring,6,,quest:41467;quest-chain;token:t6
+23063,Plagueheart Ring,6,,quest:41416;quest-chain;token:t6
+23064,Ring of The Dreamwalker,6,,quest:41399;quest-chain;token:t6
+23065,Ring of the Earthshatterer,6,,quest:41517;quest-chain;token:t6
+23066,Ring of Redemption,6,,quest:41484;quest-chain;token:t6
+23067,Ring of the Cryptstalker,6,,quest:41632;quest-chain;token:t6
+23068,Legplates of Carnage,6,,loot:t6
+23070,Leggings of Polarity,6,,loot:t6
+23071,Leggings of Apocalypse,6,,loot:t6
+23073,Boots of Displacement,6,,loot:t6
+23075,Death's Bargain,6,,loot:t6
+23081,Handwraps of Undead Slaying,0,,quest:9094;quest-chain
+23084,Gloves of Undead Cleansing,0,,quest:9094;quest-chain
+23085,Robe of Undead Cleansing,1,,proc-craft
+23089,Tunic of Undead Slaying,1,,proc-craft
+23091,Bracers of Undead Cleansing,1,,proc-craft
+23093,Wristwraps of Undead Slaying,1,,proc-craft
+23125,Chains of the Lich,1,,loot:t1
+23127,Cloak of Revanchion,1,,loot:t1
+23129,Bracers of Mending,1,,loot:t1
+23156,Blackwood's Thigh,1,,loot:t1
+23197,Idol of the Moon,1,,loot:t1
+23198,Idol of Brutality,1,,loot:t1
+23199,Totem of the Storm,1,,loot:t1
+23201,Libram of Divinity,1,,loot:t1
+23203,Libram of Fervor,1,,loot:t1
+23206,Mark of the Champion,6,,quest:9120;quest-chain;token:t6
+23207,Mark of the Champion,6,,quest:9120;quest-chain;token:t6
+23219,Girdle of the Mentor,6,,loot:t6
+23220,Crystal Webbed Robe,6,,loot:t6
+23226,Ghoul Skin Tunic,6,,loot:t6
+23237,Ring of the Eternal Flame,6,,loot:t6
+23242,Claw of the Frost Wyrm,6,,loot:t6
+23243,Champion's Plate Shoulders,7,pvp,nodisenchant-quarantine
+23244,Champion's Plate Helm,7,pvp,nodisenchant-quarantine
+23251,Champion's Chain Helm,7,pvp,nodisenchant-quarantine
+23252,Champion's Chain Shoulders,7,pvp,nodisenchant-quarantine
+23253,Champion's Dragonhide Headguard,7,pvp,nodisenchant-quarantine
+23254,Champion's Dragonhide Shoulders,7,pvp,nodisenchant-quarantine
+23255,Champion's Dreadweave Cowl,7,pvp,nodisenchant-quarantine
+23257,Champion's Leather Helm,7,pvp,nodisenchant-quarantine
+23258,Champion's Leather Shoulders,7,pvp,nodisenchant-quarantine
+23261,Champion's Satin Hood,7,pvp,nodisenchant-quarantine
+23262,Champion's Satin Mantle,7,pvp,nodisenchant-quarantine
+23263,Champion's Silk Cowl,7,pvp,nodisenchant-quarantine
+23264,Champion's Silk Mantle,7,pvp,nodisenchant-quarantine
+23272,Knight-Captain's Lamellar Breastplate,7,pvp,nodisenchant-quarantine
+23273,Knight-Captain's Lamellar Leggings,7,pvp,nodisenchant-quarantine
+23274,Knight-Lieutenant's Lamellar Gauntlets,7,pvp,nodisenchant-quarantine
+23275,Knight-Lieutenant's Lamellar Sabatons,7,pvp,nodisenchant-quarantine
+23276,Lieutenant Commander's Lamellar Headguard,7,pvp,nodisenchant-quarantine
+23277,Lieutenant Commander's Lamellar Shoulders,7,pvp,nodisenchant-quarantine
+23278,Knight-Lieutenant's Chain Greaves,,pvp+unobtainable,
+23279,Knight-Lieutenant's Chain Vices,7,pvp,nodisenchant-quarantine
+23281,Knight-Lieutenant's Dragonhide Treads,7,pvp,nodisenchant-quarantine
+23282,Knight-Lieutenant's Dreadweave Handwraps,7,pvp,nodisenchant-quarantine
+23283,Knight-Lieutenant's Dreadweave Walkers,7,pvp,nodisenchant-quarantine
+23288,Knight-Lieutenant's Satin Handwraps,7,pvp,nodisenchant-quarantine
+23289,Knight-Lieutenant's Satin Walkers,7,pvp,nodisenchant-quarantine
+23290,Knight-Lieutenant's Silk Handwraps,7,pvp,nodisenchant-quarantine
+23291,Knight-Lieutenant's Silk Walkers,7,pvp,nodisenchant-quarantine
+23292,Knight-Captain's Chain Hauberk,7,pvp,nodisenchant-quarantine
+23293,Knight-Captain's Chain Legguards,7,pvp,nodisenchant-quarantine
+23294,Knight-Captain's Dragonhide Chestpiece,7,pvp,nodisenchant-quarantine
+23295,Knight-Captain's Dragonhide Leggings,7,pvp,nodisenchant-quarantine
+23296,Knight-Captain's Dreadweave Legguards,7,pvp,nodisenchant-quarantine
+23298,Knight-Captain's Leather Chestpiece,7,pvp,nodisenchant-quarantine
+23299,Knight-Captain's Leather Legguards,7,pvp,nodisenchant-quarantine
+23301,Knight-Captain's Plate Leggings,7,pvp,nodisenchant-quarantine
+23302,Knight-Captain's Satin Legguards,7,pvp,nodisenchant-quarantine
+23303,Knight-Captain's Satin Tunic,7,pvp,nodisenchant-quarantine
+23304,Knight-Captain's Silk Legguards,7,pvp,nodisenchant-quarantine
+23306,Lieutenant Commander's Chain Helm,7,pvp,nodisenchant-quarantine
+23307,Lieutenant Commander's Chain Shoulders,7,pvp,nodisenchant-quarantine
+23308,Lieutenant Commander's Dragonhide Headguard,7,pvp,nodisenchant-quarantine
+23309,Lieutenant Commander's Dragonhide Shoulders,7,pvp,nodisenchant-quarantine
+23310,Lieutenant Commander's Dreadweave Cowl,7,pvp,nodisenchant-quarantine
+23311,Lieutenant Commander's Dreadweave Spaulders,7,pvp,nodisenchant-quarantine
+23312,Lieutenant Commander's Leather Helm,7,pvp,nodisenchant-quarantine
+23313,Lieutenant Commander's Leather Shoulders,7,pvp,nodisenchant-quarantine
+23314,Lieutenant Commander's Plate Helm,7,pvp,nodisenchant-quarantine
+23315,Lieutenant Commander's Plate Shoulders,7,pvp,nodisenchant-quarantine
+23316,Lieutenant Commander's Satin Hood,7,pvp,nodisenchant-quarantine
+23317,Lieutenant Commander's Satin Mantle,7,pvp,nodisenchant-quarantine
+23318,Lieutenant Commander's Silk Cowl,7,pvp,nodisenchant-quarantine
+23319,Lieutenant Commander's Silk Mantle,7,pvp,nodisenchant-quarantine
+23451,Executioner's Mageblade,7,pvp,nodisenchant-quarantine
+23452,Executioner's Tome of Power,7,pvp,nodisenchant-quarantine
+23453,Field Medic's Tome of Restoration,7,pvp,nodisenchant-quarantine
+23454,Field Medic's Warhammer,7,pvp,nodisenchant-quarantine
+23456,Veteran's Swiftblade,7,pvp,nodisenchant-quarantine
+23464,Field Medic's Battle Mace,7,pvp,nodisenchant-quarantine
+23465,Executioner's Destroyer,7,pvp,nodisenchant-quarantine
+23466,Executioner's Spellblade,7,pvp,nodisenchant-quarantine
+23467,Veteran's Quickblade,7,pvp,nodisenchant-quarantine
+23468,Executioner's Tome of Destruction,7,pvp,nodisenchant-quarantine
+23469,Field Medic's Tome of Mending,7,pvp,nodisenchant-quarantine
+23548,Might of the Scourge,6,,loot:t6
+23557,Larvae of the Great Worm,5,,loot:t5
+23570,Jom Gabbar,5,,loot:t5
+23577,The Hungering Cold,6,,loot:t6
+23663,Girdle of Elemental Fury,6,,loot:t6
+23664,Pauldrons of Elemental Fury,6,,loot:t6
+23665,Leggings of Elemental Fury,6,,loot:t6
+23666,Belt of the Grand Crusader,6,,loot:t6
+23667,Spaulders of the Grand Crusader,6,,loot:t6
+23668,Leggings of the Grand Crusader,6,,loot:t6
+33081,Flask of Petrified Gold,3,,proc-craft
+41077,Yshgo'lar; Cowl of Fanatical Devotion,5,,loot:t5
+47017,Judgement Shoulderguards,4,,quest:41486;quest-chain;token:t4
+47020,Judgement Handguards,4,,quest:41489;quest-chain;token:t4
+47022,Judgement Legguards,3,,quest:41491;quest-chain;token:t3
+47024,Judgement Crown,3,,quest:41485;quest-chain;token:t3
+47027,Judgement Bindings,4,,quest:41488;quest-chain;token:t4
+47028,Judgement Gauntlets,4,,quest:41489;quest-chain;token:t4
+47029,Judgement Girdle,4,,quest:41490;quest-chain;token:t4
+47031,Judgement Sabatons,4,,quest:41492;quest-chain;token:t4
+47032,Avenger's Helmet,5,,quest:8628;raid-quest;token:t5
+47033,Avenger's Shoulderguards,5,,quest:8630;raid-quest;token:t5
+47034,Avenger's Chestguard,5,,quest:8627;raid-quest;token:t5
+47042,Redemption Helmet,6,rep,quest:9045;quest-chain;token:t6;raid-rep:t6
+47043,Redemption Shoulderguards,6,rep,quest:9046;quest-chain;token:t6;raid-rep:t6
+47044,Redemption Chestguard,6,rep,quest:9043;quest-chain;token:t6;raid-rep:t6
+47045,Redemption Wristguards,6,rep,quest:9050;quest-chain;token:t6;raid-rep:t6
+47046,Redemption Handguards,6,rep,quest:9048;quest-chain;token:t6;raid-rep:t6
+47047,Redemption Waistguard,6,rep,quest:9049;quest-chain;token:t6;raid-rep:t6
+47048,Redemption Legguards,6,rep,quest:9044;quest-chain;token:t6;raid-rep:t6
+47049,Redemption Greaves,6,rep,quest:9047;quest-chain;token:t6;raid-rep:t6
+47050,Signet of Redemption,6,,quest:41484;quest-chain;token:t6
+47051,Redemption Crown,6,rep,quest:9045;quest-chain;token:t6;raid-rep:t6
+47052,Redemption Pauldrons,6,rep,quest:9046;quest-chain;token:t6;raid-rep:t6
+47053,Redemption Chestplate,6,rep,quest:9043;quest-chain;token:t6;raid-rep:t6
+47054,Redemption Bindings,6,rep,quest:9050;quest-chain;token:t6;raid-rep:t6
+47056,Redemption Girdle,6,rep,quest:9049;quest-chain;token:t6;raid-rep:t6
+47057,Redemption Leggings,6,rep,quest:9044;quest-chain;token:t6;raid-rep:t6
+47058,Redemption Sabatons,6,rep,quest:9047;quest-chain;token:t6;raid-rep:t6
+47059,Band of Redemption,6,,quest:41484;quest-chain;token:t6
+47060,Lionheart Headpiece,7,,quest:41626;quest-chain;token:t7
+47061,Lionheart Spaulders,7,,quest:41627;quest-chain;token:t7
+47062,Lionheart Breastplate,7,,quest:41628;quest-chain;token:t7
+47064,Lionheart Boots,7,,quest:41630;quest-chain;token:t7
+47065,Lionheart Amulet,7,,quest:41631;quest-chain;token:t7
+47066,Lionheart Helmet,7,,quest:41626;quest-chain;token:t7
+47067,Lionheart Shoulderguards,7,,quest:41627;quest-chain;token:t7
+47068,Lionheart Chestguard,7,,quest:41628;quest-chain;token:t7
+47069,Lionheart Legguards,7,,quest:41629;quest-chain;token:t7
+47070,Lionheart Greaves,7,,quest:41630;quest-chain;token:t7
+47071,Lionheart Pendant,7,,quest:41631;quest-chain;token:t7
+47072,Lionheart Crown,7,,quest:41626;quest-chain;token:t7
+47073,Lionheart Pauldrons,7,,quest:41627;quest-chain;token:t7
+47074,Lionheart Chestplate,7,,quest:41628;quest-chain;token:t7
+47075,Lionheart Leggings,7,,quest:41629;quest-chain;token:t7
+47076,Lionheart Sabatons,7,,quest:41630;quest-chain;token:t7
+47077,Lionheart Choker,7,,quest:41631;quest-chain;token:t7
+47099,Frostfire Crown,6,rep,quest:9097;quest-chain;token:t6;raid-rep:t6
+47101,Frostfire Vestments,6,rep,quest:9095;quest-chain;token:t6;raid-rep:t6
+47102,Frostfire Bracers,6,rep,quest:9102;quest-chain;token:t6;raid-rep:t6
+47103,Frostfire Handwraps,6,rep,quest:9100;quest-chain;token:t6;raid-rep:t6
+47106,Frostfire Slippers,6,rep,quest:9099;quest-chain;token:t6;raid-rep:t6
+47107,Frostfire Signet,6,,quest:41467;quest-chain;token:t6
+47108,Crown of the Guardian,7,,quest:41620;quest-chain;token:t7
+47109,Mantle of the Guardian,7,,quest:41621;quest-chain;token:t7
+47110,Robes of the Guardian,7,,quest:41622;quest-chain;token:t7
+47112,Boots of the Guardian,7,,quest:41624;quest-chain;token:t7
+47113,Pendant of the Guardian,7,,quest:41625;quest-chain;token:t7
+47114,Circlet of the Guardian,7,,quest:41620;quest-chain;token:t7
+47116,Vestments of the Guardian,7,,quest:41622;quest-chain;token:t7
+47117,Trousers of the Guardian,7,,quest:41623;quest-chain;token:t7
+47119,Amulet of the Guardian,7,,quest:41625;quest-chain;token:t7
+47140,Fists of Ten Storms,4,,quest:41505;quest-chain;token:t4
+47143,Sabatons of Ten Storms,4,,quest:41508;quest-chain;token:t4
+47152,Stormcaller's Crown,5,,quest:8623;raid-quest;token:t5
+47153,Stormcaller's Pauldrons,5,,quest:8602;raid-quest;token:t5
+47154,Stormcaller's Breastplate,5,,quest:8622;raid-quest;token:t5
+47155,Stormcaller's Leggings,5,,quest:8624;raid-quest;token:t5
+47156,Stormcaller's Sabatons,5,,quest:8621;raid-quest;token:t5
+47162,Earthshatter Crown,6,rep,quest:9070;quest-chain;token:t6;raid-rep:t6
+47163,Earthshatter Pauldrons,6,rep,quest:9071;quest-chain;token:t6;raid-rep:t6
+47164,Earthshatter Breastplate,6,rep,quest:9068;quest-chain;token:t6;raid-rep:t6
+47165,Earthshatter Bracelets,6,rep,quest:9075;quest-chain;token:t6;raid-rep:t6
+47167,Earthshatter Girdle,6,rep,quest:9074;quest-chain;token:t6;raid-rep:t6
+47170,Signet of the Earthshatterer,6,,quest:41517;quest-chain;token:t6
+47171,Earthshatter Helmet,6,rep,quest:9070;quest-chain;token:t6;raid-rep:t6
+47173,Earthshatter Raiments,6,rep,quest:9068;quest-chain;token:t6;raid-rep:t6
+47175,Earthshatter Gauntlets,6,rep,quest:9073;quest-chain;token:t6;raid-rep:t6
+47176,Earthshatter Sash,6,rep,quest:9074;quest-chain;token:t6;raid-rep:t6
+47178,Earthshatter Greaves,6,rep,quest:9072;quest-chain;token:t6;raid-rep:t6
+47179,Loop of the Earthshatterer,6,,quest:41517;quest-chain;token:t6
+47180,Stormhowl Crown,7,,quest:41614;quest-chain;token:t7
+47181,Stormhowl Pauldrons,7,,quest:41615;quest-chain;token:t7
+47182,Stormhowl Breastplate,7,,quest:41616;quest-chain;token:t7
+47184,Stormhowl Sabatons,7,,quest:41618;quest-chain;token:t7
+47185,Choker of the Stormhowl,7,,quest:41619;quest-chain;token:t7
+47186,Stormhowl Helmet,7,,quest:41614;quest-chain;token:t7
+47187,Stormhowl Epaulets,7,,quest:41615;quest-chain;token:t7
+47188,Stormhowl Raiments,7,,quest:41616;quest-chain;token:t7
+47189,Stormhowl Legplates,7,,quest:41617;quest-chain;token:t7
+47190,Stormhowl Greaves,7,,quest:41618;quest-chain;token:t7
+47191,Pendant of the Stormhowl,7,,quest:41619;quest-chain;token:t7
+47192,Stormhowl Headpiece,7,,quest:41614;quest-chain;token:t7
+47193,Stormhowl Spaulders,7,,quest:41615;quest-chain;token:t7
+47194,Stormhowl Tunic,7,,quest:41616;quest-chain;token:t7
+47195,Stormhowl Legguards,7,,quest:41617;quest-chain;token:t7
+47196,Stormhowl Boots,7,,quest:41618;quest-chain;token:t7
+47197,Amulet of the Stormhowl,7,,quest:41619;quest-chain;token:t7
+47219,Coronet of Faith,6,rep,quest:9113;quest-chain;token:t6;raid-rep:t6
+47221,Raiments of Faith,6,rep,quest:9111;quest-chain;token:t6;raid-rep:t6
+47222,Bracers of Faith,6,rep,quest:9118;quest-chain;token:t6;raid-rep:t6
+47225,Pants of Faith,6,rep,quest:9112;quest-chain;token:t6;raid-rep:t6
+47226,Slippers of Faith,6,rep,quest:9115;quest-chain;token:t6;raid-rep:t6
+47227,Signet of Faith,6,,quest:41450;quest-chain;token:t6
+47228,Crown of Pestilence,7,,quest:41596;quest-chain;token:t7
+47230,Robes of Pestilence,7,,quest:41598;quest-chain;token:t7
+47231,Leggings of Pestilence,7,,quest:41599;quest-chain;token:t7
+47232,Boots of Pestilence,7,,quest:41600;quest-chain;token:t7
+47233,Amulet of Pestilence,7,,quest:41601;quest-chain;token:t7
+47235,Shoulderpads of Pestilence,7,,quest:41597;quest-chain;token:t7
+47236,Raiments of Pestilence,7,,quest:41598;quest-chain;token:t7
+47237,Pants of Pestilence,7,,quest:41599;quest-chain;token:t7
+47238,Sandals of Pestilence,7,,quest:41600;quest-chain;token:t7
+47239,Pendant of Pestilence,7,,quest:41601;quest-chain;token:t7
+47261,Dreadnaught Crown,6,rep,quest:9037;quest-chain;token:t6;raid-rep:t6
+47262,Dreadnaught Spaulders,6,rep,quest:9038;quest-chain;token:t6;raid-rep:t6
+47263,Dreadnaught Chestplate,6,rep,quest:9034;quest-chain;token:t6;raid-rep:t6
+47269,Signet of the Dreadnaught,6,,quest:41433;quest-chain;token:t6
+47270,Helmet of the Brotherhood,7,,quest:41590;quest-chain;token:t7
+47271,Shoulderguards of the Brotherhood,7,,quest:41591;quest-chain;token:t7
+47272,Chestguard of the Brotherhood,7,,quest:41592;quest-chain;token:t7
+47273,Legguards of the Brotherhood,7,,quest:41593;quest-chain;token:t7
+47274,Greaves of the Brotherhood,7,,quest:41594;quest-chain;token:t7
+47275,Choker of the Brotherhood,7,,quest:41595;quest-chain;token:t7
+47294,Doomcaller's Raiments,5,,quest:8661;raid-quest;token:t5
+47297,Plagueheart Crown,6,rep,quest:9105;quest-chain;token:t6;raid-rep:t6
+47298,Plagueheart Mantle,6,rep,quest:9106;quest-chain;token:t6;raid-rep:t6
+47299,Plagueheart Raiments,6,rep,quest:9103;quest-chain;token:t6;raid-rep:t6
+47301,Plagueheart Handwraps,6,rep,quest:9108;quest-chain;token:t6;raid-rep:t6
+47302,Plagueheart Sash,6,rep,quest:9109;quest-chain;token:t6;raid-rep:t6
+47303,Plagueheart Leggings,6,rep,quest:9104;quest-chain;token:t6;raid-rep:t6
+47304,Plagueheart Boots,6,rep,quest:9107;quest-chain;token:t6;raid-rep:t6
+47305,Plagueheart Signet,6,,quest:41416;quest-chain;token:t6
+47306,Nathrezim Crown,7,,quest:41584;quest-chain;token:t7
+47307,Nathrezim Mantle,7,,quest:41585;quest-chain;token:t7
+47309,Nathrezim Leggings,7,,quest:41587;quest-chain;token:t7
+47310,Nathrezim Boots,7,,quest:41588;quest-chain;token:t7
+47311,Nathrezim Amulet,7,,quest:41589;quest-chain;token:t7
+47313,Nathrezim Spaulders,7,,quest:41585;quest-chain;token:t7
+47314,Nathrezim Robes,7,,quest:41586;quest-chain;token:t7
+47315,Nathrezim Pants,7,,quest:41587;quest-chain;token:t7
+47316,Nathrezim Slippers,7,,quest:41588;quest-chain;token:t7
+47317,Nathrezim Pendant,7,,quest:41589;quest-chain;token:t7
+47318,Ravenstalker Headpiece,7,,quest:41608;quest-chain;token:t7
+47319,Ravenstalker Spaulders,7,,quest:41609;quest-chain;token:t7
+47320,Ravenstalker Tunic,7,,quest:41610;quest-chain;token:t7
+47322,Ravenstalker Boots,7,,quest:41612;quest-chain;token:t7
+47323,Ravenstalker Choker,7,,quest:41613;quest-chain;token:t7
+47324,Trickster Helmet,7,,quest:41602;quest-chain;token:t7
+47325,Trickster Pauldrons,7,,quest:41603;quest-chain;token:t7
+47326,Trickster Breastplate,7,,quest:41604;quest-chain;token:t7
+47328,Trickster Sabatons,7,,quest:41606;quest-chain;token:t7
+47329,Trickster Choker,7,,quest:41607;quest-chain;token:t7
+47354,Stormrage Helmet,3,,quest:41400;quest-chain;token:t3
+47362,Genesis Helm,5,,quest:8667;raid-quest;token:t5
+47363,Genesis Spaulders,5,,quest:8669;raid-quest;token:t5
+47365,Genesis Leggings,5,,quest:8668;raid-quest;token:t5
+47367,Genesis Helmet,5,,quest:8667;raid-quest;token:t5
+47368,Genesis Shoulderpads,5,,quest:8669;raid-quest;token:t5
+47369,Genesis Raiments,5,,quest:8666;raid-quest;token:t5
+47373,Dreamwalker Mantle,6,rep,quest:9089;quest-chain;token:t6;raid-rep:t6
+47374,Dreamwalker Vest,6,rep,quest:9086;quest-chain;token:t6;raid-rep:t6
+47375,Dreamwalker Wristbands,6,rep,quest:9093;quest-chain;token:t6;raid-rep:t6
+47376,Dreamwalker Handwraps,6,rep,quest:9091;quest-chain;token:t6;raid-rep:t6
+47377,Dreamwalker Sash,6,rep,quest:9092;quest-chain;token:t6;raid-rep:t6
+47378,Dreamwalker Trousers,6,rep,quest:9087;quest-chain;token:t6;raid-rep:t6
+47379,Dreamwalker Slippers,6,rep,quest:9090;quest-chain;token:t6;raid-rep:t6
+47380,Signet of the Dreamwalker,6,,quest:41399;quest-chain;token:t6
+47381,Dreamwalker Helmet,6,rep,quest:9088;quest-chain;token:t6;raid-rep:t6
+47382,Dreamwalker Shoulderpads,6,rep,quest:9089;quest-chain;token:t6;raid-rep:t6
+47383,Dreamwalker Raiments,6,rep,quest:9086;quest-chain;token:t6;raid-rep:t6
+47384,Dreamwalker Wristguards,6,rep,quest:9093;quest-chain;token:t6;raid-rep:t6
+47385,Dreamwalker Handwraps,6,rep,quest:9091;quest-chain;token:t6;raid-rep:t6
+47386,Dreamwalker Girdle,6,rep,quest:9092;quest-chain;token:t6;raid-rep:t6
+47387,Dreamwalker Pants,6,rep,quest:9087;quest-chain;token:t6;raid-rep:t6
+47388,Dreamwalker Treads,6,rep,quest:9090;quest-chain;token:t6;raid-rep:t6
+47389,Band of the Dreamwalker,6,,quest:41399;quest-chain;token:t6
+47391,Spaulders of the Talon,7,,quest:41579;quest-chain;token:t7
+47392,Vestments of the Talon,7,,quest:41580;quest-chain;token:t7
+47393,Leggings of the Talon,7,,quest:41581;quest-chain;token:t7
+47394,Boots of the Talon,7,,quest:41582;quest-chain;token:t7
+47395,Amulet of the Talon,7,,quest:41583;quest-chain;token:t7
+47396,Circlet of the Talon,7,,quest:41578;quest-chain;token:t7
+47398,Vest of the Talon,7,,quest:41580;quest-chain;token:t7
+47399,Trousers of the Talon,7,,quest:41581;quest-chain;token:t7
+47401,Pendant of the Talon,7,,quest:41583;quest-chain;token:t7
+47402,Helmet of the Talon,7,,quest:41578;quest-chain;token:t7
+47403,Shoulderpads of the Talon,7,,quest:41579;quest-chain;token:t7
+47405,Pants of the Talon,7,,quest:41581;quest-chain;token:t7
+47406,Treads of the Talon,7,,quest:41582;quest-chain;token:t7
+47407,Choker of the Talon,7,,quest:41583;quest-chain;token:t7
+51731,Venom Covered Cloak,3,,proc-craft
+55084,Torn Wings of Midnight,7,,loot:t7
+55087,Jewel of Wild Magics,7,,loot:t7
+55089,Bands of the Surgebreaker,7,,loot:t7
+55093,Remains of Overwhelming Power,7,,loot:t7
+55094,Medivh's Hindsight,7,,loot:t7
+55095,Cloak of the Bloody Ravager,7,,loot:t7
+55098,Gloves of Nourishment,7,,loot:t7
+55101,King's Edict,7,,loot:t7
+55102,Insomnius' Retribution,7,,loot:t7
+55105,Bishop's Reverence,7,,loot:t7
+55106,Bindings of Contained Magic,7,,loot:t7
+55108,Dreadslayer Shoulderblades,7,,loot:t7
+55110,Libram of the Eternal Tower,7,,loot:t7
+55111,Eye of Dormant Corruption,7,,loot:t7
+55113,Dreadslayer Horns,7,,loot:t7
+55114,Totem of Broken Earth,7,,loot:t7
+55115,Riftcarver's Implement,7,,loot:t7
+55116,Raka'shishi; Spear of the Adrift Hunt,7,,loot:t7
+55117,Girdle of the Faded Primals,7,,loot:t7
+55118,Kum'isha's Tattered Drape,7,,loot:t7
+55119,Forgotten Hide Helm,7,,loot:t7
+55120,Al'Kazeth; Claw of Ruptured Elements,7,,loot:t7
+55121,Bulwark of Enduring Earth,7,,loot:t7
+55122,Earthquake Leggings,7,,loot:t7
+55123,Loop of Hardened Slate,7,,loot:t7
+55124,Pure Jewel of Draenor,7,,loot:t7
+55125,Handwraps of Dead Winds,7,,loot:t7
+55126,Mantle of the Drifting Stars,7,,loot:t7
+55127,Shar'tateth; the Shattered Edge,7,,loot:t7
+55129,Desecration,7,,loot:t7
+55130,Wristwraps of Exiled Radiance,7,,loot:t7
+55131,Shieldrender Talisman,7,,loot:t7
+55132,Pendant of Purified Demon's Blood,7,,loot:t7
+55274,Chain-Cloak of the Rookguard,7,,loot:t7
+55276,Forgotten Raven's Mallet,7,,loot:t7
+55279,Branch of Resolute Defense,7,,loot:t7
+55285,Crite's Holy Hands,7,,loot:t7
+55347,Thunderfall; Stormhammer of the Chief Thane,7,,proc-craft
+55348,Kirel'narak; the Death Sentence,7,,proc-craft
+55349,Nethraka; Wing of Oblivion,7,,proc-craft
+55352,Cloak of Rapid Regeneration,7,,proc-craft
+55353,Mephistroth's Cunning,7,,proc-craft
+55354,Khadgar's Guidance,7,,proc-craft
+55355,Memory of the Last Guardian,7,,proc-craft
+55356,Netherwrought Bracers,7,,proc-craft
+55357,Sash of the Grand Betrayal,7,,proc-craft
+55470,Libram of Radiance,1,,proc-craft
+55505,The Scythe of Elune,0,legendary,quest:41745;quest-chain
+55506,Worldbreaker Girdle,7,,loot:t7
+55512,Forgotten Hide Pauldrons,7,,proc-craft
+55513,Tunic of Demonic Deception,7,,proc-craft
+55515,Felforged Nathrezan Veil,0,,quest:41577;quest-chain
+55516,Felforged Nathrezan Circlet,0,,quest:41577;quest-chain
+55517,Felforged Nathrezan Aureole,0,,quest:41577;quest-chain
+55553,Gloves of the Primordial Burrower,5,,loot:t5
+55554,Carapace Handguards,5,,loot:t5
+56008,Brilliant Opal Gemstone,1,,proc-craft
+58088,True Band of Sulfuras,3,,proc-craft
+58206,Idol of the Forgotten Wilds,3,,loot:t3
+58241,Totem of Eruption,3,,loot:t3
+58244,Sigil of Ancient Accord,3,,loot:t3
+60003,Remnants of an Old God,5,,loot:t5
+60501,Whip of Encouragement,2,,proc-craft
+60559,Hatereaver Cog,1,,proc-craft
+60790,Memento of the Lost,1,,loot:t1
+60798,Loop of the Lost,1,,loot:t1
+61010,Wing of the Time-Lord,0,rep,vendor;vendor
+61186,Gloves of Unwinding Mystery,2,,recipe:t2:pattern-loot:t2
+61194,The Heart of Dreams,4,,quest:40963;quest-chain;token:t4
+61205,Ring of Nature's Duality,4,,loot:t4
+61209,Shard of Nightmare,4,,loot:t4
+61212,Sanctum Bark Wraps,4,,loot:t4
+61213,Talonwind Gauntlets,4,,loot:t4
+61239,Ancient Jade Leggings,4,,loot:t4
+61251,Medivh's Foresight,2,,loot:t2
+61266,Rune Infused Gauntlets,2,,loot:t2
+61292,Totem of Crackling Thunder,2,,loot:t2
+61293,Idol of the Moonfang,2,,loot:t2
+61443,Libram of the Faithful,2,,loot:t2
+61522,Choker of the Emerald Lord,4,,proc-craft
+61527,Breath of Solnius,4,,proc-craft
+61698,Totem of the Calming River,2,,proc-craft
+61782,Mithril Belt Buckle,0,,recipe:t0:pattern-trainer
+61816,Araxxna's Husk,2,,loot:t2
+81265,Ashskin Belt,3,,loot:t3
