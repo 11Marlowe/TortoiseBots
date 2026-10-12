@@ -21,6 +21,13 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
     uint64 guid = ai->GetBot()->getObjectGuid().GetRawValue();
     CharacterDatabase.escape_string(preset);
 
+    // No pull survives a reload (relog, reset, preset). Ended before the
+    // replay: its own copies of "wait for attack" go and the player's delay
+    // comes back, so the stored set and values below are what is left (a
+    // snapshot without "co"/"nc" rows leaves the live engines alone, and a
+    // preset's own "wait for attack time" must win over the pre-pull one).
+    ai->EndPullWindow();
+
     auto results = CharacterDatabase.PQuery("SELECT `key`,`value` FROM `ai_playerbot_db_store` WHERE `guid` = '%lu' AND `preset` = '%s'", guid, preset.c_str());
     if (results)
     {
@@ -74,12 +81,9 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
         ai->GetAiObjectContext()->Load(values);
     }
 
-    // No pull survives a reload (relog, reset, preset). The stored set never
-    // holds the pull's window, but a snapshot without "co"/"nc" rows leaves
-    // the live engines alone, so end the window here: its own copies of "wait
-    // for attack" go, the player's delay comes back, and an anchor restored
-    // from the snapshot or left from before has nothing else to end it.
-    ai->EndPullWindow();
+    // An anchor ("pull hold") restored from the snapshot has no pull left to
+    // end it.
+    ai->ReleasePullHold();
 }
 
 void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)

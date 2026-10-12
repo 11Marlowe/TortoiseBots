@@ -126,11 +126,13 @@ struct Bot
         return s;
     }
 
-    // PlayerbotDbStore::Load: engines are replaced only when the snapshot has
-    // their rows (ClearStrategies does not go through ChangeStrategy), values
-    // are loaded, then EndPullWindow.
+    // PlayerbotDbStore::Load: EndPullWindow first, then the engines are
+    // replaced only when the snapshot has their rows (ClearStrategies does not
+    // go through ChangeStrategy), values are loaded, and a restored anchor is
+    // released.
     void Load(Snapshot const& s, bool strategyRows)
     {
+        End();
         if (strategyRows)
         {
             for (unsigned i = 0; i < kEngines; ++i)
@@ -142,7 +144,17 @@ struct Bot
         }
         waitSeconds = s.waitSeconds;
         anchor = s.anchor;
-        End();
+        anchor = false; // ReleasePullHold
+    }
+
+    // PlayerbotAI::ResetStrategies without a load: EndPullWindow if one
+    // runs, then every engine is wiped without ChangeStrategy.
+    void ResetStrategies()
+    {
+        if (window.Running())
+            End();
+        for (unsigned i = 0; i < kEngines; ++i)
+            wait[i] = false;
     }
 
     // A fresh AI after a relog: nothing in memory but the snapshot.
@@ -313,6 +325,34 @@ int main()
         CHECK(ownRelogged.wait[0] && !ownRelogged.wait[1] && !ownRelogged.anchor);
     }
     std::cout << "  [PASS] nothing of a pull survives a relog or reload\n";
+
+    // A full reset without a load (`reset` with loadStrats off, a BG join, a
+    // bot without a player relation) wipes the engines behind the window's
+    // back: the window must not stay running with the pull's delay.
+    {
+        Bot bot;
+        bot.waitSeconds = 5;
+        bot.Hold(100, 10);
+        bot.ResetStrategies();
+        CHECK(!bot.window.Running() && !bot.AnyWait() && !bot.anchor);
+        CHECK(bot.waitSeconds == 5);
+    }
+    std::cout << "  [PASS] a full reset ends the window and restores the delay\n";
+
+    // A named preset loaded mid-hold: the preset's own delay wins over the
+    // value from before the pull.
+    {
+        Bot bot;
+        bot.waitSeconds = 5;
+        bot.Hold(100, 10);
+        Snapshot preset;
+        preset.wait[0] = true;
+        preset.waitSeconds = 4;
+        bot.Load(preset, true);
+        CHECK(!bot.window.Running() && bot.wait[0] && !bot.wait[1]);
+        CHECK(bot.waitSeconds == 4);
+    }
+    std::cout << "  [PASS] a preset loaded mid-hold keeps its own delay\n";
 
     std::cout << "All TortoiseBots pull join window policy tests passed.\n";
     return 0;

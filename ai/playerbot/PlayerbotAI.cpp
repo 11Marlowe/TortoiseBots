@@ -3734,6 +3734,13 @@ bool PlayerbotAI::HasStrategy(const std::string& name, BotState type)
 
 void PlayerbotAI::ResetStrategies(bool autoLoad)
 {
+    // The wipe below bypasses ChangeStrategy, so it would leave a pull's
+    // window running with no "pull hold expired" left to end it and the
+    // pull's delay in "wait for attack time". End it first: the player's
+    // delay comes back and the anchor goes (PullJoinWindowPolicy.h).
+    if (HasPullWindow())
+        EndPullWindow();
+
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
     {
         engines[i]->initMode = true;
