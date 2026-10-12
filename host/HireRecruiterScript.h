@@ -25,3 +25,5 @@ public:
     // SyncUnlockFees; called from the same place.
     static void SyncHireUnlockChain();
 };
+
+} // namespace TortoiseBots
