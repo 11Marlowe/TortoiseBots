@@ -25,6 +25,8 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "WorldBuffPvpAdapter.h"
 // pi-lens-ignore: clang:pp_file_not_found
+#include "WorldBuffRaidAdapter.h"
+// pi-lens-ignore: clang:pp_file_not_found
 #include "HireUnlockKillAdapter.h"
 
 namespace TortoiseBots {
