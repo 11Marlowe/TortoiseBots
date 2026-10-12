@@ -51,9 +51,6 @@ Player* ResolvePullExecutor(BotCommandContext const& context, bool allowSelected
 // window additionally covers the tank's return leg and is narrowed to the
 // join delay on arrival.
 void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, uint32 joinDelaySeconds, bool pullback = false);
-// Release a hold placed by PausePartyDpsForPull (early release path for
-// attack/stop). Only clears our own anchor copy, never a player stay.
-void ReleasePartyDpsFromPull(BotCommandContext const& context, Player* executor);
 // Records the per-command return mode (plus join delay) on the PullStrategy;
 // PullEndAction restores the tank's default when the pull ends.
 bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds = 0);

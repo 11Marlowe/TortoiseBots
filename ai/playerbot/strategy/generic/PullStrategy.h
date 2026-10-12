@@ -53,6 +53,28 @@ namespace ai
         bool HadPullBack() const { return hadPullBack; }
         uint32 GetCommandJoinDelay() const { return commandJoinDelay; }
         time_t GetReturnStartTime() const { return returnStartTime; }
+        // What BeginCommand changes, so a command refused after it can put an
+        // earlier pull's command state back exactly.
+        struct CommandState
+        {
+            bool active;
+            bool pullback;
+            bool hadPullBack;
+            uint32 joinDelay;
+            time_t returnStartTime;
+        };
+        CommandState SaveCommand() const
+        {
+            return { commandActive, commandPullback, hadPullBack, commandJoinDelay, returnStartTime };
+        }
+        void RestoreCommand(CommandState const& state)
+        {
+            commandActive = state.active;
+            commandPullback = state.pullback;
+            hadPullBack = state.hadPullBack;
+            commandJoinDelay = state.joinDelay;
+            returnStartTime = state.returnStartTime;
+        }
 
     private:
         void SetTarget(Unit* target);
