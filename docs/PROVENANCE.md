@@ -8366,3 +8366,6 @@ window cannot silently veto a `loot` order for 120 s.
 
 Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
 build pending; in-game pending.
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | ---: | --- |
+| Gather trips judged at their own spawn, empty spawns remembered (audit batch 5 finding 3) | `mod-playerbots` | `79bd428` | `src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:42-175` (`getNewTarget`: no gather destination; bots gather what they pass) | Reimplemented: game-object entry sign fix in `GatherTravelDestination::IsActive` (local bug), own-point judgment (`TravelTarget::IsDestinationActive`) and the per-bot empty-spawn memory (`GatherSpotPolicy.h`, `PlayerbotAI::MarkEmptyGatherSpot`, `emptynode` pick gate) are local, the donor has no equivalent | Live 2026-10-12: gather 19.9 % of pool samples, 24 of 793 trips gathered, median trip 48 s, 47 bots ping-ponging node types | Code review + `bash tools/verify_all.sh` (incl. `tools/test_gather_spot_policy.cpp`); build pending; in-game pending |
