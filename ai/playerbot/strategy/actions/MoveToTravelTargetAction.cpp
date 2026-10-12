@@ -13,6 +13,7 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/TravelRepickPolicy.h"
 #include "playerbot/FlightErrandPolicy.h"
+#include "playerbot/UndercityLiftPolicy.h"
 #include "playerbot/strategy/values/BudgetValues.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "runtime/HireLifecycle.h"
@@ -759,6 +760,54 @@ bool MoveToTravelTargetAction::TryStepTowardTarget(WorldPosition const& location
     return false;
 }
 
+// Undercity lifts (UndercityLiftPolicy.h): a pool bot between the ruins and
+// the city below with its destination on the other level rides a teleport
+// instead of the elevator it never boards. Same guards as the service rescue:
+// masterless random pool bot, not hired, nobody watching either end, and one
+// lift per bot per ten minutes.
+bool MoveToTravelTargetAction::TryUndercityLift(WorldPosition const& location)
+{
+    ai::UndercityLift const lift = ai::UndercityLiftFor(bot->GetMapId(), bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(),
+        location.GetMapId(), location.getX(), location.getY(), location.getZ());
+    if (lift == ai::UndercityLift::None)
+        return false;
+    if (!bot->IsAlive() || bot->IsInCombat() || bot->IsTaxiFlying() || bot->IsBeingTeleported() || bot->GetTransport())
+        return false;
+    if (ai->HasRealPlayerMaster() || ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot) ||
+        TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
+        return false;
+
+    // Once per ten minutes: a route that walks through the city (sewer canals
+    // in, lift out) would otherwise be lifted back up every tick (live: one
+    // bot lifted 33 times in 7 minutes).
+    AiObjectContext* context = ai->GetAiObjectContext();
+    time_t const now = time(0);
+    if (AI_VALUE2(time_t, "manual time", "undercity lift") + 10 * MINUTE > now)
+        return false;
+
+    WorldPosition landing;
+    if (lift == ai::UndercityLift::Down)
+    {
+        if (!FindRescueLanding(bot, location, landing))
+            return false;
+    }
+    else
+        landing = WorldPosition(ai::kUndercityMapId, ai::kUndercityUpX, ai::kUndercityUpY, ai::kUndercityUpZ);
+
+    WorldPosition const botPos(bot);
+    if (ai->HasPlayerNearby(botPos, sPlayerbotAIConfig.reactDistance) || ai->HasPlayerNearby(landing, sPlayerbotAIConfig.reactDistance))
+        return false;
+
+    if (!bot->TeleportTo(landing.GetMapId(), landing.getX(), landing.getY(), landing.getZ(), botPos.GetAngleTo(landing)))
+        return false;
+
+    SET_AI_VALUE2(time_t, "manual time", "undercity lift", now);
+    noProgressArmed = false;
+    sPlayerbotAIConfig.logEvent(ai, "UndercityLift", lift == ai::UndercityLift::Down ? "down" : "up",
+        std::to_string((int32)landing.distance(location)));
+    return true;
+}
+
 bool MoveToTravelTargetAction::Execute(Event& event)
 {
     TravelTarget* target = AI_VALUE(TravelTarget*, "travel target");
@@ -778,6 +827,9 @@ bool MoveToTravelTargetAction::Execute(Event& event)
     WorldPosition location = *target->getPosition();
 
     if (LeaveDeeprunTram(ai, bot, location))
+        return true;
+
+    if (TryUndercityLift(location))
         return true;
 
     // Decide-once flight plan (items 4-5): when the stored plan names a
