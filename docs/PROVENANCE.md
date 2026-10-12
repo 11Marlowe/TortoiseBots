@@ -8778,4 +8778,5 @@ covering its hold/lapse matrix. Also touches
 
 Validation: `tools/test_four_horsemen_rotation_policy.cpp` + code review;
 build pending; in-game pending.
-| No jumping in dungeons/raids (#125) | `mod-playerbots` | `79bd4281` | none: mod-playerbots has no jump strategies or action at all | Reimplemented (restriction only) | Jump strategies (`chase jump`, `follow jump`, `rpg jump`, `jump` command) can strand bots on raised instance platforms with no navmesh link down (Uldaman Hall of the Keepers). Gated in `JumpAction::isUseful` via `ai/playerbot/JumpPolicy.h` on `Map::IsDungeon()` (instances and raids; battlegrounds and open world unchanged). | `tools/test_jump_policy.cpp` in `verify_all.sh`; code review + build pending; in-game pending |
+
+| No jumping in dungeons/raids (#125) | `mod-playerbots` | `79bd4281` | none: mod-playerbots has no jump strategies or action at all | Reimplemented (restriction only) | Jump strategies (`chase jump`, `follow jump`, `rpg jump`) can strand bots on raised instance platforms with no navmesh link down (Uldaman Hall of the Keepers). Gated in `JumpAction::Execute` (explicit `jump` command still works) via `ai/playerbot/JumpPolicy.h` on `Map::IsDungeon()` (instances and raids; battlegrounds and open world unchanged). | `tools/test_jump_policy.cpp` in `verify_all.sh`; code review + build pending; in-game pending |
