@@ -2617,6 +2617,18 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
         }
         return false;
     }
+    else if (first == "aoe" || first == "loot")
+    {
+        // "aoe [on|off]" / "loot [on|off]": bare form toggles, as documented.
+        std::string rest = remainder;
+        for (char& character : rest)
+            character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        if (!rest.empty() && rest != "on" && rest != "off")
+            return false;
+        intent = first;
+        option = rest;
+        return true;
+    }
     else if (first == "pull" || first == "pullback")
     {
         // Owner-specified adjustable delay: ".bot action pull [seconds]" and
