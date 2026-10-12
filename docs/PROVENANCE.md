@@ -8013,3 +8013,8 @@ pet policy (`runtime/WarlockPetPolicy.h`) and is left as is.
 
 Validation: code review + build pending; in-game pending.
 `bash tools/verify_all.sh` (incl. `test_pet_upkeep_policy`), `git diff --check`.
+## Hidden GM never picked as a party buff target — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | --- | --- |
+| Skip a hidden GM in the party-member searches (blessings, buffs, dispel, resurrect, soulstone) | `mod-playerbots` | `79bd4281` | `src/Ai/Class/Paladin/Actions/PaladinActions.cpp:16-27` (`IsBlessingTargetCandidate`: `player->IsGameMaster()` is never a blessing target) | Reimplemented in `ai/playerbot/strategy/values/PartyMemberValue.cpp` (`PartyMemberValue::Check`). Adapted to the Turtle core rule instead of the donor's GM flag: the core drops a `VISIBILITY_OFF` player in `Spell::CheckTarget` (`src/game/Spells/Spell.cpp`) after the mana is paid, while positive spells on a visible `.gm on` player still land, so the visibility state is what is checked. The donor's LoS/range filter is not ported (range stays in the value, LoS in the cast) | In-game A/B 2026-10-11 (yulon-ubuntu, 18d4d14): paladin Fyrsae ran `pve blessing on party` ~40 times in 5 min at 85 mana each (Blessing of Might rank 5) on the hidden GM master (server `GM.Visible = 0`), drank 10 times, and the hunter after the GM in the search order never got a blessing | `bash tools/verify_all.sh`; `git diff --check`. Code review; build pending; in-game pending |
