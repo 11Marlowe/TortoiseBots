@@ -8500,3 +8500,33 @@ dominated by `reset travel target`, 353 bot-minutes, 33 in capitals. One
 live snapshot later the same day: 27 of 504 bots in the loop, all level 13+.
 
 Validation: code review + build pending; in-game pending.
+## Healer heal-target pick by health percent + no step-out while a member is low (fix 92) — 2026-10-12
+
+Feature: (1) `PartyMemberToHeal` ranks candidates by effective health
+percent (incoming melee damage taken off first under `preheal`) instead of
+missing hit points; the LOS tie-break window becomes 30 health-percent
+points (100 - mediumHealth) above the top pick. (2) The party keep-away case
+of `enemy too close for spell` (a mob in melee reach that is not attacking
+this bot, a live tank in the group) does not fire for a healer outside raids
+while `party member to heal` is below mediumHealth, unless the healer's own
+health is below lowHealth. The healer-is-victim cases and raids are unchanged.
+Observed live (build 8, Tanaris, 2026-10-12 09:57): the frost mage fell from
+81% to 31% and died (09:57:14-09:57:21) while the holy priest cast nothing on
+him after one Dispel; the tank (76-80%, 3444 max HP, Renew already up) was
+missing more hit points and stayed the heal target; at 09:57:20 the priest
+took `flee` / `enemy too close for spell` 13 yd away and was out of range
+when the mage died.
+
+Donor: `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/PartyMemberToHeal.cpp`
+(`Calculate`: minimum of health percent + distance/10; no missing-HP sort).
+The healer hold in the flee trigger is module behaviour (donor
+`src/Ai/Base/Trigger/RangeTriggers.cpp` `EnemyTooCloseForSpellTrigger` has no
+healer case; its flee is a 5 yd `MoveAway`, ours runs up to 2x flee range).
+
+Module files: `ai/playerbot/strategy/values/PartyMemberToHeal.cpp`,
+`ai/playerbot/strategy/triggers/RangeTriggers.h`, `docs/classes/priest.md`.
+Ported (ranking) / reimplemented (healer hold). Distance term of the donor
+probe not ported (the module keeps its 2x heal-range candidate filter and LOS
+tie-break).
+Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
