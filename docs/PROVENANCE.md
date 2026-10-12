@@ -8685,3 +8685,34 @@ no donor code.
 | Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
 | --- | --- | --- | --- | --- | ---: | --- |
 | A pool bot that dies twice within 15 min while pursuing the same non-grind travel destination (purpose + entry) drops the target and parks that destination for 30 min at pick and re-point time | `mod-playerbots` | `79bd428` | `src/Mgr/Travel/TravelMgr.h` (`TravelTarget::incRetry`/`isMaxRetry`), `src/Ai/Base/Actions/MoveToTravelTargetAction.cpp:115-118` (max move retries -> `TRAVEL_STATUS_COOLDOWN`), `src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:451` (`SetCurrentTarget` refuses a max-retry destination) | Reimplemented: the donor's "give the target up after N failed attempts" with a death on the way counted as the failed attempt; the donor has no per-destination death memory of its own. Kept as plain per-bot data (`ai/playerbot/DeathClusterPolicy.h` `ErrandPark`, four slots) beside the #398 death-spot list; module files `PlayerbotAI.{h,cpp}` (`OnDeath`), `strategy/actions/ChooseTravelTargetAction.cpp` (`SetBestTargetSliced`, `RefreshTravelTargetAction`), test `tools/test_death_cluster_policy.cpp` | Batch 5 live audit (500 pool bots, 27.8 min): 80% of deaths were repeat deaths on one errand at the same spot (hand-in, gather, trainer), up to 19 per bot; the death-spot rules only look at the destination point, never the route | Code review + build pending; in-game pending. `bash tools/verify_all.sh` (incl. the extended death-cluster policy test) and `git diff --check` clean |
+## Bomb runout from the raid's centre (2026-10-12)
+
+Donor: mod-playerbots (`79bd4281`):
+`src/Ai/Base/Actions/MovementActions.cpp` (`MovementAction::MoveFromGroup`:
+flee the centroid of living same-map members by `distance - closestDist`,
+only while the closest member is inside `distance`), used by
+`src/Ai/Raid/MC/MCActions.cpp` (`McMoveFromGroupAction`, Living Bomb).
+
+Source files (module): `ai/playerbot/BombRunoutPolicy.h` (new pure rules,
+reusing `DebuffSpreadPolicy.h` clearance), `ai/playerbot/strategy/actions/
+DungeonActions.{h,cpp}` (`RaidBombRunoutAction` rewritten),
+`ai/playerbot/aiplayerbot.conf.dist.in` (comment only),
+`tools/test_bomb_runout_policy.cpp`.
+
+Copied / ported / reimplemented: ported behaviour. Deviations, deliberate:
+the step starts at the donor's `radius - nearest` but grows 2yd at a time
+until the end point clears every member by radius + 2yd, so one move gets
+the carrier clear (the donor re-steps each tick); five headings around
+"away" are tried through the existing LoS / path / unpulled-hostile check;
+the reaction holds until arrival (`WaitForReach`). Radius stays the
+existing `AiPlayerbot.BombRunoutDistance` (30yd; the donor uses 20yd for
+Living Bomb). A carrier with no living same-map group member no longer
+runs (nobody to protect). The Vael flee still outranks this action.
+
+Reason: batch-7 raid audit finding 7 — the runout anchored on the master
+or the nearest member and re-targeted 30-40yd past the bot every tick for
+the whole debuff, which could run a carrier through the other side of the
+raid or into unpulled trash.
+
+Validation: `tools/test_bomb_runout_policy.cpp` + code review; build
+pending; in-game pending.
