@@ -2885,10 +2885,22 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         if (intent.empty())
         {
             // The addon drops an ACTION_ERR with an empty intent as malformed,
-            // so name what was typed (first word) or "unknown".
+            // so name what was typed: the first word, at most 32 bytes and never
+            // cut inside a UTF-8 character. ProtocolSafe runs before the trim, so
+            // a word of only '|' characters becomes "unknown" like an empty one.
             std::string const typed = Trim(args ? args : "");
             size_t const end = typed.find_first_of(" \t");
-            intent = typed.substr(0, end == std::string::npos || end > 32 ? 32 : end);
+            size_t length = end == std::string::npos ? typed.size() : end;
+            if (length > 32)
+            {
+                length = 32;
+                // typed[length] is the first byte left out. A continuation byte
+                // (10xxxxxx) there means the cut would split a multibyte character,
+                // so step back to that character's lead byte.
+                while (length > 0 && (static_cast<unsigned char>(typed[length]) & 0xC0) == 0x80)
+                    --length;
+            }
+            intent = Trim(ProtocolSafe(typed.substr(0, length)));
             if (intent.empty())
                 intent = "unknown";
         }
