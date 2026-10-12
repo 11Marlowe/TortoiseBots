@@ -242,6 +242,10 @@
 ### Combat & AI
 - CC mark hold improvements from the dungeon batch ([#794](https://github.com/Sagiroth/TortoiseBots/pull/794), [#795](https://github.com/Sagiroth/TortoiseBots/pull/795), [#797](https://github.com/Sagiroth/TortoiseBots/pull/797), [#814](https://github.com/Sagiroth/TortoiseBots/pull/814))
 
+### Starter Zones & World
+- Bots now skip taxi paths 355 (Shimmerstar Lake → Valormok) and 274 (unused dev path) — both crash the world server because 1.18.1 client data is missing nodes. Every other flight works as before. [#821](https://github.com/Sagiroth/TortoiseBots/pull/821)
+- New `AiPlayerbot.AllowRepairedTaxiPaths` option (default `0`). Set it to `1` to let bots fly those paths again once the core supplies valid node data. [#821](https://github.com/Sagiroth/TortoiseBots/pull/821)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
