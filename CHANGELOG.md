@@ -66,6 +66,12 @@
 
 ---
 
+### Combat & AI
+- Restoration druid bots now actually shift into Tree of Life Form when it's missing, keep it active instead of recasting every tick, and can drop it when they need to cast a Tree-forbidden spell or leave all forms — so the Tree heal bonus and party aura finally apply during fights. [#694](https://github.com/Sagiroth/TortoiseBots/pull/694)
+
+### Docs & Guides
+- Corrected the dungeon guide's "Standard Raid Target Icon Assignments" table: every bot's CC mark is Moon by default (not Star/Diamond/Triangle per class), and in 5-man dungeons a bot only crowd-controls its own mark — no behaviour changed, just stop marking a Star and wondering why nobody Shackles it. [#737](https://github.com/Sagiroth/TortoiseBots/pull/737)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
