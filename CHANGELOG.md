@@ -79,6 +79,12 @@
 - Dashboard "Trigger" now reflects the trigger behind the last successful action, so Trigger and Action labels stay paired; failed/skipped attempts no longer overwrite it. [#720](https://github.com/Sagiroth/TortoiseBots/pull/720)
 - Dashboard "last action" names are kept alive while read, eliminating garbage/wrong names and the rare world server crash path during observability updates. [#713](https://github.com/Sagiroth/TortoiseBots/pull/713)
 
+### Combat & AI
+
+- Shadow Weaving's "missing debuff" rule now only fires for priests that actually have the Shadow Weaving talent, so Holy/Disc priests (and untalented Shadow priests) stop spamming Mind Flay/Smite/Mind Blast and go back to healing. [#732](https://github.com/Sagiroth/TortoiseBots/pull/732)
+- Hunter bots only channel Mend Pet in combat when the pet is genuinely low **and** no shot is ready, ending the constant shot-dropping channel that ate ~10% of all hunter combat samples. [#708](https://github.com/Sagiroth/TortoiseBots/pull/708)
+- Cast-time strategy is now a default combat strategy outside battlegrounds: bots skip a Frostbolt/Shadow Bolt/etc. when the mob's estimated time-to-live is shorter than the cast, picking a faster spell or wand instead. Low-health bosses with long TTK still eat full casts. [#693](https://github.com/Sagiroth/TortoiseBots/pull/693)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
