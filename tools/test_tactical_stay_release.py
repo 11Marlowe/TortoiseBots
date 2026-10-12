@@ -1,12 +1,11 @@
 """A tactical order that breaks a stay leaves the bot following again.
 
-Compiles the production EndFlee and RelaxTacticalMovement from
-commands/BotCommands.cpp and PlayerbotAI::EndStayForOrder from
-ai/playerbot/PlayerbotAI.cpp against a stand-in PlayerbotAI (strategy sets per
-engine, the real movement-mode list from MovementModePolicy.h). Also checks
-that the per-bot `.bot attack` and the whispered `attack` end the stay before
-they attack, as the party-wide `.bot action` forms do. Requires g++ (skipped
-when unavailable).
+Compiles the production RelaxTacticalMovement from commands/BotCommands.cpp
+and PlayerbotAI::EndStayForOrder from ai/playerbot/PlayerbotAI.cpp against a
+stand-in PlayerbotAI (strategy sets per engine, the real movement-mode list
+from MovementModePolicy.h). Also checks that the per-bot `.bot attack` and
+the whispered `attack` end the stay before they attack, as the party-wide
+`.bot action` forms do. Requires g++ (skipped when unavailable).
 """
 import pathlib
 import re
@@ -23,6 +22,21 @@ ATTACK_SOURCE = (ROOT / "ai/playerbot/strategy/actions/AttackAction.cpp").read_t
 
 def extract(signature, next_signature, source=SOURCE):
     start = source.index(signature)
+    end = source.index(next_signature, start)
+    return source[start:end]
+
+
+def extract_definition(signature, next_signature, source=SOURCE):
+    # A forward declaration shares the definition's prefix ("...;" vs the
+    # definition's body); the definition is the occurrence not followed by
+    # a semicolon on its declaration line.
+    pos = 0
+    while True:
+        start = source.index(signature, pos)
+        eol = source.index("\n", start)
+        if not source[start:eol].rstrip().endswith(";"):
+            break
+        pos = start + len(signature)
     end = source.index(next_signature, start)
     return source[start:end]
 
@@ -79,13 +93,15 @@ int main()
     assert(!stayed.HasStrategy("stay", S::BOT_STATE_COMBAT));
     assert(!stayed.HasStrategy("follow", S::BOT_STATE_COMBAT));
 
-    // Stay plus a passive hold: the passive EndFlee drops is not a mode.
+    // Stay plus a passive hold: the passive is not a mode, so the order must
+    // not count it and leave the bot without one.
     PlayerbotAI passive;
     passive.engines[S::BOT_STATE_NON_COMBAT] = { "stay", "passive" };
     passive.engines[S::BOT_STATE_COMBAT] = { "stay", "passive" };
     RelaxTacticalMovement(&passive);
     assert(passive.HasStrategy("follow", S::BOT_STATE_NON_COMBAT));
     assert(!passive.HasStrategy("passive", S::BOT_STATE_NON_COMBAT));
+    assert(!passive.HasStrategy("passive", S::BOT_STATE_COMBAT));
 
     // A guard order is a mode of its own and is kept as it is.
     PlayerbotAI guarded;
@@ -107,6 +123,17 @@ int main()
     whispered.EndStayForOrder();
     assert(whispered.HasStrategy("follow", S::BOT_STATE_NON_COMBAT));
     assert(!whispered.HasStrategy("follow", S::BOT_STATE_COMBAT));
+
+    // Whispered attack after a flee plus stay: the passive hold ends with
+    // the stay, like the .bot orders, so the rotation is not vetoed and
+    // the bot rejoins afterwards.
+    PlayerbotAI fled;
+    fled.engines[S::BOT_STATE_NON_COMBAT] = { "stay", "passive" };
+    fled.engines[S::BOT_STATE_COMBAT] = { "stay", "passive" };
+    fled.EndStayForOrder();
+    assert(fled.HasStrategy("follow", S::BOT_STATE_NON_COMBAT));
+    assert(!fled.HasStrategy("passive", S::BOT_STATE_NON_COMBAT));
+    assert(!fled.HasStrategy("passive", S::BOT_STATE_COMBAT));
     return 0;
 }
 """
@@ -116,7 +143,7 @@ class TacticalStayReleaseTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("g++"), "g++ unavailable")
     def test_broken_stay_returns_to_follow(self):
         code = extract("void PlayerbotAI::EndStayForOrder()", "std::string PlayerbotAI::HandleRemoteCommand(", AI_SOURCE)
-        code += extract("static void EndFlee(PlayerbotAI* ai)", "static bool BindMovementMaster(")
+        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "static bool BindMovementMaster(")
         with tempfile.TemporaryDirectory() as tmp:
             src = pathlib.Path(tmp) / "fixture.cpp"
             src.write_text(FIXTURE % {"code": code})

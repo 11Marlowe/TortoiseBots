@@ -86,8 +86,16 @@ void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
     // serial id (DB_SERIAL_ID), so all of them run on one worker in order:
     // one bot's saves never reorder, and two bots' saves never overlap and
     // deadlock on the guid index gap lock. A caller that already holds a
-    // transaction (ChangeStrategyAction, opened with the same id) keeps ours
-    // inside its own.
+    // transaction opened with the same id (ChangeStrategyAction) keeps ours
+    // inside its own; a foreign serial id would route the save to another
+    // worker (and a core nested-begin would refuse), so that nesting is
+    // rejected loudly rather than saved half-ordered.
+    if (CharacterDatabase.InTransaction() && CharacterDatabase.GetTransactionSerialId() != DB_SERIAL_ID)
+    {
+        sLog.outError("PlayerbotDbStore::Save for guid %lu preset '%s' called inside a foreign transaction (serial %u); snapshot not saved",
+            guid, preset.c_str(), CharacterDatabase.GetTransactionSerialId());
+        return;
+    }
     bool const ownTransaction = !CharacterDatabase.InTransaction() &&
         CharacterDatabase.BeginTransaction(DB_SERIAL_ID);
 

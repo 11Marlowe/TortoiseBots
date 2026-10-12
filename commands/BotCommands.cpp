@@ -596,9 +596,6 @@ static void RelaxTacticalMovement(PlayerbotAI* ai)
     if (!ai)
         return;
 
-    // EndFlee first: a "passive" it drops is not a movement mode, so the
-    // stay release below must not count it.
-    EndFlee(ai);
     ai->EndStayForOrder();
 }
 

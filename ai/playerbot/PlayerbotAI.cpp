@@ -7362,6 +7362,14 @@ void PlayerbotAI::ReleasePullHold()
 
 void PlayerbotAI::EndStayForOrder()
 {
+    // A flee parks the bot in passive follow; an order that sends it at a
+    // target is the owner calling it back into the fight, so the passive
+    // hold ends here too. Dropped first: "passive" counts as a movement
+    // mode for the check below, and a fleeing bot given no mode back would
+    // otherwise keep it through the fight (the PassiveMultiplier vetoes its
+    // whole rotation) and stand wherever the fight ends afterwards.
+    ChangeStrategy("-passive", BotState::BOT_STATE_NON_COMBAT);
+    ChangeStrategy("-passive", BotState::BOT_STATE_COMBAT);
     // Stay is kept in all three engines by the central movement setter;
     // remove its reaction copy as well or it can survive the order and be
     // mistaken for an active hold during the next transition.
