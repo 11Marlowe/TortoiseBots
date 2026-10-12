@@ -132,11 +132,11 @@ bool ai::AhBuyerTripNeeded(PlayerbotAI* ai)
     // purpose instead of re-requesting every tick (finding 9).
     if (AI_VALUE2(time_t, "manual time", "no travel purpose until::" + std::to_string((uint32)TravelDestinationPurpose::AH)) > time(0))
         return false;
-    // One trip at a time: stamped when the AH pick is issued (see
-    // ChooseTravelTargetAction), lapses after ten minutes like the
-    // trainer/vendor trip stamps.
-    if (AI_VALUE2(time_t, "manual time", "ah buyer trip since") + 10 * MINUTE > time(0))
-        return false;
+    // One trip at a time: the "ah buyer trip since" stamp is checked on the
+    // request side only (RequestTravelTargetAction::isUseful), like the
+    // vendor/trainer stamps. This need is also the in-flight trip's stored
+    // condition, so checking the stamp here dropped every buyer trip at its
+    // first status check (issue #779).
     // Same-continent reachability (finding 3): the bot's own map must hold
     // an AH house it can actually be routed to. The destination search
     // reports cross-map houses as FLT_MAX (unroutable); mirror that here via

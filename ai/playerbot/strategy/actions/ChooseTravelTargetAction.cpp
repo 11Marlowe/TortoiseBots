@@ -1870,6 +1870,16 @@ bool RequestTravelTargetAction::isUseful() {
             AI_VALUE2(time_t, "manual time", "vendor trip since"), time(0)))
         return false;
 
+    // One AH shopping journey at a time (issues #405, #779): a picked AH trip
+    // suppresses new buyer requests for ten minutes. Request-side only, like
+    // the vendor stamp above - AhBuyerTripNeeded is the trip's stored
+    // condition and must stay true while the bot walks. The seller leg keeps
+    // its own need and is not held back by a buyer stamp.
+    if (getQualifier() == std::to_string((uint32)TravelDestinationPurpose::AH) &&
+        !AI_VALUE(bool, "should ah sell") &&
+        AI_VALUE2(time_t, "manual time", "ah buyer trip since") + 10 * MINUTE > time(0))
+        return false;
+
     // Time-boxed blacklist set by MoveToTravelTargetAction on repeated move
     // failure (and by UnstuckAction when retiring a target): ManualSetValue
     // has no expiry, so the timestamp recorded alongside is what ends the park.
