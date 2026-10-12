@@ -8757,5 +8757,23 @@ Reason: batch-7 raid audit finding 5 — the old wiring called the hazard
 step-out, which only moves inside registered hazards, so marks stacked until
 death while the docs said carriers rotate.
 
+Fix round 2 (review of this PR): `TankTargetValue` returns the rotated
+horseman while the stored choice holds (same hook and ordering as
+`DpsTargetValue`: explicit orders, then the rotation, then raid marks), and
+`TankAssistTrigger` vetoes the assist while it holds, so a rotating tank is
+no longer pulled back to the group tank's horseman. `FourHorsemenRotateAction`
+holds a tank bot at its corner until another tank (bot or player, alive, same
+map) is within `kFourHorsemenHandoverYd` (30yd) of the leaving horseman or is
+itself rotating to that corner; the rotation-outranks-skull/RTI ordering is
+now stated in `docs/guides/dungeon-tactics.md` and the tank row of
+`docs/concepts/bot-mechanics-and-quirks.md`. The shared game-state lookup
+(`FourHorsemenRotationTargetRaw` in `FourHorsemenRotationPolicy.h`) feeds all
+three call sites, with `tools/test_four_horsemen_rotation_policy.cpp`
+covering its hold/lapse matrix. Also touches
+`ai/playerbot/strategy/values/TankTargetValue.{h,cpp}`,
+`ai/playerbot/strategy/triggers/GenericTriggers.{h,cpp}`,
+`docs/guides/dungeon-tactics.md`,
+`docs/concepts/bot-mechanics-and-quirks.md`.
+
 Validation: `tools/test_four_horsemen_rotation_policy.cpp` + code review;
 build pending; in-game pending.

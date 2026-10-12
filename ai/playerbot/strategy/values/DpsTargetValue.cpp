@@ -11,6 +11,37 @@ using namespace ai;
 
 namespace
 {
+    // Four Horsemen mark rotation (FourHorsemenRotateAction): while the
+    // bot's stored corner choice holds, its dps target is the horseman at
+    // that corner. Without this "dps assist" resets the target to the tank's
+    // horseman and the bot walks back into the mark it just left. A stay
+    // order parks the bot, so the override stands down with it.
+    Unit* FourHorsemenRotationTarget(PlayerbotAI* ai, Player* bot)
+    {
+        if (bot->GetMapId() != 533)
+            return nullptr;
+        AiObjectContext* context = ai->GetAiObjectContext();
+        const int fromIdx = context->GetValue<int32>("manual int", kFourHorsemenFromKey)->Get() - 1;
+        const int toIdx = context->GetValue<int32>("manual int", kFourHorsemenToKey)->Get() - 1;
+        auto getStacks = [&](uint32 markSpell) -> uint32
+        {
+            Aura* aura = ai->GetAura(markSpell, bot);
+            return aura ? aura->GetStackAmount() : 0;
+        };
+        auto findHorseman = [&](int idx) -> Unit*
+        {
+            for (ObjectGuid const& guid : context->GetValue<std::list<ObjectGuid>>("attackers")->Get())
+            {
+                Unit* unit = ai->GetUnit(guid);
+                if (unit && unit->IsAlive() && unit->GetEntry() == kFourHorsemenEntries[idx])
+                    return unit;
+            }
+            return nullptr;
+        };
+        return FourHorsemenRotationTargetRaw<Unit>(fromIdx, toIdx, getStacks, findHorseman,
+            ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT));
+    }
+
     // Wasted DPS targets (mod-playerbots RaidMcStrategy::AppendTargetExclusions,
     // plus the vanilla Razuvious Understudies): Majordomo cannot die, Core
     // Ragers heal to full while Golemagg lives, and Understudies are the
@@ -37,41 +68,6 @@ namespace
         return false;
     }
 
-    // Four Horsemen mark rotation (FourHorsemenRotateAction): while the
-    // bot's stored corner choice holds, its dps target is the horseman at
-    // that corner. Without this "dps assist" resets the target to the tank's
-    // horseman and the bot walks back into the mark it just left. A stay
-    // order parks the bot, so the override stands down with it.
-    Unit* FourHorsemenRotationTarget(PlayerbotAI* ai, Player* bot)
-    {
-        if (bot->GetMapId() != 533)
-            return nullptr;
-        AiObjectContext* context = ai->GetAiObjectContext();
-        const int fromIdx = context->GetValue<int32>("manual int", kFourHorsemenFromKey)->Get() - 1;
-        const int toIdx = context->GetValue<int32>("manual int", kFourHorsemenToKey)->Get() - 1;
-        const int count = static_cast<int>(kFourHorsemenCount);
-        if (fromIdx < 0 || fromIdx >= count || toIdx < 0 || toIdx >= count)
-            return nullptr;
-        if (ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT))
-            return nullptr;
-        HorsemanSpot spots[kFourHorsemenCount];
-        if (Aura* aura = ai->GetAura(kFourHorsemenMarks[fromIdx], bot))
-            spots[fromIdx].stacks = aura->GetStackAmount();
-        if (Aura* aura = ai->GetAura(kFourHorsemenMarks[toIdx], bot))
-            spots[toIdx].stacks = aura->GetStackAmount();
-        Unit* chosen = nullptr;
-        for (ObjectGuid const& guid : context->GetValue<std::list<ObjectGuid>>("attackers")->Get())
-        {
-            Unit* unit = ai->GetUnit(guid);
-            if (unit && unit->IsAlive() && unit->GetEntry() == kFourHorsemenEntries[toIdx])
-            {
-                chosen = unit;
-                spots[toIdx].alive = true;
-                break;
-            }
-        }
-        return FourHorsemenChoiceHolds(spots, fromIdx, toIdx) ? chosen : nullptr;
-    }
 
     // mod-playerbots DPS target tournament (LD-1/LD-4): lifetime buckets per
     // bot type instead of flat least-HP, CC-moon skip, skull snap. The

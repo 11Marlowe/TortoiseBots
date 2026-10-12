@@ -12,6 +12,7 @@
 #include "playerbot/strategy/generic/PullStrategy.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/AoeValues.h"
+#include "playerbot/FourHorsemenRotationPolicy.h"
 #include "playerbot/strategy/actions/AttackAction.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
@@ -927,6 +928,35 @@ bool TankAssistTrigger::IsActive()
 {
     if (!AI_VALUE(bool, "has attackers"))
         return false;
+
+    // A Four Horsemen mark carrier holds its rotated horseman: assisting
+    // the group tank's target would drag it back into the mark it just
+    // left. TankTargetValue already returns that horseman; veto the assist
+    // while the stored choice holds so the two agree.
+    if (bot->GetMapId() == 533)
+    {
+        AiObjectContext* context = ai->GetAiObjectContext();
+        const int fromIdx = context->GetValue<int32>("manual int", kFourHorsemenFromKey)->Get() - 1;
+        const int toIdx = context->GetValue<int32>("manual int", kFourHorsemenToKey)->Get() - 1;
+        auto getStacks = [&](uint32 markSpell) -> uint32
+        {
+            Aura* aura = ai->GetAura(markSpell, bot);
+            return aura ? aura->GetStackAmount() : 0;
+        };
+        auto findHorseman = [&](int idx) -> Unit*
+        {
+            for (ObjectGuid const& guid : context->GetValue<std::list<ObjectGuid>>("attackers")->Get())
+            {
+                Unit* unit = ai->GetUnit(guid);
+                if (unit && unit->IsAlive() && unit->GetEntry() == kFourHorsemenEntries[idx])
+                    return unit;
+            }
+            return nullptr;
+        };
+        if (FourHorsemenRotationTargetRaw<Unit>(fromIdx, toIdx, getStacks, findHorseman,
+            ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT)))
+            return false;
+    }
 
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
     if (!currentTarget)

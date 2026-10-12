@@ -409,8 +409,46 @@ bool FourHorsemenRotateAction::Execute(Event& event)
     const int nextIdx = FourHorsemenNextIndex(spots, stackingIdx, keepChoice ? storedTo : currentIdx);
     if (nextIdx < 0)
         return false;
-    // Remember the choice; DpsTargetValue reads it so "dps assist" keeps
-    // the bot on this horseman instead of the tank's (no ping-pong).
+    // A tank bot only leaves a corner another tank already covers: walking
+    // off with no handover drags the horseman through the raid with nobody
+    // to pick it up. Covered = another tank (bot or player, alive, same
+    // map) already at / heading to the leaving corner — within handover
+    // range of that horseman, or walking it via its own stored rotation
+    // choice. Non-tanks always rotate; an unheld corner needs no handover.
+    if (ai->IsTank(bot) && currentIdx >= 0 && currentIdx != nextIdx && horsemen[currentIdx])
+    {
+        bool handedOver = false;
+        if (Group* group = bot->GetGroup())
+        {
+            for (Player* member : LiveGroupMembers(group))
+            {
+                if (!member || member == bot || !sServerFacade.IsAlive(member))
+                    continue;
+                if (member->GetMapId() != bot->GetMapId() || !PlayerbotAI::IsTank(member))
+                    continue;
+                if (sServerFacade.getDistance2d(member, horsemen[currentIdx]) <= kFourHorsemenHandoverYd)
+                {
+                    handedOver = true;
+                    break;
+                }
+                if (PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member))
+                {
+                    const int memberTo = memberAi->GetAiObjectContext()->GetValue<int32>(
+                        "manual int", kFourHorsemenToKey)->Get() - 1;
+                    if (memberTo == currentIdx)
+                    {
+                        handedOver = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!handedOver)
+            return false;
+    }
+    // Remember the choice; the dps/tank target values read it so assists
+    // keep the bot on this horseman instead of the group tank's (no
+    // ping-pong).
     if (!keepChoice || nextIdx != storedTo)
     {
         SET_AI_VALUE2(int32, "manual int", kFourHorsemenFromKey, stackingIdx + 1);

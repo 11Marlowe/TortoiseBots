@@ -125,6 +125,42 @@ int main()
     CHECK(Near(x, 0.0f) && Near(y, 0.0f));
     std::cout << "  [PASS] stand-off spot points into the room\n";
 
+    // Shared target helper: the stored corner's horseman while the choice
+    // holds, nullptr once it lapses (old mark dropped, corner stacked, gone
+    // or out of range) or a stay order parks the bot. Fake game state: two
+    // mark stacks and a live-horseman lookup over a small id table.
+    {
+        uint32_t stacks[4] = { 3, 0, 0, 0 };
+        int live[4] = { 100, 101, 102, 103 };
+        auto getStacks = [&](uint32_t mark) -> uint32_t
+        {
+            for (int i = 0; i < 4; ++i)
+                if (kFourHorsemenMarks[i] == mark)
+                    return stacks[i];
+            return 0;
+        };
+        auto find = [&](int idx) -> int*
+        {
+            if (idx < 0 || idx >= 4 || live[idx] < 0)
+                return nullptr;
+            return &live[idx];
+        };
+        Square(s);
+        CHECK(FourHorsemenRotationTargetRaw<int>(0, 2, getStacks, find, false) == &live[2]);
+        CHECK(FourHorsemenRotationTargetRaw<int>(0, 2, getStacks, find, true) == nullptr);
+        stacks[0] = 2;
+        CHECK(FourHorsemenRotationTargetRaw<int>(0, 2, getStacks, find, false) == nullptr);
+        stacks[0] = 3;
+        stacks[2] = 3;
+        CHECK(FourHorsemenRotationTargetRaw<int>(0, 2, getStacks, find, false) == nullptr);
+        stacks[2] = 0;
+        live[2] = -1;
+        CHECK(FourHorsemenRotationTargetRaw<int>(0, 2, getStacks, find, false) == nullptr);
+        CHECK(FourHorsemenRotationTargetRaw<int>(-1, -1, getStacks, find, false) == nullptr);
+        CHECK(FourHorsemenRotationTargetRaw<int>(0, 4, getStacks, find, false) == nullptr);
+    }
+    std::cout << "  [PASS] shared rotation target follows the stored choice\n";
+
     CHECK(FourHorsemenArrived(true, 5.0f, kFourHorsemenMeleeOffsetYd));
     CHECK(!FourHorsemenArrived(true, 9.0f, kFourHorsemenMeleeOffsetYd));
     CHECK(!FourHorsemenArrived(false, 2.0f, kFourHorsemenMeleeOffsetYd));

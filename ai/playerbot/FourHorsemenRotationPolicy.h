@@ -144,16 +144,26 @@ namespace ai
 
     // The bot's rotation choice is stored per bot ("manual int" values,
     // index + 1, 0 = none): the mark it rotated away from and the corner it
-    // chose. FourHorsemenRotateAction writes it, DpsTargetValue reads it.
+    // chose. FourHorsemenRotateAction writes it, the dps/tank target values
+    // read it.
     constexpr const char* kFourHorsemenFromKey = "four horsemen rotate from";
     constexpr const char* kFourHorsemenToKey = "four horsemen rotate to";
 
+    // How close another tank (bot or player) must be to the corner a tank
+    // bot leaves before it rotates: without relief walking off drags the
+    // horseman through the raid with no one to pick it up (see the action).
+    constexpr float kFourHorsemenHandoverYd = 30.0f;
+
+    // While a stored choice holds, the bot keeps walking to that corner
+    // (the nearest horseman mid-walk does not take over) and its dps/tank
+    // target is the chosen horseman. Shared by FourHorsemenRotateAction (the
+    // move), DpsTargetValue and TankTargetValue (the target stick), and
+    // TankAssistTrigger (the assist veto): one predicate, no drift.
+    //
     // A stored choice still holds while the bot carries 3+ stacks of the
     // mark it left and the chosen horseman lives with its mark still under
-    // the threshold. While it holds the bot keeps walking to that corner
-    // (the nearest horseman mid-walk does not take over) and its dps target
-    // is the chosen horseman. It lapses on its own once the old mark drops
-    // under 3 or the chosen corner stacks up or dies.
+    // the threshold. It lapses on its own once the old mark drops under 3
+    // or the chosen corner stacks up or dies.
     inline bool FourHorsemenChoiceHolds(const HorsemanSpot* spots, int fromIdx, int toIdx)
     {
         const int count = static_cast<int>(kFourHorsemenCount);
@@ -169,6 +179,33 @@ namespace ai
     inline bool FourHorsemenArrived(bool nearestIsChosen, float distToChosen, float offset)
     {
         return nearestIsChosen && distToChosen <= offset + kFourHorsemenArrivedYd;
+    }
+
+    // The horseman at the bot's stored corner, or nullptr when there is
+    // no stored choice, it lapsed, the horseman is gone, or a stay order
+    // parks the bot (the override stands down with the move). Needs only
+    // the two stored indices, the bot's own two mark stacks and the live
+    // horseman unit: declared here so the action, the dps/tank target
+    // values and the tank-assist trigger share it. `getAuraStacks` returns
+    // the bot's stacks of a mark spell (0 when absent); `findHorseman`
+    // returns the live unit for a horseman index (nullptr when gone); the
+    // stay flag vetoes the override the same way it vetoes the move.
+    template <typename UnitT, typename GetAuraStacks, typename FindHorseman>
+    inline UnitT* FourHorsemenRotationTargetRaw(int fromIdx, int toIdx, GetAuraStacks getAuraStacks,
+        FindHorseman findHorseman, bool stayOrdered)
+    {
+        const int count = static_cast<int>(kFourHorsemenCount);
+        if (fromIdx < 0 || fromIdx >= count || toIdx < 0 || toIdx >= count)
+            return nullptr;
+        if (stayOrdered)
+            return nullptr;
+        HorsemanSpot spots[kFourHorsemenCount];
+        spots[fromIdx].stacks = getAuraStacks(kFourHorsemenMarks[fromIdx]);
+        spots[toIdx].stacks = getAuraStacks(kFourHorsemenMarks[toIdx]);
+        UnitT* chosen = findHorseman(toIdx);
+        if (chosen)
+            spots[toIdx].alive = true;
+        return FourHorsemenChoiceHolds(spots, fromIdx, toIdx) ? chosen : nullptr;
     }
 
     // Where the bot stands at the chosen corner: `offset` yards from the
