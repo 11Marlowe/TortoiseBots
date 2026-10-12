@@ -35,6 +35,9 @@ namespace ai
         virtual bool AddLoot(Player* requester, ObjectGuid guid);
         virtual bool Execute(Event& event) override;
 
+        // Set per Execute: this run is a player's explicit "loot" order (LootWindowPolicy).
+        bool playerOrder = false;
+
 #ifdef GenerateBotHelp
         virtual std::string GetHelpName() { return "add all loot"; }
         virtual std::string GetHelpDescription()
