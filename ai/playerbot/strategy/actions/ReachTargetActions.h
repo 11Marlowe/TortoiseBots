@@ -212,7 +212,10 @@ namespace ai
                     bool const fighting = !cannotBeReached && (bot->IsInCombat() || target->GetVictim() == bot);
                     bool const stoodStill = !runner && outOfReach && !fighting && nowMs - stoodSinceMs >= kNoMoveMs;
 
-                    if (noHeadway || stoodStill)
+                    // Group instance targets remain the party's fight even when reach
+                    // stalls. Do not blacklist the boss or discard the attack order.
+                    bool const groupInstanceFight = bot->GetGroup() && bot->GetMap() && bot->GetMap()->IsDungeon();
+                    if (!groupInstanceFight && (noHeadway || stoodStill))
                     {
                         // The attacker exception only holds in sight: a mob that "attacks" the bot
                         // from out of sight for 15 s without closing in is stuck as well (a Wendigo in
