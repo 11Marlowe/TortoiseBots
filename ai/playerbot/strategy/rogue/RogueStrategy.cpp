@@ -585,6 +585,7 @@ public:
             (actionName == "bg check objective") ||
             (actionName == "bg check flag") ||
             (actionName == "attack enemy flag carrier") ||
+            (actionName == "attack enemy player") || // stealthed approach: the order walks to the player
             (actionName == "travel") ||
             (actionName == "move to suppression device") ||
             (actionName == "disarm suppression device"))

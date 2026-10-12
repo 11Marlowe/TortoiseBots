@@ -29,6 +29,7 @@ Rogues provide premier single-target melee physical DPS, invaluable pre-combat c
   - *Cheap Shot* for lockdown stuns on dangerous casters.
   - *Ambush* (Daggers) or *Garrote* (Bleed) for initial damage.
   - Out of combat *Sap* when assigned CC on humanoid targets.
+- In battlegrounds a stealthed rogue still takes enemy-player orders: it sneaks up to the player in stealth and opens from there, and it keeps playing the objectives (flag, carrier, move to objective) while stealthed.
 
 ### 2. Combo Points & Finisher Priority
 - **Generator:** Uses *Sinister Strike* (Swords) or *Backstab* (Daggers), or *Hemorrhage* (Subtlety).
