@@ -5,9 +5,9 @@
 namespace ai
 {
     // stances
-    BUFF_ACTION(CastBattleStanceAction, "battle stance");
+    BUFF_ACTION_U(CastBattleStanceAction, "battle stance", !ai->IsTank(bot) && CastBuffSpellAction::isUseful());
     BUFF_ACTION(CastDefensiveStanceAction, "defensive stance");
-    BUFF_ACTION(CastBerserkerStanceAction, "berserker stance");
+    BUFF_ACTION_U(CastBerserkerStanceAction, "berserker stance", !ai->IsTank(bot) && CastBuffSpellAction::isUseful());
 
     // shouts
     MELEE_ACTION_U(CastBattleShoutTauntAction, "battle shout", CastSpellAction::isUseful()); // useful to rebuff
@@ -141,6 +141,12 @@ namespace ai
 
             if (isTank)
             {
+                // Establish and refresh the stack before spending rage on other attacks.
+                Aura* sunder = ai->GetAura("sunder armor", target);
+                if (!target->IsPlayer() && (!sunder || sunder->GetStackAmount() < 5 ||
+                    (sunder->GetAuraDuration() >= 0 && sunder->GetAuraDuration() <= 6000)))
+                    return true;
+
                 uint32 bloodThirst = AI_VALUE2(uint32, "spell id", "bloodthirst");
                 uint32 mortalStrike = AI_VALUE2(uint32, "spell id", "mortal strike");
                 uint32 shieldSlam = AI_VALUE2(uint32, "spell id", "shield slam");

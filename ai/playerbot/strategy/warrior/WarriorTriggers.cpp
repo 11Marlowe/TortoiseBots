@@ -5,6 +5,30 @@
 
 using namespace ai;
 
+bool BattleStanceTrigger::IsActive()
+{
+    return !ai->IsTank(bot) && BuffTrigger::IsActive();
+}
+
+bool DefensiveStanceTrigger::IsActive()
+{
+    return ai->IsTank(bot) && BuffTrigger::IsActive();
+}
+
+bool BerserkerStanceTrigger::IsActive()
+{
+    return !ai->IsTank(bot) && BuffTrigger::IsActive();
+}
+
+bool ShieldBlockTrigger::IsActive()
+{
+    Unit* target = AI_VALUE(Unit*, "current target");
+    return target && target->IsAlive() && target->GetVictim() == bot &&
+        sServerFacade.IsHostileTo(bot, target) && bot->CanReachWithMeleeAutoAttack(target) &&
+        BuffTrigger::IsActive();
+}
+
+
 bool BloodrageBuffTrigger::IsActive()
 {
     if (!ai->HasSpell("bloodrage"))

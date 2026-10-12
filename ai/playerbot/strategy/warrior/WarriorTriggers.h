@@ -4,10 +4,10 @@
 
 namespace ai
 {
-    BUFF_TRIGGER(BattleStanceTrigger, "battle stance");
-    BUFF_TRIGGER(DefensiveStanceTrigger, "defensive stance");
-    BUFF_TRIGGER(BerserkerStanceTrigger, "berserker stance");
-    BUFF_TRIGGER(ShieldBlockTrigger, "shield block");
+    BUFF_TRIGGER_A(BattleStanceTrigger, "battle stance");
+    BUFF_TRIGGER_A(DefensiveStanceTrigger, "defensive stance");
+    BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
+    BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
     DEBUFF_TRIGGER(DisarmDebuffTrigger, "disarm");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
