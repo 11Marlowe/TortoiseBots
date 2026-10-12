@@ -17,9 +17,11 @@ using ai::IsDeathAttackerSnapshotFresh;
 using ai::RestStopHealthPct;
 using ai::ShouldAnswerAttacker;
 using ai::ShouldFleeAtCriticalHealth;
+using ai::ShouldGrantPoolFlee;
 using ai::ShouldIgnoreHardHostile;
 using ai::ShouldSeedDrink;
 using ai::ShouldDrinkAtManaPct;
+using ai::ShouldSelfHealerHoldGround;
 using ai::DeathAttackerEntry;
 int main()
 {
@@ -48,6 +50,13 @@ int main()
     // The restored critical-health flee is pool-only: no real player master.
     CHECK(ShouldFleeAtCriticalHealth(false));
     CHECK(!ShouldFleeAtCriticalHealth(true));
+
+    // Pool melee hold ground: only the opt-in key plus a warrior/rogue drops
+    // the flee strategy; key off (the default) keeps it for every class.
+    CHECK(ShouldGrantPoolFlee(false, true));
+    CHECK(ShouldGrantPoolFlee(false, false));
+    CHECK(ShouldGrantPoolFlee(true, false));
+    CHECK(!ShouldGrantPoolFlee(true, true));
 
     // Attacker snapshot freshness: 30 s window, 0 means no sample yet.
     std::uint32_t const now = 1'000'000;
@@ -111,6 +120,15 @@ int main()
     CHECK(!ShouldIgnoreHardHostile(36, 30, true));
     CHECK(!ShouldIgnoreHardHostile(60, 30, true));
     CHECK(!ShouldIgnoreHardHostile(25, 30, false));
+
+    // Outnumbered hold ground: only a solo hybrid self-healer with mana at or
+    // above LowMana stays; grouped, out of mana or another class keeps flee.
+    CHECK(ShouldSelfHealerHoldGround(true, false, true, 100, 15));
+    CHECK(ShouldSelfHealerHoldGround(true, false, true, 15, 15));
+    CHECK(!ShouldSelfHealerHoldGround(true, false, true, 14, 15));
+    CHECK(!ShouldSelfHealerHoldGround(true, false, false, 0, 15));
+    CHECK(!ShouldSelfHealerHoldGround(true, true, true, 100, 15));
+    CHECK(!ShouldSelfHealerHoldGround(false, false, true, 100, 15));
 
     std::cout << "survive policy: OK\n";
     return 0;

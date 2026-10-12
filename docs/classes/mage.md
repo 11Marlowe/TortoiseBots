@@ -16,7 +16,7 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 ## Supported Specs & Roles
 
 - **Frost (Ranged DPS):** Exceptional control and survivability. Leverages *Frostbolt*, *Frost Nova*, *Blizzard*, and *Ice Barrier*.
-- **Fire (Ranged DPS):** Massive burst damage with *Fireball*, *Pyroblast*, *Improved Scorch* (Fire Vulnerability) and *Combustion*.
+- **Fire (Ranged DPS):** Massive burst damage with *Fireball*, *Pyroblast*, *Scorch* (Fire Vulnerability) and *Combustion*.
 - **Arcane (Ranged DPS):** High single-target burst with *Arcane Missiles*, *Arcane Power*, and *Presence of Mind*.
 
 ---
@@ -35,8 +35,9 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 ### 2. Fire Mage
 - Hurries a *Pyroblast* once *Hot Streak* reaches full stacks (highest-priority nuke).
 - Refreshes *Pyroblast* in combat and consumes *Presence of Mind* with it.
-- Weaves *Scorch* casts to maintain the *Improved Scorch* fire vulnerability.
+- Weaves *Scorch* casts to maintain the Fire Vulnerability debuff (talent ranks and debuff are matched by spell id; Turtle has no spell named "Improved Scorch").
 - Casts *Fireball* as main nuke and *Fire Blast* on the move or for finishing blows.
+- Skips damage spells whose school the target is immune to (fire elementals, Molten Core adds, *Ice Block*): *Fireball* and *Scorch* fall through to *Frostbolt*, then the wand, instead of casting for zero damage. Arcane has no Frostbolt fallback row yet.
 
 ### 3. Arcane Mage
 - Opens with *Arcane Rupture* (damage that strengthens missiles for 8s; recast on its cooldown), then channels *Arcane Missiles* while the buff holds, with mana management.
@@ -52,6 +53,10 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 - **Evocation Channeling (Spell ID 12051):**
   - Automatically activates *Evocation* when out of mana.
   - Automatically cancels the channel once mana reaches 95% to immediately re-enter combat rather than standing idle.
+- **Wand only without mana (Shoot, Spell ID 5019):**
+  - On Turtle every wand shot puts the global cooldown on the shooter for the wand's whole swing, and the next shot renews it, so a running wand keeps *Frostbolt*, *Fireball* and every other mage spell "not ready".
+  - Before, a mage whose nuke fell back to the wand once (a GCD tick, a cast refused while moving) kept wanding at full mana until it moved or the fight ended.
+  - Now the `wand blocks nuke` trigger stops the wand (`stop wand`) while *Frostbolt* or *Fireball* is held back by that GCD alone, waits out the last shot's GCD and casts again. With too little mana for either nuke, or below the 5% `no mana` line (where the `no mana` → *Shoot* row wands on purpose), the wand keeps going; in a raid group the wand also stays while the mage holds aggro (the raid `has aggro` → *Shoot* row). It also stays while the mage is silenced, locked out of the nuke's school (*Counterspell*), or out of line of sight of the target: the core reports the GCD before those checks, so the trigger reads them on the mage itself. The trigger is checked every 1-2 s, not every tick.
 - **Icicles (Spell ID 52516):**
   - Custom Turtle Frost talent providing root and shatter synergy without breaking primary frost rotation loops.
 
@@ -59,7 +64,7 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 
 ## Utility, CC & Party Refreshments
 
-- **Polymorph CC:** Instantly casts *Polymorph* (Sheep) on targets assigned via `.bot action cc <mark>`. Avoids damaging or AoEing sheeped targets.
+- **Polymorph CC:** Casts *Polymorph* (Sheep) on the target assigned via `.bot action cc <mark>` and stands still through the cast bar (the engine sleeps for the cast time, so the sheep is no longer restarted several times a second). Stops sheeping its mark once only CC-marked mobs are left fighting the group (a stunned, rooted or feared unmarked mob still counts as an enemy, so a Cheap Shot or Frost Nova does not end the sheep). Avoids damaging or AoEing sheeped targets: *Frost Nova*, *Cone of Cold*, *Arcane Explosion*, *Flamestrike* and *Blizzard* are skipped when their area would reach a sheeped mob, and *Flamestrike*/*Blizzard* also near a CC mark about to be sheeped.
 - **Interrupts:** Casts *Counterspell* immediately when an enemy begins casting a dangerous spell, locking out that spell school for up to 10 seconds.
 - **Food & Drink Conjuration:** Automatically conjures food and water out of combat, sharing stacks with party members who need mana or health.
 - **Mana Gem Priority:** Consumes the strongest gem in bags first (Ruby → Citrine → Jade → Agate) so low-level gems are never wasted ahead of raid gems.

@@ -2,7 +2,9 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/HunterRangedTelemetry.h"
+#include "playerbot/ServerFacade.h"
 #include "HunterActions.h"
+#include "HunterValues.h"
 
 using namespace ai;
 
@@ -25,14 +27,65 @@ bool ai::HunterHasLoadedRangedWeapon(PlayerbotAI* playerbotAi)
     return HunterHasRangedAmmo(playerbotAi);
 }
 
+// Core timing (Unit::_UpdateAutoRepeatSpell, SpellEntry::GetCastTime): the
+// ranged attack timer counts down the time to the next Auto Shot and keeps
+// running while a cast pauses the repeat; on resume the core raises it to
+// 500 ms if lower. The real cast is the base cast time scaled by ranged haste
+// plus a flat 500 ms that GetCastTime adds to every SPELL_ATTR_RANGED spell.
+// Without a Spell object GetCastTime adds the 500 but skips the haste, so the
+// haste is applied here. Unit::Update runs spell events before
+// _UpdateSpells, so the repeat resumes in the tick the cast ends; the margin
+// is one world tick (50 ms) of slack, not a latency guess.
+bool ai::HunterSteadyShotFitsAutoShotWindow(PlayerbotAI* playerbotAi, uint32 spellId)
+{
+    static constexpr uint32 kRangedCastExtraMs = 500;
+    static constexpr uint32 kAutoShotWindupMs = 500;
+    static constexpr uint32 kResumeMarginMs = 50;
+
+    if (!playerbotAi || !spellId)
+        return false;
+
+    Player* bot = playerbotAi->GetBot();
+    if (!bot)
+        return false;
+
+    // Cheapest check first: no ranged cast fits below this.
+    uint32 const timer = bot->GetAttackTimer(RANGED_ATTACK);
+    if (timer <= kRangedCastExtraMs + kAutoShotWindupMs + kResumeMarginMs)
+        return false;
+
+    SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
+    if (!spellInfo)
+        return false;
+
+    uint32 castTime = GetSpellCastTime(spellInfo, bot);
+    if ((spellInfo->Attributes & SPELL_ATTR_RANGED) && castTime >= kRangedCastExtraMs)
+        castTime = uint32((castTime - kRangedCastExtraMs) * bot->m_modAttackSpeedPct[RANGED_ATTACK]) + kRangedCastExtraMs;
+
+    return timer > castTime + kAutoShotWindupMs + kResumeMarginMs;
+}
+
+// Viper Sting leeches the target's mana to the hunter, so it is only worth the global when the hunter is
+// the one short on mana (mod-playerbots: own mana < 50) and the target has mana to give. Serpent Sting is the
+// default sting otherwise. An explicit 'sting viper' order bypasses the own-mana gate; an explicit 'sting serpent' order always allows Serpent Sting.
+static bool HunterWantsViperSting(PlayerbotAI* ai, const std::string& targetName)
+{
+    AiObjectContext* context = ai->GetAiObjectContext();
+    if (!ai->HasSpell("viper sting") || AI_VALUE2(uint8, "mana", targetName) < 10)
+        return false;
+
+    return ai->HasStrategy("sting viper", BotState::BOT_STATE_COMBAT) || AI_VALUE2(uint8, "mana", "self target") < 50;
+}
+
 bool CastSerpentStingAction::isUseful()
 {
-    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "health", GetTargetName()) > 50 && !(AI_VALUE2(uint8, "mana", GetTargetName()) >= 10);
+    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "health", GetTargetName()) > 50 &&
+           (ai->HasStrategy("sting serpent", BotState::BOT_STATE_COMBAT) || !HunterWantsViperSting(ai, GetTargetName()));
 }
 
 bool CastViperStingAction::isUseful()
 {
-    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && AI_VALUE2(uint8, "mana", GetTargetName()) >= 10;
+    return HunterHasRangedAmmo(ai) && CastRangedDebuffSpellAction::isUseful() && HunterWantsViperSting(ai, GetTargetName());
 }
 
 bool FeedPetAction::Execute(Event& event)
@@ -132,4 +185,66 @@ bool CastAutoShotAction::Execute(Event& event)
     LogHunterRangedEvent(ai, "AutoShot", std::string("cast=") + (executed ? "1" : "0"));
 
     return executed;
+}
+
+bool HunterStepOutAction::Execute(Event& event)
+{
+    (void)event;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    HunterKitState* state = GetHunterKitState(ai);
+    if (!target || !state)
+        return false;
+
+    uint64 const targetRaw = target->GetObjectGuid().GetRawValue();
+    uint32 const nowMs = WorldTimer::getMSTime();
+
+    // The one step is already under way for this mob: let it finish.
+    if (HunterStepOutEpisodeOpen(*state, targetRaw, nowMs))
+        return !bot->IsStopped() || sServerFacade.isMoving(bot);
+
+    float maxRange = 0.0f;
+    float minRange = 0.0f;
+    if (!ai->GetSpellRange("auto shot", &maxRange, &minRange) || minRange <= 0.0f)
+        return false;
+
+    // Stamp the episode before trying: a step that finds no spot counts as
+    // the one attempt, and the stuck verdict hands over to melee next tick.
+    BeginHunterStepOut(*state, targetRaw, nowMs);
+
+    float const edge = bot->GetDistance(target, SizeFactor::CombatReach);
+    float const center = sServerFacade.getDistance2d(bot, target);
+    // Reach terms between centre and edge distance, constant for the step.
+    float const reach = std::max(0.0f, center - edge);
+    float const step = HunterStepOutLength(edge, minRange);
+    float const away = target->GetAngle(bot);
+    WorldPosition const botPos(bot);
+
+    // Straight back first, then fanned out to either side (donor MoveAway).
+    static float const offsets[] = { 0.0f, M_PI_F / 8, -M_PI_F / 8, M_PI_F / 4, -M_PI_F / 4,
+        3 * M_PI_F / 8, -3 * M_PI_F / 8, M_PI_F / 2, -M_PI_F / 2 };
+    bool moved = false;
+    for (float const offset : offsets)
+    {
+        float const heading = away + offset;
+        WorldPosition cand = botPos + WorldPosition(0, step * cos(heading), step * sin(heading), 1.0f);
+        cand.setZ(cand.GetHeight());
+
+        // A fanned step must still land outside the dead zone.
+        float const landingCenter = sqrtf((cand.getX() - target->GetPositionX()) * (cand.getX() - target->GetPositionX()) +
+            (cand.getY() - target->GetPositionY()) * (cand.getY() - target->GetPositionY()));
+        if (landingCenter - reach < minRange + 1.0f)
+            continue;
+        if (!bot->IsWithinLOS(cand.getX(), cand.getY(), cand.getZ() + bot->GetCollisionHeight()))
+            continue;
+        if (!botPos.canPathTo(cand, bot))
+            continue;
+        if (!MoveTo(bot->GetMapId(), cand.getX(), cand.getY(), cand.getZ(), false, IsReaction(), false, true))
+            continue;
+
+        moved = true;
+        break;
+    }
+
+    LogHunterRangedEvent(ai, "StepOut", std::string("moved=") + (moved ? "1" : "0"));
+    return moved;
 }

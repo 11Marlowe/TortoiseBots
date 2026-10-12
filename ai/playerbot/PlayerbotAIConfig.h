@@ -300,6 +300,11 @@ public:
     // cooldown burnt (478 uses/100 min, 95% within 300 yd of the homebind, 2026-09-29).
     // Closer than this the unstuck chain repops instead. 0 disables the gate.
     float unstuckHearthMinDistance = 300.0f;
+    // Stuck-travel teleport (default on) (mod-playerbots MoveFarTo): a masterless pool
+    // bot whose trip hits the six-failed-move drop teleports to its destination
+    // instead (same map, unwatched, once per 10 min). Owned/hired bots and bots
+    // with a real master never teleport. Default off.
+    bool stuckTravelTeleport = true;
     // Quest-log upkeep for masterless random bots: drop finished quests that
     // can no longer be rewarded, refuse grey quests unless the reward is an
     // equip upgrade, and prefer turn-in travel once 2 quests are finished.
@@ -415,6 +420,9 @@ public:
     uint32 ownedBotSummonCooldown = 300;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
+    // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
+    // (panic / outnumbered / critical health no master) and fight on.
+    bool poolMeleeHoldGround;
     // Universal raid survival knobs (issue #201): bomb carriers run
     // BombRunoutDistance clear, spread/split steps use HazardEvasionDistance.
     float bombRunoutDistance = 30.0f, hazardEvasionDistance = 12.0f;
@@ -690,6 +698,10 @@ public:
     std::list<std::string> debugFilter;
 
     std::unordered_map <std::string, std::pair<FILE*, bool>> logFiles;
+    // Logs that could not be opened or rotated, with the time they may be tried
+    // again. Guarded by m_logMtx.
+    static constexpr time_t LOG_OPEN_RETRY_SECONDS = 300;
+    std::unordered_map<std::string, time_t> logOpenFailed;
 
     uint32 botCheatMask = 0;
     uint32 rndBotCheatMask = 0;
@@ -730,7 +742,9 @@ public:
     std::string GetTimestampStr();
 
     bool hasLog(std::string fileName) { return std::find(allowedLogFiles.begin(), allowedLogFiles.end(), fileName) != allowedLogFiles.end(); };
+    // Takes m_logMtx; log()/logf() use openLogLocked, which needs it already held.
     bool openLog(std::string fileName, char const* mode = "a", bool haslog = false);
+    bool openLogLocked(std::string const& fileName, char const* mode, bool haslog);
     bool isLogOpen(std::string fileName) { auto it = logFiles.find(fileName); return it != logFiles.end() && it->second.second;}
     std::string logsDirPath();
     bool archiveLog(std::string const& path, time_t now);

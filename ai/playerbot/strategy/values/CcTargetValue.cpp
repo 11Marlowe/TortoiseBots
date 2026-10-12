@@ -9,10 +9,10 @@
 
 using namespace ai;
 
-class FindTargetForCcStrategy : public FindTargetStrategy
+class FindTargetForCcStrategy : public FindNonCcTargetStrategy
 {
 public:
-    FindTargetForCcStrategy(PlayerbotAI* ai, std::string spell) : FindTargetStrategy(ai)
+    FindTargetForCcStrategy(PlayerbotAI* ai, std::string spell) : FindNonCcTargetStrategy(ai)
     {
         this->spell = spell;
         maxDistance = 0;
@@ -44,6 +44,12 @@ public:
 
         if (assignedTarget)
         {
+            // Never CC once only CC marks are left: the party then kills
+            // the marks last (DPS/tank kill-last fallback, same test), so
+            // re-CCing would only stall the fight or ping-pong sheep and
+            // damage. A stunned/rooted/feared unmarked mob still counts.
+            if (OnlyCcMarksLeft(creature))
+                return;
             result = creature;
             return;
         }

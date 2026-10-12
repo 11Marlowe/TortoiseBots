@@ -199,4 +199,15 @@ namespace ai
             return !target->HasAura(15258);
         }
     };
+
+    // A wand is running while a heal the priest's heal rows want, or a nuke
+    // its damage rows want, is held back only by the GCD each wand shot
+    // renews on Turtle (WandPolicy.h): stop the wand so the priest heals or
+    // casts instead of wanding while the party drops or at full mana.
+    class PriestWandBlocksCastTrigger : public WandBlocksCastTrigger
+    {
+    public:
+        PriestWandBlocksCastTrigger(PlayerbotAI* ai) : WandBlocksCastTrigger(ai, "wand blocks cast") {}
+        bool IsActive() override;
+    };
 }

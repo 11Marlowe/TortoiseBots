@@ -36,10 +36,11 @@ Rogues provide premier single-target melee physical DPS, invaluable pre-combat c
 - **Finishers:**
   - 4–5 Combo Points: Casts *Eviscerate* for burst damage (falling back to *Rupture* when the debuff is missing; Assassination/Subtlety also cast *Rupture* from 3+ combo points, on any target).
   - Almost-dead dump: a target at 25% health or less eats whatever combo points are banked (1+) as *Eviscerate*, ahead of the gated finishers, so points land as damage instead of dying with the mob.
+  - *Expose Armor* (Combat and generic DPS) is skipped while the target already carries *Sunder Armor* from any caster at any stack count, since the two do not stack (spell group 1064, strongest wins); the rogue's own *Expose Armor* upkeep is unchanged.
   - Interrupts are covered by *Kick* (*Cheap Shot* while stealthed); *Kidney Shot* is only a fallback when *Kick* cannot run.
 
 ### 3. Burst Cooldowns
-- Combat casts *Adrenaline Rush* and *Blade Flurry* during tough encounters or multi-mob pulls; Assassination fires *Cold Blood* and Subtlety fires *Preparation*.
+- Combat casts *Adrenaline Rush* and *Blade Flurry* during tough encounters or multi-mob pulls (never *Blade Flurry* or *Oil of Immolation* within 8 yd of a crowd-controlled mob or a CC mark still waiting for its sheep, since the cleave would break it); Assassination fires *Cold Blood* and Subtlety fires *Preparation*.
 - Activates *Evasion* on the low-health trigger (own HP in the low band), regardless of aggro source; when evasion is spent (5-minute cooldown, e.g. death loops), *Vanish* breaks combat instead of a solo-useless *Feint*, which stays last for grouped rogues with a tank to save.
 - Activates *Vanish* if health falls below 20% to wipe threat (after *Blind*).
 
@@ -60,9 +61,10 @@ Rogues provide premier single-target melee physical DPS, invaluable pre-combat c
 
 ## Utility & Poisons
 
-- **Poisons:** Poison choice is context-dependent: raid/generic uses Instant (main hand) + Deadly (off hand, Instant fallback while Deadly is untrained); PvE uses Instant on both hands; PvP uses Mind (main hand) + Crippling (off hand). Open-world rogues keep Instant on the main hand themselves; expiry or rank upgrades re-apply automatically. Wound-poison actions exist per hand, but the factory seeds no wound ladder yet — Instant/Deadly/Crippling/Mind only.
+- **Poisons:** Poison choice is context-dependent: raid/generic uses Instant (main hand) + Deadly (off hand, Instant fallback while Deadly is untrained); PvE uses Instant on both hands; PvP uses Mind (main hand) + Crippling (off hand). Open-world rogues keep Instant on the main hand themselves; expiry or rank upgrades re-apply automatically. Wound-poison actions exist per hand, but the factory seeds no wound ladder yet — Instant/Deadly/Crippling/Mind only. A poison is only attempted when its item level requirement is met, including for item-cheat bots and the always-on `main hand`/`off hand weapon no enchant` triggers (Instant Poison 20, Deadly 30), so lowbie rogues no longer loop on `apply deadly poison`.
 - **Interrupts:** Casts *Kick* instantly to lock out enemy spell schools.
 - **Gouge & Blind:** Both are self-defence reactions — *Gouge* fires on the bot's own medium-health band against its current target; *Blind* is the top-priority critical-health self-peel, ahead of *Vanish*.
+- **No break-off (opt-in):** Pool rogues carry the generic `flee` strategy (`panic` and `critical health no master` at critical health, `outnumbered` under medium health with two or more attackers). `AiPlayerbot.PoolMeleeHoldGround = 1` drops it for rogues and warriors so they fight on with *Evasion* / *Blind* / *Vanish*, as mod-playerbots melee do. Off by default.
 
 ---
 

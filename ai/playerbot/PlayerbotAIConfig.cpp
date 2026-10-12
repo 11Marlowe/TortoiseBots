@@ -403,6 +403,7 @@ bool PlayerbotAIConfig::Initialize()
     logInGroupOnly = config.GetBoolDefault("AiPlayerbot.LogInGroupOnly", true);
     logValuesPerTick = config.GetBoolDefault("AiPlayerbot.LogValuesPerTick", false);
     fleeingEnabled = config.GetBoolDefault("AiPlayerbot.FleeingEnabled", true);
+    poolMeleeHoldGround = config.GetBoolDefault("AiPlayerbot.PoolMeleeHoldGround", false);
     bombRunoutDistance = config.GetFloatDefault("AiPlayerbot.BombRunoutDistance", 30.0f);
     hazardEvasionDistance = config.GetFloatDefault("AiPlayerbot.HazardEvasionDistance", 12.0f);
     enableCustomRaidTactics = config.GetBoolDefault("AiPlayerbot.EnableCustomRaidTactics", true);
@@ -439,6 +440,7 @@ bool PlayerbotAIConfig::Initialize()
     avoidHostileTowns = config.GetBoolDefault("AiPlayerbot.AvoidHostileTowns", true);
     unstuckHearthLevelFit = config.GetBoolDefault("AiPlayerbot.UnstuckHearthLevelFit", true);
     unstuckHearthMinDistance = config.GetFloatDefault("AiPlayerbot.UnstuckHearthMinDistance", 300.0f);
+    stuckTravelTeleport = config.GetBoolDefault("AiPlayerbot.StuckTravelTeleport", true);
     botQuestLogUpkeep = config.GetBoolDefault("AiPlayerbot.BotQuestLogUpkeep", true);
     leaveOutgrownZones = config.GetBoolDefault("AiPlayerbot.LeaveOutgrownZones", true);
     vendorBatchMinCount = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.VendorBatchMinCount", 8));
@@ -545,7 +547,7 @@ bool PlayerbotAIConfig::Initialize()
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
 
-    randomBotCombatStrategies = config.GetStringDefault("AiPlayerbot.RandomBotCombatStrategies", "+dps,+dps assist,-threat");
+    randomBotCombatStrategies = config.GetStringDefault("AiPlayerbot.RandomBotCombatStrategies", "+dps assist,-threat");
     randomBotNonCombatStrategies = config.GetStringDefault("AiPlayerbot.RandomBotNonCombatStrategies", "+grind,+loot,+custom::say,+tfish,+wander,+rpg craft");
     randomBotReactStrategies = config.GetStringDefault("AiPlayerbot.RandomBotReactStrategies", "");
     randomBotDeadStrategies = config.GetStringDefault("AiPlayerbot.RandomBotDeadStrategies", "");
@@ -1315,8 +1317,25 @@ std::string PlayerbotAIConfig::GetTimestampStr()
 
 bool PlayerbotAIConfig::openLog(std::string fileName, char const* mode, bool haslog)
 {
+    std::lock_guard<std::mutex> guard(m_logMtx);
+    return openLogLocked(fileName, mode, haslog);
+}
+
+bool PlayerbotAIConfig::openLogLocked(std::string const& fileName, char const* mode, bool haslog)
+{
     if (!haslog && !hasLog(fileName))
         return false;
+
+    // A file that failed to open or rotate is skipped for a cool-down: log() calls
+    // this on every event, and retrying cost an fopen plus an error line each time.
+    // The clock is only read for a file that already failed.
+    auto const failed = logOpenFailed.find(fileName);
+    if (failed != logOpenFailed.end())
+    {
+        if (time(nullptr) < failed->second)
+            return false;
+        logOpenFailed.erase(failed);
+    }
 
     auto logFileIt = logFiles.find(fileName);
     if (logFileIt == logFiles.end())
@@ -1343,7 +1362,10 @@ bool PlayerbotAIConfig::openLog(std::string fileName, char const* mode, bool has
         for (std::string const& piece : plain)
             CompressLogPiece(piece);
         if (!archiveLog(path, now))
+        {
+            logOpenFailed[fileName] = time(nullptr) + LOG_OPEN_RETRY_SECONDS;
             return false;
+        }
     }
     file = fopen(path.c_str(), mode);
 
@@ -1355,11 +1377,12 @@ bool PlayerbotAIConfig::openLog(std::string fileName, char const* mode, bool has
     // than "a log file could not be opened".
     if (!file)
     {
-        sLog.outError("Could not open bot log file %s%s (%s). Logging to it is off for this run.",
-            m_logsDir.c_str(), fileName.c_str(), strerror(errno));
+        sLog.outError("Could not open bot log file %s%s (%s). Logging to it is off for %d minutes.",
+            m_logsDir.c_str(), fileName.c_str(), strerror(errno), int(LOG_OPEN_RETRY_SECONDS / 60));
 
         logFileIt->second.first = nullptr;
         logFileIt->second.second = false;
+        logOpenFailed[fileName] = time(nullptr) + LOG_OPEN_RETRY_SECONDS;
 
         return false;
     }
@@ -1425,7 +1448,7 @@ void PlayerbotAIConfig::log(std::string fileName, const char* line)
     std::lock_guard<std::mutex> guard(m_logMtx);
 
     if (!isLogOpen(fileName))
-        if (!openLog(fileName, "a"))
+        if (!openLogLocked(fileName, "a", false))
             return;
 
     FILE* file = logFiles.find(fileName)->second.first;
@@ -1450,7 +1473,7 @@ void PlayerbotAIConfig::logf(std::string fileName, const char* format, ...)
     std::lock_guard<std::mutex> guard(m_logMtx);
 
     if (!isLogOpen(fileName))
-        if (!openLog(fileName, "a"))
+        if (!openLogLocked(fileName, "a", false))
             return;
 
     FILE* file = logFiles.find(fileName)->second.first;

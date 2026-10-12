@@ -1722,6 +1722,23 @@ void PlayerbotAI::OnDeath()
                     }
                 }
             }
+            // Hostile-town death loop: a bot killed by the guards of an enemy town
+            // revives at the nearest spirit healer, often just outside that town
+            // (Horde at the Redridge graveyard beside Lakeshire: 25 Lakeshire Guard
+            // kills in 16 minutes, one rogue 12 times), and the travel target it
+            // still holds walks it straight back through the guards - the route
+            // check only covers named route nodes, never the graveyard leg or a
+            // short hop. Count deaths within 120 yd of hostile guards (neutral-town
+            // bruisers excluded); the post-rez rescue moves the bot away at
+            // kHostileTownLoopDeaths (BotManager::RelocateHopelessBot).
+            if (sPlayerbotAIConfig.avoidHostileTowns && WorldPosition(bot).IsGuardedHostileTownFor(bot, 120.0f, false))
+            {
+                uint32 const nowTownMs = WorldTimer::getMSTime();
+                if (!GetRecentHostileTownDeaths())
+                    hostileTownDeathCount_ = 0;
+                ++hostileTownDeathCount_;
+                hostileTownDeathMs_ = nowTownMs;
+            }
             // Killed by a player (entry == 0, not the environment): avoid that
             // named killer for a while so two masterless random bots grinding the
             // same spot stop trading kills every ~60 s. Same shape as the
@@ -3595,8 +3612,16 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
     if (m_forcedRole)
     {
         char const* roleStrategy = m_forcedRole == 1 ? "tank" : (m_forcedRole == 2 ? "heal" : "dps");
-        engines[(uint8)BotState::BOT_STATE_COMBAT]->addStrategy(roleStrategy);
-        engines[(uint8)BotState::BOT_STATE_NON_COMBAT]->addStrategy(roleStrategy);
+        for (BotState state : { BotState::BOT_STATE_COMBAT, BotState::BOT_STATE_NON_COMBAT })
+        {
+            Engine* engine = engines[(uint8)state];
+            // Priests heal from two specs and "heal" aliases Holy, which
+            // would drop a Discipline priest's own spec as a sibling. A
+            // Discipline priest is already a healer, so it keeps its spec.
+            if (m_forcedRole == 2 && engine->HasStrategy("discipline"))
+                continue;
+            engine->addStrategy(roleStrategy);
+        }
         sLog.outBasic("LFT: %s strategies rebuilt as %s", bot->GetName(), roleStrategy);
     }
 
@@ -5118,7 +5143,23 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
             }
         }
 
-        if (!damage)
+        if (damage)
+        {
+            // Damage spells skip the per-effect check below (mechanic/effect immunities do not stop damage),
+            // but a school or damage immunity (fire elementals, Ice Block) makes the cast do nothing: report it
+            // as not castable so the rotation falls through to the next row (e.g. Frostbolt).
+            if (target->IsImmuneToDamage(spellInfo->GetSpellSchoolMask(), spellInfo) ||
+                target->IsImmuneToSpell(spellInfo, bot == target))
+            {
+                if (checkResult)
+                {
+                    *checkResult = SPELL_FAILED_IMMUNE;
+                }
+
+                return false;
+            }
+        }
+        else
         {
             for (int32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; i++)
             {

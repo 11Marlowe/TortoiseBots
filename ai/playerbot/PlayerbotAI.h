@@ -12,6 +12,7 @@
 #include "strategy/IterateItemsMask.h"
 #include "BotDiagnostics.h"
 #include "playerbot/DeathClusterPolicy.h"
+#include "playerbot/GatherSpotPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "../../runtime/BotManager.h"
 
@@ -794,6 +795,35 @@ public:
     // A death-spot query needs only plain data (map + coordinates), so the
     // travel layer can ask without pulling in the policy header.
     bool IsDeathSpotAvoided(uint32 mapId, float x, float y, uint32 nowMs) const;
+    // Hostile-town death loop (see OnDeath): deaths within 120 yd of the guards
+    // of a town hostile to the bot, the last one less than half an hour ago.
+    // The post-rez rescue (BotManager::RelocateHopelessBot) moves the bot away
+    // at kHostileTownLoopDeaths; a relocation clears the count.
+    static constexpr uint32 kHostileTownLoopDeaths = 2;
+    static constexpr uint32 kHostileTownDeathWindowMs = 30 * 60 * 1000;
+    uint32 GetRecentHostileTownDeaths() const
+    {
+        if (!hostileTownDeathCount_ || WorldTimer::getMSTime() - hostileTownDeathMs_ > kHostileTownDeathWindowMs)
+            return 0;
+        return hostileTownDeathCount_;
+    }
+    void ClearHostileTownDeaths() { hostileTownDeathCount_ = 0; }
+    uint32 hostileTownDeathCount_ = 0;
+    uint32 hostileTownDeathMs_ = 0;
+    // Gather spawn points this bot reached and saw empty (GatherSpotPolicy.h),
+    // kept for about a respawn so the next mining/herbalism pick walks to
+    // another spawn instead of back to this one. Pool bots only fill it (the
+    // TravelTarget gather expiry); plain data, no world lookup.
+    ai::DeathAvoidSpot emptyGatherSpots_[ai::kEmptyGatherSpots] = {};
+    void MarkEmptyGatherSpot(uint32 mapId, float x, float y, uint32 nowMs)
+    {
+        ai::AddDeathAvoidSpot(emptyGatherSpots_, ai::kEmptyGatherSpots, mapId, x, y, nowMs,
+            ai::kEmptyGatherSpotMs, ai::kEmptyGatherSpotRadiusYd);
+    }
+    bool IsEmptyGatherSpot(uint32 mapId, float x, float y, uint32 nowMs) const
+    {
+        return ai::IsDeathPositionAvoided(mapId, x, y, nowMs, emptyGatherSpots_, ai::kEmptyGatherSpots);
+    }
     // A player (usually another random bot) that killed this bot recently: name +
     // expiry. While set, the victim does not proactively engage that killer
     // (EnemyPlayersValue::IsValid refuses it) so a same-spot trade-kill loop
@@ -848,6 +878,10 @@ public:
         // when the bot joins the player's group.
         void SetForcedRole(uint8 role) { m_forcedRole = role; }
         uint8 GetForcedRole() const { return m_forcedRole; }
+        // PET-3: set when the player orders `pet autocast` on a pet taunt
+        // (Growl/Torment); the autocast sweep then leaves taunts to them.
+        void SetPetTauntAutocastOrdered() { m_petTauntAutocastOrdered = true; }
+        bool IsPetTauntAutocastOrdered() const { return m_petTauntAutocastOrdered; }
     void UpdateTalentSpec(PlayerTalentSpec spec = PlayerTalentSpec::TALENT_SPEC_INVALID);
 
     bool CanEnterArea(const AreaTrigger* area);
@@ -873,6 +907,7 @@ protected:
 	Player* bot;
 	Player* master;
 	uint8 m_forcedRole = 0;
+	bool m_petTauntAutocastOrdered = false;
 	time_t m_dungeonCatchUpAt = 0;
 	// GUID-shadow of `master` so we can verify the pointer is still
 	// alive each tick without dereferencing it. Set in SetMaster().
