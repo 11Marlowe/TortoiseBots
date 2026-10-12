@@ -143,7 +143,9 @@ class TacticalStayReleaseTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("g++"), "g++ unavailable")
     def test_broken_stay_returns_to_follow(self):
         code = extract("void PlayerbotAI::EndStayForOrder()", "std::string PlayerbotAI::HandleRemoteCommand(", AI_SOURCE)
-        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "static bool BindMovementMaster(")
+        # End at the function's own closing brace: helpers defined after it
+        # (the pull checks and snapshots) need types this stand-in lacks.
+        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "\n}\n") + "\n}\n"
         with tempfile.TemporaryDirectory() as tmp:
             src = pathlib.Path(tmp) / "fixture.cpp"
             src.write_text(FIXTURE % {"code": code})
