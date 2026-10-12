@@ -29,8 +29,9 @@ Unit* SnareTargetValue::Calculate()
         if (!unit)
             continue;
 
-        // A free CC mark chasing a healer is the CC bot's job: a taunt or a
-        // damaging snare on it pulls the tank onto it and breaks the sheep.
+        // A held CC mark (sheeped, under the CC cast bar or in its CC grace
+        // window) is the CC bot's job: a taunt or a damaging snare on it
+        // breaks the sheep. A free mark on the healer may be taunted.
         if (ccGuard.IsHeldCcMark(unit))
             continue;
 

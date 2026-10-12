@@ -45,8 +45,22 @@ namespace ai
         // sheeped unmarked mob still counts as an enemy left to fight.
         bool OnlyCcMarksLeft(Unit* except = nullptr);
 
+        // The unit is crowd-controlled right now: a damage-breakable CC
+        // (sheep, sap, gouge, shackle, hibernate, trap, seduction, ...), a
+        // fear or a banish. Frost Nova's root is not crowd control here.
+        static bool IsCrowdControlled(PlayerbotAI* ai, Unit* unit);
+        // `caster`'s cast bar is a crowd-control spell aimed at `target`.
+        static bool IsCastingCcAt(Unit* caster, Unit* target);
+
     protected:
+        // Moon or a bot's assigned "rti cc" mark, crowd-controlled or not.
+        bool IsCcMark(Unit* attacker);
+        // A CC mark the party leaves alone: a mark that is crowd-controlled,
+        // has a group member's CC cast bar on it, is not fighting yet, or is
+        // in its first seconds of combat with its CC bot ready and in range.
+        // A free mark (CC missed, broke, or no CC bot) is a normal enemy.
         virtual bool IsCcTarget(Unit* attacker);
+        bool IsCcProtected(Unit* unit);
 
     };
 
@@ -59,13 +73,13 @@ namespace ai
         CcGuard(PlayerbotAI* ai) : FindNonCcTargetStrategy(ai), onlyMarksLeft(-1) {}
         void CheckAttacker(Unit* /*attacker*/, ThreatManager* /*threatManager*/) override {}
 
-        // A CC mark (Moon or a bot's "rti cc" mark) while any other enemy
-        // still fights the group: nobody targets, taunts, DoTs or splashes it
-        // (it is killed last, see TargetValue::FindLastCcTarget).
+        // A protected CC mark (see IsCcTarget) while any other enemy still
+        // fights the group: nobody targets, taunts, DoTs or splashes it (it
+        // is killed last, see TargetValue::FindLastCcTarget).
         bool IsHeldCcMark(Unit* unit);
         // An enemy fighting the group within `radius` of `center` (bounding
         // radii included) that holds a damage-breakable CC, or with
-        // `includeMarks` is a held CC mark about to be crowd-controlled.
+        // `includeMarks` is a held CC mark (being or about to be CC'd).
         bool ProtectedEnemyNear(WorldObject* center, float radius, bool includeMarks);
 
     private:

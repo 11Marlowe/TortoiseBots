@@ -8,29 +8,6 @@
 
 using namespace ai;
 
-namespace
-{
-    // The bot's cast bar is a crowd-control spell aimed at `target`.
-    bool IsCastingCcAt(Player* bot, Unit* target)
-    {
-        Spell* spell = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
-        if (!spell || spell->m_targets.getUnitTarget() != target || !spell->m_spellInfo)
-            return false;
-        switch (spell->m_spellInfo->Mechanic)
-        {
-            case MECHANIC_POLYMORPH:
-            case MECHANIC_BANISH:
-            case MECHANIC_FEAR:
-            case MECHANIC_SLEEP:
-            case MECHANIC_KNOCKOUT:
-            case MECHANIC_SHACKLE:
-                return true;
-            default:
-                return false;
-        }
-    }
-}
-
 bool InvalidTargetValue::Calculate()
 {
     Unit* target = AI_VALUE(Unit*, qualifier);
@@ -82,17 +59,19 @@ bool InvalidTargetValue::Calculate()
     const bool explicitAttackTarget = qualifier == "current target" &&
         AI_VALUE(ObjectGuid, "attack target") == target->getObjectGuid();
 
-    // A CC mark held while other enemies still fight the group is nobody's
+    // A held CC mark (crowd-controlled, under a CC cast bar or in its CC
+    // grace window, while other enemies still fight the group) is nobody's
     // current target: a bot that took it before the mark (or picked it up
     // as a loose mob) otherwise keeps hitting, taunting and DoTing it and
     // breaks every sheep (in-game retest: sheep broke 0.07-2.4 s after landing).
+    // A free mark (CC missed or broke) is a normal enemy and stays valid.
     // Exempt: the player's own attack/pull order, and a bot casting crowd
     // control at it (the cc order selects the mark; dropping it would
     // interrupt that very Polymorph). "rti cc" defaults to Moon on every
     // bot, so it cannot tell the CC owner apart.
     if (qualifier == "current target" && !explicitAttackTarget &&
         AI_VALUE(ObjectGuid, "explicit attack target") != target->getObjectGuid() &&
-        !IsCastingCcAt(bot, target))
+        !FindNonCcTargetStrategy::IsCastingCcAt(bot, target))
     {
         CcGuard ccGuard(ai);
         if (ccGuard.IsHeldCcMark(target))
