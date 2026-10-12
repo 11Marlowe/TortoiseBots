@@ -9088,7 +9088,7 @@ restarted it 0.28 s later. Polymorph started 1.56 s after the last shot.
 Validation: `c++ -fsyntax-only` of the changed files;
 `tools/verify_all.sh`. Not compiled into a server, not tested in game.
 
-## Dungeon follow holds before unpulled packs (issue #127) — 2026-10-12
+## Dungeon follow holds before unpulled packs (audit fix 127) — 2026-10-12
 
 Feature: optional `AiPlayerbot.DungeonFollowHoldBeforePacks` (default `0`).
 In a dungeon or raid, out of combat on both sides, a bot whose leader is
