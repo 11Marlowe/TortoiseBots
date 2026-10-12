@@ -229,6 +229,19 @@
 ### Core Sync & Fixes
 - Review fix for companions: attack orders also end a flee's passive hold, and saves inside a foreign transaction are refused and logged. [#791](https://github.com/Sagiroth/TortoiseBots/pull/791)
 
+### CI & Release Safety
+- Moved changelog and Discord secrets into the `main`-only `release` environment, so workflows pushed to another branch can't read them; the changelog job now pushes its commit and tags with a deploy key allowed by the `main` ruleset. [#811](https://github.com/Sagiroth/TortoiseBots/pull/811)
+- Manual Discord re-post, edit, and notify (delete message) workflows are now restricted to the repository owner; issue events still notify as before. [#813](https://github.com/Sagiroth/TortoiseBots/pull/813)
+
+### Dungeon Movement & Pathing
+- Ranged bots now walk the navmesh path inside dungeons and stop in sight of the target. [#788](https://github.com/Sagiroth/TortoiseBots/pull/788)
+- Bots step down off cut-off platforms inside dungeons. [#792](https://github.com/Sagiroth/TortoiseBots/pull/792)
+- Healers only walk to a member who needs a heal out of combat; stuck dungeon followers walk the path to the leader. [#793](https://github.com/Sagiroth/TortoiseBots/pull/793)
+- Added opt-in hold for dungeon followers before unpulled packs (`AiPlayerbot.DungeonFollowHoldBeforePacks`, default off). [#790](https://github.com/Sagiroth/TortoiseBots/pull/790)
+
+### Combat & AI
+- CC mark hold improvements from the dungeon batch ([#794](https://github.com/Sagiroth/TortoiseBots/pull/794), [#795](https://github.com/Sagiroth/TortoiseBots/pull/795), [#797](https://github.com/Sagiroth/TortoiseBots/pull/797), [#814](https://github.com/Sagiroth/TortoiseBots/pull/814))
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
