@@ -7942,3 +7942,8 @@ Cone in Teldrassil, 30 samples).
 
 Local validation: `bash tools/verify_all.sh`; `git diff --check`. Code
 review + build pending; in-game pending.
+## Stuck-travel teleport (sea-level standstill) — 2026-10-11
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | --- | --- |
+| Stuck-travel teleport to the destination for masterless pool bots (`AiPlayerbot.StuckTravelTeleport`, default 1) | `mod-playerbots` | `79bd428` | `src/Ai/World/Rpg/Action/NewRpgBaseAction.cpp` (`NewRpgBaseAction::MoveFarTo`, stuck check: no 5 yd progress over 5 attempts and `stuckTime` → `bot->TeleportTo(dest)`) | Reimplemented in `ai/playerbot/strategy/actions/MoveToTravelTargetAction.{h,cpp}` (`TryRescueStuckTravel`, landing search shared with the service rescue as `FindRescueLanding`) + `ai/playerbot/PlayerbotAIConfig.{h,cpp}` + `aiplayerbot.conf.dist.in`. Deviations: reuses this tree's stuck detection (the six-fail `IsMaxRetry` drop, which the no-displacement watchdog also feeds) instead of a new progress tracker; behind a toggle, on by default (owner decision 2026-10-12); masterless pool bots only (no real master, not owned, not hired), same map, nobody near either end, once per 10 min per bot; lands on the navmesh next to the destination (or the nearest route node within 200 yd) instead of the raw destination point; logs `StuckTravelTeleport` | Pool bots swimming at sea level (z -2) stood 3+ min re-picking targets that all failed: 15 runs, ~102 bot-min (live 2026-10-11); none of the walk recoveries work without walkable ground in reach | `bash tools/verify_all.sh`, `git diff --check`; code review + build pending; in-game pending |
