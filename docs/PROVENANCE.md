@@ -8108,3 +8108,31 @@ Validation: code review + build pending; in-game pending.
 | Stop CCing once only CC marks are left; tank/DPS kill CC marks last (judged from the raw `attackers` list, so CC'd unmarked mobs still count; only in-combat marks are picked) | Native (donor `DpsTargetValue`/`TankTargetValue` skip the Moon mark with no fallback, same stall) | `ai/playerbot/strategy/values/{CcTargetValue,TargetValue,DpsTargetValue,TankTargetValue}.{h,cpp}` | Native | Fight stalled ~25 s on a free Moon mob and on a sheeped last mob | code review + build pending; in-game pending |
 | Party leaves a CC'd mob / held CC mark alone: current target on a held mark is dropped, snare/Taunt and DoT-spread picks skip it, enemy-area spells skip a breakable CC inside their radius (lingering areas also a held mark), Blade Flurry and Oil of Immolation not started within 8 yd | `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/AttackersValue.cpp` (`hasRealThreat` drops polymorphed units, so no pick, DoT spread or AoE count sees them), `src/Ai/Base/Value/InvalidTargetValue.cpp` (a polymorphed current target is invalid), `src/Ai/Base/Strategy/ThreatStrategy.cpp` (`FocusMultiplier`, manual AoE veto) | `ai/playerbot/strategy/values/{TargetValue,InvalidTargetValue,SnareTargetValue,AttackerWithoutAuraTargetValue,PossibleAttackTargetsValue}.{h,cpp}`, `ai/playerbot/strategy/actions/GenericSpellActions.cpp`, `ai/playerbot/strategy/actions/UseItemAction.h`, `ai/playerbot/strategy/rogue/RogueActions.h`, `ai/playerbot/strategy/triggers/GenericTriggers.cpp` | Ported (sheeped mob never picked) + native (held-mark rule, radius gate from spell data, self-splash gate; the donor has no automatic area gate) | Build 8 retest: every sheep broke 0.07-2.4 s after landing (rogue Blade Flurry, priest SW:P/Holy Fire, tank Taunt/melee) | code review + build pending; in-game pending |
 | A CC mark is protected only while held: crowd-controlled (breakable CC, fear, banish), under a group member's CC cast bar, or in its first ~3 s of combat with its CC bot ready (fitting spell known, off cooldown, within spell range + 5 yd); a free mark is a normal enemy for every picker, Taunt, DoT spread and area gate | `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/AttackersValue.cpp` (`hasRealThreat` drops only units that are actually polymorphed, a free mark stays an attacker) | `ai/playerbot/strategy/values/{TargetValue,InvalidTargetValue,DpsTargetValue,SnareTargetValue}.{h,cpp}` | Ported (protect the CC'd unit, not the mark) + native (cast-bar and start-of-fight grace) | Owner report: a free Moon mob (sheep missed or broke, or no CC bot) killed the party while nobody attacked it | code review + build pending; in-game pending |
+## Check mount state acts only when the mount state must change — 2026-10-12
+
+Feature: `CheckMountStateAction::isUseful` runs the mount decision in a
+plan-only mode (`Decide` with `planOnly`) and is useful only when it would
+mount, dismount or cast. A bot already mounted at its best speed on a trip,
+or on foot where the rules say dismount, no longer runs the action as a
+failure every tick (live 2026-10-12: 58 `check mount state` ACTION_LOOP
+anomalies from 47 pool bots in 50 min; the sampled ones were riding at
+~11-13 y/s on `travel target traveling`). `Mount()` now checks location,
+item and spell before it cancels a form or stops the bot.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd4281` (local `playerbots-references/mod-playerbots` checkout).
+
+Source files: `src/Ai/Base/Actions/CheckMountStateAction.cpp`
+(`Execute`: a masterless bot calls `Mount()` only when not mounted, and
+dismounts only when mounted).
+
+Source files (module, modified):
+`ai/playerbot/strategy/actions/CheckMountStateAction.{h,cpp}`.
+
+Copied / ported / reimplemented: reimplemented. The donor behaviour (change
+the mount state only when it differs from the wanted one) is applied to the
+existing TortoiseBots decision tree instead of replacing it, so travel
+break-even, group speed limits and follow-master mounting are unchanged.
+
+Local validation: code review + build pending; in-game pending.
