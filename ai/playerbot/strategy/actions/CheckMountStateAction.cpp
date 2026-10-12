@@ -509,6 +509,13 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
         {
             ai->StopMoving();
         }
+        // A standing bot keeps its follow generator, and with it the on-foot
+        // follow offset, through the mount cast. Drop it so "update follow"
+        // re-issues the follow with the mounted spacing.
+        else if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        {
+            ai->StopMoving();
+        }
 
         bool didMount = false;
 
@@ -592,6 +599,10 @@ bool CheckMountStateAction::UnMount() const
     if (bot->IsMounted())
     {
         ai->Unmount();
+
+        // Back to the on-foot follow offset (see Mount()).
+        if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+            ai->StopMoving();
     }
 
     ai->RemoveShapeshift();
