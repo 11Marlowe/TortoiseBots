@@ -5,6 +5,8 @@
 #include "HireLifecycle.h"
 #include "HireIntroPolicy.h"
 #include "HireSpecPolicy.h"
+#include "HireGearCache.h"
+#include "HireGearPolicy.h"
 #include "BotManager.h"
 #include "BotActivityLease.h"
 #include "PlayerbotAIStorage.h"
@@ -773,6 +775,11 @@ void HireProvisionService::ProvisionHeavy(Player* bot, PendingProvision const& p
         PlayerbotFactory factory(bot, bot->GetLevel());
         factory.ProvisionSpellsAndGear();
     }
+    // Issue #490: static best-in-slot set for level-60 hires at tier >= 1.
+    // Runs after the factory so every slot starts from today's gear and the
+    // table only replaces the slots it defines. Slots without a row, hires
+    // below 60 and tier 0 keep today's behaviour untouched.
+    ProvisionHireGear(bot, pending, ai);
     // Snapshot the provisioned spellbook. Kept on the pending entry for
     // post-deploy diagnosis (what the intro could see); the intro itself
     // reads the live spellbook through the rank chains below. Non-const on
@@ -1026,6 +1033,59 @@ uint32_t HireProvisionService::HighestKnownRankInChain(Player* bot, uint32_t any
         }
     }
     return best;
+}
+
+// Issue #490: static best-in-slot pass. Eligibility (level 60, enabled,
+// tier >= 1) and the race-override lookup come from HireGearPolicy.h; the
+// same input always equips the same gear. Rows replace what InitEquipment
+// put there: item_id 0 clears the slot (e.g. offhand for a 2H set), other
+// ids equip-or-replace in place; slots without a row keep today's item and
+// its factory enchant. Enchants apply per table row via the direct
+// PERM-slot write (same call the factory uses), bypassing the candidate
+// pool's tier/rep skip entirely.
+void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const& pending, PlayerbotAI* ai)
+{
+    if (!bot || !ai)
+        return;
+    uint8_t tier = EffectiveHireGearTier(
+        sPlayerbotAIConfig.hireGearTiersEnabled, sPlayerbotAIConfig.hireGearStartTier);
+    if (!HireGearTierEligible(bot->GetLevel(), sPlayerbotAIConfig.hireGearTiersEnabled, tier))
+        return;
+    uint8_t forcedRole = pending.role ? pending.role : DefaultRoleForClass(bot->GetClass());
+    char const* specKey = ResolveHireGearSpecKey(bot->GetClass(), pending.specIndex, forcedRole);
+    if (!specKey)
+        return;
+    if (!HireGearCache::Instance().HasSetFor(bot->GetClass(), specKey, tier))
+        return;
+    for (uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
+    {
+        HireGearRow const* row = nullptr;
+        if (!HireGearCache::Instance().FindRow(bot->GetClass(), specKey, bot->GetRace(), tier, slot, row) || !row)
+            continue;
+        Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+        if (row->itemId == 0)
+        {
+            if (oldItem)
+                bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+            continue;
+        }
+        if (!oldItem || oldItem->GetEntry() != row->itemId)
+        {
+            uint16 eDest = 0;
+            if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, row->itemId) != EQUIP_ERR_OK)
+                continue;
+            if (oldItem)
+                bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+            if (!bot->EquipNewItem(eDest, row->itemId, true))
+                continue;
+        }
+        if (row->enchantSpell)
+        {
+            if (Item* item = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+                ai->EnchantItemT(row->enchantSpell, slot, item);
+        }
+    }
+    bot->SaveToDB();
 }
 
 void HireProvisionService::SnapshotKnownSpells(Player* bot, std::vector<uint32_t>& out)

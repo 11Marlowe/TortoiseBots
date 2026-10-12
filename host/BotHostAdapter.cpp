@@ -6,6 +6,7 @@
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/ClaimLifecycle.h"
 #include "../runtime/HireProvisionService.h"
+#include "../runtime/HireGearCache.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
@@ -86,6 +87,8 @@ void BotHostAdapter::OnStartup()
 
     bool configured = sPlayerbotAIConfig.Initialize();
     HireRecruiterScript::SyncUnlockFees();
+    // Issue #490: static hire-gear sets, one pass over the table rows.
+    HireGearCache::Instance().Load();
     RandomBotService::Instance().Initialize();
     BattlegroundQueueService::Instance().Initialize();
     ClaimLifecycle::Instance().Initialize();

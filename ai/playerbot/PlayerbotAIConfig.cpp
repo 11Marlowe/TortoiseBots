@@ -490,6 +490,12 @@ bool PlayerbotAIConfig::Initialize()
     hireDisconnectGracePeriod = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireDisconnectGracePeriod", 300));
     if (hireDisconnectGracePeriod > 3600)
         hireDisconnectGracePeriod = 3600;
+    // Issue #490: static hire-gear tiers. Fallbacks equal the shipped
+    // template values.
+    hireGearTiersEnabled = config.GetBoolDefault("AiPlayerbot.HireGearTiersEnabled", true);
+    hireGearStartTier = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireGearStartTier", 0));
+    if (hireGearStartTier > 7)
+        hireGearStartTier = 7;
     // Issue #492: world buffs at the six capital recruiters. Fallbacks equal
     // the shipped template values (price pairs in copper, 10000 cu = 1g).
     worldBuffsEnabled = config.GetBoolDefault("AiPlayerbot.WorldBuffsEnabled", true);

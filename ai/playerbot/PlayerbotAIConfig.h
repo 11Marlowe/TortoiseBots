@@ -380,6 +380,14 @@ public:
     // Seconds a hired companion waits on guard after its master disconnects
     // before dismissing (default 300 = 5 minutes).
     uint32 hireDisconnectGracePeriod = 300;
+    // Issue #490: static best-in-slot sets for level-60 hires (tiers 1-7).
+    // The master switch gates the static pass; tier 0 always keeps today's
+    // random hire gear. PR 2 adds per-player unlocks; until then the
+    // effective hire tier is HireGearStartTier for everyone.
+    bool hireGearTiersEnabled = true;
+    // Tier every player has from the start (0..7, clamped); 7 skips the
+    // whole ladder.
+    uint32 hireGearStartTier = 0;
     // Issue #492: world buffs at the six capital <Mercenary Hire> recruiters.
     // Unlock fees (copper) are written into the unlock quests at startup and
     // apply from the next restart; the pairs are per purchase (base +

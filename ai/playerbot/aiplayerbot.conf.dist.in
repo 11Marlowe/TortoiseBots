@@ -346,6 +346,13 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #AiPlayerbot.HirePartyMult4 = 4.66
 #AiPlayerbot.HireRaidFlatCostCopper = 10000
 #AiPlayerbot.HireDisconnectGracePeriod = 300
+# Issue #490: static best-in-slot sets for level-60 hires (tiers 1-7 from
+# the tortoise_bots_hire_gear table). 0 = today's random hire gear only.
+# HireGearStartTier (0..7) is the tier every player has; PR 2 adds
+# per-player unlocks on top of it. Both values below are the values that
+# actually run.
+#AiPlayerbot.HireGearTiersEnabled = 1
+#AiPlayerbot.HireGearStartTier = 0
 # Issue #492: world buffs at the six capital <Mercenary Hire> recruiters
 # (Stormwind, Ironforge, Darnassus, Orgrimmar, Undercity, Thunder Bluff).
 # Level 60+ players get a "World buffs" branch next to "Hire bots"; the

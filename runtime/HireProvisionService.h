@@ -121,6 +121,12 @@ public:
     // Grace-path entry: same intro for hires grouped by HireLifecycle::Reunite
     // (master was offline at provision). introSent is the HiredRecord guard.
     static void AnnounceForGraceHire(Player* bot, Player* master, bool& introSent);
+    // Issue #490: static best-in-slot pass after ProvisionSpellsAndGear.
+    // Equips exactly the cached table rows per slot (item_id 0 = empty
+    // slot), then applies each row's enchant_spell directly, bypassing the
+    // tier/rep skip. No-op unless the hire is level 60 at tier >= 1 with
+    // rows for its class/spec.
+    static void ProvisionHireGear(Player* bot, PendingProvision const& pending, PlayerbotAI* ai);
     // Issue #281: heavy one-shot work (level/talents/spells/gear/SaveToDB).
     void ProvisionHeavy(Player* bot, PendingProvision const& pending, PlayerbotAI* ai, Player* master);
     // Issue #281: teleport + grouping only; safe to retry every tick.

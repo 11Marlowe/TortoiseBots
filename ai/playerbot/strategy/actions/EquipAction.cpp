@@ -11,6 +11,8 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireGearPolicy.h"
 
 using namespace ai;
 
@@ -416,7 +418,15 @@ bool EquipUpgradesAction::Execute(Event& event)
     bool const isClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow());
     if (!TortoiseBots::MayClaimedBotSelfEquip(bot->GetLevel(), isClaimed))
         return false;
-
+    // Issue #490: level-60 hires at tier >= 1 wear a static set; loot
+    // auto-equip must not replace it (player-equipped and traded items via
+    // EquipAction still apply: those are explicit orders, not automation).
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::HireGearTierEligible(bot->GetLevel(),
+            sPlayerbotAIConfig.hireGearTiersEnabled,
+            TortoiseBots::EffectiveHireGearTier(
+                sPlayerbotAIConfig.hireGearTiersEnabled, sPlayerbotAIConfig.hireGearStartTier)))
+        return false;
     // Worn gear is never touched in combat. This action is reachable from the
     // combat engine - WorldPacketHandlerStrategy::InitCombatTriggers installs
     // the same node list as the non-combat one, and bots ding on the killing
