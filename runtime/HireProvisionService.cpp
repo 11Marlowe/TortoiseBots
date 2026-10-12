@@ -1071,6 +1071,11 @@ void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const
         }
         if (!oldItem || oldItem->GetEntry() != row->itemId)
         {
+            // A 2H main hand cannot be equipped while the offhand is held.
+            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(row->itemId);
+            if (slot == EQUIPMENT_SLOT_MAINHAND && proto && proto->InventoryType == INVTYPE_2HWEAPON)
+                if (Item* offhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
+                    bot->DestroyItem(offhand->GetBagSlot(), offhand->GetSlot(), true);
             uint16 eDest = 0;
             if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, row->itemId) != EQUIP_ERR_OK)
                 continue;
