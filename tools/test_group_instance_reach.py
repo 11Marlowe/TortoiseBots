@@ -49,7 +49,11 @@ struct Unit {
  int getObjectGuid(){return 42;} Unit* GetVictim(){return victim;}
  bool HasUnitState(int){return runner;} bool IsInCombat(){return combat;}
  bool CanReachWithMeleeAutoAttack(Unit*){return melee;}
+ Unit* GetCharmerOrOwnerPlayerOrPlayerItself(){return this;}
+ bool IsCreature(){return true;} bool IsInSameRaidWith(Unit*){return false;}
 };
+using Player=Unit;
+Unit* GetMaster(){return nullptr;}
 const int UNIT_STAT_FLEEING=1, UNIT_STAT_CONFUSED=2;
 struct WorldTimer { static uint32 getMSTime(){return 20000;} };
 bool TargetCannotBeReached(Unit* t){return t->unreachable;}
