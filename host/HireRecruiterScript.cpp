@@ -10,7 +10,6 @@
 #include "../runtime/HireUnlockPolicy.h"
 #include "../runtime/WorldBuffPolicy.h"
 #include "../runtime/WorldBuffService.h"
-#include "../runtime/HireUnlockPolicy.h"
 #include "../runtime/HireUnlockSync.h"
 #include "../runtime/HireUnlockKillStore.h"
 #include "HireUnlockKillAdapter.h"
