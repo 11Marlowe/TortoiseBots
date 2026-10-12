@@ -271,6 +271,7 @@ namespace ai
                 creators["blind"] = [](PlayerbotAI* ai) { return new CastBlindAction(ai); };
                 creators["unstealth"] = [](PlayerbotAI* ai) { return new RogueUnstealthAction(ai); };
                 creators["sap"] = [](PlayerbotAI* ai) { return new CastSapAction(ai); };
+                creators["reach sap"] = [](PlayerbotAI* ai) { return new ReachSapAction(ai); };
                 creators["check stealth"] = [](PlayerbotAI* ai) { return new CheckStealthAction(ai); };
                 creators["cold blood"] = [](PlayerbotAI* ai) { return new CastColdBloodAction(ai); };
                 creators["preparation"] = [](PlayerbotAI* ai) { return new CastPreparationAction(ai); };
