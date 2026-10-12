@@ -313,22 +313,6 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
     }
 }
 
-// Release the anchor hold placed by PausePartyDpsForPull. Dropping the wait
-// window also drops the hold (PlayerbotAI::ChangeStrategy owns that rule, and
-// the hold marker is what keeps a player-placed stay out of it).
-void ReleasePartyDpsFromPull(BotCommandContext const& context, Player* executor)
-{
-    for (Player* bot : context.partyBots)
-    {
-        if (!bot || bot == executor)
-            continue;
-        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
-        if (!ai || !ai->GetAiObjectContext())
-            continue;
-        ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
-    }
-}
-
 // Per-command return mode: the `pull back` strategy stays the mature switch,
 // but the command snapshots the tank's default and records the per-request
 // mode on the PullStrategy. PullEndAction restores the default, so a pull

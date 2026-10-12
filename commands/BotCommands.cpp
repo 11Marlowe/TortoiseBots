@@ -26,6 +26,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 #include "../ai/playerbot/strategy/values/RtiTargetValue.h"
+#include "../ai/playerbot/strategy/values/AttackersValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
 #include "../ai/playerbot/strategy/values/ItemUsageValue.h"
 #include "../ai/playerbot/strategy/actions/EquipAction.h"
@@ -596,6 +597,90 @@ static void RelaxTacticalMovement(PlayerbotAI* ai)
     ai->ChangeStrategy("-stay", BotState::BOT_STATE_NON_COMBAT);
     ai->ChangeStrategy("-stay,-follow", BotState::BOT_STATE_COMBAT);
     EndFlee(ai);
+}
+
+// The same refusals PullRequestAction::Execute makes, checked up front: the
+// command runs that action silently, so its own "too far" / "can't be pulled"
+// whispers never reach the player, and checking first keeps a refused pull
+// from changing any bot's state. Returns false with an ACTION_ERR code and a
+// player-facing reason.
+static bool CheckPullTarget(Player* executor, Unit* target, std::string& code, std::string& message)
+{
+    if (!executor || !target || !target->IsInWorld() || target->GetMapId() != executor->GetMapId())
+    {
+        code = "invalid-target";
+        message = "Your target is not on the tank's map any more.";
+        return false;
+    }
+    if (!target->IsAlive())
+    {
+        code = "dead-target";
+        message = "Your target is dead. Select a live enemy first.";
+        return false;
+    }
+    if (sServerFacade.IsFriendlyTo(target, executor))
+    {
+        code = "friendly";
+        message = "Your target is friendly to the tank (for example another player's pet) and cannot be pulled.";
+        return false;
+    }
+    float const maxPullDistance = sPlayerbotAIConfig.reactDistance * 3;
+    if (target->GetDistance(executor) > maxPullDistance)
+    {
+        code = "too-far";
+        message = "Your target is too far from the tank to pull (more than " +
+            std::to_string(static_cast<uint32>(maxPullDistance)) + " yd).";
+        return false;
+    }
+    if (!ai::AttackersValue::IsValid(target, executor, nullptr, false))
+    {
+        code = "invalid-target";
+        message = "The tank cannot pull your target: it is not attackable, evading, out of the tank's sight, or a player.";
+        return false;
+    }
+    return true;
+}
+
+// What ConfigurePullMode changes on the tank: the "pull back" strategy in each
+// engine and the PullStrategy command fields. Taken before it and put back
+// exactly when the pull is refused afterwards, so a refused command neither
+// leaves the tank in pull mode nor ends or rewrites an earlier pull that is
+// still running (OnPullEnded / "pull end" would).
+struct PullModeSnapshot
+{
+    bool pullBack[static_cast<uint8>(BotState::BOT_STATE_ALL)] = {};
+    bool hasCommand = false;
+    PullStrategy::CommandState command = {};
+};
+
+static PullModeSnapshot SavePullMode(PlayerbotAI* ai)
+{
+    PullModeSnapshot snapshot;
+    if (!ai)
+        return snapshot;
+    for (uint8 i = 0; i < static_cast<uint8>(BotState::BOT_STATE_ALL); ++i)
+        snapshot.pullBack[i] = ai->HasStrategy("pull back", static_cast<BotState>(i));
+    if (PullStrategy* strategy = PullStrategy::Get(ai))
+    {
+        snapshot.hasCommand = true;
+        snapshot.command = strategy->SaveCommand();
+    }
+    return snapshot;
+}
+
+static void RestorePullMode(PlayerbotAI* ai, PullModeSnapshot const& snapshot)
+{
+    if (!ai)
+        return;
+    for (uint8 i = 0; i < static_cast<uint8>(BotState::BOT_STATE_ALL); ++i)
+    {
+        BotState state = static_cast<BotState>(i);
+        if (ai->HasStrategy("pull back", state) != snapshot.pullBack[i])
+            ai->ChangeStrategy(snapshot.pullBack[i] ? "+pull back" : "-pull back", state);
+    }
+    if (snapshot.hasCommand)
+        if (PullStrategy* strategy = PullStrategy::Get(ai))
+            strategy->RestoreCommand(snapshot.command);
 }
 
 static bool BindMovementMaster(Player* requester, Player* bot)
@@ -1565,6 +1650,13 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Tank %s has no AI yet.", tank->GetName());
         return true;
     }
+    std::string refuseCode;
+    std::string refuseMessage;
+    if (!CheckPullTarget(tank, context.enemyTarget, refuseCode, refuseMessage))
+    {
+        handler->PSendSysMessage("Tank %s cannot pull your target: %s", tank->GetName(), refuseMessage.c_str());
+        return true;
+    }
 
 
     BotRecord* record = BotManager::Instance().FindBot(tank->GetObjectGuid());
@@ -1574,20 +1666,23 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Tank %s could not be assigned to you for pullback.", tank->GetName());
         return true;
     }
+    PullModeSnapshot pullModeBefore = SavePullMode(tankAI);
     if (!ConfigurePullMode(tankAI, true, sPlayerbotAIConfig.pullBackDpsJoinDelay))
     {
         handler->PSendSysMessage("Tank %s has no pullback strategy available.", tank->GetName());
         return true;
     }
-    RelaxTacticalMovement(tankAI);
-    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay, true);
     // Snapshot the target GUID like the action path does.
     ai::Event event("pullback", context.enemyTarget->GetObjectGuid(), requester);
     if (!ExecuteQuietAction(tankAI, "pull my target", event))
     {
+        RestorePullMode(tankAI, pullModeBefore);
         handler->PSendSysMessage("Tank %s could not start a pull for your selected target.", tank->GetName());
         return true;
     }
+    // Move the tank and hold the party only once the pull is accepted.
+    RelaxTacticalMovement(tankAI);
+    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay, true);
 
     // Same as the .bot action path: do not let the tank's leftover action
     // clock delay the pull.
@@ -2786,6 +2881,13 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         SendActionError(handler, intent, "no-target", "Select a live non-bot target first.");
         return true;
     }
+    // A corpse stays selected after the kill; an order against it would ACK
+    // and do nothing (or, for a pull, be refused without a reason).
+    if ((intent == "attack" || intent == "interrupt" || tactical) && !context.enemyTarget->IsAlive())
+    {
+        SendActionError(handler, intent, "dead-target", "Your target is dead. Select a live enemy first.");
+        return true;
+    }
     if (intent == "interrupt")
         return ExecuteInterruptAction(handler, context, requester);
 
@@ -3045,6 +3147,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
 
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
+        // Validate before any state changes: a refused pull must not park the
+        // party, end a flee or flip the tank's pull mode.
+        std::string refuseCode;
+        std::string refuseMessage;
+        if (!CheckPullTarget(executor, context.enemyTarget, refuseCode, refuseMessage))
+        {
+            SendActionError(handler, intent, refuseCode.c_str(), refuseMessage.c_str());
+            return true;
+        }
         // Join delay: per-command [seconds] (0-60, parsed) or the configured
         // default. For a pullback the window runs from the tank's arrival at
         // the anchor; the hold placed below keeps DPS waiting through the
@@ -3058,6 +3169,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         // Pull and Pullback share the mature request action; the per-command
         // return mode (plus join delay) is recorded on the PullStrategy
         // (never sticky). The tank's default is restored when the pull ends.
+        PullModeSnapshot pullModeBefore = SavePullMode(ai);
         if (!ConfigurePullMode(ai, pullback, joinDelay))
         {
             char const* message = pullback
@@ -3076,20 +3188,24 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             pullActionName = probe->GetPullActionName();
         bool bodyPull = pullActionName == "reach pull";
 
-        // Pulling requires tank movement: break stay!
-        RelaxTacticalMovement(ai);
-        // A pull after a flee brings the whole party back, not just the tank.
-        for (Player* member : context.partyBots)
-            EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
-        PausePartyDpsForPull(context, executor, joinDelay, pullback);
         // Snapshot the target GUID: the live selection can change between
         // command validation and the pull tick.
         ai::Event pullEvent(intent, context.enemyTarget->GetObjectGuid(), requester);
         if (!ExecuteQuietAction(ai, "pull my target", pullEvent))
         {
+            // Not caught by the pre-check: put the tank's pull mode back.
+            // No bot's movement, flee or hold was touched yet.
+            RestorePullMode(ai, pullModeBefore);
             SendActionError(handler, intent, "failed", "The native pull strategy rejected the target.");
             return true;
         }
+        // The pull is accepted (the request only records state): now the tank
+        // may break its stay, a fled party comes back and the DPS hold at your
+        // position.
+        RelaxTacticalMovement(ai);
+        for (Player* member : context.partyBots)
+            EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
+        PausePartyDpsForPull(context, executor, joinDelay, pullback);
         // A human order acts now: the tank's own action clock (left over from
         // whatever it was doing) would otherwise stall the pull for the rest of
         // its delay before the second pull tick ever runs - the reported "tank
@@ -3174,7 +3290,10 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             RelaxTacticalMovement(ai);
             // Explicit attack unleashes DPS early: drop the wait window and
             // our anchor stay (never a player-placed stay). No-op when absent.
-            ReleasePartyDpsFromPull(context, bot);
+            // Release this bot itself, before it acts (releasing only the
+            // other party bots left the first bot attacking while still held
+            // and a lone scoped bot never released).
+            ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
             // Dedicated healers should support the party, not be forced to target and attack the enemy
             if (!PlayerbotAI::IsHeal(bot))
             {
@@ -3215,7 +3334,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             // Break off: drop combat and any pull hold, then the mature flee
             // shortcut parks the bot in passive follow on the requester. The
             // next tactical order (attack, pull, follow, stay...) ends it.
-            ReleasePartyDpsFromPull(context, bot);
+            ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
             bot->CombatStopWithPets(true);
             ai->Reset(false);
             bot->GetMotionMaster()->Clear();
