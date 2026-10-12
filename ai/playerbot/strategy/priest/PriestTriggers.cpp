@@ -80,3 +80,72 @@ bool InnerFocusForHealTrigger::IsActive()
 
     return AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.mediumHealth;
 }
+
+bool PriestWandBlocksCastTrigger::IsActive()
+{
+    if (!IsWanding())
+        return false;
+
+    // Heals first: a wanding priest must never sit on a heal its rows want.
+    // Every priest heals itself below "low health" (PriestStrategy); holy
+    // and discipline heal the party below "medium health" and keep Renew up
+    // below "almost full"; offheal heals the party below "medium health".
+    bool const healerSpec = ai->ContainsStrategy(STRATEGY_TYPE_HEAL);
+    Unit* healTarget = nullptr;
+    Unit* renewTarget = nullptr;
+    if (AI_VALUE2(uint8, "health", "self target") < sPlayerbotAIConfig.lowHealth)
+        healTarget = bot;
+    else if (healerSpec || ai->HasStrategy("offheal", BotState::BOT_STATE_COMBAT))
+    {
+        Unit* member = AI_VALUE(Unit*, "party member to heal");
+        if (member && member->IsAlive())
+        {
+            uint8 const health = AI_VALUE2(uint8, "health", "party member to heal");
+            if (health < sPlayerbotAIConfig.mediumHealth)
+                healTarget = member;
+            // Between medium and almost full only the "party member almost
+            // full health -> renew on party" row fires, so probe Renew there:
+            // a castable Flash/Lesser Heal says nothing about it.
+            else if (healerSpec && health < sPlayerbotAIConfig.almostFullHealth && !ai->HasAura("renew", member))
+                renewTarget = member;
+        }
+    }
+
+    // Heals are probed without the form check: every heal row drops
+    // Shadowform first ("remove shadowform" prerequisite).
+    WandSpellProbe bestHeal = WandSpellProbe::Blocked;
+    if (healTarget)
+        bestHeal = BetterWandSpellProbe(ProbeSpell("flash heal", healTarget, false), ProbeSpell("lesser heal", healTarget, false));
+    else if (renewTarget)
+        bestHeal = ProbeSpell("renew", renewTarget, false);
+
+    // Nukes: shadow always fights; holy/discipline only through offdps, and
+    // there only while "healer should attack" (nobody to heal, mana
+    // comfortable) - below that "healer should wand" wands on purpose.
+    WandSpellProbe bestNuke = WandSpellProbe::Blocked;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (target && target->IsAlive())
+    {
+        bool nukeWanted = !healerSpec;
+        if (!nukeWanted && ai->HasStrategy("offdps", BotState::BOT_STATE_COMBAT))
+        {
+            Trigger* shouldAttack = context->GetTrigger("healer should attack");
+            nukeWanted = shouldAttack && shouldAttack->IsActive();
+        }
+
+        if (nukeWanted)
+        {
+            // Mind Flay and Smite have no cooldown of their own, so a
+            // NOT_READY answer is the GCD. Smite can never be cast in
+            // Shadowform (ProbeSpell's form check would refuse it too), so
+            // it is not probed there.
+            bestNuke = ProbeSpell("mind flay", target);
+            if (!ai->HasAura("shadowform", bot))
+                bestNuke = BetterWandSpellProbe(bestNuke, ProbeSpell("smite", target));
+        }
+    }
+
+    // Priests have no raid "has aggro -> shoot" row.
+    WandState const state{true, bestNuke, false, NoManaRowActive(), bestHeal};
+    return ShouldStopWandToCast(state);
+}
