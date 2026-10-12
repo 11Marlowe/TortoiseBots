@@ -192,6 +192,21 @@
 - Moved the "one buyer trip per 10 minutes" stamp onto the travel request, matching how vendor and trainer stamps work — previously it sat inside the trip's own travel condition, so every buyer trip went on cooldown at its first status check. Bots with stock to sell are no longer blocked by the buyer stamp. [#783](https://github.com/Sagiroth/TortoiseBots/pull/783)
 - The 3-minute buyer phase now only gates new picks: a bot already walking to the AH keeps its trip when the slice closes, so long walks are no longer dropped. [#783](https://github.com/Sagiroth/TortoiseBots/pull/783)
 
+### Auction House & Economy
+- Buyer's 10-minute AH gate now lets through only a bot that can actually sell (has stock and deposit money), not any bot with fairly full bags. [#784](https://github.com/Sagiroth/TortoiseBots/pull/784)
+- A seller visit that posts nothing now parks the AH purpose for 10 minutes, same as a fruitless vendor visit already does. [#784](https://github.com/Sagiroth/TortoiseBots/pull/784)
+- Measured on a live 1000-bot pool: AH re-picks within 2 minutes dropped from ~22/min to ~4/min. [#784](https://github.com/Sagiroth/TortoiseBots/pull/784)
+
+### Travel & Teleports
+- Hearthstone and class teleport legs (mage city teleports, druid Moonglade) now actually fire instead of being declined every tick while the bot walked ~50 yd and took forever to arrive. [#785](https://github.com/Sagiroth/TortoiseBots/pull/785)
+- Route pathing was being cut to the landing point instead of the cast point, so the bot never saw the teleport it was supposed to use — fixed. [#785](https://github.com/Sagiroth/TortoiseBots/pull/785)
+- The 10 s hearthstone cast is no longer interrupted by the next travel step every ~13 s. [#785](https://github.com/Sagiroth/TortoiseBots/pull/785)
+- Class teleports no longer go through the chat `cast` command. [#785](https://github.com/Sagiroth/TortoiseBots/pull/785)
+- Pool bots now teleport between the Lordaeron ruins and Undercity instead of queuing for lifts they never boarded — once per 10 min and only when nobody is watching. Policy plus standalone test included. [#800](https://github.com/Sagiroth/TortoiseBots/pull/800)
+
+### RPG & Bot Behavior
+- An NPC on another floor directly above or below is no longer kept as an RPG target, since the walk to it never moved the bot. [#800](https://github.com/Sagiroth/TortoiseBots/pull/800)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
