@@ -69,7 +69,7 @@ namespace
     constexpr float CcGraceRangeSlack = 5.0f;
     // Cast-time CC a CC bot opens with on its mark (Sap and traps cannot
     // hit a mob that is already fighting).
-    char const* const GraceCcSpells[] = { "polymorph", "shackle undead", "hibernate", "banish",
+    char const* const GraceCcSpells[] = { "polymorph", "shackle undead", "hibernate", "banish", "turn undead",
         "fear", "scare beast" };
 }
 
