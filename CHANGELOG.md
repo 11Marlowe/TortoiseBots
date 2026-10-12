@@ -72,6 +72,13 @@
 ### Docs & Guides
 - Corrected the dungeon guide's "Standard Raid Target Icon Assignments" table: every bot's CC mark is Moon by default (not Star/Diamond/Triangle per class), and in 5-man dungeons a bot only crowd-controls its own mark — no behaviour changed, just stop marking a Star and wondering why nobody Shackles it. [#737](https://github.com/Sagiroth/TortoiseBots/pull/737)
 
+### Chat & Commands
+- GM-badged bot commands are recognized again and no longer queue insult replies; ordinary non-command GM chat keeps its flavor lines. [#752](https://github.com/Sagiroth/TortoiseBots/pull/752)
+
+### Observability & Engine
+- Dashboard "Trigger" now reflects the trigger behind the last successful action, so Trigger and Action labels stay paired; failed/skipped attempts no longer overwrite it. [#720](https://github.com/Sagiroth/TortoiseBots/pull/720)
+- Dashboard "last action" names are kept alive while read, eliminating garbage/wrong names and the rare world server crash path during observability updates. [#713](https://github.com/Sagiroth/TortoiseBots/pull/713)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
