@@ -2,7 +2,7 @@
 
 namespace ai
 {
-    // Bots do not jump inside dungeons or raids (issue #125, owner decision
+    // Bots do not jump inside dungeons or raids (audit fix 125, owner decision
     // 2026-10-12). Instances have no navmesh link back down from raised
     // platforms (e.g. Uldaman Hall of the Keepers), so a jump that lands on
     // one strands the bot. `isDungeonOrRaid` is Map::IsDungeon(), which in

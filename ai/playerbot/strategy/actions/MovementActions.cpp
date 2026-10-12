@@ -2946,7 +2946,7 @@ bool JumpAction::isUseful()
 
 bool JumpAction::Execute(ai::Event &event)
 {
-    // Issue #125: no automatic jumps inside dungeons/raids (strategies);
+    // Audit fix 125: no automatic jumps inside dungeons/raids (strategies);
     // an explicit player `jump` command (event has an owner) still works.
     if (!ai::JumpAllowedOnMap(bot->GetMap() && bot->GetMap()->IsDungeon(), event.GetOwner() != nullptr))
         return false;
