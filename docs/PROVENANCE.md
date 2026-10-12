@@ -8778,3 +8778,42 @@ covering its hold/lapse matrix. Also touches
 
 Validation: `tools/test_four_horsemen_rotation_policy.cpp` + code review;
 build pending; in-game pending.
+
+## Companions keep `follow` (strategy snapshot and broken stay) — 2026-10-12
+
+Feature: (1) `PlayerbotDbStore::Save` writes its delete and every insert in
+one character-database transaction (it joins a caller's open transaction,
+as `ChangeStrategyAction` holds one). (2) `PlayerbotDbStore::Load` clears and
+replays only the engines whose own row it read (`ai::StoredStrategyRows`,
+`ai/playerbot/MovementModePolicy.h`). (3) `PlayerbotAI::ResetStrategies`
+gives a real player's bot its default movement mode (`follow`) when, after
+the snapshot and the forced role, it has none (`ai::NeedsDefaultMovementMode`;
+not in battlegrounds). (4) `RelaxTacticalMovement` (`commands/BotCommands.cpp`)
+adds the default mode back when breaking a stay leaves the bot with none.
+
+Source: (1) and (2) follow mod-playerbots `79bd428`
+`src/Db/PlayerbotRepository.cpp:11-71` (`Load` clears an engine only on its
+own `co`/`nc` row; `Save` appends everything to one transaction).
+Reimplemented on the cmangos `Database` API (`InTransaction`,
+`BeginTransaction`, `CommitTransaction`); the donor commits directly, ours
+stays asynchronous. (3) and (4) are module rules with no donor counterpart.
+
+Reason: on m910q build 11 three hired companions (Latal, Maethiza,
+Niabrenans) had no movement strategy at all and stood still until whispered
+`follow`; the dungeon catch-up (#644) only brings in bots with `follow`, so
+only the rogue came along on `.tele ulda`. Their stored rows (read-only
+check) show it: Latal's `nc` was exactly the `Load` baseline plus the
+protection kit, the result of reading a snapshot without its `nc` row; the
+loose async rows of one Save are spread over the 4 character-database
+workers (`CharacterDatabase.WorkerThreads = 4`), so its delete can run after
+its own inserts, and the tank hire saves and then rebuilds in the same call.
+Maethiza and Niabrenans had their full kit minus any mode: a whispered
+`stay` followed by a tactical order that breaks it (`RelaxTacticalMovement`
+removes `stay` and added nothing). The rogue, never told to stay, kept
+`follow`.
+
+Validation: `tools/test_movement_mode_policy.cpp` (mode list, the three
+stored `nc` rows from m910q, half-written and complete snapshots, rebuild
+rule); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only`
+of the three changed files against the core headers. Build pending; in-game
+pending.
