@@ -207,6 +207,28 @@
 ### RPG & Bot Behavior
 - An NPC on another floor directly above or below is no longer kept as an RPG target, since the walk to it never moved the bot. [#800](https://github.com/Sagiroth/TortoiseBots/pull/800)
 
+### Combat & AI
+- Re-check an action's walk-up on every fresh queue request: no more reach/follow flip-flop, and rogue Sap lands. [#786](https://github.com/Sagiroth/TortoiseBots/pull/786)
+- Healer bots keep 70% mana before nuking in easy and even fights, so they don't run dry when real damage starts. [#787](https://github.com/Sagiroth/TortoiseBots/pull/787)
+- Frost mages turn away from their target before "blink back", so Blink moves away from melee instead of into the pack. [#796](https://github.com/Sagiroth/TortoiseBots/pull/796)
+- Bots stop eating/drinking while the group fights and wake at the pull, so CC orders like Polymorph aren't missed. [#799](https://github.com/Sagiroth/TortoiseBots/pull/799)
+
+### Dungeons & Raids
+- No automatic jumps inside dungeons and raids, preventing bots from getting stuck on cut-off platforms; explicit `jump` still works. [#789](https://github.com/Sagiroth/TortoiseBots/pull/789)
+
+### Companions & Party Management
+- Companions return to follow after a fight or rebuild, and bot-settings saves now run on one DB worker. [#791](https://github.com/Sagiroth/TortoiseBots/pull/791)
+- Hired companions are listed in the TBM CC_ASSIGN snapshot, so the addon shows the correct CC owners. [#803](https://github.com/Sagiroth/TortoiseBots/pull/803)
+
+### Docs & Player Controls
+- Player-controls guide now matches live `.bot` replies for ready, rebuff, formation, toggles, and post-`come`/`hold`/`comestay` behavior. [#801](https://github.com/Sagiroth/TortoiseBots/pull/801)
+
+### Observability & Engine
+- Changelog posts (auto, re-post, edit) now go to the new Discord changelog thread via `DISCORD_CHANGELOG_WEBHOOK_URL`; issue notifications keep the old webhook/thread. [#806](https://github.com/Sagiroth/TortoiseBots/pull/806)
+
+### Core Sync & Fixes
+- Review fix for companions: attack orders also end a flee's passive hold, and saves inside a foreign transaction are refused and logged. [#791](https://github.com/Sagiroth/TortoiseBots/pull/791)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
