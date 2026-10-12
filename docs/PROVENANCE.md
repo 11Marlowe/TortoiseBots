@@ -8468,3 +8468,35 @@ build pending; in-game pending.
 | Feature | Donor | Module files | Copied / ported / reimplemented | Reason | Validation |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | Mounted companions follow further out | `mod-playerbots` @ 79bd428 `src/Ai/Base/Actions/MovementActions.cpp:1224-1225` (`MovementAction::Follow`: friendly target + bot mounted + no hostiles -> `distance += angle`) | `ai/playerbot/strategy/actions/MovementActions.cpp` (`kMountedFollowSpacing`, widen in `MovementAction::Follow`), `ai/playerbot/strategy/actions/CheckMountStateAction.cpp` (drop a standing follow generator on mount/unmount so the follow is re-issued with the new offset) | Reimplemented: fixed 3 yd instead of the donor's slot-angle-in-yards (0-6.3 yd); "no hostiles" mapped to out of combat and not in a dungeon/raid map. The re-issue is local: the core follow generator keeps its offset private and the module never replaces a running follow on the same target | In game (build 8) four hired companions on mechanical strider / winged mounts parked 2-4 yd from the master after every ride and covered the camera | code review + build pending; in-game pending |
+## Targetless pool bots fall back to a level-fitting grind (2026-10-12)
+
+Donor: mod-playerbots `79bd428`,
+`src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:163-175`
+(`getNewTarget`: when nothing else was found it calls `SetGrindTarget`,
+and only then `SetNullTarget`, "idle a bit").
+
+Source files (module, modified): `ai/playerbot/ZoneMigratePolicy.h`
+(`TargetlessSinceAfterReset`, `TargetlessLeaveDue`,
+`TargetlessLeaveTripStarts`, constants),
+`ai/playerbot/strategy/actions/ChooseTravelTargetAction.cpp`
+(`ResetTargetAction::Execute` counts the stretch, `setNewTarget` ends it
+and marks the leave trip),
+`ai/playerbot/strategy/values/TravelValues.cpp`
+(`ShouldLeaveOutgrownZoneValue` fires and holds for the trip), test in
+`tools/test_zone_migrate_policy.cpp`, docs in
+`docs/concepts/bot-mechanics-and-quirks.md` and
+`docs/guides/configuration-tuning.md`.
+
+Copied / ported / reimplemented: reimplemented. The donor tries grind on
+every pick. Here the existing leave-outgrown-zone Grind request (6.96) is
+the fallback. It fires after two minutes of back-to-back resets and stays
+on until the next real pick (at most 10 min), then for exactly the Grind
+trip that pick starts, so that trip keeps its stored condition however long
+it is, and a bot that finished it in a fitting zone is not sent on again.
+
+Reason: live m910q 2026-10-12, 500 pool bots, 28 min of dashboard
+samples: 72 runs of 3+ min on land with no travel target, 70 of them
+dominated by `reset travel target`, 353 bot-minutes, 33 in capitals. One
+live snapshot later the same day: 27 of 504 bots in the loop, all level 13+.
+
+Validation: code review + build pending; in-game pending.
