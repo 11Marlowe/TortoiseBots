@@ -111,6 +111,11 @@ void WarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitCombatTriggers(triggers);
 
+    // Assigned tank role is independent of talent specialization.
+    triggers.push_back(new TriggerNode(
+        "defensive stance",
+        NextAction::array(0, new NextAction("defensive stance", ACTION_MOVE), NULL)));
+
     // Base-combat interrupts (Arms/Fury DPS): pummel first, shield bash as
     // the no-stance-dance fallback. Pummel resolves through the berserker
     // stance node registered above; shield bash has no stance prerequisite,

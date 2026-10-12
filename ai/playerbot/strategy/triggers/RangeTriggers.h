@@ -68,6 +68,18 @@ namespace ai
                 if (bot->GetClass() != CLASS_HUNTER && !isVictim && bot->GetGroup() &&
                     bot->CanReachWithMeleeAutoAttack(target))
                 {
+                    // A party healer holds its ground here while a groupmate
+                    // needs a real heal (below medium health): Flee() runs up
+                    // to twice the flee range in the open world, out of heal
+                    // range of the member it should be saving. Only this case:
+                    // the mob is not on the healer (victim cases below still
+                    // back off), raids keep the keep-away, and the healer's
+                    // own low health still lets it go.
+                    if (!isRaid && ai->IsHeal(bot) &&
+                        AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.lowHealth &&
+                        AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.mediumHealth)
+                        return false;
+
                     for (Player* member : LiveGroupMembers(bot->GetGroup()))
                     {
                         if (member && member != bot && sServerFacade.IsAlive(member) &&
@@ -76,10 +88,28 @@ namespace ai
                     }
                 }
                 // Casters have no minimum range — only flee if the mob is actually targeting/attacking this bot.
-                // Hunters are excluded: their ranged weapons have a ~8 yd minimum range so they must
-                // maintain distance even when the mob is focused on someone else.
                 if (bot->GetClass() != CLASS_HUNTER && !isVictim && target->GetVictim() != bot)
                     return false;
+
+                // Hunters have a dead zone (Auto Shot minimum range, melee reach
+                // as fallback). While the pet, a tank or anyone else holds the
+                // mob, step out only from inside it; beyond it the hunter can
+                // shoot, so it stays and shoots. Donor mod-playerbots
+                // (RangeTriggers.cpp) gates the same flee on melee range.
+                // Inside the dead zone the hunter's own one-shot step-out row
+                // ("hunter dead zone step out", HunterStrategy.cpp) owns the
+                // move: this generic flee re-fired every tick there without
+                // moving. Only a hunter without Auto Shot range data keeps the
+                // melee-reach flee.
+                if (bot->GetClass() == CLASS_HUNTER && !isVictim && target->GetVictim() != bot)
+                {
+                    float maxShotRange = 0.0f;
+                    float minShotRange = 0.0f;
+                    if (ai->GetSpellRange("auto shot", &maxShotRange, &minShotRange) && minShotRange > 0.0f)
+                        return false;
+
+                    return bot->CanReachWithMeleeAutoAttack(target);
+                }
 
                 //if (isBoss || isRaid)
                 //    return sServerFacade.IsDistanceLessThan(targetDistance, (ai->GetRange("spell") + combatReach) / 2);
@@ -439,7 +469,7 @@ namespace ai
 
         bool IsActive() override
         {
-            return !AI_VALUE2(bool, "can free move", "wandermin") && AI_VALUE2(bool, "can free move", "wandermaz");
+            return !AI_VALUE2(bool, "can free move", "wandermin") && AI_VALUE2(bool, "can free move", "wandermax");
         }
     };
 

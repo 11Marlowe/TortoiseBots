@@ -77,6 +77,69 @@ bool HealerShouldAttackTrigger::IsActive()
     return !AI_VALUE2(bool, "has mana", "self target") || AI_VALUE2(uint8, "mana", "self target") >= manaThreshold;
 }
 
+bool WandBlocksCastTrigger::IsWanding()
+{
+    Spell* autoRepeat = bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    return autoRepeat && autoRepeat->m_spellInfo && autoRepeat->m_spellInfo->Category == WAND_SHOOT_CATEGORY;
+}
+
+WandSpellProbe WandBlocksCastTrigger::ProbeSpell(std::string const& spell, Unit* target, bool checkForm)
+{
+    SpellCastResult result = SPELL_FAILED_DONT_REPORT;
+    bool const castable = ai->CanCastSpell(spell, target, 0, nullptr, true, false, false, &result);
+    bool const notReady = !castable && result == SPELL_FAILED_NOT_READY;
+    if (!castable && !notReady)
+        return WandSpellProbe::Blocked;
+    return ClassifyWandSpellProbe(castable, notReady, CastBlockers(spell, target, checkForm));
+}
+
+WandCastBlockers WandBlocksCastTrigger::CastBlockers(std::string const& spell, Unit* target, bool checkForm)
+{
+    WandCastBlockers blockers;
+    uint32 const spellId = AI_VALUE2(uint32, "spell id", spell);
+    SpellEntry const* spellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
+    if (!spellInfo)
+        return blockers;
+
+    // Spell::CheckCasterAuras: silence and the school lockout of a
+    // Counterspell-like interrupt (Unit::IsSpellProhibited), pacify.
+    uint32 const unitFlags = bot->GetUInt32Value(UNIT_FIELD_FLAGS);
+    if (spellInfo->PreventionType == SPELL_PREVENTION_TYPE_SILENCE)
+    {
+        blockers.silenced = (unitFlags & UNIT_FLAG_SILENCED) != 0;
+        blockers.lockedOut = bot->IsSpellProhibited(spellInfo);
+    }
+    else if (spellInfo->PreventionType == SPELL_PREVENTION_TYPE_PACIFY)
+        blockers.silenced = (unitFlags & UNIT_FLAG_PACIFIED) != 0;
+
+    // Player::ProhibitSpellSchool puts every spell of the school on its own
+    // cooldown, and the bot-side check reports that as NOT_READY too. The
+    // GCD is kept apart (GlobalCooldownMgr), so this is never the wand.
+    if (bot->HasSpellCooldown(spellId))
+        blockers.lockedOut = true;
+
+    // Spell::CheckCast form check (e.g. Smite and heals in Shadowform).
+    if (checkForm)
+        blockers.wrongForm = spellInfo->GetErrorAtShapeshiftedCast(bot->GetShapeshiftForm()) != SPELL_CAST_OK;
+
+    // Spell::CheckCast line-of-sight check, for a target other than the caster.
+    if (target && target != bot && !(spellInfo->AttributesEx2 & SPELL_ATTR_EX2_IGNORE_LOS))
+        blockers.noLineOfSight = !sServerFacade.IsWithinLOSInMap(bot, target);
+
+    return blockers;
+}
+
+bool WandBlocksCastTrigger::NoManaRowActive()
+{
+    return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 5;
+}
+
+bool WandBlocksCastTrigger::RaidAggroWand()
+{
+    Group* group = bot->GetGroup();
+    return group && group->isRaidGroup() && AI_VALUE2(bool, "has aggro", "current target");
+}
+
 bool AlmostFullManaTrigger::IsActive()
 {
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") > 85;
@@ -189,6 +252,19 @@ bool OutNumberedTrigger::IsActive()
     // there's no one else depending on this bot surviving longer by running instead of
     // healing through it.
     if (bot->GetClass() == CLASS_PRIEST && (bot->GetLevel() < 10 || !bot->GetGroup()))
+        return false;
+
+    // Shaman, paladin and druid self-heal from level 1 too (Healing Wave, Holy
+    // Light, Healing Touch / Regrowth rows in their combat strategies), so the solo
+    // priest reasoning above holds for them - as long as they have the mana to
+    // heal. Without this a solo shaman at full mana ran from two mobs at 70%
+    // health and died (58% of shaman deaths, Oct 2026 pool poll; solo priests
+    // 0%). Out of mana they keep the flee; panic and critical health stay.
+    uint8 const botClass = bot->GetClass();
+    if ((botClass == CLASS_SHAMAN || botClass == CLASS_PALADIN || botClass == CLASS_DRUID) &&
+        ShouldSelfHealerHoldGround(true, bot->GetGroup() != nullptr,
+            AI_VALUE2(bool, "has mana", "self target"),
+            AI_VALUE2(uint8, "mana", "self target"), sPlayerbotAIConfig.lowMana))
         return false;
 
     // Don't trigger if the bot is a dungeon or raid
@@ -378,7 +454,7 @@ ai::Value<Unit*>* BuffOnTankTrigger::GetTargetValue()
 
 Value<Unit*>* DebuffOnAttackerTrigger::GetTargetValue()
 {
-	return context->GetValue<Unit*>("attacker without aura", spell);
+	return context->GetValue<Unit*>(checkIsOwner ? "attacker without my aura" : "attacker without aura", spell);
 }
 
 bool NoAttackersTrigger::IsActive()
@@ -497,23 +573,6 @@ bool NoThreatTrigger::IsActive()
     return true;
 }
 
-// Deliberate damage-breakable CC that an AoE would waste. The frozen state is
-// left out on purpose: Frost Nova sets it too, and nova + AoE is normal play.
-static bool HoldsBreakableCc(PlayerbotAI* ai, Unit* unit, Player* bot)
-{
-    if (!unit || PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot))
-        return false;
-
-    static char const* const breakableCc[] = { "sap", "gouge", "shackle undead", "hibernate",
-        "freezing trap effect", "seduction", "repentance", "wyvern sting" };
-    if (unit->IsPolymorphed())
-        return true;
-    for (char const* spell : breakableCc)
-        if (ai->HasAura(spell, unit))
-            return true;
-    return false;
-}
-
 bool AoeTrigger::IsActive()
 {
     std::list<ObjectGuid> aoeEnemies = AoeCountValue::FindMaxDensity(bot, range);
@@ -526,14 +585,14 @@ bool AoeTrigger::IsActive()
     // Splash counts too: a CCed mob beside the cluster still eats the blast.
     for (std::list<ObjectGuid>::iterator i = aoeEnemies.begin(); i != aoeEnemies.end(); ++i)
     {
-        if (HoldsBreakableCc(ai, ai->GetUnit(*i), bot))
+        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, ai->GetUnit(*i), bot))
             return false;
     }
     std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
     for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
     {
         Unit* unit = ai->GetUnit(*i);
-        if (!HoldsBreakableCc(ai, unit, bot))
+        if (!PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
             continue;
         for (std::list<ObjectGuid>::iterator j = aoeEnemies.begin(); j != aoeEnemies.end(); ++j)
         {

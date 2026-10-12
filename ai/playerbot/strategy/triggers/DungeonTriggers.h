@@ -124,6 +124,20 @@ namespace ai
         bool IsActive() override;
     };
 
+    // True while the bot carries an explicit "aura ..." order in either
+    // engine. The swap stays out of the way, and so does the restore.
+    bool HasManualPaladinAuraOverride(PlayerbotAI* ai);
+
+    // Fight over for a paladin that made the resist swap: alive and out of
+    // combat (boss dead, wipe, or the raid walked out). Non-combat only.
+    class ResistAuraSwapOverTrigger : public Trigger
+    {
+    public:
+        ResistAuraSwapOverTrigger(PlayerbotAI* ai, std::string name = "resist aura swap over", int checkInterval = 2)
+        : Trigger(ai, name, checkInterval) {}
+        bool IsActive() override;
+    };
+
     // Generic too-close-to-debuffed-player gate (donor
     // TooCloseToPlayerWithDebuffTrigger shape): fires when a groupmate
     // carrying spellId is inside range. The bot itself never counts (its
@@ -297,5 +311,16 @@ namespace ai
 
     private:
         uint32 buffID;
+    };
+
+    // In combat with a listed raid boss (ProtectionPotionPolicy.h), the
+    // matching protection potion is in the bags (or the item cheat is on),
+    // off cooldown, and its buff is not up.
+    class BossProtectionPotionReadyTrigger : public ItemReadyTrigger
+    {
+    public:
+        BossProtectionPotionReadyTrigger(PlayerbotAI* ai) : ItemReadyTrigger(ai, "boss protection potion ready", 0) {}
+
+        bool IsActive() override;
     };
 }

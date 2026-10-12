@@ -7,6 +7,7 @@
 #include "runtime/BotActivityLease.h"
 
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/AiFactory.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/PlayerbotFactory.h"
 #include "../ai/playerbot/BotState.h"
@@ -455,8 +456,24 @@ void RandomBotFacade::ChangeStrategy(Player* player)
 
     if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player))
     {
+        // Same rules as AddDefaultCombatStrategies: the string's -threat must
+        // not strip the party back-off from a bot grouped with a real master
+        // (only a back-off the bot already runs is kept, so a player's
+        // ".bot behavior <Name> threat off" survives the re-apply), and its
+        // "+dps assist" must not swap a tank's sibling "tank assist" out.
+        bool const keepThreat = ai->HasStrategy("threat", BotState::BOT_STATE_COMBAT) &&
+            AiFactory::KeepsPartyThreatBackoff(player, ai);
+        bool const tankAssist = ai->HasStrategy("tank assist", BotState::BOT_STATE_COMBAT);
         ai->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies, BotState::BOT_STATE_COMBAT);
-        ai->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies, BotState::BOT_STATE_NON_COMBAT);
+        if (keepThreat && !ai->HasStrategy("threat", BotState::BOT_STATE_COMBAT))
+            ai->ChangeStrategy("+threat", BotState::BOT_STATE_COMBAT);
+        if (tankAssist && !ai->HasStrategy("tank assist", BotState::BOT_STATE_COMBAT) &&
+            ai->HasStrategy("dps assist", BotState::BOT_STATE_COMBAT))
+            ai->ChangeStrategy("+tank assist", BotState::BOT_STATE_COMBAT);
+        // The timed re-apply keeps the instance guard (Issue #218), and a bot in
+        // a real player's party keeps its follow.
+        ai->ChangeStrategy(AiFactory::RealMasterSafeNonCombatStrategies(ai,
+            AiFactory::InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies)), BotState::BOT_STATE_NON_COMBAT);
     }
 }
 

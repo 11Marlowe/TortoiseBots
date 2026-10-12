@@ -17,6 +17,7 @@ Druids are the ultimate hybrid class, able to fulfill Tank, Healer, Melee DPS, o
 
 - **Feral (Bear Tank):** Dire Bear Form tank specializing in *Growl*, *Maul*, *Swipe*, and *Demoralizing Roar*, with *Frenzied Regeneration*, *Challenging Roar*, *Mangle (Bear)*, *Faerie Fire (Feral)*, and *Enrage* also wired.
 - **Feral (Cat Melee DPS):** Cat Form stealth and energy specialist utilizing *Claw*, *Rake*, *Shred* (with *Mangle (Cat)* as fallback), *Rip*, and *Ferocious Bite*, with *Pounce*, *Ravage*, and *Tiger's Fury* also wired. Backs off with *Cower* at medium threat in any group, not just raids.
+- **Prowling in battlegrounds:** a prowling cat druid keeps playing the battleground (objectives, flag checks, chasing the enemy carrier) and can take enemy-player orders, sneaking up before it opens; before, prowl blocked every battleground action and the druid stood still.
 - **Ferocious Bite windows:** bite fires early on a dying target (under 25% health, 1+ combo points) instead of waiting for 5; at 5 points it fires only when *Rip* is absent or healthy (over 10 s left), so bite never clips a Rip refresh. Finisher order: execute-bite, then Rip, then timed bite.
 - **Restoration (Healer):** HoT-focused healing with *Rejuvenation*, *Regrowth*, *Healing Touch*, and *Swiftmend*, with *Nature's Swiftness* and *Tranquility* also wired. *Tranquility* fires on headcount (5+ members within 30 yards, 3 hurt in a 5-man scaling to 15 in a raid).
 - **Nature's Swiftness emergency chain:** on a critically hurt party member the druid pops *Nature's Swiftness*, then spends the buff on an instant *Healing Touch* before anything else can eat the aura. The pop sits above Swiftmend and the spend right below it, so the buff is used on the very next cast.
@@ -46,6 +47,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - **Tree of Life Form (Spell ID 45705, per game data):**
   - Custom Turtle WoW Restoration talent form.
   - Grants a spirit-scaling healing modifier with a party aura and polymorph immunity at the cost of movement speed, per game data.
+  - The spell is named exactly `Tree of Life Form`; the bot resolves spells and auras by exact (case-insensitive) name with no rank stripping, so the cast, the has-aura check and the shift-out all use `tree of life form`. The shorter `tree of life` matches nothing in Turtle data.
 - **Berserk (Spell ID 45708, per game data):**
   - Custom Feral talent. Per game data it branches Bear/Dire Bear into 45709 (+20% max health) and Cat into 45710; the bot fires it as a combat boost trigger.
 - **Swiftmend HoT-Gating (Spell ID 18562):**
@@ -76,6 +78,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
   - Maintains *Mark of the Wild* (armor, stats, resistances) and *Thorns* (reflective nature damage) on party members, upgrading *Mark of the Wild* to *Gift of the Wild* once known, trained and stocked (the group version outbids the single-target cast once at least three same-map members lack both auras, and only targets a member that lacks both). Buffs expiring within 15 s count as missing, so they are refreshed before they drop (issue #468). Single-target *Mark of the Wild* is also allowed in combat at the lowest priority, so a druid following a master who chain-pulls still buffs the party in the quiet moments of a fight. With several druids in one party, a short shared *buff claim* keeps them from duplicating each other: while one druid's cast is in flight the others stand down and wait for the aura instead of casting the same buff on the same member (issue #378).
   - Out of combat, catching up to the master runs below the party buffs (a pending buff in range wins the tick, follow resumes next). Upkeep buffs wait for 40% mana, 20% with a real player master. A failed buff attempt no longer starts the retry window or the duplicate-cast claim; only a cast that actually starts does.
 - **Thorns on the tank first:** the tank gets *Thorns* before the party blanket rotation reaches them (skipped while Fire Shield sits on the tank — the two don't stack).
+- **Heals instead of fleeing when outnumbered:** A solo bot (no group) of level 10 or higher (below 10 every druid is exempt) with mana at or above `AiPlayerbot.LowMana` (default 15%) is exempt from the `outnumbered` flee, like a solo priest, and heals itself through the fight with *Healing Touch* / *Regrowth* / *Rejuvenation*. Grouped or out of mana it still breaks off; the `panic` and `critical health no master` escapes are unchanged.
 
 ---
 

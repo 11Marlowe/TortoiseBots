@@ -65,9 +65,17 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // may switch still gets its melee switch first; this step-back covers the
     // cases the switch leaves alone (target immobilized or too slow to close, or
     // no melee weapon), keeping the hunter from standing inside the dead zone.
+    // Mob on the hunter only; a pet- or tank-held mob gets the row below.
     triggers.push_back(new TriggerNode(
         "enemy too close for auto shot",
         NextAction::array(0, new NextAction("flee", static_cast<float>(ACTION_MOVE) - 1.0f), NULL)));
+
+    // Pet- or tank-held mob inside the dead zone: one step out per mob
+    // (HunterSwitchPolicy.h), then shots. If the step cannot get the hunter
+    // out, "switch to melee" takes over instead of fleeing again.
+    triggers.push_back(new TriggerNode(
+        "hunter dead zone step out",
+        NextAction::array(0, new NextAction("hunter step out", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "counterattack",
@@ -105,10 +113,18 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "arcane shot",
         NextAction::array(0, new NextAction("arcane shot", ACTION_NORMAL + 1), NULL)));
 
-    // Wing clip snare under raptor strike (donor melee chain): when a mob
-    // closes in, slow it so the hunter keeps range; raptor stays first.
+    // [Turtle] Steady Shot filler: below aimed/arcane/multi, above the
+    // idle auto shot. The trigger only fires inside the Auto Shot window.
     triggers.push_back(new TriggerNode(
-        "enemy is close",
+        "steady shot",
+        NextAction::array(0, new NextAction("steady shot", ACTION_NORMAL - 1), NULL)));
+
+    // Wing clip snare under raptor strike (donor melee chain): when a mob
+    // closes in, slow it so the hunter keeps range; raptor stays first. In the
+    // ranged kit only for a mob on the hunter: a pet- or tank-held mob gets
+    // the dead-zone step-back and shots instead (HunterEnemyIsCloseTrigger).
+    triggers.push_back(new TriggerNode(
+        "hunter enemy is close",
         NextAction::array(0, new NextAction("raptor strike", ACTION_NORMAL + 1),
                              new NextAction("wing clip", ACTION_NORMAL), NULL)));
 
@@ -581,9 +597,14 @@ void HunterPetStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "pet attack",
         NextAction::array(0, new NextAction("pet attack", ACTION_HIGH + 2), NULL)));
 
+    // Mend Pet is a channel in 1.12/Turtle (spell 136 attributesEx 0x4),
+    // not the donor's instant WotLK heal-over-time, so every in-combat mend
+    // stops the shots. In combat only the low band (<40) mends, and below
+    // the rotation shots (NORMAL+1..+6) but above auto shot. The medium band
+    // tops the pet up out of combat only (InitNonCombatTriggers).
     triggers.push_back(new TriggerNode(
         "hunters pet low health",
-        NextAction::array(0, new NextAction("mend pet", ACTION_HIGH), NULL)));
+        NextAction::array(0, new NextAction("mend pet", ACTION_NORMAL), NULL)));
 
     // PET-8b: the trigger already requires taunts stood down (grouped with
     // a real tank), so this only fires when the pet stole aggro anyway.
@@ -592,11 +613,6 @@ void HunterPetStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "pet has aggro",
         NextAction::array(0, new NextAction("cower", ACTION_HIGH), NULL)));
-
-    // PET-4: medium band below the low node so low wins under 40.
-    triggers.push_back(new TriggerNode(
-        "hunters pet medium health",
-        NextAction::array(0, new NextAction("mend pet", ACTION_HIGH - 1), NULL)));
 
     // PET-5: mid-fight recovery. Call Pet is near-instant and safe to try
     // whenever petless; Revive is a 10s channel so it only fires with no

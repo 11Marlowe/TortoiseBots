@@ -60,6 +60,17 @@ namespace ai
         return !hasRealPlayerMaster;
     }
 
+    // Pool melee hold ground (AiPlayerbot.PoolMeleeHoldGround, off by
+    // default): with the key on, warriors and rogues are not granted the
+    // generic "flee" combat strategy. Its panic node has no mana gate for
+    // rage/energy users and none of its nodes can outrun a mob, so the flee
+    // only stopped the swings. mod-playerbots has no such strategy; its
+    // melee fight on with their defensive cooldowns. Key off: unchanged.
+    inline bool ShouldGrantPoolFlee(bool meleeHoldGround, bool isRageOrEnergyClass)
+    {
+        return !(meleeHoldGround && isRageOrEnergyClass);
+    }
+
     // Revenge (self-defence) answers before every other gate in
     // AttackAnythingAction::isUseful: a mob that already holds the bot as
     // its victim is fought while travelling, while wounded, and by healers
@@ -78,6 +89,17 @@ namespace ai
     inline bool ShouldIgnoreHardHostile(int targetLevel, int botLevel, bool alreadyFightingBot)
     {
         return !alreadyFightingBot && targetLevel > botLevel + 5;
+    }
+
+    // Outnumbered hold ground for the hybrid self-healers (OutNumberedTrigger):
+    // a solo shaman, paladin or druid heals through an outnumbered fight like a
+    // solo priest instead of breaking off, but only while it still has the
+    // mana to heal (at or above LowMana, the same line PanicTrigger treats as
+    // "mana to fight on"). Out of mana, or in a group, it keeps the flee.
+    inline bool ShouldSelfHealerHoldGround(bool isHybridSelfHealer, bool inGroup,
+        bool hasMana, std::uint32_t manaPct, std::uint32_t lowManaPct)
+    {
+        return isHybridSelfHealer && !inGroup && hasMana && manaPct >= lowManaPct;
     }
 
     // Death telemetry: the deaths.csv 'adds' loop used to count victim-

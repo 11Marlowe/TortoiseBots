@@ -265,6 +265,7 @@ namespace ai
             creators["use bandage"] = [](PlayerbotAI* ai) { return new UseBandageAction(ai); };
             creators["rocket boots"] = [](PlayerbotAI* ai) { return new UseRocketBootsAction(ai); };
             creators["fire protection potion"] = [](PlayerbotAI* ai) { return new UseFireProtectionPotionAction(ai); };
+            creators["boss protection potion"] = [](PlayerbotAI* ai) { return new UseBossProtectionPotionAction(ai); };
             creators["free action potion"] = [](PlayerbotAI* ai) { return new UseFreeActionPotionAction(ai); };
             creators["use consumable"] = [](PlayerbotAI* ai) { return new UseConsumableAction(ai); };
             creators["anti-venom"] = [](PlayerbotAI* ai) { return new UseAntiVenomAction(ai); };
@@ -401,6 +402,7 @@ namespace ai
             creators["raid spread"] = [](PlayerbotAI* ai) { return new RaidSpreadAction(ai); };
             creators["swap fire resistance aura"] = [](PlayerbotAI* ai) { return new SwapFireResistanceAuraAction(ai); };
             creators["swap shadow resistance aura"] = [](PlayerbotAI* ai) { return new SwapShadowResistanceAuraAction(ai); };
+            creators["restore spec aura"] = [](PlayerbotAI* ai) { return new RestoreSpecAuraAction(ai); };
             creators["dragon tank face away"] = [](PlayerbotAI* ai) { return new DragonTankFaceAwayAction(ai); };
             creators["move to mc rune"] = [](PlayerbotAI* ai) { return new MoveToMCRuneAction(ai); };
             creators["douse mc rune aqual"] = [](PlayerbotAI* ai) { return new DouseMCRuneActionAqual(ai); };

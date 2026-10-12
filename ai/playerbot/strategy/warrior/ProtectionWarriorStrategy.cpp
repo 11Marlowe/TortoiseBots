@@ -41,7 +41,21 @@ NextAction** ProtectionWarriorStrategy::GetDefaultCombatActions()
 
 void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    WarriorStrategy::InitCombatTriggers(triggers);
+    // Skip WarriorStrategy's base interrupt rows: their Pummel resolves
+    // through the berserker-stance prerequisite, so a tank facing a caster
+    // left Defensive Stance, could not Pummel (no rage after the swap), and
+    // the "defensive stance" buff row swapped it straight back - every tick
+    // for as long as the mob kept casting. The tank interrupts with Shield
+    // Bash only (donor TankWarriorStrategy), which Defensive Stance allows.
+    ClassStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "shield bash",
+        NextAction::array(0, new NextAction("shield bash", ACTION_INTERRUPT), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "shield bash on enemy healer",
+        NextAction::array(0, new NextAction("shield bash on enemy healer", ACTION_INTERRUPT), NULL)));
 
     // Staggered defensives (donor TankWarriorStrategy): Shield Wall fires
     // early at low health (20-50%), Last Stand only at critical (<20%).
@@ -67,13 +81,9 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "enemy out of melee",
         NextAction::array(0, new NextAction("charge", ACTION_MOVE + 7), NULL)));
 
-    triggers.push_back(new TriggerNode(
-        "intercept and rage",
-        NextAction::array(0, new NextAction("berserker stance", ACTION_MOVE + 6), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "intercept and rage",
-        NextAction::array(0, new NextAction("intercept", ACTION_MOVE + 5), NULL)));
+    // No Intercept rows: Intercept needs Berserker Stance, and the donor tank
+    // never leaves Defensive Stance to close a gap (charge / reach melee and
+    // taunt cover it).
 
     // Intervene a focused party member (donor TankWarriorStrategy fires at
     // EMERGENCY): Intervene 45595 is a real learnable 1.18.1 spell
@@ -103,29 +113,22 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
 
     triggers.push_back(new TriggerNode(
         "shield block",
-        NextAction::array(0, new NextAction("shield block", ACTION_HIGH + 5), NULL)));
+        NextAction::array(0, new NextAction("shield block", ACTION_HIGH + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
         "sunder armor",
-        NextAction::array(0, new NextAction("sunder armor", ACTION_HIGH + 2), NULL)));
+        NextAction::array(0, new NextAction("sunder armor", ACTION_HIGH + 5), NULL)));
 
-    // Thunder clap on spare rage (donor TankWarriorStrategy fires it at
-    // medium rage HIGH+1): the base AoE tree only covers thunder clap when
-    // the opt-in aoe toggle is on, so a tank in a normal party pull never
-    // clapped. Sits with sunder/revenge, below slam (rage-gated higher).
+    // Reserve single-target rage and GCDs for threat builders.
     triggers.push_back(new TriggerNode(
-        "medium rage available",
+        "melee light aoe",
         NextAction::array(0, new NextAction("thunder clap", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "revenge",
         NextAction::array(0, new NextAction("revenge", ACTION_HIGH + 3), NULL)));
 
-    // Turtle Improved Shield Slam proc (donor's Sword-and-Board slot): a
-    // +35%/+70% slam charge outranks the rage ladder but not tank
-    // correctness — taunt (41) and shield block (tied 25, block listed
-    // earlier wins ties) stay above it, matching the donor's taunt/block
-    // above proc order. Still above baseline slam (24)/revenge/sunder.
+    // The proc stays below taunt and ties Sunder; stack building is listed first.
     triggers.push_back(new TriggerNode(
         "improved shield slam proc",
         NextAction::array(0, new NextAction("shield slam", ACTION_HIGH + 5), NULL)));
@@ -146,9 +149,10 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "mortal strike",
         NextAction::array(0, new NextAction("mortal strike", ACTION_HIGH + 4), NULL)));
 
+    // Queue the 60+ rage next-swing dump before the GCD builders.
     triggers.push_back(new TriggerNode(
         "heroic strike",
-        NextAction::array(0, new NextAction("heroic strike", ACTION_HIGH + 1), NULL)));
+        NextAction::array(0, new NextAction("heroic strike", ACTION_HIGH + 6), NULL)));
 
     // Disarm at HIGH+1 (donor TankWarriorStrategy): stripping the mob's
     // weapon cuts tank damage taken; buried at NORMAL it never fired.
@@ -338,10 +342,6 @@ void ProtectionWarriorAoeRaidStrategy::InitNonCombatTriggers(std::list<TriggerNo
 void ProtectionWarriorBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     WarriorBuffStrategy::InitCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "defensive stance",
-        NextAction::array(0, new NextAction("defensive stance", ACTION_MOVE), NULL)));
 
     triggers.push_back(new TriggerNode(
         "feared",

@@ -112,15 +112,6 @@ namespace
             return false;
         }
 
-        bool IsMoon(Unit* attacker)
-        {
-            Group* group = ai->GetBot()->GetGroup();
-            if (!group)
-                return false;
-            ObjectGuid guid = group->GetTargetIcon(4);
-            return guid && attacker->getObjectGuid() == ObjectGuid(guid);
-        }
-
         float Lifetime(Unit* unit) const
         {
             return groupDps > 0.0f ? (float)unit->GetHealth() / groupDps : 1000000.0f;
@@ -152,7 +143,7 @@ namespace
 
         void CheckAttacker(Unit* attacker, ThreatManager*) override
         {
-            if (!attacker || attacker->IsPlayer() || !attacker->IsAlive() || IsMoon(attacker) || IsCcTarget(attacker) ||
+            if (!attacker || attacker->IsPlayer() || !attacker->IsAlive() || IsCcTarget(attacker) ||
                 IsWastedDpsTarget(ai, attacker))
                 return;
             if (CheckSkull(attacker))
@@ -190,7 +181,7 @@ namespace
 
         void CheckAttacker(Unit* attacker, ThreatManager*) override
         {
-            if (!attacker || attacker->IsPlayer() || !attacker->IsAlive() || IsMoon(attacker) || IsCcTarget(attacker) ||
+            if (!attacker || attacker->IsPlayer() || !attacker->IsAlive() || IsCcTarget(attacker) ||
                 IsWastedDpsTarget(ai, attacker))
                 return;
             if (CheckSkull(attacker))
@@ -220,7 +211,7 @@ namespace
 
         void CheckAttacker(Unit* attacker, ThreatManager*) override
         {
-            if (!attacker || attacker->IsPlayer() || !attacker->IsAlive() || IsMoon(attacker) || IsCcTarget(attacker) ||
+            if (!attacker || attacker->IsPlayer() || !attacker->IsAlive() || IsCcTarget(attacker) ||
                 IsWastedDpsTarget(ai, attacker))
                 return;
             if (CheckSkull(attacker))
@@ -363,25 +354,33 @@ Unit* DpsTargetValue::Calculate()
     // (DpsTargetValue.cpp:281-295); small groups always run the general pick.
     unsigned nearCount = NearGroupCount(ai, bot);
     float groupDps = AI_VALUE(float, "estimated group dps");
+    // Every tournament skips the CC marks; when they are all that is left,
+    // the marked mob is killed last instead of never (FindLastCcTarget).
     if (nearCount > 3 && IsCasterBot(ai, bot))
     {
         CasterDpsStrategy strategy(ai, groupDps);
-        return TargetValue::FindTarget(&strategy);
+        if (Unit* target = TargetValue::FindTarget(&strategy))
+            return target;
+        return FindLastCcTarget();
     }
     if (nearCount > 3 && IsComboBot(ai, bot))
     {
         ComboDpsStrategy strategy(ai, groupDps);
-        return TargetValue::FindTarget(&strategy);
+        if (Unit* target = TargetValue::FindTarget(&strategy))
+            return target;
+        return FindLastCcTarget();
     }
 
     GeneralDpsStrategy strategy(ai, groupDps);
-    return TargetValue::FindTarget(&strategy);
+    if (Unit* target = TargetValue::FindTarget(&strategy))
+        return target;
+    return FindLastCcTarget();
 }
 
-class FindMaxHpTargetStrategy : public FindTargetStrategy
+class FindMaxHpTargetStrategy : public FindNonCcTargetStrategy
 {
 public:
-    FindMaxHpTargetStrategy(PlayerbotAI* ai) : FindTargetStrategy(ai)
+    FindMaxHpTargetStrategy(PlayerbotAI* ai) : FindNonCcTargetStrategy(ai)
     {
         maxHealth = 0;
     }
@@ -389,13 +388,10 @@ public:
 public:
     virtual void CheckAttacker(Unit* attacker, ThreatManager* threatManager) override
     {
-        Group* group = ai->GetBot()->GetGroup();
-        if (group)
-        {
-            uint64 guid = group->GetTargetIcon(4);
-            if (guid && attacker->getObjectGuid() == ObjectGuid(guid))
-                return;
-        }
+        // Same CC-mark rule as every other picker: a protected mark is
+        // skipped, a free one is a normal enemy.
+        if (IsCcTarget(attacker))
+            return;
         if (!result || result->GetHealth() < attacker->GetHealth())
             result = attacker;
     }

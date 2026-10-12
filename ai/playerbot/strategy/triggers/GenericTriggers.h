@@ -1,6 +1,7 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/QuestLogPolicy.h"
+#include "playerbot/WandPolicy.h"
 #include "playerbot/ChatHelper.h"
 #include "playerbot/strategy/Trigger.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -508,7 +509,7 @@ namespace ai
     class DebuffOnAttackerTrigger : public DebuffTrigger
     {
     public:
-        DebuffOnAttackerTrigger(PlayerbotAI* ai, std::string spell) : DebuffTrigger(ai, spell) {}
+        DebuffOnAttackerTrigger(PlayerbotAI* ai, std::string spell, bool checkIsOwner = false) : DebuffTrigger(ai, spell, 1, checkIsOwner) {}
 
     public:
         virtual Value<Unit*>* GetTargetValue() override;
@@ -699,6 +700,39 @@ namespace ai
 
     private:
         bool checkMana;
+    };
+
+    // Shared probes for the class "wand blocks ..." triggers (mage, priest,
+    // warlock; rule in WandPolicy.h). Each Turtle wand shot renews the GCD,
+    // so a running wand keeps every caster spell "not ready"; the class
+    // trigger fires when a spell it wants is held back by that GCD alone.
+    class WandBlocksCastTrigger : public Trigger
+    {
+    public:
+        // Check interval 2 s: each probe builds a Spell for CheckCast, so it
+        // must not run every tick while a wand is up. needCheck() treats an
+        // interval below 2 as "every tick" and counts whole seconds of
+        // time(), so 2 means the trigger runs again after 1 to 2 s.
+        WandBlocksCastTrigger(PlayerbotAI* ai, std::string name) : Trigger(ai, name, 2) {}
+
+    protected:
+        // The current auto-repeat spell is a wand shot (category 351).
+        bool IsWanding();
+        // One spell probe: castable now, refused by the GCD alone, or
+        // refused for any other reason. Range is ignored: the wand shares
+        // the casters' 30 yd and the core stops it by itself out of range.
+        // "GCD alone" also needs the caster not silenced or locked out of
+        // the school, in the right form (when checkForm) and in line of
+        // sight of the target: the core checks the GCD first and hides
+        // those (WandCastBlockers in WandPolicy.h).
+        WandSpellProbe ProbeSpell(std::string const& spell, Unit* target, bool checkForm = true);
+        WandCastBlockers CastBlockers(std::string const& spell, Unit* target, bool checkForm);
+        // Below 5% mana the "no mana" -> shoot row wands on purpose (same
+        // line as NoManaTrigger); stopping it would only ping-pong.
+        bool NoManaRowActive();
+        // The raid "has aggro" -> shoot row (mage, warlock) wands on purpose
+        // to stop building threat; leave that wand alone.
+        bool RaidAggroWand();
     };
 
     class AlmostFullManaTrigger : public Trigger
@@ -1367,6 +1401,13 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            // Only while War Stomp is known and off cooldown: the cast action
+            // has no reach step, but a ready-gate here keeps the 71.0 row from
+            // firing for the whole 2.5-min cooldown (live: tauren spent 13-14 %
+            // of their fights walking into melee for a Stomp they could not cast).
+            uint32 spellId = AI_VALUE2(uint32, "spell id", "war stomp");
+            if (!spellId || !sServerFacade.IsSpellReady(bot, spellId))
+                return false;
             Unit* target = AI_VALUE(Unit*, "current target");
             return target && AI_VALUE2(bool, "combat", "self target") && AI_VALUE2(float, "distance", "current target") <= 8.0f &&
                 (AI_VALUE2(uint8, "health", "self target") < sPlayerbotAIConfig.mediumHealth ||

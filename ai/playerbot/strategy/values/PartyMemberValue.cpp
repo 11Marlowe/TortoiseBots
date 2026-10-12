@@ -9,7 +9,17 @@
 
 using namespace ai;
 
-Unit* PartyMemberValue::FindPartyMember(std::list<Player*>* party, FindPlayerPredicate &predicate, bool ignoreTanks)
+// A matching member out of line of sight is only remembered in outOfSight
+// (the first one seen); the search goes on for a member in sight. Before,
+// the first match in list order was returned whatever its line of sight, so
+// a member the bot could not see (behind a wall, upstairs, on a ledge it
+// could not path to) was picked on every check and the cast failed, while
+// the members after it never got the buff, cure or resurrection.
+// mod-playerbots filters out-of-LOS members outright; here they stay a
+// fallback so the reach prerequisite can still walk to a lone member out of
+// sight (a corpse around a corner). The LOS test runs only on members that
+// already match, stopping at the first one in sight.
+Unit* PartyMemberValue::FindPartyMember(std::list<Player*>* party, FindPlayerPredicate &predicate, bool ignoreTanks, Unit*& outOfSight)
 {
     for (std::list<Player*>::iterator i = party->begin(); i != party->end(); ++i)
     {
@@ -25,11 +35,21 @@ Unit* PartyMemberValue::FindPartyMember(std::list<Player*>* party, FindPlayerPre
             continue;
 
         if (Check(player) && predicate.Check(player))
-            return player;
+        {
+            if (sServerFacade.IsWithinLOSInMap(bot, player))
+                return player;
+            if (!outOfSight)
+                outOfSight = player;
+        }
 
         Pet* pet = player->GetPet();
         if (pet && Check(pet) && predicate.Check(pet))
-            return pet;
+        {
+            if (sServerFacade.IsWithinLOSInMap(bot, pet))
+                return pet;
+            if (!outOfSight)
+                outOfSight = pet;
+        }
     }
 
     return NULL;
@@ -116,13 +136,18 @@ Unit* PartyMemberValue::FindPartyMember(FindPlayerPredicate &predicate, bool ign
     lists.push_back(&masters);
     lists.push_back(&others);
 
+    Unit* outOfSight = nullptr;
     for (std::list<std::list<Player*>* >::iterator i = lists.begin(); i != lists.end(); ++i)
     {
         std::list<Player*>* party = *i;
-        Unit* target = FindPartyMember(party, predicate, ignoreTanks);
+        Unit* target = FindPartyMember(party, predicate, ignoreTanks, outOfSight);
         if (target)
             return target;
     }
+
+    // Nobody matching is in sight: fall back to the first match, as before.
+    if (outOfSight)
+        return outOfSight;
 
     if (allowBufOutOfGroupPlayers)
     {
@@ -140,8 +165,20 @@ Unit* PartyMemberValue::FindPartyMember(FindPlayerPredicate &predicate, bool ign
 
 bool PartyMemberValue::Check(Unit* player)
 {
-    return player && player != bot && player->GetMapId() == bot->GetMapId() &&
-        bot->IsWithinDistInMap(player, sPlayerbotAIConfig.sightDistance, false);
+    if (!player || player == bot || player->GetMapId() != bot->GetMapId())
+        return false;
+
+    // A hidden GM (VISIBILITY_OFF; GM.Visible = 0 logs GMs in hidden and
+    // `.gm off` does not unhide them) can never be a spell target: the core
+    // drops such a player in Spell::CheckTarget after the cast has started,
+    // so the mana is spent and nothing lands. Left selectable, a party buff
+    // picked that member every tick forever and the members after it in the
+    // list never got the buff (paladin blessing loop, 2026-10-11).
+    // mod-playerbots skips GMs as blessing targets the same way.
+    if (player->IsPlayer() && player->GetVisibility() == VISIBILITY_OFF)
+        return false;
+
+    return bot->IsWithinDistInMap(player, sPlayerbotAIConfig.sightDistance, false);
 }
 
 bool PartyMemberValue::IsTargetOfSpellCast(Player* target, SpellEntryPredicate &predicate)
