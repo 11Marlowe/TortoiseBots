@@ -114,8 +114,13 @@ void TravelStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         {"val::and::{should get money,can get mail,should get mail}", TravelDestinationPurpose::Mail, 6.79f},  //100%
         {"val::should get money", TravelDestinationPurpose::Grind, 6.77f},                                     // 90%
         {"",TravelDestinationPurpose::Mail, 6.6f},                                                             // 30%
-        {"",TravelDestinationPurpose::GatherMining, 6.5f},                                                     // 90%/40% in group, level 10+
-        {"",TravelDestinationPurpose::GatherHerbalism, 6.5f},                                                  // 90%/40% in group, level 10+
+        // Mining/herbalism trips are a filler, below every quest, grind,
+        // camp and explore request (6.36-6.28): at 6.5 they outranked them all
+        // and took a fifth of pool bot time while 3 % of the trips gathered
+        // (live 2026-10-12). mod-playerbots has no gather travel at all; bots
+        // still open every node they walk past.
+        {"",TravelDestinationPurpose::GatherMining, 6.25f},                                                    // 90%/40% in group, level 10+
+        {"",TravelDestinationPurpose::GatherHerbalism, 6.25f},                                                 // 90%/40% in group, level 10+
         {"",TravelDestinationPurpose::GatherFishing, 6.5f},                                                    // 90%/40% in group
         {"",TravelDestinationPurpose::Boss, 6.4f},                                                             // 50%
         // Grind was 6.27 here - dead last, one step below GenericRpg (6.28). Live data
