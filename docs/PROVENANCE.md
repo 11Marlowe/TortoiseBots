@@ -8180,6 +8180,13 @@ so an enemy player the bot cannot reach is dropped after 15 s instead of
 holding the bot in mid-field. The stealth whitelists let a stealthed rogue
 or prowling druid take the order (and the druid the BG objective actions,
 as the rogue list already did).
+## Rogue Sap before the pull on the assigned CC mark — 2026-10-12
+
+Feature: rogue bots Sap their assigned CC mark (`rti cc target`) before the
+pull. New non-combat trigger `sap cc mark` in `RogueStrategy` (stealth, then
+`sap`); `CastSapAction` targets the CC mark out of combat (its combat target,
+`cc target`, only holds mobs already fighting the group) and names the same
+target for its `reach melee` prerequisite.
 
 Source repository: `mod-playerbots/mod-playerbots`
 
@@ -8627,3 +8634,49 @@ reported role `dps`; priests ran `shadow` and a Restoration shaman ran
 Heal-type actions were 3.5-6 % of samples against `attack enemy player`.
 
 Validation: code review + build pending; in-game pending.
+Source files:
+- `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp` (`RogueCcStrategy::InitTriggers`: `sap` trigger -> `stealth`, `sap`)
+- `src/Ai/Class/Rogue/RogueTriggers.cpp` (`SapTrigger::IsPossible`: rogue out of combat)
+- `src/Ai/Class/Rogue/Action/RogueOpeningActions.cpp` (`CastSapAction` on `cc target`)
+- `src/Ai/Base/Value/CcTargetValue.cpp` (assigned `rti cc target` wins)
+
+Source files (module, modified): `ai/playerbot/strategy/rogue/RogueTriggers.{h,cpp}`,
+`ai/playerbot/strategy/rogue/RogueActions.h`, `ai/playerbot/strategy/rogue/RogueStrategy.cpp`,
+`ai/playerbot/strategy/rogue/RogueAiObjectContext.cpp`; docs `classes/rogue.md`,
+`guides/dungeon-tactics.md`, `guides/player-controls.md`.
+
+Copied / ported / reimplemented: reimplemented (behaviour only). Deviations
+from the donor, all deliberate: (a) the trigger runs in the non-combat engine
+(the donor's sits in a combat strategy that rogues do not get by default, with
+a "rogue out of combat" condition, so it cannot fire before a pull there either);
+(b) it reads the assigned mark directly instead of `cc target`, whose candidates
+are the group's attackers; (c) humanoid-only and "mob not in combat" are checked
+up front (vanilla Sap rules); (d) only for a bot whose master is a real player
+(player control: pool bots never Sap on their own). No pull hold: the player
+waits for the Sap before pulling.
+
+Reason: `docs/guides/dungeon-tactics.md` and `.bot action cc` promised Sap
+before the pull; in game (2026-10-12, yulon-ubuntu) a rogue with
+`.bot action cc moon <Name>` waited ~4.5 min out of combat next to the
+Moon-marked Defias and never Sapped.
+
+Local validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
+
+Fix round 2 (in-game retest, build 8, 2026-10-12): the stealthed rogue reached
+the Moon mob and opened with a white swing instead of Sap. Cause: the Sap
+prerequisite `reach melee` used the core chase, whose arrival starts melee
+auto-attack (core `ChaseMovementGenerator<Player>::_reachTarget`), and it chased
+to 0.6 yd, inside the 1.5 yd collision detection of `Unit::CanDetectStealthOf`.
+Out of combat `CastSapAction` now uses `reach sap` (`ReachSapAction`,
+`RogueActions.h`): a point move to 2.5 yd from the mob's edge (capped inside
+melee reach), done once Sap reaches; allowed while stealthed. In combat Sap
+keeps `reach melee`. Module-only reimplementation, no donor code.
+
+Fix round 3 (owner decision, 2026-10-12): an on/off switch, default ON.
+Opt-out non-combat strategy `no sap` (`RogueNoSapStrategy`, `RogueStrategy.h`,
+no triggers of its own); `SapCcMarkTrigger` stays quiet while it is present.
+`.bot action sap [on|off] [bot]` (`commands/BotCommands.cpp`) adds it on `off`,
+removes it on `on`, and saves the bot like the loot / auto cc toggles. Absent
+means on, so rogues saved before the switch need no data change. Module-only,
+no donor code.
