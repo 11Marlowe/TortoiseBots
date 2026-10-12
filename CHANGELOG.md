@@ -187,6 +187,11 @@
 ### Observability & Engine
 - Tick budget controller no longer punishes bots for slow core work: it tracks the bot pass instead of the whole world tick, so pool bots stop getting their time cut when maps, sessions, and saves are the real bottleneck. [#723](https://github.com/Sagiroth/TortoiseBots/pull/723)
 
+### Economy & Auction House
+- Fixed the AH buyer trip never starting from the bot pool: the `free` strategy gate on the buyer leg is removed so `wander` pool bots can actually pick it up. [#783](https://github.com/Sagiroth/TortoiseBots/pull/783)
+- Moved the "one buyer trip per 10 minutes" stamp onto the travel request, matching how vendor and trainer stamps work — previously it sat inside the trip's own travel condition, so every buyer trip went on cooldown at its first status check. Bots with stock to sell are no longer blocked by the buyer stamp. [#783](https://github.com/Sagiroth/TortoiseBots/pull/783)
+- The 3-minute buyer phase now only gates new picks: a bot already walking to the AH keeps its trip when the slice closes, so long walks are no longer dropped. [#783](https://github.com/Sagiroth/TortoiseBots/pull/783)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
