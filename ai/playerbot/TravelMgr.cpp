@@ -1511,6 +1511,15 @@ void TravelTarget::CheckStatus()
             ai->TellDebug(ai->GetMaster(), "The target is expiring because there is nothing to do here.", "debug travel");
             sPlayerbotAIConfig.logEvent(ai, "WorkIdleStale", tDestination ? tDestination->GetShortName() : "unknown");
             workContext->GetValue<time_t>("manual time", ai::WorkIdleAnchorKey())->Set(time_t(0));
+            // An AH visit with nothing to post or bid on: park the purpose like a
+            // fruitless sale (AhAction), or the bot walks from auctioneer to
+            // auctioneer re-picking AH every minute.
+            if (tDestination && tDestination->GetPurpose() == TravelDestinationPurpose::AH)
+            {
+                std::string const ahKey = std::to_string((uint32)TravelDestinationPurpose::AH);
+                workContext->GetValue<bool>("no active travel destinations", ahKey)->Set(true);
+                workContext->GetValue<time_t>("manual time", "no travel purpose until::" + ahKey)->Set(now + 10 * MINUTE);
+            }
             SetStatus(TravelStatus::TRAVEL_STATUS_EXPIRED);
             return;
         }
