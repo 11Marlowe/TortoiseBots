@@ -8782,9 +8782,10 @@ build pending; in-game pending.
 ## Companions keep `follow` (strategy snapshot and broken stay) — 2026-10-12
 
 Feature: (1) `PlayerbotDbStore::Save` writes its delete and every insert in
-one character-database transaction with the bot's guid as serial id, so one
-bot's saves run in order on one worker (it joins a caller's open
-transaction, as `ChangeStrategyAction` holds one). (2) `PlayerbotDbStore::Load` clears and
+one character-database transaction with one fixed serial id
+(`PlayerbotDbStore::DB_SERIAL_ID`), so every `ai_playerbot_db_store`
+transaction runs on one worker in queue order (it joins a caller's open
+transaction, as `ChangeStrategyAction` holds one, opened with the same id). (2) `PlayerbotDbStore::Load` clears and
 replays only the engines whose own row it read (`ai::StoredStrategyRows`,
 `ai/playerbot/MovementModePolicy.h`). (3) `PlayerbotAI::ResetStrategies`
 gives a real player's bot its default movement mode (`follow`) when, after
@@ -8824,4 +8825,18 @@ checks `.bot attack` and the whispered `attack` end the stay first); `tools/test
 stored `nc` rows from m910q, half-written and complete snapshots, rebuild
 rule); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only`
 of the three changed files against the core headers. Build pending; in-game
+pending.
+
+Deadlock follow-up: the first version used the bot's guid as serial id.
+Different bots' saves then ran on different workers at once, and under
+REPEATABLE READ the `DELETE ... WHERE guid` gap-locks the non-unique `guid`
+index up to the next guid, so two bots with neighbouring guids blocked each
+other's `INSERT` (MySQL error 1213 on m910q build 16, `errors.log`, guids
+521-523/530-531/536-538 during party-wide summons and `.bot action`). InnoDB
+rolled back one bot's whole save and nothing retried it. A constant serial id
+sends all of these transactions to one worker (`serialId % workers` in the
+core's `Database::AddToSerialDelayQueue`; that worker drains its serial queue
+one operation at a time on its own connection), so they never overlap and one
+bot's saves still run in order. Validation: `tbsyntax` of the changed `.cpp`
+files, `bash tools/verify_all.sh`, `git diff --check`. Build pending; in-game
 pending.
