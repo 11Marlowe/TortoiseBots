@@ -177,6 +177,16 @@
 - Herb and ore gathers are logged under their lock skill instead of as skins, so `gathering` stops reading zero [#716](https://github.com/Sagiroth/TortoiseBots/pull/716)
 - Unopenable bot log files are reported once and then backed off, instead of writing 59k lines an hour and burning world-thread file opens [#707](https://github.com/Sagiroth/TortoiseBots/pull/707)
 
+### Combat & AI
+- Pull now walks the tank in by itself, and Pull back no longer cancels itself, so pull chains stop failing mid-pull. [#680](https://github.com/Sagiroth/TortoiseBots/pull/680)
+- Four Horsemen bots now rotate mark carriers to the next corner at 3+ stacks, and tanks hand off their horseman instead of standing in lethal mark damage. [#768](https://github.com/Sagiroth/TortoiseBots/pull/768)
+
+### Instances & World
+- Instance guard now applies on map change when entering or leaving dungeons: open-world grind/travel/fishing/RPG/wander strategies are stripped on entry, only guard-dropped strategies are restored on exit, and real-player masters don't get those habits back from a bot leaving an instance. [#748](https://github.com/Sagiroth/TortoiseBots/pull/748)
+
+### Observability & Engine
+- Tick budget controller no longer punishes bots for slow core work: it tracks the bot pass instead of the whole world tick, so pool bots stop getting their time cut when maps, sessions, and saves are the real bottleneck. [#723](https://github.com/Sagiroth/TortoiseBots/pull/723)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
