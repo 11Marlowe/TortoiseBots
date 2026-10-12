@@ -19,9 +19,16 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 
 namespace ai
 {
+    // The one list of bomb debuff spell ids: Living Bomb, Burning Adrenaline
+    // (Turtle + classic), Mutating Injection, Emerald Rot, Detonate Mana
+    // (27819). Shared by the bomb trigger and ReactionEngine's wake-up check.
+    constexpr std::uint32_t kRaidBombSpellIds[] = { 20475, 23620, 18173, 23478, 28169, 27819 };
+    constexpr std::size_t kRaidBombSpellCount = sizeof(kRaidBombSpellIds) / sizeof(kRaidBombSpellIds[0]);
+
     // Extra clearance aimed for past the radius, and the step search grain.
     constexpr float kBombRunoutMarginYd = 2.0f;
     constexpr float kBombRunoutStepYd = 2.0f;

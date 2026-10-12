@@ -23,6 +23,12 @@ int main()
     std::size_t nearestIdx;
 
     // Nobody else: nothing to run from.
+    {
+        bool hasDetonateMana = false;
+        for (std::size_t i = 0; i < kRaidBombSpellCount; ++i)
+            hasDetonateMana |= (kRaidBombSpellIds[i] == 27819);
+        CHECK(hasDetonateMana && kRaidBombSpellCount == 6);
+    }
     CHECK(!BombRunoutCentre(0.0f, 0.0f, nullptr, 0, cx, cy, nearest, nearestIdx));
 
     // Raid clump of four around (0,0); the carrier stands on its east edge.
