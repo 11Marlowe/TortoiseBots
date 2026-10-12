@@ -60,7 +60,7 @@ Reactive swaps never fight an explicit order: any manual `totem <slot> <which>` 
 - **Shock rotation:** Elemental and Enhancement keep *Flame Shock* up first, then spend the shared shock cooldown on *Earth Shock*; *Earth Shock* keeps its separate interrupt duty on casting targets (own target and off-target enemy healers).
 - **Strike order (Enhancement):** *Stormstrike* fires before the shield-consuming *Lightning Strike*, so the nature-vulnerability debuff amplifies everything after it.
 - **Snares:** Casts *Frost Shock* to snare targets.
-- **Weapon Imbues:** Automatically maintains weapon imbues (*Windfury Weapon* / *Flametongue Weapon* for Enhancement, *Flametongue Weapon* otherwise, with *Rockbiter Weapon* / *Frostbrand Weapon* as fallbacks).
+- **Weapon Imbues:** Automatically maintains weapon imbues (*Windfury Weapon* / *Flametongue Weapon* for Enhancement, *Flametongue Weapon* otherwise, with *Rockbiter Weapon* / *Frostbrand Weapon* as fallbacks). The imbue is cast with the weapon as its item target (it used to be passed as the cast item, so the server refused every imbue and the upkeep repeated forever).
 - **Dispels & Cleansing:** Uses *Purge* to strip enemy buffs (shields, HoTs) and *Cure Poison* / *Cure Disease* on party members (no curse cure exists for shamans in 1.12; curses stay a druid/mage job).
 - **Mana sense:** Never skips a target at or below the low-health line for mana reasons; above the medium line it refuses oversized or average-efficiency heals, and below the medium-mana line it refuses mana-hungry heals (*Lesser Healing Wave*) in favor of *Healing Wave*. Tanks count the expected heal at two-thirds.
 - **Resurrection:** Resurrects fallen party members with *Ancestral Spirit* (no self-Reincarnation).

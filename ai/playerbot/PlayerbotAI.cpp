@@ -5170,6 +5170,16 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
     // because it is the one place that fills in m_powerCost; this probe never
     // runs prepare(), so CheckCast(true) approved power-starved casts.
     Item* castItem = itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellid)->Get();
+    // An item-targeted spell (weapon imbues) takes "item for spell" as its
+    // TARGET, not as the item that casts it: as a cast item the core found no
+    // item target (SPELL_FAILED_ITEM_GONE) and charged no mana. Same split in
+    // CastSpell below.
+    Item* spellItemTarget = nullptr;
+    if (!itemTarget && (spellInfo->Targets & TARGET_FLAG_ITEM))
+    {
+        spellItemTarget = castItem;
+        castItem = nullptr;
+    }
     SpellCastResult powerResult = CheckSpellPower(spellInfo, bot, castItem);
     if (powerResult != SPELL_CAST_OK)
     {
@@ -5299,6 +5309,7 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
     spell->m_targets.setUnitTarget(target);
     spell->SetCastItem(castItem);
     spell->m_targets.setItemTarget(spell->m_targets.getItemTarget());
+    spell->m_targets.setItemTarget(spellItemTarget);
 
     SpellCastResult result = spell->CheckCast(true);
     delete spell;
@@ -5714,6 +5725,15 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
         Item* castItem = itemTarget ? itemTarget : aiObjectContext->GetValue<Item*>("item for spell", spellId)->Get();
         if (castItem && bot->GetItemByGuid(castItem->GetObjectGuid()) != castItem)
             castItem = nullptr;
+        // "item for spell" is the spell's item target (weapon imbues), not
+        // its cast item: as a cast item the imbue failed with ITEM_GONE every
+        // time. An explicit itemTarget keeps the cast-item meaning (custom
+        // casts from bag items).
+        if (!itemTarget && (pSpellInfo->Targets & TARGET_FLAG_ITEM))
+        {
+            targets.setItemTarget(castItem);
+            castItem = nullptr;
+        }
         spell->SetCastItem(castItem);
         targets.setItemTarget(spell->m_targets.getItemTarget());
 
