@@ -493,6 +493,11 @@ bool CastBuffSpellAction::HasManaForBuff()
         return true;
 
     uint8 const minMana = ai::BuffManaFloor(spellInfo->procCharges != 0, ai->HasRealPlayerMaster());
+    // A real player's party bot keeps the floor after the cast (it must drink
+    // before the next pull); pool bots keep the plain floor check, so low-level
+    // casters are not held back on their own armor and self buffs.
+    if (!ai->HasRealPlayerMaster())
+        return ai->GetManaPercent() >= minMana;
     return ai::ManaStaysAboveFloor(bot->GetPower(POWER_MANA), bot->GetMaxPower(POWER_MANA), manaCost, minMana);
 }
 
