@@ -12,6 +12,7 @@
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireSourceGuardPolicy.h"
 #include "../../../runtime/HireGearPolicy.h"
 
 using namespace ai;
@@ -566,6 +567,17 @@ bool EquipUpgradesAction::Execute(Event& event)
         {
             continue;
         }
+        // Issue #490 (bug part): hired bots never auto-equip source-gated
+        // gear (pure rule in runtime/HireSourceGuardPolicy.h). BG blues score
+        // high against seed greens, so the audit would dress every hire in
+        // PvP on first loot. The item stays in the bags; explicit `.bot
+        // equip` / master trade still work. Pool bots keep the organic
+        // behaviour (earned PvP is wearable).
+        if (!TortoiseBots::MayHireAutoTakeSource(
+                sRandomItemMgr.GetSourceFlags(item->GetProto()->ItemId),
+                TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()),
+                sPlayerbotAIConfig.randomGearAllowPvP, sPlayerbotAIConfig.randomGearAllowReputation))
+            continue;
 
         // Bags and quivers never go through slot resolution below: core's
         // INVTYPE_BAG probe resolves to a single slot (the first free one, or

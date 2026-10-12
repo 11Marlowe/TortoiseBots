@@ -1419,6 +1419,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if (proto->MaxCount && bot->HasItemCount(proto->ItemId, proto->MaxCount))
                         continue;
 
+                    // Fresh-seed provenance gate, like the main loop below:
+                    // honor tabards and rep-gated shirts never seed.
+                    if (seedSpread && !PassesSeedProvenance(bot, newItemId))
+                        continue;
                     if (proto->ItemLevel > maxItemLevel)
                         continue;
 
