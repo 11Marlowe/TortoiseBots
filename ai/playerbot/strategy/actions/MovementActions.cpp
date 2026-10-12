@@ -1,5 +1,6 @@
 
 #include "playerbot/GroupMembers.h"
+#include "playerbot/TaxiRouteGuard.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/PerformanceMonitor.h"
 #include "MovementActions.h"
@@ -169,7 +170,7 @@ bool MovementAction::UseTaxi(PlayerbotAI* ai, uint32 entry, bool needNpc)
 
     ai->Unmount();
 
-    bool goTaxi = bot->ActivateTaxiPathTo({tEntry->from, tEntry->to}, unit, 1);
+    bool goTaxi = ai::BotTaxiRouteAllowed({ tEntry->from, tEntry->to }) && bot->ActivateTaxiPathTo({tEntry->from, tEntry->to}, unit, 1);
 
     if (!goTaxi)
         bot->SetMoney(botMoney);
