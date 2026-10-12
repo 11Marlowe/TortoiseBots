@@ -81,7 +81,7 @@ Crowd control is essential for multi-caster pulls in level 40+ dungeons.
   ```
 * The mark is assigned to exactly one bot (exclusive ownership); reassigning it moves ownership. When no owned bot is targeted, the server selects the capable bot with the best-fitting CC for that target (Sap before the pull, then Shackle/Banish/Hibernate/Polymorph/traps, Fear last); the same target and state always pick the same bot.
 * Targeting an enemy when you type the command puts that mark on your current target (moving it off any mob that carried it). Select the bot instead, or clear your target, to keep the mark where you placed it.
-* **Rogue Sap before the pull:** out of combat a rogue (with you as its master) stealths and Saps the humanoid carrying its mark, so mark first, wait for the Sap, then pull. Nothing waits for the Sap automatically.
+* **Rogue Sap before the pull:** out of combat a rogue (with you as its master) stealths and Saps the humanoid carrying its mark, so mark first, wait for the Sap, then pull. Nothing waits for the Sap automatically. On by default; `.bot action sap off [bot]` stops it.
 * Dismiss with `.bot action cc clear` (targeted bot, or the whole owned party when untargeted).
 * **Dungeon rule:** inside non-raid dungeons bots CC only their assigned mark; in the open world they may CC a free pick. Bots never CC over an existing CC, and AoE triggers refuse packs holding a breakable CC.
 * **Automatic Discipline:** Once applied, party bots and pets are strictly blocked from attacking the crowd-controlled target until all other active threats are dead.

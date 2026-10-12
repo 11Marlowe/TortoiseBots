@@ -7694,3 +7694,13 @@ Out of combat `CastSapAction` now uses `reach sap` (`ReachSapAction`,
 `RogueActions.h`): a point move to 2.5 yd from the mob's edge (capped inside
 melee reach), done once Sap reaches; allowed while stealthed. In combat Sap
 keeps `reach melee`. Module-only reimplementation, no donor code.
+
+Fix round 3 (owner decision, 2026-10-12): an on/off switch, default ON.
+The `sap cc mark` trigger now lives in its own non-combat strategy `sap`
+(`RogueSapStrategy`, `RogueStrategy.{h,cpp}`), which `AiFactory` adds to every
+rogue by default (the trigger still acts only for a real player's bot).
+`.bot action sap [on|off] [bot]` (`commands/BotCommands.cpp`) adds or removes
+it and saves the bot, like the loot / auto cc toggles. Character migration
+`data/sql/character/20261012120000_char.sql` appends `+sap` once to existing
+rogue `nc` strategy snapshots, which otherwise replay without it and would
+start with Sap off. Module-only, no donor code.

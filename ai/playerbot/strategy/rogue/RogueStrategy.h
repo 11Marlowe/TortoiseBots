@@ -10,6 +10,20 @@ namespace ai
         std::string getName() override { return "poisons"; }
     };
 
+    // Pre-pull Sap on the bot's CC mark (`.bot action sap on|off`). On by
+    // default for every rogue (AiFactory); the "sap cc mark" trigger still
+    // acts only when the master is a real player. Removing the strategy is
+    // the player's off switch, persisted with the bot's strategy snapshot.
+    class RogueSapStrategy : public Strategy
+    {
+    public:
+        RogueSapStrategy(PlayerbotAI* ai) : Strategy(ai) {}
+        std::string getName() override { return "sap"; }
+
+    protected:
+        void InitNonCombatTriggers(std::list<TriggerNode*>& triggers) override;
+    };
+
     class RogueStrategy : public ClassStrategy
     {
     public:
