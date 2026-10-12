@@ -3480,15 +3480,7 @@ void PlayerbotAI::ChangeStrategy(const std::string& names, BotState type)
     // with it. One rule here beats repeating the release at every caller; a
     // hold left without its guard would keep the bot on stay for good.
     if (names.find("-wait for attack") != std::string::npos)
-    {
-        pullWindow_.Clear();
         ReleasePullHold();
-    }
-    // Added by anyone but the pull itself (PausePartyDpsForPull starts its
-    // window after its own add): the setting is the player's from now on and
-    // the pull window's end must not take it away.
-    else if (names.find("+wait for attack") != std::string::npos)
-        pullWindow_.OnStrategyAdded();
 
     if(type == BotState::BOT_STATE_ALL)
     {
@@ -3509,6 +3501,10 @@ void PlayerbotAI::ChangeStrategy(const std::string& names, BotState type)
             engine->ChangeStrategy(names);
         }
     }
+
+    // "+", "-" and the "~" toggle alike: read back what the engines hold now.
+    if (names.find("wait for attack") != std::string::npos)
+        SyncPullWindow(type);
 }
 
 void PlayerbotAI::PrintStrategies(Player* requester, BotState type)
@@ -7426,31 +7422,81 @@ void PlayerbotAI::ReleasePullHold()
     }
 }
 
-void PlayerbotAI::EndPullWindow()
+void PlayerbotAI::StartPullWindow(uint8 windowSeconds)
 {
-    // The pull's own gate: dropping it frees the anchor hold too and clears
-    // the window (ChangeStrategy).
-    if (pullWindow_.ReleaseDropsStrategy())
-    {
-        ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
+    if (!aiObjectContext)
         return;
+
+    auto* waitTime = aiObjectContext->GetValue<uint8>("wait for attack time");
+    uint8 const previousSeconds = waitTime->Get();
+
+    // Only the engines without "wait for attack" get the pull's copy: one the
+    // player put there (in any engine) stays theirs and outlives the window.
+    // Added before the window (re)starts, so the add is not read as someone
+    // else's change (SyncPullWindow).
+    unsigned added = 0;
+    for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
+    {
+        BotState const state = static_cast<BotState>(i);
+        if (HasStrategy("wait for attack", state))
+            continue;
+        ChangeStrategy("+wait for attack", state);
+        added |= ai::PullJoinWindow::EngineBit(i);
     }
 
-    // A "wait for attack" the player set stays; only the pull's anchor goes.
-    // Also the release of the puller's own anchor ("pull anchor done"), which
-    // never had a window.
-    pullWindow_.Clear();
-    ReleasePullHold();
+    waitTime->Set(windowSeconds);
+    pullWindow_.Start(time(0), added, previousSeconds);
 }
 
-void PlayerbotAI::DropPullAfterReload()
+void PlayerbotAI::SetPlayerWaitForAttackTime(uint8 seconds)
 {
-    // Whatever the window was, its strategy was just replaced by the stored
-    // set, and a stored set never holds a pull's own window (PlayerbotDbStore::
-    // Save). A "pull hold" marker in the restored or the old position map has
-    // no pull left to end it: release it now, or the bot would stand at an old
-    // anchor after a relog.
+    if (pullWindow_.DeferPlayerWaitSeconds(seconds) || !aiObjectContext)
+        return;
+    aiObjectContext->GetValue<uint8>("wait for attack time")->Set(seconds);
+}
+
+void PlayerbotAI::SyncPullWindow(BotState type)
+{
+    if (!pullWindow_.Running())
+        return;
+
+    unsigned touched = 0;
+    if (type == BotState::BOT_STATE_ALL)
+    {
+        for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
+            touched |= ai::PullJoinWindow::EngineBit(i);
+    }
+    else
+        touched = ai::PullJoinWindow::EngineBit(static_cast<unsigned>(type));
+    pullWindow_.Forget(touched);
+
+    // The combat engine's copy is the gate itself: once someone removed it
+    // (an attack or flee order, a player's `co -wait for attack` or toggle),
+    // the hold is over. The player's delay goes back as the window ends.
+    if (!HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+        EndPullWindow();
+}
+
+void PlayerbotAI::EndPullWindow()
+{
+    ai::PullJoinWindow const window = pullWindow_;
+    // Cleared first, so the removals below are not read as someone else's
+    // change to the strategy (SyncPullWindow).
     pullWindow_.Clear();
+
+    for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
+    {
+        BotState const state = static_cast<BotState>(i);
+        if (window.Added(i) && HasStrategy("wait for attack", state))
+            ChangeStrategy("-wait for attack", state);
+    }
+
+    // The pull's delay never replaces the player's own setting.
+    if (window.Running() && aiObjectContext)
+        aiObjectContext->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(window.savedWaitSeconds));
+
+    // The anchor goes with the window; a no-op when it is already released
+    // (combat end, death, a movement order) or when none was placed.
     ReleasePullHold();
 }
 

@@ -71,13 +71,14 @@ void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
         PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
         if (!memberAi || !memberAi->GetAiObjectContext())
             continue;
-        if (!memberAi->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT))
+        // Only the bots this pull holds: a "wait for attack" of the player's
+        // own on a bot the pull did not park keeps its own delay and clock.
+        if (!memberAi->HasPullWindow())
             continue;
         if (narrowWindow)
             memberAi->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(waitSeconds));
         memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
-        // The window's own clock ("pull hold expired"): no-op for a bot this
-        // pull does not hold.
+        // The window's own clock ("pull hold expired").
         memberAi->RestampPullWindow();
     }
 }

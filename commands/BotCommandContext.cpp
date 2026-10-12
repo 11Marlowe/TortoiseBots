@@ -305,15 +305,11 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
         ai::PositionEntry holdPos = posMap["pull hold"];
         holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
         posMap["pull hold"] = holdPos;
-        ai->GetAiObjectContext()->GetValue<uint8>("wait for attack time")->Set(static_cast<uint8>(windowSeconds));
-        // A "wait for attack" the player set is theirs and outlives this
-        // window; one an earlier pull left (a chain pull) stays the pull's.
-        bool const playerWindow = ai->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT) &&
-            !ai->PullWindowOwnsStrategy();
-        ai->ChangeStrategy("+wait for attack", BotState::BOT_STATE_ALL);
-        // The window runs on its own clock from here (PullJoinWindowPolicy.h):
-        // started after the add, which would otherwise hand it to the player.
-        ai->StartPullWindow(playerWindow);
+        // "wait for attack" with this pull's delay, on its own clock from here
+        // (PullJoinWindowPolicy.h). A "wait for attack" or a delay the player
+        // set is theirs and comes back unchanged when the window ends; one an
+        // earlier pull left (a chain pull) stays the pull's.
+        ai->StartPullWindow(static_cast<uint8>(windowSeconds));
         // Fresh combat window: a stale combat-start timestamp would expire the
         // hold immediately, so reset it for the incoming pull engagement.
         // Re-stamped when the pull lands (plain pull) or when the tank

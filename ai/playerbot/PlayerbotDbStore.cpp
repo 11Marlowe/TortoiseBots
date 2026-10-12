@@ -74,9 +74,12 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
         ai->GetAiObjectContext()->Load(values);
     }
 
-    // No pull survives a reload (relog, reset, preset): the stored set was
-    // never given the pull's window, and its anchor has nothing left to end it.
-    ai->DropPullAfterReload();
+    // No pull survives a reload (relog, reset, preset). The stored set never
+    // holds the pull's window, but a snapshot without "co"/"nc" rows leaves
+    // the live engines alone, so end the window here: its own copies of "wait
+    // for attack" go, the player's delay comes back, and an anchor restored
+    // from the snapshot or left from before has nothing else to end it.
+    ai->EndPullWindow();
 }
 
 void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
@@ -106,20 +109,25 @@ void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
     Reset(ai, preset);
 
     std::list<std::string> data = ai->GetAiObjectContext()->Save();
+    // While a pull's window runs, "wait for attack time" holds the pull's
+    // delay: store the player's own value from before the pull instead.
+    std::string const waitTimeRow = "wait for attack time>";
     for (std::list<std::string>::iterator i = data.begin(); i != data.end(); ++i)
     {
+        if (ai->HasPullWindow() && i->compare(0, waitTimeRow.size(), waitTimeRow) == 0)
+            *i = waitTimeRow + std::to_string(ai->PullWindowSavedSeconds());
         SaveValue(guid, preset, "value", *i);
     }
 
     // A pull's own join window is never stored: it belongs to that pull, and a
     // snapshot restored after a relog has no pull left to end it, so the bot
-    // would hold back at the start of every fight from then on. A "wait for
-    // attack" the player set is stored as usual (PullJoinWindowPolicy.h).
-    bool const dropPullWindow = ai->PullWindowOwnsStrategy();
-    auto stored = [ai, dropPullWindow](BotState state)
+    // would hold back at the start of every fight from then on. Only the
+    // engines the pull added "wait for attack" to are left out; a copy the
+    // player set is stored as usual (PullJoinWindowPolicy.h).
+    auto stored = [ai](BotState state)
     {
         std::list<std::string_view> strategies = ai->GetStrategies(state);
-        if (dropPullWindow)
+        if (ai->PullWindowAdded(state))
             strategies.remove(std::string_view("wait for attack"));
         return strategies;
     };
