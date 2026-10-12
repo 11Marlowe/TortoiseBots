@@ -6,6 +6,8 @@
 #include "../runtime/HireProvisionService.h"
 #include "../runtime/HireCost.h"
 #include "../runtime/HireSpecPolicy.h"
+#include "../runtime/HireTierRequestPolicy.h"
+#include "../runtime/HireUnlockPolicy.h"
 #include "../runtime/WorldBuffPolicy.h"
 #include "../runtime/WorldBuffService.h"
 #include "../runtime/HireUnlockPolicy.h"
@@ -179,6 +181,26 @@ uint32_t QuoteHireCount(Player* player)
 {
     return HireProvisionService::Instance().CountHired(player);
 }
+
+// Issue #490 PR 2: the fee quoted and charged for this hire at a tier: the
+// base quote (same slot count as the confirm menu) times the tier
+// multiplier. The confirm step and the provisioner read the same value.
+uint32_t QuoteHireCostAtTier(Player* player, uint8_t tier)
+{
+    uint32_t base = HireCost::ForNextHire(CurrentCosts(), QuoteHireCount(player),
+        player ? player->GetLevel() : 1);
+    return HireCostAtTier(base, tier, sPlayerbotAIConfig.hireGearTierCostMult);
+}
+
+// Issue #490 PR 2: "Choose equipment" step after the spec step. Lists tier 0
+// up to the player's highest unlocked tier with each tier's fee for this
+// hire. The packed class/race/gender/spec selection rides in the action (the
+// spec step's packing); the tier rides in the sender (520+tier), so the full
+// 32-bit packing needs no repacking. Back returns to the spec menu.
+void ShowTierMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 highestTier);
+void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 gearTier);
 
 void ShowClassMenu(Player* player, Creature* creature)
 {
@@ -613,24 +635,49 @@ void BuyWorldBuff(Player* player, Creature* creature, uint32_t confirmAction)
     ChatHandler(player).PSendSysMessage("The recruiter's criers raise the blessing over your company.");
 }
 
+void ShowTierMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 highestTier)
+{
+    uint32 packed = (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | specIndex;
+    for (uint8_t tier = 0; tier <= highestTier; ++tier)
+    {
+        std::ostringstream label;
+        label << HireTierKitName(tier) << " (" << ai::ChatHelper::formatMoney(QuoteHireCostAtTier(player, tier)) << ")";
+        AddItem(player, GOSSIP_ICON_BATTLE, label.str().c_str(), HireTierStepSender(tier), packed);
+    }
+    AddItem(player, GOSSIP_ICON_TALK, "< Back", kHireTierBackSender, packed);
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+}
+
 void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender, uint8 specIndex)
+{
+    // Old path for players with nothing unlocked above tier 0 (and below
+    // 60): the equipment step is skipped, the hire goes at tier 0.
+    ShowConfirmMenu(player, creature, classId, race, gender, specIndex, kHireGearTierBase);
+}
+
+void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 gearTier)
 {
     uint32_t specCount = 0;
     HireSpecOption const* specs = HireSpecOptions(classId, specCount);
-    if (!specs || specIndex >= specCount)
+    if (!specs || specIndex >= specCount || gearTier > kHireGearTierMax)
     {
         ShowSpecMenu(player, creature, classId, race, gender);
         return;
     }
-    uint32_t level = player->GetLevel();
-    uint32_t cost = HireCost::ForNextHire(CurrentCosts(), QuoteHireCount(player), level);
+    uint32_t cost = QuoteHireCostAtTier(player, gearTier);
     std::ostringstream label;
-    label << "Hire " << RaceName(race) << " " << ClassName(classId) << " (" << specs[specIndex].label << ") for "
-        << ai::ChatHelper::formatMoney(cost) << ". Confirm?";
-    // Packed selection travels in the sender; action distinguishes confirm/back.
+    label << "Hire " << RaceName(race) << " " << ClassName(classId) << " (" << specs[specIndex].label << ")";
+    if (gearTier > 0)
+        label << " in " << HireTierKitName(gearTier);
+    label << " for " << ai::ChatHelper::formatMoney(cost) << ". Confirm?";
+    // The tier rides in the sender (530+tier); the packed selection rides in
+    // the action. Back returns to the equipment step when the player has a
+    // choice, else to the spec menu (unchanged old path).
     uint32 packed = (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | specIndex;
-    AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), packed, kConfirmAction);
-    AddItem(player, GOSSIP_ICON_TALK, "< Back", packed, kBackAction);
+    AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), HireTierConfirmSender(gearTier), packed);
+    AddItem(player, GOSSIP_ICON_TALK, "< Back", kHireTierBackSender, packed);
     player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
 }
 } // namespace
@@ -818,7 +865,90 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
             ShowSpecMenu(player, creature, classId, race, gender);
             return true;
         }
+        // Issue #490 PR 2: equipment step between spec and confirm. One
+        // unlock lookup per page; skipped entirely for players with nothing
+        // above tier 0 (old wizard unchanged).
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(player);
+        if (HireTierStepVisible(sPlayerbotAIConfig.hireGearTiersEnabled, player->GetLevel(), highest))
+        {
+            ShowTierMenu(player, creature, classId, race, gender, static_cast<uint8>(low), highest);
+            return true;
+        }
         ShowConfirmMenu(player, creature, classId, race, gender, static_cast<uint8>(low));
+        return true;
+    }
+    // Issue #490 PR 2: the tier step and its confirm. The tier rides in the
+    // sender, the packed selection in the action. The unlock is re-validated
+    // at confirm (Hire() checks too), so a stale menu cannot hire above it.
+    uint8_t tierPick = 0;
+    if (DecodeHireTierStepSender(sender, tierPick) || DecodeHireTierConfirmSender(sender, tierPick))
+    {
+        uint8 classId = static_cast<uint8>((action >> 24) & 0xFF);
+        uint8 race = static_cast<uint8>((action >> 16) & 0xFF);
+        uint8 gender = static_cast<uint8>((action >> 8) & 0xFF);
+        uint8 specIndex = static_cast<uint8>(action & 0xFF);
+        uint32_t specCount = 0;
+        HireSpecOption const* specs = HireSpecOptions(classId, specCount);
+        if (!KnownHireClass(classId) || !specs || specIndex >= specCount ||
+            !sObjectMgr.GetPlayerInfo(race, classId) ||
+            (gender != GENDER_MALE && gender != GENDER_FEMALE))
+        {
+            ShowClassMenu(player, creature);
+            return true;
+        }
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(player);
+        bool visible = HireTierStepVisible(sPlayerbotAIConfig.hireGearTiersEnabled,
+            player->GetLevel(), highest);
+        if (tierPick > highest || (!visible && tierPick > 0))
+        {
+            // Stale menu (unlock revoked, tiers disabled, level changed):
+            // fall back to the tier-0 confirm, never hire above the unlock.
+            ShowConfirmMenu(player, creature, classId, race, gender, specIndex);
+            return true;
+        }
+        if (DecodeHireTierConfirmSender(sender, tierPick))
+        {
+            HireSelection sel;
+            sel.classId = classId;
+            sel.race = race;
+            sel.gender = gender;
+            sel.role = specs[specIndex].role;
+            sel.specIndex = static_cast<int>(specIndex);
+            sel.gearTier = tierPick;
+            HireOutcome outcome = HireProvisionService::Instance().Hire(player, sel, true);
+            CloseWithHint(player, outcome.message.c_str());
+            return true;
+        }
+        if (!visible)
+        {
+            ShowConfirmMenu(player, creature, classId, race, gender, specIndex);
+            return true;
+        }
+        ShowConfirmMenu(player, creature, classId, race, gender, specIndex, tierPick);
+    }
+    // Tier-step back: the packed selection rides in the action. With a real
+    // choice, back returns to the equipment step; otherwise the spec menu.
+    if (sender == kHireTierBackSender)
+    {
+        uint8 classId = static_cast<uint8>((action >> 24) & 0xFF);
+        uint8 race = static_cast<uint8>((action >> 16) & 0xFF);
+        uint8 gender = static_cast<uint8>((action >> 8) & 0xFF);
+        uint8 specIndex = static_cast<uint8>(action & 0xFF);
+        uint32_t specCount = 0;
+        HireSpecOption const* specs = HireSpecOptions(classId, specCount);
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(player);
+        if (specs && specIndex < specCount &&
+            HireTierStepVisible(sPlayerbotAIConfig.hireGearTiersEnabled, player->GetLevel(), highest))
+        {
+            ShowTierMenu(player, creature, classId, race, gender, specIndex, highest);
+            return true;
+        }
+        if (specs && specIndex < specCount)
+        {
+            ShowSpecMenu(player, creature, classId, race, gender);
+            return true;
+        }
+        ShowClassMenu(player, creature);
         return true;
     }
     // Packed confirm: sender IS the packed class/race/gender/spec selection,
@@ -895,4 +1025,24 @@ void HireRecruiterScript::SyncUnlockFees()
         TB_LOG_BASIC("World-buff unlock fees changed on %u quests; restart the server to apply them", changed);
 }
 
+void HireRecruiterScript::SyncHireUnlockChain()
+{
+    // Same pattern as SyncUnlockFees: the quests are already loaded, so the
+    // write lands in the DB and is live after the next restart.
+    uint32 changed = 0;
+    for (uint8_t tier = 1; tier <= kHireGearTierMax; ++tier)
+    {
+        uint32 questId = HireUnlockQuestForTier(tier);
+        int32 want = HireTierChainPrevQuest(tier, sPlayerbotAIConfig.hireGearAllQuestsAvailable);
+        auto result = WorldDatabase.PQuery("SELECT PrevQuestId FROM quest_template WHERE entry = %u", questId);
+        if (!result)
+            continue;
+        if (result->Fetch()[0].GetInt32() == want)
+            continue;
+        WorldDatabase.PExecute("UPDATE quest_template SET PrevQuestId = %d WHERE entry = %u", want, questId);
+        ++changed;
+    }
+    if (changed)
+        TB_LOG_BASIC("Hire unlock quest chain changed on %u quests; restart the server to apply them", changed);
+}
 } // namespace TortoiseBots

@@ -23,6 +23,11 @@ public:
     // startup. Core has already loaded the quests, so a change is live from
     // the next restart.
     static void SyncUnlockFees();
+    // Issue #490 PR 2: writes the unlock-chain PrevQuestId into the hire
+    // unlock quests (90100-90106): the chain when the flag is off, 0 for all
+    // when HireGearAllQuestsAvailable. Same pattern and log line as
+    // SyncUnlockFees; called from the same place.
+    static void SyncHireUnlockChain();
 };
 
 } // namespace TortoiseBots
