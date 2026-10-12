@@ -716,6 +716,13 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
 
     if (nextPoint.type == PathNodeType::NODE_TELEPORT && nextPoint.entry)
     {
+        // The hearthstone and the class teleports are 10 s casts: wait for the one in
+        // progress instead of declining the leg, which made the travel step walk on
+        // and interrupt it every few seconds (live: bots re-hearthing every ~13 s).
+        Spell* currentSpell = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (currentSpell && currentSpell->m_spellInfo->Id == nextPoint.entry)
+            return true;
+
         bool canCastNow = !bot->IsFlying() || WorldPosition(bot).currentHeight() < 10.0f;
 
         if (nextPoint.entry == 8690) // Hearthstone
@@ -732,7 +739,12 @@ bool MovementAction::HandleSpecialMovement(TravelPath& path)
 
             ai->RemoveShapeshift();
 
-            if (ai->DoSpecificAction("cast", Event("rpg action", chat->formatWorldobject(bot) + " " + std::to_string(nextPoint.entry)), true))
+            // Cast directly: the "cast" chat command read the spell id as a repeat
+            // count after the bot link and never found the spell.
+            if (bot->IsMoving())
+                ai->StopMoving();
+
+            if (ai->CastSpell(nextPoint.entry, bot))
                 return true;
         }
 
