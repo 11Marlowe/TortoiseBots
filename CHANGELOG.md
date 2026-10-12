@@ -85,6 +85,10 @@
 - Hunter bots only channel Mend Pet in combat when the pet is genuinely low **and** no shot is ready, ending the constant shot-dropping channel that ate ~10% of all hunter combat samples. [#708](https://github.com/Sagiroth/TortoiseBots/pull/708)
 - Cast-time strategy is now a default combat strategy outside battlegrounds: bots skip a Frostbolt/Shadow Bolt/etc. when the mob's estimated time-to-live is shorter than the cast, picking a faster spell or wand instead. Low-health bosses with long TTK still eat full casts. [#693](https://github.com/Sagiroth/TortoiseBots/pull/693)
 
+### Combat & AI
+- Bots now detect partial Shadow Weaving stacks (1–4) applied by another priest, not just the full 5-stack. No more rotation flip-flopping with two Shadow priests in the group. [#740](https://github.com/Sagiroth/TortoiseBots/pull/740)
+- The same shared-debuff blind spot that caused the rogue Expose Armor > Sunder Armor issue is rooted in this visibility gap (fixed separately). [#740](https://github.com/Sagiroth/TortoiseBots/pull/740)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes
