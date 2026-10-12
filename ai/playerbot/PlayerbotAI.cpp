@@ -44,6 +44,7 @@
 #include "playerbot/strategy/actions/FishAction.h"
 #include "playerbot/DeathClusterPolicy.h"
 #include "playerbot/SurvivePolicy.h"
+#include "playerbot/MovementModePolicy.h"
 #include "../../runtime/AutoToolsKitPolicy.h"
 #include "../../behavior/PlayerConvenience.h"
 #include "Movement/spline/MoveSplineInitArgs.h"
@@ -3723,6 +3724,12 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
         sLog.outBasic("LFT: %s strategies rebuilt as %s", bot->GetName(), roleStrategy);
     }
 
+    // A player's companion leaves every rebuild with a movement mode: a stored
+    // snapshot saved without one would otherwise park it after each rebuild
+    // until the player whispers "follow" (ai::NeedsDefaultMovementMode).
+    if (ai::NeedsDefaultMovementMode(bot->InBattleGround(), HasActivePlayerMaster(), HasActiveMovementStrategy()))
+        SetMovementStrategy(GetDefaultMovementStrategy());
+
     for (uint8 i = 0; i < (uint8)BotState::BOT_STATE_ALL; i++)
     {
         engines[i]->initMode = false;
@@ -7253,11 +7260,7 @@ std::string PlayerbotAI::GetDefaultMovementStrategy()
 
 bool PlayerbotAI::HasActiveMovementStrategy()
 {
-    static char const* const movementStrategies[] = {
-        "follow", "stay", "wander", "guard", "free", "passive"
-    };
-
-    for (char const* strategy : movementStrategies)
+    for (char const* strategy : ai::kMovementModeStrategies)
     {
         if (HasStrategy(strategy, BotState::BOT_STATE_NON_COMBAT) ||
             HasStrategy(strategy, BotState::BOT_STATE_REACTION))
@@ -7355,6 +7358,26 @@ void PlayerbotAI::ReleasePullHold()
         posMap.erase("stay");
         EnsureDefaultMovementStrategy();
     }
+}
+
+void PlayerbotAI::EndStayForOrder()
+{
+    // Stay is kept in all three engines by the central movement setter;
+    // remove its reaction copy as well or it can survive the order and be
+    // mistaken for an active hold during the next transition.
+    ChangeStrategy("-stay", BotState::BOT_STATE_REACTION);
+    ChangeStrategy("-stay", BotState::BOT_STATE_NON_COMBAT);
+    // The broken stay was the bot's only movement mode: give it the default
+    // back or it stands wherever the fight ends until the player whispers
+    // "follow". Added directly rather than through SetMovementStrategy, which
+    // would drop the "pull hold" marker the pull release still reads.
+    if (!HasActiveMovementStrategy())
+    {
+        std::string const movement = "+" + GetDefaultMovementStrategy();
+        ChangeStrategy(movement, BotState::BOT_STATE_REACTION);
+        ChangeStrategy(movement, BotState::BOT_STATE_NON_COMBAT);
+    }
+    ChangeStrategy("-stay,-follow", BotState::BOT_STATE_COMBAT);
 }
 
 std::string PlayerbotAI::HandleRemoteCommand(std::string command)

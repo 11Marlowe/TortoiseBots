@@ -8880,3 +8880,65 @@ woke it until its own combat flag rose.
 Validation: syntax-only compile of `PlayerbotAI.cpp` and
 `UseItemAction.cpp`; `bash tools/verify_all.sh`; `git diff --check`. Build
 pending; in-game pending.
+
+## Companions keep `follow` (strategy snapshot and broken stay) — 2026-10-12
+
+Feature: (1) `PlayerbotDbStore::Save` writes its delete and every insert in
+one character-database transaction with one fixed serial id
+(`PlayerbotDbStore::DB_SERIAL_ID`), so every `ai_playerbot_db_store`
+transaction runs on one worker in queue order (it joins a caller's open
+transaction, as `ChangeStrategyAction` holds one, opened with the same id). (2) `PlayerbotDbStore::Load` clears and
+replays only the engines whose own row it read (`ai::StoredStrategyRows`,
+`ai/playerbot/MovementModePolicy.h`). (3) `PlayerbotAI::ResetStrategies`
+gives a real player's bot its default movement mode (`follow`) when, after
+the snapshot and the forced role, it has none (`ai::NeedsDefaultMovementMode`;
+not in battlegrounds). (4) `RelaxTacticalMovement` (`commands/BotCommands.cpp`)
+adds the default mode back when breaking a stay leaves the bot with none;
+the per-bot `.bot attack <Name>` now goes through it too, like
+`.bot action attack` (build 13 on m910q: after `stay` and `.bot attack`
+the rogue kept `stay` and stood still after the fight), and a whispered
+`attack` with a target ends the stay the same way
+(`PlayerbotAI::EndStayForOrder`, called from `AttackMyTargetAction`).
+
+Source: (1) and (2) follow mod-playerbots `79bd428`
+`src/Db/PlayerbotRepository.cpp:11-71` (`Load` clears an engine only on its
+own `co`/`nc` row; `Save` appends everything to one transaction).
+Reimplemented on the cmangos `Database` API (`InTransaction`,
+`BeginTransaction`, `CommitTransaction`); the donor commits directly, ours
+stays asynchronous. (3) and (4) are module rules with no donor counterpart.
+
+Reason: on m910q build 11 three hired companions (Latal, Maethiza,
+Niabrenans) had no movement strategy at all and stood still until whispered
+`follow`; the dungeon catch-up (#644) only brings in bots with `follow`, so
+only the rogue came along on `.tele ulda`. Their stored rows (read-only
+check) show it: Latal's `nc` was exactly the `Load` baseline plus the
+protection kit, the result of reading a snapshot without its `nc` row; the
+loose async rows of one Save are spread over the 4 character-database
+workers (`CharacterDatabase.WorkerThreads = 4`), so its delete can run after
+its own inserts, and the tank hire saves and then rebuilds in the same call.
+Maethiza and Niabrenans had their full kit minus any mode: a whispered
+`stay` followed by a tactical order that breaks it (`RelaxTacticalMovement`
+removes `stay` and added nothing). The rogue, never told to stay, kept
+`follow`.
+
+Validation: `tools/test_tactical_stay_release.py` (compiles the production
+`EndFlee`/`RelaxTacticalMovement`/`EndStayForOrder` against a stand-in AI;
+checks `.bot attack` and the whispered `attack` end the stay first); `tools/test_movement_mode_policy.cpp` (mode list, the three
+stored `nc` rows from m910q, half-written and complete snapshots, rebuild
+rule); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only`
+of the three changed files against the core headers. Build pending; in-game
+pending.
+
+Deadlock follow-up: the first version used the bot's guid as serial id.
+Different bots' saves then ran on different workers at once, and under
+REPEATABLE READ the `DELETE ... WHERE guid` gap-locks the non-unique `guid`
+index up to the next guid, so two bots with neighbouring guids blocked each
+other's `INSERT` (MySQL error 1213 on m910q build 16, `errors.log`, guids
+521-523/530-531/536-538 during party-wide summons and `.bot action`). InnoDB
+rolled back one bot's whole save and nothing retried it. A constant serial id
+sends all of these transactions to one worker (`serialId % workers` in the
+core's `Database::AddToSerialDelayQueue`; that worker drains its serial queue
+one operation at a time on its own connection), so they never overlap and one
+bot's saves still run in order. Validation: `tbsyntax` of the changed `.cpp`
+files, `bash tools/verify_all.sh`, `git diff --check`. Build pending; in-game
+pending.
