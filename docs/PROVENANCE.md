@@ -8782,8 +8782,9 @@ build pending; in-game pending.
 ## Companions keep `follow` (strategy snapshot and broken stay) — 2026-10-12
 
 Feature: (1) `PlayerbotDbStore::Save` writes its delete and every insert in
-one character-database transaction (it joins a caller's open transaction,
-as `ChangeStrategyAction` holds one). (2) `PlayerbotDbStore::Load` clears and
+one character-database transaction with the bot's guid as serial id, so one
+bot's saves run in order on one worker (it joins a caller's open
+transaction, as `ChangeStrategyAction` holds one). (2) `PlayerbotDbStore::Load` clears and
 replays only the engines whose own row it read (`ai::StoredStrategyRows`,
 `ai/playerbot/MovementModePolicy.h`). (3) `PlayerbotAI::ResetStrategies`
 gives a real player's bot its default movement mode (`follow`) when, after
