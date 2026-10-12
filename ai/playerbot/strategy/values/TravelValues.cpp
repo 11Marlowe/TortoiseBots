@@ -276,11 +276,18 @@ bool NeedTravelPurposeValue::Calculate()
         // pool bot holding spendable gold walks to its auction house on its
         // own feet and bids on arrival (no buyer teleport). Phase gate first:
         // it is the cheap clock check, so the purse/position work below only
-        // runs in the open slice (review finding 7).
-        if (!AI_VALUE2(bool, "has strategy", "free"))
-            break;
-        if (!ai::BuyerTripPhaseOpen(ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, ai::kBuyerTripPhaseMax, 1)))
-            break;
+        // runs in the open slice (review finding 7). No "free" strategy gate
+        // (issue #779): pool bots wander, so it shut every one of them out.
+        // This value is also the stored condition of a trip already walking
+        // to the AH, so the 3-minute slice only gates new picks - a walk
+        // longer than the slice is not dropped when it closes.
+        {
+            TravelTarget* target = AI_VALUE(TravelTarget*, "travel target");
+            TravelDestination* dest = target ? target->GetDestination() : nullptr;
+            bool const walkingToAh = dest && dest->GetPurpose() == TravelDestinationPurpose::AH;
+            if (!walkingToAh && !ai::BuyerTripPhaseOpen(ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, ai::kBuyerTripPhaseMax, 1)))
+                break;
+        }
         if (ai::AhBuyerTripNeeded(ai))
             return true;
         break;
