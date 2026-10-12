@@ -4585,6 +4585,7 @@ Local validation: `bash tools/verify_all.sh` (run before commit); `git diff
 --check`. No build (per task constraints); live in-game check pending.
 | Gluth fight (Naxx): wound taunt-swap, chow execute triage | `mod-playerbots` | `79bd4281` | `src/Ai/Raid/Naxx/Action/NaxxActions_Gluth.cpp`, `src/Ai/Raid/Naxx/NaxxStrategy.cpp` (Gluth rows), `src/Ai/Raid/Naxx/NaxxTriggers.h` (GluthMainTankMortalWoundTrigger) | Reimplemented trigger-driven; kite ring / pre-decimate spots / hunter slowdown omitted (need live coords) | Kit verified in tw_world + core boss_gluth.cpp (15932, 16360, 25646, 28374/75, 28371) | `bash tools/verify_all.sh` + `tools/test_gluth_kite_policy.cpp`; build-commit + no live test |
 | Autonomous bot-only WSG seeding (default on) | `mod-playerbots` @ 79bd4281 `src/Bot/RandomPlayerbotMgr.cpp:1162-1217` (updateBGInstanceCount seeder) + `conf/playerbots.conf.dist:1631-1682` (RandomBotAutoJoinBG/brackets/counts) | `runtime/AutonomousBgPolicy.h` (ShouldSeedAutonomousBg/TeamNeedsSeedBots gates, 1×10v10 cap) + `runtime/BattlegroundQueueService.cpp` (UpdateAutonomousSeeding/CountRunningBotOnlyWsg/CountOwnedQueuedFor/CountSeededForTeam) + `PlayerbotAIConfig.*` (`RandomBotBgAutonomous=1`, `RandomBotBgAutonomousMaxInstances=1`) + `aiplayerbot.conf.dist.in` template | Reimplemented: donor fakes activeBgQueue per (queue,bracket); here the service owns its entries so the gate is direct (no human demand, <cap running, zero queued seeds). WSG-only/solo-only/most-populated-bracket; donor over-queue bug fixed by the queued-seed block | `tools/test_autonomous_bg_policy.cpp` (7 checks); `bash tools/verify_all.sh`; build via build-commit.sh; no live test (needs queued humans absent + restart) |
+| Human-demand BG backfill fills both sides | `mod-playerbots` @ 79bd428 `src/Ai/Base/Actions/BattleGroundJoinAction.cpp:290-305` (`BGJoinAction::shouldJoinBg`: per team, join while bots + players < TeamSize) | `runtime/HumanBgDemandPolicy.h` (side target = core match minimum + 1, clamped below the minimum; need counts group size; 5 s check, 10 per check, 5 per side) + `runtime/BattlegroundQueueService.{h,cpp}` (`GetHumanBgDemands` counts everyone waiting per side; `Update` second cadence for human demand) | Ported (behaviour, not code): the old backfill queued only the faction with fewer waiting humans, so a solo human's side never reached the core minimum (WSG 4, AB 5, AV 15). Now both sides fill counting humans and bots already waiting. Deviates from the donor target (TeamSize): the core starts a match at the minimum, so filling to TeamSize left up to 25 AV bots a side queued that could form a second, bot-only match; the target is the minimum + 1 instead (cold review batch 7); the autonomous seeder and its configured cadence are unchanged when no human waits | `tools/test_human_bg_demand_policy.cpp`; `bash tools/verify_all.sh`; `git diff --check`. Code review + build pending; in-game pending |
 | Voidwalker Suffering AoE taunt + Consume Shadows self-heal (PET-8a/8c) | New behavior (neither `mod-playerbots` nor the module ordered them; rank ladders pre-existed in `runtime/PetSpellRankPolicy.h`). Suffering gated on the PET-3 taunt permission | `runtime/VoidwalkerPolicy.h` (`CanCastSuffering`: live VW + taunt allowed + 3+ attackers; `CanCastConsumeShadows`: live VW + hurt + NC + unmounted) + `tools/test_voidwalker_policy.cpp`; `ai/playerbot/strategy/warlock/WarlockTriggers.{h,cpp}`, `WarlockActions.h` (`CastSufferingAction` / `CastConsumeShadowsAction : CastPetSpellAction`, policy gates repeated for the evaluation gap), `WarlockStrategy.cpp` (PvE combat suffering node at ACTION_HIGH; shared NC consume node at ACTION_NORMAL), `WarlockAiObjectContext.cpp` (4 creators) | Reimplemented in place: Paranoia skipped as niche PvP (rank ladder suffices). Cower folded into the PET-3 PR | `bash tools/verify_all.sh`; wiring 0 live-missing; standalone `test_voidwalker_policy` (15 checks); `git diff --check`. Compile via shared builder; no live in-game test |
 
 ## WSG bodyguard + objective reset (SOC-P5/SOC-P6, 2026-10-09)
@@ -5282,6 +5283,35 @@ Reason: raid1 gap MC-AURA/BWL: aura actions existed but were manual-only
 Local validation: `bash tools/verify_all.sh` (all suites incl. the new
 policy test pass); `git diff --check`. Build via build-commit.sh pending;
 live in-game check pending.
+## Paladin resist aura: election, Onyxia/BWL bosses, fight-end restore — 2026-10-12
+
+Follow-up to the auto-swap above (audit batch7-raids finding 9).
+Reimplemented, not ported: the donor (mod-playerbots @ `79bd4281`,
+`src/Ai/Base/Trigger/BossAuraTriggers.cpp:46-60`) elects the first alive
+paladin in the group and never switches back; both are deviations here.
+
+- Election (`ResistAuraPolicy.h` `IsElectedResistAuraPaladin`, called
+  from `DungeonTriggers.cpp`): first paladin **bot** in group order that
+  is alive, on the bot's map, in combat, knows the aura and has no manual
+  aura order. Humans and other-map paladins no longer block every bot.
+- Bosses (entries from `tw_world_creature_template`, schools from
+  `tw_world_spell_template` column `school`): Onyxia 10184 fire (Flame
+  Breath 18435, Deep Breath 23461, Fireball 18392 = school 2);
+  Chromaggus 14020 fire (breaths `boss_chromaggus.cpp:43-47`: Incinerate
+  23308 and Ignite Flesh 23315 are fire, 7 of 10 breath pairs include
+  one, none is shadow); Ebonroc 14601 and Nefarian 11583 shadow (Shadow
+  Flame 22539 and Veil of Shadow 22687 = school 5). Onyxia's dungeon
+  strategy now carries `boss wants fire aura`.
+- Restore: the swap sets `manual bool` "resist aura swapped"; the new
+  `resist aura swap over` trigger (paladin aura strategy, non-combat)
+  queues `restore spec aura`, which re-adds the `aura` placeholder in the
+  combat engine (dropping `rfire`/`rshadow`) and removes the resist aura,
+  so the spec aura returns through the existing `no paladin aura` path.
+  A manual aura order is left alone.
+
+Validation: `bash tools/verify_all.sh` (resist-aura policy test extended:
+election, new entries, restore); `git diff --check`. Not compiled here;
+build and in-game check pending.
 ## Warrior WAR-8: tank Intervene on focused party member (2026-10-09)
 
 Feature: `ProtectionWarriorStrategy` gains `protect party member` →
@@ -7553,6 +7583,7 @@ Local validation: `bash tools/verify_all.sh`; `git diff --check`.
 Build via build-commit.sh. No live test.
 | Ossirian crystal tactic (AQ20): crystal-run timing by buff/debuff-vs-travel-time, wait-in-range + 25yd use guards, single CMSG_GAMEOBJ_USE | `mod-playerbots` | `79bd4281` | `src/Ai/Raid/Aq20/Aq20Triggers.cpp` (Aq20MoveToCrystalTrigger), `src/Ai/Raid/Aq20/Aq20Actions.cpp` (Aq20UseCrystalAction), `src/Ai/Raid/Aq20/Aq20Utils.cpp` (buff/debuff/crystal helpers) | Reimplemented: trigger-driven `ossirian crystal run` + `use ossirian crystal` on the new `ruins of ahn'qiraj`/`ossirian` strategies; 1.12 single queued use-packet (no report-use opcode; cf. suppression-device precedent) | Donor's entire AQ20 module, all IDs verified in tw_world | `bash tools/verify_all.sh` + `tools/test_ossirian_crystal_policy.cpp`; build-commit + no live test |
 | Rogue Expose Armor skipped when Sunder Armor is on the target | `mod-playerbots` | `79bd4281` | `src/Ai/Class/Rogue/RogueTriggers.cpp` (`ExposeArmorTrigger::IsActive`) | Reimplemented | Expose and Sunder share spell group 1064 (powerful chain, no stacking), so combo points spent on Expose behind a warrior tank are wasted | code review + build pending; in-game pending |
+| BG mount check no longer outranks the objective move | `mod-playerbots` | `79bd4281` | `src/Ai/Base/Strategy/BattlegroundStrategy.cpp`, `src/Ai/Base/Strategy/NonCombatStrategy.cpp` (`timer` → `check mount state`), `src/Ai/Base/Trigger/GenericTriggers.cpp` (`TimerTrigger`) | Reimplemented: dropped the every-tick relevance-2.0 `check mount state` node under `bg active`; a new `bg objective far` trigger (BG in progress, on foot, out of combat, no flag, objective > 40 yd; checked every 5 s like the donor's timer) queues `check mount state` at 1.5, just above `bg move to objective` (1.0). Cold review batch 7: without it the mount check only tied the move at 1.0 and the tie goes to whichever basket is queued first | Bots stood still retrying a mount at gate-open (finding 8) | Code review + build pending; in-game pending |
 
 ## Priest parity healing ladder: PRI-11 holy greater/flash + PRI-5 disc shield + PRI-7 inner focus + PRI-12 disc non-combat — 2026-10-09
 Feature: (1) Holy combat ladder: medium tier tries `greater heal on party`
@@ -8136,6 +8167,26 @@ failure every tick (live 2026-10-12: 58 `check mount state` ACTION_LOOP
 anomalies from 47 pool bots in 50 min; the sampled ones were riding at
 ~11-13 y/s on `travel target traveling`). `Mount()` now checks location,
 item and spell before it cancels a form or stops the bot.
+## Battleground enemy-player pick and order (attack enemy player stall) — 2026-10-12
+
+Feature: "attack enemy player" drops from `ACTION_EMERGENCY` (90) to 55 in
+both engines; the battleground proximity fallback in `EnemyPlayersValue`
+only takes a player in line of sight, less than 30 yd above or below and
+within 40 yd (20 yd when the enemy has more health than the bot); a flag
+carrier does not take the order. TortoiseBots-side: the order (and "attack
+enemy flag carrier") arms `attack target` and runs the reach action, and
+`EnemyPlayersValue` honours the reach give-up list ("unreachable targets"),
+so an enemy player the bot cannot reach is dropped after 15 s instead of
+holding the bot in mid-field. The stealth whitelists let a stealthed rogue
+or prowling druid take the order (and the druid the BG objective actions,
+as the rogue list already did).
+## Rogue Sap before the pull on the assigned CC mark — 2026-10-12
+
+Feature: rogue bots Sap their assigned CC mark (`rti cc target`) before the
+pull. New non-combat trigger `sap cc mark` in `RogueStrategy` (stealth, then
+`sap`); `CastSapAction` targets the CC mark out of combat (its combat target,
+`cc target`, only holds mobs already fighting the group) and names the same
+target for its `reach melee` prerequisite.
 
 Source repository: `mod-playerbots/mod-playerbots`
 
@@ -8410,3 +8461,258 @@ sight.
 
 Local validation: code review + build pending; in-game pending.
 `bash tools/verify_all.sh` (incl. new policy test); `git diff --check`.
+## Protection warrior stays in Defensive Stance: no Pummel / Intercept stance dance (fix 93) — 2026-10-12
+
+Feature: the Protection tank no longer inherits the base warrior Pummel rows
+(Pummel's node has a Berserker Stance prerequisite) and no longer has the
+`intercept and rage` -> `berserker stance` / `intercept` rows. Observed live
+(build 8, Tanaris, 2026-10-12 09:57): the tank swapped Defensive <-> Berserker
+Stance 13 times in 45 s on trigger `pummel` without one Pummel cast (0 rage
+after each swap), while a party member died.
+
+Donor: `mod-playerbots` @ 79bd428
+`src/Ai/Class/Warrior/Strategy/TankWarriorStrategy.cpp` (interrupts are only
+`shield bash` / `shield bash on enemy healer` at ACTION_INTERRUPT; no Pummel,
+no Intercept; `defensive stance` kept at HIGH+9).
+
+Module file: `ai/playerbot/strategy/warrior/ProtectionWarriorStrategy.cpp`
+(`InitCombatTriggers` calls `ClassStrategy::InitCombatTriggers` and adds the
+two Shield Bash rows itself; intercept rows removed). Arms/Fury keep the
+base Pummel-first rows. Berserker Rage against fear (donor keeps it too) and
+the Overpower dance (swaps straight back) are unchanged.
+
+Ported behaviour (row set), reimplemented in the module's strategy layout.
+Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
+## Mounted follow spacing (2026-10-12)
+
+| Feature | Donor | Module files | Copied / ported / reimplemented | Reason | Validation |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Mounted companions follow further out | `mod-playerbots` @ 79bd428 `src/Ai/Base/Actions/MovementActions.cpp:1224-1225` (`MovementAction::Follow`: friendly target + bot mounted + no hostiles -> `distance += angle`) | `ai/playerbot/strategy/actions/MovementActions.cpp` (`kMountedFollowSpacing`, widen in `MovementAction::Follow`), `ai/playerbot/strategy/actions/CheckMountStateAction.cpp` (drop a standing follow generator on mount/unmount so the follow is re-issued with the new offset) | Reimplemented: fixed 3 yd instead of the donor's slot-angle-in-yards (0-6.3 yd); "no hostiles" mapped to out of combat and not in a dungeon/raid map. The re-issue is local: the core follow generator keeps its offset private and the module never replaces a running follow on the same target | In game (build 8) four hired companions on mechanical strider / winged mounts parked 2-4 yd from the master after every ride and covered the camera | code review + build pending; in-game pending |
+## Targetless pool bots fall back to a level-fitting grind (2026-10-12)
+
+Donor: mod-playerbots `79bd428`,
+`src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:163-175`
+(`getNewTarget`: when nothing else was found it calls `SetGrindTarget`,
+and only then `SetNullTarget`, "idle a bit").
+
+Source files (module, modified): `ai/playerbot/ZoneMigratePolicy.h`
+(`TargetlessSinceAfterReset`, `TargetlessLeaveDue`,
+`TargetlessLeaveTripStarts`, constants),
+`ai/playerbot/strategy/actions/ChooseTravelTargetAction.cpp`
+(`ResetTargetAction::Execute` counts the stretch, `setNewTarget` ends it
+and marks the leave trip),
+`ai/playerbot/strategy/values/TravelValues.cpp`
+(`ShouldLeaveOutgrownZoneValue` fires and holds for the trip), test in
+`tools/test_zone_migrate_policy.cpp`, docs in
+`docs/concepts/bot-mechanics-and-quirks.md` and
+`docs/guides/configuration-tuning.md`.
+
+Copied / ported / reimplemented: reimplemented. The donor tries grind on
+every pick. Here the existing leave-outgrown-zone Grind request (6.96) is
+the fallback. It fires after two minutes of back-to-back resets and stays
+on until the next real pick (at most 10 min), then for exactly the Grind
+trip that pick starts, so that trip keeps its stored condition however long
+it is, and a bot that finished it in a fitting zone is not sent on again.
+
+Reason: live m910q 2026-10-12, 500 pool bots, 28 min of dashboard
+samples: 72 runs of 3+ min on land with no travel target, 70 of them
+dominated by `reset travel target`, 353 bot-minutes, 33 in capitals. One
+live snapshot later the same day: 27 of 504 bots in the loop, all level 13+.
+
+Validation: code review + build pending; in-game pending.
+## Healer heal-target pick by health percent + no step-out while a member is low (fix 92) — 2026-10-12
+
+Feature: (1) `PartyMemberToHeal` ranks candidates by effective health
+percent (incoming melee damage taken off first under `preheal`) instead of
+missing hit points; the LOS tie-break window becomes 30 health-percent
+points (100 - mediumHealth) above the top pick. (2) The party keep-away case
+of `enemy too close for spell` (a mob in melee reach that is not attacking
+this bot, a live tank in the group) does not fire for a healer outside raids
+while `party member to heal` is below mediumHealth, unless the healer's own
+health is below lowHealth. The healer-is-victim cases and raids are unchanged.
+Observed live (build 8, Tanaris, 2026-10-12 09:57): the frost mage fell from
+81% to 31% and died (09:57:14-09:57:21) while the holy priest cast nothing on
+him after one Dispel; the tank (76-80%, 3444 max HP, Renew already up) was
+missing more hit points and stayed the heal target; at 09:57:20 the priest
+took `flee` / `enemy too close for spell` 13 yd away and was out of range
+when the mage died.
+
+Donor: `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/PartyMemberToHeal.cpp`
+(`Calculate`: minimum of health percent + distance/10; no missing-HP sort).
+The healer hold in the flee trigger is module behaviour (donor
+`src/Ai/Base/Trigger/RangeTriggers.cpp` `EnemyTooCloseForSpellTrigger` has no
+healer case; its flee is a 5 yd `MoveAway`, ours runs up to 2x flee range).
+
+Module files: `ai/playerbot/strategy/values/PartyMemberToHeal.cpp`,
+`ai/playerbot/strategy/triggers/RangeTriggers.h`, `docs/classes/priest.md`.
+Ported (ranking) / reimplemented (healer hold). Distance term of the donor
+probe not ported (the module keeps its 2x heal-range candidate filter and LOS
+tie-break).
+Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
+Source files:
+- `src/Ai/Base/Strategy/AttackEnemyPlayersStrategy.cpp` (relevance 55)
+- `src/Ai/Base/Value/EnemyPlayerValue.cpp` (`EnemyPlayerValue::Calculate`: LoS, |dz| < 30, 40/20 yd by relative health)
+- `src/Ai/Base/Actions/ChooseTargetActions.cpp` (`AttackEnemyPlayerAction::isUseful`: refused to a flag carrier)
+
+Source files (module, modified): `ai/playerbot/strategy/generic/AttackEnemyPlayersStrategy.cpp`,
+`ai/playerbot/strategy/values/EnemyPlayerValue.{h,cpp}`,
+`ai/playerbot/strategy/actions/ChooseTargetActions.{h,cpp}`,
+`ai/playerbot/strategy/druid/DpsFeralDruidStrategy.cpp` and
+`ai/playerbot/strategy/rogue/RogueStrategy.cpp` (stealth whitelists),
+`docs/concepts/bot-mechanics-and-quirks.md`, `docs/classes/{rogue,druid}.md`.
+
+Copied / ported / reimplemented: reimplemented in TortoiseBots' value and
+action shapes. Not taken from the donor: its PvP combat-reference first
+pass (this core's equivalent is the existing attacker list), vehicle
+ranges, and its "attack the enemy carrier only while carrying a flag" rule.
+The `attack target` arming and the give-up honour have no donor counterpart:
+they fix a TortoiseBots-only interaction (a player not yet fighting the bot
+failed `AttackersValue::InCombat`, so "invalid target" dropped the order on
+the next tick).
+
+Reason: battleground sampling on 2026-10-12 (batch 6, finding 1) showed
+rogues and a stealthed feral druid standing still at full health for 5-7
+minutes in Warsong Gulch on "attack enemy player" / "attack enemy flag
+carrier" (about 11 % of in-match bot samples).
+
+Validation: code review + build pending; in-game pending.
+`bash tools/verify_all.sh` and `git diff --check`.
+## Shared raid tank roles: Main Tank flag, assistants, slot order — 2026-10-12
+
+Feature: one tank-job order (`GetRaidTankRoles` in
+`ai/playerbot/strategy/values/PartyMemberToHeal.{h,cpp}`, pure rules in
+`ai/playerbot/RaidTankRolePolicy.h`) replaces four separate "first live
+tank by slot" loops: `GolemaggTankHoldAction`
+(`strategy/actions/MoltenCoreDungeonActions.cpp`), `GolemaggFightMultiplier`
+and `RazorgoreOffTankMultiplier` (`strategy/generic/DungeonMultipliers.cpp`),
+`RazorgoreEngageTrigger` (`strategy/triggers/BlackwingLairDungeonTriggers.h`),
+and backs the `main tank` value. Main tank = group Main Tank flag, else a
+tank Main Assist, else the first live same-map tank by slot; assist tanks =
+Main Assist tank, then promoted raid assistants, then the rest by slot.
+Razorgore's boss holder becomes the first assist tank (the lone tank when
+only one is alive; `RazorgoreHolderTankIndex` in `RazorgorePolicy.h`).
+Golemagg's tank count now has the same-map filter Razorgore had.
+
+Copied / ported / reimplemented: reimplemented from donor behaviour,
+`mod-playerbots` @ 79bd428 `src/Bot/PlayerbotAI.cpp:2497-2516`
+(`GetMainTankGuid`), `:2607-2672` (`IsAssistTank`, `IsAssistTankOfIndex`:
+assistants first), `src/Ai/Raid/BWL/BWLHelpers.cpp:34-37`
+(`IsRazorgoreOffTank` = living assist tank 0), `src/Ai/Raid/MC/MCTriggers.cpp:75-83`
+(Golemagg main/assist triggers). Divergences: the Main Assist flag (vanilla
+group field, no donor use) is honoured when that member is a tank; a lone
+tank still holds Razorgore (the donor leaves him loose); the core sets the
+Main Tank / Main Assist fields from no 1.12 packet, so in game they come only
+from the `groups` table — promoted assistants are the live lever.
+
+Reason: batch-7 raid audit finding 4 — the boss scripts ignored the raid
+Main Tank flag the `main tank` value reads, and could hand the Golemagg boss
+camp or the Razorgore hold to a human tank who happened to sit in slot 1.
+
+Validation: `tools/test_raid_tank_role_policy.cpp` + the extended
+`tools/test_razorgore_policy.cpp` (both in `tools/verify_all.sh`); `bash
+tools/verify_all.sh`; `git diff --check`. Code review + build pending;
+in-game pending.
+## Battleground healers keep their heal spec (2026-10-12)
+
+Feature: the battleground switch in `AiFactory::AddDefaultCombatStrategies`
+no longer moves Restoration shamans to `elemental` or Restoration druids to
+`balance`; it re-adds the healing spec strategy (priest `discipline`/`holy`,
+shaman/druid `restoration` + `ranged`, paladin `holy` + `ranged`) after the
+combat strategy list, so a `+dps` (the priest Shadow placeholder) or the
+ungrouped pool kit cannot leave a healer on a damage spec in a battleground.
+
+Source: `mod-playerbots` @ `79bd428`, `src/Bot/Factory/AiFactory.cpp:459-497`
+(BG switch adds `warsong`/`arathi`/`alterac`, `boost`, `potions`,
+`dps assist` etc. but keeps the talent spec). Behaviour reimplemented in the
+module's own factory, no code copied.
+
+Reason: live m910q Warsong sample (batch 6 audit, finding 4): all 20 bots
+reported role `dps`; priests ran `shadow` and a Restoration shaman ran
+`elemental` in combat while carrying `holy`/`restoration` out of combat.
+Heal-type actions were 3.5-6 % of samples against `attack enemy player`.
+
+Validation: code review + build pending; in-game pending.
+Source files:
+- `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp` (`RogueCcStrategy::InitTriggers`: `sap` trigger -> `stealth`, `sap`)
+- `src/Ai/Class/Rogue/RogueTriggers.cpp` (`SapTrigger::IsPossible`: rogue out of combat)
+- `src/Ai/Class/Rogue/Action/RogueOpeningActions.cpp` (`CastSapAction` on `cc target`)
+- `src/Ai/Base/Value/CcTargetValue.cpp` (assigned `rti cc target` wins)
+
+Source files (module, modified): `ai/playerbot/strategy/rogue/RogueTriggers.{h,cpp}`,
+`ai/playerbot/strategy/rogue/RogueActions.h`, `ai/playerbot/strategy/rogue/RogueStrategy.cpp`,
+`ai/playerbot/strategy/rogue/RogueAiObjectContext.cpp`; docs `classes/rogue.md`,
+`guides/dungeon-tactics.md`, `guides/player-controls.md`.
+
+Copied / ported / reimplemented: reimplemented (behaviour only). Deviations
+from the donor, all deliberate: (a) the trigger runs in the non-combat engine
+(the donor's sits in a combat strategy that rogues do not get by default, with
+a "rogue out of combat" condition, so it cannot fire before a pull there either);
+(b) it reads the assigned mark directly instead of `cc target`, whose candidates
+are the group's attackers; (c) humanoid-only and "mob not in combat" are checked
+up front (vanilla Sap rules); (d) only for a bot whose master is a real player
+(player control: pool bots never Sap on their own). No pull hold: the player
+waits for the Sap before pulling.
+
+Reason: `docs/guides/dungeon-tactics.md` and `.bot action cc` promised Sap
+before the pull; in game (2026-10-12, yulon-ubuntu) a rogue with
+`.bot action cc moon <Name>` waited ~4.5 min out of combat next to the
+Moon-marked Defias and never Sapped.
+
+Local validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
+
+Fix round 2 (in-game retest, build 8, 2026-10-12): the stealthed rogue reached
+the Moon mob and opened with a white swing instead of Sap. Cause: the Sap
+prerequisite `reach melee` used the core chase, whose arrival starts melee
+auto-attack (core `ChaseMovementGenerator<Player>::_reachTarget`), and it chased
+to 0.6 yd, inside the 1.5 yd collision detection of `Unit::CanDetectStealthOf`.
+Out of combat `CastSapAction` now uses `reach sap` (`ReachSapAction`,
+`RogueActions.h`): a point move to 2.5 yd from the mob's edge (capped inside
+melee reach), done once Sap reaches; allowed while stealthed. In combat Sap
+keeps `reach melee`. Module-only reimplementation, no donor code.
+
+Fix round 3 (owner decision, 2026-10-12): an on/off switch, default ON.
+Opt-out non-combat strategy `no sap` (`RogueNoSapStrategy`, `RogueStrategy.h`,
+no triggers of its own); `SapCcMarkTrigger` stays quiet while it is present.
+`.bot action sap [on|off] [bot]` (`commands/BotCommands.cpp`) adds it on `off`,
+removes it on `on`, and saves the bot like the loot / auto cc toggles. Absent
+means on, so rogues saved before the switch need no data change. Module-only,
+no donor code.
+## Errand death park: give up a destination after two deaths on the way (2026-10-12)
+
+| Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
+| --- | --- | --- | --- | --- | ---: | --- |
+| A pool bot that dies twice within 15 min while pursuing the same non-grind travel destination (purpose + entry) drops the target and parks that destination for 30 min at pick and re-point time | `mod-playerbots` | `79bd428` | `src/Mgr/Travel/TravelMgr.h` (`TravelTarget::incRetry`/`isMaxRetry`), `src/Ai/Base/Actions/MoveToTravelTargetAction.cpp:115-118` (max move retries -> `TRAVEL_STATUS_COOLDOWN`), `src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:451` (`SetCurrentTarget` refuses a max-retry destination) | Reimplemented: the donor's "give the target up after N failed attempts" with a death on the way counted as the failed attempt; the donor has no per-destination death memory of its own. Kept as plain per-bot data (`ai/playerbot/DeathClusterPolicy.h` `ErrandPark`, four slots) beside the #398 death-spot list; module files `PlayerbotAI.{h,cpp}` (`OnDeath`), `strategy/actions/ChooseTravelTargetAction.cpp` (`SetBestTargetSliced`, `RefreshTravelTargetAction`), test `tools/test_death_cluster_policy.cpp` | Batch 5 live audit (500 pool bots, 27.8 min): 80% of deaths were repeat deaths on one errand at the same spot (hand-in, gather, trainer), up to 19 per bot; the death-spot rules only look at the destination point, never the route | Code review + build pending; in-game pending. `bash tools/verify_all.sh` (incl. the extended death-cluster policy test) and `git diff --check` clean |
+## Bomb runout from the raid's centre (2026-10-12)
+
+Donor: mod-playerbots (`79bd4281`):
+`src/Ai/Base/Actions/MovementActions.cpp` (`MovementAction::MoveFromGroup`:
+flee the centroid of living same-map members by `distance - closestDist`,
+only while the closest member is inside `distance`), used by
+`src/Ai/Raid/MC/MCActions.cpp` (`McMoveFromGroupAction`, Living Bomb).
+
+Source files (module): `ai/playerbot/BombRunoutPolicy.h` (new pure rules,
+reusing `DebuffSpreadPolicy.h` clearance), `ai/playerbot/strategy/actions/
+DungeonActions.{h,cpp}` (`RaidBombRunoutAction` rewritten),
+`ai/playerbot/aiplayerbot.conf.dist.in` (comment only),
+`tools/test_bomb_runout_policy.cpp`.
+
+Copied / ported / reimplemented: ported behaviour. Deviations, deliberate:
+the step starts at the donor's `radius - nearest` but grows 2yd at a time
+until the end point clears every member by radius + 2yd, so one move gets
+the carrier clear (the donor re-steps each tick); five headings around
+"away" are tried through the existing LoS / path / unpulled-hostile check;
+the reaction holds until arrival (`WaitForReach`). Radius stays the
+existing `AiPlayerbot.BombRunoutDistance` (30yd; the donor uses 20yd for
+Living Bomb). A carrier with no living same-map group member no longer
+runs (nobody to protect). The Vael flee still outranks this action.
+
+Reason: batch-7 raid audit finding 7 — the runout anchored on the master
+or the nearest member and re-targeted 30-40yd past the bot every tick for
+the whole debuff, which could run a carrier through the other side of the
+raid or into unpulled trash.
+
+Validation: `tools/test_bomb_runout_policy.cpp` + code review; build
+pending; in-game pending.

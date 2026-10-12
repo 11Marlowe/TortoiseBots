@@ -675,6 +675,21 @@ void ChooseTravelTargetAction::setNewTarget(Player* requester, TravelTarget* new
     TravelDestination* newPickDest = newTarget ? newTarget->GetDestination() : nullptr;
     bool const newPickIsNull = TravelTargetIsNull(newPickDest != nullptr,
         newPickDest != nullptr && typeid(*newPickDest) == typeid(NullTravelDestination));
+    // A real pick ends the targetless stretch that ResetTargetAction counts
+    // and the pending targetless leave (ZoneMigratePolicy.h). The leave
+    // rule's own Grind pick starts the one trip that keeps the rule on; any
+    // other pick, or a reset to null, ends that trip.
+    if (!newPickIsNull)
+    {
+        SET_AI_VALUE2(time_t, "manual time", "targetless since", time_t(0));
+        bool const leavePending = AI_VALUE2(time_t, "manual time", "targetless leave until") > time(0);
+        bool const leaveCondition = AI_VALUE2(std::string, "manual string", "future travel condition") == "should leave outgrown zone";
+        SET_AI_VALUE2(bool, "manual bool", "targetless leave trip", ai::TargetlessLeaveTripStarts(false,
+            newPickDest->GetPurpose() == TravelDestinationPurpose::Grind, leaveCondition, leavePending));
+        SET_AI_VALUE2(time_t, "manual time", "targetless leave until", time_t(0));
+    }
+    else
+        SET_AI_VALUE2(bool, "manual bool", "targetless leave trip", false);
     std::string const travelPurposeName = GetTravelPurposeName(AI_VALUE2(std::string, "manual string", "future travel purpose"));
     bool const isResetToNull = TravelIsResetToNull(pickedFromNull, newPickIsNull, travelPurposeName);
     if (!isResetToNull)
@@ -1140,6 +1155,20 @@ ai::TravelPickOutcome ChooseTravelTargetAction::SetBestTargetSliced(Player* requ
                         continue;
                     }
 
+                    // Errand death park (PlayerbotAI::OnDeath): a destination
+                    // the bot died pursuing twice in a row is off for half an
+                    // hour, so the pick lands on another one instead of the
+                    // same nearest errand along the same deadly route. Plain
+                    // per-bot data, four slots; only pool bots ever fill it.
+                    if (!ai->HasRealPlayerMaster() && ai->IsErrandParked((uint32)destination->GetPurpose(),
+                        destination->GetEntry(), WorldTimer::getMSTime()))
+                    {
+                        ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - died on the way there", "debug travel");
+                        ++rejects["errandpark"];
+                        if (slicing) scan.verdicts[{ destination, position }] = PICK_VERDICT_REJECT;
+                        continue;
+                    }
+
                     if (position->IsEnemyHomeZoneFor(bot->GetTeam()))
                     {
                         ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - enemy home zone", "debug travel");
@@ -1593,6 +1622,15 @@ bool RefreshTravelTargetAction::Execute(Event& event)
             ai->TellDebug(requester, "Old destination is death-spot avoided.", "debug travel");
             return false;
         }
+
+        // Errand death park: never re-point a destination parked after two
+        // deaths on the way to it (see SetBestTargetSliced).
+        if (!target->IsForced() && !ai->HasRealPlayerMaster() &&
+            ai->IsErrandParked(refreshPurposeId, oldDestination->GetEntry(), WorldTimer::getMSTime()))
+        {
+            ai->TellDebug(requester, "Old destination is parked after deaths on the way.", "debug travel");
+            return false;
+        }
     }
 
     PlayerTravelInfo info(bot);
@@ -1686,6 +1724,19 @@ bool ResetTargetAction::Execute(Event& event)
     oldTarget->SetExpireIn(poolBot ? 5000 : 60000);
     if (poolBot && !AI_VALUE(bool, "has nearby quest taker"))
         WanderOnEmptyPick(ai, bot);
+
+    // Count the targetless stretch: resets less than a minute apart extend
+    // it. Two minutes of it turn on the leave rule ("should leave outgrown
+    // zone"), which sends the bot to grind in a zone that fits its level
+    // instead of resetting here for minutes (ZoneMigratePolicy.h).
+    if (poolBot)
+    {
+        time_t const now = time(0);
+        SET_AI_VALUE2(time_t, "manual time", "targetless since",
+            ai::TargetlessSinceAfterReset(AI_VALUE2(time_t, "manual time", "targetless since"),
+                AI_VALUE2(time_t, "manual time", "targetless reset at"), now));
+        SET_AI_VALUE2(time_t, "manual time", "targetless reset at", now);
+    }
 
     ai->TellDebug(requester, "Cleared travel target fetches", "debug travel");
 

@@ -4,6 +4,18 @@
 
 using namespace ai;
 
+// Leave as soon as the match is over. Above "attack enemy player" and "invalid
+// target" (ACTION_EMERGENCY): once the result is in, nothing is worth staying for,
+// and the core accepts a leave in combat at that point (STATUS_WAIT_LEAVE). The
+// combat engine needs the node as well, or a bot still fighting at the end stayed
+// until the core's own end timer ported it out, about two minutes later.
+static void AddBgLeaveTrigger(std::list<TriggerNode*>& triggers)
+{
+    triggers.push_back(new TriggerNode(
+        "bg ended",
+        NextAction::array(0, new NextAction("bg leave", ACTION_EMERGENCY + 5), NULL)));
+}
+
 void BattlegroundStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 {
     triggers.push_back(new TriggerNode(
@@ -16,7 +28,16 @@ void BattlegroundStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &trigge
 
     triggers.push_back(new TriggerNode(
         "bg active",
-        NextAction::array(0, new NextAction("check mount state", 2.0f), new NextAction("bg move to objective", 1.0f), NULL)));
+        NextAction::array(0, new NextAction("bg move to objective", 1.0f), NULL)));
+
+    // Mount slot: just above the objective move, only while the objective is
+    // over 40 yd away and the bot is on foot, and at most once per 5 s. The
+    // old "bg active" node at 2.0 fired every tick and held a bot still while
+    // its mount cast kept failing; the generic "very often" node at 1.0 ties
+    // the move, and a tie goes to whichever basket is queued first.
+    triggers.push_back(new TriggerNode(
+        "bg objective far",
+        NextAction::array(0, new NextAction("check mount state", 1.5f), NULL)));
 
     // Random "often" like mod-playerbots: on "very often" the re-pick won
     // nearly every visit and "bg move to objective" never got a turn.
@@ -28,9 +49,7 @@ void BattlegroundStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &trigge
         "bg active",
         NextAction::array(0, new NextAction("bg check flag", ACTION_HIGH), NULL)));
 
-    triggers.push_back(new TriggerNode(
-        "bg ended",
-        NextAction::array(0, new NextAction("bg leave", ACTION_HIGH), NULL)));
+    AddBgLeaveTrigger(triggers);
 
     /*triggers.push_back(new TriggerNode(
         "enemy flagcarrier near",
@@ -102,6 +121,7 @@ void WarsongStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 void WarsongStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     InitNonCombatTriggers(triggers);
+    AddBgLeaveTrigger(triggers);
 }
 
 void AlteracStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
@@ -119,6 +139,8 @@ void AlteracStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "very often",
         NextAction::array(0, new NextAction("bg banner", ACTION_NORMAL), NULL)));
+
+    AddBgLeaveTrigger(triggers);
 }
 
 void ArathiStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
@@ -147,4 +169,5 @@ void ArathiStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &triggers)
 void ArathiStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     InitNonCombatTriggers(triggers);
+    AddBgLeaveTrigger(triggers);
 }
