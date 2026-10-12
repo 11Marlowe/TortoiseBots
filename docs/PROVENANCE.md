@@ -8276,3 +8276,42 @@ Reason: pool tanks picked targets like dps instead of collecting loose mobs.
 
 Local validation: code review + build pending; in-game pending.
 `bash tools/verify_all.sh`; `git diff --check`.
+## Pool-bot flee moves for real (point step instead of chase) — 2026-10-12
+
+Feature: `MovementAction::Flee` for pool bots (no real player master) was a
+`MoveChase` at flee range. The core chase generator
+(`TargetedMovementGenerator.cpp`, "prevent redundant micro-movement") keeps
+the bot where it is while a standing target is within 1.4x the offset, so
+the flee returned success every tick without moving (live: 28-57 % of
+hunter, ~32 % of mage, ~15 % of shaman combat samples were `flee`). It is
+now `FleeStepAway`: one point step of flee range straight away from the
+target, then fanned to +-22.5/45/67.5/90 degrees; each spot needs no water,
+line of sight, a navmesh path and must not move the bot deeper into the
+aggro radius (+2 yd) of an unpulled hostile creature (one cached `possible
+targets` read). No spot → `false` (the engine runs the next action) and a
+2 s search backoff. A flee toward a group member found earlier in `Flee`
+is no longer overridden by the chase. Dispatch bookkeeping (`fleeCount`,
+`lastFlee`, failed-heading observation) is shared with the destination
+flee via `NoteFleeDispatch`, so `FleeMultiplier`'s loop break now applies to
+pool casters too.
+
+Source repository: `mod-playerbots` @ `79bd4281` (local checkout
+`../playerbots-references/mod-playerbots`).
+
+Source files (donor, reference only):
+`src/Ai/Base/Actions/MovementActions.cpp` — `MovementAction::MoveAway`
+(straight away, fanned in PI/8 steps to PI/2 either side, first valid
+MoveTo wins) and `MovementAction::Flee` (point destination via
+`FleeManager`, never a chase).
+
+Mode: reimplemented (behaviour only). Rules in `ai/playerbot/PoolFleePolicy.h`.
+Difference: the donor's per-candidate `CheckCollisionAndGetValidCoords`
+is replaced by this module's LOS + `canPathTo` checks (same as the hunter
+and AoE step-outs); the unpulled-mob veto is local (donor has none here).
+
+Reason: pool bots stood still in a flee loop instead of fighting or
+moving away.
+
+Validation: `bash tools/verify_all.sh` (incl. new
+`tools/test_pool_flee_policy.cpp`), `git diff --check`. Code review + build
+pending; in-game pending.
