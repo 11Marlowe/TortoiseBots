@@ -1074,6 +1074,16 @@ bool TravelPath::UpcommingSpecialMovement(WorldPosition startPos, float maxDist,
         return true;
     }
 
+    //We are at the cast point of a hearthstone/teleport pair: keep it as the front so
+    //HandleSpecialMovement sees the landing point next. Cutting to nextP here left the
+    //landing point first and every tick declined the leg (live: mages stepping 50 yd per
+    //10 s toward the far side of an 11,000 yd teleport route).
+    if (startP->type == PathNodeType::NODE_TELEPORT && nextP->type == PathNodeType::NODE_TELEPORT && startP->entry == nextP->entry)
+    {
+        cutTo(*startP, false);
+        return true;
+    }
+
     //We are using a hearthstone
     if (nextP->type == PathNodeType::NODE_TELEPORT)
     {

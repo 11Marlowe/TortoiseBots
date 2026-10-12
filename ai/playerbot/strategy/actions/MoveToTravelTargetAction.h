@@ -16,6 +16,7 @@ namespace ai
 
         virtual bool Execute(Event& event) override;
         virtual bool isUseful() override;
+        bool TryUndercityLift(WorldPosition const& location);
 
         // Stuck-hand-in fallback, shared with the re-pick observation in
         // ChooseTravelTargetAction::setNewTarget: records one no-progress

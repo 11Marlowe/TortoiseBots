@@ -1874,9 +1874,11 @@ bool RequestTravelTargetAction::isUseful() {
     // suppresses new buyer requests for ten minutes. Request-side only, like
     // the vendor stamp above - AhBuyerTripNeeded is the trip's stored
     // condition and must stay true while the bot walks. The seller leg keeps
-    // its own need and is not held back by a buyer stamp.
+    // its own need and is not held back by a buyer stamp - the full seller
+    // condition, not "should ah sell" alone: that is true for any bot with
+    // fullish bags, and let a buyer with nothing to post re-pick every 35 s.
     if (getQualifier() == std::to_string((uint32)TravelDestinationPurpose::AH) &&
-        !AI_VALUE(bool, "should ah sell") &&
+        !AI_VALUE2(bool, "group or", "should ah sell,can ah sell,following party") &&
         AI_VALUE2(time_t, "manual time", "ah buyer trip since") + 10 * MINUTE > time(0))
         return false;
 

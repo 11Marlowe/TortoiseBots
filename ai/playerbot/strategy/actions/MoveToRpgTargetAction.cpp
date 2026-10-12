@@ -103,6 +103,24 @@ bool MoveToRpgTargetAction::Execute(Event& event)
         return false;
     }
 
+    // An npc on another floor straight above or below (Undercity under the
+    // Lordaeron throne room: auctioneers 115 yd down, 25-45 yd away on the
+    // map) reads as close, and the walk to it "succeeds" every tick without
+    // the bot moving, so the bot stood in the throne room and its travel
+    // trips timed out one after another. Drop it like the object rule above.
+    if (unit && guidP.sqDistance2d(bot) < 50.0f * 50.0f && fabs(guidP.getZ() - bot->GetPositionZ()) > 30.0f)
+    {
+        AI_VALUE(std::set<ObjectGuid>&, "ignore rpg target").insert(AI_VALUE(GuidPosition, "rpg target"));
+
+        RESET_AI_VALUE(GuidPosition, "rpg target");
+
+        if (ai->HasStrategy("debug rpg", BotState::BOT_STATE_NON_COMBAT))
+        {
+            ai->TellPlayerNoFacing(GetMaster(), "Npc on another floor, drop rpg target");
+        }
+        return false;
+    }
+
     if (!urand(0, 50))
     {
         AI_VALUE(std::set<ObjectGuid>&, "ignore rpg target").insert(AI_VALUE(GuidPosition, "rpg target"));
