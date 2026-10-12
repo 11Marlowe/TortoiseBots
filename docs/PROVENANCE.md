@@ -7643,3 +7643,32 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Targetless pool bots fall back to a level-fitting grind (2026-10-12)
+
+Donor: mod-playerbots `79bd428`,
+`src/Ai/Base/Actions/ChooseTravelTargetAction.cpp:163-175`
+(`getNewTarget`: when nothing else was found it calls `SetGrindTarget`,
+and only then `SetNullTarget`, "idle a bit").
+
+Source files (module, modified): `ai/playerbot/ZoneMigratePolicy.h`
+(`TargetlessSinceAfterReset`, `TargetlessLeaveDue`, constants),
+`ai/playerbot/strategy/actions/ChooseTravelTargetAction.cpp`
+(`ResetTargetAction::Execute` counts the stretch, `setNewTarget` ends it),
+`ai/playerbot/strategy/values/TravelValues.cpp`
+(`ShouldLeaveOutgrownZoneValue` fires and latches), test in
+`tools/test_zone_migrate_policy.cpp`, docs in
+`docs/concepts/bot-mechanics-and-quirks.md` and
+`docs/guides/configuration-tuning.md`.
+
+Copied / ported / reimplemented: reimplemented. The donor tries grind on
+every pick. Here the existing leave-outgrown-zone Grind request (6.96) is
+the fallback. It fires after two minutes of back-to-back resets and stays
+on for 10 min, so the Grind trip it starts keeps its stored condition.
+
+Reason: live m910q 2026-10-12, 500 pool bots, 28 min of dashboard
+samples: 72 runs of 3+ min on land with no travel target, 70 of them
+dominated by `reset travel target`, 353 bot-minutes, 33 in capitals. One
+live snapshot later the same day: 27 of 504 bots in the loop, all level 13+.
+
+Validation: code review + build pending; in-game pending.
