@@ -53,5 +53,10 @@ namespace ai
         bool Decide(Player* requester);
         bool DebugMount() const;
         bool planOnly = false;
+        // The "mount in a safe place" coin flip, rolled once by the plan and
+        // reused by the Execute that follows it, so the 50 % chance is not
+        // rolled twice (25 %). -1 = not rolled for this decision.
+        int safeMountRoll = -1;
+        bool SafeMountRoll();
     };
 }

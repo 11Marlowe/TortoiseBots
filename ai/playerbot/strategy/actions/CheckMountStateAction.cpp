@@ -15,7 +15,9 @@ uint64 extractGuid(WorldPacket& packet);
 bool CheckMountStateAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
-    return Decide(requester);
+    bool const acted = Decide(requester);
+    safeMountRoll = -1;
+    return acted;
 }
 
 bool CheckMountStateAction::DebugMount() const
@@ -235,7 +237,7 @@ bool CheckMountStateAction::Decide(Player* requester)
             // (pre-mounted so they can follow when the party moves). Random
             // masterless bots never coin-flip a mount here: a 3 s cast for a
             // speculative hop is pure loss.
-            if (ai->HasRealPlayerMaster() && !ai->HasStrategy("guard", ai->GetState()) && !ai->HasStrategy("stay", ai->GetState()) && !AI_VALUE(std::list<ObjectGuid>, "possible rpg targets").empty() && urand(0, 100) > 50)
+            if (ai->HasRealPlayerMaster() && !ai->HasStrategy("guard", ai->GetState()) && !ai->HasStrategy("stay", ai->GetState()) && !AI_VALUE(std::list<ObjectGuid>, "possible rpg targets").empty() && SafeMountRoll())
             {
                 if (DebugMount() && !IsMounted)
                     ai->TellPlayerNoFacing(requester, "Mount. Near rpg targets.");
@@ -344,9 +346,17 @@ bool CheckMountStateAction::isUseful()
     // 2026-10-12: 58 ACTION_LOOP anomalies from 47 pool bots in 50 min, the
     // sampled ones mounted at ~11-13 y/s on "travel target traveling").
     planOnly = true;
+    safeMountRoll = -1;
     bool const wouldAct = Decide(GetMaster());
     planOnly = false;
     return wouldAct;
+}
+
+bool CheckMountStateAction::SafeMountRoll()
+{
+    if (planOnly || safeMountRoll < 0)
+        safeMountRoll = urand(0, 100) > 50 ? 1 : 0;
+    return safeMountRoll == 1;
 }
 
 bool CheckMountStateAction::CanMountInBg() const
