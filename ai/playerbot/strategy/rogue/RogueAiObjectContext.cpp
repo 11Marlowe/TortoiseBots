@@ -25,7 +25,7 @@ namespace ai
                 creators["stealth"] = [](PlayerbotAI* ai) { return new StealthPlaceholderStrategy(ai); };
                 creators["stealthed"] = [](PlayerbotAI* ai) { return new RogueStealthedStrategy(ai); };
                 creators["cc"] = [](PlayerbotAI* ai) { return new CcPlaceholderStrategy(ai); };
-                creators["sap"] = [](PlayerbotAI* ai) { return new RogueSapStrategy(ai); };
+                creators["no sap"] = [](PlayerbotAI* ai) { return new RogueNoSapStrategy(ai); };
             }
         };
 

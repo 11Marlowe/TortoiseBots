@@ -965,9 +965,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                 nonCombatEngine->addStrategy("combat");
             }
 
-            // "sap": pre-pull Sap on the CC mark, on by default; the trigger
-            // only acts for a real player's bot (`.bot action sap on|off`).
-            nonCombatEngine->addStrategies("dps assist", "poisons", "stealth", "buff", "boost", "sap", NULL);
+            nonCombatEngine->addStrategies("dps assist", "poisons", "stealth", "buff", "boost", NULL);
             break;
         }
 

@@ -3227,17 +3227,17 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
         else if (intent == "sap")
         {
-            // Pre-pull Sap on the CC mark, ON by default for rogues
-            // (AiFactory adds the "sap" non-combat strategy). Persisted like
-            // the loot toggle. Other classes have no such strategy: skip them.
+            // Pre-pull Sap on the CC mark, ON by default: "off" adds the
+            // opt-out strategy "no sap", "on" removes it. Persisted like the
+            // loot toggle. Other classes have no such strategy: skip them.
             if (bot->GetClass() != CLASS_ROGUE)
                 continue;
             bool enable = option == "on" ||
-                (option == "toggle" && !ai->HasStrategy("sap", BotState::BOT_STATE_NON_COMBAT));
-            ai->ChangeStrategy((enable ? "+" : "-") + std::string("sap"),
+                (option == "toggle" && ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT));
+            ai->ChangeStrategy((enable ? "-" : "+") + std::string("no sap"),
                 BotState::BOT_STATE_NON_COMBAT);
             sPlayerbotDbStore.Save(ai);
-            accepted = ai->HasStrategy("sap", BotState::BOT_STATE_NON_COMBAT) == enable;
+            accepted = ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT) != enable;
         }
         else if (intent == "focus skull")
         {
@@ -3322,8 +3322,8 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             }
             if (intent == "sap")
             {
-                std::string current = ai->HasStrategy("sap", BotState::BOT_STATE_NON_COMBAT)
-                    ? "on" : "off";
+                std::string current = ai->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT)
+                    ? "off" : "on";
                 if (aoeState.empty())
                     aoeState = current;
                 else if (aoeState != current)
