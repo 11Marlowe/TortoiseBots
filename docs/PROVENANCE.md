@@ -7643,3 +7643,30 @@ victim==bot exemption is the fallback if it drags.
 
 Non-blocking "donor Geddon never used this primitive" — ACKNOWLEDGED:
 donor consumers are RS/Ulduar; the Geddon application is novel. Noted.
+
+## Reach melee is not useful inside melee reach (fix 91) — 2026-10-12
+
+Feature: `ReachMeleeAction::isUseful` returns false while the bot can reach
+its target with melee auto-attack in line of sight
+(`CanReachWithMeleeAutoAttack`), the test melee strikes (`CastMeleeSpellAction`,
+range `ATTACK_DISTANCE`) use for `isPossible` and the `enemy out of melee`
+trigger uses. Before, the qualified prerequisite `reach melee::<strike>` took
+its range from the strike's DBC range (combat range = the bot's own combat
+reach, ~1.5 yd) and compared it with the bounding-radius edge distance, so
+between ~2 yd and the end of melee reach it ran instead of the strike.
+Observed live (build 8, Tanaris, 2026-10-12 09:57:11-09:57:23): rogue
+Bretorria showed `reach melee` (triggers `enemy out of melee` and `target
+with combo points`) while its white swings landed on a Wastewander Assassin
+every 1-2 s; one Eviscerate and no Sinister Strike in ~13 s at 52-70 energy.
+
+Donor: `mod-playerbots` @ 79bd428
+`src/Ai/Base/Actions/ReachTargetActions.cpp` (`ReachTargetAction::isUseful`:
+`!bot->IsWithinCombatRange(target, distance)`, reach melee distance =
+`MeleeDistance`) + `ReachTargetActions.h` (`ReachMeleeAction`).
+
+Module file: `ai/playerbot/strategy/actions/ReachTargetActions.h`
+(`ReachMeleeAction::isUseful` override). Reach spell / pull / heal reach,
+the give-up clocks and `ChaseTo` are unchanged.
+Reimplemented (donor rule expressed with the module's melee test).
+Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
+build pending; in-game pending.
