@@ -2,6 +2,7 @@
 
 class Player;
 class Creature;
+class Quest;
 
 namespace TortoiseBots
 {
@@ -15,6 +16,9 @@ class HireRecruiterScript
 public:
     static bool OnHello(Player* player, Creature* creature);
     static bool OnSelect(Player* player, Creature* creature, uint32_t sender, uint32_t action);
+    // Issue #490 PR 2 (kills): quest-accept sync for the unlock quests.
+    // Returning false lets the core finish the accept normally.
+    static bool OnQuestAccept(Player* player, Creature* creature, Quest const* quest);
     // Writes the configured world-buff unlock fees into the quest rows at
     // startup. Core has already loaded the quests, so a change is live from
     // the next restart.

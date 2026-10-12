@@ -25,7 +25,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "WorldBuffPvpAdapter.h"
 // pi-lens-ignore: clang:pp_file_not_found
-#include "WorldBuffRaidAdapter.h"
+#include "HireUnlockKillAdapter.h"
 
 namespace TortoiseBots {
 
@@ -51,6 +51,8 @@ void RegisterScripts()
     new WorldBuffPvpAdapter();
     // Issue #492: keep-buffs restore + Upper Kara strip.
     new WorldBuffRaidAdapter();
+    // Issue #490 PR 2: hire-unlock boss kills, counters and contracts page.
+    new HireUnlockKillAdapter();
 }
 
 } // namespace TortoiseBots

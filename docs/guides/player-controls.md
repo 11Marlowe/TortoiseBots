@@ -269,6 +269,12 @@ Each of the seven buffs unlocks once per character with a quest from the same br
 
 A purchase buffs you plus grouped members standing within 40 yd of the recruiter (price = base + per-person x head count, so a solo buy costs base + one share). The aura is applied directly with its original duration and death rules; random bystanders get nothing. Sayge purchases pick one of 8 fortunes from a submenu and replace any other active fortune. The Dire Maul purchase lands all three guard buffs at once.
 
+## 7b. Mercenary Contracts at Capital Recruiters (issue #490)
+
+The same six recruiters offer a `Mercenary contracts` branch next to `Hire bots` (and `World buffs`, when enabled) for non-bot level-60 players while `AiPlayerbot.HireGearTiersEnabled = 1`. It tracks the seven hire-gear tier unlock quests (90100-90106): one line per unfinished kill counter (`<label>: x/N, missing: Boss A, Boss B, ...`), opening a sub-page per counter when the roster overflows one gossip line, then the branch's quest list and `< Back`.
+
+Each listed boss counts once per character, ever: kills add up across runs and lockouts. A kill counts when you (or anyone in your group within reward distance — the same rule as normal quest kill credit) land it while the tier's quest is incomplete in your log; bots never take credit. The Four Horsemen count as one encounter when the last of the four dies. Bosses on `AiPlayerbot.HireGearOptionalMaps` count automatically when the quest is taken. Abandoning and retaking a quest restores its counters from your recorded kills.
+
 ## 8. Addon Command Transport (`TortoiseBotsManager`)
 
 The `/tbm` UI speaks the same command grammar over a silent transport. While the
