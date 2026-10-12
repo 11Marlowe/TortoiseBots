@@ -160,6 +160,10 @@ void DeleteCharacterEverywhere(uint32 guidLow, uint32 accountId)
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_armory_stats` WHERE `guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_hire` WHERE `character_guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_claimed` WHERE `bot_guid` = '%u'", guidLow);
+    // character_transmogs is a core table (create_databases.sql) that the core's
+    // DeleteFromDB does not clear: a later character reusing the guid would
+    // inherit the collection and log duplicate-key errors on its first insert.
+    CharacterDatabase.DirectPExecute("DELETE FROM `character_transmogs` WHERE `guid` = '%u'", guidLow);
 }
 
 } // namespace TortoiseBots

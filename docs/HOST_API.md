@@ -693,7 +693,8 @@ Related-data handling keeps the core bot-agnostic and needs **no core change**:
   before the first deletion.
 - **Module rows** for each deleted character (`ai_playerbot_db_store`,
   `ai_playerbot_custom_strategy`, `tortoise_bots_owned_character`,
-  `tortoise_bots_armory_stats`, `tortoise_bots_hire`, `tortoise_bots_claimed`) are removed explicitly —
+  `tortoise_bots_armory_stats`, `tortoise_bots_hire`, `tortoise_bots_claimed`) and the core's `character_transmogs`
+  collection (which `Player::DeleteFromDB` omits) are removed explicitly —
   the shared `CharacterCleanup` helper — and re-verified; character-owned data
   (inventory, mail, pets, groups, instances, petitions, guild membership) stays
   with `Player::DeleteFromDB`.
