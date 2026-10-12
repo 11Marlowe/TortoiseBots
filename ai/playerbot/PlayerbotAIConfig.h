@@ -461,6 +461,8 @@ public:
     bool boostFollow;
     // Dungeon follow holds short of unpulled packs when the leader is far ahead (audit fix 127).
     bool dungeonFollowHoldBeforePacks;
+    // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).
+    bool allowRepairedTaxiPaths;
     bool turnInRpg;
     bool globalSoundEffects;
     bool shareTargets;
