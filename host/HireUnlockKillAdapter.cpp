@@ -149,11 +149,13 @@ void HireUnlockKillAdapter::SyncCounters(Player* player)
         uint8_t target = HireUnlockCounterTarget(counter, recorded, optionalMaps, current);
         if (target <= current)
             continue;
-        // SendQuestUpdateAddCreatureOrGo writes the slot value, updates the
-        // quest-log state word and pushes SMSG_QUESTUPDATE_ADD_KILL, so the
-        // client counter and the log agree without a relog.
-        if (Quest const* quest = sObjectMgr.GetQuestTemplate(questId))
-            player->SendQuestUpdateAddCreatureOrGo(quest, ObjectGuid(), counter.slot, target);
+        // KilledMonsterCredit adds one per call to the server-side counter
+        // (m_creatureOrGOcount, saved), updates the client and completes the
+        // quest when the last slot fills. SendQuestUpdateAddCreatureOrGo
+        // alone only updates the client view, so a retaken quest stayed at 0.
+        // Credit entries are unique per counter, so only this slot moves.
+        for (uint8_t i = current; i < target; ++i)
+            player->KilledMonsterCredit(counter.creditEntry);
     }
 }
 
