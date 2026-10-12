@@ -29,6 +29,7 @@
 #include "../../runtime/PlayerbotAIStorage.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
+#include "playerbot/InstanceGuardPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "Battlegrounds/BattleGroundMgr.h"
 
@@ -910,6 +911,20 @@ Engine* AiFactory::createCombatEngine(Player* player, PlayerbotAI* const facade,
     return engine;
 }
 
+namespace
+{
+    // Issue #218: the open-world non-combat strategies the instance guard holds
+    // back in a dungeon or raid. Bit i of PlayerbotAI::instanceGuardWithheld
+    // stands for entry i. Main's RealMasterSafeNonCombatStrategies strips the
+    // same entry set via StripOpenWorldNonCombatStrategies; keep both lists
+    // identical.
+    char const* const kInstanceGuardStrategies[] = { "grind", "travel", "tfish", "rpg", "rpg craft", "wander" };
+    uint8 const kInstanceGuardStrategyCount = sizeof(kInstanceGuardStrategies) / sizeof(kInstanceGuardStrategies[0]);
+    uint8 const kInstanceGuardWander = 5;
+
+    inline uint8 InstanceGuardBit(uint8 index) { return uint8(1u << index); }
+}
+
 std::string AiFactory::RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies)
 {
     // A pool bot in a real player's party follows that player. "+wander" is a
@@ -923,17 +938,15 @@ std::string AiFactory::RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::s
 
 std::string AiFactory::StripOpenWorldNonCombatStrategies(std::string const& strategies)
 {
-    static char const* const openWorld[] = { "grind", "travel", "tfish", "rpg", "rpg craft", "wander" };
-
     std::string kept;
     for (std::string const& entry : split(strategies, ','))
     {
         bool drop = false;
         if (!entry.empty() && entry[0] == '+')
         {
-            for (char const* name : openWorld)
+            for (uint8 i = 0; i < kInstanceGuardStrategyCount; ++i)
             {
-                if (entry.compare(1, std::string::npos, name) == 0)
+                if (entry.compare(1, std::string::npos, kInstanceGuardStrategies[i]) == 0)
                 {
                     drop = true;
                     break;
@@ -1191,6 +1204,10 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
     if (!player->InBattleGround() && sPlayerbotAIConfig.jumpFollow)
         nonCombatEngine->addStrategy("follow jump");
 
+    // A rebuild starts with nothing held back; the guarded branch below
+    // records what it skips inside an instance (Issue #218).
+    facade->instanceGuardWithheld = 0;
+
     if ((facade->IsRealPlayer() || sRandomBotFacade.IsFreeBot(player)) && !player->InBattleGround())
     {
         Player* master = facade->GetMaster();
@@ -1242,6 +1259,12 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                         // world: grind/travel/tfish/rpg wander inside the
                         // instance otherwise (Issue #218).
                         bool const inInstance = player->GetMap() && (player->GetMap()->IsDungeon() || player->GetMap()->IsRaid());
+                        // What the guard drops from the list below is what
+                        // leaving the instance gives back
+                        // (ApplyInstanceGuardOnMapChange): the out-param records
+                        // only entries actually present in the list, so a list
+                        // without +grind never restores grind.
+                        uint8 withheld = 0;
                         nonCombatEngine->addStrategy("collision");
                         if (!inInstance)
                             nonCombatEngine->addStrategy("grind");
@@ -1262,8 +1285,12 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
                         // The config list runs last, so it must honour the instance guard
                         // too, and its "+wander" must not replace a player's bot's follow.
+                        // What the guard drops here is recorded in withheld, so leaving
+                        // the instance gives back only those entries
+                        // (ApplyInstanceGuardOnMapChange).
                         nonCombatEngine->ChangeStrategy(RealMasterSafeNonCombatStrategies(facade,
-                            InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies)));
+                            InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies, &withheld)));
+                        facade->instanceGuardWithheld = withheld;
                     }
                     else
                     {
@@ -1318,7 +1345,7 @@ Engine* AiFactory::createNonCombatEngine(Player* player, PlayerbotAI* const faca
 	return nonCombatEngine;
 }
 
-std::string AiFactory::InstanceSafeNonCombatStrategies(Player* player, std::string const& strategies)
+std::string AiFactory::InstanceSafeNonCombatStrategies(Player* player, std::string const& strategies, uint8* withheld)
 {
     if (!player || !player->GetMap() || !(player->GetMap()->IsDungeon() || player->GetMap()->IsRaid()))
         return strategies;
@@ -1326,19 +1353,19 @@ std::string AiFactory::InstanceSafeNonCombatStrategies(Player* player, std::stri
     // Issue #218: inside an instance the party kit stays in charge. Drop the
     // list's open-world adds, and its "+wander" so the movement mode the bot
     // already has (follow for a player's bot) keeps its leash.
-    static char const* const openWorld[] = { "grind", "travel", "tfish", "rpg", "rpg craft", "wander" };
-
     std::string kept;
     for (std::string const& entry : split(strategies, ','))
     {
         bool drop = false;
         if (!entry.empty() && entry[0] == '+')
         {
-            for (char const* name : openWorld)
+            for (uint8 i = 0; i < kInstanceGuardStrategyCount; ++i)
             {
-                if (entry.compare(1, std::string::npos, name) == 0)
+                if (entry.compare(1, std::string::npos, kInstanceGuardStrategies[i]) == 0)
                 {
                     drop = true;
+                    if (withheld)
+                        *withheld |= InstanceGuardBit(i);
                     break;
                 }
             }
@@ -1352,6 +1379,59 @@ std::string AiFactory::InstanceSafeNonCombatStrategies(Player* player, std::stri
         kept += entry;
     }
     return kept;
+}
+
+void AiFactory::ApplyInstanceGuardOnMapChange(Player* player, PlayerbotAI* ai)
+{
+    if (!player || !ai || !player->GetMap() || player->InBattleGround())
+        return;
+
+    // The bots the guarded branch of AddDefaultNonCombatStrategies builds: a
+    // pool bot in a group it does not lead, with a master. Without this the
+    // kit from the open world rode along through the instance portal until
+    // something rebuilt the strategies (Issue #218).
+    if (!sRandomBotFacade.IsFreeBot(player) || !player->GetGroup() || ai->IsGroupLeader() || !ai->GetMaster())
+        return;
+
+    bool const hasFollow = ai->HasStrategy("follow", BotState::BOT_STATE_NON_COMBAT);
+    bool const inInstance = player->GetMap()->IsDungeon() || player->GetMap()->IsRaid();
+    if (inInstance)
+    {
+        // Strip only what the bot has and remember exactly that, so leaving
+        // gives back nothing the player had turned off. "-rpg" also drops its
+        // children (rpg quest/vendor/explore/maintenance). "wander" goes only
+        // next to "follow", so a bot whose movement mode is wander keeps one.
+        std::string strip;
+        uint8 removed = 0;
+        for (uint8 i = 0; i < kInstanceGuardStrategyCount; ++i)
+        {
+            if (i == kInstanceGuardWander && !hasFollow)
+                continue;
+            if (!ai->HasStrategy(kInstanceGuardStrategies[i], BotState::BOT_STATE_NON_COMBAT))
+                continue;
+            removed |= InstanceGuardBit(i);
+            strip += strip.empty() ? "-" : ",-";
+            strip += kInstanceGuardStrategies[i];
+        }
+        if (!strip.empty())
+            ai->ChangeStrategy(strip, BotState::BOT_STATE_NON_COMBAT);
+        // OR, not assign: a move between two instance maps keeps what the
+        // first one withheld.
+        ai->instanceGuardWithheld |= removed;
+        return;
+    }
+
+    // Back in the open world: give back only what the guard held, so neither
+    // a boat ride nor a dungeon run undoes a player's own "-grind" or "-rpg".
+    // A bot with a real-player master never gets the open-world kit back
+    // (RealMasterSafeNonCombatStrategies, #741): it keeps following its
+    // player. Only masterless pool bots get the restore.
+    uint8 const withheld = ai->instanceGuardWithheld;
+    ai->instanceGuardWithheld = 0;
+    std::string const restore =
+        ai::InstanceGuardRestore(withheld, ai->HasRealPlayerMaster(), hasFollow);
+    if (!restore.empty())
+        ai->ChangeStrategy(restore, BotState::BOT_STATE_NON_COMBAT);
 }
 
 void AiFactory::AddDefaultDeadStrategies(Player* player, PlayerbotAI* const facade, Engine* deadEngine)
