@@ -1956,7 +1956,6 @@ static bool HandleRoster(ChatHandler* handler)
             ++it;
     }
     handler->PSendSysMessage("TBM:ROSTER_BEGIN|%u", static_cast<uint32>(rows.size()));
-    std::vector<std::pair<std::string, std::string>> ccAssignments;
     for (OwnedCharacter const& row : rows)
     {
         Player* player = sObjectAccessor.FindPlayer(row.characterGuid);
@@ -1967,7 +1966,6 @@ static bool HandleRoster(ChatHandler* handler)
         uint32 zoneId = row.zoneId;
         uint32 areaId = row.areaId;
         uint32 grouped = 0;
-        std::string ccMark = "-";
 
         // Runtime Headless state, not characters.online, is authoritative.
         // A Network player with the same GUID is never reported as an active bot.
@@ -1980,9 +1978,6 @@ static bool HandleRoster(ChatHandler* handler)
             zoneId = player->GetZoneId();
             areaId = player->GetAreaId();
             grouped = requester->GetGroup() && requester->GetGroup()->IsMember(row.characterGuid) ? 1u : 0u;
-            ccMark = CurrentCcMark(PlayerbotAIStorage::Instance().GetAI(player));
-            if (ccMark != "-")
-                ccAssignments.emplace_back(name, ccMark);
         }
 
         handler->PSendSysMessage("TBM:ROSTER|%u|%s|%u|%s|%u|%s",
@@ -1991,6 +1986,25 @@ static bool HandleRoster(ChatHandler* handler)
             ProtocolSafe(RosterLocation(mapId, zoneId, areaId)).c_str());
     }
     handler->PSendSysMessage("TBM:ROSTER_END");
+    // CC assignments and the BOTSTATE snapshot below describe the same set:
+    // the controllable party bots (owned alts and hired companions). The
+    // roster rows leave hires out on purpose, so they cannot feed CC_ASSIGN.
+    // An owned alt that is online but not in the party has no CC role (a CC
+    // assignment only acts inside a party), so it is not listed. "rti cc"
+    // defaults to Moon on every bot, so the mark alone does not make a CC bot:
+    // list a bot only when it also has the "cc" combat strategy, the same
+    // condition the CC hold uses (TargetValue.cpp).
+    std::vector<Player*> const partyBots = BuildContext(requester).partyBots;
+    std::vector<std::pair<std::string, std::string>> ccAssignments;
+    for (Player* bot : partyBots)
+    {
+        PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!botAi || !botAi->HasStrategy("cc", BotState::BOT_STATE_COMBAT))
+            continue;
+        std::string const ccMark = CurrentCcMark(botAi);
+        if (ccMark != "-")
+            ccAssignments.emplace_back(bot->GetName(), ccMark);
+    }
     handler->PSendSysMessage("TBM:CC_ASSIGN_BEGIN|%u", static_cast<uint32>(ccAssignments.size()));
     for (auto const& assignment : ccAssignments)
         handler->PSendSysMessage("TBM:CC_ASSIGN|%s|%s", ProtocolSafe(assignment.first).c_str(),
@@ -2041,7 +2055,7 @@ static bool HandleRoster(ChatHandler* handler)
     // The addon drops a snapshot whose row count differs from BEGIN, so
     // count only the bots that will actually produce a line.
     std::vector<Player*> stateBots;
-    for (Player* bot : BuildContext(requester).partyBots)
+    for (Player* bot : partyBots)
         if (PlayerbotAIStorage::Instance().GetAI(bot))
             stateBots.push_back(bot);
     handler->PSendSysMessage("TBM:BOTSTATE_BEGIN|%u", static_cast<uint32>(stateBots.size()));
