@@ -2631,7 +2631,9 @@ static bool HandleBehavior(ChatHandler* handler, char const* args)
                 ++succeeded;
             SendBotStateLine(handler, bot);
         }
-        SendActionAck(handler, intent, loweredBot + ":" + key, succeeded, enable ? "on" : "off");
+        // The addon accepts only "party" or "bot:<name>" as ACK scope; the
+        // mode (on/off) is the detail field.
+        SendActionAck(handler, intent, "party", succeeded, enable ? "on" : "off");
         return true;
     }
 
@@ -2880,6 +2882,16 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
+        if (intent.empty())
+        {
+            // The addon drops an ACTION_ERR with an empty intent as malformed,
+            // so name what was typed (first word) or "unknown".
+            std::string const typed = Trim(args ? args : "");
+            size_t const end = typed.find_first_of(" \t");
+            intent = typed.substr(0, end == std::string::npos || end > 32 ? 32 : end);
+            if (intent.empty())
+                intent = "unknown";
+        }
         SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds]/pullback [seconds]/come/stay/hold/follow/flee/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/sap [on/off] [bot]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
         return true;
     }
@@ -3270,7 +3282,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         std::string scope = context.selectedBot == executor
             ? "bot:" + std::string(executor->GetName()) : "party";
         if (bodyPull)
-            SendActionAck(handler, intent, scope, 1, std::string(executor->GetName()) + "|body-pull");
+            SendActionAck(handler, intent, scope, 1, std::string(executor->GetName()) + " body-pull");
         else
             SendActionAck(handler, intent, scope, 1, executor->GetName());
         return true;
