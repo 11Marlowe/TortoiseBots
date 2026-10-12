@@ -429,6 +429,29 @@ private:
         }
     };
 
+    // [Turtle] Steady Shot filler (ranks 3035..45974: timed cast, no
+    // cooldown, 1.5s GCD). A timed cast pauses the repeating Auto Shot, so it
+    // only fires right after an Auto Shot, while the time to the next one
+    // still covers the cast plus the core's resume windup
+    // (HunterSteadyShotFitsAutoShotWindow). Otherwise the bot keeps
+    // auto-shooting.
+    class SteadyShotTrigger : public Trigger
+    {
+    public:
+        SteadyShotTrigger(PlayerbotAI* ai) : Trigger(ai, "steady shot", 1) {}
+        virtual std::string GetTargetName() override { return "current target"; }
+
+        virtual bool IsActive() override
+        {
+            uint32 const spellId = AI_VALUE2(uint32, "spell id", "steady shot");
+            if (!HunterSteadyShotFitsAutoShotWindow(ai, spellId) || !HunterHasRangedAmmo(ai))
+                return false;
+
+            Unit* target = GetTarget();
+            return target && ai->CanCastSpell("steady shot", target, true, nullptr, true);
+        }
+    };
+
     // PET-5 (donor NoPetTrigger shape): purely petless + unmounted. The old
     // local addition gated this on Call Pet being unavailable, which starved
     // both call-pet nodes exactly when a dismissed pet waited to be called.

@@ -7679,3 +7679,10 @@ Module files: `ai/playerbot/strategy/generic/ThreatStrategy.cpp`,
 `docs/concepts/strategy-engine.md`.
 Validation: code review + `bash tools/verify_all.sh` + `git diff --check`;
 build pending; in-game pending.
+## Hunter Steady Shot filler — 2026-10-11
+
+Feature: [Turtle] Steady Shot as the hunter ranged filler, cast only inside the Auto Shot window.
+
+| Feature | Source repo | SHA | Files | Ported/reimplemented | Reason | Validation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Hunter Steady Shot filler in the ranged rotation, woven inside the Auto Shot window (timer > hasted cast + 500 ms ranged cast extra + 500 ms windup + 50 ms margin; fix round 2026-10-11: the first gate used the unhasted cast time and a 150 ms margin and never opened in game) | `mod-playerbots` | `79bd4281` | `src/Ai/Class/Hunter/HunterActions.h` (CastSteadyShotAction), `HunterAiObjectContext.cpp` (steady_shot), behaviour reference only (donor's spell is the WotLK one) | Reimplemented: `steady shot` trigger + action + `HunterStrategy` row at `ACTION_NORMAL - 1`; Turtle ids 3035-3038/3668/45970/45972/45974 (cast-time, no cooldown, 1.5s GCD), cast gated on the core's Auto Shot pause and 500 ms re-arm (`Unit::_UpdateAutoRepeatSpell`) | Turtle trainer teach spells (3039 etc.) give Steady Shot at 36-60 and the core scripts it; bots only auto-shot between Aimed/Arcane | code review + build pending; in-game pending |
