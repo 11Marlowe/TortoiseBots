@@ -8018,3 +8018,17 @@ Validation: code review + build pending; in-game pending.
 | Feature | Source project | Source commit | Source files | Ported / reimplemented | Reason | Local validation |
 | --- | --- | --- | --- | --- | --- | --- |
 | Skip a hidden GM in the party-member searches (blessings, buffs, dispel, resurrect, soulstone) | `mod-playerbots` | `79bd4281` | `src/Ai/Class/Paladin/Actions/PaladinActions.cpp:16-27` (`IsBlessingTargetCandidate`: `player->IsGameMaster()` is never a blessing target) | Reimplemented in `ai/playerbot/strategy/values/PartyMemberValue.cpp` (`PartyMemberValue::Check`). Adapted to the Turtle core rule instead of the donor's GM flag: the core drops a `VISIBILITY_OFF` player in `Spell::CheckTarget` (`src/game/Spells/Spell.cpp`) after the mana is paid, while positive spells on a visible `.gm on` player still land, so the visibility state is what is checked. The donor's LoS/range filter is not ported (range stays in the value, LoS in the cast) | In-game A/B 2026-10-11 (yulon-ubuntu, 18d4d14): paladin Fyrsae ran `pve blessing on party` ~40 times in 5 min at 85 mana each (Blessing of Might rank 5) on the hidden GM master (server `GM.Visible = 0`), drank 10 times, and the hunter after the GM in the search order never got a blessing | `bash tools/verify_all.sh`; `git diff --check`. Code review; build pending; in-game pending |
+## Keep `follow` after a strategy reset for a real player's bot — 2026-10-11
+Feature: `AiFactory::AddDefaultNonCombatStrategies` installs `follow` (not
+the `UseWanderAsDefaultFollowStrategy` choice) when the bot's master is a
+real player (network session). Source: mod-playerbots 79bd428,
+`src/Bot/Factory/AiFactory.cpp` (`AddDefaultNonCombatStrategies` always adds
+`follow` outside battlegrounds). Reimplemented (one-line branch change).
+Reason: `.bot role`, a respec and group (re)joins call `ResetStrategies()`;
+the reset installed `wander` (config default 1) for every bot, so a player's
+tank/healer lost the `follow` it got on invite (in-game A/B at acd9e01:
+Crishyrcrar/Malshorhyrs showed `wander`, no `follow`, after `.bot role` and
+after party reshuffles). Matches the module's own `GetDefaultMovementStrategy`
+(player master -> follow). Masterless bots keep the config choice; a stored
+explicit `wander` still replays from the strategy snapshot.
+Validation: code review + build pending; in-game pending.
