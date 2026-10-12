@@ -59,6 +59,124 @@
 - A fresh level-1 pool is now actually spread evenly over the starting zones — bots that reached level 2-3 while the pool was still being created stopped counting toward their zone, so the zones where bots level fastest kept getting more (Dun Morogh ended up with twice its share), and high elves were sent to Dun Morogh or Teldrassil instead of Elwynn where they had been counted.
 - Wandering bots no longer stand around after picking a camp or explore errand — the activity they rolled was refused again by a second dice roll (half or nine times in ten), and nothing else was allowed until the choice expired; the roll now decides alone. Your own and hired bots are unchanged.
 
+## 2026-10-12
+
+### Core Sync & Fixes
+- Whispering a bot to toggle loot roll feedback no longer answers with "Roll feedback enalbed." — the reply now reads "Roll feedback enabled." [#745](https://github.com/Sagiroth/TortoiseBots/pull/745)
+
+---
+
+### Combat & AI
+- Restoration druid bots now actually shift into Tree of Life Form when it's missing, keep it active instead of recasting every tick, and can drop it when they need to cast a Tree-forbidden spell or leave all forms — so the Tree heal bonus and party aura finally apply during fights. [#694](https://github.com/Sagiroth/TortoiseBots/pull/694)
+
+### Docs & Guides
+- Corrected the dungeon guide's "Standard Raid Target Icon Assignments" table: every bot's CC mark is Moon by default (not Star/Diamond/Triangle per class), and in 5-man dungeons a bot only crowd-controls its own mark — no behaviour changed, just stop marking a Star and wondering why nobody Shackles it. [#737](https://github.com/Sagiroth/TortoiseBots/pull/737)
+
+### Chat & Commands
+- GM-badged bot commands are recognized again and no longer queue insult replies; ordinary non-command GM chat keeps its flavor lines. [#752](https://github.com/Sagiroth/TortoiseBots/pull/752)
+
+### Observability & Engine
+- Dashboard "Trigger" now reflects the trigger behind the last successful action, so Trigger and Action labels stay paired; failed/skipped attempts no longer overwrite it. [#720](https://github.com/Sagiroth/TortoiseBots/pull/720)
+- Dashboard "last action" names are kept alive while read, eliminating garbage/wrong names and the rare world server crash path during observability updates. [#713](https://github.com/Sagiroth/TortoiseBots/pull/713)
+
+### Combat & AI
+
+- Shadow Weaving's "missing debuff" rule now only fires for priests that actually have the Shadow Weaving talent, so Holy/Disc priests (and untalented Shadow priests) stop spamming Mind Flay/Smite/Mind Blast and go back to healing. [#732](https://github.com/Sagiroth/TortoiseBots/pull/732)
+- Hunter bots only channel Mend Pet in combat when the pet is genuinely low **and** no shot is ready, ending the constant shot-dropping channel that ate ~10% of all hunter combat samples. [#708](https://github.com/Sagiroth/TortoiseBots/pull/708)
+- Cast-time strategy is now a default combat strategy outside battlegrounds: bots skip a Frostbolt/Shadow Bolt/etc. when the mob's estimated time-to-live is shorter than the cast, picking a faster spell or wand instead. Low-health bosses with long TTK still eat full casts. [#693](https://github.com/Sagiroth/TortoiseBots/pull/693)
+
+### Combat & AI
+- Bots now detect partial Shadow Weaving stacks (1–4) applied by another priest, not just the full 5-stack. No more rotation flip-flopping with two Shadow priests in the group. [#740](https://github.com/Sagiroth/TortoiseBots/pull/740)
+- The same shared-debuff blind spot that caused the rogue Expose Armor > Sunder Armor issue is rooted in this visibility gap (fixed separately). [#740](https://github.com/Sagiroth/TortoiseBots/pull/740)
+
+### Combat & AI
+- Assigned warrior tanks (including forced roles) stay in Defensive Stance and keep threat generation as the priority; no more Berserker↔Defensive ping-pong, and Shield Block / Heroic Strike / Thunder Clap only fire when they make sense [#690](https://github.com/Sagiroth/TortoiseBots/pull/690)
+- Protection warrior tanks no longer drop Defensive Stance mid-pull chasing a Pummel they never cast [#764](https://github.com/Sagiroth/TortoiseBots/pull/764)
+- Party DPS and healer bots (your own alts included, outside battlegrounds) keep the threat back-off and ease off when near the tank's threat instead of ripping aggro [#692](https://github.com/Sagiroth/TortoiseBots/pull/692)
+- Pool tanks keep `tank assist` instead of having it silently stripped by `+dps assist`, so loose adds on the healer/DPS actually get picked up [#728](https://github.com/Sagiroth/TortoiseBots/pull/728)
+- Hunters cast Steady Shot as ranged filler between Aimed/Arcane/Multi-Shot, timed so it never delays Auto Shot [#695](https://github.com/Sagiroth/TortoiseBots/pull/695)
+- Serpent Sting is the default again; Viper Sting only fires below 50% hunter mana (or on an explicit order) [#699](https://github.com/Sagiroth/TortoiseBots/pull/699)
+- Hunters hold range while the pet or tank holds the mob and only step back out of the dead zone instead of fleeing and barely shooting [#703](https://github.com/Sagiroth/TortoiseBots/pull/703)
+- Damage spells the target is school-immune to fall through the rotation (Fireball/Scorch → Frostbolt → wand) [#698](https://github.com/Sagiroth/TortoiseBots/pull/698)
+- Mages, priests and warlocks stop a running wand to cast again — no more wanding at full mana while the group dies around them [#702](https://github.com/Sagiroth/TortoiseBots/pull/702)
+- Fire mages with Improved Scorch open with Scorch when Fire Vulnerability is missing, applying the debuff on the first cast [#743](https://github.com/Sagiroth/TortoiseBots/pull/743)
+- Warlock DoTs (Corruption, Immolate, Siphon Life) check for the bot's own aura, so every warlock keeps its own DoTs on a shared target [#697](https://github.com/Sagiroth/TortoiseBots/pull/697)
+- Rogues skip Expose Armor when the target already has Sunder Armor, spending combo points on Eviscerate/Slice and Dice instead [#700](https://github.com/Sagiroth/TortoiseBots/pull/700)
+- Rogues now actually Sap the assigned CC mark before the pull [#738](https://github.com/Sagiroth/TortoiseBots/pull/738)
+- Polymorph holds through its cast bar and CC marks are killed last, so sheep land and stay landed [#746](https://github.com/Sagiroth/TortoiseBots/pull/746)
+- Free-picked CC (no mark set) never lands on a mob the group is already fighting [#766](https://github.com/Sagiroth/TortoiseBots/pull/766)
+- Voidwalker Sacrifice stays out of the pet autocast sweep, so solo warlocks stop losing and re-summoning their Voidwalker every fight [#727](https://github.com/Sagiroth/TortoiseBots/pull/727)
+- Hunter pets and voidwalkers stand Growl/Torment down when a tank is in the party, including parties where a real player is the master [#730](https://github.com/Sagiroth/TortoiseBots/pull/730)
+- Solo pool shamans, paladins and druids heal themselves instead of turning their back at 70% health with full mana [#724](https://github.com/Sagiroth/TortoiseBots/pull/724)
+- Pool-bot flee actually moves — the bot steps away instead of "chasing in place" next to the mob [#733](https://github.com/Sagiroth/TortoiseBots/pull/733)
+- New opt-in key lets pool warriors and rogues stand and fight instead of fleeing with no mana and no escape plan [#704](https://github.com/Sagiroth/TortoiseBots/pull/704)
+- Pool Holy and Discipline priests keep their own spec in combat instead of falling into the Shadow rotation and spamming Smite [#726](https://github.com/Sagiroth/TortoiseBots/pull/726)
+- A Discipline priest given the healer role stays Discipline; Holy stays Holy and Shadow forced to heal still switches to Holy [#719](https://github.com/Sagiroth/TortoiseBots/pull/719)
+- Paladins keep their spec aura instead of cycling auras out of combat and knocking each other's lower-rank auras off [#714](https://github.com/Sagiroth/TortoiseBots/pull/714)
+- Tauren bots cast War Stomp from where they stand and only when it is off cooldown — no more running into melee for nothing [#725](https://github.com/Sagiroth/TortoiseBots/pull/725)
+- Melee bots keep chasing a mob that is hitting the party, and no longer blacklist it for five minutes after it turns away [#717](https://github.com/Sagiroth/TortoiseBots/pull/717)
+- An explicit attack order now lifts the bot's give-up on that mob, so prompted tanks actually engage [#718](https://github.com/Sagiroth/TortoiseBots/pull/718)
+- Copying another bot's attacker list preserves its own target, so a party does not split mid-fight and leave the mob alive [#765](https://github.com/Sagiroth/TortoiseBots/pull/765)
+- Melee bots stop re-running "reach melee" while already in melee range, keeping abilities and combo points flowing [#763](https://github.com/Sagiroth/TortoiseBots/pull/763)
+- Healers heal the lowest-percent member and hold ground while someone is low, instead of letting a member die next to them [#769](https://github.com/Sagiroth/TortoiseBots/pull/769)
+- Out of combat, bots do not cast upkeep buffs that would drop them below their buff mana floor — healers drink instead of buffing with their last mana [#749](https://github.com/Sagiroth/TortoiseBots/pull/749)
+
+### Dungeons, Raids & Instances
+- Grouped bots in dungeons and raids no longer abandon an encounter target after a 15 s reach timeout; the give-up guard still applies outdoors [#691](https://github.com/Sagiroth/TortoiseBots/pull/691)
+- One shared raid tank order for Golemagg, Razorgore and main-tank duties — the dragger, the rager holders and the Razorgore controller are assigned consistently, human tanks included [#773](https://github.com/Sagiroth/TortoiseBots/pull/773)
+- Boss protection potions are drunk at the pull and sit below heals in priority (no more burning the shared cooldown on trash), and Shadow/Nature protection potions are now used on the right fights [#778](https://github.com/Sagiroth/TortoiseBots/pull/778)
+- Bomb carriers run clear of the raid centre (Living Bomb, Burning Adrenaline, Mutating Injection, Detonate Mana, Emerald Rot) instead of running away from a single raid member [#772](https://github.com/Sagiroth/TortoiseBots/pull/772)
+- Resist-aura election works with a paladin in the group and covers more bosses (Onyxia, Ebonroc, Chromaggus, Nefarian); the paladin restores its spec aura after the boss dies [#774](https://github.com/Sagiroth/TortoiseBots/pull/774)
+- In BWL, bots missing the Onyxia Scale Cloak whisper you once on entry so you can hand it out before Shadow Flame [#701](https://github.com/Sagiroth/TortoiseBots/pull/701)
+- Dispellers spread out and only cure targets in reach and line of sight, instead of all mages/druids stacking Remove Curse on the same raid member [#760](https://github.com/Sagiroth/TortoiseBots/pull/760)
+- Companions with a player master spread out in raids too — Onyxia phase 2 fireballs no longer splash the whole caster clump [#761](https://github.com/Sagiroth/TortoiseBots/pull/761)
+- The instance guard survives the pool-bot non-combat strategy list, so hired and party pool bots do not pick up grind/travel/fishing/wander inside dungeons [#739](https://github.com/Sagiroth/TortoiseBots/pull/739)
+- Companions stop sweeping for herbs and ore inside instances, ending the "node blocked, need to kill it" loop on un-pulled packs [#751](https://github.com/Sagiroth/TortoiseBots/pull/751)
+- "X is blocking Y" whispers are throttled to once per object per 60 s and muted in dungeons and in combat [#747](https://github.com/Sagiroth/TortoiseBots/pull/747)
+
+### Battlegrounds & PvP
+- Queueing for WSG/AB/AV on your own now fills your side too (both factions backfilled, faster bot joins), so the queue actually pops [#775](https://github.com/Sagiroth/TortoiseBots/pull/775)
+- The battleground mount check no longer outranks the objective — bots try to mount once, then run for the flag [#776](https://github.com/Sagiroth/TortoiseBots/pull/776)
+- Healing-spec bots keep healing in battlegrounds (Holy/Disc priests, Resto shaman/druid, Holy paladin) instead of all reporting as damage [#777](https://github.com/Sagiroth/TortoiseBots/pull/777)
+- Bots leave the battleground when the match ends instead of fighting on for two minutes until the server ports them out [#771](https://github.com/Sagiroth/TortoiseBots/pull/771)
+- Battleground bots stop freezing on enemy players they cannot reach and get back to the objective [#770](https://github.com/Sagiroth/TortoiseBots/pull/770)
+
+### Followers, Hiring & Party Play
+- Mounted companions stop a few yards further out, so mechanical striders and big flyers no longer park on top of you or each other (on foot unchanged) [#762](https://github.com/Sagiroth/TortoiseBots/pull/762)
+- A pool bot hired or invited by a real player stays on `follow` instead of drifting back to `wander` after the pool's non-combat strategy list runs [#741](https://github.com/Sagiroth/TortoiseBots/pull/741)
+- Follow is rebuilt after `.bot role` or party changes, so you stop re-whispering `follow` every time [#731](https://github.com/Sagiroth/TortoiseBots/pull/731)
+- `.bot hire <class> <spec>` honours the spec word for every class, matching the recruiter menu (no more `warrior fury` arriving as Arms) [#734](https://github.com/Sagiroth/TortoiseBots/pull/734)
+- `.bot action aoe on|off` and `.bot action loot on|off` work again (command and addon button), and the AoE toggle really disables Blizzard/Rain of Fire/Multi-Shot/Whirlwind/Consecration [#757](https://github.com/Sagiroth/TortoiseBots/pull/757)
+- Buff, dispel and resurrect pickers prefer party members in line of sight, so a bot cannot get stuck on an unreachable member while everyone else stays unbuffed [#742](https://github.com/Sagiroth/TortoiseBots/pull/742)
+- Hidden GMs are skipped as buff targets, so paladins and priests stop burning mana on a buff the server drops [#729](https://github.com/Sagiroth/TortoiseBots/pull/729)
+
+### Pool Bot Leveling, Quests & Travel
+- Quest log triage drops only as many quests as needed and worst first, instead of dumping a dozen in-level quests in one second [#759](https://github.com/Sagiroth/TortoiseBots/pull/759)
+- Hand-in trips survive brief pauses (eating, looting, mounting), so bots stop abandoning finished quest turn-ins halfway through the walk [#758](https://github.com/Sagiroth/TortoiseBots/pull/758)
+- An errand is parked after two deaths on the way to it, ending same-spot death loops (19 deaths in 26 minutes on one bot) [#753](https://github.com/Sagiroth/TortoiseBots/pull/753)
+- Targetless pool bots stuck in `reset travel target` loops get sent to grind after two minutes instead of pacing around capitals [#767](https://github.com/Sagiroth/TortoiseBots/pull/767)
+- Gather trips judge the bot's own spawn and skip empty nodes, so miners and herbalists stop turning around 60 yd short of the vein [#755](https://github.com/Sagiroth/TortoiseBots/pull/755)
+- The poison trigger respects item level, ending the spam of failed Deadly Poison applications on level 13-19 cheat bots [#754](https://github.com/Sagiroth/TortoiseBots/pull/754)
+- Stuck-travel teleport for masterless pool bots (on by default) rescues bots floating at sea instead of burning 15 minutes until the hearth [#715](https://github.com/Sagiroth/TortoiseBots/pull/715)
+- Bots that keep dying to hostile town guards are relocated instead of resurrecting and walking back into the same guards [#705](https://github.com/Sagiroth/TortoiseBots/pull/705)
+- Arrived bots pick an RPG target at their destination, so they stop re-choosing the same auction house/mailbox trip and standing still [#709](https://github.com/Sagiroth/TortoiseBots/pull/709)
+- "Check mail" only runs out of combat and when there is processable mail, freeing turns for fighting and travel [#706](https://github.com/Sagiroth/TortoiseBots/pull/706)
+- No-op mount/dismount decisions no longer count as failed actions every tick, killing the `check mount state` loop spam [#756](https://github.com/Sagiroth/TortoiseBots/pull/756)
+
+### Loot & Loot Rules
+- Bots never roll Need against a real player's roll — they roll Greed, and your own bots roll after you and see your vote [#735](https://github.com/Sagiroth/TortoiseBots/pull/735)
+- Inside dungeons and raids, bots only loot corpses when no hostile is in sight (or the corpse is right under them) and wait for the room to be clear [#736](https://github.com/Sagiroth/TortoiseBots/pull/736)
+- Empty or refused loot windows are abandoned instead of re-opened, ending repeated "open loot" on the same corpse [#750](https://github.com/Sagiroth/TortoiseBots/pull/750)
+- Every loot open is counted, so gather/skin loops give up after three tries instead of kneeling on one Peacebloom for minutes [#712](https://github.com/Sagiroth/TortoiseBots/pull/712)
+- Mounted bots can select loot, so travel no longer stalls in a mount animation for minutes [#711](https://github.com/Sagiroth/TortoiseBots/pull/711)
+
+### Observability & Engine
+- BOTPERF gains `turns`, `usPerTurn`, `coreMs`, combat/other turn counts and lateness fields, making tick-budget tuning data-driven instead of guesswork [#722](https://github.com/Sagiroth/TortoiseBots/pull/722)
+- Bots whose AI is in combat (closing, pulling, or just after the flag drops) are scheduled as combat in the pool turn queue, so they stop reacting seconds late on busy servers [#721](https://github.com/Sagiroth/TortoiseBots/pull/721)
+- Dashboard "Unreachable" incidents use the AI's current target instead of the stale client selection, ending phantom 3,000-yard reach reports [#710](https://github.com/Sagiroth/TortoiseBots/pull/710)
+- Herb and ore gathers are logged under their lock skill instead of as skins, so `gathering` stops reading zero [#716](https://github.com/Sagiroth/TortoiseBots/pull/716)
+- Unopenable bot log files are reported once and then backed off, instead of writing 59k lines an hour and burning world-thread file opens [#707](https://github.com/Sagiroth/TortoiseBots/pull/707)
+
 ## 2026-10-11
 
 ### Core Sync & Fixes

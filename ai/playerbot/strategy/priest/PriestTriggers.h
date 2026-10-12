@@ -169,6 +169,11 @@ namespace ai
     // Trigger fires when the target is MISSING the Priest Shadow Weaving
     // debuff. Used to prioritize Mind Flay / SW:P after target swap to
     // rebuild stacks before Mind Blast burst.
+    //
+    // Only a priest with the Shadow Weaving talent can apply the debuff, so
+    // without it the trigger would fire forever and burn mana on the Mind
+    // Flay -> Smite fallback. Spellbook check on the talent ranks, same
+    // pattern as the mage Improved Scorch gate.
     class ShadowWeavingMissingTrigger : public Trigger
     {
     public:
@@ -178,11 +183,31 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            // Shadow Weaving talent ranks 1-5.
+            if (!bot->HasSpell(15257) && !bot->HasSpell(15331) && !bot->HasSpell(15332) &&
+                !bot->HasSpell(15333) && !bot->HasSpell(15334))
+                return false;
+
             Unit* target = GetTarget();
             if (!target || !target->IsAlive())
                 return false;
             // 15258 is the Priest Shadow Weaving debuff specifically.
-            return !ai->HasAura(15258, target);
+            // Not ai->HasAura(): its IsRealAura filter hides another
+            // priest's stack on a hostile unit until it reaches 5, so a
+            // 1-4 stack read as missing (but 5 did not). Check the target
+            // directly: any caster, any stack count.
+            return !target->HasAura(15258);
         }
+    };
+
+    // A wand is running while a heal the priest's heal rows want, or a nuke
+    // its damage rows want, is held back only by the GCD each wand shot
+    // renews on Turtle (WandPolicy.h): stop the wand so the priest heals or
+    // casts instead of wanding while the party drops or at full mana.
+    class PriestWandBlocksCastTrigger : public WandBlocksCastTrigger
+    {
+    public:
+        PriestWandBlocksCastTrigger(PlayerbotAI* ai) : WandBlocksCastTrigger(ai, "wand blocks cast") {}
+        bool IsActive() override;
     };
 }

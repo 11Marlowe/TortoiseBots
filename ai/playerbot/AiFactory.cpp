@@ -29,6 +29,8 @@
 #include "../../runtime/PlayerbotAIStorage.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
+#include "playerbot/InstanceGuardPolicy.h"
+#include "playerbot/SurvivePolicy.h"
 #include "Battlegrounds/BattleGroundMgr.h"
 
 // The class context of a bot; the augmenters of other modules are applied on top in
@@ -448,6 +450,18 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     return GetTalentRoles(player);
 }
 
+// Party back-off (threat): non-tank DPS/healer bots grouped with a real player
+// ride the shared tank's threat, so a full burn pulls the mob off the tank.
+// Masterless pool bots keep the old behavior: the multiplier is group-gated
+// anyway, and threat vetoes would stall their solo leveling burn. ThreatValue
+// returns 0 with no tank, so solo/no-tank parties are unaffected even when the
+// veto is present.
+bool AiFactory::KeepsPartyThreatBackoff(Player* player, PlayerbotAI* const facade)
+{
+    return player && facade && !player->InBattleGround() && facade->HasRealPlayerMaster() &&
+        !PlayerbotAI::IsTank(player);
+}
+
 void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* combatEngine)
 {
     int tab = GetPlayerSpecTab(player);
@@ -474,7 +488,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
     }
     else
     {
-        combatEngine->addStrategies("racials", "default", "duel", "pvp", NULL);
+        combatEngine->addStrategies("racials", "default", "duel", "pvp", "cast time", NULL);
     }
 
     switch (player->GetClass())
@@ -719,7 +733,12 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         // druid/shaman/paladin kit below). Real-player masters are safe: the
         // trigger itself refuses to fire while one answers for the bot, and
         // dungeons/raids with a real master stay flee-free either way.
-        if (!player->GetGroup() || !facade->HasRealPlayerMaster())
+        // AiPlayerbot.PoolMeleeHoldGround (opt-in) leaves warriors and rogues
+        // without it: they fight on instead of breaking off (SurvivePolicy.h).
+        bool const rageOrEnergyClass = player->GetClass() == CLASS_WARRIOR ||
+            player->GetClass() == CLASS_ROGUE;
+        if ((!player->GetGroup() || !facade->HasRealPlayerMaster()) &&
+            ai::ShouldGrantPoolFlee(sPlayerbotAIConfig.poolMeleeHoldGround, rageOrEnergyClass))
             combatEngine->addStrategy("flee");
 
         if (!player->GetGroup())
@@ -779,23 +798,25 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         if (sPlayerbotAIConfig.jumpChase)
             combatEngine->addStrategy("chase jump");
 
-        // Party back-off (threat): non-tank DPS/healer bots grouped with a
-        // real player ride the shared tank's threat, so a full burn pulls the
-        // mob off the tank. Masterless pool bots keep the old behavior: the
-        // multiplier is group-gated anyway, and threat vetoes would stall
-        // their solo leveling burn. ThreatValue returns 0 with no tank, so
-        // solo/no-tank parties are unaffected even when the veto is present.
-        if (!player->InBattleGround() && facade->HasRealPlayerMaster() &&
-            !facade->IsTank(player) && !combatEngine->HasStrategy("threat"))
-            combatEngine->addStrategy("threat");
-
-
+        // "dps assist" and "tank assist" are siblings, so the list's
+        // "+dps assist" swapped "tank assist" out on every pool tank
+        // (Protection warrior/paladin, bear) and it picked targets like dps
+        // instead of collecting loose mobs. The spec/role defaults above
+        // decide the assist strategy; the list must not undo it.
+        bool const specTankAssist = combatEngine->HasStrategy("tank assist");
         combatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies);
+        if (specTankAssist && !combatEngine->HasStrategy("tank assist") && combatEngine->HasStrategy("dps assist"))
+            combatEngine->addStrategy("tank assist");
     }
     else
     {
         combatEngine->ChangeStrategy(sPlayerbotAIConfig.combatStrategies);
     }
+
+    // Applied after the configured strategy strings: the shipped default
+    // random-bot string carries -threat and would strip it again.
+    if (KeepsPartyThreatBackoff(player, facade) && !combatEngine->HasStrategy("threat"))
+        combatEngine->addStrategy("threat");
 
     // Battleground switch
     if (player->InBattleGround())
@@ -828,14 +849,35 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         combatEngine->removeStrategy("conserve mana");
         combatEngine->removeStrategy("cast time");
 
-        if (player->GetClass() == CLASS_SHAMAN && tab == 2)
+        // A healing spec stays a healer in a battleground, as in mod-playerbots:
+        // its BG switch adds objectives and pvp on top but keeps the talent
+        // spec. Re-adding the spec strategy drops its sibling, so a "+dps"
+        // (the priest Shadow placeholder) in the combat strategy list or the
+        // ungrouped pool kit (elemental/balance/retribution) cannot turn the
+        // team's healers into damage dealers. Stored strategies and a forced
+        // role are applied after this, so a player's explicit order still wins.
+        if (player->GetClass() == CLASS_PRIEST && tab == 0)
         {
-            combatEngine->addStrategies("elemental", "aoe", "cc", NULL);
+            combatEngine->addStrategy("discipline");
         }
 
-        if (player->GetClass() == CLASS_DRUID && tab == 2)
+        if (player->GetClass() == CLASS_PRIEST && tab == 1)
         {
-            combatEngine->addStrategies("balance", NULL);
+            combatEngine->addStrategy("holy");
+        }
+
+        // Below level 10 a druid runs the "leveling" kit instead of a spec.
+        if ((player->GetClass() == CLASS_SHAMAN ||
+             (player->GetClass() == CLASS_DRUID && player->GetLevel() >= 10)) && tab == 2)
+        {
+            combatEngine->addStrategies("restoration", "ranged", NULL);
+            combatEngine->removeStrategy("close");
+        }
+
+        if (player->GetClass() == CLASS_PALADIN && tab == 0)
+        {
+            combatEngine->addStrategies("holy", "ranged", NULL);
+            combatEngine->removeStrategy("close");
         }
 
         if (player->GetClass() == CLASS_DRUID && tab == 1)
@@ -873,12 +915,53 @@ namespace
 {
     // Issue #218: the open-world non-combat strategies the instance guard holds
     // back in a dungeon or raid. Bit i of PlayerbotAI::instanceGuardWithheld
-    // stands for entry i.
+    // stands for entry i. Main's RealMasterSafeNonCombatStrategies strips the
+    // same entry set via StripOpenWorldNonCombatStrategies; keep both lists
+    // identical.
     char const* const kInstanceGuardStrategies[] = { "grind", "travel", "tfish", "rpg", "rpg craft", "wander" };
     uint8 const kInstanceGuardStrategyCount = sizeof(kInstanceGuardStrategies) / sizeof(kInstanceGuardStrategies[0]);
     uint8 const kInstanceGuardWander = 5;
 
     inline uint8 InstanceGuardBit(uint8 index) { return uint8(1u << index); }
+}
+
+std::string AiFactory::RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies)
+{
+    // A pool bot in a real player's party follows that player. "+wander" is a
+    // sibling of "follow" and replaces it, and the open-world adds re-arm what
+    // the player may have switched off, so the list skips them for such a bot.
+    if (!ai || !ai->HasRealPlayerMaster())
+        return strategies;
+
+    return StripOpenWorldNonCombatStrategies(strategies);
+}
+
+std::string AiFactory::StripOpenWorldNonCombatStrategies(std::string const& strategies)
+{
+    std::string kept;
+    for (std::string const& entry : split(strategies, ','))
+    {
+        bool drop = false;
+        if (!entry.empty() && entry[0] == '+')
+        {
+            for (uint8 i = 0; i < kInstanceGuardStrategyCount; ++i)
+            {
+                if (entry.compare(1, std::string::npos, kInstanceGuardStrategies[i]) == 0)
+                {
+                    drop = true;
+                    break;
+                }
+            }
+        }
+
+        if (drop)
+            continue;
+
+        if (!kept.empty())
+            kept += ",";
+        kept += entry;
+    }
+    return kept;
 }
 
 void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* nonCombatEngine)
@@ -1096,8 +1179,10 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
         if (master && master->GetSession() && master->GetSession()->HasNetworkTransport())
         {
-            const char* wanderFollow = sPlayerbotAIConfig.useWanderAsDefaultFollowStrategy ? "wander" : "follow";
-            nonCombatEngine->addStrategies("racials", "nc", "food", wanderFollow, "default", "quest", "loot", "gather", "duel", "emote", "buff", "mount", "force rebuff", NULL);
+            // A real player's bot rebuilds with "follow" (GetDefaultMovementStrategy,
+            // mod-playerbots parity): a role change or regroup reset must not swap
+            // the follow it got on invite for UseWanderAsDefaultFollowStrategy's wander.
+            nonCombatEngine->addStrategies("racials", "nc", "food", "follow", "default", "quest", "loot", "gather", "duel", "emote", "buff", "mount", "force rebuff", NULL);
         }
         else
         {
@@ -1174,15 +1259,12 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                         // world: grind/travel/tfish/rpg wander inside the
                         // instance otherwise (Issue #218).
                         bool const inInstance = player->GetMap() && (player->GetMap()->IsDungeon() || player->GetMap()->IsRaid());
-                        // What this build skips here is what leaving the
-                        // instance gives back (ApplyInstanceGuardOnMapChange).
+                        // What the guard drops from the list below is what
+                        // leaving the instance gives back
+                        // (ApplyInstanceGuardOnMapChange): the out-param records
+                        // only entries actually present in the list, so a list
+                        // without +grind never restores grind.
                         uint8 withheld = 0;
-                        if (inInstance)
-                        {
-                            withheld |= InstanceGuardBit(0); // grind
-                            if (sPlayerbotAIConfig.autoDoQuests)
-                                withheld |= InstanceGuardBit(1) | InstanceGuardBit(2) | InstanceGuardBit(3); // travel, tfish, rpg
-                        }
                         nonCombatEngine->addStrategy("collision");
                         if (!inInstance)
                             nonCombatEngine->addStrategy("grind");
@@ -1201,8 +1283,13 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                             nonCombatEngine->addStrategy("maintenance");
                         }
 
-                        // The config list runs last, so it must honour the guard too.
-                        nonCombatEngine->ChangeStrategy(InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies, &withheld));
+                        // The config list runs last, so it must honour the instance guard
+                        // too, and its "+wander" must not replace a player's bot's follow.
+                        // What the guard drops here is recorded in withheld, so leaving
+                        // the instance gives back only those entries
+                        // (ApplyInstanceGuardOnMapChange).
+                        nonCombatEngine->ChangeStrategy(RealMasterSafeNonCombatStrategies(facade,
+                            InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies, &withheld)));
                         facade->instanceGuardWithheld = withheld;
                     }
                     else
@@ -1336,23 +1423,13 @@ void AiFactory::ApplyInstanceGuardOnMapChange(Player* player, PlayerbotAI* ai)
 
     // Back in the open world: give back only what the guard held, so neither
     // a boat ride nor a dungeon run undoes a player's own "-grind" or "-rpg".
+    // A bot with a real-player master never gets the open-world kit back
+    // (RealMasterSafeNonCombatStrategies, #741): it keeps following its
+    // player. Only masterless pool bots get the restore.
     uint8 const withheld = ai->instanceGuardWithheld;
-    if (!withheld)
-        return;
     ai->instanceGuardWithheld = 0;
-
-    std::string restore;
-    for (uint8 i = 0; i < kInstanceGuardStrategyCount; ++i)
-    {
-        if (!(withheld & InstanceGuardBit(i)))
-            continue;
-        // "wander" and "follow" are siblings: "+wander" would replace the
-        // follow leash of a hired companion, so it never comes back next to it.
-        if (i == kInstanceGuardWander && hasFollow)
-            continue;
-        restore += restore.empty() ? "+" : ",+";
-        restore += kInstanceGuardStrategies[i];
-    }
+    std::string const restore =
+        ai::InstanceGuardRestore(withheld, ai->HasRealPlayerMaster(), hasFollow);
     if (!restore.empty())
         ai->ChangeStrategy(restore, BotState::BOT_STATE_NON_COMBAT);
 }

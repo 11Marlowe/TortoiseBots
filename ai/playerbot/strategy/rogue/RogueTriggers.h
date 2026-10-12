@@ -76,6 +76,9 @@ namespace ai
     {
     public:
         ExposeArmorTrigger(PlayerbotAI* ai, uint8 comboPoints = 3) : NoDebuffAndComboPointsAvailableTrigger(ai, "expose armor", comboPoints) {}
+        // Sunder Armor (any caster) already on the target: Expose does not stack
+        // with it (spell group 1064, powerful chain), so do not spend combo points.
+        bool IsActive() override;
     };
 
     class KickInterruptEnemyHealerSpellTrigger : public InterruptEnemyHealerTrigger
@@ -186,6 +189,21 @@ namespace ai
         }
     };
 
+    // Pre-pull Sap on the bot's assigned CC mark ("rti cc", Moon unless
+    // `.bot action cc <mark>` changed it). The "sap" trigger above lives in
+    // the combat engine and asks for the same out-of-combat state, and its
+    // "cc target" only holds mobs already fighting the group, so it can never
+    // fire before a pull. This one runs in the non-combat engine: rogue and
+    // marked mob both out of combat, mob a humanoid nobody holds yet.
+    // Player control: only for a bot whose master is a real player, so pool
+    // bots never Sap on their own.
+    class SapCcMarkTrigger : public Trigger
+    {
+    public:
+        SapCcMarkTrigger(PlayerbotAI* ai) : Trigger(ai, "sap cc mark") {}
+        bool IsActive() override;
+    };
+
     class SprintTrigger : public BuffTrigger
     {
     public:
@@ -243,6 +261,25 @@ namespace ai
         }
     };
 
+    // True when the bot holds (or, with the item cheat, can conjure) a poison it is
+    // old enough to use. The cheat never covers a poison above the bot's level (same
+    // rule as ApplyPoisonAction), else the action fails and re-fires every tick.
+    template <typename Ids>
+    inline bool HasUsablePoisonItem(PlayerbotAI* ai, Player* bot, const Ids& itemIds)
+    {
+        const bool cheat = ai->HasCheat(BotCheatMask::item);
+        for (const uint32 itemId : itemIds)
+        {
+            const ItemPrototype* proto = sObjectMgr.GetItemPrototype(itemId);
+            if (proto && (bot->GetLevel() >= proto->RequiredLevel))
+            {
+                if (cheat || bot->HasItemCount(itemId, 1))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     class ApplyPoisonTrigger : public Trigger
     {
     public:
@@ -254,18 +291,7 @@ namespace ai
 
         bool HasPoisonItem() const
         {
-            if (ai->HasCheat(BotCheatMask::item))
-                return true;
-            for (const uint32 itemId : poisonItemIds)
-            {
-                const ItemPrototype* proto = sObjectMgr.GetItemPrototype(itemId);
-                if (proto && (bot->GetLevel() >= proto->RequiredLevel))
-                {
-                    if (bot->HasItemCount(itemId, 1))
-                        return true;
-                }
-            }
-            return false;
+            return HasUsablePoisonItem(ai, bot, poisonItemIds);
         }
 
         bool IsActive() override

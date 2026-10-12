@@ -22,6 +22,13 @@ void BlackwingLairDungeonStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
         "boss wants shadow aura",
         NextAction::array(0, new NextAction("swap shadow resistance aura", ACTION_HIGH + 1), NULL)));
 
+    // Boss protection potion (fire/shadow/nature per boss entry, see
+    // ProtectionPotionPolicy.h): only once a listed boss is an attacker, and
+    // below movement, dispels and every heal tier so survival comes first.
+    triggers.push_back(new TriggerNode(
+        "boss protection potion ready",
+        NextAction::array(0, new NextAction("boss protection potion", ACTION_HIGH), NULL)));
+
     triggers.push_back(new TriggerNode(
         "start chromaggus fight",
         NextAction::array(0, new NextAction("enable chromaggus fight strategy", 100.0f), NULL)));
@@ -62,10 +69,6 @@ void ChromaggusFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers
 
 void RazorgoreFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode(
-        "fire protection potion ready",
-        NextAction::array(0, new NextAction("fire protection potion", 100.0f), NULL)));
-
     // Off-tank engage (donor MarkBoss attack arm): tanks attack Razorgore
     // while eggs live so the boss is held from the pull. Non-tanks never
     // see this node; the victim guard + egg check live in the action.
@@ -153,13 +156,6 @@ void NefarianFightStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("disable nefarian fight strategy", 100.0f), NULL)));
 }
 
-void VaelFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
-{
-    triggers.push_back(new TriggerNode(
-        "fire protection potion ready",
-        NextAction::array(0, new NextAction("fire protection potion", 100.0f), NULL)));
-}
-
 void VaelFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
@@ -197,6 +193,29 @@ void BlackwingLairDungeonStrategy::InitNonCombatTriggers(std::list<TriggerNode*>
     triggers.push_back(new TriggerNode(
         "suppression device close",
         NextAction::array(0, new NextAction("disarm suppression device", ACTION_HIGH + 4), NULL)));
+}
+
+// Entering BWL: tell the master which bots lack the Onyxia Scale Cloak
+// (item 15138, equip spell 22683) - without it Shadow Flame from Firemaw,
+// Ebonroc, Flamegor and Nefarian kills them. Warning only; no aura is granted.
+// Runs once per strategy add (map entry), so nothing is polled per tick.
+void BlackwingLairDungeonStrategy::OnStrategyAdded(BotState state)
+{
+    if (state != BotState::BOT_STATE_NON_COMBAT)
+        return;
+
+    Player* bot = ai->GetBot();
+    Player* master = ai->GetMaster();
+    if (!bot || !master || master == bot)
+        return;
+
+    const uint32 ONYXIA_SCALE_CLOAK_ITEM = 15138;
+    Item* back = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_BACK);
+    if (back && back->GetEntry() == ONYXIA_SCALE_CLOAK_ITEM)
+        return;
+
+    ai->TellPlayerNoFacing(master,
+        "I am not wearing the Onyxia Scale Cloak. Shadow Flame from Firemaw, Ebonroc, Flamegor and Nefarian will kill me.");
 }
 
 class SuppressionRoomPassiveMultiplier : public Multiplier

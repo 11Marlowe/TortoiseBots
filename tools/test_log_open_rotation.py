@@ -24,6 +24,7 @@ class LogOpenRotationTest(unittest.TestCase):
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <mutex>
 #include <sys/stat.h>
 #include <system_error>
 #include <unordered_map>
@@ -63,9 +64,13 @@ public:
  uint32_t logRetentionDays=0;
  unordered_map<string,pair<FILE*,bool>> logFiles;
  unordered_map<string,time_t> logHour;
+ static constexpr time_t LOG_OPEN_RETRY_SECONDS = 300;
+ mutex m_logMtx;
+ unordered_map<string,time_t> logOpenFailed;
  ai::LogFileRotation logRotation;
  bool hasLog(string const&) { return enabled; }
  bool openLog(string, char const*, bool haslog=false);
+ bool openLogLocked(string const&, char const*, bool haslog);
  string logsDirPath();
  bool archiveLog(string const& path, time_t now);
  void rotateLogHourly(string const& fileName, FILE* file);
@@ -167,8 +172,16 @@ int main(int argc, char** argv) {
   cfg.enabled=true;
   assert(!cfg.openLog("missing/subdir.csv","w"));
   assert(!cfg.logFiles.at("missing/subdir.csv").first && !cfg.logFiles.at("missing/subdir.csv").second);
+  // A failed file stays off: later events neither retry fopen nor report again.
+  assert(!cfg.openLog("missing/subdir.csv","a"));
+  assert(!cfg.openLog("missing/subdir.csv","a"));
+  assert(sLog.errors==2);
+  // After the cool-down it is tried once more, and reported once more.
+  cfg.logOpenFailed["missing/subdir.csv"]=time(nullptr)-1;
+  assert(!cfg.openLog("missing/subdir.csv","a"));
+  assert(!cfg.openLog("missing/subdir.csv","a"));
  }
- assert(sLog.errors==2);
+ assert(sLog.errors==3);
 }
 '''
         with tempfile.TemporaryDirectory() as tmp:

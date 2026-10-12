@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "SkinningLootPolicy.h"
+#include "LootWindowPolicy.h"
 #include "LootAction.h"
 
 #include "playerbot/LootObjectStack.h"
@@ -68,36 +69,42 @@ enum ProfessionSpells
 bool OpenLootAction::Execute(Event& event)
 {
     LootObject lootObject = AI_VALUE(LootObject, "loot target");
+    // DoLoot re-validates the object (Refresh), which empties lootObject.guid when it is
+    // no longer lootable; keep the guid the attempt was made on.
+    ObjectGuid const lootGuid = lootObject.guid;
     bool result = DoLoot(lootObject);
+    LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+
+    // Bounded give-up: count every open attempt per object on the stack's failure memory
+    // (the same one "move to loot" uses for unreachable corpses). A failed DoLoot
+    // ("not now": failed cast, contended game object, no opening spell) is an attempt,
+    // and so is a "successful" one: for a skin/herb/ore/lock open, success only means the
+    // cast started, and a CMSG_LOOT only means the request was sent. When that cast never
+    // completes or the server refuses the window, the object stays gatherable, the next
+    // "add gathering loot"/"add all loot" sweep re-queues it, and the bot cycled
+    // open -> add -> select -> open on the spot for minutes (live: 11 of 108 standstill runs
+    // of 3+ min, no loot and no skill-up). StoreLootAction forgets the count once a window
+    // pays out, so only opens that never yield anything add up; after three the object is
+    // abandoned for 120 s and the bot moves on. Player-ordered looting only issues the
+    // action once per order, so a counter that needs repeated attempts can never veto a
+    // fresh order.
+    if (!lootGuid.IsEmpty() && lootStack)
+        lootStack->NoteApproachFailure(lootGuid);
+
     if (result)
     {
-        AI_VALUE(LootObjectStack*, "available loot")->Remove(lootObject.guid);
+        if (lootStack)
+            lootStack->Remove(lootGuid);
         context->GetValue<LootObject>("loot target")->Set(LootObject());
         return true;
     }
 
-    // Bounded give-up: DoLoot says "not now" without dropping the corpse on several
-    // paths (failed open/skin/gather cast, a contended game object, no opening spell),
-    // so without a counter the same target re-fires every tick while the bot stands
-    // still. Count consecutive failures per corpse on the stack's failure memory (the
-    // same one "move to loot" uses for unreachable corpses); once it is abandoned the
-    // stack drops it and "loot" selects the next corpse. Player-ordered looting only
-    // issues the action once per order, so a counter that needs repeated failures can
-    // never veto a fresh order.
-    if (!lootObject.IsEmpty())
+    if (!lootGuid.IsEmpty() && lootStack && lootStack->IsAbandoned(lootGuid))
     {
-        LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
-        if (lootStack)
-        {
-            lootStack->NoteApproachFailure(lootObject.guid);
-            if (lootStack->IsAbandoned(lootObject.guid))
-            {
-                sLog.outDebug("[BOT LOOT] %s: giving up on guid=%lu after repeated failed opens",
-                    bot->GetName(), lootObject.guid.GetRawValue());
-                lootStack->Remove(lootObject.guid);
-                context->GetValue<LootObject>("loot target")->Set(LootObject());
-            }
-        }
+        sLog.outDebug("[BOT LOOT] %s: giving up on guid=%lu after repeated failed opens",
+            bot->GetName(), lootGuid.GetRawValue());
+        lootStack->Remove(lootGuid);
+        context->GetValue<LootObject>("loot target")->Set(LootObject());
     }
     return false;
 }
@@ -148,9 +155,8 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
     // them) and left skinners casting Skinning on an unlooted corpse every tick forever.
     if (creature && creature->HasFlag(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_LOOTABLE))
     {
-        // Dismount in the open step (mod-playerbots LootAction.cpp:93-98): the select
-        // triggers veto mounted bots, so without this a bot that mounted after picking
-        // a corpse waits for the mount-state round-trip before the chain can run.
+        // Dismount in the open step (mod-playerbots LootAction.cpp): "loot available"
+        // selects loot while mounted, so this is where a mounted bot gets off.
         if (bot->IsMounted())
             ai->Unmount();
 
@@ -208,10 +214,10 @@ bool OpenLootAction::DoLoot(LootObject& lootObject)
         }
     }
 
-    // Dismount for a game-object node like the corpse path above: the loot
-    // chain refuses mounted bots, so without this a bot that rode to its
-    // node burns its approach failures on casts that never start, the node
-    // is abandoned, and the travel action re-walks the same last yards.
+    // Dismount for a game-object node like the corpse path above: a bot that
+    // rode to its node would otherwise burn its approach failures on casts
+    // that never start, the node is abandoned, and the travel action
+    // re-walks the same last yards.
 
     if (bot->IsMounted())
         ai->Unmount();
@@ -419,8 +425,16 @@ bool StoreLootAction::Execute(Event& event)
         sLog.outDebug("[BOT LOOT] %s: loot REJECTED guid=%lu error=%u (%s)",
             bot->GetName(), guid.GetRawValue(), lootError, errName);
 
-        // Drop the corpse so the bot stops retrying a loot the server won't grant.
-        AI_VALUE(LootObjectStack*, "available loot")->Remove(guid);
+        // Drop the corpse so the bot stops retrying a loot the server won't grant. Abandon it
+        // rather than just unqueue it: the core still shows it lootable, so "add all loot"
+        // re-queued it on the next sweep and the refused open repeated on the same spot. A
+        // player's explicit loot order is only unqueued, so the order is never silently
+        // vetoed by a transient refusal (TOO_FAR, a scripted mob not yet lootable).
+        LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+        if (DecideAfterLootWindow(true, false, lootStack->TakePlayerOrder(guid)) == LootWindowVerdict::Abandon)
+            lootStack->Abandon(guid);
+        else
+            lootStack->Remove(guid);
         RESET_AI_VALUE(LootObject, "loot target");
         return false;
     }
@@ -434,7 +448,8 @@ bool StoreLootAction::Execute(Event& event)
     // loot_type cannot identify a skin (#403): the core rewrites LOOT_SKINNING to LOOT_PICKPOCKETING
     // for the 1.12 client (Player::SendLoot), so every skin arrives as LOOT_PICKPOCKETING. The
     // server-side Loot still carries the real type (loot->loot_type), which is what marks a skin.
-    // A node window is ordinary loot on a game object, so its skill comes from the object's lock.
+    // A node window (herb, ore, opened chest) also arrives as LOOT_SKINNING (EffectOpenLock), so a
+    // game object's skill comes from its lock, never from the loot type.
     bot->SetLootGuid(guid);
 
     Loot* loot = sLootMgr.GetLoot(bot);
@@ -559,7 +574,29 @@ bool StoreLootAction::Execute(Event& event)
         BroadcastHelper::BroadcastLootingItem(ai, bot, proto, itemQualifier);
     }
 
-    AI_VALUE(LootObjectStack*, "available loot")->Remove(guid);
+    // The open paid out: forget the attempts OpenLootAction counted on this object, so a
+    // multi-use ore vein or a loot-then-skin corpse is never cut short. A window that gave
+    // this bot nothing (every item under a roll, view-only, unwanted, or no bag room) leaves
+    // the corpse lootable for the core: abandon it so the next "add all loot" sweep does not
+    // re-queue it and re-open the same empty window. A player's explicit order is only
+    // unqueued and keeps its open count (LootWindowPolicy).
+    LootObjectStack* lootStack = AI_VALUE(LootObjectStack*, "available loot");
+    bool const playerOrdered = lootStack->TakePlayerOrder(guid);
+    switch (DecideAfterLootWindow(false, itemsTaken || gold, playerOrdered))
+    {
+    case LootWindowVerdict::ForgetFailures:
+        lootStack->ForgetFailures(guid);
+        break;
+    case LootWindowVerdict::Abandon:
+        sLog.outDebug("[BOT LOOT] %s: abandoning guid=%lu (window gave nothing)",
+            bot->GetName(), guid.GetRawValue());
+        lootStack->Abandon(guid);
+        break;
+    case LootWindowVerdict::KeepCount:
+        break;
+    }
+
+    lootStack->Remove(guid);
     RESET_AI_VALUE(LootObject, "loot target");
     RESET_AI_VALUE2(bool, "should loot object", std::to_string(guid.GetRawValue()));
 

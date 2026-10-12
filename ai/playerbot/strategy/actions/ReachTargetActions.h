@@ -204,15 +204,29 @@ namespace ai
                     // not a stuck spot: the bot keeps after it instead of abandoning a nearly dead
                     // mob and blacklisting its kind.
                     bool const runner = target->HasUnitState(UNIT_STAT_FLEEING | UNIT_STAT_CONFUSED);
+                    // A creature in sight that is hitting one of us - the bot, its master, a group
+                    // member or one of their pets - is a live fight, not a stuck spot, the same as
+                    // one hitting the bot. In a party it often turns to the mage or healer, and the
+                    // clock above was last anchored when the bot first closed in, so the first
+                    // "reach melee" after the turn gave up on it at once: the rogue and the tank
+                    // dropped a 30000-HP wolf mid-fight, and the five-minute "unreachable entries"
+                    // mark then kept the tank off the next two wolves of that kind.
+                    Unit* const victim = target->GetVictim();
+                    Player* const victimPlayer = victim ? victim->GetCharmerOrOwnerPlayerOrPlayerItself() : nullptr;
+                    bool const hitsOurSide = victim == bot || (target->IsCreature() && victimPlayer &&
+                        (bot->IsInSameRaidWith(victimPlayer) || victimPlayer == GetMaster()));
                     bool const noHeadway = !runner && nowMs - noLosSinceMs >= kNoHeadwayMs &&
-                        (target->GetVictim() != bot || !inLos || cannotBeReached);
+                        (!hitsOurSide || !inLos || cannotBeReached);
                     bool const outOfReach = range > 0.0f
                         ? distanceToTarget > range * 1.4f
                         : !bot->CanReachWithMeleeAutoAttack(target);
                     bool const fighting = !cannotBeReached && (bot->IsInCombat() || target->GetVictim() == bot);
                     bool const stoodStill = !runner && outOfReach && !fighting && nowMs - stoodSinceMs >= kNoMoveMs;
 
-                    if (noHeadway || stoodStill)
+                    // Group instance targets remain the party's fight even when reach
+                    // stalls. Do not blacklist the boss or discard the attack order.
+                    bool const groupInstanceFight = bot->GetGroup() && bot->GetMap() && bot->GetMap()->IsDungeon();
+                    if (!groupInstanceFight && (noHeadway || stoodStill))
                     {
                         // The attacker exception only holds in sight: a mob that "attacks" the bot
                         // from out of sight for 15 s without closing in is stuck as well (a Wendigo in
@@ -341,7 +355,7 @@ namespace ai
 
         // True for reach actions whose target is always meant to be attacked
         // (melee, pull) - false for "reach spell", which is also used to close
-        // distance on friendly targets (e.g. Blessing of Protection/Freedom).
+        // distance on friendly targets (e.g. Hand of Protection/Freedom).
         virtual bool RequiresAttackableTarget() const { return false; }
 
         virtual bool isUseful() override
@@ -437,6 +451,25 @@ namespace ai
     public:
         ReachMeleeAction(PlayerbotAI* ai) : ReachTargetAction(ai, "reach melee") {}
         bool RequiresAttackableTarget() const override { return true; }
+
+        // Nothing to walk for while the target is in melee reach. A melee
+        // strike (CastMeleeSpellAction, range ATTACK_DISTANCE) is castable
+        // exactly when the bot can reach the target with melee auto-attack, and
+        // "enemy out of melee" fires on the same test. The base check compares
+        // the strike's DBC range (combat range -> the bot's own combat reach,
+        // ~1.5 yd) with an edge distance, so from ~2 yd to the end of melee
+        // reach the "reach melee::<strike>" prerequisite ran instead of the
+        // strike, every tick while the target kept moving or turning: white
+        // hits landing, energy/rage pooled, last action "reach melee". Donor
+        // mod-playerbots: reach melee is useful only outside combat range.
+        bool isUseful() override
+        {
+            Unit* target = GetTarget();
+            if (target && bot->CanReachWithMeleeAutoAttack(target) && bot->IsWithinLOSInMap(target, true))
+                return false;
+
+            return ReachTargetAction::isUseful();
+        }
     };
 
     class ReachSpellAction : public ReachTargetAction

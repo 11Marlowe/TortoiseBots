@@ -204,6 +204,7 @@ namespace ai
 
             creators["bg waiting"] = [](PlayerbotAI* ai) { return new BgWaitingTrigger(ai); };
             creators["bg active"] = [](PlayerbotAI* ai) { return new BgActiveTrigger(ai); };
+            creators["bg objective far"] = [](PlayerbotAI* ai) { return new BgObjectiveFarTrigger(ai); };
             creators["bg ended"] = [](PlayerbotAI* ai) { return new BgEndedTrigger(ai); };
             creators["timer bg"] = [](PlayerbotAI* ai) { return new TimerBgTrigger(ai); };
             creators["bg invite active"] = [](PlayerbotAI* ai) { return new BgInviteActiveTrigger(ai); };
@@ -342,6 +343,7 @@ namespace ai
             creators["raid spread needed"] = [](PlayerbotAI* ai) { return new RaidSpreadNeededTrigger(ai); };
             creators["boss wants fire aura"] = [](PlayerbotAI* ai) { return new BossWantsFireAuraTrigger(ai); };
             creators["boss wants shadow aura"] = [](PlayerbotAI* ai) { return new BossWantsShadowAuraTrigger(ai); };
+            creators["resist aura swap over"] = [](PlayerbotAI* ai) { return new ResistAuraSwapOverTrigger(ai); };
             creators["spread needed"] = [](PlayerbotAI* ai) { return new SpreadNeededTrigger(ai); };
 
             creators["start onyxia fight"] = [](PlayerbotAI* ai) { return new OnyxiaStartFightTrigger(ai); };
@@ -372,6 +374,7 @@ namespace ai
             creators["geddon inferno"] = [](PlayerbotAI* ai) { return new GeddonInfernoTrigger(ai); };
 
             creators["fire protection potion ready"] = [](PlayerbotAI* ai) { return new FireProtectionPotionReadyTrigger(ai); };
+            creators["boss protection potion ready"] = [](PlayerbotAI* ai) { return new BossProtectionPotionReadyTrigger(ai); };
 
             creators["mc rune in sight"] = [](PlayerbotAI* ai) { return new MCRuneInSightTrigger(ai); };
             creators["mc rune close"] = [](PlayerbotAI* ai) { return new MCRuneCloseTrigger(ai); };

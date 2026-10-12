@@ -2,7 +2,34 @@
 #include "playerbot/playerbot.h"
 #include "LootTriggers.h"
 #include "playerbot/LootObjectStack.h"
+#include "playerbot/PlayerbotAIConfig.h"
 using namespace ai;
+
+namespace
+{
+    // Any live hostile in sight range (walls ignored), the mod-playerbots "all targets" test.
+    // Reads the "possible targets" list that AttackersValue::AddTargetsOf fills for this bot
+    // with the same qualifier (sight range, unvalidated), so it is normally the cached list;
+    // at worst it refreshes once a second, and only while loot waits for a target.
+    // Neutral mobs (they do not aggro) and unselectable trigger NPCs do not count.
+    bool HasHostileInSight(PlayerbotAI* ai, Player* bot)
+    {
+        const std::string qualifier = Qualified::MultiQualify(
+            { std::to_string((int32)sPlayerbotAIConfig.sightDistance), std::to_string(true) }, ":");
+        const std::list<ObjectGuid> units =
+            ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible targets", qualifier)->Get();
+        for (const ObjectGuid& guid : units)
+        {
+            Unit* unit = ai->GetUnit(guid);
+            if (!unit || !unit->IsAlive() || !bot->IsHostileTo(unit))
+                continue;
+            if (unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE | UNIT_FLAG_NOT_ATTACKABLE_1))
+                continue;
+            return true;
+        }
+        return false;
+    }
+}
 
 bool LootAvailableTrigger::IsActive()
 {
@@ -23,10 +50,34 @@ bool LootAvailableTrigger::IsActive()
     // the bot kneel for lootDelay next to an add that already had it as its victim - while a kill
     // still loots at once (the dead mob is gone from the set) and a corpse held up by a real fight
     // waits in the stack for LOOT_OBJECT_TTL_SECONDS instead of being lost.
-    if (AI_VALUE2(bool, "mounted", "self target") || !bot->GetAttackers().empty())
+    //
+    // A mounted bot selects loot too (mod-playerbots LootTriggers.cpp has no mount
+    // gate); "open loot" dismounts it at the corpse or node. The old "mounted" veto
+    // deadlocked travel: "move to travel target" stands down while the stack holds
+    // possible loot within lootDistance, so a bot that rode past a herb/ore node or a
+    // chest stood mounted next to it, and "add gathering loot" kept refreshing the
+    // node so it never aged out. Live pool 2026-10-11: 11 of 108 standstills, 3-12 min
+    // each, ended only by a buff cast that happened to dismount or a long-stuck rescue.
+    // Taxi flight keeps the veto: the bot cannot leave the flight path.
+    //
+    // Only for masterless bots: an owned/hired bot following a mounted player keeps the
+    // old mounted veto, or it would dismount at every node and chest near the road,
+    // get pulled away by "follow" and have to remount again and again.
+    if (bot->IsTaxiFlying() || !bot->GetAttackers().empty())
+        return false;
+
+    if (ai->HasRealPlayerMaster() && AI_VALUE2(bool, "mounted", "self target"))
         return false;
 
     if (!AI_VALUE(bool, "has available loot"))
+        return false;
+
+    // In a dungeon or raid, pick a corpse only when no hostile is in sight, or when one lies
+    // within reach (mod-playerbots LootAvailableTrigger). Otherwise a bot walked to a corpse
+    // that fell beside an unpulled pack or a patrol path and pulled it. The open world keeps
+    // the ungated rule below: there a sight-range gate would stop looting in busy zones.
+    if (bot->GetMap()->IsDungeon() && HasHostileInSight(ai, bot) &&
+        AI_VALUE(LootObjectStack*, "available loot")->GetLoot(INTERACTION_DISTANCE - 2.0f).IsEmpty())
         return false;
 
     // Loot every corpse this bot (or its group) killed and may loot before

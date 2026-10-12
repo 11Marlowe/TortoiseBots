@@ -3,6 +3,7 @@
 #include "GenericActions.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/RandomItemMgr.h"
+#include "playerbot/strategy/values/TargetValue.h"
 
 namespace ai
 {
@@ -354,7 +355,13 @@ namespace ai
         UseOilOfImmolationAction(PlayerbotAI* ai) : UseItemIdAction(ai, "oil of immolation") {}
         virtual bool isUseful() override
         {
-            return UseItemIdAction::isUseful() && bot->GetLevel() >= 31 && !ai->HasAura(11350, bot);
+            if (!UseItemIdAction::isUseful() || bot->GetLevel() < 31 || ai->HasAura(11350, bot))
+                return false;
+            // The oil burns every mob near the user for its whole duration:
+            // never start it beside a sheeped mob or a CC mark about to be
+            // sheeped (same rule as Blade Flurry).
+            CcGuard ccGuard(ai);
+            return !ccGuard.ProtectedEnemyNear(bot, 8.0f, true);
         }
 
         virtual uint32 GetItemId() override { return 8956; }
@@ -563,6 +570,20 @@ namespace ai
         }
 
         virtual uint32 GetItemId() override { return 13457; }
+    };
+
+    // Greater Protection Potion for the listed raid boss among the bot's
+    // attackers (ProtectionPotionPolicy.h); 0 when none is in the fight.
+    uint32 FindBossProtectionPotion(PlayerbotAI* ai, uint32* buffSpellId = nullptr);
+
+    class UseBossProtectionPotionAction : public UseItemIdAction
+    {
+    public:
+        UseBossProtectionPotionAction(PlayerbotAI* ai) : UseItemIdAction(ai, "boss protection potion") {}
+
+        virtual bool isUseful() override;
+
+        virtual uint32 GetItemId() override { return FindBossProtectionPotion(ai); }
     };
 
     class UseFreeActionPotionAction : public UseItemIdAction

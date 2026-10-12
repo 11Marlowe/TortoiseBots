@@ -80,19 +80,18 @@ bool AwaitsTravelStep(PlayerbotAI* ai)
 // The situation that caps how long a pool bot may wait for its next turn
 // (BotTurnScheduler.h). Takes the FindPlayerNotInWorld lookup, so a bot
 // mid-teleport is still seen; no player at all (logging in/out) waits as Normal.
-TurnSituation TurnSituationOf(::Player* player)
+// The AI's combat state counts as combat too (one member read; ai may be null).
+TurnSituation TurnSituationOf(::Player* player, PlayerbotAI* ai)
 {
     if (!player)
         return TurnSituation::Normal;
-    if (player->IsBeingTeleported())
-        return TurnSituation::Teleport;
-    if (!player->IsAlive())
-        return TurnSituation::Dead;
-    if (player->IsInCombat())
-        return TurnSituation::Combat;
-    if (player->InBattleGround())
-        return TurnSituation::Battleground;
-    return TurnSituation::Normal;
+    TurnFacts facts;
+    facts.teleporting = player->IsBeingTeleported();
+    facts.alive = player->IsAlive();
+    facts.coreCombat = player->IsInCombat();
+    facts.aiCombat = ai && ai->GetState() == BotState::BOT_STATE_COMBAT;
+    facts.battleground = player->InBattleGround();
+    return TurnSituationFrom(facts);
 }
 
 // One-shot headless RNDBOT scatter using persisted GenericRpg destinations.
@@ -184,6 +183,10 @@ ai::WorldPosition const* PickLevelFittingPoint(::Player* bot)
                 (PlayerbotAIConfig::IsIsolatedCustomZone(zoneId) || PlayerbotAIConfig::IsIsolatedCustomZone(area->Id)))
                 continue;
             if (point->IsEnemyHomeZoneFor(info.GetTeam()))
+                continue;
+            // Never land a bot among hostile town guards: the hostile-town
+            // death-loop rescue below would otherwise move it into another one.
+            if (sPlayerbotAIConfig.avoidHostileTowns && point->IsGuardedHostileTownFor(bot, 120.0f, false))
                 continue;
             int32 areaLevel;
             if (!travelMgr.TryGetValidatedAreaLevel(area->Id, areaLevel))
@@ -311,6 +314,26 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why =
         return true;
     }
 
+    // Bots those guards keep killing revive outside the town - the spirit
+    // healer often stands just beyond them (Horde at the Redridge graveyard
+    // beside Lakeshire) - and their travel target walks them straight back in.
+    // Two such deaths in half an hour count as hopeless too (PlayerbotAI::OnDeath).
+    if (sPlayerbotAIConfig.avoidHostileTowns)
+    {
+        ::PlayerbotAI* townAi = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (townAi && townAi->GetRecentHostileTownDeaths() >= ::PlayerbotAI::kHostileTownLoopDeaths)
+        {
+            // The bot's real area level when the cache knows it, else 0 (logged as
+            // n/a). RelocateHopelessBot skips its death minimum for a town loop, so
+            // the number only feeds the log line.
+            int32 loopAreaLevel = 0;
+            if (!MaNGOS::Singleton<ai::TravelMgr>::Instance().TryGetValidatedAreaLevel(bot->GetAreaId(), loopAreaLevel) || loopAreaLevel < 0)
+                loopAreaLevel = 0;
+            areaLevelOut = loopAreaLevel;
+            return true;
+        }
+    }
+
     auto& travelMgr = MaNGOS::Singleton<ai::TravelMgr>::Instance();
     int32 areaLevel = 0;
     if (!travelMgr.TryGetValidatedAreaLevel(bot->GetAreaId(), areaLevel) || areaLevel <= 0)
@@ -383,9 +406,14 @@ bool TeleportMisplacedBot(::Player* bot, int32 areaLevel, const std::string& cau
     {
         if (auto* deathCountValue = ai->GetAiObjectContext()->GetValue<uint32>("death count"))
             deathCountValue->Reset();
+        ai->ClearHostileTownDeaths();
     }
-    sLog.outString("TortoiseBots: relocated %s %s level %u from area level %d",
-        cause.c_str(), bot->GetName(), bot->GetLevel(), areaLevel);
+    if (areaLevel > 0)
+        sLog.outString("TortoiseBots: relocated %s %s level %u from area level %d",
+            cause.c_str(), bot->GetName(), bot->GetLevel(), areaLevel);
+    else
+        sLog.outString("TortoiseBots: relocated %s %s level %u from area level n/a",
+            cause.c_str(), bot->GetName(), bot->GetLevel());
     return true;
 }
 } // namespace
@@ -643,13 +671,32 @@ bool BotManager::RelocateHopelessBot(::Player* bot)
     uint32 minDeaths = ((bot->GetLevel() < 10 && areaLevel >= 20) ||
         (!sPlayerbotAIConfig.allowIsolatedCustomStartingZones &&
          (PlayerbotAIConfig::IsIsolatedCustomZone(bot->GetAreaId()) || PlayerbotAIConfig::IsIsolatedCustomZone(bot->GetZoneId())))) ? 1 : 2;
-    if (deathCount < minDeaths)
+    // A hostile-town loop counts its own deaths: an XP tick between two guard
+    // deaths resets "death count" but not the loop.
+    bool const townLoop = sPlayerbotAIConfig.avoidHostileTowns &&
+        ai->GetRecentHostileTownDeaths() >= ::PlayerbotAI::kHostileTownLoopDeaths;
+    if (deathCount < minDeaths && !townLoop)
     {
         TB_LOG_DEBUG("TortoiseBots: hopeless check %s level %u zone %u area %u (level %d) deaths %u: below %u, not yet",
             bot->GetName(), bot->GetLevel(), bot->GetZoneId(), bot->GetAreaId(), areaLevel, deathCount, minDeaths);
         return false;
     }
-    return TeleportMisplacedBot(bot, areaLevel, "hopeless bot (" + std::to_string(deathCount) + " deaths)");
+    if (!TeleportMisplacedBot(bot, areaLevel, townLoop ? std::string("hostile-town death loop") :
+            "hopeless bot (" + std::to_string(deathCount) + " deaths)"))
+        return false;
+    // The travel target that led the bot through the guards would walk it back
+    // from wherever it lands: drop it so the next pick starts from the new spot.
+    if (townLoop)
+    {
+        auto* travelHolder = ai->GetAiObjectContext()->GetValue<ai::TravelTarget*>("travel target");
+        if (ai::TravelTarget* target = travelHolder ? travelHolder->Get() : nullptr)
+        {
+            MaNGOS::Singleton<ai::TravelMgr>::Instance().SetNullTravelTarget(target);
+            target->SetStatus(ai::TravelStatus::TRAVEL_STATUS_EXPIRED);
+            target->SetExpireIn(1000);
+        }
+    }
+    return true;
 }
 
 bool BotManager::RelocateStrandedBot(::Player* bot)
@@ -1909,7 +1956,7 @@ void BotManager::UpdateBots(uint32_t diff)
                     ++entry.followUps;
                     aiDelayMs = 0;
                 }
-                entry.turnSituation = TurnSituationOf(sObjectAccessor.FindPlayerNotInWorld(entry.record.characterGuid));
+                entry.turnSituation = TurnSituationOf(sObjectAccessor.FindPlayerNotInWorld(entry.record.characterGuid), stepAi);
                 entry.turnDueMs = TurnNextDueMs(WorldTimer::getMSTime(), aiDelayMs, entry.turnSituation);
             }
 
@@ -1963,7 +2010,8 @@ void BotManager::UpdateBots(uint32_t diff)
         if (it == m_bots.end() || it->second.record.lifecycle != BotLifecycle::InWorld)
             continue;
         BotEntry& entry = it->second;
-        TurnSituation const situation = TurnSituationOf(sObjectAccessor.FindPlayerNotInWorld(entry.record.characterGuid));
+        TurnSituation const situation = TurnSituationOf(sObjectAccessor.FindPlayerNotInWorld(entry.record.characterGuid),
+            entry.aiAdapter ? entry.aiAdapter->GetAI() : nullptr);
         if (situation != entry.turnSituation || entry.turnDueMs == 0)
         {
             entry.turnSituation = situation;
@@ -1982,6 +2030,7 @@ void BotManager::UpdateBots(uint32_t diff)
     uint64_t const turnsStartUs = budgetActive ? nowUs() : 0;
     uint32_t poolProcessed = 0;
     bool budgetHit = false;
+    uint64_t const turnLoopStartUs = nowUs();
     for (DueTurn const& turn : m_dueTurns)
     {
         if (budgetActive && nowUs() - turnsStartUs >= budgetUs)
@@ -1993,9 +2042,20 @@ void BotManager::UpdateBots(uint32_t diff)
         m_perfLateMsSum += lateMs;
         m_perfLateMsMax = std::max(m_perfLateMsMax, lateMs);
         ++m_perfTurns;
+        if (turn.situation == TurnSituation::Combat)
+        {
+            m_perfCombatLateMsSum += lateMs;
+            ++m_perfCombatTurns;
+        }
+        else
+        {
+            m_perfOtherLateMsSum += lateMs;
+            ++m_perfOtherTurns;
+        }
         updateOneBot(turn.guidLow);
         ++poolProcessed;
     }
+    m_perfTurnLoopUsSum += nowUs() - turnLoopStartUs;
 
     m_inBotUpdate = false;
 
@@ -2020,14 +2080,23 @@ void BotManager::UpdateBots(uint32_t diff)
     m_perfElapsedMs += diff;
     if (m_perfElapsedMs >= 30000)
     {
-        TB_LOG_BASIC("TortoiseBots: BOTPERF passUs=%llu playerBots=%u ownedBots=%u masterBots=%u poolBots=%u poolProcessed=%u due=%u budgetHit=%u maxUs=%llu ticks=%u poolBudgetUs=%llu combatBudgetUs=%llu turnLateAvgMs=%u turnLateMaxMs=%u",
+        // coreMs: average world tick minus the average bot pass, i.e. what the
+        // core and other services spend per tick that bots cannot give back.
+        uint64_t const tickUsAvg = (static_cast<uint64_t>(m_perfElapsedMs) * 1000) / m_perfPassCount;
+        uint64_t const passUsAvg = m_perfPassUsSum / m_perfPassCount;
+        uint64_t const coreMs = tickUsAvg > passUsAvg ? (tickUsAvg - passUsAvg) / 1000 : 0;
+        TB_LOG_BASIC("TortoiseBots: BOTPERF passUs=%llu playerBots=%u ownedBots=%u masterBots=%u poolBots=%u poolProcessed=%u due=%u budgetHit=%u maxUs=%llu ticks=%u poolBudgetUs=%llu combatBudgetUs=%llu turnLateAvgMs=%u turnLateMaxMs=%u turns=%u usPerTurn=%u coreMs=%u combatTurns=%u combatLateAvgMs=%u otherTurns=%u otherLateAvgMs=%u",
             static_cast<unsigned long long>(m_perfPassUsSum / m_perfPassCount),
             playerBots, ownedAccountBots, masterBots, poolBots, poolProcessed,
             static_cast<uint32_t>(m_dueTurns.size()), budgetHit ? 1u : 0u,
             static_cast<unsigned long long>(m_perfPassUsMax), m_perfPassCount,
             static_cast<unsigned long long>(m_adaptiveBudget.PoolUs()),
             static_cast<unsigned long long>(m_adaptiveBudget.CombatUs()),
-            m_perfTurns ? static_cast<uint32_t>(m_perfLateMsSum / m_perfTurns) : 0u, m_perfLateMsMax);
+            m_perfTurns ? static_cast<uint32_t>(m_perfLateMsSum / m_perfTurns) : 0u, m_perfLateMsMax,
+            m_perfTurns, m_perfTurns ? static_cast<uint32_t>(m_perfTurnLoopUsSum / m_perfTurns) : 0u,
+            static_cast<uint32_t>(coreMs),
+            m_perfCombatTurns, m_perfCombatTurns ? static_cast<uint32_t>(m_perfCombatLateMsSum / m_perfCombatTurns) : 0u,
+            m_perfOtherTurns, m_perfOtherTurns ? static_cast<uint32_t>(m_perfOtherLateMsSum / m_perfOtherTurns) : 0u);
         m_perfPassUsSum = 0;
         m_perfPassUsMax = 0;
         m_perfPassCount = 0;
@@ -2035,6 +2104,11 @@ void BotManager::UpdateBots(uint32_t diff)
         m_perfTurns = 0;
         m_perfLateMsSum = 0;
         m_perfLateMsMax = 0;
+        m_perfTurnLoopUsSum = 0;
+        m_perfCombatTurns = 0;
+        m_perfCombatLateMsSum = 0;
+        m_perfOtherTurns = 0;
+        m_perfOtherLateMsSum = 0;
     }
 
     // Cumulative action-count snapshot every 5 minutes of tick time. The dump

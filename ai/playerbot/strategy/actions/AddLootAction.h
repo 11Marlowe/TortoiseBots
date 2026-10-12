@@ -1,6 +1,8 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
 #include "GenericActions.h"
+#include <map>
+#include <ctime>
 
 namespace ai
 {
@@ -35,6 +37,17 @@ namespace ai
         virtual bool AddLoot(Player* requester, ObjectGuid guid);
         virtual bool Execute(Event& event) override;
 
+        // Whisper "X is blocking Y" at most once per object per cool-down, never in a
+        // dungeon or while the bot is in combat (the refusal itself is unchanged).
+        void TellBlocked(Player* requester, ObjectGuid objectGuid, const std::string& text);
+
+    private:
+        std::map<ObjectGuid, time_t> blockedTold;
+
+    protected:
+        // Set per Execute: this run is a player's explicit "loot" order (LootWindowPolicy).
+        bool playerOrder = false;
+
 #ifdef GenerateBotHelp
         virtual std::string GetHelpName() { return "add all loot"; }
         virtual std::string GetHelpDescription()
@@ -51,6 +64,7 @@ namespace ai
     {
     public:
         AddGatheringLootAction(PlayerbotAI* ai) : AddAllLootAction(ai, "add gathering loot") {}
+        virtual bool isUseful() override;
 
     private:
         bool AddLoot(Player* requester, ObjectGuid guid) override;

@@ -1032,6 +1032,13 @@ void PlayerbotAI::SetActionDuration(uint32 duration)
     SetAIInternalUpdateDelay(duration);
 }
 
+std::string const& PlayerbotAI::GetLastExecutedTrigger(BotState state) const
+{
+    static std::string const empty;
+    const Engine* engine = engines[(uint8)state];
+    return engine ? engine->GetLastExecutedTrigger() : empty;
+}
+
 const Action* PlayerbotAI::GetLastExecutedAction(BotState state) const
 {
     const Engine* engine = engines[(uint8)state];
@@ -1622,6 +1629,43 @@ void PlayerbotAI::OnDeath()
                 prevKillerEntry_ = lastKiller_.entry;
                 prevKillerMs_ = nowMs;
             }
+            // Errand death park: a second death inside fifteen minutes while
+            // pursuing the same non-grind destination (hand-in, quest giver or
+            // objective, node, trainer, vendor...) parks that destination for
+            // half an hour and drops the target, so the next pick goes
+            // elsewhere instead of walking the same deadly route again. Runs
+            // before the cluster escape below, which may drop the target.
+            // Pool bots without a real player master only; a forced target
+            // (an explicit order) is never counted or parked.
+            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot))
+            {
+                TravelTarget* errandTarget = AI_VALUE(TravelTarget*, "travel target");
+                TravelDestination* errandDest = errandTarget ? errandTarget->GetDestination() : nullptr;
+                uint32 const errandPurpose = errandDest ? (uint32)errandDest->GetPurpose() : 0;
+                int32 const errandEntry = errandDest ? errandDest->GetEntry() : 0;
+                if (errandDest && !errandTarget->IsForced() && errandEntry != 0 &&
+                    errandPurpose != (uint32)TravelDestinationPurpose::None &&
+                    errandPurpose != (uint32)TravelDestinationPurpose::Grind &&
+                    typeid(*errandDest) != typeid(NullTravelDestination))
+                {
+                    uint32 const nowErrandMs = WorldTimer::getMSTime();
+                    errandDeathCount_ = ai::NextErrandDeathCount(errandDeathCount_, errandDeathPurpose_,
+                        errandDeathEntry_, errandPurpose, errandEntry, nowErrandMs, errandDeathMs_);
+                    errandDeathPurpose_ = errandPurpose;
+                    errandDeathEntry_ = errandEntry;
+                    errandDeathMs_ = nowErrandMs;
+                    if (errandDeathCount_ >= ai::kErrandDeathsToPark)
+                    {
+                        errandDeathCount_ = 0; // the next death on it starts a fresh streak
+                        ai::AddErrandPark(errandParks_, ai::kErrandParkSlots, errandPurpose, errandEntry, nowErrandMs);
+                        sPlayerbotAIConfig.logEvent(this, "ErrandParked", errandDest->GetTitle(), WorldPosition(bot).GetAreaName());
+                        TellDebug(GetMaster(), "Giving up on " + errandDest->GetTitle() + " for a while - I died on the way twice", "debug travel");
+                        sTravelMgr.SetNullTravelTarget(errandTarget);
+                        errandTarget->SetStatus(TravelStatus::TRAVEL_STATUS_EXPIRED);
+                        errandTarget->SetExpireIn(1000);
+                    }
+                }
+            }
             // Death-cluster escape: kDeathClusterDeaths deaths inside one small area
             // within a window mean the bot is looping on a camp it cannot survive
             // there, whatever the killer kind is. The per-kind rule above only trips
@@ -1714,6 +1758,23 @@ void PlayerbotAI::OnDeath()
                         }
                     }
                 }
+            }
+            // Hostile-town death loop: a bot killed by the guards of an enemy town
+            // revives at the nearest spirit healer, often just outside that town
+            // (Horde at the Redridge graveyard beside Lakeshire: 25 Lakeshire Guard
+            // kills in 16 minutes, one rogue 12 times), and the travel target it
+            // still holds walks it straight back through the guards - the route
+            // check only covers named route nodes, never the graveyard leg or a
+            // short hop. Count deaths within 120 yd of hostile guards (neutral-town
+            // bruisers excluded); the post-rez rescue moves the bot away at
+            // kHostileTownLoopDeaths (BotManager::RelocateHopelessBot).
+            if (sPlayerbotAIConfig.avoidHostileTowns && WorldPosition(bot).IsGuardedHostileTownFor(bot, 120.0f, false))
+            {
+                uint32 const nowTownMs = WorldTimer::getMSTime();
+                if (!GetRecentHostileTownDeaths())
+                    hostileTownDeathCount_ = 0;
+                ++hostileTownDeathCount_;
+                hostileTownDeathMs_ = nowTownMs;
             }
             // Killed by a player (entry == 0, not the environment): avoid that
             // named killer for a while so two masterless random bots grinding the
@@ -2821,7 +2882,13 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 }
 
                 MANGOS_ASSERT(!message.empty());
-                QueueChatResponse(msgtype, guid1, ObjectGuid(), message, chanName, name, isAiChat);
+                // A GM-tagged speaker arrives as `|c1049e6ff<text>|r`; strip it so the
+                // reply blocklists ("attack", "e [..]", ...) still recognise a command
+                // and the bot does not answer it with the REPLY_ADMIN_ABUSE insults.
+                std::string replyMessage = message;
+                StripGmBadgeColor(replyMessage);
+                if (!replyMessage.empty())
+                    QueueChatResponse(msgtype, guid1, ObjectGuid(), replyMessage, chanName, name, isAiChat);
                 GetAiObjectContext()->GetValue<time_t>("last said", "chat")->Set(time(0) + urand(5, 25));
 
                 return;
@@ -3582,8 +3649,16 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
     if (m_forcedRole)
     {
         char const* roleStrategy = m_forcedRole == 1 ? "tank" : (m_forcedRole == 2 ? "heal" : "dps");
-        engines[(uint8)BotState::BOT_STATE_COMBAT]->addStrategy(roleStrategy);
-        engines[(uint8)BotState::BOT_STATE_NON_COMBAT]->addStrategy(roleStrategy);
+        for (BotState state : { BotState::BOT_STATE_COMBAT, BotState::BOT_STATE_NON_COMBAT })
+        {
+            Engine* engine = engines[(uint8)state];
+            // Priests heal from two specs and "heal" aliases Holy, which
+            // would drop a Discipline priest's own spec as a sibling. A
+            // Discipline priest is already a healer, so it keeps its spec.
+            if (m_forcedRole == 2 && engine->HasStrategy("discipline"))
+                continue;
+            engine->addStrategy(roleStrategy);
+        }
         sLog.outBasic("LFT: %s strategies rebuilt as %s", bot->GetName(), roleStrategy);
     }
 
@@ -5105,7 +5180,23 @@ bool PlayerbotAI::CanCastSpell(uint32 spellid, Unit* target, uint8 effectMask, b
             }
         }
 
-        if (!damage)
+        if (damage)
+        {
+            // Damage spells skip the per-effect check below (mechanic/effect immunities do not stop damage),
+            // but a school or damage immunity (fire elementals, Ice Block) makes the cast do nothing: report it
+            // as not castable so the rotation falls through to the next row (e.g. Frostbolt).
+            if (target->IsImmuneToDamage(spellInfo->GetSpellSchoolMask(), spellInfo) ||
+                target->IsImmuneToSpell(spellInfo, bot == target))
+            {
+                if (checkResult)
+                {
+                    *checkResult = SPELL_FAILED_IMMUNE;
+                }
+
+                return false;
+            }
+        }
+        else
         {
             for (int32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; i++)
             {
@@ -6881,7 +6972,7 @@ void PlayerbotAI::RemoveShapeshift()
     RemoveAura("cat form");
     RemoveAura("aquatic form");
     RemoveAura("ghost wolf");
-    RemoveAura("tree of life");
+    RemoveAura("tree of life form");
 }
 
 uint32 PlayerbotAI::GetEquipGearScore(Player* player, bool withBags, bool withBank)

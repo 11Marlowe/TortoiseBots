@@ -15,8 +15,25 @@ namespace ai
     // fallback has to stay available for that hunter.
     bool HunterHasLoadedRangedWeapon(PlayerbotAI* ai);
 
+    // [Turtle] Steady Shot weave gate: true when a Steady Shot started now
+    // ends early enough that the next Auto Shot is not delayed. Shared by the
+    // trigger and the action, because a queued basket can outlive the window.
+    bool HunterSteadyShotFitsAutoShotWindow(PlayerbotAI* ai, uint32 spellId);
+
     BEGIN_RANGED_DEBUFF_ACTION(CastHuntersMarkAction, "hunter's mark")
     END_SPELL_ACTION()
+
+    // One step straight out of the shot's dead zone while the pet, a tank or
+    // anyone else holds the mob (HunterDeadZoneStepOutTrigger). Point move to
+    // a checked spot (LOS, path), fanned up to 90 degrees off straight back
+    // like mod-playerbots 79bd428 MovementAction::MoveAway. While the step
+    // runs it holds without re-dispatching; it never chases or loops.
+    class HunterStepOutAction : public MovementAction
+    {
+    public:
+        HunterStepOutAction(PlayerbotAI* ai) : MovementAction(ai, "hunter step out") {}
+        bool Execute(Event& event) override;
+    };
 
     class CastAutoShotAction : public CastSpellAction
     {
@@ -43,6 +60,15 @@ public:
 
     BEGIN_RANGED_SPELL_ACTION(CastAimedShotAction, "aimed shot")
         virtual bool isUseful() override { return HunterHasRangedAmmo(ai) && CastSpellAction::isUseful(); }
+    END_SPELL_ACTION()
+
+    BEGIN_RANGED_SPELL_ACTION(CastSteadyShotAction, "steady shot")
+        virtual bool isUseful() override
+        {
+            return HunterHasRangedAmmo(ai) &&
+                HunterSteadyShotFitsAutoShotWindow(ai, AI_VALUE2(uint32, "spell id", "steady shot")) &&
+                CastSpellAction::isUseful();
+        }
     END_SPELL_ACTION()
 
     BEGIN_RANGED_DEBUFF_ACTION(CastConcussiveShotAction, "concussive shot")

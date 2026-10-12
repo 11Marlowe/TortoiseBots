@@ -24,6 +24,34 @@ bool BlinkBackTrigger::IsActive()
     return sServerFacade.getDistance2d(bot, target) <= 8.0f;
 }
 
+bool WandBlocksNukeTrigger::IsActive()
+{
+    if (!IsWanding())
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !target->IsAlive())
+        return false;
+
+    // The raid strategy wands on purpose while the mage holds aggro
+    // ("has aggro" -> shoot, MageRaidStrategy); leave that wand alone.
+    bool const keepWandForThreat = RaidAggroWand();
+    if (keepWandForThreat)
+        return false;
+
+    // Below 5% mana the "no mana" -> shoot row (MageStrategy) wands on purpose.
+    bool const noManaRowActive = NoManaRowActive();
+    if (noManaRowActive)
+        return false;
+
+    WandState const state{
+        true,
+        BetterWandSpellProbe(ProbeSpell("frostbolt", target), ProbeSpell("fireball", target)),
+        keepWandForThreat,
+        noManaRowActive};
+    return ShouldStopWandToCast(state);
+}
+
 bool AnyMageArmorTrigger::IsActive()
 {
     Unit* target = GetTarget();
@@ -76,12 +104,18 @@ bool HotStreakTrigger::IsActive()
 
 bool NoImprovedScorchDebuffTrigger::IsActive()
 {
-    if (bot->HasSpell(11095) || bot->HasSpell(12872) || bot->HasSpell(12873))
-    {
-        return DebuffTrigger::IsActive();
-    }
+    // Fire Vulnerability talent ranks (Turtle ids, same set as
+    // NoFireVulnerabilityTrigger).
+    if (!bot->HasSpell(11095) && !bot->HasSpell(12872) && !bot->HasSpell(12873) && !bot->HasSpell(12874) && !bot->HasSpell(12875))
+        return false;
 
-    return false;
+    Unit* target = GetTarget();
+    if (!target || !target->IsAlive() || target->IsPlayer())
+        return false;
+
+    // Fire Vulnerability debuff (22959) missing: open with Scorch. Stack and
+    // refresh upkeep stays with NoFireVulnerabilityTrigger.
+    return ai->GetAura(22959, target) == nullptr;
 }
 
 bool ArcanePowerTrigger::IsActive()

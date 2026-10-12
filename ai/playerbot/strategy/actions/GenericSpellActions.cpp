@@ -3,9 +3,13 @@
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/ForceRebuffPolicy.h"
 #include "playerbot/GroupMembers.h"
+#include "playerbot/WandPolicy.h"
 #include "GenericActions.h"
 #include "UseItemAction.h"
+#include "playerbot/strategy/values/TargetValue.h"
+#include "Database/DBCStores.h"
 
+#include <algorithm>
 #include <map>
 #include <mutex>
 #include <utility>
@@ -14,6 +18,74 @@ using namespace ai;
 
 namespace
 {
+// True when `info` hits enemies in an area that would reach crowd control:
+// a mob in damage-breakable CC within the blast, or - for a lingering area
+// (ground effect, channel, area DoT) that outlasts the next sheep - a held
+// CC mark. The shape comes from the spell data (both implicit targets: Frost
+// Nova and Thunder Clap name the enemy area in target B): caster-centred
+// areas and cones use the caster (a cone is checked as a full circle),
+// ground/dest areas and chains the spell target. Single-target spells never
+// enter the loop over attackers, so the cost stays on area casts.
+bool BreaksCcInArea(PlayerbotAI* ai, Player* bot, SpellEntry const* info, Unit* spellTarget)
+{
+    if (!info || !spellTarget)
+        return false;
+
+    bool area = false;
+    bool atTarget = false;
+    float radius = 0.0f;
+    for (uint32 i = 0; i < MAX_EFFECT_INDEX; ++i)
+    {
+        uint32 const targetA = info->EffectImplicitTargetA[i];
+        uint32 const targetB = info->EffectImplicitTargetB[i];
+        uint32 const enemyArea =
+            (targetA == TARGET_ENUM_UNITS_ENEMY_AOE_AT_SRC_LOC || targetA == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DEST_LOC ||
+             targetA == TARGET_ENUM_UNITS_ENEMY_IN_CONE_24 || targetA == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DYNOBJ_LOC ||
+             targetA == TARGET_ENUM_UNITS_ENEMY_WITHIN_CASTER_RANGE) ? targetA :
+            (targetB == TARGET_ENUM_UNITS_ENEMY_AOE_AT_SRC_LOC || targetB == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DEST_LOC ||
+             targetB == TARGET_ENUM_UNITS_ENEMY_IN_CONE_24 || targetB == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DYNOBJ_LOC ||
+             targetB == TARGET_ENUM_UNITS_ENEMY_WITHIN_CASTER_RANGE) ? targetB : 0;
+
+        float effectRadius = 0.0f;
+        if (SpellRadiusEntry const* radiusEntry = sSpellRadiusStore.LookupEntry(info->EffectRadiusIndex[i]))
+            effectRadius = radiusEntry->Radius;
+
+        if (enemyArea)
+        {
+            area = true;
+            // Dest/ground areas land on the spell target unless the dest is
+            // the caster itself (Consecration: A = caster dest, B = area).
+            if ((enemyArea == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DEST_LOC || enemyArea == TARGET_ENUM_UNITS_ENEMY_AOE_AT_DYNOBJ_LOC) &&
+                targetA != TARGET_LOCATION_CASTER_SRC && targetA != TARGET_LOCATION_CASTER_DEST)
+                atTarget = true;
+            if (effectRadius <= 0.0f)
+                if (SpellRangeEntry const* rangeEntry = sSpellRangeStore.LookupEntry(info->rangeIndex))
+                    effectRadius = rangeEntry->maxRange;
+        }
+        else if (targetA == TARGET_UNIT_ENEMY && info->EffectChainTarget[i] > 1)
+        {
+            // Chains (Cleave, Chain Lightning, Multi-Shot) jump from the target.
+            area = true;
+            atTarget = true;
+            effectRadius = std::max(effectRadius, info->DmgClass == SPELL_DAMAGE_CLASS_MELEE ?
+                float(ATTACK_DISTANCE) : float(CHAIN_SPELL_JUMP_RADIUS));
+        }
+        else
+            continue;
+
+        radius = std::max(radius, effectRadius);
+    }
+
+    if (!area)
+        return false;
+
+    bool lingering = info->IsChanneledSpell() || info->HasEffect(SPELL_EFFECT_PERSISTENT_AREA_AURA) ||
+        info->HasAura(SPELL_AURA_PERIODIC_DAMAGE);
+
+    CcGuard ccGuard(ai);
+    return ccGuard.ProtectedEnemyNear(atTarget ? static_cast<WorldObject*>(spellTarget) : bot, radius, lingering);
+}
+
 bool CanInterruptCurrentSpell(Spell const* spell)
 {
     // The core has no CanBeInterrupted() helper, but its spell state is the
@@ -290,6 +362,12 @@ bool CastSpellAction::isUseful()
     if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
         return false;
 
+    // Never splash crowd control: an enemy-area spell whose blast would reach
+    // a sheeped/sapped mob (or, for a lingering area, a CC mark about to be
+    // sheeped) is not cast.
+    if (BreaksCcInArea(ai, bot, sServerFacade.LookupSpellInfo(spellId), spellTarget))
+        return false;
+
     return true;
 }
 
@@ -434,8 +512,10 @@ bool CastBuffSpellAction::isUseful()
 
     // Issue #378: the mana floor and the retry window are upkeep rules. Combat
     // casts of the same spells (seals, totems, Mana Shield, Earth Shield, an
-    // Inner Fire re-apply) must never be held back by them.
-    if (!bot->IsInCombat())
+    // Inner Fire re-apply) must never be held back by them. "Combat" means the
+    // combat engine with the combat flag set: the non-combat engine runs the
+    // upkeep rows while the flag can still be on, and must keep the floor.
+    if (ai::UpkeepBuffRulesApply(bot->IsInCombat(), ai->IsStateActive(BotState::BOT_STATE_COMBAT)))
     {
         if (target && lastAttemptTime && target->getObjectGuid() == lastAttemptTarget &&
             time(0) - lastAttemptTime < (time_t)GetBuffRetryCooldown())
@@ -491,7 +571,12 @@ bool CastBuffSpellAction::HasManaForBuff()
         return true;
 
     uint8 const minMana = ai::BuffManaFloor(spellInfo->procCharges != 0, ai->HasRealPlayerMaster());
-    return ai->GetManaPercent() >= minMana;
+    // A real player's party bot keeps the floor after the cast (it must drink
+    // before the next pull); pool bots keep the plain floor check, so low-level
+    // casters are not held back on their own armor and self buffs.
+    if (!ai->HasRealPlayerMaster())
+        return ai->GetManaPercent() >= minMana;
+    return ai::ManaStaysAboveFloor(bot->GetPower(POWER_MANA), bot->GetMaxPower(POWER_MANA), manaCost, minMana);
 }
 
 uint32 CastBuffSpellAction::GetBuffRetryCooldown() const
@@ -768,6 +853,20 @@ void CastShootAction::UpdateWeaponInfo()
     {
         rangedWeapon = nullptr;
     }
+}
+
+bool StopWandAction::isUseful()
+{
+    Spell* autoRepeat = bot->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
+    return autoRepeat && autoRepeat->m_spellInfo && autoRepeat->m_spellInfo->Category == WAND_SHOOT_CATEGORY;
+}
+
+bool StopWandAction::Execute(Event& event)
+{
+    uint32 const wait = WandStopWaitMs(bot->GetAttackTimer(RANGED_ATTACK), bot->GetAttackTime(RANGED_ATTACK), sPlayerbotAIConfig.reactDelay);
+    bot->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
+    SetDuration(wait);
+    return true;
 }
 
 bool RemoveBuffAction::isUseful()

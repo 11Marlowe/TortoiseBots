@@ -39,9 +39,51 @@ namespace ai
     public:
         FindNonCcTargetStrategy(PlayerbotAI* ai) : FindTargetStrategy(ai) {}
 
-    protected:
-        virtual bool IsCcTarget(Unit* attacker);
+        // True when every live enemy fighting the group is a CC mark (Moon
+        // or a bot's assigned "rti cc" mark), not counting `except`. Judged
+        // from the raw "attackers" list, so a stunned, rooted, feared or
+        // sheeped unmarked mob still counts as an enemy left to fight.
+        bool OnlyCcMarksLeft(Unit* except = nullptr);
 
+        // The unit is crowd-controlled right now: a damage-breakable CC
+        // (sheep, sap, gouge, shackle, hibernate, trap, seduction, ...), a
+        // fear or a banish. Frost Nova's root is not crowd control here.
+        static bool IsCrowdControlled(PlayerbotAI* ai, Unit* unit);
+        // `caster`'s cast bar is a crowd-control spell aimed at `target`.
+        static bool IsCastingCcAt(Unit* caster, Unit* target);
+
+    protected:
+        // Moon or a bot's assigned "rti cc" mark, crowd-controlled or not.
+        bool IsCcMark(Unit* attacker);
+        // A CC mark the party leaves alone: a mark that is crowd-controlled,
+        // has a group member's CC cast bar on it, is not fighting yet, or is
+        // in its first seconds of combat with its CC bot ready and in range.
+        // A free mark (CC missed, broke, or no CC bot) is a normal enemy.
+        virtual bool IsCcTarget(Unit* attacker);
+        bool IsCcProtected(Unit* unit);
+
+    };
+
+    // Crowd control the party must not break, checked outside a target
+    // tournament (current target, snare/DoT picks, splash). Build one per
+    // decision: the "only CC marks left" answer is computed once, on need.
+    class CcGuard : public FindNonCcTargetStrategy
+    {
+    public:
+        CcGuard(PlayerbotAI* ai) : FindNonCcTargetStrategy(ai), onlyMarksLeft(-1) {}
+        void CheckAttacker(Unit* /*attacker*/, ThreatManager* /*threatManager*/) override {}
+
+        // A protected CC mark (see IsCcTarget) while any other enemy still
+        // fights the group: nobody targets, taunts, DoTs or splashes it (it
+        // is killed last, see TargetValue::FindLastCcTarget).
+        bool IsHeldCcMark(Unit* unit);
+        // An enemy fighting the group within `radius` of `center` (bounding
+        // radii included) that holds a damage-breakable CC, or with
+        // `includeMarks` is a held CC mark (being or about to be CC'd).
+        bool ProtectedEnemyNear(WorldObject* center, float radius, bool includeMarks);
+
+    private:
+        int onlyMarksLeft;
     };
 
     class TargetValue : public UnitCalculatedValue
@@ -61,6 +103,11 @@ namespace ai
         // to preserve that commitment while the normal combat engine catches
         // up and creates threat.
         Unit* GetExplicitAttackTarget();
+        // Kill-last fallback for the tank/DPS pickers: once only CC-marked
+        // mobs (Moon or a bot's assigned "rti cc" mark) are left fighting the
+        // group, sheeped or free, the first live one in combat is the target
+        // instead of none. Any other enemy, crowd-controlled or not, blocks it.
+        Unit* FindLastCcTarget();
     };
 
     class RpgTargetValue : public ManualSetValue<GuidPosition>

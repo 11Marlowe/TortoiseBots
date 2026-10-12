@@ -1,5 +1,6 @@
 #include "playerbot/GroupMembers.h"
 #include "DungeonActions.h"
+#include "playerbot/strategy/triggers/DungeonTriggers.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/PlayerbotAI.h"
@@ -7,6 +8,7 @@
 #include "playerbot/CombatSpreadPolicy.h"
 #include "playerbot/VaelPolicy.h"
 #include "playerbot/DebuffSpreadPolicy.h"
+#include "playerbot/BombRunoutPolicy.h"
 #include "Movement/spline/MoveSpline.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
@@ -302,32 +304,54 @@ bool FindStep(PlayerbotAI* ai, Player* bot, const WorldPosition& from, float ang
 bool RaidBombRunoutAction::Execute(Event& event)
 {
     (void)event;
-    // 30yd clear of the raid anchor: Geddon/Vael/Grobbulus detonations
-    // bracket the whole clump otherwise. Keep running while the aura lives;
-    // the trigger re-fires each tick until it expires or detonates.
+    // Run from the raid's centre, not from one person: anchoring on the
+    // master or the nearest member could send a carrier through the other
+    // side of the raid. Move once to a point that clears every living
+    // same-map member by the runout radius, then stay there; the trigger
+    // keeps firing while the aura lasts, but a clear carrier does nothing.
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+    std::vector<DebuffAnchor> members;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (!member || member == bot || !sServerFacade.IsAlive(member))
+            continue;
+        if (member->GetMapId() != bot->GetMapId())
+            continue;
+        DebuffAnchor anchor;
+        anchor.x = member->GetPositionX();
+        anchor.y = member->GetPositionY();
+        members.push_back(anchor);
+    }
     const float runout = sPlayerbotAIConfig.bombRunoutDistance;
+    const float botX = bot->GetPositionX();
+    const float botY = bot->GetPositionY();
+    float centreX = 0.0f, centreY = 0.0f, nearestDist = 0.0f;
+    std::size_t nearestIdx = 0;
+    if (!BombRunoutCentre(botX, botY, members.data(), members.size(), centreX, centreY, nearestDist, nearestIdx))
+        return false;
+    if (IsBombRunoutClear(nearestDist, runout))
+        return false;
+    const float away = BombRunoutAwayAngle(botX, botY, centreX, centreY,
+        members[nearestIdx].x, members[nearestIdx].y);
     const WorldPosition botPos(bot);
     WorldPosition out(botPos);
-    if (Unit* anchor = RaidAnchor(ai, bot))
+    const float angles[] = { 0.0f, 0.5f, -0.5f, 1.0f, -1.0f };
+    for (float d : angles)
     {
-        const WorldPosition anchorPos(anchor);
-        float away = anchorPos.GetAngleTo(botPos);
-        const float angles[] = { 0.0f, 0.5f, -0.5f };
-        for (float extra = 0.0f; extra <= 10.0f; extra += 5.0f)
+        const float step = BombRunoutStep(botX, botY, away + d, nearestDist, runout, members.data(), members.size());
+        if (FindStep(ai, bot, botPos, away + d, step, out) &&
+            MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true))
         {
-            for (float d : angles)
-            {
-                if (FindStep(ai, bot, botPos, away + d, runout + extra, out) &&
-                    MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true))
-                    return true;
-            }
+            // Hold the reaction until the carrier arrives, so it is not
+            // re-planned every tick on the way out.
+            if (IsReaction())
+                WaitForReach(step);
+            return true;
         }
-        return false;
     }
-    // Solo carrier: radial flee still clears melee range.
-    float angle = frand(0, M_PI_F * 2.0f);
-    return FindStep(ai, bot, botPos, angle, runout, out) &&
-           MoveTo(bot->GetMapId(), out.getX(), out.getY(), out.getZ(), false, IsReaction(), false, true);
+    return false;
 }
 
 bool DragonFlankAction::Execute(Event& event)
@@ -384,14 +408,15 @@ bool RaidSpreadAction::Execute(Event& event)
     {
         // The reaction engine fires this for any stacked ranged bot, but the
         // Onyxia fight strategy also queues it directly: re-check the spread
-        // gate here so explicit hold orders and owned bots (live master OR owner
-        // record, for offline masters) hold position instead of stepping out.
-        if (!ShouldCombatSpread(sServerFacade.IsInCombat(bot), ai->HasRealPlayerMaster(),
+        // gate here so explicit hold orders hold position, and owned bots (live
+        // master OR owner record, for offline masters) do too outside raid
+        // maps. Inside a raid companions spread like pool bots.
+        if (!ShouldRaidSurvivalSpread(sServerFacade.IsInCombat(bot), ai->HasRealPlayerMaster(),
+            ai->IsOwnedBot(), bot->GetMap() && bot->GetMap()->IsRaid(),
             ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT),
             ai->HasStrategy("follow", BotState::BOT_STATE_COMBAT),
             ai->HasStrategy("wait for attack", BotState::BOT_STATE_COMBAT),
-            ai->HasStrategy("grind", BotState::BOT_STATE_COMBAT)) ||
-            IsSpreadExemptOwned(ai->HasRealPlayerMaster(), ai->IsOwnedBot()))
+            ai->HasStrategy("grind", BotState::BOT_STATE_COMBAT)))
             return false;
         // Melee/tanks stack by design; spread is a ranged survival behavior.
         if (!ai->IsRanged(bot))
@@ -529,15 +554,39 @@ bool MoveAwayFromCreature::IsHazardNearby(const WorldPosition& point, const std:
 bool SwapFireResistanceAuraAction::Execute(Event& event)
 {
     // Combat engine only (donor parity): the rfire strategy's upkeep
-    // trigger then maintains the aura for the rest of the fight.
+    // trigger then maintains the aura for the rest of the fight. The flag
+    // marks the swap as ours, so "restore spec aura" undoes it after the
+    // fight and a player's own "+rfire" is left alone.
     ai->ChangeStrategy("+rfire", BotState::BOT_STATE_COMBAT);
+    SET_AI_VALUE2(bool, "manual bool", "resist aura swapped", true);
     return ai->DoSpecificAction(WantedResistAuraAction(true, false), event, true);
 }
 
 bool SwapShadowResistanceAuraAction::Execute(Event& event)
 {
     ai->ChangeStrategy("+rshadow", BotState::BOT_STATE_COMBAT);
+    SET_AI_VALUE2(bool, "manual bool", "resist aura swapped", true);
     return ai->DoSpecificAction(WantedResistAuraAction(false, true), event, true);
+}
+
+bool RestoreSpecAuraAction::Execute(Event& event)
+{
+    (void)event;
+    SET_AI_VALUE2(bool, "manual bool", "resist aura swapped", false);
+    // A manual aura order taken since the swap wins: re-adding the "aura"
+    // placeholder would drop it (same sibling group), so only forget.
+    if (HasManualPaladinAuraOverride(ai))
+        return true;
+    // "aura" is a sibling of rfire/rshadow: adding it back drops the
+    // resist upkeep, and the spec's raid/pve aura strategy follows it.
+    ai->ChangeStrategy("-rfire,-rshadow,+aura", BotState::BOT_STATE_COMBAT);
+    // "no paladin aura" stays quiet while any own aura is up, so drop
+    // the resist aura; the spec aura ("no paladin aura") recasts next tick.
+    if (ai->HasMyAura("fire resistance aura", bot))
+        ai->RemoveAura("fire resistance aura");
+    if (ai->HasMyAura("shadow resistance aura", bot))
+        ai->RemoveAura("shadow resistance aura");
+    return true;
 }
 
 bool VaelBurningAdrenalineFleeAction::Execute(Event& event)
