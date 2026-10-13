@@ -185,6 +185,7 @@ struct BindingState
     bool leadOnline = false;      // lead bot in world
     uint32_t leadGroupId = 0;     // the lead bot's current group, 0 = none
     bool leadIsLeader = false;    // the lead bot still leads that group
+    bool leadGroupIsRaidOrBg = false; // the group converted to a raid (or is a battleground group)
     bool realPlayerInGroup = false; // a human joined the bound group
     size_t memberCount = 0;
 };
@@ -199,6 +200,7 @@ enum class ReleaseReason : uint8_t
     LeaderChanged,
     PlayerJoined,
     GroupTooLarge,
+    GroupRaid,
     // Not a CheckBinding verdict: the commander's own `.bot commander unbind`.
     Unbound,
 };
@@ -218,6 +220,9 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
         return ReleaseReason::GroupChanged;
     if (!state.leadIsLeader)
         return ReleaseReason::LeaderChanged;
+    // A bound party is never a raid, even one of five: a conversion ends the binding.
+    if (state.leadGroupIsRaidOrBg)
+        return ReleaseReason::GroupRaid;
     if (state.realPlayerInGroup)
         return ReleaseReason::PlayerJoined;
     if (state.memberCount > kMaxGroupSize)
@@ -259,6 +264,7 @@ inline char const* ReleaseReasonText(ReleaseReason reason)
         case ReleaseReason::LeaderChanged: return "the lead bot no longer leads the group";
         case ReleaseReason::PlayerJoined: return "a player joined the group";
         case ReleaseReason::GroupTooLarge: return "the group grew beyond five";
+        case ReleaseReason::GroupRaid: return "the group became a raid";
         case ReleaseReason::Unbound: return "unbound by the commander";
     }
     return "unknown";

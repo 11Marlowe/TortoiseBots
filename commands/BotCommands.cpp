@@ -3889,11 +3889,12 @@ std::unordered_map<uint64, ai::GuidPosition>& SavedFollowTargets()
 uint32 s_commanderSweepMs = 0;
 
 // Issue #884, phase 2: one perception feed per binding (`.bot commander view
-// on|off`). Made on bind (on), dropped on release; nothing here runs while
-// none exists. The frame's lines are reused frame to frame.
+// on|off`). Made on bind, off until the commander turns it on; dropped on
+// release; nothing here runs while none exists. The frame's lines are reused
+// frame to frame.
 struct CommanderView
 {
-    bool enabled = true;
+    bool enabled = false;
     uint32 seq = 0;
     RemoteCommander::View::Pacer pacer;
     RemoteCommander::View::Frame frame;
@@ -3963,6 +3964,7 @@ RemoteCommander::BindingState ReadBindingState(RemoteCommander::Binding const& b
     {
         state.leadGroupId = group->GetId();
         state.leadIsLeader = group->IsLeader(lead->GetObjectGuid());
+        state.leadGroupIsRaidOrBg = group->isRaidGroup() || group->isBGGroup();
         state.memberCount = group->GetMembersCount();
         for (Group::MemberSlot const& slot : group->GetMemberSlots())
             if (!BotManager::Instance().IsBot(slot.guid))
@@ -4520,7 +4522,8 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
         return true;
     }
 
-    // The perception feed starts on with every new binding.
+    // The perception feed starts off with every new binding; `.bot commander
+    // view on` turns it on.
     CommanderViews()[commanderRaw] = CommanderView();
 
     std::vector<Player*> bots = CommandedBots(group, lead);

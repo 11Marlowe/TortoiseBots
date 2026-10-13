@@ -85,14 +85,14 @@ Off by default: needs `AiPlayerbot.RemoteCommander = 1`, otherwise both commands
 
 **Who may bind:** a GameMaster, or a player who controls every bot of the party (owner account, master or claim: the same check as every `.bot` command). Hired companions cannot be bound (their hire ends when they leave your party), and a party with a player in it cannot be bound. One commander per party, one party per commander. **Who may order:** the bound commander counts as a member of its party, so the tactical orders below are allowed; `revive` and `summon` stay owner-or-GM, as they are for whispers, and are checked against the named bot each time.
 
-**While bound:** the followers follow the **lead bot**, not their master (their per-bot follow target is pointed at the lead bot and put back when the binding ends; nobody's master changes). The lead bot holds its spot until you send it somewhere with `.bot cmd move`. Leaving a dungeon yourself does not summon your commanded bots out of it (the summon on leaving a dungeon skips them). The binding ends on `.bot commander unbind`, when you log out, when the party disbands or the lead bot leaves it, loses the lead or logs out, when a player joins the party, or when the switch is turned off; an automatic end is reported once as `TBM:ACTION_ACK|commander unbind|party|<n>|<reason>`. A single follower that leaves the party (kicked, invited into its owner's party, or leaving on its own) gets its own follow target back within a second and answers its owner's orders again; the rest of the binding stands. The bots stay grouped after the binding ends and the lead bot keeps holding where it stands.
+**While bound:** the followers follow the **lead bot**, not their master (their per-bot follow target is pointed at the lead bot and put back when the binding ends; nobody's master changes). The lead bot holds its spot until you send it somewhere with `.bot cmd move`. Leaving a dungeon yourself does not summon your commanded bots out of it (the summon on leaving a dungeon skips them). The binding ends on `.bot commander unbind`, when you log out, when the party disbands or the lead bot leaves it, loses the lead or logs out, when a player joins the party, when the party becomes a raid or grows past five bots, or when the switch is turned off; an automatic end is reported once as `TBM:ACTION_ACK|commander unbind|party|<n>|<reason>`. A single follower that leaves the party (kicked, invited into its owner's party, or leaving on its own) gets its own follow target back within a second and answers its owner's orders again; the rest of the binding stands. The bots stay grouped after the binding ends and the lead bot keeps holding where it stands.
 
 | Command | What It Does |
 | :--- | :--- |
 | `.bot commander bind <LeadBot> [<Bot> ...]` | Binds the lead bot's party to you. A lead bot already in a bot-only party (not a raid) adopts it as it is (it becomes the party leader); the named bots join it (the lead bot invites them through the normal group handlers). A lead bot without a party needs at least one named bot. Bots in **your own** party are taken out of it first; a bot in any other group is refused (`member-grouped`). ACK detail: the lead bot; count: the party's bots. Refusals: `disabled`, `already-bound`, `no-bot` (not an online bot you control), `hired`, `group-raid`, `group-has-player`, `group-bound`, `no-members`, `group-too-large` (more than five), `bot-bound` (the bot is still in another commander's group), `invite-failed`. |
 | `.bot commander unbind` | Ends your binding (count: the followers whose follow target was put back). `not-bound` without one. |
 | `.bot commander status` | Lists your commanded party in chat (dead bots marked) and ACKs with the lead bot and the bot count; `not-bound` without one. |
-| `.bot commander view on\|off` | Switches your perception feed (`TBM:VIEW` frames, below) on or off for the current binding; every new binding starts with it on. ACK detail: `on`/`off`; count: the party's bots. `not-bound` without a binding, `invalid` without `on`/`off`. |
+| `.bot commander view on\|off` | Switches your perception feed (`TBM:VIEW` frames, below) on or off for the current binding. A new binding starts with it **off**, so the feed (about 30 system lines a second while bots fight) is opt-in: the TBM addon sends `on` right after binding, and a GM without the addon types it once. ACK detail: `on`/`off`; count: the party's bots. `not-bound` without a binding, `invalid` without `on`/`off`. |
 | `.bot cmd attack <guid>` | Like `.bot action attack`, at the GUID: every bot of the party engages it (dedicated healers keep healing). |
 | `.bot cmd pull <guid> [seconds]` / `.bot cmd pullback <guid> [seconds]` | Like `.bot action pull` / `pullback`, at the GUID; the anchor (where the DPS hold and where a pullback returns) is the **lead bot's** position. Same refusals (`no-tank`, `too-far`, `friendly`, `invalid-target`, `unreachable`, …) and the same `body-pull` ACK detail. |
 | `.bot cmd cc <mark> <guid> [bot]` | Like `.bot action cc <mark> [bot]`: the mark goes on the GUID in the commanded party and a capable bot (or the named bot of the party; `no-bot` otherwise) takes it. |
@@ -115,7 +115,7 @@ The lines are system messages (the TBM addon hides `TBM:` lines from the chat fr
 Grammar, version `v1`. Every line of a frame carries the same `<seq>` (counts up per binding, from 1):
 
 ```text
-TBM:VIEW|v1|<seq>|B|<lead>,<party>,<hostiles>,<threats>
+TBM:VIEW|v1|<seq>|B|<lead>,<party>,<hostiles>,<threats>,<truncated>
 TBM:VIEW|v1|<seq>|P|<party record>[;<party record>...]
 TBM:VIEW|v1|<seq>|H|<hostile record>[;<hostile record>...]
 TBM:VIEW|v1|<seq>|T|<threat record>[;<threat record>...]
@@ -126,7 +126,7 @@ hostile record = guid,entry,x,y,z,hp%,target,spell,flags
 threat record  = hostile,guid:pct[,guid:pct...]
 ```
 
-- `B` (begin) is always the first line: the lead bot and how many party, hostile and threat records the frame holds. `E` (end) is always the last: `<lines>` counts every line of the frame, `B` and `E` included, so a client knows the frame is whole. In between come the `P`, `H` and `T` lines, in that order, each only when it has records; a part may span several lines.
+- `B` (begin) is always the first line: the lead bot, how many party, hostile and threat records the frame holds, and `<truncated>`: `1` when the caps or the line limit left at least one record out of the frame (the counts are what was written), else `0`. `<truncated>` is the fifth field of `B`, added within `v1`: fields 1-4 keep their meaning, and a reader takes a missing fifth field as `0`. `E` (end) is always the last: `<lines>` counts every line of the frame, `B` and `E` included, so a client knows the frame is whole. In between come the `P`, `H` and `T` lines, in that order, each only when it has records; a part may span several lines.
 - GUIDs are `0x` + upper-case hex (the form `.bot cmd` takes back), `0` for none. Coordinates have one decimal, the orientation two.
 - Party: `powertype` 0 mana, 1 rage, 2 focus, 3 energy; `target` the bot's target (else its victim); `spell` the spell id it is casting or channelling (0 none); `dead` 0/1; `state` `c` combat, `n` non-combat, `d` dead, `r` reaction; `action` the last action its AI ran (up to 24 bytes), `-` when none. Names are cut at 12 bytes.
 - Hostile: `entry` the creature entry (0 for a player); `hp%` 0-100; `target` its target; `flags` any of `s` stealthed, `e` evading, `c` crowd-controlled (stunned, incapacitated, polymorphed, feared, rooted), or `-`.
@@ -136,7 +136,7 @@ threat record  = hostile,guid:pct[,guid:pct...]
 Example (one bot fighting one mob):
 
 ```text
-TBM:VIEW|v1|12|B|0x2A,1,1,1
+TBM:VIEW|v1|12|B|0x2A,1,1,1,0
 TBM:VIEW|v1|12|P|0x2A,Tanky,4000,5000,35,100,1,-8913.2,554.5,93.1,1.50,0,0,0xF130000C5E0012AB,0,0,c,heroic strike
 TBM:VIEW|v1|12|H|0xF130000C5E0012AB,3874,-8900.0,560.0,94.0,64,0x2A,0,-
 TBM:VIEW|v1|12|T|0xF130000C5E0012AB,0x2A:100,0x2B:41

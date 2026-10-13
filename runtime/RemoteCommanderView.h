@@ -2,8 +2,8 @@
 
 // Issue #884, phase 2: the remote commander's perception feed ("the bots'
 // eyes"). While a commander is bound (runtime/RemoteCommanderPolicy.h) and its
-// feed is on (`.bot commander view on|off`, on by default), the module sends
-// the commander one `TBM:VIEW` frame about every
+// feed is on (`.bot commander view on|off`; a new binding starts off), the
+// module sends the commander one `TBM:VIEW` frame about every
 // AiPlayerbot.RemoteCommanderViewMs (default 1000): the bound bots, the
 // hostiles they see, and the top of each engaged hostile's threat list.
 //
@@ -21,7 +21,7 @@
 //
 // Grammar, version v1 (one frame = the lines sharing one <seq>):
 //
-//   TBM:VIEW|v1|<seq>|B|<lead>,<party>,<hostiles>,<threats>
+//   TBM:VIEW|v1|<seq>|B|<lead>,<party>,<hostiles>,<threats>,<truncated>
 //   TBM:VIEW|v1|<seq>|P|<party record>[;<party record>...]
 //   TBM:VIEW|v1|<seq>|H|<hostile record>[;<hostile record>...]
 //   TBM:VIEW|v1|<seq>|T|<threat record>[;<threat record>...]
@@ -35,7 +35,11 @@
 // B comes first and E last; <lines> counts every line of the frame, B and E
 // included, so a client knows the frame is whole. P, H and T lines appear in
 // that order, each only when it has records, and a part may span several
-// lines. Fields never contain `|`, `;`, `,` or `:`.
+// lines. <truncated> is 1 when the caps or the line limit left at least one
+// record out (the counts in B are what was written), else 0. It is the fifth
+// field of B and was added within v1: fields 1-4 keep their meaning, and a
+// reader takes a missing fifth field as 0. Fields never contain `|`, `;`, `,`
+// or `:`.
 
 #include <cstddef>
 #include <cstdint>
@@ -530,6 +534,8 @@ inline size_t BuildFrame(Snapshot const& snapshot, uint32_t seq, Frame& frame, s
     AppendUint(begin, hostiles);
     begin += ',';
     AppendUint(begin, threats);
+    begin += ',';
+    begin += frame.droppedRecords > 0 ? '1' : '0';
     return frame.count;
 }
 
