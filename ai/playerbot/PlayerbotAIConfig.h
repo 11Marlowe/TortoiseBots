@@ -633,6 +633,11 @@ public:
     // below -> reclaim toward the ceilings). 0 disables the controller
     // (static budgets).
     uint32 targetWorldTickMs = 100;
+    // Calculated values refresh after their full checkInterval instead of
+    // half of it (fight-sensing and interval 0/1 values keep today's rule).
+    // Mirrored into ai::gValueRefreshAtInterval (strategy/ValueRefreshPolicy.h)
+    // so the per-read check does no config lookup.
+    bool valueRefreshAtInterval = false;
     // Issue #84: bounded failure backoff tuning. Zero base/max disables.
     uint32 failedActionRetryBaseMs;
     uint32 failedActionRetryMaxMs;

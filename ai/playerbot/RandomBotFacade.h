@@ -64,6 +64,7 @@ public:
     }
     bool IsPinnedBot(uint32 guidLow);
     void PrintTeleportCache();
+    void LoadNamedLocationCache();
     void LoadBattleMastersCache();
     void LoadAuctionPrices();
     void RefreshAuctionPrices(uint32 diff);

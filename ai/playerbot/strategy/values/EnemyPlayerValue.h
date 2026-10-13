@@ -24,7 +24,7 @@ namespace ai
     class HasEnemyPlayersValue : public BoolCalculatedValue, public Qualified
     {
     public:
-        HasEnemyPlayersValue(PlayerbotAI* ai, std::string name = "has enemy players") : BoolCalculatedValue(ai, name, 3), Qualified() {}
+        HasEnemyPlayersValue(PlayerbotAI* ai, std::string name = "has enemy players") : BoolCalculatedValue(ai, name, 3), Qualified() { this->keepLegacyRefresh = true; }
         virtual bool Calculate() override;
     };
 

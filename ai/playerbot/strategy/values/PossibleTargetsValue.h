@@ -14,7 +14,7 @@ namespace ai
 	{
 	public:
         PossibleTargetsValue(PlayerbotAI* ai, std::string name = "possible targets", float range = sPlayerbotAIConfig.sightDistance, bool ignoreLos = false) :
-          NearestUnitsValue(ai, name, range, ignoreLos), Qualified() {}
+          NearestUnitsValue(ai, name, range, ignoreLos), Qualified() { this->keepLegacyRefresh = true; }
 
         std::list<ObjectGuid> Calculate() override;
         static bool IsValid(Unit* target, Player* player, bool ignoreLos = false);
@@ -46,7 +46,7 @@ namespace ai
 	{
 	public:
         PossibleTriggersValue(PlayerbotAI* ai) :
-            NearestUnitsValue(ai, "possible triggers", kMaxAoeAvoidRadiusYd, true) {}
+            NearestUnitsValue(ai, "possible triggers", kMaxAoeAvoidRadiusYd, true) { this->keepLegacyRefresh = true; }
 
         // The keep-out row for a live listed creature carrying its aura while
         // the toggle is on; nullptr otherwise. The explicit-order exemption is

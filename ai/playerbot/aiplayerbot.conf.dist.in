@@ -605,11 +605,11 @@ AiPlayerbot.RogueDungeonThreatDrops = 0
 
 # Hunter Aspect of the Viper on low mana.
 # A hunter that has learned Aspect of the Viper (Turtle 1.18.1 spell 45651,
-# trainer level 56) switches to it in combat when its mana drops below half of
-# AiPlayerbot.LowMana (below 7 percent with the default LowMana of 15), and goes
-# back to Aspect of the Hawk once mana is at 60 percent or more; between the two
-# it keeps the aspect it has, so it does not flip. Thresholds follow
-# mod-playerbots. An "aspect <name>" strategy a player set (hawk, monkey,
+# trainer level 56) switches to it in combat when its mana drops below 20
+# percent (fixed, not tied to AiPlayerbot.LowMana), and goes back to Aspect of
+# the Hawk once mana is at 60 percent or more (the 60 percent exit follows
+# mod-playerbots); between the two it keeps the aspect it has, so it does not
+# flip. An "aspect <name>" strategy a player set (hawk, monkey,
 # cheetah, pack, beast, wild) is never overridden, and a hunter running in
 # Cheetah or Pack is left alone. Off by default: Viper stays a manual action
 # and the hunter keeps Hawk.
@@ -1622,6 +1622,20 @@ AiPlayerbot.PoolTickBudgetUs = 10000
 AiPlayerbot.PoolBudgetWhenTickOverMs = 0
 AiPlayerbot.CombatTickBudgetUs = 15000
 AiPlayerbot.TargetWorldTickMs = 100
+
+# Value cache refresh (performance experiment, off by default).
+# A cached AI value with a check interval of N seconds has always refreshed
+# every N/2 seconds (whole seconds, rounded down), so it recalculates about
+# twice as often as its interval says. 1 = refresh after the full interval
+# instead. Values with interval 0 or 1 (health, mana, auras, targets,
+# inventory, ...) still recalculate on every read, and the values that sense
+# the fight (attackers and their counts, aggro, possible targets, traps and
+# void zones, boss target, AoE heal, enemy players), the free-move values
+# (free move center/range, can free move: followers restart when the master
+# runs off) and grind target keep the old rule.
+# Everything else (travel, quest, vendor, group, ...) may react
+# up to twice as late. Off until an A/B run shows the gain is worth it.
+AiPlayerbot.ValueRefreshAtInterval = 0
 
 # Bounded failure backoff for autonomous background work (issue #84).
 # Repeated failures wait base, 2x, 4x, 8x, 16x up to the max before the
