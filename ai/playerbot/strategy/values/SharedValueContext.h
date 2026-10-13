@@ -55,10 +55,12 @@ namespace ai
     public:
         virtual UntypedValue* GetUntypedValue(const std::string& name)
         {
-            PlayerbotAI* ai = new PlayerbotAI();
-            UntypedValue* value = valueContexts.GetObject(name, ai);
-            delete ai;
-            return value;
+            // The creators only need a PlayerbotAI to hand to the value they build (shared values are not
+            // bound to a bot). Building and deleting a whole PlayerbotAI per lookup was pure churn, and the
+            // values kept a dangling pointer to the deleted one. One never-freed placeholder instead, so the
+            // pointer stays valid and nothing runs in a static destructor at shutdown.
+            static PlayerbotAI* const placeholderAi = new PlayerbotAI();
+            return valueContexts.GetObject(name, placeholderAi);
         }
 
         template<class T>
