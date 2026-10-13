@@ -95,7 +95,8 @@ WorldThreadQueue<DeferredPacket>& DeferredBotPackets()
 // The world thread deletes AIs, so a hook running on it can hand a packet to
 // the AI at once, as before: the AI's own casts, hire provisioning (which drops
 // its queued level-up echo right after the jump) and world-processed packets
-// keep their timing. Learned on the first drain; until then every hook defers.
+// keep their timing. Marked at the top of every world tick
+// (BotHostAdapter::OnUpdate); until the first tick every hook defers.
 WorldThreadMark& WorldThread()
 {
     static WorldThreadMark mark;
@@ -186,10 +187,13 @@ bool BotPacketAdapter::CanPacketSend(WorldSession* session, WorldPacket const& p
     return true;
 }
 
-void BotPacketAdapter::DrainDeferredPackets()
+void BotPacketAdapter::MarkWorldThread()
 {
     WorldThread().MarkCurrent();
+}
 
+void BotPacketAdapter::DrainDeferredPackets()
+{
     // Issue #844: resolved again on the world thread, so a bot whose AI left
     // the storage (logout, removal) since the copy is skipped. Each bot's
     // packets reach its AI in arrival order.

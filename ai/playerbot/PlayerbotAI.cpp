@@ -2758,6 +2758,10 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
     //if (packet.empty())
     //    return;
 
+	// Issue #844: a case here that does not end in botOutgoingPacketHandlers
+	// (AddPacket) must also be added to the hand-kept extras list in
+	// PlayerbotAI::HandlesBotOutgoingOpcode, or packet hooks off the world
+	// thread never copy that opcode to the bot.
 	switch (packet.getOpcode())
 	{
 	case SMSG_SPELL_FAILURE:

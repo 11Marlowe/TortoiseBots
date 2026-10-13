@@ -293,7 +293,8 @@ across `PacketHandlingHelper::AddPacket` would invert the lock order against
 per-bot FIFO keyed by the bot's raw guid (`runtime/WorldThreadQueue.h`), and
 `BotHostAdapter::OnUpdate` hands the copies to the AIs before the bot update,
 resolving each guid again, so a bot whose AI is gone by then is skipped. A hook
-that runs on the world thread itself (learned by the first drain,
+that runs on the world thread itself (marked at the top of every
+`BotHostAdapter::OnUpdate`, before the command drain,
 `WorldThreadMark`) still calls the AI at once, as it cannot race the deletion.
 Only opcodes an AI handles are copied (`PlayerbotAI::Handles*Opcode`, built from
 the same table the AI registers its handlers from).
