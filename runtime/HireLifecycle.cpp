@@ -345,6 +345,10 @@ void HireLifecycle::Reunite(HiredRecord& record, Player* master)
 void HireLifecycle::SweepGracePeriod(time_t now)
 {
     uint32_t grace = sPlayerbotAIConfig.hireDisconnectGracePeriod;
+    // Dismissals run after the loop: Dismiss removes the bot from its group,
+    // and a group that falls apart dismisses the other hires through
+    // OnGroupDisband, erasing m_hired entries under this iterator (SIGSEGV).
+    std::vector<std::pair<HiredRecord, char const*>> ending;
     for (auto it = m_hired.begin(); it != m_hired.end();)
     {
         HiredRecord& record = it->second;
@@ -354,9 +358,8 @@ void HireLifecycle::SweepGracePeriod(time_t now)
         // character. Bookkeeping is never dropped silently.
         if (!BotManager::Instance().FindBot(record.botGuid))
         {
-            HiredRecord orphan = record;
-            it = m_hired.erase(it);
-            Dismiss(orphan, "runtime record gone");
+            ending.emplace_back(record, "runtime record gone");
+            ++it;
             continue;
         }
         // Issue #378 backstop: a master that left the party in a way no group
@@ -367,9 +370,8 @@ void HireLifecycle::SweepGracePeriod(time_t now)
         // are excluded by MasterLeftGroup.
         if (MasterLeftGroup(record))
         {
-            HiredRecord departing = record;
-            it = m_hired.erase(it);
-            Dismiss(departing, "master left the group");
+            ending.emplace_back(record, "master left the group");
+            ++it;
             continue;
         }
         if (!record.masterOfflineSince)
@@ -400,9 +402,14 @@ void HireLifecycle::SweepGracePeriod(time_t now)
             ++it;
             continue;
         }
-        HiredRecord expired = record;
-        it = m_hired.erase(it);
-        Dismiss(expired, "master grace expired");
+        ending.emplace_back(record, "master grace expired");
+        ++it;
+    }
+    for (auto const& [record, reason] : ending)
+    {
+        // An earlier dismissal can already have ended this hire (group disband).
+        if (IsHired(record.botGuid))
+            Dismiss(record, reason);
     }
 }
 
