@@ -49,6 +49,9 @@ public:
     // cancelled (latest explicit order wins). Returns true when a pending
     // summon was affected. No-op otherwise.
     bool NoteHoldOrder(ObjectGuid botGuid);
+    // An explicit `come` order: the latest order again means "come, then
+    // follow", so it clears a hold noted earlier while the summon was pending.
+    bool NoteComeOrder(ObjectGuid botGuid);
     void Update(uint32 diff);
 
 private:

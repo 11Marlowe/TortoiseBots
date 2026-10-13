@@ -31,6 +31,28 @@ constexpr float kPi = 3.14159265358979323846f;
 constexpr uint32 kSummonDelayMs = 3000;
 constexpr uint32 kSummonArrivalTimeoutMs = 10000;
 constexpr float kMaxSummonGroundDrop = 4.0f;
+
+// A bot that keeps holding after a summon (stay/guard/hold ordered while it
+// was pending) must hold where it lands: move its stay/guard/return anchors
+// there and drop any move toward the old spot, so the stay triggers never send
+// it back. Only anchors already set are moved.
+void AnchorHeldBot(Player* bot, WorldPosition const& landing)
+{
+    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+    {
+        ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        for (char const* posName : { "return", "stay", "guard" })
+        {
+            ai::PositionEntry pos = posMap[posName];
+            if (!pos.isSet())
+                continue;
+            pos.Set(landing);
+            posMap[posName] = pos;
+        }
+    }
+    bot->GetMotionMaster()->Clear(false);
+    bot->StopMoving();
+}
 }
 
 PlayerConvenience& PlayerConvenience::Instance()
@@ -175,6 +197,15 @@ bool PlayerConvenience::NoteHoldOrder(ObjectGuid botGuid)
     return true;
 }
 
+bool PlayerConvenience::NoteComeOrder(ObjectGuid botGuid)
+{
+    auto it = m_summons.find(botGuid.GetCounter());
+    if (it == m_summons.end())
+        return false;
+    it->second.restore.NoteComeOrder();
+    return true;
+}
+
 void PlayerConvenience::Update(uint32 diff)
 {
     UpdateSummons(diff);
@@ -258,20 +289,10 @@ void PlayerConvenience::UpdateSummons(uint32 diff)
             if (!state.restore.ShouldRestoreFollow())
             {
                 // The player ordered stay/guard/hold after asking for the
-                // summon: the bot keeps holding, now anchored where it landed
-                // (the order anchored the spot it stood on when given).
-                if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
-                {
-                    ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
-                    for (char const* posName : { "return", "stay", "guard" })
-                    {
-                        ai::PositionEntry pos = posMap[posName];
-                        if (!pos.isSet())
-                            continue;
-                        pos.Set(WorldPosition(bot));
-                        posMap[posName] = pos;
-                    }
-                }
+                // summon: the bot keeps holding, anchored where it landed.
+                // Normally already done right after the teleport; repeated
+                // here for an order that came in after it.
+                AnchorHeldBot(bot, WorldPosition(bot));
                 sLog.outString("TortoiseBots: Summon completed for bot %s; follow restore skipped because a stay/guard/hold order came after the request",
                     bot->GetName());
                 cleanupPortal(state, master);
@@ -344,6 +365,10 @@ void PlayerConvenience::UpdateSummons(uint32 diff)
             else if (bot->IsBeingTeleportedFar())
                 bot->GetSession()->HandleMoveWorldportAckOpcode();
         }
+        // The bot AI ticks before this update: re-anchor a holding bot now,
+        // before its next tick can walk it back to the old stay spot.
+        if (!state.restore.ShouldRestoreFollow())
+            AnchorHeldBot(bot, WorldPosition(state.destMap, state.destX, state.destY, state.destZ));
         state.phase = SummonState::Phase::AwaitingArrival;
         state.elapsedMs = 0;
         sLog.outString("TortoiseBots: Summon teleport requested for bot %s to master %s",

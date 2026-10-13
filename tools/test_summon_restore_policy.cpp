@@ -7,10 +7,6 @@ using namespace TortoiseBots;
 
 int main()
 {
-    // `come` never calls NoteHoldOrder (it sends the bot to the player, like the
-    // summon), so it leaves ShouldRestoreFollow() true; that routing lives in
-    // BotCommands.cpp.
-
     // Summon requested, nothing else ordered: follow is restored on arrival
     // (today's behaviour). A stay given BEFORE the request is not seen by the
     // policy at all, so the summon is the later order and also restores follow.
@@ -32,6 +28,22 @@ int main()
         p.NoteHoldOrder();
         p.NoteHoldOrder();
         assert(!p.ShouldRestoreFollow());
+    }
+
+    // `come` after a hold is the latest order: follow is restored again; a
+    // hold after the come cancels it once more. A come with no hold is a no-op.
+    {
+        SummonRestorePolicy p;
+        p.NoteComeOrder();
+        assert(p.ShouldRestoreFollow());
+        p.NoteHoldOrder();
+        assert(!p.ShouldRestoreFollow());
+        p.NoteComeOrder();
+        assert(p.ShouldRestoreFollow());
+        p.NoteHoldOrder();
+        p.NoteHoldOrder();
+        p.NoteComeOrder();
+        assert(p.ShouldRestoreFollow());
     }
 
     // A new summon request is a new policy object: a cancelled restore of an
