@@ -38,7 +38,7 @@ Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, an
 ### 2. Melee Survival Combat
 - Closes into melee range.
 - Casts *Carve* automatically on AoE packs; *Lacerate* is a manual action.
-- Applies *Wing Clip* and *Mongoose Bite* in melee, after *Raptor Strike*. On Turtle 1.18.1 Mongoose Bite has no dodge requirement, so it is used whenever it is ready and *Raptor Strike* is not.
+- Applies *Wing Clip* and *Mongoose Bite* in melee, after *Raptor Strike*. On Turtle 1.18.1 Mongoose Bite has no dodge requirement, so it is used whenever it is ready and *Raptor Strike* is not. These three skip the party threat back-off (the `threat` strategy a bot grouped with a real player carries) while the target is already attacking the hunter: with the mob on the hunter there is no aggro left to protect, and the back-off used to veto the whole row so the hunter only auto-attacked. Against a mob someone else holds they stay subject to it.
 
 ---
 
