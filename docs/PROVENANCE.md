@@ -6887,7 +6887,7 @@ build-commit.sh pending; live in-game check pending.
 | Mend pet at medium health (PET-4) | `mod-playerbots` @ `79bd4281` `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:72-73` (`hunters pet medium health` below MediumHealth 70 → mend pet 22.0 combat / 60.0 NC) + `GenericHunterNonCombatStrategy.cpp:33` | `ai/playerbot/strategy/hunter/HunterTriggers.{h,cpp}` (`HuntersPetMediumHealthTrigger` below `sPlayerbotAIConfig.mediumHealth`), `HunterStrategy.cpp` (combat mend at ACTION_HIGH-1 below low's ACTION_HIGH; NC at ACTION_NORMAL below low's NORMAL+1), `HunterAiObjectContext.cpp` (creator) | Reimplemented in live strategy priorities (donor 22/21/60 maps onto our ACTION_HIGH-1/HIGH + NORMAL/NORMAL+1); low band still wins below 40 | `bash tools/verify_all.sh`; `python3 tools/verify_action_trigger_wiring.py` (0 live-missing); `git diff --check`. Compile via shared builder; no live in-game test |
 | In-combat Mend Pet below the shots, low band only (batch 2 #18; supersedes the PET-4 combat node) | `mod-playerbots` @ `79bd4281` `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:72-73` (mend pet 22/21 above every shot) + `src/Ai/Class/Hunter/HunterTriggers.cpp:63-76` (40 / MediumHealth bands), adapted: the donor's Mend Pet is an instant heal-over-time, Turtle's (136, `attributesEx` 0x4 in `tw_world_spell_template`) is a channel that stops the shots | `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (`HunterPetStrategy::InitCombatTriggers`: low band at ACTION_NORMAL, below the rotation shots NORMAL+1..+6 and above auto shot; combat medium node removed; NC bands unchanged) | Reimplemented: donor thresholds kept, combat priority re-ranked for a channelled spell. Reason: live yulon-ubuntu data at 18d4d14 had Mend Pet in ~10% of hunter combat samples (122 of 1,171, 36 hunters) | `bash tools/verify_all.sh`; `git diff --check`; code review + build pending; in-game pending |
 | Combat call pet + safe combat revive, tame demoted (PET-5) | Transferable extension of donor NC-only `no pet` → `call pet` / `hunters pet dead` → `revive pet` (`GenericHunterNonCombatStrategy.cpp:29,34`); donor has no combat call/revive | `HunterStrategy.cpp` (combat `no pet` → `call pet` NORMAL+1, `safe to revive pet` → `revive pet` NORMAL; both combat+NC `tame beast` demoted EMERGENCY → NORMAL so instant call wins wherever castable and the engine falls through to tame only when call is impossible), `HunterTriggers.{h,cpp}` (`SafeToRevivePetTrigger` wired to `runtime/PetRevivePolicy.h`; `HunterNoPet` simplified to donor `NoPetTrigger` shape — petless + unmounted — so the call nodes are reachable for dismissed pets), `HunterAiObjectContext.cpp` (creator), `runtime/PetRevivePolicy.h` + `tools/test_pet_revive_policy.cpp` | Reimplemented: donor never called/revived in combat; revive gated on zero attackers (10s channel safety). Tame demotion via relevance fallback instead of a trigger spell gate | `bash tools/verify_all.sh`; wiring 0 live-missing; standalone `test_pet_revive_policy` (5 checks); `git diff --check`. Compile via shared builder; no live in-game test |
-| Chain-heal group trigger verification + Fire Nova Totem drop gate (SHM-7/SHM-9) | Donor `CastFireNovaAction::isUseful` (`mod-playerbots` `ShamanActions.cpp:28-41`: fire-totem + 8y gate) is WotLK-3.3.0+ mechanics — 1.12 Fire Nova is a totem DROP (1535 line, detonates after 4s), not a pulse of a down totem, so the donor gate is NOT ported (it would refuse every drop). Ported as a placement gate instead @ `79bd4281` | `ai/playerbot/strategy/shaman/ShamanActions.h` (`CastFireNovaAction::isUseful`: bot-to-target <= 10y + policy call), `ShamanFireGatePolicy.h` + `tools/test_shaman_fire_gate_policy.cpp` | Chain heal: verified already wired — live `medium aoe heal -> chain heal` at ACTION_MEDIUM_HEAL matches priest/druid shape, no new trigger; donor `group heal setting` exists only in dead ports. Fire Nova: 10y placement gate (totem lands at our feet); manual `totem fire nova` and magma->nova continuer unaffected (no existing-totem requirement). Spells: Fire Nova Totem 1535 line / Fire Nova pulse 8350 line (verified in tw_world.spell_template; action resolves via spellbook to the trained drop) | `bash tools/verify_all.sh` (incl. new policy test), `git diff --check`; shared-builder compile + no live test per parity pipeline |
+| Chain-heal group trigger verification + Fire Nova Totem drop gate (SHM-7/SHM-9) | Donor `CastFireNovaAction::isUseful` (`mod-playerbots` `ShamanActions.cpp:28-41`: fire-totem + 8y gate) is WotLK-3.3.0+ mechanics — 1.12 Fire Nova is a totem DROP (1535 line, detonates after 4s), not a pulse of a down totem, so the donor gate is NOT ported (it would refuse every drop). Ported as a placement gate instead @ `79bd4281` | `ai/playerbot/strategy/shaman/ShamanActions.h` (`CastFireNovaAction::isUseful`: bot-to-target <= 10y + policy call), `ShamanFireGatePolicy.h` + `tools/test_shaman_fire_gate_policy.cpp` | Chain heal: verified already wired — live `medium aoe heal -> chain heal` at ACTION_MEDIUM_HEAL matches priest/druid shape, no new trigger; donor `group heal setting` exists only in dead ports. Fire Nova: 10y placement gate (totem lands at our feet); manual `totem fire nova` and magma->nova continuer unaffected (no existing-totem requirement). Spells: Fire Nova Totem 1535 line / Fire Nova pulse 8350 line (verified in tw_world.spell_template). The action casts the trained drop by name `fire nova totem` at self (magma/searing style); the earlier name `fire nova` matched only the pulse ids, which are never in the spellbook, so the drop never fired | `bash tools/verify_all.sh` (incl. new policy test), `git diff --check`; shared-builder compile + no live test per parity pipeline |
 
 ## Mage arcane rupture to missiles rhythm (MAG-5) — 2026-10-10
 
@@ -9202,3 +9202,115 @@ Source: `T-imothy/timothy-tortoise-wow` (branch `mantech-turtle`), `modules/mod-
 Reason: Arathi Basin bots never captured a banner. `vFlagsAB` held 0..4, so the match on `GetEntry()` could not succeed (fork `2814ea8`: "banners raw 0" on all 6806 samples). The static LOS probe dropped a banner 1.5 yd away on the node platforms (`ef4ca22`). The ready-state gate skipped the assault banners a team must click to retake a node (`d60461b`). Without the cast throttle a bot in reach re-cast about every tick (80,703 casts in 25 min in the fork, 2,048 with it; `2814ea8`). The core accepts or rejects each click in `BattleGroundAB::EventPlayerClickedOnFlag` (match status, node index, team ownership), which is what makes the relaxed gate safe. The own-team skip is ours, not the fork's: the banner-to-state map is Turtle's `tw_world_gameobject_battleground.sql` (GUID 90014 is node 0 state 3, alliance owned, entry 180058; 90015 is node 0 state 1, alliance contested, 180059; 90016 is state 4, horde owned, 180060; 90017 is state 2, horde contested, 180061), and the core's `m_Nodes % 2` rule accepts a click only on neutral or enemy states, so a bot never clicks a banner its team holds or contests.
 
 Validation: `bash tools/verify_all.sh` and `c++ -fsyntax-only` (`tbsyntax`) of `BattleGroundTactics.cpp` on the test VM; `git diff --check`. Not compiled in the Docker build; not run live; in-game pending.
+
+## Mutating Injection is never cleansed (Grobbulus dispel list) — 2026-10-13
+
+Feature: `PlayerbotAI::IsNeverDispelSpell` (`ai/playerbot/PlayerbotAI.cpp:6414-6422`, list `kNeverDispelSpellIds` at `:6412`) keeps Mutating Injection (Turtle spell 28169, dispel type Disease) out of every dispel. `canDispel` (`:6424-6440`) uses it, so friendly cures that pick their target through `HasAuraToDispel` (`PartyMemberToDispel`, `CureTriggers`, the shaman disease cures) skip the injection. `StoneformTrigger` (`ai/playerbot/strategy/triggers/GenericTriggers.h:1356-1387`) uses it too, so a dwarf does not cast Stoneform on its own while the injection is on it (an explicit order still works). The declaration is `ai/playerbot/PlayerbotAI.h:500` (public).
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd4281` (local `playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Bot/PlayerbotAI.cpp:72-75` (`dispel_whitelist`: `"mutating injection"`, `"frostbolt"`)
+- `src/Bot/PlayerbotAI.cpp:4497-4521` (`canDispel`: a whitelisted name returns false after the dispel-type check)
+
+Ported / reimplemented: reimplemented. The donor matches by spell name; this copy matches by Turtle spell id. 28169 is the only Mutating Injection row in `~/tortoise-wow/sql/base/tw_world_spell_template.sql` and in `tw_world_locales_spell.sql`. The donor's Frostbolt entry is not ported (see Reason). The Stoneform hold-back has no donor counterpart; it is this module's own rule, found by reading the core.
+
+Reason: Grobbulus (Naxx). The core script `src/scripts/dungeons/naxxramas/boss_grobbulus.cpp` (`spell_mutating_injection`) makes the boss cast spell 28206 on the carrier and the carrier cast the poison cloud summon 28240, both when the aura is removed, whether it was dispelled or ran out. A dispel only brings the cloud forward. The audit refresh (`~/TortoiseBots-audit/AUDIT-REFRESH-2026-10-13.md`, row 61) found healers cleansing the injection early, while the carrier was still in the raid. The existing bomb runout (`ai/playerbot/BombRunoutPolicy.h`, `kRaidBombSpellIds` includes 28169) moves the carrier clear, which is what makes leaving the injection to run out safe.
+Stoneform removes it too. Stoneform (20594 and 20612) has attributesEx 98304, which includes `SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY` (0x8000). `spell_stoneform` (`src/scripts/spells/spell_special.cpp:398`) applies dispel immunity for disease and poison on cast, and `Unit::ApplySpellDispelImmunity` (`src/game/Objects/Unit.cpp:6356`) then removes every aura of that dispel type. An earlier reading that stopped at the immunity was wrong. Other spells with this flag do not reach a friendly carrier: Faerie Fire is cast on enemies, and Nullify Disease, Nullify Poison, Resist Poison and Abolish Magic are not referenced in `ai/playerbot`.
+Limit: a Cure Disease, Cleanse, Abolish Disease or a Disease Cleansing Totem aimed at another disease on the same carrier can still remove the injection, because the game picks which aura a dispel takes. The bot cannot choose it.
+Frostbolt is not ported. The donor rule matches the name, so it covers every Frostbolt aura with the Magic dispel type. The Turtle template has 36 rows named Frostbolt with that type (rank ids and other ids, e.g. 9672, 28478, 48005). A static list needs a choice of which of them are the slow, which is left to the maintainer.
+
+Validation: code review + build pending; in-game pending. Local: `bash tools/verify_all.sh` and tbsyntax on the test VM (results in the PR).
+
+## Rogue stealth opener: Garrote when Ambush cannot be cast — 2026-10-13
+
+Feature: the behind-target opener of the rogue stealth strategy
+(`RogueStealthStrategyActionNodeFactory`, `ai/playerbot/strategy/rogue/RogueStrategy.cpp`)
+now falls from Ambush to Garrote. The chain was ambush -> backstab -> cheap shot ->
+sinister strike. Ambush and Backstab both need a dagger in the main hand, so a rogue
+without one always opened with Cheap Shot. The chain is now ambush -> garrote ->
+backstab -> cheap shot -> sinister strike. A dagger rogue keeps Ambush and Backstab;
+the only change for it is at 50-59 energy, where Ambush and Backstab (60) are out of
+reach and Garrote (50) now opens instead of Sinister Strike.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:223-231`
+(`StealthedRogueStrategyActionNodeFactory::ambush`, `A = { garrote }`).
+
+Module files: `ai/playerbot/strategy/rogue/RogueStrategy.cpp` (the node factory),
+`docs/classes/rogue.md` (the opener line).
+
+Copied / ported / reimplemented: ported (the ambush -> garrote step only). The module
+keeps its own factory, its Backstab and Cheap Shot tail and its own trigger rows. No
+donor code copied.
+
+Reason: audit refresh 2026-10-13, row 26 (the Garrote opener existed only in the dead
+donor `DpsRogueStrategy.cpp:216-224`). Turtle 1.18.1 data
+(`~/tortoise-wow/sql/base/tw_world_spell_template.sql`): Garrote ranks 703, 8631-8633,
+11289, 11290 have no weapon requirement and read "Must be stealthed and behind the
+target", 50 energy; Ambush (8676 and ranks) reads "Requires a dagger in the main hand".
+`docs/classes/rogue.md:30` already promised Garrote for non-dagger openers.
+
+Validation: code review + build pending; in-game pending.
+
+## Assassination Cold Blood waits for a 4-point finisher — 2026-10-13
+
+Feature: the Assassination boost row that casts Cold Blood
+(`AssassinationRogueBoostStrategy::InitCombatTriggers`, `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`)
+ran on the "very often" time trigger, so Cold Blood went off on the next builder. It now runs on
+the "4 combo" trigger (`ComboPointsAvailableTrigger`, 4 or more points on the current target,
+registered in `RogueAiObjectContext.cpp:211`) at the same ACTION_HIGH + 5.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/AssassinationRogueStrategy.cpp:114-122` (the
+"combo points 4 available" row: Cold Blood at ACTION_HIGH + 6, Envenom at ACTION_HIGH + 5).
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`docs/classes/rogue.md` (the burst cooldown line).
+
+Copied / ported / reimplemented: ported (the 4-point gate only). Priority stays at HIGH + 5
+(the donor uses HIGH + 6). The donor's Envenom row is not taken.
+
+Reason: audit refresh 2026-10-13, row 7 (Cold Blood on "very often" with no combo-point gate).
+Turtle 1.18.1 data (`~/tortoise-wow/sql/base/tw_world_spell_template.sql`, Cold Blood 14177):
+"increases the critical strike chance of your next Sinister Strike, Backstab, Ambush, Noxious
+Assault, or Eviscerate". A boost spent on a builder is wasted.
+
+Validation: code review + build pending; in-game pending.
+
+## Rogue almost-dead combo point dump for Assassination and Subtlety — 2026-10-13
+
+Feature: the "target with combo points almost dead" trigger (`AlmostDeadFinisherTrigger`,
+already registered for every rogue) now also fires Eviscerate at ACTION_HIGH + 2 in
+`AssassinationRogueStrategy::InitCombatTriggers` and `SubtletyRogueStrategy::InitCombatTriggers`,
+the same row and priority as `CombatRogueStrategy`. Before, only the Combat spec spent banked
+combo points on a target at 25% health or less.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:128-135` (the row:
+Eviscerate at HIGH + 2). The donor's `AssassinationRogueStrategy.cpp:124-131` uses Envenom
+at HIGH + 4 for the same trigger; this entry does not take that, it follows the Combat row as
+the audit brief asks. The donor's Subtlety strategy is commented out, so it has no row to port.
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`ai/playerbot/strategy/rogue/SubtletyRogueStrategy.cpp`.
+
+Copied / ported / reimplemented: ported (the Combat row, extended to two specs). No donor code
+copied.
+
+Reason: audit refresh 2026-10-13, row 11 (the almost-dead combo point dump existed only in
+Combat). `docs/classes/rogue.md` already describes the dump for all rogues.
+
+Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
+VM (see the PR); build pending; in-game pending.

@@ -131,6 +131,22 @@ If your group wipes, follow this checklist to recover quickly:
 
 ---
 
+## 5. Dungeon Loot & Item Upgrades
+
+### Loot Rolling Rules
+* Bots participate in standard party loot rolls (`Need`, `Greed`, `Pass`). Pool bots (no player master) NEED learnable recipes, PASS soulbound recipes they cannot learn, GREED tradeable ones for the auction house, NEED class tokens only their class can use, and demote duplicate uniques (already worn or at `MaxCount`) to GREED; owned/hired bots keep the old vote. Every bot PASSES under free-for-all or master loot. Disenchanting stays post-win: with no `DISENCHANT` vote in 1.12, enchanters GREED and disenchant after winning via the usual maintenance action.
+* **Never Need against a player:** a bot's automatic Need becomes Greed whenever a real player in the roll (same map, within loot range of the corpse) could use the item. Your owned bots (`delayed roll`) vote after you and know your vote: if you clicked Greed or Pass, you are out of the contest and the bot may Need; if you clicked Need, it Greeds. Hired and free bots (`roll`) vote at once and cannot see your vote, so for them "you could use it" is enough. To let a bot Need anyway, order it: `/w <Bot> keep need [item]` before the roll, or `/w <Bot> roll need [item]` while it is open. `/w <Bot> roll feedback` makes the bot say when it stepped down.
+* **Need on Empty Slots (`AiPlayerbot.RollBadItemsWithPlayer = 1`):** When enabled in `aiplayerbot.conf`, bots also roll Need on empty-slot filler (otherwise Greed); genuine upgrades (`ITEM_USAGE_EQUIP`) are Needed regardless of the flag. Both still step down to Greed when a real player in the roll could use the item (rule above).
+
+### Reagents & Food Sharing
+* If you have a Mage or Warlock bot in your group, open trade with them (`/w <Name> trade`); they auto-add conjured food, water, or healthstones into the already-open window out of combat.
+* To force an owned bot to equip a dropped dungeon item from their bags:
+  ```text
+  .bot command <BotName> equip [Item Link]
+  ```
+
+---
+
 ## 6. Raid Survival (MC / Onyxia / BWL / Naxx)
 
 Entering a raid map auto-enables the `dungeon` transition engine, which swaps in the matching raid tactics (`molten core`, `onyxia's lair`, `blackwing lair`, `naxxramas`, `zul'gurub`, `ruins of ahn'qiraj`, `ahn'qiraj temple`) and tears them down on exit. Per-boss fight scripts can look up bosses by name (`find target` / `boss target`) and suppress threat gating (`neglect threat`) while scripted positioning owns target choice. Four universal behaviors run on the reaction engine in any raid:
@@ -139,6 +155,7 @@ Entering a raid map auto-enables the `dungeon` transition engine, which swaps in
 - **Bomb runout:** carriers of *Living Bomb* (Geddon), *Burning Adrenaline* (Vaelastrasz), or *Mutating Injection* (Grobbulus), or *Detonate Mana* (Kel'Thuzad) run 30yd clear of the raid: they move once, straight away from the centre of the living raid members, and stop as soon as no one is within that distance (`AiPlayerbot.BombRunoutDistance`).
 - **Bomb runout:** carriers of *Living Bomb* (Geddon), *Burning Adrenaline* (Vaelastrasz), or *Mutating Injection* (Grobbulus, ranged carriers go behind the boss) run 30yd clear of the raid: they move once, straight away from the centre of the living raid members, and stop as soon as no one is within that distance (`AiPlayerbot.BombRunoutDistance`).
 - **Bomb runout:** carriers of *Living Bomb* (Geddon), *Burning Adrenaline* (Vaelastrasz), or *Mutating Injection* (Grobbulus) run 30yd clear of the raid: they move once, straight away from the centre of the living raid members, and stop as soon as no one is within that distance (`AiPlayerbot.BombRunoutDistance`).
+- **Mutating Injection is not cleansed:** healers' disease cures skip it, and a dwarf does not cast Stoneform on its own while it carries the injection (Stoneform removes every disease on the caster). Removing it (dispel or expiry) drops a poison cloud where the carrier stands, so a cleanse while the carrier is still in the raid puts that cloud in the raid. The carrier runs clear (bomb runout above) and the injection runs out there. Limit: a Cure Disease, Abolish Disease or a Disease Cleansing Totem aimed at a second disease on the same carrier can still remove the injection, because the game picks which aura goes.
 - **Living Bomb spacing (Geddon):** while the `geddon` fight runs, anyone standing within 10yd of a *Living Bomb* (20475) carrier steps out of the blast (`move away from living bomb`); the carrier itself still runs 30yd clear via bomb runout.
 - **Hazard evasion:** lava bombs, void zones, and poison clouds trigger the shared hazard move-away as a reactive step-out (no persistent path avoidance yet).
 - **Bomb runout:** carriers of *Living Bomb* (Geddon), *Burning Adrenaline* (Vaelastrasz), or *Mutating Injection* (Grobbulus) run 30yd clear of the raid: they move once, straight away from the centre of the living raid members, and stop as soon as no one is within that distance (`AiPlayerbot.BombRunoutDistance`).
@@ -194,19 +211,3 @@ Zone-ins for Map 807, 532, and 800 swap in `emerald sanctum`, `lower karazhan`, 
 - **Emerald Sanctum (Solnius 60748):** tanks hold the head away from *Acid Breath* (24839); *Emerald Rot* (56508) carriers run out via the shared bomb action; *Call of Nightmare* (46079) add waves (Suppressor 61212, Scalebane 60746, Dragonkin 60743, Wyrmkin 60745) trigger add focus.
 - **Lower Karazhan (Araxxna 61221 / Moroes 61225):** spiderling swarms (entry 30008) trigger AoE cleave; Moroes smoke bomb (57096) forces tank-assist re-target.
 - **Karazhan Crypt (800):** set `.bot formation near` manually before entering — narrow tunnels clip wide formations through walls. Door/lever puzzles stay manual pending playtesting (issue #237).
-
----
-
-## 5. Dungeon Loot & Item Upgrades
-
-### Loot Rolling Rules
-* Bots participate in standard party loot rolls (`Need`, `Greed`, `Pass`). Pool bots (no player master) NEED learnable recipes, PASS soulbound recipes they cannot learn, GREED tradeable ones for the auction house, NEED class tokens only their class can use, and demote duplicate uniques (already worn or at `MaxCount`) to GREED; owned/hired bots keep the old vote. Every bot PASSES under free-for-all or master loot. Disenchanting stays post-win: with no `DISENCHANT` vote in 1.12, enchanters GREED and disenchant after winning via the usual maintenance action.
-* **Never Need against a player:** a bot's automatic Need becomes Greed whenever a real player in the roll (same map, within loot range of the corpse) could use the item. Your owned bots (`delayed roll`) vote after you and know your vote: if you clicked Greed or Pass, you are out of the contest and the bot may Need; if you clicked Need, it Greeds. Hired and free bots (`roll`) vote at once and cannot see your vote, so for them "you could use it" is enough. To let a bot Need anyway, order it: `/w <Bot> keep need [item]` before the roll, or `/w <Bot> roll need [item]` while it is open. `/w <Bot> roll feedback` makes the bot say when it stepped down.
-* **Need on Empty Slots (`AiPlayerbot.RollBadItemsWithPlayer = 1`):** When enabled in `aiplayerbot.conf`, bots also roll Need on empty-slot filler (otherwise Greed); genuine upgrades (`ITEM_USAGE_EQUIP`) are Needed regardless of the flag. Both still step down to Greed when a real player in the roll could use the item (rule above).
-
-### Reagents & Food Sharing
-* If you have a Mage or Warlock bot in your group, open trade with them (`/w <Name> trade`); they auto-add conjured food, water, or healthstones into the already-open window out of combat.
-* To force an owned bot to equip a dropped dungeon item from their bags:
-  ```text
-  .bot command <BotName> equip [Item Link]
-  ```
