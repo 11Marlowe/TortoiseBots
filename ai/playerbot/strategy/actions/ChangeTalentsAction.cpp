@@ -1,3 +1,4 @@
+
 #include "playerbot/playerbot.h"
 #include "playerbot/Talentspec.h"
 #include "ChangeTalentsAction.h"
@@ -242,6 +243,7 @@ TalentPath* ChangeTalentsAction::getPremadePath(uint8 cls, int id)
 
     return &sPlayerbotAIConfig.classSpecs[cls].talentPath[0];
 }
+
 std::string ChangeTalentsAction::GetPremadePathName(uint8 cls, int id)
 {
     for (auto& path : sPlayerbotAIConfig.classSpecs[cls].talentPath)
