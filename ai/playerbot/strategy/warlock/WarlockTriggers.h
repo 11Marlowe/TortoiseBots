@@ -382,6 +382,18 @@ namespace ai
         TortoiseBots::WarlockSpecPetDecision wanted;
     };
 
+    // Group tank read for the spec-pet rows, shared by the four SpecPetTrigger
+    // rows: a CalculatedValue refreshes at checkInterval/2 seconds, so 10 keeps
+    // one walk per 5 s (the rows' own check interval) instead of one per row.
+    class SpecPetTankValue : public BoolCalculatedValue
+    {
+    public:
+        SpecPetTankValue(PlayerbotAI* ai) : BoolCalculatedValue(ai, "spec pet tank", 10) {}
+
+    protected:
+        bool Calculate() override;
+    };
+
     class SpellLockTrigger : public InterruptSpellTrigger
     {
     public:

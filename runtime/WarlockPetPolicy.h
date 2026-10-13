@@ -166,11 +166,15 @@ enum class WarlockSpecPetDecision
     SummonFelhunter,
 };
 
-inline WarlockSpecPetDecision DecideWarlockSpecPet(WarlockSpecPetInputs const& in)
+// The demon the warlock should have out now, or None when the pet stands: no
+// spec to fit, a live pet a player owns or one that is not a default demon, or
+// a live default demon already equal to the choice. Reads no shard, so a caller
+// can return before the bag read; only a summon or a swap needs the shard.
+inline WarlockPetKind WarlockSpecPetWanted(WarlockSpecPetInputs const& in)
 {
     WarlockPetKind want = WarlockSpecPetPreference(in.spec, in.knowsVoidwalker, in.knowsSuccubus, in.knowsFelhunter);
     if (want == WarlockPetKind::None)
-        return WarlockSpecPetDecision::LeaveAlone; // spec unknown: the existing rows decide
+        return WarlockPetKind::None; // spec unknown: the existing rows decide
     // The pet is the group's tank: Voidwalker, as before the toggle.
     if (in.petIsGroupTank && in.knowsVoidwalker)
         want = WarlockPetKind::Voidwalker;
@@ -181,12 +185,20 @@ inline WarlockSpecPetDecision DecideWarlockSpecPet(WarlockSpecPetInputs const& i
         // the four default demons; a player's choice (any bot with a player
         // master) and anything else stays.
         if (!in.canSwapLivePet)
-            return WarlockSpecPetDecision::LeaveAlone;
+            return WarlockPetKind::None;
         if (WarlockPetKindFromEntry(in.currentPetEntry) == WarlockPetKind::None)
-            return WarlockSpecPetDecision::LeaveAlone;
+            return WarlockPetKind::None;
         if (WarlockPetEntry(want) == in.currentPetEntry)
-            return WarlockSpecPetDecision::LeaveAlone;
+            return WarlockPetKind::None;
     }
+    return want;
+}
+
+inline WarlockSpecPetDecision DecideWarlockSpecPet(WarlockSpecPetInputs const& in)
+{
+    WarlockPetKind want = WarlockSpecPetWanted(in);
+    if (want == WarlockPetKind::None)
+        return WarlockSpecPetDecision::LeaveAlone;
 
     // Every demon but the Imp consumes a shard; without one stay quiet and
     // let the "no pet" summon-imp fallback cover a petless warlock.
