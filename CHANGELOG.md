@@ -59,6 +59,13 @@
 - A fresh level-1 pool is now actually spread evenly over the starting zones — bots that reached level 2-3 while the pool was still being created stopped counting toward their zone, so the zones where bots level fastest kept getting more (Dun Morogh ended up with twice its share), and high elves were sent to Dun Morogh or Teldrassil instead of Elwynn where they had been counted.
 - Wandering bots no longer stand around after picking a camp or explore errand — the activity they rolled was refused again by a second dice roll (half or nine times in ten), and nothing else was allowed until the choice expired; the roll now decides alone. Your own and hired bots are unchanged.
 
+## 2026-10-13
+
+### World & NPC Behavior
+- Recruiter Kerra (entry 95032) no longer tries to run a waypoint path that doesn't exist — the spawn's `movement_type` is corrected from 2 to 0 via a new idempotent migration, so she stands still like the other recruiters instead of idling in a broken movement state. [#807](https://github.com/Sagiroth/TortoiseBots/pull/807)
+
+---
+
 ## 2026-10-12
 
 ### Core Sync & Fixes
