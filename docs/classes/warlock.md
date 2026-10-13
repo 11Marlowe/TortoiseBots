@@ -54,6 +54,15 @@ Warlocks provide sustained Shadow and Fire DPS through curses and damage-over-ti
 
 - **Pet Selection:**
   - *Voidwalker:* The PvE/dungeon default (higher-priority summon, also the non-combat default); off-tanks and uses *Sacrifice* for emergency shields. A solo pool bot that learns *Summon Voidwalker* (level 10) and holds a Soul Shard upgrades its Imp to a Voidwalker on its own (`runtime/WarlockPetPolicy.h`); below that it keeps the Imp, a shardless bot stays quiet (no failed summon queued), and a bot whose player picked a demon manually is never overridden. Facing 3+ mobs solo it AoE-taunts with *Suffering* (never in a real-tank group), and between pulls a hurt Voidwalker heals itself with *Consume Shadows*.
+  - **Spec pet (opt-in, `AiPlayerbot.WarlockPetBySpec = 1`, default off):** in PvE (open world and dungeons; raid and PvP pet choices are unchanged) the warlock summons the demon that fits its tree, reimplemented from mod-playerbots' per-spec pet strategies (`runtime/WarlockPetPolicy.h`). Turtle 1.18.1 has no player Felguard, so the donor's Felguard step is skipped:
+
+    | Spec | Preferred demon | Falls back to (what the warlock has learned) |
+    | :--- | :--- | :--- |
+    | Affliction | Felhunter (30) | Succubus (20), Voidwalker (10), Imp |
+    | Demonology | Felhunter (30) | Succubus (20), Voidwalker (10), Imp |
+    | Destruction | Imp | - |
+
+    A warlock grouped with nobody filling the tank role keeps the Voidwalker (the pet is the tank; same read as the *Torment*/*Suffering* taunt rule). The demon is chosen whenever the warlock has none; pool bots also swap a default demon they already have (Imp, Voidwalker, Succubus or Felhunter) for the one that fits, outside combat and only with a Soul Shard (the Imp needs none). A bot with a player master keeps whatever it has, a `pet imp|voidwalker|succubus|felhunter` strategy order is never overridden, and a warlock without a shard keeps today's Imp fallback. With the toggle off nothing here applies and the paragraph above holds.
   - *Imp:* The raid pet, providing *Blood Pact* (Stamina buff).
   - *Succubus:* Provides humanoid crowd control via *Seduce*.
   - *Felhunter:* Uses *Spell Lock* for ranged interrupts, and *Devour Magic* both ways: strips a magic buff off the current target (purge) and lifts magic off a party member (cleanse). Both fire only while a Felhunter is out; other demons idle those nodes safely.
