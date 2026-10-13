@@ -141,6 +141,14 @@ void WarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 void WarriorStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassStrategy::InitNonCombatTriggers(triggers);
+
+    // Pre-pull stance for tanks: Protection bots otherwise idle in Battle
+    // Stance until combat procs swap them (off-tanks holding no aggro never
+    // qualified). The trigger is IsTank-gated, so DPS specs are unaffected -
+    // their Battle/Berserker buff rows keep working as before.
+    triggers.push_back(new TriggerNode(
+        "defensive stance",
+        NextAction::array(0, new NextAction("defensive stance", ACTION_NORMAL), NULL)));
 }
 
 void WarriorStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)

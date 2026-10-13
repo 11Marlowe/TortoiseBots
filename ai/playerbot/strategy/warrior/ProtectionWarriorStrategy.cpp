@@ -49,6 +49,19 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
     // Bash only (donor TankWarriorStrategy), which Defensive Stance allows.
     ClassStrategy::InitCombatTriggers(triggers);
 
+    // Standalone Defensive Stance maintenance (donor TankWarriorStrategy
+    // keeps the same row at HIGH+9): without it the stance only returns as
+    // a prerequisite of taunt/revenge/shield block/shield wall, so a tank
+    // that enters combat in Battle Stance (charge, overpower dance, summon)
+    // waits on a dodge/parry/block proc or losing aggro before swapping -
+    // off-tanks holding no aggro never qualified and fought the whole pull
+    // in Battle Stance. Deliberately below the overpower dance (battle
+    // HIGH+5, overpower HIGH+4): at HIGH+9 it would outbid the dance and
+    // the dodge proc would expire unused.
+    triggers.push_back(new TriggerNode(
+        "defensive stance",
+        NextAction::array(0, new NextAction("defensive stance", ACTION_HIGH + 2), NULL)));
+
     triggers.push_back(new TriggerNode(
         "shield bash",
         NextAction::array(0, new NextAction("shield bash", ACTION_INTERRUPT), NULL)));
