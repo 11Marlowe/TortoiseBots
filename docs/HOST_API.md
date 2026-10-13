@@ -207,15 +207,17 @@ tick's `WORLDHOOK_ON_UPDATE`), and the world thread only for GM sessions and
 `LANG_ADDON`. Since issue #833 `BotChatAdapter` and `BotAddonAdapter` therefore
 only queue an in-game player's command (requester guid, transport, a copy of the
 text — no `Player`, session or handler pointer; `commands/BotCommandQueue.h`),
-and `BotHostAdapter::OnUpdate` drains the queue before `BotManager` updates the
-bots: the command runs on the world thread at most one tick later, with a fresh
+and `BotHostAdapter::OnUpdate` drains the queue first thing every tick — also
+while `AiPlayerbot.Enabled = 0`, before the hook's early return — so it runs
+before `BotManager` updates the bots: the command runs on the world thread at most one tick later, with a fresh
 `ChatHandler` (chat) or the TBM addon reply sink (addon); a requester who logged
 out meanwhile is dropped. Every in-game transport, GM and addon included, uses
-the one FIFO so a player's typed and addon commands keep their arrival order and
-their replies come back in that order. Commands without an in-game player (the
-server console, remote access, `pending_commands` rows) already run on the world
-thread and stay inline, as does everything while `AiPlayerbot.Enabled = 0`
-(the hook is inert then, so nothing would drain).
+the one FIFO, so commands run, and reply, in the order the module received them.
+That is not necessarily the order the client sent them: party chat is processed on
+the AsyncPackets thread and addon / GM chat in the world session update, so an
+addon click can overtake a `/p .bot` typed just before it. Commands without an
+in-game player (the server console, remote access, `pending_commands` rows)
+already run on the world thread and stay inline.
 
 Inside that pass (`BotManager::UpdateBots`) bots under a real player are
 updated first and without a budget, then the random pool follows as one

@@ -88,7 +88,7 @@ requires a restart.
 
 Within that world-tick pass, `BotManager::UpdateBots` schedules bots without any core involvement: bots under a real player update first and unbudgeted, the random pool follows as one turn queue (each bot due when its AI asked to think next, capped by its situation, most overdue first) whose per-tick budget engages only while the previous world tick ran long (see [Strategy Engine & Action Scheduling](strategy-engine.md) and [Configuration Knobs & Feature Flags](../guides/configuration-tuning.md)).
 
-Module and bot AI state is touched on the world thread only. A player's `.bot` or `TBM` command can arrive on a map or AsyncPackets thread, so the command adapters queue it (requester guid + text, never a pointer) and the world tick drains it before the bot update; commands without an in-game player run inline (they are already on the world thread). See `docs/HOST_API.md` §8 (issue #833).
+Module and bot AI state is touched on the world thread only. A player's `.bot` or `TBM` command can arrive on a map or AsyncPackets thread, so the command adapters queue it (requester guid + text, never a pointer) and the world tick drains it before the bot update (every tick, also with the AI disabled); commands without an in-game player run inline (they are already on the world thread). See `docs/HOST_API.md` §8 (issue #833).
 
 #### 5. Asynchronous LLM Isolation
 LLM-based chat interactions are purely asynchronous and decoupled. If an LLM backend times out or fails, combat AI, movement, healing, interrupts, and crowd control continue running with zero interruption or frame hitching.

@@ -2,7 +2,6 @@
 
 #include "../commands/BotCommandQueue.h"
 #include "../commands/BotCommands.h"
-#include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Chat.h"
 #include "ModuleLog.h"
 #include "Player.h"
@@ -85,11 +84,6 @@ bool BotAddonAdapter::OnAddonMessage(Player* from, std::string const& msg)
     // typed commands share one world-thread FIFO and their replies (TBM
     // protocol lines included) keep the order the commands arrived in.
     // BotChatAdapter::DrainQueuedCommands runs it through ExecuteCommand.
-    if (!sPlayerbotAIConfig.enabled)
-    {
-        ExecuteCommand(from, payload);
-        return true;
-    }
     BotCommandQueue::Instance().Enqueue(from->GetObjectGuid().GetRawValue(), BotCommandReply::Addon, payload);
     return true;
 }

@@ -132,6 +132,12 @@ void BotHostAdapter::OnStartup()
 }
 void BotHostAdapter::OnUpdate(uint32 diff)
 {
+    // Issue #833: players' `.bot` / TBM commands arrive on map and
+    // AsyncPackets threads and are queued; run them here, on the world thread
+    // and before the bot update. This runs even with the AI disabled, so no
+    // command ever executes off the world thread.
+    BotChatAdapter::DrainQueuedCommands();
+
     // Initialization stops before service configuration when AI is disabled.
     // Do not tick those services against an uninitialized registry/config.
     if (!sPlayerbotAIConfig.enabled)
@@ -140,9 +146,6 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     ++m_ticks;
     // Expire stale leases before services select candidates (issue #89).
     BotActivityLeaseManager::Instance().Update(diff);
-    // Issue #833: players' `.bot` / TBM commands arrive on map and
-    // AsyncPackets threads; run them here, serialised with the bot update.
-    BotChatAdapter::DrainQueuedCommands();
     BotManager::Instance().OnWorldUpdate(diff);
     PlayerConvenience::Instance().Update(diff);
     RandomBotService::Instance().Update(diff);
