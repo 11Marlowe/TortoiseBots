@@ -127,10 +127,12 @@ SUBCLASS_NAME = {0: "axe", 1: "axe", 2: "bow", 3: "gun", 4: "mace",
 # comment; keep this table small and prefer audit word-list fixes for
 # false alarms.
 HAND_OVERRIDES = {
-    # retribution t1/t2 feet: BIS rank 1 (18322, caster boots) over rank 2
-    # (11822, melee boots); the rank-2 item fits the spec and tier.
-    (2, "retribution", 1, 7): 11822,
-    (2, "retribution", 2, 7): 11822,
+    # retribution t1/t2 feet: BIS rank 1 (18322, mail caster boots) over
+    # rank 3 (14616, mail melee boots); the rank-3 item fits the spec
+    # (agi front-loads seal damage) and tier. (Rank 2 11822 is cloth with
+    # int/sta + spell damage — worse than the BIS pick, never pin it.)
+    (2, "retribution", 1, 7): 14616,
+    (2, "retribution", 2, 7): 14616,
     # retribution t1/t2 second ring: BIS rank 2 (13001, caster ring, pair
     # filler behind 13098) -> rank 5 18500 (melee ring, same t1 pool).
     (2, "retribution", 1, 11): 18500,
@@ -149,12 +151,15 @@ HAND_OVERRIDES = {
     (1, "protection", 4, 9): 16863,
     (2, "protection", 3, 9): 13162,
     (2, "protection", 4, 9): 13162,
-    # protection t1/t2 MH: BIS rank 1 (15806, agi/str sword, no proc)
-    # -> rank 2 18348 (sta + Sanctuary defense proc, same t1 pool).
-    (1, "protection", 1, 15): 18348,
-    (1, "protection", 2, 15): 18348,
-    (2, "protection", 1, 15): 18348,
-    (2, "protection", 2, 15): 18348,
+    # protection t1/t2 MH: BIS rank-1 three-way tie (11684 proc-only,
+    # 12798 armor-shatter proc, 15806 agi/str stat stick); rank 2 10837
+    # (str + hit, t1) is the only one with tank-threat stats AND proc —
+    # but it is an axe-offhand paladins cannot use, so warriors take it
+    # while paladins keep t1 BIS and take rank 5 19867 (sta + defense,
+    # t2 ZG loot) at t2.
+    (1, "protection", 1, 15): 10837,
+    (1, "protection", 2, 15): 10837,
+    (2, "protection", 2, 15): 19867,
     # restoration t2 shoulders: BIS rank 1 (20680, hit proc, no heal stats)
     # -> rank 4 19928 (int/spi + healing, t2 ZG loot).
     (7, "restoration", 2, 2): 19928,
