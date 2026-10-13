@@ -310,6 +310,7 @@ namespace ai
     class HealPartyMemberAction : public CastHealingSpellAction, public PartyMemberActionNameSupport
     {
     public:
+        HealPartyMemberAction(PlayerbotAI* ai, std::string spell, uint8 estAmount, HealManaEfficiency efficiency) : CastHealingSpellAction(ai, spell, estAmount, efficiency), PartyMemberActionNameSupport(spell) {}
         HealPartyMemberAction(PlayerbotAI* ai, std::string spell) : CastHealingSpellAction(ai, spell), PartyMemberActionNameSupport(spell) {}
         virtual std::string getName() override { return PartyMemberActionNameSupport::getName(); }
 		virtual std::string GetTargetName() override { return "party member to heal"; }
