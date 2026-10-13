@@ -9195,7 +9195,7 @@ Review fixes (2026-10-12, REVIEW-129): (1) the rescue yields while the bot is he
 
 ## Mutating Injection is never cleansed (Grobbulus dispel list) — 2026-10-13
 
-Feature: `PlayerbotAI::IsNeverDispelSpell` (`ai/playerbot/PlayerbotAI.cpp:6414-6422`, list `kNeverDispelSpellIds` at `:6412`) keeps Mutating Injection (Turtle spell 28169, dispel type Disease) out of every dispel. `canDispel` (`:6424-6440`) uses it, so friendly cures that pick their target through `HasAuraToDispel` (`PartyMemberToDispel`, `CureTriggers`, the shaman disease cures) skip the injection. `StoneformTrigger` (`ai/playerbot/strategy/triggers/GenericTriggers.h:1356-1387`) uses it too, so a dwarf does not cast Stoneform while the injection is on it. The declaration is `ai/playerbot/PlayerbotAI.h:500` (public).
+Feature: `PlayerbotAI::IsNeverDispelSpell` (`ai/playerbot/PlayerbotAI.cpp:6414-6422`, list `kNeverDispelSpellIds` at `:6412`) keeps Mutating Injection (Turtle spell 28169, dispel type Disease) out of every dispel. `canDispel` (`:6424-6440`) uses it, so friendly cures that pick their target through `HasAuraToDispel` (`PartyMemberToDispel`, `CureTriggers`, the shaman disease cures) skip the injection. `StoneformTrigger` (`ai/playerbot/strategy/triggers/GenericTriggers.h:1356-1387`) uses it too, so a dwarf does not cast Stoneform on its own while the injection is on it (an explicit order still works). The declaration is `ai/playerbot/PlayerbotAI.h:500` (public).
 
 Source repository: `mod-playerbots/mod-playerbots`
 
