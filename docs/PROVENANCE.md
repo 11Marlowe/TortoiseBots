@@ -9248,6 +9248,34 @@ target", 50 energy; Ambush (8676 and ranks) reads "Requires a dagger in the main
 
 Validation: code review + build pending; in-game pending.
 
+## Assassination Cold Blood waits for a 4-point finisher — 2026-10-13
+
+Feature: the Assassination boost row that casts Cold Blood
+(`AssassinationRogueBoostStrategy::InitCombatTriggers`, `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`)
+ran on the "very often" time trigger, so Cold Blood went off on the next builder. It now runs on
+the "4 combo" trigger (`ComboPointsAvailableTrigger`, 4 or more points on the current target,
+registered in `RogueAiObjectContext.cpp:211`) at the same ACTION_HIGH + 5.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/AssassinationRogueStrategy.cpp:114-122` (the
+"combo points 4 available" row: Cold Blood at ACTION_HIGH + 6, Envenom at ACTION_HIGH + 5).
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`docs/classes/rogue.md` (the burst cooldown line).
+
+Copied / ported / reimplemented: ported (the 4-point gate only). Priority stays at HIGH + 5
+(the donor uses HIGH + 6). The donor's Envenom row is not taken.
+
+Reason: audit refresh 2026-10-13, row 7 (Cold Blood on "very often" with no combo-point gate).
+Turtle 1.18.1 data (`~/tortoise-wow/sql/base/tw_world_spell_template.sql`, Cold Blood 14177):
+"increases the critical strike chance of your next Sinister Strike, Backstab, Ambush, Noxious
+Assault, or Eviscerate". A boost spent on a builder is wasted.
+
+Validation: code review + build pending; in-game pending.
+
 ## Rogue almost-dead combo point dump for Assassination and Subtlety — 2026-10-13
 
 Feature: the "target with combo points almost dead" trigger (`AlmostDeadFinisherTrigger`,
