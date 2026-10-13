@@ -452,15 +452,18 @@ bool SelectNewTargetAction::Execute(Event& event)
         }
     }
 
-    // Clear the target variables
+    // Clear the target variables. An explicit order target is exempt: it lives out to
+    // the order range, not the background scan range, and clearing it here would drop
+    // the very order the bot is walking to.
+    ObjectGuid explicitAttackTarget = AI_VALUE(ObjectGuid, "explicit attack target");
     ObjectGuid attackTarget = AI_VALUE(ObjectGuid, "attack target");
     std::list<ObjectGuid> possible = AI_VALUE(std::list<ObjectGuid>, "possible targets no los");
-    if (attackTarget && find(possible.begin(), possible.end(), attackTarget) == possible.end())
+    if (attackTarget && attackTarget != explicitAttackTarget &&
+        find(possible.begin(), possible.end(), attackTarget) == possible.end())
     {
         SET_AI_VALUE(ObjectGuid, "attack target", ObjectGuid());
     }
 
-    ObjectGuid explicitAttackTarget = AI_VALUE(ObjectGuid, "explicit attack target");
     Unit* explicitTarget = explicitAttackTarget ? ai->GetUnit(explicitAttackTarget) : nullptr;
     // Same wider ceiling as the order itself: a target inside order range must survive
     // reselection so the reach chain can walk the bot to it.
