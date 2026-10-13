@@ -3,6 +3,7 @@
 #include "../ai/playerbot/CreatureAuraKeepoutPolicy.h"
 #include "../ai/playerbot/AvoidAoePolicy.h"
 
+#include <cmath>
 #include <cstdlib>
 #include <iostream>
 
@@ -68,6 +69,40 @@ int main()
         CHECK(kCreatureAuraHazardSeconds >= 2);
     }
     std::cout << "  [PASS] step out inside 8 yd, hazard keeps paths 9 yd away\n";
+
+    // Player order: the ordered creature is never a keep-out for that bot,
+    // whatever its state; any other listed creature still is.
+    {
+        CreatureAuraKeepout const* row = FindCreatureAuraKeepout(349, 12222);
+        bool const ordered = true;
+        CHECK(!CreatureAuraKeepoutApplies(true, row, true, true, ordered));
+        CHECK(CreatureAuraKeepoutApplies(true, row, true, true, !ordered));
+    }
+    std::cout << "  [PASS] attack order exempts only the ordered creature\n";
+
+    // Follow hold point: sludge at origin, hazard 9 yd, hold ring 9.5 yd.
+    {
+        float hx = 0.0f, hy = 0.0f;
+        float const r = 9.0f;
+        // Master inside the hazard, bot 20 yd east: hold on the ring on the bot's side.
+        CHECK(CreatureAuraFollowHoldPoint(20.0f, 0.0f, 3.0f, 0.0f, 0.0f, 0.0f, r, hx, hy));
+        CHECK(std::fabs(hx - 9.5f) < 0.01f && std::fabs(hy) < 0.01f);
+        // The hold point is outside the hazard and the keep-out radius.
+        CHECK(std::sqrt(hx * hx + hy * hy) > r);
+        CHECK(!InsideCreatureAuraKeepout(*FindCreatureAuraKeepout(349, 12222), std::sqrt(hx * hx + hy * hy)));
+        // Master outside the ring: follow normally.
+        CHECK(!CreatureAuraFollowHoldPoint(20.0f, 0.0f, 12.0f, 0.0f, 0.0f, 0.0f, r, hx, hy));
+        // Bot already inside: the step-out handles it, follow does not hold.
+        CHECK(!CreatureAuraFollowHoldPoint(5.0f, 0.0f, 3.0f, 0.0f, 0.0f, 0.0f, r, hx, hy));
+        // Bot at the edge already: hold point is (about) where it stands.
+        CHECK(CreatureAuraFollowHoldPoint(9.6f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, r, hx, hy));
+        CHECK(std::fabs(hx - 9.5f) < 0.05f);
+        // Oblique approach: entry point lies on the ring.
+        CHECK(CreatureAuraFollowHoldPoint(-20.0f, 5.0f, 0.0f, 2.0f, 0.0f, 0.0f, r, hx, hy));
+        CHECK(std::fabs(std::sqrt(hx * hx + hy * hy) - 9.5f) < 0.01f);
+        CHECK(hx < 0.0f);
+    }
+    std::cout << "  [PASS] follow holds just outside the hazard on the way to the master\n";
 
     std::cout << "All creature aura keep-out tests passed.\n";
     return 0;

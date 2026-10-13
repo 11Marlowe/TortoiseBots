@@ -86,6 +86,11 @@ namespace ai
         // no hazard. Shared by point moves that must not end inside geometry.
         bool IsValidPosition(const WorldPosition& position, const WorldPosition& visibleFromPosition);
         bool IsHazardNearPosition(const WorldPosition& position, HazardPosition* outHazard = nullptr);
+        // AiPlayerbot.AvoidCreatureAuras: when the follow goal lies inside a
+        // listed creature's hazard, walk to (or hold at) the point just outside
+        // it on the way there instead of following in. True when it handled
+        // the follow this tick (moved or held); false to follow normally.
+        bool HoldFollowOutsideKeepout(Unit* target, float distance, float angle);
         bool Flee(Unit *target);
         // Pool-bot flee: one checked point step of `distance` away from
         // target (fanned to the sides), false when no spot is usable.
@@ -148,6 +153,13 @@ namespace ai
         bool AvoidDamagingTrap(float& outRadius, WorldPosition& outCenter);
         bool AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter);
         bool StrafeToSafety(const WorldPosition& hazardCenter, float radius);
+
+        // Creature aura keep-out (AiPlayerbot.AvoidCreatureAuras): the listed
+        // creature that caused the current step-out (empty otherwise), and a
+        // short back-off after a keep-out step-out found no landing spot, so
+        // the action does not win the reaction pick every tick without moving.
+        ObjectGuid keepoutSource;
+        uint32 keepoutNoLandingUntilMs = 0;
     };
 
     class FleeWithPetAction : public MovementAction

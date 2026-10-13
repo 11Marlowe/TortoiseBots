@@ -1330,19 +1330,20 @@ bool AoeThreatNearbyTrigger::IsActive()
     // listed creature in the cached 15yd trigger list as a short-lived
     // movement hazard, so chase, follow and position moves keep their end
     // points and paths outside it (MovementAction hazard checks). Re-added
-    // every tick while near; it lapses a few seconds after. The creature the
+    // every tick while near (the expiry is refreshed, so it never flickers
+    // while the creature is near and alive); it lapses a few seconds after
+    // the creature dies or the bot moves on. The creature the
     // player ordered this bot to attack is not registered.
     if (sPlayerbotAIConfig.avoidCreatureAuras)
     {
         ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
         for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
         {
-            if (guid == explicitTarget)
-                continue;
             CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(ai->GetUnit(guid));
-            if (!row)
+            if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
                 continue;
             Hazard hazard(guid, kCreatureAuraHazardSeconds, CreatureAuraHazardRadius(*row));
+            hazard.SetRefreshOnReAdd();
             SET_AI_VALUE(Hazard, "add hazard", std::move(hazard));
         }
     }

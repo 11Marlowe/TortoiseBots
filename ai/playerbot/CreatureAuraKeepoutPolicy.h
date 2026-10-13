@@ -17,6 +17,7 @@
 // header owns the table and the decisions so tools/test_creature_aura_keepout_policy.cpp
 // can test them. No core includes.
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -62,7 +63,10 @@ namespace ai
         return toggleOn && row && alive && hasAura && !isExplicitAttackTarget;
     }
 
-    // Step out while inside the keep-out radius.
+    // Step out while inside the keep-out radius. Both this and the movement
+    // hazard radius are measured from the creature's centre (no bounding
+    // radius), the way MovementAction's hazard checks measure, so an end
+    // point the hazard accepts can never trigger a step-out.
     inline bool InsideCreatureAuraKeepout(CreatureAuraKeepout const& row, float distance)
     {
         return distance <= row.keepoutRadius;
@@ -72,5 +76,43 @@ namespace ai
     inline float CreatureAuraHazardRadius(CreatureAuraKeepout const& row)
     {
         return row.keepoutRadius + kCreatureAuraHazardMargin;
+    }
+
+    // Follow stops this far outside the hazard radius, so the hold point is
+    // outside both the hazard and the keep-out radius.
+    constexpr float kCreatureAuraFollowHoldMargin = 0.5f;
+
+    // Where a follower holds when its follow goal (P) lies inside the hazard
+    // circle (centre C, radius r): the point where the straight line from the
+    // bot (B) to P first enters the circle grown by the hold margin. 2D.
+    // Returns false when the goal is outside the circle (follow normally) or
+    // the bot itself is already inside it (the step-out handles that).
+    inline bool CreatureAuraFollowHoldPoint(float bx, float by, float px, float py,
+        float cx, float cy, float r, float& hx, float& hy)
+    {
+        float const R = r + kCreatureAuraFollowHoldMargin;
+        float const pdx = px - cx, pdy = py - cy;
+        if (pdx * pdx + pdy * pdy > R * R)
+            return false; // goal outside
+        float const fx = bx - cx, fy = by - cy;
+        float const c = fx * fx + fy * fy - R * R;
+        if (c <= 0.0f)
+            return false; // bot inside
+        float const dx = px - bx, dy = py - by;
+        float const a = dx * dx + dy * dy;
+        if (a <= 0.0f)
+            return false;
+        float const b = 2.0f * (fx * dx + fy * dy);
+        float const disc = b * b - 4.0f * a * c;
+        if (disc < 0.0f)
+            return false; // cannot happen with B outside and P inside
+        float t = (-b - std::sqrt(disc)) / (2.0f * a);
+        if (t < 0.0f)
+            t = 0.0f;
+        if (t > 1.0f)
+            t = 1.0f;
+        hx = bx + dx * t;
+        hy = by + dy * t;
+        return true;
     }
 } // namespace ai

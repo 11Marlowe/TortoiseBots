@@ -354,7 +354,7 @@ Bots do not clear dungeons on their own. Autonomous dungeon clearing is an expli
 | Map | 349, confirmed by the server owner on 2026-09-05 (Rotgrip last) |
 | Kill order | Noxxion (13282, Foulspore Cavern) → Razorlash (12258, Poison Falls) → Lord Vyletongue (12236, Wicked Grotto) → Celebras the Cursed (12225, Earth Song Falls) → Landslide (12203) → Tinkerer Gizlock (13601) → Princess Theradras (12201) → Rotgrip (13596, open water, end boss) |
 | Do not wait for | Meshlok the Harvester (12237), a 30% pool rare |
-| Quirks | Creeping Sludge (12222) has a permanent poison aura (22638, Poison Shock) that hits within 5 yd about every 2 s, even while it is idle. Walking within 5 yd of a sleeping one pulls it and costs about 200 HP, so keep followers outside that circle. With `AiPlayerbot.AvoidCreatureAuras = 1` (off by default) bots do this themselves: every role steps out inside 8 yd and moves keep 9 yd away, so kill sludges with ranged; a sludge you order a bot to attack is the exception |
+| Quirks | Creeping Sludge (12222) has a permanent poison aura (22638, Poison Shock) that hits within 5 yd about every 2 s, even while it is idle. Walking within 5 yd of a sleeping one pulls it and costs about 200 HP, so keep followers outside that circle. With `AiPlayerbot.AvoidCreatureAuras = 1` (off by default) bots do this themselves: every role steps out inside 8 yd, chase and follow stop 9 yd away, so kill sludges with ranged. A melee-only party needs `.bot action attack` on the sludge (that bot then fights it in the pulse) |
 
 #### Sunken Temple (map 109)
 

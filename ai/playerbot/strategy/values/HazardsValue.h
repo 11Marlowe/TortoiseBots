@@ -21,6 +21,13 @@ namespace ai
         bool IsValid(PlayerbotAI* ai) const;
         bool IsExpired() const;
 
+        // Opt-in: re-adding a refreshable hazard (same guid) extends its
+        // expiry instead of being ignored. Only the creature aura keep-out
+        // uses it; every other hazard keeps the first-add-wins behaviour.
+        void SetRefreshOnReAdd() { refreshOnReAdd = true; }
+        bool RefreshesOnReAdd() const { return refreshOnReAdd; }
+        void ExtendExpiry(const Hazard& other) { if (other.expirationTime > expirationTime) expirationTime = other.expirationTime; }
+
         uint32 GetNavmeshArea() const { return hazardNavmeshArea; }
         uint32 GetPreviousNavmeshArea() const { return previousNavmeshArea; }
 
@@ -35,6 +42,7 @@ namespace ai
 
         uint32 hazardNavmeshArea;
         uint32 previousNavmeshArea;
+        bool refreshOnReAdd = false;
     };
 
     // Hazard position, Hazard radius

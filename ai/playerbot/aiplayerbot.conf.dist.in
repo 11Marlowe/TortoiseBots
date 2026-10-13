@@ -651,9 +651,11 @@ AiPlayerbot.OnyxiaWhelpsAndEggs = 0
 # Keep out of creature auras.
 # Some creatures carry a permanent damaging aura that pulses around them even
 # while they are idle. With this on, every bot (tank and melee included) steps
-# out when it is within 8 yd of a listed creature, and its chase, follow and
-# other moves keep 9 yd away from it; the ranged kill it. The creature the
-# player ordered the bot to attack is never avoided by that bot. Listed today:
+# out when it is within 8 yd of a listed creature (from its centre), its chase
+# and other moves keep 9 yd away, and a follower stops just outside that circle
+# while its leader stands in it; the ranged kill it. The creature the player
+# ordered the bot to attack is never avoided by that bot, and a party with no
+# ranged damage needs that order to kill one. Listed today:
 # Maraudon's Creeping Sludge (12222, aura 22638 Poison Shock, 5 yd every 2 s).
 # Off by default.
 # 0 - no keep-out; bots melee and walk past these creatures as before (Default)

@@ -1544,6 +1544,12 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
         }
     }
 
+    // Creature aura keep-out: never follow into a listed creature's hazard.
+    // Checked before the native follow continues, so a running follow is
+    // stopped at the edge too; normal follow resumes once the goal is clear.
+    if (sPlayerbotAIConfig.avoidCreatureAuras && HoldFollowOutsideKeepout(target, distance, angle))
+        return true;
+
     if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
     {
         Unit* currentTarget = sServerFacade.GetChaseTarget(bot);
@@ -1557,6 +1563,54 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
 
     mm.MoveFollow(target, distance, angle);
     return true;
+}
+
+bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, float angle)
+{
+    // Follow goal: the slot the native follow aims for (target position plus
+    // `distance` at `angle` off the target's facing), or the target itself.
+    float const slotAngle = target->GetOrientation() + angle;
+    float const slotX = target->GetPositionX() + distance * cos(slotAngle);
+    float const slotY = target->GetPositionY() + distance * sin(slotAngle);
+    ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
+        if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
+            continue;
+        float const r = CreatureAuraHazardRadius(*row);
+        float hx = 0.0f, hy = 0.0f;
+        // Goal = the slot when it is inside, else the target when that is.
+        if (!CreatureAuraFollowHoldPoint(bot->GetPositionX(), bot->GetPositionY(), slotX, slotY,
+                unit->GetPositionX(), unit->GetPositionY(), r, hx, hy) &&
+            !CreatureAuraFollowHoldPoint(bot->GetPositionX(), bot->GetPositionY(), target->GetPositionX(), target->GetPositionY(),
+                unit->GetPositionX(), unit->GetPositionY(), r, hx, hy))
+            continue;
+        MotionMaster& mm = *bot->GetMotionMaster();
+        if (sServerFacade.getDistance2d(bot, hx, hy) <= 1.0f)
+        {
+            // At the edge: hold. Stop a native follow so it cannot walk in.
+            if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+            {
+                mm.Clear(false, true);
+                mm.MoveIdle();
+            }
+            return true;
+        }
+        WorldPosition hold(bot->GetMapId(), hx, hy, bot->GetPositionZ());
+        hold.setZ(hold.GetHeight());
+        if (MoveTo(hold.GetMapId(), hold.getX(), hold.getY(), hold.getZ()))
+            return true;
+        // No way to the edge: stop rather than follow into the pulse.
+        if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        {
+            mm.Clear(false, true);
+            mm.MoveIdle();
+        }
+        return true;
+    }
+    return false;
 }
 
 WorldPosition CalculatePerpendicularPoint(const WorldPosition& A, const WorldPosition& B, float offset, bool left = true)
@@ -2483,13 +2537,19 @@ bool AvoidAoeAction::isUseful()
         return false;
     float radius = 0.0f;
     WorldPosition center;
+    keepoutSource = ObjectGuid();
     // Cheap sensor first (dynobj scan the value already caches); the GO
     // and trigger scans run only when no aura already marks the bot.
     if (AvoidAuraWithDynamicObj(radius, center))
         return true;
     if (AvoidDamagingTrap(radius, center))
         return true;
-    return AvoidTriggerNpc(radius, center);
+    if (!AvoidTriggerNpc(radius, center))
+        return false;
+    // A keep-out step-out that just found no landing spot backs off briefly.
+    if (!keepoutSource.IsEmpty() && WorldTimer::getMSTime() < keepoutNoLandingUntilMs)
+        return false;
+    return true;
 }
 
 bool AvoidAoeAction::Execute(Event& event)
@@ -2497,11 +2557,15 @@ bool AvoidAoeAction::Execute(Event& event)
     (void)event;
     float radius = 0.0f;
     WorldPosition center;
+    keepoutSource = ObjectGuid();
     if (!AvoidAuraWithDynamicObj(radius, center) &&
         !AvoidDamagingTrap(radius, center) &&
         !AvoidTriggerNpc(radius, center))
         return false;
-    return StrafeToSafety(center, radius);
+    bool const moved = StrafeToSafety(center, radius);
+    if (!moved && !keepoutSource.IsEmpty())
+        keepoutNoLandingUntilMs = WorldTimer::getMSTime() + 2000;
+    return moved;
 }
 
 bool AvoidAoeAction::AvoidAuraWithDynamicObj(float& outRadius, WorldPosition& outCenter)
@@ -2573,10 +2637,12 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
         // left alone (the order wins).
         if (CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit))
         {
-            if (guid == explicitTarget)
+            if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
                 continue;
-            if (!InsideCreatureAuraKeepout(*row, bot->GetDistance(unit)))
+            // Centre to centre, the same measure as the movement hazard.
+            if (!InsideCreatureAuraKeepout(*row, WorldPosition(bot).distance(WorldPosition(unit))))
                 continue;
+            keepoutSource = guid;
             outRadius = row->keepoutRadius;
             outCenter = WorldPosition(unit->GetMapId(), unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
             return true;
@@ -2691,6 +2757,10 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
                 if (!lastMove.fleeFailures.IsHeadingFree(checkHeading, nowMs))
                     continue;
             }
+            // Keep-out step-out: the landing must clear the keep-out circle
+            // (centre measure), or the next tick steps out again.
+            if (!keepoutSource.IsEmpty() && cand.distance(hazardCenter) <= radius)
+                continue;
             WorldPosition out = cand;
             if (!bot->IsWithinLOS(out.getX(), out.getY(), out.getZ() + bot->GetCollisionHeight()))
                 continue;
@@ -2703,6 +2773,11 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
                 if (!unit || !sServerFacade.IsAlive(unit) || unit == bot)
                     continue;
                 if (unit->GetVictim())
+                    continue;
+                // The idle keep-out creature being stepped away from is not an
+                // unpulled hostile to avoid: every landing is within its aggro
+                // range. Other unpulled hostiles still count.
+                if (guid == keepoutSource)
                     continue;
                 if (sServerFacade.IsDistanceLessThan(sServerFacade.getDistance2d(unit, out.getX(), out.getY()),
                     sPlayerbotAIConfig.aggroDistance))

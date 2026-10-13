@@ -115,6 +115,11 @@ void AddHazardValue::Set(Hazard hazard)
         storedHazards.emplace_back(std::move(hazard));
         SET_AI_VALUE(std::list<Hazard>, "stored hazards", storedHazards);
     }
+    else if (hazard.RefreshesOnReAdd() && it->RefreshesOnReAdd())
+    {
+        it->ExtendExpiry(hazard);
+        SET_AI_VALUE(std::list<Hazard>, "stored hazards", storedHazards);
+    }
 }
 
 std::list<HazardPosition> HazardsValue::Calculate()
