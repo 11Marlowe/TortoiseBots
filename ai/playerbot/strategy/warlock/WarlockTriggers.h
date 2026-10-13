@@ -1,5 +1,6 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
+#include "../../../runtime/WarlockPetPolicy.h"
 
 namespace ai
 {
@@ -364,6 +365,21 @@ namespace ai
     public:
         WrongPetTrigger(PlayerbotAI* ai) : Trigger(ai, "wrong pet", 5) {}
         bool IsActive() override;
+    };
+
+    // Spec-fitting pet (opt-in, AiPlayerbot.WarlockPetBySpec): one trigger per
+    // demon, active when the spec policy (runtime/WarlockPetPolicy.h) wants
+    // that demon summoned now (petless, or a pool bot's default demon that no
+    // longer fits). Exactly one of the four is active at a time.
+    class SpecPetTrigger : public Trigger
+    {
+    public:
+        SpecPetTrigger(PlayerbotAI* ai, std::string name, TortoiseBots::WarlockSpecPetDecision decision)
+            : Trigger(ai, name, 5), wanted(decision) {}
+        bool IsActive() override;
+
+    private:
+        TortoiseBots::WarlockSpecPetDecision wanted;
     };
 
     class SpellLockTrigger : public InterruptSpellTrigger

@@ -250,6 +250,10 @@ namespace ai
                 creators["no succubus"] = [](PlayerbotAI* ai) { return new NoSuccubusTrigger(ai); };
                 creators["no felhunter"] = [](PlayerbotAI* ai) { return new NoFelhunterTrigger(ai); };
                 creators["wrong pet"] = [](PlayerbotAI* ai) { return new WrongPetTrigger(ai); };
+                creators["spec pet imp"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet imp", TortoiseBots::WarlockSpecPetDecision::SummonImp); };
+                creators["spec pet voidwalker"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet voidwalker", TortoiseBots::WarlockSpecPetDecision::SummonVoidwalker); };
+                creators["spec pet succubus"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet succubus", TortoiseBots::WarlockSpecPetDecision::SummonSuccubus); };
+                creators["spec pet felhunter"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet felhunter", TortoiseBots::WarlockSpecPetDecision::SummonFelhunter); };
                 creators["suffering"] = [](PlayerbotAI* ai) { return new SufferingTrigger(ai); };
                 creators["consume shadows"] = [](PlayerbotAI* ai) { return new ConsumeShadowsTrigger(ai); };
                 creators["spell lock"] = [](PlayerbotAI* ai) { return new SpellLockTrigger(ai); };

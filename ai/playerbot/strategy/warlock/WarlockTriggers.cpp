@@ -326,10 +326,72 @@ bool NoSpecificPetTrigger::IsActive()
     return true;
 }
 
+namespace
+{
+// Spec of a warlock bot from the class strategy the engine already holds
+// (a map lookup, no talent walk). Unknown when none is enabled yet.
+TortoiseBots::WarlockSpec WarlockSpecOf(PlayerbotAI* ai)
+{
+    if (ai->HasStrategy("affliction", BotState::BOT_STATE_NON_COMBAT))
+        return TortoiseBots::WarlockSpec::Affliction;
+    if (ai->HasStrategy("demonology", BotState::BOT_STATE_NON_COMBAT))
+        return TortoiseBots::WarlockSpec::Demonology;
+    if (ai->HasStrategy("destruction", BotState::BOT_STATE_NON_COMBAT))
+        return TortoiseBots::WarlockSpec::Destruction;
+    return TortoiseBots::WarlockSpec::Unknown;
+}
+
+// One spec-pet decision for the four SpecPetTrigger rows. Cheap exits first;
+// the group walk only runs for a bot that is grouped and might need a pet.
+TortoiseBots::WarlockSpecPetDecision DecideSpecPet(PlayerbotAI* ai, Player* bot)
+{
+    using TortoiseBots::WarlockSpecPetDecision;
+    if (!sPlayerbotAIConfig.warlockPetBySpec)
+        return WarlockSpecPetDecision::LeaveAlone;
+    // A pet the player ordered ("pet imp" ... "pet felhunter" strategies) wins.
+    static char const* const manualPets[] = { "pet imp", "pet voidwalker", "pet succubus", "pet felhunter" };
+    for (char const* manual : manualPets)
+        if (ai->HasStrategy(manual, BotState::BOT_STATE_NON_COMBAT))
+            return WarlockSpecPetDecision::LeaveAlone;
+
+    TortoiseBots::WarlockSpecPetInputs inputs;
+    inputs.spec = WarlockSpecOf(ai);
+    if (inputs.spec == TortoiseBots::WarlockSpec::Unknown)
+        return WarlockSpecPetDecision::LeaveAlone;
+
+    Unit* pet = ai->GetAiObjectContext()->GetValue<Unit*>("pet target")->Get();
+    inputs.hasPet = pet != nullptr;
+    inputs.currentPetEntry = pet ? pet->GetEntry() : 0;
+    // Pool bots only may swap a live pet; a player-owned bot keeps what it has.
+    inputs.canSwapLivePet = !ai->HasRealPlayerMaster();
+    if (inputs.hasPet && !inputs.canSwapLivePet)
+        return WarlockSpecPetDecision::LeaveAlone;
+    if (!inputs.hasPet && ai->GetAiObjectContext()->GetValue<bool>("mounted", "self target")->Get())
+        return WarlockSpecPetDecision::LeaveAlone;
+
+    inputs.knowsVoidwalker = bot->HasSpell(TortoiseBots::WARLOCK_VOIDWALKER_SUMMON_SPELL);
+    inputs.knowsSuccubus = bot->HasSpell(TortoiseBots::WARLOCK_SUCCUBUS_SUMMON_SPELL);
+    inputs.knowsFelhunter = bot->HasSpell(TortoiseBots::WARLOCK_FELHUNTER_SUMMON_SPELL);
+    inputs.hasSoulShard = bot->GetItemCount(TortoiseBots::WARLOCK_SOUL_SHARD_ITEM) > 0;
+    Group* group = bot->GetGroup();
+    inputs.petIsGroupTank = group && group->GetMembersCount() > 1 && WarlockPetTauntAllowed(ai, bot);
+    return TortoiseBots::DecideWarlockSpecPet(inputs);
+}
+} // namespace
+
+bool SpecPetTrigger::IsActive()
+{
+    return DecideSpecPet(ai, bot) == wanted;
+}
+
 bool WrongPetTrigger::IsActive()
 {
     // Pool bots only: a real-player master picks the demon themselves.
     if (ai->HasRealPlayerMaster())
+        return false;
+    // With the spec-pet toggle on, the SpecPetTrigger rows own the choice
+    // (they also cover the Imp -> Voidwalker step for a spec that wants it).
+    if (sPlayerbotAIConfig.warlockPetBySpec && WarlockSpecOf(ai) != TortoiseBots::WarlockSpec::Unknown)
         return false;
     // Below the Voidwalker trainer tier (697, baseLevel 10) the Imp is the
     // only demon available; above it the solo default is the Voidwalker.

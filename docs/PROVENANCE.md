@@ -9403,3 +9403,44 @@ requirement for Mongoose Bite (`casterAuraState` 0 on ranks 1495, 14269-14271 in
 
 Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
 VM (see the PR); build pending; in-game pending.
+
+## Warlock pet by spec (opt-in, `AiPlayerbot.WarlockPetBySpec`) — 2026-10-13
+
+Feature: with the toggle on (default off), a warlock in PvE (open world and dungeons) summons the
+demon that fits its talent tree instead of always the Voidwalker. Affliction and Demonology:
+Felhunter, falling back to Succubus, Voidwalker, Imp by what the warlock has learned; Destruction:
+Imp. A warlock grouped with nobody in the tank role keeps the Voidwalker. A petless warlock gets the
+pick; a pool bot also swaps a default demon it already has (needs a Soul Shard unless the pick is the
+Imp). A `pet <demon>` strategy order and any live demon on a player-owned bot are never replaced.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Bot/Factory/AiFactory.cpp:565-571` (spec -> `felhunter` / `felguard` / `imp`
+non-combat strategy), `src/Ai/Class/Warlock/Strategy/GenericWarlockNonCombatStrategy.cpp` (the
+`summon felguard -> felhunter -> succubus -> voidwalker -> imp` pass-through chain and the
+`no pet` / `wrong pet` rows of each `SummonXStrategy`), `src/Ai/Class/Warlock/WarlockTriggers.cpp`
+(`WrongPetTrigger`, pet entries 416 / 1860 / 1863 / 417).
+
+Module files: `runtime/WarlockPetPolicy.h` (`DecideWarlockSpecPet`, pure) +
+`tools/test_warlock_pet_policy.cpp` (51 checks); `ai/playerbot/strategy/warlock/WarlockTriggers.{h,cpp}`
+(`SpecPetTrigger`, four rows; `WrongPetTrigger` stands down while the toggle is on),
+`WarlockAiObjectContext.cpp` (4 trigger creators), `WarlockStrategy.cpp` (rows in
+`WarlockPetPveStrategy::InitNonCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor,
+all deliberate: Turtle 1.18.1 has no player Felguard (spell 30146 is in the spell template with no
+trainer), so the Felguard step is skipped and Demonology lands on the Felhunter exactly as the
+donor chain does; the donor ignores group roles, here a tankless group keeps the Voidwalker; the
+donor has no player-order guard, here a manual `pet <demon>` strategy or a player-owned bot's live
+demon wins; the donor strategy is per-spec only, here the PvE situation strategy owns it (raid and
+PvP rows unchanged). Spell ids 688 / 697 / 712 / 691 and pet entries checked against
+`sql/base/tw_world_spell_template.sql` and the existing pet policies.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 2); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_warlock_pet_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+the test VM (see the PR); build pending; in-game pending.
