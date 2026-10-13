@@ -414,6 +414,13 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # minutes). 0 disables the cooldown (not recommended with revive/repair on).
 #AiPlayerbot.OwnedBotSummonCooldown = 300
 
+# Issue #884: remote commander. A GM, or the owner of every bot in it, binds a
+# bot-only group of up to five to themselves with `.bot commander bind
+# <LeadBot> [<Bot>...]` and leads it from anywhere (another zone, outside the
+# instance) with `.bot cmd ...` orders that name their target by GUID or a 3D
+# point. Off by default; with 0 both commands answer that the feature is off.
+#AiPlayerbot.RemoteCommander = 0
+
 # Bounded AH market population through the native bot/session auction path. Default off.
 # When enabled, online random Headless bots use real inventory items, pricing, deposits,
 # account limits, and HandleAuctionSellItem. Auctioneer spawns are loaded once and

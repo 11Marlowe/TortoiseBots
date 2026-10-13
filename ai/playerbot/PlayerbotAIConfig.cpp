@@ -564,6 +564,8 @@ bool PlayerbotAIConfig::Initialize()
     ownedBotSummonCooldown = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotSummonCooldown", 300));
     if (ownedBotSummonCooldown > 3600)
         ownedBotSummonCooldown = 3600;
+    // Issue #884: remote commander (off by default).
+    remoteCommander = config.GetBoolDefault("AiPlayerbot.RemoteCommander", false);
      openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
