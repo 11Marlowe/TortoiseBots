@@ -9226,3 +9226,32 @@ target", 50 energy; Ambush (8676 and ranks) reads "Requires a dagger in the main
 `docs/classes/rogue.md:30` already promised Garrote for non-dagger openers.
 
 Validation: code review + build pending; in-game pending.
+
+## Rogue almost-dead combo point dump for Assassination and Subtlety — 2026-10-13
+
+Feature: the "target with combo points almost dead" trigger (`AlmostDeadFinisherTrigger`,
+already registered for every rogue) now also fires Eviscerate at ACTION_HIGH + 2 in
+`AssassinationRogueStrategy::InitCombatTriggers` and `SubtletyRogueStrategy::InitCombatTriggers`,
+the same row and priority as `CombatRogueStrategy`. Before, only the Combat spec spent banked
+combo points on a target at 25% health or less.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:128-135` (the row:
+Eviscerate at HIGH + 2). The donor's `AssassinationRogueStrategy.cpp:124-131` uses Envenom
+at HIGH + 4 for the same trigger; this entry does not take that, it follows the Combat row as
+the audit brief asks. The donor's Subtlety strategy is commented out, so it has no row to port.
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`ai/playerbot/strategy/rogue/SubtletyRogueStrategy.cpp`.
+
+Copied / ported / reimplemented: ported (the Combat row, extended to two specs). No donor code
+copied.
+
+Reason: audit refresh 2026-10-13, row 11 (the almost-dead combo point dump existed only in
+Combat). `docs/classes/rogue.md` already describes the dump for all rogues.
+
+Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
+VM (see the PR); build pending; in-game pending.
