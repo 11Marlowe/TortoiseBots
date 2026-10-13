@@ -304,7 +304,15 @@ void MageBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "often",
         NextAction::array(0, new NextAction("apply oil", ACTION_NORMAL), NULL)));
-}
+
+    // Mana-gem supply: the MageStrategy "no mana gem" row never evaluates
+    // (its non-combat strategy is not in the active set - no hires conjure
+    // gems, verified over full bot logs), so mages burn their one kit gem
+    // and the in-combat "mana gem" row starves. Re-stock here alongside the
+    // other OOC upkeep (all specs inherit this base).
+    triggers.push_back(new TriggerNode(
+        "no mana gem",
+        NextAction::array(0, new NextAction("conjure mana gem", ACTION_NORMAL), NULL)));
 
 void MageBuffPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
