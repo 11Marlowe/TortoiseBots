@@ -1,7 +1,7 @@
 #pragma once
+#include <map>
 #include <vector>
 #include "playerbot/PlayerbotAI.h"
-#include "playerbot/strategy/AiObjectContext.h"
 #include "playerbot/strategy/Value.h"
 #include "PartyMemberValue.h"
 
@@ -38,10 +38,28 @@ namespace ai
 
     RaidTankRoles GetRaidTankRoles(PlayerbotAI* ai);
 
-    // Base amount of the direct heals other group members are casting at
-    // `target` right now (cast bar still running).
-    uint32 GetIncomingHeal(PlayerbotAI* ai, Unit* target);
+    // Direct heals other group members are casting at each target right now
+    // (HealComm-style): base spell amounts of cast-time heals still in their
+    // cast bar, keyed by target guid. Computed ONCE per refresh (1 s TTL)
+    // over the bot's own group slots — never the spatial grid — so the dozen
+    // heal-action checks per tick share one bounded scan instead of each
+    // paying grid queries, unit lookups and heap churn. UnGrouped bots see
+    // an empty map. Only live group casters count; dead targets collect
+    // nothing (a corpse needs no heal credit).
+    class IncomingHealsValue : public CalculatedValue<std::map<ObjectGuid, uint32>>
+    {
+    public:
+        IncomingHealsValue(PlayerbotAI* ai, std::string name = "incoming heals") :
+            CalculatedValue<std::map<ObjectGuid, uint32>>(ai, name) {}
 
+    protected:
+        virtual std::map<ObjectGuid, uint32> Calculate() override;
+    };
+
+    // Base amount of the direct heals other group members are casting at
+    // `target` right now (cast bar still running). Reads the cached
+    // "incoming heals" value, so it costs a map lookup, not a scan.
+    uint32 GetIncomingHeal(PlayerbotAI* ai, Unit* target);
     // mod-playerbots PartyMemberMainTankValue (LD-8): the raid/party main
     // tank — explicit raid flag first, else the first live tank. No
     // Misdirection/Tricks consumers exist in 1.18.1; raid tactics read it.

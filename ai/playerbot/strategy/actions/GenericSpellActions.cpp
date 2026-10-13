@@ -733,11 +733,14 @@ bool HealPartyMemberAction::isUseful()
         return false;
     HealerManaState heal{};
     heal.targetHealth = target->GetHealthPercent() > 100.0f ? 100 : (std::uint8_t)target->GetHealthPercent();
-    // Count heals other healers are already casting at this target, unless
-    // it is critical (a spike can land before they do).
-    if (heal.targetHealth > sPlayerbotAIConfig.criticalHealth && target->GetMaxHealth())
+    // Count heals other healers are already casting at this target — but only
+    // above lowHealth. A member in danger must read as wounded so every
+    // healer keeps casting: one slow cast in flight (or one spike hit) must
+    // never stand the whole roster down on a 25 % tank.
+    if (heal.targetHealth > sPlayerbotAIConfig.lowHealth && target->GetMaxHealth())
     {
-        uint64 const withIncoming = uint64(target->GetHealth()) + GetIncomingHeal(ai, target);
+        uint32 const withIncoming = HealthWithIncoming(target->GetHealth(), target->GetMaxHealth(),
+            GetIncomingHeal(ai, target), sPlayerbotAIConfig.lowHealth);
         heal.targetHealth = withIncoming >= target->GetMaxHealth() ? 100 : std::uint8_t(withIncoming * 100 / target->GetMaxHealth());
     }
     heal.healerMana = AI_VALUE2(uint8, "mana", "self target");
