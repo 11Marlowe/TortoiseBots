@@ -1,5 +1,6 @@
 #include "../../runtime/PlayerbotAIStorage.h"
 #include "../../runtime/BotManager.h"
+#include "../../runtime/HireLifecycle.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/AiContextAugment.h"
@@ -925,6 +926,16 @@ namespace
     inline uint8 InstanceGuardBit(uint8 index) { return uint8(1u << index); }
 }
 
+std::string AiFactory::HireSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies)
+{
+    // Ledger-based: holds from the first strategy build (before any group
+    // forms) and through master-offline grace. Owned alts are not hires.
+    if (!ai || !ai->GetBot() || !TortoiseBots::HireLifecycle::Instance().IsHired(ai->GetBot()->GetObjectGuid()))
+        return strategies;
+
+    return StripOpenWorldNonCombatStrategies(strategies);
+}
+
 std::string AiFactory::RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies)
 {
     // A pool bot in a real player's party follows that player. "+wander" is a
@@ -1172,6 +1183,11 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
     if(sPlayerbotAIConfig.llmEnabled == 2)
         nonCombatEngine->addStrategy("ai chat");
 
+    // A hire follows its master and never talks to quest NPCs on its own:
+    // the DefaultQuestStrategy gossip-hello triggers stay off the hire
+    // (explicit orders still run through the action). Owned alts keep it.
+    bool const hireNoQuestTalk = TortoiseBots::HireLifecycle::Instance().IsHired(player->GetObjectGuid());
+
     if (!player->InBattleGround())
     {
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player);
@@ -1182,12 +1198,12 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             // A real player's bot rebuilds with "follow" (GetDefaultMovementStrategy,
             // mod-playerbots parity): a role change or regroup reset must not swap
             // the follow it got on invite for UseWanderAsDefaultFollowStrategy's wander.
-            nonCombatEngine->addStrategies("racials", "nc", "food", "follow", "default", "quest", "loot", "gather", "duel", "emote", "buff", "mount", "force rebuff", NULL);
+            nonCombatEngine->addStrategies("racials", "nc", "food", "follow", "default", hireNoQuestTalk ? "loot" : "quest", "loot", "gather", "duel", "emote", "buff", "mount", "force rebuff", NULL);
         }
         else
         {
-            const char* wanderFollow = sPlayerbotAIConfig.useWanderAsDefaultFollowStrategy ? "wander" : "follow";
-            nonCombatEngine->addStrategies("racials", "nc", "food", wanderFollow, "default", "quest", "loot", "gather", "duel", "emote", "buff", "mount", "force rebuff", NULL);
+            const char* wanderFollow = hireNoQuestTalk ? "follow" : (sPlayerbotAIConfig.useWanderAsDefaultFollowStrategy ? "wander" : "follow");
+            nonCombatEngine->addStrategies("racials", "nc", "food", wanderFollow, "default", hireNoQuestTalk ? "loot" : "quest", "loot", "gather", "duel", "emote", "buff", "mount", "force rebuff", NULL);
         }
     }
 
@@ -1228,12 +1244,20 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                 nonCombatEngine->addStrategy("attack tagged");
             }
 
+            // Hired companions follow their master and never run their own
+            // questing/travel: the config list below runs through the same
+            // master guard as the grouped branch, so a hire gets only the
+            // follower kit (no grind/travel/tfish/rpg/wander) while owned
+            // alts keep their explicit orders (ledger check, not master
+            // presence). The direct adds above stay for pool bots.
+            bool const isHire = TortoiseBots::HireLifecycle::Instance().IsHired(player->GetObjectGuid());
             nonCombatEngine->addStrategy("collision");
-            nonCombatEngine->addStrategy("grind");
+            if (!isHire)
+                nonCombatEngine->addStrategy("grind");
             nonCombatEngine->addStrategy("group");
             nonCombatEngine->addStrategy("guild");
 
-            if (sPlayerbotAIConfig.autoDoQuests)
+            if (sPlayerbotAIConfig.autoDoQuests && !isHire)
             {
                 nonCombatEngine->addStrategy("travel");
                 nonCombatEngine->addStrategy("tfish");
@@ -1245,7 +1269,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                 nonCombatEngine->addStrategy("maintenance");
             }
 
-            nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
+            nonCombatEngine->ChangeStrategy(HireSafeNonCombatStrategies(facade, sPlayerbotAIConfig.randomBotNonCombatStrategies));
         }
         else
         {
@@ -1265,20 +1289,24 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                         // only entries actually present in the list, so a list
                         // without +grind never restores grind.
                         uint8 withheld = 0;
+                        // A hire never carries the autonomy kit evenGrouped with an
+                        // offline master (grace-period guard duty): the ledger
+                        // strip, not just the live-master guard.
+                        bool const isHire = TortoiseBots::HireLifecycle::Instance().IsHired(player->GetObjectGuid());
                         nonCombatEngine->addStrategy("collision");
-                        if (!inInstance)
+                        if (!inInstance && !isHire)
                             nonCombatEngine->addStrategy("grind");
                         nonCombatEngine->addStrategy("group");
                         nonCombatEngine->addStrategy("guild");
 
-                        if (sPlayerbotAIConfig.autoDoQuests && !inInstance)
+                        if (sPlayerbotAIConfig.autoDoQuests && !inInstance && !isHire)
                         {
                             nonCombatEngine->addStrategy("travel");
                             nonCombatEngine->addStrategy("tfish");
                             nonCombatEngine->addStrategy("rpg");
                         }
 
-                        if (!master || (master->GetSession() && !master->GetSession()->HasNetworkTransport()))
+                        if ((!master || (master->GetSession() && !master->GetSession()->HasNetworkTransport())) && !isHire)
                         {
                             nonCombatEngine->addStrategy("maintenance");
                         }
@@ -1288,8 +1316,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                         // What the guard drops here is recorded in withheld, so leaving
                         // the instance gives back only those entries
                         // (ApplyInstanceGuardOnMapChange).
-                        nonCombatEngine->ChangeStrategy(RealMasterSafeNonCombatStrategies(facade,
-                            InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies, &withheld)));
+                        nonCombatEngine->ChangeStrategy(HireSafeNonCombatStrategies(facade, RealMasterSafeNonCombatStrategies(facade,
+                            InstanceSafeNonCombatStrategies(player, sPlayerbotAIConfig.randomBotNonCombatStrategies, &withheld))));
                         facade->instanceGuardWithheld = withheld;
                     }
                     else

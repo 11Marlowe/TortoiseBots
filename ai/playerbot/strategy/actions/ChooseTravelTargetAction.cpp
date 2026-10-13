@@ -21,6 +21,7 @@
 #include "playerbot/strategy/values/GuildValues.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "playerbot/RandomBotFacade.h"
+#include "runtime/HireLifecycle.h"
 #include "Guild/GuildMgr.h"
 #include <iomanip>
 #include <mutex>
@@ -2537,6 +2538,11 @@ bool RequestNamedTravelTargetAction::isAllowed() const
 
 bool RequestQuestTravelTargetAction::Execute(Event& event)
 {
+    // A hired companion never runs its own quest travel: its journeys are
+    // player-ordered (follow, explicit orders). Owned alts keep theirs.
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
+        return false;
+
     WorldPosition center = event.GetOwner() ? event.GetOwner() : (GetMaster() ? GetMaster() : bot);
 
     ai->TellDebug(ai->GetMaster(), "Getting new destination ranges for travel quest", "debug travel");
