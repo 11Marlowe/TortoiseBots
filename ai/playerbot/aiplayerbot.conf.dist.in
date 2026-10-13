@@ -346,6 +346,28 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #AiPlayerbot.HirePartyMult4 = 4.66
 #AiPlayerbot.HireRaidFlatCostCopper = 10000
 #AiPlayerbot.HireDisconnectGracePeriod = 300
+# Issue #490: static best-in-slot sets for level-60 hires (tiers 1-7 from
+# the tortoise_bots_hire_gear table). 0 = today's random hire gear only.
+# HireGearStartTier (0..7) is the tier every player has. Higher tiers are
+# unlocked by seven quests at the six capital recruiters (one per tier:
+# kill the tier's bosses, bring materials, pay a fee). The recruiter's
+# "Choose equipment" step and `.bot hire <tier>` pick any tier from 0 up to
+# the player's highest; the default is tier 0.
+# HireGearUnlockAccountWide = 1: an unlock on any character of the account
+# counts. HireGearAllQuestsAvailable = 1: all seven quests are offered at
+# once instead of as a chain (written into the quests at startup, live
+# after the NEXT restart). HireGearOptionalMaps: comma-separated map ids
+# whose bosses are credited automatically when the quest is taken, e.g.
+# 819 (Timbermaw Hold) or all Turtle content 800,532,819,807,814; their
+# loot stays in the gear pool. HireGearTierCostMultipliers: hire fee
+# multiplier for tiers 0..7 (exactly 8 numbers, else the defaults are used).
+# The values below are the values that actually run.
+#AiPlayerbot.HireGearTiersEnabled = 1
+#AiPlayerbot.HireGearStartTier = 0
+#AiPlayerbot.HireGearUnlockAccountWide = 0
+#AiPlayerbot.HireGearAllQuestsAvailable = 0
+#AiPlayerbot.HireGearOptionalMaps =
+#AiPlayerbot.HireGearTierCostMultipliers = 1,1.5,2,3,4,5,6,6
 # Issue #492: world buffs at the six capital <Mercenary Hire> recruiters
 # (Stormwind, Ironforge, Darnassus, Orgrimmar, Undercity, Thunder Bluff).
 # Level 60+ players get a "World buffs" branch next to "Hire bots"; the

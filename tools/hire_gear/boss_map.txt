@@ -1,0 +1,43 @@
+# Boss -> map table (issue #490, summoned/event bosses with loot, no static spawn)
+#
+# Columns: creature entry, instance map id, evidence.
+# A creature with no spawn AND no row here must NOT default to tier 0:
+# classify_items.py marks its items unknown (unobtainable) until mapped.
+# Instance membership verified against tortoise-wow instance headers/scripts
+# (zulgurub.h, molten_core.h, temple_of_ahnqiraj.h, lower_karazhan_halls.h,
+# instance_karazhan_crypt.cpp) or the creature's own loot-table siblings.
+#
+# Format: entry map evidence
+# Maps: 309 ZG, 409 MC, 469 BWL, 531 AQ40, 532 Lower Kara, 800 Kara Crypt.
+11502 409 molten_core.h NPC_RAGNAROS; loot_id 11502
+11583 469 BWL final boss (Nefarian); loot_id 11583
+12018 409 molten_core.h NPC_DOMO; loot_id 0, reward via cache GO 179703 (map 409)
+14599 309 zulgurub.h NPC_THEKAL; loot via shared table 2000143
+14509 309 Thekal pre-transform id (same encounter as 14599)
+14515 309 zulgurub.h NPC_ARLOKK; loot_id 14515
+15517 531 temple_of_ahnqiraj.h NPC_OURO; loot_id 15517
+61222 532 lower_karazhan_halls.h NPC_LORD_BLACKWALD_II; loot_id 61222
+61226 532 Moroes add (same encounter as 61225, shared table 2000244)
+91928 800 instance_karazhan_crypt.cpp SummonCreature(91928); loot_id 91928
+59812 814 King's Council member (shares table 2000205 with King 59967 on map 814)
+61985 814 Sanv Tas'dal variant id (same encounter as 59981 on map 814)
+60063 814 Echo of Sargeras (map-814 encounter, table 2000213)
+60064 814 Corrupted Ashbringer (map-814 encounter, table 2000213)
+61958 814 Echo of Medivh is spawned; this row kept for symmetry (unused)
+2000092 329 Grand Crusader Dathrohan (Stratholme encounter)
+# World-boss variants (spawnless duplicates of world bosses, tier 3 by rule):
+63107 0 Azuregos variant (world boss, no kill required)
+63108 0 Lord Kazzak variant (world boss, no kill required)
+63109 0 Lethon variant (world boss, no kill required)
+63110 0 Emeriss variant (world boss, no kill required)
+63111 0 Taerar variant (world boss, no kill required)
+63112 0 Ysondre variant (world boss, no kill required)
+# Unresolved (spawnless, encounter unclear -> items stay unobtainable):
+# 8017 Sen'jin Guardian, 10339 Gyth, 14435 Prince Thunderaan,
+# 14862 Emissary Roman'khan, 15082/15083/15085 Edge-of-Madness optionals,
+# 15203/15204/15205/15305 Silithus abyssal templars/lords, 15571 Maws,
+# 15625 Twilight Corrupter, 49018 Broodcommander Axelus, 59963 Cla'ckora,
+# 60669 Tyrande Whisperwind, 60686 Peroth'arn, 62059 Father Lycan,
+# 62112 Spirit of Eskhandar, 62947 Ursol, 63014/63015 Turtle bosses TBD,
+# 63100/63101/63113/63114/63115 Turtle bosses TBD, 65148 Ezzel Darkbrewer,
+# 80935 Ostarius, 93333 Mephistroth.

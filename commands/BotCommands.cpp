@@ -7,6 +7,7 @@
 #include "../runtime/ClaimLifecycle.h"
 #include "../runtime/HireProvisionService.h"
 #include "../runtime/HireSpecPolicy.h"
+#include "../runtime/HireTierRequestPolicy.h"
 #include "BotCommandContext.h"
 #include "../behavior/PlayerConvenience.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -880,10 +881,12 @@ static bool HandleMatureCommand(ChatHandler* handler, char const* args)
 // Issue #192: fast-path companion hire. Same service, costs, and caps as the
 // <Mercenary Hire> gossip wizard, but only available when the server sets
 // AiPlayerbot.HireAnywhere; otherwise it points players to a recruiter. Usage:
-//   .bot hire <class> [dps|tank|healer] [race] [male|female]
+//   .bot hire <class> [dps|tank|healer] [race] [male|female] [tier]
 // Tokens after the class may come in any order: "warrior tauren male tank",
 // "mage female frost", and "paladin protection" all parse. Bare spec words
-// (protection/arms/fury/holy/retribution/...) imply their role.
+// (protection/arms/fury/holy/retribution/...) imply their role. The optional
+// tier word (t<N>, tier<N>, or the tier name like mc) picks the equipment
+// tier up to the player's highest unlock (default tier 0, Standard kit).
 static bool HandleHire(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -895,10 +898,10 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (input.empty())
     {
-        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female]");
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier]");
         return true;
     }
-    // Split on whitespace; class/race/gender/role/spec tokens in any order.
+    // Split on whitespace; class/race/gender/role/spec/tier tokens in any order.
     std::vector<std::string> tokens;
     {
         std::istringstream stream(input);
@@ -941,6 +944,15 @@ static bool HandleHire(ChatHandler* handler, char const* args)
                 sel.gender = static_cast<uint8>(parsed);
                 continue;
             }
+        }
+        // Issue #490 PR 2: optional tier word (t<N>/tier<N>/tier name like
+        // mc) in any position, same any-order form as the other words.
+        // Before role/spec so a tier name never reaches the spec matcher.
+        uint8_t tierWord = 0;
+        if (ParseHireTierWord(token, tierWord))
+        {
+            sel.gearTier = tierWord;
+            continue;
         }
         if (ai::ChatHelper::parseRole(token) == ai::BOT_ROLE_NONE)
             specWords.push_back(token);
@@ -1000,8 +1012,22 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     }
     if (!sel.classId)
     {
-        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female]");
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier]");
         return true;
+    }
+    // Issue #490 PR 2: a tier above the player's unlock fails fast with the
+    // highest available tier named (Hire() re-validates against stale state).
+    // Below 60 or with tiers disabled the tier is ignored, so skip the lookup.
+    if (sel.gearTier > 0 && sPlayerbotAIConfig.hireGearTiersEnabled &&
+        requester->GetLevel() == kHireGearHireLevel)
+    {
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(requester);
+        if (sel.gearTier > highest)
+        {
+            handler->PSendSysMessage("That equipment is not unlocked yet. Your highest available tier is %s (tier %u).",
+                HireTierKitName(highest).c_str(), highest);
+            return true;
+        }
     }
     // A spec word picks the recruiter's spec option for every class, not only
     // druids: without a specIndex provisioning draws any premade tree of the

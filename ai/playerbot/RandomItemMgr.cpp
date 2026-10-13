@@ -2587,9 +2587,24 @@ void RandomItemMgr::BuildSourceTierIndex()
             } while (recipes->NextRow());
         }
     }
+    // PvP set index (issue #490 R4): one walk over the prototype rows
+    // (O(rows)). Any set holding a NO_DISENCHANT or honor-rank sibling marks
+    // the whole set: the Turtle custom ladders only flag their entry pieces
+    // (e.g. 713 Combatant's: 3 of 6 flagged; 715 Veteran's: boots only), so
+    // the unflagged siblings would otherwise pass as base gear. Only sets
+    // with a flagged member enter; plain dungeon/tier sets never do.
+    pvpItemSets.clear();
+    for (uint32 itemId = 0; itemId < sItemStorage.GetMaxEntry(); ++itemId)
+    {
+        ItemPrototype const* setProto = sObjectMgr.GetItemPrototype(itemId);
+        if (!setProto || !setProto->ItemSet)
+            continue;
+        if ((setProto->Flags & ITEM_FLAG_NO_DISENCHANT) || setProto->RequiredHonorRank)
+            pvpItemSets.insert(setProto->ItemSet);
+    }
 
-    sLog.outDetail("RandomItemMgr: source-tier index holds %zu creature spawns, %zu gameobject spawns, %zu loot items (%zu direct base), %zu recipe tiers (%zu rep-gated)",
-        creatureSpawnTier.size(), gameObjectSpawnTier.size(), itemLootTier.size(), itemDirectBaseLoot.size(), recipeTier.size(), repRecipeItems.size());
+    sLog.outDetail("RandomItemMgr: source-tier index holds %zu creature spawns, %zu gameobject spawns, %zu loot items (%zu direct base), %zu recipe tiers (%zu rep-gated), %zu pvp sets",
+        creatureSpawnTier.size(), gameObjectSpawnTier.size(), itemLootTier.size(), itemDirectBaseLoot.size(), recipeTier.size(), repRecipeItems.size(), pvpItemSets.size());
 }
 
 
@@ -2737,6 +2752,13 @@ void RandomItemMgr::ClassifySourceTier(ItemPrototype const* proto, ItemInfoEntry
 
     // PVP flag: NO_DISENCHANT reward blues or honor rank gear.
     if ((proto->Flags & ITEM_FLAG_NO_DISENCHANT) || proto->RequiredHonorRank)
+        cacheInfo->sourceFlags |= ITEM_SOURCE_FLAG_PVP;
+    // PVP flag via set sibling (issue #490 R4): the Turtle custom PvP ladders
+    // (Combatant's/Partisan's/Veteran's/...) only carry NO_DISENCHANT or an
+    // honor rank on their entry pieces, so the unflagged siblings share the
+    // set with a flagged one. `proto->ItemSet` is the DBC set id (0 = none);
+    // the index above holds every set with a flagged sibling. O(1) lookup.
+    if (proto->ItemSet && pvpItemSets.count(proto->ItemSet))
         cacheInfo->sourceFlags |= ITEM_SOURCE_FLAG_PVP;
 
     // Rare world epic marker (§6): BoE epic, no set, weapon/armor, attested
