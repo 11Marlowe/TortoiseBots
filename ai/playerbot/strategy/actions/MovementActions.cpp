@@ -1568,48 +1568,70 @@ bool MovementAction::Follow(Unit* target, float distance, float angle)
 bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, float angle)
 {
     // Follow goal: the slot the native follow aims for (target position plus
-    // `distance` at `angle` off the target's facing), or the target itself.
+    // `distance` at `angle` off the target's facing), else the target itself.
+    // Bands and hysteresis: PlanCreatureAuraFollow (CreatureAuraKeepoutPolicy.h).
     float const slotAngle = target->GetOrientation() + angle;
     float const slotX = target->GetPositionX() + distance * cos(slotAngle);
     float const slotY = target->GetPositionY() + distance * sin(slotAngle);
+    float const bx = bot->GetPositionX(), by = bot->GetPositionY();
     ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
+    MotionMaster& mm = *bot->GetMotionMaster();
+    auto stopFollow = [&mm]()
+    {
+        // Only a native follow is stopped: the hold and back-off moves and
+        // the step-out's strafe are point moves that never head inward.
+        if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        {
+            mm.Clear(false, true);
+            mm.MoveIdle();
+        }
+    };
     for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
     {
         Unit* unit = ai->GetUnit(guid);
         CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
         if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
             continue;
-        float const r = CreatureAuraHazardRadius(*row);
+        bool const engaged = guid == keepoutFollowEngaged;
+        float const cx = unit->GetPositionX(), cy = unit->GetPositionY();
         float hx = 0.0f, hy = 0.0f;
-        // Goal = the slot when it is inside, else the target when that is.
-        if (!CreatureAuraFollowHoldPoint(bot->GetPositionX(), bot->GetPositionY(), slotX, slotY,
-                unit->GetPositionX(), unit->GetPositionY(), r, hx, hy) &&
-            !CreatureAuraFollowHoldPoint(bot->GetPositionX(), bot->GetPositionY(), target->GetPositionX(), target->GetPositionY(),
-                unit->GetPositionX(), unit->GetPositionY(), r, hx, hy))
+        CreatureAuraFollowStep step = PlanCreatureAuraFollow(*row, engaged, bx, by, slotX, slotY, cx, cy, hx, hy);
+        if (step == CreatureAuraFollowStep::Follow)
+            step = PlanCreatureAuraFollow(*row, engaged, bx, by, target->GetPositionX(), target->GetPositionY(), cx, cy, hx, hy);
+        if (step == CreatureAuraFollowStep::Follow)
             continue;
-        MotionMaster& mm = *bot->GetMotionMaster();
-        if (sServerFacade.getDistance2d(bot, hx, hy) <= 1.0f)
+        keepoutFollowEngaged = guid;
+        if (step == CreatureAuraFollowStep::BackOff || step == CreatureAuraFollowStep::Approach)
         {
-            // At the edge: hold. Stop a native follow so it cannot walk in.
-            if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+            WorldPosition point(bot->GetMapId(), hx, hy, bot->GetPositionZ());
+            point.setZ(point.GetHeight());
+            if (MoveTo(point.GetMapId(), point.getX(), point.getY(), point.getZ()))
+                return true;
+        }
+        else if (step == CreatureAuraFollowStep::Hold && mm.GetCurrentMovementGeneratorType() == POINT_MOTION_TYPE)
+        {
+            // A point move left over from before (e.g. an earlier move toward
+            // the master) that ends inside the hazard is stopped too; the
+            // hold and back-off moves end outside it and keep running.
+            LastMovement& lastMove = AI_VALUE(LastMovement&, "last movement");
+            if (!lastMove.lastPath.empty())
             {
-                mm.Clear(false, true);
-                mm.MoveIdle();
+                WorldPosition const end = lastMove.lastPath.GetBack();
+                float const ex = end.getX() - cx, ey = end.getY() - cy;
+                float const hazard = CreatureAuraHazardRadius(*row);
+                if (ex * ex + ey * ey < hazard * hazard)
+                {
+                    lastMove.clear();
+                    ai->StopMoving();
+                }
             }
-            return true;
         }
-        WorldPosition hold(bot->GetMapId(), hx, hy, bot->GetPositionZ());
-        hold.setZ(hold.GetHeight());
-        if (MoveTo(hold.GetMapId(), hold.getX(), hold.getY(), hold.getZ()))
-            return true;
-        // No way to the edge: stop rather than follow into the pulse.
-        if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
-        {
-            mm.Clear(false, true);
-            mm.MoveIdle();
-        }
+        // StepOut (the avoid-aoe step-out moves the bot), Hold, or no way to
+        // the point: stop rather than follow into the pulse.
+        stopFollow();
         return true;
     }
+    keepoutFollowEngaged = ObjectGuid();
     return false;
 }
 

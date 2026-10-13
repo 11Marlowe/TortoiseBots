@@ -78,26 +78,48 @@ namespace ai
         return row.keepoutRadius + kCreatureAuraHazardMargin;
     }
 
-    // Follow stops this far outside the hazard radius, so the hold point is
-    // outside both the hazard and the keep-out radius.
-    constexpr float kCreatureAuraFollowHoldMargin = 0.5f;
+    // ---- Follow near a keep-out (HoldFollowOutsideKeepout) ----------------
+    //
+    // While the follow goal lies inside a keep-out, the follower must never be
+    // sent toward it across the hold ring. Rings around the creature, centre
+    // measure, Creeping Sludge values in brackets:
+    //   keepout   [8.0]  inside: the avoid-aoe step-out owns the bot
+    //   hazard    [9.0]  8..9: back off along the creature-bot line to `backoff`
+    //   hold      [9.5]  where an approaching follower stops (and the goal test)
+    //   backoff   [10.0] where a back-off lands
+    //   holdOuter [10.5] 9..10.5: hold (stop a running follow, issue nothing)
+    //   release   [10.0] once engaged, the goal must clear this to follow again
+    // Every move target lands inside the hold band with at least 0.5 yd to
+    // either edge, so a height snap, a short arrival or the creature creeping
+    // at 2 yd/s cannot flip hold/follow/step-out from one tick to the next.
+    constexpr float kCreatureAuraFollowHoldMargin = 0.5f;    // hold ring past the hazard
+    constexpr float kCreatureAuraFollowBackoffMargin = 1.0f; // back-off ring past the hazard
+    constexpr float kCreatureAuraFollowOuterMargin = 1.5f;   // hold band edge past the hazard
+    constexpr float kCreatureAuraFollowReleaseMargin = 1.0f; // engaged goal release past the hazard
 
-    // Where a follower holds when its follow goal (P) lies inside the hazard
-    // circle (centre C, radius r): the point where the straight line from the
-    // bot (B) to P first enters the circle grown by the hold margin. 2D.
-    // Returns false when the goal is outside the circle (follow normally) or
-    // the bot itself is already inside it (the step-out handles that).
-    inline bool CreatureAuraFollowHoldPoint(float bx, float by, float px, float py,
-        float cx, float cy, float r, float& hx, float& hy)
+    struct CreatureAuraFollowRings
     {
-        float const R = r + kCreatureAuraFollowHoldMargin;
-        float const pdx = px - cx, pdy = py - cy;
-        if (pdx * pdx + pdy * pdy > R * R)
-            return false; // goal outside
+        float keepout, hazard, hold, backoff, holdOuter, release;
+    };
+
+    inline CreatureAuraFollowRings CreatureAuraFollowRingsFor(CreatureAuraKeepout const& row)
+    {
+        float const hazard = CreatureAuraHazardRadius(row);
+        return { row.keepoutRadius, hazard, hazard + kCreatureAuraFollowHoldMargin,
+            hazard + kCreatureAuraFollowBackoffMargin, hazard + kCreatureAuraFollowOuterMargin,
+            hazard + kCreatureAuraFollowReleaseMargin };
+    }
+
+    // First point where the segment from B (outside the circle) to P enters
+    // the circle (centre C, radius R). False when B is not outside, or the
+    // segment never reaches the circle. 2D.
+    inline bool SegmentEntersCircle(float bx, float by, float px, float py,
+        float cx, float cy, float R, float& hx, float& hy)
+    {
         float const fx = bx - cx, fy = by - cy;
         float const c = fx * fx + fy * fy - R * R;
         if (c <= 0.0f)
-            return false; // bot inside
+            return false; // B not outside
         float const dx = px - bx, dy = py - by;
         float const a = dx * dx + dy * dy;
         if (a <= 0.0f)
@@ -105,14 +127,58 @@ namespace ai
         float const b = 2.0f * (fx * dx + fy * dy);
         float const disc = b * b - 4.0f * a * c;
         if (disc < 0.0f)
-            return false; // cannot happen with B outside and P inside
-        float t = (-b - std::sqrt(disc)) / (2.0f * a);
-        if (t < 0.0f)
-            t = 0.0f;
-        if (t > 1.0f)
-            t = 1.0f;
+            return false; // the line misses the circle
+        float const t = (-b - std::sqrt(disc)) / (2.0f * a);
+        if (t < 0.0f || t > 1.0f)
+            return false; // circle behind B, or beyond P
         hx = bx + dx * t;
         hy = by + dy * t;
         return true;
+    }
+
+    enum class CreatureAuraFollowStep
+    {
+        Follow,   // goal clear of the keep-out: native follow
+        StepOut,  // bot inside the keep-out: stop following, the step-out moves it
+        BackOff,  // bot inside the hazard: move to (hx, hy), outward on the creature-bot line
+        Hold,     // bot in the hold band: stop a running follow, issue no move
+        Approach, // bot outside the band: move to (hx, hy), never inside the hold ring
+    };
+
+    // One follow decision against one keep-out creature (centre C) for a bot
+    // at B whose follow goal is P. `engaged`: the previous decision against
+    // this creature was not Follow (goal hysteresis: an engaged follower
+    // resumes only once the goal is past the release ring).
+    inline CreatureAuraFollowStep PlanCreatureAuraFollow(CreatureAuraKeepout const& row, bool engaged,
+        float bx, float by, float px, float py, float cx, float cy, float& hx, float& hy)
+    {
+        CreatureAuraFollowRings const rings = CreatureAuraFollowRingsFor(row);
+        float const gdx = px - cx, gdy = py - cy;
+        float const goalLimit = engaged ? rings.release : rings.hold;
+        if (gdx * gdx + gdy * gdy > goalLimit * goalLimit)
+            return CreatureAuraFollowStep::Follow;
+
+        float const fx = bx - cx, fy = by - cy;
+        float const d = std::sqrt(fx * fx + fy * fy);
+        if (d <= rings.keepout)
+            return CreatureAuraFollowStep::StepOut;
+        if (d < rings.hazard)
+        {
+            // d > keepout > 0, so the direction is defined.
+            hx = cx + fx / d * rings.backoff;
+            hy = cy + fy / d * rings.backoff;
+            return CreatureAuraFollowStep::BackOff;
+        }
+        if (d <= rings.holdOuter)
+            return CreatureAuraFollowStep::Hold;
+        // Outside the band: walk to where the straight line to the goal meets
+        // the hold ring. An engaged goal between the hold and release rings
+        // may be reachable without touching the ring; then walk to it.
+        if (!SegmentEntersCircle(bx, by, px, py, cx, cy, rings.hold, hx, hy))
+        {
+            hx = px;
+            hy = py;
+        }
+        return CreatureAuraFollowStep::Approach;
     }
 } // namespace ai

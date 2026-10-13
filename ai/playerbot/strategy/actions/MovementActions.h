@@ -87,9 +87,9 @@ namespace ai
         bool IsValidPosition(const WorldPosition& position, const WorldPosition& visibleFromPosition);
         bool IsHazardNearPosition(const WorldPosition& position, HazardPosition* outHazard = nullptr);
         // AiPlayerbot.AvoidCreatureAuras: when the follow goal lies inside a
-        // listed creature's hazard, walk to (or hold at) the point just outside
-        // it on the way there instead of following in. True when it handled
-        // the follow this tick (moved or held); false to follow normally.
+        // listed creature's hazard, approach, hold or back off outside it
+        // (PlanCreatureAuraFollow) instead of following in. True when it
+        // handled the follow this tick (moved or held); false to follow normally.
         bool HoldFollowOutsideKeepout(Unit* target, float distance, float angle);
         bool Flee(Unit *target);
         // Pool-bot flee: one checked point step of `distance` away from
@@ -123,6 +123,9 @@ namespace ai
         bool GeneratePathAvoidingHazards(std::vector<WorldPosition>& movePath);
 
         LedgeStepDownClock ledgeStepDown;
+        // The keep-out creature the last follow decision held, approached or
+        // backed off from (empty when it followed normally): goal hysteresis.
+        ObjectGuid keepoutFollowEngaged;
     };
 
     class FleeAction : public MovementAction
