@@ -176,6 +176,9 @@ Organic buyer (issue #405, no buyer teleport): the synthetic buyer bids only wit
 * **Healers stay healers in a battleground** (pool and party bots alike): a Holy/Discipline priest, Restoration shaman or druid and Holy paladin keep their talent spec in combat, with the BG objective and `pvp` strategies on top, so each team brings its healers. A `+dps` in `AiPlayerbot.RandomBotCombatStrategies` or `AiPlayerbot.CombatStrategies` cannot swap a healer onto a damage spec there; a stored `.bot strategy` change or a forced role (`.bot role`) still wins.
 * The auto-queue service never touches your party bots: master-reclaim reconciliation and lease eviction only cancel queue entries the service itself queued, and human-demand accounting counts only non-headless real players — your bots (or random fill bots) never create fake demand.
 
+### Arathi Basin Banners
+* Bots capture a node by clicking the banner within reach: the neutral node banner first, then the contested or enemy assault banner to retake it. The core decides each capture; a click on a node your team already holds does nothing there. A bot casts at most once every 4 seconds, then moves on to its next objective.
+
 ---
 
 ## 7. Recommended Living World Configuration
