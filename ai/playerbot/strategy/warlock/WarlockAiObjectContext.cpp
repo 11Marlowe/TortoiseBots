@@ -360,6 +360,16 @@ namespace ai
                 creators["firebolt"] = [](PlayerbotAI* ai) { return new CastFireboltAction(ai); };
             }
         };
+
+        class ValueFactoryInternal : public NamedObjectContext<UntypedValue>
+        {
+        public:
+            ValueFactoryInternal()
+            {
+                // Spec pet: the group tank read shared by the four SpecPetTrigger rows.
+                creators["spec pet tank"] = [](PlayerbotAI* ai) { return new SpecPetTankValue(ai); };
+            }
+        };
     };
 };
 
@@ -378,4 +388,5 @@ WarlockAiObjectContext::WarlockAiObjectContext(PlayerbotAI* ai) : AiObjectContex
     strategyContexts.Add(new ai::warlock::CcSituationStrategyFactoryInternal());
     actionContexts.Add(new ai::warlock::AiObjectContextInternal());
     triggerContexts.Add(new ai::warlock::TriggerFactoryInternal());
+    valueContexts.Add(new ai::warlock::ValueFactoryInternal());
 }

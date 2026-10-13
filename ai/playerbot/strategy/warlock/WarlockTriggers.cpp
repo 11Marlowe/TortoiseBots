@@ -342,7 +342,8 @@ TortoiseBots::WarlockSpec WarlockSpecOf(PlayerbotAI* ai)
 }
 
 // One spec-pet decision for the four SpecPetTrigger rows. Cheap exits first;
-// the group walk only runs for a bot that is grouped and might need a pet.
+// the group tank read is shared per interval, and the shard read only runs
+// once a summon or swap is actually wanted.
 TortoiseBots::WarlockSpecPetDecision DecideSpecPet(PlayerbotAI* ai, Player* bot)
 {
     using TortoiseBots::WarlockSpecPetDecision;
@@ -358,6 +359,9 @@ TortoiseBots::WarlockSpecPetDecision DecideSpecPet(PlayerbotAI* ai, Player* bot)
     inputs.spec = WarlockSpecOf(ai);
     if (inputs.spec == TortoiseBots::WarlockSpec::Unknown)
         return WarlockSpecPetDecision::LeaveAlone;
+    // Mounted (travelling): no swap and no summon until the bot dismounts.
+    if (ai->GetAiObjectContext()->GetValue<bool>("mounted", "self target")->Get())
+        return WarlockSpecPetDecision::LeaveAlone;
 
     Unit* pet = ai->GetAiObjectContext()->GetValue<Unit*>("pet target")->Get();
     inputs.hasPet = pet != nullptr;
@@ -366,15 +370,17 @@ TortoiseBots::WarlockSpecPetDecision DecideSpecPet(PlayerbotAI* ai, Player* bot)
     inputs.canSwapLivePet = !ai->HasRealPlayerMaster();
     if (inputs.hasPet && !inputs.canSwapLivePet)
         return WarlockSpecPetDecision::LeaveAlone;
-    if (!inputs.hasPet && ai->GetAiObjectContext()->GetValue<bool>("mounted", "self target")->Get())
-        return WarlockSpecPetDecision::LeaveAlone;
 
     inputs.knowsVoidwalker = bot->HasSpell(TortoiseBots::WARLOCK_VOIDWALKER_SUMMON_SPELL);
     inputs.knowsSuccubus = bot->HasSpell(TortoiseBots::WARLOCK_SUCCUBUS_SUMMON_SPELL);
     inputs.knowsFelhunter = bot->HasSpell(TortoiseBots::WARLOCK_FELHUNTER_SUMMON_SPELL);
+    // The tank rule needs a group; a solo bot is its own tank and never walks one.
+    inputs.petIsGroupTank = bot->GetGroup() && ai->GetAiObjectContext()->GetValue<bool>("spec pet tank")->Get();
+    // The live pet already is the choice (or may not be swapped): stop before the bag read.
+    if (TortoiseBots::WarlockSpecPetWanted(inputs) == TortoiseBots::WarlockPetKind::None)
+        return WarlockSpecPetDecision::LeaveAlone;
+
     inputs.hasSoulShard = bot->GetItemCount(TortoiseBots::WARLOCK_SOUL_SHARD_ITEM) > 0;
-    Group* group = bot->GetGroup();
-    inputs.petIsGroupTank = group && group->GetMembersCount() > 1 && WarlockPetTauntAllowed(ai, bot);
     return TortoiseBots::DecideWarlockSpecPet(inputs);
 }
 } // namespace
@@ -382,6 +388,12 @@ TortoiseBots::WarlockSpecPetDecision DecideSpecPet(PlayerbotAI* ai, Player* bot)
 bool SpecPetTrigger::IsActive()
 {
     return DecideSpecPet(ai, bot) == wanted;
+}
+
+bool SpecPetTankValue::Calculate()
+{
+    Group* group = bot->GetGroup();
+    return group && group->GetMembersCount() > 1 && WarlockPetTauntAllowed(ai, bot);
 }
 
 bool WrongPetTrigger::IsActive()

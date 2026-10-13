@@ -9,6 +9,8 @@
 // Affliction/Demonology -> Felhunter -> Succubus -> Voidwalker -> Imp by what
 // is learned, Destruction -> Imp, a tankless group keeps the Voidwalker, live
 // pets only swap for pool bots, a missing shard keeps the existing fallback.
+// WarlockSpecPetWanted (the caller's early return, before the bag read) is None
+// exactly when the decision is LeaveAlone whatever the shard holds.
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_warlock_pet_policy.cpp -o /tmp/test_warlock_pet
@@ -216,6 +218,93 @@ static void TestSpecConstants()
     CHECK(WarlockPetKindFromEntry(0) == WarlockPetKind::None);
 }
 
+static WarlockSpecPetDecision DecisionFor(WarlockPetKind kind)
+{
+    switch (kind)
+    {
+        case WarlockPetKind::Imp: return WarlockSpecPetDecision::SummonImp;
+        case WarlockPetKind::Voidwalker: return WarlockSpecPetDecision::SummonVoidwalker;
+        case WarlockPetKind::Succubus: return WarlockSpecPetDecision::SummonSuccubus;
+        case WarlockPetKind::Felhunter: return WarlockSpecPetDecision::SummonFelhunter;
+        default: return WarlockSpecPetDecision::LeaveAlone;
+    }
+}
+
+// The caller's early return: WarlockSpecPetWanted is None when the live pet
+// stands (or the spec is unknown), and the caller then never reads the bag.
+static void TestSpecWantedStands()
+{
+    // Affliction 60 with a Felhunter out in a pool bot: the pet stands.
+    WarlockSpecPetInputs in = Spec(WarlockSpec::Affliction, 60);
+    in.hasPet = true;
+    in.canSwapLivePet = true;
+    in.currentPetEntry = WARLOCK_FELHUNTER_PET_ENTRY;
+    CHECK(WarlockSpecPetWanted(in) == WarlockPetKind::None);
+    // Destruction with an Imp out stands too, until a tankless group wants the Voidwalker.
+    in = Spec(WarlockSpec::Destruction, 60);
+    in.hasPet = true;
+    in.canSwapLivePet = true;
+    in.currentPetEntry = WARLOCK_IMP_PET_ENTRY;
+    CHECK(WarlockSpecPetWanted(in) == WarlockPetKind::None);
+    in.petIsGroupTank = true;
+    CHECK(WarlockSpecPetWanted(in) == WarlockPetKind::Voidwalker);
+    // A player-owned bot, a non-default demon and an unknown spec always stand.
+    in = Spec(WarlockSpec::Affliction, 60);
+    in.hasPet = true;
+    in.canSwapLivePet = false;
+    in.currentPetEntry = WARLOCK_VOIDWALKER_PET_ENTRY;
+    CHECK(WarlockSpecPetWanted(in) == WarlockPetKind::None);
+    in.canSwapLivePet = true;
+    in.currentPetEntry = 12345;
+    CHECK(WarlockSpecPetWanted(in) == WarlockPetKind::None);
+    CHECK(WarlockSpecPetWanted(Spec(WarlockSpec::Unknown, 60)) == WarlockPetKind::None);
+    // Petless: the spec's demon is wanted, so the shard read follows.
+    CHECK(WarlockSpecPetWanted(Spec(WarlockSpec::Affliction, 60)) == WarlockPetKind::Felhunter);
+}
+
+// Over the whole input grid: a None from WarlockSpecPetWanted decides LeaveAlone
+// with or without a shard (so skipping the bag read is exact), and any other
+// wanted demon decides its summon once a shard is held; without one only the
+// Imp, which needs no shard, still summons.
+static void TestSpecWantedIsShardFree()
+{
+    WarlockSpec const specs[] = { WarlockSpec::Unknown, WarlockSpec::Affliction, WarlockSpec::Demonology, WarlockSpec::Destruction };
+    uint32_t const pets[] = { 416, 1860, 1863, 417, 12345 };
+    for (WarlockSpec spec : specs)
+    for (int knows = 0; knows < 8; ++knows)
+    for (int tank = 0; tank < 2; ++tank)
+    for (int petState = 0; petState < 11; ++petState) // 0: petless; else canSwap x pets
+    {
+        WarlockSpecPetInputs in;
+        in.spec = spec;
+        in.knowsVoidwalker = (knows & 1) != 0;
+        in.knowsSuccubus = (knows & 2) != 0;
+        in.knowsFelhunter = (knows & 4) != 0;
+        in.petIsGroupTank = tank != 0;
+        in.hasPet = petState > 0;
+        if (in.hasPet)
+        {
+            in.canSwapLivePet = (petState - 1) / 5 != 0;
+            in.currentPetEntry = pets[(petState - 1) % 5];
+        }
+        WarlockPetKind const want = WarlockSpecPetWanted(in);
+        in.hasSoulShard = false;
+        WarlockSpecPetDecision const noShard = DecideWarlockSpecPet(in);
+        in.hasSoulShard = true;
+        WarlockSpecPetDecision const withShard = DecideWarlockSpecPet(in);
+        if (want == WarlockPetKind::None)
+        {
+            CHECK(noShard == WarlockSpecPetDecision::LeaveAlone);
+            CHECK(withShard == WarlockSpecPetDecision::LeaveAlone);
+        }
+        else
+        {
+            CHECK(withShard == DecisionFor(want));
+            CHECK(noShard == (want == WarlockPetKind::Imp ? WarlockSpecPetDecision::SummonImp : WarlockSpecPetDecision::LeaveAlone));
+        }
+    }
+}
+
 int main()
 {
     std::printf("Starting warlock pet policy tests...\n");
@@ -247,6 +336,10 @@ int main()
     std::printf("  [PASS] spec live pet swap\n");
     TestSpecConstants();
     std::printf("  [PASS] spec constants\n");
+    TestSpecWantedStands();
+    std::printf("  [PASS] spec wanted stands when the pet matches\n");
+    TestSpecWantedIsShardFree();
+    std::printf("  [PASS] spec wanted is shard free\n");
     std::printf("All warlock pet policy checks PASSED (%d assertions)!\n", checks);
     return 0;
 }
