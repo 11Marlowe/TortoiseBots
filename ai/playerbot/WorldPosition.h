@@ -10,6 +10,7 @@
 #include <mutex>
 #include <unordered_map>
 #include <vector>
+#include "WeightedShufflePolicy.h"
 
 namespace G3D
 {
@@ -28,27 +29,6 @@ namespace ai
         WP_MEAN_CENTROID = 2,
         WP_CLOSEST = 3
     };
-
-    template <class D, class W, class URBG>
-    inline void WeightedShuffle
-    (D first, D last
-        , W first_weight, W last_weight
-        , URBG&& g)
-    {
-        while (first != last && first_weight != last_weight)
-        {
-            std::discrete_distribution<int> dd(first_weight, last_weight);
-            auto i = dd(g);
-
-            if (i)
-            {
-                std::swap(*first, *std::next(first, i));
-                std::swap(*first_weight, *std::next(first_weight, i));
-            }
-            ++first;
-            ++first_weight;
-        }
-    }
 
     class GuidPosition;
 
