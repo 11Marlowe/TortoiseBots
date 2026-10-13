@@ -38,9 +38,14 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 1), NULL)));
 
+    // Pull 1 (Deadmines, 2026-10-13): the medium band had no fast direct heal
+    // behind the shield — the gap is the same shape as holy's. Flash Heal
+    // rides the medium row above greater heal so a dropping tank gets a fast
+    // heal first; the efficient greater heal stays for the mana case.
     triggers.push_back(new TriggerNode(
         "party member medium health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
+                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL), NULL)));
 
     triggers.push_back(new TriggerNode(
