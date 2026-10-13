@@ -32,6 +32,7 @@ template<unsigned Id> struct Service {
     void Update(uint32 diff) { assert(diff == 50); calls.push_back(Id); }
     void OnWorldUpdate(uint32 diff) { Update(diff); }
     static void DrainQueuedCommands() { calls.push_back(Id); }
+    static void DrainDeferredPackets() { calls.push_back(Id); }
 };
 using BotActivityLeaseManager = Service<1>;
 using BotManager = Service<2>;
@@ -43,6 +44,7 @@ using AhMarketService = Service<7>;
 using BattlegroundQueueService = Service<8>;
 using ObservabilityEmitter = Service<9>;
 using BotChatAdapter = Service<10>;
+using BotPacketAdapter = Service<11>;
 struct BotHostAdapter { uint32 m_ticks = 0; void OnUpdate(uint32 diff); };
 '''
         fixture += hook + r'''
@@ -60,11 +62,11 @@ int main() {
     calls.clear();
     sPlayerbotAIConfig.enabled = true;
     adapter.OnUpdate(50);
-    assert((calls == std::vector<unsigned>{10,1,2,3,4,5,6,7,8,9}));
+    assert((calls == std::vector<unsigned>{10,1,11,2,3,4,5,6,7,8,9}));
     assert(adapter.m_ticks == 1);
     sPlayerbotAIConfig.enabled = false;
     adapter.OnUpdate(50);
-    assert((calls == std::vector<unsigned>{10,1,2,3,4,5,6,7,8,9,10}));
+    assert((calls == std::vector<unsigned>{10,1,11,2,3,4,5,6,7,8,9,10}));
     assert(adapter.m_ticks == 1);
 }
 '''
