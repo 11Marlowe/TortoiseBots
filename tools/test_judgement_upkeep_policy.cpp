@@ -23,11 +23,12 @@ using namespace TortoiseBots;
 } while (0)
 
 // Paladin with both seals by default; `healer` picks the role.
-static JudgementPaladin P(uint64_t id, bool healer, bool wisdom = true, bool light = true)
+static JudgementPaladin P(uint64_t id, bool healer, bool wisdom = true, bool light = true, bool tank = false)
 {
     JudgementPaladin p;
     p.id = id;
     p.healer = healer;
+    p.tank = tank;
     p.canWisdom = wisdom;
     p.canLight = light;
     return p;
@@ -91,6 +92,30 @@ static void TestOwnership()
 
     // A self that is not in the list owns nothing.
     CHECK(Kind(99, mixed) == JudgementKind::None);
+}
+
+static void TestTankNeverOwns()
+{
+    // Lone Protection tank: nothing is upkept.
+    CHECK(Kind(1, { P(1, false, true, true, true) }) == JudgementKind::None);
+    // Protection tank (lowest guid) + Retribution: Retribution owns Wisdom, the tank nothing.
+    std::vector<JudgementPaladin> protRet = { P(1, false, true, true, true), P(2, false) };
+    CHECK(Kind(1, protRet) == JudgementKind::None);
+    CHECK(Kind(2, protRet) == JudgementKind::Wisdom);
+    // Tank + Holy: Holy owns Light, the tank nothing, Wisdom is not upkept.
+    std::vector<JudgementPaladin> protHoly = { P(1, false, true, true, true), P(2, true) };
+    CHECK(Kind(1, protHoly) == JudgementKind::None);
+    CHECK(Kind(2, protHoly) == JudgementKind::Light);
+    // Tank + Retribution + Holy: Wisdom and Light go to the non-tanks.
+    std::vector<JudgementPaladin> trio = { P(1, false, true, true, true), P(2, false), P(3, true) };
+    CHECK(Kind(1, trio) == JudgementKind::None);
+    CHECK(Kind(2, trio) == JudgementKind::Wisdom);
+    CHECK(Kind(3, trio) == JudgementKind::Light);
+    // Tank + two Retribution: leftovers go to the second non-tank, never the tank.
+    std::vector<JudgementPaladin> protRetRet = { P(1, false, true, true, true), P(2, false), P(3, false) };
+    CHECK(Kind(1, protRetRet) == JudgementKind::None);
+    CHECK(Kind(2, protRetRet) == JudgementKind::Wisdom);
+    CHECK(Kind(3, protRetRet) == JudgementKind::Light);
 }
 
 static void TestSealAvailability()
@@ -216,6 +241,7 @@ static void TestCycle()
 int main()
 {
     TestOwnership();
+    TestTankNeverOwns();
     TestSealAvailability();
     TestTarget();
     TestAffordable();

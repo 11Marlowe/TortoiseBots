@@ -9449,7 +9449,7 @@ the test VM (see the PR); build pending; in-game pending.
 
 Feature: with the toggle on (default off), paladin bots in a group keep Judgement of Wisdom /
 Judgement of Light up on a boss or elite (or, in a dungeon or raid, the tank's target). One paladin
-owns each debuff: Retribution / Protection take Wisdom, Holy takes Light, a second paladin of the
+owns each debuff: Retribution takes Wisdom, Holy takes Light, a paladin in the tank role (Protection) never owns one, a second non-tank paladin of the
 same kind takes the other debuff, a third owns none. The owner swaps to the matching Seal and judges
 when the debuff has 4 s left or is gone. Healers yield to healing (mana >= 50%, nobody below the
 medium-health line); everyone needs the medium-mana line. Never solo, never on a player target.

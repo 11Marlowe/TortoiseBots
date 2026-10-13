@@ -9,7 +9,7 @@
 // Judgement of Light up on the boss / the tank's elite target. Vanilla
 // mechanics (spell_template, 1.18.1): Judgement (20271) is castable only with a
 // Seal up, spends that Seal and applies the Seal's judgement debuff; Seal of
-// Wisdom (20166, ranks 20350 / 20351 ...) leaves Judgement of Wisdom, Seal of
+// Wisdom (20166, ranks 20356 / 20357 ...) leaves Judgement of Wisdom, Seal of
 // Light (20165, ranks 20347 ...) leaves Judgement of Light, Seal of
 // Righteousness / Command leave none that the group benefits from. The debuff
 // lasts 10 s (vanilla) and Judgement has a 10 s cooldown, so one paladin per debuff
@@ -18,12 +18,15 @@
 // Which debuff, and who owns it, is a pure function of the paladins in the
 // group, so it is unit-tested on its own (tools/test_judgement_upkeep_policy.cpp)
 // and every paladin bot reaches the same answer without talking to the others:
-//   - a non-healing paladin (Protection, Retribution) owns Judgement of
-//     Wisdom, a healing paladin owns Judgement of Light (mod-playerbots'
-//     per-role pairing: tank / dps judge Wisdom, the heal strategy judges
-//     Light);
-//   - a second paladin of the same role takes the debuff the first one left
-//     over, so two paladins never judge the same debuff; a third owns nothing;
+//   - a paladin in the tank role never owns a judgement (a Protection tank
+//     keeps Seal of Righteousness for threat); if no other paladin can own a
+//     debuff, it is simply not upkept;
+//   - a non-tank, non-healing paladin (Retribution) owns Judgement of Wisdom,
+//     a healing paladin owns Judgement of Light (mod-playerbots' per-role
+//     pairing: dps judges Wisdom, the heal strategy judges Light);
+//   - a second non-tank paladin of the same role takes the debuff the first
+//     one left over, so two paladins never judge the same debuff; a third
+//     owns nothing;
 //   - the order inside a role is the lowest guid first, the same on every bot.
 // Behaviour ported from mod-playerbots @ 79bd428
 // (src/Ai/Class/Paladin/Strategy/{Dps,Tank,Heal}PaladinStrategy.cpp default
@@ -47,6 +50,7 @@ struct JudgementPaladin
 {
     uint64_t id = 0;       // stable per character (the guid)
     bool healer = false;   // heal role (PlayerbotAI::IsHeal)
+    bool tank = false;     // tank role (PlayerbotAI::IsTank): never owns a judgement
     bool canWisdom = false; // knows Seal of Wisdom
     bool canLight = false;  // knows Seal of Light
 };
@@ -82,6 +86,8 @@ inline JudgementKind JudgementKindFor(uint64_t self, const JudgementPaladin* pal
         for (std::size_t i = 0; i < count; ++i)
         {
             const JudgementPaladin& p = paladins[i];
+            if (p.tank)
+                continue;
             if (skipValid && p.id == skip)
                 continue;
             if (role >= 0 && p.healer != (role == 1))

@@ -141,6 +141,7 @@ JudgementUpkeepState ReadJudgementUpkeep(PlayerbotAI* ai, Player* bot, bool want
         JudgementPaladin& entry = paladins[paladinCount++];
         entry.id = member->GetObjectGuid().GetRawValue();
         entry.healer = PlayerbotAI::IsHeal(member);
+        entry.tank = PlayerbotAI::IsTank(member);
         entry.canWisdom = paladinAi->HasSpell("seal of wisdom");
         entry.canLight = paladinAi->HasSpell("seal of light");
     }
