@@ -315,7 +315,15 @@ namespace ai
     class CastFireNovaAction : public CastSpellAction
     {
     public:
-        CastFireNovaAction(PlayerbotAI* ai) : CastSpellAction(ai, "fire nova") {}
+        // Casts the totem DROP. "Fire Nova" is the totem's own pulse (8349
+        // line) and is never in the spellbook, so the old spell name never
+        // resolved. The action keeps the name "fire nova" (AoE-off veto and
+        // NextAction rows match it). The drop lands at our feet, so it
+        // targets the bot as the magma and searing totems do: a self-only
+        // spell at an enemy target fails the range check in isPossible.
+        CastFireNovaAction(PlayerbotAI* ai) : CastSpellAction(ai, "fire nova totem") {}
+        std::string getName() override { return "fire nova"; }
+        virtual std::string GetTargetName() override { return "self target"; }
         virtual bool isUseful() override
         {
             // 1.12 Fire Nova is a totem DROP (not a pulse of an existing
