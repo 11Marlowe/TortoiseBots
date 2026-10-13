@@ -202,6 +202,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_trinket_use_policy
         test_undercity_lift_policy
         test_vael_policy
+        test_value_refresh_policy
         test_vendor_buy_policy
         test_vendor_trip_policy
         test_vendor_weapon_upgrade_policy

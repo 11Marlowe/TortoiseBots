@@ -53,9 +53,7 @@ std::string GuidPositionManualSetValue::Format()
 Unit* UnitCalculatedValue::Get()
 {
     time_t now = time(0);
-    if (!lastCheckTime ||
-        (checkInterval < 2 && (now - lastCheckTime > 0.1)) ||
-        now - lastCheckTime >= checkInterval / 2)
+    if (ValueNeedsRefresh(now, lastCheckTime, checkInterval, ValueRefreshAtIntervalEnabled(), keepLegacyRefresh))
     {
         lastCheckTime = now;
 

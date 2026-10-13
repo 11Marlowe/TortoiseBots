@@ -8,7 +8,7 @@ namespace ai
     class AoeHealValue : public Uint8CalculatedValue, public Qualified
 	{
 	public:
-	AoeHealValue(PlayerbotAI* ai, std::string name = "aoe heal") : Uint8CalculatedValue(ai, name, 3), Qualified() {}
+	AoeHealValue(PlayerbotAI* ai, std::string name = "aoe heal") : Uint8CalculatedValue(ai, name, 3), Qualified() { this->keepLegacyRefresh = true; }
 
     public:
 	virtual uint8 Calculate() override;

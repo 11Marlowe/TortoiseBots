@@ -9,6 +9,7 @@
 #include "AccountMgr.h"
 #include "RandomItemMgr.h"
 #include "playerbot/PlayerbotHelpMgr.h"
+#include "playerbot/strategy/ValueRefreshPolicy.h"
 #include "playerbot/strategy/actions/CheatAction.h"
 // Issue #265: the managed-account registry is the authority for random-pool
 // account identity (prefix matching never authorizes ownership).
@@ -268,6 +269,9 @@ bool PlayerbotAIConfig::Initialize()
     if (combatTickBudgetUs > 100000) combatTickBudgetUs = 100000;
     targetWorldTickMs = (uint32)config.GetIntDefault("AiPlayerbot.TargetWorldTickMs", 100);
     if (targetWorldTickMs > 1000) targetWorldTickMs = 1000;
+
+    valueRefreshAtInterval = config.GetBoolDefault("AiPlayerbot.ValueRefreshAtInterval", false);
+    ai::gValueRefreshAtInterval.store(valueRefreshAtInterval, std::memory_order_relaxed);
 
     // Issue #84: donor Shyalya defaults (base 250ms doubling to 2s cap,
     // 30s TTL, 64 entries). Zero base/max disables the backoff entirely.

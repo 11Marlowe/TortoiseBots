@@ -49,7 +49,7 @@ namespace ai
     {
     public:
         NearestStealthedUnitsValue(PlayerbotAI* ai, float range = 30.0f) :
-            NearestUnitsValue(ai, "nearest stealthed units", range) {}
+            NearestUnitsValue(ai, "nearest stealthed units", range) { this->keepLegacyRefresh = true; }
 
     protected:
         void FindUnits(std::list<Unit*>& targets) override
