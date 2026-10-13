@@ -90,6 +90,12 @@ constexpr uint32_t kMapTowerOfKarazhan = 814;
 // other member of the group is dead on the same map instance).
 constexpr uint32_t kHireUnlockFourHorsemen[] = { 16062, 16063, 16064, 16065 };
 
+// High Priest Thekal (14599) fakes his first death: the P1 corpse rezzes
+// after 10 s and the fight continues as entry 14509 (SetEntry in
+// UpdateAI_corpse, boss_thekal.cpp). The real, lootable death fires
+// OnCreatureKill(14509), so that entry aliases to the same encounter.
+constexpr uint32_t kHireUnlockThekalPhaseTwo = 14509;
+
 // Tower of Karazhan King's Council (King/Knight/Rook/Bishop): the loot is on
 // the King, so the council counts on the King's death alone (59967).
 
@@ -248,6 +254,8 @@ inline uint32_t HireUnlockEncounterKey(uint32_t creatureEntry)
     for (uint32_t member : kHireUnlockFourHorsemen)
         if (member == creatureEntry)
             return kHireUnlockFourHorsemen[0];
+    if (creatureEntry == kHireUnlockThekalPhaseTwo)
+        return 14599;
     return creatureEntry;
 }
 

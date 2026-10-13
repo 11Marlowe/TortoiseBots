@@ -7,13 +7,15 @@ class Creature;
 namespace TortoiseBots
 {
 
-// Issue #490 PR 2 (kills): boss-kill credit for the hire-unlock quests
-// (90100-90106). Core already fans Player::KilledMonster out to every group
-// member in reward distance, so OnCreatureKill credits only its own killer:
-// no group walk here (dedup is per player). The Horsemen encounter credits
-// once, when the last of the four dies. Quest-accept sync lives on the
-// recruiter adapter (the CreatureScript these NPCs already route to); login
-// sync lives here. Module-only: zero core changes.
+// Issue #490 PR 2 (kills) + PR 3 (credit): boss-kill credit for the
+// hire-unlock quests (90100-90106). OnCreatureKill fans out to every
+// non-bot group member in reward distance (dedup is per player): a bot or
+// pet landing the blow must not starve the party's real players, since the
+// members' own hooks may never fire. Bots never count. The Horsemen
+// encounter credits once, when the last of the four dies; Thekal's real
+// death (entry 14509, P1 is a fake) aliases to 14599. Quest-accept sync
+// lives on the recruiter adapter (the CreatureScript these NPCs already
+// route to); login sync lives here. Module-only: zero core changes.
 class HireUnlockKillAdapter final : public PlayerScript
 {
 public:

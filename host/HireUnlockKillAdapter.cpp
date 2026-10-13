@@ -3,6 +3,7 @@
 #include "../runtime/HireUnlockPolicy.h"
 #include "../runtime/HireUnlockSync.h"
 #include "../runtime/HireUnlockKillStore.h"
+#include "../runtime/HireUnlockGroupCredit.h"
 #include "../runtime/BotManager.h"
 #include "../ai/playerbot/playerbot.h"
 
@@ -11,6 +12,7 @@
 #include "Creature.h"
 #include "QuestDef.h"
 #include "ObjectMgr.h"
+#include "ObjectAccessor.h"
 #include "Maps/Cell.h"
 #include "Maps/CellImpl.h"
 #include "Maps/GridNotifiers.h"
@@ -51,6 +53,31 @@ static bool IsLastHorsemanStanding(Creature* killed)
     return true;
 }
 
+// One member's share of a boss kill: quest open, not yet counted, then
+// record + bump the quest-log counter. Dedup is per player, so a fan-out
+// that reaches the same member twice is harmless.
+static void CreditHireUnlockKill(Player* member, uint32_t encounter,
+    HireUnlockCounter const* counter, uint32_t questId)
+{
+    if (!member)
+        return;
+    if (member->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
+        return;
+    if (member->GetQuestRewardStatus(questId))
+        return;
+    if (!HireUnlockKillStore::Instance().AddKill(member->GetGUIDLow(), encounter))
+        return; // counted once per character, ever
+    // Async write: the kill path never blocks on the database. INSERT
+    // IGNORE keeps a racing double kill (two members' hooks on the same
+    // frame) from erroring.
+    CharacterDatabase.PExecute(
+        "INSERT IGNORE INTO `tortoise_bots_hire_unlock_kills` (`guid`, `boss_entry`) VALUES ('%u', '%u')",
+        member->GetGUIDLow(), encounter);
+    // KilledMonsterCredit walks the quest log and bumps the counter slot
+    // whose ReqCreatureOrGOId matches.
+    member->KilledMonsterCredit(counter->creditEntry);
+}
+
 void HireUnlockKillAdapter::OnCreatureKill(Player* killer, Creature* killed)
 {
     if (!killer || !killed)
@@ -68,21 +95,41 @@ void HireUnlockKillAdapter::OnCreatureKill(Player* killer, Creature* killed)
     uint32_t questId = HireUnlockQuestForTier(counter->tier);
     if (questId == 0)
         return;
-    if (killer->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
-        return;
-    if (killer->GetQuestRewardStatus(questId))
-        return;
-    if (!HireUnlockKillStore::Instance().AddKill(killer->GetGUIDLow(), encounter))
-        return; // counted once per character, ever
-    // Async write: the kill path never blocks on the database. INSERT
-    // IGNORE keeps a racing double kill (two members' hooks on the same
-    // frame) from erroring.
-    CharacterDatabase.PExecute(
-        "INSERT IGNORE INTO `tortoise_bots_hire_unlock_kills` (`guid`, `boss_entry`) VALUES ('%u', '%u')",
-        killer->GetGUIDLow(), encounter);
-    // KilledMonsterCredit walks the quest log and bumps the counter slot
-    // whose ReqCreatureOrGOId matches; dedup is per player (this killer).
-    killer->KilledMonsterCredit(counter->creditEntry);
+    // Core calls this hook once per group member in reward distance, but a
+    // bot or pet landing the blow leaves the real players uncredited: the
+    // bot's hook fires for the bot (quest never open, filtered below) and
+    // the members' hooks may never come. So fan out here: every non-bot
+    // group member in reward distance counts, bots never do.
+    std::vector<HireUnlockCreditCandidate> roster;
+    if (Group* group = killer->GetGroup())
+    {
+        for (auto const& slot : group->GetMemberSlots())
+        {
+            if (slot.guid == killer->GetObjectGuid())
+                continue;
+            Player* member = sObjectAccessor.FindPlayer(slot.guid);
+            if (!member || !member->IsInWorld())
+                continue;
+            HireUnlockCreditCandidate candidate;
+            candidate.guidLow = member->GetGUIDLow();
+            candidate.isBot = BotManager::Instance().IsBot(slot.guid);
+            candidate.inRewardDistance = member->IsAtGroupRewardDistance(killed);
+            roster.push_back(candidate);
+        }
+    }
+    std::vector<uint32_t> targets;
+    HireUnlockCreditTargets(killer->GetGUIDLow(), roster.data(), roster.size(), targets);
+    for (uint32_t guidLow : targets)
+    {
+        Player* member = (guidLow == killer->GetGUIDLow())
+            ? killer : sObjectAccessor.FindPlayer(ObjectGuid(HIGHGUID_PLAYER, guidLow));
+        // Bots never hold an unlock quest, but skip them explicitly: a bot
+        // landing the blow must not burn its (absent) quest state, and the
+        // store/DB rows are real-player progress.
+        if (member && BotManager::Instance().IsBot(member->GetObjectGuid()))
+            continue;
+        CreditHireUnlockKill(member, encounter, counter, questId);
+    }
 }
 
 void HireUnlockKillAdapter::OnLogin(Player* player)

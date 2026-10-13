@@ -85,6 +85,14 @@ static void TestHorsemen()
         CHECK(HireUnlockEncounterKey(member) == 16062);
         CHECK(HireUnlockCounterForKill(member) == naxx);
     }
+    // Thekal's real death fires as entry 14509 (P1 is a fake death with no
+    // loot); both entries resolve to the same encounter and counter.
+    CHECK(HireUnlockEncounterKey(14599) == 14599);
+    CHECK(HireUnlockEncounterKey(kHireUnlockThekalPhaseTwo) == 14599);
+    HireUnlockCounter const* zg = HireUnlockCounterForKill(14599);
+    CHECK(zg && zg->tier == 2);
+    CHECK(HireUnlockCounterForKill(kHireUnlockThekalPhaseTwo) == zg);
+    CHECK(!IsHireUnlockGroupedEncounter(14599));
     CHECK(IsHireUnlockGroupedEncounter(16062));
     CHECK(!IsHireUnlockGroupedEncounter(16063));
     CHECK(!IsHireUnlockGroupedEncounter(15990));
