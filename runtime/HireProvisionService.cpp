@@ -1153,6 +1153,7 @@ void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const
                 ai->EnchantItemT(row->enchantSpell, slot, item);
         }
     }
+    HireLifecycle::Instance().SetGearTier(bot->GetObjectGuid(), tier);
     bot->SaveToDB();
 }
 

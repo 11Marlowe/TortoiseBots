@@ -4,6 +4,7 @@
 #include "ChangeTalentsAction.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/PlayerbotFactory.h"
+#include "../../../../runtime/HireLifecycle.h"
 
 using namespace ai;
 
@@ -166,8 +167,10 @@ bool ChangeTalentsAction::Execute(Event& event)
         ai->ResetStrategies();
         // Issue #189 Phase 3: explicit respec re-scores gear incrementally
         // for the new spec. Random-pool only; never wipes, level-up auto
-        // path passes through here too and stays incremental.
-        if (!param.empty() && sRandomBotFacade.IsRandomBot(bot))
+        // path passes through here too and stays incremental. A hire in a
+        // #490 tier kit keeps the kit it was paid for.
+        if (!param.empty() && sRandomBotFacade.IsRandomBot(bot) &&
+            TortoiseBots::HireLifecycle::Instance().GearTier(bot->GetObjectGuid()) == 0)
         {
             PlayerbotFactory gear(bot, bot->GetLevel());
             gear.UpgradeGearBest();
