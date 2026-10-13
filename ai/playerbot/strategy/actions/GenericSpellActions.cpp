@@ -1132,14 +1132,11 @@ bool CastItemTargetAction::Execute(Event& event)
         if (!result)
             return false;
 
-        if (ai->HasCheat(BotCheatMask::item))
-        {
-            if (!HasSpellCooldown(itemId))
-            {
-                bot->RemoveSpellCooldown(spellInfo->Id, false);
-                bot->AddSpellAndCategoryCooldowns(spellInfo, proto->ItemId);
-            }
-        }
+        // NOTE: no manual cooldown on the item-cheat path (see UseAction::
+        // UseItemInternal). The core applies spell + category cooldowns in
+        // Spell::SendSpellCooldown after validation; pre-applying them here
+        // made the deferred SpellEvent re-validation see our own cooldown
+        // and cancel the just-started cast.
 
         ++count;
     }
