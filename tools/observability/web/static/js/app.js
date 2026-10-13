@@ -745,6 +745,7 @@
     map: { hash: 'map', title: 'Map' },
     progress: { hash: 'progress', title: 'Progress' },
     activity: { hash: 'activity', title: 'Activity' },
+    auctions: { hash: 'auctions', title: 'Auction House' },
     issues: { hash: 'issues', title: 'Issues' },
     server: { hash: 'server', title: 'Server' }
   };
@@ -828,6 +829,7 @@
     else if (tab === 'roster') renderBotsTab();
     else if (tab === 'progress') renderProgress();
     else if (tab === 'activity') renderActivityTab();
+    else if (tab === 'auctions') renderAuctions();
     else if (tab === 'issues') { renderIssues(); renderAnomalies(); }
     else if (tab === 'server') renderServerPanel();
   }
@@ -843,6 +845,7 @@
     renderTab(tab);
     if (tab === 'roster' && Date.now() - state.rosterAt > 15000) fetchRoster();
     if (tab === 'activity') fetchFeed();
+    if (tab === 'auctions') fetchAuctions();
     if (tab === 'issues') fetchAnomalyTotals();
   }
 
@@ -2449,6 +2452,136 @@
         rosterInflight = false;
         if (state.activeTab === 'roster') renderRoster();
       });
+  }
+
+  // ---- Auction house (read-only) ---------------------------------------------
+  // One page per request; the database filters, sorts and pages, so a big
+  // market never ships to the browser. Loaded on tab activation, by its
+  // Refresh button and when a filter changes — never on the 2 s snapshot.
+  // Default order is most time left: the core persists no listing time and
+  // reuses auction ids after a restart, while bots always list for one fixed
+  // duration (24 h on this core).
+  const AH_COLS = [
+    { key: 'name', label: 'Item' },
+    { key: 'level', label: 'Req. lvl' },
+    { key: 'seller', label: 'Seller' },
+    { key: 'bid', label: 'Bid', title: 'Current bid, or the starting bid when nobody has bid yet' },
+    { key: 'buyout', label: 'Buyout' },
+    { key: 'expire', label: 'Time left', title: 'Bots always list for the same duration, so the most time left is the newest listing' }
+  ];
+  const ah = { filter: { q: '', quality: '', min_level: '', max_level: '', seller: '', kind: '', house: '' }, sort: 'expire', desc: true, page: 0, data: null, error: null, seq: 0 };
+
+  function ahTimeLeft(expireAt) {
+    const sec = expireAt - Math.floor(Date.now() / 1000);
+    if (sec <= 0) return 'expiring';
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  function fetchAuctions() {
+    const q = new URLSearchParams();
+    Object.entries(ah.filter).forEach(([k, v]) => { if (v !== '') q.set(k, v); });
+    q.set('sort', ah.sort);
+    q.set('dir', ah.desc ? 'desc' : 'asc');
+    q.set('page', ah.page);
+    const seq = ++ah.seq; // a slower older answer must not overwrite a newer one
+    fetch(`/api/v1/auctions?${q}`)
+      .then(jsonOrThrow)
+      .then(data => { if (seq === ah.seq) { ah.data = data; ah.error = null; } })
+      .catch(err => { if (seq === ah.seq) ah.error = err.message || 'request failed'; })
+      .finally(() => { if (seq === ah.seq && state.activeTab === 'auctions') renderAuctions(); });
+  }
+
+  function renderAuctions() {
+    const body = document.getElementById('ah-body');
+    const head = document.getElementById('ah-head');
+    if (!body || !head) return;
+
+    head.innerHTML = '<tr>' + AH_COLS.map(c => {
+      const active = c.key === ah.sort;
+      return `<th class="sortable${active ? ' sort-active' : ''}" tabindex="0" data-sort="${c.key}"${c.title ? ` title="${esc(c.title)}"` : ''}>${esc(c.label)}${active ? (ah.desc ? ' ▼' : ' ▲') : ''}</th>`;
+    }).join('') + '</tr>';
+
+    if (ah.error) {
+      body.innerHTML = `<tr><td colspan="${AH_COLS.length}" class="table-empty">Could not load the auction house: ${esc(ah.error)}</td></tr>`;
+      return;
+    }
+    const d = ah.data;
+    if (!d) return;
+
+    const s = d.summary || {};
+    const byQ = s.by_quality || {};
+    const qualityTiles = [2, 3, 4, 5].filter(q => byQ[q]).map(q =>
+      `<div class="kpi"><div class="kpi-label">${esc(qualityName(q))}</div><div class="kpi-value quality-text-${q}">${byQ[q]}</div><div class="kpi-sub">listings</div></div>`).join('');
+    document.getElementById('ah-summary').innerHTML =
+      `<div class="kpi"><div class="kpi-label">Auctions</div><div class="kpi-value">${s.total || 0}</div><div class="kpi-sub">${s.with_bid || 0} with a bid</div></div>` +
+      qualityTiles +
+      `<div class="kpi"><div class="kpi-label">Buyout value</div><div class="kpi-value" style="font-size: 1.1em;">${formatMoney(s.buyout_value || 0)}</div><div class="kpi-sub">all listings</div></div>`;
+
+    const houses = Object.keys(s.by_house || {});
+    const houseSeg = document.getElementById('ah-house');
+    houseSeg.style.display = houses.length < 2 && !ah.filter.house ? 'none' : '';
+
+    document.getElementById('ah-count').textContent = d.matched === s.total ? `${d.matched} auctions` : `${d.matched} of ${s.total} auctions`;
+    const pages = Math.max(1, Math.ceil(d.matched / d.page_size));
+    document.getElementById('ah-page').textContent = `Page ${d.page + 1} of ${pages}`;
+    document.getElementById('ah-prev').disabled = d.page <= 0;
+    document.getElementById('ah-next').disabled = d.page + 1 >= pages;
+
+    if (!d.rows.length) {
+      body.innerHTML = `<tr><td colspan="${AH_COLS.length}" class="table-empty">${s.total ? 'No auctions match these filters.' : 'The auction house is empty.'}</td></tr>`;
+      return;
+    }
+    body.innerHTML = d.rows.map(r => {
+      const iconUrl = getItemIconUrl(r.icon);
+      const icon = iconUrl ? `<img src="${iconUrl}" style="width: 20px; height: 20px; border-radius: 3px; vertical-align: middle; margin-right: 6px;" onerror="this.style.display='none';">` : '';
+      const count = r.count > 1 ? ` <span class="cell-muted">×${esc(r.count)}</span>` : '';
+      let seller;
+      if (r.seller_kind === 'bot') seller = `${botLink(r.seller_guid, r.seller_name, classNameById(r.seller_class))} <span class="badge badge-info">bot</span>`;
+      else if (r.seller_kind === 'market') seller = '<span class="cell-muted">AH market</span>';
+      else seller = `${esc(r.seller_name || '?')} <span class="badge badge-success">player</span>`;
+      const bid = r.bid > 0 ? formatMoney(r.bid) : `<span class="cell-muted">${formatMoney(r.start_bid)}</span>`;
+      return `<tr><td title="Item level ${esc(r.item_level)} · #${esc(r.item_template)}">${icon}<span class="quality-text-${esc(r.quality)}">${esc(r.name)}</span>${count}</td>` +
+        `<td class="mono">${r.required_level || '–'}</td><td>${seller}</td><td class="mono">${bid}</td>` +
+        `<td class="mono">${r.buyout ? formatMoney(r.buyout) : '–'}</td><td class="mono">${esc(ahTimeLeft(r.expire_at))}</td></tr>`;
+    }).join('');
+  }
+
+  function initAuctions() {
+    const refetch = () => { ah.page = 0; fetchAuctions(); };
+    let typingTimer = null;
+    const bindInput = (id, key, debounce) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.addEventListener(debounce ? 'input' : 'change', () => {
+        ah.filter[key] = node.value.trim();
+        clearTimeout(typingTimer);
+        if (debounce) typingTimer = setTimeout(refetch, 300); else refetch();
+      });
+    };
+    bindInput('ah-search', 'q', true);
+    bindInput('ah-seller', 'seller', true);
+    bindInput('ah-quality', 'quality', false);
+    bindInput('ah-min-level', 'min_level', true);
+    bindInput('ah-max-level', 'max_level', true);
+    bindSeg(document.getElementById('ah-kind'), v => { ah.filter.kind = v; refetch(); });
+    bindSeg(document.getElementById('ah-house'), v => { ah.filter.house = v; refetch(); });
+    document.getElementById('ah-refresh').addEventListener('click', fetchAuctions);
+    document.getElementById('ah-prev').addEventListener('click', () => { if (ah.page > 0) { ah.page--; fetchAuctions(); } });
+    document.getElementById('ah-next').addEventListener('click', () => { ah.page++; fetchAuctions(); });
+
+    const head = document.getElementById('ah-head');
+    const sortBy = (th) => {
+      const key = th.dataset.sort;
+      if (ah.sort === key) ah.desc = !ah.desc;
+      else { ah.sort = key; ah.desc = key !== 'name' && key !== 'seller' && key !== 'expire'; }
+      refetch();
+    };
+    head.addEventListener('click', e => { const th = e.target.closest('th.sortable'); if (th) sortBy(th); });
+    head.addEventListener('keydown', e => {
+      const th = e.target.closest('th.sortable');
+      if (th && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); sortBy(th); }
+    });
   }
 
   function initBots() {
@@ -4539,6 +4672,7 @@
   initZoneSelector();
   initQuickFind();
   initBots();
+  initAuctions();
   initActivity();
   initProfile();
   initIssues();

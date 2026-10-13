@@ -981,7 +981,10 @@ bool AhMarketService::BuyAuctionCandidate(AuctionEntry* auction, AuctionHouseObj
     if (!BotActivityLeaseManager::Instance().TryAcquire(buyer->GetGUIDLow(), BotActivity::Trading, 120000))
         return false;
 
+    uint32 oldMoney = buyer->GetMoney();
     buyer->GetSession()->HandleAuctionPlaceBid(packet);
+    if (buyer->GetMoney() < oldMoney)
+        sPlayerbotAIConfig.logEvent(ai, "AhMarketBuy", proto->Name1, std::to_string(proto->ItemId));
     BotActivity restore = previousActivity == BotActivity::Grinding
         ? BotActivity::Grinding : BotActivity::Idle;
     BotActivityLeaseManager::Instance().Release(buyer->GetGUIDLow(), BotActivity::Trading, restore);
