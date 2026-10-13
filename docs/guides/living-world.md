@@ -177,7 +177,7 @@ Organic buyer (issue #405, no buyer teleport): the synthetic buyer bids only wit
 * The auto-queue service never touches your party bots: master-reclaim reconciliation and lease eviction only cancel queue entries the service itself queued, and human-demand accounting counts only non-headless real players — your bots (or random fill bots) never create fake demand.
 
 ### Arathi Basin Banners
-* Bots capture a node by clicking the banner within reach: the neutral node banner first, then the contested or enemy assault banner to retake it. The core decides each capture; a click on a node your team already holds does nothing there. A bot casts at most once every 4 seconds, then moves on to its next objective.
+* Bots capture a node by clicking a banner within reach: a neutral node banner, or the enemy's banner to take or retake a node (the enemy's held banner or its contested one). A bot never clicks a banner its own team holds or is contesting. The core still decides each capture. A bot casts at most once every 4 seconds, then moves on to its next objective.
 
 ---
 

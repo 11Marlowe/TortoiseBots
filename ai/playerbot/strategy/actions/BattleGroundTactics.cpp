@@ -3011,6 +3011,18 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
         if (!sServerFacade.isSpawned(go))
             continue;
 
+        // Arathi Basin: a banner the bot's own team already holds (180058 Alliance, 180060 Horde) or is contesting (180059
+        // Alliance, 180061 Horde) is no target. The core refuses that click in EventPlayerClickedOnFlag, so casting on it
+        // would only spend the bot's capture cast and its throttle slot.
+        if (bgType == BATTLEGROUND_AB)
+        {
+            uint32 const entry = go->GetEntry();
+            bool const ownBanner = bot->GetTeam() == ALLIANCE ? (entry == 180058 || entry == 180059)
+                                                              : (entry == 180060 || entry == 180061);
+            if (ownBanner)
+                continue;
+        }
+
         // Only Warsong's flags keep the ready-state gate. Arathi Basin assault banners (GO type BUTTON) read as not ready
         // while held or contested, which is exactly when a bot has to click them to retake a node. The core validates the
         // capture itself in BattleGroundAB::EventPlayerClickedOnFlag (match status, node, and team ownership).
