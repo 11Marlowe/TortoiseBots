@@ -9193,6 +9193,47 @@ Validation: `tools/test_heal_reach_policy.cpp`, `tools/test_dungeon_follow_stall
 
 Review fixes (2026-10-12, REVIEW-129): (1) the rescue yields while the bot is held (sitting, casting, rooted) even after it has latched, matching the docs; (2) five rescue walks in a row that cannot start end the rescue for 60 s, so a bot that cannot be rescued (below its leader's platform) does not plan a path every 8 s forever; catching up clears the give-up; (3) docs note that, with `DungeonFollowHoldBeforePacks` off, a rescue walk can pass an unpulled pack like far follow. Test rows added for latched-then-held, the give-up and its reset.
 
+## Weighted shuffle: O(n log n) exponential clocks, same distribution — 2026-10-13
+
+Feature: `ai::WeightedShuffle` (`ai/playerbot/WeightedShufflePolicy.h`, included by `ai/playerbot/WorldPosition.h`), the successive-sampling shuffle behind the RPG target pick (`ChooseRpgTargetAction.cpp`), the RPG action pick (`RpgAction.cpp`) and the weighted point lists in `WorldPosition.cpp`. It built a `std::discrete_distribution` for every position (O(n²)). It now draws one exponential clock per item, E = -ln(U) / w with U uniform in (0, 1], and sorts by E. Signature unchanged. Items with a zero, negative, NaN or infinite weight go after every positive item, in input order; the old code's order among them was arbitrary.
+
+Source: the algorithm, not a file. Efraimidis and Spirakis, "Weighted random sampling with a reservoir" (2006), in its exponential-clock form. Prior art: `T-imothy/timothy-tortoise-wow` (branch `mantech-turtle`), `src/shared/WeightedPermutation.h`, which uses the same method; its zero-weight tail is random, ours keeps the input order. The per-draw loop being replaced is the same one in mod-playerbots `79bd428` `src/Mgr/Travel/TravelMgr.h` (`WeightedShuffle`, around line 891), which is not changed here. Kind: reimplemented from the algorithm; no code copied.
+
+Reason: performance (O(n²) to O(n log n)); the distribution is the same, so the orders for a given RNG seed differ. Measured on the test VM with `tools/bench_weighted_shuffle.cpp` (`-O2`, the old template copied in, each call also resets its input): n = 100: 49.11 µs to 8.31 µs; n = 1000: 4216.06 µs to 101.50 µs; n = 5000: 102861.76 µs to 664.00 µs. The n that the live call sites pass was not measured.
+
+Validation: `tools/test_weighted_shuffle_policy.cpp` (in the `verify_all.sh` standalone list): first pick follows weight / total; all 24 orders of four items match the old shuffle within 0.008 over 200000 runs; weights move with their items; zero, negative, NaN and infinite weights go last in input order; all-zero keeps the order; empty and mismatched ranges; `std::list` of strings. `bash tools/verify_all.sh` exit 0 and `c++ -fsyntax-only` of `WorldPosition.cpp`, `RpgAction.cpp`, `ChooseRpgTargetAction.cpp` and `TravelMgr.cpp` on the test VM. Not compiled in the Docker build; not run live; in-game pending.
+
+## Arathi Basin banners: real entries, no line-of-sight filter, one capture cast per 4 s per bot — 2026-10-13
+
+Feature: `BGTactics::atFlag` for Arathi Basin (`ai/playerbot/strategy/actions/BattleGroundTactics.cpp`). `vFlagsAB` lists the real banner entries (180058-180061 assault, 180087-180091 neutral, in `BG_AB_NODE_*` order) instead of the shim's small indices. AB reads `nearest game objects no los` and keeps what is within `INTERACTION_DISTANCE` instead of the static line-of-sight probe. AB skips only unspawned banners and the banners the bot's own team holds or is contesting (180058-180059 for Alliance, 180060-180061 for Horde); the Warsong ready-state gate stays as it was. The range test now runs before `CanInteractWithGameObject`. One capture cast per bot per `AB_BANNER_CAST_THROTTLE_MS` (4000): a throttled banner is skipped, so the path moves the bot on.
+
+Source: `T-imothy/timothy-tortoise-wow` (branch `mantech-turtle`), `modules/mod-playerbots/src/playerbot/strategy/actions/BattleGroundTactics.cpp`, commits `ef4ca22` (2026-09-05, no-LOS lookup), `d60461b` (2026-09-06, AB ready-state gate) and `2814ea8` (2026-09-06, real entries and the 4 s cast throttle), all by Shyalya. The banner entries were also checked against mod-playerbots `79bd428` `src/Ai/Base/Actions/BattleGroundTactics.cpp` (its `BG_AB_OBJECTID_BANNER_*` and `BG_AB_OBJECTID_NODE_BANNER_0..4` list) and Turtle's `tw_world_gameobject_template.sql` and `tw_world_gameobject.sql` (map 529 spawns at the node positions the module already labels: 1166.79, 977.016, 806.182, 856.142, 1146.92). Kind: reimplemented; no fork code is copied. The fork commits are the source of the three behaviours (what is looked up, which states are accepted, how often a bot casts). The range-before-CanInteract ordering is ours: the no-LOS list covers the whole sight distance, and `CanInteractWithGameObject` logs a core error for an object out of reach.
+
+Reason: Arathi Basin bots never captured a banner. `vFlagsAB` held 0..4, so the match on `GetEntry()` could not succeed (fork `2814ea8`: "banners raw 0" on all 6806 samples). The static LOS probe dropped a banner 1.5 yd away on the node platforms (`ef4ca22`). The ready-state gate skipped the assault banners a team must click to retake a node (`d60461b`). Without the cast throttle a bot in reach re-cast about every tick (80,703 casts in 25 min in the fork, 2,048 with it; `2814ea8`). The core accepts or rejects each click in `BattleGroundAB::EventPlayerClickedOnFlag` (match status, node index, team ownership), which is what makes the relaxed gate safe. The own-team skip is ours, not the fork's: the banner-to-state map is Turtle's `tw_world_gameobject_battleground.sql` (GUID 90014 is node 0 state 3, alliance owned, entry 180058; 90015 is node 0 state 1, alliance contested, 180059; 90016 is state 4, horde owned, 180060; 90017 is state 2, horde contested, 180061), and the core's `m_Nodes % 2` rule accepts a click only on neutral or enemy states, so a bot never clicks a banner its team holds or contests.
+
+Validation: `bash tools/verify_all.sh` and `c++ -fsyntax-only` (`tbsyntax`) of `BattleGroundTactics.cpp` on the test VM; `git diff --check`. Not compiled in the Docker build; not run live; in-game pending.
+
+## Mutating Injection is never cleansed (Grobbulus dispel list) — 2026-10-13
+
+Feature: `PlayerbotAI::IsNeverDispelSpell` (`ai/playerbot/PlayerbotAI.cpp:6414-6422`, list `kNeverDispelSpellIds` at `:6412`) keeps Mutating Injection (Turtle spell 28169, dispel type Disease) out of every dispel. `canDispel` (`:6424-6440`) uses it, so friendly cures that pick their target through `HasAuraToDispel` (`PartyMemberToDispel`, `CureTriggers`, the shaman disease cures) skip the injection. `StoneformTrigger` (`ai/playerbot/strategy/triggers/GenericTriggers.h:1356-1387`) uses it too, so a dwarf does not cast Stoneform on its own while the injection is on it (an explicit order still works). The declaration is `ai/playerbot/PlayerbotAI.h:500` (public).
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd4281` (local `playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Bot/PlayerbotAI.cpp:72-75` (`dispel_whitelist`: `"mutating injection"`, `"frostbolt"`)
+- `src/Bot/PlayerbotAI.cpp:4497-4521` (`canDispel`: a whitelisted name returns false after the dispel-type check)
+
+Ported / reimplemented: reimplemented. The donor matches by spell name; this copy matches by Turtle spell id. 28169 is the only Mutating Injection row in `~/tortoise-wow/sql/base/tw_world_spell_template.sql` and in `tw_world_locales_spell.sql`. The donor's Frostbolt entry is not ported (see Reason). The Stoneform hold-back has no donor counterpart; it is this module's own rule, found by reading the core.
+
+Reason: Grobbulus (Naxx). The core script `src/scripts/dungeons/naxxramas/boss_grobbulus.cpp` (`spell_mutating_injection`) makes the boss cast spell 28206 on the carrier and the carrier cast the poison cloud summon 28240, both when the aura is removed, whether it was dispelled or ran out. A dispel only brings the cloud forward. The audit refresh (`~/TortoiseBots-audit/AUDIT-REFRESH-2026-10-13.md`, row 61) found healers cleansing the injection early, while the carrier was still in the raid. The existing bomb runout (`ai/playerbot/BombRunoutPolicy.h`, `kRaidBombSpellIds` includes 28169) moves the carrier clear, which is what makes leaving the injection to run out safe.
+Stoneform removes it too. Stoneform (20594 and 20612) has attributesEx 98304, which includes `SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY` (0x8000). `spell_stoneform` (`src/scripts/spells/spell_special.cpp:398`) applies dispel immunity for disease and poison on cast, and `Unit::ApplySpellDispelImmunity` (`src/game/Objects/Unit.cpp:6356`) then removes every aura of that dispel type. An earlier reading that stopped at the immunity was wrong. Other spells with this flag do not reach a friendly carrier: Faerie Fire is cast on enemies, and Nullify Disease, Nullify Poison, Resist Poison and Abolish Magic are not referenced in `ai/playerbot`.
+Limit: a Cure Disease, Cleanse, Abolish Disease or a Disease Cleansing Totem aimed at another disease on the same carrier can still remove the injection, because the game picks which aura a dispel takes. The bot cannot choose it.
+Frostbolt is not ported. The donor rule matches the name, so it covers every Frostbolt aura with the Magic dispel type. The Turtle template has 36 rows named Frostbolt with that type (rank ids and other ids, e.g. 9672, 28478, 48005). A static list needs a choice of which of them are the slow, which is left to the maintainer.
+
+Validation: code review + build pending; in-game pending. Local: `bash tools/verify_all.sh` and tbsyntax on the test VM (results in the PR).
+
 ## Rogue stealth opener: Garrote when Ambush cannot be cast — 2026-10-13
 
 Feature: the behind-target opener of the rogue stealth strategy
@@ -9224,6 +9265,34 @@ donor `DpsRogueStrategy.cpp:216-224`). Turtle 1.18.1 data
 11289, 11290 have no weapon requirement and read "Must be stealthed and behind the
 target", 50 energy; Ambush (8676 and ranks) reads "Requires a dagger in the main hand".
 `docs/classes/rogue.md:30` already promised Garrote for non-dagger openers.
+
+Validation: code review + build pending; in-game pending.
+
+## Assassination Cold Blood waits for a 4-point finisher — 2026-10-13
+
+Feature: the Assassination boost row that casts Cold Blood
+(`AssassinationRogueBoostStrategy::InitCombatTriggers`, `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`)
+ran on the "very often" time trigger, so Cold Blood went off on the next builder. It now runs on
+the "4 combo" trigger (`ComboPointsAvailableTrigger`, 4 or more points on the current target,
+registered in `RogueAiObjectContext.cpp:211`) at the same ACTION_HIGH + 5.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/AssassinationRogueStrategy.cpp:114-122` (the
+"combo points 4 available" row: Cold Blood at ACTION_HIGH + 6, Envenom at ACTION_HIGH + 5).
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`docs/classes/rogue.md` (the burst cooldown line).
+
+Copied / ported / reimplemented: ported (the 4-point gate only). Priority stays at HIGH + 5
+(the donor uses HIGH + 6). The donor's Envenom row is not taken.
+
+Reason: audit refresh 2026-10-13, row 7 (Cold Blood on "very often" with no combo-point gate).
+Turtle 1.18.1 data (`~/tortoise-wow/sql/base/tw_world_spell_template.sql`, Cold Blood 14177):
+"increases the critical strike chance of your next Sinister Strike, Backstab, Ambush, Noxious
+Assault, or Eviscerate". A boost spent on a builder is wasted.
 
 Validation: code review + build pending; in-game pending.
 
