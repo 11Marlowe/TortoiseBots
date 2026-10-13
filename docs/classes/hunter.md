@@ -38,7 +38,7 @@ Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, an
 ### 2. Melee Survival Combat
 - Closes into melee range.
 - Casts *Carve* automatically on AoE packs; *Lacerate* is a manual action.
-- Applies *Wing Clip* and *Mongoose Bite* reactive counter-attacks.
+- Applies *Wing Clip* and *Mongoose Bite* in melee. On Turtle 1.18.1 Mongoose Bite has no dodge requirement, so a hunter uses it whenever it is ready in melee range.
 
 ---
 
