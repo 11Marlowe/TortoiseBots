@@ -2843,13 +2843,33 @@ static bool IsRaidTargetMark(std::string const& mark)
     return RtiTargetValue::GetRtiIndex(mark) >= 0;
 }
 
+// A refused CC order puts the group's raid marks back. The slots are restored
+// in order: SetTargetIcon clears any other slot holding the mob it is given,
+// and a mob holds one mark, so a slot already put back never holds a mob that
+// a later slot gets back.
+static void SnapshotRaidMarks(Group* group, ObjectGuid (&marks)[TARGET_ICON_COUNT])
+{
+    for (uint8 i = 0; i < TARGET_ICON_COUNT; ++i)
+        marks[i] = group->GetTargetIcon(i);
+}
+
+static void RestoreRaidMarks(Group* group, ObjectGuid const (&marks)[TARGET_ICON_COUNT])
+{
+    for (uint8 i = 0; i < TARGET_ICON_COUNT; ++i)
+        if (group->GetTargetIcon(i) != marks[i])
+            group->SetTargetIcon(i, marks[i]);
+}
+
 // One mark = one owner. After assigning <mark> to <owner>, every other owned
 // live bot in the same command scope holding that mark is reset to "none" and
 // persisted. "none" resolves to GetRtiIndex -1, so CurrentCcMark reports "-"
 // and the CC_ASSIGN snapshot drops the stale owner without extra plumbing.
-static void RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
+// Returns the AIs it reset (each held exactly <mark>), so a refused order can
+// put them back.
+static std::vector<PlayerbotAI*> RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
     std::vector<Player*> const& scope)
 {
+    std::vector<PlayerbotAI*> revoked;
     for (Player* other : scope)
     {
         if (!other || other == owner || !IsLiveHeadlessBot(other))
@@ -2863,7 +2883,9 @@ static void RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
             continue;
         otherMark->Set("none");
         sPlayerbotDbStore.Save(otherAi);
+        revoked.push_back(otherAi);
     }
+    return revoked;
 }
 
 static std::string CurrentCcMark(PlayerbotAI* ai)
@@ -3038,6 +3060,11 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             }
         }
 
+        // The group's marks before this order moves one: a refusal after the
+        // move puts them back (RestoreRaidMarks).
+        bool markMoved = false;
+        ObjectGuid marksBefore[TARGET_ICON_COUNT];
+
         // Selecting an enemy is the most explicit request: make that unit the
         // requested raid mark. If the player selected a bot instead, preserve
         // the existing group mark and use it as the assignment target.
@@ -3058,8 +3085,22 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                     "Your target is dead, out of the world or not attackable. Select a live enemy first.");
                 return true;
             }
+            // A named or selected executor is known before the mark moves, so
+            // an executor without an AI is refused before any mark changes.
+            Player* assignee = namedBot ? namedBot
+                : (context.selectedBot && IsLiveHeadlessBot(context.selectedBot) ? context.selectedBot : nullptr);
+            if (assignee && !PlayerbotAIStorage::Instance().GetAI(assignee))
+            {
+                SendActionError(handler, intent, "no-ai", "The selected CC bot has no AI.");
+                return true;
+            }
+
             if (context.group)
+            {
+                SnapshotRaidMarks(context.group, marksBefore);
                 context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
+                markMoved = true;
+            }
         }
         else if (context.group && requester->GetMap())
         {
@@ -3110,6 +3151,8 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             executor = ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
             if (!executor)
             {
+                if (markMoved)
+                    RestoreRaidMarks(context.group, marksBefore);
                 SendActionError(handler, intent, "no-cc",
                     "No owned bot can CC this target (check class, target type, and spell state).");
                 return true;
@@ -3119,21 +3162,27 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
         if (!ai)
         {
+            if (markMoved)
+                RestoreRaidMarks(context.group, marksBefore);
             SendActionError(handler, intent, "no-ai", "The selected CC bot has no AI.");
             return true;
         }
 
         // RtiCcValue is a per-bot preference. Persist it through the existing
         // mature AI store so the assignment survives AI recreation/relogin.
+        std::string const previousCcMark = ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Get();
         if (!ExecuteQuietAction(ai, "rti", ai::Event(intent, "cc " + ccMark, requester)))
         {
+            if (markMoved)
+                RestoreRaidMarks(context.group, marksBefore);
             SendActionError(handler, intent, "failed", "The mature CC assignment was rejected.");
             return true;
         }
         sPlayerbotDbStore.Save(ai);
         // Exclusive ownership: the new owner keeps the mark; every other owned
         // live party bot holding it is reset to "none" and persisted.
-        RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
+        std::vector<PlayerbotAI*> const revokedOwners =
+            RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
 
         if (ccTarget && !ccAction.empty())
         {
@@ -3154,6 +3203,17 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 // minimal ticks while the mature reach chain is in progress.
                 if (!QueueMatureAction(ai, ccAction, ccEvent, ACTION_PASSTROUGH))
                 {
+                    // The assignment was saved above: put back the marks, this
+                    // bot's previous mark and every owner the order revoked.
+                    if (markMoved)
+                        RestoreRaidMarks(context.group, marksBefore);
+                    ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(previousCcMark);
+                    sPlayerbotDbStore.Save(ai);
+                    for (PlayerbotAI* revokedAi : revokedOwners)
+                    {
+                        revokedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(ccMark);
+                        sPlayerbotDbStore.Save(revokedAi);
+                    }
                     SendActionError(handler, intent, "failed",
                         "The mature CC action could not be started.");
                     return true;
