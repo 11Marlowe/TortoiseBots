@@ -436,6 +436,11 @@ public:
     // minutes). An uninvite/invite cycle inside the window is refused, so it
     // cannot be macroed into a free in-combat rez/repair.
     uint32 ownedBotSummonCooldown = 300;
+    // Issue #884: remote commander. A GM or the owner of every bot binds a
+    // bot-only group of up to five to themselves (`.bot commander bind`) and
+    // leads it from anywhere with GUID-targeted orders (`.bot cmd`). Off by
+    // default: with 0 both commands answer that the feature is off.
+    bool remoteCommander = false;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy

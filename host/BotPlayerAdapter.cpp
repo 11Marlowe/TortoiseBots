@@ -1,6 +1,7 @@
 #include "BotPlayerAdapter.h"
 
 #include "../behavior/PlayerConvenience.h"
+#include "../commands/BotCommands.h"
 #include "../runtime/BotManager.h"
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/RandomBotService.h"
@@ -131,6 +132,10 @@ void BotPlayerAdapter::OnMapChanged(Player* player)
     for (Player* bot : BotManager::Instance().GetBotsForMaster(player->GetObjectGuid()))
     {
         if (!bot || !bot->GetMap() || !bot->GetMap()->IsDungeon())
+            continue;
+        // Issue #884: a bot in the group this player commands remotely stays
+        // with its lead bot; leading from outside the dungeon is the point.
+        if (BotCommands::IsCommandedBy(player, bot))
             continue;
 
         if (PlayerConvenience::Instance().RequestSummon(player, bot))

@@ -37,6 +37,9 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "playerbot/PlayerbotAIConfig.h"
 #include "runtime/OwnedBotQolPolicy.h"
+#include "../runtime/RemoteCommanderPolicy.h"
+#include "../ai/playerbot/GuidPosition.h"
+#include "../host/ModuleLog.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Chat.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -58,12 +61,18 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Group/Group.h"
 #include "Database/DatabaseEnv.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Maps/PathFinder.h"
+#include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
 #include <ctime>
 #include <memory>
 #include <cstring>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 // Lens fallback stubs — core headers absent in static analysis. Real build uses
@@ -2935,6 +2944,350 @@ static std::string CurrentCcMark(PlayerbotAI* ai)
     return IsRaidTargetMark(mark) ? mark : "-";
 }
 
+// The `cc <mark> [bot]` order against context.enemyTarget (or the group's
+// existing mark). Shared by `.bot action cc` and the remote commander's
+// `.bot cmd cc` (issue #884): requester is the event owner and the unit whose
+// map and attack rules judge the target; reportIntent names the order in the
+// ACK/ERR line.
+static bool RunCcOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
+    std::string const& intent, std::string const& reportIntent)
+{
+    // Optional explicit bot name ("cc <mark> <BotName>") assigns that
+    // owned bot without juggling the player's target. The mark token
+    // itself is lowercase; the name keeps its case for resolution.
+    std::string ccBotToken;
+    std::string ccMark = intent.substr(3);
+    size_t ccSpace = ccMark.find_first_of(" \t");
+    if (ccSpace != std::string::npos)
+    {
+        ccBotToken = Trim(ccMark.substr(ccSpace + 1));
+        ccMark = ccMark.substr(0, ccSpace);
+    }
+    int markIndex = RtiTargetValue::GetRtiIndex(ccMark);
+    Unit* ccTarget = context.enemyTarget;
+
+    // An explicit name wins over the live target: same assignment path
+    // as the selected-bot case, including the immediate-cast probe when
+    // an enemy is selected or the mark already exists. It is resolved
+    // before the target checks, so an unknown name still reports no-bot.
+    Player* namedBot = nullptr;
+    if (!ccBotToken.empty())
+    {
+        BotRecord* namedRecord = nullptr;
+        std::string namedName;
+        if (!ResolveOwnedBot(handler, ccBotToken.c_str(), namedBot, namedRecord, namedName))
+        {
+            SendActionError(handler, reportIntent, "no-bot",
+                "Unknown or uncontrollable bot name for cc assignment.");
+            return true;
+        }
+    }
+
+    // The group's marks before this order moves one: a refusal after the
+    // move puts them back (RestoreRaidMarks).
+    bool markMoved = false;
+    ObjectGuid marksBefore[TARGET_ICON_COUNT];
+
+    // Selecting an enemy is the most explicit request: make that unit the
+    // requested raid mark. If the player selected a bot instead, preserve
+    // the existing group mark and use it as the assignment target.
+    if (ccTarget)
+    {
+        // Refuse before the mark moves: a corpse or non-attackable unit
+        // would take the mark, and the order would still ACK success with
+        // no CC target behind it. A GM requester is faction 35
+        // (Player::SetGameMaster), which the attackability test refuses for
+        // every hostile mob, so a GM needs only a live, targetable unit.
+        bool const requesterIsGm = requester->IsGameMaster();
+        bool const badTarget = !ccTarget->IsInWorld() || !ccTarget->IsAlive()
+            || (requesterIsGm ? !ccTarget->IsTargetable(true, true)
+                              : !requester->IsValidAttackTarget(ccTarget));
+        if (badTarget)
+        {
+            SendActionError(handler, reportIntent, "no-target",
+                "Your target is dead, out of the world or not attackable. Select a live enemy first.");
+            return true;
+        }
+        // A named or selected executor is known before the mark moves, so
+        // an executor without an AI is refused before any mark changes.
+        Player* assignee = namedBot ? namedBot
+            : (context.selectedBot && IsLiveHeadlessBot(context.selectedBot) ? context.selectedBot : nullptr);
+        if (assignee && !PlayerbotAIStorage::Instance().GetAI(assignee))
+        {
+            SendActionError(handler, reportIntent, "no-ai", "The selected CC bot has no AI.");
+            return true;
+        }
+
+        if (context.group)
+        {
+            SnapshotRaidMarks(context.group, marksBefore);
+            context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
+            markMoved = true;
+        }
+    }
+    else if (context.group && requester->GetMap())
+    {
+        ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
+        if (!markGuid.IsEmpty())
+            ccTarget = requester->GetMap()->GetUnit(markGuid);
+    }
+
+    if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
+        ccTarget = nullptr;
+
+    Player* executor = nullptr;
+    std::string ccAction;
+    if (namedBot)
+    {
+        executor = namedBot;
+        if (ccTarget)
+        {
+            // Probe the named bot itself, not the party's best executor,
+            // so the immediate cast uses an action this bot owns.
+            BotCommandContext namedContext = context;
+            namedContext.selectedBot = namedBot;
+            ResolveCcExecutor(namedContext, ccTarget, ccMark, &ccAction);
+        }
+    }
+    else if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
+    {
+        // A selected bot is an assignment request. It may be configured
+        // before an enemy is marked; when a live target is available, keep
+        // the mature capability probe for an immediate attempt, but never
+        // reject the assignment just because this current creature is not
+        // legal for that bot's CC spell.
+        executor = context.selectedBot;
+        if (ccTarget)
+        {
+            ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
+        }
+    }
+    else
+    {
+        if (!ccTarget)
+        {
+            SendActionError(handler, reportIntent, "no-target",
+                "Select an enemy target or an owned bot with an existing raid mark.");
+            return true;
+        }
+
+        executor = ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
+        if (!executor)
+        {
+            if (markMoved)
+                RestoreRaidMarks(context.group, marksBefore);
+            SendActionError(handler, reportIntent, "no-cc",
+                "No owned bot can CC this target (check class, target type, and spell state).");
+            return true;
+        }
+    }
+
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
+    if (!ai)
+    {
+        if (markMoved)
+            RestoreRaidMarks(context.group, marksBefore);
+        SendActionError(handler, reportIntent, "no-ai", "The selected CC bot has no AI.");
+        return true;
+    }
+
+    // RtiCcValue is a per-bot preference. Persist it through the existing
+    // mature AI store so the assignment survives AI recreation/relogin.
+    std::string const previousCcMark = ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Get();
+    if (!ExecuteQuietAction(ai, "rti", ai::Event(intent, "cc " + ccMark, requester)))
+    {
+        if (markMoved)
+            RestoreRaidMarks(context.group, marksBefore);
+        SendActionError(handler, reportIntent, "failed", "The mature CC assignment was rejected.");
+        return true;
+    }
+    sPlayerbotDbStore.Save(ai);
+    // Exclusive ownership: the new owner keeps the mark; every other owned
+    // live party bot holding it is reset to "none" and persisted.
+    std::vector<PlayerbotAI*> const revokedOwners =
+        RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
+
+    if (ccTarget && !ccAction.empty())
+    {
+        // Break stay/follow in combat so a ranged executor can reach the
+        // target. The mature AI remains responsible for subsequent casts.
+        RelaxTacticalMovement(ai);
+        executor->SetSelectionGuid(ccTarget->GetObjectGuid());
+        ai->GetAiObjectContext()->GetValue<Unit*>("current target")->Set(ccTarget);
+        sServerFacade.SetFacingTo(executor, ccTarget);
+        ai::Event ccEvent(intent, "cc " + ccMark, requester);
+        if (!ExecuteQuietAction(ai, ccAction, ccEvent))
+        {
+            // Direct execution deliberately bypasses prerequisites. Keep
+            // the mature CC action queued so its existing reach
+            // prerequisite can move and then cast without a command-side
+            // class/range table.
+            // Keep this explicit owner request eligible through later
+            // minimal ticks while the mature reach chain is in progress.
+            if (!QueueMatureAction(ai, ccAction, ccEvent, ACTION_PASSTROUGH))
+            {
+                // The assignment was saved above: put back the marks, this
+                // bot's previous mark and every owner the order revoked.
+                if (markMoved)
+                    RestoreRaidMarks(context.group, marksBefore);
+                ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(previousCcMark);
+                sPlayerbotDbStore.Save(ai);
+                for (PlayerbotAI* revokedAi : revokedOwners)
+                {
+                    revokedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(ccMark);
+                    sPlayerbotDbStore.Save(revokedAi);
+                }
+                SendActionError(handler, reportIntent, "failed",
+                    "The mature CC action could not be started.");
+                return true;
+            }
+            // Keep the queued prerequisite chain intact for the first
+            // movement/cast decision; the quiet helper would rebuild the
+            // non-combat engine and drop it.
+            ai->DoNextAction(false, true);
+        }
+        // While the CC cast bar runs, a forced decision can only cancel
+        // it (the order's one Polymorph start never landed); the cast's
+        // action duration already schedules the next decision.
+        else if (!executor->IsNonMeleeSpellCasted(false, true, true))
+            ExecuteQuietNextAction(ai, true);
+    }
+
+    SendActionAck(handler, reportIntent, (namedBot || context.selectedBot == executor)
+        ? "bot:" + std::string(executor->GetName()) : "party", 1, executor->GetName());
+    return true;
+}
+
+// The pull/pullback order against context.enemyTarget. Shared by `.bot action
+// pull|pullback` and the remote commander's `.bot cmd pull|pullback` (issue
+// #884): requester is the event owner, so the pull returns to its position;
+// option is the join delay in seconds (empty = configured default);
+// reportIntent names the order in the ACK/ERR line.
+static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
+    std::string const& intent, std::string const& option, std::string const& reportIntent)
+{
+    Player* executor = ResolvePullExecutor(context);
+    if (!executor)
+    {
+        SendActionError(handler, reportIntent, "no-tank", "No live tank-capable owned party bot can pull this target.");
+        return true;
+    }
+
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
+    // Validate before any state changes: a refused pull must not park the
+    // party, end a flee or flip the tank's pull mode.
+    std::string refuseCode;
+    std::string refuseMessage;
+    if (!CheckPullTarget(executor, context.enemyTarget, refuseCode, refuseMessage))
+    {
+        SendActionError(handler, reportIntent, refuseCode.c_str(), refuseMessage.c_str());
+        return true;
+    }
+    // Join delay: per-command [seconds] (0-60, parsed) or the configured
+    // default. For a pullback the window runs from the tank's arrival at
+    // the anchor; the hold placed below keeps DPS waiting through the
+    // return leg and is re-stamped on arrival.
+    bool pullback = intent == "pullback";
+    uint32 joinDelay = pullback
+        ? sPlayerbotAIConfig.pullBackDpsJoinDelay
+        : sPlayerbotAIConfig.pullDpsJoinDelay;
+    if (!option.empty())
+        joinDelay = static_cast<uint32>(std::stoi(option));
+    // Pull and Pullback share the mature request action; the per-command
+    // return mode (plus join delay) is recorded on the PullStrategy
+    // (never sticky). The tank's default is restored when the pull ends.
+    PullModeSnapshot pullModeBefore = SavePullMode(ai);
+    if (!ConfigurePullMode(ai, pullback, joinDelay))
+    {
+        char const* message = pullback
+            ? "The mature pullback strategy is unavailable."
+            : "The mature ordinary-pull strategy is unavailable.";
+        SendActionError(handler, reportIntent, "pull-policy", message);
+        return true;
+    }
+
+    // Report a body-pull substitution honestly: "reach pull" means the
+    // tank has no working ranged option, so it walks in, hits the mob in
+    // melee once, then returns to the anchor like a ranged pullback. The
+    // ACK detail carries it for both intents.
+    std::string pullActionName;
+    if (PullStrategy* probe = PullStrategy::Get(ai))
+        pullActionName = probe->GetPullActionName();
+    bool bodyPull = pullActionName == "reach pull";
+
+    // Snapshot the target GUID: the live selection can change between
+    // command validation and the pull tick.
+    ai::Event pullEvent(intent, context.enemyTarget->GetObjectGuid(), requester);
+    if (!ExecuteQuietAction(ai, "pull my target", pullEvent))
+    {
+        // Not caught by the pre-check: put the tank's pull mode back.
+        // No bot's movement, flee or hold was touched yet.
+        RestorePullMode(ai, pullModeBefore);
+        SendActionError(handler, reportIntent, "failed", "The native pull strategy rejected the target.");
+        return true;
+    }
+    // The pull is accepted (the request only records state): now the tank
+    // may break its stay, a fled party comes back and the DPS hold at your
+    // position.
+    RelaxTacticalMovement(ai);
+    for (Player* member : context.partyBots)
+        EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
+    PausePartyDpsForPull(context, executor, joinDelay, pullback);
+    // A human order acts now: the tank's own action clock (left over from
+    // whatever it was doing) would otherwise stall the pull for the rest of
+    // its delay before the second pull tick ever runs - the reported "tank
+    // stands still for seconds, then starts pulling".
+    ai->ClearActionClock();
+    // Pull start/action are normal movement-priority actions.  A minimal
+    // step filters them out and leaves the tank waiting for a later tick.
+    ExecuteQuietNextAction(ai, false);
+    // The first step only runs "pull start". The walk to the firing position
+    // is the next one ("pull action" with its "reach pull" prerequisite), so
+    // whether the move started can only be judged after that step - judging
+    // it after the first one aborted every ranged pull the moment it began.
+    if (!bodyPull)
+        ExecuteQuietNextAction(ai, false);
+
+    // A ranged pull closes the distance with a point move to a firing
+    // position. If that move cannot be launched the tank stands where it
+    // was and the pull can only run out its 15 s window - report it instead
+    // of acknowledging a pull that never started (issue #389). A body pull
+    // is exempt: its melee chase is launched by the core on the next
+    // movement tick, not inside this AI tick.
+    if (!bodyPull)
+    {
+        Unit* pullTarget = nullptr;
+        float pullRange = 0.0f;
+        if (PullStrategy* probe = PullStrategy::Get(ai))
+        {
+            pullTarget = probe->GetTarget();
+            pullRange = probe->GetRange();
+        }
+
+        bool started = !pullTarget || !pullTarget->IsInWorld() ||
+            sServerFacade.isMoving(executor) ||
+            executor->GetDistance(pullTarget) <= pullRange;
+
+        if (!started)
+        {
+            // Abort the way the pull timeout would, so the tank is not left
+            // holding the pull target or the party.
+            ExecuteQuietAction(ai, "pull end", ai::Event(intent, "", requester));
+            SendActionError(handler, reportIntent, "unreachable",
+                "The tank could not start moving to a firing position for the pull.");
+            return true;
+        }
+    }
+
+    std::string scope = context.selectedBot == executor
+        ? "bot:" + std::string(executor->GetName()) : "party";
+    if (bodyPull)
+        SendActionAck(handler, reportIntent, scope, 1, std::string(executor->GetName()) + " body-pull");
+    else
+        SendActionAck(handler, reportIntent, scope, 1, executor->GetName());
+    return true;
+}
+
 static bool HandleAction(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -3066,212 +3419,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         return true;
     }
     else if (intent.compare(0, 3, "cc ") == 0)
-    {
-        // Optional explicit bot name ("cc <mark> <BotName>") assigns that
-        // owned bot without juggling the player's target. The mark token
-        // itself is lowercase; the name keeps its case for resolution.
-        std::string ccBotToken;
-        std::string ccMark = intent.substr(3);
-        size_t ccSpace = ccMark.find_first_of(" \t");
-        if (ccSpace != std::string::npos)
-        {
-            ccBotToken = Trim(ccMark.substr(ccSpace + 1));
-            ccMark = ccMark.substr(0, ccSpace);
-        }
-        int markIndex = RtiTargetValue::GetRtiIndex(ccMark);
-        Unit* ccTarget = context.enemyTarget;
-
-        // An explicit name wins over the live target: same assignment path
-        // as the selected-bot case, including the immediate-cast probe when
-        // an enemy is selected or the mark already exists. It is resolved
-        // before the target checks, so an unknown name still reports no-bot.
-        Player* namedBot = nullptr;
-        if (!ccBotToken.empty())
-        {
-            BotRecord* namedRecord = nullptr;
-            std::string namedName;
-            if (!ResolveOwnedBot(handler, ccBotToken.c_str(), namedBot, namedRecord, namedName))
-            {
-                SendActionError(handler, intent, "no-bot",
-                    "Unknown or uncontrollable bot name for cc assignment.");
-                return true;
-            }
-        }
-
-        // The group's marks before this order moves one: a refusal after the
-        // move puts them back (RestoreRaidMarks).
-        bool markMoved = false;
-        ObjectGuid marksBefore[TARGET_ICON_COUNT];
-
-        // Selecting an enemy is the most explicit request: make that unit the
-        // requested raid mark. If the player selected a bot instead, preserve
-        // the existing group mark and use it as the assignment target.
-        if (ccTarget)
-        {
-            // Refuse before the mark moves: a corpse or non-attackable unit
-            // would take the mark, and the order would still ACK success with
-            // no CC target behind it. A GM requester is faction 35
-            // (Player::SetGameMaster), which the attackability test refuses for
-            // every hostile mob, so a GM needs only a live, targetable unit.
-            bool const requesterIsGm = requester->IsGameMaster();
-            bool const badTarget = !ccTarget->IsInWorld() || !ccTarget->IsAlive()
-                || (requesterIsGm ? !ccTarget->IsTargetable(true, true)
-                                  : !requester->IsValidAttackTarget(ccTarget));
-            if (badTarget)
-            {
-                SendActionError(handler, intent, "no-target",
-                    "Your target is dead, out of the world or not attackable. Select a live enemy first.");
-                return true;
-            }
-            // A named or selected executor is known before the mark moves, so
-            // an executor without an AI is refused before any mark changes.
-            Player* assignee = namedBot ? namedBot
-                : (context.selectedBot && IsLiveHeadlessBot(context.selectedBot) ? context.selectedBot : nullptr);
-            if (assignee && !PlayerbotAIStorage::Instance().GetAI(assignee))
-            {
-                SendActionError(handler, intent, "no-ai", "The selected CC bot has no AI.");
-                return true;
-            }
-
-            if (context.group)
-            {
-                SnapshotRaidMarks(context.group, marksBefore);
-                context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
-                markMoved = true;
-            }
-        }
-        else if (context.group && requester->GetMap())
-        {
-            ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
-            if (!markGuid.IsEmpty())
-                ccTarget = requester->GetMap()->GetUnit(markGuid);
-        }
-
-        if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
-            ccTarget = nullptr;
-
-        Player* executor = nullptr;
-        std::string ccAction;
-        if (namedBot)
-        {
-            executor = namedBot;
-            if (ccTarget)
-            {
-                // Probe the named bot itself, not the party's best executor,
-                // so the immediate cast uses an action this bot owns.
-                BotCommandContext namedContext = context;
-                namedContext.selectedBot = namedBot;
-                ResolveCcExecutor(namedContext, ccTarget, ccMark, &ccAction);
-            }
-        }
-        else if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
-        {
-            // A selected bot is an assignment request. It may be configured
-            // before an enemy is marked; when a live target is available, keep
-            // the mature capability probe for an immediate attempt, but never
-            // reject the assignment just because this current creature is not
-            // legal for that bot's CC spell.
-            executor = context.selectedBot;
-            if (ccTarget)
-            {
-                ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
-            }
-        }
-        else
-        {
-            if (!ccTarget)
-            {
-                SendActionError(handler, intent, "no-target",
-                    "Select an enemy target or an owned bot with an existing raid mark.");
-                return true;
-            }
-
-            executor = ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
-            if (!executor)
-            {
-                if (markMoved)
-                    RestoreRaidMarks(context.group, marksBefore);
-                SendActionError(handler, intent, "no-cc",
-                    "No owned bot can CC this target (check class, target type, and spell state).");
-                return true;
-            }
-        }
-
-        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
-        if (!ai)
-        {
-            if (markMoved)
-                RestoreRaidMarks(context.group, marksBefore);
-            SendActionError(handler, intent, "no-ai", "The selected CC bot has no AI.");
-            return true;
-        }
-
-        // RtiCcValue is a per-bot preference. Persist it through the existing
-        // mature AI store so the assignment survives AI recreation/relogin.
-        std::string const previousCcMark = ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Get();
-        if (!ExecuteQuietAction(ai, "rti", ai::Event(intent, "cc " + ccMark, requester)))
-        {
-            if (markMoved)
-                RestoreRaidMarks(context.group, marksBefore);
-            SendActionError(handler, intent, "failed", "The mature CC assignment was rejected.");
-            return true;
-        }
-        sPlayerbotDbStore.Save(ai);
-        // Exclusive ownership: the new owner keeps the mark; every other owned
-        // live party bot holding it is reset to "none" and persisted.
-        std::vector<PlayerbotAI*> const revokedOwners =
-            RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
-
-        if (ccTarget && !ccAction.empty())
-        {
-            // Break stay/follow in combat so a ranged executor can reach the
-            // target. The mature AI remains responsible for subsequent casts.
-            RelaxTacticalMovement(ai);
-            executor->SetSelectionGuid(ccTarget->GetObjectGuid());
-            ai->GetAiObjectContext()->GetValue<Unit*>("current target")->Set(ccTarget);
-            sServerFacade.SetFacingTo(executor, ccTarget);
-            ai::Event ccEvent(intent, "cc " + ccMark, requester);
-            if (!ExecuteQuietAction(ai, ccAction, ccEvent))
-            {
-                // Direct execution deliberately bypasses prerequisites. Keep
-                // the mature CC action queued so its existing reach
-                // prerequisite can move and then cast without a command-side
-                // class/range table.
-                // Keep this explicit owner request eligible through later
-                // minimal ticks while the mature reach chain is in progress.
-                if (!QueueMatureAction(ai, ccAction, ccEvent, ACTION_PASSTROUGH))
-                {
-                    // The assignment was saved above: put back the marks, this
-                    // bot's previous mark and every owner the order revoked.
-                    if (markMoved)
-                        RestoreRaidMarks(context.group, marksBefore);
-                    ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(previousCcMark);
-                    sPlayerbotDbStore.Save(ai);
-                    for (PlayerbotAI* revokedAi : revokedOwners)
-                    {
-                        revokedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(ccMark);
-                        sPlayerbotDbStore.Save(revokedAi);
-                    }
-                    SendActionError(handler, intent, "failed",
-                        "The mature CC action could not be started.");
-                    return true;
-                }
-                // Keep the queued prerequisite chain intact for the first
-                // movement/cast decision; the quiet helper would rebuild the
-                // non-combat engine and drop it.
-                ai->DoNextAction(false, true);
-            }
-            // While the CC cast bar runs, a forced decision can only cancel
-            // it (the order's one Polymorph start never landed); the cast's
-            // action duration already schedules the next decision.
-            else if (!executor->IsNonMeleeSpellCasted(false, true, true))
-                ExecuteQuietNextAction(ai, true);
-        }
-
-        SendActionAck(handler, intent, (namedBot || context.selectedBot == executor)
-            ? "bot:" + std::string(executor->GetName()) : "party", 1, executor->GetName());
-        return true;
-    }
+        return RunCcOrder(handler, context, requester, intent, intent);
     else if (intent == "raid status" || intent == "raid tankface" || intent == "raid douse" || intent == "raid custom status" || intent == "raid custom on" || intent == "raid custom off")
         return HandleRaidAction(handler, context, requester, intent);
     else if (intent == "sap" && option.find(' ') != std::string::npos)
@@ -3291,128 +3439,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     else
         scope = ResolveDynamicScope(context);
     if (tactical)
-    {
-        Player* executor = ResolvePullExecutor(context);
-        if (!executor)
-        {
-            SendActionError(handler, intent, "no-tank", "No live tank-capable owned party bot can pull this target.");
-            return true;
-        }
-
-        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
-        // Validate before any state changes: a refused pull must not park the
-        // party, end a flee or flip the tank's pull mode.
-        std::string refuseCode;
-        std::string refuseMessage;
-        if (!CheckPullTarget(executor, context.enemyTarget, refuseCode, refuseMessage))
-        {
-            SendActionError(handler, intent, refuseCode.c_str(), refuseMessage.c_str());
-            return true;
-        }
-        // Join delay: per-command [seconds] (0-60, parsed) or the configured
-        // default. For a pullback the window runs from the tank's arrival at
-        // the anchor; the hold placed below keeps DPS waiting through the
-        // return leg and is re-stamped on arrival.
-        bool pullback = intent == "pullback";
-        uint32 joinDelay = pullback
-            ? sPlayerbotAIConfig.pullBackDpsJoinDelay
-            : sPlayerbotAIConfig.pullDpsJoinDelay;
-        if (!option.empty())
-            joinDelay = static_cast<uint32>(std::stoi(option));
-        // Pull and Pullback share the mature request action; the per-command
-        // return mode (plus join delay) is recorded on the PullStrategy
-        // (never sticky). The tank's default is restored when the pull ends.
-        PullModeSnapshot pullModeBefore = SavePullMode(ai);
-        if (!ConfigurePullMode(ai, pullback, joinDelay))
-        {
-            char const* message = pullback
-                ? "The mature pullback strategy is unavailable."
-                : "The mature ordinary-pull strategy is unavailable.";
-            SendActionError(handler, intent, "pull-policy", message);
-            return true;
-        }
-
-        // Report a body-pull substitution honestly: "reach pull" means the
-        // tank has no working ranged option, so it walks in, hits the mob in
-        // melee once, then returns to the anchor like a ranged pullback. The
-        // ACK detail carries it for both intents.
-        std::string pullActionName;
-        if (PullStrategy* probe = PullStrategy::Get(ai))
-            pullActionName = probe->GetPullActionName();
-        bool bodyPull = pullActionName == "reach pull";
-
-        // Snapshot the target GUID: the live selection can change between
-        // command validation and the pull tick.
-        ai::Event pullEvent(intent, context.enemyTarget->GetObjectGuid(), requester);
-        if (!ExecuteQuietAction(ai, "pull my target", pullEvent))
-        {
-            // Not caught by the pre-check: put the tank's pull mode back.
-            // No bot's movement, flee or hold was touched yet.
-            RestorePullMode(ai, pullModeBefore);
-            SendActionError(handler, intent, "failed", "The native pull strategy rejected the target.");
-            return true;
-        }
-        // The pull is accepted (the request only records state): now the tank
-        // may break its stay, a fled party comes back and the DPS hold at your
-        // position.
-        RelaxTacticalMovement(ai);
-        for (Player* member : context.partyBots)
-            EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
-        PausePartyDpsForPull(context, executor, joinDelay, pullback);
-        // A human order acts now: the tank's own action clock (left over from
-        // whatever it was doing) would otherwise stall the pull for the rest of
-        // its delay before the second pull tick ever runs - the reported "tank
-        // stands still for seconds, then starts pulling".
-        ai->ClearActionClock();
-        // Pull start/action are normal movement-priority actions.  A minimal
-        // step filters them out and leaves the tank waiting for a later tick.
-        ExecuteQuietNextAction(ai, false);
-        // The first step only runs "pull start". The walk to the firing position
-        // is the next one ("pull action" with its "reach pull" prerequisite), so
-        // whether the move started can only be judged after that step - judging
-        // it after the first one aborted every ranged pull the moment it began.
-        if (!bodyPull)
-            ExecuteQuietNextAction(ai, false);
-
-        // A ranged pull closes the distance with a point move to a firing
-        // position. If that move cannot be launched the tank stands where it
-        // was and the pull can only run out its 15 s window - report it instead
-        // of acknowledging a pull that never started (issue #389). A body pull
-        // is exempt: its melee chase is launched by the core on the next
-        // movement tick, not inside this AI tick.
-        if (!bodyPull)
-        {
-            Unit* pullTarget = nullptr;
-            float pullRange = 0.0f;
-            if (PullStrategy* probe = PullStrategy::Get(ai))
-            {
-                pullTarget = probe->GetTarget();
-                pullRange = probe->GetRange();
-            }
-
-            bool started = !pullTarget || !pullTarget->IsInWorld() ||
-                sServerFacade.isMoving(executor) ||
-                executor->GetDistance(pullTarget) <= pullRange;
-
-            if (!started)
-            {
-                // Abort the way the pull timeout would, so the tank is not left
-                // holding the pull target or the party.
-                ExecuteQuietAction(ai, "pull end", ai::Event(intent, "", requester));
-                SendActionError(handler, intent, "unreachable",
-                    "The tank could not start moving to a firing position for the pull.");
-                return true;
-            }
-        }
-
-        std::string scope = context.selectedBot == executor
-            ? "bot:" + std::string(executor->GetName()) : "party";
-        if (bodyPull)
-            SendActionAck(handler, intent, scope, 1, std::string(executor->GetName()) + " body-pull");
-        else
-            SendActionAck(handler, intent, scope, 1, executor->GetName());
-        return true;
-    }
+        return RunPullOrder(handler, context, requester, intent, option, intent);
 
     if (scope.empty())
     {
@@ -3816,6 +3843,1034 @@ static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& cont
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Remote commander (issue #884, phase 1)
+//
+// `.bot commander bind|unbind|status` and `.bot cmd <order>`, behind
+// AiPlayerbot.RemoteCommander (default 0). A commander (a GM or the owner of
+// every bot) binds a bot-only party of up to five, led by one of its bots, and
+// leads it from anywhere: orders name their target by GUID or a 3D point and
+// reach the group through the binding, not through the commander's selection
+// or group membership. The decisions are in runtime/RemoteCommanderPolicy.h;
+// this is the world glue. World thread only (the command queue drains here),
+// like every other `.bot` command.
+//
+// Nothing here touches a bot's durable master: the followers follow the lead
+// bot through their per-bot "manual follow target" value (the AI's own
+// FollowTargetValue override, the value behind the whispered `follow target`),
+// which the binding sets and puts back on release.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+RemoteCommander::BindingTable& CommanderBindings()
+{
+    static RemoteCommander::BindingTable table;
+    return table;
+}
+
+// Each follower's own "manual follow target" from before the binding pointed
+// it at the lead bot, put back on release.
+std::unordered_map<uint64, ai::GuidPosition>& SavedFollowTargets()
+{
+    static std::unordered_map<uint64, ai::GuidPosition> saved;
+    return saved;
+}
+
+uint32 s_commanderSweepMs = 0;
+
+// The character with this raw guid, also while it is between maps (a zoning
+// commander or lead bot must not lose the binding).
+Player* FindCharacter(uint64 raw)
+{
+    return raw ? ObjectAccessor::FindPlayerNotInWorld(ObjectGuid(raw)) : nullptr;
+}
+
+Player* FindOnlineByName(std::string name)
+{
+    name = Trim(name);
+    if (name.empty() || !normalizePlayerName(name))
+        return nullptr;
+    Player* player = sObjectMgr.GetPlayer(name.c_str());
+    if (!player)
+        player = sObjectAccessor.FindPlayerByName(name.c_str());
+    return player;
+}
+
+// Every live bot of the group, the lead bot first, resolved from the group's
+// member slots through ObjectAccessor (never the GroupReference list, #225).
+std::vector<Player*> CommandedBots(Group* group, Player* lead)
+{
+    std::vector<Player*> bots;
+    if (!group || !lead)
+        return bots;
+    if (IsLiveHeadlessBot(lead))
+        bots.push_back(lead);
+    for (Group::MemberSlot const& slot : group->GetMemberSlots())
+    {
+        if (slot.guid == lead->GetObjectGuid())
+            continue;
+        Player* member = ObjectAccessor::FindPlayer(slot.guid);
+        if (member && IsLiveHeadlessBot(member))
+            bots.push_back(member);
+    }
+    return bots;
+}
+
+RemoteCommander::BindingState ReadBindingState(RemoteCommander::Binding const& binding)
+{
+    RemoteCommander::BindingState state;
+    state.enabled = sPlayerbotAIConfig.remoteCommander;
+    Player* commander = FindCharacter(binding.commanderGuid);
+    state.commanderOnline = commander && commander->GetSession() &&
+        commander->GetSession()->HasNetworkTransport();
+    Player* lead = FindCharacter(binding.leadGuid);
+    state.leadOnline = lead != nullptr;
+    if (Group* group = lead ? lead->GetGroup() : nullptr)
+    {
+        state.leadGroupId = group->GetId();
+        state.leadIsLeader = group->IsLeader(lead->GetObjectGuid());
+        state.memberCount = group->GetMembersCount();
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            if (!BotManager::Instance().IsBot(slot.guid))
+                state.realPlayerInGroup = true;
+    }
+    return state;
+}
+
+ai::Value<ai::GuidPosition>* ManualFollowTarget(PlayerbotAI* ai)
+{
+    if (!ai || !ai->GetAiObjectContext())
+        return nullptr;
+    return ai->GetAiObjectContext()->GetValue<ai::GuidPosition>("manual follow target");
+}
+
+void ResetFollowTargetCache(PlayerbotAI* ai)
+{
+    if (ai::Value<Unit*>* follow = ai->GetAiObjectContext()->GetValue<Unit*>("follow target"))
+        follow->Reset();
+}
+
+// Point one follower's follow target at the lead bot, keeping its own value
+// for the release.
+void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead)
+{
+    if (!bot || !lead || bot == lead)
+        return;
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    ai::Value<ai::GuidPosition>* value = ManualFollowTarget(ai);
+    if (!value)
+        return;
+    uint64 const botRaw = bot->GetObjectGuid().GetRawValue();
+    auto& saved = SavedFollowTargets();
+    if (saved.find(botRaw) == saved.end())
+    {
+        ai::GuidPosition previous = value->Get();
+        saved[botRaw] = previous.GetRawValue() == lead->GetObjectGuid().GetRawValue()
+            ? ai::GuidPosition() : previous;
+    }
+    value->Set(ai::GuidPosition(lead));
+    ResetFollowTargetCache(ai);
+    CommanderBindings().AddFollower(commanderRaw, botRaw);
+}
+
+// Put a follower's own follow target back, unless something else changed it
+// while it was bound.
+void RestoreFollower(uint64 botRaw, uint64 leadRaw)
+{
+    auto& saved = SavedFollowTargets();
+    auto it = saved.find(botRaw);
+    ai::GuidPosition previous = it != saved.end() ? it->second : ai::GuidPosition();
+    if (it != saved.end())
+        saved.erase(it);
+    Player* bot = FindCharacter(botRaw);
+    PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
+    ai::Value<ai::GuidPosition>* value = ManualFollowTarget(ai);
+    if (!value || value->Get().GetRawValue() != leadRaw)
+        return;
+    value->Set(previous);
+    ResetFollowTargetCache(ai);
+}
+
+// Ends a binding: followers get their own follow target back. The lead bot
+// keeps holding where it stands. notify: tell the commander (automatic
+// release); an explicit unbind answers through its own ACK.
+uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason, bool notify)
+{
+    RemoteCommander::Binding removed = CommanderBindings().Unbind(commanderRaw);
+    if (!removed.commanderGuid)
+        return 0;
+    for (uint64 follower : removed.followers)
+        RestoreFollower(follower, removed.leadGuid);
+    Player* commander = FindCharacter(commanderRaw);
+    Player* lead = FindCharacter(removed.leadGuid);
+    TB_LOG_DETAIL("TortoiseBots: remote commander %s released group of %s: %s",
+        commander ? commander->GetName() : "(offline)", lead ? lead->GetName() : "(offline)",
+        RemoteCommander::ReleaseReasonText(reason));
+    if (notify && commander && commander->IsInWorld() && commander->GetSession())
+    {
+        ChatHandler(commander).PSendSysMessage("TBM:ACTION_ACK|commander unbind|party|%u|%s",
+            static_cast<uint32>(removed.followers.size()),
+            ProtocolSafe(RemoteCommander::ReleaseReasonText(reason)).c_str());
+    }
+    return static_cast<uint32>(removed.followers.size());
+}
+
+// Followers that left the bound group (kicked, invited by their owner into
+// another party, left on their own) get their own follow target back at once;
+// otherwise they would keep walking after the lead bot and ignore their
+// owner's orders. The rest of the binding stands.
+void ReleaseDepartedFollowers(uint64 commanderRaw, RemoteCommander::Binding const& binding)
+{
+    if (binding.followers.empty())
+        return;
+    std::vector<uint64> members;
+    Player* lead = FindCharacter(binding.leadGuid);
+    if (Group* group = lead ? lead->GetGroup() : nullptr)
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            members.push_back(slot.guid.GetRawValue());
+    std::vector<uint64> const departed = RemoteCommander::DepartedFollowers(binding, members);
+    uint64 const leadRaw = binding.leadGuid;
+    for (uint64 follower : departed)
+    {
+        RestoreFollower(follower, leadRaw);
+        CommanderBindings().RemoveFollower(commanderRaw, follower);
+    }
+}
+
+// The requester's binding if it still stands (a stale one is released here,
+// a follower that left the group is let go).
+RemoteCommander::Binding const* StandingBinding(uint64 commanderRaw)
+{
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
+    if (!binding)
+        return nullptr;
+    RemoteCommander::ReleaseReason reason = RemoteCommander::CheckBinding(*binding, ReadBindingState(*binding));
+    if (reason == RemoteCommander::ReleaseReason::None)
+    {
+        ReleaseDepartedFollowers(commanderRaw, *binding);
+        return CommanderBindings().FindByCommander(commanderRaw);
+    }
+    ReleaseBinding(commanderRaw, reason, true);
+    return nullptr;
+}
+
+RemoteCommander::BindMember MemberFacts(Player* commander, Player* bot)
+{
+    RemoteCommander::BindMember facts;
+    if (!bot)
+        return facts;
+    BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
+    facts.controllable = record && CanControlBot(commander, record);
+    facts.liveBot = record && IsLiveHeadlessBot(bot, record);
+    facts.hired = HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+    // One binding per bot: its saved follow target belongs to that binding.
+    facts.inOtherBinding = CommanderBindings().FindByBot(bot->GetObjectGuid().GetRawValue()) != nullptr;
+    return facts;
+}
+
+// Take a bot out of the commander's own party (the commander asked for it
+// by name); the group pointer is read again because removing a member can
+// disband it.
+void LeaveCommanderParty(Player* commander, Player* bot)
+{
+    Group* group = commander ? commander->GetGroup() : nullptr;
+    if (group && group->IsMember(bot->GetObjectGuid()))
+        group->RemoveMember(bot->GetObjectGuid(), 0);
+}
+
+// The lead bot invites, the member accepts through the native handlers - the
+// same opcodes the AI's own invite/accept actions use, without the accept
+// action's master rebind: the member keeps its durable master.
+bool JoinLeadGroup(Player* lead, Player* member)
+{
+    if (lead->GetGroup() && member->GetGroup() == lead->GetGroup())
+        return true;
+    if (Group* group = lead->GetGroup())
+        if (group->IsFull())
+            return false;
+    if (member->GetGroupInvite())
+        member->UninviteFromGroup();
+    WorldPacket invite;
+    invite << member->GetName() << uint32(0);
+    lead->GetSession()->HandleGroupInviteOpcode(invite);
+    if (!member->GetGroupInvite())
+        return false;
+    WorldPacket accept;
+    accept << uint32(0);
+    member->GetSession()->HandleGroupAcceptOpcode(accept);
+    return lead->GetGroup() && member->GetGroup() == lead->GetGroup();
+}
+
+// Followers follow the lead bot; the lead bot holds until a move order.
+// reanchorLead: the lead bot holds where it stands now (bind); otherwise a
+// lead bot already holding keeps its spot, so a `follow` during a move does
+// not stop the lead bot short. Returns the bots that took the order.
+uint32 FormUpOnLead(Player* commander, Player* lead, std::vector<Player*> const& bots,
+    bool reanchorLead)
+{
+    uint32 accepted = 0;
+    uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    for (Player* bot : bots)
+    {
+        if (!bot || !bot->IsInWorld())
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        ai->DropQueuedMovementOrders();
+        if (bot == lead)
+        {
+            if (!reanchorLead && ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT))
+                ++accepted;
+            else if (ExecuteQuietAction(ai, "stay chat shortcut", ai::Event("stay", "", commander)))
+                ++accepted;
+            continue;
+        }
+        PointFollowerAtLead(commanderRaw, bot, lead);
+        bot->GetMotionMaster()->Clear();
+        if (ExecuteQuietAction(ai, "follow chat shortcut", ai::Event("follow", "", commander)))
+            ++accepted;
+    }
+    return accepted;
+}
+
+} // namespace
+
+static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::string const& args)
+{
+    std::string const intent = "commander bind";
+    std::vector<std::string> names = RemoteCommander::SplitOrderArgs(args);
+    if (names.empty() || names.size() > RemoteCommander::kMaxGroupSize)
+    {
+        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] (a party of up to five bots)");
+        return true;
+    }
+
+    uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    RemoteCommander::BindFacts facts;
+    facts.enabled = sPlayerbotAIConfig.remoteCommander;
+    facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());
+    // Settle every binding first (a stale one, or a follower that already
+    // left its group, must not block this bind).
+    for (uint64 other : CommanderBindings().Commanders())
+        StandingBinding(other);
+    facts.commanderAlreadyBound = CommanderBindings().FindByCommander(commanderRaw) != nullptr;
+
+    Player* lead = FindOnlineByName(names[0]);
+    facts.lead = MemberFacts(commander, lead);
+    Group* commanderParty = commander->GetGroup();
+    Group* leadGroup = lead ? lead->GetGroup() : nullptr;
+    // A lead bot in the commander's own party is taken out of it.
+    bool const leadLeavesParty = leadGroup && leadGroup == commanderParty;
+    if (leadGroup && !leadLeavesParty)
+    {
+        facts.leadGrouped = true;
+        facts.leadGroupIsRaidOrBg = leadGroup->isRaidGroup() || leadGroup->isBGGroup();
+        for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
+            if (!BotManager::Instance().IsBot(slot.guid))
+                facts.leadGroupHasRealPlayer = true;
+        facts.leadGroupBound = CommanderBindings().FindByGroup(leadGroup->GetId()) != nullptr;
+    }
+
+    // The group to be: the lead's current bot-only group (adopted as it is)
+    // plus the named bots.
+    std::vector<Player*> joiners;
+    std::vector<ObjectGuid> counted;
+    if (lead)
+        counted.push_back(lead->GetObjectGuid());
+    if (facts.leadGrouped)
+    {
+        for (Group::MemberSlot const& slot : leadGroup->GetMemberSlots())
+        {
+            if (slot.guid == lead->GetObjectGuid())
+                continue;
+            counted.push_back(slot.guid);
+            facts.members.push_back(MemberFacts(commander, ObjectAccessor::FindPlayer(slot.guid)));
+        }
+    }
+    for (size_t i = 1; i < names.size(); ++i)
+    {
+        Player* bot = FindOnlineByName(names[i]);
+        if (bot && std::find(counted.begin(), counted.end(), bot->GetObjectGuid()) != counted.end())
+            continue;
+        RemoteCommander::BindMember member = MemberFacts(commander, bot);
+        if (bot)
+        {
+            Group* botGroup = bot->GetGroup();
+            member.inOtherGroup = botGroup && botGroup != commanderParty;
+            counted.push_back(bot->GetObjectGuid());
+            joiners.push_back(bot);
+        }
+        facts.members.push_back(member);
+    }
+
+    RemoteCommander::BindRefusal refusal = RemoteCommander::CheckBind(facts);
+    if (refusal != RemoteCommander::BindRefusal::None)
+    {
+        SendActionError(handler, intent, RemoteCommander::BindRefusalCode(refusal),
+            RemoteCommander::BindRefusalText(refusal));
+        return true;
+    }
+
+    // Form or adopt the party: out of the commander's party, the lead bot
+    // leads, every named bot joins it.
+    if (leadLeavesParty)
+        LeaveCommanderParty(commander, lead);
+    for (Player* bot : joiners)
+        LeaveCommanderParty(commander, bot);
+    if (Group* group = lead->GetGroup())
+        if (!group->IsLeader(lead->GetObjectGuid()))
+            group->ChangeLeader(lead->GetObjectGuid());
+    for (Player* bot : joiners)
+    {
+        if (!JoinLeadGroup(lead, bot))
+        {
+            std::string message = std::string("The group invitation for ") + bot->GetName() +
+                " was refused (another pending invite, a faction rule, or a full group). Bind again to adopt the group as it is now.";
+            SendActionError(handler, intent, "invite-failed", message.c_str());
+            return true;
+        }
+    }
+
+    Group* group = lead->GetGroup();
+    if (!group || !group->IsLeader(lead->GetObjectGuid()) || group->GetMembersCount() < 2)
+    {
+        SendActionError(handler, intent, "invite-failed", "The lead bot could not form a group.");
+        return true;
+    }
+
+    RemoteCommander::Binding binding;
+    binding.commanderGuid = commanderRaw;
+    binding.leadGuid = lead->GetObjectGuid().GetRawValue();
+    binding.groupId = group->GetId();
+    RemoteCommander::BindResult result = CommanderBindings().Bind(binding);
+    if (result != RemoteCommander::BindResult::Bound)
+    {
+        SendActionError(handler, intent, result == RemoteCommander::BindResult::GroupAlreadyBound
+            ? "group-bound" : "already-bound", "The group or you are already bound.");
+        return true;
+    }
+
+    std::vector<Player*> bots = CommandedBots(group, lead);
+    FormUpOnLead(commander, lead, bots, true);
+    std::string roster;
+    for (Player* bot : bots)
+        roster += (roster.empty() ? "" : ", ") + std::string(bot->GetName());
+    handler->PSendSysMessage("You command %s's group: %s. Orders: .bot cmd <order>.", lead->GetName(), roster.c_str());
+    SendActionAck(handler, intent, "party", static_cast<uint32>(bots.size()), lead->GetName());
+    return true;
+}
+
+static bool HandleCommander(ChatHandler* handler, char const* args)
+{
+    Player* commander = Requester(handler);
+    std::string text = Trim(args ? args : "");
+    size_t split = text.find_first_of(" \t");
+    std::string verb = text.substr(0, split);
+    for (char& c : verb)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string rest = split == std::string::npos ? std::string() : Trim(text.substr(split + 1));
+    std::string const intent = "commander " + (verb.empty() ? std::string("unknown") : ProtocolSafe(verb));
+
+    if (verb != "bind" && verb != "unbind" && verb != "status")
+    {
+        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] / unbind / status");
+        return true;
+    }
+    if (!commander || !commander->GetSession())
+    {
+        SendActionError(handler, intent, "requester", "You must be in-game.");
+        return true;
+    }
+    if (!sPlayerbotAIConfig.remoteCommander)
+    {
+        SendActionError(handler, intent, "disabled",
+            RemoteCommander::BindRefusalText(RemoteCommander::BindRefusal::Disabled));
+        return true;
+    }
+
+    if (verb == "bind")
+        return HandleCommanderBind(handler, commander, rest);
+
+    uint64 const commanderRaw = commander->GetObjectGuid().GetRawValue();
+    RemoteCommander::Binding const* binding = StandingBinding(commanderRaw);
+    if (!binding)
+    {
+        SendActionError(handler, intent, "not-bound", "You command no group. Use .bot commander bind <LeadBot> first.");
+        return true;
+    }
+    Player* lead = FindCharacter(binding->leadGuid);
+    std::string const leadName = lead ? lead->GetName() : "-";
+
+    if (verb == "unbind")
+    {
+        uint32 restored = ReleaseBinding(commanderRaw, RemoteCommander::ReleaseReason::Unbound, false);
+        handler->PSendSysMessage("You no longer command %s's group. The bots stay grouped; %s holds where it stands.",
+            leadName.c_str(), leadName.c_str());
+        SendActionAck(handler, intent, "party", restored, leadName);
+        return true;
+    }
+
+    // status
+    std::vector<Player*> bots = CommandedBots(lead ? lead->GetGroup() : nullptr, lead);
+    std::string roster;
+    for (Player* bot : bots)
+    {
+        roster += (roster.empty() ? "" : ", ") + std::string(bot->GetName());
+        if (!bot->IsAlive())
+            roster += " (dead)";
+    }
+    handler->PSendSysMessage("You command %s's group: %s.", leadName.c_str(), roster.c_str());
+    SendActionAck(handler, intent, "party", static_cast<uint32>(bots.size()), leadName);
+    return true;
+}
+
+namespace {
+
+// One standing order context: the commander, the lead bot and its group.
+struct CommanderOrder
+{
+    Player* commander = nullptr;
+    Player* lead = nullptr;
+    Group* group = nullptr;
+    std::vector<Player*> bots;
+    // Whose attack rules judge a target: the lead bot, or while it is dead
+    // the first live bot of the group on its map (a dead lead bot must not
+    // stop the rest of the group from fighting).
+    Player* judge = nullptr;
+};
+
+// The bound group as a BotCommandContext for the shared pull/CC executors.
+// The lead bot stands in for the requester: its position is the pull anchor
+// and the DPS hold spot, and its map judges the target. partyBots is the
+// whole group, lead included (it may be the tank).
+BotCommandContext CommanderContext(CommanderOrder const& order, Unit* target)
+{
+    BotCommandContext context;
+    context.requester = order.lead;
+    context.requesterTarget = target;
+    context.enemyTarget = target;
+    context.group = order.group;
+    context.partyBots = order.bots;
+    return context;
+}
+
+Player* FindCommandedBot(CommanderOrder const& order, std::string const& name)
+{
+    Player* bot = FindOnlineByName(name);
+    if (!bot)
+        return nullptr;
+    for (Player* member : order.bots)
+        if (member == bot)
+            return bot;
+    return nullptr;
+}
+
+} // namespace
+
+// GUID -> a live, hostile, attackable unit on the lead bot's map and instance.
+static Unit* ResolveOrderTarget(ChatHandler* handler, std::string const& intent,
+    CommanderOrder const& order, std::string const& token)
+{
+    uint64 raw = 0;
+    if (!RemoteCommander::ParseGuid(token, raw))
+    {
+        SendActionError(handler, intent, "invalid", "Name the target by GUID: 0x<hex> or a decimal number.");
+        return nullptr;
+    }
+    // Map::GetUnit only finds units on the lead bot's own map and instance.
+    Map* map = order.lead->GetMap();
+    Unit* unit = map ? map->GetUnit(ObjectGuid(raw)) : nullptr;
+    RemoteCommander::TargetFacts facts;
+    facts.found = unit != nullptr;
+    if (unit)
+    {
+        facts.inWorld = unit->IsInWorld();
+        facts.groupMemberOrBot = BotManager::Instance().IsBot(unit->GetObjectGuid()) ||
+            (order.group && order.group->IsMember(unit->GetObjectGuid()));
+        facts.alive = unit->IsAlive();
+        facts.friendly = sServerFacade.IsFriendlyTo(unit, order.judge);
+        facts.attackable = order.judge->IsValidAttackTarget(unit);
+        // Seen (stealth and invisibility detection, as the bots' own target
+        // values check it) by a live bot of the group, and targetable.
+        if (unit->IsTargetable(true, true))
+            for (Player* bot : order.bots)
+                if (bot->IsAlive() && bot->IsInWorld() && bot->GetMap() == map &&
+                    unit->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true))
+                {
+                    facts.visible = true;
+                    break;
+                }
+    }
+    RemoteCommander::TargetVerdict verdict = RemoteCommander::CheckOrderTarget(facts);
+    if (verdict != RemoteCommander::TargetVerdict::Ok)
+    {
+        SendActionError(handler, intent, RemoteCommander::TargetVerdictCode(verdict),
+            RemoteCommander::TargetVerdictText(verdict));
+        return nullptr;
+    }
+    return unit;
+}
+
+// Same per-bot steps as `.bot action attack`, with the lead bot's selection
+// carrying the GUID-named target: AttackMyTargetAction reads its event
+// owner's selection. The commander's own selection is never touched.
+static bool CommanderAttack(ChatHandler* handler, CommanderOrder const& order, Unit* target,
+    std::string const& intent)
+{
+    ObjectGuid const targetGuid = target->GetObjectGuid();
+    uint32 succeeded = 0;
+    for (Player* bot : order.bots)
+    {
+        if (!bot || !bot->IsInWorld() || bot->GetMap() != order.lead->GetMap())
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        RelaxTacticalMovement(ai);
+        ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
+        bool accepted = true;
+        if (!PlayerbotAI::IsHeal(bot))
+        {
+            // Set again for every bot: an earlier bot's first AI step may be
+            // the lead bot's own, which can change its selection.
+            order.lead->SetSelectionGuid(targetGuid);
+            accepted = ExecuteQuietAction(ai, "attack my target", ai::Event("action attack", "", order.lead));
+        }
+        ExecuteQuietNextAction(ai, false);
+        if (accepted)
+            ++succeeded;
+    }
+    if (!succeeded)
+    {
+        SendActionError(handler, intent, "failed", "No bot of the group accepted the attack.");
+        return true;
+    }
+    SendActionAck(handler, intent, "party", succeeded);
+    return true;
+}
+
+// `.bot action focus skull` on a GUID: Skull goes on the target in the bound
+// group, every bot attacks its Skull target.
+static bool CommanderFocus(ChatHandler* handler, CommanderOrder const& order, Unit* target,
+    std::string const& intent)
+{
+    order.group->SetTargetIcon(static_cast<uint8>(RtiTargetValue::GetRtiIndex("skull")), target->GetObjectGuid());
+    uint32 succeeded = 0;
+    for (Player* bot : order.bots)
+    {
+        if (!bot || !bot->IsInWorld())
+            continue;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        if (!ai)
+            continue;
+        RelaxTacticalMovement(ai);
+        bool set = ExecuteQuietAction(ai, "rti", ai::Event("focus skull", "skull", order.lead));
+        bool accepted = set && ExecuteQuietAction(ai, "attack rti target", ai::Event("focus skull", "", order.lead));
+        ExecuteQuietNextAction(ai, true);
+        if (accepted)
+            ++succeeded;
+    }
+    if (!succeeded)
+    {
+        SendActionError(handler, intent, "failed", "No bot of the group accepted the focus order.");
+        return true;
+    }
+    SendActionAck(handler, intent, "party", succeeded);
+    return true;
+}
+
+// The lead bot walks to the point on its navmesh path (MoveTo through the
+// mature stay/return-to-stay pair, inside instances too) and holds there; the
+// rest of the group follows it.
+static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std::string const& args,
+    std::string const& intent)
+{
+    RemoteCommander::MovePoint point;
+    if (!RemoteCommander::ParseMovePoint(args, point))
+    {
+        SendActionError(handler, intent, "invalid", "Usage: .bot cmd move <x> <y> <z> (map coordinates on the lead bot's map)");
+        return true;
+    }
+    Player* lead = order.lead;
+    if (!lead->IsAlive() || lead->IsTaxiFlying() || lead->IsBeingTeleported())
+    {
+        SendActionError(handler, intent, "lead-unavailable", "The lead bot is dead, on a taxi or teleporting.");
+        return true;
+    }
+    PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
+    if (!leadAi)
+    {
+        SendActionError(handler, intent, "no-ai", "The lead bot has no AI.");
+        return true;
+    }
+
+    float const dx = point.x - lead->GetPositionX();
+    float const dy = point.y - lead->GetPositionY();
+    float const dz = point.z - lead->GetPositionZ();
+    RemoteCommander::MoveFacts facts;
+    facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);
+    facts.maxDistance = sPlayerbotAIConfig.reactDistance;
+    PathFinder path(lead);
+    path.calculate(point.x, point.y, point.z, false);
+    facts.pathType = static_cast<uint32>(path.getPathType());
+    Vector3 const end = path.getActualEndPosition();
+    float const ex = end.x - point.x;
+    float const ey = end.y - point.y;
+    float const ez = end.z - point.z;
+    facts.endOffset = std::sqrt(ex * ex + ey * ey + ez * ez);
+    RemoteCommander::MoveVerdict verdict = RemoteCommander::CheckMove(facts);
+    if (verdict != RemoteCommander::MoveVerdict::Ok)
+    {
+        std::string message;
+        if (verdict == RemoteCommander::MoveVerdict::TooFar)
+            message = "The point is more than " + std::to_string(static_cast<uint32>(facts.maxDistance)) +
+                " yd (AiPlayerbot.ReactDistance) from the lead bot. Move in shorter legs.";
+        else if (verdict == RemoteCommander::MoveVerdict::NoPath)
+            message = "The lead bot has no walkable path to that point.";
+        else
+            message = "The point is not on walkable ground (the path ends more than 5 yd from it).";
+        SendActionError(handler, intent, RemoteCommander::MoveVerdictCode(verdict), message.c_str());
+        return true;
+    }
+
+    // Same transition as `.bot action come`, with the point as the stay spot.
+    leadAi->DropQueuedMovementOrders();
+    PlayerConvenience::Instance().NoteHoldOrder(lead->GetObjectGuid());
+    leadAi->Reset();
+    leadAi->SetMovementStrategy("stay");
+    ai::PositionMap& posMap = leadAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+    ai::PositionEntry stayPos = posMap["stay"];
+    stayPos.Set(point.x, point.y, point.z, lead->GetMapId());
+    posMap["stay"] = stayPos;
+    ExecuteQuietAction(leadAi, "return to stay position",
+        ai::Event("return to stay position", "stay", order.commander));
+
+    // The group follows the lead bot.
+    std::vector<Player*> followers;
+    for (Player* bot : order.bots)
+        if (bot != lead)
+            followers.push_back(bot);
+    uint32 following = FormUpOnLead(order.commander, lead, followers, false);
+    SendActionAck(handler, intent, "party", following + 1, lead->GetName());
+    return true;
+}
+
+static bool CommanderStayFollowRest(ChatHandler* handler, CommanderOrder const& order,
+    std::string const& verb, std::string const& intent)
+{
+    uint32 succeeded = 0;
+    if (verb == "follow")
+        succeeded = FormUpOnLead(order.commander, order.lead, order.bots, false);
+    else
+    {
+        for (Player* bot : order.bots)
+        {
+            if (!bot || !bot->IsInWorld())
+                continue;
+            PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!ai)
+                continue;
+            bool accepted = false;
+            if (verb == "stay")
+            {
+                ai->DropQueuedMovementOrders();
+                accepted = ExecuteQuietAction(ai, "stay chat shortcut", ai::Event("stay", "", order.commander));
+            }
+            else // rest: same as `.bot action rest`
+            {
+                bool rested = false;
+                if (bot->GetPowerType() == POWER_MANA && bot->GetPower(POWER_MANA) < bot->GetMaxPower(POWER_MANA))
+                    rested = ExecuteQuietAction(ai, "drink", ai::Event("rest", "drink", order.commander)) || rested;
+                if (bot->GetHealth() < bot->GetMaxHealth())
+                    rested = ExecuteQuietAction(ai, "food", ai::Event("rest", "food", order.commander)) || rested;
+                accepted = rested || (bot->GetHealth() >= bot->GetMaxHealth() &&
+                    (bot->GetPowerType() != POWER_MANA || bot->GetPower(POWER_MANA) >= bot->GetMaxPower(POWER_MANA)));
+            }
+            if (accepted)
+                ++succeeded;
+        }
+    }
+    if (!succeeded)
+    {
+        SendActionError(handler, intent, "failed", "No bot of the group accepted the order.");
+        return true;
+    }
+    SendActionAck(handler, intent, "party", succeeded, verb == "rest" ? "" : order.lead->GetName());
+    return true;
+}
+
+// revive: speeds up the dead bot's own way back (release now, run to the
+// corpse); the dead strategy then revives it at the corpse. A healer in the
+// group still resurrects a body that has not released on its own.
+static bool CommanderRevive(ChatHandler* handler, CommanderOrder const& order, Player* bot,
+    std::string const& intent)
+{
+    if (bot->IsAlive())
+    {
+        SendActionError(handler, intent, "not-dead", "That bot is alive.");
+        return true;
+    }
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!ai)
+    {
+        SendActionError(handler, intent, "no-ai", "That bot has no AI.");
+        return true;
+    }
+    bool released = ExecuteQuietAction(ai, "release", ai::Event("revive", "release", order.commander));
+    bool running = ExecuteQuietAction(ai, "corpse run", ai::Event("revive", "corpse run", order.commander));
+    if (!released && !running)
+    {
+        SendActionError(handler, intent, "failed", "The bot could neither release nor run back to its corpse.");
+        return true;
+    }
+    SendActionAck(handler, intent, "bot:" + std::string(bot->GetName()), 1, released ? "release" : "corpse run");
+    return true;
+}
+
+// summon: the `.bot summon` flow (3 s, portal, follow restored on arrival),
+// with the lead bot as the summon point instead of the commander.
+static bool CommanderSummon(ChatHandler* handler, CommanderOrder const& order, Player* bot,
+    std::string const& intent)
+{
+    Player* lead = order.lead;
+    if (bot == lead)
+    {
+        SendActionError(handler, intent, "invalid", "The lead bot is the summon point; summon another bot to it.");
+        return true;
+    }
+    if (!lead->IsAlive() || lead->IsTaxiFlying() || lead->IsBeingTeleported())
+    {
+        SendActionError(handler, intent, "lead-unavailable", "The lead bot is dead, on a taxi or teleporting.");
+        return true;
+    }
+    if (!bot->IsAlive() || bot->IsInCombat() || bot->IsTaxiFlying() || bot->IsBeingTeleported())
+    {
+        SendActionError(handler, intent, "unavailable", "That bot is dead, in combat, on a taxi or teleporting.");
+        return true;
+    }
+    if (PlayerConvenience::Instance().IsBusy(bot->GetObjectGuid()))
+    {
+        SendActionError(handler, intent, "busy", "That bot already has a summon pending.");
+        return true;
+    }
+    // As `.bot summon`: the summoner becomes the bot's master if it is not.
+    BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
+    if (!record || (record->masterGuid != order.commander->GetObjectGuid() &&
+        !BotManager::Instance().BindBotMaster(bot->GetObjectGuid(), order.commander->GetObjectGuid())))
+    {
+        SendActionError(handler, intent, "failed", "The bot could not be assigned to you for the summon.");
+        return true;
+    }
+    if (!PlayerConvenience::Instance().RequestSummon(order.commander, bot, lead))
+    {
+        SendActionError(handler, intent, "failed", "The summon was refused.");
+        return true;
+    }
+    SendActionAck(handler, intent, "bot:" + std::string(bot->GetName()), 1, lead->GetName());
+    return true;
+}
+
+static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
+{
+    std::string text = Trim(args ? args : "");
+    size_t split = text.find_first_of(" \t");
+    std::string verb = text.substr(0, split);
+    for (char& c : verb)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    std::string rest = split == std::string::npos ? std::string() : Trim(text.substr(split + 1));
+    std::string const intent = "cmd " + (verb.empty() ? std::string("unknown") : ProtocolSafe(verb));
+
+    if (!RemoteCommander::IsKnownOrder(verb))
+    {
+        SendActionError(handler, intent, "invalid",
+            "Usage: .bot cmd attack|pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / focus <guid> / move <x> <y> <z> / stay / follow / rest / revive <bot> / summon <bot>");
+        return true;
+    }
+
+    CommanderOrder order;
+    order.commander = Requester(handler);
+    if (!order.commander || !order.commander->GetSession())
+    {
+        SendActionError(handler, intent, "requester", "You must be in-game.");
+        return true;
+    }
+    if (!sPlayerbotAIConfig.remoteCommander)
+    {
+        SendActionError(handler, intent, "disabled",
+            RemoteCommander::BindRefusalText(RemoteCommander::BindRefusal::Disabled));
+        return true;
+    }
+    RemoteCommander::Binding const* binding = StandingBinding(order.commander->GetObjectGuid().GetRawValue());
+    if (!binding)
+    {
+        SendActionError(handler, intent, "not-bound", "You command no group. Use .bot commander bind <LeadBot> first.");
+        return true;
+    }
+    order.lead = FindCharacter(binding->leadGuid);
+    order.group = order.lead ? order.lead->GetGroup() : nullptr;
+    if (!order.lead || !order.group || !order.lead->IsInWorld())
+    {
+        SendActionError(handler, intent, "lead-unavailable", "The lead bot is between maps. Try again in a moment.");
+        return true;
+    }
+    order.bots = CommandedBots(order.group, order.lead);
+    order.judge = order.lead;
+    if (!order.lead->IsAlive())
+        for (Player* bot : order.bots)
+            if (bot->IsAlive() && bot->IsInWorld() && bot->GetMap() == order.lead->GetMap())
+            {
+                order.judge = bot;
+                break;
+            }
+
+    std::vector<std::string> parts = RemoteCommander::SplitOrderArgs(rest);
+    RemoteCommander::OrderTier const tier = RemoteCommander::TierForOrder(verb);
+
+    // Owner-or-GM orders name one bot of the group; the commander must
+    // control it now (the bound commander alone is not enough).
+    if (tier == RemoteCommander::OrderTier::OwnerOrGm)
+    {
+        Player* bot = parts.size() == 1 ? FindCommandedBot(order, parts[0]) : nullptr;
+        if (!bot)
+        {
+            std::string message = "Usage: .bot cmd " + verb + " <bot of your commanded group>";
+            SendActionError(handler, intent, "no-bot", message.c_str());
+            return true;
+        }
+        BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
+        if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier,
+            record && CanControlBot(order.commander, record)))
+        {
+            SendActionError(handler, intent, "denied", "Only this bot's owner (or a GameMaster) may do that.");
+            return true;
+        }
+        return verb == "revive"
+            ? CommanderRevive(handler, order, bot, intent)
+            : CommanderSummon(handler, order, bot, intent);
+    }
+
+    // Tactical orders: the bound commander counts as a member of its group.
+    if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier, false))
+    {
+        SendActionError(handler, intent, "denied", "Order refused.");
+        return true;
+    }
+
+    if (verb == "move")
+        return CommanderMove(handler, order, rest, intent);
+    if (verb == "stay" || verb == "follow" || verb == "rest")
+    {
+        if (!parts.empty())
+        {
+            std::string message = "Usage: .bot cmd " + verb;
+            SendActionError(handler, intent, "invalid", message.c_str());
+            return true;
+        }
+        return CommanderStayFollowRest(handler, order, verb, intent);
+    }
+
+    if (verb == "attack" || verb == "focus" || verb == "pull" || verb == "pullback")
+    {
+        bool const pull = verb == "pull" || verb == "pullback";
+        std::string option;
+        if (parts.empty() || parts.size() > (pull ? 2u : 1u))
+        {
+            std::string message = "Usage: .bot cmd " + verb + " <guid>" + (pull ? " [seconds]" : "");
+            SendActionError(handler, intent, "invalid", message.c_str());
+            return true;
+        }
+        if (parts.size() == 2)
+        {
+            char* end = nullptr;
+            long seconds = std::strtol(parts[1].c_str(), &end, 10);
+            if (!end || *end != '\0' || seconds < 0 || seconds > 60)
+            {
+                SendActionError(handler, intent, "invalid", "The join delay is 0-60 seconds.");
+                return true;
+            }
+            option = std::to_string(seconds);
+        }
+        Unit* target = ResolveOrderTarget(handler, intent, order, parts[0]);
+        if (!target)
+            return true;
+        if (verb == "attack")
+            return CommanderAttack(handler, order, target, intent);
+        if (verb == "focus")
+            return CommanderFocus(handler, order, target, intent);
+        BotCommandContext context = CommanderContext(order, target);
+        return RunPullOrder(handler, context, order.lead, verb, option, intent);
+    }
+
+    // cc <mark> <guid> [bot]
+    if (parts.size() < 2 || parts.size() > 3)
+    {
+        SendActionError(handler, intent, "invalid", "Usage: .bot cmd cc <mark> <guid> [bot]");
+        return true;
+    }
+    std::string mark = parts[0];
+    for (char& c : mark)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (!IsRaidTargetMark(mark))
+    {
+        SendActionError(handler, intent, "invalid", "Unknown raid mark (star, circle, diamond, triangle, moon, square, cross, skull).");
+        return true;
+    }
+    std::string ccIntent = "cc " + mark;
+    if (parts.size() == 3)
+    {
+        Player* named = FindCommandedBot(order, parts[2]);
+        if (!named)
+        {
+            SendActionError(handler, intent, "no-bot", "That bot is not in your commanded group.");
+            return true;
+        }
+        ccIntent += " " + std::string(named->GetName());
+    }
+    Unit* target = ResolveOrderTarget(handler, intent, order, parts[1]);
+    if (!target)
+        return true;
+    BotCommandContext context = CommanderContext(order, target);
+    return RunCcOrder(handler, context, order.judge, ccIntent, intent);
+}
+
+void UpdateRemoteCommanders(uint32_t diff)
+{
+    // Nothing runs while no commander is bound.
+    if (CommanderBindings().Empty())
+    {
+        s_commanderSweepMs = 0;
+        return;
+    }
+    s_commanderSweepMs += diff;
+    if (s_commanderSweepMs < RemoteCommander::kSweepIntervalMs)
+        return;
+    s_commanderSweepMs = 0;
+    for (uint64 commanderRaw : CommanderBindings().Commanders())
+        StandingBinding(commanderRaw);
+}
+
+bool IsCommandedBy(Player* commander, Player* bot)
+{
+    if (!commander || !bot)
+        return false;
+    RemoteCommander::Binding const* binding =
+        CommanderBindings().FindByCommander(commander->GetObjectGuid().GetRawValue());
+    if (!binding)
+        return false;
+    Player* lead = FindCharacter(binding->leadGuid);
+    Group* group = lead ? lead->GetGroup() : nullptr;
+    return group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid());
+}
+
+void ClearRemoteCommanders()
+{
+    CommanderBindings().Clear();
+    SavedFollowTargets().clear();
+    s_commanderSweepMs = 0;
+}
+
 static bool HandleAhBot(ChatHandler* handler, char const* args)
 {
     if (!handler)
@@ -4179,7 +5234,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/about/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/inv/item/behavior/strategy/maintenance/autogear/ah/pool");
+        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/commander/cmd/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/about/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/inv/item/behavior/strategy/maintenance/autogear/ah/pool");
         return true;
     }
 
@@ -4201,6 +5256,10 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
         return HandleAhBot(handler, subArgs);
     if (cmd == "action")
         return HandleAction(handler, subArgs);
+    if (cmd == "commander")
+        return HandleCommander(handler, subArgs);
+    if (cmd == "cmd")
+        return HandleCommanderOrder(handler, subArgs);
     if (cmd == "add")
         return HandleAdd(handler, subArgs);
     if (cmd == "remove")
