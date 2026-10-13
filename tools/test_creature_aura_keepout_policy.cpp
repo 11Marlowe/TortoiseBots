@@ -329,6 +329,10 @@ int main()
         CHECK(CreatureAuraSetAsideRinged(*sludge, 10.0f));
         CHECK(!CreatureAuraSetAsideRinged(*sludge, 10.1f));
         CHECK(!CreatureAuraSetAsideRinged(*sludge, 40.0f));
+        // The test uses only the creature-to-mob distance: a mob dragged 25 yd
+        // from the sludge is unringed wherever the bot stands (the wiring is
+        // pinned in tools/test_keepout_set_aside_wiring.py).
+        CHECK(!CreatureAuraSetAsideRinged(*sludge, 25.0f));
         // A mob the hold lets go of is not held again: past the release ring
         // the chase plans Follow, engaged or not.
         float hx = 0.0f, hy = 0.0f;

@@ -550,28 +550,25 @@ bool AttackersValue::IsKeepoutSetAside(Unit* target, Player* bot)
         hitsBotInSight = target->GetVictim() == bot && bot->IsWithinLOSInMap(target, true);
         if (!hitsBotInSight)
         {
+            // Ringed means: a listed creature of the cached list stands within
+            // its release ring of the mob. A mob with none counts as unringed
+            // at any distance from the bot (dragged out far, or run to a
+            // healer): a wrong lift costs one walk and one 3 s hold, and the
+            // set-aside then sticks again.
             float const tx = target->GetPositionX(), ty = target->GetPositionY();
-            // The list only reaches kMaxAoeAvoidRadiusYd around the bot: a mob
-            // farther away than that cannot be judged, so it stays set aside
-            // (the 30 s entry bounds it) instead of being lifted blind.
-            float const bdx = tx - bot->GetPositionX(), bdy = ty - bot->GetPositionY();
-            stillRinged = bdx * bdx + bdy * bdy > kMaxAoeAvoidRadiusYd * kMaxAoeAvoidRadiusYd;
-            if (!stillRinged)
+            std::list<ObjectGuid> const& triggers =
+                ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible triggers")->Get();
+            for (ObjectGuid const& guid : triggers)
             {
-                std::list<ObjectGuid> const& triggers =
-                    ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible triggers")->Get();
-                for (ObjectGuid const& guid : triggers)
+                Unit* unit = ai->GetUnit(guid);
+                CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
+                if (!row)
+                    continue;
+                float const dx = tx - unit->GetPositionX(), dy = ty - unit->GetPositionY();
+                if (CreatureAuraSetAsideRinged(*row, std::sqrt(dx * dx + dy * dy)))
                 {
-                    CreatureAuraKeepout const* row = nullptr;
-                    Unit* unit = ai->GetUnit(guid);
-                    if (!(row = PossibleTriggersValue::KeepoutFor(unit)))
-                        continue;
-                    float const dx = tx - unit->GetPositionX(), dy = ty - unit->GetPositionY();
-                    if (CreatureAuraSetAsideRinged(*row, std::sqrt(dx * dx + dy * dy)))
-                    {
-                        stillRinged = true;
-                        break;
-                    }
+                    stillRinged = true;
+                    break;
                 }
             }
         }
