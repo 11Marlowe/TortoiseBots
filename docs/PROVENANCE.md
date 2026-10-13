@@ -9193,6 +9193,27 @@ Validation: `tools/test_heal_reach_policy.cpp`, `tools/test_dungeon_follow_stall
 
 Review fixes (2026-10-12, REVIEW-129): (1) the rescue yields while the bot is held (sitting, casting, rooted) even after it has latched, matching the docs; (2) five rescue walks in a row that cannot start end the rescue for 60 s, so a bot that cannot be rescued (below its leader's platform) does not plan a path every 8 s forever; catching up clears the give-up; (3) docs note that, with `DungeonFollowHoldBeforePacks` off, a rescue walk can pass an unpulled pack like far follow. Test rows added for latched-then-held, the give-up and its reset.
 
+## Mutating Injection is never cleansed (Grobbulus dispel list) — 2026-10-13
+
+Feature: `PlayerbotAI::IsNeverDispelSpell` (`ai/playerbot/PlayerbotAI.cpp:6414-6422`, list `kNeverDispelSpellIds` at `:6412`) keeps Mutating Injection (Turtle spell 28169, dispel type Disease) out of every dispel. `canDispel` (`:6424-6440`) uses it, so friendly cures that pick their target through `HasAuraToDispel` (`PartyMemberToDispel`, `CureTriggers`, the shaman disease cures) skip the injection. `StoneformTrigger` (`ai/playerbot/strategy/triggers/GenericTriggers.h:1356-1387`) uses it too, so a dwarf does not cast Stoneform on its own while the injection is on it (an explicit order still works). The declaration is `ai/playerbot/PlayerbotAI.h:500` (public).
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd4281` (local `playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Bot/PlayerbotAI.cpp:72-75` (`dispel_whitelist`: `"mutating injection"`, `"frostbolt"`)
+- `src/Bot/PlayerbotAI.cpp:4497-4521` (`canDispel`: a whitelisted name returns false after the dispel-type check)
+
+Ported / reimplemented: reimplemented. The donor matches by spell name; this copy matches by Turtle spell id. 28169 is the only Mutating Injection row in `~/tortoise-wow/sql/base/tw_world_spell_template.sql` and in `tw_world_locales_spell.sql`. The donor's Frostbolt entry is not ported (see Reason). The Stoneform hold-back has no donor counterpart; it is this module's own rule, found by reading the core.
+
+Reason: Grobbulus (Naxx). The core script `src/scripts/dungeons/naxxramas/boss_grobbulus.cpp` (`spell_mutating_injection`) makes the boss cast spell 28206 on the carrier and the carrier cast the poison cloud summon 28240, both when the aura is removed, whether it was dispelled or ran out. A dispel only brings the cloud forward. The audit refresh (`~/TortoiseBots-audit/AUDIT-REFRESH-2026-10-13.md`, row 61) found healers cleansing the injection early, while the carrier was still in the raid. The existing bomb runout (`ai/playerbot/BombRunoutPolicy.h`, `kRaidBombSpellIds` includes 28169) moves the carrier clear, which is what makes leaving the injection to run out safe.
+Stoneform removes it too. Stoneform (20594 and 20612) has attributesEx 98304, which includes `SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY` (0x8000). `spell_stoneform` (`src/scripts/spells/spell_special.cpp:398`) applies dispel immunity for disease and poison on cast, and `Unit::ApplySpellDispelImmunity` (`src/game/Objects/Unit.cpp:6356`) then removes every aura of that dispel type. An earlier reading that stopped at the immunity was wrong. Other spells with this flag do not reach a friendly carrier: Faerie Fire is cast on enemies, and Nullify Disease, Nullify Poison, Resist Poison and Abolish Magic are not referenced in `ai/playerbot`.
+Limit: a Cure Disease, Cleanse, Abolish Disease or a Disease Cleansing Totem aimed at another disease on the same carrier can still remove the injection, because the game picks which aura a dispel takes. The bot cannot choose it.
+Frostbolt is not ported. The donor rule matches the name, so it covers every Frostbolt aura with the Magic dispel type. The Turtle template has 36 rows named Frostbolt with that type (rank ids and other ids, e.g. 9672, 28478, 48005). A static list needs a choice of which of them are the slow, which is left to the maintainer.
+
+Validation: code review + build pending; in-game pending. Local: `bash tools/verify_all.sh` and tbsyntax on the test VM (results in the PR).
+
 ## Rogue stealth opener: Garrote when Ambush cannot be cast — 2026-10-13
 
 Feature: the behind-target opener of the rogue stealth strategy
