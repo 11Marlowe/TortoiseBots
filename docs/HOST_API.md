@@ -231,6 +231,19 @@ command that arrives during the drain wait for it (next tick). The order is the
 order the module queued them; packets a hook hands to an AI inline on the world
 thread (§10) are not queued and run when they arrive.
 
+Handing a chat line to the AI in order is not running it in order: the AI only
+queues a chat command (`PlayerbotAI::chatCommands`) and turns it into a trigger
+and an action on its own later turns, while a `.bot` command runs its action at
+once. So an explicit `.bot` movement order (`.bot action follow/stay/flee/come/
+hold/comestay`, the tactical orders that end a stay, `.bot follow/stay/guard/
+free`) first drops the bot's movement orders still queued from chat (`follow`,
+`stay`, `guard`, `free`, `flee`, `wander`) and clears their pending triggers
+(`PlayerbotAI::DropQueuedMovementOrders`, `runtime/QueuedOrderPolicy.h`). Those
+are always older than the command, as the drain ran every line queued before
+it; a line queued after the command reaches the AI after it and stands. The
+live test of 2026-10-13 that found this: `/p stay` then `/p .bot action follow`
+0 ms or 50 ms apart ended in stay, 100 ms and more in follow.
+
 Inside that pass (`BotManager::UpdateBots`) bots under a real player are
 updated first and without a budget, then the random pool follows as one
 turn queue, each bot due when its AI asked to think next, capped by its

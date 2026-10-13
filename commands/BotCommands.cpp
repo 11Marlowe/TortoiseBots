@@ -529,7 +529,9 @@ static bool HandleStay(ChatHandler* handler, char const* args)
     }
 
     // Reuse the stay action so the command updates both strategies and the
-    // current "return"/"stay" position anchors.
+    // current "return"/"stay" position anchors. An older chat order still
+    // queued in the AI must not run after it (runtime/QueuedOrderPolicy.h).
+    ai->DropQueuedMovementOrders();
     ai::Event stayEvent("stay", "", requester);
     if (!ai->DoSpecificAction("stay chat shortcut", stayEvent, true))
     {
@@ -545,8 +547,11 @@ static void RelaxTacticalMovement(PlayerbotAI* ai);
 
 // relaxMovement: the order sends the bot at a target, so it ends a stay the
 // same way the party-wide `.bot action` form does (RelaxTacticalMovement).
+// movementOrder: the order sets the bot's movement mode, so the movement
+// orders still queued from chat are older and dropped first
+// (runtime/QueuedOrderPolicy.h).
 static bool HandleNamedAction(ChatHandler* handler, char const* args, char const* command,
-    char const* action, char const* confirmation, bool relaxMovement = false)
+    char const* action, char const* confirmation, bool relaxMovement = false, bool movementOrder = false)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -567,6 +572,8 @@ static bool HandleNamedAction(ChatHandler* handler, char const* args, char const
 
     if (relaxMovement)
         RelaxTacticalMovement(ai);
+    if (movementOrder)
+        ai->DropQueuedMovementOrders();
 
     ai::Event event(command, "", requester);
     if (!ai->DoSpecificAction(action, event, true))
@@ -598,6 +605,7 @@ static void RelaxTacticalMovement(PlayerbotAI* ai)
     if (!ai)
         return;
 
+    ai->DropQueuedMovementOrders();
     ai->EndStayForOrder();
 }
 
@@ -702,12 +710,12 @@ static bool BindMovementMaster(Player* requester, Player* bot)
 
 static bool HandleGuard(ChatHandler* handler, char const* args)
 {
-    return HandleNamedAction(handler, args, "guard", "guard chat shortcut", "will guard this position");
+    return HandleNamedAction(handler, args, "guard", "guard chat shortcut", "will guard this position", false, true);
 }
 
 static bool HandleFree(ChatHandler* handler, char const* args)
 {
-    return HandleNamedAction(handler, args, "free", "free chat shortcut", "is free to move");
+    return HandleNamedAction(handler, args, "free", "free chat shortcut", "is free to move", false, true);
 }
 
 static bool HandleReady(ChatHandler* handler, char const* args)
@@ -1356,6 +1364,10 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("You may only control characters on your account.");
         return true;
     }
+    // An older chat order still queued in the AI must not run after this one
+    // (runtime/QueuedOrderPolicy.h).
+    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(botGuid))
+        ai->DropQueuedMovementOrders();
     if (BotManager::Instance().SetBotFollow(botGuid, masterGuid))
         handler->PSendSysMessage("Bot %s now following %s.", name.c_str(), requester->GetName());
     else
@@ -3421,6 +3433,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
         if (!ai)
             continue;
+
+        // A movement order supersedes the bot's movement orders still queued
+        // from chat: `/p stay` then `.bot action follow` in one tick reach the
+        // AI in that order, but the chat line only runs on the bot's next AI
+        // turns, after this order (runtime/QueuedOrderPolicy.h). The tactical
+        // orders do the same through RelaxTacticalMovement.
+        if (intent == "follow" || intent == "stay" || intent == "flee" ||
+            intent == "come" || intent == "hold" || intent == "comestay")
+            ai->DropQueuedMovementOrders();
 
         bool accepted = false;
         if (intent == "attack")

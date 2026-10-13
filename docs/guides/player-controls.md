@@ -301,7 +301,11 @@ in that order on the transport the request used. Received order is not always se
 order: party chat and addon messages travel different server paths, so an addon click
 can overtake a `/p .bot ...` typed just before it. Chat to bots (`/p stay`,
 whispers) and the packets the bots react to share that order with the commands, so
-`/p stay` then `/p .bot action follow` ends in follow (issue #846); packets the AI
+`/p stay` then `/p .bot action follow` ends in follow (issue #846), however close
+together you type them: a `.bot` movement order (`.bot action follow/stay/flee/
+come/hold/comestay`, the tactical orders, `.bot follow/stay/guard/free`) cancels
+the `follow`, `stay`, `guard`, `free`, `flee` and `wander` chat orders the bot has
+received but not yet carried out, so the order you typed last wins; packets the AI
 handles inline on the world thread (its own casts, hire provisioning) are outside
 this ordering and take effect when they arrive. A command whose
 sender logs out before that tick is dropped; more than 128 commands from one player

@@ -388,6 +388,12 @@ public:
     // rejoins after the fight. Used by the .bot tactical orders and the
     // whispered attack.
     void EndStayForOrder();
+    // An explicit `.bot` movement order supersedes the movement orders still
+    // waiting from chat ("stay", "follow", ...): drops them from the queued
+    // chat commands and clears their triggers, so an older `/p stay` cannot
+    // run after a newer `.bot action follow` (runtime/QueuedOrderPolicy.h).
+    // World thread. Returns how many queued commands were dropped.
+    size_t DropQueuedMovementOrders();
 	std::string HandleRemoteCommand(std::string command);
     void HandleCommand(uint32 type, const std::string& text, Player& fromPlayer, const uint32 lang = LANG_UNIVERSAL);
     void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);

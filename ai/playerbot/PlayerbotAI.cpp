@@ -14,6 +14,7 @@
 #include "../../runtime/BotActivityLease.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/PoolBotTradePolicy.h"
+#include "../../runtime/QueuedOrderPolicy.h"
 #include "ByteBuffer.h"
 #include "ObjectAccessor.h"
 
@@ -7627,6 +7628,23 @@ void PlayerbotAI::EndPullWindow()
     // The anchor goes with the window; a no-op when it is already released
     // (combat end, death, a movement order) or when none was placed.
     ReleasePullHold();
+}
+
+size_t PlayerbotAI::DropQueuedMovementOrders()
+{
+    size_t const dropped = TortoiseBots::DropQueuedMovementOrders(chatCommands,
+        [](ChatCommandHolder& holder) { return holder.GetCommand(); });
+    // HandleCommands may already have turned a queued order into a pending
+    // trigger that the engine has not processed yet: clear that too.
+    if (aiObjectContext)
+    {
+        size_t count = 0;
+        char const* const* orders = TortoiseBots::MovementChatOrders(count);
+        for (size_t i = 0; i < count; ++i)
+            if (Trigger* trigger = aiObjectContext->GetTrigger(orders[i]))
+                trigger->Reset();
+    }
+    return dropped;
 }
 
 void PlayerbotAI::EndStayForOrder()
