@@ -196,6 +196,24 @@ namespace ai
             return false;
         }
 
+        // Conjuring with a gem already in the bags only wastes the cast and
+        // the reagent: skip when any rank is held. (The "no mana gem"
+        // trigger never evaluates live, so the upkeep row below runs on the
+        // always-evaluating "often" pulse and this gate carries the
+        // possession check instead.)
+        bool isUseful() override
+        {
+            if (ai->HasCheat(BotCheatMask::item))
+                return false;
+            const std::vector<uint32> manaGemIds = { 5514, 5513, 8007, 8008 };
+            for (const uint32 manaGemId : manaGemIds)
+            {
+                if (bot->HasItemCount(manaGemId, 1))
+                    return false;
+            }
+            return true;
+        }
+
         bool isPossible() override
         {
             if (!ai->HasCheat(BotCheatMask::item))
