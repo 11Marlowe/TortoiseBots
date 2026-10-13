@@ -115,6 +115,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_human_bg_demand_policy
         test_hunter_pet_policy
         test_hunter_switch_policy
+        test_hunter_viper_policy
         test_instance_guard_policy
         test_judgement_upkeep_policy
         test_jump_policy

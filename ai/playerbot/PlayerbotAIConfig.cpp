@@ -872,6 +872,7 @@ bool PlayerbotAIConfig::Initialize()
     boostFollow = config.GetBoolDefault("AiPlayerbot.BoostFollow", false);
     dungeonFollowHoldBeforePacks = config.GetBoolDefault("AiPlayerbot.DungeonFollowHoldBeforePacks", false);
     warlockPetBySpec = config.GetBoolDefault("AiPlayerbot.WarlockPetBySpec", false);
+    hunterViperOnLowMana = config.GetBoolDefault("AiPlayerbot.HunterViperOnLowMana", false);
     paladinJudgementUpkeep = config.GetBoolDefault("AiPlayerbot.PaladinJudgementUpkeep", false);
     onyxiaWhelpsAndEggs = config.GetBoolDefault("AiPlayerbot.OnyxiaWhelpsAndEggs", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);

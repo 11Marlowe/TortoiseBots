@@ -16,6 +16,16 @@ namespace ai
     {
     public:
         AspectOfTheHawkTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "aspect of the hawk") {}
+        // Opt-in (AiPlayerbot.HunterViperOnLowMana): stands down while the Viper is up and mana has not recovered.
+        virtual bool IsActive() override;
+    };
+
+    // Opt-in (AiPlayerbot.HunterViperOnLowMana): low mana and no Viper yet.
+    class AspectOfTheViperLowManaTrigger : public BuffTrigger
+    {
+    public:
+        AspectOfTheViperLowManaTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "aspect of the viper") {}
+        virtual bool IsActive() override;
     };
 
     class AspectOfTheWildTrigger : public BuffTrigger
