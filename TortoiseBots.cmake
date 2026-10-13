@@ -337,10 +337,19 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "POST_TARGETS")
       "${CMAKE_SOURCE_DIR}/src/game/Transports"
       "${CMAKE_SOURCE_DIR}/src/game/vmap"
       "${ZLIB_INCLUDE_DIRS}")
-    # zlib (bot log packing) is linked only into mangosd on Windows; a dynamic
-    # module DLL must link it itself or gzopen/gzwrite stay unresolved.
+    # zlib (bot log packing) is linked into the module itself. Windows: the zlib
+    # target, as a dynamic module DLL needs it (unchanged). Elsewhere: the core's
+    # ZLIB::ZLIB (top-level find_package under if(UNIX)). The core lists its libz
+    # before libmodules.a, so with --as-needed a static module's gzwrite stays
+    # unresolved unless the module adds libz after its own archive.
     if(WIN32 AND TARGET zlib)
       target_link_libraries("${TORTOISEBOTS_TARGET}" PRIVATE zlib)
+    elseif(NOT WIN32)
+      if(TARGET ZLIB::ZLIB)
+        target_link_libraries("${TORTOISEBOTS_TARGET}" PRIVATE ZLIB::ZLIB)
+      elseif(ZLIB_LIBRARIES)
+        target_link_libraries("${TORTOISEBOTS_TARGET}" PRIVATE ${ZLIB_LIBRARIES})
+      endif()
     endif()
     # TortoiseBots headers assume the compatibility precompiled header
     # (ai/botpch.h) is in scope. Honor the core's PCH option: use it when
