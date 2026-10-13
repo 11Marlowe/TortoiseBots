@@ -86,6 +86,25 @@ void PaladinStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "critical health",
         NextAction::array(0, new NextAction("lay on hands", ACTION_EMERGENCY + 2), NULL)));
+
+    // Judgement upkeep (opt-in, AiPlayerbot.PaladinJudgementUpkeep): the group's
+    // Judgement of Wisdom / Light owner swaps to the matching Seal and judges
+    // as the debuff on the boss runs out (runtime/JudgementUpkeepPolicy.h).
+    // Above the spec rotations' own Seal / Judgement rows (NORMAL + 2..4), below
+    // every heal, emergency and mana row; each trigger stands down on its own
+    // unless this bot owns that debuff. Rows exist only with the toggle on.
+    if (sPlayerbotAIConfig.paladinJudgementUpkeep)
+    {
+        triggers.push_back(new TriggerNode(
+            "judgement upkeep seal of wisdom",
+            NextAction::array(0, new NextAction("seal of wisdom", ACTION_NORMAL + 6), NULL)));
+        triggers.push_back(new TriggerNode(
+            "judgement upkeep seal of light",
+            NextAction::array(0, new NextAction("seal of light", ACTION_NORMAL + 6), NULL)));
+        triggers.push_back(new TriggerNode(
+            "judgement upkeep",
+            NextAction::array(0, new NextAction("judgement", ACTION_NORMAL + 7), NULL)));
+    }
 }
 
 void PaladinStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -463,6 +463,8 @@ public:
     bool dungeonFollowHoldBeforePacks;
     // Warlock summons the demon that fits its spec in PvE instead of the Voidwalker (opt-in).
     bool warlockPetBySpec;
+    // Paladin bots keep Judgement of Wisdom / Light up on the boss in groups (opt-in).
+    bool paladinJudgementUpkeep;
     bool turnInRpg;
     bool globalSoundEffects;
     bool shareTargets;
