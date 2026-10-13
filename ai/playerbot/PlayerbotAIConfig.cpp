@@ -2,6 +2,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/playerbot.h"
 #include "../../runtime/HireUnlockPolicy.h"
+#include "../../runtime/RemoteCommanderView.h"
 #include <cerrno>
 #include <cstring>
 #include <thread>
@@ -566,6 +567,10 @@ bool PlayerbotAIConfig::Initialize()
         ownedBotSummonCooldown = 3600;
     // Issue #884: remote commander (off by default).
     remoteCommander = config.GetBoolDefault("AiPlayerbot.RemoteCommander", false);
+    // Issue #884, phase 2: the commander's TBM:VIEW feed period (250..60000 ms).
+    remoteCommanderViewMs = TortoiseBots::RemoteCommander::View::ClampIntervalMs(
+        config.GetIntDefault("AiPlayerbot.RemoteCommanderViewMs",
+            static_cast<int>(TortoiseBots::RemoteCommander::View::kDefaultIntervalMs)));
      openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);

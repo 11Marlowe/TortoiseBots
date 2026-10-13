@@ -441,6 +441,10 @@ public:
     // leads it from anywhere with GUID-targeted orders (`.bot cmd`). Off by
     // default: with 0 both commands answer that the feature is off.
     bool remoteCommander = false;
+    // Issue #884, phase 2: milliseconds between two TBM:VIEW frames to a bound
+    // commander whose feed is on (`.bot commander view on|off`). Clamped to
+    // 250..60000; default 1000.
+    uint32 remoteCommanderViewMs = 1000;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy

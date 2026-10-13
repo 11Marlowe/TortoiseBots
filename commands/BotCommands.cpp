@@ -38,6 +38,9 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "runtime/OwnedBotQolPolicy.h"
 #include "../runtime/RemoteCommanderPolicy.h"
+#include "../runtime/RemoteCommanderView.h"
+#include "../ai/playerbot/strategy/Engine.h"
+#include "../ai/playerbot/strategy/Value.h"
 #include "../ai/playerbot/GuidPosition.h"
 #include "../host/ModuleLog.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -63,6 +66,12 @@
 #include "Database/DatabaseEnv.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Maps/PathFinder.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Creature.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Spell.h"
+// pi-lens-ignore: clang:pp_file_not_found
+#include "Threat/ThreatManager.h"
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -3879,6 +3888,23 @@ std::unordered_map<uint64, ai::GuidPosition>& SavedFollowTargets()
 
 uint32 s_commanderSweepMs = 0;
 
+// Issue #884, phase 2: one perception feed per binding (`.bot commander view
+// on|off`). Made on bind (on), dropped on release; nothing here runs while
+// none exists. The frame's lines are reused frame to frame.
+struct CommanderView
+{
+    bool enabled = true;
+    uint32 seq = 0;
+    RemoteCommander::View::Pacer pacer;
+    RemoteCommander::View::Frame frame;
+};
+
+std::unordered_map<uint64, CommanderView>& CommanderViews()
+{
+    static std::unordered_map<uint64, CommanderView> views;
+    return views;
+}
+
 // The character with this raw guid, also while it is between maps (a zoning
 // commander or lead bot must not lose the binding).
 Player* FindCharacter(uint64 raw)
@@ -3899,11 +3925,12 @@ Player* FindOnlineByName(std::string name)
 
 // Every live bot of the group, the lead bot first, resolved from the group's
 // member slots through ObjectAccessor (never the GroupReference list, #225).
-std::vector<Player*> CommandedBots(Group* group, Player* lead)
+// Fills a caller-kept vector (the view feed reuses one).
+void FillCommandedBots(Group* group, Player* lead, std::vector<Player*>& bots)
 {
-    std::vector<Player*> bots;
+    bots.clear();
     if (!group || !lead)
-        return bots;
+        return;
     if (IsLiveHeadlessBot(lead))
         bots.push_back(lead);
     for (Group::MemberSlot const& slot : group->GetMemberSlots())
@@ -3914,6 +3941,12 @@ std::vector<Player*> CommandedBots(Group* group, Player* lead)
         if (member && IsLiveHeadlessBot(member))
             bots.push_back(member);
     }
+}
+
+std::vector<Player*> CommandedBots(Group* group, Player* lead)
+{
+    std::vector<Player*> bots;
+    FillCommandedBots(group, lead, bots);
     return bots;
 }
 
@@ -3998,6 +4031,7 @@ void RestoreFollower(uint64 botRaw, uint64 leadRaw)
 uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason, bool notify)
 {
     RemoteCommander::Binding removed = CommanderBindings().Unbind(commanderRaw);
+    CommanderViews().erase(commanderRaw);
     if (!removed.commanderGuid)
         return 0;
     for (uint64 follower : removed.followers)
@@ -4135,6 +4169,240 @@ uint32 FormUpOnLead(Player* commander, Player* lead, std::vector<Player*> const&
     return accepted;
 }
 
+// ---------------------------------------------------------------------------
+// Perception feed (issue #884, phase 2)
+//
+// Every AiPlayerbot.RemoteCommanderViewMs a bound commander whose feed is on
+// gets one TBM:VIEW frame (grammar: runtime/RemoteCommanderView.h). The
+// snapshot is read from what the bound bots already hold - their unit fields,
+// their own cached "attackers" and "possible targets" lists (read only when
+// already calculated: HasCachedValue, never a fresh calculation), the units
+// attacking them, their victim and selection - and, for each hostile found
+// that way, its own threat list. Hostiles are resolved by guid on the seeing
+// bot's map (a hash lookup): no grid or world scan happens here.
+// ---------------------------------------------------------------------------
+
+RemoteCommander::View::Snapshot& ViewSnapshot()
+{
+    static RemoteCommander::View::Snapshot snapshot;
+    return snapshot;
+}
+
+uint32 CurrentSpellId(Unit* unit)
+{
+    if (Spell* spell = unit->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+        if (spell->m_spellInfo)
+            return spell->m_spellInfo->Id;
+    if (Spell* spell = unit->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+        if (spell->m_spellInfo)
+            return spell->m_spellInfo->Id;
+    return 0;
+}
+
+char ViewStateLetter(PlayerbotAI* ai, Player* bot)
+{
+    if (!bot->IsAlive())
+        return 'd';
+    if (!ai)
+        return 'n';
+    switch (ai->GetState())
+    {
+        case BotState::BOT_STATE_COMBAT: return 'c';
+        case BotState::BOT_STATE_DEAD: return 'd';
+        case BotState::BOT_STATE_REACTION: return 'r';
+        default: return 'n';
+    }
+}
+
+// One of the bot's guid-list values, only when it already holds a calculated
+// list; otherwise nothing (the bot calculates it on its own schedule).
+void ReadCachedGuidList(PlayerbotAI* ai, char const* name, std::list<ObjectGuid>& out)
+{
+    out.clear();
+    ai::AiObjectContext* context = ai ? ai->GetAiObjectContext() : nullptr;
+    if (!context || !context->HasValue(name))
+        return;
+    auto* value = dynamic_cast<ai::CalculatedValue<std::list<ObjectGuid>>*>(
+        context->GetValue<std::list<ObjectGuid>>(name));
+    if (value && value->HasCachedValue())
+        out = value->LazyGet();
+}
+
+// A hostile the bot sees: in world on its map, alive, not friendly, and seen
+// (stealth and invisibility detection, as the order targets check it).
+Unit* SeenHostile(Player* bot, ObjectGuid guid)
+{
+    if (guid.IsEmpty() || guid == bot->GetObjectGuid())
+        return nullptr;
+    Map* map = bot->GetMap();
+    Unit* unit = map ? map->GetUnit(guid) : nullptr;
+    if (!unit || !unit->IsInWorld() || !unit->IsAlive())
+        return nullptr;
+    if (BotManager::Instance().IsBot(unit->GetObjectGuid()) || sServerFacade.IsFriendlyTo(unit, bot))
+        return nullptr;
+    if (!unit->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true))
+        return nullptr;
+    return unit;
+}
+
+void AddViewHostile(RemoteCommander::View::Snapshot& snapshot, RemoteCommander::View::HostileSet& taken,
+    Player* bot, ObjectGuid guid)
+{
+    if (taken.Full() || guid.IsEmpty() || taken.Contains(guid.GetRawValue()))
+        return;
+    Unit* unit = SeenHostile(bot, guid);
+    if (!unit || !taken.Add(guid.GetRawValue()))
+        return;
+    RemoteCommander::View::Hostile* hostile = snapshot.AddHostile();
+    if (!hostile)
+        return;
+    hostile->guid = guid.GetRawValue();
+    hostile->entry = unit->GetEntry();
+    hostile->x = unit->GetPositionX();
+    hostile->y = unit->GetPositionY();
+    hostile->z = unit->GetPositionZ();
+    hostile->hpPct = unit->GetMaxHealth()
+        ? static_cast<uint32>(unit->GetHealth() * 100ull / unit->GetMaxHealth()) : 0;
+    hostile->target = unit->GetTargetGuid().GetRawValue();
+    hostile->casting = CurrentSpellId(unit);
+    hostile->stealthed = unit->HasStealthAura();
+    Creature* creature = unit->ToCreature();
+    hostile->evading = creature && creature->IsInEvadeMode();
+    hostile->crowdControlled = unit->HasUnitState(UNIT_STAT_STUNNED | UNIT_STAT_CONFUSED |
+        UNIT_STAT_FLEEING | UNIT_STAT_ROOT);
+
+    // Engaged: the top of its own threat list, in % of the top entry.
+    if (!unit->IsInCombat() || !unit->CanHaveThreatList())
+        return;
+    ThreatList const& list = unit->GetThreatManager().getThreatList();
+    if (list.empty())
+        return;
+    RemoteCommander::View::ThreatTop* top = snapshot.AddThreat(hostile->guid);
+    if (!top)
+        return;
+    for (HostileReference const* ref : list)
+        if (ref)
+            top->Push(ref->getUnitGuid().GetRawValue(), ref->getThreat());
+    if (!top->count)
+        snapshot.DropLastThreat();
+}
+
+void CollectViewSnapshot(RemoteCommander::Binding const& binding, RemoteCommander::View::Snapshot& snapshot)
+{
+    static std::vector<Player*> bots;
+    static RemoteCommander::View::HostileSet taken;
+    static std::list<ObjectGuid> cached;
+
+    snapshot.Clear();
+    snapshot.lead = binding.leadGuid;
+    Player* lead = FindCharacter(binding.leadGuid);
+    Group* group = lead ? lead->GetGroup() : nullptr;
+    if (!group || group->GetId() != binding.groupId)
+        return;
+    FillCommandedBots(group, lead, bots);
+
+    for (Player* bot : bots)
+    {
+        RemoteCommander::View::PartyMember& member = snapshot.AddPartyMember();
+        member.guid = bot->GetObjectGuid().GetRawValue();
+        member.name = bot->GetName();
+        member.hp = bot->GetHealth();
+        member.maxHp = bot->GetMaxHealth();
+        Powers const powerType = bot->GetPowerType();
+        member.powerType = static_cast<uint8>(powerType);
+        member.power = bot->GetPower(powerType);
+        member.maxPower = bot->GetMaxPower(powerType);
+        member.x = bot->GetPositionX();
+        member.y = bot->GetPositionY();
+        member.z = bot->GetPositionZ();
+        member.o = bot->GetOrientation();
+        member.map = bot->GetMapId();
+        member.instance = bot->GetInstanceId();
+        ObjectGuid target = bot->GetTargetGuid();
+        if (target.IsEmpty())
+            if (Unit* victim = bot->GetVictim())
+                target = victim->GetObjectGuid();
+        member.target = target.GetRawValue();
+        member.casting = CurrentSpellId(bot);
+        member.dead = !bot->IsAlive();
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        member.state = ViewStateLetter(ai, bot);
+        if (ai)
+            if (ai::Engine* engine = ai->GetCurrentEngine())
+                member.action = engine->GetLastAction();
+    }
+
+    taken.Clear();
+    for (Player* bot : bots)
+    {
+        if (taken.Full())
+            break;
+        if (!bot->IsInWorld() || !bot->IsAlive())
+            continue;
+        // What it fights first, then what it merely sees.
+        if (Unit* victim = bot->GetVictim())
+            AddViewHostile(snapshot, taken, bot, victim->GetObjectGuid());
+        AddViewHostile(snapshot, taken, bot, bot->GetTargetGuid());
+        for (Unit* attacker : bot->GetAttackers())
+            if (attacker)
+                AddViewHostile(snapshot, taken, bot, attacker->GetObjectGuid());
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        ReadCachedGuidList(ai, "attackers", cached);
+        for (ObjectGuid const& guid : cached)
+            AddViewHostile(snapshot, taken, bot, guid);
+    }
+    // Then everything the bots' own sight lists hold, up to the cap.
+    for (Player* bot : bots)
+    {
+        if (taken.Full())
+            break;
+        if (!bot->IsInWorld() || !bot->IsAlive())
+            continue;
+        ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "possible targets", cached);
+        for (ObjectGuid const& guid : cached)
+            AddViewHostile(snapshot, taken, bot, guid);
+    }
+}
+
+// Each tick while a binding exists: build the frames that fall due, send at
+// most kLinesPerTick lines per commander.
+void UpdateCommanderViews(uint32 diff)
+{
+    auto& views = CommanderViews();
+    if (views.empty())
+        return;
+    static std::string scratch;
+    uint32 const interval = sPlayerbotAIConfig.remoteCommanderViewMs;
+    for (auto& entry : views)
+    {
+        CommanderView& view = entry.second;
+        if (!view.enabled)
+            continue;
+        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first);
+        if (!binding)
+            continue;
+        Player* commander = FindCharacter(entry.first);
+        bool const reachable = commander && commander->IsInWorld() && commander->GetSession();
+        if (view.pacer.Due(diff, interval) && reachable)
+        {
+            CollectViewSnapshot(*binding, ViewSnapshot());
+            view.pacer.Start(RemoteCommander::View::BuildFrame(ViewSnapshot(), ++view.seq, view.frame, scratch));
+        }
+        if (!view.pacer.Pending())
+            continue;
+        if (!reachable)
+        {
+            view.pacer.Abandon();
+            continue;
+        }
+        size_t first = 0;
+        size_t const count = view.pacer.NextBatch(first);
+        ChatHandler handler(commander);
+        for (size_t i = 0; i < count; ++i)
+            handler.SendSysMessage(view.frame.lines[first + i].c_str());
+    }
+}
+
 } // namespace
 
 static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::string const& args)
@@ -4252,6 +4520,9 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
         return true;
     }
 
+    // The perception feed starts on with every new binding.
+    CommanderViews()[commanderRaw] = CommanderView();
+
     std::vector<Player*> bots = CommandedBots(group, lead);
     FormUpOnLead(commander, lead, bots, true);
     std::string roster;
@@ -4273,9 +4544,9 @@ static bool HandleCommander(ChatHandler* handler, char const* args)
     std::string rest = split == std::string::npos ? std::string() : Trim(text.substr(split + 1));
     std::string const intent = "commander " + (verb.empty() ? std::string("unknown") : ProtocolSafe(verb));
 
-    if (verb != "bind" && verb != "unbind" && verb != "status")
+    if (verb != "bind" && verb != "unbind" && verb != "status" && verb != "view")
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] / unbind / status");
+        SendActionError(handler, intent, "invalid", "Usage: .bot commander bind <LeadBot> [<Bot> ...] / unbind / status / view on|off");
         return true;
     }
     if (!commander || !commander->GetSession())
@@ -4309,6 +4580,26 @@ static bool HandleCommander(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("You no longer command %s's group. The bots stay grouped; %s holds where it stands.",
             leadName.c_str(), leadName.c_str());
         SendActionAck(handler, intent, "party", restored, leadName);
+        return true;
+    }
+
+    if (verb == "view")
+    {
+        std::string mode = rest;
+        for (char& c : mode)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (mode != "on" && mode != "off")
+        {
+            SendActionError(handler, intent, "invalid", "Usage: .bot commander view on|off");
+            return true;
+        }
+        CommanderView& view = CommanderViews()[commanderRaw];
+        view.enabled = mode == "on";
+        if (!view.enabled)
+            view.pacer.Abandon();
+        handler->PSendSysMessage("The view of %s's group is %s.", leadName.c_str(), view.enabled ? "on" : "off");
+        std::vector<Player*> viewBots = CommandedBots(lead ? lead->GetGroup() : nullptr, lead);
+        SendActionAck(handler, intent, "party", static_cast<uint32>(viewBots.size()), mode);
         return true;
     }
 
@@ -4841,14 +5132,19 @@ void UpdateRemoteCommanders(uint32_t diff)
     if (CommanderBindings().Empty())
     {
         s_commanderSweepMs = 0;
+        if (!CommanderViews().empty())
+            CommanderViews().clear();
         return;
     }
     s_commanderSweepMs += diff;
-    if (s_commanderSweepMs < RemoteCommander::kSweepIntervalMs)
-        return;
-    s_commanderSweepMs = 0;
-    for (uint64 commanderRaw : CommanderBindings().Commanders())
-        StandingBinding(commanderRaw);
+    if (s_commanderSweepMs >= RemoteCommander::kSweepIntervalMs)
+    {
+        s_commanderSweepMs = 0;
+        for (uint64 commanderRaw : CommanderBindings().Commanders())
+            StandingBinding(commanderRaw);
+    }
+    // Issue #884, phase 2: the perception feed of the bindings that stand.
+    UpdateCommanderViews(diff);
 }
 
 bool IsCommandedBy(Player* commander, Player* bot)
@@ -4867,6 +5163,7 @@ bool IsCommandedBy(Player* commander, Player* bot)
 void ClearRemoteCommanders()
 {
     CommanderBindings().Clear();
+    CommanderViews().clear();
     SavedFollowTargets().clear();
     s_commanderSweepMs = 0;
 }

@@ -92,6 +92,7 @@ Off by default: needs `AiPlayerbot.RemoteCommander = 1`, otherwise both commands
 | `.bot commander bind <LeadBot> [<Bot> ...]` | Binds the lead bot's party to you. A lead bot already in a bot-only party (not a raid) adopts it as it is (it becomes the party leader); the named bots join it (the lead bot invites them through the normal group handlers). A lead bot without a party needs at least one named bot. Bots in **your own** party are taken out of it first; a bot in any other group is refused (`member-grouped`). ACK detail: the lead bot; count: the party's bots. Refusals: `disabled`, `already-bound`, `no-bot` (not an online bot you control), `hired`, `group-raid`, `group-has-player`, `group-bound`, `no-members`, `group-too-large` (more than five), `bot-bound` (the bot is still in another commander's group), `invite-failed`. |
 | `.bot commander unbind` | Ends your binding (count: the followers whose follow target was put back). `not-bound` without one. |
 | `.bot commander status` | Lists your commanded party in chat (dead bots marked) and ACKs with the lead bot and the bot count; `not-bound` without one. |
+| `.bot commander view on\|off` | Switches your perception feed (`TBM:VIEW` frames, below) on or off for the current binding; every new binding starts with it on. ACK detail: `on`/`off`; count: the party's bots. `not-bound` without a binding, `invalid` without `on`/`off`. |
 | `.bot cmd attack <guid>` | Like `.bot action attack`, at the GUID: every bot of the party engages it (dedicated healers keep healing). |
 | `.bot cmd pull <guid> [seconds]` / `.bot cmd pullback <guid> [seconds]` | Like `.bot action pull` / `pullback`, at the GUID; the anchor (where the DPS hold and where a pullback returns) is the **lead bot's** position. Same refusals (`no-tank`, `too-far`, `friendly`, `invalid-target`, `unreachable`, …) and the same `body-pull` ACK detail. |
 | `.bot cmd cc <mark> <guid> [bot]` | Like `.bot action cc <mark> [bot]`: the mark goes on the GUID in the commanded party and a capable bot (or the named bot of the party; `no-bot` otherwise) takes it. |
@@ -104,6 +105,43 @@ Off by default: needs `AiPlayerbot.RemoteCommander = 1`, otherwise both commands
 | `.bot cmd summon <bot>` | Owner or GM. The `.bot summon` flow (3 s, out of combat, follow restored on arrival), with the **lead bot** as the summon point instead of you; like `.bot summon`, you become the bot's master if you are not. `lead-unavailable` while the lead bot is dead, on a taxi or teleporting. |
 
 A GUID is the raw 64-bit object GUID, as `0x` + hex (`0xF130000C5E0012AB`) or a decimal number. It must be a live, hostile, attackable unit on the lead bot's map and instance (`invalid-target`, `dead-target`, `friendly`) that a live bot of the party can see (stealth and invisibility detection as the bots' own targeting does it) and target (`no-target` otherwise: a GUID never reveals a stealthed rogue or an invisible GM); a bot or a party member is never a target. Every order answers `not-bound` without a standing binding and `lead-unavailable` while the lead bot is between maps.
+
+#### Perception feed (`TBM:VIEW`, phase 2)
+
+While you are bound and your view is on, you receive one **frame** about every `AiPlayerbot.RemoteCommanderViewMs` (default 1000 ms): what your bots are, and what they see. It is built only from what the bots already track (their health, power, position, selection and cast; the hostiles they fight or have in sight in their own cached lists; the units attacking them) plus each engaged hostile's own threat list; it never makes the server search the world. Hostiles are deduplicated across the bots and capped at 24 per frame (what they fight first, then what they merely see); a stealthed or invisible unit appears only when a bot of the party detects it. Nothing is sent while no commander is bound or the view is off.
+
+The lines are system messages (the TBM addon hides `TBM:` lines from the chat frame), each at most 250 bytes. A frame goes out at most 8 lines per server tick; if the previous frame is still going out when the next one falls due, that one is skipped, so a slow link never queues frames up.
+
+Grammar, version `v1`. Every line of a frame carries the same `<seq>` (counts up per binding, from 1):
+
+```text
+TBM:VIEW|v1|<seq>|B|<lead>,<party>,<hostiles>,<threats>
+TBM:VIEW|v1|<seq>|P|<party record>[;<party record>...]
+TBM:VIEW|v1|<seq>|H|<hostile record>[;<hostile record>...]
+TBM:VIEW|v1|<seq>|T|<threat record>[;<threat record>...]
+TBM:VIEW|v1|<seq>|E|<lines>
+
+party record   = guid,name,hp,maxhp,power,maxpower,powertype,x,y,z,o,map,instance,target,spell,dead,state,action
+hostile record = guid,entry,x,y,z,hp%,target,spell,flags
+threat record  = hostile,guid:pct[,guid:pct...]
+```
+
+- `B` (begin) is always the first line: the lead bot and how many party, hostile and threat records the frame holds. `E` (end) is always the last: `<lines>` counts every line of the frame, `B` and `E` included, so a client knows the frame is whole. In between come the `P`, `H` and `T` lines, in that order, each only when it has records; a part may span several lines.
+- GUIDs are `0x` + upper-case hex (the form `.bot cmd` takes back), `0` for none. Coordinates have one decimal, the orientation two.
+- Party: `powertype` 0 mana, 1 rage, 2 focus, 3 energy; `target` the bot's target (else its victim); `spell` the spell id it is casting or channelling (0 none); `dead` 0/1; `state` `c` combat, `n` non-combat, `d` dead, `r` reaction; `action` the last action its AI ran (up to 24 bytes), `-` when none. Names are cut at 12 bytes.
+- Hostile: `entry` the creature entry (0 for a player); `hp%` 0-100; `target` its target; `flags` any of `s` stealthed, `e` evading, `c` crowd-controlled (stunned, incapacitated, polymorphed, feared, rooted), or `-`.
+- Threat: for each hostile in combat with a threat list, its top three entries, highest first, as `guid:pct` with `pct` the share of the top entry's threat (the top is 100).
+- Free-text fields never contain `|`, `;`, `,` or `:` (they become `_`).
+
+Example (one bot fighting one mob):
+
+```text
+TBM:VIEW|v1|12|B|0x2A,1,1,1
+TBM:VIEW|v1|12|P|0x2A,Tanky,4000,5000,35,100,1,-8913.2,554.5,93.1,1.50,0,0,0xF130000C5E0012AB,0,0,c,heroic strike
+TBM:VIEW|v1|12|H|0xF130000C5E0012AB,3874,-8900.0,560.0,94.0,64,0x2A,0,-
+TBM:VIEW|v1|12|T|0xF130000C5E0012AB,0x2A:100,0x2B:41
+TBM:VIEW|v1|12|E|5
+```
 
 ---
 
@@ -355,6 +393,7 @@ within one tick are ignored with one line `Too many bot commands at once: <n> ig
   `TBM:CLAIMED_BEGIN|<n>` / `TBM:CLAIMED|<guid>|<name>|<class>|<level>|<state>|<grouped>|<location>|<gearLocked>` /
   `TBM:CLAIMED_END` claimed-guild-bot snapshot (issue #489) for the addon's Guild tab.
   The addon hides the matching controls when a capability is missing.
+- Remote commander view — `TBM:VIEW|v1|<seq>|<B|P|H|T|E>|...` frames, sent unprompted to a bound commander whose view is on; grammar in [section 1a](#perception-feed-tbmview-phase-2).
 - Version — `TBM:VERSION|<UTC date>-v<N>` trails every roster response, and
   answers `.bot version` and `.bot help` directly. The addon shows it as
   `server <version>` in the `/tbm` window (`server ?` on older servers).

@@ -198,8 +198,10 @@ module-owned `PlayerConvenience`, `AhMarketService`, and
 `BattlegroundQueueService` updates from that tick. The remote commander's
 binding sweep (issue #884, `BotCommands::UpdateRemoteCommanders`) runs there
 too: nothing while no commander is bound, otherwise a once-a-second check of
-each binding by guid (commander logout, disband, lead change). It needs no
-core hook: bindings live in the module and are looked up again each time,
+each binding by guid (commander logout, disband, lead change), plus the
+bound commanders' `TBM:VIEW` perception feed (phase 2: one frame per
+`AiPlayerbot.RemoteCommanderViewMs`, read from the bots' cached values, at
+most 8 lines per commander per tick). It needs no core hook: bindings live in the module and are looked up again each time,
 never kept as `Group` or `Player` pointers.
 
 The core listener is generic; it does not call a PlayerBots singleton.
@@ -471,7 +473,7 @@ action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/sk
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
-commander bind <LeadBot> [<Bot>...] | unbind | status  # remote commander (issue #884, AiPlayerbot.RemoteCommander, default off)
+commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander (issue #884, AiPlayerbot.RemoteCommander, default off)
 cmd attack|pull|pullback <guid> [seconds] | cc <mark> <guid> [bot] | focus <guid> | move <x> <y> <z> | stay | follow | rest | revive <bot> | summon <bot>  # orders to the bound group; ACK/ERR intent "cmd <verb>"
 inv <bot>  # TBM:INV_BEGIN/INV_EQ/INV_ITEM/INV_END inventory snapshot
 item <bot> trade | equip|unequip|give <bag> <slot>  # item order by server bag/slot; ACK/ERR intent "item <op>"
