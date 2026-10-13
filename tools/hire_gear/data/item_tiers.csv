@@ -1705,6 +1705,7 @@ item_id,name,tier,flags,evidence
 23197,Idol of the Moon,1,,loot:t1
 23198,Idol of Brutality,1,,loot:t1
 23199,Totem of the Storm,1,,loot:t1
+23200,Totem of Sustaining,1,,loot:t1
 23201,Libram of Divinity,1,,loot:t1
 23203,Libram of Fervor,1,,loot:t1
 23206,Mark of the Champion,6,,quest:9120;quest-chain;token:t6
