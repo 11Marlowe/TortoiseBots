@@ -1609,6 +1609,18 @@ AiPlayerbot.PoolBudgetWhenTickOverMs = 0
 AiPlayerbot.CombatTickBudgetUs = 15000
 AiPlayerbot.TargetWorldTickMs = 100
 
+# Value cache refresh (performance experiment, off by default).
+# A cached AI value with a check interval of N seconds has always refreshed
+# every N/2 seconds (whole seconds, rounded down), so it recalculates about
+# twice as often as its interval says. 1 = refresh after the full interval
+# instead. Values with interval 0 or 1 (health, mana, auras, targets,
+# inventory, ...) still recalculate on every read, and the values that sense
+# the fight (attackers and their counts, aggro, possible targets, traps and
+# void zones, boss target, AoE heal, enemy players) keep the old rule.
+# Everything else (travel, quest, vendor, grind target, group, ...) may react
+# up to twice as late. Off until an A/B run shows the gain is worth it.
+AiPlayerbot.ValueRefreshAtInterval = 0
+
 # Bounded failure backoff for autonomous background work (issue #84).
 # Repeated failures wait base, 2x, 4x, 8x, 16x up to the max before the
 # action may run again. Combat, reactions, owner commands and owned bots
