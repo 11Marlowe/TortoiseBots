@@ -40,6 +40,7 @@ static BindingState Standing(uint32_t group)
     state.leadOnline = true;
     state.leadGroupId = group;
     state.leadIsLeader = true;
+    state.leadGroupIsRaidOrBg = false;
     state.realPlayerInGroup = false;
     state.memberCount = 5;
     return state;
@@ -134,6 +135,13 @@ static void TestReleaseRule()
     state = Standing(100);
     state.memberCount = 6;
     CHECK(CheckBinding(binding, state) == ReleaseReason::GroupTooLarge);
+
+    // The group converted to a raid: released at once, even at two bots.
+    state = Standing(100);
+    state.leadGroupIsRaidOrBg = true;
+    state.memberCount = 2;
+    CHECK(CheckBinding(binding, state) == ReleaseReason::GroupRaid);
+    CHECK(std::string(ReleaseReasonText(ReleaseReason::GroupRaid)) == "the group became a raid");
 
     // Commander logout wins over everything after the switch.
     state = Standing(0);

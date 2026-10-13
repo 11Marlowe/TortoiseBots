@@ -153,6 +153,8 @@ static void CheckGrammar(Frame const& frame, uint32_t seq)
         }
     }
     CHECK(Payload(frame.lines[frame.count - 1]) == std::to_string(frame.count));
+    // B carries exactly five fields: lead, party, hostiles, threats, truncated.
+    CHECK(Split(Payload(frame.lines[0]), ',').size() == 5);
 }
 
 static size_t CountRecords(Frame const& frame, char part)
@@ -172,7 +174,7 @@ static void TestEmptyFrame()
     Frame frame;
     std::string scratch;
     CHECK(BuildFrame(s, 7, frame, scratch) == 2);
-    CHECK(frame.lines[0] == "TBM:VIEW|v1|7|B|0x10,0,0,0");
+    CHECK(frame.lines[0] == "TBM:VIEW|v1|7|B|0x10,0,0,0,0");
     CHECK(frame.lines[1] == "TBM:VIEW|v1|7|E|2");
     CheckGrammar(frame, 7);
 }
@@ -204,7 +206,7 @@ static void TestPartyRecord()
     std::string scratch;
     BuildFrame(s, 1, frame, scratch);
     CHECK(frame.count == 3);
-    CHECK(frame.lines[0] == "TBM:VIEW|v1|1|B|0x10,1,0,0");
+    CHECK(frame.lines[0] == "TBM:VIEW|v1|1|B|0x10,1,0,0,0");
     CHECK(frame.lines[1] ==
         "TBM:VIEW|v1|1|P|0x10,Tanky,4000,5000,35,100,1,1.3,-2.0,3.0,1.50,36,12,0xF130000F2E0012A4,0,0,c,heroic strike");
     CheckGrammar(frame, 1);
@@ -240,7 +242,7 @@ static void TestHostileAndThreatRecords()
     std::string scratch;
     BuildFrame(s, 2, frame, scratch);
     CheckGrammar(frame, 2);
-    CHECK(frame.lines[0] == "TBM:VIEW|v1|2|B|0x10,0,2,1");
+    CHECK(frame.lines[0] == "TBM:VIEW|v1|2|B|0x10,0,2,1,0");
     CHECK(frame.lines[1] ==
         "TBM:VIEW|v1|2|H|0xF1300000000000AA,1234,10.0,20.0,30.0,100,0x11,8122,sec;0xBB,0,0.0,0.0,0.0,0,0,0,-");
     CHECK(frame.lines[2] == "TBM:VIEW|v1|2|T|0xF1300000000000AA,0x10:100,0x12:50,0x13:50");
@@ -321,7 +323,7 @@ static void TestFullFrameSplitsUnderLimit()
     CHECK(CountRecords(frame, 'P') == 5);
     CHECK(CountRecords(frame, 'H') == kMaxHostiles);
     CHECK(CountRecords(frame, 'T') == kMaxHostiles);
-    CHECK(Payload(frame.lines[0]) == "0x10,5,24,24");
+    CHECK(Payload(frame.lines[0]) == "0x10,5,24,24,0");
     // Every record keeps its field count.
     for (size_t i = 1; i + 1 < frame.count; ++i)
     {
@@ -337,6 +339,44 @@ static void TestFullFrameSplitsUnderLimit()
                 CHECK(fields == 1 + kThreatTopN);
         }
     }
+}
+
+// B says when the caps or the line limit left records out (field 5). Records
+// of about 145 bytes take a line each: 40 of them keep 38 party lines (B, the
+// 38 and E make 40) and drop two.
+static void TestTruncatedFlag()
+{
+    Snapshot s;
+    s.lead = 0x10;
+    for (size_t i = 0; i < 40; ++i)
+    {
+        PartyMember& m = s.AddPartyMember();
+        m.guid = 0xFFFFFFFFFFFFFFFFull;
+        m.name = "Longestnames";
+        m.hp = m.maxHp = m.power = m.maxPower = 99999;
+        m.x = m.y = m.z = -19999.9f;
+        m.o = 6.28f;
+        m.map = m.instance = 1;
+        m.target = 0xFFFFFFFFFFFFFFFFull;
+        m.casting = 99999;
+        m.state = 'c';
+        m.action = "a very long action name";
+    }
+    Frame frame;
+    std::string scratch;
+    FormatPartyRecord(scratch, s.party[0]);
+    CHECK(scratch.size() > kMaxLineBytes / 2); // one record per line
+    CHECK(BuildFrame(s, 5, frame, scratch) == kMaxLinesPerFrame);
+    CheckGrammar(frame, 5);
+    CHECK(frame.droppedRecords == 2);
+    CHECK(CountRecords(frame, 'P') == 38);
+    CHECK(Payload(frame.lines[0]) == "0x10,38,0,0,1");
+    // The same party short of the cap: nothing dropped, the flag stays 0.
+    s.partyCount = 38;
+    CHECK(BuildFrame(s, 6, frame, scratch) == kMaxLinesPerFrame);
+    CheckGrammar(frame, 6);
+    CHECK(frame.droppedRecords == 0);
+    CHECK(Payload(frame.lines[0]) == "0x10,38,0,0,0");
 }
 
 static void TestSanitising()
@@ -480,6 +520,7 @@ int main()
     TestThreatTopN();
     TestHostileDedupeAndCap();
     TestFullFrameSplitsUnderLimit();
+    TestTruncatedFlag();
     TestSanitising();
     TestBufferReuse();
     TestOversizedRecordDropped();
