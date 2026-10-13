@@ -27,6 +27,7 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 - **Emergency:** Casts *Lay on Hands* on any party member at critical health (default 20). Casts *Divine Favor* as a standalone buff trigger on medium/low mana; no code chains it into *Holy Light*.
 - **Maintenance:** Maintains *Flash of Light* on injured allies. Casts *Holy Shock* on low-health bands only (no movement condition). Heavy *Holy Light* fires on headcount when the raid is widely hurt (5+ members within 30 yards, 3 hurt in a 5-man scaling to 15 in a raid).
 - **Mana sense:** Never skips a target at or below the low-health line for mana reasons; above the medium line it refuses oversized or average-efficiency heals, and below the medium-mana line it refuses mana-hungry heals in favor of *Flash of Light* (efficient) over *Holy Light* (heavy). Tanks count the expected heal at two-thirds.
+- **Downranking:** *Holy Light* / *Flash of Light* are downranked to the wound like every healer's direct heals (cheapest rank covering missing health minus incoming heals; top rank at or below the low-health line). Rules in `HealDownrankPolicy.h`.
 - **Self-Defense:** Pops *Divine Shield* (Bubble) if personal health drops into danger, continuing to heal the group while immune.
 
 ### 2. Protection (Tank)

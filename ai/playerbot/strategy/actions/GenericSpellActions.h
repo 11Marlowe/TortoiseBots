@@ -3,6 +3,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/HealerManaPolicy.h"
+#include "playerbot/HealDownrankPolicy.h"
 #include "playerbot/strategy/values/CcMarkHoldPolicy.h"
 
 namespace ai
@@ -49,6 +50,9 @@ namespace ai
         const uint32& GetSpellID() const { return spellId; }
         const std::string& GetSpellName() const { return spellName; }
         void SetSpellName(const std::string& name, std::string spellIDContextName = "spell id", bool force = false);
+        // Downrank swap: point this action at an already-chosen rank id
+        // (same spell line) and refresh the cached range.
+        void SetSpellId(uint32 id);
 
         Value<Unit*>* GetTargetValue() override;
         Unit* GetTarget() override;
@@ -306,17 +310,20 @@ namespace ai
     class HealPartyMemberAction : public CastHealingSpellAction, public PartyMemberActionNameSupport
     {
     public:
-        HealPartyMemberAction(PlayerbotAI* ai, std::string spell, uint8 estAmount, HealManaEfficiency efficiency) : CastHealingSpellAction(ai, spell, estAmount, efficiency), PartyMemberActionNameSupport(spell) {}
         HealPartyMemberAction(PlayerbotAI* ai, std::string spell) : CastHealingSpellAction(ai, spell), PartyMemberActionNameSupport(spell) {}
         virtual std::string getName() override { return PartyMemberActionNameSupport::getName(); }
 		virtual std::string GetTargetName() override { return "party member to heal"; }
         virtual bool isUseful() override;
+        // Downrank: at cast start, swap the top-rank spell id for the
+        // cheapest known rank covering the wound (missing minus incoming).
+        virtual bool Execute(Event& event) override;
     };
     class HealHotPartyMemberAction : public HealPartyMemberAction
     {
     public:
         HealHotPartyMemberAction(PlayerbotAI* ai, std::string spell, uint8 estAmount, HealManaEfficiency efficiency) : HealPartyMemberAction(ai, spell, estAmount, efficiency) {}
         HealHotPartyMemberAction(PlayerbotAI* ai, std::string spell) : HealPartyMemberAction(ai, spell) {}
+        virtual bool Execute(Event& event) override;
         virtual bool isUseful() override;
     };
 

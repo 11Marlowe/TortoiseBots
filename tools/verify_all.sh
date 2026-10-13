@@ -104,6 +104,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_group_heal_policy
         test_group_hygiene_policy
         test_heal_reach_policy
+        test_heal_downrank_policy
         test_healer_mana_policy
         test_healing_cast_policy
         test_health_funnel_policy
