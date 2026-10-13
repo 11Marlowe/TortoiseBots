@@ -1308,10 +1308,16 @@ bool WorldPosition::isPathTo(const std::vector<WorldPosition>& path, float const
 
 bool WorldPosition::setAtWaterSurface()
 {
-    if (!isInWater() && !isUnderWater())
+    // One terrain lookup instead of one per query; getTerrain() resolves the
+    // map every time.
+    TerrainInfo const* terrain = getTerrain();
+    if (!terrain)
         return false;
 
-    float waterLevel = getWaterLevel();
+    if (!terrain->IsInWater(x, y, z) && !terrain->IsUnderWater(x, y, z))
+        return false;
+
+    float waterLevel = terrain->GetWaterLevel(x, y, z);
     if (waterLevel > -100000.0f)
     {
         z = waterLevel + 0.5f;

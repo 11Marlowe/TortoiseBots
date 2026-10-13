@@ -39,6 +39,19 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 - **Builder order:** *Crusader Strike* is the main builder and outranks *Holy Strike* within the normal band; seal/judge upkeep still outbids both.
 - **Finishers:** Casts *Hammer of Wrath* when target falls below 20% health.
 
+### Judgement upkeep (opt-in, `AiPlayerbot.PaladinJudgementUpkeep = 1`, default off)
+With the toggle on, paladin bots in a group keep *Judgement of Wisdom* and *Judgement of Light* up on the fight that matters, reimplemented from mod-playerbots' per-role paladin rotations (`runtime/JudgementUpkeepPolicy.h`). Turtle 1.18.1 mechanics apply: *Judgement* (20271, 10 s cooldown, 10 yd) needs a Seal up, spends it and leaves that Seal's debuff (10 s in vanilla); *Seal of Wisdom* (20166) and *Seal of Light* (20165) are learned at different levels, so a paladin that lacks one passes that debuff on.
+
+| Situation | What the paladin does |
+| :--- | :--- |
+| Which debuff | Retribution: Wisdom. Holy: Light. A second non-tank paladin of the same kind takes the other debuff, a third owns none (lowest guid first, so every bot reaches the same answer). A paladin that has not learned the Seal passes the debuff on. A paladin in the tank role (Protection) never owns a judgement: it keeps *Seal of Righteousness* for threat, and a debuff no other paladin can own is simply not upkept. |
+| Which target | A boss or elite, or inside a dungeon or raid the mob a tank is on. Never solo, never a player, never below 25% health, only in judging range (10 yd). |
+| When | The debuff is gone or has 4 s or less left. An empty Seal slot is refilled with the owner's Seal right away; a different Seal is swapped only when the debuff needs refreshing and *Judgement* is off cooldown. |
+| Cost gates | Everyone needs at least `AiPlayerbot.MediumMana`. A healing paladin needs 50% mana and judges only while nobody in the party is below the medium-health line; its heals outrank the upkeep rows anyway. A Holy owner healing from more than 10 yd away does not judge (*Judgement* range), so Judgement of Light is often not up. |
+| Not ours | A debuff a player paladin keeps up is left alone; the upkeep steps in only when it is about to lapse. Player paladins are not counted in the owner split. |
+
+With the toggle off none of these rows exist and the Seal and *Judgement* lines above are the whole behaviour. The owner trades a little Seal damage for the group debuff: a Retribution paladin on Wisdom judges and re-seals with *Seal of Wisdom* instead of *Seal of Command* on a boss.
+
 ---
 
 ## Turtle WoW 1.18.1 Custom Content

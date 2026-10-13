@@ -72,6 +72,23 @@ namespace ai
 		bool IsActive() override;
 	};
 
+    // Opt-in Judgement upkeep (AiPlayerbot.PaladinJudgementUpkeep): the
+    // owner of Judgement of Wisdom / Light on the group's boss or elite
+    // swaps to the matching Seal and judges as the debuff runs out. One
+    // trigger per step; the decision lives in runtime/JudgementUpkeepPolicy.h.
+    class JudgementUpkeepTrigger : public Trigger
+    {
+    public:
+        enum class Step { SealWisdom, SealLight, Judge };
+
+        JudgementUpkeepTrigger(PlayerbotAI* ai, std::string const& name, Step step)
+            : Trigger(ai, name, 1), step(step) {}
+        bool IsActive() override;
+
+    private:
+        Step step;
+    };
+
     // judgements
     DEBUFF_TRIGGER(JudgementTrigger, "judgement");
     DEBUFF_TRIGGER(JudgementOfLightTrigger, "judgement of light");
