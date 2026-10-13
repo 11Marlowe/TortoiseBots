@@ -29,6 +29,9 @@ void CommitExplicitAttackTarget(PlayerbotAI* ai, ObjectGuid guid)
     // when the five minutes ran out. If the mob really is out of reach, the
     // reach action gives up on it again after 15 s.
     context->GetValue<std::map<ObjectGuid, uint32>&>("unreachable targets")->Get().erase(guid);
+    // The order also lifts a creature aura keep-out set-aside: the bot holds
+    // outside the ring on it (or, on the keep-out creature itself, fights it).
+    context->GetValue<std::map<ObjectGuid, uint32>&>("keepout set aside")->Get().erase(guid);
     if (Unit* unit = ai->GetUnit(guid))
     {
         if (unit->IsCreature())

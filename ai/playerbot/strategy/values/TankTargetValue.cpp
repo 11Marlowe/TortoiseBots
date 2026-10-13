@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "TankTargetValue.h"
 #include "PossibleAttackTargetsValue.h"
+#include "AttackersValue.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/FourHorsemenRotationPolicy.h"
 #include "../../../../runtime/PlayerbotAIStorage.h"
@@ -160,7 +161,12 @@ Unit* TankTargetValue::Calculate()
     // them) or a tank bot with a different RTI setting (else it is the other
     // tank's mob — leave it for them). Otherwise fall through to the smart
     // tournament instead of peeling the main tank's skull.
-    if (Unit* rti = RtiTargetValue::Calculate())
+    // (A tank never holds a creature aura set-aside; a non-tank on "tank
+    // assist" does, and its set-aside mark falls through like a dps pick.)
+    Unit* rti = RtiTargetValue::Calculate();
+    if (rti && AttackersValue::IsKeepoutSetAside(rti, bot))
+        rti = nullptr;
+    if (rti)
     {
         Unit* victim = rti->GetVictim();
         if (victim && victim != bot)

@@ -26,6 +26,13 @@ namespace ai
 
         static bool IsValid(Unit* target, Player* player, Player* owner = nullptr, bool checkInCombat = true, bool validatePossibleTarget = true);
         static bool IgnoreTarget(Unit* target, Player* playerToCheckAgainst);
+        // True while `bot`'s own "keepout set aside" book refuses `target`
+        // (a melee chase held outside a creature aura keep-out set it aside,
+        // MovementAction::HoldChaseOutsideKeepout; CreatureAuraSetAsideHolds
+        // decides). Asked by IgnoreTarget and by every pick path that
+        // bypasses the attackers list (group tank's victim, raid marks).
+        // Drops an entry that no longer holds.
+        static bool IsKeepoutSetAside(Unit* target, Player* bot);
         virtual std::string Format() override;
 
 #ifdef GenerateBotHelp

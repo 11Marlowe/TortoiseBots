@@ -237,12 +237,18 @@ namespace ai
         return hostileCurrentTarget && !explicitOrder && heldMs >= kCreatureAuraChaseHoldMs;
     }
 
-    // Target selection: a set-aside keep-out creature stays ignored while it
-    // hits the bot (the "it attacks me, so it is reachable" exception does
-    // not hold: it is reachable, but only inside its pulse), except for tanks.
-    inline bool CreatureAuraSetAsideSticks(bool isKeepoutCreature, bool isTank)
+    // Target selection (AttackersValue::IsKeepoutSetAside, the bot's own
+    // "keepout set aside" book): a set-aside target stays refused until its
+    // entry runs out. Every pick path asks this, also the ones that bypass the
+    // attackers list (the group tank's victim, raid marks): otherwise the
+    // tank's victim came straight back after the set-aside and the bot held,
+    // set aside and re-picked the same mob all fight. A keep-out creature
+    // stays refused while it hits the bot (reachable, but only inside its
+    // pulse); any other mob that hits the bot in sight has come out of the
+    // ring to it and is fought. Tanks never hold a set-aside.
+    inline bool CreatureAuraSetAsideHolds(bool live, bool isKeepoutCreature, bool isTank, bool hitsBotInSight)
     {
-        return isKeepoutCreature && !isTank;
+        return live && !isTank && (isKeepoutCreature || !hitsBotInSight);
     }
 
     // ---- Step-out landing near other keep-outs -----------------------------

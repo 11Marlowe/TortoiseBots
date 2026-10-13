@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <map>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -300,11 +301,122 @@ int main()
         CHECK(!CreatureAuraSetAsideTarget(true, true, 60000));  // ordered: hold, no retarget
         CHECK(!CreatureAuraSetAsideTarget(false, false, 60000)); // a heal reach on a friend
         CHECK(kCreatureAuraSetAsideMs > kCreatureAuraChaseHoldMs);
-        CHECK(CreatureAuraSetAsideSticks(true, false));
-        CHECK(!CreatureAuraSetAsideSticks(true, true));  // tanks pick it back up
-        CHECK(!CreatureAuraSetAsideSticks(false, false)); // a normal mob hitting the bot is fought
+        // The set-aside book: refused until it runs out; a keep-out creature
+        // even while it hits the bot; another mob that hits the bot in sight
+        // has come out of the ring and is fought; tanks never hold one.
+        CHECK(CreatureAuraSetAsideHolds(true, true, false, false));
+        CHECK(CreatureAuraSetAsideHolds(true, true, false, true));   // sludge hitting the bot: still refused
+        CHECK(CreatureAuraSetAsideHolds(true, false, false, false)); // ringed mob on the tank: refused
+        CHECK(!CreatureAuraSetAsideHolds(true, false, false, true)); // ringed mob came out to the bot
+        CHECK(!CreatureAuraSetAsideHolds(true, true, true, false));  // tanks pick it back up
+        CHECK(!CreatureAuraSetAsideHolds(false, true, false, false)); // expired
     }
     std::cout << "  [PASS] bounded hold then retarget\n";
+
+    // Regression (review round 2, 2026-10-13): the tank holds a mob inside a
+    // sludge ring; a melee DPS on "dps assist" holds outside, sets it aside
+    // after 3 s, and its next pick comes from DpsTargetValue: raid mark, then
+    // the group tank's victim, then the tournament over the attackers list.
+    // The first two bypass the attackers list (AttackersValue::IgnoreTarget),
+    // so before the fix they handed the set-aside mob straight back: hold 3 s,
+    // set aside, re-pick, all fight. Now every path asks the book
+    // (AttackersValue::IsKeepoutSetAside -> CreatureAuraSetAsideHolds).
+    {
+        enum { kNone = 0, kRinged = 1, kOther = 2 };
+        struct Run { int setAsides; int picks; int otherKills; int idleMs; };
+        // gateBypassPaths: the fix. otherExists: a second mob outside any ring.
+        // ringedIsSludge: the held mob is the keep-out creature itself.
+        // markRinged: the ringed mob carries this bot's raid mark.
+        auto simulate = [](bool gateBypassPaths, bool otherExists, bool ringedIsSludge, bool markRinged,
+            unsigned durationMs) -> Run
+        {
+            std::map<int, unsigned> book; // target -> set aside until (ms)
+            auto refused = [&](int id, unsigned now) -> bool
+            {
+                auto it = book.find(id);
+                if (it == book.end())
+                    return false;
+                // The tank holds the mob: it never hits the DPS bot.
+                if (CreatureAuraSetAsideHolds(now < it->second, id == kRinged && ringedIsSludge, false, false))
+                    return true;
+                book.erase(it);
+                return false;
+            };
+            bool otherAlive = otherExists;
+            unsigned otherHitMs = 0;
+            auto pick = [&](unsigned now) -> int
+            {
+                if (markRinged && (!gateBypassPaths || !refused(kRinged, now)))
+                    return kRinged;                       // RtiTargetValue branch
+                if (!gateBypassPaths || !refused(kRinged, now))
+                    return kRinged;                       // GetGroupTankTarget: the tank's victim
+                if (!refused(kRinged, now))               // tournament: attackers list, IgnoreTarget
+                    return kRinged;
+                return otherAlive ? kOther : kNone;
+            };
+            Run run = { 0, 0, 0, 0 };
+            int target = kNone;
+            unsigned holdSince = 0;
+            for (unsigned now = 0; now < durationMs; now += 100)
+            {
+                if (target == kNone)
+                {
+                    target = pick(now);
+                    if (target != kNone)
+                    {
+                        ++run.picks;
+                        holdSince = now;
+                    }
+                }
+                if (target == kRinged)
+                {
+                    // The chase goal is inside the ring: hold, then set aside.
+                    if (CreatureAuraSetAsideTarget(true, false, now - holdSince))
+                    {
+                        book[kRinged] = now + kCreatureAuraSetAsideMs;
+                        ++run.setAsides;
+                        target = kNone;
+                    }
+                }
+                else if (target == kOther)
+                {
+                    otherHitMs += 100;
+                    if (otherHitMs >= 20000) // killed it
+                    {
+                        otherAlive = false;
+                        ++run.otherKills;
+                        target = kNone;
+                    }
+                }
+                else
+                    run.idleMs += 100;
+            }
+            return run;
+        };
+
+        // Before the fix: the tank's victim comes back every 3 s, all fight.
+        Run const loop = simulate(false, true, false, false, 30000);
+        CHECK(loop.setAsides >= 9);
+        CHECK(loop.otherKills == 0);
+        // Fixed: one set-aside, then the bot fights the other mob.
+        Run const fixed = simulate(true, true, false, false, 30000);
+        CHECK(fixed.setAsides == 1);
+        CHECK(fixed.otherKills == 1);
+        // The same through a raid mark, and with the sludge itself held.
+        CHECK(simulate(false, true, false, true, 30000).setAsides >= 9);
+        CHECK(simulate(true, true, false, true, 30000).setAsides == 1);
+        CHECK(simulate(true, true, true, false, 30000).setAsides == 1);
+        // No other target: the bot holds outside with no target (no pick, no
+        // log line) until the set-aside runs out, then holds 3 s and sets it
+        // aside again - one cycle per 33 s instead of one every 3 s.
+        Run const alone = simulate(true, false, false, false, 30000);
+        CHECK(alone.setAsides == 1);
+        CHECK(alone.picks == 1);
+        CHECK(alone.idleMs >= 26000);
+        CHECK(simulate(true, false, false, false, 66000).setAsides == 2);
+        CHECK(simulate(false, false, false, false, 30000).setAsides >= 9);
+    }
+    std::cout << "  [PASS] tank holds a ringed mob: the set-aside is not re-picked through assist or mark\n";
 
     std::cout << "All creature aura keep-out tests passed.\n";
     return 0;

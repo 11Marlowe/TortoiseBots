@@ -1625,11 +1625,22 @@ bool MovementAction::HoldChaseOutsideKeepout(WorldObject* target, float distance
     bool const ordered = targetGuid == AI_VALUE(ObjectGuid, "explicit attack target");
     if (CreatureAuraSetAsideTarget(hostileCurrentTarget, ordered, nowMs - keepoutChaseHoldSinceMs))
     {
-        context->GetValue<std::map<ObjectGuid, uint32>&>("unreachable targets")->Get()[targetGuid] =
+        // Its own book, read by IgnoreTarget and by the picks that bypass
+        // the attackers list (the tank's victim, raid marks): all of them
+        // refuse the target until the set-aside runs out.
+        context->GetValue<std::map<ObjectGuid, uint32>&>("keepout set aside")->Get()[targetGuid] =
             nowMs + kCreatureAuraSetAsideMs;
         context->GetValue<ObjectGuid>("attack target")->Set(ObjectGuid());
         context->GetValue<Unit*>("current target")->Set(nullptr);
         bot->AttackStop();
+        // Cached picks would hand the target back within the cache window.
+        context->GetValue<std::list<ObjectGuid>>("attackers")->Reset();
+        context->GetValue<std::list<ObjectGuid>>("attackers", 1)->Reset();
+        context->GetValue<std::list<ObjectGuid>>("possible attack targets")->Reset();
+        context->GetValue<Unit*>("dps target")->Reset();
+        context->GetValue<Unit*>("dps aoe target")->Reset();
+        context->GetValue<Unit*>("tank target")->Reset();
+        context->GetValue<bool>("has attackers")->Reset();
         keepoutChaseHoldTarget = ObjectGuid();
         ai->TellDebug(GetMaster(), "Setting aside " + std::string(target->GetName()) +
             " - it stands in a creature aura keep-out", "debug move");
