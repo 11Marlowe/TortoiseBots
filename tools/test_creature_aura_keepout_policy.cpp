@@ -301,17 +301,73 @@ int main()
         CHECK(!CreatureAuraSetAsideTarget(true, true, 60000));  // ordered: hold, no retarget
         CHECK(!CreatureAuraSetAsideTarget(false, false, 60000)); // a heal reach on a friend
         CHECK(kCreatureAuraSetAsideMs > kCreatureAuraChaseHoldMs);
-        // The set-aside book: refused until it runs out; a keep-out creature
-        // even while it hits the bot; another mob that hits the bot in sight
-        // has come out of the ring and is fought; tanks never hold one.
-        CHECK(CreatureAuraSetAsideHolds(true, true, false, false));
-        CHECK(CreatureAuraSetAsideHolds(true, true, false, true));   // sludge hitting the bot: still refused
-        CHECK(CreatureAuraSetAsideHolds(true, false, false, false)); // ringed mob on the tank: refused
-        CHECK(!CreatureAuraSetAsideHolds(true, false, false, true)); // ringed mob came out to the bot
-        CHECK(!CreatureAuraSetAsideHolds(true, true, true, false));  // tanks pick it back up
-        CHECK(!CreatureAuraSetAsideHolds(false, true, false, false)); // expired
+        // The set-aside book (args: live, isKeepoutCreature, isTank,
+        // hitsBotInSight, stillRinged): refused until it runs out; a keep-out
+        // creature even while it hits the bot or is not ringed; another mob
+        // only while it still stands in a ring and does not hit the bot in
+        // sight; tanks never hold one.
+        CHECK(CreatureAuraSetAsideHolds(true, true, false, false, true));
+        CHECK(CreatureAuraSetAsideHolds(true, true, false, true, true));   // sludge hitting the bot: still refused
+        CHECK(CreatureAuraSetAsideHolds(true, true, false, false, false)); // sludge itself stays refused
+        CHECK(CreatureAuraSetAsideHolds(true, false, false, false, true)); // ringed mob on the tank: refused
+        CHECK(!CreatureAuraSetAsideHolds(true, false, false, false, false)); // mob left the ring: picked again at once
+        CHECK(!CreatureAuraSetAsideHolds(true, false, false, true, true));   // ringed mob came out to the bot
+        CHECK(!CreatureAuraSetAsideHolds(true, false, false, true, false));
+        CHECK(!CreatureAuraSetAsideHolds(true, true, true, false, true));  // tanks pick it back up
+        CHECK(!CreatureAuraSetAsideHolds(false, true, false, false, true)); // expired
+        CHECK(!CreatureAuraSetAsideHolds(false, false, false, false, true));
     }
     std::cout << "  [PASS] bounded hold then retarget\n";
+
+    // "Still ringed": the release ring of a listed creature (10 yd for the
+    // sludge, centre measure) - the ring the chase hold lets go of.
+    {
+        CreatureAuraKeepout const* sludge = FindCreatureAuraKeepout(349, 12222);
+        CHECK(sludge != nullptr);
+        CHECK(CreatureAuraSetAsideRinged(*sludge, 0.0f));
+        CHECK(CreatureAuraSetAsideRinged(*sludge, 9.5f));
+        CHECK(CreatureAuraSetAsideRinged(*sludge, 10.0f));
+        CHECK(!CreatureAuraSetAsideRinged(*sludge, 10.1f));
+        CHECK(!CreatureAuraSetAsideRinged(*sludge, 40.0f));
+        // A mob the hold lets go of is not held again: past the release ring
+        // the chase plans Follow, engaged or not.
+        float hx = 0.0f, hy = 0.0f;
+        CHECK(PlanCreatureAuraFollow(*sludge, true, 30.0f, 0.0f, 10.1f, 0.0f, 0.0f, 0.0f, hx, hy)
+            == CreatureAuraFollowStep::Follow);
+    }
+    std::cout << "  [PASS] still-ringed test matches the hold's release ring\n";
+
+    // The chase-hold timer starts over for another target and after a pause
+    // (combat ended mid-hold), so a later hold never sets a mob aside on its
+    // first tick; steady ticks keep the timer.
+    {
+        CHECK(CreatureAuraChaseHoldRestarts(false, 0));
+        CHECK(CreatureAuraChaseHoldRestarts(true, kCreatureAuraChaseHoldGapMs + 1));
+        CHECK(!CreatureAuraChaseHoldRestarts(true, 0));
+        CHECK(!CreatureAuraChaseHoldRestarts(true, 100));
+        CHECK(!CreatureAuraChaseHoldRestarts(true, kCreatureAuraChaseHoldGapMs));
+        CHECK(kCreatureAuraChaseHoldGapMs < kCreatureAuraChaseHoldMs);
+        // Hold 2 s on mob A, combat ends, 20 s later the hold starts on A
+        // again: the timer is new, so the first tick does not set it aside.
+        unsigned since = 0, last = 0, now = 0;
+        bool sameTarget = false;
+        auto tick = [&](unsigned at) -> bool
+        {
+            now = at;
+            if (CreatureAuraChaseHoldRestarts(sameTarget, now - last))
+                since = now;
+            sameTarget = true;
+            last = now;
+            return CreatureAuraSetAsideTarget(true, false, now - since);
+        };
+        for (unsigned t = 1000; t <= 3000; t += 100)
+            CHECK(!tick(t)); // 2 s of hold: not yet
+        CHECK(!tick(23000));  // the old start (1000) would set it aside here
+        CHECK(!tick(24000));
+        CHECK(!tick(25900));
+        CHECK(tick(26000));   // 3 s of steady hold since 23000
+    }
+    std::cout << "  [PASS] chase-hold timer resets after a pause\n";
 
     // Regression (review round 2, 2026-10-13): the tank holds a mob inside a
     // sludge ring; a melee DPS on "dps assist" holds outside, sets it aside
@@ -327,7 +383,8 @@ int main()
         // gateBypassPaths: the fix. otherExists: a second mob outside any ring.
         // ringedIsSludge: the held mob is the keep-out creature itself.
         // markRinged: the ringed mob carries this bot's raid mark.
-        auto simulate = [](bool gateBypassPaths, bool otherExists, bool ringedIsSludge, bool markRinged,
+        unsigned ringLeftAtMs = ~0u; // the ringed mob stands out of every ring from this time on
+        auto simulate = [&ringLeftAtMs](bool gateBypassPaths, bool otherExists, bool ringedIsSludge, bool markRinged,
             unsigned durationMs) -> Run
         {
             std::map<int, unsigned> book; // target -> set aside until (ms)
@@ -337,7 +394,8 @@ int main()
                 if (it == book.end())
                     return false;
                 // The tank holds the mob: it never hits the DPS bot.
-                if (CreatureAuraSetAsideHolds(now < it->second, id == kRinged && ringedIsSludge, false, false))
+                if (CreatureAuraSetAsideHolds(now < it->second, id == kRinged && ringedIsSludge, false, false,
+                        now < ringLeftAtMs))
                     return true;
                 book.erase(it);
                 return false;
@@ -371,7 +429,9 @@ int main()
                 if (target == kRinged)
                 {
                     // The chase goal is inside the ring: hold, then set aside.
-                    if (CreatureAuraSetAsideTarget(true, false, now - holdSince))
+                    // Out of the ring (the tank dragged it out) it is just fought.
+                    if ((ringedIsSludge || now < ringLeftAtMs) &&
+                        CreatureAuraSetAsideTarget(true, false, now - holdSince))
                     {
                         book[kRinged] = now + kCreatureAuraSetAsideMs;
                         ++run.setAsides;
@@ -415,6 +475,26 @@ int main()
         CHECK(alone.idleMs >= 26000);
         CHECK(simulate(true, false, false, false, 66000).setAsides == 2);
         CHECK(simulate(false, false, false, false, 30000).setAsides >= 9);
+
+        // "Lift when it leaves the ring" (owner decision 2026-10-13): the
+        // tank drags the mob out 10 s in; the bot picks it again at once
+        // instead of idling the rest of the 30 s, and sets it aside no more.
+        ringLeftAtMs = 10000;
+        Run const dragged = simulate(true, false, false, false, 30000);
+        CHECK(dragged.setAsides == 1);
+        CHECK(dragged.picks == 2);
+        CHECK(dragged.idleMs >= 6800 && dragged.idleMs <= 7200); // 3 s hold, set aside at 3 s, lifted at 10 s
+        // Still ringed at 10 s (never leaves): stays set aside, as before.
+        ringLeftAtMs = ~0u;
+        CHECK(simulate(true, false, false, false, 30000).picks == 1);
+        // The sludge itself stays refused after the ring "ends" (it is the ring).
+        ringLeftAtMs = 10000;
+        Run const sludge = simulate(true, false, true, false, 30000);
+        CHECK(sludge.setAsides == 1);
+        CHECK(sludge.picks == 1);
+        // With another mob around, the lift costs nothing: it keeps fighting.
+        CHECK(simulate(true, true, false, false, 30000).otherKills == 1);
+        ringLeftAtMs = ~0u;
     }
     std::cout << "  [PASS] tank holds a ringed mob: the set-aside is not re-picked through assist or mark\n";
 

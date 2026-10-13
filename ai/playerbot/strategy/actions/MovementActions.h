@@ -142,9 +142,11 @@ namespace ai
         ObjectGuid keepoutFollowEngaged;
         // The same for chase decisions (HoldChaseOutsideKeepout).
         ObjectGuid keepoutChaseEngaged;
-        // Bounded chase hold: the target held on and since when.
+        // Bounded chase hold: the target held on, since when, and the last
+        // hold tick (a pause longer than kCreatureAuraChaseHoldGapMs restarts it).
         ObjectGuid keepoutChaseHoldTarget;
         uint32 keepoutChaseHoldSinceMs = 0;
+        uint32 keepoutChaseHoldLastMs = 0;
     };
 
     class FleeAction : public MovementAction

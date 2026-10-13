@@ -1615,11 +1615,15 @@ bool MovementAction::HoldChaseOutsideKeepout(WorldObject* target, float distance
     // sludge is not kited forever. A player's attack order keeps the hold.
     uint32 const nowMs = WorldTimer::getMSTime();
     ObjectGuid const targetGuid = target->GetObjectGuid();
-    if (keepoutChaseHoldTarget != targetGuid)
+    // The timer starts over for a new target and after a pause in the hold
+    // (combat ended mid-hold): a later hold on the same mob must not set it
+    // aside on its first tick.
+    if (CreatureAuraChaseHoldRestarts(keepoutChaseHoldTarget == targetGuid, nowMs - keepoutChaseHoldLastMs))
     {
         keepoutChaseHoldTarget = targetGuid;
         keepoutChaseHoldSinceMs = nowMs;
     }
+    keepoutChaseHoldLastMs = nowMs;
     bool const hostileCurrentTarget = targetUnit && targetUnit == AI_VALUE(Unit*, "current target") &&
         !sServerFacade.IsFriendlyTo(bot, targetUnit);
     bool const ordered = targetGuid == AI_VALUE(ObjectGuid, "explicit attack target");

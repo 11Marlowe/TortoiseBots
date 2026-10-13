@@ -538,11 +538,45 @@ bool AttackersValue::IsKeepoutSetAside(Unit* target, Player* bot)
     if (entry == setAside.end())
         return false;
     bool const isKeepoutCreature = PossibleTriggersValue::KeepoutFor(target) != nullptr;
-    // Line of sight only for a mob that hits the bot and is no keep-out creature.
-    bool const hitsBotInSight = !isKeepoutCreature && target->GetVictim() == bot &&
-        bot->IsWithinLOSInMap(target, true);
-    if (CreatureAuraSetAsideHolds(WorldTimer::getMSTime() < entry->second, isKeepoutCreature,
-            PlayerbotAI::IsTank(bot), hitsBotInSight))
+    bool const live = WorldTimer::getMSTime() < entry->second;
+    bool const isTank = PlayerbotAI::IsTank(bot);
+    // Line of sight and the ring test only for a mob that is no keep-out
+    // creature, and only while the entry could still hold (no world scan: the
+    // cached "possible triggers" list is the one the hold plans against).
+    bool hitsBotInSight = false;
+    bool stillRinged = false;
+    if (live && !isTank && !isKeepoutCreature)
+    {
+        hitsBotInSight = target->GetVictim() == bot && bot->IsWithinLOSInMap(target, true);
+        if (!hitsBotInSight)
+        {
+            float const tx = target->GetPositionX(), ty = target->GetPositionY();
+            // The list only reaches kMaxAoeAvoidRadiusYd around the bot: a mob
+            // farther away than that cannot be judged, so it stays set aside
+            // (the 30 s entry bounds it) instead of being lifted blind.
+            float const bdx = tx - bot->GetPositionX(), bdy = ty - bot->GetPositionY();
+            stillRinged = bdx * bdx + bdy * bdy > kMaxAoeAvoidRadiusYd * kMaxAoeAvoidRadiusYd;
+            if (!stillRinged)
+            {
+                std::list<ObjectGuid> const& triggers =
+                    ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible triggers")->Get();
+                for (ObjectGuid const& guid : triggers)
+                {
+                    CreatureAuraKeepout const* row = nullptr;
+                    Unit* unit = ai->GetUnit(guid);
+                    if (!(row = PossibleTriggersValue::KeepoutFor(unit)))
+                        continue;
+                    float const dx = tx - unit->GetPositionX(), dy = ty - unit->GetPositionY();
+                    if (CreatureAuraSetAsideRinged(*row, std::sqrt(dx * dx + dy * dy)))
+                    {
+                        stillRinged = true;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if (CreatureAuraSetAsideHolds(live, isKeepoutCreature, isTank, hitsBotInSight, stillRinged))
         return true;
     setAside.erase(entry);
     return false;
