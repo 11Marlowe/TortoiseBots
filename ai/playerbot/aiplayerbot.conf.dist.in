@@ -590,6 +590,19 @@ AiPlayerbot.DungeonFollowHoldBeforePacks = 0
 # 1 - pet that fits the spec
 AiPlayerbot.WarlockPetBySpec = 0
 
+# Rogue threat drops in dungeons.
+# In a grouped 5-man dungeon with a living tank in the fight, a rogue uses
+# Feint when its threat on the current target is medium (60 percent of the
+# tank's or more) and, if that is not enough, Vanish at critical threat (80
+# percent and climbing) so it does not pull the mob off the tank. Vanish is
+# only used while the mob is on the tank or the rogue; it is never used solo,
+# without a tank, or in the open world. Raid rogues already do this (Feint at
+# medium, Vanish at high) and are unchanged. The thresholds are the bots'
+# existing medium and high threat levels. Off by default.
+# 0 - dungeon rogues do not shed threat (Default)
+# 1 - Feint on medium threat, Vanish on critical threat in 5-man dungeons
+AiPlayerbot.RogueDungeonThreatDrops = 0
+
 # Hunter Aspect of the Viper on low mana.
 # A hunter that has learned Aspect of the Viper (Turtle 1.18.1 spell 45651,
 # trainer level 56) switches to it in combat when its mana drops below half of

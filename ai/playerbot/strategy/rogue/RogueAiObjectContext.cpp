@@ -206,6 +206,8 @@ namespace ai
                 creators["stealth"] = [](PlayerbotAI* ai) { return new StealthTrigger(ai); };
                 creators["sprint"] = [](PlayerbotAI* ai) { return new SprintTrigger(ai); };
                 creators["blade flurry near cc"] = [](PlayerbotAI* ai) { return new BladeFlurryNearCcTrigger(ai); };
+                creators["rogue dungeon feint"] = [](PlayerbotAI* ai) { return new RogueDungeonFeintTrigger(ai); };
+                creators["rogue dungeon vanish"] = [](PlayerbotAI* ai) { return new RogueDungeonVanishTrigger(ai); };
                 creators["rogue raid vanish"] = [](PlayerbotAI* ai) { return new RogueRaidVanishTrigger(ai); };
                 creators["2 combo"] = [](PlayerbotAI* ai) { return new ComboPointsAvailableTrigger(ai, 2); };
                 creators["3 combo"] = [](PlayerbotAI* ai) { return new ComboPointsAvailableTrigger(ai, 3); };

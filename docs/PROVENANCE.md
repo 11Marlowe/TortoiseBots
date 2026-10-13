@@ -9445,6 +9445,14 @@ ships behind a config toggle that is off by default.
 Validation: code review; `tools/test_warlock_pet_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
 the test VM (see the PR); build pending; in-game pending.
 
+## Rogue threat drops in dungeons (opt-in, `AiPlayerbot.RogueDungeonThreatDrops`) — 2026-10-13
+
+Feature: with the toggle on (default off), a rogue in a grouped 5-man dungeon casts Feint when the
+existing "medium threat" trigger fires and Vanish (queued below Feint) when the existing "high threat"
+trigger fires, only while a main tank other than the rogue is alive and in combat and the mob is held
+by that tank or by the rogue. Solo rogues, tankless groups and the open world are never touched;
+raids keep their own rows.
+
 ## Hunter Aspect of the Viper on low mana (opt-in, `AiPlayerbot.HunterViperOnLowMana`) — 2026-10-13
 
 Feature: with the toggle on (default off), a hunter that knows Aspect of the Viper switches to it in
@@ -9466,6 +9474,31 @@ Source repository: `mod-playerbots/mod-playerbots`
 
 Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
 
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:139-151` and
+`AssassinationRogueStrategy.cpp:144-156` (`medium threat` -> Vanish at `ACTION_HIGH`; `low health` ->
+Evasion / Feint), `src/Ai/Base/Trigger/GenericTriggers.cpp:169` (`MediumThreatTrigger`: main tank
+exists and attackers on the bot).
+
+Module files: `runtime/RogueThreatPolicy.h` (pure) + `tools/test_rogue_threat_policy.cpp`;
+`ai/playerbot/strategy/rogue/RogueTriggers.{h,cpp}` (`RogueDungeonFeintTrigger`,
+`RogueDungeonVanishTrigger`; the rows reuse the existing `feint` / `vanish` actions),
+`RogueAiObjectContext.cpp` (2 trigger creators), `RogueStrategy.cpp` (rows in
+`RoguePveStrategy::InitCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor, all
+deliberate: thresholds are this module's existing medium (>= 60) / high (>= 80, five-second look-ahead)
+relative-threat triggers, not the donor's attacker-count trigger; Feint goes first and Vanish is the
+fallback (the donor vanishes straight away on medium threat); Vanish needs a living tank in the fight
+and a mob on the tank or the rogue, so it cannot reset a solo fight; the tank must also hold the
+mob (victim or tank threat above 0), because the threat value reads 100 for a mob the tank never touched.
+Spell facts checked against `sql/base/tw_world_spell_template.sql`: Feint (ranks at
+16 / 28 / 40 / 52 / 60, effect THREAT, target enemy, 10 s category cooldown), Vanish (22 / 42, 5 min).
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 5); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_rogue_threat_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
 Source files: `src/Ai/Class/Hunter/HunterTriggers.cpp` (`HunterAspectOfTheViperTrigger`: mana below
 `LowMana / 2`, suppressed by explicit `rnature` / `bspeed` strategies; `HunterAspectOfTheDragonhawkTrigger`:
 stays off while the Viper is up until mana >= 60), `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp`

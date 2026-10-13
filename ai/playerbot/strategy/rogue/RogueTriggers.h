@@ -19,6 +19,23 @@ namespace ai
         bool IsActive() override;
     };
 
+    // Opt-in (AiPlayerbot.RogueDungeonThreatDrops): the existing "medium threat" /
+    // "high threat" triggers, limited to a grouped 5-man dungeon with a living
+    // tank in the fight (runtime/RogueThreatPolicy.h). Raids keep their own rows.
+    class RogueDungeonFeintTrigger : public MediumThreatTrigger
+    {
+    public:
+        RogueDungeonFeintTrigger(PlayerbotAI* ai) : MediumThreatTrigger(ai, "rogue dungeon feint") {}
+        bool IsActive() override;
+    };
+
+    class RogueDungeonVanishTrigger : public HighThreatTrigger
+    {
+    public:
+        RogueDungeonVanishTrigger(PlayerbotAI* ai) : HighThreatTrigger(ai, "rogue dungeon vanish") {}
+        bool IsActive() override;
+    };
+
     // Raid Vanish on high threat, but only when the tank actually has threat on
     // the target: the threat value reads 100 for an in-combat mob the tank never
     // touched (a loose add), where Vanish only burns its cooldown.
