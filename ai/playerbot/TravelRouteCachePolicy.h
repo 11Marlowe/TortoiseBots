@@ -143,19 +143,4 @@ namespace ai
         entry.routeFail = routeFail;
         return entry;
     }
-
-    // Hit / miss tally for the BOTPERF line (world thread only, so plain counters).
-    // Not printed by this change; the BOTPERF route-cache counter lane reads these
-    // or replaces them.
-    struct TravelRouteCacheStats
-    {
-        uint32_t hits = 0;
-        uint32_t misses = 0;
-    };
-
-    inline TravelRouteCacheStats& TravelRouteCacheCounters()
-    {
-        static TravelRouteCacheStats stats;
-        return stats;
-    }
 }

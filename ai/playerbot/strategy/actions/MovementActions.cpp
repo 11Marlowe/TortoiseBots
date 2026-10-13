@@ -572,6 +572,9 @@ bool MovementAction::WaitForTransport()
     return false;
 }
 
+std::atomic<uint32_t> MovementAction::routeReuseCount{ 0 };
+std::atomic<uint32_t> MovementAction::routeRebuildCount{ 0 };
+
 TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, const WorldPosition& endPosition, Unit* mover, LastMovement& lastMove)
 {
     float totalDistance = startPosition.distance(endPosition);
@@ -580,6 +583,7 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     // Last long path still leads to roughly the same destination.
     if (!lastMove.lastPath.empty() && lastMove.lastPath.GetBack().distance(endPosition) < maxDistChange)
     {
+        routeReuseCount.fetch_add(1, std::memory_order_relaxed);
         return lastMove.lastPath;
     }
 
@@ -602,7 +606,6 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
         // a few seconds while the same question is asked. Nothing downstream changes:
         // the shortcut, clip and dispatch below still run each turn, so a move that
         // fails still fails (and is counted by the caller) at the same cadence.
-        TravelRouteCacheStats& stats = TravelRouteCacheCounters();
         if (!lastMove.lastPath.empty())
         {
             WorldPosition const lastBack = lastMove.lastPath.GetBack();
@@ -615,11 +618,10 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
                 // The rebuild also left its verdict for the TravelMoveFailed row and the
                 // off-graph rescue; replay it.
                 TravelNodeMap::LastRouteFail() = lastMove.routeCache.routeFail;
-                ++stats.hits;
+                routeReuseCount.fetch_add(1, std::memory_order_relaxed);
                 return lastMove.lastPath;
             }
         }
-        ++stats.misses;
 
         outMovePath = sTravelNodeMap.GetFullPath(startPosition, endPosition, bot); //Pathfind using nodes.
     }
@@ -629,6 +631,9 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
 
         outMovePath.addPath(path);
     }
+
+    // A route-cache hit returned above, so reaching this line means the route was planned.
+    routeRebuildCount.fetch_add(1, std::memory_order_relaxed);
 
     if (!lastMove.lastPath.empty() && !outMovePath.empty() && lastMove.lastPath.GetBack().distance(endPosition) <= outMovePath.GetBack().distance(endPosition))
         outMovePath = lastMove.lastPath;

@@ -12,6 +12,7 @@
 #include "StartZoneBalance.h"
 #include "GearSeedingGuard.h"
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/strategy/actions/MovementActions.h"
 #include "../ai/playerbot/RandomBotFacade.h"
 #include "../ai/playerbot/PlayerbotFactory.h"
 #include "../host/BotSessionAdapter.h"
@@ -2089,7 +2090,10 @@ void BotManager::UpdateBots(uint32_t diff)
         uint64_t const tickUsAvg = (static_cast<uint64_t>(m_perfElapsedMs) * 1000) / m_perfPassCount;
         uint64_t const passUsAvg = m_perfPassUsSum / m_perfPassCount;
         uint64_t const coreMs = tickUsAvg > passUsAvg ? (tickUsAvg - passUsAvg) / 1000 : 0;
-        TB_LOG_BASIC("TortoiseBots: BOTPERF passUs=%llu playerBots=%u ownedBots=%u masterBots=%u poolBots=%u poolProcessed=%u due=%u budgetHit=%u maxUs=%llu ticks=%u poolBudgetUs=%llu combatBudgetUs=%llu turnLateAvgMs=%u turnLateMaxMs=%u turns=%u usPerTurn=%u coreMs=%u combatTurns=%u combatLateAvgMs=%u otherTurns=%u otherLateAvgMs=%u",
+        // ResolveMovePath calls in this window that were answered from the cached route (routeReuse) or planned the route again (routeRebuild).
+        uint32_t const routeReuse = ai::MovementAction::routeReuseCount.exchange(0, std::memory_order_relaxed);
+        uint32_t const routeRebuild = ai::MovementAction::routeRebuildCount.exchange(0, std::memory_order_relaxed);
+        TB_LOG_BASIC("TortoiseBots: BOTPERF passUs=%llu playerBots=%u ownedBots=%u masterBots=%u poolBots=%u poolProcessed=%u due=%u budgetHit=%u maxUs=%llu ticks=%u poolBudgetUs=%llu combatBudgetUs=%llu turnLateAvgMs=%u turnLateMaxMs=%u turns=%u usPerTurn=%u coreMs=%u combatTurns=%u combatLateAvgMs=%u otherTurns=%u otherLateAvgMs=%u routeReuse=%u routeRebuild=%u",
             static_cast<unsigned long long>(m_perfPassUsSum / m_perfPassCount),
             playerBots, ownedAccountBots, masterBots, poolBots, poolProcessed,
             static_cast<uint32_t>(m_dueTurns.size()), budgetHit ? 1u : 0u,
@@ -2100,7 +2104,8 @@ void BotManager::UpdateBots(uint32_t diff)
             m_perfTurns, m_perfTurns ? static_cast<uint32_t>(m_perfTurnLoopUsSum / m_perfTurns) : 0u,
             static_cast<uint32_t>(coreMs),
             m_perfCombatTurns, m_perfCombatTurns ? static_cast<uint32_t>(m_perfCombatLateMsSum / m_perfCombatTurns) : 0u,
-            m_perfOtherTurns, m_perfOtherTurns ? static_cast<uint32_t>(m_perfOtherLateMsSum / m_perfOtherTurns) : 0u);
+            m_perfOtherTurns, m_perfOtherTurns ? static_cast<uint32_t>(m_perfOtherLateMsSum / m_perfOtherTurns) : 0u,
+            routeReuse, routeRebuild);
         m_perfPassUsSum = 0;
         m_perfPassUsMax = 0;
         m_perfPassCount = 0;
