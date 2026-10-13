@@ -350,6 +350,8 @@ namespace ai
             creators["end onyxia fight"] = [](PlayerbotAI* ai) { return new OnyxiaEndFightTrigger(ai); };
             creators["onyxia airborne"] = [](PlayerbotAI* ai) { return new OnyxiaAirborneTrigger(ai); };
             creators["onyxia deep breath"] = [](PlayerbotAI* ai) { return new OnyxiaDeepBreathTrigger(ai); };
+            creators["onyxia whelps"] = [](PlayerbotAI* ai) { return new OnyxiaWhelpsTrigger(ai); };
+            creators["onyxia eggs near"] = [](PlayerbotAI* ai) { return new OnyxiaEggsNearTrigger(ai); };
 
             // Dungeon Boss Triggers
 

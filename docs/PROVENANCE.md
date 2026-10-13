@@ -9444,3 +9444,56 @@ ships behind a config toggle that is off by default.
 
 Validation: code review; `tools/test_warlock_pet_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
 the test VM (see the PR); build pending; in-game pending.
+
+## Paladin Judgement upkeep (opt-in, `AiPlayerbot.PaladinJudgementUpkeep`) — 2026-10-13
+
+Feature: with the toggle on (default off), paladin bots in a group keep Judgement of Wisdom /
+Judgement of Light up on a boss or elite (or, in a dungeon or raid, the tank's target). One paladin
+owns each debuff: Retribution takes Wisdom, Holy takes Light, a paladin in the tank role (Protection) never owns one, a second non-tank paladin of the
+same kind takes the other debuff, a third owns none. The owner swaps to the matching Seal and judges
+when the debuff has 4 s left or is gone. Healers yield to healing (mana >= 50%, nobody below the
+medium-health line); everyone needs the medium-mana line. Never solo, never on a player target.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Paladin/Strategy/DpsPaladinStrategy.cpp`,
+`TankPaladinStrategy.cpp` (default action `judgement of wisdom`), `HealPaladinStrategy.cpp` (default
+action `judgement of light`), `GenericPaladinStrategyActionNodeFactory.h` (`judgement of wisdom`
+falls back to `judgement of light`), `src/Ai/Class/Paladin/PaladinTriggers.h` (`JudgementOfWisdom` /
+`JudgementOfLight` debuff triggers), `src/Ai/Base/Trigger/GenericTriggers.cpp`
+(`DebuffTrigger::IsActive`, `DebuffOnBossTrigger::IsActive`).
+
+Module files: `runtime/JudgementUpkeepPolicy.h` (owner rule, target / mana / refresh / Seal / Judge
+decisions, pure) + `tools/test_judgement_upkeep_policy.cpp`;
+`ai/playerbot/strategy/paladin/PaladinTriggers.{h,cpp}` (`JudgementUpkeepTrigger`, three steps),
+`PaladinAiObjectContext.cpp` (3 trigger creators), `PaladinStrategy.cpp` (three rows in the shared
+combat triggers, only added when the toggle is on), `PlayerbotAIConfig.{h,cpp}`,
+`aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented; no donor code copied. Ported from the donor: the
+role pairing (tank / dps Wisdom, heal Light) and the Wisdom -> Light fallback. Not in the donor and
+added here: the one-owner-per-debuff split (the donor lets every paladin cast the same default
+action, so two paladins overwrite each other), the 4 s refresh window, the boss / elite / tank-target
+gate, the healer mana and healing gate, and the Seal swap. The donor judges in WotLK where
+Judgement of Wisdom / Light is cast directly; Turtle 1.18.1 is vanilla, so Judgement (20271)
+consumes the active Seal and the Seal decides the debuff (Seal of Wisdom 20166 -> Judgement of
+Wisdom 20186, Seal of Light 20165 -> Judgement of Light 20185; ids and the 10 s duration / cooldown
+read from `sql/base/tw_world_spell_template.sql`). No 3.3.5a spell names or ids are used.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 21); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_judgement_upkeep_policy.cpp`, `tools/verify_all.sh` and tbsyntax
+on the test VM (see the PR); build pending; in-game pending.
+
+## Onyxia whelp duty and egg avoidance (issue #471 remainder, opt-in)
+
+- Feature: behind `AiPlayerbot.OnyxiaWhelpsAndEggs` (off by default), in Onyxia's Lair (map 249) AoE-capable ranged DPS bots take the nearest Onyxian Whelp while Onyxia is airborne, and bots in the fight walk out of the egg caves when inside the trap circle of an unbroken Onyxia Egg.
+- Source: mod-playerbots 79bd428, `src/Ai/Raid/Ony/OnyTriggers.cpp` (`RaidOnyxiaWhelpsSpawnTrigger`, `OnyxiaAvoidEggsTrigger`), `src/Ai/Raid/Ony/OnyActions.cpp` (`RaidOnyxiaKillWhelpsAction`, `OnyxiaAvoidEggsAction`), `src/Ai/Raid/Ony/OnyStrategy.cpp` (trigger wiring).
+- Copied / ported / reimplemented: reimplemented in the module's trigger/action/multiplier idiom; no donor code copied. Files: `ai/playerbot/OnyxiaWhelpEggPolicy.h` (pure rules), `ai/playerbot/strategy/triggers/OnyxiasLairDungeonTriggers.h/.cpp` (`onyxia whelps`, `onyxia eggs near`), `ai/playerbot/strategy/actions/OnyxiasLairDungeonActions.h/.cpp` (`onyxia kill whelps`, `onyxia avoid eggs`, `OnyxiaWhelpHoldMultiplier`), `ai/playerbot/strategy/generic/OnyxiasLairDungeonStrategies.h/.cpp`, config in `PlayerbotAIConfig.*` and `aiplayerbot.conf.dist.in`.
+- Deviations from the donor, all deliberate: (a) the donor sends tanks and every non-healer after whelps; here only AoE-capable ranged DPS (mage, warlock, hunter, ranged shaman/druid) are on whelp duty, so tanks, healers and melee keep their duty; (b) the donor attacks the first whelp in the possible-targets list; here the nearest live whelp of the cached attackers list within 40yd, skipping a whelp within 10yd of an unbroken egg (read from the bot's cached egg search; the cave-mouth whelp spawns are 11.5 and 11.9yd from the nearest egg and stay pickable), and a hold multiplier stops the generic assist and AoE re-pick from swinging the bot back to Onyxia; (c) the donor tests two fixed 5yd circles around guessed egg clusters; here the real unbroken egg game objects (176511, "Onyxia Egg", type 6 trap, radius 10, spell 17647) are read from the cached `nearest game objects` value, only when the bot stands inside the padded egg-field box (no search elsewhere), danger radius 10yd trap + 2yd margin; the exit points (`-10,-180`, `-16,-250`) are the donor's; (d) opt-in toggle, map 249 only, `explicit attack target` always wins.
+- Turtle 1.18.1 data (tw_world, never 3.3.5a ids): Onyxia 10184, Onyxian Whelp 11262 (`creature_template`), Onyxia Egg 176511 (`gameobject_template`: type 6, data2 radius 10, data3 spell 17647; 100+ spawns on map 249 at x -115..-32, y -279..-151), whelp spawn points and phase 2 waves from the core script `src/scripts/dungeons/onyxias_lair/boss_onyxia.cpp` (`afSpawnLocations`, Hover aura 17131).
+- Validation: `tools/test_onyxia_whelp_egg_policy.cpp` (standalone, in `verify_all.sh`); code review + build pending; in-game pending (needs a raid test).
+- Known limit: no hysteresis between the whelp chase and the egg walk. Ranged whelp-duty bots stand off at range, so they rarely sit near a cave mouth; a bot that does and flips between the two should get a short hold in a follow-up after the raid test.

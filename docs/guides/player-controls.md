@@ -296,7 +296,11 @@ server's next world tick, before the bots update, in the order the server receiv
 them (issue #833) — that also holds with `AiPlayerbot.Enabled = 0`. Replies come back
 in that order on the transport the request used. Received order is not always send
 order: party chat and addon messages travel different server paths, so an addon click
-can overtake a `/p .bot ...` typed just before it. A command whose
+can overtake a `/p .bot ...` typed just before it. Chat to bots (`/p stay`,
+whispers) and the packets the bots react to share that order with the commands, so
+`/p stay` then `/p .bot action follow` ends in follow (issue #846); packets the AI
+handles inline on the world thread (its own casts, hire provisioning) are outside
+this ordering and take effect when they arrive. A command whose
 sender logs out before that tick is dropped; more than 128 commands from one player
 within one tick are ignored with one line `Too many bot commands at once: <n> ignored.`
 
