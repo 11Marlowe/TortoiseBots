@@ -94,7 +94,12 @@ bool AttackMyTargetAction::Execute(Event& event)
                    tgt ? (int)tgt->GetMapId() : -1,
                    bot ? bot->GetMapId() : 0);
 
-            if (Attack(requester, tgt))
+            // An explicit order carries the walk to the target with it: the requester
+            // already validated the target at order range, so the bot's own gate must
+            // not refuse it for being beyond the background sight distance. The bot
+            // still walks there through the combat reach chain after accepting.
+            static float const orderDistance = sPlayerbotAIConfig.reactDistance;
+            if (Attack(requester, tgt, orderDistance))
             {
                 CommitExplicitAttackTarget(ai, guid);
                 SC_LOG("attack-cmd OK bot=%s tgt=%s",
@@ -126,7 +131,9 @@ bool AttackRTITargetAction::Execute(Event& event)
 
     if (rtiTarget && rtiTarget->IsInWorld() && rtiTarget->GetMapId() == bot->GetMapId())
     {
-        if (Attack(requester, rtiTarget))
+        // Same explicit-order ceiling as "attack my target": the mark is the player's
+        // order and the bot walks there after accepting.
+        if (Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance))
         {
             CommitExplicitAttackTarget(ai, rtiTarget->getObjectGuid());
             return true;
@@ -185,7 +192,7 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     return true;
 }
 
-bool AttackAction::Attack(Player* requester, Unit* target)
+bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
 {
     MotionMaster &mm = *bot->GetMotionMaster();
 	if (mm.GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE || (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f))
@@ -199,7 +206,7 @@ bool AttackAction::Attack(Player* requester, Unit* target)
         return false;
     }
 
-    if (IsTargetValid(requester, target))
+    if (IsTargetValid(requester, target, maxDistance))
     {
         SC_LOG("attack-cmd valid-tgt bot=%s tgt=%s mounted=%d range=%.1f",
                bot ? bot->GetName() : "(null)",
@@ -295,7 +302,7 @@ bool AttackAction::Attack(Player* requester, Unit* target)
     return false;
 }
 
-bool AttackAction::IsTargetValid(Player* requester, Unit* target)
+bool AttackAction::IsTargetValid(Player* requester, Unit* target, float maxDistance)
 {
     if (!target)
     {
@@ -349,7 +356,11 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
 
         return false;
     }
-    else if (sServerFacade.getDistance2d(bot, target) > sPlayerbotAIConfig.sightDistance)
+    // Background targeting uses the sight distance; an explicit order passes its own
+    // wider ceiling (the requester's order range) because the bot walks to the target
+    // through the combat reach chain after accepting. The refusal still names the
+    // limit so a genuinely out-of-reach order tells the player how far is too far.
+    else if (sServerFacade.getDistance2d(bot, target) > (maxDistance > 0.0f ? maxDistance : sPlayerbotAIConfig.sightDistance))
     {
         if (verbose)
         {
