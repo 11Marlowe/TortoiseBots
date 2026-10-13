@@ -6404,10 +6404,22 @@ inline int strcmpi(const char* s1, const char* s2)
 }
 #endif
 
+// Debuffs a healer must not cleanse (Turtle 1.18.1 spell ids). Mutating Injection (Grobbulus, Naxx, 28169) drops a
+// poison cloud where its carrier stands when it is removed, by dispel or by expiry (core boss_grobbulus.cpp,
+// spell_mutating_injection). A cleanse while the carrier is still in the raid puts the cloud in the raid; bomb runout
+// moves the carrier clear first (BombRunoutPolicy.h). Ported from mod-playerbots dispel_whitelist (docs/PROVENANCE.md).
+static constexpr uint32 kNeverDispelSpellIds[] = { 28169 };
+
 bool PlayerbotAI::canDispel(const SpellEntry* entry, uint32 dispelType)
 {
     if (entry->Dispel != dispelType)
         return false;
+
+    for (uint32 neverDispelId : kNeverDispelSpellIds)
+    {
+        if (entry->Id == neverDispelId)
+            return false;
+    }
 
     return entry->SpellName[0].empty() ||
         (strcmpi(entry->SpellName[0].c_str(), "demon skin") &&
