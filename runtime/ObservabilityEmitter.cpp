@@ -134,7 +134,7 @@ bool IsActivityEvent(std::string const& event)
         "QuestRewarded", "AcceptQuestAction", "AcceptQuestShareAction",
         "TalkToQuestGiverAction", "QuestUpdateCompleteAction", "QuestCompleted", "QuestDropped",
         // loot & money
-        "StoreLootAction", "GatherLoot", "LootMoney",
+        "StoreLootAction", "GatherLoot", "LootMoney", "RollWon",
         // vendor / trainer / repair / auction
         "SellAction", "BuyAction", "RepairAllAction", "TrainerAction", "NearbyService",
         "AhAction", "AhBidAction",
@@ -154,6 +154,7 @@ bool IsItemEvent(std::string const& event)
 {
     static std::set<std::string> const itemEvents = {
         "StoreLootAction", "GatherLoot", "SellAction", "BuyAction", "AhAction", "AhBidAction",
+        "RollWon",
     };
     return itemEvents.count(event) != 0;
 }

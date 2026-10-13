@@ -146,14 +146,18 @@ func (s *Store) applyBotEventLocked(ev model.BotEvent, now time.Time) {
 		a.counters.QuestHandIns++
 		s.appendQuestFeed(model.QuestFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level, Event: ev.Event, Quest: ev.Info1, QuestID: questID})
 
-	case "StoreLootAction":
+	case "StoreLootAction", "RollWon":
 		a.counters.LootItems++
 		a.counters.LootValue += uint64(ev.Sell)
 		if ev.Quality >= notableQuality {
 			a.counters.NotableLoot++
 		}
+		rollSource := "loot"
+		if ev.Event == "RollWon" {
+			rollSource = "roll"
+		}
 		s.appendLootFeed(model.LootFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level, MapID: ev.MapID, ZoneID: ev.ZoneID,
-			Source: "loot", Item: ev.Info1, ItemID: ev.ItemID, Quality: ev.Quality, Value: uint64(ev.Sell)})
+			Source: rollSource, Item: ev.Info1, ItemID: ev.ItemID, Quality: ev.Quality, Value: uint64(ev.Sell)})
 	case "GatherLoot":
 		source := "gather"
 		if uint32(parseUint(ev.Info1)) == skillSkinning {

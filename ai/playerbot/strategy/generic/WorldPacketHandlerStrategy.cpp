@@ -107,7 +107,7 @@ void WorldPacketHandlerStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &
 
     triggers.push_back(new TriggerNode(
         "loot roll won",
-        NextAction::array(0, new NextAction("equip upgrades", relevance), NULL)));
+        NextAction::array(0, new NextAction("log roll won", relevance), new NextAction("equip upgrades", relevance), NULL)));
     triggers.push_back(new TriggerNode(
         "ready check finished",
         NextAction::array(0, new NextAction("finish ready check", relevance), NULL)));
