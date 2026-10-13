@@ -96,6 +96,33 @@ constexpr uint32_t kHireUnlockFourHorsemen[] = { 16062, 16063, 16064, 16065 };
 // OnCreatureKill(14509), so that entry aliases to the same encounter.
 constexpr uint32_t kHireUnlockThekalPhaseTwo = 14509;
 
+// Linked credit (trigger creature entry -> also-credited encounter key):
+// bosses that never die, or may leave without dying, count when a linked
+// boss dies. Majordomo Executus (12018) is never killed (defeat = friendly
+// + evade), but Ragnaros (11502) can only be summoned after Domo falls, so
+// a Ragnaros kill also credits Majordomo. Erennius (60747) despawns
+// friendly when Solnius (60748) dies first, so a Solnius kill also credits
+// Erennius (a no-op when Erennius already died first: dedup is per player).
+struct HireUnlockLinkedCredit
+{
+    uint32_t triggerEntry;
+    uint32_t alsoCreditEncounter;
+};
+
+constexpr HireUnlockLinkedCredit kHireUnlockLinkedCredits[] = {
+    { 11502, 12018 },
+    { 60748, 60747 },
+};
+
+// The also-credited encounter for a killed creature entry, or 0.
+inline uint32_t HireUnlockLinkedCreditFor(uint32_t creatureEntry)
+{
+    for (HireUnlockLinkedCredit const& link : kHireUnlockLinkedCredits)
+        if (link.triggerEntry == creatureEntry)
+            return link.alsoCreditEncounter;
+    return 0;
+}
+
 // Tower of Karazhan King's Council (King/Knight/Rook/Bishop): the loot is on
 // the King, so the council counts on the King's death alone (59967).
 

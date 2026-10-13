@@ -129,6 +129,21 @@ void HireUnlockKillAdapter::OnCreatureKill(Player* killer, Creature* killed)
         if (member && BotManager::Instance().IsBot(member->GetObjectGuid()))
             continue;
         CreditHireUnlockKill(member, encounter, counter, questId);
+        // Linked credit for bosses that never die (Majordomo via Ragnaros,
+        // Erennius via Solnius): same players, same dedup/store path.
+        uint32_t linked = HireUnlockLinkedCreditFor(killed->GetEntry());
+        if (linked != 0 && linked != encounter)
+        {
+            HireUnlockBoss const* linkedBoss = nullptr;
+            HireUnlockCounter const* linkedCounter =
+                HireUnlockCounterForKill(linked, &linkedBoss);
+            if (linkedCounter && linkedBoss)
+            {
+                uint32_t linkedQuest = HireUnlockQuestForTier(linkedCounter->tier);
+                if (linkedQuest != 0)
+                    CreditHireUnlockKill(member, linked, linkedCounter, linkedQuest);
+            }
+        }
     }
 }
 
