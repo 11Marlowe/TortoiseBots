@@ -56,6 +56,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
   - Consumes the shortest remaining active *Rejuvenation* or *Regrowth* HoT on an ally to deliver instantaneous burst healing.
   - The bot verifies that an active HoT exists on the target before attempting cast, preventing wasted cooldown triggers.
   - *Rejuvenation* and *Regrowth* are never stacked on a party member that already carries the aura; the heal ladder falls through to a direct heal instead. Same mana sense as the other healers: no veto at or below the low-health line, no oversized or average-efficiency heals above the medium line, no mana-hungry heals below the medium-mana line.
+  - Direct *Healing Touch* casts are downranked to the wound like every healer's direct heals (cheapest rank covering missing health minus incoming heals; top rank at or below the low-health line). HoTs (*Rejuvenation*, *Regrowth*) are never downranked. Rules in `HealDownrankPolicy.h`.
 
 ---
 

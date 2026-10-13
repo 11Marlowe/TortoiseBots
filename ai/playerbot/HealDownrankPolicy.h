@@ -1,0 +1,108 @@
+#pragma once
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
+
+// Pure decision rules for healer downranking: pick the cheapest known rank of
+// a direct heal whose estimated amount covers the target's still-missing
+// health (missing minus heals already incoming from other healers), plus a
+// safety margin. No core includes: callers in strategy/values translate game
+// state into these plain inputs, so the rules stay testable in
+// tools/test_heal_downrank_policy.cpp without the server.
+//
+// Why this shape (owner-confirmed 1.12 behaviour): a vanilla healer matches
+// the spell to the wound - a small loss gets a low rank, a big loss the top
+// rank. Rank-1 Heal costs ~30 mana for ~50 healing; top Greater Heal costs
+// 710 for ~2000. The Patchwerk raid (2026-10-13) showed the failure mode:
+// 17 healers cast top rank 202+ times each for ~2.55M healing on ~945k damage
+// taken (~63% overheal) and ran dry before the boss died. The branch base
+// already stops duplicate big heals (incoming-heal aware target selection,
+// fix/raid-heal-economy); this picks a rank that fits whatever wound is left.
+//
+// What the "mana save level" value does and why it cannot drive this:
+// AI_VALUE(double, "mana save level") is a MANUAL knob (ManaSaveLevelValue,
+// default 1.0), set only by the "save mana" chat command. In SpellIdValue it
+// picks the Nth rank from the top (saveMana == rank -> return *i), i.e. a
+// player-ordered fixed offset with no notion of the target's wound. The
+// SaveManaMultiplier only delays recasts (10 s * saveLevel), it never picks
+// ranks either. So the knob stays manual; downranking is automatic per cast
+// from the wound size. An explicit save-mana level above 1 still wins: the
+// player asked for cheap ranks, keep returning what the old path returned.
+//
+// Donor survey (read-only references, no prior art to port):
+//  - mod-playerbots: no rank selection anywhere. HealerAutoSaveManaMultiplier
+//    (src/Ai/Base/Strategy/ConserveManaStrategy.cpp:92-129) only VETOES an
+//    oversized/inefficient heal start; the estAmount/manaEfficiency table on
+//    each party heal action only feeds that veto. Already ported here as
+//    HealerManaPolicy::ShouldStartHeal (night2 gaps 1+2).
+//  - spp-classics-cmangos: no rank selection; only the core AutoDownrank
+//    mangosd.conf knob (buff/heal lower-level players), which is level-based,
+//    not wound-based.
+// So there is nothing to port; the fit-to-wound rule below is local.
+
+namespace ai
+{
+    // One known rank of a heal spell, cheapest-first. Callers fill `heal`
+    // with the rank's estimated amount on THIS target (base + spell-power
+    // bonus after the 1.12 sub-level-20 penalty, from the same
+    // CalculateDamage-style path the incoming-heal scan uses) and `mana`
+    // with its cost. `spellId` is the rank's spell id to cast.
+    struct HealRankOption
+    {
+        std::uint32_t spellId;
+        std::uint32_t heal;
+        std::uint32_t mana;
+    };
+
+    struct HealDownrankState
+    {
+        std::uint32_t missingHealth;  // target missing HP after incoming heals
+        std::uint8_t targetHealth;    // 0-100, target's CURRENT percent (pre-incoming)
+        std::uint8_t lowHealth;       // danger line: never downrank at/below
+        std::uint8_t criticalHealth;  // spike line: top rank regardless
+    };
+
+    // Fraction of the wound the chosen rank must cover: full coverage would
+    // keep picking top rank on any rounding miss, so 4/5 with a flat floor
+    // keeps small wounds on cheap ranks while big wounds still land.
+    constexpr std::uint32_t kHealDownrankCoverNumerator = 4;
+    constexpr std::uint32_t kHealDownrankCoverDenominator = 5;
+    constexpr std::uint32_t kHealDownrankCoverFlatFloor = 100;
+
+    // True when the target is an emergency: at or below lowHealth (and any
+    // criticalHealth line) the caller must cast the top rank, never downrank.
+    inline bool HealNeedsTopRank(HealDownrankState const& state)
+    {
+        return state.targetHealth <= state.lowHealth || state.targetHealth <= state.criticalHealth;
+    }
+
+    inline std::uint32_t HealDownrankNeed(HealDownrankState const& state)
+    {
+        std::uint32_t const scaled =
+            (state.missingHealth * kHealDownrankCoverNumerator) / kHealDownrankCoverDenominator;
+        return std::max(scaled, kHealDownrankCoverFlatFloor);
+    }
+
+    // Cheapest rank covering the need; cheapest when no wound is left, top
+    // rank on emergency or when nothing covers, 0 on an empty list (caller
+    // falls back to the old selection). Ranks MUST be cheapest-first
+    // (ascending mana); a single pass, no alloc.
+    inline std::uint32_t PickHealRank(std::vector<HealRankOption> const& ranks, HealDownrankState const& state)
+    {
+        if (ranks.empty())
+            return 0;
+        // Emergency (at/below the danger lines): the big heal, always.
+        if (HealNeedsTopRank(state))
+            return ranks.back().spellId;
+        // No wound left (incoming covers it): waste the least if forced.
+        if (state.missingHealth == 0)
+            return ranks.front().spellId;
+        std::uint32_t const need = HealDownrankNeed(state);
+        for (HealRankOption const& rank : ranks)
+            if (rank.heal >= need)
+                return rank.spellId;
+        return ranks.back().spellId;
+    }
+}
