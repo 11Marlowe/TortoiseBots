@@ -11,6 +11,9 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireSourceGuardPolicy.h"
+#include "../../../runtime/HireGearPolicy.h"
 
 using namespace ai;
 
@@ -416,7 +419,15 @@ bool EquipUpgradesAction::Execute(Event& event)
     bool const isClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow());
     if (!TortoiseBots::MayClaimedBotSelfEquip(bot->GetLevel(), isClaimed))
         return false;
-
+    // Issue #490: level-60 hires at tier >= 1 wear a static set; loot
+    // auto-equip must not replace it (player-equipped and traded items via
+    // EquipAction still apply: those are explicit orders, not automation).
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::HireGearTierEligible(bot->GetLevel(),
+            sPlayerbotAIConfig.hireGearTiersEnabled,
+            TortoiseBots::EffectiveHireGearTier(
+                sPlayerbotAIConfig.hireGearTiersEnabled, sPlayerbotAIConfig.hireGearStartTier)))
+        return false;
     // Worn gear is never touched in combat. This action is reachable from the
     // combat engine - WorldPacketHandlerStrategy::InitCombatTriggers installs
     // the same node list as the non-combat one, and bots ding on the killing
@@ -556,6 +567,17 @@ bool EquipUpgradesAction::Execute(Event& event)
         {
             continue;
         }
+        // Issue #490 (bug part): hired bots never auto-equip source-gated
+        // gear (pure rule in runtime/HireSourceGuardPolicy.h). BG blues score
+        // high against seed greens, so the audit would dress every hire in
+        // PvP on first loot. The item stays in the bags; explicit `.bot
+        // equip` / master trade still work. Pool bots keep the organic
+        // behaviour (earned PvP is wearable).
+        if (!TortoiseBots::MayHireAutoTakeSource(
+                sRandomItemMgr.GetSourceFlags(item->GetProto()->ItemId),
+                TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()),
+                sPlayerbotAIConfig.randomGearAllowPvP, sPlayerbotAIConfig.randomGearAllowReputation))
+            continue;
 
         // Bags and quivers never go through slot resolution below: core's
         // INVTYPE_BAG probe resolves to a single slot (the first free one, or

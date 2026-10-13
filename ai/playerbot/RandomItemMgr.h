@@ -350,6 +350,12 @@ class RandomItemMgr
         // by reputation are also listed in repRecipeItems (REP flag).
         std::map<uint32, ItemSourceTier> recipeTier;
         std::set<uint32> repRecipeItems;
+        // Item sets with at least one PvP-flagged sibling (NO_DISENCHANT or
+        // honor rank): the Turtle custom PvP ladders only flag their
+        // entry pieces, so unflagged siblings classify PvP too (issue #490).
+        // Built once in BuildSourceTierIndex from the prototype walk (O(rows),
+        // never item x template). Empty when no such set exists.
+        std::set<uint32> pvpItemSets;
         // Lowest loot-table tier mentioning the recipe item (raid /
         // end-game-dungeon loot recipe raises the product; trainer, vendor
         // and world-loot recipes stay base). Fail-open base when the recipe

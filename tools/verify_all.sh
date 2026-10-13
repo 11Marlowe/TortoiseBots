@@ -110,8 +110,15 @@ if command -v g++ >/dev/null 2>&1; then
         test_heigan_dance_policy
         test_hire_deletion_policy
         test_hire_departure_policy
+        test_hire_gear_policy
         test_hire_intro_policy
+        test_hire_respec_policy
+        test_hire_source_guard_policy
         test_hire_spec_policy
+        test_hire_tier_request_policy
+        test_hire_unlock_group_credit
+        test_hire_unlock_policy
+        test_hire_unlock_sync
         test_hot_streak_policy
         test_human_bg_demand_policy
         test_hunter_pet_policy
@@ -191,6 +198,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_taxi_path_policy
         test_thaddius_polarity_policy
         test_trade_lockbox_policy
         test_trade_trainer_policy

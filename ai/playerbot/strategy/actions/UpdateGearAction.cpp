@@ -5,6 +5,8 @@
 #include "playerbot/AiFactory.h"
 #include "playerbot/RandomItemMgr.h"
 #include "../../../runtime/ClaimLifecycle.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireGearPolicy.h"
 
 using namespace ai;
 
@@ -128,6 +130,15 @@ bool UpdateGearAction::isUseful()
 {
     // Issue #489: Claimed bots never use synthetic gear progression updates
     if (TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow()))
+        return false;
+    // Issue #490: level-60 hires at tier >= 1 wear a static set; the
+    // progression system must not replace it (eligibility is level + config
+    // only, same rule the provisioner uses).
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::HireGearTierEligible(bot->GetLevel(),
+            sPlayerbotAIConfig.hireGearTiersEnabled,
+            TortoiseBots::EffectiveHireGearTier(
+                sPlayerbotAIConfig.hireGearTiersEnabled, sPlayerbotAIConfig.hireGearStartTier)))
         return false;
 
     if (sPlayerbotAIConfig.gearProgressionSystemEnabled)
