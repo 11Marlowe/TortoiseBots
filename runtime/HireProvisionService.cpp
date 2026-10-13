@@ -1118,12 +1118,23 @@ void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const
     char const* specKey = ResolveHireGearSpecKey(bot->GetClass(), pending.specIndex, forcedRole);
     if (!specKey)
         return;
-    if (!HireGearCache::Instance().HasSetFor(bot->GetClass(), specKey, tier))
-        return;
+    if (EquipHireGearSet(bot, ai, bot->GetClass(), specKey, bot->GetRace(), tier))
+    {
+        HireLifecycle::Instance().SetGearTier(bot->GetObjectGuid(), tier);
+        bot->SaveToDB();
+    }
+}
+
+bool HireProvisionService::EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_t classId, char const* specKey, uint8_t race, uint8_t tier)
+{
+    if (!bot || !ai || !specKey)
+        return false;
+    if (!HireGearCache::Instance().HasSetFor(classId, specKey, tier))
+        return false;
     for (uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
     {
         HireGearRow const* row = nullptr;
-        if (!HireGearCache::Instance().FindRow(bot->GetClass(), specKey, bot->GetRace(), tier, slot, row) || !row)
+        if (!HireGearCache::Instance().FindRow(classId, specKey, race, tier, slot, row) || !row)
             continue;
         Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
         if (row->itemId == 0)
@@ -1153,8 +1164,7 @@ void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const
                 ai->EnchantItemT(row->enchantSpell, slot, item);
         }
     }
-    HireLifecycle::Instance().SetGearTier(bot->GetObjectGuid(), tier);
-    bot->SaveToDB();
+    return true;
 }
 
 void HireProvisionService::SnapshotKnownSpells(Player* bot, std::vector<uint32_t>& out)
