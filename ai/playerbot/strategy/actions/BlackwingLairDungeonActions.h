@@ -346,7 +346,7 @@ namespace ai
             if (!eggsAlive)
                 return false;
             Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
-            return Attack(requester, boss, event);
+            return Attack(requester, boss);
         }
     };
 

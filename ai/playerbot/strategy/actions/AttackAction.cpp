@@ -55,7 +55,7 @@ bool AttackAction::Execute(Event& event)
     Unit* target = GetTarget();
     if (target && target->IsInWorld() && target->GetMapId() == bot->GetMapId())
     {
-        return Attack(requester, target, event);
+        return Attack(requester, target);
     }
 
     return false;
@@ -99,7 +99,7 @@ bool AttackMyTargetAction::Execute(Event& event)
             // not refuse it for being beyond the background sight distance. The bot
             // still walks there through the combat reach chain after accepting.
             static float const orderDistance = sPlayerbotAIConfig.reactDistance;
-            if (Attack(requester, tgt, event, orderDistance))
+            if (Attack(requester, tgt, orderDistance))
             {
                 CommitExplicitAttackTarget(ai, guid);
                 SC_LOG("attack-cmd OK bot=%s tgt=%s",
@@ -133,7 +133,7 @@ bool AttackRTITargetAction::Execute(Event& event)
     {
         // Same explicit-order ceiling as "attack my target": the mark is the player's
         // order and the bot walks there after accepting.
-        if (Attack(requester, rtiTarget, event, sPlayerbotAIConfig.reactDistance))
+        if (Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance))
         {
             CommitExplicitAttackTarget(ai, rtiTarget->getObjectGuid());
             return true;
@@ -192,7 +192,7 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     return true;
 }
 
-bool AttackAction::Attack(Player* requester, Unit* target, Event& event, float maxDistance)
+bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
 {
     MotionMaster &mm = *bot->GetMotionMaster();
 	if (mm.GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE || (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f))
@@ -305,7 +305,8 @@ bool AttackAction::Attack(Player* requester, Unit* target, Event& event, float m
         {
             const bool rangedKit = ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT) &&
                 !ai->HasStrategy("close", BotState::BOT_STATE_COMBAT);
-            ai->DoSpecificAction(rangedKit ? "reach spell" : "reach melee", event, true);
+            ai::Event reachEvent("attack my target", "", requester);
+            ai->DoSpecificAction(rangedKit ? "reach spell" : "reach melee", reachEvent, true);
         }
 
         return result;
@@ -397,5 +398,5 @@ bool AttackDuelOpponentAction::isUseful()
 bool AttackDuelOpponentAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
-    return Attack(requester, AI_VALUE(Unit*, "duel target"), event);
+    return Attack(requester, AI_VALUE(Unit*, "duel target"));
 }
