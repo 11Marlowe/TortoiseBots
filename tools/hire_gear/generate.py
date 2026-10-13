@@ -121,6 +121,72 @@ SUBCLASS_NAME = {0: "axe", 1: "axe", 2: "bow", 3: "gun", 4: "mace",
                  10: "staff", 13: "fist", 15: "dagger", 16: "thrown",
                  17: "spear", 18: "crossbow", 19: "wand"}
 # Turtle custom races: 9 Goblin, 10 High Elf (playercreateinfo_item).
+# Hand overrides (issue #490 PR3 gear): (hire class id, spec, tier, slot)
+# -> item id. Applied after the ranked pick, before the no-downgrade guard,
+# so progression guards still hold. Each entry states its evidence in the
+# comment; keep this table small and prefer audit word-list fixes for
+# false alarms.
+HAND_OVERRIDES = {
+    # retribution t1/t2 feet: BIS rank 1 (18322, mail caster boots) over
+    # rank 3 (14616, mail melee boots); the rank-3 item fits the spec
+    # (agi front-loads seal damage) and tier. (Rank 2 11822 is cloth with
+    # int/sta + spell damage — worse than the BIS pick, never pin it.)
+    (2, "retribution", 1, 7): 14616,
+    (2, "retribution", 2, 7): 14616,
+    # retribution t1/t2 second ring: BIS rank 2 (13001, caster ring, pair
+    # filler behind 13098) -> rank 5 18500 (melee ring, same t1 pool).
+    (2, "retribution", 1, 11): 18500,
+    (2, "retribution", 2, 11): 18500,
+    # protection t1/t2 hands: BIS rank 1 (14551, weapon-skill gloves, no
+    # tank stat) -> rank 2 13963 (sta + weapon skill, same t1 pool).
+    (1, "protection", 1, 9): 13963,
+    (1, "protection", 2, 9): 13963,
+    (2, "protection", 1, 9): 13963,
+    (2, "protection", 2, 9): 13963,
+    # protection t3/t4 hands: BIS rank 1 is still 14551; rank 2 16863
+    # (sta/str + defense, t3 MC loot) fits warriors, but it is plate
+    # (warrior-only), so paladins take rank 3 13162 (sta/str + crit,
+    # same t1 pool, paladin-usable).
+    (1, "protection", 3, 9): 16863,
+    (1, "protection", 4, 9): 16863,
+    (2, "protection", 3, 9): 13162,
+    (2, "protection", 4, 9): 13162,
+    # protection t1/t2 MH: BIS rank-1 three-way tie (11684 proc-only,
+    # 12798 armor-shatter proc, 15806 agi/str stat stick); rank 2 10837
+    # (str + hit, t1) is the only one with tank-threat stats AND proc —
+    # but it is an axe-offhand paladins cannot use, so warriors take it
+    # while paladins keep t1 BIS and take rank 5 19867 (sta + defense,
+    # t2 ZG loot) at t2.
+    (1, "protection", 1, 15): 10837,
+    (1, "protection", 2, 15): 10837,
+    (2, "protection", 2, 15): 19867,
+    # restoration t2 shoulders: BIS rank 1 (20680, hit proc, no heal stats)
+    # -> rank 4 19928 (int/spi + healing, t2 ZG loot).
+    (7, "restoration", 2, 2): 19928,
+    # holy t5 relic: BIS rank 1 (22400 Devotion-armor libram, a prot
+    # effect) -> rank 2 22401 (Seal-cost libram, same t1 pool).
+    (2, "holy", 5, 17): 22401,
+    # protection t2-t4 relic: the warrior-list source has no relic slot, so
+    # the weights fallback picks a level-34 libram; pin the t2 Faithful
+    # libram (61443, Lord Blackwald II loot) instead. (No t1 libram with a
+    # matching effect exists; the t1 fallback stays.)
+    (2, "protection", 2, 17): 61443,
+    (2, "protection", 3, 17): 61443,
+    (2, "protection", 4, 17): 61443,
+    # restoration t2-t4 relic: the weights fallback picks an elemental
+    # totem; pin the Scholomance healer totem (23200, Lesser-Healing-Wave
+    # effect, t1 loot via reference 900700). (No t1 totem with a matching
+    # effect exists; the t1 fallback stays.)
+    (7, "restoration", 2, 17): 23200,
+    (7, "restoration", 3, 17): 23200,
+    (7, "restoration", 4, 17): 23200,
+    # bear t2-t4 relic: the weights fallback picks a maul-cost idol for a
+    # feral set; pin the Moonfang idol (61293, armor effect, t2 loot).
+    # (No t1 idol with a matching effect exists; the t1 fallback stays.)
+    (11, "bear", 2, 17): 61293,
+    (11, "bear", 3, 17): 61293,
+    (11, "bear", 4, 17): 61293,
+}
 
 UNIQUENESS_FLAG = 0  # item_template Flags bit for Unique-equip (0x20000?)
 UNIQUE_BIT = 0x20000
@@ -469,12 +535,17 @@ def main():
                    "hit chance", "feral", "armor penetration", "strike",
                    "slaying", "sword", "axe", "mace", "dagger", "polearm",
                    "fist")
+    # tank specs (protection, bear) also accept stamina and defensive
+    # procs (Sanctuary, defense, dodge, parry, block): a Quel'Serrar with
+    # no str/agi is a tank weapon, not a stat stick.
+    TANK_SPECS_W = {(1, "protection"), (2, "protection"), (11, "bear")}
+    TANK_WORDS_W = ("stamina", "sanctuary", "defense", "dodge", "parry",
+                    "block", "armor")
     CAST_WORDS = ("healing", "spell", "mana regen", "spell damage", "frost",
                   "fire", "shadow", "nature", "arcane")
     spell_names = {}
     for sid, nm in q(cur, "SELECT entry, name FROM spell_template"):
         spell_names[int(sid)] = (nm or "").lower()
-
     def weapon_stat_ok(cls, spec, item):
         s = stats.get(item)
         if not s or s[2] != 2:
@@ -489,13 +560,18 @@ def main():
                 mods[t] = mods.get(t, 0) + v
         melee_stat = bool(mods.get(3, 0) or mods.get(4, 0))
         caster_stat = bool(mods.get(5, 0) or mods.get(6, 0))
+        tank_ok = key in TANK_SPECS_W and bool(mods.get(7, 0))
         for sid in item_spells.get(item, ()):
             nm = spell_names.get(sid, "")
             if any(w in nm for w in MELEE_WORDS):
                 melee_stat = True
             if any(w in nm for w in CAST_WORDS):
                 caster_stat = True
+            if key in TANK_SPECS_W and any(w in nm for w in TANK_WORDS_W):
+                tank_ok = True
         if key in PHYS_SPECS:
+            if key in TANK_SPECS_W:
+                return melee_stat or tank_ok
             return melee_stat
         return caster_stat
     # spell_template mask data for the enchant allowlist (same table the
@@ -719,6 +795,7 @@ def main():
                             break
                         if item is not None and source == "turtle-sheet":
                             break
+
                 # NO DOWNGRADES: a tier never replaces the previous tier's
                 # item with one the current phase list ranks worse. If the
                 # previous item is absent from the current list, keep it when
@@ -778,7 +855,8 @@ def main():
                                         item, source = wid, "wowisclassic"
                                         WIC_FILLS.append(
                                             (cls, spec, tier, slot, wid))
-                if item is None and slot in prev:
+                _ovkey = (cls, spec, tier, slot)
+                if item is None and slot in prev and _ovkey not in HAND_OVERRIDES:
                     pv = prev[slot]
                     if slot not in (15, 16) or pv == 0 \
                             or (comp_ok(cls, spec, slot, pv)
@@ -840,6 +918,26 @@ def main():
                 if item is None and slot == 16 and (cls, spec) in DUAL | SHIELD \
                         and slot in prev_tier and prev_tier[slot]:
                     item, source, flags = prev_tier[slot], "prev-tier", 1
+                # hand overrides (HAND_OVERRIDES above): validated like any
+                # ranked pick. Runs after the fallback chain so slots with
+                # no ranked/wic rows (relics) can be pinned too; the row
+                # below records source bisclassic with flags bit1 (hand).
+                _ov = HAND_OVERRIDES.get((cls, spec, tier, slot))
+                if _ov is not None and _ov != pair_item:
+                    _ot = tier_of(_ov)
+                    if _ot is not None and _ot <= tier and not excluded(_ov) \
+                            and usable(_ov, cls):
+                        _os = stats.get(_ov)
+                        if _os is not None and _os[2] != 11 and (
+                                slot not in (15, 16, 17) or slot_ok(_ov)):
+                            if slot not in (15, 16) or (
+                                    comp_ok(cls, spec, slot, _ov)
+                                    and weapon_stat_ok(cls, spec, _ov)):
+                                # re-stamp even when a fallback already
+                                # picked the same item (source/flags must
+                                # say hand-touched).
+                                item, source, flags = _ov, "bisclassic", 1
+
                 if item is None:
                     continue
                 picks[slot] = item
