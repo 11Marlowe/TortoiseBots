@@ -290,7 +290,6 @@ namespace ai
                 creators["aquatic form"] = [](PlayerbotAI* ai) { return new CastAquaticFormAction(ai); };
                 creators["caster form"] = [](PlayerbotAI* ai) { return new CastCasterFormAction(ai); };
                 creators["mangle (bear)"] = [](PlayerbotAI* ai) { return new CastMangleBearAction(ai); };
-                creators["mangle (cat)"] = [](PlayerbotAI* ai) { return new CastMangleCatAction(ai); };
                 creators["maul"] = [](PlayerbotAI* ai) { return new CastMaulAction(ai); };
                 creators["bash"] = [](PlayerbotAI* ai) { return new CastBashAction(ai); };
                 creators["swipe"] = [](PlayerbotAI* ai) { return new CastSwipeAction(ai); };
@@ -308,7 +307,6 @@ namespace ai
                 creators["starfire"] = [](PlayerbotAI* ai) { return new CastStarfireAction(ai); };
                 creators["nature's grasp"] = [](PlayerbotAI* ai) { return new CastNaturesGraspAction(ai); };
                 creators["claw"] = [](PlayerbotAI* ai) { return new CastClawAction(ai); };
-                creators["swipe (cat)"] = [](PlayerbotAI* ai) { return new CastSwipeCatAction(ai); };
                 creators["rake"] = [](PlayerbotAI* ai) { return new CastRakeAction(ai); };
                 creators["ferocious bite"] = [](PlayerbotAI* ai) { return new CastFerociousBiteAction(ai); };
                 creators["rip"] = [](PlayerbotAI* ai) { return new CastRipAction(ai); };

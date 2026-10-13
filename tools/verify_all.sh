@@ -176,6 +176,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_ready_rebuff_policy
         test_rear_flank_policy
         test_resist_aura_policy
+        test_retaliation_policy
         test_rogue_threat_policy
         test_rogue_weapon_policy
         test_rpg_mixer_policy

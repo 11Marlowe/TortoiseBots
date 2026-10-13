@@ -21,7 +21,6 @@ void GenericHunterNonCombatStrategy::InitTriggers(std::vector<TriggerNode*>& tri
     triggers.push_back(new TriggerNode("trueshot aura", { NextAction("trueshot aura", 2.0f) }));
     triggers.push_back(new TriggerNode("often", { NextAction("apply stone", 1.0f),
                                                   NextAction("apply oil", 1.0f) }));
-    triggers.push_back(new TriggerNode("low ammo", { NextAction("say::low ammo", ACTION_NORMAL) }));
     triggers.push_back(new TriggerNode("no track", { NextAction("track humanoids", ACTION_NORMAL) }));
     triggers.push_back(new TriggerNode("no ammo", { NextAction("equip upgrades packet action", ACTION_HIGH + 1) }));
 }

@@ -214,6 +214,7 @@ namespace ai
                 creators["concussive shot on snare target"] = [](PlayerbotAI* ai) { return new ConsussiveShotSnareTrigger(ai); };
                 creators["scare beast"] = [](PlayerbotAI* ai) { return new ScareBeastTrigger(ai); };
                 creators["low ammo"] = [](PlayerbotAI* ai) { return new HunterLowAmmoTrigger(ai); };
+                creators["volley channel check"] = [](PlayerbotAI* ai) { return new VolleyChannelCheckTrigger(ai); };
                 creators["no ammo"] = [](PlayerbotAI* ai) { return new HunterNoAmmoTrigger(ai); };
                 creators["has ammo"] = [](PlayerbotAI* ai) { return new HunterHasAmmoTrigger(ai); };
                 creators["switch to melee"] = [](PlayerbotAI* ai) { return new SwitchToMeleeTrigger(ai); };

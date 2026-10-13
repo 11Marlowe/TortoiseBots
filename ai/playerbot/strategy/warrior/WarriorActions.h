@@ -1,6 +1,7 @@
 #pragma once
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/AoeFearPolicy.h"
+#include "playerbot/RetaliationPolicy.h"
 
 namespace ai
 {
@@ -45,7 +46,32 @@ namespace ai
     SNARE_ACTION(CastHamstringAction, "hamstring");
     MELEE_ACTION(CastOverpowerAction, "overpower");
     MELEE_ACTION(CastMockingBlowAction, "mocking blow");
-    BUFF_ACTION(CastRetaliationAction, "retaliation");
+    class CastRetaliationAction : public CastBuffSpellAction
+    {
+    public:
+        CastRetaliationAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "retaliation") {}
+
+        bool isUseful() override
+        {
+            // 30 min cooldown, and it counters melee swings only: spend it when
+            // two or more melee attackers are on the warrior (mod-playerbots
+            // CastRetaliationAction), not on one mob or a caster.
+            if (!CastBuffSpellAction::isUseful())
+                return false;
+
+            std::vector<RetaliationAttacker> attackers;
+            for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+            {
+                Unit* attacker = ai->GetUnit(guid);
+                if (!attacker)
+                    continue;
+
+                attackers.push_back({attacker->IsAlive(), attacker->GetVictim() == bot,
+                                     bot->GetDistance(attacker, SizeFactor::CombatReach) <= ATTACK_DISTANCE});
+            }
+            return RetaliationWorthCooldown(attackers);
+        }
+    };
 
     // arms talents
     MELEE_ACTION(CastMortalStrikeAction, "mortal strike");
@@ -111,7 +137,7 @@ namespace ai
 
         bool isUseful() override
         {
-            static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289, 2048};
+            static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
 
             for (uint32 id : battleShoutIds)
             {
