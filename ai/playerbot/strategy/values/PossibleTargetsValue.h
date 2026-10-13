@@ -5,6 +5,7 @@
 #include "NearestUnitsValue.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/AvoidAoePolicy.h"
+#include "playerbot/CreatureAuraKeepoutPolicy.h"
 
 namespace ai
 {
@@ -38,11 +39,19 @@ namespace ai
     // not-selectable units within 15yd whose periodic-trigger aura fires a
     // school-damage spell (e.g. invisible void-zone trigger NPCs). LoS is
     // ignored — the trigger sits inside the zone it marks.
+    // With AiPlayerbot.AvoidCreatureAuras on it also accepts a selectable
+    // creature listed in CreatureAuraKeepoutPolicy.h that carries its aura
+    // (Maraudon's Creeping Sludge), so the same sensor sees it.
     class PossibleTriggersValue : public NearestUnitsValue
 	{
 	public:
         PossibleTriggersValue(PlayerbotAI* ai) :
             NearestUnitsValue(ai, "possible triggers", kMaxAoeAvoidRadiusYd, true) {}
+
+        // The keep-out row for a live listed creature carrying its aura while
+        // the toggle is on; nullptr otherwise. The explicit-order exemption is
+        // per bot and stays with the callers.
+        static CreatureAuraKeepout const* KeepoutFor(Unit* unit);
 
     protected:
         void FindUnits(std::list<Unit*> &targets) override;

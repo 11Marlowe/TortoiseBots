@@ -19,6 +19,7 @@
 #include "playerbot/TravelRepickPolicy.h"
 #include "playerbot/TravelRouteCachePolicy.h"
 #include "playerbot/AvoidAoePolicy.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/PoolFleePolicy.h"
 #include "playerbot/JumpPolicy.h"
 #include "Database/DBCStores.h"
@@ -2560,11 +2561,26 @@ bool AvoidAoeAction::AvoidDamagingTrap(float& outRadius, WorldPosition& outCente
 bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
 {
     std::list<ObjectGuid> const& triggers = AI_VALUE(std::list<ObjectGuid>, "possible triggers");
+    ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
     for (ObjectGuid const& guid : triggers)
     {
         Unit* unit = ai->GetUnit(guid);
         if (!unit || !unit->IsInWorld() || !sServerFacade.IsAlive(unit))
             continue;
+        // Listed permanent-aura creature (AiPlayerbot.AvoidCreatureAuras):
+        // keep out to the row's keep-out radius, wider than the pulse, for
+        // every role. The creature the player ordered this bot to attack is
+        // left alone (the order wins).
+        if (CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit))
+        {
+            if (guid == explicitTarget)
+                continue;
+            if (!InsideCreatureAuraKeepout(*row, bot->GetDistance(unit)))
+                continue;
+            outRadius = row->keepoutRadius;
+            outCenter = WorldPosition(unit->GetMapId(), unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
+            return true;
+        }
         Unit::AuraList const& periodic = unit->GetAurasByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL);
         for (Unit::AuraList::const_iterator it = periodic.begin(); it != periodic.end(); ++it)
         {
