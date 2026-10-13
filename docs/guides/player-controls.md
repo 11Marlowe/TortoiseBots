@@ -291,6 +291,12 @@ and no reply line lands in the chat frame. `.bot` chat stays the transport when
 the addon channel is unavailable — ungrouped, a battleground group with no
 pre-battleground group, or an older module — and for every hand-typed command.
 
+Typed `.bot` commands and `TBM` addon requests from an in-game player run on the
+server's next world tick, before the bots update, in the order they arrived (issue #833).
+Replies come back in that order on the transport the request used. A command whose
+sender logs out before that tick is dropped; more than 128 commands from one player
+within one tick are ignored with one line `Too many bot commands at once: <n> ignored.`
+
 - Request — addon message prefix `TBM`, body `<verb> [args]` (`action attack`).
 - Reply — addon message prefix `TBM`, one line per reply, `TBM:` protocol lines included.
 - Verdict — `TBM:TRANSPORT|party` or `TBM:TRANSPORT|none`, trailing each roster response.

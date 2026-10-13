@@ -1,6 +1,8 @@
 #include "BotAddonAdapter.h"
 
+#include "../commands/BotCommandQueue.h"
 #include "../commands/BotCommands.h"
+#include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Chat.h"
 #include "ModuleLog.h"
 #include "Player.h"
@@ -79,11 +81,30 @@ bool BotAddonAdapter::OnAddonMessage(Player* from, std::string const& msg)
     std::string const payload = msg.substr(prefix.size());
     TB_LOG_DEBUG("TortoiseBots: addon command from %s: %s", from->GetName(), payload.c_str());
 
+    // Issue #833: queued like a typed `.bot`, so a player's addon clicks and
+    // typed commands share one world-thread FIFO and their replies (TBM
+    // protocol lines included) keep the order the commands arrived in.
+    // BotChatAdapter::DrainQueuedCommands runs it through ExecuteCommand.
+    if (!sPlayerbotAIConfig.enabled)
+    {
+        ExecuteCommand(from, payload);
+        return true;
+    }
+    BotCommandQueue::Instance().Enqueue(from->GetObjectGuid().GetRawValue(), BotCommandReply::Addon, payload);
+    return true;
+}
+
+void BotAddonAdapter::ExecuteCommand(Player* requester, std::string const& payload)
+{
     // One command entry point for both transports: authorization, grammar and
     // replies stay identical to `.bot`.
-    AddonReplyHandler handler(from, AddonPrefix);
+    AddonReplyHandler handler(requester, AddonPrefix);
     BotCommands::HandleChatCommand(&handler, payload.c_str());
-    return true;
+}
+
+void BotAddonAdapter::SendReply(Player* requester, std::string const& line)
+{
+    AddonReplyHandler(requester, AddonPrefix).SendSysMessage(line.c_str());
 }
 
 } // namespace TortoiseBots

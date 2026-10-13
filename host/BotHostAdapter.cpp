@@ -10,7 +10,9 @@
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
 #include "../runtime/ObservabilityEmitter.h"
+#include "BotChatAdapter.h"
 #include "HireRecruiterScript.h"
+#include "../commands/BotCommandQueue.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Config/Config.h"
 #include "ObjectMgr.h"
@@ -138,6 +140,9 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     ++m_ticks;
     // Expire stale leases before services select candidates (issue #89).
     BotActivityLeaseManager::Instance().Update(diff);
+    // Issue #833: players' `.bot` / TBM commands arrive on map and
+    // AsyncPackets threads; run them here, serialised with the bot update.
+    BotChatAdapter::DrainQueuedCommands();
     BotManager::Instance().OnWorldUpdate(diff);
     PlayerConvenience::Instance().Update(diff);
     RandomBotService::Instance().Update(diff);
@@ -153,6 +158,7 @@ void BotHostAdapter::OnShutdown()
 {
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
+    BotCommandQueue::Instance().Clear();
     BotManager::Instance().Shutdown();
     RandomBotService::Instance().Shutdown();
     BotActivityLeaseManager::Instance().Clear();
