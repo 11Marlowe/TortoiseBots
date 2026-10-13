@@ -69,6 +69,7 @@
     showTrails: true,
     // Bots tab
     botsPresence: 'all',
+    botsKind: 'all',
     botsView: 'live',
     botsState: 'all',
     botsClass: 'all',
@@ -508,6 +509,7 @@
     // Bots
     botSearch: document.getElementById('bot-search'),
     presenceSeg: document.getElementById('bots-presence'),
+    kindSeg: document.getElementById('bots-kind'),
     viewSeg: document.getElementById('bots-view'),
     stateChips: document.getElementById('state-chips'),
     classChips: document.getElementById('class-chips'),
@@ -540,6 +542,7 @@
     profileTabs: document.getElementById('profile-tabs'),
     armoryMapBtn: document.getElementById('armory-map-btn'),
     armoryOnline: document.getElementById('armory-online'),
+    armoryKind: document.getElementById('armory-kind'),
     armoryName: document.getElementById('armory-name'),
     armorySubtitle: document.getElementById('armory-subtitle'),
     armorySpecInfo: document.getElementById('armory-spec-info'),
@@ -934,7 +937,7 @@
         .slice(0, 8);
       active = 0;
       box.innerHTML = items.length
-        ? items.map(r => `<div class="qf-row" role="option" data-guid="${esc(r.guid)}"><span class="qf-name" style="color: ${classColor(r.cls)};">${esc(r.name)}</span><span class="qf-meta">L${esc(r.level)} ${esc(capClass(r.cls))} · ${r.online ? 'online' : 'offline'}</span></div>`).join('')
+        ? items.map(r => `<div class="qf-row" role="option" data-guid="${esc(r.guid)}"><span class="qf-name" style="color: ${classColor(r.cls)};">${esc(r.name)}</span><span class="qf-meta">L${esc(r.level)} ${esc(capClass(r.cls))}${r.live && r.live.player ? ' · player' : ''} · ${r.online ? 'online' : 'offline'}</span></div>`).join('')
         : '<div class="qf-empty">No bot matches.</div>';
       box.hidden = false;
       paint();
@@ -1293,7 +1296,7 @@
     const off = state.bots.filter(b => b.map !== 0 && b.map !== 1);
     if (el.worldOffmap) {
       el.worldOffmap.textContent = off.length
-        ? `${off.length} bot${off.length === 1 ? '' : 's'} in instances or other maps (see the Bots list).`
+        ? `${off.length} in instances or other maps (see the Bots list).`
         : '';
     }
     renderMapLegend(bots);
@@ -1980,7 +1983,14 @@
 
   function makeBotDot(b, issue, pctX, pctY) {
     const dot = document.createElement('div');
-    dot.className = 'bot-dot';
+    dot.className = 'bot-dot' + (b.player ? ' player-dot' : '');
+    if (b.player) {
+      dot.title = `${b.name} (player, L${b.level})`;
+      // Ring in the class colour: the CSS hollows the centre, the border
+      // colour has to be set here (currentColor is the text colour).
+      dot.style.borderColor = classColor(b.class);
+      dot.style.backgroundColor = 'transparent';
+    }
     if (issue) dot.classList.add(issue.severity === 'persistent' ? 'issue-persistent' : 'issue-watch');
     if (b.guid === state.profileGuid) dot.classList.add('selected');
     // A corpse must not read as a live bot: the fill stays the class colour,
@@ -1989,7 +1999,7 @@
     dot.dataset.guid = b.guid;
     dot.style.left = `${pctX}%`;
     dot.style.top = `${pctY}%`;
-    dot.style.backgroundColor = classColor(b.class);
+    if (!b.player) dot.style.backgroundColor = classColor(b.class);
     const deg = (b.o || 0) * (180 / Math.PI);
     dot.style.transform = `translate(-50%, -50%) rotate(${-deg}deg)`;
     return dot;
@@ -2016,8 +2026,10 @@
       ? `<br><span style="color: var(--accent-red);">Issue:</span> ${esc(ISSUE_LABELS[issue.type] || issue.type)} (${esc(fmtDuration(issue.duration_sec))})`
       : '';
     el.mapTooltip.innerHTML = `
-      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})<br>
-      <span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>
+      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${b.player ? ' <span class="badge badge-success">player</span>' : ''}<br>
+      ${b.player
+        ? `<span style="color: var(--text-muted);">Group:</span> ${b.group ? `#${esc(b.group)}` : 'solo'}<br>`
+        : `<span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>`}
       <span style="color: var(--text-muted);">Status:</span> ${esc(b.state || 'idle')}<br>
       ${b.killer ? `<span style="color: var(--text-muted);">Killed by:</span> ${esc(b.killer)}${b.killer_level ? ` (${b.killer_level})` : ''}<br>` : ''}
       <span style="color: var(--text-muted);">Zone:</span> ${esc(getZoneName(b.zone, b.map))}<br>
@@ -2119,7 +2131,7 @@
     if (!el.mapLegend) return;
     const present = [...new Set(zoneBots.map(b => b.class))].sort();
     if (present.length === 0) {
-      el.mapLegend.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">No bots in this zone</span>';
+      el.mapLegend.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">Nobody in this zone</span>';
       return;
     }
     el.mapLegend.innerHTML = present.map(cls =>
@@ -2201,7 +2213,8 @@
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
         const pvp = pvpBadge(r.live);
-        return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${pvp ? ` ${pvp}` : ''}${badge}`;
+        const kind = r.live && r.live.player ? ' <span class="badge badge-success" title="Real player, not a bot">player</span>' : '';
+        return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
     },
     class: {
@@ -2373,12 +2386,14 @@
   function renderRoster() {
     if (!el.rosterTable) return;
     paintSeg(el.presenceSeg, state.botsPresence);
+    paintSeg(el.kindSeg, state.botsKind);
     paintSeg(el.viewSeg, state.botsView);
 
     const rows = botRows();
     const issues = issueSet();
     const query = (el.botSearch ? el.botSearch.value : '').toLowerCase().trim();
     const presenceOk = r => state.botsPresence === 'all' || (state.botsPresence === 'online') === r.online;
+    const kindOk = r => state.botsKind === 'all' || (state.botsKind === 'player') === !!(r.live && r.live.player);
     const words = query.split(/\s+/).filter(Boolean);
     const fields = words.map(queryField);
     const text = words.filter((w, i) => !fields[i]);
@@ -2390,7 +2405,7 @@
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
     const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
 
-    const base = rows.filter(r => presenceOk(r) && queryOk(r));
+    const base = rows.filter(r => presenceOk(r) && kindOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
     const list = base.filter(r => stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
 
@@ -2407,9 +2422,12 @@
     });
 
     const online = rows.filter(r => r.online).length;
-    if (el.rosterCount) el.rosterCount.textContent = `${list.length === rows.length ? rows.length : `${list.length} of ${rows.length}`} bots`;
+    const players = rows.filter(r => r.live && r.live.player).length;
+    const noun = state.botsKind === 'player' ? 'players' : (players ? 'bots + players' : 'bots');
+    if (el.rosterCount) el.rosterCount.textContent = `${list.length === rows.length ? rows.length : `${list.length} of ${rows.length}`} ${noun}`;
     if (el.rosterNote) {
       el.rosterNote.textContent = `${online} online · ${rows.length - online} offline` +
+        (players ? ` · ${players} player${players === 1 ? '' : 's'} live` : '') +
         (state.rosterError ? ' · offline bots unavailable (database list failed)' : '');
     }
 
@@ -2420,7 +2438,7 @@
     }).join('') + '</tr>';
 
     if (!list.length) {
-      el.rosterTable.innerHTML = `<tr><td colspan="${cols.length}" class="table-empty">${rows.length ? 'No bots match these filters.' : 'Waiting for bots…'}</td></tr>`;
+      el.rosterTable.innerHTML = `<tr><td colspan="${cols.length}" class="table-empty">${rows.length ? 'Nobody matches these filters.' : 'Waiting for bots…'}</td></tr>`;
       return;
     }
     const ctx = { issues };
@@ -2590,6 +2608,7 @@
 
     if (el.botSearch) el.botSearch.addEventListener('input', renderRoster);
     bindSeg(el.presenceSeg, v => { state.botsPresence = v; renderRoster(); });
+    bindSeg(el.kindSeg, v => { state.botsKind = v; renderRoster(); });
     bindSeg(el.viewSeg, v => {
       state.botsView = v;
       try { localStorage.setItem(BOTS_VIEW_STORAGE_KEY, v); } catch (e) {}
@@ -3135,6 +3154,13 @@
   }
 
   function fetchProfile(guid) {
+    const live = liveBot(guid);
+    if (live && live.player) {
+      state.profile = null;
+      renderProfileHeader();
+      renderProfileOverview();
+      return;
+    }
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
       .then(async r => {
         if (r.status === 401) throw new Error('HTTP 401');
@@ -3232,6 +3258,7 @@
     const live = liveBot(guid);
     const clsName = s ? classNameById(s.class) : (live ? capClass(live.class) : '');
     const online = !!live || !!(s && s.online);
+    const isPlayer = !!(live && live.player);
 
     if (el.armoryName) {
       el.armoryName.textContent = s ? s.name : (live ? live.name : '…');
@@ -3248,6 +3275,11 @@
     if (el.armoryOnline) {
       el.armoryOnline.textContent = online ? 'Online' : 'Offline';
       el.armoryOnline.className = `badge ${online ? 'badge-success' : 'badge-warn'}`;
+    }
+    if (el.armoryKind) {
+      el.armoryKind.textContent = isPlayer ? 'Player' : 'Bot';
+      el.armoryKind.className = `badge ${isPlayer ? 'badge-success' : 'badge-info'}`;
+      el.armoryKind.style.display = live ? '' : 'none';
     }
     if (el.armoryMapBtn) el.armoryMapBtn.style.display = live ? '' : 'none';
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
@@ -3287,13 +3319,14 @@
         <div class="kv-card">
           <div class="section-label">Right now</div>
           ${kv('Status', stateTag(live.state))}
+          ${live.player ? kv('Group', live.group ? `<span class="mono">Group #${esc(live.group)}</span>` : '<span class="cell-muted">solo</span>') : ''}
           ${kv('Target', live.target ? `<strong class="target-cell">${esc(displayTarget(live))}</strong>${live.target_level ? ` <span class="cell-muted">L${esc(live.target_level)}</span>` : ''}` : DASH)}
           ${live.travel_purpose ? kv('Travel', `<strong>${esc(live.travel_purpose)}</strong><span class="cell-muted"> → ${esc(live.travel_to || '')}</span>`) : ''}
-          ${kv('Last action', kvMono(live.last_action))}
-          ${kv('Trigger', kvMono(live.last_trigger))}
-          ${kv('Strategy', kvMono(live.strategy || 'default'))}
+          ${live.player ? '' : kv('Last action', kvMono(live.last_action))}
+          ${live.player ? '' : kv('Trigger', kvMono(live.last_trigger))}
+          ${live.player ? '' : kv('Strategy', kvMono(live.strategy || 'default'))}
           ${live.pvp ? kv('PvP', pvpBadge(live)) : ''}
-          ${kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
+          ${live.player ? '' : kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
         </div>
         <div class="kv-card">
           <div class="section-label">Where &amp; how it is going</div>
@@ -3370,7 +3403,12 @@
     if (tab === 'overview') { renderProfileOverview(); return; }
     if (!p) {
       const host = document.getElementById(`armory-content-${tab}`);
-      if (host && tab !== 'gear') host.innerHTML = '<div class="empty-hint">Loading…</div>';
+      const live = liveBot(state.profileGuid);
+      if (host && tab !== 'gear') {
+        host.innerHTML = (live && live.player)
+          ? '<div class="empty-hint">Players have no database profile — live status is on the Overview tab.</div>'
+          : '<div class="empty-hint">Loading…</div>';
+      }
       return;
     }
     // Gear & stats render together with the profile (renderArmory).

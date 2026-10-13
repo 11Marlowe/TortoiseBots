@@ -13,9 +13,11 @@ Rules that keep its state honest:
 - `SERVER_INFO`'s `bots` object mixes numbers (pool sizes, intervals, budgets) with `"0"`/`"1"` flag strings: `ServerInfoPayload.Bots` is `map[string]any`. Typing it as `map[string]string` made `encoding/json` reject the whole datagram (silently, via the listener's error return), which left the Server panel and diagnostic report permanently empty.
 - Bump `kProtocolVersion` in `ObservabilityEmitter.cpp` and `model.ProtocolVersion` in `internal/model/types.go` together.
 
-## Telemetry surface (protocol v8)
+## Telemetry surface (protocol v9)
 
-Each `BOT_BATCH` bot entry carries: `name, guid, class, role, level, xp, next_xp, hp/max_hp, power/max_power, power_type, map, zone, x/y/z/o, target, target_level, strategy, state, last_action, last_trigger, travel_purpose, travel_to, travel_status, travel_dist, ai_visits, ai_age_ms`.
+Each `BOT_BATCH` bot entry carries: `name, guid, player, group, class, role, level, xp, next_xp, hp/max_hp, power/max_power, power_type, map, zone, x/y/z/o, target, target_level, strategy, state, last_action, last_trigger, travel_purpose, travel_to, travel_status, travel_dist, ai_visits, ai_age_ms`.
+
+Real players ride the same snapshot cycle as bots: the emitter collects online network sessions (`HasNetworkTransport`, the same predicate behind the heartbeat `humans` count) every 2 s snapshot and appends one row per player with `player: true` and `group` = core group id (0 = solo). Bot-only detail stays empty (no role/strategy/AI age/travel); state is the visible unit state (combat/moving/resting/dead/idle). The daemon stores them in the same roster (list/map/profile join by guid) but excludes them from pool KPIs (grinding rollup, level bands), issue episodes, the level timeline and the class/role census; trails are bot-only. The Bots tab has a Bots + players / Bots / Players filter, player rows carry a "player" badge, map markers are rings in the class colour, tooltips and the profile show group instead of the AI role, and the profile skips the database subtabs (players are not pool bots). Heartbeat `humans` counts the same player rows the batches deliver; `bots` counts bot rows only.
 
 `zone` (snapshot and event rows) is the zone the core caches on the bot (`GetCachedZoneId()`), not a terrain lookup. The core sets it at login and teleport and refreshes it on its one-second zone update, so at a zone border it can trail the bot's position by up to one second. Where the terrain has no area row, the cache keeps the last real zone instead of reporting 0.
 

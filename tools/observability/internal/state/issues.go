@@ -136,6 +136,10 @@ func (t *issueTracker) Observe(bots []model.BotSnapshot, now time.Time) {
 
 	for i := range bots {
 		b := &bots[i]
+		if b.Player {
+			// Real players are listed and mapped, never diagnosed.
+			continue
+		}
 		alive[b.GUID] = true
 		meta[b.GUID] = *b
 
