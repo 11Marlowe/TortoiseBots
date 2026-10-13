@@ -538,11 +538,42 @@ bool AttackersValue::IsKeepoutSetAside(Unit* target, Player* bot)
     if (entry == setAside.end())
         return false;
     bool const isKeepoutCreature = PossibleTriggersValue::KeepoutFor(target) != nullptr;
-    // Line of sight only for a mob that hits the bot and is no keep-out creature.
-    bool const hitsBotInSight = !isKeepoutCreature && target->GetVictim() == bot &&
-        bot->IsWithinLOSInMap(target, true);
-    if (CreatureAuraSetAsideHolds(WorldTimer::getMSTime() < entry->second, isKeepoutCreature,
-            PlayerbotAI::IsTank(bot), hitsBotInSight))
+    bool const live = WorldTimer::getMSTime() < entry->second;
+    bool const isTank = PlayerbotAI::IsTank(bot);
+    // Line of sight and the ring test only for a mob that is no keep-out
+    // creature, and only while the entry could still hold (no world scan: the
+    // cached "possible triggers" list is the one the hold plans against).
+    bool hitsBotInSight = false;
+    bool stillRinged = false;
+    if (live && !isTank && !isKeepoutCreature)
+    {
+        hitsBotInSight = target->GetVictim() == bot && bot->IsWithinLOSInMap(target, true);
+        if (!hitsBotInSight)
+        {
+            // Ringed means: a listed creature of the cached list stands within
+            // its release ring of the mob. A mob with none counts as unringed
+            // at any distance from the bot (dragged out far, or run to a
+            // healer): a wrong lift costs one walk and one 3 s hold, and the
+            // set-aside then sticks again.
+            float const tx = target->GetPositionX(), ty = target->GetPositionY();
+            std::list<ObjectGuid> const& triggers =
+                ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible triggers")->Get();
+            for (ObjectGuid const& guid : triggers)
+            {
+                Unit* unit = ai->GetUnit(guid);
+                CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
+                if (!row)
+                    continue;
+                float const dx = tx - unit->GetPositionX(), dy = ty - unit->GetPositionY();
+                if (CreatureAuraSetAsideRinged(*row, std::sqrt(dx * dx + dy * dy)))
+                {
+                    stillRinged = true;
+                    break;
+                }
+            }
+        }
+    }
+    if (CreatureAuraSetAsideHolds(live, isKeepoutCreature, isTank, hitsBotInSight, stillRinged))
         return true;
     setAside.erase(entry);
     return false;

@@ -42,6 +42,19 @@ class KeepoutSetAsideWiringTest(unittest.TestCase):
         book = body(src, "bool AttackersValue::IsKeepoutSetAside(", "\n}\n")
         self.assertIn("CreatureAuraSetAsideHolds(", book)
 
+    def test_lift_does_not_depend_on_the_bot_distance(self):
+        # Owner case: the tank drags the mob out on the far side, or it runs
+        # to a healer 20-30 yd back. A mob with no listed creature within the
+        # ring is unringed at any distance, so the book must judge it by the
+        # creature-to-mob distance only (no bot-distance guard).
+        src = (VALUES / "AttackersValue.cpp").read_text()
+        book = body(src, "bool AttackersValue::IsKeepoutSetAside(", "\n}\n")
+        self.assertIn('"possible triggers"', book)
+        self.assertIn("CreatureAuraSetAsideRinged(*row,", book)
+        self.assertNotIn("kMaxAoeAvoidRadiusYd", book)
+        self.assertNotIn("bot->GetPositionX()", book)
+        self.assertNotIn("GetDistance", book)
+
     def test_set_aside_writes_the_book_and_an_order_erases_it(self):
         move = (ROOT / "ai/playerbot/strategy/actions/MovementActions.cpp").read_text()
         hold = body(move, "bool MovementAction::HoldChaseOutsideKeepout(", "\n}\n")

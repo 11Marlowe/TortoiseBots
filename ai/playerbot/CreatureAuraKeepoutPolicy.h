@@ -237,18 +237,44 @@ namespace ai
         return hostileCurrentTarget && !explicitOrder && heldMs >= kCreatureAuraChaseHoldMs;
     }
 
+    // A chase hold is timed per target. The timer starts over when the hold
+    // is on another target, or when the last hold tick was longer ago than
+    // this (combat ended mid-hold, or some other action ran in between), so a
+    // later hold on the same mob never inherits an old start time and sets it
+    // aside on its first tick.
+    constexpr unsigned kCreatureAuraChaseHoldGapMs = 2000;
+
+    inline bool CreatureAuraChaseHoldRestarts(bool sameTarget, unsigned sinceLastHoldMs)
+    {
+        return !sameTarget || sinceLastHoldMs > kCreatureAuraChaseHoldGapMs;
+    }
+
+    // A set-aside mob counts as still ringed while it stands within the
+    // release ring of a listed creature (centre measure): the ring the chase
+    // hold lets go of only past (CreatureAuraFollowRingsFor().release), so a
+    // mob just outside it is chased without being held again.
+    inline bool CreatureAuraSetAsideRinged(CreatureAuraKeepout const& row, float distance)
+    {
+        return distance <= CreatureAuraFollowRingsFor(row).release;
+    }
+
     // Target selection (AttackersValue::IsKeepoutSetAside, the bot's own
     // "keepout set aside" book): a set-aside target stays refused until its
     // entry runs out. Every pick path asks this, also the ones that bypass the
     // attackers list (the group tank's victim, raid marks): otherwise the
     // tank's victim came straight back after the set-aside and the bot held,
     // set aside and re-picked the same mob all fight. A keep-out creature
-    // stays refused while it hits the bot (reachable, but only inside its
-    // pulse); any other mob that hits the bot in sight has come out of the
-    // ring to it and is fought. Tanks never hold a set-aside.
-    inline bool CreatureAuraSetAsideHolds(bool live, bool isKeepoutCreature, bool isTank, bool hitsBotInSight)
+    // stays refused while it is set aside (reachable, but only inside its
+    // pulse). Any other mob is refused only while it still stands inside the
+    // ring of a listed creature (`stillRinged`): the set-aside ends the moment
+    // the tank drags it out, or it walks out to someone else (owner decision
+    // 2026-10-13, "lift when it leaves the ring"), and also when it hits the
+    // bot in sight. The 30 s entry stays the upper bound. Tanks never hold a
+    // set-aside.
+    inline bool CreatureAuraSetAsideHolds(bool live, bool isKeepoutCreature, bool isTank, bool hitsBotInSight,
+        bool stillRinged)
     {
-        return live && !isTank && (isKeepoutCreature || !hitsBotInSight);
+        return live && !isTank && (isKeepoutCreature || (stillRinged && !hitsBotInSight));
     }
 
     // ---- Step-out landing near other keep-outs -----------------------------
