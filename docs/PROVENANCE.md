@@ -9192,3 +9192,37 @@ Reason: Uldaman, build 11, 2026-10-12 (`~/TortoiseBots-audit/ingame/repro-129-fo
 Validation: `tools/test_heal_reach_policy.cpp`, `tools/test_dungeon_follow_stall_policy.cpp` (gate, 2 s stall, walking is no stall, range and release, held, feed gap, latch, walk throttle and back-off, clock wrap); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only` of `FollowActions.cpp` and `RangeTriggers.cpp` against the core headers. Full build pending; in-game pending.
 
 Review fixes (2026-10-12, REVIEW-129): (1) the rescue yields while the bot is held (sitting, casting, rooted) even after it has latched, matching the docs; (2) five rescue walks in a row that cannot start end the rescue for 60 s, so a bot that cannot be rescued (below its leader's platform) does not plan a path every 8 s forever; catching up clears the give-up; (3) docs note that, with `DungeonFollowHoldBeforePacks` off, a rescue walk can pass an unpulled pack like far follow. Test rows added for latched-then-held, the give-up and its reset.
+
+## Rogue stealth opener: Garrote when Ambush cannot be cast — 2026-10-13
+
+Feature: the behind-target opener of the rogue stealth strategy
+(`RogueStealthStrategyActionNodeFactory`, `ai/playerbot/strategy/rogue/RogueStrategy.cpp`)
+now falls from Ambush to Garrote. The chain was ambush -> backstab -> cheap shot ->
+sinister strike. Ambush and Backstab both need a dagger in the main hand, so a rogue
+without one always opened with Cheap Shot. The chain is now ambush -> garrote ->
+backstab -> cheap shot -> sinister strike. A dagger rogue keeps Ambush and Backstab;
+the only change for it is at 50-59 energy, where Ambush and Backstab (60) are out of
+reach and Garrote (50) now opens instead of Sinister Strike.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:223-231`
+(`StealthedRogueStrategyActionNodeFactory::ambush`, `A = { garrote }`).
+
+Module files: `ai/playerbot/strategy/rogue/RogueStrategy.cpp` (the node factory),
+`docs/classes/rogue.md` (the opener line).
+
+Copied / ported / reimplemented: ported (the ambush -> garrote step only). The module
+keeps its own factory, its Backstab and Cheap Shot tail and its own trigger rows. No
+donor code copied.
+
+Reason: audit refresh 2026-10-13, row 26 (the Garrote opener existed only in the dead
+donor `DpsRogueStrategy.cpp:216-224`). Turtle 1.18.1 data
+(`~/tortoise-wow/sql/base/tw_world_spell_template.sql`): Garrote ranks 703, 8631-8633,
+11289, 11290 have no weapon requirement and read "Must be stealthed and behind the
+target", 50 energy; Ambush (8676 and ranks) reads "Requires a dagger in the main hand".
+`docs/classes/rogue.md:30` already promised Garrote for non-dagger openers.
+
+Validation: code review + build pending; in-game pending.

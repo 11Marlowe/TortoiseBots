@@ -38,12 +38,20 @@ public:
     RogueStealthStrategyActionNodeFactory()
     {
         creators["ambush"] = &ambush;
+        creators["garrote"] = &garrote;
         creators["backstab"] = &backstab;
         creators["cheap shot"] = &cheap_shot;
     }
 
 private:
-    ACTION_NODE_A(ambush, "ambush", "backstab");
+    // Ambush needs a dagger in the main hand. Garrote (stealth + behind, no
+    // weapon) is the next opener when Ambush cannot be cast, which is every
+    // rogue without a dagger; Backstab (also a dagger) and Cheap Shot stay as
+    // the tail. Same ambush -> garrote step as mod-playerbots
+    // StealthedRogueStrategy (CombatRogueStrategy.cpp:223-231).
+    ACTION_NODE_A(ambush, "ambush", "garrote");
+
+    ACTION_NODE_A(garrote, "garrote", "backstab");
 
     ACTION_NODE_A(backstab, "backstab", "cheap shot");
 
