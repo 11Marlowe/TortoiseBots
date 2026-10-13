@@ -22,6 +22,14 @@ public:
     // Returns true for payloads under the module prefix so the core neither
     // relays them to the group nor writes them to the chat log.
     bool OnAddonMessage(Player* from, std::string const& msg) override;
+
+    // World thread only. Runs one TBM payload ("<verb> [args]") for the
+    // requester and answers on the addon channel; the queued-command drain
+    // (issue #833) calls it.
+    static void ExecuteCommand(Player* requester, std::string const& payload);
+
+    // World thread only. One reply line on the requester's addon channel.
+    static void SendReply(Player* requester, std::string const& line);
 };
 
 } // namespace TortoiseBots
