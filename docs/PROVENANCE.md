@@ -8158,7 +8158,11 @@ Validation: code review + build pending; in-game pending.
 | Engine does not re-decide while a Polymorph cast bar runs | `mod-playerbots` @ 79bd428 `src/Bot/PlayerbotAI.cpp` (UpdateAI yields while the generic spell is `SPELL_STATE_PREPARING`); `src/Ai/Class/Mage/MageActions.h` (`CastPolymorphAction` is a plain CC cast action) | `ai/playerbot/strategy/mage/MageActions.h`, `commands/BotCommands.cpp` | Reimplemented narrowly: `CastPolymorphAction::Execute` now sets the cast time as its action duration like `CastSpellAction::Execute`; the `cc <mark>` order skips its forced extra decision while the CC cast runs. The global engine guard was not ported (it would also stop heal-interrupt decisions mid-cast). | Uldaman run: ~70 Polymorph starts in 17 s, no landed sheep on an engaged Moon mob | code review + build pending; in-game pending |
 | Stop CCing once only CC marks are left; tank/DPS kill CC marks last (judged from the raw `attackers` list, so CC'd unmarked mobs still count; only in-combat marks are picked) | Native (donor `DpsTargetValue`/`TankTargetValue` skip the Moon mark with no fallback, same stall) | `ai/playerbot/strategy/values/{CcTargetValue,TargetValue,DpsTargetValue,TankTargetValue}.{h,cpp}` | Native | Fight stalled ~25 s on a free Moon mob and on a sheeped last mob | code review + build pending; in-game pending |
 | Party leaves a CC'd mob / held CC mark alone: current target on a held mark is dropped, snare/Taunt and DoT-spread picks skip it, enemy-area spells skip a breakable CC inside their radius (lingering areas also a held mark), Blade Flurry and Oil of Immolation not started within 8 yd | `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/AttackersValue.cpp` (`hasRealThreat` drops polymorphed units, so no pick, DoT spread or AoE count sees them), `src/Ai/Base/Value/InvalidTargetValue.cpp` (a polymorphed current target is invalid), `src/Ai/Base/Strategy/ThreatStrategy.cpp` (`FocusMultiplier`, manual AoE veto) | `ai/playerbot/strategy/values/{TargetValue,InvalidTargetValue,SnareTargetValue,AttackerWithoutAuraTargetValue,PossibleAttackTargetsValue}.{h,cpp}`, `ai/playerbot/strategy/actions/GenericSpellActions.cpp`, `ai/playerbot/strategy/actions/UseItemAction.h`, `ai/playerbot/strategy/rogue/RogueActions.h`, `ai/playerbot/strategy/triggers/GenericTriggers.cpp` | Ported (sheeped mob never picked) + native (held-mark rule, radius gate from spell data, self-splash gate; the donor has no automatic area gate) | Build 8 retest: every sheep broke 0.07-2.4 s after landing (rogue Blade Flurry, priest SW:P/Holy Fire, tank Taunt/melee) | code review + build pending; in-game pending |
-| A CC mark is protected only while held: crowd-controlled (breakable CC, fear, banish), under a group member's CC cast bar, or in its first ~3 s of combat with its CC bot ready (fitting spell known, off cooldown, within spell range + 5 yd); a free mark is a normal enemy for every picker, Taunt, DoT spread and area gate | `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/AttackersValue.cpp` (`hasRealThreat` drops only units that are actually polymorphed, a free mark stays an attacker) | `ai/playerbot/strategy/values/{TargetValue,InvalidTargetValue,DpsTargetValue,SnareTargetValue}.{h,cpp}` | Ported (protect the CC'd unit, not the mark) + native (cast-bar and start-of-fight grace) | Owner report: a free Moon mob (sheep missed or broke, or no CC bot) killed the party while nobody attacked it | code review + build pending; in-game pending |
+| A CC mark is protected only while held: crowd-controlled (breakable CC, fear, banish), under a group member's CC cast bar, or in its first ~3 s of combat (superseded: 10 s, see the next row) with its CC bot ready (fitting spell known, off cooldown, within spell range + 5 yd); a free mark is a normal enemy for every picker, Taunt, DoT spread and area gate | `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/AttackersValue.cpp` (`hasRealThreat` drops only units that are actually polymorphed, a free mark stays an attacker) | `ai/playerbot/strategy/values/{TargetValue,InvalidTargetValue,DpsTargetValue,SnareTargetValue}.{h,cpp}` | Ported (protect the CC'd unit, not the mark) + native (cast-bar and start-of-fight grace) | Owner report: a free Moon mob (sheep missed or broke, or no CC bot) killed the party while nobody attacked it | code review + build pending; in-game pending |
+| Moon mark of a pack: hold window 10 s (was 3 s) of creature combat while its CC bot is ready; the CC bot's own area spells spare its mark (held or free) while other enemies are left; the CC chooser keeps the bot's assigned mark once found (an open-world free pick checked later no longer replaces it). Policy in `CcMarkHoldPolicy.h` | `mod-playerbots` @ 79bd428 `src/Ai/Base/Value/TargetValue.cpp` (`FindNonCcTargetStrategy::IsCcTarget`: the Moon / `rti cc` mark is skipped by the tank and DPS pickers for the whole fight), `src/Ai/Base/Value/DpsTargetValue.cpp` (Moon skip in every tournament), `src/Ai/Base/Trigger/GenericTriggers.cpp` (`HasCcTargetTrigger::IsCcTargetFree`: in dungeons only the `rti cc target` is CC'd) | `ai/playerbot/strategy/values/{CcMarkHoldPolicy.h,TargetValue.h,TargetValue.cpp,CcTargetValue.cpp}`, `ai/playerbot/strategy/actions/GenericSpellActions.cpp` (comments), `tools/test_cc_mark_hold_policy.cpp` | Reimplemented: the donor's whole-fight Moon skip, bounded to the CC bot's first tries (the owner's free-mark rule stays: a mark nobody can CC, or still free after 10 s, is a normal enemy); own-mark area sparing and the chooser fix are native (the donor has no area gate, and its chooser has the same overwrite but its dungeon trigger hides it) | Build 11 pack pull: the pack entered combat at the pull (creature group assist), the 3 s window ran out before the mage's first Polymorph (6 s), tank, rogue and priest SW:P were on the Moon mob from 4 s, the first sheep landed at 28 s and broke at once, and the mage's own Flamestrike hit the mob twice | `tools/test_cc_mark_hold_policy.cpp`; `c++ -fsyntax-only` of the changed files; code review + build pending; in-game pending |
+| Moon mark round 2: (a) the tank's *Taunt on snare target* passes the hold when the held mark is not CC'd, has no CC cast bar on it and hits a healer (owner decision 2026-10-12; no damage, the tank keeps its target); (b) a CC cast starts only in line of sight and 5 yd inside the spell's range, and the new `reach cc` closes to that distance (the chooser still keeps the out-of-range mark as `cc target`); (c) with `AiPlayerbot.EnableActionLog = 1`, a failed CC-mechanic cast (`SMSG_CAST_RESULT`, 1.12 layout) writes a `CC_CAST_FAILED` row to the bot action log: spell id, result code, distance to the cast's target, moving | Native: range shortening for a moving target as in TB's own `ReachPullAction`; the action-log row uses TB's `BotActionLog` | `ai/playerbot/strategy/values/{CcMarkHoldPolicy.h,SnareTargetValue.cpp,TargetValue.h,TargetValue.cpp,CcTargetValue.cpp,InvalidTargetValue.cpp}`, `ai/playerbot/strategy/actions/{GenericSpellActions.h,ReachTargetActions.h,ActionContext.h}`, `ai/playerbot/PlayerbotAI.cpp`, `tools/test_cc_mark_hold_policy.cpp` | Native (owner decision for the taunt; range margin from TB's own pull reach; diagnostics row native) | Build 11: four Polymorph starts never finished (the assigned mark skipped the range check and was moving between the rogue and the tank), failed 1.5 s casts left no trace (the cast-failed tell action is not wired to its trigger and parses the TBC packet layout), and a held mark on the healer had no answer for up to 10 s | `tools/test_cc_mark_hold_policy.cpp` (34 checks); `c++ -fsyntax-only` of the changed files; code review + build pending; in-game pending |
+| Moon mark round 3 (pack melee): (a) every enemy-area spell, instant and chained as well as lingering (*Cleave*, *Thunder Clap*, *Arcane Explosion*, *Multi-Shot*), skips a held mark in its blast, not only a crowd-controlled mob; (b) the enemy-healer pick behind *Kick* / *Shield Bash* / *Pummel* / *Counterspell* / *Hammer of Justice* "on enemy healer" skips a held mark; (c) *Blade Flurry* (Turtle 13877: infinite-duration toggle, 4 s cooldown, so it stays on from the last pull) is cancelled ("blade flurry near cc" -> "remove blade flurry", rogue base strategy) while a sheeped mob, a held mark, or a CC mark whose CC bot is ready (any combat time, other enemies left) is within 8 yd, and not started within 11 yd (hysteresis); the rogue's own victim is skipped for the CC and held-mark tests (the core proc never hits it, so its own Gouge does not cancel), a ready mark counts even as its victim. Policy in `CcMarkHoldPolicy.h` | Native: the donor has no area gate, its `src/Ai/Base/Value/EnemyHealerTargetValue.cpp` @ 79bd428 picks any healing attacker (no Moon skip), and its Blade Flurry (`src/Ai/Class/Rogue/Action/RogueActions.h`) has no cancel; core fact: `spell_rogue_blade_flurry` (tortoise-wow `src/scripts/spells/spell_rogue.cpp`) copies each swing onto a random enemy within 5 yd, sheeped or not | `ai/playerbot/strategy/values/{CcMarkHoldPolicy.h,TargetValue.h,TargetValue.cpp,EnemyHealerTargetValue.cpp}`, `ai/playerbot/strategy/actions/GenericSpellActions.cpp`, `ai/playerbot/strategy/rogue/{RogueTriggers.h,RogueTriggers.cpp,RogueActions.h,RogueAiObjectContext.cpp,RogueStrategy.cpp}`, `tools/test_cc_mark_hold_policy.cpp` | Native | Build 13 headless gate (audit fix 131, Stonevault Oracle pack in Uldaman, Moon on one Oracle by `.bot action cc moon <mage>`, tank pulled the other): two party hits on the Moon mob before the first sheep at 9.8 s (inside the 10 s hold), and Blade Flurry broke the sheep after it landed; build 14 gate: three Blade Flurry (22482) hits on the Moon mob at 14-17 s before the first sheep (16.9 s), with Blade Flurry still on from the previous pull; the hold only covered the target tournaments, while instant areas, enemy-healer interrupts and an already running Blade Flurry bypassed it | `tools/test_cc_mark_hold_policy.cpp` (56 checks); `c++ -fsyntax-only` of the changed files; code review + build pending; in-game pending |
+| Moon mark round 4 (audit fix 134): "only CC marks are left" (`FindNonCcTargetStrategy::OnlyCcMarksLeft`) is false when no live enemy is in the `attackers` list; before, an empty list read as "only marks left", so the CC bot could refuse its own mark (`CcTargetValue`) and `FindLastCcTarget` could treat nothing as "kill the marks now". The caller's excepted unit counts as a live enemy seen, so a mark that is the only enemy still reads "only marks left". Rule `CcOnlyMarksLeft` in `CcMarkHoldPolicy.h` | Native: TortoiseBots' own kill-the-marks-last rule (row "Polymorph cast held through its cast bar; CC marks killed last"); not a donor port, mod-playerbots @ 79bd428 has no such rule | `ai/playerbot/strategy/values/{CcMarkHoldPolicy.h,TargetValue.h,TargetValue.cpp}`, `tools/test_cc_mark_hold_policy.cpp` | Native | Code review of the round 3 branch (moon-followups-b16, item F): the loop returned true by default when it examined nothing; not seen firing in the build 16 runs | `tools/test_cc_mark_hold_policy.cpp` (61 checks); `c++ -fsyntax-only` of `TargetValue.cpp`; build pending; in-game pending |
 ## Check mount state acts only when the mount state must change — 2026-10-12
 
 Feature: `CheckMountStateAction::isUseful` runs the mount decision in a
@@ -8779,3 +8783,293 @@ covering its hold/lapse matrix. Also touches
 
 Validation: `tools/test_four_horsemen_rotation_policy.cpp` + code review;
 build pending; in-game pending.
+## Healer off-spec damage: 70 % mana reserve on even and easy fights — 2026-10-12
+
+Feature: `HealerShouldAttackTrigger` (`healer should attack`) now reads its balance-scaled mana reserve from `HealerDpsManaFloor` / `HealerDpsManaAllows` (`ai/playerbot/HealerManaPolicy.h`). Hard fights (balance <= 50) keep 85 %, as in the donor. Even fights (<= 100) and easy fights (> 100) keep 70 % instead of the donor's `HighMana` 65 % and `MediumMana` 40 %. Priest, resto druid and resto shaman `offdps` rows share the trigger. The wand row (`healer should wand`) and solo healers are unchanged.
+
+Source repository: `mod-playerbots/mod-playerbots`, commit `79bd428`, file `src/Ai/Base/Trigger/GenericTriggers.cpp:346-371` (`HealerShouldAttackTrigger::IsActive`).
+
+Kind: deliberate deviation, owner decision 2026-10-12 (easy tier 40 -> 70); even tier raised from 65 to 70 % to keep the ladder monotonic, controller ruling 2026-10-12. The 85 % hard tier stays ported as-is.
+
+Reason: a full 5-man fighting one or two elites lands in the easy tier. There a holy priest nuked from 100 % down to 40 % while the party was full, then ran dry when the damage started (Uldaman wipes; build-10 check: "shoot | no mana" ~23 s into a fight with the tank at 44 %). Vanilla healers have no Replenishment and live under the 5-second rule, so the donor's WotLK-tuned 40 % leaves too little.
+
+Validation: `tools/test_healer_mana_policy.cpp` (floor per tier, monotonic ladder, the Uldaman balance case); `bash tools/verify_all.sh`, `git diff --check`; build pending; in-game pending.
+
+| No jumping in dungeons/raids (audit fix 125) | `mod-playerbots` | `79bd4281` | none: mod-playerbots has no jump strategies or action at all | Reimplemented (restriction only) | Jump strategies (`chase jump`, `follow jump`, `rpg jump`) can strand bots on raised instance platforms with no navmesh link down (Uldaman Hall of the Keepers). Gated in `JumpAction::Execute` (explicit `jump` command still works) via `ai/playerbot/JumpPolicy.h` on `Map::IsDungeon()` (instances and raids; battlegrounds and open world unchanged). | `tools/test_jump_policy.cpp` in `verify_all.sh`; code review + build pending; in-game pending |
+
+## Mage "blink back" turns away from the target first — 2026-10-12
+
+Feature: the "blink back" trigger (a live current target within 8 yd, Blink
+ready, not rooted or stunned) now runs a new action, `blink back`
+(`CastBlinkBackAction`), instead of the plain `blink`. It stops the bot's
+movement, sets its orientation to the angle away from the current target
+(`ServerFacade::SetFacingTo(..., force = true)`: instant `SetOrientation`
+plus a heartbeat) and then casts Blink. The root/stun `blink` row is
+unchanged and still goes the way the mage faces.
+
+Why the facing must be set before the cast: Blink 1953 is a leap
+(`SPELL_EFFECT_LEAP`), and the core fills its destination in
+`Spell::FillTargetMap` for `TARGET_LOCATION_CASTER_FRONT_LEAP` from the
+caster's orientation (`tortoise-wow` 1181dev 5784fb0,
+`src/game/Spells/Spell.cpp`; `Spell::EffectLeapForward` in `SpellEffects.cpp`
+then teleports to that point). Blink has a GCD, so a non-triggered cast fires
+on the next spell update (`Spell::prepare` -> `Spell::update`), not inside the
+action. A running spline, or a chase generator (it turns a player back toward
+its target once its spline is finalised, `TargetedMovementGenerator.cpp`),
+could overwrite the facing in between, so the action stops movement first.
+`PlayerbotAI::CastSpell` also simulates the destination from the same
+orientation, and its face-the-target step does nothing for a self cast.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Mage/MageActions.cpp:151-159`
+(`CastBlinkBackAction::Execute`: `SetOrientation(GetAngle(target) + M_PI)`,
+then cast), `src/Ai/Class/Mage/MageActions.h:139-142`,
+`src/Ai/Class/Mage/MageAiObjectContext.cpp:236,297`.
+
+Module files: `ai/playerbot/strategy/mage/{MageActions.h,MageActions.cpp,MageAiObjectContext.cpp,MageStrategy.cpp}`.
+
+Copied / ported / reimplemented: ported. Differences: the module stops
+movement before turning and uses its own `ServerFacade::SetFacingTo` (force),
+so the new facing reaches the client and survives until the queued cast
+fires; the action is a self-target buff cast like the module's `blink`.
+
+Reason: audit "moon follow-ups, build 16" finding C. In all three moon_sheep
+runs every Blink moved the mage toward the pack (run 2: it ended 3.5 yd from
+the Moon mob), and the Blink GCD sat right before the first Polymorph.
+
+Validation: `c++ -fsyntax-only` of the changed files; `tools/verify_all.sh`.
+Not compiled into a server, not tested in game.
+
+## No meal while the group fights; wake a resting bot at the pull — 2026-10-12
+
+Feature: `EatAction`/`DrinkAction::isUseful` refuse while the group is
+fighting — the cached `has attackers` value, or a live group member within
+`AiPlayerbot.SightDistance` that is in combat with a victim or an attacker
+and is not just duelling (`PlayerbotAI::IsGroupMemberNearInCombat`, member
+flags only, outside battlegrounds). `EatAction::isUseful` also refuses a top-up meal at or above
+`MediumHealth` while the bot has the `cc` strategy and a live `rti cc target`.
+`PlayerbotAI::UpdateAI` wakes a bot that is asleep, seated and carries an aura
+whose spell has `AURA_INTERRUPT_FLAG_NOT_SEATED` (the core's own food/drink
+test: cheat spells 24005/24355 use aura types 20/21, real food and drink such
+as 433/430 use 84/85) when the same member check is true: it stands up (which drops the aura), resets
+`attackers`/`has attackers` and clears the AI delay, so `combat start` fires on
+the next tick. Files: `ai/playerbot/strategy/actions/UseItemAction.h`,
+`ai/playerbot/PlayerbotAI.{h,cpp}`.
+
+Source repository: `mod-playerbots` @ `79bd428` (local checkout
+`../playerbots-references/mod-playerbots`), reviewed, not ported.
+
+Source files (donor, reference only): `src/Bot/PlayerbotAI.cpp:284-298` (the
+wake tests only the bot's own combat flag, the same gap this fixes),
+`src/Ai/Base/Actions/NonCombatActions.cpp:95-151` (`EatAction` sleeps
+`18000 ms x missing%`, `isUseful` requires HP below `LowHealth`),
+`src/Ai/Base/Strategy/UseFoodStrategy.cpp:14-17` (food cheat eats on
+`medium health` only).
+
+Copied / ported / reimplemented: reimplemented locally; the donor has no
+group-combat gate or wake to port. The donor avoids the symptom by eating less
+often and for shorter (medium-health band, 18 s scale against our 27 s). That
+part is deliberately not adopted here: the almost-full rest band for free-food
+bots is a recorded choice (see "Death fix B" above), and moving the band or
+the meal length changes pacing for every levelling bot, which is a balance
+call for the owner, not part of this fix.
+
+Reason: moon-followups B16 item B. A mage 40-46 yd behind the tank sat down to
+eat at 78% (after Power Word: Fortitude raised its max HP) just before or just
+after the pull, slept the 6 s meal, and missed its Polymorph order; nothing
+woke it until its own combat flag rose.
+
+Validation: syntax-only compile of `PlayerbotAI.cpp` and
+`UseItemAction.cpp`; `bash tools/verify_all.sh`; `git diff --check`. Build
+pending; in-game pending.
+
+## Companions keep `follow` (strategy snapshot and broken stay) — 2026-10-12
+
+Feature: (1) `PlayerbotDbStore::Save` writes its delete and every insert in
+one character-database transaction with one fixed serial id
+(`PlayerbotDbStore::DB_SERIAL_ID`), so every `ai_playerbot_db_store`
+transaction runs on one worker in queue order (it joins a caller's open
+transaction, as `ChangeStrategyAction` holds one, opened with the same id). (2) `PlayerbotDbStore::Load` clears and
+replays only the engines whose own row it read (`ai::StoredStrategyRows`,
+`ai/playerbot/MovementModePolicy.h`). (3) `PlayerbotAI::ResetStrategies`
+gives a real player's bot its default movement mode (`follow`) when, after
+the snapshot and the forced role, it has none (`ai::NeedsDefaultMovementMode`;
+not in battlegrounds). (4) `RelaxTacticalMovement` (`commands/BotCommands.cpp`)
+adds the default mode back when breaking a stay leaves the bot with none;
+the per-bot `.bot attack <Name>` now goes through it too, like
+`.bot action attack` (build 13 on m910q: after `stay` and `.bot attack`
+the rogue kept `stay` and stood still after the fight), and a whispered
+`attack` with a target ends the stay the same way
+(`PlayerbotAI::EndStayForOrder`, called from `AttackMyTargetAction`).
+
+Source: (1) and (2) follow mod-playerbots `79bd428`
+`src/Db/PlayerbotRepository.cpp:11-71` (`Load` clears an engine only on its
+own `co`/`nc` row; `Save` appends everything to one transaction).
+Reimplemented on the cmangos `Database` API (`InTransaction`,
+`BeginTransaction`, `CommitTransaction`); the donor commits directly, ours
+stays asynchronous. (3) and (4) are module rules with no donor counterpart.
+
+Reason: on m910q build 11 three hired companions (Latal, Maethiza,
+Niabrenans) had no movement strategy at all and stood still until whispered
+`follow`; the dungeon catch-up (#644) only brings in bots with `follow`, so
+only the rogue came along on `.tele ulda`. Their stored rows (read-only
+check) show it: Latal's `nc` was exactly the `Load` baseline plus the
+protection kit, the result of reading a snapshot without its `nc` row; the
+loose async rows of one Save are spread over the 4 character-database
+workers (`CharacterDatabase.WorkerThreads = 4`), so its delete can run after
+its own inserts, and the tank hire saves and then rebuilds in the same call.
+Maethiza and Niabrenans had their full kit minus any mode: a whispered
+`stay` followed by a tactical order that breaks it (`RelaxTacticalMovement`
+removes `stay` and added nothing). The rogue, never told to stay, kept
+`follow`.
+
+Validation: `tools/test_tactical_stay_release.py` (compiles the production
+`EndFlee`/`RelaxTacticalMovement`/`EndStayForOrder` against a stand-in AI;
+checks `.bot attack` and the whispered `attack` end the stay first); `tools/test_movement_mode_policy.cpp` (mode list, the three
+stored `nc` rows from m910q, half-written and complete snapshots, rebuild
+rule); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only`
+of the three changed files against the core headers. Build pending; in-game
+pending.
+
+Deadlock follow-up: the first version used the bot's guid as serial id.
+Different bots' saves then ran on different workers at once, and under
+REPEATABLE READ the `DELETE ... WHERE guid` gap-locks the non-unique `guid`
+index up to the next guid, so two bots with neighbouring guids blocked each
+other's `INSERT` (MySQL error 1213 on m910q build 16, `errors.log`, guids
+521-523/530-531/536-538 during party-wide summons and `.bot action`). InnoDB
+rolled back one bot's whole save and nothing retried it. A constant serial id
+sends all of these transactions to one worker (`serialId % workers` in the
+core's `Database::AddToSerialDelayQueue`; that worker drains its serial queue
+one operation at a time on its own connection), so they never overlap and one
+bot's saves still run in order. Validation: `tbsyntax` of the changed `.cpp`
+files, `bash tools/verify_all.sh`, `git diff --check`. Build pending; in-game
+pending.
+## Ranged reach inside dungeons walks the navmesh path — 2026-10-12
+
+Feature: `ReachTargetAction::MoveIntoRange` first tries `MoveIntoRangeAlongPath` (`ai/playerbot/strategy/actions/ReachTargetActions.h`). Inside a dungeon or raid (`Map::IsDungeon`, the same test as the core's chase rule), with the target in sight and a reach distance beyond `ATTACK_DISTANCE`, the bot takes the navmesh path to its target (`WorldPosition::getPathStepFrom`, NORMAL or INCOMPLETE), walks it back from the target end to the first point that is within the reach distance and still sees the target (`SelectRangedApproachPoint`, `ai/playerbot/RangedApproachPolicy.h`), and point-moves there with `MoveTo`. Every chosen point sees the target: the walk-back starts from the last path point that sees the target and is closer to it than the bot (the end of a complete path; an earlier point when a partial path ends hidden under a dais or behind a wall), and with no such point the chase runs as before. A partial path that ends short of range is walked only as far as that anchor. Applies to `reach spell`, `reach party member to heal`, `… to resurrect` and `… for totem`; `reach melee`, the explicit pull (`ReachPullAction`, issue #389) and everything outside instances keep the core chase. `MovementAction::IsHazardNearPosition` moved from private to protected so the point can skip hazards the same way `ChaseTo` does.
+
+Source repository: `mod-playerbots/mod-playerbots`, commit `79bd428`, `src/Ai/Base/Actions/MovementActions.cpp:790-842` (`MovementAction::ReachCombatTo`: `PathGenerator` path accepting NORMAL/INCOMPLETE/SHORTCUT, `ShortenPathUntilDist`, `MoveTo` the path end) and `src/Ai/Base/Actions/ReachTargetActions.cpp:13`. The walk-back with its line-of-sight stop follows AzerothCore's `PathGenerator::ShortenPathUntilDist`, which this core does not have.
+
+Kind: ported (reimplemented in the module's own movement helpers, no donor code copied). Deviations, all deliberate: (a) only inside instances, where the core's "stricter checking inside dungeons" in `TargetedMovementGenerator` breaks the chase; the open-world chase works and keeps its moving-target tracking; (b) SHORTCUT paths are refused (the module's `getPathStepFrom` drops them, so the point never lies through a wall); (c) no target-motion prediction and no "meet halfway" shortening (the donor's are tuned for hostile targets closing in; most of these reaches are on friendly targets); (d) the exact-range point on the crossing segment is solved in 3D instead of the donor's approximation; (e) a hazard at the chosen point, or a move that does not start, falls back to the old chase. The reach-pull firing point (`PullFiringPolicy.h`) is not reused: it is a straight-line point, which is what fails around corners, and the pull keeps it unchanged.
+
+Reason: inside a dungeon a healer or caster that saw its target but stood out of range never closed the gap. `ChaseTo` handed the move to the core chase, whose dungeon check refuses a destination not melee-reachable from the target and stands still in line of sight, while the action reported success and kept winning over `follow`. Uldaman VM run 2026-10-12: the priest stayed at the entrance (-226.9, 53.4) on `reach party member to heal`, 38 yd from the fight, until summoned (`~/TortoiseBots-audit/uldaman-pathing.md` section 2a). Same core rule as #389, which had been worked around only for `reach pull`.
+
+Validation: `tools/test_ranged_approach_policy.cpp` (gate, straight corridor, corner, line-of-sight stop, out-of-sight edge point, 3D range, partial paths, degenerate inputs, partial paths whose end is out of sight in and out of range); `bash tools/verify_all.sh`, `git diff --check`; `c++ -fsyntax-only` of `ReachTargetActions.cpp` and `MovementActions.cpp` against the core headers; full build pending; in-game pending (Uldaman: healer 45 yd from the tank in line of sight walks into heal range).
+
+Review fixes (2026-10-12, REVIEW-124): (1) a partial path could park the bot on a point out of sight of its target (the end was never checked), now every chosen point sees the target, see above; (2) the dungeon and distance gate runs before the sight ray, so open-world reaches pay nothing extra; (3) the sight check uses the target's own collision height at the target end, as the core's `IsWithinLOSInMap` does; (4) the unused `RangedApproachChoice::inRange` field was dropped.
+
+## Dungeon bots step down off cut-off platforms — 2026-10-12
+
+Feature: `MovementAction::StepDownOffLedge` (`ai/playerbot/strategy/actions/MovementActions.cpp`), called from `ReachTargetAction::Execute` before every reach move (melee, spell, heal, pull; `ReachTargetActions.h`) and from `MovementAction::Follow` when the leader is more than 3 yd beyond the follow distance. Inside a dungeon or raid (`Map::IsDungeon`) only, when the core path to the target is `PATHFIND_INCOMPLETE` and its partial end lies within 2 yd of the bot (no headway), and no attacker is in melee contact with the bot, the bot looks for floor 2-8 yd lower at 8 yd (then 5 yd) towards the target, fanning out to 90 degrees either side. Per candidate, cheapest first, each failure moving on to the next: a valid `Map::GetHeight`; the height band; no magma or slime (`TerrainInfo::getLiquidStatus`) and no hazard; an edge point found by sampling the ground every half yard on the way out (half a yard past the first sample 2 yd or more below the bot, refused on rising ground or a hole); a clear line at +0.5 yd and at eye height for both legs (bot to edge, edge to landing); and a `PATHFIND_NORMAL` path from the landing to the target whose first point lies within 1 yd horizontally and 1.5 yd vertically of the landing (the core snaps a start up to 5 yd away, so NORMAL alone does not prove the point is walkable). The bot then moves on a raw `MoveSplineInit::MovebyPath` spline: bot, edge at the bot's height, landing. Pacing per action instance (`LedgeStepDownClock`; reach and follow keep separate clocks): 2 s standing within a yard first, one probe per 3 s, 30 s give-up after three probes that found no floor or three launched steps for one target. The point selection, height band, radius, mesh rule, edge point, needs-path rule and pacing are pure (`ai/playerbot/LedgeStepDownPolicy.h`). A launched step writes a `LedgeStepDown` row to `bot_events.csv` when that log is enabled. No config key: the owner chose a fixed, dungeon-only behaviour.
+
+Source: beyond mod-playerbots; owner decision 2026-10-12 ("In dungeons only, a bot stuck on a cut-off platform steps down off the ledge like a player does"). mod-playerbots `79bd428` has no equivalent: its `MoveTo`/`ReachCombatTo` accept partial paths and walk to their end, and nothing leaves a navmesh island. The candidate search follows the design in the Uldaman pathing investigation (`~/TortoiseBots-audit/uldaman-pathing.md`, section 5B).
+
+Kind: reimplemented (new module behaviour, no donor code). Deviations from the investigation's sketch: the candidates fan out to ±90 degrees and add a 5 yd ring for narrow ledges; "not being hit" is read as "no attacker in melee contact" (a ranged mob hitting a stranded bot does not keep it up there); the stand-still clock (2 s within a yard) keeps the probe off bots that are walking. The stand-still give-up of the reach action in combat is unchanged.
+
+Reason: Uldaman's Hall of the Keepers has 17 raised daises the navmesh cuts off from the floor (0 off-mesh connections in the map 70 tiles). A bot standing on one after a summon or teleport got an INCOMPLETE path whose end was about 1 yd away; the core chase and follow stand still on such a path in sight of the target, the module's `MoveTo` stops at the edge, and the reach's stand-still give-up is off while fighting, so the bot stalled for the whole fight (VM run 2026-10-12 12:09-12:11, party on the dais at (-193, 66, -45.0) above the Rockchewer; `uldaman-pathing.md` sections 2b and 3).
+
+Validation: `tools/test_ledge_step_down_policy.cpp` (gate, height band, horizontal radius, candidate order, Uldaman dais with its edge point, needs-path rule, NORMAL path off the mesh, unsafe landing per point, both legs' clear line, edge point through walls and holes, no ground / fall / climbable step / wide dais, narrow ledge, pacing with the failed-look and step caps and clock wrap); `bash tools/verify_all.sh`, `git diff --check`; `c++ -fsyntax-only` of `MovementActions.cpp` and `ReachTargetActions.cpp` against the core headers; full build pending; in-game pending (Uldaman: `.go xyz -190 66 -46 70`, summon the party onto the dais, pull the Rockchewer; bots should run off the edge and drop to the floor within a few seconds).
+
+Review fixes (2026-10-12, REVIEW-126): (1) the landing must be on the navmesh (path start within 1 / 1.5 yd) and free of magma/slime, checked per candidate; (2) the move is a two-leg spline over the lip instead of a straight foot-to-foot line through the platform, with a low (+0.5 yd) line check per leg for railings; (3) a hazard rejects only its candidate; (4) only probes without floor count towards the give-up, launched steps have their own cap of three; (5) docs say "per action" for the pacing.
+## Dungeon follow holds before unpulled packs (audit fix 127) — 2026-10-12
+
+Feature: optional `AiPlayerbot.DungeonFollowHoldBeforePacks` (default `0`).
+In a dungeon or raid, out of combat on both sides, a bot whose leader is
+more than 30 yd ahead follows with the module's `MoveTo2` instead of the
+core `MoveFollow`, so the route goes through `TravelPath::ClipPath`. With
+the new `PackHoldResult` out-parameter, `ClipPath` also ends the route
+3 yd outside the aggro radius (`Creature::GetAttackDistance(bot)`, core
+`CREATURE_Z_ATTACK_RANGE` vertical gate unless the creature flies) of the
+first unpulled hostile creature on it (alive, not in combat, no victim,
+`CanInitiateAttack`), read from the cached `possible targets` list. The
+bot holds there, whispers its master once per pack (30 s floor), and walks
+on when the pack is gone, the route clears or the leader comes back within
+25 yd (the hold re-arms beyond 30 yd). The existing melee-reach clip is unchanged and still runs first.
+
+Source repository: none — this goes **beyond mod-playerbots**. Checked
+`mod-playerbots` @ `79bd4281` (`src/Ai/Base/Actions/MovementActions.cpp`
+`Follow`/`MoveTo`, `src/Ai/Base/Actions/FollowActions.cpp`): the donor
+follows with the plain core `MoveFollow`, its `MoveTo` does not avoid
+packs, and it has no `ClipPath`; no donor code or behaviour was copied.
+
+Copied / ported / reimplemented: independently implemented in the module.
+Pure gate and geometry in `ai/playerbot/DungeonFollowHoldPolicy.h`
+(segment-sphere entry, earliest pack along the route, inward-only hold
+when already inside the margin), tested by
+`tools/test_dungeon_follow_hold_policy.cpp` (wired into
+`tools/verify_all.sh`).
+
+Source files (module, modified): `ai/playerbot/DungeonFollowHoldPolicy.h`
+(new), `ai/playerbot/TravelNode.{h,cpp}` (`PackHoldResult`,
+`ClipPath` out-parameter, `ClipBeforePack`),
+`ai/playerbot/strategy/actions/MovementActions.{h,cpp}` (`MoveTo2`
+passes it through), `ai/playerbot/strategy/actions/FollowActions.{h,cpp}`
+(gate, hold, whisper, `isUseful` takes over from a running core follow),
+`ai/playerbot/PlayerbotAIConfig.{h,cpp}` + `aiplayerbot.conf.dist.in`
+(key), docs (`configuration-tuning.md`, `dungeon-tactics.md`,
+`player-controls.md`). No core change, no new host hook.
+
+Reason: evidence in the Uldaman investigation (2026-10-12): the only
+navmesh route north from the entrance passes ~3 yd from the west-room
+pack; bots following a leader who ran or teleported ahead walked into it
+and wiped the party (VM run, WIPE 1; m910q build 4 P2).
+
+Cost: nothing when the key is `0` (one bool check in `isUseful`/`Execute`).
+When on and the gate holds, one `MoveTo2` re-check per second (the route is
+reused from `last movement` while the leader stays put) and one read of
+the cached `possible targets` value (recalculated at most once a second by
+its own cache); no extra grid search or path per creature.
+
+Local validation: `bash tools/verify_all.sh` (incl. the new policy test);
+`git diff --check`. Not compiled against the core and not tested in game
+yet.
+
+### Review fixes (2026-10-12, REVIEW-127 CHANGES REQUIRED)
+
+- I1 (fixed): the vertical gate is now tested where the route leg actually
+  enters the aggro zone (segment inside the sphere AND inside the height
+  band), so a ramp or stair leg that climbs through the pack's level holds.
+  The band is `CREATURE_Z_ATTACK_RANGE` + the creature's + the bot's bounding
+  radius, matching the core's `GetDistanceZ`. Ramp cases added to the test.
+- M1 (fixed): a core FOLLOW left running when `MoveTo2` launched nothing is
+  stopped, so it cannot carry the bot past the margin.
+- M2 (fixed): gate hysteresis, on beyond 30 yd and off within 25 yd.
+- M3 (kept, comment fixed): creatures already fighting someone else are not
+  held for; with the bot and leader out of combat that fight belongs to a
+  pet, escort or other member, and joining it is acceptable.
+- M4 (fixed): gate closed while the leader is on a transport.
+- M5 (fixed): docs and template say the bot whispers its master.
+- M6 (dropped in fix round 2, coordinator ruling on re-review N1): the
+  step-aside that let rest triggers run between re-checks was unreachable
+  with the default `JumpFollow = 1` and had cut the standing re-check to
+  `ReactDelay`. Removed; the standing hold re-checks once a second again and
+  the bot rests only through the normal out-of-combat flow once the hold ends.
+  N3: the toggle-off path now also resets the hold state.
+- Performance: a bot standing at its hold point reads the cached creature
+  list lazily; it refreshes only while walking.
+- M7 and ScriptedAI (no height gate in core `ScriptedAI::MoveInLineOfSight`):
+  listed as known limits in the PR.
+
+Local validation: `bash tools/verify_all.sh` (incl. the extended policy
+test); `git diff --check`; `g++ -fsyntax-only` of the touched module files
+against `~/tortoise-wow` headers with the module PCH (only pre-existing
+host-API mismatches reported, none in changed lines). Not built with the
+dev loop and not tested in game.
+## Healers follow out of combat; dungeon follow no longer trusts a stalled core follow — 2026-10-12
+
+Feature 1: `PartyMemberToHealOutOfSpellRangeTrigger::IsActive` (`ai/playerbot/strategy/triggers/RangeTriggers.h`) gates "reach party member to heal" with the pure `HealReachWanted` (`ai/playerbot/HealReachPolicy.h`): out of combat (the running engine is not the combat engine) the trigger fires only for a heal target below `AiPlayerbot.AlmostFullHealth`. In combat it is unchanged. The "party member to heal" value always lists tanks, even at full health, so out of combat it named the full-health tank and the trigger (wired into the non-combat strategies of holy/discipline priests, holy paladins, restoration druids and shamans at a higher priority than follow) walked the healer to the tank instead of following the leader. Inside a dungeon, in sight of the tank, the walk was the core chase, which refuses a non-melee destination there: the priest stood still.
+
+Source: mod-playerbots `79bd428`, `src/Ai/Class/Priest/Strategy/HolyPriestStrategy.cpp`, `src/Ai/Class/Shaman/Strategy/RestoShamanStrategy.cpp` and the other healer strategies wire "party member to heal out of spell range" into the `InitTriggers` of spec strategies that `AiFactory::AddDefaultCombatStrategies` (`src/Bot/Factory/AiFactory.cpp`) adds to the combat engine only. Kind: reimplemented. Deviation: the non-combat rows stay, so a member who is hurt after a fight still gets the walk; only a target at or above almost-full health is ignored out of combat.
+
+Feature 2: `FollowAction::isUseful` / `Execute` (`ai/playerbot/strategy/actions/FollowActions.cpp`) with `DungeonFollowStallWatch` (`ai/playerbot/DungeonFollowStallPolicy.h`). The follow action trusted a running core follow generator on its leader and was never asked again below 60 yd. Inside a dungeon (`Map::IsDungeon`), out of combat, the watch latches a rescue when the bot is more than 3 yd beyond its follow distance and has not moved a yard for 2 s (re-anchored while sitting, casting, rooted or after a 1 s feed gap). The rescue tries `MovementAction::StepDownOffLedge` (own pacing), then walks the navmesh route to the leader with the module's `MoveTo2` (complete or partial path), at most once per 2 s, doubling to 8 s per walk that cannot start; the normal follow runs between walks. It ends when the bot is back within range.
+
+Source: mod-playerbots `79bd428`, `src/Ai/Base/Actions/FollowActions.cpp` (`FollowAction::Execute` / `isUseful`): with the default formations (no target name) the donor follows by `MoveTo` to the formation point along a generated path and its `isUseful` is a plain distance check, so it never relies on a follow generator that may not move. Kind: reimplemented, narrower: the core follow stays the default (it tracks a moving leader smoothly) and the path walk only takes over once that follow has stood still for 2 s. The ranged-approach walk-back helper (`RangedApproachPolicy.h`) does not fit follow (it stops at casting range in sight of a target), so it is not reused.
+
+Reason: Uldaman, build 11, 2026-10-12 (`~/TortoiseBots-audit/ingame/repro-129-follow.md`, `ulda-b11-walk.md`): a holy priest of a full-health party stood 70+ s at 38-47 yd from its leader on "reach party member to heal" while the tank, mage and rogue followed; and all four bots stood 50 s at (-257, 96), the edge of a navmesh island about 4 yd above the floor (offline Detour query on the map 70 tiles: partial path, end at the bot's feet), 34-36 yd from the leader, state "moving", last action "check values". The step-down never ran because the follow action was not useful while the stalled core follow was current.
+
+Validation: `tools/test_heal_reach_policy.cpp`, `tools/test_dungeon_follow_stall_policy.cpp` (gate, 2 s stall, walking is no stall, range and release, held, feed gap, latch, walk throttle and back-off, clock wrap); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only` of `FollowActions.cpp` and `RangeTriggers.cpp` against the core headers. Full build pending; in-game pending.
+
+Review fixes (2026-10-12, REVIEW-129): (1) the rescue yields while the bot is held (sitting, casting, rooted) even after it has latched, matching the docs; (2) five rescue walks in a row that cannot start end the rescue for 60 s, so a bot that cannot be rescued (below its leader's platform) does not plan a path every 8 s forever; catching up clears the give-up; (3) docs note that, with `DungeonFollowHoldBeforePacks` off, a rescue walk can pass an unpulled pack like far follow. Test rows added for latched-then-held, the give-up and its reset.

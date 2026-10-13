@@ -1,5 +1,6 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/TaxiRouteGuard.h"
 #include "TaxiAction.h"
 #include "Database/DBCStructure.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
@@ -68,10 +69,10 @@ bool TaxiAction::Execute(Event& event)
             uint32 path = nodes[selected - 1];
             TaxiPathEntry const* entry = sTaxiPathStore.LookupEntry(path);
             if (!entry) return false;
-            bool didTaxi =  bot->ActivateTaxiPathTo({ entry->from, entry->to }, npc, 0);
+            bool didTaxi = ai::BotTaxiRouteAllowed({ entry->from, entry->to }) && bot->ActivateTaxiPathTo({ entry->from, entry->to }, npc, 0);
             return didTaxi;
         }
-        if (!movement.taxiNodes.empty() && !bot->ActivateTaxiPathTo(movement.taxiNodes, npc))
+        if (!movement.taxiNodes.empty() && (!ai::BotTaxiRouteAllowed(movement.taxiNodes) || !bot->ActivateTaxiPathTo(movement.taxiNodes, npc)))
         {
             movement.taxiNodes.clear();
             movement.Set(NULL);

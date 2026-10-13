@@ -1,4 +1,5 @@
 ﻿#include "playerbot/playerbot.h"
+#include "playerbot/TaxiRouteGuard.h"
 #include "WorldBuffTravelActions.h"
 #include "ChooseTravelTargetAction.h"
 #include "playerbot/TravelMgr.h"
@@ -226,7 +227,7 @@ bool WorldBuffTravelApplyAction::TakeFlightFromMaster(uint32 npcEntry, uint32 de
         uint32 savedMoney = bot->GetMoney();
         bot->SetMoney(savedMoney + 100000);
 
-        bool didFly = bot->ActivateTaxiPathTo({ srcNode, destTaxiNode }, flightMaster, 0);
+        bool didFly = ai::BotTaxiRouteAllowed({ srcNode, destTaxiNode }) && bot->ActivateTaxiPathTo({ srcNode, destTaxiNode }, flightMaster, 0);
 
         bot->SetMoney(savedMoney);
 

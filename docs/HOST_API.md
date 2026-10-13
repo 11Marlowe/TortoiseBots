@@ -411,7 +411,10 @@ explicit cross-account ownership rows from the module-owned durable table. It
 emits the stable six-field `TBM:ROSTER_BEGIN`, `TBM:ROSTER`, and
 `TBM:ROSTER_END` system-message stream, followed by a separate
 `TBM:CC_ASSIGN_BEGIN`, `TBM:CC_ASSIGN`, `TBM:CC_ASSIGN_END` stream for live
-AI assignments, then a `TBM:BOTSTATE_BEGIN`, `TBM:BOTSTATE|<bot>|move=…,loot=on,…`,
+CC assignments of the controllable party bots that have the `cc` strategy and a
+CC mark set (owned alts and hired companions;
+built from the same set as BOTSTATE, not from the roster rows, so hires that the
+rows leave out are still listed and ungrouped owned alts are not), then a `TBM:BOTSTATE_BEGIN`, `TBM:BOTSTATE|<bot>|move=…,loot=on,…`,
 `TBM:BOTSTATE_END` stream with the movement mode and behaviour toggles of every
 controllable party bot (owned alts and hired companions). Keeping this metadata
 in separate streams means an older addon can still consume the roster unchanged. The roster remains the source of truth for

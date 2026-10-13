@@ -1,5 +1,6 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/TaxiRouteGuard.h"
 #include "RpgSubActions.h"
 #include "ChooseRpgTargetAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -241,7 +242,7 @@ bool RpgTaxiAction::Execute(Event& event)
         bot->SetMoney(money);
         return false;
     }
-    if (!bot->ActivateTaxiPathTo({ entry->from, entry->to }, flightMaster, 0))
+    if (!ai::BotTaxiRouteAllowed({ entry->from, entry->to }) || !bot->ActivateTaxiPathTo({ entry->from, entry->to }, flightMaster, 0))
     {
         sLog.outError("Bot %s cannot fly %u (%zu location available)", bot->GetName(), path, nodes.size());
         bot->SetMoney(money);

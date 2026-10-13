@@ -361,6 +361,12 @@ public:
     // the bot's default movement. A no-op when no hold is placed, and never
     // touches a stay the player asked for (that drops the hold marker first).
     void ReleasePullHold();
+    // An order that sends the bot at a target ends a stay and a flee's
+    // passive hold: drop "passive" and "stay", then, when that leaves no
+    // movement mode, put the default (follow for a player's bot) back so it
+    // rejoins after the fight. Used by the .bot tactical orders and the
+    // whispered attack.
+    void EndStayForOrder();
 	std::string HandleRemoteCommand(std::string command);
     void HandleCommand(uint32 type, const std::string& text, Player& fromPlayer, const uint32 lang = LANG_UNIVERSAL);
     void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);
@@ -687,6 +693,10 @@ public:
     bool HasCheat(BotCheatMask mask) const;
     BotCheatMask GetCheat() { return cheatMask; }
     void SetCheat(BotCheatMask mask) { cheatMask = mask; }
+
+    // A live group member near this bot is fighting something. Member flags
+    // only, no grid scan, so it is cheap enough for the per-tick resting wake.
+    bool IsGroupMemberNearInCombat();
 
     // Cache master's GUID alongside the raw pointer so we can revalidate
     // the pointer each tick against ObjectAccessor — if the master Player
