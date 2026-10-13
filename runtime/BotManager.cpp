@@ -2090,7 +2090,7 @@ void BotManager::UpdateBots(uint32_t diff)
         uint64_t const tickUsAvg = (static_cast<uint64_t>(m_perfElapsedMs) * 1000) / m_perfPassCount;
         uint64_t const passUsAvg = m_perfPassUsSum / m_perfPassCount;
         uint64_t const coreMs = tickUsAvg > passUsAvg ? (tickUsAvg - passUsAvg) / 1000 : 0;
-        // Route cache: ResolveMovePath calls in this window that reused the cached route or planned it again.
+        // ResolveMovePath calls in this window that were answered from the cached route (routeReuse) or planned the route again (routeRebuild).
         uint32_t const routeReuse = ai::MovementAction::routeReuseCount.exchange(0, std::memory_order_relaxed);
         uint32_t const routeRebuild = ai::MovementAction::routeRebuildCount.exchange(0, std::memory_order_relaxed);
         TB_LOG_BASIC("TortoiseBots: BOTPERF passUs=%llu playerBots=%u ownedBots=%u masterBots=%u poolBots=%u poolProcessed=%u due=%u budgetHit=%u maxUs=%llu ticks=%u poolBudgetUs=%llu combatBudgetUs=%llu turnLateAvgMs=%u turnLateMaxMs=%u turns=%u usPerTurn=%u coreMs=%u combatTurns=%u combatLateAvgMs=%u otherTurns=%u otherLateAvgMs=%u routeReuse=%u routeRebuild=%u",
