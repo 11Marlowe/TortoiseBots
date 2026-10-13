@@ -18,7 +18,9 @@
 //     default-interval values were all written against per-read results;
 //   - values that sense the fight around the bot and mark themselves with
 //     keepLegacyRefresh (attackers and their counts, aggro, possible targets,
-//     hazards, boss target, AoE heal, enemy players).
+//     hazards, boss target, AoE heal, enemy players) and the free-move
+//     values plus grind target (follow restart after the master moves, and
+//     the heal/grind/possible-target filters that read the free-move centre).
 namespace ai
 {
     // Set once from PlayerbotAIConfig::Initialize; read on every value read.

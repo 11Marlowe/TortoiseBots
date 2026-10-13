@@ -1616,8 +1616,10 @@ AiPlayerbot.TargetWorldTickMs = 100
 # instead. Values with interval 0 or 1 (health, mana, auras, targets,
 # inventory, ...) still recalculate on every read, and the values that sense
 # the fight (attackers and their counts, aggro, possible targets, traps and
-# void zones, boss target, AoE heal, enemy players) keep the old rule.
-# Everything else (travel, quest, vendor, grind target, group, ...) may react
+# void zones, boss target, AoE heal, enemy players), the free-move values
+# (free move center/range, can free move: followers restart when the master
+# runs off) and grind target keep the old rule.
+# Everything else (travel, quest, vendor, group, ...) may react
 # up to twice as late. Off until an A/B run shows the gain is worth it.
 AiPlayerbot.ValueRefreshAtInterval = 0
 

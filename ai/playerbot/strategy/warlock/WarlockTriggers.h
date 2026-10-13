@@ -383,8 +383,10 @@ namespace ai
     };
 
     // Group tank read for the spec-pet rows, shared by the four SpecPetTrigger
-    // rows: a CalculatedValue refreshes at checkInterval/2 seconds, so 10 keeps
-    // one walk per 5 s (the rows' own check interval) instead of one per row.
+    // rows: one walk per refresh period instead of one per row. A
+    // CalculatedValue refreshes every checkInterval/2 s, so 10 = every 5 s (the
+    // rows' own check interval); with AiPlayerbot.ValueRefreshAtInterval = 1
+    // it waits the full 10 s (see ValueRefreshPolicy.h).
     class SpecPetTankValue : public BoolCalculatedValue
     {
     public:
