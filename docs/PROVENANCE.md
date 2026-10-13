@@ -4102,6 +4102,8 @@ Source files:
 - `src/Ai/Class/Mage/MageActions.cpp:67-78` (`CastFrostNovaAction::isUseful`: not-frozen, no freeze-mechanic immunity, 10 yd)
 - `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:80-82` (melee chain: mongoose bite 22, wing clip 21)
 
+Module note: `ai/playerbot/strategy/hunter/GenericHunterStrategy.cpp` is not registered, so the live melee row is `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (#838); the donor path above is reference only.
+
 Copied / ported / independently reimplemented: reimplemented against the
 live list-based engine; the dead new-style forward-ports stay untouched.
 Thunder Clap 6343/8198/8204/8205 (Battle+Defensive stances) and Wing Clip
@@ -7838,6 +7840,8 @@ switch at all; `enemy too close for auto shot` → disengage 35 / flee 34
 outranks `enemy within melee` → mongoose bite 22 / wing clip 21) and
 `src/Ai/Base/Trigger/RangeTriggers.cpp` (`EnemyTooCloseForAutoShotTrigger`:
 step out only while the mob is not on the bot).
+
+Module note: `ai/playerbot/strategy/hunter/GenericHunterStrategy.cpp` is not registered, so the live melee row is `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (#838); the donor path above is reference only.
 
 Source files (module, modified):
 `ai/playerbot/HunterSwitchPolicy.h` (`ShouldSwitchToRanged`),
