@@ -497,6 +497,7 @@ public:
     virtual bool IsInterruptableSpellCasting(Unit* player, std::string spell, uint8 effectMask);
     virtual bool HasAuraToDispel(Unit* player, uint32 dispelType);
     bool canDispel(const SpellEntry* entry, uint32 dispelType);
+    static bool IsNeverDispelSpell(uint32 spellId);
     static bool IsHealSpell(const SpellEntry* entry);
 
     static bool IsMiningNode(const GameObject* go);
