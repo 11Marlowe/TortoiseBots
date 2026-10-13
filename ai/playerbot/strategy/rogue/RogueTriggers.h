@@ -33,6 +33,9 @@ namespace ai
     {
     public:
         RogueDungeonVanishTrigger(PlayerbotAI* ai) : HighThreatTrigger(ai, "rogue dungeon vanish") {}
+        bool IsActive() override;
+    };
+
     // Raid Vanish on high threat, but only when the tank actually has threat on
     // the target: the threat value reads 100 for an in-combat mob the tank never
     // touched (a loose add), where Vanish only burns its cooldown.

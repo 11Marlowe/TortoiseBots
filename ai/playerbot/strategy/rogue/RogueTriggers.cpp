@@ -222,6 +222,8 @@ bool RogueDungeonVanishTrigger::IsActive()
     Unit* victim = target ? target->GetVictim() : nullptr;
     in.victimIsTankOrRogue = victim && (victim == bot || victim == AI_VALUE(Unit*, "main tank"));
     return TortoiseBots::ShouldRogueDungeonVanish(in);
+}
+
 bool RogueRaidVanishTrigger::IsActive()
 {
     if (!HighThreatTrigger::IsActive())
