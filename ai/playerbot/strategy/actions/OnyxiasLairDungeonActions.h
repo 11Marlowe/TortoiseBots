@@ -45,7 +45,7 @@ namespace ai
     struct OnyxiaWhelpScan
     {
         bool bossAirborne = false;
-        Unit* whelp = nullptr; // nearest pickable live whelp (not within an egg's danger circle)
+        Unit* whelp = nullptr; // nearest pickable live whelp (not within an egg's trap circle)
     };
     OnyxiaWhelpScan ScanOnyxiaWhelps(PlayerbotAI* ai, Player* bot);
     // True when this bot is on whelp duty (AoE-capable ranged DPS).
