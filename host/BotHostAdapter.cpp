@@ -133,6 +133,11 @@ void BotHostAdapter::OnStartup()
 }
 void BotHostAdapter::OnUpdate(uint32 diff)
 {
+    // Issue #844: before anything that can send packets to bots (the command
+    // drain included: a `.bot hire` drops its level-up echo right after the
+    // jump), so their packet hooks on this thread reach the AI inline.
+    BotPacketAdapter::MarkWorldThread();
+
     // Issue #833: players' `.bot` / TBM commands arrive on map and
     // AsyncPackets threads and are queued; run them here, on the world thread
     // and before the bot update. This runs even with the AI disabled, so no
