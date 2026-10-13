@@ -4,6 +4,8 @@
 #include "playerbot/DungeonFollowHoldPolicy.h"
 
 #include <iomanip>
+#include <optional>
+#include <unordered_map>
 #include <regex>
 
 #include "ObjectMgr.h"
@@ -106,8 +108,78 @@ void TravelNodePath::calculateCost(bool distanceOnly)
     }
 }
 
+TravelCostContext::TravelCostContext(Unit* unit)
+{
+    bot = dynamic_cast<Player*>(unit);
+    if (!bot)
+        return;
+
+    ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    mapId = bot->GetMapId();
+    instanceId = bot->GetInstanceId();
+    level = bot->GetLevel();
+    isAlliance = PlayerbotAI::friendToAlliance(bot->GetFactionTemplateEntry());
+    taxiCheater = bot->IsTaxiCheater();
+    speed = bot->GetSpeed(MOVE_RUN);
+    swimSpeed = bot->GetSpeed(MOVE_SWIM);
+
+    if (bot->HasSpell(1066))
+        swimSpeed *= 1.5;
+
+    now = time(0);
+}
+
+bool TravelCostContext::hasRealPlayerMaster()
+{
+    if (realPlayerMaster < 0)
+        realPlayerMaster = ai && ai->HasRealPlayerMaster() ? 1 : 0;
+
+    return realPlayerMaster == 1;
+}
+
+bool TravelCostContext::canUseAreaTrigger(uint32 triggerId)
+{
+    auto const cached = areaTriggerUsable.find(triggerId);
+    if (cached != areaTriggerUsable.end())
+        return cached->second;
+
+    bool usable = true;
+
+    AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(triggerId);
+    AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(triggerId);
+    if (atEntry && at && atEntry->mapid == mapId)
+    {
+        Map* map = WorldPosition(atEntry->mapid, atEntry->box_x, atEntry->box_y, atEntry->box_z).GetMap(instanceId);
+        if (map && at->requiredCondition && !sObjectMgr.IsConditionSatisfied(at->requiredCondition, bot, map, nullptr, (ConditionSource)CONDITION_FROM_AREATRIGGER_TELEPORT))
+            usable = false;
+    }
+
+    if (usable && ai)
+    {
+        // Closed by AreaTriggerAction after the server refused to teleport this bot.
+        if (ai->GetAiObjectContext()->GetValue<time_t>("manual time", "area trigger refused::" + std::to_string(triggerId))->Get() > now)
+            usable = false;
+
+        // The Deeprun Tram is crossed by riding the train, which bots
+        // cannot board: a bot routed through it stood on the platform
+        // for good (13 of 2000 pool bots, live 2026-10-09). Masterless
+        // bots walk or fly between Stormwind and Ironforge instead.
+        if (usable && at && at->destination.mapId == MAP_DEEPRUN_TRAM && !hasRealPlayerMaster())
+            usable = false;
+    }
+
+    areaTriggerUsable.emplace(triggerId, usable);
+    return usable;
+}
+
 //The cost to travel this path.
 float TravelNodePath::getCost(Unit* unit, uint32 cGold)
+{
+    TravelCostContext context(unit);
+    return getCost(context, cGold);
+}
+
+float TravelNodePath::getCost(TravelCostContext& context, uint32 cGold)
 {
     float modifier = 1.0f; //Global modifier
     float timeCost = 0.1f;
@@ -115,36 +187,14 @@ float TravelNodePath::getCost(Unit* unit, uint32 cGold)
     float speed = 8.0f; //default run speed
     float swimSpeed = 4.0f; //default swim speed.
 
-    Player* bot = dynamic_cast<Player*>(unit);
+    Player* bot = context.bot;
     if (bot)
     {
         //Check if we can use this area trigger.
         if (getPathType() == TravelNodePathType::areaTrigger && pathObject)
         {
-            uint32 triggerId = getPathObject();
-            AreaTriggerEntry const* atEntry = sAreaTriggerStore.LookupEntry(pathObject);
-            AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(pathObject);
-            if (atEntry && at && atEntry->mapid == bot->GetMapId())
-            {
-                Map* map = WorldPosition(atEntry->mapid, atEntry->box_x, atEntry->box_y, atEntry->box_z).GetMap(bot->GetInstanceId());
-                if (map)
-                    if (at && at->requiredCondition && !sObjectMgr.IsConditionSatisfied(at->requiredCondition, bot, map, nullptr, (ConditionSource)CONDITION_FROM_AREATRIGGER_TELEPORT))
-                        return -1;
-            }
-
-            // Closed by AreaTriggerAction after the server refused to teleport this bot.
-            if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
-            {
-                if (ai->GetAiObjectContext()->GetValue<time_t>("manual time", "area trigger refused::" + std::to_string(triggerId))->Get() > time(0))
-                    return -1;
-
-                // The Deeprun Tram is crossed by riding the train, which bots
-                // cannot board: a bot routed through it stood on the platform
-                // for good (13 of 2000 pool bots, live 2026-10-09). Masterless
-                // bots walk or fly between Stormwind and Ironforge instead.
-                if (at && at->destination.mapId == MAP_DEEPRUN_TRAM && !ai->HasRealPlayerMaster())
-                    return -1;
-            }
+            if (!context.canUseAreaTrigger(getPathObject()))
+                return -1;
         }
 
         if (getPathType() == TravelNodePathType::staticPortal && pathObject)
@@ -191,31 +241,12 @@ float TravelNodePath::getCost(Unit* unit, uint32 cGold)
             }
         }
 
-        speed = bot->GetSpeed(MOVE_RUN);
-        swimSpeed = bot->GetSpeed(MOVE_SWIM);
-
-        if (bot->HasSpell(1066))
-            swimSpeed *= 1.5;
-
-        uint32 level = bot->GetLevel();
-        bool isAlliance = PlayerbotAI::friendToAlliance(bot->GetFactionTemplateEntry());
-
-        int factionAnnoyance = 0;
+        speed = context.speed;
+        swimSpeed = context.swimSpeed;
 
         if (maxLevelCreature.size() > 0)
-        {
-            int mobAnnoyance = (maxLevelCreature[0] - level) - 10; //Mobs 10 levels below do not bother us.
-
-            if (isAlliance)
-                factionAnnoyance = (maxLevelCreature[2] - level) - 10;              //Opposite faction below 10 do not bother us.
-            else if (!isAlliance)
-                factionAnnoyance = (maxLevelCreature[1] - level) - 10;
-
-            if (mobAnnoyance > 0)
-                modifier += 0.1 * mobAnnoyance;     //For each level the whole path takes 10% longer.
-            if (factionAnnoyance > 0)
-                modifier += 0.3 * factionAnnoyance; //For each level the whole path takes 30% longer.
-        }
+            modifier = GetCreatureLevelRouteModifier(context.level, context.isAlliance,
+                maxLevelCreature[0], maxLevelCreature[1], maxLevelCreature[2]);
     }
     else if (getPathType() == TravelNodePathType::flightPath)
         return -1;
@@ -1670,10 +1701,23 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
 
     std::vector<TravelNode*> portNodes;
 
-    Player* bot = dynamic_cast<Player*>(unit);
+    // Everything the edge costs need to know about the bot, resolved once for
+    // the whole search instead of on every edge.
+    TravelCostContext costContext(unit);
+    Player* bot = costContext.bot;
+
+    // Parties share the route preference of their leader.
+    uint32 routeSeed = 0;
     if (bot)
     {
-        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        routeSeed = bot->GetGUIDLow();
+        if (Group* group = bot->GetGroup())
+            routeSeed = group->GetLeaderGuid().GetCounter();
+    }
+
+    if (bot)
+    {
+        PlayerbotAI* ai = costContext.ai;
         if (ai)
         {
             AiObjectContext* context = ai->GetAiObjectContext();
@@ -1825,17 +1869,13 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
         {
             TravelNode* linkNode = link.first;
 
-            float linkCost = link.second->GetCost(unit, currentNode->currentGold);
+            float linkCost = link.second->getCost(costContext, currentNode->currentGold);
 
             if (linkCost <= 0)
                 continue;
 
             if (bot)
             {
-                uint32 routeSeed = bot->GetGUIDLow();
-                if (Group* group = bot->GetGroup())
-                    routeSeed = group->GetLeaderGuid().GetCounter();
-
                 WorldPosition const* from = currentNode->dataNode->getPosition();
                 WorldPosition const* to = linkNode->getPosition();
                 linkCost *= GetStableRouteCostMultiplier(routeSeed,
@@ -1860,7 +1900,7 @@ TravelNodeRoute TravelNodeMap::getRoute(TravelNode* start, TravelNode* goal, Uni
             childNode->m_h = h;
             childNode->parent = currentNode;
 
-            if (bot && !bot->IsTaxiCheater())
+            if (bot && !costContext.taxiCheater)
                 childNode->currentGold = currentNode->currentGold - link.second->GetPrice();
 
             if (childNode->close)
@@ -1953,6 +1993,33 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
 
     uint64 uid = urand(0, UINT32_MAX) * urand(0, UINT32_MAX);
 
+    // setAtWaterSurface() reads terrain (and loads the grid when it was never
+    // touched), and the same few positions are asked again for every start/end
+    // combination below. The answer only depends on the position, so each
+    // one is computed on its first use and reused for the rest of this call.
+    // The leg checks keep their order and short-circuit: a position that
+    // the original code did not ask about is still not asked about.
+    struct WaterSurface
+    {
+        bool moved;
+        WorldPosition position;
+    };
+    auto const toWaterSurface = [](WorldPosition const& position)
+    {
+        WaterSurface surface{ false, position };
+        surface.moved = surface.position.setAtWaterSurface();
+        return surface;
+    };
+    std::unordered_map<TravelNode*, WaterSurface> nodeSurfaces;
+    auto const nodeSurface = [&](TravelNode* node) -> WaterSurface const&
+    {
+        auto found = nodeSurfaces.find(node);
+        if (found == nodeSurfaces.end())
+            found = nodeSurfaces.emplace(node, toWaterSurface(*node->getPosition())).first;
+        return found->second;
+    };
+    std::optional<WaterSurface> startPosSurface, endPosSurface;
+
     std::vector<TravelNode*> badStartNodes, badEndNodes;
     uint32 noRouteCombos = 0;
 
@@ -1995,9 +2062,19 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
 
                     if (!hasPath)
                     {
-                        WorldPosition surfaceNode = endNodePosition;
+                        WaterSurface const& endNodeSurface = nodeSurface(endNode);
+                        WorldPosition surfaceNode = endNodeSurface.position;
                         WorldPosition surfaceEnd = endPos;
-                        if (surfaceNode.setAtWaterSurface() || surfaceEnd.setAtWaterSurface())
+                        bool moved = endNodeSurface.moved;
+                        if (!moved)
+                        {
+                            if (!endPosSurface)
+                                endPosSurface = toWaterSurface(endPos);
+                            surfaceEnd = endPosSurface->position;
+                            moved = endPosSurface->moved;
+                        }
+
+                        if (moved)
                         {
                             endPath = surfaceNode.GetPathTo(surfaceEnd, unit);
                             hasPath = surfaceEnd.isPathTo(endPath, TRAVEL_WALK_LEG_REACH_YD);
@@ -2028,9 +2105,19 @@ TravelNodeRoute TravelNodeMap::getRoute(WorldPosition startPos, WorldPosition en
 
             if (!hasPath)
             {
-                WorldPosition surfaceStart = startPos;
+                if (!startPosSurface)
+                    startPosSurface = toWaterSurface(startPos);
+                WorldPosition surfaceStart = startPosSurface->position;
                 WorldPosition surfaceNode = startNodePosition;
-                if (surfaceStart.setAtWaterSurface() || surfaceNode.setAtWaterSurface())
+                bool moved = startPosSurface->moved;
+                if (!moved)
+                {
+                    WaterSurface const& startNodeSurface = nodeSurface(startNode);
+                    surfaceNode = startNodeSurface.position;
+                    moved = startNodeSurface.moved;
+                }
+
+                if (moved)
                 {
                     newStartPath = surfaceStart.GetPathTo(surfaceNode, unit);
                     hasPath = surfaceNode.isPathTo(newStartPath, maxStartDistance);
