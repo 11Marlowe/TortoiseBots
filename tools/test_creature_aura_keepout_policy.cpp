@@ -267,6 +267,45 @@ int main()
     }
     std::cout << "  [PASS] step-out landing clears other keep-outs (pulse when relaxed)\n";
 
+    // Late detection: a chase onto the sludge itself is planned from any
+    // distance (the target is checked before the 15 yd list), so a melee bot
+    // starting 40 yd out is sent to the 9.5 yd ring, never into the pulse.
+    {
+        CreatureAuraKeepout const& sludge = *FindCreatureAuraKeepout(349, 12222);
+        float gx = 0.0f, gy = 0.0f, hx = 0.0f, hy = 0.0f;
+        CreatureAuraChaseGoal(40.0f, 0.0f, 0.0f, 0.0f, 0.0f, gx, gy);
+        CHECK(PlanCreatureAuraFollow(sludge, false, 40.0f, 0.0f, gx, gy, 0.0f, 0.0f, hx, hy) ==
+            CreatureAuraFollowStep::Approach);
+        CHECK(std::fabs(hx - 9.5f) < 0.01f && std::fabs(hy) < 0.01f);
+    }
+    std::cout << "  [PASS] chase onto a sludge from 40 yd stops on the ring\n";
+
+    // Roles: tanks are exempt from the chase hold always, from the step-out
+    // and the path hazard only in combat.
+    {
+        CHECK(CreatureAuraChaseExempt(true));
+        CHECK(!CreatureAuraChaseExempt(false));
+        CHECK(CreatureAuraCombatExempt(true, true));
+        CHECK(!CreatureAuraCombatExempt(true, false)); // a following tank keeps out
+        CHECK(!CreatureAuraCombatExempt(false, true));
+    }
+    std::cout << "  [PASS] tank exemption\n";
+
+    // Bounded hold: set the target aside after 3 s on the same hostile
+    // current target, never under a player's order, never a friend.
+    {
+        CHECK(!CreatureAuraSetAsideTarget(true, false, 0));
+        CHECK(!CreatureAuraSetAsideTarget(true, false, kCreatureAuraChaseHoldMs - 1));
+        CHECK(CreatureAuraSetAsideTarget(true, false, kCreatureAuraChaseHoldMs));
+        CHECK(!CreatureAuraSetAsideTarget(true, true, 60000));  // ordered: hold, no retarget
+        CHECK(!CreatureAuraSetAsideTarget(false, false, 60000)); // a heal reach on a friend
+        CHECK(kCreatureAuraSetAsideMs > kCreatureAuraChaseHoldMs);
+        CHECK(CreatureAuraSetAsideSticks(true, false));
+        CHECK(!CreatureAuraSetAsideSticks(true, true));  // tanks pick it back up
+        CHECK(!CreatureAuraSetAsideSticks(false, false)); // a normal mob hitting the bot is fought
+    }
+    std::cout << "  [PASS] bounded hold then retarget\n";
+
     std::cout << "All creature aura keep-out tests passed.\n";
     return 0;
 }

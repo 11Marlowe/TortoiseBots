@@ -1588,14 +1588,57 @@ bool MovementAction::HoldChaseOutsideKeepout(WorldObject* target, float distance
     // hazard there and hands the move to the core chase, which runs into
     // melee contact with the creature - inside its pulse (Maraudon live test
     // 2026-10-13: a warrior on "reach melee" stood 2-4 yd from a sludge).
+    // Tanks pick up and hold mobs: their chase is never held.
+    if (CreatureAuraChaseExempt(PlayerbotAI::IsTank(bot)))
+    {
+        keepoutChaseEngaged = ObjectGuid();
+        keepoutChaseHoldTarget = ObjectGuid();
+        return false;
+    }
     float gx = 0.0f, gy = 0.0f;
     CreatureAuraChaseGoal(bot->GetPositionX(), bot->GetPositionY(),
         target->GetPositionX(), target->GetPositionY(), distance, gx, gy);
-    return HoldOutsideKeepout(gx, gy, gx, gy, keepoutChaseEngaged, CHASE_MOTION_TYPE);
+    // The target itself is planned against first: the cached 15 yd list
+    // does not see a sludge chased from farther away until the bot is almost
+    // in its pulse.
+    Unit* const targetUnit = target->ToUnit();
+    if (!HoldOutsideKeepout(gx, gy, gx, gy, keepoutChaseEngaged, CHASE_MOTION_TYPE, targetUnit))
+    {
+        keepoutChaseHoldTarget = ObjectGuid();
+        return false;
+    }
+
+    // Bounded hold: holding outside a ring because the target is inside is
+    // no headway. After a few seconds on the same hostile current target the
+    // bot sets it aside and picks another (owner decision 2026-10-13), also
+    // in group dungeons where the reach give-up is off, so a self-picked
+    // sludge is not kited forever. A player's attack order keeps the hold.
+    uint32 const nowMs = WorldTimer::getMSTime();
+    ObjectGuid const targetGuid = target->GetObjectGuid();
+    if (keepoutChaseHoldTarget != targetGuid)
+    {
+        keepoutChaseHoldTarget = targetGuid;
+        keepoutChaseHoldSinceMs = nowMs;
+    }
+    bool const hostileCurrentTarget = targetUnit && targetUnit == AI_VALUE(Unit*, "current target") &&
+        !sServerFacade.IsFriendlyTo(bot, targetUnit);
+    bool const ordered = targetGuid == AI_VALUE(ObjectGuid, "explicit attack target");
+    if (CreatureAuraSetAsideTarget(hostileCurrentTarget, ordered, nowMs - keepoutChaseHoldSinceMs))
+    {
+        context->GetValue<std::map<ObjectGuid, uint32>&>("unreachable targets")->Get()[targetGuid] =
+            nowMs + kCreatureAuraSetAsideMs;
+        context->GetValue<ObjectGuid>("attack target")->Set(ObjectGuid());
+        context->GetValue<Unit*>("current target")->Set(nullptr);
+        bot->AttackStop();
+        keepoutChaseHoldTarget = ObjectGuid();
+        ai->TellDebug(GetMaster(), "Setting aside " + std::string(target->GetName()) +
+            " - it stands in a creature aura keep-out", "debug move");
+    }
+    return true;
 }
 
 bool MovementAction::HoldOutsideKeepout(float gx, float gy, float ax, float ay, ObjectGuid& engaged,
-    MovementGeneratorType nativeType)
+    MovementGeneratorType nativeType, Unit* first)
 {
     float const bx = bot->GetPositionX(), by = bot->GetPositionY();
     ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
@@ -1611,7 +1654,14 @@ bool MovementAction::HoldOutsideKeepout(float gx, float gy, float ax, float ay, 
             mm.MoveIdle();
         }
     };
-    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+    std::list<ObjectGuid> candidates = AI_VALUE(std::list<ObjectGuid>, "possible triggers");
+    if (first && PossibleTriggersValue::KeepoutFor(first))
+    {
+        ObjectGuid const firstGuid = first->GetObjectGuid();
+        candidates.remove(firstGuid);
+        candidates.push_front(firstGuid);
+    }
+    for (ObjectGuid const& guid : candidates)
     {
         Unit* unit = ai->GetUnit(guid);
         CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
@@ -2699,6 +2749,9 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
         if (CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit))
         {
             if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
+                continue;
+            // A tank in combat may stand in the ring to hold its mobs.
+            if (CreatureAuraCombatExempt(PlayerbotAI::IsTank(bot), bot->IsInCombat()))
                 continue;
             // Centre to centre, the same measure as the movement hazard.
             if (!InsideCreatureAuraKeepout(*row, WorldPosition(bot).distance(WorldPosition(unit))))

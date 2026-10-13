@@ -545,8 +545,13 @@ bool AttackersValue::IgnoreTarget(Unit* target, Player* playerToCheckAgainst)
     auto givenUp = unreachable.find(target->getObjectGuid());
     if (givenUp != unreachable.end())
     {
+        // A creature set aside by the aura keep-out (MovementAction::
+        // HoldChaseOutsideKeepout) stays ignored while it hits the bot: it is
+        // reachable, but only inside its pulse. Tanks are never set aside.
+        bool const keepoutSetAside = CreatureAuraSetAsideSticks(
+            PossibleTriggersValue::KeepoutFor(target) != nullptr, PlayerbotAI::IsTank(playerToCheckAgainst));
         if (WorldTimer::getMSTime() < givenUp->second &&
-            (cannotBeReached || target->GetVictim() != playerToCheckAgainst || !playerToCheckAgainst->IsWithinLOSInMap(target, true)))
+            (cannotBeReached || keepoutSetAside || target->GetVictim() != playerToCheckAgainst || !playerToCheckAgainst->IsWithinLOSInMap(target, true)))
             return true;
         unreachable.erase(givenUp);
     }

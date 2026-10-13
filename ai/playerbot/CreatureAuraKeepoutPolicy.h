@@ -207,6 +207,44 @@ namespace ai
         gy = ty + dy * k;
     }
 
+    // ---- Roles and the bounded chase hold (owner decision 2026-10-13) ------
+    //
+    // Tanks pick up and hold mobs, so a tank's chase is never held at the
+    // ring, and in combat a tank neither steps out of a keep-out nor has it
+    // registered as a path hazard. Out of combat (following, walking past an
+    // idle creature) a tank keeps out like everyone else.
+    inline bool CreatureAuraChaseExempt(bool isTank)
+    {
+        return isTank;
+    }
+
+    inline bool CreatureAuraCombatExempt(bool isTank, bool inCombat)
+    {
+        return isTank && inCombat;
+    }
+
+    // A chase held outside a ring because its goal is inside is no headway:
+    // after this long on the same hostile current target the bot sets the
+    // target aside and picks another, also in group dungeons where the reach
+    // give-up is off. A player's attack order on that target keeps the hold
+    // (and an ordered keep-out creature is not held at all).
+    constexpr unsigned kCreatureAuraChaseHoldMs = 3000;
+    // How long a set-aside target is left alone, even while it hits the bot.
+    constexpr unsigned kCreatureAuraSetAsideMs = 30000;
+
+    inline bool CreatureAuraSetAsideTarget(bool hostileCurrentTarget, bool explicitOrder, unsigned heldMs)
+    {
+        return hostileCurrentTarget && !explicitOrder && heldMs >= kCreatureAuraChaseHoldMs;
+    }
+
+    // Target selection: a set-aside keep-out creature stays ignored while it
+    // hits the bot (the "it attacks me, so it is reachable" exception does
+    // not hold: it is reachable, but only inside its pulse), except for tanks.
+    inline bool CreatureAuraSetAsideSticks(bool isKeepoutCreature, bool isTank)
+    {
+        return isKeepoutCreature && !isTank;
+    }
+
     // ---- Step-out landing near other keep-outs -----------------------------
     //
     // Radius a step-out landing must clear around a listed creature other than

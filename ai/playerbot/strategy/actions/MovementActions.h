@@ -130,8 +130,11 @@ namespace ai
         // listed creature near the bot for goal (gx, gy), then (ax, ay) if the
         // first is clear; `engaged` carries the hysteresis, `nativeType` is
         // the core generator (follow or chase) stopped when holding.
+        // `first` (the chase target) is planned against before the cached
+        // 15 yd list, so a target that is itself a keep-out creature is
+        // known from any distance.
         bool HoldOutsideKeepout(float gx, float gy, float ax, float ay, ObjectGuid& engaged,
-            MovementGeneratorType nativeType);
+            MovementGeneratorType nativeType, Unit* first = nullptr);
 
         LedgeStepDownClock ledgeStepDown;
         // The keep-out creature the last follow decision held, approached or
@@ -139,6 +142,9 @@ namespace ai
         ObjectGuid keepoutFollowEngaged;
         // The same for chase decisions (HoldChaseOutsideKeepout).
         ObjectGuid keepoutChaseEngaged;
+        // Bounded chase hold: the target held on and since when.
+        ObjectGuid keepoutChaseHoldTarget;
+        uint32 keepoutChaseHoldSinceMs = 0;
     };
 
     class FleeAction : public MovementAction
