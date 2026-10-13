@@ -5,7 +5,7 @@
 #include <cstdint>
 
 // Pure decision rules for the optional Onyxia whelp and egg tactics
-// (AiPlayerbot.OnyxiaWhelpsAndEggs, off by default).
+// (AiPlayerbot.OnyxiaWhelpsAndEggs, on by default).
 // Donor behaviour: mod-playerbots @ 79bd428, src/Ai/Raid/Ony/OnyTriggers.cpp
 // (RaidOnyxiaWhelpsSpawnTrigger: boss airborne, non-healers go for whelps;
 // OnyxiaAvoidEggsTrigger: bot inside the egg cave) and OnyActions.cpp

@@ -82,7 +82,7 @@ namespace ai
         bool IsActive() override;
     };
 
-    // Phase 2 whelp duty (AiPlayerbot.OnyxiaWhelpsAndEggs, off by default):
+    // Phase 2 whelp duty (AiPlayerbot.OnyxiaWhelpsAndEggs, on by default):
     // Onyxia airborne, this bot is AoE-capable ranged DPS, a live whelp is
     // near and it is not on one yet.
     class OnyxiaWhelpsTrigger : public Trigger

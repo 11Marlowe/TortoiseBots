@@ -2,8 +2,8 @@
 
 #include <cstdint>
 
-// Hunter Aspect of the Viper on low mana (opt-in, AiPlayerbot.HunterViperOnLowMana,
-// default 0). Pure decision rules with no core types: the hunter triggers in
+// Hunter Aspect of the Viper on low mana (AiPlayerbot.HunterViperOnLowMana,
+// default 1). Pure decision rules with no core types: the hunter triggers in
 // ai/playerbot/strategy/hunter/HunterTriggers.{h,cpp} translate game state into
 // these plain inputs, so the hysteresis is unit-tested on its own
 // (tools/test_hunter_viper_policy.cpp).

@@ -16,7 +16,7 @@
 // here: the "wrong pet" trigger refuses to fire while a real-player master
 // answers for the bot, and the player-chosen strategies stay.
 //
-// Opt-in spec pet (AiPlayerbot.WarlockPetBySpec, default 0): with the toggle
+// Spec pet (AiPlayerbot.WarlockPetBySpec, default 1): with the toggle
 // on, PvE (open world + dungeon) picks the demon that fits the talent tree
 // instead of always the Voidwalker; see DecideWarlockSpecPet below.
 
