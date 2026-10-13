@@ -3026,6 +3026,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         // the existing group mark and use it as the assignment target.
         if (ccTarget)
         {
+            // Refuse before the mark moves: a corpse or non-attackable unit
+            // would take the mark, and the order would still ACK success with
+            // no CC target behind it.
+            if (!ccTarget->IsInWorld() || !ccTarget->IsAlive() || !requester->IsValidAttackTarget(ccTarget))
+            {
+                SendActionError(handler, intent, "no-target",
+                    "Your target is dead, out of the world or not attackable. Select a live enemy first.");
+                return true;
+            }
             if (context.group)
                 context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
         }
