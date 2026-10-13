@@ -35,8 +35,11 @@ Unit* TargetValue::GetExplicitAttackTarget()
         return nullptr;
 
     Unit* target = ai->GetUnit(guid);
+    // An explicit order carries the walk to the target with it, so it stays valid
+    // out to the order range, not just the background sight distance. The bot closes
+    // the distance through the combat reach chain after accepting the order.
     if (!target || !PossibleAttackTargetsValue::IsValid(target, bot,
-            sPlayerbotAIConfig.sightDistance, false, false))
+            sPlayerbotAIConfig.reactDistance, false, false))
         return nullptr;
 
     return target;

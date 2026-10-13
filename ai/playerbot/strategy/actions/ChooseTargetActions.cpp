@@ -462,9 +462,11 @@ bool SelectNewTargetAction::Execute(Event& event)
 
     ObjectGuid explicitAttackTarget = AI_VALUE(ObjectGuid, "explicit attack target");
     Unit* explicitTarget = explicitAttackTarget ? ai->GetUnit(explicitAttackTarget) : nullptr;
+    // Same wider ceiling as the order itself: a target inside order range must survive
+    // reselection so the reach chain can walk the bot to it.
     if (explicitAttackTarget && (!explicitTarget ||
         !PossibleAttackTargetsValue::IsValid(explicitTarget, bot,
-            sPlayerbotAIConfig.sightDistance, false, false)))
+            sPlayerbotAIConfig.reactDistance, false, false)))
     {
         SET_AI_VALUE(ObjectGuid, "explicit attack target", ObjectGuid());
     }
