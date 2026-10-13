@@ -19,6 +19,23 @@ namespace ai
         bool IsActive() override;
     };
 
+    // Opt-in (AiPlayerbot.RogueDungeonThreatDrops): the existing "medium threat" /
+    // "high threat" triggers, limited to a grouped 5-man dungeon with a living
+    // tank in the fight (runtime/RogueThreatPolicy.h). Raids keep their own rows.
+    class RogueDungeonFeintTrigger : public MediumThreatTrigger
+    {
+    public:
+        RogueDungeonFeintTrigger(PlayerbotAI* ai) : MediumThreatTrigger(ai, "rogue dungeon feint") {}
+        bool IsActive() override;
+    };
+
+    class RogueDungeonVanishTrigger : public HighThreatTrigger
+    {
+    public:
+        RogueDungeonVanishTrigger(PlayerbotAI* ai) : HighThreatTrigger(ai, "rogue dungeon vanish") {}
+        bool IsActive() override;
+    };
+
     CAN_CAST_TRIGGER_A(RiposteCastTrigger, "riposte");
     CAN_CAST_TRIGGER_A(SurpriseAttackTrigger, "surprise attack");
     CAN_CAST_TRIGGER(BackstabTrigger, "backstab");

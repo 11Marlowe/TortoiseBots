@@ -154,6 +154,26 @@ namespace ai
         }
 	};
 
+    // Opt-in dungeon threat drops (AiPlayerbot.RogueDungeonThreatDrops). Feint is
+    // a target-enemy threat reduction, so it is cast on the current target; the
+    // "feint" action above is a self-cast buff that the harmful-self gate in
+    // PlayerbotAI::CastSpell refuses. Both threat types are NONE: with the
+    // party "threat" back-off active, a single-target action is vetoed at high
+    // threat, which is exactly when these must run.
+    class CastFeintOnTargetAction : public CastMeleeSpellAction
+    {
+    public:
+        CastFeintOnTargetAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "feint") {}
+        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
+    };
+
+    class CastVanishThreatAction : public CastVanishAction
+    {
+    public:
+        CastVanishThreatAction(PlayerbotAI* ai) : CastVanishAction(ai) {}
+        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
+    };
+
     MELEE_DEBUFF_ACTION_R(CastBlindAction, "blind", 10.0f);
 
 	// Blade Flurry must not run within `radius` of a crowd-controlled mob,

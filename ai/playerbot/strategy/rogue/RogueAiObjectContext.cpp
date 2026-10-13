@@ -206,6 +206,8 @@ namespace ai
                 creators["stealth"] = [](PlayerbotAI* ai) { return new StealthTrigger(ai); };
                 creators["sprint"] = [](PlayerbotAI* ai) { return new SprintTrigger(ai); };
                 creators["blade flurry near cc"] = [](PlayerbotAI* ai) { return new BladeFlurryNearCcTrigger(ai); };
+                creators["rogue dungeon feint"] = [](PlayerbotAI* ai) { return new RogueDungeonFeintTrigger(ai); };
+                creators["rogue dungeon vanish"] = [](PlayerbotAI* ai) { return new RogueDungeonVanishTrigger(ai); };
                 creators["2 combo"] = [](PlayerbotAI* ai) { return new ComboPointsAvailableTrigger(ai, 2); };
                 creators["3 combo"] = [](PlayerbotAI* ai) { return new ComboPointsAvailableTrigger(ai, 3); };
                 creators["4 combo"] = [](PlayerbotAI* ai) { return new ComboPointsAvailableTrigger(ai, 4); };
@@ -260,6 +262,8 @@ namespace ai
                 creators["evasion"] = [](PlayerbotAI* ai) { return new CastEvasionAction(ai); };
                 creators["kick"] = [](PlayerbotAI* ai) { return new CastKickAction(ai); };
                 creators["feint"] = [](PlayerbotAI* ai) { return new CastFeintAction(ai); };
+                creators["feint on target"] = [](PlayerbotAI* ai) { return new CastFeintOnTargetAction(ai); };
+                creators["vanish threat"] = [](PlayerbotAI* ai) { return new CastVanishThreatAction(ai); };
                 creators["backstab"] = [](PlayerbotAI* ai) { return new CastBackstabAction(ai); };
                 creators["expose armor"] = [](PlayerbotAI* ai) { return new CastExposeArmorAction(ai); };
                 creators["kick on enemy healer"] = [](PlayerbotAI* ai) { return new CastKickOnEnemyHealerAction(ai); };

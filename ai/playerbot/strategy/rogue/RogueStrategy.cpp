@@ -189,6 +189,22 @@ void RoguePvpStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 void RoguePveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassPveStrategy::InitCombatTriggers(triggers);
+
+    // Opt-in (AiPlayerbot.RogueDungeonThreatDrops): shed threat in a 5-man
+    // dungeon the way the raid rows do. Feint first (DISPEL), Vanish only as
+    // the queued fallback below it (HIGH + 5), so a ready Feint is always
+    // tried first. Rows exist only with the toggle on; each trigger also
+    // gates on a grouped dungeon with a living tank (RogueThreatPolicy.h).
+    if (sPlayerbotAIConfig.rogueDungeonThreatDrops)
+    {
+        triggers.push_back(new TriggerNode(
+            "rogue dungeon feint",
+            NextAction::array(0, new NextAction("feint on target", ACTION_DISPEL), NULL)));
+
+        triggers.push_back(new TriggerNode(
+            "rogue dungeon vanish",
+            NextAction::array(0, new NextAction("vanish threat", ACTION_HIGH + 5), NULL)));
+    }
 }
 
 void RoguePveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
