@@ -421,6 +421,13 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # point. Off by default; with 0 both commands answer that the feature is off.
 #AiPlayerbot.RemoteCommander = 0
 
+# Issue #884, phase 2: while a commander is bound and its feed is on (`.bot
+# commander view on|off`, on by default), the commander receives one TBM:VIEW
+# frame (the bound bots, the hostiles they see, the top of each engaged
+# hostile's threat list) every this many milliseconds. Built from what the
+# bots already track; no extra world scan. Clamped to 250..60000.
+#AiPlayerbot.RemoteCommanderViewMs = 1000
+
 # Bounded AH market population through the native bot/session auction path. Default off.
 # When enabled, online random Headless bots use real inventory items, pricing, deposits,
 # account limits, and HandleAuctionSellItem. Auctioneer spawns are loaded once and

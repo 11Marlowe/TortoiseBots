@@ -19,7 +19,9 @@ bool TryHandleBotCommand(ChatHandler* handler, char const* text);
 // Issue #884: the remote commander's binding sweep. World thread, every tick
 // (BotHostAdapter::OnUpdate); does nothing while no commander is bound and
 // checks the bindings once a second otherwise (commander logout, disband,
-// lead change). Clear forgets every binding at shutdown.
+// lead change); phase 2 sends each bound commander whose view is on its
+// TBM:VIEW frames from here (runtime/RemoteCommanderView.h). Clear forgets
+// every binding at shutdown.
 void UpdateRemoteCommanders(uint32_t diff);
 void ClearRemoteCommanders();
 // True when bot is in the group the commander is bound to: master-relative
