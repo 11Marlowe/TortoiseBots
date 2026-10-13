@@ -4,6 +4,7 @@
 #include <ctime>
 #include <unordered_map>
 #include "ObjectGuid.h"
+#include "SummonRestorePolicy.h"
 
 class Player;
 class Unit;
@@ -43,6 +44,11 @@ public:
     // both the dead-bot and revive knobs are on; repair runs after arrival.
     bool RequestGroupSummon(Player* requester, Player* bot, SummonConditions const& conditions);
     bool IsBusy(ObjectGuid botGuid) const;
+    // An explicit stationary order (`stay`, `guard`, `hold`, `comestay`) for
+    // this bot: if a summon is pending, the follow restore on arrival is
+    // cancelled (latest explicit order wins). Returns true when a pending
+    // summon was affected. No-op otherwise.
+    bool NoteHoldOrder(ObjectGuid botGuid);
     void Update(uint32 diff);
 
 private:
@@ -59,6 +65,7 @@ private:
         uint32 destMap = 0;
         uint32 elapsedMs = 0;
         ObjectGuid portalGuid;
+        SummonRestorePolicy restore;
 
         enum class Phase { Delaying, AwaitingArrival } phase = Phase::Delaying;
     };

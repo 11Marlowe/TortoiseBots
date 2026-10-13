@@ -3389,6 +3389,10 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
         else if (intent == "come" || intent == "hold" || intent == "comestay")
         {
+            // hold/comestay are stationary orders: the latest explicit order
+            // wins over a pending summon's follow restore. come is not.
+            if (intent != "come")
+                TortoiseBots::PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
             ai->Reset();
             // Use the same owner-controlled transition as the mature Stay
             // shortcut; the captured stay position below remains Come's

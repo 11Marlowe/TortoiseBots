@@ -1,6 +1,10 @@
 #include "PlayerConvenience.h"
 
 #include "../runtime/BotManager.h"
+#include "../runtime/PlayerbotAIStorage.h"
+#include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/WorldPosition.h"
+#include "../ai/playerbot/strategy/values/PositionValue.h"
 
 // pi-lens-ignore: clang:pp_file_not_found
 #include "ObjectAccessor.h"
@@ -162,6 +166,15 @@ bool PlayerConvenience::IsBusy(ObjectGuid botGuid) const
     return m_summons.find(key) != m_summons.end();
 }
 
+bool PlayerConvenience::NoteHoldOrder(ObjectGuid botGuid)
+{
+    auto it = m_summons.find(botGuid.GetCounter());
+    if (it == m_summons.end())
+        return false;
+    it->second.restore.NoteHoldOrder();
+    return true;
+}
+
 void PlayerConvenience::Update(uint32 diff)
 {
     UpdateSummons(diff);
@@ -236,6 +249,30 @@ void PlayerConvenience::UpdateSummons(uint32 diff)
             if (!bot->IsAlive() || bot->IsTaxiFlying() || bot->IsInCombat())
             {
                 sLog.outString("TortoiseBots: Summon cancelled bot %s became incompatible before follow restore",
+                    bot->GetName());
+                cleanupPortal(state, master);
+                it = m_summons.erase(it);
+                continue;
+            }
+
+            if (!state.restore.ShouldRestoreFollow())
+            {
+                // The player ordered stay/guard/hold after asking for the
+                // summon: the bot keeps holding, now anchored where it landed
+                // (the order anchored the spot it stood on when given).
+                if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+                {
+                    ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+                    for (char const* posName : { "return", "stay", "guard" })
+                    {
+                        ai::PositionEntry pos = posMap[posName];
+                        if (!pos.isSet())
+                            continue;
+                        pos.Set(WorldPosition(bot));
+                        posMap[posName] = pos;
+                    }
+                }
+                sLog.outString("TortoiseBots: Summon completed for bot %s; follow restore skipped because a stay/guard/hold order came after the request",
                     bot->GetName());
                 cleanupPortal(state, master);
                 it = m_summons.erase(it);
