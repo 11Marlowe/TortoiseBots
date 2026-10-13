@@ -590,6 +590,23 @@ AiPlayerbot.DungeonFollowHoldBeforePacks = 0
 # 1 - pet that fits the spec
 AiPlayerbot.WarlockPetBySpec = 0
 
+# Paladin Judgement upkeep.
+# In a group, paladin bots keep Judgement of Wisdom / Judgement of Light up on a
+# boss or elite (or, inside a dungeon or raid, on the mob the tank is fighting),
+# the way mod-playerbots does. A Retribution paladin owns
+# Wisdom, a Holy paladin owns Light; with two paladins of the same kind the
+# second one takes the other debuff, so two paladins never judge the same one,
+# and a third paladin owns none. A paladin in the tank role (Protection) never
+# owns a judgement; it keeps its own Seal. The owner swaps to the matching Seal and
+# judges when the debuff has 4 seconds left or is gone (a Seal and a Judgement
+# cost mana and a global each). A healing paladin only does this above 50% mana
+# and never while someone in the party needs healing; everyone needs at least
+# AiPlayerbot.MediumMana. Never solo, never on a target below 25% health. A
+# debuff another paladin (a player) keeps up is left alone. Off by default.
+# 0 - paladins judge on their own rotation, no group debuff upkeep (Default)
+# 1 - keep Judgement of Wisdom / Light up on the boss
+AiPlayerbot.PaladinJudgementUpkeep = 0
+
 # Onyxia whelps and eggs.
 # In Onyxia's Lair, while Onyxia is airborne (phase 2), bots that are
 # AoE-capable ranged DPS (mage, warlock, hunter, and ranged shaman and druid

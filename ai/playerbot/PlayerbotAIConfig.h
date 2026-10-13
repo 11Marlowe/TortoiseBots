@@ -463,6 +463,8 @@ public:
     bool dungeonFollowHoldBeforePacks;
     // Warlock summons the demon that fits its spec in PvE instead of the Voidwalker (opt-in).
     bool warlockPetBySpec;
+    // Paladin bots keep Judgement of Wisdom / Light up on the boss in groups (opt-in).
+    bool paladinJudgementUpkeep;
     // Onyxia phase 2 whelp duty for AoE ranged DPS and egg-cave avoidance (opt-in).
     bool onyxiaWhelpsAndEggs;
     bool turnInRpg;
