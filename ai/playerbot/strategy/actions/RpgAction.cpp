@@ -6,6 +6,7 @@
 #include "EmoteAction.h"
 #include "RpgSubActions.h"
 #include "playerbot/TravelMgr.h"
+#include "playerbot/RpgRelevanceWeightPolicy.h"
 
 using namespace ai;
 
@@ -89,7 +90,7 @@ bool RpgAction::SetNextRpgAction()
                         continue;
 
                     actions.push_back(action);
-                    relevances.push_back((nextAction->GetRelevance() - 1) * 1000);
+                    relevances.push_back(RpgRelevanceWeight(nextAction->GetRelevance()));
                 }
                 NextAction::destroy(nextActions);
             }
