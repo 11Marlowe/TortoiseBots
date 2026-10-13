@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 
 // Pure decision rules for the optional Onyxia whelp and egg tactics
@@ -117,11 +118,29 @@ namespace ai
         return !isTank && !isHealer && isRanged && IsOnyxiaWhelpHunterClass(classId);
     }
 
-    // Whether a whelp is a legal pick: alive, in range, and not standing
-    // in an egg cave (chasing it would walk the bot over the eggs).
-    inline bool IsOnyxiaWhelpPickable(bool alive, float distance, bool whelpInEggZone)
+    struct OnyxiaPoint { float x, y; };
+
+    // True when (x, y) lies inside the trap circle (10yd, no margin) of any
+    // listed egg. The egg list is the bot's own cached egg search, never the
+    // zone box. The whelp spawn points sit 11.5 and 11.9 yd from the nearest
+    // egg (tw_world rows of 176511), so a margin here would hide them.
+    inline bool IsNearAnyOnyxiaEgg(float x, float y, OnyxiaPoint const* eggs, std::size_t count)
     {
-        return alive && distance <= kOnyxiaWhelpEngageRange && !whelpInEggZone;
+        for (std::size_t i = 0; i < count; ++i)
+        {
+            if (OnyxiaDist2d(x, y, eggs[i].x, eggs[i].y) < kOnyxiaEggTriggerRadius)
+                return true;
+        }
+        return false;
+    }
+
+    // Whether a whelp is a legal pick: alive, in range, and not standing
+    // within the trap circle of an unbroken egg (chasing it would walk the
+    // bot over the eggs). Whelps at the cave mouths, in the arena and at the
+    // phase landing spots are 11+ yd from any egg and stay pickable.
+    inline bool IsOnyxiaWhelpPickable(bool alive, float distance, bool whelpNearEgg)
+    {
+        return alive && distance <= kOnyxiaWhelpEngageRange && !whelpNearEgg;
     }
 
     // Whelp hunt decision: phase 2 only (boss airborne), feature on, the

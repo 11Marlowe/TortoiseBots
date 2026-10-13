@@ -74,6 +74,10 @@ OnyxiaWhelpScan ai::ScanOnyxiaWhelps(PlayerbotAI* ai, Player* bot)
     // list; no grid sweep.
     const std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
     float bestDist = FLT_MAX;
+    // Egg positions from the bot's cached egg search, fetched at most once
+    // and only for a whelp inside the padded egg-field box.
+    std::vector<OnyxiaPoint> eggs;
+    bool eggsLoaded = false;
     for (const ObjectGuid& guid : attackers)
     {
         Unit* unit = ai->GetUnit(guid);
@@ -88,7 +92,20 @@ OnyxiaWhelpScan ai::ScanOnyxiaWhelps(PlayerbotAI* ai, Player* bot)
         if (unit->GetEntry() != kOnyxianWhelpEntry)
             continue;
         const float dist = bot->GetDistance(unit);
-        if (!IsOnyxiaWhelpPickable(true, dist, IsInOnyxiaEggZone(unit->GetPositionX(), unit->GetPositionY())))
+        if (dist > kOnyxiaWhelpEngageRange)
+            continue;
+        bool nearEgg = false;
+        if (IsInOnyxiaEggZone(unit->GetPositionX(), unit->GetPositionY()))
+        {
+            if (!eggsLoaded)
+            {
+                eggsLoaded = true;
+                for (GameObject* egg : CollectOnyxiaEggs(ai))
+                    eggs.push_back({ egg->GetPositionX(), egg->GetPositionY() });
+            }
+            nearEgg = IsNearAnyOnyxiaEgg(unit->GetPositionX(), unit->GetPositionY(), eggs.data(), eggs.size());
+        }
+        if (!IsOnyxiaWhelpPickable(true, dist, nearEgg))
             continue;
         if (dist < bestDist)
         {
@@ -104,21 +121,31 @@ bool ai::IsOnyxiaWhelpDuty(PlayerbotAI* ai, Player* bot)
     return IsOnyxiaWhelpHunter(bot->GetClass(), PlayerbotAI::IsTank(bot), PlayerbotAI::IsHeal(bot), ai->IsRanged(bot));
 }
 
+std::vector<GameObject*> ai::CollectOnyxiaEggs(PlayerbotAI* ai)
+{
+    // Cached value, qualified by the egg entry: spawned eggs only.
+    AiObjectContext* context = ai->GetAiObjectContext();
+    const std::list<ObjectGuid> guids =
+        AI_VALUE2(std::list<ObjectGuid>, "nearest game objects no los", std::to_string(kOnyxiaEggEntry));
+    std::vector<GameObject*> eggs;
+    for (const ObjectGuid& guid : guids)
+    {
+        GameObject* egg = ai->GetGameObject(guid);
+        if (egg && sServerFacade.isSpawned(egg))
+            eggs.push_back(egg);
+    }
+    return eggs;
+}
+
 GameObject* ai::FindOnyxiaEggInDanger(PlayerbotAI* ai, Player* bot)
 {
     // Cheap box test first: outside the egg fields no search runs.
     if (!IsInOnyxiaEggZone(bot->GetPositionX(), bot->GetPositionY()))
         return nullptr;
-    AiObjectContext* context = ai->GetAiObjectContext();
-    const std::list<ObjectGuid> eggs =
-        AI_VALUE2(std::list<ObjectGuid>, "nearest game objects no los", std::to_string(kOnyxiaEggEntry));
     GameObject* nearest = nullptr;
     float bestDist = FLT_MAX;
-    for (const ObjectGuid& guid : eggs)
+    for (GameObject* egg : CollectOnyxiaEggs(ai))
     {
-        GameObject* egg = ai->GetGameObject(guid);
-        if (!egg || !sServerFacade.isSpawned(egg))
-            continue;
         const float dist = OnyxiaDist2d(bot->GetPositionX(), bot->GetPositionY(), egg->GetPositionX(), egg->GetPositionY());
         if (IsInsideOnyxiaEggDanger(dist) && dist < bestDist)
         {

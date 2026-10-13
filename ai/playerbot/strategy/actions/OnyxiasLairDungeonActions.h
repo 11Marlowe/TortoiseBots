@@ -45,11 +45,13 @@ namespace ai
     struct OnyxiaWhelpScan
     {
         bool bossAirborne = false;
-        Unit* whelp = nullptr; // nearest pickable live whelp, if any
+        Unit* whelp = nullptr; // nearest pickable live whelp (not within an egg's danger circle)
     };
     OnyxiaWhelpScan ScanOnyxiaWhelps(PlayerbotAI* ai, Player* bot);
     // True when this bot is on whelp duty (AoE-capable ranged DPS).
     bool IsOnyxiaWhelpDuty(PlayerbotAI* ai, Player* bot);
+    // Spawned Onyxia Eggs from the cached game object search.
+    std::vector<GameObject*> CollectOnyxiaEggs(PlayerbotAI* ai);
     // Unbroken egg whose trap circle (plus margin) holds the bot.
     GameObject* FindOnyxiaEggInDanger(PlayerbotAI* ai, Player* bot);
 

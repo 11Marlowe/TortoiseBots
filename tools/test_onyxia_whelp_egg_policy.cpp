@@ -64,12 +64,38 @@ int main()
     CHECK(!IsOnyxiaWhelpHunter(4, false, false, false)); // rogue
     CHECK(!IsOnyxiaWhelpHunter(2, false, false, false)); // paladin
 
-    // Pickable whelps: alive, within range, not in an egg cave.
+    // Pickable whelps: alive, within range, not within an egg's trap circle.
     CHECK(IsOnyxiaWhelpPickable(true, 10.0f, false));
     CHECK(IsOnyxiaWhelpPickable(true, kOnyxiaWhelpEngageRange, false));
     CHECK(!IsOnyxiaWhelpPickable(false, 10.0f, false));
     CHECK(!IsOnyxiaWhelpPickable(true, kOnyxiaWhelpEngageRange + 1.0f, false));
     CHECK(!IsOnyxiaWhelpPickable(true, 10.0f, true));
+
+    // Whelp vs the egg list (real 176511 spawn rows, north cave mouth and
+    // south cave mouth eggs plus one deep in the west tunnel).
+    const OnyxiaPoint eggs[] = {
+        { -32.5829f, -162.944f }, { -37.5972f, -167.346f }, { -43.2843f, -164.474f },
+        { -38.458f, -262.433f },  { -33.0413f, -266.323f }, { -100.0f, -215.0f },
+    };
+    const std::size_t n = sizeof(eggs) / sizeof(eggs[0]);
+    // Core whelp spawn points (boss_onyxia.cpp afSpawnLocations): both lie
+    // inside the padded egg-field box but 11.5 and 11.9 yd from the nearest
+    // real egg, outside the 10 yd trap circle.
+    CHECK(IsInOnyxiaEggZone(-30.127f, -254.463f) && IsInOnyxiaEggZone(-30.817f, -177.106f));
+    CHECK(!IsNearAnyOnyxiaEgg(-30.127f, -254.463f, eggs, n));
+    CHECK(!IsNearAnyOnyxiaEgg(-30.817f, -177.106f, eggs, n));
+    CHECK(IsOnyxiaWhelpPickable(true, 20.0f, IsNearAnyOnyxiaEgg(-30.127f, -254.463f, eggs, n)));
+    CHECK(IsOnyxiaWhelpPickable(true, 20.0f, IsNearAnyOnyxiaEgg(-30.817f, -177.106f, eggs, n)));
+    // Phase 2 departure point.
+    CHECK(!IsNearAnyOnyxiaEgg(-57.8f, -215.6f, eggs, n));
+    CHECK(IsOnyxiaWhelpPickable(true, 20.0f, IsNearAnyOnyxiaEgg(-60.0f, -215.0f, eggs, n)));
+    // A whelp inside an egg's circle is skipped; the edge is exclusive.
+    CHECK(IsNearAnyOnyxiaEgg(-36.0f, -165.0f, eggs, n));
+    CHECK(!IsOnyxiaWhelpPickable(true, 20.0f, IsNearAnyOnyxiaEgg(-36.0f, -165.0f, eggs, n)));
+    CHECK(IsNearAnyOnyxiaEgg(-100.0f, -205.5f, eggs, n));
+    CHECK(!IsNearAnyOnyxiaEgg(-100.0f, -205.0f, eggs, n));
+    // No eggs found: nothing is skipped.
+    CHECK(!IsNearAnyOnyxiaEgg(-36.0f, -165.0f, eggs, 0));
 
     // Hunt decision.
     CHECK(ShouldHuntOnyxiaWhelps(true, true, true, true, false, false, true));
