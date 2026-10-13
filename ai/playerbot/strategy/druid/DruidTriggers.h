@@ -385,6 +385,26 @@ namespace ai
         }
     };
 
+    // Bear-tank daze fix: true root only (SPELL_AURA_MOD_ROOT, not mere
+    // slows) plus a reason to move (live enemy out of melee reach/LOS).
+    // The old "rooted" cure row fired on any MOD_DECREASE_SPEED, so a
+    // tank holding mobs in place dropped Bear Form on every melee daze.
+    class RootedAndNeedToMoveTrigger : public Trigger
+    {
+    public:
+        RootedAndNeedToMoveTrigger(PlayerbotAI* ai) : Trigger(ai, "rooted and need to move") {}
+
+        bool IsActive() override
+        {
+            if (!bot->HasAuraType(SPELL_AURA_MOD_ROOT))
+                return false;
+            Unit* target = AI_VALUE(Unit*, "current target");
+            if (!target || !target->IsAlive())
+                return false;
+            return !bot->CanReachWithMeleeAutoAttack(target) || !bot->IsWithinLOSInMap(target, true);
+        }
+    };
+
     class FerociousBiteTrigger : public ComboPointsAvailableTrigger
     {
     public:

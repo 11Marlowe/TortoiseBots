@@ -39,7 +39,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - If designated as **Melee DPS**, the bot stays in **Cat Form**.
 - If designated as **Ranged DPS**, the bot stays in **Moonkin Form** (if talented) or Humanoid form.
 - If designated as **Healer**, the bot stays in **Humanoid Form** or **Tree of Life Form**.
-- **Caster Shifting:** The bot automatically shifts out of feral forms when out of combat to cast party buffs (*Mark of the Wild*, *Thorns*), dispel poisons (*Abolish Poison*, with *Cure Poison* as the fallback) or curses (*Remove Curse*, which outbids poison: a hex locks the member out of the fight), or consume water.
+- **Rooted in combat:** a slow (melee daze, chill) never breaks form; a real root breaks it only when the fight target is out of melee reach or line of sight (the tank holding mobs in place keeps Bear Form and its mana).
 
 ---
 
