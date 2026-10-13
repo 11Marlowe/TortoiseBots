@@ -189,9 +189,9 @@ func (s *Store) applyBotEventLocked(ev model.BotEvent, now time.Time) {
 		case "sell":
 			a.counters.VendorVisits++
 		}
-	case "AhAction":
+	case "AhAction", "AhMarket":
 		a.counters.AHListings++
-	case "AhBidAction":
+	case "AhBidAction", "AhMarketBuy", "GuildAhBuy":
 		a.counters.AHBids++
 
 	case "Kill":

@@ -303,6 +303,8 @@ bool GuildShareAhBuyAction::Execute(Event& event)
             sAuctionMgr.GetAItem(bestCandidate.itemGuid) == nullptr;
 
         ItemPrototype const* proto = sObjectMgr.GetItemPrototype(bestCandidate.itemId);
+        if (bought && proto)
+            sPlayerbotAIConfig.logEvent(ai, "GuildAhBuy", proto->Name1, std::to_string(proto->ItemId));
         std::ostringstream out;
         out << (bought ? "Bought " : "Could not buy ") << bestCandidate.count << "x ";
         if (proto)
