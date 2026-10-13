@@ -560,6 +560,9 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         }
     }
 
+    // Issue #846: after the master check, so the gate sees the live master.
+    PublishChatGate();
+
     if(aiInternalUpdateDelay > elapsed)
     {
         aiInternalUpdateDelay -= elapsed;
@@ -2751,6 +2754,34 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
         ChatCommandHolder cmd(filtered, &fromPlayer, type);
         chatCommands.push(cmd);
     }
+}
+
+void PlayerbotAI::PublishChatGate()
+{
+    // Issue #846: the two early exits of the SMSG_MESSAGECHAT case below that
+    // the packet hook can apply before copying a line (runtime/BotChatGate.h).
+    // Same conditions, in the same terms: AllowActivity(), and the #469 Trade
+    // gate for a masterless, unhired pool bot (recording sees Trade lines
+    // before that gate, so a recording bot keeps them). Republished on change,
+    // and every 30 s so a re-registered AI cannot keep the storage default.
+    bool const ignoreAll = !AllowActivity();
+    bool const ignoreTrade = !m_recordIncommingMessages && !HasRealPlayerMaster() &&
+        sRandomBotFacade.IsRandomBot(bot) &&
+        !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+    time_t const now = time(nullptr);
+    if (m_chatGatePublished && ignoreAll == m_chatGateIgnoreAll && ignoreTrade == m_chatGateIgnoreTrade &&
+        now < m_chatGatePublishedAt + 30)
+        return;
+
+    TortoiseBots::BotChatGate gate;
+    gate.ignoreAllChat = ignoreAll;
+    gate.ignoreUnaddressedTrade = ignoreTrade;
+    gate.name = bot->GetName();
+    PlayerbotAIStorage::Instance().SetBotChatGate(bot, gate);
+    m_chatGatePublished = true;
+    m_chatGateIgnoreAll = ignoreAll;
+    m_chatGateIgnoreTrade = ignoreTrade;
+    m_chatGatePublishedAt = now;
 }
 
 void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)

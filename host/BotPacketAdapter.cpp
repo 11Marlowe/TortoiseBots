@@ -1,17 +1,22 @@
 #include "BotPacketAdapter.h"
 
+#include "../runtime/BotChatGate.h"
 #include "../runtime/BotManager.h"
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../runtime/WorldThreadQueue.h"
 #include "playerbot/PlayerbotAI.h"
 
+#include "ObjectMgr.h"
 #include "Player.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "Log.h"
 #include "ModuleLog.h"
 
+#include <chrono>
+#include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace TortoiseBots
@@ -108,6 +113,60 @@ bool OnWorldThread()
     return WorldThread().IsCurrent();
 }
 
+// Issue #846: whether a channel name is the Trade channel, the way
+// PlayerbotAI::GetChatChannelSource decides it ("World" is its own source; a
+// built-in channel's id comes from ObjectMgr's channel table, loaded at startup
+// and read-only afterwards, so any thread may read it). One channel line
+// reaches every member in a row, so the last answer is kept per thread.
+bool IsTradeChannelName(char const* name, size_t length)
+{
+    thread_local std::string lastName;
+    thread_local bool lastIsTrade = false;
+    thread_local bool hasLast = false;
+    if (hasLast && lastName.size() == length && std::memcmp(lastName.data(), name, length) == 0)
+        return lastIsTrade;
+    lastName.assign(name, length);
+    ChatChannelsEntry const* entry = lastName == "World" ? nullptr : sObjectMgr.GetChannelEntryFor(lastName);
+    lastIsTrade = entry && entry->id == ChatChannelId::TRADE;
+    hasLast = true;
+    return lastIsTrade;
+}
+
+// Issue #846: false when the bot's AI would drop this chat line before it
+// does anything with it (runtime/BotChatGate.h), so it is not copied.
+bool BotWantsChat(ObjectGuid botGuid, TortoiseBots::BotChatGate const& gate, WorldPacket const& packet)
+{
+    if (gate.ignoreAllChat)
+        return false;
+    if (!gate.ignoreUnaddressedTrade || packet.contents()[0] != CHAT_MSG_CHANNEL)
+        return true;
+    ChannelChatLine line;
+    if (!ParseChannelChatLine(packet.contents(), packet.size(), line))
+        return true;
+    return !BotIgnoresChannelLine(gate, botGuid.GetRawValue(), line, IsTradeChannelName);
+}
+
+// Issue #846: drops over a queue's cap are logged at debug level, once per bot
+// per minute at most, with the count since the last line.
+constexpr uint64_t kDropReportIntervalMs = 60 * 1000;
+
+uint64_t SteadyNowMs()
+{
+    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+}
+
+void ReportDrops(char const* what, std::unordered_map<uint64_t, uint64_t> const& dropped, DropReportLimiter& limiter)
+{
+    for (auto const& entry : dropped)
+        limiter.Add(entry.first, entry.second);
+    limiter.Flush(SteadyNowMs(), [what](uint64_t botGuid, uint64_t count)
+    {
+        TB_LOG_DEBUG("TortoiseBots: dropped %llu deferred %s for bot guid %u (over the per-bot per-tick cap)",
+            static_cast<unsigned long long>(count), what, ObjectGuid(botGuid).GetCounter());
+    });
+}
+
 // Live AI of a bot named by raw guid. Only where no AI can be deleted while
 // the pointer is used: the world thread (the only one that deletes AIs) or a
 // map thread (the world thread waits in MapManager::Update meanwhile).
@@ -132,7 +191,9 @@ bool BotPacketAdapter::CanPacketSend(WorldSession* session, WorldPacket const& p
         if (!PlayerbotAI::HandlesBotOutgoingOpcode(opcode))
             return true;
         ObjectGuid botGuid;
-        if (!PlayerbotAIStorage::Instance().GetBotGuid(session->GetPlayer(), botGuid))
+        BotChatGate gate;
+        if (!PlayerbotAIStorage::Instance().GetBotGuid(session->GetPlayer(), botGuid,
+                opcode == SMSG_MESSAGECHAT ? &gate : nullptr))
             return true;
         if (opcode == SMSG_GROUP_INVITE)
             TB_LOG_DEBUG("TortoiseBots: ServerScript CanPacketSend bot outgoing SMSG_GROUP_INVITE to bot guid %u", botGuid.GetCounter());
@@ -148,7 +209,7 @@ bool BotPacketAdapter::CanPacketSend(WorldSession* session, WorldPacket const& p
         // channel cannot crowd out invites or loot.
         if (opcode == SMSG_MESSAGECHAT)
         {
-            if (IsBotHandledChatType(packet))
+            if (IsBotHandledChatType(packet) && BotWantsChat(botGuid, gate, packet))
                 DeferredBotChat().Enqueue(botGuid.GetRawValue(), std::make_unique<WorldPacket>(packet));
             return true;
         }
@@ -192,38 +253,48 @@ void BotPacketAdapter::MarkWorldThread()
     WorldThread().MarkCurrent();
 }
 
-void BotPacketAdapter::DrainDeferredPackets()
+void BotPacketAdapter::DrainDeferredPackets(uint64_t before, bool endOfTick)
 {
     // Issue #844: resolved again on the world thread, so a bot whose AI left
-    // the storage (logout, removal) since the copy is skipped. Each bot's
-    // packets reach its AI in arrival order.
-    DeferredBotPackets().Drain([](uint64_t botGuid, DeferredPacket& deferred)
+    // the storage (logout, removal) since the copy is skipped. Issue #846: the
+    // two queues run merged in the order their items were queued, so each
+    // bot's chat and packets reach its AI in arrival order, and only items
+    // queued before `before` run (the command drain passes each command's
+    // number, so chat typed before a `.bot` command runs before it).
+    std::vector<WorldThreadQueue<DeferredPacket>::Entry> packets = DeferredBotPackets().TakeBefore(before);
+    std::vector<WorldThreadQueue<std::unique_ptr<WorldPacket>>::Entry> chat = DeferredBotChat().TakeBefore(before);
+    RunInSequence(packets, [](WorldThreadQueue<DeferredPacket>::Entry& entry)
     {
-        PlayerbotAI* ai = FindBotAI(botGuid);
+        PlayerbotAI* ai = FindBotAI(entry.key);
         if (!ai || !ai->GetBot())
             return;
-        switch (deferred.route)
+        switch (entry.item.route)
         {
             case PacketRoute::BotOutgoing:
-                ai->HandleBotOutgoingPacket(*deferred.packet);
+                ai->HandleBotOutgoingPacket(*entry.item.packet);
                 break;
             case PacketRoute::MasterOutgoing:
-                ai->HandleMasterOutgoingPacket(*deferred.packet);
+                ai->HandleMasterOutgoingPacket(*entry.item.packet);
                 break;
             case PacketRoute::MasterIncoming:
-                ai->HandleMasterIncomingPacket(*deferred.packet);
+                ai->HandleMasterIncomingPacket(*entry.item.packet);
                 break;
         }
+    }, chat, [](WorldThreadQueue<std::unique_ptr<WorldPacket>>::Entry& entry)
+    {
+        if (PlayerbotAI* ai = FindBotAI(entry.key))
+            if (ai->GetBot())
+                ai->HandleBotOutgoingPacket(*entry.item);
     });
 
-    DeferredBotChat().Drain([](uint64_t botGuid, std::unique_ptr<WorldPacket>& packet)
+    // Issue #846: the tick's last drain reports what the caps dropped.
+    if (endOfTick)
     {
-        // Resolved again on the world thread: a bot that logged out (its AI
-        // left the storage) since the copy is skipped.
-        if (PlayerbotAI* ai = FindBotAI(botGuid))
-            if (ai->GetBot())
-                ai->HandleBotOutgoingPacket(*packet);
-    });
+        static DropReportLimiter chatDrops(kDropReportIntervalMs);
+        static DropReportLimiter packetDrops(kDropReportIntervalMs);
+        ReportDrops("chat lines", DeferredBotChat().TakeDroppedPerKey(), chatDrops);
+        ReportDrops("packets", DeferredBotPackets().TakeDroppedPerKey(), packetDrops);
+    }
 }
 
 void BotPacketAdapter::ClearDeferredPackets()

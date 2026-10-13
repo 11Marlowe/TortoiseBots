@@ -1,6 +1,7 @@
 #include "BotChatAdapter.h"
 
 #include "BotAddonAdapter.h"
+#include "BotPacketAdapter.h"
 #include "../commands/BotCommandQueue.h"
 #include "../commands/BotCommands.h"
 #include "Chat.h"
@@ -54,7 +55,7 @@ bool BotChatAdapter::CanExecuteCommand(ChatHandler* handler, char const* command
     return false;
 }
 
-void BotChatAdapter::DrainQueuedCommands()
+uint64_t BotChatAdapter::DrainQueuedCommands()
 {
     BotCommandQueue::Instance().Drain(
         [](uint64 guid) -> Player*
@@ -67,6 +68,10 @@ void BotChatAdapter::DrainQueuedCommands()
         },
         [](Player* requester, PendingBotCommand const& command)
         {
+            // Issue #846: chat and packets queued for bots before this
+            // command run first, so `/p stay` then `/p .bot action follow`
+            // in one tick end in follow, as typed.
+            BotPacketAdapter::DrainDeferredPackets(command.seq);
             if (command.reply == BotCommandReply::Addon)
             {
                 BotAddonAdapter::ExecuteCommand(requester, command.args);
@@ -86,6 +91,7 @@ void BotChatAdapter::DrainQueuedCommands()
             }
             ChatHandler(requester->GetSession()).SendSysMessage(text.c_str());
         });
+    return BotCommandQueue::Instance().DeferredRunLimit();
 }
 
 } // namespace TortoiseBots

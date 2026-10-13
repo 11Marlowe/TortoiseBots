@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../runtime/WorldThreadQueue.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -36,6 +38,9 @@ enum class BotCommandReply : uint8_t
 
 struct PendingBotCommand
 {
+    // Issue #846: stamped from NextWorldQueueSequence at enqueue, so the drain
+    // can first run deferred bot chat and packets queued before this command.
+    uint64_t seq = 0;
     uint64_t requesterGuid = 0;
     BotCommandReply reply = BotCommandReply::Chat;
     std::string args;
@@ -79,7 +84,7 @@ public:
             return false;
         }
         ++pending;
-        m_pending.push_back(PendingBotCommand{ requesterGuid, reply, std::move(args) });
+        m_pending.push_back(PendingBotCommand{ NextWorldQueueSequence(), requesterGuid, reply, std::move(args) });
         return true;
     }
 
@@ -135,6 +140,26 @@ public:
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         return m_pending.size();
+    }
+
+    // Issue #846: the sequence number (NextWorldQueueSequence) of the oldest
+    // command still queued, or UINT64_MAX when none is.
+    uint64_t OldestPendingSeq() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_pending.empty() ? UINT64_MAX : m_pending.front().seq;
+    }
+
+    // Issue #846: after Drain, the bound below which the deferred bot chat and
+    // packets may run this tick: everything issued so far, but nothing queued
+    // after a command that arrived during the drain (that command runs first,
+    // next tick). The issued bound is read before the queue, so a command
+    // stamped below it is seen there.
+    uint64_t DeferredRunLimit() const
+    {
+        uint64_t const issued = WorldQueueSequenceEnd();
+        uint64_t const oldest = OldestPendingSeq();
+        return oldest < issued ? oldest : issued;
     }
 
 private:

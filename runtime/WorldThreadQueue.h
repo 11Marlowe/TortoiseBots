@@ -24,10 +24,42 @@ namespace TortoiseBots {
 //
 // Plain standard library, so tools/test_world_thread_queue.cpp exercises it
 // standalone (including several producer threads against a draining thread).
+// Issue #846: one sequence shared by every world-thread queue (this one and
+// BotCommandQueue). Each queue stamps an item under its own lock, so a queue's
+// items are in sequence order, and one producer's items are in the order it
+// queued them across queues. The world-thread drain runs the queues merged by
+// this number, so a master's `/p stay` followed by `/p .bot action follow` in
+// one tick runs in that order, although the two land in different queues.
+inline std::atomic<uint64_t>& WorldQueueSequenceCounter()
+{
+    static std::atomic<uint64_t> sequence{ 0 };
+    return sequence;
+}
+
+inline uint64_t NextWorldQueueSequence()
+{
+    return WorldQueueSequenceCounter().fetch_add(1, std::memory_order_relaxed) + 1;
+}
+
+// One past every number issued so far. An item stamped below it is already in
+// its queue for whoever locks that queue after reading this: the stamp and the
+// push happen under the queue's lock.
+inline uint64_t WorldQueueSequenceEnd()
+{
+    return WorldQueueSequenceCounter().load(std::memory_order_relaxed) + 1;
+}
+
 template <class Item>
 class WorldThreadQueue
 {
 public:
+    struct Entry
+    {
+        uint64_t seq;
+        uint64_t key;
+        Item item;
+    };
+
     explicit WorldThreadQueue(size_t maxPendingPerKey) : m_maxPendingPerKey(maxPendingPerKey) {}
 
     // Any thread. False (item dropped) when the key already has the maximum
@@ -39,11 +71,40 @@ public:
         if (pending >= m_maxPendingPerKey)
         {
             ++m_dropped;
+            ++m_droppedPerKey[key];
             return false;
         }
         ++pending;
-        m_pending.emplace_back(key, std::move(item));
+        m_pending.push_back(Entry{ NextWorldQueueSequence(), key, std::move(item) });
         return true;
+    }
+
+    // World thread. Takes every item stamped before `limit`, in arrival
+    // order; later items stay queued. The cap counts what is still queued, so
+    // a key regains room as soon as its items are taken.
+    std::vector<Entry> TakeBefore(uint64_t limit)
+    {
+        std::vector<Entry> batch;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        size_t count = 0;
+        while (count < m_pending.size() && m_pending[count].seq < limit)
+            ++count;
+        if (count == m_pending.size())
+        {
+            batch.swap(m_pending);
+            m_pendingPerKey.clear();
+            return batch;
+        }
+        batch.reserve(count);
+        for (size_t i = 0; i < count; ++i)
+        {
+            auto it = m_pendingPerKey.find(m_pending[i].key);
+            if (it != m_pendingPerKey.end() && --it->second == 0)
+                m_pendingPerKey.erase(it);
+            batch.push_back(std::move(m_pending[i]));
+        }
+        m_pending.erase(m_pending.begin(), m_pending.begin() + static_cast<std::ptrdiff_t>(count));
+        return batch;
     }
 
     // World thread. Calls run(key, item) for every item queued so far, in
@@ -52,14 +113,9 @@ public:
     template <class Run>
     size_t Drain(Run run)
     {
-        std::vector<std::pair<uint64_t, Item>> batch;
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            batch.swap(m_pending);
-            m_pendingPerKey.clear();
-        }
-        for (auto& entry : batch)
-            run(entry.first, entry.second);
+        std::vector<Entry> batch = TakeBefore(UINT64_MAX);
+        for (Entry& entry : batch)
+            run(entry.key, entry.item);
         return batch.size();
     }
 
@@ -68,6 +124,7 @@ public:
         std::lock_guard<std::mutex> lock(m_mutex);
         m_pending.clear();
         m_pendingPerKey.clear();
+        m_droppedPerKey.clear();
     }
 
     size_t PendingCount() const
@@ -83,12 +140,90 @@ public:
         return m_dropped;
     }
 
+    // Issue #846: per key, the items dropped since the last call.
+    std::unordered_map<uint64_t, uint64_t> TakeDroppedPerKey()
+    {
+        std::unordered_map<uint64_t, uint64_t> dropped;
+        std::lock_guard<std::mutex> lock(m_mutex);
+        dropped.swap(m_droppedPerKey);
+        return dropped;
+    }
+
 private:
     size_t const m_maxPendingPerKey;
     mutable std::mutex m_mutex;
-    std::vector<std::pair<uint64_t, Item>> m_pending;
+    std::vector<Entry> m_pending;
     std::unordered_map<uint64_t, size_t> m_pendingPerKey;
+    std::unordered_map<uint64_t, uint64_t> m_droppedPerKey;
     uint64_t m_dropped = 0;
+};
+
+// Issue #846: runs two batches (each in sequence order, as TakeBefore returns
+// them) as one, by sequence: runA(entry) / runB(entry).
+template <class A, class RunA, class B, class RunB>
+void RunInSequence(std::vector<A>& a, RunA runA, std::vector<B>& b, RunB runB)
+{
+    size_t i = 0, j = 0;
+    while (i < a.size() || j < b.size())
+    {
+        if (j == b.size() || (i < a.size() && a[i].seq < b[j].seq))
+            runA(a[i++]);
+        else
+            runB(b[j++]);
+    }
+}
+
+// Issue #846: a queue's cap drops items silently; this turns the per-key drop
+// counts into at most one report per key per interval, carrying everything
+// dropped for that key since its last report. World thread only.
+class DropReportLimiter
+{
+public:
+    explicit DropReportLimiter(uint64_t intervalMs) : m_intervalMs(intervalMs) {}
+
+    void Add(uint64_t key, uint64_t count)
+    {
+        if (count)
+            m_keys[key].pending += count;
+    }
+
+    // Calls report(key, count) for every key with unreported drops whose last
+    // report is at least one interval old (or that never reported), and
+    // forgets keys that stayed quiet for an interval.
+    template <class Report>
+    void Flush(uint64_t nowMs, Report report)
+    {
+        for (auto it = m_keys.begin(); it != m_keys.end();)
+        {
+            State& state = it->second;
+            bool const due = !state.reported || nowMs - state.lastMs >= m_intervalMs;
+            if (state.pending && due)
+            {
+                report(it->first, state.pending);
+                state.pending = 0;
+                state.lastMs = nowMs;
+                state.reported = true;
+            }
+            else if (!state.pending && due)
+            {
+                it = m_keys.erase(it);
+                continue;
+            }
+            ++it;
+        }
+    }
+
+    size_t TrackedKeys() const { return m_keys.size(); }
+
+private:
+    struct State
+    {
+        uint64_t pending = 0;
+        uint64_t lastMs = 0;
+        bool reported = false;
+    };
+    uint64_t const m_intervalMs;
+    std::unordered_map<uint64_t, State> m_keys;
 };
 
 // Issue #844: which thread is the world thread. The world thread is the one

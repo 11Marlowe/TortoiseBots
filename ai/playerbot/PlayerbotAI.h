@@ -1024,6 +1024,12 @@ protected:
     bool shouldLogOut = false;
     bool m_recordMessages = false;
     bool m_recordIncommingMessages = false;
+    // Issue #846: the chat gate last published to PlayerbotAIStorage.
+    bool m_chatGatePublished = false;
+    bool m_chatGateIgnoreAll = false;
+    bool m_chatGateIgnoreTrade = false;
+    time_t m_chatGatePublishedAt = 0;
+    void PublishChatGate();
     std::vector<std::string> m_recordedMessages;
     ai::Event lastEvent;
     LastKillerInfo lastKiller_;
