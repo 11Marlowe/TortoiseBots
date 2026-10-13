@@ -137,6 +137,10 @@ public:
     // tier/rep skip. No-op unless the hire is level 60 at tier >= 1 with
     // rows for its class/spec.
     static void ProvisionHireGear(Player* bot, PendingProvision const& pending, PlayerbotAI* ai);
+    // Same pass by explicit class/spec key (PR 3 respec): equips the tier's
+    // set for the new spec over whatever the hire wears. False when there is
+    // no set for the key, so the caller keeps the current kit.
+    static bool EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_t classId, char const* specKey, uint8_t race, uint8_t tier);
     // Issue #281: heavy one-shot work (level/talents/spells/gear/SaveToDB).
     void ProvisionHeavy(Player* bot, PendingProvision const& pending, PlayerbotAI* ai, Player* master);
     // Issue #281: teleport + grouping only; safe to retry every tick.

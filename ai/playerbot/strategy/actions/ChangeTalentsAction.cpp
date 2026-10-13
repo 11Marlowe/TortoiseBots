@@ -1,10 +1,13 @@
-
 #include "playerbot/playerbot.h"
 #include "playerbot/Talentspec.h"
 #include "ChangeTalentsAction.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/PlayerbotFactory.h"
 #include "../../../../runtime/HireLifecycle.h"
+#include "../../../../runtime/HireGearPolicy.h"
+#include "../../../../runtime/HireRespecPolicy.h"
+#include "../../../../runtime/HireTierRequestPolicy.h"
+#include "../../../../runtime/HireProvisionService.h"
 
 using namespace ai;
 
@@ -162,20 +165,27 @@ bool ChangeTalentsAction::Execute(Event& event)
     // and the reset rebuilds defaults for the newly learned topology.
     if (TalentSpec(bot).GetTalentLink() != previousTalentLink)
     {
-        sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
-        ai->UpdateTalentSpec();
-        ai->ResetStrategies();
+        uint8_t tier = TortoiseBots::HireLifecycle::Instance().GearTier(bot->GetObjectGuid());
         // Issue #189 Phase 3: explicit respec re-scores gear incrementally
         // for the new spec. Random-pool only; never wipes, level-up auto
         // path passes through here too and stays incremental. A hire in a
-        // #490 tier kit keeps the kit it was paid for.
-        if (!param.empty() && sRandomBotFacade.IsRandomBot(bot) &&
-            TortoiseBots::HireLifecycle::Instance().GearTier(bot->GetObjectGuid()) == 0)
+        // #490 tier kit refits below instead of re-rolling pool gear.
+        if (!param.empty() && sRandomBotFacade.IsRandomBot(bot) && tier == 0)
         {
             PlayerbotFactory gear(bot, bot->GetLevel());
             gear.UpgradeGearBest();
             bot->SaveToDB();
         }
+        sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
+        ai->UpdateTalentSpec();
+        ai->ResetStrategies();
+        // Issue #490 PR 3: a tier-kit hire keeps its tier but takes the new
+        // spec's kit (same tier, no new charge). The forced role follows the
+        // new build first (ret -> holy, warrior dps -> tank), so the refit
+        // and the rebuilt strategies agree; then the reset runs again under
+        // the new role. No set for the new spec keeps the current kit.
+        if (!param.empty() && tier > 0)
+            RespecHireGearKit(bot, out);
     }
 
     ai->TellPlayer(requester, out, PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
@@ -231,6 +241,51 @@ TalentPath* ChangeTalentsAction::getPremadePath(uint8 cls, int id)
         return nullptr;
 
     return &sPlayerbotAIConfig.classSpecs[cls].talentPath[0];
+}
+std::string ChangeTalentsAction::GetPremadePathName(uint8 cls, int id)
+{
+    for (auto& path : sPlayerbotAIConfig.classSpecs[cls].talentPath)
+    {
+        if (id == path.id)
+            return path.name;
+    }
+    return std::string();
+}
+
+void ChangeTalentsAction::RespecHireGearKit(Player* bot, std::ostringstream& out)
+{
+    if (!bot || !ai)
+        return;
+    uint8_t cls = bot->GetClass();
+    uint8_t tier = TortoiseBots::HireLifecycle::Instance().GearTier(bot->GetObjectGuid());
+    if (!TortoiseBots::HireGearTierEligible(bot->GetLevel(), sPlayerbotAIConfig.hireGearTiersEnabled, tier))
+        return;
+    // New build's role first: the premade filter in getPremadePaths and the
+    // strategy rebuild below must agree. Druid feral reports both roles, so
+    // keep the tank bit only when the hire already tanked.
+    ai::BotRoles buildRole = AiFactory::GetPlayerRoles(cls,
+        static_cast<uint8>(AiFactory::GetPlayerSpecTab(bot)));
+    uint8_t role = static_cast<uint8_t>(buildRole);
+    if (cls == CLASS_DRUID && (buildRole & (ai::BOT_ROLE_TANK | ai::BOT_ROLE_DPS)))
+        role = (ai->GetForcedRole() & ai::BOT_ROLE_TANK) ? ai::BOT_ROLE_TANK : ai::BOT_ROLE_DPS;
+    if (role != ai::BOT_ROLE_NONE && TortoiseBots::HireProvisionService::ClassCanRole(cls, role))
+        ai->SetForcedRole(role);
+    else
+        role = ai->GetForcedRole();
+    uint32 specNo = sRandomBotFacade.GetValue(bot->GetGUIDLow(), "specNo");
+    std::string pathName = specNo > 0 ? GetPremadePathName(cls, static_cast<int>(specNo - 1)) : std::string();
+    int specIndex = TortoiseBots::HireSpecIndexForPathName(cls, pathName.c_str(), role);
+    char const* specKey = TortoiseBots::ResolveHireGearSpecKey(cls, specIndex, role);
+    if (!specKey)
+        return;
+    if (TortoiseBots::HireProvisionService::EquipHireGearSet(bot, ai, cls, specKey, bot->GetRace(), tier))
+    {
+        bot->SaveToDB();
+        ai->UpdateTalentSpec();
+        ai->ResetStrategies();
+    }
+    else
+        out << " (no " << TortoiseBots::HireTierKitName(tier) << " set for the new spec; keeping current gear)";
 }
 
 void ChangeTalentsAction::listPremadePaths(uint8 cls, std::vector<TalentPath*> paths, std::ostringstream* out)
