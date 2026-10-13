@@ -3021,27 +3021,10 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         int markIndex = RtiTargetValue::GetRtiIndex(ccMark);
         Unit* ccTarget = context.enemyTarget;
 
-        // Selecting an enemy is the most explicit request: make that unit the
-        // requested raid mark. If the player selected a bot instead, preserve
-        // the existing group mark and use it as the assignment target.
-        if (ccTarget)
-        {
-            if (context.group)
-                context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
-        }
-        else if (context.group && requester->GetMap())
-        {
-            ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
-            if (!markGuid.IsEmpty())
-                ccTarget = requester->GetMap()->GetUnit(markGuid);
-        }
-
-        if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
-            ccTarget = nullptr;
-
         // An explicit name wins over the live target: same assignment path
         // as the selected-bot case, including the immediate-cast probe when
-        // an enemy is selected or the mark already exists.
+        // an enemy is selected or the mark already exists. It is resolved
+        // before the target checks, so an unknown name still reports no-bot.
         Player* namedBot = nullptr;
         if (!ccBotToken.empty())
         {
@@ -3054,6 +3037,39 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 return true;
             }
         }
+
+        // Selecting an enemy is the most explicit request: make that unit the
+        // requested raid mark. If the player selected a bot instead, preserve
+        // the existing group mark and use it as the assignment target.
+        if (ccTarget)
+        {
+            // Refuse before the mark moves: a corpse or non-attackable unit
+            // would take the mark, and the order would still ACK success with
+            // no CC target behind it. A GM requester is faction 35
+            // (Player::SetGameMaster), which the attackability test refuses for
+            // every hostile mob, so a GM needs only a live, targetable unit.
+            bool const requesterIsGm = requester->IsGameMaster();
+            bool const badTarget = !ccTarget->IsInWorld() || !ccTarget->IsAlive()
+                || (requesterIsGm ? !ccTarget->IsTargetable(true, true)
+                                  : !requester->IsValidAttackTarget(ccTarget));
+            if (badTarget)
+            {
+                SendActionError(handler, intent, "no-target",
+                    "Your target is dead, out of the world or not attackable. Select a live enemy first.");
+                return true;
+            }
+            if (context.group)
+                context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
+        }
+        else if (context.group && requester->GetMap())
+        {
+            ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
+            if (!markGuid.IsEmpty())
+                ccTarget = requester->GetMap()->GetUnit(markGuid);
+        }
+
+        if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
+            ccTarget = nullptr;
 
         Player* executor = nullptr;
         std::string ccAction;

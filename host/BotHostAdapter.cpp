@@ -11,6 +11,7 @@
 #include "../runtime/BattlegroundQueueService.h"
 #include "../runtime/ObservabilityEmitter.h"
 #include "BotChatAdapter.h"
+#include "BotPacketAdapter.h"
 #include "HireRecruiterScript.h"
 #include "../commands/BotCommandQueue.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
@@ -146,6 +147,9 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     ++m_ticks;
     // Expire stale leases before services select candidates (issue #89).
     BotActivityLeaseManager::Instance().Update(diff);
+    // Issue #839: chat that reached bots on other threads (party / whisper
+    // commands included) is handled here, before the bot update.
+    BotPacketAdapter::DrainDeferredPackets();
     BotManager::Instance().OnWorldUpdate(diff);
     PlayerConvenience::Instance().Update(diff);
     RandomBotService::Instance().Update(diff);
@@ -162,6 +166,7 @@ void BotHostAdapter::OnShutdown()
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
     BotCommandQueue::Instance().Clear();
+    BotPacketAdapter::ClearDeferredPackets();
     BotManager::Instance().Shutdown();
     RandomBotService::Instance().Shutdown();
     BotActivityLeaseManager::Instance().Clear();

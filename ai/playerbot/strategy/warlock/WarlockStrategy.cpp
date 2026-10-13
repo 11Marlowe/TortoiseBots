@@ -551,6 +551,28 @@ void WarlockPetPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
 
 void WarlockPetPveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Spec-fitting pet (opt-in, AiPlayerbot.WarlockPetBySpec): one row per
+    // demon above the Voidwalker default, so a petless or mismatched warlock
+    // gets the demon runtime/WarlockPetPolicy.h picks for its spec. Each
+    // trigger stands down on its own when the toggle is off, the spec is
+    // unknown, a "pet <demon>" order is set, or a shard is missing, and the
+    // rows below then behave exactly as before.
+    if (sPlayerbotAIConfig.warlockPetBySpec)
+    {
+        triggers.push_back(new TriggerNode(
+            "spec pet felhunter",
+            NextAction::array(0, new NextAction("summon felhunter", ACTION_NORMAL + 2), NULL)));
+        triggers.push_back(new TriggerNode(
+            "spec pet succubus",
+            NextAction::array(0, new NextAction("summon succubus", ACTION_NORMAL + 2), NULL)));
+        triggers.push_back(new TriggerNode(
+            "spec pet voidwalker",
+            NextAction::array(0, new NextAction("summon voidwalker", ACTION_NORMAL + 2), NULL)));
+        triggers.push_back(new TriggerNode(
+            "spec pet imp",
+            NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 2), NULL)));
+    }
+
     triggers.push_back(new TriggerNode(
         "no pet",
         NextAction::array(0, new NextAction("summon voidwalker", ACTION_NORMAL + 1), NULL)));
