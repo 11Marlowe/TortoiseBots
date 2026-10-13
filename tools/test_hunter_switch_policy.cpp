@@ -21,6 +21,7 @@ using ai::DecideHunterDeadZoneStep;
 using ai::HunterKitDwellElapsed;
 using ai::NoteHunterKitSwitch;
 using ai::BeginHunterStepOut;
+using ai::HunterMeleeRowIgnoresThreatBackoff;
 using ai::HunterStepOutBlocked;
 using ai::HunterStepOutLength;
 using ai::kHunterKitMinDwellMs;
@@ -152,6 +153,14 @@ int main()
         CHECK(HunterStepOutLength(7.5f, 8.0f) == 4.0f);
         CHECK(HunterStepOutLength(0.0f, 20.0f) == 15.0f);
         std::cout << "  [PASS] dead zone: one step-out per mob, then melee instead of flee\n";
+    }
+
+    {
+        // Melee row vs the party threat back-off: a mob on the hunter is
+        // exempt, a mob someone else holds is not.
+        CHECK(HunterMeleeRowIgnoresThreatBackoff(true));
+        CHECK(!HunterMeleeRowIgnoresThreatBackoff(false));
+        std::cout << "  [PASS] melee row: exempt from the threat back-off only for a mob on the hunter\n";
     }
 
     std::cout << "All hunter-switch checks PASSED!\n";

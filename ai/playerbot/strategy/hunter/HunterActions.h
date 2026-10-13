@@ -1,5 +1,6 @@
 #pragma once
 
+#include "playerbot/HunterSwitchPolicy.h"
 #include "playerbot/strategy/actions/GenericActions.h"
 
 namespace ai
@@ -227,10 +228,28 @@ public:
 
     BUFF_ACTION(CastReadinessAction, "readiness");
     ;
-    class CastWingClipAction : public CastMeleeSpellAction
+    // Melee row abilities (Raptor Strike, Mongoose Bite, Wing Clip). A mob that
+    // is already on the hunter leaves nothing for the party threat back-off to
+    // protect: the multiplier (ThreatMultiplier) vetoed all three while the
+    // hunter held the mob in a party with a tank, so the melee kit only
+    // auto-attacked. Against a mob someone else holds they stay subject to it.
+    class HunterMeleeRowAction : public CastMeleeSpellAction
     {
     public:
-        CastWingClipAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "wing clip") {}
+        HunterMeleeRowAction(PlayerbotAI* ai, std::string spell) : CastMeleeSpellAction(ai, spell) {}
+
+        ActionThreatType getThreatType() override
+        {
+            Unit* target = GetTarget();
+            return HunterMeleeRowIgnoresThreatBackoff(target && target->GetVictim() == bot) ?
+                ActionThreatType::ACTION_THREAT_NONE : ActionThreatType::ACTION_THREAT_SINGLE;
+        }
+    };
+
+    class CastWingClipAction : public HunterMeleeRowAction
+    {
+    public:
+        CastWingClipAction(PlayerbotAI* ai) : HunterMeleeRowAction(ai, "wing clip") {}
 
         virtual bool isUseful()
         {
@@ -238,10 +257,10 @@ public:
         }
     };
 
-    class CastRaptorStrikeAction : public CastMeleeSpellAction
+    class CastRaptorStrikeAction : public HunterMeleeRowAction
     {
     public:
-        CastRaptorStrikeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "raptor strike") {}
+        CastRaptorStrikeAction(PlayerbotAI* ai) : HunterMeleeRowAction(ai, "raptor strike") {}
 
         virtual bool isUseful()
         {
@@ -291,7 +310,11 @@ public:
     BUFF_ACTION(DeterrenceAction, "deterrence");
     MELEE_ACTION(CastCounterattackAction, "counterattack");
     SNARE_ACTION(WyvernStingSnareAction, "wyvern sting");
-    MELEE_ACTION(MongooseBiteAction, "mongoose bite");
+    class MongooseBiteAction : public HunterMeleeRowAction
+    {
+    public:
+        MongooseBiteAction(PlayerbotAI* ai) : HunterMeleeRowAction(ai, "mongoose bite") {}
+    };
     SPELL_ACTION(CastKillCommandAction, "kill command");
     MELEE_ACTION(CastLacerateAction, "lacerate");
     MELEE_ACTION(CastCarveAction, "carve");

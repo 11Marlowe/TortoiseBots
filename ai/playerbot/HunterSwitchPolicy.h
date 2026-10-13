@@ -201,4 +201,14 @@ namespace ai
             return kHunterStepOutMaxYd;
         return need;
     }
+
+    // Raptor Strike / Mongoose Bite / Wing Clip against a mob that is already
+    // on the hunter: the party threat back-off (ThreatMultiplier) has nothing
+    // to protect there, and applying it vetoed all three while the mob held
+    // the hunter (live test Oct 2026: ~98 s in the melee kit, 16 hits taken,
+    // white swings only). A mob someone else holds keeps the back-off.
+    inline constexpr bool HunterMeleeRowIgnoresThreatBackoff(bool targetOnHunter)
+    {
+        return targetOnHunter;
+    }
 }
