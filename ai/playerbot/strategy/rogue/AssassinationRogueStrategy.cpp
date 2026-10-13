@@ -241,8 +241,11 @@ void AssassinationRogueBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>
 {
     RogueBoostStrategy::InitCombatTriggers(triggers);
 
+    // Cold Blood boosts the next Sinister Strike, Backstab, Ambush, Noxious
+    // Assault or Eviscerate, so it waits for a 4-point finisher ("4 combo",
+    // the same gate mod-playerbots uses) instead of going off on a builder.
     triggers.push_back(new TriggerNode(
-        "very often",
+        "4 combo",
         NextAction::array(0, new NextAction("cold blood", ACTION_HIGH + 5), NULL)));
 }
 
