@@ -66,6 +66,12 @@
 
 ---
 
+### Hire Gear & Progression
+
+- Level-60 hires now spawn with static, spec-fixed BIS sets across seven tiers — pre-raid, ZG/AQ20/Lower Karazhan, MC/Onyxia/Timbermaw Hold, BWL/Emerald Sanctum, AQ40, Naxx, and Tower of Karazhan — with each of the 28 hire specs locked to one fixed set per tier, so the same hire always shows up in the same gear. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
+- Every tier is fully enchanted: head/leg arcana, ZG and Naxx shoulder enchants, Turtle neck/ring gemstones and belt buckles, weapon and shield enchants, and hunter enchants. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
+- Part 1 of #490 — quests, the tier choice at the recruiter, and tier pricing land in part 2. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
+
 ## 2026-10-12
 
 ### Core Sync & Fixes
