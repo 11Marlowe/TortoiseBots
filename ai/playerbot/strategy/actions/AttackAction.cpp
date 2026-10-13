@@ -194,6 +194,19 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
 
 bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
 {
+    if (!bot->IsAlive())
+    {
+        // A dead bot refuses every order silently otherwise: nothing below names
+        // the bot's own death (only the target's), so the player re-sends a corpse.
+        SC_LOG("attack-cmd FAIL bot=%s — bot is dead", bot ? bot->GetName() : "(null)");
+        if (verbose)
+        {
+            ai->TellPlayerNoFacing(requester, "I am dead");
+        }
+
+        return false;
+    }
+
     MotionMaster &mm = *bot->GetMotionMaster();
 	if (mm.GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE || (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f))
     {
@@ -275,6 +288,16 @@ bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
             const bool meleeEval = !ai->IsHeal(bot) &&
                 (!ai->IsRanged(bot) || !bot->GetWeaponForAttack(RANGED_ATTACK, true, true));
             result = bot->Attack(target, meleeEval);
+            if (!result && bot->GetVictim() == target)
+            {
+                // A repeated order on the target the bot is already attacking: the
+                // core reports no state change (Unit::Attack returns false when
+                // m_attacking is already the victim), but the order is in effect,
+                // so it succeeds. Without this every re-issued ".bot attack" on a
+                // held target (a stunned boss that takes seconds to engage, a
+                // re-send 3 s later) answers "could not execute attack".
+                result = true;
+            }
             SC_LOG("attack-cmd bot->Attack bot=%s tgt=%s result=%d meleeEval=%d",
                    bot ? bot->GetName() : "(null)",
                    target ? target->GetName() : "(null)",
