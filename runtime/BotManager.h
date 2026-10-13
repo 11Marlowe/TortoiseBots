@@ -9,6 +9,7 @@
 #include "ObjectGuid.h"
 #include "BotTurnScheduler.h"
 #include "AdaptiveBudget.h"
+#include "WorldThreadQueue.h"
 #ifndef MANGOS_OBJECT_GUID_H
 // Lens/build fallback — core header not on analyzer include path.
 enum { HIGHGUID_PLAYER = 0 };
@@ -167,7 +168,13 @@ public:
 
     // Snapshot of in-world bots owned by a master. Callers never receive the
     // manager's records or session pointers, only live Player identities.
+    // World thread only (it walks the records the world thread mutates).
     std::vector<Player*> GetBotsForMaster(ObjectGuid masterGuid) const;
+    // Any thread (issue #839): raw guids of the master's live bots as published
+    // at the end of the last world update - at most one tick stale. Packet
+    // hooks on the AsyncPackets / ChannelBroadcaster / map threads use this and
+    // resolve each guid themselves; nothing here dereferences a Player.
+    std::vector<uint64_t> GetBotGuidsForMasterAnyThread(ObjectGuid masterGuid) const;
     // Snapshot of every live module-owned bot for legacy holder adapters and
     // diagnostics. Ownership remains entirely inside BotManager.
     std::vector<Player*> GetAllBots() const;
@@ -212,11 +219,15 @@ private:
     void UpdateAutoTest(uint32_t diff);
     void UpdatePacketBridgeTest(uint32_t diff);
     void UpdateBots(uint32_t diff);
+    void PublishMasterView();
     void DetachOwnedBots(Player* master);
     void RebindOwnedBots(Player* master);
 
 
     std::unordered_map<uint32_t, BotEntry> m_bots; // key = guid counter
+    // Issue #839: master -> live bot guids for packet hooks off the world
+    // thread; rebuilt from m_bots at the end of every OnWorldUpdate.
+    MasterBotView m_masterView;
     // Reentrancy guard for AI-driven removal. PlayerbotAI::UpdateAIInternal can
     // request its own removal (stunned/idle logout path) while its Update is on
     // the stack inside UpdateBots. Stopping the Headless session synchronously
