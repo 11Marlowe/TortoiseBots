@@ -204,6 +204,11 @@
 - The loop iterates the array; the test body is unchanged. [#857](https://github.com/Sagiroth/TortoiseBots/pull/857)
 - All 159 existing policy test names are preserved (including the judgment test). [#857](https://github.com/Sagiroth/TortoiseBots/pull/857)
 
+### Observability & Engine
+
+- New read-only **Auction House** tab in the dashboard: summary bar (listings, per-quality breakdown, buyout value, listings with a bid) plus a sortable table of every auction showing item, required level, seller (bots flagged, click through to their profile), bid, buyout, and time left; filter by item name, minimum quality, level range, seller, bots/players, with a faction-house switch that only appears on realms running separate houses — 100 rows per page, loads on tab open or via Refresh, viewing only, no buying. [#878](https://github.com/Sagiroth/TortoiseBots/pull/878)
+- Every bot Auction House purchase is now logged. [#878](https://github.com/Sagiroth/TortoiseBots/pull/878)
+
 ## 2026-10-12
 
 ### Core Sync & Fixes
