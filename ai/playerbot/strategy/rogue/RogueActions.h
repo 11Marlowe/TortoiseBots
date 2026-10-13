@@ -537,10 +537,12 @@ namespace ai
                                 if (spellInfo)
                                 {
                                     BotUseItemSpell* spell = new BotUseItemSpell(bot, spellInfo, (count > 0) ? TRIGGERED_OLD_TRIGGERED : TRIGGERED_NONE);
+                                    // NOTE: no manual cooldown here (see
+                                    // UseAction::UseItemInternal): the core
+                                    // applies it in Spell::SendSpellCooldown
+                                    // after validation.
                                     if (spell->ForceSpellStart(&targets) == SPELL_CAST_OK)
                                     {
-                                        bot->RemoveSpellCooldown(spellInfo->Id, false);
-                                        bot->AddSpellAndCategoryCooldowns(spellInfo, poisonProto->ItemId);
                                         SetDuration(3000);
                                     }
                                     else
