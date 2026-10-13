@@ -9283,3 +9283,32 @@ Combat). `docs/classes/rogue.md` already describes the dump for all rogues.
 
 Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
 VM (see the PR); build pending; in-game pending.
+
+## Mongoose Bite in the live Raptor Strike / Wing Clip row — 2026-10-13
+
+Feature: Mongoose Bite is queued in melee. Before, the live `hunter enemy is close` row
+(`HunterStrategy::InitCombatTriggers`) queued only Raptor Strike and Wing Clip, while the docs
+said hunters use Mongoose Bite in melee. The row now queues Mongoose Bite between the two, so it
+is cast when Raptor Strike is not castable and Mongoose Bite is off its own 5 s cooldown, with mana.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:80-82` (`enemy within
+melee` → mongoose bite 22, wing clip 21). That file is not registered in this module, so its row
+never ran here; the live row is the one that now carries the action. The donor's `mongoose_bite`
+node falls back to raptor strike; that fallback is not ported, because raptor strike is already
+first in the row.
+
+Module files: `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (the row; priorities Raptor Strike
+`ACTION_NORMAL + 1`, Mongoose Bite `ACTION_NORMAL + 0.5f`, Wing Clip `ACTION_NORMAL`).
+
+Copied / ported / reimplemented: ported (one action added to the live row). No donor code copied.
+
+Reason: bug fix, the bot did not do what the class docs say. Turtle 1.18.1 has no dodge
+requirement for Mongoose Bite (`casterAuraState` 0 on ranks 1495, 14269-14271 in
+`sql/base/tw_world_spell_template.sql`; no cast check in `src/scripts/spells/spell_hunter.cpp`).
+
+Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
+VM (see the PR); build pending; in-game pending.
