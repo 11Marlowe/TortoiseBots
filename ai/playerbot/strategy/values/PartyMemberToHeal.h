@@ -55,6 +55,11 @@ namespace ai
     protected:
         virtual std::map<ObjectGuid, uint32> Calculate() override;
     };
+
+    // Base amount of the direct heals other group members are casting at
+    // `target` right now (cast bar still running). Reads the cached
+    // "incoming heals" value, so it costs a map lookup, not a scan.
+    uint32 GetIncomingHeal(PlayerbotAI* ai, Unit* target);
     // mod-playerbots PartyMemberMainTankValue (LD-8): the raid/party main
     // tank — explicit raid flag first, else the first live tank. No
     // Misdirection/Tricks consumers exist in 1.18.1; raid tactics read it.

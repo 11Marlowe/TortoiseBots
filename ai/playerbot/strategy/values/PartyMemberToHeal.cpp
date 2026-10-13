@@ -198,7 +198,8 @@ Unit* PartyMemberToHeal::Calculate()
     }
 
     bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
-    std::map<ObjectGuid, uint32> const incomingHeals = IncomingHeals(ai, bot);
+    std::map<ObjectGuid, uint32> const incomingHeals =
+        ai->GetAiObjectContext()->GetValue<std::map<ObjectGuid, uint32>>("incoming heals")->Get();
     sort(needHeals.begin(), needHeals.end(), [preHealing, &incomingHeals](const Unit* u1, const Unit* u2) { return effectiveHealthPercent(u1, preHealing, incomingHeals) < effectiveHealthPercent(u2, preHealing, incomingHeals); });
 
     // Prefer an in-LOS member over an out-of-LOS one at similar urgency: an
