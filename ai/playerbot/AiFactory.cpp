@@ -819,6 +819,12 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
     if (KeepsPartyThreatBackoff(player, facade) && !combatEngine->HasStrategy("threat"))
         combatEngine->addStrategy("threat");
 
+    // Healers cancel a cast-time heal whose target another healer already
+    // topped up (HealingCastPolicy). The strategy existed but nothing added
+    // it: Patchwerk with 17 healers measured ~63% overheal on the tanks.
+    if (facade->IsHeal(player) && !combatEngine->HasStrategy("heal interrupt"))
+        combatEngine->addStrategy("heal interrupt");
+
     // Battleground switch
     if (player->InBattleGround())
     {

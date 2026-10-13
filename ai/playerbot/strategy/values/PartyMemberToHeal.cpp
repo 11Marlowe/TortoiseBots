@@ -6,6 +6,7 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/RaidTankRolePolicy.h"
 #include "ObjectAccessor.h"
+#include <map>
 
 using namespace ai;
 
@@ -33,11 +34,51 @@ bool compareByHealth(const Unit *u1, const Unit *u2)
     return u1->GetHealthPercent() < u2->GetHealthPercent();
 }
 
+// Direct heals other group members are casting at each target right now
+// (HealComm-style): base spell amounts of cast-time heals still in their cast
+// bar, keyed by target. Healers that ignored these all started big heals on
+// the same tank; Patchwerk measured ~63% overheal on the tanks.
+static std::map<ObjectGuid, uint32> IncomingHeals(PlayerbotAI* ai, Player* bot)
+{
+    std::map<ObjectGuid, uint32> incoming;
+    std::list<ObjectGuid> nearestPlayers = ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("nearest friendly players")->Get();
+    for (ObjectGuid const& guid : nearestPlayers)
+    {
+        Player* caster = dynamic_cast<Player*>(ai->GetUnit(guid));
+        if (!caster || caster == bot)
+            continue;
+        Spell* spell = caster->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (!spell || spell->getState() != SPELL_STATE_PREPARING || !PlayerbotAI::IsHealSpell(spell->m_spellInfo))
+            continue;
+        Unit* target = ai->GetUnit(spell->m_targets.getUnitTargetGuid());
+        if (!target)
+            continue;
+        for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+        {
+            if (spell->m_spellInfo->Effect[effect] != SPELL_EFFECT_HEAL)
+                continue;
+            int32 const amount = spell->CalculateDamage(SpellEffectIndex(effect), target);
+            if (amount > 0)
+                incoming[target->GetObjectGuid()] += uint32(amount);
+        }
+    }
+    return incoming;
+}
+
+uint32 ai::GetIncomingHeal(PlayerbotAI* ai, Unit* target)
+{
+    if (!target)
+        return 0;
+    std::map<ObjectGuid, uint32> const incoming = IncomingHeals(ai, ai->GetBot());
+    auto const it = incoming.find(target->GetObjectGuid());
+    return it == incoming.end() ? 0 : it->second;
+}
+
 // Effective health percent (incoming melee damage taken off first when
 // pre-healing). Ranking by percent, as the donor does, keeps a cloth member at
 // 60 % ahead of a tank at 76 %: by missing hit points the tank's larger pool
 // always won and the member who was actually dying got nothing.
-static float effectiveHealthPercent(const Unit* u, bool incomingDamage)
+static float effectiveHealthPercent(const Unit* u, bool incomingDamage, std::map<ObjectGuid, uint32> const& incomingHeals)
 {
     uint32 hp = u->GetHealth();
     if (incomingDamage)
@@ -45,7 +86,12 @@ static float effectiveHealthPercent(const Unit* u, bool incomingDamage)
         uint32 damage = getIncomingdamage(u);
         hp = damage >= hp ? 0 : hp - damage;
     }
+    auto const heal = incomingHeals.find(u->GetObjectGuid());
+    if (heal != incomingHeals.end())
+        hp += heal->second;
     uint32 hpmax = u->GetMaxHealth();
+    if (hpmax && hp > hpmax)
+        hp = hpmax;
     return hpmax ? hp * 100.0f / hpmax : 100.0f;
 }
 
@@ -141,7 +187,8 @@ Unit* PartyMemberToHeal::Calculate()
     }
 
     bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
-    sort(needHeals.begin(), needHeals.end(), [preHealing](const Unit* u1, const Unit* u2) { return effectiveHealthPercent(u1, preHealing) < effectiveHealthPercent(u2, preHealing); });
+    std::map<ObjectGuid, uint32> const incomingHeals = IncomingHeals(ai, bot);
+    sort(needHeals.begin(), needHeals.end(), [preHealing, &incomingHeals](const Unit* u1, const Unit* u2) { return effectiveHealthPercent(u1, preHealing, incomingHeals) < effectiveHealthPercent(u2, preHealing, incomingHeals); });
 
     // Prefer an in-LOS member over an out-of-LOS one at similar urgency: an
     // out-of-LOS pick still casts (its reach action walks the healer into
@@ -211,7 +258,7 @@ Unit* PartyMemberToHeal::Calculate()
     // fire, and nobody gets healed at all while the healer stands there doing
     // damage. Fall back to whoever is worst off.
     Unit* chosen = needHeals[healerIndex];
-    if (chosen && chosen->GetHealthPercent() >= sPlayerbotAIConfig.almostFullHealth)
+    if (chosen && effectiveHealthPercent(chosen, false, incomingHeals) >= sPlayerbotAIConfig.almostFullHealth)
         chosen = needHeals[0];
 
     return chosen;

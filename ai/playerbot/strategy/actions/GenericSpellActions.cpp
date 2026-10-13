@@ -7,6 +7,7 @@
 #include "GenericActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/TargetValue.h"
+#include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "Database/DBCStores.h"
 
@@ -721,6 +722,13 @@ bool HealPartyMemberAction::isUseful()
         return false;
     HealerManaState heal{};
     heal.targetHealth = target->GetHealthPercent() > 100.0f ? 100 : (std::uint8_t)target->GetHealthPercent();
+    // Count heals other healers are already casting at this target, unless
+    // it is critical (a spike can land before they do).
+    if (heal.targetHealth > sPlayerbotAIConfig.criticalHealth && target->GetMaxHealth())
+    {
+        uint64 const withIncoming = uint64(target->GetHealth()) + GetIncomingHeal(ai, target);
+        heal.targetHealth = withIncoming >= target->GetMaxHealth() ? 100 : std::uint8_t(withIncoming * 100 / target->GetMaxHealth());
+    }
     heal.healerMana = AI_VALUE2(uint8, "mana", "self target");
     heal.estAmount = estAmount;
     heal.efficiency = manaEfficiency;

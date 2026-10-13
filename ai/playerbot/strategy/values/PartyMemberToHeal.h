@@ -38,6 +38,10 @@ namespace ai
 
     RaidTankRoles GetRaidTankRoles(PlayerbotAI* ai);
 
+    // Base amount of the direct heals other group members are casting at
+    // `target` right now (cast bar still running).
+    uint32 GetIncomingHeal(PlayerbotAI* ai, Unit* target);
+
     // mod-playerbots PartyMemberMainTankValue (LD-8): the raid/party main
     // tank — explicit raid flag first, else the first live tank. No
     // Misdirection/Tricks consumers exist in 1.18.1; raid tactics read it.
