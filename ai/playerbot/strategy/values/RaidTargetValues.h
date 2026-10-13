@@ -30,7 +30,7 @@ namespace ai
     {
     public:
         BossTargetValue(PlayerbotAI* ai, std::string name = "boss target")
-            : UnitCalculatedValue(ai, name, 2), Qualified() {}
+            : UnitCalculatedValue(ai, name, 2), Qualified() { this->keepLegacyRefresh = true; }
 
     protected:
         Unit* Calculate() override;

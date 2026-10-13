@@ -30,6 +30,12 @@ void AssassinationRogueStrategy::InitCombatTriggers(std::list<TriggerNode*>& tri
         "eviscerate",
         NextAction::array(0, new NextAction("eviscerate", ACTION_HIGH + 2), NULL)));
 
+    // Almost-dead finisher dump, same row and priority as CombatRogueStrategy:
+    // a target at 25% health or less eats banked combo points as Eviscerate.
+    triggers.push_back(new TriggerNode(
+        "target with combo points almost dead",
+        NextAction::array(0, new NextAction("eviscerate", ACTION_HIGH + 2), NULL)));
+
     triggers.push_back(new TriggerNode(
         "slice and dice",
         NextAction::array(0, new NextAction("slice and dice", ACTION_HIGH + 1), NULL)));
@@ -235,8 +241,11 @@ void AssassinationRogueBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>
 {
     RogueBoostStrategy::InitCombatTriggers(triggers);
 
+    // Cold Blood boosts the next Sinister Strike, Backstab, Ambush, Noxious
+    // Assault or Eviscerate, so it waits for a 4-point finisher ("4 combo",
+    // the same gate mod-playerbots uses) instead of going off on a builder.
     triggers.push_back(new TriggerNode(
-        "very often",
+        "4 combo",
         NextAction::array(0, new NextAction("cold blood", ACTION_HIGH + 5), NULL)));
 }
 

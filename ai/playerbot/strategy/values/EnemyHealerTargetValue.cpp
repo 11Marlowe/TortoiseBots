@@ -27,25 +27,26 @@ Unit* EnemyHealerTargetValue::Calculate()
         if (!ai->IsInterruptableSpellCasting(unit, spell, true))
             continue;
 
+        // A real heal only: "positive" also covers self buffs such as Lightning Shield.
         Spell* spell = unit->GetCurrentSpell(CURRENT_GENERIC_SPELL);
-        if (spell && IsPositiveSpell(spell->m_spellInfo))
+        bool healing = spell && PlayerbotAI::IsHealSpell(spell->m_spellInfo);
+        if (!healing)
         {
-            // A held CC mark (Moon or "rti cc", in its hold window or under
-            // a CC cast bar) is the CC bot's: Kick and Shield Bash deal
-            // damage, and the walk to it drags the bot onto the mark (a
-            // Stonevault Oracle on Moon casts Healing Wave). Checked only
-            // for a mob that is healing right now.
-            if (CcEnemyHealerPickAllowed(ccGuard.IsHeldCcMark(unit)))
-                return unit;
+            spell = unit->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
+            healing = spell && PlayerbotAI::IsHealSpell(spell->m_spellInfo);
+        }
+        if (!healing)
             continue;
-        }
 
-        spell = unit->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
-        if (spell && IsPositiveSpell(spell->m_spellInfo))
-        {
-            if (CcEnemyHealerPickAllowed(ccGuard.IsHeldCcMark(unit)))
-                return unit;
-        }
+        // A held CC mark (Moon or "rti cc", in its hold window or under a
+        // CC cast bar) is the CC bot's: Kick and Shield Bash deal damage,
+        // and the walk to it drags the bot onto the mark (a Stonevault
+        // Oracle on Moon casts Healing Wave). Checked last: it only runs
+        // for a mob that is healing right now.
+        if (!CcEnemyHealerPickAllowed(ccGuard.IsHeldCcMark(unit)))
+            continue;
+
+        return unit;
     }
 
     return NULL;

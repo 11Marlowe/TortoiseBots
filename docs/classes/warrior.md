@@ -45,7 +45,8 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 1. **Opener:** *Charge* from range when available.
 2. **Rage Spenders:**
    - *Overpower* is wired for Arms (and via the Protection stance-dance); Fury has no Overpower wiring, and the dodge window is core spell data.
-   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus the instant-*Slam* proc, *Rend* upkeep, and the *Master Strike* weapon nuke. With no tank warrior in the group, DPS warriors keep *Sunder Armor* stacked (bottom of the ladder); with a tank warrior present they leave it to the tank.
+   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus *Rend* upkeep, and the *Master Strike* weapon nuke. With no tank warrior in the group, DPS warriors keep *Sunder Armor* stacked (bottom of the ladder); with a tank warrior present they leave it to the tank.
+   - *Slam* is not in the DPS rotation. On Turtle it is a hard cast (15 rage, a real cast time; the trainer rows 1482/8821/11606/11607 only teach the castable spells 1464/8820/11604/11605) and casting stops auto-attack, so the bots leave it out. There is no instant "Slam!" proc on Turtle (the bot's `instant slam` trigger never fires).
    - *Whirlwind* is used on cooldown above 20% target health; 2+ nearby targets only raises its priority.
    - Cooldowns: both specs fire *Death Wish* and *Recklessness* as boosts, plus *Retaliation* while near full health (70-90%) — all behind the boost toggle.
 3. **Execute Phase:** Below 20% enemy health, *Execute* becomes highest priority, consuming all available rage.

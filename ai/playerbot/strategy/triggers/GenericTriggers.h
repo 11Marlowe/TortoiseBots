@@ -920,6 +920,35 @@ namespace ai
     public:
         HasCcTargetTrigger(PlayerbotAI* ai, std::string name) : Trigger(ai, name) {}
         virtual bool IsActive() override;
+        // The row has a target to CC (dungeon mark gating included), leaving
+        // spell readiness aside. WandBlocksCcTrigger reads it too: a running
+        // wand keeps the spell "not ready", so IsActive alone never fires.
+        virtual bool CcTargetPending();
+    };
+
+    // A running wand renews the GCD on every shot (WandPolicy.h), so a CC
+    // row, which needs its spell ready, never fires while the wand runs.
+    // Fires while one of the class's own CC spells has a pending target and
+    // is held back by that GCD alone. Registered per class as "wand blocks
+    // cc" (mage, priest, warlock) and used by the cc strategies' stop-wand row.
+    class WandBlocksCcTrigger : public WandBlocksCastTrigger
+    {
+    public:
+        WandBlocksCcTrigger(PlayerbotAI* ai, std::vector<std::string> ccSpells)
+            : WandBlocksCastTrigger(ai, "wand blocks cc"), ccSpells(ccSpells) {}
+        bool IsActive() override;
+        // The same test without the running wand. CastShootAction reads it
+        // so a "shoot" fallback does not restart the wand while a CC waits.
+        // The answer is kept for about 1 s: "shoot" is weighed every tick
+        // and the cast probe builds a Spell (see WandBlocksCastTrigger).
+        bool CcCastWaiting();
+
+    private:
+        bool ComputeCcCastWaiting();
+
+        std::vector<std::string> ccSpells;
+        uint32 waitingCheckMs = 0;
+        bool waitingCached = false;
     };
 
 	class NoMovementTrigger : public Trigger
@@ -1334,19 +1363,26 @@ namespace ai
             uint32 disMask = GetDispellMask(DISPEL_DISEASE);
             uint32 poisMask = GetDispellMask(DISPEL_POISON);
             uint32 bleedType = 1 << (MECHANIC_BLEED - 1);
+            bool wantsCure = false;
             for (auto itr : bot->GetSpellAuraHolderMap())
             {
                 SpellEntry const* spell = itr.second->GetSpellProto();
                 if (IsPositiveSpell(spell->Id))
                     continue;
 
+                // Stoneform removes every disease and poison on the bot (its dispel immunity carries
+                // SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY), so it is held back while a never-dispel debuff
+                // such as Mutating Injection is on the bot.
+                if (PlayerbotAI::IsNeverDispelSpell(spell->Id))
+                    return false;
+
                 if (((1 << spell->Dispel) & disMask) || ((1 << spell->Dispel) & poisMask))
-                    return true;
+                    wantsCure = true;
 
                 if (itr.second->HasMechanicMask(bleedType))
-                    return true;
+                    wantsCure = true;
             }
-            return false;
+            return wantsCure;
         }
     };
 

@@ -11,7 +11,7 @@ namespace ai
     class PossibleAttackTargetsValue : public ObjectGuidListCalculatedValue, public Qualified
 	{
 	public:
-        PossibleAttackTargetsValue(PlayerbotAI* ai) : ObjectGuidListCalculatedValue(ai, "possible attack targets", 2), Qualified() {}
+        PossibleAttackTargetsValue(PlayerbotAI* ai) : ObjectGuidListCalculatedValue(ai, "possible attack targets", 2), Qualified() { this->keepLegacyRefresh = true; }
         std::list<ObjectGuid> Calculate() override;
         static bool IsValid(Unit* target, Player* player, float range = sPlayerbotAIConfig.sightDistance, bool ignoreCC = false, bool checkAttackerValid = true);
         static bool IsPossibleTarget(Unit* target, Player* player, float range, bool ignoreCC);

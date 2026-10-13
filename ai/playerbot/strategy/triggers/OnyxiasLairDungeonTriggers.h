@@ -81,4 +81,27 @@ namespace ai
         std::string GetTargetName() override { return "current target"; }
         bool IsActive() override;
     };
+
+    // Phase 2 whelp duty (AiPlayerbot.OnyxiaWhelpsAndEggs, on by default):
+    // Onyxia airborne, this bot is AoE-capable ranged DPS, a live whelp is
+    // near and it is not on one yet.
+    class OnyxiaWhelpsTrigger : public Trigger
+    {
+    public:
+        OnyxiaWhelpsTrigger(PlayerbotAI* ai, std::string name = "onyxia whelps", int checkInterval = 2)
+        : Trigger(ai, name, checkInterval) {}
+        std::string GetTargetName() override { return "self target"; }
+        bool IsActive() override;
+    };
+
+    // The bot stands inside the trap circle (10yd + margin) of an unbroken
+    // Onyxia Egg (same opt-in toggle).
+    class OnyxiaEggsNearTrigger : public Trigger
+    {
+    public:
+        OnyxiaEggsNearTrigger(PlayerbotAI* ai, std::string name = "onyxia eggs near", int checkInterval = 2)
+        : Trigger(ai, name, checkInterval) {}
+        std::string GetTargetName() override { return "self target"; }
+        bool IsActive() override;
+    };
 }

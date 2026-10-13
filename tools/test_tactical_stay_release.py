@@ -74,6 +74,8 @@ struct PlayerbotAI
     }
     std::string GetDefaultMovementStrategy() { return "follow"; }
     void EndStayForOrder();
+    int droppedQueuedOrders = 0;
+    size_t DropQueuedMovementOrders() { ++droppedQueuedOrders; return 0; }
 };
 
 %(code)s
@@ -87,6 +89,8 @@ int main()
         stayed.engines[s] = { "stay" };
     stayed.engines[S::BOT_STATE_NON_COMBAT].insert("follow jump");
     RelaxTacticalMovement(&stayed);
+    // A tactical order also drops the movement orders still queued from chat.
+    assert(stayed.droppedQueuedOrders == 1);
     assert(stayed.HasStrategy("follow", S::BOT_STATE_NON_COMBAT));
     assert(stayed.HasStrategy("follow", S::BOT_STATE_REACTION));
     assert(!stayed.HasStrategy("stay", S::BOT_STATE_NON_COMBAT));
@@ -143,7 +147,9 @@ class TacticalStayReleaseTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("g++"), "g++ unavailable")
     def test_broken_stay_returns_to_follow(self):
         code = extract("void PlayerbotAI::EndStayForOrder()", "std::string PlayerbotAI::HandleRemoteCommand(", AI_SOURCE)
-        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "static bool BindMovementMaster(")
+        # End at the function's own closing brace: helpers defined after it
+        # (the pull checks and snapshots) need types this stand-in lacks.
+        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "\n}\n") + "\n}\n"
         with tempfile.TemporaryDirectory() as tmp:
             src = pathlib.Path(tmp) / "fixture.cpp"
             src.write_text(FIXTURE % {"code": code})

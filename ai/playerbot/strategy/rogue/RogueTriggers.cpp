@@ -3,6 +3,7 @@
 #include "RogueTriggers.h"
 #include "RogueActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "../../../runtime/RogueThreatPolicy.h"
 
 using namespace ai;
 
@@ -157,4 +158,75 @@ bool BladeFlurryNearCcTrigger::IsActive()
     if (!ai->HasAura("blade flurry", bot))
         return false;
     return BladeFlurryNearCc(ai, bot, CcBladeFlurryCancelRadius);
+}
+
+// Cheap gates first (toggle, map, group, tank): the threat value is only read
+// once a grouped 5-man dungeon with a living tank in the fight is confirmed.
+static bool BuildRogueDungeonThreatInputs(PlayerbotAI* ai, Player* bot, TortoiseBots::RogueThreatInputs& in)
+{
+    in.toggleOn = sPlayerbotAIConfig.rogueDungeonThreatDrops;
+    if (!in.toggleOn)
+        return false;
+
+    Map* map = bot->GetMap();
+    in.inFiveManDungeon = map && map->IsDungeon() && !map->IsRaid();
+    if (!in.inFiveManDungeon)
+        return false;
+
+    in.grouped = bot->GetGroup() != nullptr;
+    if (!in.grouped)
+        return false;
+
+    Unit* tank = ai->GetAiObjectContext()->GetValue<Unit*>("main tank")->Get();
+    in.otherTankInFight = tank && tank != bot && tank->IsAlive() && sServerFacade.IsInCombat(tank);
+    if (!in.otherTankInFight)
+        return false;
+
+    // The tank must hold the mob: the threat value reads 100 for an in-combat
+    // mob the tank has no threat on, so a loose add would look critical.
+    Unit* target = ai->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
+    if (!target)
+        return false;
+    in.tankHoldsMob = target->GetVictim() == tank ||
+        ai->GetAiObjectContext()->GetValue<float>("tank threat", "current target")->Get() > 0.0f;
+    return in.tankHoldsMob;
+}
+
+bool RogueDungeonFeintTrigger::IsActive()
+{
+    if (!sPlayerbotAIConfig.rogueDungeonThreatDrops || !ai->HasSpell("feint"))
+        return false;
+
+    TortoiseBots::RogueThreatInputs in;
+    if (!BuildRogueDungeonThreatInputs(ai, bot, in))
+        return false;
+
+    in.mediumThreat = MediumThreatTrigger::IsActive();
+    return TortoiseBots::ShouldRogueDungeonFeint(in);
+}
+
+bool RogueDungeonVanishTrigger::IsActive()
+{
+    if (!sPlayerbotAIConfig.rogueDungeonThreatDrops || !ai->HasSpell("vanish"))
+        return false;
+
+    TortoiseBots::RogueThreatInputs in;
+    if (!BuildRogueDungeonThreatInputs(ai, bot, in))
+        return false;
+
+    in.highThreat = HighThreatTrigger::IsActive();
+    if (!in.highThreat)
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* victim = target ? target->GetVictim() : nullptr;
+    in.victimIsTankOrRogue = victim && (victim == bot || victim == AI_VALUE(Unit*, "main tank"));
+    return TortoiseBots::ShouldRogueDungeonVanish(in);
+}
+
+bool RogueRaidVanishTrigger::IsActive()
+{
+    if (!HighThreatTrigger::IsActive())
+        return false;
+    return AI_VALUE2(float, "tank threat", "current target") > 0.0f;
 }

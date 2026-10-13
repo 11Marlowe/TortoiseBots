@@ -26,11 +26,11 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 ### 1. Frost Mage
 - Opens at max range with *Frostbolt*.
 - If enemies reach melee range, casts *Frost Nova* and *Blink* to reset distance.
-  - When its target is within 8 yards, a mage of any spec turns its back to the target and then casts *Blink*, so it jumps away from the enemy instead of into it. While rooted or stunned, *Blink* goes the way the mage already faces.
+  - When its target is attacking the mage and is within 8 yards, a mage of any spec turns its back to the target and then casts *Blink*, so it jumps away from the enemy instead of into it. A target fighting someone else (the tank) does not set this off, so the mage does not blink away from a mob it is walking up to. While rooted or stunned, *Blink* goes the way the mage already faces.
   - Skips *Frost Nova* when the target is already frozen or immune to the freeze, so the GCD goes to damage.
-- Uses *Blizzard* and *Flamestrike* on grouped enemies — *Flamestrike* first, then *Blizzard* channeled on the burning ground while the pack holds (*Cone of Cold* on light AoE; *Arcane Explosion* point-blank for Arcane; *Blast Wave* for Fire).
-- Uses *Blizzard* and *Flamestrike* on grouped enemies (*Cone of Cold* on light AoE; *Arcane Explosion* point-blank for Arcane; *Blast Wave* for Fire), and stops the *Blizzard* channel early when the pack thins below two attackers.
-- Uses *Blizzard* and *Flamestrike* on grouped enemies, and *Cone of Cold* on close pairs (only while facing the target; *Blast Wave* for Fire).
+- Uses *Flamestrike* on 3+ grouped enemies, then *Blizzard* channeled on the burning ground while the pack holds. *Blizzard* also goes on top of a *Flamestrike* that is still burning (the flamestrike window).
+- *Frost* adds *Cone of Cold* once 2+ enemies are attacking, only when the target is within 10 yd and in front of the mage. *Arcane* uses *Arcane Explosion* when an enemy is too close for its spells. *Fire* casts *Blast Wave* at interrupt priority when an enemy is within 10 yd.
+- Stops the *Blizzard* channel early when the pack thins below two attackers.
 - Uses *Cold Snap* once any Frost cooldown (Frost Nova, Cone of Cold, Ice Barrier, Ice Block, Frost Ward) is spent.
 
 ### 2. Fire Mage
@@ -58,6 +58,7 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
   - On Turtle every wand shot puts the global cooldown on the shooter for the wand's whole swing, and the next shot renews it, so a running wand keeps *Frostbolt*, *Fireball* and every other mage spell "not ready".
   - Before, a mage whose nuke fell back to the wand once (a GCD tick, a cast refused while moving) kept wanding at full mana until it moved or the fight ended.
   - Now the `wand blocks nuke` trigger stops the wand (`stop wand`) while *Frostbolt* or *Fireball* is held back by that GCD alone, waits out the last shot's GCD and casts again. With too little mana for either nuke, or below the 5% `no mana` line (where the `no mana` → *Shoot* row wands on purpose), the wand keeps going; in a raid group the wand also stays while the mage holds aggro (the raid `has aggro` → *Shoot* row). It also stays while the mage is silenced, locked out of the nuke's school (*Counterspell*), or out of line of sight of the target: the core reports the GCD before those checks, so the trigger reads them on the mage itself. The trigger is checked every 1-2 s, not every tick.
+  - The same GCD trap blocks *Polymorph*: its row needs the spell ready. With the `cc` strategy, the `wand blocks cc` trigger stops the wand (`stop wand`, just above the *Polymorph* row) while the mage has a sheep target waiting within *Polymorph* range (its raid mark in a dungeon) and *Polymorph* is held back by that GCD alone. While that sheep waits, the mage does not start the wand at all, so a *Frostbolt* that falls back to *Shoot* during a GCD no longer restarts it. The same exceptions apply: below the 5% `no mana` line, in a raid group while the mage holds aggro, silenced or out of line of sight, the wand stays.
 - **Icicles (Spell ID 52516):**
   - Custom Turtle Frost talent providing root and shatter synergy without breaking primary frost rotation loops.
 

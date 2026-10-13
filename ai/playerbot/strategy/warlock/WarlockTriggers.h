@@ -1,5 +1,6 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
+#include "../../../runtime/WarlockPetPolicy.h"
 
 namespace ai
 {
@@ -234,7 +235,8 @@ namespace ai
     {
     public:
         FearTrigger(PlayerbotAI* ai) : HasCcTargetTrigger(ai, "fear") {}
-        virtual bool IsActive() override;
+        // Mark-only gating lives here so "wand blocks cc" sees it too.
+        virtual bool CcTargetPending() override;
     };
 
     class AmplifyCurseTrigger : public BuffTrigger
@@ -363,6 +365,35 @@ namespace ai
     public:
         WrongPetTrigger(PlayerbotAI* ai) : Trigger(ai, "wrong pet", 5) {}
         bool IsActive() override;
+    };
+
+    // Spec-fitting pet (opt-in, AiPlayerbot.WarlockPetBySpec): one trigger per
+    // demon, active when the spec policy (runtime/WarlockPetPolicy.h) wants
+    // that demon summoned now (petless, or a pool bot's default demon that no
+    // longer fits). Exactly one of the four is active at a time.
+    class SpecPetTrigger : public Trigger
+    {
+    public:
+        SpecPetTrigger(PlayerbotAI* ai, std::string name, TortoiseBots::WarlockSpecPetDecision decision)
+            : Trigger(ai, name, 5), wanted(decision) {}
+        bool IsActive() override;
+
+    private:
+        TortoiseBots::WarlockSpecPetDecision wanted;
+    };
+
+    // Group tank read for the spec-pet rows, shared by the four SpecPetTrigger
+    // rows: one walk per refresh period instead of one per row. A
+    // CalculatedValue refreshes every checkInterval/2 s, so 10 = every 5 s (the
+    // rows' own check interval); with AiPlayerbot.ValueRefreshAtInterval = 1
+    // it waits the full 10 s (see ValueRefreshPolicy.h).
+    class SpecPetTankValue : public BoolCalculatedValue
+    {
+    public:
+        SpecPetTankValue(PlayerbotAI* ai) : BoolCalculatedValue(ai, "spec pet tank", 10) {}
+
+    protected:
+        bool Calculate() override;
     };
 
     class SpellLockTrigger : public InterruptSpellTrigger

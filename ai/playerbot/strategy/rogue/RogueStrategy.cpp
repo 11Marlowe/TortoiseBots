@@ -38,12 +38,20 @@ public:
     RogueStealthStrategyActionNodeFactory()
     {
         creators["ambush"] = &ambush;
+        creators["garrote"] = &garrote;
         creators["backstab"] = &backstab;
         creators["cheap shot"] = &cheap_shot;
     }
 
 private:
-    ACTION_NODE_A(ambush, "ambush", "backstab");
+    // Ambush needs a dagger in the main hand. Garrote (stealth + behind, no
+    // weapon) is the next opener when Ambush cannot be cast, which is every
+    // rogue without a dagger; Backstab (also a dagger) and Cheap Shot stay as
+    // the tail. Same ambush -> garrote step as mod-playerbots
+    // StealthedRogueStrategy (CombatRogueStrategy.cpp:223-231).
+    ACTION_NODE_A(ambush, "ambush", "garrote");
+
+    ACTION_NODE_A(garrote, "garrote", "backstab");
 
     ACTION_NODE_A(backstab, "backstab", "cheap shot");
 
@@ -181,6 +189,22 @@ void RoguePvpStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 void RoguePveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ClassPveStrategy::InitCombatTriggers(triggers);
+
+    // Opt-in (AiPlayerbot.RogueDungeonThreatDrops): shed threat in a 5-man
+    // dungeon the way the raid rows do. Feint first (DISPEL), Vanish only as
+    // the queued fallback below it (HIGH + 5), so a ready Feint is always
+    // tried first. Rows exist only with the toggle on; each trigger also
+    // gates on a grouped dungeon with a living tank (RogueThreatPolicy.h).
+    if (sPlayerbotAIConfig.rogueDungeonThreatDrops)
+    {
+        triggers.push_back(new TriggerNode(
+            "rogue dungeon feint",
+            NextAction::array(0, new NextAction("feint", ACTION_DISPEL), NULL)));
+
+        triggers.push_back(new TriggerNode(
+            "rogue dungeon vanish",
+            NextAction::array(0, new NextAction("vanish", ACTION_HIGH + 5), NULL)));
+    }
 }
 
 void RoguePveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -207,7 +231,7 @@ void RogueRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("feint", ACTION_DISPEL), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "high threat",
+        "rogue raid vanish",
         NextAction::array(0, new NextAction("vanish", ACTION_EMERGENCY), NULL)));
 }
 

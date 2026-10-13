@@ -17,6 +17,8 @@
 #include "playerbot/strategy/actions/AttackAction.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
+#include "playerbot/strategy/values/HazardsValue.h"
 
 #include <regex>
 
@@ -1083,28 +1085,94 @@ bool TankFaceNeededTrigger::IsActive()
 bool HasCcTargetTrigger::IsActive()
 {
     uint32 spellid = AI_VALUE2(uint32, "spell id", getName());
-    if (spellid && sServerFacade.IsSpellReady(bot, spellid))
+    return spellid && sServerFacade.IsSpellReady(bot, spellid) && CcTargetPending();
+}
+
+bool HasCcTargetTrigger::CcTargetPending()
+{
+    // mod-playerbots d9ee5198/#2648: inside a non-raid dungeon the generic
+    // CC never fires on a free pick — only on this bot's assigned raid
+    // mark ("rti cc target"). Open world keeps today's free CC; raids
+    // keep it too (marks are advisory there, packs are scripted).
+    // Opt-in bypass: the "auto cc" strategy (OFF by default, toggled via
+    // `.bot action auto cc [on|off]`) lets the bot CC its own smart pick
+    // (loose add on a healer/caster, unattacked, undotted) in dungeons.
+    // Explicit marks still win: CcTargetValue returns the assigned target
+    // first, so an assigned bot never falls through to its auto pick.
+    if (!ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) &&
+        bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
     {
-        // mod-playerbots d9ee5198/#2648: inside a non-raid dungeon the generic
-        // CC never fires on a free pick — only on this bot's assigned raid
-        // mark ("rti cc target"). Open world keeps today's free CC; raids
-        // keep it too (marks are advisory there, packs are scripted).
-        // Opt-in bypass: the "auto cc" strategy (OFF by default, toggled via
-        // `.bot action auto cc [on|off]`) lets the bot CC its own smart pick
-        // (loose add on a healer/caster, unattacked, undotted) in dungeons.
-        // Explicit marks still win: CcTargetValue returns the assigned target
-        // first, so an assigned bot never falls through to its auto pick.
-        if (!ai->HasStrategy("auto cc", BotState::BOT_STATE_COMBAT) &&
-            bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
-        {
-            Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
-            if (!rtiCcTarget)
-                return false;
-            Unit* ccTarget = AI_VALUE2(Unit*, "cc target", getName());
-            if (!ccTarget || ccTarget != rtiCcTarget)
-                return false;
-        }
-        return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
+        Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
+        if (!rtiCcTarget)
+            return false;
+        Unit* ccTarget = AI_VALUE2(Unit*, "cc target", getName());
+        if (!ccTarget || ccTarget != rtiCcTarget)
+            return false;
+    }
+    return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
+}
+
+bool WandBlocksCcTrigger::IsActive()
+{
+    return IsWanding() && CcCastWaiting();
+}
+
+bool WandBlocksCcTrigger::CcCastWaiting()
+{
+    uint32 const nowMs = WorldTimer::getMSTime();
+    if (waitingCheckMs && WorldTimer::getMSTimeDiff(waitingCheckMs, nowMs) < 1000)
+        return waitingCached;
+
+    waitingCheckMs = nowMs ? nowMs : 1;
+    waitingCached = ComputeCcCastWaiting();
+    return waitingCached;
+}
+
+bool WandBlocksCcTrigger::ComputeCcCastWaiting()
+{
+    // The CC rows live in the "cc" strategy; without it nothing waits.
+    if (!ai->HasStrategy("cc", BotState::BOT_STATE_COMBAT))
+        return false;
+
+    // Same wand-on-purpose rows as the nuke triggers: the raid "has aggro"
+    // wand and the "no mana" (< 5%) wand stay up.
+    bool const keepWandForThreat = RaidAggroWand();
+    if (keepWandForThreat)
+        return false;
+    bool const noManaRowActive = NoManaRowActive();
+    if (noManaRowActive)
+        return false;
+
+    for (std::string const& spell : ccSpells)
+    {
+        // The class's own CC trigger decides whether a target waits (mark
+        // gating, Fear's mark-only rule); only the "spell ready" part is
+        // left out. "cc target" is a cached value, and the cast probe below
+        // only runs when a target is pending.
+        HasCcTargetTrigger* ccTrigger = dynamic_cast<HasCcTargetTrigger*>(context->GetTrigger(spell));
+        if (!ccTrigger || !ccTrigger->CcTargetPending())
+            continue;
+
+        Unit* target = AI_VALUE2(Unit*, "cc target", spell);
+        if (!target || !target->IsAlive())
+            continue;
+
+        // The probe ignores range. Only a target already in cast range
+        // counts: one the bot cannot reach (a stay order, a root, no path)
+        // would otherwise keep the wand off while the CC never goes out.
+        uint32 const spellId = AI_VALUE2(uint32, "spell id", spell);
+        SpellEntry const* spellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
+        SpellRangeEntry const* rangeEntry = spellInfo ? sSpellRangeStore.LookupEntry(spellInfo->rangeIndex) : nullptr;
+        if (!rangeEntry)
+            continue;
+        float maxRange = rangeEntry->maxRange;
+        bot->ApplySpellMod(spellId, SPELLMOD_RANGE, maxRange);
+        if (bot->GetCombatDistance(target) > maxRange)
+            continue;
+
+        WandState const state{true, ProbeSpell(spell, target), keepWandForThreat, noManaRowActive};
+        if (ShouldStopWandToCast(state))
+            return true;
     }
 
     return false;
@@ -1258,6 +1326,27 @@ bool AoeThreatNearbyTrigger::IsActive()
 {
     if (!bot->IsInWorld() || bot->IsBeingTeleported() || !sServerFacade.IsAlive(bot))
         return false;
+    // Creature aura keep-out (AiPlayerbot.AvoidCreatureAuras): register each
+    // listed creature in the cached 15yd trigger list as a short-lived
+    // movement hazard, so chase, follow and position moves keep their end
+    // points and paths outside it (MovementAction hazard checks). Re-added
+    // every tick while near (the expiry is refreshed, so it never flickers
+    // while the creature is near and alive); it lapses a few seconds after
+    // the creature dies or the bot moves on. The creature the
+    // player ordered this bot to attack is not registered.
+    if (sPlayerbotAIConfig.avoidCreatureAuras)
+    {
+        ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
+        for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+        {
+            CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(ai->GetUnit(guid));
+            if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
+                continue;
+            Hazard hazard(guid, kCreatureAuraHazardSeconds, CreatureAuraHazardRadius(*row));
+            hazard.SetRefreshOnReAdd();
+            SET_AI_VALUE(Hazard, "add hazard", std::move(hazard));
+        }
+    }
     // Any one sensor firing is enough; each read is value-cached (dynobj
     // aura check, 15yd trap scan, 15yd trigger scan).
     if (AI_VALUE2(bool, "has area debuff", "self target"))

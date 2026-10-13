@@ -27,6 +27,7 @@
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 #include "../ai/playerbot/strategy/values/RtiTargetValue.h"
+#include "../ai/playerbot/strategy/values/AttackersValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
 #include "../ai/playerbot/strategy/values/ItemUsageValue.h"
 #include "../ai/playerbot/strategy/actions/EquipAction.h"
@@ -528,7 +529,9 @@ static bool HandleStay(ChatHandler* handler, char const* args)
     }
 
     // Reuse the stay action so the command updates both strategies and the
-    // current "return"/"stay" position anchors.
+    // current "return"/"stay" position anchors. An older chat order still
+    // queued in the AI must not run after it (runtime/QueuedOrderPolicy.h).
+    ai->DropQueuedMovementOrders();
     ai::Event stayEvent("stay", "", requester);
     if (!ai->DoSpecificAction("stay chat shortcut", stayEvent, true))
     {
@@ -544,8 +547,11 @@ static void RelaxTacticalMovement(PlayerbotAI* ai);
 
 // relaxMovement: the order sends the bot at a target, so it ends a stay the
 // same way the party-wide `.bot action` form does (RelaxTacticalMovement).
+// movementOrder: the order sets the bot's movement mode, so the movement
+// orders still queued from chat are older and dropped first
+// (runtime/QueuedOrderPolicy.h).
 static bool HandleNamedAction(ChatHandler* handler, char const* args, char const* command,
-    char const* action, char const* confirmation, bool relaxMovement = false)
+    char const* action, char const* confirmation, bool relaxMovement = false, bool movementOrder = false)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -566,6 +572,8 @@ static bool HandleNamedAction(ChatHandler* handler, char const* args, char const
 
     if (relaxMovement)
         RelaxTacticalMovement(ai);
+    if (movementOrder)
+        ai->DropQueuedMovementOrders();
 
     ai::Event event(command, "", requester);
     if (!ai->DoSpecificAction(action, event, true))
@@ -597,7 +605,92 @@ static void RelaxTacticalMovement(PlayerbotAI* ai)
     if (!ai)
         return;
 
+    ai->DropQueuedMovementOrders();
     ai->EndStayForOrder();
+}
+
+// The same refusals PullRequestAction::Execute makes, checked up front: the
+// command runs that action silently, so its own "too far" / "can't be pulled"
+// whispers never reach the player, and checking first keeps a refused pull
+// from changing any bot's state. Returns false with an ACTION_ERR code and a
+// player-facing reason.
+static bool CheckPullTarget(Player* executor, Unit* target, std::string& code, std::string& message)
+{
+    if (!executor || !target || !target->IsInWorld() || target->GetMapId() != executor->GetMapId())
+    {
+        code = "invalid-target";
+        message = "Your target is not on the tank's map any more.";
+        return false;
+    }
+    if (!target->IsAlive())
+    {
+        code = "dead-target";
+        message = "Your target is dead. Select a live enemy first.";
+        return false;
+    }
+    if (sServerFacade.IsFriendlyTo(target, executor))
+    {
+        code = "friendly";
+        message = "Your target is friendly to the tank (for example another player's pet) and cannot be pulled.";
+        return false;
+    }
+    float const maxPullDistance = sPlayerbotAIConfig.reactDistance * 3;
+    if (target->GetDistance(executor) > maxPullDistance)
+    {
+        code = "too-far";
+        message = "Your target is too far from the tank to pull (more than " +
+            std::to_string(static_cast<uint32>(maxPullDistance)) + " yd).";
+        return false;
+    }
+    if (!ai::AttackersValue::IsValid(target, executor, nullptr, false))
+    {
+        code = "invalid-target";
+        message = "The tank cannot pull your target: it is not attackable, evading, out of the tank's sight, or a player.";
+        return false;
+    }
+    return true;
+}
+
+// What ConfigurePullMode changes on the tank: the "pull back" strategy in each
+// engine and the PullStrategy command fields. Taken before it and put back
+// exactly when the pull is refused afterwards, so a refused command neither
+// leaves the tank in pull mode nor ends or rewrites an earlier pull that is
+// still running (OnPullEnded / "pull end" would).
+struct PullModeSnapshot
+{
+    bool pullBack[static_cast<uint8>(BotState::BOT_STATE_ALL)] = {};
+    bool hasCommand = false;
+    PullStrategy::CommandState command = {};
+};
+
+static PullModeSnapshot SavePullMode(PlayerbotAI* ai)
+{
+    PullModeSnapshot snapshot;
+    if (!ai)
+        return snapshot;
+    for (uint8 i = 0; i < static_cast<uint8>(BotState::BOT_STATE_ALL); ++i)
+        snapshot.pullBack[i] = ai->HasStrategy("pull back", static_cast<BotState>(i));
+    if (PullStrategy* strategy = PullStrategy::Get(ai))
+    {
+        snapshot.hasCommand = true;
+        snapshot.command = strategy->SaveCommand();
+    }
+    return snapshot;
+}
+
+static void RestorePullMode(PlayerbotAI* ai, PullModeSnapshot const& snapshot)
+{
+    if (!ai)
+        return;
+    for (uint8 i = 0; i < static_cast<uint8>(BotState::BOT_STATE_ALL); ++i)
+    {
+        BotState state = static_cast<BotState>(i);
+        if (ai->HasStrategy("pull back", state) != snapshot.pullBack[i])
+            ai->ChangeStrategy(snapshot.pullBack[i] ? "+pull back" : "-pull back", state);
+    }
+    if (snapshot.hasCommand)
+        if (PullStrategy* strategy = PullStrategy::Get(ai))
+            strategy->RestoreCommand(snapshot.command);
 }
 
 static bool BindMovementMaster(Player* requester, Player* bot)
@@ -617,12 +710,12 @@ static bool BindMovementMaster(Player* requester, Player* bot)
 
 static bool HandleGuard(ChatHandler* handler, char const* args)
 {
-    return HandleNamedAction(handler, args, "guard", "guard chat shortcut", "will guard this position");
+    return HandleNamedAction(handler, args, "guard", "guard chat shortcut", "will guard this position", false, true);
 }
 
 static bool HandleFree(ChatHandler* handler, char const* args)
 {
-    return HandleNamedAction(handler, args, "free", "free chat shortcut", "is free to move");
+    return HandleNamedAction(handler, args, "free", "free chat shortcut", "is free to move", false, true);
 }
 
 static bool HandleReady(ChatHandler* handler, char const* args)
@@ -1271,6 +1364,10 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("You may only control characters on your account.");
         return true;
     }
+    // An older chat order still queued in the AI must not run after this one
+    // (runtime/QueuedOrderPolicy.h).
+    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(botGuid))
+        ai->DropQueuedMovementOrders();
     if (BotManager::Instance().SetBotFollow(botGuid, masterGuid))
         handler->PSendSysMessage("Bot %s now following %s.", name.c_str(), requester->GetName());
     else
@@ -1592,6 +1689,13 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Tank %s has no AI yet.", tank->GetName());
         return true;
     }
+    std::string refuseCode;
+    std::string refuseMessage;
+    if (!CheckPullTarget(tank, context.enemyTarget, refuseCode, refuseMessage))
+    {
+        handler->PSendSysMessage("Tank %s cannot pull your target: %s", tank->GetName(), refuseMessage.c_str());
+        return true;
+    }
 
 
     BotRecord* record = BotManager::Instance().FindBot(tank->GetObjectGuid());
@@ -1601,20 +1705,23 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
         handler->PSendSysMessage("Tank %s could not be assigned to you for pullback.", tank->GetName());
         return true;
     }
+    PullModeSnapshot pullModeBefore = SavePullMode(tankAI);
     if (!ConfigurePullMode(tankAI, true, sPlayerbotAIConfig.pullBackDpsJoinDelay))
     {
         handler->PSendSysMessage("Tank %s has no pullback strategy available.", tank->GetName());
         return true;
     }
-    RelaxTacticalMovement(tankAI);
-    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay, true);
     // Snapshot the target GUID like the action path does.
     ai::Event event("pullback", context.enemyTarget->GetObjectGuid(), requester);
     if (!ExecuteQuietAction(tankAI, "pull my target", event))
     {
+        RestorePullMode(tankAI, pullModeBefore);
         handler->PSendSysMessage("Tank %s could not start a pull for your selected target.", tank->GetName());
         return true;
     }
+    // Move the tank and hold the party only once the pull is accepted.
+    RelaxTacticalMovement(tankAI);
+    PausePartyDpsForPull(context, tank, sPlayerbotAIConfig.pullBackDpsJoinDelay, true);
 
     // Same as the .bot action path: do not let the tank's leftover action
     // clock delay the pull.
@@ -2562,7 +2669,9 @@ static bool HandleBehavior(ChatHandler* handler, char const* args)
                 ++succeeded;
             SendBotStateLine(handler, bot);
         }
-        SendActionAck(handler, intent, loweredBot + ":" + key, succeeded, enable ? "on" : "off");
+        // The addon accepts only "party" or "bot:<name>" as ACK scope; the
+        // mode (on/off) is the detail field.
+        SendActionAck(handler, intent, "party", succeeded, enable ? "on" : "off");
         return true;
     }
 
@@ -2772,13 +2881,33 @@ static bool IsRaidTargetMark(std::string const& mark)
     return RtiTargetValue::GetRtiIndex(mark) >= 0;
 }
 
+// A refused CC order puts the group's raid marks back. The slots are restored
+// in order: SetTargetIcon clears any other slot holding the mob it is given,
+// and a mob holds one mark, so a slot already put back never holds a mob that
+// a later slot gets back.
+static void SnapshotRaidMarks(Group* group, ObjectGuid (&marks)[TARGET_ICON_COUNT])
+{
+    for (uint8 i = 0; i < TARGET_ICON_COUNT; ++i)
+        marks[i] = group->GetTargetIcon(i);
+}
+
+static void RestoreRaidMarks(Group* group, ObjectGuid const (&marks)[TARGET_ICON_COUNT])
+{
+    for (uint8 i = 0; i < TARGET_ICON_COUNT; ++i)
+        if (group->GetTargetIcon(i) != marks[i])
+            group->SetTargetIcon(i, marks[i]);
+}
+
 // One mark = one owner. After assigning <mark> to <owner>, every other owned
 // live bot in the same command scope holding that mark is reset to "none" and
 // persisted. "none" resolves to GetRtiIndex -1, so CurrentCcMark reports "-"
 // and the CC_ASSIGN snapshot drops the stale owner without extra plumbing.
-static void RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
+// Returns the AIs it reset (each held exactly <mark>), so a refused order can
+// put them back.
+static std::vector<PlayerbotAI*> RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
     std::vector<Player*> const& scope)
 {
+    std::vector<PlayerbotAI*> revoked;
     for (Player* other : scope)
     {
         if (!other || other == owner || !IsLiveHeadlessBot(other))
@@ -2792,7 +2921,9 @@ static void RevokeDuplicateCcOwners(Player* owner, std::string const& mark,
             continue;
         otherMark->Set("none");
         sPlayerbotDbStore.Save(otherAi);
+        revoked.push_back(otherAi);
     }
+    return revoked;
 }
 
 static std::string CurrentCcMark(PlayerbotAI* ai)
@@ -2811,6 +2942,28 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     std::string option;
     if (!requester || !ParseAction(Trim(args ? args : ""), intent, option))
     {
+        if (intent.empty())
+        {
+            // The addon drops an ACTION_ERR with an empty intent as malformed,
+            // so name what was typed: the first word, at most 32 bytes and never
+            // cut inside a UTF-8 character. ProtocolSafe runs before the trim, so
+            // a word of only '|' characters becomes "unknown" like an empty one.
+            std::string const typed = Trim(args ? args : "");
+            size_t const end = typed.find_first_of(" \t");
+            size_t length = end == std::string::npos ? typed.size() : end;
+            if (length > 32)
+            {
+                length = 32;
+                // typed[length] is the first byte left out. A continuation byte
+                // (10xxxxxx) there means the cut would split a multibyte character,
+                // so step back to that character's lead byte.
+                while (length > 0 && (static_cast<unsigned char>(typed[length]) & 0xC0) == 0x80)
+                    --length;
+            }
+            intent = Trim(ProtocolSafe(typed.substr(0, length)));
+            if (intent.empty())
+                intent = "unknown";
+        }
         SendActionError(handler, intent, "invalid", "Usage: .bot action attack/interrupt/stop/pull [seconds]/pullback [seconds]/come/stay/hold/follow/flee/focus skull/cc <mark> [bot]/cc clear [bot]/auto cc [on/off]/sap [on/off] [bot]/aoe [on/off]/loot [on/off]/repair/sell/rest/drink/eat/release/corpse run/learn/trade/ready/raid [status/tankface/douse/custom status/custom on/custom off]");
         return true;
     }
@@ -2825,6 +2978,13 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     if ((intent == "attack" || intent == "interrupt" || tactical) && !context.enemyTarget)
     {
         SendActionError(handler, intent, "no-target", "Select a live non-bot target first.");
+        return true;
+    }
+    // A corpse stays selected after the kill; an order against it would ACK
+    // and do nothing (or, for a pull, be refused without a reason).
+    if ((intent == "attack" || intent == "interrupt" || tactical) && !context.enemyTarget->IsAlive())
+    {
+        SendActionError(handler, intent, "dead-target", "Your target is dead. Select a live enemy first.");
         return true;
     }
     if (intent == "interrupt")
@@ -2921,27 +3081,10 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         int markIndex = RtiTargetValue::GetRtiIndex(ccMark);
         Unit* ccTarget = context.enemyTarget;
 
-        // Selecting an enemy is the most explicit request: make that unit the
-        // requested raid mark. If the player selected a bot instead, preserve
-        // the existing group mark and use it as the assignment target.
-        if (ccTarget)
-        {
-            if (context.group)
-                context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
-        }
-        else if (context.group && requester->GetMap())
-        {
-            ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
-            if (!markGuid.IsEmpty())
-                ccTarget = requester->GetMap()->GetUnit(markGuid);
-        }
-
-        if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
-            ccTarget = nullptr;
-
         // An explicit name wins over the live target: same assignment path
         // as the selected-bot case, including the immediate-cast probe when
-        // an enemy is selected or the mark already exists.
+        // an enemy is selected or the mark already exists. It is resolved
+        // before the target checks, so an unknown name still reports no-bot.
         Player* namedBot = nullptr;
         if (!ccBotToken.empty())
         {
@@ -2954,6 +3097,58 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 return true;
             }
         }
+
+        // The group's marks before this order moves one: a refusal after the
+        // move puts them back (RestoreRaidMarks).
+        bool markMoved = false;
+        ObjectGuid marksBefore[TARGET_ICON_COUNT];
+
+        // Selecting an enemy is the most explicit request: make that unit the
+        // requested raid mark. If the player selected a bot instead, preserve
+        // the existing group mark and use it as the assignment target.
+        if (ccTarget)
+        {
+            // Refuse before the mark moves: a corpse or non-attackable unit
+            // would take the mark, and the order would still ACK success with
+            // no CC target behind it. A GM requester is faction 35
+            // (Player::SetGameMaster), which the attackability test refuses for
+            // every hostile mob, so a GM needs only a live, targetable unit.
+            bool const requesterIsGm = requester->IsGameMaster();
+            bool const badTarget = !ccTarget->IsInWorld() || !ccTarget->IsAlive()
+                || (requesterIsGm ? !ccTarget->IsTargetable(true, true)
+                                  : !requester->IsValidAttackTarget(ccTarget));
+            if (badTarget)
+            {
+                SendActionError(handler, intent, "no-target",
+                    "Your target is dead, out of the world or not attackable. Select a live enemy first.");
+                return true;
+            }
+            // A named or selected executor is known before the mark moves, so
+            // an executor without an AI is refused before any mark changes.
+            Player* assignee = namedBot ? namedBot
+                : (context.selectedBot && IsLiveHeadlessBot(context.selectedBot) ? context.selectedBot : nullptr);
+            if (assignee && !PlayerbotAIStorage::Instance().GetAI(assignee))
+            {
+                SendActionError(handler, intent, "no-ai", "The selected CC bot has no AI.");
+                return true;
+            }
+
+            if (context.group)
+            {
+                SnapshotRaidMarks(context.group, marksBefore);
+                context.group->SetTargetIcon(static_cast<uint8>(markIndex), ccTarget->GetObjectGuid());
+                markMoved = true;
+            }
+        }
+        else if (context.group && requester->GetMap())
+        {
+            ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
+            if (!markGuid.IsEmpty())
+                ccTarget = requester->GetMap()->GetUnit(markGuid);
+        }
+
+        if (ccTarget && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()))
+            ccTarget = nullptr;
 
         Player* executor = nullptr;
         std::string ccAction;
@@ -2994,6 +3189,8 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             executor = ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
             if (!executor)
             {
+                if (markMoved)
+                    RestoreRaidMarks(context.group, marksBefore);
                 SendActionError(handler, intent, "no-cc",
                     "No owned bot can CC this target (check class, target type, and spell state).");
                 return true;
@@ -3003,21 +3200,27 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
         if (!ai)
         {
+            if (markMoved)
+                RestoreRaidMarks(context.group, marksBefore);
             SendActionError(handler, intent, "no-ai", "The selected CC bot has no AI.");
             return true;
         }
 
         // RtiCcValue is a per-bot preference. Persist it through the existing
         // mature AI store so the assignment survives AI recreation/relogin.
+        std::string const previousCcMark = ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Get();
         if (!ExecuteQuietAction(ai, "rti", ai::Event(intent, "cc " + ccMark, requester)))
         {
+            if (markMoved)
+                RestoreRaidMarks(context.group, marksBefore);
             SendActionError(handler, intent, "failed", "The mature CC assignment was rejected.");
             return true;
         }
         sPlayerbotDbStore.Save(ai);
         // Exclusive ownership: the new owner keeps the mark; every other owned
         // live party bot holding it is reset to "none" and persisted.
-        RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
+        std::vector<PlayerbotAI*> const revokedOwners =
+            RevokeDuplicateCcOwners(executor, ccMark, context.partyBots);
 
         if (ccTarget && !ccAction.empty())
         {
@@ -3038,6 +3241,17 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 // minimal ticks while the mature reach chain is in progress.
                 if (!QueueMatureAction(ai, ccAction, ccEvent, ACTION_PASSTROUGH))
                 {
+                    // The assignment was saved above: put back the marks, this
+                    // bot's previous mark and every owner the order revoked.
+                    if (markMoved)
+                        RestoreRaidMarks(context.group, marksBefore);
+                    ai->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(previousCcMark);
+                    sPlayerbotDbStore.Save(ai);
+                    for (PlayerbotAI* revokedAi : revokedOwners)
+                    {
+                        revokedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set(ccMark);
+                        sPlayerbotDbStore.Save(revokedAi);
+                    }
                     SendActionError(handler, intent, "failed",
                         "The mature CC action could not be started.");
                     return true;
@@ -3086,6 +3300,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
 
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(executor);
+        // Validate before any state changes: a refused pull must not park the
+        // party, end a flee or flip the tank's pull mode.
+        std::string refuseCode;
+        std::string refuseMessage;
+        if (!CheckPullTarget(executor, context.enemyTarget, refuseCode, refuseMessage))
+        {
+            SendActionError(handler, intent, refuseCode.c_str(), refuseMessage.c_str());
+            return true;
+        }
         // Join delay: per-command [seconds] (0-60, parsed) or the configured
         // default. For a pullback the window runs from the tank's arrival at
         // the anchor; the hold placed below keeps DPS waiting through the
@@ -3099,6 +3322,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         // Pull and Pullback share the mature request action; the per-command
         // return mode (plus join delay) is recorded on the PullStrategy
         // (never sticky). The tank's default is restored when the pull ends.
+        PullModeSnapshot pullModeBefore = SavePullMode(ai);
         if (!ConfigurePullMode(ai, pullback, joinDelay))
         {
             char const* message = pullback
@@ -3117,20 +3341,24 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             pullActionName = probe->GetPullActionName();
         bool bodyPull = pullActionName == "reach pull";
 
-        // Pulling requires tank movement: break stay!
-        RelaxTacticalMovement(ai);
-        // A pull after a flee brings the whole party back, not just the tank.
-        for (Player* member : context.partyBots)
-            EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
-        PausePartyDpsForPull(context, executor, joinDelay, pullback);
         // Snapshot the target GUID: the live selection can change between
         // command validation and the pull tick.
         ai::Event pullEvent(intent, context.enemyTarget->GetObjectGuid(), requester);
         if (!ExecuteQuietAction(ai, "pull my target", pullEvent))
         {
+            // Not caught by the pre-check: put the tank's pull mode back.
+            // No bot's movement, flee or hold was touched yet.
+            RestorePullMode(ai, pullModeBefore);
             SendActionError(handler, intent, "failed", "The native pull strategy rejected the target.");
             return true;
         }
+        // The pull is accepted (the request only records state): now the tank
+        // may break its stay, a fled party comes back and the DPS hold at your
+        // position.
+        RelaxTacticalMovement(ai);
+        for (Player* member : context.partyBots)
+            EndFlee(PlayerbotAIStorage::Instance().GetAI(member));
+        PausePartyDpsForPull(context, executor, joinDelay, pullback);
         // A human order acts now: the tank's own action clock (left over from
         // whatever it was doing) would otherwise stall the pull for the rest of
         // its delay before the second pull tick ever runs - the reported "tank
@@ -3180,7 +3408,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         std::string scope = context.selectedBot == executor
             ? "bot:" + std::string(executor->GetName()) : "party";
         if (bodyPull)
-            SendActionAck(handler, intent, scope, 1, std::string(executor->GetName()) + "|body-pull");
+            SendActionAck(handler, intent, scope, 1, std::string(executor->GetName()) + " body-pull");
         else
             SendActionAck(handler, intent, scope, 1, executor->GetName());
         return true;
@@ -3206,6 +3434,15 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         if (!ai)
             continue;
 
+        // A movement order supersedes the bot's movement orders still queued
+        // from chat: `/p stay` then `.bot action follow` in one tick reach the
+        // AI in that order, but the chat line only runs on the bot's next AI
+        // turns, after this order (runtime/QueuedOrderPolicy.h). The tactical
+        // orders do the same through RelaxTacticalMovement.
+        if (intent == "follow" || intent == "stay" || intent == "flee" ||
+            intent == "come" || intent == "hold" || intent == "comestay")
+            ai->DropQueuedMovementOrders();
+
         bool accepted = false;
         if (intent == "attack")
         {
@@ -3215,7 +3452,10 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             RelaxTacticalMovement(ai);
             // Explicit attack unleashes DPS early: drop the wait window and
             // our anchor stay (never a player-placed stay). No-op when absent.
-            ReleasePartyDpsFromPull(context, bot);
+            // Release this bot itself, before it acts (releasing only the
+            // other party bots left the first bot attacking while still held
+            // and a lone scoped bot never released).
+            ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
             // Dedicated healers should support the party, not be forced to target and attack the enemy
             if (!PlayerbotAI::IsHeal(bot))
             {
@@ -3256,7 +3496,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             // Break off: drop combat and any pull hold, then the mature flee
             // shortcut parks the bot in passive follow on the requester. The
             // next tactical order (attack, pull, follow, stay...) ends it.
-            ReleasePartyDpsFromPull(context, bot);
+            ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
             bot->CombatStopWithPets(true);
             ai->Reset(false);
             bot->GetMotionMaster()->Clear();
@@ -3272,6 +3512,13 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
         else if (intent == "come" || intent == "hold" || intent == "comestay")
         {
+            // The latest explicit order wins over a pending summon's follow
+            // restore: hold/comestay keep the bot holding, come ("come, then
+            // follow") lets the restore run again.
+            if (intent == "come")
+                TortoiseBots::PlayerConvenience::Instance().NoteComeOrder(bot->GetObjectGuid());
+            else
+                TortoiseBots::PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
             ai->Reset();
             // Use the same owner-controlled transition as the mature Stay
             // shortcut; the captured stay position below remains Come's

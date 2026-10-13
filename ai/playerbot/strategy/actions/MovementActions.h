@@ -9,6 +9,7 @@
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/LedgeStepDownPolicy.h"
+#include <atomic>
 
 namespace ai
 {
@@ -19,6 +20,12 @@ namespace ai
 
         static bool MinimalMove(PlayerbotAI* ai);
         static bool UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport);
+
+        // BOTPERF window counters for ResolveMovePath: a call answered from the cached
+        // route is a reuse, a call that plans the route again is a rebuild. BotManager
+        // reads and resets both when it writes the BOTPERF line.
+        static std::atomic<uint32_t> routeReuseCount;
+        static std::atomic<uint32_t> routeRebuildCount;
     protected:
         static bool MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport);
         static bool MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport);
@@ -79,6 +86,11 @@ namespace ai
         // no hazard. Shared by point moves that must not end inside geometry.
         bool IsValidPosition(const WorldPosition& position, const WorldPosition& visibleFromPosition);
         bool IsHazardNearPosition(const WorldPosition& position, HazardPosition* outHazard = nullptr);
+        // AiPlayerbot.AvoidCreatureAuras: when the follow goal lies inside a
+        // listed creature's hazard, approach, hold or back off outside it
+        // (PlanCreatureAuraFollow) instead of following in. True when it
+        // handled the follow this tick (moved or held); false to follow normally.
+        bool HoldFollowOutsideKeepout(Unit* target, float distance, float angle);
         bool Flee(Unit *target);
         // Pool-bot flee: one checked point step of `distance` away from
         // target (fanned to the sides), false when no spot is usable.
@@ -111,6 +123,9 @@ namespace ai
         bool GeneratePathAvoidingHazards(std::vector<WorldPosition>& movePath);
 
         LedgeStepDownClock ledgeStepDown;
+        // The keep-out creature the last follow decision held, approached or
+        // backed off from (empty when it followed normally): goal hysteresis.
+        ObjectGuid keepoutFollowEngaged;
     };
 
     class FleeAction : public MovementAction
@@ -141,6 +156,13 @@ namespace ai
         bool AvoidDamagingTrap(float& outRadius, WorldPosition& outCenter);
         bool AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter);
         bool StrafeToSafety(const WorldPosition& hazardCenter, float radius);
+
+        // Creature aura keep-out (AiPlayerbot.AvoidCreatureAuras): the listed
+        // creature that caused the current step-out (empty otherwise), and a
+        // short back-off after a keep-out step-out found no landing spot, so
+        // the action does not win the reaction pick every tick without moving.
+        ObjectGuid keepoutSource;
+        uint32 keepoutNoLandingUntilMs = 0;
     };
 
     class FleeWithPetAction : public MovementAction

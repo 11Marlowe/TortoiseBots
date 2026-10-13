@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "OnyxiasLairDungeonStrategies.h"
+#include "playerbot/strategy/actions/OnyxiasLairDungeonActions.h"
 
 using namespace ai;
 
@@ -34,6 +35,24 @@ void OnyxiaFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "onyxia airborne",
         NextAction::array(0, new NextAction("shoot", ACTION_HIGH),
                              new NextAction("raid spread", ACTION_HIGH - 1), NULL)));
+
+    // Toggle (AiPlayerbot.OnyxiaWhelpsAndEggs, on by default; the triggers
+    // stay silent while it is off). Phase 2 whelp duty for AoE-capable
+    // ranged DPS, above the generic "shoot" row so the whelp becomes the
+    // target before the wand fires.
+    triggers.push_back(new TriggerNode(
+        "onyxia whelps",
+        NextAction::array(0, new NextAction("onyxia kill whelps", ACTION_HIGH + 1), NULL)));
+
+    // Step out of an egg cave before its trap circle hatches whelps.
+    triggers.push_back(new TriggerNode(
+        "onyxia eggs near",
+        NextAction::array(0, new NextAction("onyxia avoid eggs", ACTION_EMERGENCY), NULL)));
+}
+
+void OnyxiaFightStrategy::InitCombatMultipliers(std::list<Multiplier*>& multipliers)
+{
+    multipliers.push_back(new OnyxiaWhelpHoldMultiplier(ai));
 }
 
 void OnyxiaFightStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

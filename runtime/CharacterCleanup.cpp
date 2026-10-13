@@ -160,6 +160,12 @@ void DeleteCharacterEverywhere(uint32 guidLow, uint32 accountId)
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_armory_stats` WHERE `guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_hire` WHERE `character_guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_claimed` WHERE `bot_guid` = '%u'", guidLow);
+    // character_transmogs is a core table (create_databases.sql) that the core's
+    // DeleteFromDB does not clear. A later character reusing the guid would
+    // inherit the old collection: the login query loads those rows. The earlier
+    // duplicate-key errors came from the core inserting rows already in the table
+    // for that guid while the new character equipped its items.
+    CharacterDatabase.DirectPExecute("DELETE FROM `character_transmogs` WHERE `guid` = '%u'", guidLow);
     CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_hire_unlock_kills` WHERE `guid` = '%u'", guidLow);
 }
 

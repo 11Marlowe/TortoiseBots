@@ -11,7 +11,10 @@
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
 #include "../runtime/ObservabilityEmitter.h"
+#include "BotChatAdapter.h"
+#include "BotPacketAdapter.h"
 #include "HireRecruiterScript.h"
+#include "../commands/BotCommandQueue.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Config/Config.h"
 #include "ObjectMgr.h"
@@ -134,14 +137,36 @@ void BotHostAdapter::OnStartup()
 }
 void BotHostAdapter::OnUpdate(uint32 diff)
 {
+    // Issue #844: before anything that can send packets to bots (the command
+    // drain included: a `.bot hire` drops its level-up echo right after the
+    // jump), so their packet hooks on this thread reach the AI inline.
+    BotPacketAdapter::MarkWorldThread();
+
     // Initialization stops before service configuration when AI is disabled.
     // Do not tick those services against an uninitialized registry/config.
+    if (sPlayerbotAIConfig.enabled)
+    {
+        ++m_ticks;
+        // Expire stale leases before services select candidates (issue #89).
+        BotActivityLeaseManager::Instance().Update(diff);
+    }
+
+    // Issue #833: players' `.bot` / TBM commands arrive on map and
+    // AsyncPackets threads and are queued; run them here, on the world thread
+    // and before the bot update. This runs even with the AI disabled, so no
+    // command ever executes off the world thread. Issue #846: before each
+    // command it runs the bot chat and packets queued ahead of it.
+    uint64_t const deferredLimit = BotChatAdapter::DrainQueuedCommands();
+
+    // Read again: a command may have reloaded the configuration.
     if (!sPlayerbotAIConfig.enabled)
         return;
 
-    ++m_ticks;
-    // Expire stale leases before services select candidates (issue #89).
-    BotActivityLeaseManager::Instance().Update(diff);
+    // Issue #839 / #844: the rest of the chat and packets that reached bots on
+    // other threads (party / whisper commands included), before the bot update;
+    // anything queued behind a command that arrived meanwhile waits for it
+    // (issue #846).
+    BotPacketAdapter::DrainDeferredPackets(deferredLimit, true);
     BotManager::Instance().OnWorldUpdate(diff);
     PlayerConvenience::Instance().Update(diff);
     RandomBotService::Instance().Update(diff);
@@ -157,6 +182,8 @@ void BotHostAdapter::OnShutdown()
 {
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
+    BotCommandQueue::Instance().Clear();
+    BotPacketAdapter::ClearDeferredPackets();
     BotManager::Instance().Shutdown();
     RandomBotService::Instance().Shutdown();
     BotActivityLeaseManager::Instance().Clear();

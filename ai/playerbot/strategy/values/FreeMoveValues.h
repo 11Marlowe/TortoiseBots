@@ -8,21 +8,21 @@ namespace ai
     class FreeMoveCenterValue : public GuidPositionCalculatedValue
 	{
 	public:
-        FreeMoveCenterValue(PlayerbotAI* ai) : GuidPositionCalculatedValue(ai, "free move center", 5) {};
+        FreeMoveCenterValue(PlayerbotAI* ai) : GuidPositionCalculatedValue(ai, "free move center", 5) { this->keepLegacyRefresh = true; }
         virtual GuidPosition Calculate() override;
     };
 
     class FreeMoveRangeValue : public FloatCalculatedValue
     {
     public:
-        FreeMoveRangeValue(PlayerbotAI* ai) : FloatCalculatedValue(ai, "free move range", 2) {};
+        FreeMoveRangeValue(PlayerbotAI* ai) : FloatCalculatedValue(ai, "free move range", 2) { this->keepLegacyRefresh = true; }
         virtual float Calculate() override;
     };
 
     class CanFreeMoveValue : public BoolCalculatedValue, public Qualified
     {
     public:
-        CanFreeMoveValue(PlayerbotAI* ai, std::string name = "can free move", int checkInterval = 2) : BoolCalculatedValue(ai, name, checkInterval), Qualified() {};
+        CanFreeMoveValue(PlayerbotAI* ai, std::string name = "can free move", int checkInterval = 2) : BoolCalculatedValue(ai, name, checkInterval), Qualified() { this->keepLegacyRefresh = true; }
         static bool CanFreeMoveTo(PlayerbotAI* ai, WorldPosition dest);
         static bool CanFreeTarget(PlayerbotAI* ai, WorldPosition dest);
         static bool CanFreeAttack(PlayerbotAI* ai, WorldPosition dest);

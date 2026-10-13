@@ -119,13 +119,16 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "steady shot",
         NextAction::array(0, new NextAction("steady shot", ACTION_NORMAL - 1), NULL)));
 
-    // Wing clip snare under raptor strike (donor melee chain): when a mob
-    // closes in, slow it so the hunter keeps range; raptor stays first. In the
-    // ranged kit only for a mob on the hunter: a pet- or tank-held mob gets
-    // the dead-zone step-back and shots instead (HunterEnemyIsCloseTrigger).
+    // Raptor Strike / Mongoose Bite / Wing Clip row (donor melee chain): when a
+    // mob closes in, raptor stays first, mongoose bite follows when raptor is
+    // not castable (no dodge requirement on Turtle), and wing clip slows the
+    // mob so the hunter keeps range. In the ranged kit only for a mob on the
+    // hunter: a pet- or tank-held mob gets the dead-zone step-back and shots
+    // instead (HunterEnemyIsCloseTrigger).
     triggers.push_back(new TriggerNode(
         "hunter enemy is close",
         NextAction::array(0, new NextAction("raptor strike", ACTION_NORMAL + 1),
+                             new NextAction("mongoose bite", ACTION_NORMAL + 0.5f),
                              new NextAction("wing clip", ACTION_NORMAL), NULL)));
 
     // PET-5: last resort below the HunterPetStrategy "call pet" node — the
@@ -508,6 +511,16 @@ void HunterStingRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigge
 
 void HunterAspectStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Opt-in (AiPlayerbot.HunterViperOnLowMana): Viper on low mana, above the
+    // Hawk row; the Hawk trigger holds back until mana recovers. Row only
+    // exists with the toggle on, so off is today's behaviour exactly.
+    if (sPlayerbotAIConfig.hunterViperOnLowMana)
+    {
+        triggers.push_back(new TriggerNode(
+            "aspect of the viper low mana",
+            NextAction::array(0, new NextAction("aspect of the viper", ACTION_HIGH + 6), NULL)));
+    }
+
     triggers.push_back(new TriggerNode(
         "aspect of the hawk",
         NextAction::array(0, new NextAction("aspect of the hawk", ACTION_HIGH + 5), NULL)));

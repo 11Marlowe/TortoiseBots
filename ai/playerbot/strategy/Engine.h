@@ -1,5 +1,8 @@
 #pragma once
 
+#include <memory>
+#include <unordered_map>
+
 #include "Action.h"
 #include "ActionFailureBackoff.h"
 #include "Queue.h"
@@ -141,6 +144,10 @@ namespace ai
         std::list<Multiplier*> multipliers;
         AiObjectContext* aiObjectContext;
         std::map<std::string, Strategy*> strategies;
+        // One ActionNode prototype per action name (null = no strategy node), copied by CreateActionNode.
+        // Per engine, world thread only; cleared whenever `strategies` changes.
+        static constexpr size_t kMaxActionNodePrototypes = 1024;
+        std::unordered_map<std::string, std::unique_ptr<ActionNode>> actionNodePrototypes;
         float lastRelevance;
         std::string lastAction;
         ActionExecutionListeners actionExecutionListeners;

@@ -31,6 +31,9 @@ template<unsigned Id> struct Service {
     static Service& Instance() { static Service service; return service; }
     void Update(uint32 diff) { assert(diff == 50); calls.push_back(Id); }
     void OnWorldUpdate(uint32 diff) { Update(diff); }
+    static uint64_t DrainQueuedCommands() { calls.push_back(Id); return 7; }
+    static void DrainDeferredPackets(uint64_t limit, bool endOfTick) { assert(limit == 7 && endOfTick); calls.push_back(Id); }
+    static void MarkWorldThread() {}
 };
 using BotActivityLeaseManager = Service<1>;
 using BotManager = Service<2>;
@@ -41,6 +44,8 @@ using HireLifecycle = Service<6>;
 using AhMarketService = Service<7>;
 using BattlegroundQueueService = Service<8>;
 using ObservabilityEmitter = Service<9>;
+using BotChatAdapter = Service<10>;
+using BotPacketAdapter = Service<11>;
 struct BotHostAdapter { uint32 m_ticks = 0; void OnUpdate(uint32 diff); };
 '''
         fixture += hook + r'''
@@ -49,16 +54,23 @@ int main() {
     using namespace TortoiseBots;
     BotHostAdapter adapter;
     // More than two 60 s recovery / four 30 s reporting windows.
+    // Disabled: only the queued-command drain (#833) runs, every tick, so
+    // player commands never execute off the world thread; services stay inert.
     for (unsigned i = 0; i < 2500; ++i) adapter.OnUpdate(50);
-    assert(calls.empty());
+    assert(calls.size() == 2500);
+    for (unsigned id : calls) assert(id == 10);
     assert(adapter.m_ticks == 0);
+    calls.clear();
     sPlayerbotAIConfig.enabled = true;
+    // Enabled: lease expiry, then the commands (#846: they run the deferred
+    // bot items queued ahead of each), then the rest of the deferred items
+    // up to the bound the command drain returned, then the services.
     adapter.OnUpdate(50);
-    assert((calls == std::vector<unsigned>{1,2,3,4,5,6,7,8,9}));
+    assert((calls == std::vector<unsigned>{1,10,11,2,3,4,5,6,7,8,9}));
     assert(adapter.m_ticks == 1);
     sPlayerbotAIConfig.enabled = false;
     adapter.OnUpdate(50);
-    assert(calls.size() == 9);
+    assert((calls == std::vector<unsigned>{1,10,11,2,3,4,5,6,7,8,9,10}));
     assert(adapter.m_ticks == 1);
 }
 '''

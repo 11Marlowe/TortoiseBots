@@ -4102,6 +4102,8 @@ Source files:
 - `src/Ai/Class/Mage/MageActions.cpp:67-78` (`CastFrostNovaAction::isUseful`: not-frozen, no freeze-mechanic immunity, 10 yd)
 - `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:80-82` (melee chain: mongoose bite 22, wing clip 21)
 
+Module note: `ai/playerbot/strategy/hunter/GenericHunterStrategy.cpp` is not registered, so the live melee row is `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (#838); the donor path above is reference only.
+
 Copied / ported / independently reimplemented: reimplemented against the
 live list-based engine; the dead new-style forward-ports stay untouched.
 Thunder Clap 6343/8198/8204/8205 (Battle+Defensive stances) and Wing Clip
@@ -6887,7 +6889,7 @@ build-commit.sh pending; live in-game check pending.
 | Mend pet at medium health (PET-4) | `mod-playerbots` @ `79bd4281` `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:72-73` (`hunters pet medium health` below MediumHealth 70 → mend pet 22.0 combat / 60.0 NC) + `GenericHunterNonCombatStrategy.cpp:33` | `ai/playerbot/strategy/hunter/HunterTriggers.{h,cpp}` (`HuntersPetMediumHealthTrigger` below `sPlayerbotAIConfig.mediumHealth`), `HunterStrategy.cpp` (combat mend at ACTION_HIGH-1 below low's ACTION_HIGH; NC at ACTION_NORMAL below low's NORMAL+1), `HunterAiObjectContext.cpp` (creator) | Reimplemented in live strategy priorities (donor 22/21/60 maps onto our ACTION_HIGH-1/HIGH + NORMAL/NORMAL+1); low band still wins below 40 | `bash tools/verify_all.sh`; `python3 tools/verify_action_trigger_wiring.py` (0 live-missing); `git diff --check`. Compile via shared builder; no live in-game test |
 | In-combat Mend Pet below the shots, low band only (batch 2 #18; supersedes the PET-4 combat node) | `mod-playerbots` @ `79bd4281` `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:72-73` (mend pet 22/21 above every shot) + `src/Ai/Class/Hunter/HunterTriggers.cpp:63-76` (40 / MediumHealth bands), adapted: the donor's Mend Pet is an instant heal-over-time, Turtle's (136, `attributesEx` 0x4 in `tw_world_spell_template`) is a channel that stops the shots | `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (`HunterPetStrategy::InitCombatTriggers`: low band at ACTION_NORMAL, below the rotation shots NORMAL+1..+6 and above auto shot; combat medium node removed; NC bands unchanged) | Reimplemented: donor thresholds kept, combat priority re-ranked for a channelled spell. Reason: live yulon-ubuntu data at 18d4d14 had Mend Pet in ~10% of hunter combat samples (122 of 1,171, 36 hunters) | `bash tools/verify_all.sh`; `git diff --check`; code review + build pending; in-game pending |
 | Combat call pet + safe combat revive, tame demoted (PET-5) | Transferable extension of donor NC-only `no pet` → `call pet` / `hunters pet dead` → `revive pet` (`GenericHunterNonCombatStrategy.cpp:29,34`); donor has no combat call/revive | `HunterStrategy.cpp` (combat `no pet` → `call pet` NORMAL+1, `safe to revive pet` → `revive pet` NORMAL; both combat+NC `tame beast` demoted EMERGENCY → NORMAL so instant call wins wherever castable and the engine falls through to tame only when call is impossible), `HunterTriggers.{h,cpp}` (`SafeToRevivePetTrigger` wired to `runtime/PetRevivePolicy.h`; `HunterNoPet` simplified to donor `NoPetTrigger` shape — petless + unmounted — so the call nodes are reachable for dismissed pets), `HunterAiObjectContext.cpp` (creator), `runtime/PetRevivePolicy.h` + `tools/test_pet_revive_policy.cpp` | Reimplemented: donor never called/revived in combat; revive gated on zero attackers (10s channel safety). Tame demotion via relevance fallback instead of a trigger spell gate | `bash tools/verify_all.sh`; wiring 0 live-missing; standalone `test_pet_revive_policy` (5 checks); `git diff --check`. Compile via shared builder; no live in-game test |
-| Chain-heal group trigger verification + Fire Nova Totem drop gate (SHM-7/SHM-9) | Donor `CastFireNovaAction::isUseful` (`mod-playerbots` `ShamanActions.cpp:28-41`: fire-totem + 8y gate) is WotLK-3.3.0+ mechanics — 1.12 Fire Nova is a totem DROP (1535 line, detonates after 4s), not a pulse of a down totem, so the donor gate is NOT ported (it would refuse every drop). Ported as a placement gate instead @ `79bd4281` | `ai/playerbot/strategy/shaman/ShamanActions.h` (`CastFireNovaAction::isUseful`: bot-to-target <= 10y + policy call), `ShamanFireGatePolicy.h` + `tools/test_shaman_fire_gate_policy.cpp` | Chain heal: verified already wired — live `medium aoe heal -> chain heal` at ACTION_MEDIUM_HEAL matches priest/druid shape, no new trigger; donor `group heal setting` exists only in dead ports. Fire Nova: 10y placement gate (totem lands at our feet); manual `totem fire nova` and magma->nova continuer unaffected (no existing-totem requirement). Spells: Fire Nova Totem 1535 line / Fire Nova pulse 8350 line (verified in tw_world.spell_template; action resolves via spellbook to the trained drop) | `bash tools/verify_all.sh` (incl. new policy test), `git diff --check`; shared-builder compile + no live test per parity pipeline |
+| Chain-heal group trigger verification + Fire Nova Totem drop gate (SHM-7/SHM-9) | Donor `CastFireNovaAction::isUseful` (`mod-playerbots` `ShamanActions.cpp:28-41`: fire-totem + 8y gate) is WotLK-3.3.0+ mechanics — 1.12 Fire Nova is a totem DROP (1535 line, detonates after 4s), not a pulse of a down totem, so the donor gate is NOT ported (it would refuse every drop). Ported as a placement gate instead @ `79bd4281` | `ai/playerbot/strategy/shaman/ShamanActions.h` (`CastFireNovaAction::isUseful`: bot-to-target <= 10y + policy call), `ShamanFireGatePolicy.h` + `tools/test_shaman_fire_gate_policy.cpp` | Chain heal: verified already wired — live `medium aoe heal -> chain heal` at ACTION_MEDIUM_HEAL matches priest/druid shape, no new trigger; donor `group heal setting` exists only in dead ports. Fire Nova: 10y placement gate (totem lands at our feet); manual `totem fire nova` and magma->nova continuer unaffected (no existing-totem requirement). Spells: Fire Nova Totem 1535 line / Fire Nova pulse 8350 line (verified in tw_world.spell_template). The action casts the trained drop by name `fire nova totem` at self (magma/searing style); the earlier name `fire nova` matched only the pulse ids, which are never in the spellbook, so the drop never fired | `bash tools/verify_all.sh` (incl. new policy test), `git diff --check`; shared-builder compile + no live test per parity pipeline |
 
 ## Mage arcane rupture to missiles rhythm (MAG-5) — 2026-10-10
 
@@ -7839,6 +7841,8 @@ switch at all; `enemy too close for auto shot` → disengage 35 / flee 34
 outranks `enemy within melee` → mongoose bite 22 / wing clip 21) and
 `src/Ai/Base/Trigger/RangeTriggers.cpp` (`EnemyTooCloseForAutoShotTrigger`:
 step out only while the mob is not on the bot).
+
+Module note: `ai/playerbot/strategy/hunter/GenericHunterStrategy.cpp` is not registered, so the live melee row is `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (#838); the donor path above is reference only.
 
 Source files (module, modified):
 `ai/playerbot/HunterSwitchPolicy.h` (`ShouldSwitchToRanged`),
@@ -8796,6 +8800,7 @@ Reason: a full 5-man fighting one or two elites lands in the easy tier. There a 
 Validation: `tools/test_healer_mana_policy.cpp` (floor per tier, monotonic ladder, the Uldaman balance case); `bash tools/verify_all.sh`, `git diff --check`; build pending; in-game pending.
 
 | No jumping in dungeons/raids (audit fix 125) | `mod-playerbots` | `79bd4281` | none: mod-playerbots has no jump strategies or action at all | Reimplemented (restriction only) | Jump strategies (`chase jump`, `follow jump`, `rpg jump`) can strand bots on raised instance platforms with no navmesh link down (Uldaman Hall of the Keepers). Gated in `JumpAction::Execute` (explicit `jump` command still works) via `ai/playerbot/JumpPolicy.h` on `Map::IsDungeon()` (instances and raids; battlegrounds and open world unchanged). | `tools/test_jump_policy.cpp` in `verify_all.sh`; code review + build pending; in-game pending |
+| Shaman weapon imbues land: a spell that targets an item (*Rockbiter/Flametongue/Frostbrand/Windfury Weapon*) gets the "item for spell" weapon as its item target, not as its cast item (audit fix 144) | `mod-playerbots` | `79bd428` | `src/Bot/PlayerbotAI.cpp:3757-3760` (`CastSpell`: `targets.SetItemTarget(item)` for `TARGET_FLAG_ITEM` spells, no cast item) | Reimplemented | `PlayerbotAI::CanCastSpell`/`CastSpell` set the weapon as `m_CastItem` and never set an item target, so the core refused every imbue with `SPELL_FAILED_ITEM_GONE` (`Spell::CheckItems`, `SPELL_EFFECT_ENCHANT_ITEM_TEMPORARY`) and `shaman weapon upkeep` failed every tick (ACTION_LOOP; 0 of 20 live shaman weapons imbued vs 30 of 30 rogue weapons poisoned). An explicit `itemTarget` keeps its cast-item meaning. | code review + build pending; in-game pending |
 
 ## Mage "blink back" turns away from the target first — 2026-10-12
 
@@ -8842,6 +8847,23 @@ the Moon mob), and the Blink GCD sat right before the first Polymorph.
 
 Validation: `c++ -fsyntax-only` of the changed files; `tools/verify_all.sh`.
 Not compiled into a server, not tested in game.
+
+Update (same branch): the "blink back" trigger now also requires that the
+current target is attacking the mage (`target->GetVictim() == bot`). Native
+refinement, not a port. Reason: audit "moon_sheep build 17", run B3. The
+mage walked toward its Icicles target, an Oracle the tank was fighting; it
+came within 8 yd, the trigger fired, and the mage blinked away to 27 yd
+from its Polymorph mark, outside cast reach, then walked back for about
+3 s. The donor's own test is different: `EnemyTooCloseForSpellTrigger`
+(`src/Ai/Base/Trigger/RangeTriggers.cpp:14-18`, 79bd428) fires within
+melee reach (`IsWithinCombatRange(bot, MIN_MELEE_REACH)`) when the target
+is *not* attacking the bot or is frozen/rooted, and relies on its own
+"enemy is close" -> Frost Nova row to freeze a chasing mob first. That
+rule is a reposition-out-of-the-pile step; this module's trigger is the
+kite escape from a mob on the mage (added because mages died to melee
+mobs with no escape), so it keeps the 8 yd band and gates on the victim
+instead. Validation: `c++ -fsyntax-only` of the changed file;
+`tools/verify_all.sh`. Not compiled into a server, not tested in game.
 
 ## No meal while the group fights; wake a resting bot at the pull — 2026-10-12
 
@@ -8947,6 +8969,7 @@ one operation at a time on its own connection), so they never overlap and one
 bot's saves still run in order. Validation: `tbsyntax` of the changed `.cpp`
 files, `bash tools/verify_all.sh`, `git diff --check`. Build pending; in-game
 pending.
+
 ## Ranged reach inside dungeons walks the navmesh path — 2026-10-12
 
 Feature: `ReachTargetAction::MoveIntoRange` first tries `MoveIntoRangeAlongPath` (`ai/playerbot/strategy/actions/ReachTargetActions.h`). Inside a dungeon or raid (`Map::IsDungeon`, the same test as the core's chase rule), with the target in sight and a reach distance beyond `ATTACK_DISTANCE`, the bot takes the navmesh path to its target (`WorldPosition::getPathStepFrom`, NORMAL or INCOMPLETE), walks it back from the target end to the first point that is within the reach distance and still sees the target (`SelectRangedApproachPoint`, `ai/playerbot/RangedApproachPolicy.h`), and point-moves there with `MoveTo`. Every chosen point sees the target: the walk-back starts from the last path point that sees the target and is closer to it than the bot (the end of a complete path; an earlier point when a partial path ends hidden under a dais or behind a wall), and with no such point the chase runs as before. A partial path that ends short of range is walked only as far as that anchor. Applies to `reach spell`, `reach party member to heal`, `… to resurrect` and `… for totem`; `reach melee`, the explicit pull (`ReachPullAction`, issue #389) and everything outside instances keep the core chase. `MovementAction::IsHazardNearPosition` moved from private to protected so the point can skip hazards the same way `ChaseTo` does.
@@ -8974,6 +8997,107 @@ Reason: Uldaman's Hall of the Keepers has 17 raised daises the navmesh cuts off 
 Validation: `tools/test_ledge_step_down_policy.cpp` (gate, height band, horizontal radius, candidate order, Uldaman dais with its edge point, needs-path rule, NORMAL path off the mesh, unsafe landing per point, both legs' clear line, edge point through walls and holes, no ground / fall / climbable step / wide dais, narrow ledge, pacing with the failed-look and step caps and clock wrap); `bash tools/verify_all.sh`, `git diff --check`; `c++ -fsyntax-only` of `MovementActions.cpp` and `ReachTargetActions.cpp` against the core headers; full build pending; in-game pending (Uldaman: `.go xyz -190 66 -46 70`, summon the party onto the dais, pull the Rockchewer; bots should run off the edge and drop to the floor within a few seconds).
 
 Review fixes (2026-10-12, REVIEW-126): (1) the landing must be on the navmesh (path start within 1 / 1.5 yd) and free of magma/slime, checked per candidate; (2) the move is a two-leg spline over the lip instead of a straight foot-to-foot line through the platform, with a low (+0.5 yd) line check per leg for railings; (3) a hazard rejects only its candidate; (4) only probes without floor count towards the give-up, launched steps have their own cap of three; (5) docs say "per action" for the pacing.
+
+
+## Feral druid prowl lock out of combat (2026-10-12)
+
+Donor: mod-playerbots (`79bd428`): `src/Ai/Class/Druid/Strategy/CatDruidStrategy.cpp`
+(`prowl` trigger → `prowl` action, combat triggers only),
+`src/Ai/Class/Druid/Action/DruidCatActions.h` (`CastProwlAction` is a plain
+buff; `ravage`/`pounce` gate on the prowl aura), `src/Ai/Class/Druid/DruidTriggers.cpp`
+(`ProwlTrigger`). The donor has no action whitelist while prowling, in or out
+of combat.
+
+Source files (module): `ai/playerbot/strategy/druid/DpsFeralDruidStrategy.cpp`
+(`DpsFeralDruidStealthedStrategy::InitNonCombatMultipliers` now installs no
+multiplier), `ai/playerbot/strategy/druid/DruidActions.h` (`DruidStealthAction`
+and `CheckStealthAction` add `stealthed` to the combat engine only; removal
+still clears both engines).
+
+Copied / ported / reimplemented: reimplemented behaviour (out of combat a
+prowling druid acts as if not prowling). Kept: the in-combat `stealthed`
+whitelist (openers, BG play), unlike the donor.
+
+Reason: fix 138 / audit batch 9 item 1. The druid non-combat engine has no
+`stealth` strategy, so no `check stealth`/`unstealth` trigger runs there, yet
+prowl added the `stealthed` whitelist to it. A druid that left combat prowling
+could only eat/drink/assist; once healed it stood still (last action `food`,
+trigger `almost full health`) until `RandomBotStallRelogMinutes` (45 min).
+m910q: Nalcraecrur frozen 100/100 samples with `stealthed` in its non-combat
+list; Zararkorn and Tharorcush STUCK on `food` ~2700 s.
+
+Validation: code review + build pending; in-game pending.
+
+## Enemy healer detection needs a real heal (fix 141) — 2026-10-12
+
+Feature: `EnemyHealerTargetValue` (target of every `<spell> on enemy healer`
+trigger) now requires the enemy's current cast to carry a heal effect
+(`PlayerbotAI::IsHealSpell`: heal, heal-max-health or periodic-heal aura)
+instead of "positive spell". Observed live (build 17 gate run 1): a tank
+Shield Bashed a Moon-marked Stonevault Oracle casting Lightning Shield (945),
+a self buff.
+
+Donor: `mod-playerbots` @ 79bd428
+`src/Ai/Base/Value/EnemyHealerTargetValue.cpp` uses the same
+`IsPositive()` test, so the donor has the same flaw; this is a module-side
+tightening, not a port.
+
+Module file: `ai/playerbot/strategy/values/EnemyHealerTargetValue.cpp`
+(reuses the existing `PlayerbotAI::IsHealSpell` helper, no new cache needed:
+three effect slots per candidate that is already casting an interruptible spell).
+
+Reimplemented (module-only). Validation: code review + `bash tools/verify_all.sh`
++ `git diff --check`; build pending; in-game pending.
+
+
+## Wand stops for a waiting CC (mage, priest, warlock) — 2026-10-12
+
+Feature: a new generic trigger, `wand blocks cc` (`WandBlocksCcTrigger`,
+`strategy/triggers/GenericTriggers.{h,cpp}`), stops a running wand
+(`stop wand`) while one of the class's own CC spells has a pending target
+and is held back only by the GCD each Turtle wand shot renews. The CC rows
+(`HasCcTargetTrigger`) need the spell ready, so they never fired while a
+wand ran. The pending test is split out of `HasCcTargetTrigger::IsActive`
+into `CcTargetPending()` (dungeon mark gating, "cc target" and not yet
+"current cc target"); `FearTrigger` moves its mark-only gate into that
+override, so the wand trigger sees the same rules. The cast probe is the
+existing `WandBlocksCastTrigger::ProbeSpell` + `ShouldStopWandToCast`
+(`WandPolicy.h`), with the same exceptions (raid `has aggro` wand, the
+< 5% `no mana` wand, silence, school lockout, form, line of sight).
+`CastShootAction::isUseful` also returns false while that CC waits, so a
+nuke's "shoot" alternative (mage `frostbolt` -> `shoot`) does not restart
+the wand. Rows: mage `polymorph` (`stop wand` at `ACTION_INTERRUPT + 1`),
+priest `shackle undead` (`ACTION_INTERRUPT + 1`), warlock `banish` and
+`fear` (`ACTION_INTERRUPT + 3`, above both). Seduction is the succubus's
+cast and is not covered. Only a CC target already within the spell's
+range (DBC max range plus range talents, combat distance) counts: the
+probe ignores range, and a target the bot cannot reach (stay order, root,
+no path) would otherwise keep the wand off forever while the CC row never
+fires. The answer is cached for about 1 s, because `CastShootAction` is
+weighed every tick and the probe builds a `Spell`.
+
+Source repository: none (native). The donor's core puts no GCD on wand
+shots, so mod-playerbots has nothing to port; behaviour intent is the
+same as the earlier wand-stop rows (CC rows far above Shoot).
+
+Module files: `ai/playerbot/strategy/triggers/GenericTriggers.{h,cpp}`,
+`ai/playerbot/strategy/actions/GenericSpellActions.{h,cpp}`,
+`ai/playerbot/strategy/{mage,priest,warlock}/*AiObjectContext.cpp`,
+`ai/playerbot/strategy/mage/MageStrategy.cpp`,
+`ai/playerbot/strategy/priest/PriestStrategy.cpp`,
+`ai/playerbot/strategy/warlock/{WarlockStrategy.cpp,WarlockTriggers.h,WarlockTriggers.cpp}`.
+
+Copied / ported / reimplemented: reimplemented (native).
+
+Reason: audit "moon_sheep build 17", run B1. The mage stood in Polymorph
+reach for about 7 s with a wand running: each shot renewed the GCD, the
+`polymorph` trigger stayed false, `wand blocks nuke` (Frostbolt/Fireball
+only) stopped the wand once, and the `frostbolt` -> `shoot` fallback
+restarted it 0.28 s later. Polymorph started 1.56 s after the last shot.
+
+Validation: `c++ -fsyntax-only` of the changed files;
+`tools/verify_all.sh`. Not compiled into a server, not tested in game.
+
 ## Dungeon follow holds before unpulled packs (audit fix 127) — 2026-10-12
 
 Feature: optional `AiPlayerbot.DungeonFollowHoldBeforePacks` (default `0`).
@@ -9073,3 +9197,406 @@ Reason: Uldaman, build 11, 2026-10-12 (`~/TortoiseBots-audit/ingame/repro-129-fo
 Validation: `tools/test_heal_reach_policy.cpp`, `tools/test_dungeon_follow_stall_policy.cpp` (gate, 2 s stall, walking is no stall, range and release, held, feed gap, latch, walk throttle and back-off, clock wrap); `bash tools/verify_all.sh`; `git diff --check`; `c++ -fsyntax-only` of `FollowActions.cpp` and `RangeTriggers.cpp` against the core headers. Full build pending; in-game pending.
 
 Review fixes (2026-10-12, REVIEW-129): (1) the rescue yields while the bot is held (sitting, casting, rooted) even after it has latched, matching the docs; (2) five rescue walks in a row that cannot start end the rescue for 60 s, so a bot that cannot be rescued (below its leader's platform) does not plan a path every 8 s forever; catching up clears the give-up; (3) docs note that, with `DungeonFollowHoldBeforePacks` off, a rescue walk can pass an unpulled pack like far follow. Test rows added for latched-then-held, the give-up and its reset.
+
+## Weighted shuffle: O(n log n) exponential clocks, same distribution — 2026-10-13
+
+Feature: `ai::WeightedShuffle` (`ai/playerbot/WeightedShufflePolicy.h`, included by `ai/playerbot/WorldPosition.h`), the successive-sampling shuffle behind the RPG target pick (`ChooseRpgTargetAction.cpp`), the RPG action pick (`RpgAction.cpp`) and the weighted point lists in `WorldPosition.cpp`. It built a `std::discrete_distribution` for every position (O(n²)). It now draws one exponential clock per item, E = -ln(U) / w with U uniform in (0, 1], and sorts by E. Signature unchanged. Items with a zero, negative, NaN or infinite weight go after every positive item, in input order; the old code's order among them was arbitrary.
+
+Source: the algorithm, not a file. Efraimidis and Spirakis, "Weighted random sampling with a reservoir" (2006), in its exponential-clock form. Prior art: `T-imothy/timothy-tortoise-wow` (branch `mantech-turtle`), `src/shared/WeightedPermutation.h`, which uses the same method; its zero-weight tail is random, ours keeps the input order. The per-draw loop being replaced is the same one in mod-playerbots `79bd428` `src/Mgr/Travel/TravelMgr.h` (`WeightedShuffle`, around line 891), which is not changed here. Kind: reimplemented from the algorithm; no code copied.
+
+Reason: performance (O(n²) to O(n log n)); the distribution is the same, so the orders for a given RNG seed differ. Measured on the test VM with `tools/bench_weighted_shuffle.cpp` (`-O2`, the old template copied in, each call also resets its input): n = 100: 49.11 µs to 8.31 µs; n = 1000: 4216.06 µs to 101.50 µs; n = 5000: 102861.76 µs to 664.00 µs. The n that the live call sites pass was not measured.
+
+Validation: `tools/test_weighted_shuffle_policy.cpp` (in the `verify_all.sh` standalone list): first pick follows weight / total; all 24 orders of four items match the old shuffle within 0.008 over 200000 runs; weights move with their items; zero, negative, NaN and infinite weights go last in input order; all-zero keeps the order; empty and mismatched ranges; `std::list` of strings. `bash tools/verify_all.sh` exit 0 and `c++ -fsyntax-only` of `WorldPosition.cpp`, `RpgAction.cpp`, `ChooseRpgTargetAction.cpp` and `TravelMgr.cpp` on the test VM. Not compiled in the Docker build; not run live; in-game pending.
+
+## Arathi Basin banners: real entries, no line-of-sight filter, one capture cast per 4 s per bot — 2026-10-13
+
+Feature: `BGTactics::atFlag` for Arathi Basin (`ai/playerbot/strategy/actions/BattleGroundTactics.cpp`). `vFlagsAB` lists the real banner entries (180058-180061 assault, 180087-180091 neutral, in `BG_AB_NODE_*` order) instead of the shim's small indices. AB reads `nearest game objects no los` and keeps what is within `INTERACTION_DISTANCE` instead of the static line-of-sight probe. AB skips only unspawned banners and the banners the bot's own team holds or is contesting (180058-180059 for Alliance, 180060-180061 for Horde); the Warsong ready-state gate stays as it was. The range test now runs before `CanInteractWithGameObject`. One capture cast per bot per `AB_BANNER_CAST_THROTTLE_MS` (4000): a throttled banner is skipped, so the path moves the bot on.
+
+Source: `T-imothy/timothy-tortoise-wow` (branch `mantech-turtle`), `modules/mod-playerbots/src/playerbot/strategy/actions/BattleGroundTactics.cpp`, commits `ef4ca22` (2026-09-05, no-LOS lookup), `d60461b` (2026-09-06, AB ready-state gate) and `2814ea8` (2026-09-06, real entries and the 4 s cast throttle), all by Shyalya. The banner entries were also checked against mod-playerbots `79bd428` `src/Ai/Base/Actions/BattleGroundTactics.cpp` (its `BG_AB_OBJECTID_BANNER_*` and `BG_AB_OBJECTID_NODE_BANNER_0..4` list) and Turtle's `tw_world_gameobject_template.sql` and `tw_world_gameobject.sql` (map 529 spawns at the node positions the module already labels: 1166.79, 977.016, 806.182, 856.142, 1146.92). Kind: reimplemented; no fork code is copied. The fork commits are the source of the three behaviours (what is looked up, which states are accepted, how often a bot casts). The range-before-CanInteract ordering is ours: the no-LOS list covers the whole sight distance, and `CanInteractWithGameObject` logs a core error for an object out of reach.
+
+Reason: Arathi Basin bots never captured a banner. `vFlagsAB` held 0..4, so the match on `GetEntry()` could not succeed (fork `2814ea8`: "banners raw 0" on all 6806 samples). The static LOS probe dropped a banner 1.5 yd away on the node platforms (`ef4ca22`). The ready-state gate skipped the assault banners a team must click to retake a node (`d60461b`). Without the cast throttle a bot in reach re-cast about every tick (80,703 casts in 25 min in the fork, 2,048 with it; `2814ea8`). The core accepts or rejects each click in `BattleGroundAB::EventPlayerClickedOnFlag` (match status, node index, team ownership), which is what makes the relaxed gate safe. The own-team skip is ours, not the fork's: the banner-to-state map is Turtle's `tw_world_gameobject_battleground.sql` (GUID 90014 is node 0 state 3, alliance owned, entry 180058; 90015 is node 0 state 1, alliance contested, 180059; 90016 is state 4, horde owned, 180060; 90017 is state 2, horde contested, 180061), and the core's `m_Nodes % 2` rule accepts a click only on neutral or enemy states, so a bot never clicks a banner its team holds or contests.
+
+Validation: `bash tools/verify_all.sh` and `c++ -fsyntax-only` (`tbsyntax`) of `BattleGroundTactics.cpp` on the test VM; `git diff --check`. Not compiled in the Docker build; not run live; in-game pending.
+
+## Mutating Injection is never cleansed (Grobbulus dispel list) — 2026-10-13
+
+Feature: `PlayerbotAI::IsNeverDispelSpell` (`ai/playerbot/PlayerbotAI.cpp:6414-6422`, list `kNeverDispelSpellIds` at `:6412`) keeps Mutating Injection (Turtle spell 28169, dispel type Disease) out of every dispel. `canDispel` (`:6424-6440`) uses it, so friendly cures that pick their target through `HasAuraToDispel` (`PartyMemberToDispel`, `CureTriggers`, the shaman disease cures) skip the injection. `StoneformTrigger` (`ai/playerbot/strategy/triggers/GenericTriggers.h:1356-1387`) uses it too, so a dwarf does not cast Stoneform on its own while the injection is on it (an explicit order still works). The declaration is `ai/playerbot/PlayerbotAI.h:500` (public).
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd4281` (local `playerbots-references/mod-playerbots` checkout).
+
+Source files:
+- `src/Bot/PlayerbotAI.cpp:72-75` (`dispel_whitelist`: `"mutating injection"`, `"frostbolt"`)
+- `src/Bot/PlayerbotAI.cpp:4497-4521` (`canDispel`: a whitelisted name returns false after the dispel-type check)
+
+Ported / reimplemented: reimplemented. The donor matches by spell name; this copy matches by Turtle spell id. 28169 is the only Mutating Injection row in `~/tortoise-wow/sql/base/tw_world_spell_template.sql` and in `tw_world_locales_spell.sql`. The donor's Frostbolt entry is not ported (see Reason). The Stoneform hold-back has no donor counterpart; it is this module's own rule, found by reading the core.
+
+Reason: Grobbulus (Naxx). The core script `src/scripts/dungeons/naxxramas/boss_grobbulus.cpp` (`spell_mutating_injection`) makes the boss cast spell 28206 on the carrier and the carrier cast the poison cloud summon 28240, both when the aura is removed, whether it was dispelled or ran out. A dispel only brings the cloud forward. The audit refresh (`~/TortoiseBots-audit/AUDIT-REFRESH-2026-10-13.md`, row 61) found healers cleansing the injection early, while the carrier was still in the raid. The existing bomb runout (`ai/playerbot/BombRunoutPolicy.h`, `kRaidBombSpellIds` includes 28169) moves the carrier clear, which is what makes leaving the injection to run out safe.
+Stoneform removes it too. Stoneform (20594 and 20612) has attributesEx 98304, which includes `SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY` (0x8000). `spell_stoneform` (`src/scripts/spells/spell_special.cpp:398`) applies dispel immunity for disease and poison on cast, and `Unit::ApplySpellDispelImmunity` (`src/game/Objects/Unit.cpp:6356`) then removes every aura of that dispel type. An earlier reading that stopped at the immunity was wrong. Other spells with this flag do not reach a friendly carrier: Faerie Fire is cast on enemies, and Nullify Disease, Nullify Poison, Resist Poison and Abolish Magic are not referenced in `ai/playerbot`.
+Limit: a Cure Disease, Cleanse, Abolish Disease or a Disease Cleansing Totem aimed at another disease on the same carrier can still remove the injection, because the game picks which aura a dispel takes. The bot cannot choose it.
+Frostbolt is not ported. The donor rule matches the name, so it covers every Frostbolt aura with the Magic dispel type. The Turtle template has 36 rows named Frostbolt with that type (rank ids and other ids, e.g. 9672, 28478, 48005). A static list needs a choice of which of them are the slow, which is left to the maintainer.
+
+Validation: code review + build pending; in-game pending. Local: `bash tools/verify_all.sh` and tbsyntax on the test VM (results in the PR).
+
+## Rogue stealth opener: Garrote when Ambush cannot be cast — 2026-10-13
+
+Feature: the behind-target opener of the rogue stealth strategy
+(`RogueStealthStrategyActionNodeFactory`, `ai/playerbot/strategy/rogue/RogueStrategy.cpp`)
+now falls from Ambush to Garrote. The chain was ambush -> backstab -> cheap shot ->
+sinister strike. Ambush and Backstab both need a dagger in the main hand, so a rogue
+without one always opened with Cheap Shot. The chain is now ambush -> garrote ->
+backstab -> cheap shot -> sinister strike. A dagger rogue keeps Ambush and Backstab;
+the only change for it is at 50-59 energy, where Ambush and Backstab (60) are out of
+reach and Garrote (50) now opens instead of Sinister Strike.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:223-231`
+(`StealthedRogueStrategyActionNodeFactory::ambush`, `A = { garrote }`).
+
+Module files: `ai/playerbot/strategy/rogue/RogueStrategy.cpp` (the node factory),
+`docs/classes/rogue.md` (the opener line).
+
+Copied / ported / reimplemented: ported (the ambush -> garrote step only). The module
+keeps its own factory, its Backstab and Cheap Shot tail and its own trigger rows. No
+donor code copied.
+
+Reason: audit refresh 2026-10-13, row 26 (the Garrote opener existed only in the dead
+donor `DpsRogueStrategy.cpp:216-224`). Turtle 1.18.1 data
+(`~/tortoise-wow/sql/base/tw_world_spell_template.sql`): Garrote ranks 703, 8631-8633,
+11289, 11290 have no weapon requirement and read "Must be stealthed and behind the
+target", 50 energy; Ambush (8676 and ranks) reads "Requires a dagger in the main hand".
+`docs/classes/rogue.md:30` already promised Garrote for non-dagger openers.
+
+Validation: code review + build pending; in-game pending.
+
+## Assassination Cold Blood waits for a 4-point finisher — 2026-10-13
+
+Feature: the Assassination boost row that casts Cold Blood
+(`AssassinationRogueBoostStrategy::InitCombatTriggers`, `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`)
+ran on the "very often" time trigger, so Cold Blood went off on the next builder. It now runs on
+the "4 combo" trigger (`ComboPointsAvailableTrigger`, 4 or more points on the current target,
+registered in `RogueAiObjectContext.cpp:211`) at the same ACTION_HIGH + 5.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/AssassinationRogueStrategy.cpp:114-122` (the
+"combo points 4 available" row: Cold Blood at ACTION_HIGH + 6, Envenom at ACTION_HIGH + 5).
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`docs/classes/rogue.md` (the burst cooldown line).
+
+Copied / ported / reimplemented: ported (the 4-point gate only). Priority stays at HIGH + 5
+(the donor uses HIGH + 6). The donor's Envenom row is not taken.
+
+Reason: audit refresh 2026-10-13, row 7 (Cold Blood on "very often" with no combo-point gate).
+Turtle 1.18.1 data (`~/tortoise-wow/sql/base/tw_world_spell_template.sql`, Cold Blood 14177):
+"increases the critical strike chance of your next Sinister Strike, Backstab, Ambush, Noxious
+Assault, or Eviscerate". A boost spent on a builder is wasted.
+
+Validation: code review + build pending; in-game pending.
+
+## Rogue almost-dead combo point dump for Assassination and Subtlety — 2026-10-13
+
+Feature: the "target with combo points almost dead" trigger (`AlmostDeadFinisherTrigger`,
+already registered for every rogue) now also fires Eviscerate at ACTION_HIGH + 2 in
+`AssassinationRogueStrategy::InitCombatTriggers` and `SubtletyRogueStrategy::InitCombatTriggers`,
+the same row and priority as `CombatRogueStrategy`. Before, only the Combat spec spent banked
+combo points on a target at 25% health or less.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:128-135` (the row:
+Eviscerate at HIGH + 2). The donor's `AssassinationRogueStrategy.cpp:124-131` uses Envenom
+at HIGH + 4 for the same trigger; this entry does not take that, it follows the Combat row as
+the audit brief asks. The donor's Subtlety strategy is commented out, so it has no row to port.
+
+Module files: `ai/playerbot/strategy/rogue/AssassinationRogueStrategy.cpp`,
+`ai/playerbot/strategy/rogue/SubtletyRogueStrategy.cpp`.
+
+Copied / ported / reimplemented: ported (the Combat row, extended to two specs). No donor code
+copied.
+
+Reason: audit refresh 2026-10-13, row 11 (the almost-dead combo point dump existed only in
+Combat). `docs/classes/rogue.md` already describes the dump for all rogues.
+
+Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
+VM (see the PR); build pending; in-game pending.
+
+## Fishing spot data for the travel fish errand (FISH_LOCATION, maps 0 and 1) — 2026-10-13
+
+Feature: ship the donor's fishing spots so the travel fish errand has real
+destinations on a fresh install, instead of an empty `FISH_LOCATION` table.
+Owner approved shipping this on 2026-10-13.
+
+Source repository: `T-imothy/tortoise-wow`, branch `mantech-turtle`. Its
+`modules/mod-playerbots` tree is Shyalya's classic `mod-playerbots` lineage.
+The Shyalya repository returns 404 (per the 2026-10-13 fork audit), so this
+fork is the place to check the pins.
+
+Source commit: `0fb4d7c38d82c738bfc92ce75188d37e36632cc9` (branch head, read
+2026-10-13). The file was last changed in `8415f1b9dc079f7207cfaf8589fa135ce19a1ada`.
+Blob: `7497bbaf676de591ba53b401d8d1454e69e7a1e7`.
+
+Source file:
+- `modules/mod-playerbots/sql/world/classic/ai_playerbot_named_location.sql`
+  (headerless HeidiSQL dump of `classicmangos.ai_playerbot_named_location`;
+  54,055 rows = 54,038 `FISH_LOCATION_*` + 17 `AV_*`; 7,875,137 bytes)
+
+Copied / ported / independently reimplemented:
+- Copied (data only) to `data/sql/world/20261013150000_world.sql`: 52,766
+  `FISH_LOCATION` rows on maps 0 and 1. Values are unchanged apart from dropped
+  trailing zeros of the 20-decimal numbers; every migrated value was checked
+  equal to the dump under exact decimal comparison. Left out: 1,264 rows on
+  instance maps 36, 43, 48, 289, 309 and 349 (dungeon and raid pools; pool bots
+  are overworld only), and 8 rows whose z is -200000 (no terrain height). The 17
+  `AV_*` named points are not part of this entry. The DROP and CREATE header is
+  omitted; the schema stays owned by `20260824090000_world.sql`.
+- The migration replaces the whole `FISH_LOCATION` set: DELETE by the loader's
+  own filter, then multi-row INSERT of 2,000 rows per statement. This is
+  idempotent and also converges a server that already holds the full manual
+  import, which is why a primary-key INSERT IGNORE was not used. A server that
+  holds that import (the m910q test server) is rewritten to the shipped set when
+  its updater next runs this file; this change did not touch m910q.
+
+Reason: `TravelMgr::LoadFishLocations` reads only `FISH_LOCATION%` rows. Fish
+location generation is disabled in the module (`PlayerbotAIConfig.cpp:895-899`:
+the pinned core has no area query), so with the table empty the travel fish
+errand has no destination and pool bots fish only open water.
+
+Licence: the dump has no file header, and the module subtree has no LICENSE,
+COPYING or NOTICE. Recorded as Unresolved in `docs/LICENSE_AUDIT.md`, the same
+open status as the `05ba90b2` weightscales row. Owner approval: 2026-10-13.
+
+Local validation: `python3 tools/verify_okf.py`; `tools/verify_tortoise_surface.sh`
+(run through `verify_all.sh` on the test VM); an offline structural check of the
+migration (core-style statement split: 28 statements, 52,766 distinct rows, every
+value equal to the dump). Not loaded into a database and not run live.
+
+## Mongoose Bite in the live Raptor Strike / Wing Clip row — 2026-10-13
+
+Feature: Mongoose Bite is queued in melee. Before, the live `hunter enemy is close` row
+(`HunterStrategy::InitCombatTriggers`) queued only Raptor Strike and Wing Clip, while the docs
+said hunters use Mongoose Bite in melee. The row now queues Mongoose Bite between the two, so it
+is cast when Raptor Strike is not castable and Mongoose Bite is off its own 5 s cooldown, with mana.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp:80-82` (`enemy within
+melee` → mongoose bite 22, wing clip 21). That file is not registered in this module, so its row
+never ran here; the live row is the one that now carries the action. The donor's `mongoose_bite`
+node falls back to raptor strike; that fallback is not ported, because raptor strike is already
+first in the row.
+
+Module files: `ai/playerbot/strategy/hunter/HunterStrategy.cpp` (the row; priorities Raptor Strike
+`ACTION_NORMAL + 1`, Mongoose Bite `ACTION_NORMAL + 0.5f`, Wing Clip `ACTION_NORMAL`).
+
+Copied / ported / reimplemented: ported (one action added to the live row). No donor code copied.
+
+Reason: bug fix, the bot did not do what the class docs say. Turtle 1.18.1 has no dodge
+requirement for Mongoose Bite (`casterAuraState` 0 on ranks 1495, 14269-14271 in
+`sql/base/tw_world_spell_template.sql`; no cast check in `src/scripts/spells/spell_hunter.cpp`).
+
+Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
+VM (see the PR); build pending; in-game pending.
+
+## Warlock pet by spec (opt-in, `AiPlayerbot.WarlockPetBySpec`) — 2026-10-13
+
+Feature: with the toggle on (default off), a warlock in PvE (open world and dungeons) summons the
+demon that fits its talent tree instead of always the Voidwalker. Affliction and Demonology:
+Felhunter, falling back to Succubus, Voidwalker, Imp by what the warlock has learned; Destruction:
+Imp. A warlock grouped with nobody in the tank role keeps the Voidwalker. A petless warlock gets the
+pick; a pool bot also swaps a default demon it already has (needs a Soul Shard unless the pick is the
+Imp). A `pet <demon>` strategy order and any live demon on a player-owned bot are never replaced.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Bot/Factory/AiFactory.cpp:565-571` (spec -> `felhunter` / `felguard` / `imp`
+non-combat strategy), `src/Ai/Class/Warlock/Strategy/GenericWarlockNonCombatStrategy.cpp` (the
+`summon felguard -> felhunter -> succubus -> voidwalker -> imp` pass-through chain and the
+`no pet` / `wrong pet` rows of each `SummonXStrategy`), `src/Ai/Class/Warlock/WarlockTriggers.cpp`
+(`WrongPetTrigger`, pet entries 416 / 1860 / 1863 / 417).
+
+Module files: `runtime/WarlockPetPolicy.h` (`DecideWarlockSpecPet`, pure) +
+`tools/test_warlock_pet_policy.cpp` (51 checks); `ai/playerbot/strategy/warlock/WarlockTriggers.{h,cpp}`
+(`SpecPetTrigger`, four rows; `WrongPetTrigger` stands down while the toggle is on),
+`WarlockAiObjectContext.cpp` (4 trigger creators), `WarlockStrategy.cpp` (rows in
+`WarlockPetPveStrategy::InitNonCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor,
+all deliberate: Turtle 1.18.1 has no player Felguard (spell 30146 is in the spell template with no
+trainer), so the Felguard step is skipped and Demonology lands on the Felhunter exactly as the
+donor chain does; the donor ignores group roles, here a tankless group keeps the Voidwalker; the
+donor has no player-order guard, here a manual `pet <demon>` strategy or a player-owned bot's live
+demon wins; the donor strategy is per-spec only, here the PvE situation strategy owns it (raid and
+PvP rows unchanged). Spell ids 688 / 697 / 712 / 691 and pet entries checked against
+`sql/base/tw_world_spell_template.sql` and the existing pet policies.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 2); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_warlock_pet_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+the test VM (see the PR); build pending; in-game pending.
+
+## Rogue threat drops in dungeons (opt-in, `AiPlayerbot.RogueDungeonThreatDrops`) — 2026-10-13
+
+Feature: with the toggle on (default off), a rogue in a grouped 5-man dungeon casts Feint when the
+existing "medium threat" trigger fires and Vanish (queued below Feint) when the existing "high threat"
+trigger fires, only while a main tank other than the rogue is alive and in combat and the mob is held
+by that tank or by the rogue. Solo rogues, tankless groups and the open world are never touched;
+raids keep their own rows.
+
+## Hunter Aspect of the Viper on low mana (opt-in, `AiPlayerbot.HunterViperOnLowMana`) — 2026-10-13
+
+Feature: with the toggle on (default off), a hunter that knows Aspect of the Viper switches to it in
+combat when mana falls below half of `AiPlayerbot.LowMana` (below 7 % by default) and the Aspect of
+the Hawk upkeep stands down until mana is back at 60 %, then the normal Hawk upkeep recasts it.
+Between the thresholds the hunter keeps its aspect. A player-set `aspect <name>` strategy and a
+hunter in Cheetah or Pack are never overridden.
+
+## Paladin Judgement upkeep (opt-in, `AiPlayerbot.PaladinJudgementUpkeep`) — 2026-10-13
+
+Feature: with the toggle on (default off), paladin bots in a group keep Judgement of Wisdom /
+Judgement of Light up on a boss or elite (or, in a dungeon or raid, the tank's target). One paladin
+owns each debuff: Retribution takes Wisdom, Holy takes Light, a paladin in the tank role (Protection) never owns one, a second non-tank paladin of the
+same kind takes the other debuff, a third owns none. The owner swaps to the matching Seal and judges
+when the debuff has 4 s left or is gone. Healers yield to healing (mana >= 50%, nobody below the
+medium-health line); everyone needs the medium-mana line. Never solo, never on a player target.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Rogue/Strategy/CombatRogueStrategy.cpp:139-151` and
+`AssassinationRogueStrategy.cpp:144-156` (`medium threat` -> Vanish at `ACTION_HIGH`; `low health` ->
+Evasion / Feint), `src/Ai/Base/Trigger/GenericTriggers.cpp:169` (`MediumThreatTrigger`: main tank
+exists and attackers on the bot).
+
+Module files: `runtime/RogueThreatPolicy.h` (pure) + `tools/test_rogue_threat_policy.cpp`;
+`ai/playerbot/strategy/rogue/RogueTriggers.{h,cpp}` (`RogueDungeonFeintTrigger`,
+`RogueDungeonVanishTrigger`; the rows reuse the existing `feint` / `vanish` actions),
+`RogueAiObjectContext.cpp` (2 trigger creators), `RogueStrategy.cpp` (rows in
+`RoguePveStrategy::InitCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor, all
+deliberate: thresholds are this module's existing medium (>= 60) / high (>= 80, five-second look-ahead)
+relative-threat triggers, not the donor's attacker-count trigger; Feint goes first and Vanish is the
+fallback (the donor vanishes straight away on medium threat); Vanish needs a living tank in the fight
+and a mob on the tank or the rogue, so it cannot reset a solo fight; the tank must also hold the
+mob (victim or tank threat above 0), because the threat value reads 100 for a mob the tank never touched.
+Spell facts checked against `sql/base/tw_world_spell_template.sql`: Feint (ranks at
+16 / 28 / 40 / 52 / 60, effect THREAT, target enemy, 10 s category cooldown), Vanish (22 / 42, 5 min).
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 5); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_rogue_threat_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+Source files: `src/Ai/Class/Hunter/HunterTriggers.cpp` (`HunterAspectOfTheViperTrigger`: mana below
+`LowMana / 2`, suppressed by explicit `rnature` / `bspeed` strategies; `HunterAspectOfTheDragonhawkTrigger`:
+stays off while the Viper is up until mana >= 60), `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp`
+(trigger row at priority 28).
+
+Module files: `runtime/HunterViperPolicy.h` (pure) + `tools/test_hunter_viper_policy.cpp`;
+`ai/playerbot/strategy/hunter/HunterTriggers.{h,cpp}` (`AspectOfTheViperLowManaTrigger`, hold in
+`AspectOfTheHawkTrigger`), `HunterAiObjectContext.cpp` (trigger creator), `HunterStrategy.cpp` (row in
+`HunterAspectStrategy::InitCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor, all
+deliberate: Turtle 1.18.1 has Aspect of the Viper as spell 45651 (learn spell 47338, trainer level 56;
+`sql/base/tw_world_spell_template.sql`), not the TBC id 34074; the donor's `rnature` / `bspeed`
+suppression maps to this module's manual `aspect <name>` strategies (the donor strategies do not
+exist here) plus an active Cheetah / Pack aura; the row is combat-only (a hunter that is out of combat
+drinks in the aspect it has), the Hawk hold applies in both engines.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 4); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_hunter_viper_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+the test VM (see the PR); build pending; in-game pending.
+Source files: `src/Ai/Class/Paladin/Strategy/DpsPaladinStrategy.cpp`,
+`TankPaladinStrategy.cpp` (default action `judgement of wisdom`), `HealPaladinStrategy.cpp` (default
+action `judgement of light`), `GenericPaladinStrategyActionNodeFactory.h` (`judgement of wisdom`
+falls back to `judgement of light`), `src/Ai/Class/Paladin/PaladinTriggers.h` (`JudgementOfWisdom` /
+`JudgementOfLight` debuff triggers), `src/Ai/Base/Trigger/GenericTriggers.cpp`
+(`DebuffTrigger::IsActive`, `DebuffOnBossTrigger::IsActive`).
+
+Module files: `runtime/JudgementUpkeepPolicy.h` (owner rule, target / mana / refresh / Seal / Judge
+decisions, pure) + `tools/test_judgement_upkeep_policy.cpp`;
+`ai/playerbot/strategy/paladin/PaladinTriggers.{h,cpp}` (`JudgementUpkeepTrigger`, three steps),
+`PaladinAiObjectContext.cpp` (3 trigger creators), `PaladinStrategy.cpp` (three rows in the shared
+combat triggers, only added when the toggle is on), `PlayerbotAIConfig.{h,cpp}`,
+`aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented; no donor code copied. Ported from the donor: the
+role pairing (tank / dps Wisdom, heal Light) and the Wisdom -> Light fallback. Not in the donor and
+added here: the one-owner-per-debuff split (the donor lets every paladin cast the same default
+action, so two paladins overwrite each other), the 4 s refresh window, the boss / elite / tank-target
+gate, the healer mana and healing gate, and the Seal swap. The donor judges in WotLK where
+Judgement of Wisdom / Light is cast directly; Turtle 1.18.1 is vanilla, so Judgement (20271)
+consumes the active Seal and the Seal decides the debuff (Seal of Wisdom 20166 -> Judgement of
+Wisdom 20186, Seal of Light 20165 -> Judgement of Light 20185; ids and the 10 s duration / cooldown
+read from `sql/base/tw_world_spell_template.sql`). No 3.3.5a spell names or ids are used.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 21); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_judgement_upkeep_policy.cpp`, `tools/verify_all.sh` and tbsyntax
+on the test VM (see the PR); build pending; in-game pending.
+
+## Onyxia whelp duty and egg avoidance (issue #471 remainder, opt-in)
+
+- Feature: behind `AiPlayerbot.OnyxiaWhelpsAndEggs` (off by default), in Onyxia's Lair (map 249) AoE-capable ranged DPS bots take the nearest Onyxian Whelp while Onyxia is airborne, and bots in the fight walk out of the egg caves when inside the trap circle of an unbroken Onyxia Egg.
+- Source: mod-playerbots 79bd428, `src/Ai/Raid/Ony/OnyTriggers.cpp` (`RaidOnyxiaWhelpsSpawnTrigger`, `OnyxiaAvoidEggsTrigger`), `src/Ai/Raid/Ony/OnyActions.cpp` (`RaidOnyxiaKillWhelpsAction`, `OnyxiaAvoidEggsAction`), `src/Ai/Raid/Ony/OnyStrategy.cpp` (trigger wiring).
+- Copied / ported / reimplemented: reimplemented in the module's trigger/action/multiplier idiom; no donor code copied. Files: `ai/playerbot/OnyxiaWhelpEggPolicy.h` (pure rules), `ai/playerbot/strategy/triggers/OnyxiasLairDungeonTriggers.h/.cpp` (`onyxia whelps`, `onyxia eggs near`), `ai/playerbot/strategy/actions/OnyxiasLairDungeonActions.h/.cpp` (`onyxia kill whelps`, `onyxia avoid eggs`, `OnyxiaWhelpHoldMultiplier`), `ai/playerbot/strategy/generic/OnyxiasLairDungeonStrategies.h/.cpp`, config in `PlayerbotAIConfig.*` and `aiplayerbot.conf.dist.in`.
+- Deviations from the donor, all deliberate: (a) the donor sends tanks and every non-healer after whelps; here only AoE-capable ranged DPS (mage, warlock, hunter, ranged shaman/druid) are on whelp duty, so tanks, healers and melee keep their duty; (b) the donor attacks the first whelp in the possible-targets list; here the nearest live whelp of the cached attackers list within 40yd, skipping a whelp within 10yd of an unbroken egg (read from the bot's cached egg search; the cave-mouth whelp spawns are 11.5 and 11.9yd from the nearest egg and stay pickable), and a hold multiplier stops the generic assist and AoE re-pick from swinging the bot back to Onyxia; (c) the donor tests two fixed 5yd circles around guessed egg clusters; here the real unbroken egg game objects (176511, "Onyxia Egg", type 6 trap, radius 10, spell 17647) are read from the cached `nearest game objects` value, only when the bot stands inside the padded egg-field box (no search elsewhere), danger radius 10yd trap + 2yd margin; the exit points (`-10,-180`, `-16,-250`) are the donor's; (d) opt-in toggle, map 249 only, `explicit attack target` always wins.
+- Turtle 1.18.1 data (tw_world, never 3.3.5a ids): Onyxia 10184, Onyxian Whelp 11262 (`creature_template`), Onyxia Egg 176511 (`gameobject_template`: type 6, data2 radius 10, data3 spell 17647; 100+ spawns on map 249 at x -115..-32, y -279..-151), whelp spawn points and phase 2 waves from the core script `src/scripts/dungeons/onyxias_lair/boss_onyxia.cpp` (`afSpawnLocations`, Hover aura 17131).
+- Validation: `tools/test_onyxia_whelp_egg_policy.cpp` (standalone, in `verify_all.sh`); code review + build pending; in-game pending (needs a raid test).
+- Known limit: no hysteresis between the whelp chase and the egg walk. Ranged whelp-duty bots stand off at range, so they rarely sit near a cave mouth; a bot that does and flips between the two should get a short hold in a follow-up after the raid test.
+
+## Turtle 5-man reference in the dungeon tactics guide (docs only) — 2026-10-13
+
+- Feature: `docs/guides/dungeon-tactics.md` section 8, a reference for players leading companion bots: map ids, boss kill order with creature entries, pooled rares and escorts not to wait for, and the events that gate bosses. Documentation only. TortoiseBots does not read this data, and the dungeon-clear module stays excluded (`docs/concepts/known-limitations.md` section 3).
+- Source: T-imothy/tortoise-wow, branch `mantech-turtle`, SHA `0fb4d7c38d82c738bfc92ce75188d37e36632cc9`, licence AGPL-3.0-or-later. Files: `modules/mod-dungeon-clear/data/dc_roster.txt` (boss orders, pooled rares, notes); `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/DcHazardRegistry.cpp` (Creeping Sludge aura 22638); `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/DcBossEntries1121.h` (Lorgus Jett 12902 rare note); `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/Events/ZulFarrakEvents.cpp` (Farraki Arena sequence).
+- Copied / ported / reimplemented: data reimplemented as prose and tables (names, creature entries, map ids, boss order). No code or comment text is copied.
+- Turtle data check: each entry and name was checked against `~/tortoise-wow/sql/base/tw_world_creature_template.sql`. 132 of the 160 entries (Alarus, 91928, included) are in that base dump; the other 28 (62xxx Turtle templates) are added by the migrations under `sql/database_updates/world/`, which were replayed in filename order to get the names. Names that differ from the fork's comments use the core name: Kath'zen the Brutal (62496), Juthza the Cunning (62497), Solakar Flamewreath (10264; the fork says "Warder Verek", which the core data does not contain), Panzor the Invincible (8923), Plugger Spazzring (9499), 'Broody' (60715). Entry 62037 is "Warchief Targash Wyrmskull" in the base dump and "Zuluhed the Whacked" after the migrations.
+- Validation: docs only. Gates for this change: `python3 tools/verify_okf.py`, `tools/verify_all.sh` on the test VM, and `git diff --check` (see the PR). Not run in game. Provisional orders (Crescent Grove, Stormwrought Ruins, Gilneas City, Hateforge Quarry, Windhorn walk order, Stormwind Vault, Karazhan Crypt, Blackrock Depths) are not confirmed by the server owner.
+
+## Alterac Valley named points for the AV objective tactics — 2026-10-13
+
+- Feature: the 17 `AV_*` named points that the Alterac Valley objective tactics read through `getNamedLocation` (`BGTactics::SelectAvObjectiveAlliance` and `SelectAvObjectiveHorde` in `ai/playerbot/strategy/actions/BattleGroundTacticsAV.cpp`), so AV bots have objective locations on a fresh server. Map 30 (Alterac Valley).
+- Source: T-imothy/tortoise-wow, branch `mantech-turtle`, SHA `0fb4d7c38d82c738bfc92ce75188d37e36632cc9`, read from the read-only checkout `~/playerbots-references/timothy-tortoise-wow`. File: `modules/mod-playerbots/sql/world/classic/ai_playerbot_named_location.sql` (headerless HeidiSQL dump, blob `7497bbaf676de591ba53b401d8d1454e69e7a1e7`; the 17 `AV_*` rows are its lines 33-49). Lineage: Shyalya `mod-playerbots`.
+- Copied / ported / reimplemented: data copied with the values verbatim into `data/sql/world/20261013100000_world.sql`: a DELETE of `name LIKE 'AV\_%'`, then the 17 rows with explicit column names. The schema stays owned by `20260824090000_world.sql`. No code copied. The fishing migration `20261013150000_world.sql` leaves these rows out on purpose, because they are not fishing data.
+- Reason: the AV objective lookups find no location on a fresh server, so those picks have nowhere to go. Owner approved shipping the data on 2026-10-13 (`docs/LICENSE_AUDIT.md`, the same row as the fishing data).
+- Checks: 17 rows, all map 30; x -1402.2 to 674.0, y -441.6 to -32.4, z 15.1 to 114.2, orientation within plus or minus pi; no zero or sentinel coordinates; the names are exactly the 17 that `BattleGroundTacticsAV.cpp` reads (literal and table entries).
+- Validation: `tools/verify_all.sh` and `git diff --check` on the test VM (see the PR). The SQL was not run against a MySQL server. Not run live; in-game pending.
+
+## Hunter Viper enter threshold: fixed 20 % mana (owner decision) — 2026-10-13
+
+- Feature: `ShouldSwitchToViper` (`runtime/HunterViperPolicy.h`) and `AspectOfTheViperLowManaTrigger` switch to Aspect of the Viper below 20 % mana (`HUNTER_VIPER_ENTER_MANA_PCT`) instead of below `AiPlayerbot.LowMana / 2` (about 7 % with the default 15). `AiPlayerbot.LowMana` no longer affects the Viper. The 60 % exit (`HUNTER_VIPER_EXIT_MANA_PCT`), the hysteresis and the toggle `AiPlayerbot.HunterViperOnLowMana` (default off) are unchanged.
+- Source: deviation from mod-playerbots `79bd428` (`HunterAspectOfTheViperTrigger`, threshold `LowMana / 2`); the 60 % exit still follows the donor. Owner decision, 2026-10-13.
+- Copied / ported / reimplemented: no donor code. A named constant replaces the donor's threshold function and the `lowManaConfig` input. Files: `runtime/HunterViperPolicy.h`, `ai/playerbot/strategy/hunter/HunterTriggers.cpp`, `tools/test_hunter_viper_policy.cpp`, the comment in `ai/playerbot/aiplayerbot.conf.dist.in`, `docs/classes/hunter.md`, `docs/guides/configuration-tuning.md`. No config key added, so the code default and the template are unchanged.
+- Reason: owner decision: the Viper should come on at 20 % mana, not at about 7 %.
+- Validation: `tools/test_hunter_viper_policy.cpp` and `tools/verify_all.sh` on the test VM, tbsyntax of the changed `.cpp` files, and `git diff --check` (see the PR). Not built in the Docker core; not run live; in-game pending.
+
+## Creature aura keep-out: Maraudon Creeping Sludge (prototype, opt-in) — 2026-10-13
+
+- Feature: behind `AiPlayerbot.AvoidCreatureAuras` (off by default), bots of every role step out when within 8 yd of a listed creature that carries a permanent damaging aura, their chase and position moves keep 9 yd away, and followers stop just outside that circle while the leader stands in it. One row today: Maraudon (map 349) Creeping Sludge 12222, aura 22638. A creature the player ordered the bot to attack (`explicit attack target`) is exempt for that bot.
+- Source: T-imothy/tortoise-wow, branch `mantech-turtle`, SHA `0fb4d7c38d82c738bfc92ce75188d37e36632cc9`, licence AGPL-3.0-or-later, `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/DcHazardRegistry.{h,cpp}` (row `{349, 12222, radius 8, vacate 5}` and its notes: every role stays out, the tank that stayed in died, pulse 5 yd plus 3 yd margin). mod-playerbots `79bd428` `AvoidAoeAction` (trigger-NPC sensor) is the shape the module already ported for the step-out.
+- Copied / ported / reimplemented: reimplemented; no fork code or comment text copied. The fork's own camp/standoff solvers and hold bands are not ported; the module reuses its existing `avoid aoe` sensor (`possible triggers` now also accepts a listed creature), its strafe-first step-out, and its `add hazard` / `hazards` movement registry for the keep-out. Files: `ai/playerbot/CreatureAuraKeepoutPolicy.h` (table and rules, pure) + `tools/test_creature_aura_keepout_policy.cpp`; `strategy/values/PossibleTargetsValue.{h,cpp}`; `strategy/actions/MovementActions.cpp` (`AvoidTriggerNpc`); `strategy/triggers/GenericTriggers.cpp` (`AoeThreatNearbyTrigger` registers the hazard, refreshed while near); `strategy/values/HazardsValue.{h,cpp}` (opt-in expiry refresh, used only by this keep-out); `MovementActions.{h,cpp}` `HoldFollowOutsideKeepout` + `PlanCreatureAuraFollow` (follow bands with hysteresis: approach to the 9.5 yd ring, hold 9-10.5 yd, back off to 10 yd below 9, step-out owns inside 8, resume once the goal clears 10 yd) and the step-out's landing/aggro filter and 2 s no-landing back-off; `PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+- Turtle data: `creature_template` 12222 auras `'22638'` (base and `database_updates/world/20260510092659_world.sql`), 24 spawns all on map 349; spell 22638 aura 23 periodic trigger, 2000 ms, triggers 22595 (school damage 180-220 nature, EffectRadiusIndex 8 = 5 yd).
+- Reason: owner-approved prototype (2026-10-13); new automation, so behind a toggle that is off by default.
+- Validation: `tools/test_creature_aura_keepout_policy.cpp`, `tools/verify_all.sh` and tbsyntax on the test VM (see the PR); build pending; in-game pending (Maraudon live-test plan in the PR).

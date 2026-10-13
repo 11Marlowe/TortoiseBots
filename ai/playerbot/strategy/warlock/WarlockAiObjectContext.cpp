@@ -194,6 +194,8 @@ namespace ai
             {
                 creators["shadow trance"] = [](PlayerbotAI* ai) { return new ShadowTranceTrigger(ai); };
                 creators["wand blocks nuke"] = [](PlayerbotAI* ai) { return new WarlockWandBlocksNukeTrigger(ai); };
+                // Seduction is the succubus's cast, so the warlock's wand GCD never holds it.
+                creators["wand blocks cc"] = [](PlayerbotAI* ai) { return new WandBlocksCcTrigger(ai, {"banish", "fear"}); };
                 creators["demon armor"] = [](PlayerbotAI* ai) { return new DemonArmorTrigger(ai); };
                 creators["unending breath"] = [](PlayerbotAI* ai) { return new UnendingBreathTrigger(ai); };
                 creators["unending breath on party"] = [](PlayerbotAI* ai) { return new UnendingBreathOnPartyTrigger(ai); };
@@ -248,6 +250,10 @@ namespace ai
                 creators["no succubus"] = [](PlayerbotAI* ai) { return new NoSuccubusTrigger(ai); };
                 creators["no felhunter"] = [](PlayerbotAI* ai) { return new NoFelhunterTrigger(ai); };
                 creators["wrong pet"] = [](PlayerbotAI* ai) { return new WrongPetTrigger(ai); };
+                creators["spec pet imp"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet imp", TortoiseBots::WarlockSpecPetDecision::SummonImp); };
+                creators["spec pet voidwalker"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet voidwalker", TortoiseBots::WarlockSpecPetDecision::SummonVoidwalker); };
+                creators["spec pet succubus"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet succubus", TortoiseBots::WarlockSpecPetDecision::SummonSuccubus); };
+                creators["spec pet felhunter"] = [](PlayerbotAI* ai) { return new SpecPetTrigger(ai, "spec pet felhunter", TortoiseBots::WarlockSpecPetDecision::SummonFelhunter); };
                 creators["suffering"] = [](PlayerbotAI* ai) { return new SufferingTrigger(ai); };
                 creators["consume shadows"] = [](PlayerbotAI* ai) { return new ConsumeShadowsTrigger(ai); };
                 creators["spell lock"] = [](PlayerbotAI* ai) { return new SpellLockTrigger(ai); };
@@ -354,6 +360,16 @@ namespace ai
                 creators["firebolt"] = [](PlayerbotAI* ai) { return new CastFireboltAction(ai); };
             }
         };
+
+        class ValueFactoryInternal : public NamedObjectContext<UntypedValue>
+        {
+        public:
+            ValueFactoryInternal()
+            {
+                // Spec pet: the group tank read shared by the four SpecPetTrigger rows.
+                creators["spec pet tank"] = [](PlayerbotAI* ai) { return new SpecPetTankValue(ai); };
+            }
+        };
     };
 };
 
@@ -372,4 +388,5 @@ WarlockAiObjectContext::WarlockAiObjectContext(PlayerbotAI* ai) : AiObjectContex
     strategyContexts.Add(new ai::warlock::CcSituationStrategyFactoryInternal());
     actionContexts.Add(new ai::warlock::AiObjectContextInternal());
     triggerContexts.Add(new ai::warlock::TriggerFactoryInternal());
+    valueContexts.Add(new ai::warlock::ValueFactoryInternal());
 }

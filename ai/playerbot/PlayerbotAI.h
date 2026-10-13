@@ -13,6 +13,7 @@
 #include "BotDiagnostics.h"
 #include "playerbot/DeathClusterPolicy.h"
 #include "playerbot/GatherSpotPolicy.h"
+#include "playerbot/PullJoinWindowPolicy.h"
 #include "playerbot/SurvivePolicy.h"
 #include "../../runtime/BotManager.h"
 
@@ -361,12 +362,38 @@ public:
     // the bot's default movement. A no-op when no hold is placed, and never
     // touches a stay the player asked for (that drops the hold marker first).
     void ReleasePullHold();
+    // The join window an ordered pull places on a held DPS bot
+    // (PullJoinWindowPolicy.h). In memory only, never stored with the bot.
+    // StartPullWindow writes the pull's delay into "wait for attack time" and
+    // adds "wait for attack" to the engines that lack it; the window owns only
+    // those copies and puts the old delay back when it ends.
+    void StartPullWindow(uint8 windowSeconds);
+    void RestampPullWindow() { pullWindow_.Restamp(time(0)); }
+    bool HasPullWindow() const { return pullWindow_.Running(); }
+    bool PullWindowExpired(uint8 seconds) const { return pullWindow_.Expired(time(0), seconds); }
+    bool PullWindowAdded(BotState type) const { return pullWindow_.Added(static_cast<unsigned>(type)); }
+    uint8 PullWindowSavedSeconds() const { return static_cast<uint8>(pullWindow_.savedWaitSeconds); }
+    // The player's own "wait for attack time": set now, or kept for the end
+    // of a running pull window, which puts it in place then.
+    void SetPlayerWaitForAttackTime(uint8 seconds);
+    // End the window: remove the pull's own copies of "wait for attack", put
+    // the player's "wait for attack time" back and release the anchor hold.
+    // A "wait for attack" the player set stays. Also the end of any pull on a
+    // reload of stored strategies (relog, reset, preset), and the release of
+    // the puller's own anchor, which never had a window.
+    void EndPullWindow();
     // An order that sends the bot at a target ends a stay and a flee's
     // passive hold: drop "passive" and "stay", then, when that leaves no
     // movement mode, put the default (follow for a player's bot) back so it
     // rejoins after the fight. Used by the .bot tactical orders and the
     // whispered attack.
     void EndStayForOrder();
+    // An explicit `.bot` movement order supersedes the movement orders still
+    // waiting from chat ("stay", "follow", ...): drops them from the queued
+    // chat commands and clears their triggers, so an older `/p stay` cannot
+    // run after a newer `.bot action follow` (runtime/QueuedOrderPolicy.h).
+    // World thread. Returns how many queued commands were dropped.
+    size_t DropQueuedMovementOrders();
 	std::string HandleRemoteCommand(std::string command);
     void HandleCommand(uint32 type, const std::string& text, Player& fromPlayer, const uint32 lang = LANG_UNIVERSAL);
     void QueueChatResponse(uint32 msgType, ObjectGuid guid1, ObjectGuid guid2, std::string message, std::string chanName, std::string name, bool noDelay = false);
@@ -375,6 +402,11 @@ public:
     void DropQueuedOutgoingOpcode(uint16 opcode) { botOutgoingPacketHandlers.DropQueuedOpcode(opcode); }
     void HandleMasterIncomingPacket(const WorldPacket& packet);
     void HandleMasterOutgoingPacket(const WorldPacket& packet);
+    // Any thread, no AI needed (issue #844): whether an opcode reaches one of
+    // the Handle*Packet paths above, so packet hooks copy only those packets.
+    static bool HandlesBotOutgoingOpcode(uint16 opcode);
+    static bool HandlesMasterIncomingOpcode(uint16 opcode);
+    static bool HandlesMasterOutgoingOpcode(uint16 opcode);
 	void HandleTeleportAck();
     void ChangeEngine(BotState type);
     // Run one engine decision. Module-owned human commands can force this
@@ -476,6 +508,7 @@ public:
     virtual bool IsInterruptableSpellCasting(Unit* player, std::string spell, uint8 effectMask);
     virtual bool HasAuraToDispel(Unit* player, uint32 dispelType);
     bool canDispel(const SpellEntry* entry, uint32 dispelType);
+    static bool IsNeverDispelSpell(uint32 spellId);
     static bool IsHealSpell(const SpellEntry* entry);
 
     static bool IsMiningNode(const GameObject* go);
@@ -997,11 +1030,22 @@ protected:
     bool shouldLogOut = false;
     bool m_recordMessages = false;
     bool m_recordIncommingMessages = false;
+    // Issue #846: the chat gate last published to PlayerbotAIStorage.
+    bool m_chatGatePublished = false;
+    bool m_chatGateIgnoreAll = false;
+    bool m_chatGateIgnoreTrade = false;
+    time_t m_chatGatePublishedAt = 0;
+    void PublishChatGate();
     std::vector<std::string> m_recordedMessages;
     ai::Event lastEvent;
     LastKillerInfo lastKiller_;
     LastKillerInfo lastDamager_; // last non-self damager (UNITHOOK_ON_DAMAGE); SoR fallback for SetLastKiller
     bool deathHandled_ = false; // this death was logged and counted; cleared when the bot is seen alive again
+    ai::PullJoinWindow pullWindow_; // see StartPullWindow
+    // After a change to "wait for attack" in the engines of `type` by anyone
+    // but the window itself: those copies are no longer the pull's, and the
+    // hold is over once the combat engine has none left.
+    void SyncPullWindow(BotState type);
 
     // Evade probe (diagnostics only): samples the health and evade state of the creature
     // this bot is fighting, and logs the cases where the mob evades or regenerates faster

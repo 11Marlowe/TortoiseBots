@@ -29,8 +29,8 @@ public:
 class EstimatedGroupDpsValue : public FloatCalculatedValue
 {
 public:
-    // checkInterval is seconds (halved by CalculatedValue::Refresh): 40 s ≈
-    // 20 s effective. (Was 20*1000, donor milliseconds copied verbatim —
+    // checkInterval is seconds: refreshed every 20 s (half of 40, the default
+    // rule), or every 40 s with AiPlayerbot.ValueRefreshAtInterval = 1. (Was 20*1000, donor milliseconds copied verbatim —
     // review PR #596 — which froze DPS for hours.)
     EstimatedGroupDpsValue(PlayerbotAI* botAI) : FloatCalculatedValue(botAI, "estimated group dps", 40) {}
 

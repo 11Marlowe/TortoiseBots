@@ -479,6 +479,18 @@ public:
     bool boostFollow;
     // Dungeon follow holds short of unpulled packs when the leader is far ahead (audit fix 127).
     bool dungeonFollowHoldBeforePacks;
+    // Warlock summons the demon that fits its spec in PvE instead of the Voidwalker (opt-in).
+    bool warlockPetBySpec;
+    // Rogue Feint (and Vanish as the last resort) on medium/high threat in 5-man dungeons (opt-in).
+    bool rogueDungeonThreatDrops;
+    // Hunter swaps to Aspect of the Viper on low mana and back to Hawk once mana recovers (opt-in).
+    bool hunterViperOnLowMana;
+    // Paladin bots keep Judgement of Wisdom / Light up on the boss in groups (opt-in).
+    bool paladinJudgementUpkeep;
+    // Onyxia phase 2 whelp duty for AoE ranged DPS and egg-cave avoidance (opt-in).
+    bool onyxiaWhelpsAndEggs;
+    // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
+    bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).
     bool allowRepairedTaxiPaths;
     bool turnInRpg;
@@ -641,6 +653,11 @@ public:
     // below -> reclaim toward the ceilings). 0 disables the controller
     // (static budgets).
     uint32 targetWorldTickMs = 100;
+    // Calculated values refresh after their full checkInterval instead of
+    // half of it (fight-sensing and interval 0/1 values keep today's rule).
+    // Mirrored into ai::gValueRefreshAtInterval (strategy/ValueRefreshPolicy.h)
+    // so the per-read check does no config lookup.
+    bool valueRefreshAtInterval = false;
     // Issue #84: bounded failure backoff tuning. Zero base/max disables.
     uint32 failedActionRetryBaseMs;
     uint32 failedActionRetryMaxMs;

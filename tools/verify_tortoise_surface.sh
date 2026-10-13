@@ -44,6 +44,9 @@ grep -q "(20, 'elem', 7)" data/sql/world/20260916090001_world.sql \
     || fail "weight-scale shaman spec ids are not the donor ids"
 grep -q "(31, 'resto', 11)" data/sql/world/20260916090001_world.sql \
     || fail "weight-scale druid spec ids are not the donor ids"
+test -f data/sql/world/20261013150000_world.sql || fail "fish spot migration is missing"
+grep -q 'FISH_LOCATION' data/sql/world/20261013150000_world.sql \
+    || fail "fish spot data is not seeded"
 
 if rg -n -i 'rtsc|see spell|bossaura|ai_playerbot_(random_bots|rpg_races|tele_cache|rarity_cache)' \
     ai host runtime commands conf; then

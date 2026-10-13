@@ -26,10 +26,11 @@ namespace ai
         bool IsActive() override;
     };
 
-    // True when this bot's ordered-pull hold has run its course: an anchor
-    // copy ("pull hold") is set and the join window has expired. A hold whose
-    // wait strategy was dropped early is already gone (PlayerbotAI::
-    // ChangeStrategy releases it with the strategy), so it never gets here.
+    // True when this bot's ordered-pull join window has run its course
+    // (PullJoinWindowPolicy.h), whether or not its anchor ("pull hold") is
+    // still placed: combat end, death and movement orders release only the
+    // anchor. A window whose wait strategy was dropped early is already gone
+    // (PlayerbotAI::ChangeStrategy clears it with the strategy).
     class PullHoldExpiredTrigger : public Trigger
     {
     public:

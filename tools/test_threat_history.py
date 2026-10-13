@@ -36,6 +36,9 @@ time_t now = 100;
 time_t fake_time(void*) { return now; }
 #define time fake_time
 """
+        # The templates call the refresh policy (namespace ai) unqualified.
+        policy = root / "ai/playerbot/strategy/ValueRefreshPolicy.h"
+        harness = f'#include "{policy}"\nusing namespace ai;\n' + harness
         harness += templates + r"""
 struct Threat : LogCalculatedValue<float> {
     Threat(): LogCalculatedValue<float>(nullptr) {}

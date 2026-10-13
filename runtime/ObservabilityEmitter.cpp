@@ -651,7 +651,7 @@ void ObservabilityEmitter::EmitAnomaly(std::string const& type,
            << ",\"class\":\"" << EscapeJson(GetBotClassName(bot->GetClass())) << "\""
            << ",\"level\":" << static_cast<uint32>(bot->GetLevel())
            << ",\"map\":" << bot->GetMapId()
-           << ",\"zone\":" << bot->GetZoneId()
+           << ",\"zone\":" << bot->GetCachedZoneId()
            << ",\"pos\":{\"x\":" << std::fixed << std::setprecision(1) << bot->GetPositionX()
            << ",\"y\":" << bot->GetPositionY()
            << ",\"z\":" << bot->GetPositionZ() << "}";
@@ -728,7 +728,7 @@ void ObservabilityEmitter::EmitBotActivity(std::string const& event,
        << ",\"class\":\"" << EscapeJson(GetBotClassName(bot->GetClass())) << "\""
        << ",\"level\":" << static_cast<uint32>(bot->GetLevel())
        << ",\"map\":" << bot->GetMapId()
-       << ",\"zone\":" << bot->GetZoneId();
+       << ",\"zone\":" << bot->GetCachedZoneId();
 
     if (IsItemEvent(event))
     {
@@ -1174,7 +1174,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         }
         snap.powerType = GetPowerTypeName(bot->GetPowerType());
         snap.mapId = bot->GetMapId();
-        snap.zoneId = bot->GetZoneId();
+        snap.zoneId = bot->GetCachedZoneId();
         snap.x = bot->GetPositionX();
         snap.y = bot->GetPositionY();
         snap.z = bot->GetPositionZ();

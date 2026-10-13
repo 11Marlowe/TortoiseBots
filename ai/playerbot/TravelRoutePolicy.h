@@ -37,6 +37,31 @@ namespace ai
         return runTime + swimTime;
     }
 
+    // Cost multiplier a walking edge gets from the creatures along it: 10% per
+    // level a mob exceeds the bot's level by more than 10, 30% per level for
+    // the opposite faction's creatures. The three levels are the edge's
+    // TravelNodePath::maxLevelCreature entries, in order: [0] creatures hostile
+    // to both factions, [1] creatures friendly to Alliance only, [2] creatures
+    // friendly to Horde only. An Alliance bot is therefore costed by slot [2]
+    // (Horde creatures) and a Horde bot by slot [1] (Alliance creatures).
+    inline float GetCreatureLevelRouteModifier(std::uint32_t botLevel, bool botIsAlliance,
+        std::uint32_t maxMobLevel, std::uint32_t maxAllianceCreatureLevel, std::uint32_t maxHordeCreatureLevel)
+    {
+        float modifier = 1.0f;
+
+        int const mobAnnoyance = (static_cast<int>(maxMobLevel) - static_cast<int>(botLevel)) - 10;
+        int const factionAnnoyance = botIsAlliance
+            ? (static_cast<int>(maxHordeCreatureLevel) - static_cast<int>(botLevel)) - 10
+            : (static_cast<int>(maxAllianceCreatureLevel) - static_cast<int>(botLevel)) - 10;
+
+        if (mobAnnoyance > 0)
+            modifier += 0.1 * mobAnnoyance;
+        if (factionAnnoyance > 0)
+            modifier += 0.3 * factionAnnoyance;
+
+        return modifier;
+    }
+
     inline std::uint32_t MixTravelRouteSeed(std::uint32_t value)
     {
         value ^= value >> 16;

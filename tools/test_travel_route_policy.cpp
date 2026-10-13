@@ -152,6 +152,54 @@ int main()
     }
     std::cout << "  [PASS] Test 6: Flight path preference over cross-zone walk passed\n";
 
-    std::cout << "\nAll 6 TortoiseBots Travel Route Policy tests PASSED!\n";
+    // -------------------------------------------------------------
+    // Test 7: Creature-level modifier equals the original inline formula
+    // -------------------------------------------------------------
+    {
+        // The formula as TravelNodePath::getCost had it before it moved here
+        // (uint8 creature levels, unsigned level arithmetic, int annoyance).
+        auto const legacy = [](std::uint32_t level, bool isAlliance, std::vector<std::uint8_t> const& maxLevelCreature)
+        {
+            float modifier = 1.0f;
+            int factionAnnoyance = 0;
+            int mobAnnoyance = (maxLevelCreature[0] - level) - 10;
+            if (isAlliance)
+                factionAnnoyance = (maxLevelCreature[2] - level) - 10;
+            else if (!isAlliance)
+                factionAnnoyance = (maxLevelCreature[1] - level) - 10;
+            if (mobAnnoyance > 0)
+                modifier += 0.1 * mobAnnoyance;
+            if (factionAnnoyance > 0)
+                modifier += 0.3 * factionAnnoyance;
+            return modifier;
+        };
+
+        int checked = 0;
+        for (std::uint32_t level = 1; level <= 60; ++level)
+            for (int alliance = 0; alliance <= 1; ++alliance)
+                for (std::uint32_t mob = 0; mob <= 63; mob += 3)
+                    for (std::uint32_t horde = 0; horde <= 63; horde += 7)
+                        for (std::uint32_t ally = 0; ally <= 63; ally += 11)
+                        {
+                            float const expected = legacy(level, alliance != 0,
+                                { static_cast<std::uint8_t>(mob), static_cast<std::uint8_t>(horde), static_cast<std::uint8_t>(ally) });
+                            float const actual = ai::GetCreatureLevelRouteModifier(level, alliance != 0, mob, horde, ally);
+                            CHECK(expected == actual);
+                            ++checked;
+                        }
+        CHECK(checked > 100000);
+
+        // Creatures 10 or more levels below the bot do not make a path dearer.
+        CHECK(ai::GetCreatureLevelRouteModifier(30, true, 40, 40, 40) == 1.0f);
+        // 12 levels over: 2 over the 10-level grace, +10% each.
+        CHECK(std::fabs(ai::GetCreatureLevelRouteModifier(20, true, 32, 0, 0) - 1.2f) < 0.0001f);
+        // Opposite-faction creatures count 30% per level: an Alliance bot reads slot [2]
+        // (Horde-friendly creatures), so a Horde bot ignores that slot.
+        CHECK(std::fabs(ai::GetCreatureLevelRouteModifier(20, true, 0, 0, 32) - 1.6f) < 0.0001f);
+        CHECK(ai::GetCreatureLevelRouteModifier(20, false, 0, 0, 32) == 1.0f);
+    }
+    std::cout << "  [PASS] Test 7: Creature-level route modifier matches the original formula\n";
+
+    std::cout << "\nAll 7 TortoiseBots Travel Route Policy tests PASSED!\n";
     return 0;
 }
