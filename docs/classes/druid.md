@@ -20,6 +20,7 @@ Druids are the ultimate hybrid class, able to fulfill Tank, Healer, Melee DPS, o
 - **Prowling in battlegrounds:** a prowling cat druid keeps playing the battleground (objectives, flag checks, chasing the enemy carrier) and can take enemy-player orders, sneaking up before it opens; before, prowl blocked every battleground action and the druid stood still.
 - **Prowl out of combat:** prowl only limits what a cat druid does in combat (openers first). A druid that leaves combat still prowling goes back to its normal out-of-combat routine (eat, travel, grind, rpg); before, it kept the in-combat limits, had nothing that could lift them, and stood still on its last action (often `food`) until the 45-minute stall relog.
 - **Ferocious Bite windows:** bite fires early on a dying target (under 25% health, 1+ combo points) instead of waiting for 5; at 5 points it fires only when *Rip* is absent or healthy (over 10 s left), so bite never clips a Rip refresh. Finisher order: execute-bite, then Rip, then timed bite.
+- **Cat finishers in instances:** dungeons count as raid, so the raid cat kit carries the same *Rip*/*Rake* rows as pve/pvp — an instance cat spends combo points on *Rip* instead of only *Claw*.
 - **Restoration (Healer):** HoT-focused healing with *Rejuvenation*, *Regrowth*, *Healing Touch*, and *Swiftmend*, with *Nature's Swiftness* and *Tranquility* also wired. *Tranquility* fires on headcount (5+ members within 30 yards, 3 hurt in a 5-man scaling to 15 in a raid).
 - **Nature's Swiftness emergency chain:** on a critically hurt party member the druid pops *Nature's Swiftness*, then spends the buff on an instant *Healing Touch* before anything else can eat the aura. The pop sits above Swiftmend and the spend right below it, so the buff is used on the very next cast.
 - **Omen of Clarity procs:** a Clearcasting proc buys a free *Shred* for Cat (above the whole builder/finisher ladder) or a free party *Rejuvenation* for Restoration (above the normal HoT rows) — procs are spent, never left idle.
@@ -39,7 +40,7 @@ The bot's shapeshifting engine maintains the appropriate form based on assigned 
 - If designated as **Melee DPS**, the bot stays in **Cat Form**.
 - If designated as **Ranged DPS**, the bot stays in **Moonkin Form** (if talented) or Humanoid form.
 - If designated as **Healer**, the bot stays in **Humanoid Form** or **Tree of Life Form**.
-- **Caster Shifting:** The bot automatically shifts out of feral forms when out of combat to cast party buffs (*Mark of the Wild*, *Thorns*), dispel poisons (*Abolish Poison*, with *Cure Poison* as the fallback) or curses (*Remove Curse*, which outbids poison: a hex locks the member out of the fight), or consume water.
+- **Rooted in combat:** a slow (melee daze, chill) never breaks form; a real root breaks it only when the fight target is out of melee reach or line of sight (the tank holding mobs in place keeps Bear Form and its mana).
 
 ---
 

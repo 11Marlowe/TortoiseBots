@@ -436,3 +436,37 @@ bool AutoLootRollAction::isPossible()
 {
     return bot->GetGroup() && !AI_VALUE(LootRollMap, "active rolls").empty() && AI_VALUE(uint8, "bag space") < 100;
 }
+
+bool RollWonLogAction::Execute(Event& event)
+{
+    // SMSG_LOOT_ROLL_WON layout (Group::SendLootRollWon): [looted guid][slot]
+    // [item id][randomSuffix:0][randomPropertyId][winner guid][roll][type].
+    // It reaches every roller, so only the winner logs; the core also stores
+    // the item in the winner's bags before this packet goes out (Group::
+    // CountTheRoll), so no re-fetch or ownership check is needed here.
+    WorldPacket p(event.GetPacket());
+    p.rpos(0);
+    ObjectGuid lootGuid;
+    uint32 slot;
+    uint32 itemId;
+    p >> lootGuid;
+    p >> slot;
+    p >> itemId;
+    p.read_skip<uint32>(); // randomSuffix, unused
+    uint32 randomPropertyId = 0;
+    p >> randomPropertyId;
+    ObjectGuid winner;
+    p >> winner;
+
+    if (winner != bot->getObjectGuid())
+        return false;
+
+    ItemPrototype const* proto = sItemStorage.LookupEntry<ItemPrototype>(itemId);
+    if (!proto)
+        return false;
+
+    ItemQualifier itemQualifier(itemId, (int32)randomPropertyId);
+    sPlayerbotAIConfig.logEvent(ai, "RollWon", proto->Name1, std::to_string(itemId));
+    BroadcastHelper::BroadcastLootingItem(ai, bot, proto, itemQualifier);
+    return true;
+}

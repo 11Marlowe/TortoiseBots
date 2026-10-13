@@ -11,6 +11,8 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/TravelValues.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireQuestPolicy.h"
 #include <iomanip>
 
 using namespace ai;
@@ -161,6 +163,12 @@ std::unordered_map<ObjectGuid, float> ChooseRpgTargetAction::GetTargets(Player* 
             for (uint32 entry : ignoredRpgNpcEntries)
                 if ((uint32)guidP.GetEntry() == entry)
                     isIgnoredNpc = true;
+            // Hired companions never approach a <Mercenary Hire> recruiter on
+            // their own either: they follow their master. Owned alts and pool
+            // bots are untouched.
+            if (!isIgnoredNpc && TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+                TortoiseBots::IsHireQuestRecruiterEntry((uint32)guidP.GetEntry()))
+                isIgnoredNpc = true;
             if (isIgnoredNpc)
                 SkipRpgTarget("NPC is a challenge-quest giver that bots must ignore.");
         }

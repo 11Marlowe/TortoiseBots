@@ -30,7 +30,7 @@ The bot selects healing spells from static health bands (defaults: Critical 20 /
 ```text
 Ally Health < 20% (critical) ──► PW:Shield + Flash Heal
 Ally Health 20%-50% (low)    ──► PW:Shield + Flash Heal + Greater Heal + Heal / Lesser Heal
-Ally Health 50%-70% (medium) ──► Greater Heal + Heal / Lesser Heal (Discipline shields first)
+Ally Health 50%-70% (medium) ──► PW:Shield + Flash Heal + Greater Heal + Heal / Lesser Heal + Renew (last)
 Ally Health 70%-90% (almost) ──► Renew (Discipline shields first)
 Multiple Injured              ──► Prayer of Healing (Party AoE heal)
 ```

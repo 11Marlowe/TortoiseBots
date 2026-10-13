@@ -248,6 +248,16 @@ void DpsFeralDruidRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
 {
     DpsFeralDruidStrategy::InitCombatTriggers(triggers);
     DruidRaidStrategy::InitCombatTriggers(triggers);
+
+    // Same finisher rows as the pve/pvp variants: dungeons count as raid
+    // (IsInRaid), so without these a cat in any instance never rips.
+    triggers.push_back(new TriggerNode(
+        "rip",
+        NextAction::array(0, new NextAction("rip", ACTION_NORMAL + 4), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "rake",
+        NextAction::array(0, new NextAction("rake", ACTION_NORMAL + 2), NULL)));
 }
 
 void DpsFeralDruidRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -666,14 +666,13 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
 
             if (successCast)
             {
-                if (itemUsed == nullptr && ai->HasCheat(BotCheatMask::item))
-                {
-                    if (!HasItemCooldown(itemId))
-                    {
-                        bot->RemoveSpellCooldown(spellInfo->Id, false);
-                        bot->AddSpellAndCategoryCooldowns(spellInfo, proto->ItemId);
-                    }
-                }
+                // NOTE: no manual cooldown on the item-cheat path. The core
+                // applies spell + category cooldowns itself in
+                // Spell::SendSpellCooldown, after the cast passes validation.
+                // Pre-applying them here poisoned the deferred SpellEvent:
+                // prepare() only queues it, and the re-validation in cast()
+                // then saw our own cooldown (NOT_READY) and cancelled the cast
+                // it had just started (e.g. every healthstone use failed).
 
                 if (IsFood(proto) || IsDrink(proto))
                 {

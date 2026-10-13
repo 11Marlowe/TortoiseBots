@@ -82,6 +82,9 @@ bool FerociousBiteTimeTrigger::IsActive()
     if (!target || !target->IsAlive())
         return false;
 
+    if (!ai->HasSpell("ferocious bite"))
+        return false;
+
     if (AI_VALUE2(uint8, "combo", "current target") < 5)
         return false;
 

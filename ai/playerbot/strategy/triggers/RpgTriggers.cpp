@@ -8,6 +8,8 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/TravelMgr.h"
+#include "../../runtime/HireLifecycle.h"
+#include "../../runtime/HireQuestPolicy.h"
 
 using namespace ai;
 
@@ -820,6 +822,12 @@ bool RpgGossipTalkTrigger::IsActive()
     GuidPosition guidP(getGuidP());
 
     if (!guidP.IsCreature())
+        return false;
+
+    // A hired companion never opens gossip on its own at a <Mercenary Hire>
+    // recruiter. Pool bots and owned alts are untouched.
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::IsHireQuestRecruiterEntry((uint32)guidP.GetEntry()))
         return false;
 
     GossipMenuItemsMapBounds pMenuItemBounds = sObjectMgr.GetGossipMenuItemsMapBounds(guidP.GetCreatureTemplate()->gossip_menu_id);

@@ -3105,7 +3105,18 @@ static bool HandleAction(ChatHandler* handler, char const* args)
 
         // Selecting an enemy is the most explicit request: make that unit the
         // requested raid mark. If the player selected a bot instead, preserve
-        // the existing group mark and use it as the assignment target.
+        // the existing group mark and use it as the assignment target. A
+        // stale dead selection plus an explicit bot name falls back to the
+        // live marked mob instead of refusing (a corpse stays selected after
+        // a kill); resolved before the validity check below.
+        if (ccTarget && namedBot && (!ccTarget->IsInWorld() || !ccTarget->IsAlive()) &&
+            context.group && requester->GetMap())
+        {
+            ObjectGuid staleMarkGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
+            Unit* markedMob = staleMarkGuid.IsEmpty() ? nullptr : requester->GetMap()->GetUnit(staleMarkGuid);
+            if (markedMob && markedMob->IsInWorld() && markedMob->IsAlive())
+                ccTarget = markedMob;
+        }
         if (ccTarget)
         {
             // Refuse before the mark moves: a corpse or non-attackable unit
@@ -3142,6 +3153,8 @@ static bool HandleAction(ChatHandler* handler, char const* args)
         }
         else if (context.group && requester->GetMap())
         {
+            // No live target selected (or the selection is a bot): fall back
+            // to the mob already carrying the mark, if it is still alive.
             ObjectGuid markGuid = context.group->GetTargetIcon(static_cast<uint8>(markIndex));
             if (!markGuid.IsEmpty())
                 ccTarget = requester->GetMap()->GetUnit(markGuid);
@@ -3158,10 +3171,28 @@ static bool HandleAction(ChatHandler* handler, char const* args)
             if (ccTarget)
             {
                 // Probe the named bot itself, not the party's best executor,
-                // so the immediate cast uses an action this bot owns.
+                // so the immediate cast uses an action this bot owns. A
+                // durable failure (indoors, wrong creature type) refuses
+                // instead of ACKing a mark the bot can never CC; anything
+                // transient (cooldown, range) still assigns.
                 BotCommandContext namedContext = context;
                 namedContext.selectedBot = namedBot;
-                ResolveCcExecutor(namedContext, ccTarget, ccMark, &ccAction);
+                CcDenyReason deny = CcDenyReason::None;
+                std::string denySpell;
+                ResolveCcExecutor(namedContext, ccTarget, ccMark, &ccAction, &deny, &denySpell);
+                if (ccAction.empty() && (deny == CcDenyReason::OutdoorsOnly ||
+                    deny == CcDenyReason::WrongCreatureType || deny == CcDenyReason::NoSpellKnown))
+                {
+                    if (markMoved)
+                        RestoreRaidMarks(context.group, marksBefore);
+                    std::string detail = CcDenyText(deny, denySpell, ccTarget->GetName());
+                    if (detail.empty())
+                        detail = "cannot CC this target here.";
+                    std::string named = namedBot->GetName();
+                    SendActionError(handler, intent, "no-cc",
+                        (named + " " + detail).c_str());
+                    return true;
+                }
             }
         }
         else if (context.selectedBot && IsLiveHeadlessBot(context.selectedBot))
@@ -3186,13 +3217,17 @@ static bool HandleAction(ChatHandler* handler, char const* args)
                 return true;
             }
 
-            executor = ResolveCcExecutor(context, ccTarget, ccMark, &ccAction);
+            CcDenyReason deny = CcDenyReason::None;
+            std::string denySpell;
+            executor = ResolveCcExecutor(context, ccTarget, ccMark, &ccAction, &deny, &denySpell);
             if (!executor)
             {
                 if (markMoved)
                     RestoreRaidMarks(context.group, marksBefore);
-                SendActionError(handler, intent, "no-cc",
-                    "No owned bot can CC this target (check class, target type, and spell state).");
+                std::string detail = CcDenyText(deny, denySpell, ccTarget->GetName());
+                if (detail.empty())
+                    detail = "No owned bot can CC this target (check class, target type, and spell state).";
+                SendActionError(handler, intent, "no-cc", detail.c_str());
                 return true;
             }
         }

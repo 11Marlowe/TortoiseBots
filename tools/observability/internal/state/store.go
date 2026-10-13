@@ -209,7 +209,10 @@ func (s *Store) ApplyHeartbeat(hb *model.HeartbeatPayload) bool {
 		return false
 	}
 
-	if hb.BotsCount == 0 {
+	// BotsCount covers bot rows only; players ride the batches. Publishing
+	// here when only players are online would wipe the roster until their
+	// batches land, so an empty publish needs both counts at zero.
+	if hb.BotsCount == 0 && hb.HumansCount == 0 {
 		s.publishLocked(hb.Seq, nil, now)
 		return true
 	}
@@ -550,8 +553,17 @@ func xpRateLocked(samples []xpSample, now time.Time) float64 {
 // grindingLocked builds the pool-wide "are they grinding" rollup. Kills come
 // from BOT_DEATH anomalies in the ring buffer (no new emitter counter), XP
 // from the derived per-bot rates, combat/travel from the roster itself.
+// Player rows are excluded: pool KPIs describe the bot pool, not whoever
+// happens to be logged in.
 func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.GrindingSummary {
 	out := model.GrindingSummary{}
+	pool := bots[:0:0]
+	for _, b := range bots {
+		if !b.Player {
+			pool = append(pool, b)
+		}
+	}
+	bots = pool
 	n := len(bots)
 	if n == 0 {
 		return out
@@ -680,7 +692,8 @@ func levelBands(bots []model.BotSnapshot, gear map[uint32]model.BotGear) []model
 // publishLocked replaces the roster with the contents of a complete cycle.
 // Trail continuity is preserved only for bots that stayed on the same
 // map/zone; any transition resets the trail so coordinates never leak across
-// zone maps.
+// zone maps. Player rows never carry trails (no breadcrumb noise for the
+// operator's own character).
 func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Time) {
 	next := make(map[uint32]*botEntry, len(bots))
 
@@ -690,11 +703,13 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 		}
 
 		var trail []model.Coordinate
-		if prev, ok := s.bots[snap.GUID]; ok &&
-			prev.snap.MapID == snap.MapID && prev.snap.ZoneID == snap.ZoneID {
-			trail = prev.trail
+		if !snap.Player {
+			if prev, ok := s.bots[snap.GUID]; ok &&
+				prev.snap.MapID == snap.MapID && prev.snap.ZoneID == snap.ZoneID {
+				trail = prev.trail
+			}
+			trail = appendTrail(trail, snap, s.cfg.TrailPoints)
 		}
-		trail = appendTrail(trail, snap, s.cfg.TrailPoints)
 
 		next[snap.GUID] = &botEntry{
 			snap:  snap,
