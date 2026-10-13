@@ -48,14 +48,20 @@ enum BattleBotWsgWaitSpot
     BB_WSG_WAIT_SPOT_RIGHT
 };
 
-std::vector<uint32> const vFlagsAB = { BG_AB_BANNER_ALLIANCE , BG_AB_BANNER_CONTESTED_A , BG_AB_BANNER_HORDE , BG_AB_BANNER_CONTESTED_H ,
-                                       BG_AB_BANNER_STABLE, BG_AB_BANNER_BLACKSMITH, BG_AB_BANNER_FARM, BG_AB_BANNER_LUMBER_MILL,
-                                       BG_AB_BANNER_MINE };
+// Arathi Basin banner game object entries (Turtle world DB, map 529). Assault banners (GO type BUTTON): 180058 Alliance,
+// 180059 and 180061 Contested, 180060 Horde. Neutral node banners (GO type GOOBER), in BG_AB_NODE_* order: 180087 Stables,
+// 180088 Blacksmith, 180089 Farm, 180090 Lumber Mill, 180091 Mine. The BG_AB_BANNER_* constants in cmangos-compat-shim.h
+// are small indices, not entries, so they can never match a game object's entry.
+std::vector<uint32> const vFlagsAB = { 180058, 180059, 180060, 180061, 180087, 180088, 180089, 180090, 180091 };
 
 std::vector<uint32> const vFlagsWS = { GO_WS_SILVERWING_FLAG, GO_WS_WARSONG_FLAG, GO_WS_SILVERWING_FLAG_DROP, GO_WS_WARSONG_FLAG_DROP };
 static std::map<uint32, GameObject*> botSelectedObjectives;
 static std::map<uint32, uint32> botObjectiveSelectionTime;
 static std::map<uint32, uint32> botLastObjectiveCheckTime;
+// Arathi Basin: one banner cast per bot per AB_BANNER_CAST_THROTTLE_MS. Without it a bot in reach of a banner re-cast
+// every tick and stayed on that node instead of moving on to the next one.
+static uint32 const AB_BANNER_CAST_THROTTLE_MS = 4000;
+static std::map<uint32, uint32> botLastBannerCastTime;
 
 
 
@@ -2956,7 +2962,9 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
     {
     case BATTLEGROUND_AB:
     {
-        closeObjects = *context->GetValue<std::list<ObjectGuid> >("closest game objects static los");
+        // No line-of-sight test: the static probe starts at the banner's base with no height offset and drops a banner
+        // 1.5 yd away on the node platforms. The INTERACTION_DISTANCE test below keeps only the banners in reach.
+        closeObjects = *context->GetValue<std::list<ObjectGuid> >("nearest game objects no los");
         closePlayers = *context->GetValue<std::list<ObjectGuid> >("closest friendly players");
         flagRange = INTERACTION_DISTANCE;
         break;
@@ -3000,19 +3008,35 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
         if (f == vFlagIds.end())
             continue;
 
-        if (!sServerFacade.isSpawned(go) || go->getLootState() != GO_READY || go->GetGoState() != GO_STATE_READY)
+        if (!sServerFacade.isSpawned(go))
             continue;
 
-        // Test the cheap side first: CanInteract logs a core error when the bot
-        // is out of range, so with the operands the other way round every
-        // Warsong bot produced one per tick regardless of distance - 15000+ a
-        // session - while only the continue was ever gated on bgType.
-        if (bgType != BATTLEGROUND_WS && !bot->CanInteractWithGameObject(go))
+        // Arathi Basin: a banner the bot's own team already holds (180058 Alliance, 180060 Horde) or is contesting (180059
+        // Alliance, 180061 Horde) is no target. The core refuses that click in EventPlayerClickedOnFlag, so casting on it
+        // would only spend the bot's capture cast and its throttle slot.
+        if (bgType == BATTLEGROUND_AB)
+        {
+            uint32 const entry = go->GetEntry();
+            bool const ownBanner = bot->GetTeam() == ALLIANCE ? (entry == 180058 || entry == 180059)
+                                                              : (entry == 180060 || entry == 180061);
+            if (ownBanner)
+                continue;
+        }
+
+        // Only Warsong's flags keep the ready-state gate. Arathi Basin assault banners (GO type BUTTON) read as not ready
+        // while held or contested, which is exactly when a bot has to click them to retake a node. The core validates the
+        // capture itself in BattleGroundAB::EventPlayerClickedOnFlag (match status, node, and team ownership).
+        if (bgType != BATTLEGROUND_AB && (go->getLootState() != GO_READY || go->GetGoState() != GO_STATE_READY))
             continue;
 
+        // Range before CanInteract: CanInteract logs a core error for an object out of reach, and the Arathi Basin lookup
+        // covers the whole sight distance, so every banner on the map would log one per tick without this order.
         if (flagRange)
             if (!bot->IsWithinDistInMap(go, flagRange))
                 continue;
+
+        if (bgType != BATTLEGROUND_WS && !bot->CanInteractWithGameObject(go))
+            continue;
 
         bool atBase = go->GetEntry() == vFlagsWS[GetTeamIndexByTeamId(bot->GetTeam())];
         if (atBase && bgType == BATTLEGROUND_WS && !(bot->HasAura(BG_WS_SPELL_WARSONG_FLAG) || bot->HasAura(BG_WS_SPELL_SILVERWING_FLAG)))
@@ -3022,6 +3046,14 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
         {
         case BATTLEGROUND_AB:
         {
+            // One capture cast per bot per AB_BANNER_CAST_THROTTLE_MS. A throttled banner is skipped, so the path moves
+            // the bot on to its next objective instead of holding it on the node.
+            uint32 const botGUID = bot->GetGUIDLow();
+            uint32 const now = WorldTimer::getMSTime();
+            std::map<uint32, uint32>::const_iterator lastCast = botLastBannerCastTime.find(botGUID);
+            if (lastCast != botLastBannerCastTime.end() && now - lastCast->second < AB_BANNER_CAST_THROTTLE_MS)
+                continue;
+
             if (bot->IsMounted())
                 bot->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
 
@@ -3042,6 +3074,7 @@ bool BGTactics::atFlag(std::vector<BattleBotPath*> const& vPaths, std::vector<ui
             Spell *spell = new Spell(bot, spellInfo, false);
             spell->m_targets.setGOTarget(go);
             spell->prepare(spell->m_targets);
+            botLastBannerCastTime[botGUID] = now;
             ai->WaitForSpellCast(spell);
 
             //WorldPacket data(CMSG_GAMEOBJ_USE);

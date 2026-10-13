@@ -4,6 +4,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/Formations.h"
+#include "../../../../behavior/PlayerConvenience.h"
 
 using namespace ai;
 
@@ -116,6 +117,10 @@ bool StayChatShortcutAction::Execute(Event& event)
     if (!requester)
         return false;
 
+    // Latest explicit order wins: a pending summon must not put this bot
+    // back on follow when it lands.
+    TortoiseBots::PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
+
     ai->Reset();
     // Keep Stay in the reaction engine as well as combat/non-combat so a
     // later state transition cannot resurrect an obsolete Follow strategy.
@@ -136,6 +141,9 @@ bool GuardChatShortcutAction::Execute(Event& event)
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     if (!requester)
         return false;
+
+    // Latest explicit order wins over a pending summon's follow restore.
+    TortoiseBots::PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
 
     ai->Reset();
     // M4: route through the central setter so the REACTION engine cannot keep

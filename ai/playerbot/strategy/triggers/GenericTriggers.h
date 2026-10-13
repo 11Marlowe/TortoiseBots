@@ -1363,19 +1363,26 @@ namespace ai
             uint32 disMask = GetDispellMask(DISPEL_DISEASE);
             uint32 poisMask = GetDispellMask(DISPEL_POISON);
             uint32 bleedType = 1 << (MECHANIC_BLEED - 1);
+            bool wantsCure = false;
             for (auto itr : bot->GetSpellAuraHolderMap())
             {
                 SpellEntry const* spell = itr.second->GetSpellProto();
                 if (IsPositiveSpell(spell->Id))
                     continue;
 
+                // Stoneform removes every disease and poison on the bot (its dispel immunity carries
+                // SPELL_ATTR_EX_DISPEL_AURAS_ON_IMMUNITY), so it is held back while a never-dispel debuff
+                // such as Mutating Injection is on the bot.
+                if (PlayerbotAI::IsNeverDispelSpell(spell->Id))
+                    return false;
+
                 if (((1 << spell->Dispel) & disMask) || ((1 << spell->Dispel) & poisMask))
-                    return true;
+                    wantsCure = true;
 
                 if (itr.second->HasMechanicMask(bleedType))
-                    return true;
+                    wantsCure = true;
             }
-            return false;
+            return wantsCure;
         }
     };
 
