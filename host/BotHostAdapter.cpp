@@ -10,7 +10,9 @@
 #include "../runtime/AhMarketService.h"
 #include "../runtime/BattlegroundQueueService.h"
 #include "../runtime/ObservabilityEmitter.h"
+#include "BotChatAdapter.h"
 #include "HireRecruiterScript.h"
+#include "../commands/BotCommandQueue.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Config/Config.h"
 #include "ObjectMgr.h"
@@ -130,6 +132,12 @@ void BotHostAdapter::OnStartup()
 }
 void BotHostAdapter::OnUpdate(uint32 diff)
 {
+    // Issue #833: players' `.bot` / TBM commands arrive on map and
+    // AsyncPackets threads and are queued; run them here, on the world thread
+    // and before the bot update. This runs even with the AI disabled, so no
+    // command ever executes off the world thread.
+    BotChatAdapter::DrainQueuedCommands();
+
     // Initialization stops before service configuration when AI is disabled.
     // Do not tick those services against an uninitialized registry/config.
     if (!sPlayerbotAIConfig.enabled)
@@ -153,6 +161,7 @@ void BotHostAdapter::OnShutdown()
 {
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
+    BotCommandQueue::Instance().Clear();
     BotManager::Instance().Shutdown();
     RandomBotService::Instance().Shutdown();
     BotActivityLeaseManager::Instance().Clear();

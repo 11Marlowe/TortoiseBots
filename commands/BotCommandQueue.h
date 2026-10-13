@@ -1,0 +1,147 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+namespace TortoiseBots {
+
+// Issue #833: `.bot` commands typed by a player arrive on whatever thread the
+// core processes that chat packet on: `/say` on a map thread, party / raid /
+// guild / whisper on the AsyncPackets thread, whose window overlaps the world
+// hook that ticks the bots. The command layer touches module and bot AI state
+// that only the world thread may touch, so the chat and addon adapters hand a
+// player's command to this queue and BotHostAdapter::OnUpdate drains it on the
+// world thread, before the bot update. Behaviour is unchanged apart from
+// timing: a command runs at most one world tick later.
+//
+// An entry holds the requester's raw guid and a copy of the command text, never
+// a Player, session or handler pointer: the drain looks the player up again and
+// drops the command when the player has logged out in between.
+//
+// Plain data and the standard library only, so tools/test_bot_command_queue.cpp
+// exercises it standalone.
+
+// Where the drained command's replies go: the player's chat frame (`.bot` typed
+// in chat) or the TBM addon channel (the addon transport).
+enum class BotCommandReply : uint8_t
+{
+    Chat,
+    Addon,
+};
+
+struct PendingBotCommand
+{
+    uint64_t requesterGuid = 0;
+    BotCommandReply reply = BotCommandReply::Chat;
+    std::string args;
+};
+
+// Per-requester commands dropped because the requester already had the
+// maximum pending; reported back to that player once, on the world thread.
+struct DroppedBotCommands
+{
+    uint64_t requesterGuid = 0;
+    BotCommandReply reply = BotCommandReply::Chat;
+    size_t count = 0;
+};
+
+class BotCommandQueue
+{
+public:
+    // A burst larger than any UI or typing produces in one world tick; it
+    // bounds memory if a client floods addon messages (those skip chat flood
+    // control).
+    static constexpr size_t kMaxPendingPerRequester = 128;
+
+    static BotCommandQueue& Instance()
+    {
+        static BotCommandQueue queue;
+        return queue;
+    }
+
+    // Any thread. False when the requester already has the maximum pending;
+    // the command is then dropped and counted for one reply at the next drain.
+    bool Enqueue(uint64_t requesterGuid, BotCommandReply reply, std::string args)
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        size_t& pending = m_pendingPerRequester[requesterGuid];
+        if (pending >= kMaxPendingPerRequester)
+        {
+            DroppedBotCommands& dropped = m_dropped[requesterGuid];
+            dropped.requesterGuid = requesterGuid;
+            dropped.reply = reply;
+            ++dropped.count;
+            return false;
+        }
+        ++pending;
+        m_pending.push_back(PendingBotCommand{ requesterGuid, reply, std::move(args) });
+        return true;
+    }
+
+    // World thread. Runs every command queued so far, in arrival order.
+    // `find` maps a requester guid to its live player (or a null-like value
+    // once the player logged out: the command is then dropped); `run` executes
+    // one command for that player; `reportDropped` tells a live player how many
+    // of their commands the cap dropped. The lock is released before anything
+    // runs, so a command that queues another `.bot` command (or another thread
+    // queuing meanwhile) does not deadlock; that command runs on the next drain.
+    // Returns the number of commands executed.
+    template <class Find, class Run, class ReportDropped>
+    size_t Drain(Find find, Run run, ReportDropped reportDropped)
+    {
+        std::vector<PendingBotCommand> batch;
+        std::unordered_map<uint64_t, DroppedBotCommands> dropped;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            batch.swap(m_pending);
+            dropped.swap(m_dropped);
+            m_pendingPerRequester.clear();
+        }
+
+        size_t executed = 0;
+        for (PendingBotCommand const& command : batch)
+        {
+            auto requester = find(command.requesterGuid);
+            if (!requester)
+                continue;
+            run(requester, command);
+            ++executed;
+        }
+
+        for (auto const& entry : dropped)
+        {
+            auto requester = find(entry.first);
+            if (requester)
+                reportDropped(requester, entry.second);
+        }
+        return executed;
+    }
+
+    // World thread, at shutdown: forget everything still queued.
+    void Clear()
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_pending.clear();
+        m_dropped.clear();
+        m_pendingPerRequester.clear();
+    }
+
+    size_t PendingCount() const
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return m_pending.size();
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<PendingBotCommand> m_pending;
+    std::unordered_map<uint64_t, size_t> m_pendingPerRequester;
+    std::unordered_map<uint64_t, DroppedBotCommands> m_dropped;
+};
+
+} // namespace TortoiseBots

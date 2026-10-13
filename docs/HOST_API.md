@@ -198,6 +198,27 @@ module-owned `PlayerConvenience`, `AhMarketService`, and
 
 The core listener is generic; it does not call a PlayerBots singleton.
 
+Players' `.bot` commands do not arrive on that thread: the core dispatches
+`AllCommandScript::CanExecuteCommand` wherever the chat packet is processed —
+a map thread for `SAY` / `YELL` / `EMOTE` (`PACKET_PROCESS_MAP`), the
+AsyncPackets thread for `PARTY`, `RAID`, `GUILD`, `WHISPER`, `CHANNEL` and the
+other group types (`PACKET_PROCESS_DB_QUERY`, whose window overlaps the next
+tick's `WORLDHOOK_ON_UPDATE`), and the world thread only for GM sessions and
+`LANG_ADDON`. Since issue #833 `BotChatAdapter` and `BotAddonAdapter` therefore
+only queue an in-game player's command (requester guid, transport, a copy of the
+text — no `Player`, session or handler pointer; `commands/BotCommandQueue.h`),
+and `BotHostAdapter::OnUpdate` drains the queue first thing every tick — also
+while `AiPlayerbot.Enabled = 0`, before the hook's early return — so it runs
+before `BotManager` updates the bots: the command runs on the world thread at most one tick later, with a fresh
+`ChatHandler` (chat) or the TBM addon reply sink (addon); a requester who logged
+out meanwhile is dropped. Every in-game transport, GM and addon included, uses
+the one FIFO, so commands run, and reply, in the order the module received them.
+That is not necessarily the order the client sent them: party chat is processed on
+the AsyncPackets thread and addon / GM chat in the world session update, so an
+addon click can overtake a `/p .bot` typed just before it. Commands without an
+in-game player (the server console, remote access, `pending_commands` rows)
+already run on the world thread and stay inline.
+
 Inside that pass (`BotManager::UpdateBots`) bots under a real player are
 updated first and without a budget, then the random pool follows as one
 turn queue, each bot due when its AI asked to think next, capped by its
@@ -302,9 +323,10 @@ design.
   switch and consume matching `LANG_ADDON` payloads first; a module addon
   protocol needs a prefix none of them claim.
 - `LANG_ADDON` chat is forced onto the world thread
-  (`WorldSession::GetChatPacketProcessingType`), so addon hooks dispatch with
-  the same threading as the rest of the command path, and
+  (`WorldSession::GetChatPacketProcessingType`), and
   `CONFIG_BOOL_ADDON_CHANNEL=0` drops the message before any module sees it.
+  The module still queues `TBM` commands with typed `.bot` commands (§8) so
+  both transports share one ordered, world-thread execution path.
 
 The remaining chat hooks fire on real delivery only:
 
