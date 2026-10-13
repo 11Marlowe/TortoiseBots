@@ -313,6 +313,7 @@ void MageBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "no mana gem",
         NextAction::array(0, new NextAction("conjure mana gem", ACTION_NORMAL), NULL)));
+}
 
 void MageBuffPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
