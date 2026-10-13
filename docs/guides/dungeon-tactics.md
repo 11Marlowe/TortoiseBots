@@ -213,3 +213,191 @@ Zone-ins for Map 807, 532, and 800 swap in `emerald sanctum`, `lower karazhan`, 
 - **Emerald Sanctum (Solnius 60748):** tanks hold the head away from *Acid Breath* (24839); *Emerald Rot* (56508) carriers run out via the shared bomb action; *Call of Nightmare* (46079) add waves (Suppressor 61212, Scalebane 60746, Dragonkin 60743, Wyrmkin 60745) trigger add focus.
 - **Lower Karazhan (Araxxna 61221 / Moroes 61225):** spiderling swarms (entry 30008) trigger AoE cleave; Moroes smoke bomb (57096) forces tank-assist re-target.
 - **Karazhan Crypt (800):** set `.bot formation near` manually before entering — narrow tunnels clip wide formations through walls. Door/lever puzzles stay manual pending playtesting (issue #237).
+
+---
+
+## 8. Turtle 5-Man Reference
+
+Bots do not clear dungeons on their own. Autonomous dungeon clearing is an explicit non-goal ([known limitations §3](../concepts/known-limitations.md)), and TortoiseBots does not ship the dungeon-clear module this data comes from. This section is a reference for a player leading companion bots: the boss kill order and creature entries, the mobs not to wait for, and the events that gate a boss.
+
+- **Entries** are creature entries from the Turtle 1.18.1 world data, and names are the core's names. A *Turtle* tag after an entry marks a creature that exists only on Turtle.
+- **Provisional** means the server owner has not confirmed that order. Treat it as a guess and check it in game.
+- **Do not wait for** lists rares, pool spawns, escorts and friendly NPCs. A group that waits on one stalls, because its spawn may not be in the instance.
+- Objectives that are not bosses are shown in [brackets].
+- The data comes from the T-imothy/tortoise-wow fork's dungeon-clear roster. See [PROVENANCE](../PROVENANCE.md) for the source and licence.
+
+### Pooled rares to never wait for
+
+| Entry | Name | Dungeon | Pool chance |
+| --- | --- | --- | --- |
+| 4842 | Earthcaller Halmgar | Razorfen Kraul | 30% |
+| 6228 | Dark Iron Ambassador | Gnomeregan | 30% |
+| 6488 | Fallen Champion | Scarlet Monastery | 2% |
+| 9218 | Spirestone Battle Lord | Blackrock Spire | 15% |
+| 10558 | Hearthsinger Forresten | Stratholme | 25% |
+| 12237 | Meshlok the Harvester | Maraudon | 30% |
+
+### Dungeons
+
+#### Crescent Grove (map 802)
+
+| Field | Detail |
+| --- | --- |
+| Map | 802, **provisional** |
+| Kill order | Grovetender Engryss (92107) → Keeper Ranathos (92109) → High Priestess A'lathea (92108) → Fenektis the Deceiver (92111) → Master Raxxieth (92110, end boss) |
+| Do not wait for | Inuvias Brightlance (92133), who looks like a rare and is not ordered |
+| Quirks | None listed |
+
+#### Stormwrought Ruins (map 818)
+
+| Field | Detail |
+| --- | --- |
+| Map | 818, **provisional** |
+| Kill order | Dagar the Glutton (62547) → Oronok Torn-Heart (62548) → Librarian Theodorus (62552) → Duke Balor the IV (62549) → Chieftain Stormsong (62551) → Deathlord Tidebane (62550, end boss) |
+| Do not wait for | None listed |
+| Quirks | None listed |
+
+#### Gilneas City (map 815)
+
+| Field | Detail |
+| --- | --- |
+| Map | 815, **provisional** |
+| Kill order | Matthias Holtz (61419) → Packmaster Ragetooth (61420) → Judge Sutherland (61421) → Dustivan Blackcowl (61422) → Marshal Magnus Greystone (61423) → Regent-Lord Mortimer Harlow (61264) → Regent-Lady Celia Harlow (61263) → Genn Greymane (61418, end boss) |
+| Do not wait for | Horsemaster Levvin (61605), not ordered by the fork |
+| Quirks | Mortimer and Celia Harlow stand together, so they come as a pair |
+
+#### Hateforge Quarry (map 808)
+
+| Field | Detail |
+| --- | --- |
+| Map | 808, **provisional** |
+| Kill order | Engineer Figgles (60736) → High Foreman Bargul Blackhammer (60735) → Corrosis (60829) → Hatereaver Annihilator (60734) → Har'gesh Doomcaller (60737, end boss) |
+| Do not wait for | 'Broody' (60715), Figgles' companion, not ordered |
+| Quirks | None listed |
+
+#### Windhorn Canyon (map 820)
+
+| Field | Detail |
+| --- | --- |
+| Map | 820. The fork has two orders that disagree; both are shown |
+| Kill order, Atlas read (server owner, 2026-09-02) | Pathun Duskhide (62779) → Ahgk'tos the Pure (62778) → Ambassador Vortalus (62783) → Walgan Bloodcaller (62784) → Bonespeaker Narlgom (62780) → Prophet Stormhoof (62781) → Chieftain Shalk Blackwind (62782, end boss) |
+| Kill order, walk from the entrance (**provisional**) | Ahgk'tos the Pure (62778) → Pathun Duskhide (62779) → Ambassador Vortalus (62783) → Bonespeaker Narlgom (62780) → Champion Rotag (62785) → Walgan Bloodcaller (62784) → Prophet Stormhoof (62781) → Chieftain Shalk Blackwind (62782, end boss) |
+| Do not wait for | Grand Elder Skystrider (62837), a friendly NPC |
+| Quirks | The fork disagrees on whether Champion Rotag (62785) is a boss. The Atlas read says Bonespeaker Narlgom summons him mid-fight, so he is an add and is left out; the walk order makes him the fifth boss. Check the order in game |
+
+#### Dragonmaw Retreat (map 816)
+
+| Field | Detail |
+| --- | --- |
+| Map | 816, **confirmed**: the server owner walked the route on foot (fork) |
+| Kill order | Bogpaw Truthsay (62056) → Gowlfang (62057) → Web Master Torkon (62067) → Cavernweb Broodmother (62066) → Garlok Flamekeeper (62071) → Slagfist Destroyer (62068) → Halgan Redbrand (62069) → Overlord Blackheart (62070) → Elder Hollowblood (62038) → Searistrasz (62072) → Zuluhed the Whacked (62037) |
+| Do not wait for | None listed |
+| Quirks | Bogpaw Truthsay and Gowlfang share one spot. A drop sits between bosses 2 and 3: Torkon is across a gap jump, and reaching the Cavernweb Broodmother means letting yourself fall. The order holds for the near entrance; the far entrance reverses it |
+
+#### Stormwind Vault (map 35)
+
+| Field | Detail |
+| --- | --- |
+| Map | 35, **provisional** |
+| Kill order | Volkan Cruelblade (80851) → Tham'Grarr (80852) → Black Bride (80850) → Damian (80854) → Aszosh Grimflame (80853) → Arc'tiras (93107, end boss) |
+| Do not wait for | None listed |
+| Quirks | None listed |
+
+#### Karazhan Crypt (map 800)
+
+| Field | Detail |
+| --- | --- |
+| Map | 800, **provisional** |
+| Kill order | Commander Andreon (91919) → Corpsemuncher (91917) → Guard Captain Gort (92935) → Hivaxxis (91929) → Archlich Enkhraz (91916) → Marrowspike (91920) → [Crypt Watcher summons] Alarus (91928, end boss) |
+| Do not wait for | None listed |
+| Quirks | Alarus is summoned by the Crypt Watcher trigger and has no spawn row, so he needs an event before he can be ordered. Bosses are level 61-62; the fork notes the group cap is 60 |
+
+#### Razorfen Kraul (map 47)
+
+| Field | Detail |
+| --- | --- |
+| Map | 47, order measured leg by leg on the navmesh (fork) |
+| Kill order | Roogug (6168) → Aggem Thorncurse (4424) → Death Speaker Jargba (4428) → Overlord Ramtusk (4420) → Rotthorn (62503, *Turtle*) → Agathelos the Raging (4422) → Charlga Razorflank (4421, end boss) |
+| Do not wait for | Blind Hunter (4425) and Earthcaller Halmgar (4842), both 30% pool rares; Willix the Importer (4508), an escort gnome who is elite but not an enemy |
+| Quirks | Rotthorn is Turtle's own boss; the vanilla boss list does not have him |
+
+#### Blackfathom Deeps (map 48)
+
+| Field | Detail |
+| --- | --- |
+| Map | 48, the server owner's call (fork); Serra'kis last |
+| Kill order | Ghamoo-ra (4887) → Lady Sarevess (4831) → Gelihast (6243) → Velthelaxx the Defiler (62530) → Twilight Lord Kelris (4832) → [Fires of Aku'mai] → Aku'mai (4829) → Old Serra'kis (4830, underwater, end boss) |
+| Do not wait for | Lorgus Jett (12902), a rare with three possible spots and a spawn chance |
+| Quirks | Serra'kis goes last because groups that killed him got stuck 19 yd below Twilight Lord Kelris in the water, and the climb out is still broken (fork run data) |
+
+#### Gnomeregan (map 90)
+
+| Field | Detail |
+| --- | --- |
+| Map | 90, straight-line order from the entrance (fork) |
+| Kill order | Viscous Fallout (7079) → Electrocutioner 6000 (6235) → Crowd Pummeler 9-60 (6229) → Mekgineer Thermaplugg (7800, end boss) |
+| Do not wait for | Dark Iron Ambassador (6228), a 30% pool rare; Blastmaster Emi Shortfuse (7998), the quest NPC for the bomb, not a fight |
+| Quirks | Grubbis is spawned by an event and is not in the creature data, so the fork does not roster him |
+
+#### Scarlet Monastery (map 189)
+
+| Field | Detail |
+| --- | --- |
+| Map | 189, walked by the server owner on 2026-09-02. Each wing is its own run, so only the order inside a wing matters |
+| Kill order | Graveyard: Interrogator Vishas (3983) → Duke Dreadmoore (61972, *Turtle*) → Bloodmage Thalnos (4543). Library: Houndmaster Loksey (3974) → Brother Wystan (61983, *Turtle*) → Arcanist Doan (6487). Armory: Armory Quartermaster Daghelm (61982, *Turtle*) → Herod (3975). Cathedral: High Inquisitor Fairbanks (4542) → Scarlet Commander Mograine (3976) → High Inquisitor Whitemane (3977) |
+| Do not wait for | Fallen Champion (6488), a 2% pool rare |
+| Quirks | The three Turtle bosses have 61.7x (Dreadmoore), 12.7x (Wystan) and 16.3x (Daghelm) trash health |
+
+#### Uldaman (map 70)
+
+| Field | Detail |
+| --- | --- |
+| Map | 70, read off the in-game Atlas by the server owner on 2026-09-02 |
+| Kill order | Baelog (6906) → Revelosh (6910) → Ironaya (7228) → Obsidian Sentinel (7023) → [Altar of the Keepers] → Ancient Stone Keeper (7206) → Galgann Firehammer (7291) → Grimlok (4854) → [Altar of Archaedas] → Archaedas (2748, end boss) |
+| Do not wait for | Annora (11073), a friendly enchanter; Eric "The Swift" (6907) and Olaf (6908), who die with Baelog |
+| Quirks | Both altars are objectives, not bosses. Grimlok is seventh, not first |
+
+#### Zul'Farrak (map 209)
+
+| Field | Detail |
+| --- | --- |
+| Map | 209, the server owner's order (2026-09-04) |
+| Kill order | Theka the Martyr (7272) → Antu'sul (8127) → Witch Doctor Zum'rah (7271) → [Temple Summit] → Chief Ukorz Sandscalp (7267) → Hydromancer Velratha (7795) → [Sacred Pool, Gahz'rilla] → Zel'jeb the Ancient (62495, *Turtle*) → [Farraki Arena] → Champion Razjal the Quick (62498, *Turtle*, end boss) |
+| Do not wait for | Sergeant Bly (7604), who dies inside the temple event and is not an anchor |
+| Quirks | Razjal is invulnerable until you gossip him, which starts the Farraki Arena. The arena runs Kath'zen the Brutal (62496), then Juthza the Cunning (62497), then Razjal. A wipe resets it |
+
+#### Maraudon (map 349)
+
+| Field | Detail |
+| --- | --- |
+| Map | 349, confirmed by the server owner on 2026-09-05 (Rotgrip last) |
+| Kill order | Noxxion (13282, Foulspore Cavern) → Razorlash (12258, Poison Falls) → Lord Vyletongue (12236, Wicked Grotto) → Celebras the Cursed (12225, Earth Song Falls) → Landslide (12203) → Tinkerer Gizlock (13601) → Princess Theradras (12201) → Rotgrip (13596, open water, end boss) |
+| Do not wait for | Meshlok the Harvester (12237), a 30% pool rare |
+| Quirks | Creeping Sludge (12222) has a permanent poison aura (22638, Poison Shock) that hits within 5 yd about every 2 s, even while it is idle. Walking within 5 yd of a sleeping one pulls it and costs about 200 HP, so keep followers outside that circle |
+
+#### Sunken Temple (map 109)
+
+| Field | Detail |
+| --- | --- |
+| Map | 109, an order that restores the one the events file intended (fork) |
+| Kill order | Zolo (5712), Gasher (5713) and Hukku (5715) as the forcefield defenders → [Central-circle pre-clear] → Jammal'an the Prophet (5710) → [Weaver and Dreamscythe] → Morphaz (5719) → Hazzas (5722) → Shade of Eranikus (5709) |
+| Do not wait for | None listed |
+| Quirks | The two dragons phase in only after Jammal'an dies. The optional pit wing (statues, Atal'alarion, the Egg, the Avatar) is compiled as a tail and is not in the order lines |
+
+#### Blackrock Depths (map 230)
+
+| Field | Detail |
+| --- | --- |
+| Map | 230, **provisional** (fork: until the owner confirms) |
+| Kill order | High Interrogator Gerstahn (9018) → Houndmaster Grebmar (9319) → [Ring of Law] → General Angerforge (9033) → Bael'Gar (9016) → [Shadowforge lock lever] → Golem Lord Argelmach (8983) → Fineous Darkvire (9056) → Lord Incendius (9017) → Ambassador Flamelash (9156) → [The Seven, Lyceum braziers] → Magmus (9938) → Princess Moira Bronzebeard (8929) → Emperor Dagran Thaurissan (9019, end boss) |
+| Do not wait for | Pyromancer Loregrain (9024), Lord Roccor (9025), Warder Stilgiss (9041), Solakar Flamewreath (10264) and Panzor the Invincible (8923), all rank 2 rares |
+| Quirks | Grim Guzzler is not ordered: Ribbly Screwspigot (9543), Plugger Spazzring (9499) and Phalanx (9502) are friendly on this realm (Phalanx until the Plugger brawl). The fork calls 10264 "Warder Verek", but the core data names it Solakar Flamewreath |
+
+#### Razorfen Downs (map 129)
+
+| Field | Detail |
+| --- | --- |
+| Map | 129, fork order with no owner label |
+| Kill order | Tuten'kash (7355, opened by the gong at the entrance) → Mordresh Fire Eye (7357) → Glutton (8567) → Amnennar the Coldbringer (7358, end boss) |
+| Do not wait for | Ragglesnout (7354), a rare and never an objective |
+| Quirks | Tuten'kash is added by a patch and has no static spawn. Glutton is not in the curated 1.12 list but is a boss here |
