@@ -193,7 +193,8 @@ int main()
         CHECK(ai::GetCreatureLevelRouteModifier(30, true, 40, 40, 40) == 1.0f);
         // 12 levels over: 2 over the 10-level grace, +10% each.
         CHECK(std::fabs(ai::GetCreatureLevelRouteModifier(20, true, 32, 0, 0) - 1.2f) < 0.0001f);
-        // Opposite-faction creatures count 30% per level, and a horde bot reads the horde slot.
+        // Opposite-faction creatures count 30% per level: an Alliance bot reads slot [2]
+        // (Horde-friendly creatures), so a Horde bot ignores that slot.
         CHECK(std::fabs(ai::GetCreatureLevelRouteModifier(20, true, 0, 0, 32) - 1.6f) < 0.0001f);
         CHECK(ai::GetCreatureLevelRouteModifier(20, false, 0, 0, 32) == 1.0f);
     }
