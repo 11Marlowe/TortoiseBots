@@ -200,6 +200,11 @@
               <button class="seg-btn" data-v="online">Online</button>
               <button class="seg-btn" data-v="offline">Offline</button>
             </div>
+            <div class="seg" id="bots-kind" role="group" aria-label="Bots or players">
+              <button class="seg-btn active" data-v="all">Bots + players</button>
+              <button class="seg-btn" data-v="bot">Bots</button>
+              <button class="seg-btn" data-v="player">Players</button>
+            </div>
             <div class="seg" id="bots-view" role="group" aria-label="Columns">
               <button class="seg-btn active" data-v="live" title="Status, health, target and zone">Live</button>
               <button class="seg-btn" data-v="progress" title="XP, gear and gold">Progress</button>
@@ -548,6 +553,7 @@
       </div>
       <div class="profile-actions">
         <span id="armory-online" class="badge badge-success">Online</span>
+        <span id="armory-kind" class="badge badge-info" style="display: none;">Bot</span>
         <button class="btn" id="armory-map-btn" title="Open the map on this bot">Show on map</button>
         <button id="close-profile" class="close-btn" aria-label="Close profile">&times;</button>
       </div>

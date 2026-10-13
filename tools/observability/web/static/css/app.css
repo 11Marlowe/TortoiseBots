@@ -1462,6 +1462,21 @@ select.input {
   border-radius: 50%;
 }
 
+/* Real players read as rings, never as bot triangles: same class fill, hollow
+   centre, slightly larger so they stand out in a crowd of bots. */
+.bot-dot.player-dot {
+  clip-path: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  box-sizing: border-box;
+}
+#world-view .bot-dot.player-dot {
+  width: 12px;
+  height: 12px;
+}
+
 .bot-dot:hover {
   z-index: 20;
   filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.9)) brightness(1.4);

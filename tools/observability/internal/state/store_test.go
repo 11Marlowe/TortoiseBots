@@ -31,9 +31,13 @@ func newTestStore(c *clock) *Store {
 }
 
 func heartbeat(seq uint64, bots uint32) *model.HeartbeatPayload {
+	return heartbeatHumans(seq, bots, 1)
+}
+
+func heartbeatHumans(seq uint64, bots, humans uint32) *model.HeartbeatPayload {
 	return &model.HeartbeatPayload{
 		V: model.ProtocolVersion, Seq: seq, Type: "HEARTBEAT",
-		BotsCount: bots, HumansCount: 1, TickDiffMs: 50,
+		BotsCount: bots, HumansCount: humans, TickDiffMs: 50,
 		States: model.StateRatios{Idle: 1},
 	}
 }
@@ -126,7 +130,7 @@ func TestEmptyRosterHeartbeatPublishes(t *testing.T) {
 	s.ApplyHeartbeat(heartbeat(1, 1))
 	s.ApplyBatch(batch(1, 0, 1, bot(1, "Alpha", 0)))
 
-	if published := s.ApplyHeartbeat(heartbeat(2, 0)); !published {
+	if published := s.ApplyHeartbeat(heartbeatHumans(2, 0, 0)); !published {
 		t.Fatal("empty roster heartbeat did not publish")
 	}
 
@@ -627,5 +631,67 @@ func TestHistoryCarriesIssueCounts(t *testing.T) {
 	}
 	if h.Samples[0].Issues["STUCK"] != 0 {
 		t.Fatalf("pre-episode sample must carry zero: %+v", h.Samples[0].Issues)
+	}
+}
+
+func TestPlayerRowsStayInRosterButOutOfPoolKpis(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+
+	a := xbot(1, "Alpha", 10, 0, 1000)
+	a.State = "combat"
+	p := xbot(2, "Minertest", 20, 0, 1000)
+	p.Player = true
+	p.GroupID = 7
+	p.State = "idle"
+	s.ApplyHeartbeat(heartbeat(1, 2))
+	s.ApplyBatch(batch(1, 0, 1, a, p))
+
+	snap := s.Snapshot()
+	if len(snap.Bots) != 2 {
+		t.Fatalf("expected roster of 2 (bot + player), got %d", len(snap.Bots))
+	}
+	var got *model.BotSnapshot
+	for i := range snap.Bots {
+		if snap.Bots[i].GUID == 2 {
+			got = &snap.Bots[i]
+		}
+	}
+	if got == nil || !got.Player || got.GroupID != 7 {
+		t.Fatalf("player row lost its marker: %+v", snap.Bots)
+	}
+	if len(got.Trail) != 0 {
+		t.Fatalf("player rows must not carry trails")
+	}
+	g := snap.Grinding
+	if g.BotsTracked != 1 {
+		t.Fatalf("pool KPIs must exclude players, tracked=%d", g.BotsTracked)
+	}
+	if g.StateCounts["idle"] != 0 || g.StateCounts["combat"] != 1 {
+		t.Fatalf("state counts must exclude players: %+v", g.StateCounts)
+	}
+	if len(s.Issues().Active) != 0 {
+		t.Fatalf("players must never open issues")
+	}
+}
+
+func TestPlayersOnlyCycleDoesNotWipeRoster(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+
+	p := xbot(2, "Minertest", 20, 0, 1000)
+	p.Player = true
+	p.State = "idle"
+	// BotsCount is 0 but a player batch is in flight: the heartbeat must
+	// not publish an empty roster over it.
+	if published := s.ApplyHeartbeat(heartbeatHumans(1, 0, 1)); published {
+		t.Fatal("heartbeat published empty roster while player batches were in flight")
+	}
+	if published := s.ApplyBatch(batch(1, 0, 1, p)); !published {
+		t.Fatal("players-only cycle did not publish")
+	}
+	snap := s.Snapshot()
+	if len(snap.Bots) != 1 || !snap.Bots[0].Player {
+		t.Fatalf("expected 1 player row, got %+v", snap.Bots)
 	}
 }

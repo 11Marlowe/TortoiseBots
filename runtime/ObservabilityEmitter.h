@@ -21,6 +21,8 @@ struct BotTelemetrySnapshot
 {
     std::string name;
     uint32 guid = 0;
+    bool isPlayer = false;  // true for a real online player, false for a bot
+    uint32 groupId = 0;     // core Group::GetId(), 0 = not in a group
     std::string className;
     std::string role;
     uint32 level = 0;
