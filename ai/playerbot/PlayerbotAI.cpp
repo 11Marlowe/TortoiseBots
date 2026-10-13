@@ -51,6 +51,8 @@
 #include "Movement/spline/MoveSplineInitArgs.h"
 #include "Movement/spline/MoveSpline.h"
 #include "Maps/InstanceData.h"
+#include <bitset>
+#include <initializer_list>
 #include "ChatHelper.h"
 #include "strategy/values/BudgetValues.h"
 #include "SocialMgr.h"
@@ -253,6 +255,126 @@ void PacketHandlingHelper::AddPacket(const WorldPacket& packet)
     m_botPacketMutex.unlock();
 }
 
+namespace
+{
+// The AI's packet handlers by opcode. One list feeds both the per-AI
+// PacketHandlingHelper registration and the static opcode filters the packet
+// hooks use before copying a packet (issue #844), so the two cannot drift.
+struct PacketHandlerSpec
+{
+    uint16 opcode;
+    char const* handler;
+    bool delay;
+};
+
+PacketHandlerSpec const kMasterIncomingPacketHandlers[] =
+{
+    { CMSG_GAMEOBJ_USE, "use game object", false },
+    { CMSG_AREATRIGGER, "area trigger", false },
+    { CMSG_LOOT_ROLL, "loot roll", true },
+    { CMSG_GOSSIP_HELLO, "gossip hello", false },
+    { CMSG_QUESTGIVER_HELLO, "gossip hello", false },
+    { CMSG_QUESTGIVER_COMPLETE_QUEST, "complete quest", false },
+    { CMSG_QUESTGIVER_ACCEPT_QUEST, "accept quest", false },
+    { CMSG_QUEST_CONFIRM_ACCEPT, "confirm quest", false },
+    { CMSG_ACTIVATETAXI, "activate taxi", false },
+    { CMSG_ACTIVATETAXIEXPRESS, "activate taxi", false },
+    { CMSG_TAXICLEARALLNODES, "taxi done", false },
+    { CMSG_TAXICLEARNODE, "taxi done", false },
+    { CMSG_GROUP_UNINVITE, "uninvite", false },
+    { CMSG_GROUP_UNINVITE_GUID, "uninvite guid", false },
+    { CMSG_PUSHQUESTTOPARTY, "quest share", false },
+    { CMSG_REPOP_REQUEST, "release spirit", false },
+    { CMSG_RECLAIM_CORPSE, "revive from corpse", false },
+    { CMSG_USE_ITEM, "master use item", false },
+};
+
+PacketHandlerSpec const kBotOutgoingPacketHandlers[] =
+{
+    { SMSG_PETITION_SHOW_SIGNATURES, "petition offer", false },
+    { SMSG_BATTLEFIELD_STATUS, "bg status", false },
+    { SMSG_GROUP_INVITE, "group invite", false },
+    { SMSG_GUILD_INVITE, "guild accept", false },
+    { BUY_ERR_NOT_ENOUGHT_MONEY, "not enough money", false },
+    { BUY_ERR_REPUTATION_REQUIRE, "not enough reputation", false },
+    { SMSG_GROUP_SET_LEADER, "group set leader", false },
+    { SMSG_FORCE_RUN_SPEED_CHANGE, "check mount state", false },
+    { SMSG_RESURRECT_REQUEST, "resurrect request", false },
+    { SMSG_INVENTORY_CHANGE_FAILURE, "cannot equip", false },
+    { SMSG_TRADE_STATUS, "trade status", false },
+    { SMSG_TRADE_STATUS_EXTENDED, "trade status extended", false },
+    { SMSG_LOOT_RESPONSE, "loot response", true },
+    { SMSG_QUESTUPDATE_ADD_KILL, "quest update add kill", true },
+    { SMSG_QUESTUPDATE_ADD_ITEM, "quest update add item", true },
+    { SMSG_QUESTUPDATE_FAILED, "quest update failed", true },
+    { SMSG_QUESTUPDATE_FAILEDTIMER, "quest update failed timer", true },
+    { SMSG_QUESTUPDATE_COMPLETE, "quest update complete", true },
+    { SMSG_ITEM_PUSH_RESULT, "item push result", true },
+    { SMSG_PARTY_COMMAND_RESULT, "party command", false },
+    { SMSG_LEVELUP_INFO, "levelup", true },
+    { SMSG_LOG_XPGAIN, "xpgain", true },
+    { SMSG_PVP_CREDIT, "honorgain", true },
+    { SMSG_TEXT_EMOTE, "receive text emote", false },
+    { SMSG_EMOTE, "receive emote", false },
+    { SMSG_LOOT_START_ROLL, "loot start roll", true },
+    { SMSG_LOOT_ROLL_WON, "loot roll won", true },
+    { SMSG_SUMMON_REQUEST, "summon request", false },
+    { MSG_RAID_READY_CHECK, "ready check", false },
+    { SMSG_QUEST_CONFIRM_ACCEPT, "confirm quest", false },
+    { SMSG_QUESTGIVER_QUEST_DETAILS, "quest details", false },
+    { SMSG_CAST_RESULT, "cast failed", false },
+    { SMSG_DUEL_REQUESTED, "duel requested", false },
+    { SMSG_INVENTORY_CHANGE_FAILURE, "inventory change failure", false },
+};
+
+PacketHandlerSpec const kMasterOutgoingPacketHandlers[] =
+{
+    { SMSG_PARTY_COMMAND_RESULT, "party command", false },
+};
+
+// Built once, read-only afterwards: a constant-time test on packet threads.
+using OpcodeSet = std::bitset<0x10000>;
+
+template <size_t N>
+OpcodeSet BuildOpcodeSet(PacketHandlerSpec const (&specs)[N], std::initializer_list<uint16> extra = {})
+{
+    OpcodeSet set;
+    for (PacketHandlerSpec const& spec : specs)
+        set.set(spec.opcode);
+    for (uint16 opcode : extra)
+        set.set(opcode);
+    return set;
+}
+
+template <size_t N>
+void RegisterPacketHandlers(PacketHandlingHelper& helper, PacketHandlerSpec const (&specs)[N])
+{
+    for (PacketHandlerSpec const& spec : specs)
+        helper.AddHandler(spec.opcode, spec.handler, spec.delay);
+}
+} // namespace
+
+bool PlayerbotAI::HandlesBotOutgoingOpcode(uint16 opcode)
+{
+    // HandleBotOutgoingPacket also reads these directly, outside the
+    // PacketHandlingHelper queue.
+    static OpcodeSet const set = BuildOpcodeSet(kBotOutgoingPacketHandlers,
+        { SMSG_SPELL_FAILURE, SMSG_SPELL_DELAYED, SMSG_MESSAGECHAT, SMSG_MOVE_KNOCK_BACK });
+    return set.test(opcode);
+}
+
+bool PlayerbotAI::HandlesMasterIncomingOpcode(uint16 opcode)
+{
+    static OpcodeSet const set = BuildOpcodeSet(kMasterIncomingPacketHandlers);
+    return set.test(opcode);
+}
+
+bool PlayerbotAI::HandlesMasterOutgoingOpcode(uint16 opcode)
+{
+    static OpcodeSet const set = BuildOpcodeSet(kMasterOutgoingPacketHandlers);
+    return set.test(opcode);
+}
+
 PlayerbotAI::PlayerbotAI() : PlayerbotAIBase(), bot(NULL), aiObjectContext(NULL),
     currentEngine(NULL), chatHelper(this), chatFilter(this), accountId(0), security(NULL), master(NULL), currentState(BotState::BOT_STATE_NON_COMBAT), faceTargetUpdateDelay(0), jumpTime(0), fallAfterJump(false)
 {
@@ -302,64 +424,9 @@ PlayerbotAI::PlayerbotAI(Player* bot) :
     currentEngine = engines[(uint8)BotState::BOT_STATE_NON_COMBAT];
     currentState = BotState::BOT_STATE_NON_COMBAT;
 
-    masterIncomingPacketHandlers.AddHandler(CMSG_GAMEOBJ_USE, "use game object");
-    masterIncomingPacketHandlers.AddHandler(CMSG_AREATRIGGER, "area trigger");
-    masterIncomingPacketHandlers.AddHandler(CMSG_LOOT_ROLL, "loot roll", true);
-    masterIncomingPacketHandlers.AddHandler(CMSG_GOSSIP_HELLO, "gossip hello");
-    masterIncomingPacketHandlers.AddHandler(CMSG_QUESTGIVER_HELLO, "gossip hello");
-    masterIncomingPacketHandlers.AddHandler(CMSG_QUESTGIVER_COMPLETE_QUEST, "complete quest");
-    masterIncomingPacketHandlers.AddHandler(CMSG_QUESTGIVER_ACCEPT_QUEST, "accept quest");
-    masterIncomingPacketHandlers.AddHandler(CMSG_QUEST_CONFIRM_ACCEPT, "confirm quest");
-    masterIncomingPacketHandlers.AddHandler(CMSG_ACTIVATETAXI, "activate taxi");
-    masterIncomingPacketHandlers.AddHandler(CMSG_ACTIVATETAXIEXPRESS, "activate taxi");
-    masterIncomingPacketHandlers.AddHandler(CMSG_TAXICLEARALLNODES, "taxi done");
-    masterIncomingPacketHandlers.AddHandler(CMSG_TAXICLEARNODE, "taxi done");
-    masterIncomingPacketHandlers.AddHandler(CMSG_GROUP_UNINVITE, "uninvite");
-    masterIncomingPacketHandlers.AddHandler(CMSG_GROUP_UNINVITE_GUID, "uninvite guid");
-    masterIncomingPacketHandlers.AddHandler(CMSG_PUSHQUESTTOPARTY, "quest share");
-    masterIncomingPacketHandlers.AddHandler(CMSG_REPOP_REQUEST, "release spirit");
-    masterIncomingPacketHandlers.AddHandler(CMSG_RECLAIM_CORPSE, "revive from corpse");
-    masterIncomingPacketHandlers.AddHandler(CMSG_USE_ITEM, "master use item");
-
-
-    botOutgoingPacketHandlers.AddHandler(SMSG_PETITION_SHOW_SIGNATURES, "petition offer");
-    botOutgoingPacketHandlers.AddHandler(SMSG_BATTLEFIELD_STATUS, "bg status");
-    botOutgoingPacketHandlers.AddHandler(SMSG_GROUP_INVITE, "group invite");
-    botOutgoingPacketHandlers.AddHandler(SMSG_GUILD_INVITE, "guild accept");
-    botOutgoingPacketHandlers.AddHandler(BUY_ERR_NOT_ENOUGHT_MONEY, "not enough money");
-    botOutgoingPacketHandlers.AddHandler(BUY_ERR_REPUTATION_REQUIRE, "not enough reputation");
-    botOutgoingPacketHandlers.AddHandler(SMSG_GROUP_SET_LEADER, "group set leader");
-    botOutgoingPacketHandlers.AddHandler(SMSG_FORCE_RUN_SPEED_CHANGE, "check mount state");
-    botOutgoingPacketHandlers.AddHandler(SMSG_RESURRECT_REQUEST, "resurrect request");
-    botOutgoingPacketHandlers.AddHandler(SMSG_INVENTORY_CHANGE_FAILURE, "cannot equip");
-    botOutgoingPacketHandlers.AddHandler(SMSG_TRADE_STATUS, "trade status");
-    botOutgoingPacketHandlers.AddHandler(SMSG_TRADE_STATUS_EXTENDED, "trade status extended");
-    botOutgoingPacketHandlers.AddHandler(SMSG_LOOT_RESPONSE, "loot response", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUESTUPDATE_ADD_KILL, "quest update add kill", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUESTUPDATE_ADD_ITEM, "quest update add item", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUESTUPDATE_FAILED, "quest update failed", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUESTUPDATE_FAILEDTIMER, "quest update failed timer", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUESTUPDATE_COMPLETE, "quest update complete", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_ITEM_PUSH_RESULT, "item push result", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_PARTY_COMMAND_RESULT, "party command");
-    botOutgoingPacketHandlers.AddHandler(SMSG_LEVELUP_INFO, "levelup", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_LOG_XPGAIN, "xpgain", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_PVP_CREDIT, "honorgain", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_TEXT_EMOTE, "receive text emote");
-    botOutgoingPacketHandlers.AddHandler(SMSG_EMOTE, "receive emote");
-    botOutgoingPacketHandlers.AddHandler(SMSG_LOOT_START_ROLL, "loot start roll", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_LOOT_ROLL_WON, "loot roll won", true);
-    botOutgoingPacketHandlers.AddHandler(SMSG_SUMMON_REQUEST, "summon request");
-    botOutgoingPacketHandlers.AddHandler(MSG_RAID_READY_CHECK, "ready check");
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUEST_CONFIRM_ACCEPT, "confirm quest");
-    botOutgoingPacketHandlers.AddHandler(SMSG_QUESTGIVER_QUEST_DETAILS, "quest details");
-
-
-    botOutgoingPacketHandlers.AddHandler(SMSG_CAST_RESULT, "cast failed");
-    botOutgoingPacketHandlers.AddHandler(SMSG_DUEL_REQUESTED, "duel requested");
-    botOutgoingPacketHandlers.AddHandler(SMSG_INVENTORY_CHANGE_FAILURE, "inventory change failure");
-
-    masterOutgoingPacketHandlers.AddHandler(SMSG_PARTY_COMMAND_RESULT, "party command");
+    RegisterPacketHandlers(masterIncomingPacketHandlers, kMasterIncomingPacketHandlers);
+    RegisterPacketHandlers(botOutgoingPacketHandlers, kBotOutgoingPacketHandlers);
+    RegisterPacketHandlers(masterOutgoingPacketHandlers, kMasterOutgoingPacketHandlers);
 
     if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0)
     {

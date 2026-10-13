@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -87,6 +89,23 @@ private:
     std::vector<std::pair<uint64_t, Item>> m_pending;
     std::unordered_map<uint64_t, size_t> m_pendingPerKey;
     uint64_t m_dropped = 0;
+};
+
+// Issue #844: which thread is the world thread. The world thread is the one
+// that deletes bot AIs, so code running on it may use an AI directly; any other
+// thread queues instead. Unmarked (before the first world tick), every thread
+// counts as "not the world thread", the safe answer.
+class WorldThreadMark
+{
+public:
+    // World thread, every tick.
+    void MarkCurrent() { m_id.store(std::this_thread::get_id(), std::memory_order_relaxed); }
+
+    // Any thread. Only the marking thread can read back its own id.
+    bool IsCurrent() const { return m_id.load(std::memory_order_relaxed) == std::this_thread::get_id(); }
+
+private:
+    std::atomic<std::thread::id> m_id{};
 };
 
 // Issue #839: master guid -> bot guids, built on the world thread from

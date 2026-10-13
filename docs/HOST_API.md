@@ -279,21 +279,32 @@ Network master incoming
 
 No bot-specific opcode branches belong in core packet handlers.
 
-Threading (issue #839): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
+Threading (issue #839, #844): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
 calls `WorldSession::SendPacket` and `SERVERHOOK_CAN_PACKET_RECEIVE` on the thread
 that processes the packet (`WorldSession::ProcessPackets`): the world thread, a
 map thread, the AsyncPackets thread (party / raid / guild / whisper chat, name
 and item queries) or `ChannelBroadcaster::ThreadProc` (channel chat). The last
-two overlap the world-thread bot update, so every hook entry is reduced to
-"copy and enqueue" or a lock-protected lookup:
+two overlap the world-thread bot update, and the world thread is also where a
+bot's AI is deleted (logout, removal: `PlayerbotAIAdapter::Shutdown`). The AI
+storage lock covers only the lookup, not the AI's lifetime, and holding it
+across `PacketHandlingHelper::AddPacket` would invert the lock order against
+`PacketHandlingHelper::Handle`. So off the world thread no hook keeps a
+`PlayerbotAI` (or the bot's `Player`) pointer: it copies the packet into a
+per-bot FIFO keyed by the bot's raw guid (`runtime/WorldThreadQueue.h`), and
+`BotHostAdapter::OnUpdate` hands the copies to the AIs before the bot update,
+resolving each guid again, so a bot whose AI is gone by then is skipped. A hook
+that runs on the world thread itself (learned by the first drain,
+`WorldThreadMark`) still calls the AI at once, as it cannot race the deletion.
+Only opcodes an AI handles are copied (`PlayerbotAI::Handles*Opcode`, built from
+the same table the AI registers its handlers from).
 
 | Entry | Threads | What it does now |
 | --- | --- | --- |
-| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into a per-bot FIFO; `BotHostAdapter::OnUpdate` runs `HandleBotOutgoingPacket` from it before the bot update, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; a bot whose AI is gone by then is skipped; over 64 per bot per tick are dropped |
-| `CanPacketSend`, headless session, other opcodes | the bot's map thread or the world thread (spell results, knockback); any thread for the rest | unchanged: the spell / knockback cases never overlap the AI update; everything else enters the AI's mutex-guarded `PacketHandlingHelper` queue |
-| `CanPacketSend`, network master session | any | bot guids from `BotManager::GetBotGuidsForMasterAnyThread` (a master -> bot view published under a lock at the end of every `OnWorldUpdate`, at most one tick stale), AI from the locked `PlayerbotAIStorage`, then the mutex-guarded queue |
-| `CanPacketReceive` / `DispatchMasterIncoming` | world, map or AsyncPackets | same view + storage + queue as above |
-| `CanPacketReceive` / `MaybeSendMimicSummary` (`CMSG_USE_ITEM`) | the master's map thread | same view; reads AI strategy flags and whispers on a map thread, which never overlaps the AI update |
+| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped |
+| `CanPacketSend`, headless session, other handled opcodes (invites, loot, quest updates, cast results, spell failure / delay, knockback, ...) | any; the spell / knockback cases come from the bot's map thread or the world thread | world thread: `HandleBotOutgoingPacket` at once. Otherwise: the bot guid from `PlayerbotAIStorage::GetBotGuid` (pointer comparison, no `Player` dereference), a copy into the per-bot packet FIFO, `HandleBotOutgoingPacket` in the drain; over 256 per bot per tick are dropped. A map-thread packet is handled before any further map update, so the AI sees the same game state |
+| `CanPacketSend`, network master session | any | bot guids from `BotManager::GetBotGuidsForMasterAnyThread` (a master -> bot view published under a lock at the end of every `OnWorldUpdate`, at most one tick stale); world thread: `HandleMasterOutgoingPacket` at once; otherwise one shared copy queued for every bot, handed over in the drain |
+| `CanPacketReceive` / `DispatchMasterIncoming` | world, map or AsyncPackets | same view and the same world-thread-inline / queue-elsewhere split, `HandleMasterIncomingPacket` |
+| `CanPacketReceive` / `MaybeSendMimicSummary` (`CMSG_USE_ITEM`) | the master's map thread (`PACKET_PROCESS_MAP`) | same view; reads AI strategy flags and whispers directly: the world thread waits in `MapManager::Update` while map threads run, so no AI is updated or deleted meanwhile |
 
 `BotManager::GetBotsForMaster` (records + `Player*`) is world-thread only.
 

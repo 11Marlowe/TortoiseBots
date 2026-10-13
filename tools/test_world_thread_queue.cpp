@@ -1,12 +1,16 @@
 // Issue #839: chat to bots and master->bot lookups cross from packet threads
 // to the world thread. Exercises the queue and the published master view
 // standalone, including producer threads against a draining / publishing
-// world thread.
+// world thread. Issue #844 adds the AI-lifetime model: packet threads only
+// queue copies keyed by guid while the world thread deletes and recreates the
+// owners and resolves every key again when it drains (run it under
+// -fsanitize=thread to catch any producer that touches an owner).
 #include "../runtime/WorldThreadQueue.h"
 
 #include <atomic>
 #include <cassert>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <set>
 #include <string>
@@ -155,6 +159,95 @@ int main()
         stop = true;
         for (std::thread& reader : readers)
             reader.join();
+    }
+
+    // World-thread mark: unmarked, no thread is the world thread; once
+    // marked, only the marking thread is.
+    {
+        WorldThreadMark mark;
+        assert(!mark.IsCurrent());
+        bool otherSaw = true;
+        std::thread([&] { otherSaw = mark.IsCurrent(); }).join();
+        assert(!otherSaw);
+        mark.MarkCurrent();
+        assert(mark.IsCurrent());
+        std::thread([&] { otherSaw = mark.IsCurrent(); }).join();
+        assert(!otherSaw);
+    }
+
+    // Issue #844: AI lifetime. The "world thread" owns the AIs (a map guid ->
+    // owner, like PlayerbotAIStorage + PlayerbotAIAdapter) and deletes and
+    // recreates them (logout / login) while packet threads keep sending; a
+    // packet is shared by several bots (a master packet). Producers never see
+    // an owner; the drain resolves the guid again and skips a bot that is gone.
+    {
+        struct Owner
+        {
+            uint64_t guid;
+            std::mutex packetMutex; // PacketHandlingHelper::m_botPacketMutex
+            std::vector<int> packets;
+        };
+        struct Deferred
+        {
+            int route;
+            std::shared_ptr<int const> packet;
+        };
+        constexpr uint64_t kBots = 8;
+        constexpr int kThreads = 3;
+        constexpr int kPerThread = 4000;
+        WorldThreadQueue<Deferred> queue(1000000);
+        std::map<uint64_t, std::unique_ptr<Owner>> owners;
+        for (uint64_t g = 1; g <= kBots; ++g)
+            owners[g] = std::unique_ptr<Owner>(new Owner{ g, {}, {} });
+
+        std::atomic<int> done{ 0 };
+        std::vector<std::thread> producers;
+        for (int t = 0; t < kThreads; ++t)
+        {
+            producers.emplace_back([&queue, &done, t]
+            {
+                for (int i = 0; i < kPerThread; ++i)
+                {
+                    auto packet = std::make_shared<int const>(t * kPerThread + i);
+                    // One copy queued for every bot of the master.
+                    for (uint64_t g = 1; g <= kBots; ++g)
+                        queue.Enqueue(g, Deferred{ t, packet });
+                }
+                ++done;
+            });
+        }
+
+        size_t delivered = 0;
+        size_t skipped = 0;
+        auto run = [&](uint64_t guid, Deferred& item)
+        {
+            auto it = owners.find(guid);
+            if (it == owners.end())
+            {
+                ++skipped;
+                return;
+            }
+            Owner& owner = *it->second;
+            assert(owner.guid == guid);
+            std::lock_guard<std::mutex> lock(owner.packetMutex);
+            owner.packets.push_back(*item.packet);
+            ++delivered;
+        };
+        uint64_t tick = 0;
+        while (done.load() < kThreads)
+        {
+            // Logout of one bot and login of another, as BotManager does it.
+            uint64_t const out = 1 + tick % kBots;
+            owners.erase(out);
+            queue.Drain(run);
+            owners[out] = std::unique_ptr<Owner>(new Owner{ out, {}, {} });
+            ++tick;
+        }
+        for (std::thread& producer : producers)
+            producer.join();
+        queue.Drain(run);
+        assert(delivered + skipped == static_cast<size_t>(kThreads * kPerThread) * kBots);
+        assert(queue.PendingCount() == 0);
     }
 
     return 0;
