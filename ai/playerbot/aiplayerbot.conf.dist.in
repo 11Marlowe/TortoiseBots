@@ -607,6 +607,20 @@ AiPlayerbot.WarlockPetBySpec = 0
 # 1 - keep Judgement of Wisdom / Light up on the boss
 AiPlayerbot.PaladinJudgementUpkeep = 0
 
+# Onyxia whelps and eggs.
+# In Onyxia's Lair, while Onyxia is airborne (phase 2), bots that are
+# AoE-capable ranged DPS (mage, warlock, hunter, and ranged shaman and druid
+# specs; never tanks or healers) take the nearest Onyxian Whelp as their target
+# and keep it until it dies, then return to the boss. Every bot in the fight
+# also steps back out of the egg caves west of the arena when it stands within
+# 12 yd of an unbroken Onyxia Egg (the egg trap circle is 10 yd and hatches
+# whelps). mod-playerbots parity, adapted to Turtle 1.18.1 entries. Only active
+# on map 249 and only once the Onyxia fight strategy is on. An explicit target
+# order from a player always wins. Off by default.
+# 0 - generic target choice and no egg avoidance (Default)
+# 1 - whelp duty and egg avoidance
+AiPlayerbot.OnyxiaWhelpsAndEggs = 0
+
 # Bots and npcs turn to eachother during an rpg interaction
 AiPlayerbot.TurnInRpg = 0
 
