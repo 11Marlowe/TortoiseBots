@@ -632,7 +632,7 @@ item_id,name,tier,flags,evidence
 18323,Satyr's Bow,1,,loot:t1
 18325,Felhide Cap,1,,loot:t1
 18327,Whipvine Cord,1,,loot:t1
-18348,Quel'Serrar,1,,quest:7509;quest-chain;token:t1
+18348,Quel'Serrar,3,,quest:7509;quest-chain;token:t1
 18349,Gauntlets of Accuracy,1,,loot:t1
 18350,Amplifying Cloak,1,,loot:t1
 18366,Gordok's Handguards,1,,quest:1318;quest-chain;token:t1
@@ -1705,6 +1705,7 @@ item_id,name,tier,flags,evidence
 23197,Idol of the Moon,1,,loot:t1
 23198,Idol of Brutality,1,,loot:t1
 23199,Totem of the Storm,1,,loot:t1
+23200,Totem of Sustaining,1,,loot:t1
 23201,Libram of Divinity,1,,loot:t1
 23203,Libram of Fervor,1,,loot:t1
 23206,Mark of the Champion,6,,quest:9120;quest-chain;token:t6

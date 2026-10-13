@@ -179,13 +179,14 @@ Current adapters:
 | `BotUnitAdapter` | `UnitScript::OnUnitDeath`: killer attribution for `deaths.csv`; `UnitScript::OnDamage`: last-non-self-damager memory so Spirit of Redemption expiries (core self-kill) still log the real killer |
 | `BotChatAdapter` | native `.bot` command integration |
 | `BotPacketAdapter` | packet bridge into Existing PlayerBots (primarily AzerothCore/mod-playerbots) |
-| `HireRecruiterAdapter` | `<Mercenary Hire>` recruiter gossip (`Hire bots` wizard + capital `World buffs` branch, issue #492; pure logic in `runtime/WorldBuffPolicy.h` + `runtime/WorldBuffService.h`) |
+| `HireRecruiterAdapter` | `<Mercenary Hire>` recruiter gossip (`Hire bots` wizard + capital `World buffs` branch, issue #492; pure logic in `runtime/WorldBuffPolicy.h` + `runtime/WorldBuffService.h`; capital `Mercenary contracts` branch, issue #490; pure math in `runtime/HireUnlockSync.h`) |
 | `HireGroupAdapter` | hired-companion group hooks |
 | `ClaimGuildAdapter` | `GuildScript::OnRemoveMember`/`OnDisband`: unclaims a claimed guild bot (issue #489) back to the wandering pool |
 | `WorldBuffKillAdapter` | `PlayerScript::OnCreatureKill`: Onyxia/Nefarian → invisible Rally credit 95100 via `RewardPlayerAndGroupAtEvent` (issue #492) |
 | `WorldBuffAuraAdapter` | `UnitScript::OnAuraApply`: DM/Sayge/Songflower aura → receiver-only event credit via `AreaExploredOrEventHappens`, recruiter casters ignored (issue #492) |
 | `WorldBuffPvpAdapter` | `PlayerScript::OnPVPKill`: opposite-faction kill in Silithus (zone 1377) → Silithyst credit 95101 via `RewardPlayerAndGroupAtEvent` (issue #492) |
 | `WorldBuffRaidAdapter` | `PlayerScript::OnBeforeTeleport` snapshot + `OnMapChanged` restore/strip + `OnLogout` memory cleanup for `KeepWorldBuffsInRaids` and Upper Karazhan 814 (issue #492; pure table in `runtime/WorldBuffRaidKeeper.h`) |
+| `HireUnlockKillAdapter` | `PlayerScript::OnCreatureKill` (killer only; core already fans out per member): unlock boss → per-character encounter record + `KilledMonsterCredit` counter credit, Four Horsemen on last death, bots excluded (issue #490); `OnLogin` cache load + counter sync, `OnLogout` drop, `OnDelete` row cleanup; quest-accept sync via `HireRecruiterAdapter::OnQuestAccept` |
 The module should prefer an existing generic hook before requesting a new core
 seam.
 

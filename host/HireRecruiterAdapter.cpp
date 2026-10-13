@@ -23,6 +23,11 @@ bool HireRecruiterAdapter::OnGossipSelect(Player* player, Creature* creature, ui
     return HireRecruiterScript::OnSelect(player, creature, sender, action);
 }
 
+bool HireRecruiterAdapter::OnQuestAccept(Player* player, Creature* creature, Quest const* quest)
+{
+    return HireRecruiterScript::OnQuestAccept(player, creature, quest);
+}
+
 // The base CreatureScript answers 0 (no icon), which hides the quest marks of
 // the capital recruiters' world-buff quests (issue #492). UNDEFINED hands the
 // "!"/"?" decision back to the core's normal quest-giver status.

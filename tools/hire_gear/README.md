@@ -92,9 +92,16 @@ row tier, WARN if unverified), 3 forbidden (honor rank, BG rep
 889/890/509/510/729/730, other rep incl. Ravenholdt 349, exact PvP rank
 name prefixes, legendary), 4 ANY duplicate item id in one set FAILs
 (stricter than core, which blocks only `ITEM_FLAG_UNIQUE_EQUIPPED`),
-5 spec stat sanity (WARN), 6 progression (avg ilvl per tier must not
-decrease; slot downgrades > 5 WARN; source-tier reverts WARN as
-6-revert), 7 wowisclassic cross-check (review-only agreement %),
+5 spec stat sanity (WARN; threat/DPS procs count for tanks, mana procs
+for healers, trigger-spell text included), 6 progression (avg ilvl per
+tier must not decrease; slot downgrades > 5 WARN; source-tier reverts
+WARN as 6-revert), 7 wowisclassic cross-check (review-only agreement %),
 8 completeness (every full set covers slots 0,1,2,4–17; single-row
 racial overrides exempt), 9 new content (tiers 3/5/6/7 need ≥3 own-tier
 items per set, WARN).
+
+Hand fixes (`generate.py` `HAND_OVERRIDES`): a small commented table pins
+named items where the ranked source provably misfires for the spec
+(caster item ranked above a same-tier melee item, relic slots the source
+has no rows for). Overrides validate like ranked picks and land with
+`source bisclassic`, `flags` bit1 (hand-touched).

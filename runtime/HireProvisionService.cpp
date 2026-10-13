@@ -7,6 +7,8 @@
 #include "HireSpecPolicy.h"
 #include "HireGearCache.h"
 #include "HireGearPolicy.h"
+#include "HireTierRequestPolicy.h"
+#include "HireUnlockPolicy.h"
 #include "BotManager.h"
 #include "BotActivityLease.h"
 #include "PlayerbotAIStorage.h"
@@ -269,13 +271,31 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
         level = 1;
     if (level > kMaxLevel)
         level = kMaxLevel;
+    // Issue #490 PR 2: the chosen tier must be unlocked (start tier or a
+    // rewarded unlock quest). Clamp above the max; re-validate here so a
+    // stale gossip menu cannot hire above the unlock.
+    uint8_t gearTier = sel.gearTier > kHireGearTierMax ? kHireGearTierMax : sel.gearTier;
+    if (sPlayerbotAIConfig.hireGearTiersEnabled && level == kHireGearHireLevel && gearTier > 0)
+    {
+        uint8_t highest = HighestUnlockedHireTierFor(requester);
+        if (gearTier > highest)
+        {
+            outcome.status = HireStatus::InvalidChoice;
+            outcome.message = std::string("That equipment is not unlocked yet. Your highest available tier is ") +
+                HireTierKitName(highest) + " (tier " + std::to_string(highest) + ").";
+            return outcome;
+        }
+    }
+    else
+        gearTier = kHireGearTierBase;
     HireCost::CostConfig costs;
     costs.baseCopper = sPlayerbotAIConfig.hireBaseCostCopper;
     costs.mult2 = sPlayerbotAIConfig.hirePartyMult2;
     costs.mult3 = sPlayerbotAIConfig.hirePartyMult3;
     costs.mult4 = sPlayerbotAIConfig.hirePartyMult4;
     costs.raidFlatCopper = sPlayerbotAIConfig.hireRaidFlatCostCopper;
-    uint32_t cost = HireCost::ForNextHire(costs, owned, level);
+    uint32_t cost = HireCostAtTier(HireCost::ForNextHire(costs, owned, level),
+        gearTier, sPlayerbotAIConfig.hireGearTierCostMult);
     if (requester->GetMoney() < cost)
     {
         outcome.status = HireStatus::Poor;
@@ -356,6 +376,7 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     pending.targetLevel = static_cast<uint8>(level);
     pending.role = role;
     pending.specIndex = sel.specIndex;
+    pending.gearTier = gearTier;
     pending.queuedAt = time(nullptr);
     m_pending.push_back(pending);
 
@@ -1035,6 +1056,46 @@ uint32_t HireProvisionService::HighestKnownRankInChain(Player* bot, uint32_t any
     return best;
 }
 
+// Issue #490 PR 2: unlock lookup for the hire wizard and `.bot hire`.
+// Highest tier the player may hire at: the start tier, or the highest
+// rewarded unlock quest if higher. One small query per page/command (never
+// per tier): per character via GetQuestRewardStatus, or over every character
+// of the account via character_queststatus when HireGearUnlockAccountWide.
+uint8_t HireProvisionService::HighestUnlockedHireTierFor(Player* player)
+{
+    uint8_t start = static_cast<uint8_t>(std::min<uint32_t>(
+        sPlayerbotAIConfig.hireGearStartTier, kHireGearTierMax));
+    if (!player)
+        return start;
+    uint32_t mask = 0;
+    if (sPlayerbotAIConfig.hireGearUnlockAccountWide)
+    {
+        uint32_t accountId = player->GetSession() ? player->GetSession()->GetAccountId() : 0;
+        if (accountId)
+        {
+            std::unique_ptr<QueryResult> rows(CharacterDatabase.PQuery(
+                "SELECT q.quest FROM character_queststatus q INNER JOIN characters c ON c.guid = q.guid "
+                "WHERE c.account = '%u' AND q.rewarded <> 0 AND q.quest BETWEEN %u AND %u",
+                accountId, kHireUnlockQuestFirst, kHireUnlockQuestLast));
+            if (rows)
+            {
+                do
+                {
+                    uint8_t tier = HireUnlockTierForQuest(rows->Fetch()[0].GetUInt32());
+                    if (tier >= 1 && tier <= kHireGearTierMax)
+                        mask |= 1u << (tier - 1);
+                } while (rows->NextRow());
+            }
+        }
+    }
+    else
+    {
+        for (uint8_t tier = 1; tier <= kHireGearTierMax; ++tier)
+            if (player->GetQuestRewardStatus(HireUnlockQuestForTier(tier)))
+                mask |= 1u << (tier - 1);
+    }
+    return HighestUnlockedHireTier(start, mask);
+}
 // Issue #490: static best-in-slot pass. Eligibility (level 60, enabled,
 // tier >= 1) and the race-override lookup come from HireGearPolicy.h; the
 // same input always equips the same gear. Rows replace what InitEquipment
@@ -1047,20 +1108,33 @@ void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const
 {
     if (!bot || !ai)
         return;
-    uint8_t tier = EffectiveHireGearTier(
-        sPlayerbotAIConfig.hireGearTiersEnabled, sPlayerbotAIConfig.hireGearStartTier);
+    // Issue #490 PR 2: the tier travels with the hire (HireSelection ->
+    // PendingProvision); tier 0 keeps today's random gear, below 60 the tier
+    // is ignored. Hire() validated the unlock, so no lookup here.
+    uint8_t tier = pending.gearTier;
     if (!HireGearTierEligible(bot->GetLevel(), sPlayerbotAIConfig.hireGearTiersEnabled, tier))
         return;
     uint8_t forcedRole = pending.role ? pending.role : DefaultRoleForClass(bot->GetClass());
     char const* specKey = ResolveHireGearSpecKey(bot->GetClass(), pending.specIndex, forcedRole);
     if (!specKey)
         return;
-    if (!HireGearCache::Instance().HasSetFor(bot->GetClass(), specKey, tier))
-        return;
+    if (EquipHireGearSet(bot, ai, bot->GetClass(), specKey, bot->GetRace(), tier))
+    {
+        HireLifecycle::Instance().SetGearTier(bot->GetObjectGuid(), tier);
+        bot->SaveToDB();
+    }
+}
+
+bool HireProvisionService::EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_t classId, char const* specKey, uint8_t race, uint8_t tier)
+{
+    if (!bot || !ai || !specKey)
+        return false;
+    if (!HireGearCache::Instance().HasSetFor(classId, specKey, tier))
+        return false;
     for (uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
     {
         HireGearRow const* row = nullptr;
-        if (!HireGearCache::Instance().FindRow(bot->GetClass(), specKey, bot->GetRace(), tier, slot, row) || !row)
+        if (!HireGearCache::Instance().FindRow(classId, specKey, race, tier, slot, row) || !row)
             continue;
         Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
         if (row->itemId == 0)
@@ -1090,7 +1164,7 @@ void HireProvisionService::ProvisionHireGear(Player* bot, PendingProvision const
                 ai->EnchantItemT(row->enchantSpell, slot, item);
         }
     }
-    bot->SaveToDB();
+    return true;
 }
 
 void HireProvisionService::SnapshotKnownSpells(Player* bot, std::vector<uint32_t>& out)

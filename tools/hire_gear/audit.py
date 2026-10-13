@@ -151,8 +151,15 @@ MELEE_SPECS = {("1", "arms"), ("1", "fury"), ("2", "retribution"),
                ("3", "beastmastery"), ("3", "marksmanship"), ("3", "survival"),
                ("4", "assassination"), ("4", "combat"), ("4", "subtlety"),
                ("7", "enhancement"), ("11", "cat")}
-HEAL_WORDS = re.compile(r"heal|mana|regen|restor|spirit|intellect|spell", re.I)
-TANK_WORDS = re.compile(r"defense|dodge|block|armor|stamina|resist", re.I)
+HEAL_WORDS = re.compile(r"heal|mana|regen|restor|spirit|intellect|spell|"
+                        r"ascendance|devotion|seal cost|libram|totem|idol",
+                        re.I)
+TANK_WORDS = re.compile(r"defense|dodge|block|armor|stamina|resist|parry|"
+                        r"critical|hit chance|attack power|haste|vitality|"
+                        r"threat|skill|weapon|champion|argent dawn|maul|swipe|"
+                        r"maim|feral|thorns|all stats|mana|idol|faithful|"
+                        r"libram of (radiance|the faithful)",
+                        re.I)
 MELEE_WORDS = re.compile(r"strength|agility|attack|power|hit|crit|strike", re.I)
 
 # classic phase -> ladder tiers whose content is fully unlocked (check 7).
@@ -264,17 +271,35 @@ class Audit:
                                (int(r[27]), int(r[28]))],
                 }
         # spell names for equip/proc effects (check 5) + craft detection.
+        # Trigger spells (Mark of the Chosen -> +25 all stats) are loaded
+        # too, so procs are judged by what they do, not the host name.
         sids = set()
         for it in self.items.values():
             for sid, _ in it["spells"]:
                 if sid:
                     sids.add(sid)
-        self.spell_names = {}
+        trig = {}  # host spell -> [triggered spell ids]
         for ch in chunked(sorted(sids)):
             ids = ",".join(map(str, ch))
-            for r in q(self.db, f"SELECT entry,name FROM spell_template "
+            for r in q(self.db, "SELECT entry,effectTriggerSpell1,"
+                                "effectTriggerSpell2 FROM spell_template "
+                                f"WHERE entry IN ({ids})"):
+                ts = [t for t in (int(r[1]), int(r[2])) if t]
+                if ts:
+                    trig[int(r[0])] = ts
+        self.spell_trig = trig
+        self.spell_names = {}
+        self.spell_auras = {}
+        want = set(sids)
+        for ts in trig.values():
+            want |= set(ts)
+        for ch in chunked(sorted(want)):
+            ids = ",".join(map(str, ch))
+            for r in q(self.db, "SELECT entry,name,auraDescription FROM "
+                                "spell_template "
                                 f"WHERE entry IN ({ids})"):
                 self.spell_names[int(r[0])] = r[1]
+                self.spell_auras[int(r[0])] = r[2] or ""
         # loot: item -> [(loot_entry, table)] incl. reference expansion.
         # Secondary tables (pickpocket/skinning/disenchant/fishing/mail)
         # resolve through the owning creature's spawn map.
@@ -746,7 +771,15 @@ class Audit:
             return  # proc/trinket-only item: no stat verdict
         names = " ".join(self.spell_names.get(s, "") for s, _ in it["spells"]
                          if s)
-        text = names
+        extra = " ".join(self.spell_names.get(t, "")
+                         for s, _ in it["spells"]
+                         for t in self.spell_trig.get(s, []))
+        auras = " ".join(self.spell_auras.get(s, "") for s, _ in it["spells"]
+                         if s)
+        auras += " " + " ".join(self.spell_auras.get(t, "")
+                                for s, _ in it["spells"]
+                                for t in self.spell_trig.get(s, []))
+        text = names + " " + extra + " " + auras
         if key in CASTER_SPECS:
             if set(mods) <= {STR, AGI} and mods:
                 self.warns["5-stats"].append(
