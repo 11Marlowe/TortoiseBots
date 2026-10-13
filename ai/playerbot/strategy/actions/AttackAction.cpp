@@ -55,7 +55,7 @@ bool AttackAction::Execute(Event& event)
     Unit* target = GetTarget();
     if (target && target->IsInWorld() && target->GetMapId() == bot->GetMapId())
     {
-        return Attack(requester, target);
+        return Attack(requester, target, event);
     }
 
     return false;
@@ -99,7 +99,7 @@ bool AttackMyTargetAction::Execute(Event& event)
             // not refuse it for being beyond the background sight distance. The bot
             // still walks there through the combat reach chain after accepting.
             static float const orderDistance = sPlayerbotAIConfig.reactDistance;
-            if (Attack(requester, tgt, orderDistance))
+            if (Attack(requester, tgt, event, orderDistance))
             {
                 CommitExplicitAttackTarget(ai, guid);
                 SC_LOG("attack-cmd OK bot=%s tgt=%s",
@@ -133,7 +133,7 @@ bool AttackRTITargetAction::Execute(Event& event)
     {
         // Same explicit-order ceiling as "attack my target": the mark is the player's
         // order and the bot walks there after accepting.
-        if (Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance))
+        if (Attack(requester, rtiTarget, event, sPlayerbotAIConfig.reactDistance))
         {
             CommitExplicitAttackTarget(ai, rtiTarget->getObjectGuid());
             return true;
@@ -192,7 +192,7 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     return true;
 }
 
-bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
+bool AttackAction::Attack(Player* requester, Unit* target, Event& event, float maxDistance)
 {
     MotionMaster &mm = *bot->GetMotionMaster();
 	if (mm.GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE || (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f))
@@ -295,6 +295,19 @@ bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
             ai->OnCombatStarted();
         }
 
+        // The order carries the walk to the target with it (same as the grind and
+        // enemy-player orders): accept alone leaves a bot standing 20-150 yd from a
+        // mob it just ordered, because the combat reach only runs once the target is
+        // already close. Only for an explicit maxDistance order; background callers
+        // keep the old behaviour. The reach gives up on an unreachable target after
+        // 15 s and blacklists it, so a bad order does not stick forever.
+        if (result && maxDistance > 0.0f)
+        {
+            const bool rangedKit = ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT) &&
+                !ai->HasStrategy("close", BotState::BOT_STATE_COMBAT);
+            ai->DoSpecificAction(rangedKit ? "reach spell" : "reach melee", event, true);
+        }
+
         return result;
     }
 
@@ -384,5 +397,5 @@ bool AttackDuelOpponentAction::isUseful()
 bool AttackDuelOpponentAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
-    return Attack(requester, AI_VALUE(Unit*, "duel target"));
+    return Attack(requester, AI_VALUE(Unit*, "duel target"), event);
 }

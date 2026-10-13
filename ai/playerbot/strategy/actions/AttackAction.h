@@ -18,7 +18,7 @@ namespace ai
         static bool CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target);
 
     protected:
-        bool Attack(Player* requester, Unit* target, float maxDistance = 0.0f);
+        bool Attack(Player* requester, Unit* target, Event& event, float maxDistance = 0.0f);
         bool IsTargetValid(Player* requester, Unit* target, float maxDistance = 0.0f);
 
 #ifdef GenerateBotHelp
