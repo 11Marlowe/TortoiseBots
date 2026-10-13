@@ -4,6 +4,7 @@
 #include "playerbot/strategy/Value.h"
 #include "playerbot/TravelNode.h"
 #include "playerbot/CombatSpreadPolicy.h"
+#include "playerbot/TravelRouteCachePolicy.h"
 
 namespace ai
 {
@@ -65,6 +66,7 @@ namespace ai
             lastAreaTrigger = other.lastAreaTrigger;
             lastTransportEntry = other.lastTransportEntry;
             lastPath = other.lastPath;
+            routeCache = other.routeCache;
             lastMoveShort = other.lastMoveShort;
             nextTeleport = other.nextTeleport;
             fleeCount = other.fleeCount;
@@ -80,6 +82,7 @@ namespace ai
         void clear()
         {
             lastPath.clear();
+            routeCache = TravelRouteCacheEntry();
             lastFollow = NULL;
             lastAreaTrigger = 0;
             lastTransportEntry = 0;
@@ -128,6 +131,10 @@ namespace ai
         // (PoolFleePolicy.h backoff). 0 = none.
         uint32 fleeNoSpotMs = 0;
         TravelPath lastPath;
+        // What the last long-route rebuild was asked and produced (TravelRouteCachePolicy.h):
+        // lets ResolveMovePath keep a partial route for a few seconds instead of rebuilding
+        // it every turn. One entry per bot; cleared with the rest of the movement state.
+        TravelRouteCacheEntry routeCache;
         WorldPosition lastMoveShort;
         time_t nextTeleport;
         // MoveFailReason above: which return-false site fired last (0 = none

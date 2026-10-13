@@ -576,6 +576,20 @@ AiPlayerbot.GenerateItemCaches = 1
 # 1 - hold before packs in dungeons and raids
 AiPlayerbot.DungeonFollowHoldBeforePacks = 0
 
+# Warlock pet by spec.
+# In PvE (open world and dungeons, not raids or PvP) a warlock summons the demon
+# that fits its talent tree instead of always the Voidwalker (mod-playerbots
+# parity, adapted to 1.12 which has no Felguard): Affliction and Demonology
+# use the Felhunter, falling back to the Succubus, Voidwalker and Imp by what
+# the warlock has learned; Destruction uses the Imp. A warlock whose group has
+# no tank keeps the Voidwalker. The pet is chosen when the warlock has none;
+# pool bots also swap a default demon they already have (needs a Soul Shard).
+# A pet a player ordered (a "pet <demon>" strategy, or a demon a player's own
+# bot already has) is never replaced. Off by default.
+# 0 - Voidwalker whenever learned, Imp before that (Default)
+# 1 - pet that fits the spec
+AiPlayerbot.WarlockPetBySpec = 0
+
 # Bots and npcs turn to eachother during an rpg interaction
 AiPlayerbot.TurnInRpg = 0
 

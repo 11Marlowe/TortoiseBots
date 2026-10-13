@@ -279,6 +279,24 @@ Network master incoming
 
 No bot-specific opcode branches belong in core packet handlers.
 
+Threading (issue #839): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
+calls `WorldSession::SendPacket` and `SERVERHOOK_CAN_PACKET_RECEIVE` on the thread
+that processes the packet (`WorldSession::ProcessPackets`): the world thread, a
+map thread, the AsyncPackets thread (party / raid / guild / whisper chat, name
+and item queries) or `ChannelBroadcaster::ThreadProc` (channel chat). The last
+two overlap the world-thread bot update, so every hook entry is reduced to
+"copy and enqueue" or a lock-protected lookup:
+
+| Entry | Threads | What it does now |
+| --- | --- | --- |
+| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into a per-bot FIFO; `BotHostAdapter::OnUpdate` runs `HandleBotOutgoingPacket` from it before the bot update, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; a bot whose AI is gone by then is skipped; over 64 per bot per tick are dropped |
+| `CanPacketSend`, headless session, other opcodes | the bot's map thread or the world thread (spell results, knockback); any thread for the rest | unchanged: the spell / knockback cases never overlap the AI update; everything else enters the AI's mutex-guarded `PacketHandlingHelper` queue |
+| `CanPacketSend`, network master session | any | bot guids from `BotManager::GetBotGuidsForMasterAnyThread` (a master -> bot view published under a lock at the end of every `OnWorldUpdate`, at most one tick stale), AI from the locked `PlayerbotAIStorage`, then the mutex-guarded queue |
+| `CanPacketReceive` / `DispatchMasterIncoming` | world, map or AsyncPackets | same view + storage + queue as above |
+| `CanPacketReceive` / `MaybeSendMimicSummary` (`CMSG_USE_ITEM`) | the master's map thread | same view; reads AI strategy flags and whispers on a map thread, which never overlaps the AI update |
+
+`BotManager::GetBotsForMaster` (records + `Player*`) is world-thread only.
+
 Synthesized client packets (gameobject use, open/use item, chat) use the
 core receive queues: headless sessions drain them via `CanProcessPackets:IsHeadless`
 (core #475). This runs the canonical `ProcessPackets` wrapper (script receive

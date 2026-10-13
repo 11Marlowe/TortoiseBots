@@ -17,6 +17,7 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/GrindSpotPolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
+#include "playerbot/TravelRouteCachePolicy.h"
 #include "playerbot/AvoidAoePolicy.h"
 #include "playerbot/PoolFleePolicy.h"
 #include "playerbot/JumpPolicy.h"
@@ -596,8 +597,35 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
 
     TravelPath outMovePath;
 
-    if (needsLongPath && !sTravelNodeMap.GetNodes().empty() && !bot->InBattleGround())
+    bool const useNodeRoute = needsLongPath && !sTravelNodeMap.GetNodes().empty() && !bot->InBattleGround();
+
+    if (useNodeRoute)
     {
+        // A route that stops short of the destination (no node route, or an incomplete
+        // navmesh path) misses the check above on every turn, and rebuilding it is the
+        // most expensive thing a travelling bot does. Keep walking the route it has for
+        // a few seconds while the same question is asked. Nothing downstream changes:
+        // the shortcut, clip and dispatch below still run each turn, so a move that
+        // fails still fails (and is counted by the caller) at the same cadence.
+        TravelRouteCacheStats& stats = TravelRouteCacheCounters();
+        if (!lastMove.lastPath.empty())
+        {
+            WorldPosition const lastBack = lastMove.lastPath.GetBack();
+            if (TravelRouteCacheDecide(lastMove.routeCache, WorldTimer::getMSTime(),
+                    startPosition.GetMapId(), startPosition.getX(), startPosition.getY(), startPosition.getZ(),
+                    endPosition.GetMapId(), endPosition.getX(), endPosition.getY(), endPosition.getZ(),
+                    lastMove.lastPath.GetPath().size(),
+                    lastBack.GetMapId(), lastBack.getX(), lastBack.getY(), lastBack.getZ()) == TravelRouteCacheVerdict::Reuse)
+            {
+                // The rebuild also left its verdict for the TravelMoveFailed row and the
+                // off-graph rescue; replay it.
+                TravelNodeMap::LastRouteFail() = lastMove.routeCache.routeFail;
+                ++stats.hits;
+                return lastMove.lastPath;
+            }
+        }
+        ++stats.misses;
+
         outMovePath = sTravelNodeMap.GetFullPath(startPosition, endPosition, bot); //Pathfind using nodes.
     }
     else
@@ -609,6 +637,18 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
 
     if (!lastMove.lastPath.empty() && !outMovePath.empty() && lastMove.lastPath.GetBack().distance(endPosition) <= outMovePath.GetBack().distance(endPosition))
         outMovePath = lastMove.lastPath;
+
+    if (useNodeRoute && !outMovePath.empty())
+    {
+        WorldPosition const back = outMovePath.GetBack();
+        lastMove.routeCache = TravelRouteCacheStamp(WorldTimer::getMSTime(),
+            startPosition.GetMapId(), startPosition.getX(), startPosition.getY(), startPosition.getZ(),
+            endPosition.GetMapId(), endPosition.getX(), endPosition.getY(), endPosition.getZ(),
+            back.GetMapId(), back.getX(), back.getY(), back.getZ(),
+            TravelNodeMap::LastRouteFail());
+    }
+    else if (useNodeRoute)
+        lastMove.routeCache = TravelRouteCacheEntry();
 
     // A NOPATH fallback carries no route at all: tag the point so the dispatch
     // below can tell it from a clipped real path and keep failing (retry/drop)

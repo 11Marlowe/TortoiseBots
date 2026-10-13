@@ -16,6 +16,12 @@ public:
     bool CanPacketSend(WorldSession* session, WorldPacket const& packet) override;
     bool CanPacketReceive(WorldSession* session, WorldPacket const& packet) override;
 
+    // World thread only (BotHostAdapter::OnUpdate, before the bot update):
+    // runs the chat packets bots received since the last tick (issue #839).
+    static void DrainDeferredPackets();
+    // World thread, at shutdown: forget queued chat.
+    static void ClearDeferredPackets();
+
 private:
     void DispatchMasterIncoming(WorldSession* session, WorldPacket const& packet);
     // Raid anti-spam: when more than kMimicSummaryBots bots share the master,

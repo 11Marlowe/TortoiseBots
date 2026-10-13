@@ -9325,6 +9325,56 @@ Combat). `docs/classes/rogue.md` already describes the dump for all rogues.
 Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
 VM (see the PR); build pending; in-game pending.
 
+## Fishing spot data for the travel fish errand (FISH_LOCATION, maps 0 and 1) — 2026-10-13
+
+Feature: ship the donor's fishing spots so the travel fish errand has real
+destinations on a fresh install, instead of an empty `FISH_LOCATION` table.
+Owner approved shipping this on 2026-10-13.
+
+Source repository: `T-imothy/tortoise-wow`, branch `mantech-turtle`. Its
+`modules/mod-playerbots` tree is Shyalya's classic `mod-playerbots` lineage.
+The Shyalya repository returns 404 (per the 2026-10-13 fork audit), so this
+fork is the place to check the pins.
+
+Source commit: `0fb4d7c38d82c738bfc92ce75188d37e36632cc9` (branch head, read
+2026-10-13). The file was last changed in `8415f1b9dc079f7207cfaf8589fa135ce19a1ada`.
+Blob: `7497bbaf676de591ba53b401d8d1454e69e7a1e7`.
+
+Source file:
+- `modules/mod-playerbots/sql/world/classic/ai_playerbot_named_location.sql`
+  (headerless HeidiSQL dump of `classicmangos.ai_playerbot_named_location`;
+  54,055 rows = 54,038 `FISH_LOCATION_*` + 17 `AV_*`; 7,875,137 bytes)
+
+Copied / ported / independently reimplemented:
+- Copied (data only) to `data/sql/world/20261013090000_world.sql`: 52,766
+  `FISH_LOCATION` rows on maps 0 and 1. Values are unchanged apart from dropped
+  trailing zeros of the 20-decimal numbers; every migrated value was checked
+  equal to the dump under exact decimal comparison. Left out: 1,264 rows on
+  instance maps 36, 43, 48, 289, 309 and 349 (dungeon and raid pools; pool bots
+  are overworld only), and 8 rows whose z is -200000 (no terrain height). The 17
+  `AV_*` named points are not part of this entry. The DROP and CREATE header is
+  omitted; the schema stays owned by `20260824090000_world.sql`.
+- The migration replaces the whole `FISH_LOCATION` set: DELETE by the loader's
+  own filter, then multi-row INSERT of 2,000 rows per statement. This is
+  idempotent and also converges a server that already holds the full manual
+  import, which is why a primary-key INSERT IGNORE was not used. A server that
+  holds that import (the m910q test server) is rewritten to the shipped set when
+  its updater next runs this file; this change did not touch m910q.
+
+Reason: `TravelMgr::LoadFishLocations` reads only `FISH_LOCATION%` rows. Fish
+location generation is disabled in the module (`PlayerbotAIConfig.cpp:895-899`:
+the pinned core has no area query), so with the table empty the travel fish
+errand has no destination and pool bots fish only open water.
+
+Licence: the dump has no file header, and the module subtree has no LICENSE,
+COPYING or NOTICE. Recorded as Unresolved in `docs/LICENSE_AUDIT.md`, the same
+open status as the `05ba90b2` weightscales row. Owner approval: 2026-10-13.
+
+Local validation: `python3 tools/verify_okf.py`; `tools/verify_tortoise_surface.sh`
+(run through `verify_all.sh` on the test VM); an offline structural check of the
+migration (core-style statement split: 28 statements, 52,766 distinct rows, every
+value equal to the dump). Not loaded into a database and not run live.
+
 ## Mongoose Bite in the live Raptor Strike / Wing Clip row — 2026-10-13
 
 Feature: Mongoose Bite is queued in melee. Before, the live `hunter enemy is close` row
@@ -9353,3 +9403,44 @@ requirement for Mongoose Bite (`casterAuraState` 0 on ranks 1495, 14269-14271 in
 
 Validation: code review; `tools/verify_okf.py`, `tools/verify_all.sh` and tbsyntax on the test
 VM (see the PR); build pending; in-game pending.
+
+## Warlock pet by spec (opt-in, `AiPlayerbot.WarlockPetBySpec`) — 2026-10-13
+
+Feature: with the toggle on (default off), a warlock in PvE (open world and dungeons) summons the
+demon that fits its talent tree instead of always the Voidwalker. Affliction and Demonology:
+Felhunter, falling back to Succubus, Voidwalker, Imp by what the warlock has learned; Destruction:
+Imp. A warlock grouped with nobody in the tank role keeps the Voidwalker. A petless warlock gets the
+pick; a pool bot also swaps a default demon it already has (needs a Soul Shard unless the pick is the
+Imp). A `pet <demon>` strategy order and any live demon on a player-owned bot are never replaced.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Bot/Factory/AiFactory.cpp:565-571` (spec -> `felhunter` / `felguard` / `imp`
+non-combat strategy), `src/Ai/Class/Warlock/Strategy/GenericWarlockNonCombatStrategy.cpp` (the
+`summon felguard -> felhunter -> succubus -> voidwalker -> imp` pass-through chain and the
+`no pet` / `wrong pet` rows of each `SummonXStrategy`), `src/Ai/Class/Warlock/WarlockTriggers.cpp`
+(`WrongPetTrigger`, pet entries 416 / 1860 / 1863 / 417).
+
+Module files: `runtime/WarlockPetPolicy.h` (`DecideWarlockSpecPet`, pure) +
+`tools/test_warlock_pet_policy.cpp` (51 checks); `ai/playerbot/strategy/warlock/WarlockTriggers.{h,cpp}`
+(`SpecPetTrigger`, four rows; `WrongPetTrigger` stands down while the toggle is on),
+`WarlockAiObjectContext.cpp` (4 trigger creators), `WarlockStrategy.cpp` (rows in
+`WarlockPetPveStrategy::InitNonCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor,
+all deliberate: Turtle 1.18.1 has no player Felguard (spell 30146 is in the spell template with no
+trainer), so the Felguard step is skipped and Demonology lands on the Felhunter exactly as the
+donor chain does; the donor ignores group roles, here a tankless group keeps the Voidwalker; the
+donor has no player-order guard, here a manual `pet <demon>` strategy or a player-owned bot's live
+demon wins; the donor strategy is per-spec only, here the PvE situation strategy owns it (raid and
+PvP rows unchanged). Spell ids 688 / 697 / 712 / 691 and pet entries checked against
+`sql/base/tw_world_spell_template.sql` and the existing pet policies.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 2); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_warlock_pet_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+the test VM (see the PR); build pending; in-game pending.

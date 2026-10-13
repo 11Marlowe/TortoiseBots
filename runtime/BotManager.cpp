@@ -2282,6 +2282,32 @@ void BotManager::OnWorldUpdate(uint32_t diff)
 
     if (m_packetTestEnabled)
         UpdatePacketBridgeTest(diff);
+
+    PublishMasterView();
+}
+
+void BotManager::PublishMasterView()
+{
+    // Same filter as GetBotsForMaster, evaluated here on the world thread.
+    // Only bots with a master are visited past the first compare, so the
+    // random pool costs one guid test per record.
+    MasterBotView::Map view;
+    for (auto const& entry : m_bots)
+    {
+        ObjectGuid const masterGuid = entry.second.record.masterGuid;
+        if (masterGuid.IsEmpty())
+            continue;
+
+        ::Player* player = sObjectAccessor.FindPlayer(entry.second.record.characterGuid);
+        if (IsLiveHeadlessBot(entry.second, player))
+            view[masterGuid.GetRawValue()].push_back(entry.second.record.characterGuid.GetRawValue());
+    }
+    m_masterView.Publish(std::move(view));
+}
+
+std::vector<uint64_t> BotManager::GetBotGuidsForMasterAnyThread(::ObjectGuid masterGuid) const
+{
+    return m_masterView.BotsFor(masterGuid.GetRawValue());
 }
 
 void BotManager::UpdatePacketBridgeTest(uint32_t diff)
