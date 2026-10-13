@@ -17,6 +17,8 @@
 #include "playerbot/strategy/actions/AttackAction.h"
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
+#include "playerbot/strategy/values/HazardsValue.h"
 
 #include <regex>
 
@@ -1324,6 +1326,27 @@ bool AoeThreatNearbyTrigger::IsActive()
 {
     if (!bot->IsInWorld() || bot->IsBeingTeleported() || !sServerFacade.IsAlive(bot))
         return false;
+    // Creature aura keep-out (AiPlayerbot.AvoidCreatureAuras): register each
+    // listed creature in the cached 15yd trigger list as a short-lived
+    // movement hazard, so chase, follow and position moves keep their end
+    // points and paths outside it (MovementAction hazard checks). Re-added
+    // every tick while near (the expiry is refreshed, so it never flickers
+    // while the creature is near and alive); it lapses a few seconds after
+    // the creature dies or the bot moves on. The creature the
+    // player ordered this bot to attack is not registered.
+    if (sPlayerbotAIConfig.avoidCreatureAuras)
+    {
+        ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
+        for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+        {
+            CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(ai->GetUnit(guid));
+            if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
+                continue;
+            Hazard hazard(guid, kCreatureAuraHazardSeconds, CreatureAuraHazardRadius(*row));
+            hazard.SetRefreshOnReAdd();
+            SET_AI_VALUE(Hazard, "add hazard", std::move(hazard));
+        }
+    }
     // Any one sensor firing is enough; each read is value-cached (dynobj
     // aura check, 15yd trap scan, 15yd trigger scan).
     if (AI_VALUE2(bool, "has area debuff", "self target"))

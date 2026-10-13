@@ -158,6 +158,9 @@ bool PossibleTriggersValue::AcceptUnit(Unit* unit)
 {
     if (!unit || !unit->IsInWorld() || !sServerFacade.IsAlive(unit))
         return false;
+    // Listed permanent-aura creature (opt-in keep-out), selectable or not.
+    if (KeepoutFor(unit))
+        return true;
     // Invisible trigger NPCs cannot be selected.
     if (!unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
         return false;
@@ -180,4 +183,17 @@ bool PossibleTriggersValue::AcceptUnit(Unit* unit)
                 return true;
     }
     return false;
+}
+
+CreatureAuraKeepout const* PossibleTriggersValue::KeepoutFor(Unit* unit)
+{
+    if (!sPlayerbotAIConfig.avoidCreatureAuras || !unit || !unit->IsCreature())
+        return nullptr;
+    CreatureAuraKeepout const* row = FindCreatureAuraKeepout(unit->GetMapId(), unit->GetEntry());
+    if (!row)
+        return nullptr;
+    // The explicit-order exemption is checked by the callers (per bot).
+    if (!CreatureAuraKeepoutApplies(true, row, sServerFacade.IsAlive(unit), unit->HasAura(row->auraSpellId), false))
+        return nullptr;
+    return row;
 }
