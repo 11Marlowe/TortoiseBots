@@ -577,25 +577,38 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
 
 ActionNode* Engine::CreateActionNode(const std::string& name)
 {
-    ActionNode* cachedNode = nullptr;
-    for (std::map<std::string, Strategy*>::iterator i = strategies.begin(); i != strategies.end(); i++)
+    // The strategy factories build a fresh node on every GetAction() call (and the walk over every strategy
+    // and factory costs a map lookup each), so the engine keeps one prototype per name and hands out copies.
+    // A null prototype remembers "no strategy defines a node for this name". The creators are pure functions
+    // of the name, so the answer only changes when the attached strategy set does (see the clear() calls).
+    auto found = actionNodePrototypes.find(name);
+    if (found == actionNodePrototypes.end())
     {
-        Strategy* strategy = i->second;
-        cachedNode = strategy->GetAction(name);
-        if (cachedNode)
+        // Action names can come from chat commands: keep the cache bounded.
+        if (actionNodePrototypes.size() >= kMaxActionNodePrototypes)
+            actionNodePrototypes.clear();
+
+        std::unique_ptr<ActionNode> prototype;
+        for (std::map<std::string, Strategy*>::iterator i = strategies.begin(); i != strategies.end(); i++)
         {
-            break;
+            Strategy* strategy = i->second;
+            prototype.reset(strategy->GetAction(name));
+            if (prototype)
+            {
+                break;
+            }
         }
+
+        found = actionNodePrototypes.emplace(name, std::move(prototype)).first;
     }
 
     // Every caller either queues the node (Engine::Reset deletes it when the
     // queue drains) or deletes it outright, so the engine must own what it gets
-    // back. A node from a strategy factory belongs to that strategy's cache -
-    // handing it out and then deleting it left the factory holding a dangling
-    // pointer, and the next lookup double-freed it (issue: .bot action
-    // commands killed the world server with heap corruption).
-    if (cachedNode)
-        return new ActionNode(*cachedNode);
+    // back: always a copy, never the prototype. (Handing out a node that a
+    // strategy factory kept and then deleting it once double-freed it - issue:
+    // .bot action commands killed the world server with heap corruption.)
+    if (found->second)
+        return new ActionNode(*found->second);
 
     return new ActionNode(name);
 }
@@ -783,6 +796,7 @@ void Engine::addStrategy(const std::string& name)
 
         LogAction("S:+%s", strategy->getName().c_str());
         strategies[strategy->getName()] = strategy;
+        actionNodePrototypes.clear();
         strategy->OnStrategyAdded(state);
     }
 
@@ -823,6 +837,7 @@ bool Engine::removeStrategy(const std::string& name, bool init)
     LogAction("S:-%s", name.c_str());
     i->second->OnStrategyRemoved(state);
     strategies.erase(i);
+    actionNodePrototypes.clear();
 
     if (init)
     {
@@ -835,6 +850,7 @@ bool Engine::removeStrategy(const std::string& name, bool init)
 void Engine::removeAllStrategies()
 {
     strategies.clear();
+    actionNodePrototypes.clear();
     Init();
 }
 

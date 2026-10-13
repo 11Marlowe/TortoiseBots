@@ -5,6 +5,7 @@
 #include <set>
 #include <list>
 #include <map>
+#include <string_view>
 
 namespace ai
 {
@@ -153,7 +154,8 @@ namespace ai
     {
     protected:
         using ActionCreator = std::function<T* (PlayerbotAI* ai)>;
-        std::map<std::string, ActionCreator> creators;
+        // std::less<> lets Create() look a name up by string_view without building a std::string.
+        std::map<std::string, ActionCreator, std::less<>> creators;
 
     public:
         T* Create(std::string_view name, PlayerbotAI* ai)
@@ -167,7 +169,7 @@ namespace ai
                 nameView = nameView.substr(0, pos);
             }
 
-            auto it = creators.find(std::string(nameView));
+            auto it = creators.find(nameView);
             if (it == creators.end())
                 return nullptr;
 
@@ -199,12 +201,17 @@ namespace ai
         NamedObjectContext(bool shared = false, bool supportsSiblings = false) :
             NamedObjectFactory<T>(), shared(shared), supportsSiblings(supportsSiblings) {}
 
-        T* Create(std::string name, PlayerbotAI* ai)
+        // By const reference with a single map lookup on the hit path: this runs once per context for every
+        // by-name lookup of every bot turn, so a by-value std::string and three map walks per call add up.
+        T* Create(const std::string& name, PlayerbotAI* ai)
         {
-            if (created.find(name) == created.end())
-                return created[name] = NamedObjectFactory<T>::Create(name, ai);
+            auto it = created.find(name);
+            if (it != created.end())
+                return it->second;
 
-            return created[name];
+            T* object = NamedObjectFactory<T>::Create(name, ai);
+            created[name] = object;
+            return object;
         }
 
         virtual ~NamedObjectContext()
@@ -225,10 +232,11 @@ namespace ai
 
         void Erase(const std::string& name)
         {
-            if (created.find(name) != created.end())
+            auto it = created.find(name);
+            if (it != created.end())
             {
-                delete created[name];
-                created.erase(name);
+                delete it->second;
+                created.erase(it);
             }
         }
 

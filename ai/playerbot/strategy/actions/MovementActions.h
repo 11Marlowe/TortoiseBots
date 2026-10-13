@@ -9,6 +9,7 @@
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/LedgeStepDownPolicy.h"
+#include <atomic>
 
 namespace ai
 {
@@ -19,6 +20,12 @@ namespace ai
 
         static bool MinimalMove(PlayerbotAI* ai);
         static bool UseTransport(PlayerbotAI* ai, uint32 entry, WorldPosition dockPosition, WorldPosition exitPosition, bool doTeleport);
+
+        // BOTPERF window counters for ResolveMovePath: a call answered from the cached
+        // route is a reuse, a call that plans the route again is a rebuild. BotManager
+        // reads and resets both when it writes the BOTPERF line.
+        static std::atomic<uint32_t> routeReuseCount;
+        static std::atomic<uint32_t> routeRebuildCount;
     protected:
         static bool MoveOnTransport(PlayerbotAI* ai, GenericTransport* transport, bool doTeleport);
         static bool MoveOffTransport(PlayerbotAI* ai, WorldPosition exitPos, bool doTeleport);
