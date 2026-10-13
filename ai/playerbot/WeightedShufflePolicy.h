@@ -10,7 +10,7 @@
 // Efraimidis and Spirakis' weighted sampling without replacement): the same order in O(n log n).
 //
 // An item whose weight is not a positive finite number (zero, negative, NaN, infinity) comes after every positive
-// item, in input order. That is what the old code produced: a zero-weight tail always drew its first remaining item.
+// item, in input order. The old code also put them last, but its order among them was arbitrary.
 
 #include <algorithm>
 #include <cmath>
