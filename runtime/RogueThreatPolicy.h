@@ -17,6 +17,11 @@
 // Vanish never fires when it would end a solo fight or leave the group without a
 // tank in the fight: it needs a group, a main tank other than the rogue that is alive
 // and in combat, and a mob that is on that tank or on the rogue.
+//
+// The tank must also actually hold the mob: ThreatValue reads 100 for an in-combat
+// mob the tank has no threat on (a loose add), and the high-threat look-ahead never
+// holds against a tank threat of 0. Without the tankHoldsMob gate a rogue with a
+// loose add would Feint and then Vanish for nothing, burning the five-minute cooldown.
 
 namespace TortoiseBots
 {
@@ -27,6 +32,7 @@ struct RogueThreatInputs
     bool inFiveManDungeon = false;    // dungeon map, not a raid (raids have their own rows)
     bool grouped = false;
     bool otherTankInFight = false;    // main tank exists, is not the rogue, is alive and in combat
+    bool tankHoldsMob = false;        // the tank has threat on the current target, or is its victim
     bool mediumThreat = false;        // existing "medium threat" trigger
     bool highThreat = false;          // existing "high threat" trigger
     bool victimIsTankOrRogue = false; // the current target is held by that tank or by the rogue
@@ -34,7 +40,7 @@ struct RogueThreatInputs
 
 inline bool RogueThreatContextOk(RogueThreatInputs const& in)
 {
-    return in.toggleOn && in.inFiveManDungeon && in.grouped && in.otherTankInFight;
+    return in.toggleOn && in.inFiveManDungeon && in.grouped && in.otherTankInFight && in.tankHoldsMob;
 }
 
 // Feint (threat reduction, no cost to the fight) as soon as the threat is medium.

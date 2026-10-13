@@ -1,6 +1,8 @@
 #pragma once
 
+#include <ctime>
 #include <shared_mutex>
+#include <unordered_map>
 #include "WorldPosition.h"
 #include "Maps/PathFinder.h"
 
@@ -52,6 +54,38 @@ using namespace ai;
 namespace ai
 {
     class WorldPosition;
+
+    //What TravelNodePath::getCost needs to know about the traveller. It is
+    //built once per route search (TravelNodeMap::getRoute) so the A* does not
+    //repeat the dynamic_cast, the AI lookup and the named-value lookups on
+    //every edge. The bot cannot change while the search runs on the world
+    //thread, so the captured values equal what a per-edge lookup returned.
+    struct TravelCostContext
+    {
+        explicit TravelCostContext(Unit* unit);
+
+        Player* bot = nullptr;
+        PlayerbotAI* ai = nullptr;
+        uint32 mapId = 0;
+        uint32 instanceId = 0;
+        uint32 level = 0;
+        bool isAlliance = false;
+        bool taxiCheater = false;
+        float speed = 8.0f;     //run speed
+        float swimSpeed = 4.0f; //swim speed, with the druid aquatic form bonus
+
+        //Whether the bot may take this area trigger edge: its teleport
+        //condition, the refusal the server gave it and the tram rule.
+        //Evaluated once per trigger id and search.
+        bool canUseAreaTrigger(uint32 triggerId);
+
+    private:
+        bool hasRealPlayerMaster();
+
+        std::unordered_map<uint32, bool> areaTriggerUsable;
+        int8 realPlayerMaster = -1; //-1 = not asked yet
+        time_t now = 0;
+    };
 
     //A connection between two nodes.
     class TravelNodePath
@@ -108,6 +142,7 @@ namespace ai
         void calculateCost(bool distanceOnly = false);
 
         float getCost(Unit* unit = nullptr, uint32 cGold = 0);
+        float getCost(TravelCostContext& context, uint32 cGold = 0);
         float GetCost(Unit* unit = nullptr, uint32 cGold = 0) { return getCost(unit, cGold); }
         uint32 getPrice();
         uint32 GetPrice() { return getPrice(); }

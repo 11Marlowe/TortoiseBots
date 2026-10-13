@@ -179,7 +179,17 @@ static bool BuildRogueDungeonThreatInputs(PlayerbotAI* ai, Player* bot, Tortoise
 
     Unit* tank = ai->GetAiObjectContext()->GetValue<Unit*>("main tank")->Get();
     in.otherTankInFight = tank && tank != bot && tank->IsAlive() && sServerFacade.IsInCombat(tank);
-    return in.otherTankInFight;
+    if (!in.otherTankInFight)
+        return false;
+
+    // The tank must hold the mob: the threat value reads 100 for an in-combat
+    // mob the tank has no threat on, so a loose add would look critical.
+    Unit* target = ai->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
+    if (!target)
+        return false;
+    in.tankHoldsMob = target->GetVictim() == tank ||
+        ai->GetAiObjectContext()->GetValue<float>("tank threat", "current target")->Get() > 0.0f;
+    return in.tankHoldsMob;
 }
 
 bool RogueDungeonFeintTrigger::IsActive()

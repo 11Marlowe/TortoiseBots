@@ -21,6 +21,7 @@ static RogueThreatInputs dungeon()
     in.inFiveManDungeon = true;
     in.grouped = true;
     in.otherTankInFight = true;
+    in.tankHoldsMob = true;
     in.victimIsTankOrRogue = true;
     return in;
 }
@@ -99,6 +100,19 @@ int main()
         CHECK(!ShouldRogueDungeonVanish(in));
     }
     std::cout << "  [PASS] vanish only when the mob is on the tank or the rogue\n";
+
+    // A loose add the tank never touched (tank threat 0, mob not on the tank):
+    // the threat value still reads high, but neither Feint nor Vanish may fire.
+    {
+        RogueThreatInputs in = dungeon();
+        in.mediumThreat = in.highThreat = true;
+        in.tankHoldsMob = false;
+        CHECK(!ShouldRogueDungeonFeint(in));
+        CHECK(!ShouldRogueDungeonVanish(in));
+        in.victimIsTankOrRogue = true; // the add is on the rogue itself
+        CHECK(!ShouldRogueDungeonVanish(in));
+    }
+    std::cout << "  [PASS] a mob the tank never touched is left alone\n";
 
     std::cout << "All rogue-threat tests passed.\n";
     return 0;
