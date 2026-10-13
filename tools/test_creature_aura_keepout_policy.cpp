@@ -208,6 +208,65 @@ int main()
     }
     std::cout << "  [PASS] segment entry point\n";
 
+    // Chase near a keep-out (live test 2026-10-13: a warrior on "reach melee"
+    // chased a sludge to 2-4 yd). Sludge at the origin.
+    {
+        CreatureAuraKeepout const& sludge = *FindCreatureAuraKeepout(349, 12222);
+        using Step = CreatureAuraFollowStep;
+        float gx = 0.0f, gy = 0.0f, hx = 0.0f, hy = 0.0f;
+        auto dist = [](float x, float y) { return std::sqrt(x * x + y * y); };
+
+        // Goal: `distance` from the target toward the bot; melee (0) = target.
+        CreatureAuraChaseGoal(20.0f, 0.0f, 0.0f, 0.0f, 0.0f, gx, gy);
+        CHECK(gx == 0.0f && gy == 0.0f);
+        CreatureAuraChaseGoal(30.0f, 0.0f, 0.0f, 0.0f, 22.0f, gx, gy);
+        CHECK(std::fabs(gx - 22.0f) < 0.01f && std::fabs(gy) < 0.01f);
+        CreatureAuraChaseGoal(5.0f, 0.0f, 0.0f, 0.0f, 22.0f, gx, gy); // already closer: stay
+        CHECK(std::fabs(gx - 5.0f) < 0.01f);
+
+        // Melee chasing the sludge itself from 20 yd: stop on the 9.5 ring,
+        // then hold there; from 8.5 back off to 10; inside 8 the step-out.
+        CreatureAuraChaseGoal(20.0f, 0.0f, 0.0f, 0.0f, 0.0f, gx, gy);
+        CHECK(PlanCreatureAuraFollow(sludge, false, 20.0f, 0.0f, gx, gy, 0.0f, 0.0f, hx, hy) == Step::Approach);
+        CHECK(std::fabs(dist(hx, hy) - 9.5f) < 0.01f);
+        float const ax = hx, ay = hy;
+        CHECK(PlanCreatureAuraFollow(sludge, true, ax, ay, gx, gy, 0.0f, 0.0f, hx, hy) == Step::Hold);
+        CHECK(PlanCreatureAuraFollow(sludge, true, 8.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, hx, hy) == Step::BackOff);
+        CHECK(std::fabs(dist(hx, hy) - 10.0f) < 0.01f);
+        CHECK(PlanCreatureAuraFollow(sludge, true, 2.5f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, hx, hy) == Step::StepOut);
+
+        // The sludge creeps after the bot it has aggro on (2 yd/s, 0.25 yd
+        // per tick) while the melee keeps chasing it: never closer than 9.
+        float bx = 9.5f, cx = 0.0f;
+        for (int tick = 0; tick < 60; ++tick)
+        {
+            cx += 0.25f;
+            CreatureAuraChaseGoal(bx, 0.0f, cx, 0.0f, 0.0f, gx, gy);
+            Step const s = PlanCreatureAuraFollow(sludge, true, bx, 0.0f, gx, gy, cx, 0.0f, hx, hy);
+            CHECK(s == Step::Hold || s == Step::BackOff);
+            if (s == Step::BackOff)
+                bx = hx;
+            CHECK(bx - cx >= 8.74f); // a hold is re-judged every tick: at most one creep step inside 9
+        }
+
+        // A ranged chase (goal 22 yd out) and a melee chase onto a mob 12 yd
+        // from the sludge are left to the normal chase.
+        CreatureAuraChaseGoal(30.0f, 0.0f, 0.0f, 0.0f, 22.0f, gx, gy);
+        CHECK(PlanCreatureAuraFollow(sludge, false, 30.0f, 0.0f, gx, gy, 0.0f, 0.0f, hx, hy) == Step::Follow);
+        CreatureAuraChaseGoal(25.0f, 0.0f, 12.0f, 0.0f, 0.0f, gx, gy);
+        CHECK(PlanCreatureAuraFollow(sludge, false, 25.0f, 0.0f, gx, gy, 0.0f, 0.0f, hx, hy) == Step::Follow);
+    }
+    std::cout << "  [PASS] chase: melee on a sludge stops outside the ring and kites it\n";
+
+    // Step-out landing near other keep-outs: keep-out first, pulse relaxed.
+    {
+        CreatureAuraKeepout const& sludge = *FindCreatureAuraKeepout(349, 12222);
+        CHECK(CreatureAuraLandingClearance(sludge, false) == sludge.keepoutRadius);
+        CHECK(CreatureAuraLandingClearance(sludge, true) == sludge.pulseRadius);
+        CHECK(CreatureAuraLandingClearance(sludge, true) < CreatureAuraLandingClearance(sludge, false));
+    }
+    std::cout << "  [PASS] step-out landing clears other keep-outs (pulse when relaxed)\n";
+
     std::cout << "All creature aura keep-out tests passed.\n";
     return 0;
 }

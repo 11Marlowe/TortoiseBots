@@ -1575,14 +1575,37 @@ bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, floa
     float const slotAngle = target->GetOrientation() + angle;
     float const slotX = target->GetPositionX() + distance * cos(slotAngle);
     float const slotY = target->GetPositionY() + distance * sin(slotAngle);
+    return HoldOutsideKeepout(slotX, slotY, target->GetPositionX(), target->GetPositionY(),
+        keepoutFollowEngaged, FOLLOW_MOTION_TYPE);
+}
+
+bool MovementAction::HoldChaseOutsideKeepout(WorldObject* target, float distance)
+{
+    // Chase goal: `distance` from the target toward the bot (the target for a
+    // melee chase). Without this a melee chase never met the keep-out: the
+    // hazard end-point check below in ChaseTo looks at a point `distance`
+    // toward the target from the bot (the bot's own spot for melee), finds no
+    // hazard there and hands the move to the core chase, which runs into
+    // melee contact with the creature - inside its pulse (Maraudon live test
+    // 2026-10-13: a warrior on "reach melee" stood 2-4 yd from a sludge).
+    float gx = 0.0f, gy = 0.0f;
+    CreatureAuraChaseGoal(bot->GetPositionX(), bot->GetPositionY(),
+        target->GetPositionX(), target->GetPositionY(), distance, gx, gy);
+    return HoldOutsideKeepout(gx, gy, gx, gy, keepoutChaseEngaged, CHASE_MOTION_TYPE);
+}
+
+bool MovementAction::HoldOutsideKeepout(float gx, float gy, float ax, float ay, ObjectGuid& engaged,
+    MovementGeneratorType nativeType)
+{
     float const bx = bot->GetPositionX(), by = bot->GetPositionY();
     ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
     MotionMaster& mm = *bot->GetMotionMaster();
-    auto stopFollow = [&mm]()
+    auto stopNative = [&mm, nativeType]()
     {
-        // Only a native follow is stopped: the hold and back-off moves and
-        // the step-out's strafe are point moves that never head inward.
-        if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        // Only the native follow or chase is stopped: the hold and back-off
+        // moves and the step-out's strafe are point moves that never head
+        // inward.
+        if (mm.GetCurrentMovementGeneratorType() == nativeType)
         {
             mm.Clear(false, true);
             mm.MoveIdle();
@@ -1594,15 +1617,15 @@ bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, floa
         CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
         if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
             continue;
-        bool const engaged = guid == keepoutFollowEngaged;
+        bool const wasEngaged = guid == engaged;
         float const cx = unit->GetPositionX(), cy = unit->GetPositionY();
         float hx = 0.0f, hy = 0.0f;
-        CreatureAuraFollowStep step = PlanCreatureAuraFollow(*row, engaged, bx, by, slotX, slotY, cx, cy, hx, hy);
+        CreatureAuraFollowStep step = PlanCreatureAuraFollow(*row, wasEngaged, bx, by, gx, gy, cx, cy, hx, hy);
         if (step == CreatureAuraFollowStep::Follow)
-            step = PlanCreatureAuraFollow(*row, engaged, bx, by, target->GetPositionX(), target->GetPositionY(), cx, cy, hx, hy);
+            step = PlanCreatureAuraFollow(*row, wasEngaged, bx, by, ax, ay, cx, cy, hx, hy);
         if (step == CreatureAuraFollowStep::Follow)
             continue;
-        keepoutFollowEngaged = guid;
+        engaged = guid;
         if (step == CreatureAuraFollowStep::BackOff || step == CreatureAuraFollowStep::Approach)
         {
             WorldPosition point(bot->GetMapId(), hx, hy, bot->GetPositionZ());
@@ -1629,11 +1652,11 @@ bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, floa
             }
         }
         // StepOut (the avoid-aoe step-out moves the bot), Hold, or no way to
-        // the point: stop rather than follow into the pulse.
-        stopFollow();
+        // the point: stop rather than follow or chase into the pulse.
+        stopNative();
         return true;
     }
-    keepoutFollowEngaged = ObjectGuid();
+    engaged = ObjectGuid();
     return false;
 }
 
@@ -1667,6 +1690,13 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
         sLog.outDetail("[BOT CHASE] %s: IsSafe() blocked", bot->GetName());
         return false;
     }
+
+    // Creature aura keep-out: never chase into a listed creature's pulse.
+    // Before every chase branch below (the far/out-of-sight walk, the hazard
+    // end-point shift and the core chase fallback, which ends in melee
+    // contact with the target whatever hazard it stands in).
+    if (sPlayerbotAIConfig.avoidCreatureAuras && HoldChaseOutsideKeepout(obj, distance))
+        return true;
 
 
     if (ai->HasStrategy("behind", BotState::BOT_STATE_COMBAT))
@@ -2749,6 +2779,26 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
     // bomb/spread step-outs: FindStep itself lives in DungeonActions.cpp):
     // one cached "possible targets" read, no scan per candidate.
     std::list<ObjectGuid> const& possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible targets");
+    // Creature aura keep-out: listed creatures other than the one stepped
+    // away from (sludges stand in groups; in the Maraudon live test four
+    // pulled at once). A landing clears their keep-out, or on the second
+    // pass at least their pulse, so a step-out never lands in another one.
+    struct OtherKeepout { WorldPosition centre; CreatureAuraKeepout const* row; };
+    std::vector<OtherKeepout> otherKeepouts;
+    if (sPlayerbotAIConfig.avoidCreatureAuras)
+    {
+        ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
+        for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+        {
+            if (guid == keepoutSource)
+                continue;
+            Unit* unit = ai->GetUnit(guid);
+            CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
+            if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
+                continue;
+            otherKeepouts.push_back({ WorldPosition(unit), row });
+        }
+    }
     for (int pass = 0; pass < 2; ++pass)
     {
         bool const vetoSecondPass = (pass == 1);
@@ -2791,6 +2841,17 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
             // Keep-out step-out: the landing must clear the keep-out circle
             // (centre measure), or the next tick steps out again.
             if (!keepoutSource.IsEmpty() && cand.distance(hazardCenter) <= radius)
+                continue;
+            bool inOtherKeepout = false;
+            for (OtherKeepout const& other : otherKeepouts)
+            {
+                if (cand.distance(other.centre) <= CreatureAuraLandingClearance(*other.row, vetoSecondPass))
+                {
+                    inOtherKeepout = true;
+                    break;
+                }
+            }
+            if (inOtherKeepout)
                 continue;
             WorldPosition out = cand;
             if (!bot->IsWithinLOS(out.getX(), out.getY(), out.getZ() + bot->GetCollisionHeight()))

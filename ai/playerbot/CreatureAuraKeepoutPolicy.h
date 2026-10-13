@@ -181,4 +181,41 @@ namespace ai
         }
         return CreatureAuraFollowStep::Approach;
     }
+
+    // ---- Chase near a keep-out (HoldChaseOutsideKeepout) ------------------
+    //
+    // A chase (reach melee, reach spell, ...) is planned with the same bands,
+    // the goal being the point the chase wants the bot at: `distance` from the
+    // target toward the bot, i.e. the target itself for a melee chase
+    // (distance 0). A melee bot whose target is a keep-out creature, or stands
+    // within the hold ring of one, so stops outside the ring instead of
+    // chasing into the pulse; a ranged chase whose goal lies well outside the
+    // ring is left alone.
+    inline void CreatureAuraChaseGoal(float bx, float by, float tx, float ty, float distance,
+        float& gx, float& gy)
+    {
+        float const dx = bx - tx, dy = by - ty;
+        float const d = std::sqrt(dx * dx + dy * dy);
+        if (distance <= 0.0f || d <= 0.0f)
+        {
+            gx = tx;
+            gy = ty;
+            return;
+        }
+        float const k = (distance < d ? distance : d) / d;
+        gx = tx + dx * k;
+        gy = ty + dy * k;
+    }
+
+    // ---- Step-out landing near other keep-outs -----------------------------
+    //
+    // Radius a step-out landing must clear around a listed creature other than
+    // the one the bot steps away from (sludges stand in groups): its keep-out
+    // on the first pass, only its pulse on the relaxed second pass, so a bot
+    // in a cluster with no landing outside every keep-out still never steps
+    // into another pulse.
+    inline float CreatureAuraLandingClearance(CreatureAuraKeepout const& row, bool relaxed)
+    {
+        return relaxed ? row.pulseRadius : row.keepoutRadius;
+    }
 } // namespace ai
