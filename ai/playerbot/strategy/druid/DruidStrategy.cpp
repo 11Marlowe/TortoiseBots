@@ -264,8 +264,12 @@ void DruidCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "party member cure poison",
         NextAction::array(0, new NextAction("abolish poison on party", ACTION_DISPEL), NULL)));
 
+    // Bear tank holds its form on slows (daze/chill keep MOD_DECREASE_SPEED
+    // only): shapeshift breaks a real MOD_ROOT when the enemy is out of
+    // melee reach/LOS. A mere root on a tank already in contact wins nothing
+    // (form loss + mana + re-shift next tick) — the tank fight needs it.
     triggers.push_back(new TriggerNode(
-        "rooted",
+        "rooted and need to move",
         NextAction::array(0, new NextAction("caster form", ACTION_DISPEL), NULL)));
 }
 

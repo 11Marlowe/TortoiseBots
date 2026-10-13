@@ -263,6 +263,7 @@ namespace ai
                 creators["in stealth"] = [](PlayerbotAI* ai) { return new InStealthTrigger(ai); };
                 creators["no stealth"] = [](PlayerbotAI* ai) { return new NoStealthTrigger(ai); };
                 creators["stealth"] = [](PlayerbotAI* ai) { return new StealthTrigger(ai); };
+                creators["rooted and need to move"] = [](PlayerbotAI* ai) { return new RootedAndNeedToMoveTrigger(ai); };
                 creators["powershift"] = [](PlayerbotAI* ai) { return new PowershiftTrigger(ai); };
                 creators["rebirth"] = [](PlayerbotAI* ai) { return new RebirthTrigger(ai); };
                 creators["ooc rebirth"] = [](PlayerbotAI* ai) { return new OocRebirthTrigger(ai); };
