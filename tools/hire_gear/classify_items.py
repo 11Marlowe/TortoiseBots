@@ -68,7 +68,11 @@ PVP_NAMES = ("knight-", "lieutenant", "champion's", "legionnaire's",
 # exalted tomes/weapons/rings (19308-19325, incl. two test daggers).
 AV_REWARDS = set(range(19084, 19114)) | set(range(19308, 19326))
 
-
+# Quests whose completion needs a raid boss kill, even though the quest
+# Type/chain looks like a dungeon quest (values are LADDER tiers):
+# 7508 Quel'Serrar forging — the blade is tempered in Onyxia's breath
+# (quest 7509 text), so the product is Onyxia-tier (3), not base.
+QUEST_BOSS_TIER = {7508: 3}
 def connect(args):
     import pymysql
     kw = {"host": args.db_host, "user": args.db_user,
@@ -301,9 +305,13 @@ def build(cur, item_ids):
     def quest_chain_tier(qid, depth=0):
         # walk PrevQuestId chain; first non-raid (non-62) quest sets base.
         # A pure Type-62 chain with no loot/token path stays quarantined.
+        # Quests in QUEST_BOSS_TIER need a raid boss kill to complete, so
+        # they set that tier instead of base.
         seen = set()
         while qid and qid not in seen and depth < 10:
             seen.add(qid)
+            if qid in QUEST_BOSS_TIER:
+                return QUEST_BOSS_TIER[qid]
             info = quest_info.get(qid, (0, 0, 0, 0, 0))
             if info[0] != 62:
                 return 0

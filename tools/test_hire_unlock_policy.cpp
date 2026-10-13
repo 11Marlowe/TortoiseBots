@@ -85,6 +85,32 @@ static void TestHorsemen()
         CHECK(HireUnlockEncounterKey(member) == 16062);
         CHECK(HireUnlockCounterForKill(member) == naxx);
     }
+    // Thekal's real death fires as entry 14509 (P1 is a fake death with no
+    // loot); both entries resolve to the same encounter and counter.
+    CHECK(HireUnlockEncounterKey(14599) == 14599);
+    CHECK(HireUnlockEncounterKey(kHireUnlockThekalPhaseTwo) == 14599);
+    HireUnlockCounter const* zg = HireUnlockCounterForKill(14599);
+    CHECK(zg && zg->tier == 2);
+    CHECK(HireUnlockCounterForKill(kHireUnlockThekalPhaseTwo) == zg);
+    CHECK(!IsHireUnlockGroupedEncounter(14599));
+    // Linked credit: Ragnaros also credits Majordomo, Solnius also credits
+    // Erennius; anything else (and the linked bosses themselves) has none.
+    CHECK(HireUnlockLinkedCreditFor(11502) == 12018);
+    CHECK(HireUnlockLinkedCreditFor(60748) == 60747);
+    CHECK(HireUnlockLinkedCreditFor(12018) == 0);
+    CHECK(HireUnlockLinkedCreditFor(60747) == 0);
+    CHECK(HireUnlockLinkedCreditFor(14599) == 0);
+    CHECK(HireUnlockLinkedCreditFor(16062) == 0);
+    // Linked encounters resolve to their counters (same tier quests).
+    HireUnlockBoss const* linkedBoss = nullptr;
+    HireUnlockCounter const* linkedCounter =
+        HireUnlockCounterForKill(HireUnlockLinkedCreditFor(11502), &linkedBoss);
+    CHECK(linkedCounter && linkedCounter->tier == 3);
+    CHECK(linkedBoss && linkedBoss->entry == 12018);
+    linkedBoss = nullptr;
+    linkedCounter = HireUnlockCounterForKill(HireUnlockLinkedCreditFor(60748), &linkedBoss);
+    CHECK(linkedCounter && linkedCounter->tier == 4);
+    CHECK(linkedBoss && linkedBoss->entry == 60747);
     CHECK(IsHireUnlockGroupedEncounter(16062));
     CHECK(!IsHireUnlockGroupedEncounter(16063));
     CHECK(!IsHireUnlockGroupedEncounter(15990));
