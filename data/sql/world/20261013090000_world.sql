@@ -7,7 +7,7 @@
 --   (54,055 rows = 54,038 FISH_LOCATION rows + 17 AV named points).
 -- Data-only port: the DROP and CREATE header is omitted. The schema
 --   stays owned by 20260824090000_world.sql. The dump has no licence header.
---   the owner approved shipping it on 2026-10-13 (docs/LICENSE_AUDIT.md).
+--   The owner approved shipping it on 2026-10-13 (docs/LICENSE_AUDIT.md).
 --
 -- Why it ships: TravelMgr::LoadFishLocations reads the FISH_LOCATION rows. A
 --   fresh server has none and fish-location generation is disabled, so
