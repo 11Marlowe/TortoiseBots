@@ -68,6 +68,24 @@ namespace ai
         return true;
     }
 
+    // Effective health after counting heals already incoming from other
+    // healers, capped at maxHealth. Incoming is added ONLY when the target's
+    // ACTUAL health is above lowHealth: a member in danger must read as
+    // wounded so every healer keeps casting (an interrupted or spiked
+    // 3.5 s cast must never leave the roster standing down on a 25 %
+    // tank). Shared by the heal-start gate and the heal-target sort, so a
+    // tank in danger is neither vetoed nor sorted below scratch DPS.
+    inline std::uint32_t HealthWithIncoming(std::uint32_t health, std::uint32_t maxHealth,
+        std::uint32_t incoming, std::uint8_t lowHealth)
+    {
+        if (!maxHealth)
+            return health;
+        std::uint32_t actual = health > maxHealth ? maxHealth : health;
+        if (actual * 100 > std::uint64_t(maxHealth) * lowHealth)
+            actual += incoming;
+        return actual > maxHealth ? maxHealth : actual;
+    }
+
     // Mana a grouped healer keeps back before it spends any on off-spec
     // damage (`healer should attack`). `balance` is BalancePercentValue:
     // party levels * 100 / weighted enemy levels, capped at 200, so a LOW

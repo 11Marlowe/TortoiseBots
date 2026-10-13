@@ -96,6 +96,18 @@ int main()
     CHECK(HealerDpsManaAllows(false, 0, 101));
     CHECK(HealerDpsManaAllows(false, 0, 10));
 
+    // Incoming-heal inflation (review fix): added only above lowHealth.
+    // Tank at 25 % with a 4000 heal incoming still reads 2500/10000.
+    CHECK(HealthWithIncoming(2500, 10000, 4000, 50) == 2500);
+    // At exactly lowHealth (5000/10000 = 50 %): no inflation either.
+    CHECK(HealthWithIncoming(5000, 10000, 4000, 50) == 5000);
+    // Just above (51 %): incoming counts, capped at max.
+    CHECK(HealthWithIncoming(5100, 10000, 4000, 50) == 9100);
+    CHECK(HealthWithIncoming(8000, 10000, 4000, 50) == 10000);
+    // Zero max: passthrough, no divide.
+    CHECK(HealthWithIncoming(0, 0, 4000, 50) == 0);
+    // Over-max current clamps first, then inflates.
+    CHECK(HealthWithIncoming(12000, 10000, 4000, 50) == 10000);
     std::printf("healer mana policy: OK (%d checks)\n", checks);
     return 0;
 }
