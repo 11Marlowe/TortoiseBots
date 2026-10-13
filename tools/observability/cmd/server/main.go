@@ -454,6 +454,34 @@ func main() {
 		writeJSON(w, profile)
 	}))
 
+	// Read-only auction house view: one page per request, filtered and sorted
+	// by the database; never touches the game server.
+	mux.HandleFunc("GET /api/v1/auctions", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		quality := -1
+		if v, err := strconv.Atoi(q.Get("quality")); err == nil {
+			quality = v
+		}
+		page, err := armoryService.ListAuctions(armory.AuctionFilter{
+			Query:    q.Get("q"),
+			Quality:  quality,
+			MinLevel: qUint(q.Get("min_level")),
+			MaxLevel: qUint(q.Get("max_level")),
+			Seller:   q.Get("seller"),
+			Kind:     q.Get("kind"),
+			House:    q.Get("house"),
+			Sort:     q.Get("sort"),
+			Desc:     q.Get("dir") != "asc",
+			Page:     qUint(q.Get("page")),
+		})
+		if err != nil {
+			log.Printf("[Auctions] list failed: %v", err)
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, page)
+	}))
+
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
