@@ -9444,3 +9444,39 @@ ships behind a config toggle that is off by default.
 
 Validation: code review; `tools/test_warlock_pet_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
 the test VM (see the PR); build pending; in-game pending.
+
+## Hunter Aspect of the Viper on low mana (opt-in, `AiPlayerbot.HunterViperOnLowMana`) — 2026-10-13
+
+Feature: with the toggle on (default off), a hunter that knows Aspect of the Viper switches to it in
+combat when mana falls below half of `AiPlayerbot.LowMana` (below 7 % by default) and the Aspect of
+the Hawk upkeep stands down until mana is back at 60 %, then the normal Hawk upkeep recasts it.
+Between the thresholds the hunter keeps its aspect. A player-set `aspect <name>` strategy and a
+hunter in Cheetah or Pack are never overridden.
+
+Source repository: `mod-playerbots/mod-playerbots`
+
+Source commit: `79bd428` (local `playerbots-references/mod-playerbots`).
+
+Source files: `src/Ai/Class/Hunter/HunterTriggers.cpp` (`HunterAspectOfTheViperTrigger`: mana below
+`LowMana / 2`, suppressed by explicit `rnature` / `bspeed` strategies; `HunterAspectOfTheDragonhawkTrigger`:
+stays off while the Viper is up until mana >= 60), `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp`
+(trigger row at priority 28).
+
+Module files: `runtime/HunterViperPolicy.h` (pure) + `tools/test_hunter_viper_policy.cpp`;
+`ai/playerbot/strategy/hunter/HunterTriggers.{h,cpp}` (`AspectOfTheViperLowManaTrigger`, hold in
+`AspectOfTheHawkTrigger`), `HunterAiObjectContext.cpp` (trigger creator), `HunterStrategy.cpp` (row in
+`HunterAspectStrategy::InitCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor, all
+deliberate: Turtle 1.18.1 has Aspect of the Viper as spell 45651 (learn spell 47338, trainer level 56;
+`sql/base/tw_world_spell_template.sql`), not the TBC id 34074; the donor's `rnature` / `bspeed`
+suppression maps to this module's manual `aspect <name>` strategies (the donor strategies do not
+exist here) plus an active Cheetah / Pack aura; the row is combat-only (a hunter that is out of combat
+drinks in the aspect it has), the Hawk hold applies in both engines.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 4); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_hunter_viper_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+the test VM (see the PR); build pending; in-game pending.

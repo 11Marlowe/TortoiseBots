@@ -3,8 +3,61 @@
 #include "HunterTriggers.h"
 #include "../../../runtime/PetRevivePolicy.h"
 #include "HunterActions.h"
+#include "../../../runtime/HunterViperPolicy.h"
 
 using namespace ai;
+
+// A player-given "aspect <x>" strategy (HunterManualAspectStrategy) in either
+// engine: an explicit order beats the Viper automation. Only called after the
+// cheap gates, so it costs nothing while mana is fine or the toggle is off.
+static bool HasPlayerAspectOrder(PlayerbotAI* ai)
+{
+    static char const* const names[] = { "aspect hawk", "aspect monkey", "aspect cheetah", "aspect pack", "aspect beast", "aspect wild" };
+    for (char const* name : names)
+        if (ai->HasStrategy(name, BotState::BOT_STATE_COMBAT) || ai->HasStrategy(name, BotState::BOT_STATE_NON_COMBAT))
+            return true;
+    return false;
+}
+
+static TortoiseBots::HunterViperInputs BuildViperInputs(PlayerbotAI* ai, Player* bot)
+{
+    TortoiseBots::HunterViperInputs in;
+    in.toggleOn = sPlayerbotAIConfig.hunterViperOnLowMana;
+    in.manaPct = ai->GetManaPercent();
+    in.lowManaConfig = sPlayerbotAIConfig.lowMana;
+    in.inViper = ai->HasAura("aspect of the viper", bot);
+    return in;
+}
+
+bool AspectOfTheHawkTrigger::IsActive()
+{
+    // Toggle off: exactly the plain buff trigger.
+    if (!sPlayerbotAIConfig.hunterViperOnLowMana)
+        return BuffTrigger::IsActive();
+
+    TortoiseBots::HunterViperInputs in = BuildViperInputs(ai, bot);
+    if (in.inViper && in.manaPct < TortoiseBots::HUNTER_VIPER_EXIT_MANA_PCT)
+    {
+        in.playerAspectOrder = HasPlayerAspectOrder(ai);
+        if (TortoiseBots::ViperHoldsCombatAspect(in))
+            return false;
+    }
+    return BuffTrigger::IsActive();
+}
+
+bool AspectOfTheViperLowManaTrigger::IsActive()
+{
+    if (!sPlayerbotAIConfig.hunterViperOnLowMana)
+        return false;
+
+    TortoiseBots::HunterViperInputs in = BuildViperInputs(ai, bot);
+    // Cheap mana read first: most ticks stop here.
+    if (in.inViper || in.manaPct >= TortoiseBots::HunterViperEnterManaPct(in.lowManaConfig))
+        return false;
+    in.movementAspect = ai->HasAura("aspect of the cheetah", bot) || ai->HasAura("aspect of the pack", bot);
+    in.playerAspectOrder = HasPlayerAspectOrder(ai);
+    return TortoiseBots::ShouldSwitchToViper(in) && BuffTrigger::IsActive();
+}
 
 bool HunterNoStingsActiveTrigger::IsActive()
 {

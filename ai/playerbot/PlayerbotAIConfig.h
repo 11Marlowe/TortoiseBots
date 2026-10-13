@@ -463,6 +463,8 @@ public:
     bool dungeonFollowHoldBeforePacks;
     // Warlock summons the demon that fits its spec in PvE instead of the Voidwalker (opt-in).
     bool warlockPetBySpec;
+    // Hunter swaps to Aspect of the Viper on low mana and back to Hawk once mana recovers (opt-in).
+    bool hunterViperOnLowMana;
     bool turnInRpg;
     bool globalSoundEffects;
     bool shareTargets;

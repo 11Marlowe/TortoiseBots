@@ -201,6 +201,7 @@ namespace ai
                 creators["explosive trap"] = [](PlayerbotAI* ai) { return new ExplosiveTrapTrigger(ai); };
                 creators["rapid fire"] = [](PlayerbotAI* ai) { return new RapidFireTrigger(ai); };
                 creators["aspect of the hawk"] = [](PlayerbotAI* ai) { return new AspectOfTheHawkTrigger(ai); };
+                creators["aspect of the viper low mana"] = [](PlayerbotAI* ai) { return new AspectOfTheViperLowManaTrigger(ai); };
                 creators["aspect of the wild"] = [](PlayerbotAI* ai) { return new AspectOfTheWildTrigger(ai); };
                 creators["aspect of the monkey"] = [](PlayerbotAI* ai) { return new AspectOfTheMonkeyTrigger(ai); };
                 creators["aspect of the beast"] = [](PlayerbotAI* ai) { return new AspectOfTheBeastTrigger(ai); };
