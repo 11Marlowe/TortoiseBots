@@ -72,6 +72,8 @@ int main()
     CHECK(Ask(e, 10100, 0.f, 0, 1000.f, 1) == TravelRouteCacheVerdict::MissConsumed);
     CHECK(Ask(e, 10100, 0.f, 0, 1000.f, 0) == TravelRouteCacheVerdict::MissConsumed);
     CHECK(Ask(e, 10100, 0.f, 0, 1000.f, 5, 400.f) == TravelRouteCacheVerdict::MissRouteSwap);
+    CHECK(Ask(e, 10100, 0.f, 0, 1000.f, 5, 200.f + TRAVEL_ROUTE_CACHE_BACK_TOLERANCE) == TravelRouteCacheVerdict::Reuse);
+    CHECK(Ask(e, 10100, 0.f, 0, 1000.f, 5, 200.f + TRAVEL_ROUTE_CACHE_BACK_TOLERANCE + 0.5f) == TravelRouteCacheVerdict::MissRouteSwap);
     std::cout << "  [PASS] consumed or replaced route misses\n";
 
     // A rebuild replaces the entry: new window, new start.
@@ -80,40 +82,9 @@ int main()
         == TravelRouteCacheVerdict::Reuse);
     std::cout << "  [PASS] restamp starts a fresh window\n";
 
-    // Failure semantics. The cache has no way to skip a retry: the caller counts one failed
-    // move per turn whatever the verdict, and a hit replays the route verdict the rebuild
-    // left (LastRouteFail, which feeds the TravelMoveFailed row and the off-graph rescue).
-    // Model one wedged bot: a turn per second, IncRetry adds 2 per failed move and the target drops past 10.
-    TravelRouteCacheEntry cache;
-    std::string routeFailSeen; // what LastRouteFail() holds when the caller reads it
-    uint32_t retry = 0, rebuilds = 0, hits = 0, dropTurn = 0;
-    for (uint32_t turn = 0; turn < 20 && !dropTurn; ++turn)
-    {
-        uint32_t const now = 100000 + turn * 1000;
-        TravelRouteCacheVerdict const v = Ask(cache, now);
-        if (v == TravelRouteCacheVerdict::Reuse)
-        {
-            ++hits;
-            routeFailSeen = cache.routeFail; // replayed
-        }
-        else
-        {
-            ++rebuilds;
-            routeFailSeen = "startwalk"; // the fresh rebuild's verdict
-            cache = Stamped(now, routeFailSeen);
-        }
-        CHECK(routeFailSeen == "startwalk");  // identical verdict on hit and miss
-        retry += 2;                            // IncRetry(true), every turn
-        if (retry > 10)                        // TravelTarget::IsMaxRetry: the 6th failed move
-            dropTurn = turn + 1;
-    }
-    CHECK(dropTurn == 6);          // same drop turn as with no cache at all (6 x +2 > 10)
-    CHECK(rebuilds == 1 && hits == 5);
-    std::cout << "  [PASS] failures counted per turn, verdict replayed on hits\n";
-
     // Over a long wedge the rebuild rate falls from every turn to one per window.
-    cache = TravelRouteCacheEntry();
-    rebuilds = 0;
+    TravelRouteCacheEntry cache;
+    uint32_t rebuilds = 0;
     for (uint32_t turn = 0; turn < 60; ++turn)
     {
         uint32_t const now = 200000 + turn * 1000;

@@ -25,7 +25,13 @@
 // MoveToTravelTargetAction::Execute still counts it (IncRetry) at the same
 // cadence. The only extra state a fresh rebuild left behind is
 // TravelNodeMap::LastRouteFail() (read by the TravelMoveFailed row and the
-// off-graph rescue), so the entry carries it and a hit replays it.
+// off-graph rescue), so the entry carries it and a hit replays it (up to
+// TRAVEL_ROUTE_CACHE_MS / TRAVEL_ROUTE_CACHE_START_RADIUS old).
+//
+// One real difference: when a fresh rebuild would now come back EMPTY (no node
+// route and no navmesh path), ResolveMovePath would dispatch the NOPATH portal
+// point that turn and the move fails; a hit keeps walking the old lastPath for up
+// to the window instead, so the retry count can differ in that case.
 
 namespace ai
 {
@@ -43,6 +49,10 @@ namespace ai
     // the plan is considered stale. A partial route is rebuilt every time the bot
     // has moved this far, so a long partial walk keeps extending.
     constexpr float TRAVEL_ROUTE_CACHE_START_RADIUS = 30.0f;
+
+    // The back of the route being walked must still be the cached route's back
+    // within this many yards, else another movement replaced lastPath.
+    constexpr float TRAVEL_ROUTE_CACHE_BACK_TOLERANCE = 1.0f;
 
     struct TravelRouteCacheEntry
     {
@@ -108,7 +118,7 @@ namespace ai
         // Another movement replaced lastPath since (cutTo only trims the front,
         // so the back of the cached route does not change while it is walked).
         if (entry.backMap != lastBackMap ||
-            TravelRouteCacheDist(entry.backX, entry.backY, entry.backZ, lastBackX, lastBackY, lastBackZ) > 1.0f)
+            TravelRouteCacheDist(entry.backX, entry.backY, entry.backZ, lastBackX, lastBackY, lastBackZ) > TRAVEL_ROUTE_CACHE_BACK_TOLERANCE)
             return TravelRouteCacheVerdict::MissRouteSwap;
 
         return TravelRouteCacheVerdict::Reuse;
