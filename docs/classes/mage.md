@@ -28,9 +28,9 @@ Mages provide premier ranged spell DPS, the game's most reliable crowd control (
 - If enemies reach melee range, casts *Frost Nova* and *Blink* to reset distance.
   - When its target is attacking the mage and is within 8 yards, a mage of any spec turns its back to the target and then casts *Blink*, so it jumps away from the enemy instead of into it. A target fighting someone else (the tank) does not set this off, so the mage does not blink away from a mob it is walking up to. While rooted or stunned, *Blink* goes the way the mage already faces.
   - Skips *Frost Nova* when the target is already frozen or immune to the freeze, so the GCD goes to damage.
-- Uses *Blizzard* and *Flamestrike* on grouped enemies — *Flamestrike* first, then *Blizzard* channeled on the burning ground while the pack holds (*Cone of Cold* on light AoE; *Arcane Explosion* point-blank for Arcane; *Blast Wave* for Fire).
-- Uses *Blizzard* and *Flamestrike* on grouped enemies (*Cone of Cold* on light AoE; *Arcane Explosion* point-blank for Arcane; *Blast Wave* for Fire), and stops the *Blizzard* channel early when the pack thins below two attackers.
-- Uses *Blizzard* and *Flamestrike* on grouped enemies, and *Cone of Cold* on close pairs (only while facing the target; *Blast Wave* for Fire).
+- Uses *Flamestrike* on 3+ grouped enemies, then *Blizzard* channeled on the burning ground while the pack holds. *Blizzard* also goes on top of a *Flamestrike* that is still burning (the flamestrike window).
+- *Frost* adds *Cone of Cold* once 2+ enemies are attacking, only when the target is within 10 yd and in front of the mage. *Arcane* uses *Arcane Explosion* when an enemy is too close for its spells. *Fire* casts *Blast Wave* at interrupt priority when an enemy is within 10 yd.
+- Stops the *Blizzard* channel early when the pack thins below two attackers.
 - Uses *Cold Snap* once any Frost cooldown (Frost Nova, Cone of Cold, Ice Barrier, Ice Block, Frost Ward) is spent.
 
 ### 2. Fire Mage
