@@ -571,6 +571,9 @@ bool MovementAction::WaitForTransport()
     return false;
 }
 
+std::atomic<uint32_t> MovementAction::routeReuseCount{ 0 };
+std::atomic<uint32_t> MovementAction::routeRebuildCount{ 0 };
+
 TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, const WorldPosition& endPosition, Unit* mover, LastMovement& lastMove)
 {
     float totalDistance = startPosition.distance(endPosition);
@@ -579,9 +582,11 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     // Last long path still leads to roughly the same destination.
     if (!lastMove.lastPath.empty() && lastMove.lastPath.GetBack().distance(endPosition) < maxDistChange)
     {
+        routeReuseCount.fetch_add(1, std::memory_order_relaxed);
         return lastMove.lastPath;
     }
 
+    routeRebuildCount.fetch_add(1, std::memory_order_relaxed);
     bool needsLongPath = false;
 
     if (startPosition.GetMapId() != endPosition.GetMapId())
