@@ -4,6 +4,7 @@
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../runtime/ClaimLifecycle.h"
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
 #include "../ai/playerbot/strategy/Action.h"
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
@@ -506,6 +507,27 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
         if (spell.empty() || !ai->HasSpell(spell))
             continue;
         anyCcSpellKnown = true;
+
+        // Durable misses first: isPossible() only knows the spell is ready,
+        // and CanCastSpell reports whatever check fails first, so an
+        // outdoors-only Roots indoors or Hibernate on a humanoid slipped
+        // through as castable.
+        if (SpellEntry const* info = sServerFacade.LookupSpellInfo(context->GetValue<uint32>("spell id", spell)->Get()))
+        {
+            Player* bot = ai->GetBot();
+            if ((info->Attributes & SPELL_ATTR_OUTDOORS_ONLY) &&
+                !bot->GetMap()->GetTerrain()->IsOutdoors(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()))
+            {
+                anyOutdoorsOnly = true;
+                outdoorsSpell = spell;
+                continue;
+            }
+            if (info->TargetCreatureType && !(info->TargetCreatureType & target->GetCreatureTypeMask()))
+            {
+                anyCreatureMismatch = true;
+                continue;
+            }
+        }
 
         uint32 preference = CcSpellPreference(spell);
         if (!selectedAction.empty() && preference >= selectedPreference)
