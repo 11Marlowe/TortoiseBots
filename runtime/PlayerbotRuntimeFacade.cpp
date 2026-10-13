@@ -5,6 +5,7 @@
 
 #include "../ai/playerbot/RandomBotFacade.h"
 #include "runtime/BotActivityLease.h"
+#include "NamedLocationIndex.h"
 
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/AiFactory.h"
@@ -261,20 +262,44 @@ bool RandomBotFacade::ProcessBot(Player* player)
     return true;
 }
 
+// Named locations (ai_playerbot_named_location): read once at startup into a sealed index,
+// see runtime/NamedLocationIndex.h. Lookups never touch the database.
+static TortoiseBots::NamedLocationIndex sNamedLocations;
+
 bool RandomBotFacade::GetNamedLocation(std::string const& name, WorldLocation& location)
 {
-    std::string escaped = name;
-    WorldDatabase.escape_string(escaped);
-    auto result = WorldDatabase.PQuery(
-        "SELECT map_id, position_x, position_y, position_z, orientation "
-        "FROM ai_playerbot_named_location WHERE name = '%s' LIMIT 1", escaped.c_str());
-    if (!result)
+    TortoiseBots::NamedLocationPoint point;
+    if (!sNamedLocations.Find(name, point))
         return false;
 
-    Field* fields = result->Fetch();
-    location = WorldLocation(fields[0].GetUInt32(), fields[1].GetFloat(), fields[2].GetFloat(),
-        fields[3].GetFloat(), fields[4].GetFloat());
+    location = WorldLocation(point.mapId, point.x, point.y, point.z, point.orientation);
     return true;
+}
+
+void RandomBotFacade::LoadNamedLocationCache()
+{
+    if (sNamedLocations.Sealed())
+        return;
+
+    // One pass over the table. The index is sealed afterwards, even when the table is empty.
+    auto result = WorldDatabase.Query("SELECT `name`, `map_id`, `position_x`, `position_y`, `position_z`, `orientation` FROM `ai_playerbot_named_location`");
+    if (result)
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            TortoiseBots::NamedLocationPoint point;
+            point.mapId = fields[1].GetUInt32();
+            point.x = fields[2].GetFloat();
+            point.y = fields[3].GetFloat();
+            point.z = fields[4].GetFloat();
+            point.orientation = fields[5].GetFloat();
+            sNamedLocations.Add(fields[0].GetCppString(), point);
+        } while (result->NextRow());
+    }
+
+    sNamedLocations.Seal();
+    TB_LOG_BASIC("TortoiseBots: named locations loaded: %u", static_cast<uint32>(sNamedLocations.Size()));
 }
 
 void RandomBotFacade::LoadBattleMastersCache()
