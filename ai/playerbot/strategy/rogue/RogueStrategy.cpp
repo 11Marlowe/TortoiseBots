@@ -215,7 +215,7 @@ void RogueRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("feint", ACTION_DISPEL), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "high threat",
+        "rogue raid vanish",
         NextAction::array(0, new NextAction("vanish", ACTION_EMERGENCY), NULL)));
 }
 

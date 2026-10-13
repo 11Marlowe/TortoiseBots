@@ -19,6 +19,16 @@ namespace ai
         bool IsActive() override;
     };
 
+    // Raid Vanish on high threat, but only when the tank actually has threat on
+    // the target: the threat value reads 100 for an in-combat mob the tank never
+    // touched (a loose add), where Vanish only burns its cooldown.
+    class RogueRaidVanishTrigger : public HighThreatTrigger
+    {
+    public:
+        RogueRaidVanishTrigger(PlayerbotAI* ai) : HighThreatTrigger(ai, "rogue raid vanish") {}
+        bool IsActive() override;
+    };
+
     CAN_CAST_TRIGGER_A(RiposteCastTrigger, "riposte");
     CAN_CAST_TRIGGER_A(SurpriseAttackTrigger, "surprise attack");
     CAN_CAST_TRIGGER(BackstabTrigger, "backstab");
