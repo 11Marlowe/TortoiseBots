@@ -461,6 +461,8 @@ public:
     bool boostFollow;
     // Dungeon follow holds short of unpulled packs when the leader is far ahead (audit fix 127).
     bool dungeonFollowHoldBeforePacks;
+    // Warlock summons the demon that fits its spec in PvE instead of the Voidwalker (opt-in).
+    bool warlockPetBySpec;
     bool turnInRpg;
     bool globalSoundEffects;
     bool shareTargets;
