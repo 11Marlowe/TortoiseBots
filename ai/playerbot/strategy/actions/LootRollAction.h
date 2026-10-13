@@ -73,6 +73,23 @@ namespace ai
         virtual std::vector<std::string> GetUsedValues() { return { "item usage", "force item usage" }; }
 #endif
     };
+    class RollWonLogAction : public Action
+    {
+    public:
+        RollWonLogAction(PlayerbotAI* ai, std::string name = "log roll won") : Action(ai, name) {}
+        virtual bool Execute(Event& event) override;
+        virtual bool isUsefulWhenStunned() override { return true; }
+
+#ifdef GenerateBotHelp
+        virtual std::string GetHelpName() { return "log roll won"; } //Must equal internal name
+        virtual std::string GetHelpDescription()
+        {
+            return "This action logs an item the bot won from a group-loot roll.\n";
+        }
+        virtual std::vector<std::string> GetUsedActions() { return {}; }
+        virtual std::vector<std::string> GetUsedValues() { return {}; }
+#endif
+    };
 
     class AutoLootRollAction : public RollAction
     {
