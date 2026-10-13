@@ -46,6 +46,7 @@ Rogues provide premier single-target melee physical DPS, invaluable pre-combat c
 - Near a CC mark the rogue also keeps *Kick on enemy healer* off a held mark (Moon or a bot's CC mark in its hold window or under a CC cast bar): a Moon mob casting a heal is left to the CC bot.
 - Activates *Evasion* on the low-health trigger (own HP in the low band), regardless of aggro source; when evasion is spent (5-minute cooldown, e.g. death loops), *Vanish* breaks combat instead of a solo-useless *Feint*, which stays last for grouped rogues with a tank to save.
 - Activates *Vanish* if health falls below 20% to wipe threat (after *Blind*).
+- **Raid threat drops:** in raids the rogue casts *Feint* on its current target at medium threat and *Vanish* at high threat, but *Vanish* only while the tank has threat on the target (a loose add the tank never touched reads as 100 on the threat value and would only waste the 5-minute cooldown). *Feint* is a target-enemy spell and is cast on the current target; both actions carry no threat back-off, so a party bot with the threat strategy is not vetoed exactly when the threat is high.
 
 ---
 

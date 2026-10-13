@@ -114,10 +114,17 @@ namespace ai
 		CastKickAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "kick") {}
 	};
 
-	class CastFeintAction : public CastBuffSpellAction
+	// Feint is a target-enemy threat reduction (spell template: effect THREAT,
+	// implicit target enemy). It used to be a self-cast buff, which the
+	// harmful-self gate in PlayerbotAI::CastSpell refuses, so no feint row ever
+	// cast. Cast it on the current target. Threat type NONE: with the party
+	// "threat" back-off active a single-target action is vetoed while "high
+	// threat" is up, which is exactly when a threat drop must run.
+	class CastFeintAction : public CastMeleeSpellAction
 	{
 	public:
-		CastFeintAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "feint") {}
+		CastFeintAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "feint") {}
+		virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
 	};
 
 	class CastDistractAction : public CastSpellAction
@@ -130,6 +137,11 @@ namespace ai
 	{
 	public:
 		CastVanishAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "vanish") {}
+
+        // Threat type NONE: ThreatMultiplier vetoes single-target actions while
+        // "high threat" is active (party bots with the threat strategy), which
+        // blocked the very threat-drop Vanish rows meant to run then.
+        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
 
         virtual bool isUseful()
         {

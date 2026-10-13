@@ -158,3 +158,10 @@ bool BladeFlurryNearCcTrigger::IsActive()
         return false;
     return BladeFlurryNearCc(ai, bot, CcBladeFlurryCancelRadius);
 }
+
+bool RogueRaidVanishTrigger::IsActive()
+{
+    if (!HighThreatTrigger::IsActive())
+        return false;
+    return AI_VALUE2(float, "tank threat", "current target") > 0.0f;
+}
