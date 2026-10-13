@@ -4,7 +4,9 @@
 // world thread. Issue #844 adds the AI-lifetime model: packet threads only
 // queue copies keyed by guid while the world thread deletes and recreates the
 // owners and resolves every key again when it drains (run it under
-// -fsanitize=thread to catch any producer that touches an owner).
+// -fsanitize=thread to catch any producer that touches an owner). Issue #846
+// adds the shared sequence (two queues drained as one, in queued order),
+// partial takes, and the rate-limited report of what the caps drop.
 #include "../runtime/WorldThreadQueue.h"
 
 #include <atomic>
@@ -115,6 +117,115 @@ int main()
         assert(total == static_cast<size_t>(kThreads * kPerThread));
         for (int t = 0; t < kThreads; ++t)
             assert(next[static_cast<uint64_t>(t)] == kPerThread);
+    }
+
+    // Issue #846: two queues (packets and chat) run merged by the shared
+    // sequence, in the order the items were queued across both; TakeBefore
+    // leaves later items queued and frees cap room for what it took.
+    {
+        WorldThreadQueue<std::string> packets(8);
+        WorldThreadQueue<std::string> chat(2);
+        packets.Enqueue(1, "invite");
+        chat.Enqueue(1, "stay");
+        uint64_t const mark = WorldQueueSequenceEnd();
+        packets.Enqueue(1, "loot");
+        chat.Enqueue(1, "follow");
+        assert(!chat.Enqueue(1, "dropped"));
+
+        auto early = packets.TakeBefore(mark);
+        auto earlyChat = chat.TakeBefore(mark);
+        std::vector<std::string> ran;
+        RunInSequence(early, [&](WorldThreadQueue<std::string>::Entry& e) { ran.push_back(e.item); },
+            earlyChat, [&](WorldThreadQueue<std::string>::Entry& e) { ran.push_back(e.item); });
+        assert((ran == std::vector<std::string>{ "invite", "stay" }));
+        assert(packets.PendingCount() == 1 && chat.PendingCount() == 1);
+        // "stay" was taken, so the key has room for one more again.
+        assert(chat.Enqueue(1, "attack"));
+        assert(!chat.Enqueue(1, "dropped"));
+
+        auto rest = packets.TakeBefore(UINT64_MAX);
+        auto restChat = chat.TakeBefore(UINT64_MAX);
+        RunInSequence(rest, [&](WorldThreadQueue<std::string>::Entry& e) { ran.push_back(e.item); },
+            restChat, [&](WorldThreadQueue<std::string>::Entry& e) { ran.push_back(e.item); });
+        assert((ran == std::vector<std::string>{ "invite", "stay", "loot", "follow", "attack" }));
+        assert(packets.PendingCount() == 0 && chat.PendingCount() == 0);
+
+        auto dropped = chat.TakeDroppedPerKey();
+        assert(dropped.size() == 1 && dropped[1] == 2);
+        assert(chat.TakeDroppedPerKey().empty());
+        assert(chat.DroppedCount() == 2);
+    }
+
+    // Producer threads each alternate between the two queues while the world
+    // thread drains both merged, sometimes in two partial steps: each
+    // producer's items run in exactly the order it queued them.
+    {
+        constexpr int kThreads = 4;
+        constexpr int kPerThread = 3000;
+        WorldThreadQueue<int> packets(1000000);
+        WorldThreadQueue<int> chat(1000000);
+        std::atomic<int> done{ 0 };
+        std::vector<std::thread> producers;
+        for (int t = 0; t < kThreads; ++t)
+        {
+            producers.emplace_back([&, t]
+            {
+                for (int i = 0; i < kPerThread; ++i)
+                    (i % 2 ? chat : packets).Enqueue(static_cast<uint64_t>(t), i);
+                ++done;
+            });
+        }
+        std::map<uint64_t, int> next;
+        size_t total = 0;
+        auto run = [&](WorldThreadQueue<int>::Entry& e)
+        {
+            assert(e.item == next[e.key]);
+            next[e.key] = e.item + 1;
+            ++total;
+        };
+        auto drain = [&](uint64_t limit)
+        {
+            auto a = packets.TakeBefore(limit);
+            auto b = chat.TakeBefore(limit);
+            RunInSequence(a, run, b, run);
+        };
+        while (done.load() < kThreads)
+        {
+            drain(WorldQueueSequenceEnd() - 5);
+            drain(WorldQueueSequenceEnd());
+        }
+        for (std::thread& producer : producers)
+            producer.join();
+        drain(UINT64_MAX);
+        assert(total == static_cast<size_t>(kThreads * kPerThread));
+    }
+
+    // Issue #846: drop reports, at most one per key per interval, carrying
+    // everything dropped since that key's last report; quiet keys are
+    // forgotten after an interval.
+    {
+        DropReportLimiter limiter(1000);
+        std::vector<std::pair<uint64_t, uint64_t>> reports;
+        auto report = [&](uint64_t key, uint64_t count) { reports.emplace_back(key, count); };
+
+        limiter.Add(7, 3);
+        limiter.Flush(10, report);              // first drop: reported at once
+        assert((reports == std::vector<std::pair<uint64_t, uint64_t>>{ { 7, 3 } }));
+        limiter.Add(7, 2);
+        limiter.Flush(500, report);             // within the interval: held
+        limiter.Add(7, 4);
+        limiter.Add(8, 1);                      // another key: its own first report
+        limiter.Flush(600, report);
+        assert(reports.size() == 2 && reports[1] == std::make_pair(uint64_t(8), uint64_t(1)));
+        limiter.Flush(1010, report);            // interval over: 2 + 4 for key 7
+        assert(reports.size() == 3 && reports[2] == std::make_pair(uint64_t(7), uint64_t(6)));
+        limiter.Add(0, 0);                      // a zero count tracks nothing
+        assert(limiter.TrackedKeys() == 2);
+        limiter.Flush(1600, report);            // key 8 quiet for an interval
+        assert(limiter.TrackedKeys() == 1);
+        limiter.Flush(2010, report);            // key 7 too
+        assert(limiter.TrackedKeys() == 0);
+        assert(reports.size() == 3);
     }
 
     // Master view: lookups copy the published list; unknown masters get none;

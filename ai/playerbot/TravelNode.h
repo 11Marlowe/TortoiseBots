@@ -162,7 +162,7 @@ namespace ai
         float distance = 0.1f;
 
         //Calculated mobs level along the way.
-        std::vector<uint8> maxLevelCreature = { 0,0,0 }; //mobs, horde, alliance
+        std::vector<uint8> maxLevelCreature = { 0,0,0 }; //hostile to both, alliance-friendly, horde-friendly (see TravelNodePath::calculateCost)
 
         //Calculated swiming distances along the way.
         float swimDistance = 0;

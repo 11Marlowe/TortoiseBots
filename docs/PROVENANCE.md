@@ -9453,6 +9453,14 @@ trigger fires, only while a main tank other than the rogue is alive and in comba
 by that tank or by the rogue. Solo rogues, tankless groups and the open world are never touched;
 raids keep their own rows.
 
+## Hunter Aspect of the Viper on low mana (opt-in, `AiPlayerbot.HunterViperOnLowMana`) — 2026-10-13
+
+Feature: with the toggle on (default off), a hunter that knows Aspect of the Viper switches to it in
+combat when mana falls below half of `AiPlayerbot.LowMana` (below 7 % by default) and the Aspect of
+the Hawk upkeep stands down until mana is back at 60 %, then the normal Hawk upkeep recasts it.
+Between the thresholds the hunter keeps its aspect. A player-set `aspect <name>` strategy and a
+hunter in Cheetah or Pack are never overridden.
+
 ## Paladin Judgement upkeep (opt-in, `AiPlayerbot.PaladinJudgementUpkeep`) — 2026-10-13
 
 Feature: with the toggle on (default off), paladin bots in a group keep Judgement of Wisdom /
@@ -9473,8 +9481,8 @@ exists and attackers on the bot).
 
 Module files: `runtime/RogueThreatPolicy.h` (pure) + `tools/test_rogue_threat_policy.cpp`;
 `ai/playerbot/strategy/rogue/RogueTriggers.{h,cpp}` (`RogueDungeonFeintTrigger`,
-`RogueDungeonVanishTrigger`), `RogueActions.h` (`CastFeintOnTargetAction`, `CastVanishThreatAction`),
-`RogueAiObjectContext.cpp` (2 trigger + 2 action creators), `RogueStrategy.cpp` (rows in
+`RogueDungeonVanishTrigger`; the rows reuse the existing `feint` / `vanish` actions),
+`RogueAiObjectContext.cpp` (2 trigger creators), `RogueStrategy.cpp` (rows in
 `RoguePveStrategy::InitCombatTriggers`, only added when the toggle is on),
 `PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
 
@@ -9482,16 +9490,37 @@ Copied / ported / reimplemented: reimplemented. No donor code copied. Difference
 deliberate: thresholds are this module's existing medium (>= 60) / high (>= 80, five-second look-ahead)
 relative-threat triggers, not the donor's attacker-count trigger; Feint goes first and Vanish is the
 fallback (the donor vanishes straight away on medium threat); Vanish needs a living tank in the fight
-and a mob on the tank or the rogue, so it cannot reset a solo fight; the new actions are
-target-aware / threat-type NONE, because the existing self-cast `feint` action is refused by the
-harmful-self gate in `PlayerbotAI::CastSpell` and single-target actions are vetoed by `ThreatMultiplier`
-at high threat. Spell facts checked against `sql/base/tw_world_spell_template.sql`: Feint (ranks at
+and a mob on the tank or the rogue, so it cannot reset a solo fight; the tank must also hold the
+mob (victim or tank threat above 0), because the threat value reads 100 for a mob the tank never touched.
+Spell facts checked against `sql/base/tw_world_spell_template.sql`: Feint (ranks at
 16 / 28 / 40 / 52 / 60, effect THREAT, target enemy, 10 s category cooldown), Vanish (22 / 42, 5 min).
 
 Reason: owner-approved behaviour change (2026-10-13, audit refresh item 5); new automation, so it
 ships behind a config toggle that is off by default.
 
 Validation: code review; `tools/test_rogue_threat_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
+Source files: `src/Ai/Class/Hunter/HunterTriggers.cpp` (`HunterAspectOfTheViperTrigger`: mana below
+`LowMana / 2`, suppressed by explicit `rnature` / `bspeed` strategies; `HunterAspectOfTheDragonhawkTrigger`:
+stays off while the Viper is up until mana >= 60), `src/Ai/Class/Hunter/Strategy/GenericHunterStrategy.cpp`
+(trigger row at priority 28).
+
+Module files: `runtime/HunterViperPolicy.h` (pure) + `tools/test_hunter_viper_policy.cpp`;
+`ai/playerbot/strategy/hunter/HunterTriggers.{h,cpp}` (`AspectOfTheViperLowManaTrigger`, hold in
+`AspectOfTheHawkTrigger`), `HunterAiObjectContext.cpp` (trigger creator), `HunterStrategy.cpp` (row in
+`HunterAspectStrategy::InitCombatTriggers`, only added when the toggle is on),
+`PlayerbotAIConfig.{h,cpp}`, `aiplayerbot.conf.dist.in`.
+
+Copied / ported / reimplemented: reimplemented. No donor code copied. Differences from the donor, all
+deliberate: Turtle 1.18.1 has Aspect of the Viper as spell 45651 (learn spell 47338, trainer level 56;
+`sql/base/tw_world_spell_template.sql`), not the TBC id 34074; the donor's `rnature` / `bspeed`
+suppression maps to this module's manual `aspect <name>` strategies (the donor strategies do not
+exist here) plus an active Cheetah / Pack aura; the row is combat-only (a hunter that is out of combat
+drinks in the aspect it has), the Hawk hold applies in both engines.
+
+Reason: owner-approved behaviour change (2026-10-13, audit refresh item 4); new automation, so it
+ships behind a config toggle that is off by default.
+
+Validation: code review; `tools/test_hunter_viper_policy.cpp`, `tools/verify_all.sh` and tbsyntax on
 the test VM (see the PR); build pending; in-game pending.
 Source files: `src/Ai/Class/Paladin/Strategy/DpsPaladinStrategy.cpp`,
 `TankPaladinStrategy.cpp` (default action `judgement of wisdom`), `HealPaladinStrategy.cpp` (default
@@ -9532,3 +9561,11 @@ on the test VM (see the PR); build pending; in-game pending.
 - Turtle 1.18.1 data (tw_world, never 3.3.5a ids): Onyxia 10184, Onyxian Whelp 11262 (`creature_template`), Onyxia Egg 176511 (`gameobject_template`: type 6, data2 radius 10, data3 spell 17647; 100+ spawns on map 249 at x -115..-32, y -279..-151), whelp spawn points and phase 2 waves from the core script `src/scripts/dungeons/onyxias_lair/boss_onyxia.cpp` (`afSpawnLocations`, Hover aura 17131).
 - Validation: `tools/test_onyxia_whelp_egg_policy.cpp` (standalone, in `verify_all.sh`); code review + build pending; in-game pending (needs a raid test).
 - Known limit: no hysteresis between the whelp chase and the egg walk. Ranged whelp-duty bots stand off at range, so they rarely sit near a cave mouth; a bot that does and flips between the two should get a short hold in a follow-up after the raid test.
+
+## Turtle 5-man reference in the dungeon tactics guide (docs only) — 2026-10-13
+
+- Feature: `docs/guides/dungeon-tactics.md` section 8, a reference for players leading companion bots: map ids, boss kill order with creature entries, pooled rares and escorts not to wait for, and the events that gate bosses. Documentation only. TortoiseBots does not read this data, and the dungeon-clear module stays excluded (`docs/concepts/known-limitations.md` section 3).
+- Source: T-imothy/tortoise-wow, branch `mantech-turtle`, SHA `0fb4d7c38d82c738bfc92ce75188d37e36632cc9`, licence AGPL-3.0-or-later. Files: `modules/mod-dungeon-clear/data/dc_roster.txt` (boss orders, pooled rares, notes); `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/DcHazardRegistry.cpp` (Creeping Sludge aura 22638); `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/DcBossEntries1121.h` (Lorgus Jett 12902 rare note); `modules/mod-dungeon-clear/src/Ai/Dungeon/DungeonClear/Data/Events/ZulFarrakEvents.cpp` (Farraki Arena sequence).
+- Copied / ported / reimplemented: data reimplemented as prose and tables (names, creature entries, map ids, boss order). No code or comment text is copied.
+- Turtle data check: each entry and name was checked against `~/tortoise-wow/sql/base/tw_world_creature_template.sql`. 132 of the 160 entries (Alarus, 91928, included) are in that base dump; the other 28 (62xxx Turtle templates) are added by the migrations under `sql/database_updates/world/`, which were replayed in filename order to get the names. Names that differ from the fork's comments use the core name: Kath'zen the Brutal (62496), Juthza the Cunning (62497), Solakar Flamewreath (10264; the fork says "Warder Verek", which the core data does not contain), Panzor the Invincible (8923), Plugger Spazzring (9499), 'Broody' (60715). Entry 62037 is "Warchief Targash Wyrmskull" in the base dump and "Zuluhed the Whacked" after the migrations.
+- Validation: docs only. Gates for this change: `python3 tools/verify_okf.py`, `tools/verify_all.sh` on the test VM, and `git diff --check` (see the PR). Not run in game. Provisional orders (Crescent Grove, Stormwrought Ruins, Gilneas City, Hateforge Quarry, Windhorn walk order, Stormwind Vault, Karazhan Crypt, Blackrock Depths) are not confirmed by the server owner.

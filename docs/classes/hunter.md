@@ -2,7 +2,7 @@
 id: class-hunter
 title: Hunter Bot AI & Specs
 category: classes
-summary: Guide to Hunter bot ranged and melee combat, pet care, Aspect upkeep (Viper manual-only), and custom Turtle Survival skills.
+summary: Guide to Hunter bot ranged and melee combat, pet care, Aspect upkeep (Viper manual unless opted in), and custom Turtle Survival skills.
 tags: [class, hunter, dps, ranged, pet, melee]
 relates_to:
   - class-overview
@@ -46,7 +46,8 @@ Hunters excel at sustained single-target ranged DPS, pet off-tanking, snares, an
 
 - **Aspect of the Viper (Spell ID 45651):**
   - Custom Turtle WoW aspect that regenerates mana on ranged attacks while reducing damage output.
-  - *Aspect of the Viper* is a manual action only; the bot auto-maintains only *Aspect of the Hawk*.
+  - By default *Aspect of the Viper* is a manual action only; the bot auto-maintains only *Aspect of the Hawk*. Trained at level 56 (learn spell 47338, trainer data in `sql/database_updates/world/20260504194945_world.sql`).
+  - **Viper on low mana (opt-in, `AiPlayerbot.HunterViperOnLowMana = 1`, default off):** reimplemented from mod-playerbots (`runtime/HunterViperPolicy.h`). In combat a hunter that knows the Viper switches to it when mana falls below half of `AiPlayerbot.LowMana` (below 7 % with the default 15) and the Hawk trigger then stands down until mana is back at 60 % or more, at which point the normal Hawk upkeep recasts it. Between 7 % and 60 % the hunter keeps whichever aspect it has, so it cannot flip. A player-set `aspect hawk|monkey|cheetah|pack|beast|wild` strategy is never overridden, and a hunter running in Cheetah or Pack (flag run, escape) is left alone. With the toggle off none of this applies.
 - **Carve (Spell ID 51575):**
   - Custom Turtle WoW instant melee weapon attack hitting up to 3 nearby enemies. Integrated into Survival AoE packs.
 - **Lacerate (Spell ID 48049):**

@@ -2,6 +2,8 @@
 
 #include "ScriptObjects.h"
 
+#include <cstdint>
+
 namespace TortoiseBots
 {
 
@@ -23,8 +25,11 @@ public:
     // World thread only (BotHostAdapter::OnUpdate, before the bot update):
     // hands the packets queued by the hooks since the last tick to the bots'
     // AIs - chat (issue #839) and every other bot / master packet an AI
-    // handles (issue #844).
-    static void DrainDeferredPackets();
+    // handles (issue #844) - in the order they were queued, and only those
+    // queued ahead of sequence number `before` (issue #846: the command drain
+    // runs them up to each command first). `endOfTick` also reports what the
+    // per-bot caps dropped.
+    static void DrainDeferredPackets(uint64_t before, bool endOfTick = false);
     // World thread, at shutdown: forget queued packets.
     static void ClearDeferredPackets();
 

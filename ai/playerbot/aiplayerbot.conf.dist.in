@@ -603,6 +603,20 @@ AiPlayerbot.WarlockPetBySpec = 0
 # 1 - Feint on medium threat, Vanish on critical threat in 5-man dungeons
 AiPlayerbot.RogueDungeonThreatDrops = 0
 
+# Hunter Aspect of the Viper on low mana.
+# A hunter that has learned Aspect of the Viper (Turtle 1.18.1 spell 45651,
+# trainer level 56) switches to it in combat when its mana drops below half of
+# AiPlayerbot.LowMana (below 7 percent with the default LowMana of 15), and goes
+# back to Aspect of the Hawk once mana is at 60 percent or more; between the two
+# it keeps the aspect it has, so it does not flip. Thresholds follow
+# mod-playerbots. An "aspect <name>" strategy a player set (hawk, monkey,
+# cheetah, pack, beast, wild) is never overridden, and a hunter running in
+# Cheetah or Pack is left alone. Off by default: Viper stays a manual action
+# and the hunter keeps Hawk.
+# 0 - never switch to the Viper by itself (Default)
+# 1 - Viper on low mana, Hawk again at 60 percent mana
+AiPlayerbot.HunterViperOnLowMana = 0
+
 # Paladin Judgement upkeep.
 # In a group, paladin bots keep Judgement of Wisdom / Judgement of Light up on a
 # boss or elite (or, inside a dungeon or raid, on the mob the tank is fighting),

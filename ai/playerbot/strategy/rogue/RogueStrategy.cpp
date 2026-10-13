@@ -199,11 +199,11 @@ void RoguePveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     {
         triggers.push_back(new TriggerNode(
             "rogue dungeon feint",
-            NextAction::array(0, new NextAction("feint on target", ACTION_DISPEL), NULL)));
+            NextAction::array(0, new NextAction("feint", ACTION_DISPEL), NULL)));
 
         triggers.push_back(new TriggerNode(
             "rogue dungeon vanish",
-            NextAction::array(0, new NextAction("vanish threat", ACTION_HIGH + 5), NULL)));
+            NextAction::array(0, new NextAction("vanish", ACTION_HIGH + 5), NULL)));
     }
 }
 
@@ -231,7 +231,7 @@ void RogueRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("feint", ACTION_DISPEL), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "high threat",
+        "rogue raid vanish",
         NextAction::array(0, new NextAction("vanish", ACTION_EMERGENCY), NULL)));
 }
 

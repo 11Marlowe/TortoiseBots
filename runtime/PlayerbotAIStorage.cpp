@@ -24,6 +24,9 @@ void PlayerbotAIStorage::SetAI(Player* player, PlayerbotAI* ai)
         byGuid_.erase(guid);
         byPlayer_.erase(player);
         guidByPlayer_.erase(player);
+        // Issue #846: a later AI starts from the default gate (filters
+        // nothing) until its first update publishes its own.
+        chatGateByPlayer_.erase(player);
     }
 }
 
@@ -38,6 +41,7 @@ void PlayerbotAIStorage::RemoveAI(Player* player)
     PlayerbotAI* ai = playerIt->second;
     byPlayer_.erase(playerIt);
     guidByPlayer_.erase(player);
+    chatGateByPlayer_.erase(player);
     for (auto it = byGuid_.begin(); it != byGuid_.end(); )
     {
         if (it->second == ai) it = byGuid_.erase(it);
@@ -67,14 +71,26 @@ PlayerbotAI* PlayerbotAIStorage::GetAI(ObjectGuid guid) const
     return it != byGuid_.end() ? it->second : nullptr;
 }
 
-bool PlayerbotAIStorage::GetBotGuid(Player const* player, ObjectGuid& guid) const
+bool PlayerbotAIStorage::GetBotGuid(Player const* player, ObjectGuid& guid, TortoiseBots::BotChatGate* gate) const
 {
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = guidByPlayer_.find(player);
     if (it == guidByPlayer_.end())
         return false;
     guid = it->second;
+    if (gate)
+    {
+        auto gateIt = chatGateByPlayer_.find(player);
+        *gate = gateIt != chatGateByPlayer_.end() ? gateIt->second : TortoiseBots::BotChatGate();
+    }
     return true;
+}
+
+void PlayerbotAIStorage::SetBotChatGate(Player const* player, TortoiseBots::BotChatGate const& gate)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (guidByPlayer_.find(player) != guidByPlayer_.end())
+        chatGateByPlayer_[player] = gate;
 }
 
 void PlayerbotAIStorage::SetPlayerForcedRole(ObjectGuid guid, uint8 role)

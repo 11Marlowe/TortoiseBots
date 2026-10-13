@@ -31,8 +31,8 @@ template<unsigned Id> struct Service {
     static Service& Instance() { static Service service; return service; }
     void Update(uint32 diff) { assert(diff == 50); calls.push_back(Id); }
     void OnWorldUpdate(uint32 diff) { Update(diff); }
-    static void DrainQueuedCommands() { calls.push_back(Id); }
-    static void DrainDeferredPackets() { calls.push_back(Id); }
+    static uint64_t DrainQueuedCommands() { calls.push_back(Id); return 7; }
+    static void DrainDeferredPackets(uint64_t limit, bool endOfTick) { assert(limit == 7 && endOfTick); calls.push_back(Id); }
     static void MarkWorldThread() {}
 };
 using BotActivityLeaseManager = Service<1>;
@@ -62,12 +62,15 @@ int main() {
     assert(adapter.m_ticks == 0);
     calls.clear();
     sPlayerbotAIConfig.enabled = true;
+    // Enabled: lease expiry, then the commands (#846: they run the deferred
+    // bot items queued ahead of each), then the rest of the deferred items
+    // up to the bound the command drain returned, then the services.
     adapter.OnUpdate(50);
-    assert((calls == std::vector<unsigned>{10,1,11,2,3,4,5,6,7,8,9}));
+    assert((calls == std::vector<unsigned>{1,10,11,2,3,4,5,6,7,8,9}));
     assert(adapter.m_ticks == 1);
     sPlayerbotAIConfig.enabled = false;
     adapter.OnUpdate(50);
-    assert((calls == std::vector<unsigned>{10,1,11,2,3,4,5,6,7,8,9,10}));
+    assert((calls == std::vector<unsigned>{1,10,11,2,3,4,5,6,7,8,9,10}));
     assert(adapter.m_ticks == 1);
 }
 '''
