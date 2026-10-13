@@ -72,6 +72,10 @@
 - Every tier is fully enchanted: head/leg arcana, ZG and Naxx shoulder enchants, Turtle neck/ring gemstones and belt buckles, weapon and shield enchants, and hunter enchants. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
 - Part 1 of #490 — quests, the tier choice at the recruiter, and tier pricing land in part 2. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
 
+### Docs & Onboarding
+
+- README now leads with a 🎯 Vision section: the one-sentence goal stays visible up top while the full vision (player experience, real economy, default vs. config, bot types, player control, performance, change criteria) lives in a collapsible block — handy for new contributors and server operators deciding if the module fits their realm. Docs only, zero gameplay impact. [#870](https://github.com/Sagiroth/TortoiseBots/pull/870)
+
 ## 2026-10-12
 
 ### Core Sync & Fixes
