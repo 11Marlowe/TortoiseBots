@@ -294,6 +294,14 @@ void HireLifecycle::Reunite(HiredRecord& record, Player* master)
     Player* bot = sObjectAccessor.FindPlayer(record.botGuid);
     if (!bot || !BotManager::Instance().IsControllableBot(bot))
         return;
+    // A clean logout removes the master from a non-raid party (WorldSession::LogoutPlayer), but a
+    // party of three or more survives without them, so the hires are still grouped together and
+    // turn down the invite below ("already in a group"). Put the master back into that party as
+    // its leader instead.
+    Group* botGroup = bot->GetGroup();
+    if (!bot->IsInSameRaidWith(master) && !master->GetGroup() && botGroup && !botGroup->isBGGroup() &&
+        !botGroup->IsFull() && botGroup->AddMember(master->GetObjectGuid(), master->GetName()))
+        botGroup->ChangeLeader(master->GetObjectGuid());
     if (!bot->IsInSameRaidWith(master))
     {
         Group* masterGroup = master->GetGroup();
