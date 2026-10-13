@@ -4016,7 +4016,30 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
     return static_cast<uint32>(removed.followers.size());
 }
 
-// The requester's binding if it still stands (a stale one is released here).
+// Followers that left the bound group (kicked, invited by their owner into
+// another party, left on their own) get their own follow target back at once;
+// otherwise they would keep walking after the lead bot and ignore their
+// owner's orders. The rest of the binding stands.
+void ReleaseDepartedFollowers(uint64 commanderRaw, RemoteCommander::Binding const& binding)
+{
+    if (binding.followers.empty())
+        return;
+    std::vector<uint64> members;
+    Player* lead = FindCharacter(binding.leadGuid);
+    if (Group* group = lead ? lead->GetGroup() : nullptr)
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+            members.push_back(slot.guid.GetRawValue());
+    std::vector<uint64> const departed = RemoteCommander::DepartedFollowers(binding, members);
+    uint64 const leadRaw = binding.leadGuid;
+    for (uint64 follower : departed)
+    {
+        RestoreFollower(follower, leadRaw);
+        CommanderBindings().RemoveFollower(commanderRaw, follower);
+    }
+}
+
+// The requester's binding if it still stands (a stale one is released here,
+// a follower that left the group is let go).
 RemoteCommander::Binding const* StandingBinding(uint64 commanderRaw)
 {
     RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commanderRaw);
@@ -4024,7 +4047,10 @@ RemoteCommander::Binding const* StandingBinding(uint64 commanderRaw)
         return nullptr;
     RemoteCommander::ReleaseReason reason = RemoteCommander::CheckBinding(*binding, ReadBindingState(*binding));
     if (reason == RemoteCommander::ReleaseReason::None)
-        return binding;
+    {
+        ReleaseDepartedFollowers(commanderRaw, *binding);
+        return CommanderBindings().FindByCommander(commanderRaw);
+    }
     ReleaseBinding(commanderRaw, reason, true);
     return nullptr;
 }
@@ -4038,6 +4064,8 @@ RemoteCommander::BindMember MemberFacts(Player* commander, Player* bot)
     facts.controllable = record && CanControlBot(commander, record);
     facts.liveBot = record && IsLiveHeadlessBot(bot, record);
     facts.hired = HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+    // One binding per bot: its saved follow target belongs to that binding.
+    facts.inOtherBinding = CommanderBindings().FindByBot(bot->GetObjectGuid().GetRawValue()) != nullptr;
     return facts;
 }
 
@@ -4123,7 +4151,11 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     RemoteCommander::BindFacts facts;
     facts.enabled = sPlayerbotAIConfig.remoteCommander;
     facts.commanderIsBot = BotManager::Instance().IsBot(commander->GetObjectGuid());
-    facts.commanderAlreadyBound = StandingBinding(commanderRaw) != nullptr;
+    // Settle every binding first (a stale one, or a follower that already
+    // left its group, must not block this bind).
+    for (uint64 other : CommanderBindings().Commanders())
+        StandingBinding(other);
+    facts.commanderAlreadyBound = CommanderBindings().FindByCommander(commanderRaw) != nullptr;
 
     Player* lead = FindOnlineByName(names[0]);
     facts.lead = MemberFacts(commander, lead);
@@ -4360,6 +4392,16 @@ static Unit* ResolveOrderTarget(ChatHandler* handler, std::string const& intent,
         facts.alive = unit->IsAlive();
         facts.friendly = sServerFacade.IsFriendlyTo(unit, order.judge);
         facts.attackable = order.judge->IsValidAttackTarget(unit);
+        // Seen (stealth and invisibility detection, as the bots' own target
+        // values check it) by a live bot of the group, and targetable.
+        if (unit->IsTargetable(true, true))
+            for (Player* bot : order.bots)
+                if (bot->IsAlive() && bot->IsInWorld() && bot->GetMap() == map &&
+                    unit->IsVisibleForOrDetect(bot, bot->GetCamera().GetBody(), true))
+                {
+                    facts.visible = true;
+                    break;
+                }
     }
     RemoteCommander::TargetVerdict verdict = RemoteCommander::CheckOrderTarget(facts);
     if (verdict != RemoteCommander::TargetVerdict::Ok)

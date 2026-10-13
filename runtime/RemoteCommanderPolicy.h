@@ -126,6 +126,36 @@ public:
         binding->followers.push_back(botGuid);
     }
 
+    // Drops a follower whose follow target was put back (it left the group).
+    void RemoveFollower(uint64_t commanderGuid, uint64_t botGuid)
+    {
+        Binding* binding = FindByCommander(commanderGuid);
+        if (!binding)
+            return;
+        for (auto it = binding->followers.begin(); it != binding->followers.end(); ++it)
+            if (*it == botGuid)
+            {
+                binding->followers.erase(it);
+                return;
+            }
+    }
+
+    // The binding that holds this bot as its lead or as a follower, if any.
+    Binding const* FindByBot(uint64_t botGuid) const
+    {
+        if (!botGuid)
+            return nullptr;
+        for (auto const& entry : m_byCommander)
+        {
+            if (entry.second.leadGuid == botGuid)
+                return &entry.second;
+            for (uint64_t follower : entry.second.followers)
+                if (follower == botGuid)
+                    return &entry.second;
+        }
+        return nullptr;
+    }
+
     std::vector<uint64_t> Commanders() const
     {
         std::vector<uint64_t> result;
@@ -195,6 +225,28 @@ inline ReleaseReason CheckBinding(Binding const& binding, BindingState const& st
     return ReleaseReason::None;
 }
 
+// Followers the binding pointed at the lead bot that are no longer members of
+// the bound group (kicked, invited elsewhere, left): their follow target goes
+// back at once, while the rest of the binding stands.
+inline std::vector<uint64_t> DepartedFollowers(Binding const& binding,
+    std::vector<uint64_t> const& currentMembers)
+{
+    std::vector<uint64_t> departed;
+    for (uint64_t follower : binding.followers)
+    {
+        bool member = false;
+        for (uint64_t guid : currentMembers)
+            if (guid == follower)
+            {
+                member = true;
+                break;
+            }
+        if (!member)
+            departed.push_back(follower);
+    }
+    return departed;
+}
+
 inline char const* ReleaseReasonText(ReleaseReason reason)
 {
     switch (reason)
@@ -223,6 +275,7 @@ struct BindMember
     bool liveBot = false;      // live module-owned Headless bot with an AI
     bool hired = false;        // hired companion: bound to its hirer's party
     bool inOtherGroup = false; // in a group that is neither the lead's nor the commander's
+    bool inOtherBinding = false; // lead or follower of another commander's binding
 };
 
 struct BindFacts
@@ -257,6 +310,7 @@ enum class BindRefusal : uint8_t
     MemberNotControllable,
     MemberHired,
     MemberInOtherGroup,
+    BotInOtherBinding,
 };
 
 // The bind is refused (fail closed) unless the commander controls every bot,
@@ -275,6 +329,8 @@ inline BindRefusal CheckBind(BindFacts const& facts)
         return BindRefusal::LeadNotControllable;
     if (facts.lead.hired)
         return BindRefusal::LeadHired;
+    if (facts.lead.inOtherBinding)
+        return BindRefusal::BotInOtherBinding;
     if (facts.lead.inOtherGroup)
         return BindRefusal::GroupHasPlayer;
     if (facts.leadGrouped)
@@ -298,6 +354,8 @@ inline BindRefusal CheckBind(BindFacts const& facts)
             return BindRefusal::MemberHired;
         if (member.inOtherGroup)
             return BindRefusal::MemberInOtherGroup;
+        if (member.inOtherBinding)
+            return BindRefusal::BotInOtherBinding;
     }
     return BindRefusal::None;
 }
@@ -320,6 +378,7 @@ inline char const* BindRefusalCode(BindRefusal refusal)
         case BindRefusal::MemberNotControllable: return "no-bot";
         case BindRefusal::MemberHired: return "hired";
         case BindRefusal::MemberInOtherGroup: return "member-grouped";
+        case BindRefusal::BotInOtherBinding: return "bot-bound";
     }
     return "rejected";
 }
@@ -342,6 +401,7 @@ inline char const* BindRefusalText(BindRefusal refusal)
         case BindRefusal::MemberNotControllable: return "A named or grouped bot is not an online bot you control.";
         case BindRefusal::MemberHired: return "Hired companions cannot join a commanded group (their hire ends when they leave your party).";
         case BindRefusal::MemberInOtherGroup: return "A named bot is in another group. Remove it from that group first.";
+        case BindRefusal::BotInOtherBinding: return "A named bot is still in another commander's group. That commander must unbind first.";
     }
     return "Request rejected.";
 }
@@ -501,6 +561,7 @@ struct TargetFacts
     bool alive = false;
     bool friendly = false;   // friendly to the lead bot
     bool attackable = false; // the lead bot may attack it
+    bool visible = false;    // a live bot of the group sees or detects it (stealth, GM invisibility) and it is targetable
 };
 
 enum class TargetVerdict : uint8_t
@@ -511,10 +572,11 @@ enum class TargetVerdict : uint8_t
     Dead,
     Friendly,
     NotAttackable,
+    NotVisible,
 };
 
 // Same map and instance (the lookup runs on the lead bot's map), in world,
-// never a bot, alive, hostile and attackable.
+// never a bot, alive, hostile, attackable and seen by the group.
 inline TargetVerdict CheckOrderTarget(TargetFacts const& facts)
 {
     if (!facts.found || !facts.inWorld)
@@ -527,6 +589,10 @@ inline TargetVerdict CheckOrderTarget(TargetFacts const& facts)
         return TargetVerdict::Friendly;
     if (!facts.attackable)
         return TargetVerdict::NotAttackable;
+    // A GUID is no way to see what the group cannot: a stealthed rogue, an
+    // invisible GM, an untargetable unit.
+    if (!facts.visible)
+        return TargetVerdict::NotVisible;
     return TargetVerdict::Ok;
 }
 
@@ -540,6 +606,7 @@ inline char const* TargetVerdictCode(TargetVerdict verdict)
         case TargetVerdict::Dead: return "dead-target";
         case TargetVerdict::Friendly: return "friendly";
         case TargetVerdict::NotAttackable: return "invalid-target";
+        case TargetVerdict::NotVisible: return "no-target";
     }
     return "invalid-target";
 }
@@ -554,6 +621,7 @@ inline char const* TargetVerdictText(TargetVerdict verdict)
         case TargetVerdict::Dead: return "The target is dead.";
         case TargetVerdict::Friendly: return "The target is friendly to the group.";
         case TargetVerdict::NotAttackable: return "The group cannot attack that target.";
+        case TargetVerdict::NotVisible: return "No bot of the group can see that target.";
     }
     return "Invalid target.";
 }

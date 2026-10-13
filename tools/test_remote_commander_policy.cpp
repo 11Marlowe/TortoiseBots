@@ -232,6 +232,16 @@ static void TestBindGate()
     facts.members[0].inOtherGroup = true;
     CHECK(CheckBind(facts) == BindRefusal::MemberInOtherGroup);
     CHECK(std::string(BindRefusalCode(BindRefusal::MemberInOtherGroup)) == "member-grouped");
+
+    // A bot still held by another commander's binding is refused, so its
+    // saved follow target belongs to one binding only.
+    facts = GoodBind(3);
+    facts.members[1].inOtherBinding = true;
+    CHECK(CheckBind(facts) == BindRefusal::BotInOtherBinding);
+    CHECK(std::string(BindRefusalCode(BindRefusal::BotInOtherBinding)) == "bot-bound");
+    facts = GoodBind(2);
+    facts.lead.inOtherBinding = true;
+    CHECK(CheckBind(facts) == BindRefusal::BotInOtherBinding);
 }
 
 // Tactical orders: the bound commander counts as a group member. Revive and
@@ -310,6 +320,7 @@ static TargetFacts Enemy()
     facts.alive = true;
     facts.friendly = false;
     facts.attackable = true;
+    facts.visible = true;
     return facts;
 }
 
@@ -344,6 +355,48 @@ static void TestTargetVerdict()
     facts = Enemy();
     facts.attackable = false;
     CHECK(CheckOrderTarget(facts) == TargetVerdict::NotAttackable);
+
+    // Stealthed, GM-invisible or untargetable: the GUID does not let the
+    // group see it.
+    facts = Enemy();
+    facts.visible = false;
+    CHECK(CheckOrderTarget(facts) == TargetVerdict::NotVisible);
+    CHECK(std::string(TargetVerdictCode(TargetVerdict::NotVisible)) == "no-target");
+    // A dead invisible unit is still reported as dead first.
+    facts.alive = false;
+    CHECK(CheckOrderTarget(facts) == TargetVerdict::Dead);
+}
+
+// A follower that leaves the group (kicked, invited by its owner elsewhere)
+// gets its own follow target back while the rest of the binding stands.
+static void TestDepartedFollowers()
+{
+    BindingTable table;
+    CHECK(table.Bind(MakeBinding(1, 10, 100)) == BindResult::Bound);
+    table.AddFollower(1, 11);
+    table.AddFollower(1, 12);
+    table.AddFollower(1, 13);
+    Binding const* binding = table.FindByCommander(1);
+
+    // Everyone still there.
+    CHECK(DepartedFollowers(*binding, { 10, 11, 12, 13 }).empty());
+    // 12 left; a new member 14 joined (not a recorded follower).
+    std::vector<uint64_t> departed = DepartedFollowers(*binding, { 10, 11, 13, 14 });
+    CHECK(departed.size() == 1 && departed[0] == 12);
+    table.RemoveFollower(1, 12);
+    CHECK(table.FindByCommander(1)->followers.size() == 2);
+    CHECK(!table.FindByBot(12));
+    CHECK(table.FindByBot(11) && table.FindByBot(11)->commanderGuid == 1);
+    CHECK(table.FindByBot(10) && table.FindByBot(10)->commanderGuid == 1); // the lead
+    // Removing an unknown follower or commander is harmless.
+    table.RemoveFollower(1, 99);
+    table.RemoveFollower(9, 11);
+    CHECK(table.FindByCommander(1)->followers.size() == 2);
+    // Every follower gone: all of them come back, the binding still stands.
+    departed = DepartedFollowers(*table.FindByCommander(1), { 10 });
+    CHECK(departed.size() == 2);
+    CHECK(table.FindByCommander(1));
+    CHECK(!table.FindByBot(0));
 }
 
 static MoveFacts Walkable()
@@ -397,6 +450,7 @@ int main()
 {
     TestBindingTable();
     TestFollowers();
+    TestDepartedFollowers();
     TestReleaseRule();
     TestBindGate();
     TestOrderGate();
