@@ -1,6 +1,7 @@
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/playerbot.h"
+#include "../../runtime/HireUnlockPolicy.h"
 #include <cerrno>
 #include <cstring>
 #include <thread>
@@ -494,6 +495,22 @@ bool PlayerbotAIConfig::Initialize()
     hireDisconnectGracePeriod = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireDisconnectGracePeriod", 300));
     if (hireDisconnectGracePeriod > 3600)
         hireDisconnectGracePeriod = 3600;
+    // Issue #490: static hire-gear tiers. Fallbacks equal the shipped
+    // template values.
+    hireGearTiersEnabled = config.GetBoolDefault("AiPlayerbot.HireGearTiersEnabled", true);
+    hireGearStartTier = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireGearStartTier", 0));
+    if (hireGearStartTier > 7)
+        hireGearStartTier = 7;
+    hireGearUnlockAccountWide = config.GetBoolDefault("AiPlayerbot.HireGearUnlockAccountWide", false);
+    hireGearAllQuestsAvailable = config.GetBoolDefault("AiPlayerbot.HireGearAllQuestsAvailable", false);
+    {
+        std::list<uint32> optionalMaps;
+        LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.HireGearOptionalMaps", ""), optionalMaps);
+        hireGearOptionalMaps = std::set<uint32>(optionalMaps.begin(), optionalMaps.end());
+        std::string multText = config.GetStringDefault("AiPlayerbot.HireGearTierCostMultipliers", "1,1.5,2,3,4,5,6,6");
+        if (!TortoiseBots::ParseHireTierCostMultipliers(multText, hireGearTierCostMult))
+            sLog.outError("AiPlayerbot.HireGearTierCostMultipliers '%s' is not 8 non-negative numbers; using the defaults", multText.c_str());
+    }
     // Issue #492: world buffs at the six capital recruiters. Fallbacks equal
     // the shipped template values (price pairs in copper, 10000 cu = 1g).
     worldBuffsEnabled = config.GetBoolDefault("AiPlayerbot.WorldBuffsEnabled", true);
@@ -881,6 +898,7 @@ bool PlayerbotAIConfig::Initialize()
     paladinJudgementUpkeep = config.GetBoolDefault("AiPlayerbot.PaladinJudgementUpkeep", true);
     onyxiaWhelpsAndEggs = config.GetBoolDefault("AiPlayerbot.OnyxiaWhelpsAndEggs", true);
     avoidCreatureAuras = config.GetBoolDefault("AiPlayerbot.AvoidCreatureAuras", true);
+    allowRepairedTaxiPaths = config.GetBoolDefault("AiPlayerbot.AllowRepairedTaxiPaths", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);
     shareTargets = config.GetBoolDefault("AiPlayerbot.ShareTargets", true);
     globalSoundEffects = config.GetBoolDefault("AiPlayerbot.GlobalSoundEffects", false);

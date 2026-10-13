@@ -52,6 +52,11 @@ public:
     // and the master-departure rule leaves it alone.
     void MarkGrouped(ObjectGuid botGuid);
 
+    // Issue #490: the gear tier the hire was provisioned in (0 = random
+    // kit). A respec keeps a tier kit instead of re-rolling pool gear.
+    void SetGearTier(ObjectGuid botGuid, uint8_t tier);
+    uint8_t GearTier(ObjectGuid botGuid) const;
+
     // Group hooks (called from the module GroupScript adapter).
     void OnGroupMemberRemoved(Group* group, ObjectGuid guid);
     void OnGroupDisband(Group* group);
@@ -82,6 +87,7 @@ private:
         // A departure before that is a provisioning artefact, never an end of
         // hire: only then is a master-less group a dismissal.
         bool everGrouped = false;
+        uint8_t gearTier = 0;
     };
 
     // A dismissed hire whose character is waiting for its asynchronous

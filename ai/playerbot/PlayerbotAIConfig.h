@@ -380,6 +380,24 @@ public:
     // Seconds a hired companion waits on guard after its master disconnects
     // before dismissing (default 300 = 5 minutes).
     uint32 hireDisconnectGracePeriod = 300;
+    // Issue #490: static best-in-slot sets for level-60 hires (tiers 1-7).
+    // The master switch gates the static pass; tier 0 always keeps today's
+    // random hire gear. A player may hire at any tier from 0 up to the
+    // higher of HireGearStartTier and their highest rewarded unlock quest.
+    bool hireGearTiersEnabled = true;
+    // Tier every player has from the start (0..7, clamped); 7 skips the
+    // whole ladder.
+    uint32 hireGearStartTier = 0;
+    // Unlock quests rewarded on any character of the account count.
+    bool hireGearUnlockAccountWide = false;
+    // All seven unlock quests offered at once (no PrevQuestId chain).
+    // Written into the quests at startup, live after the next restart.
+    bool hireGearAllQuestsAvailable = false;
+    // Map ids whose bosses are credited automatically when an unlock quest
+    // is taken (instance too hard or not scripted). Their loot stays.
+    std::set<uint32> hireGearOptionalMaps;
+    // Hire fee multiplier per gear tier 0..7.
+    float hireGearTierCostMult[8] = { 1.0f, 1.5f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 6.0f };
     // Issue #492: world buffs at the six capital <Mercenary Hire> recruiters.
     // Unlock fees (copper) are written into the unlock quests at startup and
     // apply from the next restart; the pairs are per purchase (base +
@@ -473,6 +491,8 @@ public:
     bool onyxiaWhelpsAndEggs;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
+    // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).
+    bool allowRepairedTaxiPaths;
     bool turnInRpg;
     bool globalSoundEffects;
     bool shareTargets;

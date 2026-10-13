@@ -106,4 +106,8 @@ nodes:
   - id: ref-license-audit
     path: LICENSE_AUDIT.md
     category: reference
+  - id: ref-hire-gear
+    path: reference/hire-gear.md
+    category: reference
+    summary: Generated static level-60 hire sets per class/spec/tier (issue #490).
 

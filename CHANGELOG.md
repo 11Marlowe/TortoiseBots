@@ -59,6 +59,23 @@
 - A fresh level-1 pool is now actually spread evenly over the starting zones — bots that reached level 2-3 while the pool was still being created stopped counting toward their zone, so the zones where bots level fastest kept getting more (Dun Morogh ended up with twice its share), and high elves were sent to Dun Morogh or Teldrassil instead of Elwynn where they had been counted.
 - Wandering bots no longer stand around after picking a camp or explore errand — the activity they rolled was refused again by a second dice roll (half or nine times in ten), and nothing else was allowed until the choice expired; the roll now decides alone. Your own and hired bots are unchanged.
 
+## 2026-10-13
+
+### World & NPC Behavior
+- Recruiter Kerra (entry 95032) no longer tries to run a waypoint path that doesn't exist — the spawn's `movement_type` is corrected from 2 to 0 via a new idempotent migration, so she stands still like the other recruiters instead of idling in a broken movement state. [#807](https://github.com/Sagiroth/TortoiseBots/pull/807)
+
+---
+
+### Hire Gear & Progression
+
+- Level-60 hires now spawn with static, spec-fixed BIS sets across seven tiers — pre-raid, ZG/AQ20/Lower Karazhan, MC/Onyxia/Timbermaw Hold, BWL/Emerald Sanctum, AQ40, Naxx, and Tower of Karazhan — with each of the 28 hire specs locked to one fixed set per tier, so the same hire always shows up in the same gear. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
+- Every tier is fully enchanted: head/leg arcana, ZG and Naxx shoulder enchants, Turtle neck/ring gemstones and belt buckles, weapon and shield enchants, and hunter enchants. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
+- Part 1 of #490 — quests, the tier choice at the recruiter, and tier pricing land in part 2. [#802](https://github.com/Sagiroth/TortoiseBots/pull/802)
+
+### Docs & Onboarding
+
+- README now leads with a 🎯 Vision section: the one-sentence goal stays visible up top while the full vision (player experience, real economy, default vs. config, bot types, player control, performance, change criteria) lives in a collapsible block — handy for new contributors and server operators deciding if the module fits their realm. Docs only, zero gameplay impact. [#870](https://github.com/Sagiroth/TortoiseBots/pull/870)
+
 ## 2026-10-12
 
 ### Core Sync & Fixes
@@ -228,6 +245,23 @@
 
 ### Core Sync & Fixes
 - Review fix for companions: attack orders also end a flee's passive hold, and saves inside a foreign transaction are refused and logged. [#791](https://github.com/Sagiroth/TortoiseBots/pull/791)
+
+### CI & Release Safety
+- Moved changelog and Discord secrets into the `main`-only `release` environment, so workflows pushed to another branch can't read them; the changelog job now pushes its commit and tags with a deploy key allowed by the `main` ruleset. [#811](https://github.com/Sagiroth/TortoiseBots/pull/811)
+- Manual Discord re-post, edit, and notify (delete message) workflows are now restricted to the repository owner; issue events still notify as before. [#813](https://github.com/Sagiroth/TortoiseBots/pull/813)
+
+### Dungeon Movement & Pathing
+- Ranged bots now walk the navmesh path inside dungeons and stop in sight of the target. [#788](https://github.com/Sagiroth/TortoiseBots/pull/788)
+- Bots step down off cut-off platforms inside dungeons. [#792](https://github.com/Sagiroth/TortoiseBots/pull/792)
+- Healers only walk to a member who needs a heal out of combat; stuck dungeon followers walk the path to the leader. [#793](https://github.com/Sagiroth/TortoiseBots/pull/793)
+- Added opt-in hold for dungeon followers before unpulled packs (`AiPlayerbot.DungeonFollowHoldBeforePacks`, default off). [#790](https://github.com/Sagiroth/TortoiseBots/pull/790)
+
+### Combat & AI
+- CC mark hold improvements from the dungeon batch ([#794](https://github.com/Sagiroth/TortoiseBots/pull/794), [#795](https://github.com/Sagiroth/TortoiseBots/pull/795), [#797](https://github.com/Sagiroth/TortoiseBots/pull/797), [#814](https://github.com/Sagiroth/TortoiseBots/pull/814))
+
+### Starter Zones & World
+- Bots now skip taxi paths 355 (Shimmerstar Lake → Valormok) and 274 (unused dev path) — both crash the world server because 1.18.1 client data is missing nodes. Every other flight works as before. [#821](https://github.com/Sagiroth/TortoiseBots/pull/821)
+- New `AiPlayerbot.AllowRepairedTaxiPaths` option (default `0`). Set it to `1` to let bots fly those paths again once the core supplies valid node data. [#821](https://github.com/Sagiroth/TortoiseBots/pull/821)
 
 ## 2026-10-11
 

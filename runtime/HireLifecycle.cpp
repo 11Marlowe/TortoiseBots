@@ -114,6 +114,19 @@ void HireLifecycle::MarkGrouped(ObjectGuid botGuid)
         it->second.everGrouped = true;
 }
 
+void HireLifecycle::SetGearTier(ObjectGuid botGuid, uint8_t tier)
+{
+    auto it = m_hired.find(botGuid.GetCounter());
+    if (it != m_hired.end())
+        it->second.gearTier = tier;
+}
+
+uint8_t HireLifecycle::GearTier(ObjectGuid botGuid) const
+{
+    auto it = m_hired.find(botGuid.GetCounter());
+    return it == m_hired.end() ? 0 : it->second.gearTier;
+}
+
 bool HireLifecycle::MasterOnline(HiredRecord const& record) const
 {
     Player* master = sObjectAccessor.FindPlayer(record.masterGuid);

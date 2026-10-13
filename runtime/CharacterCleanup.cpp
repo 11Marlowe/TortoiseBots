@@ -166,6 +166,7 @@ void DeleteCharacterEverywhere(uint32 guidLow, uint32 accountId)
     // duplicate-key errors came from the core inserting rows already in the table
     // for that guid while the new character equipped its items.
     CharacterDatabase.DirectPExecute("DELETE FROM `character_transmogs` WHERE `guid` = '%u'", guidLow);
+    CharacterDatabase.DirectPExecute("DELETE FROM `tortoise_bots_hire_unlock_kills` WHERE `guid` = '%u'", guidLow);
 }
 
 } // namespace TortoiseBots
