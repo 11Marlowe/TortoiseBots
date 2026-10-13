@@ -450,7 +450,7 @@ public:
             if (!isRti)
                 continue;
 
-            ObjectGuid rtiTarget; // GetTargetIcon not in Penqle
+            ObjectGuid rtiTarget; // null placeholder: Group::GetTargetIcon is in the core (src/game/Group/Group.h) and the module uses it, but this check is not wired to it yet, so the code below is left as is
             (void)group;
             (void)rti;
 
