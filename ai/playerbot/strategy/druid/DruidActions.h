@@ -444,18 +444,6 @@ namespace ai
         CastClawAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "claw") {}
     };
 
-    class CastMangleCatAction : public CastMeleeSpellAction
-    {
-    public:
-        CastMangleCatAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "mangle (cat)") {}
-    };
-
-    class CastSwipeCatAction : public CastMeleeSpellAction
-    {
-    public:
-        CastSwipeCatAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "swipe (cat)") {}
-    };
-
     class CastFerociousBiteAction : public CastMeleeSpellAction
     {
     public:

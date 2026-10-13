@@ -24,7 +24,7 @@ private:
     {
         return new ActionNode("rapid fire",
                               /*P*/ {},
-                              /*A*/ { NextAction("readiness") },
+                              /*A*/ {},
                               /*C*/ {});
     }
     static ActionNode* mongoose_bite([[maybe_unused]] PlayerbotAI* botAI)
@@ -89,7 +89,6 @@ AoEHunterStrategy::AoEHunterStrategy(PlayerbotAI* botAI) : CombatStrategy(botAI)
 
 void AoEHunterStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode("volley channel check", { NextAction("cancel channel", 23.0f) }));
     triggers.push_back(new TriggerNode("medium aoe", { NextAction("volley", 22.0f) }));
     triggers.push_back(new TriggerNode("light aoe", { NextAction("multi-shot", 21.0f) }));
 }

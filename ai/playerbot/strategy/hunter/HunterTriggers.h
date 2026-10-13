@@ -192,6 +192,13 @@ namespace ai
         virtual bool IsActive() override { return bot->GetGroup() && (AI_VALUE2(uint32, "item count", "ammo") < 100) && (AI_VALUE2(uint32, "item count", "ammo") > 0); }
     };
 
+    class VolleyChannelCheckTrigger : public Trigger
+    {
+    public:
+        VolleyChannelCheckTrigger(PlayerbotAI* ai) : Trigger(ai, "volley channel check") {}
+        bool IsActive() override;
+    };
+
     class HunterNoAmmoTrigger : public AmmoCountTrigger
 {
 public:

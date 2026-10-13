@@ -31,7 +31,7 @@ inline bool IsAreaSpellAction(const std::string& actionName)
         // priest
         "holy nova", "psychic scream",
         // druid
-        "hurricane", "swipe", "swipe (bear)", "swipe (cat)",
+        "hurricane", "swipe", "swipe (bear)",
         "demoralizing roar", "challenging roar",
         // hunter
         "multi-shot", "volley", "carve", "explosive trap",
