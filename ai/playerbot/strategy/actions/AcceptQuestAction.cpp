@@ -1,9 +1,10 @@
-
 #include "playerbot/playerbot.h"
 #include "AcceptQuestAction.h"
 #include "playerbot/PullRegenPolicy.h"
 #include "playerbot/QuestLogPolicy.h"
 #include "playerbot/strategy/values/ItemUsageValue.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireQuestPolicy.h"
 
 using namespace ai;
 
@@ -76,6 +77,13 @@ bool AcceptAllQuestsAction::WouldAcceptQuest(PlayerbotAI* ai, Player* bot, Quest
         return false;
 
     if (questGiver && (questGiver->GetEntry() == 81030 || questGiver->GetEntry() == 62609))
+        return false;
+
+    // A hired companion never takes a quest from a <Mercenary Hire>
+    // recruiter, even on an explicit order. Pool bots and owned alts are
+    // untouched.
+    if (questGiver && TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::IsHireQuestRecruiterEntry(questGiver->GetEntry()))
         return false;
 
     // Tortoise-wow rogue-only quests with excessive walking and poor reward.

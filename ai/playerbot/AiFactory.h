@@ -46,6 +46,11 @@ public:
     // it, since the shipped random-bot string carries -threat.
     static bool KeepsPartyThreatBackoff(Player* player, PlayerbotAI* const facade);
     // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
+    // tfish, rpg, rpg craft, wander) while the bot is a hired companion.
+    // Ledger-based, so it holds before the group forms and while the master
+    // is offline; owned alts are untouched.
+    static std::string HireSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies);
+    // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
     // tfish, rpg, rpg craft, wander) while the bot's master is a real player.
     static std::string RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies);
     // The list with every "+grind/+travel/+tfish/+rpg/+rpg craft/+wander" entry removed.
