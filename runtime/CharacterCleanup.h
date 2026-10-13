@@ -42,7 +42,7 @@ bool SettleCharacterAuctions(uint32_t guidLow, uint32_t& settled, std::string& e
 
 // Core character deletion plus the module-owned per-character rows the core
 // does not know about: the durable ownership row, the hire ledger row, the
-// stored AI state and the armory snapshot.
+// stored AI state, the armory snapshot and the hire-unlock kill rows.
 void DeleteCharacterEverywhere(uint32_t guidLow, uint32_t accountId);
 
 } // namespace TortoiseBots

@@ -86,6 +86,7 @@ Detailed combat rotations, Turtle WoW 1.18.1 custom abilities, pet handling, and
 - [**Player Control Catalog**](PLAYER_CONTROL.md) — Technical command delivery specification and addon serialization.
 - [**Source Provenance Ledger**](PROVENANCE.md) — Append-oriented attribution and donor lineage ledger.
 - [**License Audit**](LICENSE_AUDIT.md) — Donor license compatibility analysis and release gates.
+- [**Hire Gear Sets**](reference/hire-gear.md) — Generated static level-60 hire sets per class/spec/tier.
 - [**Spell Coverage Reference**](reference/spell-coverage.tsv) — Census of custom Turtle WoW spells mapped into AI strategies.
 - [**Talent Builds Reference**](reference/talent-builds.tsv) — Level 10–60 preset build progression rationale.
 - [**Donor Capability Census**](reference/capabilities.tsv) — Granular inventory of donor features vs TortoiseBots implementation.

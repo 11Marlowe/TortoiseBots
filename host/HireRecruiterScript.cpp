@@ -1,12 +1,18 @@
 // pi-lens-ignore-file: clang:pp_file_not_found,clang:unknown_typename,clang:use_of_undeclared_identifier,clang:unknown_type_name,clang:undeclared_var_use,clang:incomplete_member_access
 #include <sstream>
+#include <set>
 #include <vector>
 #include "HireRecruiterScript.h"
 #include "../runtime/HireProvisionService.h"
 #include "../runtime/HireCost.h"
 #include "../runtime/HireSpecPolicy.h"
+#include "../runtime/HireTierRequestPolicy.h"
+#include "../runtime/HireUnlockPolicy.h"
 #include "../runtime/WorldBuffPolicy.h"
 #include "../runtime/WorldBuffService.h"
+#include "../runtime/HireUnlockSync.h"
+#include "../runtime/HireUnlockKillStore.h"
+#include "HireUnlockKillAdapter.h"
 #include "../runtime/BotManager.h"
 #include "../ai/playerbot/playerbot.h"
 #include "../ai/playerbot/ChatHelper.h"
@@ -40,6 +46,15 @@ constexpr uint32 kSenderRace = 502;
 constexpr uint32 kSenderGender = 503;
 constexpr uint32 kSenderSpec = 504;
 
+// Issue #490 PR 2 (kills): "Mercenary contracts" branch senders. The hire
+// wizard owns 501-504 and world buffs 505-509; these continue the sequence
+// so no menu can collide. Actions stay small (< 254) like the world-buff
+// ones: the packed hire confirm/back actions (254/255) match on action
+// alone and must never see them.
+constexpr uint32 kContractsSenderRoot = 510;
+constexpr uint32 kContractsSenderCounter = 511;
+constexpr uint32 kContractsSenderBack = 512;
+
 // All action ids fit in one byte: every wizard step packs prior choices into
 // individual bytes of the 32-bit action/sender (class | race | gender |
 // specIndex), so any value > 255 bleeds into the neighboring byte and
@@ -58,6 +73,11 @@ void ShowClassMenu(Player* player, Creature* creature);
 void ShowRootMenu(Player* player, Creature* creature);
 void ShowWorldBuffMenu(Player* player, Creature* creature);
 void ShowSaygeMenu(Player* player, Creature* creature);
+// Issue #490 PR 2 (kills): contracts branch (pure math in HireUnlockSync.h).
+bool ContractsVisible(Player* player, Creature* creature);
+void ShowContractsMenu(Player* player, Creature* creature);
+void ShowContractsCounterMenu(Player* player, Creature* creature, uint32_t creditEntry);
+void FilterQuestMenu(Player* player, Creature* creature, uint32_t first, uint32_t last);
 void CollectBuffTargets(Player* buyer, Creature* npc, std::vector<Player*>& out);
 void BuyWorldBuff(Player* player, Creature* creature, uint32_t confirmAction);
 void ShowBuyConfirm(Player* player, Creature* creature, uint32_t buyAction);
@@ -161,6 +181,26 @@ uint32_t QuoteHireCount(Player* player)
     return HireProvisionService::Instance().CountHired(player);
 }
 
+// Issue #490 PR 2: the fee quoted and charged for this hire at a tier: the
+// base quote (same slot count as the confirm menu) times the tier
+// multiplier. The confirm step and the provisioner read the same value.
+uint32_t QuoteHireCostAtTier(Player* player, uint8_t tier)
+{
+    uint32_t base = HireCost::ForNextHire(CurrentCosts(), QuoteHireCount(player),
+        player ? player->GetLevel() : 1);
+    return HireCostAtTier(base, tier, sPlayerbotAIConfig.hireGearTierCostMult);
+}
+
+// Issue #490 PR 2: "Choose equipment" step after the spec step. Lists tier 0
+// up to the player's highest unlocked tier with each tier's fee for this
+// hire. The packed class/race/gender/spec selection rides in the action (the
+// spec step's packing); the tier rides in the sender (520+tier), so the full
+// 32-bit packing needs no repacking. Back returns to the spec menu.
+void ShowTierMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 highestTier);
+void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 gearTier);
+
 void ShowClassMenu(Player* player, Creature* creature)
 {
     Team team = player ? player->GetTeam() : TEAM_NONE;
@@ -215,17 +255,28 @@ void ShowRootMenu(Player* player, Creature* creature)
 {
     // Issue #492: the six capital recruiters split into Hire vs World
     // buffs. Every other recruiter skips this and opens the hire wizard
-    // directly (unchanged behaviour outside the capitals).
-    if (!IsCapitalRecruiter(creature->GetEntry()) ||
-        !ShouldShowWorldBuffs(sPlayerbotAIConfig.worldBuffsEnabled,
-            BotManager::Instance().IsBot(player->GetObjectGuid()),
-            player->GetLevel(), sPlayerbotAIConfig.worldBuffsMinLevel))
+    // directly (unchanged behaviour outside the capitals). Issue #490 PR 2
+    // adds "Mercenary contracts" whenever any branch beyond hiring is
+    // visible, so the root shows at capitals when buffs or contracts apply.
+    if (!IsCapitalRecruiter(creature->GetEntry()))
+    {
+        ShowClassMenu(player, creature);
+        return;
+    }
+    bool buffsVisible = ShouldShowWorldBuffs(sPlayerbotAIConfig.worldBuffsEnabled,
+        BotManager::Instance().IsBot(player->GetObjectGuid()),
+        player->GetLevel(), sPlayerbotAIConfig.worldBuffsMinLevel);
+    bool contractsVisible = ContractsVisible(player, creature);
+    if (!buffsVisible && !contractsVisible)
     {
         ShowClassMenu(player, creature);
         return;
     }
     AddItem(player, GOSSIP_ICON_CHAT, "Hire bots", kWorldBuffSenderRoot, kWorldBuffRootHire);
-    AddItem(player, GOSSIP_ICON_MONEY_BAG, "World buffs", kWorldBuffSenderRoot, kWorldBuffRootBuffs);
+    if (buffsVisible)
+        AddItem(player, GOSSIP_ICON_MONEY_BAG, "World buffs", kWorldBuffSenderRoot, kWorldBuffRootBuffs);
+    if (contractsVisible)
+        AddItem(player, GOSSIP_ICON_BATTLE, "Mercenary contracts", kContractsSenderRoot, 1);
     player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
 }
 
@@ -287,7 +338,124 @@ void ShowWorldBuffMenu(Player* player, Creature* creature)
             AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), kWorldBuffSenderBuy, purchase);
     }
     AddItem(player, GOSSIP_ICON_TALK, "< Back", kWorldBuffSenderBack, kWorldBuffSenderBack);
+    // Issue #490 PR 2: the tier quests share these NPCs now. The buff page
+    // keeps only the world-buff range (90000-90013); contracts own 90100+.
+    FilterQuestMenu(player, creature, kWorldBuffQuestRallyA, kWorldBuffQuestSilithystH);
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+}
+
+// Issue #490 PR 2 (kills): "Mercenary contracts" branch. Capital
+// recruiters only, non-bot level-60 players, tiers enabled. ShowContractsMenu
+// syncs first so the counters include kills since the quest was taken (and
+// optional-map bosses), then lists one line per incomplete counter of every
+// in-progress unlock quest. Short rosters render inline; a roster that would
+// overflow a 1.12 gossip line opens as a sub-page naming every missing boss.
+bool ContractsVisible(Player* player, Creature* creature)
+{
+    if (!player || !creature)
+        return false;
+    return ShouldShowHireContracts(sPlayerbotAIConfig.hireGearTiersEnabled,
+        IsCapitalRecruiter(creature->GetEntry()),
+        BotManager::Instance().IsBot(player->GetObjectGuid()),
+        player->GetLevel());
+}
+
+void FilterQuestMenu(Player* player, Creature* creature, uint32_t first, uint32_t last)
+{
+    // PrepareQuestMenu merges every quest the NPC offers; rebuild the menu
+    // keeping only the wanted id range (with their icons/status), so the
+    // world-buff and contracts pages never show each other's quests.
     player->PrepareQuestMenu(creature->GetObjectGuid());
+    QuestMenu& menu = player->PlayerTalkClass->GetQuestMenu();
+    uint8_t count = menu.MenuItemCount();
+    std::vector<std::pair<uint32_t, uint8_t>> kept;
+    for (uint8_t i = 0; i < count; ++i)
+    {
+        QuestMenuItem const& item = menu.GetItem(i);
+        if (item.m_qId >= first && item.m_qId <= last)
+            kept.push_back(std::make_pair(item.m_qId, item.m_qIcon));
+    }
+    menu.ClearMenu();
+    for (auto const& keep : kept)
+        menu.AddMenuItem(keep.first, keep.second);
+}
+
+static uint8_t ContractsCounterHave(Player* player, HireUnlockCounter const& counter)
+{
+    uint32_t questId = HireUnlockQuestForTier(counter.tier);
+    QuestStatusData const* status = questId ? player->GetQuestStatusData(questId) : nullptr;
+    return status ? static_cast<uint8_t>(status->m_creatureOrGOcount[counter.slot]) : 0;
+}
+
+void ShowContractsMenu(Player* player, Creature* creature);
+
+void ShowContractsCounterMenu(Player* player, Creature* creature, uint32_t creditEntry)
+{
+    // Sub-page for one counter whose roster overflows a single gossip line:
+    // header with the x/N count, then one line per missing boss.
+    for (HireUnlockCounter const& counter : kHireUnlockCounters)
+    {
+        if (counter.creditEntry != creditEntry)
+            continue;
+        uint32_t questId = HireUnlockQuestForTier(counter.tier);
+        if (questId == 0 || player->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
+        {
+            ShowContractsMenu(player, creature);
+            return;
+        }
+        std::set<uint32_t> recorded = HireUnlockKillStore::Instance().KillsFor(player->GetGUIDLow());
+        std::set<uint32_t> optionalMaps(
+            sPlayerbotAIConfig.hireGearOptionalMaps.begin(), sPlayerbotAIConfig.hireGearOptionalMaps.end());
+        std::vector<HireUnlockBoss const*> missing;
+        MissingHireUnlockBosses(counter, recorded, optionalMaps, missing);
+        uint8_t have = ContractsCounterHave(player, counter);
+        std::ostringstream header;
+        header << counter.label << ": " << uint32_t(have) << "/" << uint32_t(counter.bossCount);
+        AddItem(player, GOSSIP_ICON_BATTLE, header.str().c_str(), kContractsSenderBack, kContractsSenderBack);
+        uint32_t shown = 0;
+        for (HireUnlockBoss const* boss : missing)
+        {
+            if (shown >= kMaxMenuItems - 2)
+                break;
+            AddItem(player, GOSSIP_ICON_DOT, boss->name, kContractsSenderBack, kContractsSenderBack);
+            ++shown;
+        }
+        AddItem(player, GOSSIP_ICON_TALK, "< Back", kContractsSenderBack, kContractsSenderBack);
+        player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+        return;
+    }
+    ShowContractsMenu(player, creature);
+}
+
+void ShowContractsMenu(Player* player, Creature* creature)
+{
+    // Refresh counters before rendering: kills since the page was last
+    // opened (and optional-map bosses on accept) show immediately.
+    HireUnlockKillAdapter::SyncCounters(player);
+    std::set<uint32_t> recorded = HireUnlockKillStore::Instance().KillsFor(player->GetGUIDLow());
+    std::set<uint32_t> optionalMaps(
+        sPlayerbotAIConfig.hireGearOptionalMaps.begin(), sPlayerbotAIConfig.hireGearOptionalMaps.end());
+    uint32_t shown = 0;
+    for (HireUnlockCounter const& counter : kHireUnlockCounters)
+    {
+        uint32_t questId = HireUnlockQuestForTier(counter.tier);
+        if (questId == 0 || player->GetQuestStatus(questId) != QUEST_STATUS_INCOMPLETE)
+            continue;
+        uint8_t have = ContractsCounterHave(player, counter);
+        if (have >= counter.bossCount)
+            continue;
+        std::string line;
+        if (HireUnlockCounterLine(counter, have, recorded, optionalMaps, line))
+            AddItem(player, GOSSIP_ICON_BATTLE, line.c_str(), kContractsSenderBack, kContractsSenderBack);
+        else
+            AddItem(player, GOSSIP_ICON_BATTLE, line.c_str(), kContractsSenderCounter, counter.creditEntry);
+        if (++shown >= kMaxMenuItems - 2)
+            break;
+    }
+    // This branch's quest list only: tier quests 90100-90106. The buff page
+    // keeps 90000-90013 the same way (FilterQuestMenu above).
+    FilterQuestMenu(player, creature, kHireUnlockQuestFirst, kHireUnlockQuestLast);
+    AddItem(player, GOSSIP_ICON_TALK, "< Back", kContractsSenderBack, kContractsSenderBack);
     player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
 }
 
@@ -466,24 +634,49 @@ void BuyWorldBuff(Player* player, Creature* creature, uint32_t confirmAction)
     ChatHandler(player).PSendSysMessage("The recruiter's criers raise the blessing over your company.");
 }
 
+void ShowTierMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 highestTier)
+{
+    uint32 packed = (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | specIndex;
+    for (uint8_t tier = 0; tier <= highestTier; ++tier)
+    {
+        std::ostringstream label;
+        label << HireTierKitName(tier) << " (" << ai::ChatHelper::formatMoney(QuoteHireCostAtTier(player, tier)) << ")";
+        AddItem(player, GOSSIP_ICON_BATTLE, label.str().c_str(), HireTierStepSender(tier), packed);
+    }
+    AddItem(player, GOSSIP_ICON_TALK, "< Back", kHireTierBackSender, packed);
+    player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
+}
+
 void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender, uint8 specIndex)
+{
+    // Old path for players with nothing unlocked above tier 0 (and below
+    // 60): the equipment step is skipped, the hire goes at tier 0.
+    ShowConfirmMenu(player, creature, classId, race, gender, specIndex, kHireGearTierBase);
+}
+
+void ShowConfirmMenu(Player* player, Creature* creature, uint8 classId, uint8 race, uint8 gender,
+    uint8 specIndex, uint8 gearTier)
 {
     uint32_t specCount = 0;
     HireSpecOption const* specs = HireSpecOptions(classId, specCount);
-    if (!specs || specIndex >= specCount)
+    if (!specs || specIndex >= specCount || gearTier > kHireGearTierMax)
     {
         ShowSpecMenu(player, creature, classId, race, gender);
         return;
     }
-    uint32_t level = player->GetLevel();
-    uint32_t cost = HireCost::ForNextHire(CurrentCosts(), QuoteHireCount(player), level);
+    uint32_t cost = QuoteHireCostAtTier(player, gearTier);
     std::ostringstream label;
-    label << "Hire " << RaceName(race) << " " << ClassName(classId) << " (" << specs[specIndex].label << ") for "
-        << ai::ChatHelper::formatMoney(cost) << ". Confirm?";
-    // Packed selection travels in the sender; action distinguishes confirm/back.
+    label << "Hire " << RaceName(race) << " " << ClassName(classId) << " (" << specs[specIndex].label << ")";
+    if (gearTier > 0)
+        label << " in " << HireTierKitName(gearTier);
+    label << " for " << ai::ChatHelper::formatMoney(cost) << ". Confirm?";
+    // The tier rides in the sender (530+tier); the packed selection rides in
+    // the action. Back returns to the equipment step when the player has a
+    // choice, else to the spec menu (unchanged old path).
     uint32 packed = (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | specIndex;
-    AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), packed, kConfirmAction);
-    AddItem(player, GOSSIP_ICON_TALK, "< Back", packed, kBackAction);
+    AddItem(player, GOSSIP_ICON_MONEY_BAG, label.str().c_str(), HireTierConfirmSender(gearTier), packed);
+    AddItem(player, GOSSIP_ICON_TALK, "< Back", kHireTierBackSender, packed);
     player->PlayerTalkClass->SendGossipMenu(GossipText(player), creature->GetObjectGuid());
 }
 } // namespace
@@ -504,8 +697,9 @@ bool HireRecruiterScript::OnHello(Player* player, Creature* creature)
     }
     player->PlayerTalkClass->ClearMenus();
     // Pool bots only ever see the hire wizard: no world-buff branch, no
-    // purchase path. The gate lives in ShowRootMenu itself; OnSelect below
-    // re-checks it per click so a stale menu cannot bypass it.
+    // contracts branch, no purchase path. The gate lives in ShowRootMenu
+    // itself; OnSelect below re-checks it per click so a stale menu cannot
+    // bypass it.
     ShowRootMenu(player, creature);
     return true;
 }
@@ -523,10 +717,32 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
     // AddAura on the buyer + live in-world group members within 40 yd of
     // the NPC, refund on every failure. Buffs are never cast as spells: the
     // originals are 100-yd area effects that would hit the whole capital.
-    bool buffsVisible = IsCapitalRecruiter(creature->GetEntry()) &&
+    bool capital = IsCapitalRecruiter(creature->GetEntry());
+    bool buffsVisible = capital &&
         ShouldShowWorldBuffs(sPlayerbotAIConfig.worldBuffsEnabled,
             BotManager::Instance().IsBot(player->GetObjectGuid()),
             player->GetLevel(), sPlayerbotAIConfig.worldBuffsMinLevel);
+    // Issue #490 PR 2: contracts have their own gate (tiers + capital +
+    // real level-60 player), independent of the world-buff flag: the root
+    // shows whenever either branch is visible.
+    if (capital && ContractsVisible(player, creature))
+    {
+        if (sender == kContractsSenderRoot)
+        {
+            ShowContractsMenu(player, creature);
+            return true;
+        }
+        if (sender == kContractsSenderCounter)
+        {
+            ShowContractsCounterMenu(player, creature, action);
+            return true;
+        }
+        if (sender == kContractsSenderBack)
+        {
+            ShowContractsMenu(player, creature);
+            return true;
+        }
+    }
     if (buffsVisible)
     {
         if (sender == kWorldBuffSenderRoot)
@@ -648,7 +864,90 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
             ShowSpecMenu(player, creature, classId, race, gender);
             return true;
         }
+        // Issue #490 PR 2: equipment step between spec and confirm. One
+        // unlock lookup per page; skipped entirely for players with nothing
+        // above tier 0 (old wizard unchanged).
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(player);
+        if (HireTierStepVisible(sPlayerbotAIConfig.hireGearTiersEnabled, player->GetLevel(), highest))
+        {
+            ShowTierMenu(player, creature, classId, race, gender, static_cast<uint8>(low), highest);
+            return true;
+        }
         ShowConfirmMenu(player, creature, classId, race, gender, static_cast<uint8>(low));
+        return true;
+    }
+    // Issue #490 PR 2: the tier step and its confirm. The tier rides in the
+    // sender, the packed selection in the action. The unlock is re-validated
+    // at confirm (Hire() checks too), so a stale menu cannot hire above it.
+    uint8_t tierPick = 0;
+    if (DecodeHireTierStepSender(sender, tierPick) || DecodeHireTierConfirmSender(sender, tierPick))
+    {
+        uint8 classId = static_cast<uint8>((action >> 24) & 0xFF);
+        uint8 race = static_cast<uint8>((action >> 16) & 0xFF);
+        uint8 gender = static_cast<uint8>((action >> 8) & 0xFF);
+        uint8 specIndex = static_cast<uint8>(action & 0xFF);
+        uint32_t specCount = 0;
+        HireSpecOption const* specs = HireSpecOptions(classId, specCount);
+        if (!KnownHireClass(classId) || !specs || specIndex >= specCount ||
+            !sObjectMgr.GetPlayerInfo(race, classId) ||
+            (gender != GENDER_MALE && gender != GENDER_FEMALE))
+        {
+            ShowClassMenu(player, creature);
+            return true;
+        }
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(player);
+        bool visible = HireTierStepVisible(sPlayerbotAIConfig.hireGearTiersEnabled,
+            player->GetLevel(), highest);
+        if (tierPick > highest || (!visible && tierPick > 0))
+        {
+            // Stale menu (unlock revoked, tiers disabled, level changed):
+            // fall back to the tier-0 confirm, never hire above the unlock.
+            ShowConfirmMenu(player, creature, classId, race, gender, specIndex);
+            return true;
+        }
+        if (DecodeHireTierConfirmSender(sender, tierPick))
+        {
+            HireSelection sel;
+            sel.classId = classId;
+            sel.race = race;
+            sel.gender = gender;
+            sel.role = specs[specIndex].role;
+            sel.specIndex = static_cast<int>(specIndex);
+            sel.gearTier = tierPick;
+            HireOutcome outcome = HireProvisionService::Instance().Hire(player, sel, true);
+            CloseWithHint(player, outcome.message.c_str());
+            return true;
+        }
+        if (!visible)
+        {
+            ShowConfirmMenu(player, creature, classId, race, gender, specIndex);
+            return true;
+        }
+        ShowConfirmMenu(player, creature, classId, race, gender, specIndex, tierPick);
+    }
+    // Tier-step back: the packed selection rides in the action. With a real
+    // choice, back returns to the equipment step; otherwise the spec menu.
+    if (sender == kHireTierBackSender)
+    {
+        uint8 classId = static_cast<uint8>((action >> 24) & 0xFF);
+        uint8 race = static_cast<uint8>((action >> 16) & 0xFF);
+        uint8 gender = static_cast<uint8>((action >> 8) & 0xFF);
+        uint8 specIndex = static_cast<uint8>(action & 0xFF);
+        uint32_t specCount = 0;
+        HireSpecOption const* specs = HireSpecOptions(classId, specCount);
+        uint8_t highest = HireProvisionService::Instance().HighestUnlockedHireTierFor(player);
+        if (specs && specIndex < specCount &&
+            HireTierStepVisible(sPlayerbotAIConfig.hireGearTiersEnabled, player->GetLevel(), highest))
+        {
+            ShowTierMenu(player, creature, classId, race, gender, specIndex, highest);
+            return true;
+        }
+        if (specs && specIndex < specCount)
+        {
+            ShowSpecMenu(player, creature, classId, race, gender);
+            return true;
+        }
+        ShowClassMenu(player, creature);
         return true;
     }
     // Packed confirm: sender IS the packed class/race/gender/spec selection,
@@ -687,6 +986,21 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
     return true;
 }
 
+bool HireRecruiterScript::OnQuestAccept(Player* player, Creature* /*creature*/, Quest const* quest)
+{
+    if (!player || !quest)
+        return false;
+    // Quest accept scripts run from Player::AddQuest after the log slot is
+    // set; returning false lets the core finish normally. Sync here restores
+    // progress after abandon + retake and credits optional-map bosses.
+    if (HireUnlockTierForQuest(quest->GetQuestId()) == 0)
+        return false;
+    if (!sPlayerbotAIConfig.hireGearTiersEnabled)
+        return false;
+    HireUnlockKillAdapter::SyncCounters(player);
+    return false;
+}
+
 void HireRecruiterScript::SyncUnlockFees()
 {
     uint32 changed = 0;
@@ -710,4 +1024,24 @@ void HireRecruiterScript::SyncUnlockFees()
         TB_LOG_BASIC("World-buff unlock fees changed on %u quests; restart the server to apply them", changed);
 }
 
+void HireRecruiterScript::SyncHireUnlockChain()
+{
+    // Same pattern as SyncUnlockFees: the quests are already loaded, so the
+    // write lands in the DB and is live after the next restart.
+    uint32 changed = 0;
+    for (uint8_t tier = 1; tier <= kHireGearTierMax; ++tier)
+    {
+        uint32 questId = HireUnlockQuestForTier(tier);
+        int32 want = HireTierChainPrevQuest(tier, sPlayerbotAIConfig.hireGearAllQuestsAvailable);
+        auto result = WorldDatabase.PQuery("SELECT PrevQuestId FROM quest_template WHERE entry = %u", questId);
+        if (!result)
+            continue;
+        if (result->Fetch()[0].GetInt32() == want)
+            continue;
+        WorldDatabase.PExecute("UPDATE quest_template SET PrevQuestId = %d WHERE entry = %u", want, questId);
+        ++changed;
+    }
+    if (changed)
+        TB_LOG_BASIC("Hire unlock quest chain changed on %u quests; restart the server to apply them", changed);
+}
 } // namespace TortoiseBots

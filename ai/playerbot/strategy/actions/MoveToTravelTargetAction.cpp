@@ -1,5 +1,6 @@
 
 #include "playerbot/GroupMembers.h"
+#include "playerbot/TaxiRouteGuard.h"
 #include "playerbot/playerbot.h"
 #include "MoveToTravelTargetAction.h"
 #include "ChooseTravelTargetAction.h"
@@ -661,6 +662,11 @@ static bool TryBoardFlightToTarget(PlayerbotAI* ai, Player* bot, TravelTarget* t
         return false;
     }
     if (!bot->GetTaxi().IsTaximaskNodeKnown(fromNode) || !bot->GetTaxi().IsTaximaskNodeKnown(toNode))
+    {
+        ClearFlightPlan(ai);
+        return false;
+    }
+    if (!ai::BotTaxiRouteAllowed({ fromNode, toNode }))
     {
         ClearFlightPlan(ai);
         return false;
