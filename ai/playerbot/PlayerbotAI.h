@@ -396,6 +396,11 @@ public:
     void DropQueuedOutgoingOpcode(uint16 opcode) { botOutgoingPacketHandlers.DropQueuedOpcode(opcode); }
     void HandleMasterIncomingPacket(const WorldPacket& packet);
     void HandleMasterOutgoingPacket(const WorldPacket& packet);
+    // Any thread, no AI needed (issue #844): whether an opcode reaches one of
+    // the Handle*Packet paths above, so packet hooks copy only those packets.
+    static bool HandlesBotOutgoingOpcode(uint16 opcode);
+    static bool HandlesMasterIncomingOpcode(uint16 opcode);
+    static bool HandlesMasterOutgoingOpcode(uint16 opcode);
 	void HandleTeleportAck();
     void ChangeEngine(BotState type);
     // Run one engine decision. Module-owned human commands can force this

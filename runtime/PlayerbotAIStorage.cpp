@@ -17,11 +17,13 @@ void PlayerbotAIStorage::SetAI(Player* player, PlayerbotAI* ai)
     {
         byGuid_[guid] = ai;
         byPlayer_[player] = ai;
+        guidByPlayer_[player] = guid;
     }
     else
     {
         byGuid_.erase(guid);
         byPlayer_.erase(player);
+        guidByPlayer_.erase(player);
     }
 }
 
@@ -35,6 +37,7 @@ void PlayerbotAIStorage::RemoveAI(Player* player)
     if (playerIt == byPlayer_.end()) return;
     PlayerbotAI* ai = playerIt->second;
     byPlayer_.erase(playerIt);
+    guidByPlayer_.erase(player);
     for (auto it = byGuid_.begin(); it != byGuid_.end(); )
     {
         if (it->second == ai) it = byGuid_.erase(it);
@@ -62,6 +65,16 @@ PlayerbotAI* PlayerbotAIStorage::GetAI(ObjectGuid guid) const
     std::lock_guard<std::mutex> lock(mutex_);
     auto it = byGuid_.find(guid);
     return it != byGuid_.end() ? it->second : nullptr;
+}
+
+bool PlayerbotAIStorage::GetBotGuid(Player const* player, ObjectGuid& guid) const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto it = guidByPlayer_.find(player);
+    if (it == guidByPlayer_.end())
+        return false;
+    guid = it->second;
+    return true;
 }
 
 void PlayerbotAIStorage::SetPlayerForcedRole(ObjectGuid guid, uint8 role)

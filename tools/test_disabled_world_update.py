@@ -33,6 +33,7 @@ template<unsigned Id> struct Service {
     void OnWorldUpdate(uint32 diff) { Update(diff); }
     static void DrainQueuedCommands() { calls.push_back(Id); }
     static void DrainDeferredPackets() { calls.push_back(Id); }
+    static void MarkWorldThread() {}
 };
 using BotActivityLeaseManager = Service<1>;
 using BotManager = Service<2>;
