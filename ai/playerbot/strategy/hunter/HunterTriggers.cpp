@@ -24,7 +24,6 @@ static TortoiseBots::HunterViperInputs BuildViperInputs(PlayerbotAI* ai, Player*
     TortoiseBots::HunterViperInputs in;
     in.toggleOn = sPlayerbotAIConfig.hunterViperOnLowMana;
     in.manaPct = ai->GetManaPercent();
-    in.lowManaConfig = sPlayerbotAIConfig.lowMana;
     in.inViper = ai->HasAura("aspect of the viper", bot);
     return in;
 }
@@ -52,7 +51,7 @@ bool AspectOfTheViperLowManaTrigger::IsActive()
 
     TortoiseBots::HunterViperInputs in = BuildViperInputs(ai, bot);
     // Cheap mana read first: most ticks stop here.
-    if (in.inViper || in.manaPct >= TortoiseBots::HunterViperEnterManaPct(in.lowManaConfig))
+    if (in.inViper || in.manaPct >= TortoiseBots::HUNTER_VIPER_ENTER_MANA_PCT)
         return false;
     in.movementAspect = ai->HasAura("aspect of the cheetah", bot) || ai->HasAura("aspect of the pack", bot);
     in.playerAspectOrder = HasPlayerAspectOrder(ai);
