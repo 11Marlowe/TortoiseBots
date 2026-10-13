@@ -1334,10 +1334,22 @@ bool AoeThreatNearbyTrigger::IsActive()
     // while the creature is near and alive); it lapses a few seconds after
     // the creature dies or the bot moves on. The creature the
     // player ordered this bot to attack is not registered.
-    if (sPlayerbotAIConfig.avoidCreatureAuras)
+    // A tank in combat is exempt (it may stand in the ring to hold mobs). The
+    // current target is registered too when it is itself a listed creature,
+    // so a chase from beyond the 15 yd list is bent before it gets close.
+    if (sPlayerbotAIConfig.avoidCreatureAuras && !CreatureAuraCombatExempt(PlayerbotAI::IsTank(bot), bot->IsInCombat()))
     {
         ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
-        for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+        std::list<ObjectGuid> keepouts = AI_VALUE(std::list<ObjectGuid>, "possible triggers");
+        if (Unit* current = AI_VALUE(Unit*, "current target"))
+        {
+            if (PossibleTriggersValue::KeepoutFor(current))
+            {
+                keepouts.remove(current->GetObjectGuid());
+                keepouts.push_back(current->GetObjectGuid());
+            }
+        }
+        for (ObjectGuid const& guid : keepouts)
         {
             CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(ai->GetUnit(guid));
             if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))

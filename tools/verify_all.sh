@@ -43,6 +43,7 @@ python3 -m unittest tools/test_travel_route_distance.py
 python3 -m unittest tools/test_outfit_item_parser.py
 python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
+python3 -m unittest tools/test_keepout_set_aside_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""

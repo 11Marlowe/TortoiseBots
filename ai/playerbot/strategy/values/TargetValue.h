@@ -189,6 +189,22 @@ namespace ai
         std::map<ObjectGuid, uint32> data;
     };
 
+    // Targets a melee chase set aside because they stand in a creature aura keep-out
+    // (MovementAction::HoldChaseOutsideKeepout), mapped to the time (ms) until which they
+    // are refused. A book of its own, apart from "unreachable targets", so the pick paths
+    // that bypass the attackers list (the group tank's victim, raid marks) refuse exactly
+    // these and nothing a reach or combat-stuck give-up wrote. Read through
+    // AttackersValue::IsKeepoutSetAside; an explicit attack order erases the entry
+    // (CommitExplicitAttackTarget).
+    class KeepoutSetAsideValue : public ManualSetValue<std::map<ObjectGuid, uint32>& >
+    {
+    public:
+        KeepoutSetAsideValue(PlayerbotAI* ai) : ManualSetValue<std::map<ObjectGuid, uint32>& >(ai, data, "keepout set aside") {}
+
+    private:
+        std::map<ObjectGuid, uint32> data;
+    };
+
     // The kinds (creature entries) a reach action gave up on, mapped to the time (ms) until
     // which the bot leaves that kind alone. A spot full of the same creatures - a mine full
     // of kobolds - was otherwise given up on one creature at a time (measured: one bot gave
