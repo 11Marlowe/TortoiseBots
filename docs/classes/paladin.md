@@ -39,7 +39,7 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 - **Builder order:** *Crusader Strike* is the main builder and outranks *Holy Strike* within the normal band; seal/judge upkeep still outbids both.
 - **Finishers:** Casts *Hammer of Wrath* when target falls below 20% health.
 
-### Judgement upkeep (opt-in, `AiPlayerbot.PaladinJudgementUpkeep = 1`, default off)
+### Judgement upkeep (`AiPlayerbot.PaladinJudgementUpkeep`, default on)
 With the toggle on, paladin bots in a group keep *Judgement of Wisdom* and *Judgement of Light* up on the fight that matters, reimplemented from mod-playerbots' per-role paladin rotations (`runtime/JudgementUpkeepPolicy.h`). Turtle 1.18.1 mechanics apply: *Judgement* (20271, 10 s cooldown, 10 yd) needs a Seal up, spends it and leaves that Seal's debuff (10 s in vanilla); *Seal of Wisdom* (20166) and *Seal of Light* (20165) are learned at different levels, so a paladin that lacks one passes that debuff on.
 
 | Situation | What the paladin does |

@@ -607,10 +607,10 @@ AiPlayerbot.DungeonFollowHoldBeforePacks = 0
 # no tank keeps the Voidwalker. The pet is chosen when the warlock has none;
 # pool bots also swap a default demon they already have (needs a Soul Shard).
 # A pet a player ordered (a "pet <demon>" strategy, or a demon a player's own
-# bot already has) is never replaced. Off by default.
-# 0 - Voidwalker whenever learned, Imp before that (Default)
-# 1 - pet that fits the spec
-AiPlayerbot.WarlockPetBySpec = 0
+# bot already has) is never replaced. On by default.
+# 0 - Voidwalker whenever learned, Imp before that
+# 1 - pet that fits the spec (Default)
+AiPlayerbot.WarlockPetBySpec = 1
 
 # Rogue threat drops in dungeons.
 # In a grouped 5-man dungeon with a living tank in the fight, a rogue uses
@@ -620,10 +620,10 @@ AiPlayerbot.WarlockPetBySpec = 0
 # only used while the mob is on the tank or the rogue; it is never used solo,
 # without a tank, or in the open world. Raid rogues already do this (Feint at
 # medium, Vanish at high) and are unchanged. The thresholds are the bots'
-# existing medium and high threat levels. Off by default.
-# 0 - dungeon rogues do not shed threat (Default)
-# 1 - Feint on medium threat, Vanish on critical threat in 5-man dungeons
-AiPlayerbot.RogueDungeonThreatDrops = 0
+# existing medium and high threat levels. On by default.
+# 0 - dungeon rogues do not shed threat
+# 1 - Feint on medium threat, Vanish on critical threat in 5-man dungeons (Default)
+AiPlayerbot.RogueDungeonThreatDrops = 1
 
 # Hunter Aspect of the Viper on low mana.
 # A hunter that has learned Aspect of the Viper (Turtle 1.18.1 spell 45651,
@@ -633,11 +633,11 @@ AiPlayerbot.RogueDungeonThreatDrops = 0
 # mod-playerbots); between the two it keeps the aspect it has, so it does not
 # flip. An "aspect <name>" strategy a player set (hawk, monkey,
 # cheetah, pack, beast, wild) is never overridden, and a hunter running in
-# Cheetah or Pack is left alone. Off by default: Viper stays a manual action
-# and the hunter keeps Hawk.
-# 0 - never switch to the Viper by itself (Default)
-# 1 - Viper on low mana, Hawk again at 60 percent mana
-AiPlayerbot.HunterViperOnLowMana = 0
+# Cheetah or Pack is left alone. On by default; with 0 Viper stays a manual
+# action and the hunter keeps Hawk.
+# 0 - never switch to the Viper by itself
+# 1 - Viper on low mana, Hawk again at 60 percent mana (Default)
+AiPlayerbot.HunterViperOnLowMana = 1
 
 # Paladin Judgement upkeep.
 # In a group, paladin bots keep Judgement of Wisdom / Judgement of Light up on a
@@ -651,10 +651,10 @@ AiPlayerbot.HunterViperOnLowMana = 0
 # cost mana and a global each). A healing paladin only does this above 50% mana
 # and never while someone in the party needs healing; everyone needs at least
 # AiPlayerbot.MediumMana. Never solo, never on a target below 25% health. A
-# debuff another paladin (a player) keeps up is left alone. Off by default.
-# 0 - paladins judge on their own rotation, no group debuff upkeep (Default)
-# 1 - keep Judgement of Wisdom / Light up on the boss
-AiPlayerbot.PaladinJudgementUpkeep = 0
+# debuff another paladin (a player) keeps up is left alone. On by default.
+# 0 - paladins judge on their own rotation, no group debuff upkeep
+# 1 - keep Judgement of Wisdom / Light up on the boss (Default)
+AiPlayerbot.PaladinJudgementUpkeep = 1
 
 # Onyxia whelps and eggs.
 # In Onyxia's Lair, while Onyxia is airborne (phase 2), bots that are
@@ -665,10 +665,10 @@ AiPlayerbot.PaladinJudgementUpkeep = 0
 # 12 yd of an unbroken Onyxia Egg (the egg trap circle is 10 yd and hatches
 # whelps). mod-playerbots parity, adapted to Turtle 1.18.1 entries. Only active
 # on map 249 and only once the Onyxia fight strategy is on. An explicit target
-# order from a player always wins. Off by default.
-# 0 - generic target choice and no egg avoidance (Default)
-# 1 - whelp duty and egg avoidance
-AiPlayerbot.OnyxiaWhelpsAndEggs = 0
+# order from a player always wins. On by default.
+# 0 - generic target choice and no egg avoidance
+# 1 - whelp duty and egg avoidance (Default)
+AiPlayerbot.OnyxiaWhelpsAndEggs = 1
 
 # Keep out of creature auras.
 # Some creatures carry a permanent damaging aura that pulses around them even
@@ -679,11 +679,11 @@ AiPlayerbot.OnyxiaWhelpsAndEggs = 0
 # ordered the bot to attack is never avoided by that bot, and a party with no
 # ranged damage needs that order to kill one. Listed today:
 # Maraudon's Creeping Sludge (12222, aura 22638 Poison Shock, 5 yd every 2 s).
-# Off by default.
-# 0 - no keep-out; bots melee and walk past these creatures as before (Default)
-# 1 - stay out of listed creature auras
-AiPlayerbot.AvoidCreatureAuras = 0
-blank
+# On by default.
+# 0 - no keep-out; bots melee and walk past these creatures as before
+# 1 - stay out of listed creature auras (Default)
+AiPlayerbot.AvoidCreatureAuras = 1
+
 # Two taxi paths in the 1.18.1 client data have missing nodes, and a bot that
 # flies one crashes the world server: 355 (Shimmerstar Lake -> Valormok) and
 # 274 (an unused dev path). Bots never take them unless this is on.

@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-// Opt-in paladin Judgement upkeep (AiPlayerbot.PaladinJudgementUpkeep, default 0).
+// Paladin Judgement upkeep (AiPlayerbot.PaladinJudgementUpkeep, default 1).
 //
 // With the toggle on, paladin bots in a group keep Judgement of Wisdom and
 // Judgement of Light up on the boss / the tank's elite target. Vanilla

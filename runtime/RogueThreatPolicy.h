@@ -1,7 +1,7 @@
 #pragma once
 
-// Rogue threat drops in 5-man dungeons (opt-in, AiPlayerbot.RogueDungeonThreatDrops,
-// default 0). Pure decision rules with no core types: the triggers in
+// Rogue threat drops in 5-man dungeons (AiPlayerbot.RogueDungeonThreatDrops,
+// default 1). Pure decision rules with no core types: the triggers in
 // ai/playerbot/strategy/rogue/RogueTriggers.{h,cpp} translate game state into these
 // plain inputs, so the gating is unit-tested on its own
 // (tools/test_rogue_threat_policy.cpp).

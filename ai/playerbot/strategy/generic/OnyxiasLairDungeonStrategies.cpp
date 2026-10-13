@@ -36,7 +36,7 @@ void OnyxiaFightStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("shoot", ACTION_HIGH),
                              new NextAction("raid spread", ACTION_HIGH - 1), NULL)));
 
-    // Opt-in (AiPlayerbot.OnyxiaWhelpsAndEggs, off by default; the triggers
+    // Toggle (AiPlayerbot.OnyxiaWhelpsAndEggs, on by default; the triggers
     // stay silent while it is off). Phase 2 whelp duty for AoE-capable
     // ranged DPS, above the generic "shoot" row so the whelp becomes the
     // target before the wand fires.

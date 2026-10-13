@@ -40,7 +40,7 @@ namespace ai
         bool Execute(Event& event) override;
     };
 
-    // Optional whelp and egg tactics (AiPlayerbot.OnyxiaWhelpsAndEggs, off
+    // Optional whelp and egg tactics (AiPlayerbot.OnyxiaWhelpsAndEggs, on
     // by default). Shared helpers: one pass over the cached attackers list.
     struct OnyxiaWhelpScan
     {
