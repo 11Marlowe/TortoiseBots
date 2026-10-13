@@ -124,6 +124,14 @@ namespace ai
 	{
 	public:
 		CastFeintAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "feint") {}
+
+		// Feint only sheds threat onto someone else. Solo there is nobody to take
+		// the mob over (the low-health row keeps Feint last "for grouped rogues"),
+		// so it would only cost 20 energy and a GCD every 10 s.
+		virtual bool isUseful() override
+		{
+			return bot->GetGroup() != nullptr && CastMeleeSpellAction::isUseful();
+		}
 		virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
 	};
 
