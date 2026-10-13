@@ -463,6 +463,8 @@ public:
     bool dungeonFollowHoldBeforePacks;
     // Warlock summons the demon that fits its spec in PvE instead of the Voidwalker (opt-in).
     bool warlockPetBySpec;
+    // Onyxia phase 2 whelp duty for AoE ranged DPS and egg-cave avoidance (opt-in).
+    bool onyxiaWhelpsAndEggs;
     bool turnInRpg;
     bool globalSoundEffects;
     bool shareTargets;
