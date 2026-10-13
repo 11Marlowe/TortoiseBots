@@ -196,36 +196,47 @@ namespace ai
             return false;
         }
 
+        // Conjuring with a gem already in the bags only wastes the cast:
+        // skip when any rank is held. No item-cheat gate here on purpose:
+        // cheat-holding hires (pool-classified accounts) must still restock
+        // real gems, otherwise the in-combat gem row starves (or fires
+        // virtual uses that fail). The cheat still covers the use path.
+        bool isUseful() override
+        {
+            const std::vector<uint32> manaGemIds = { 5514, 5513, 8007, 8008 };
+            for (const uint32 manaGemId : manaGemIds)
+            {
+                if (bot->HasItemCount(manaGemId, 1))
+                    return false;
+            }
+            return true;
+        }
+
         bool isPossible() override
         {
-            if (!ai->HasCheat(BotCheatMask::item))
+            const uint32 level = bot->GetLevel();
+            spellId = 0;
+            if (level >= 28 && level < 38)
             {
-                const uint32 level = bot->GetLevel();
-                spellId = 0;
-                if (level >= 28 && level < 38)
-                {
-                    spellId = 759;
-                }
-                else if (level >= 38 && level < 48)
-                {
-                    spellId = 3552;
-                }
-                else if (level >= 48 && level < 58)
-                {
-                    spellId = 10053;
-                }
-                else if (level >= 58)
-                {
-                    spellId = 10054;
-                }
-
-                if (!spellId)
-                    return false;
-
-                return ai->CanCastSpell(spellId, bot, 0);
+                spellId = 759;
+            }
+            else if (level >= 38 && level < 48)
+            {
+                spellId = 3552;
+            }
+            else if (level >= 48 && level < 58)
+            {
+                spellId = 10053;
+            }
+            else if (level >= 58)
+            {
+                spellId = 10054;
             }
 
-            return false;
+            if (!spellId)
+                return false;
+
+            return ai->CanCastSpell(spellId, bot, 0);
         }
 
     private:
@@ -403,41 +414,31 @@ namespace ai
 
         uint32 GetItemId() override
         {
-            uint32 itemId = 0;
+            // Real gems first: a virtual (item-cheat) use without the item
+            // in the bags fails at cast time, so cheat-holders with a
+            // conjured gem must spend the real one. The virtual id stays as
+            // the fallback for pool bots that carry nothing.
+            const std::vector<uint32> manaGemIds = { 8008, 8007, 5513, 5514 };
+            for (const uint32 manaGemId : manaGemIds)
+            {
+                if (bot->HasItemCount(manaGemId, 1))
+                    return manaGemId;
+            }
+
             if (ai->HasCheat(BotCheatMask::item))
             {
                 const uint32 level = bot->GetLevel();
                 if (level >= 28 && level < 38)
-                {
-                    itemId = 5514;
-                }
+                    return 5514;
                 else if (level >= 38 && level < 48)
-                {
-                    itemId = 5513;
-                }
+                    return 5513;
                 else if (level >= 48 && level < 58)
-                {
-                    itemId = 8007;
-                }
+                    return 8007;
                 else if (level >= 58)
-                {
-                    itemId = 8008;
-                }
-            }
-            else
-            {
-                const std::vector<uint32> manaGemIds = { 8008, 8007, 5513, 5514 };
-                for (const uint32 manaGemId : manaGemIds)
-                {
-                    if (bot->HasItemCount(manaGemId, 1))
-                    {
-                        itemId = manaGemId;
-                        break;
-                    }
-                }
+                    return 8008;
             }
 
-            return itemId;
+            return 0;
         }
     };
 

@@ -304,6 +304,14 @@ void MageBuffStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "often",
         NextAction::array(0, new NextAction("apply oil", ACTION_NORMAL), NULL)));
+
+    // Mana-gem supply: the "no mana gem" trigger never pushes live (zero
+    // pushes in full bot logs), so re-stock on the always-evaluating
+    // "often" pulse instead. The action's own possession gate keeps it
+    // quiet while any rank is held, and all specs inherit this base.
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("conjure mana gem", ACTION_NORMAL), NULL)));
 }
 
 void MageBuffPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -7326,6 +7326,53 @@ shared-builder compile via `build-commit.sh` (BUILD OK); live in-game
 check pending: long fight, gem consumed above 15%, evocation still the
 last resort.
 
+## Mage OOM recovery: gem supply, real-first use, 0-power triggers — 2026-10-13
+
+Donor: mod-playerbots (`5397110`):
+`src/Ai/Class/Mage/Strategy/GenericMageNonCombatStrategy.cpp` (no-mana-gem
+→ conjure row), `src/Ai/Class/Mage/MageActions.cpp:31-65` (gem ranks gated
+on in-combat + has-item). Donor `HasManaValue` and low/medium triggers
+(`src/Ai/Base/Value/StatsValues.cpp:121`,
+`src/Ai/Base/Trigger/GenericTriggers.cpp:25-35`) gate on current power.
+
+Source files (module, modified):
+`ai/playerbot/strategy/mage/MageStrategy.cpp`
+(`MageBuffStrategy::InitNonCombatTriggers`: `often` → `conjure mana gem`
+upkeep row), `ai/playerbot/strategy/mage/MageActions.h`
+(`CastConjureManaGemAction`: possession gate added, item-cheat gates
+removed; `UseManaGemAction::GetItemId`: real bags first, virtual id only
+as fallback),
+`ai/playerbot/strategy/triggers/GenericTriggers.cpp` (`NoManaTrigger`,
+`LowManaTrigger`, `MediumManaTrigger`, `HighManaTrigger` and
+`WandBlocksCastTrigger::NoManaRowActive` use a mana-pool check instead
+of current power), `docs/classes/mage.md` (doc lines).
+
+Copied / ported / reimplemented: reimplemented. Deviations from the
+donor, all deliberate: (a) upkeep runs on the always-evaluating `often`
+pulse in the active buff strategy — the `no mana gem` trigger never
+pushes live (zero pushes in full bot logs), so a row hung off it never
+evaluates; (b) mana-pool check instead of current power so recovery rows
+fire at exactly 0 (the shared `has mana` value is false at 0 and locked
+evocation/gem/potion/wand out when most needed); rage/energy classes have
+no mana pool and stay out; (c) conjure/use paths ignore the item cheat —
+hires on pool-classified accounts (e.g. TBAGENT/907) otherwise never
+restock real gems and fire virtual uses that fail at cast time; (d) real
+gems preferred over the virtual id for the same reason.
+
+Reason: Patchwerk raid test 2026-10-13 (10 fire mages): mana gem 0/151,
+combustion 0/519, evocation 0 attempts, mages wanding at 1-3% mana.
+Live diagnosis: gem supply dead (no conjures in any hire log), 0-power
+lockout, virtual-first use.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`;
+shared-builder compile + deploy via `build-commit.sh` (BUILD OK, live);
+live: fresh hire conjures Mana Ruby OOC (push → PREREQ → OK → CAST_OK,
+possession gate silent after), `low mana` trigger fires in combat.
+Not verified live: evocation completing a channel in combat (never
+reached <15% stationary post-fix); combustion cast-failure mechanism
+still open (lands solo; raid-only fails unexplained — movement, GCD,
+cooldown and aura-conflict theories disproven against core + DBC).
+
 ## Dual-wield MH->OH cascade (AG-2, 2026-10-09)
 
 Donor: mod-playerbots (`79bd4281`):
