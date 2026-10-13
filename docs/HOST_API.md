@@ -207,9 +207,9 @@ tick's `WORLDHOOK_ON_UPDATE`), and the world thread only for GM sessions and
 `LANG_ADDON`. Since issue #833 `BotChatAdapter` and `BotAddonAdapter` therefore
 only queue an in-game player's command (requester guid, transport, a copy of the
 text — no `Player`, session or handler pointer; `commands/BotCommandQueue.h`),
-and `BotHostAdapter::OnUpdate` drains the queue first thing every tick — also
-while `AiPlayerbot.Enabled = 0`, before the hook's early return — so it runs
-before `BotManager` updates the bots: the command runs on the world thread at most one tick later, with a fresh
+and `BotHostAdapter::OnUpdate` drains the queue every tick — right after the
+lease expiry, also while `AiPlayerbot.Enabled = 0`, before the hook's early
+return — so it runs before `BotManager` updates the bots: the command runs on the world thread at most one tick later, with a fresh
 `ChatHandler` (chat) or the TBM addon reply sink (addon); a requester who logged
 out meanwhile is dropped. Every in-game transport, GM and addon included, uses
 the one FIFO, so commands run, and reply, in the order the module received them.
@@ -218,6 +218,17 @@ the AsyncPackets thread and addon / GM chat in the world session update, so an
 addon click can overtake a `/p .bot` typed just before it. Commands without an
 in-game player (the server console, remote access, `pending_commands` rows)
 already run on the world thread and stay inline.
+
+Commands and the deferred bot chat and packets (§10) are separate queues, so
+since issue #846 every item in them carries one shared sequence number
+(`NextWorldQueueSequence`, `runtime/WorldThreadQueue.h`), stamped under the
+queue's lock at enqueue. Before each command the drain runs the bot chat and
+packets queued ahead of it, and after the commands the rest, merged by that
+number: `/p stay` then `/p .bot action follow` in one tick end in follow, as
+typed, and each bot's packets keep their arrival order. Items queued behind a
+command that arrives during the drain wait for it (next tick). The order is the
+order the module queued them; packets a hook hands to an AI inline on the world
+thread (§10) are not queued and run when they arrive.
 
 Inside that pass (`BotManager::UpdateBots`) bots under a real player are
 updated first and without a budget, then the random pool follows as one
@@ -283,9 +294,13 @@ Threading (issue #839, #844): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread t
 calls `WorldSession::SendPacket` and `SERVERHOOK_CAN_PACKET_RECEIVE` on the thread
 that processes the packet (`WorldSession::ProcessPackets`): the world thread, a
 map thread, the AsyncPackets thread (party / raid / guild / whisper chat, name
-and item queries) or `ChannelBroadcaster::ThreadProc` (channel chat). The last
-two overlap the world-thread bot update, and the world thread is also where a
-bot's AI is deleted (logout, removal: `PlayerbotAIAdapter::Shutdown`). The AI
+and item queries) or `ChannelBroadcaster::ThreadProc` (channel chat). The
+AsyncPackets thread overlaps the world-thread bot update. `ChannelBroadcaster`
+only sends between `EnableSendingMessages()` and `DisableSendingMessages()`
+inside `MapManager::Update`, alongside the map threads (`Maps/MapManager.cpp`),
+so it does not overlap `WORLDHOOK_ON_UPDATE` and the bot update; it is still
+not the world thread, so channel chat is deferred like the rest. The world thread is
+also where a bot's AI is deleted (logout, removal: `PlayerbotAIAdapter::Shutdown`). The AI
 storage lock covers only the lookup, not the AI's lifetime, and holding it
 across `PacketHandlingHelper::AddPacket` would invert the lock order against
 `PacketHandlingHelper::Handle`. So off the world thread no hook keeps a
@@ -301,11 +316,17 @@ the same table the AI registers its handlers from).
 
 | Entry | Threads | What it does now |
 | --- | --- | --- |
-| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped |
+| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped. Not copied (issue #846, `runtime/BotChatGate.h`): any line for a bot whose `AllowActivity()` is false (activity throttling only), and Trade-channel lines that do not name a masterless, unhired, non-recording pool bot (#469) — the gates the AI applies first, published by each AI's update on change |
 | `CanPacketSend`, headless session, other handled opcodes (invites, loot, quest updates, cast results, spell failure / delay, knockback, ...) | any; the spell / knockback cases come from the bot's map thread or the world thread | world thread: `HandleBotOutgoingPacket` at once. Otherwise: the bot guid from `PlayerbotAIStorage::GetBotGuid` (pointer comparison, no `Player` dereference), a copy into the per-bot packet FIFO, `HandleBotOutgoingPacket` in the drain; over 256 per bot per tick are dropped. A map-thread packet is handled before any further map update, so the AI sees the same game state |
 | `CanPacketSend`, network master session | any | bot guids from `BotManager::GetBotGuidsForMasterAnyThread` (a master -> bot view published under a lock at the end of every `OnWorldUpdate`, at most one tick stale); world thread: `HandleMasterOutgoingPacket` at once; otherwise one shared copy queued for every bot, handed over in the drain |
 | `CanPacketReceive` / `DispatchMasterIncoming` | world, map or AsyncPackets | same view and the same world-thread-inline / queue-elsewhere split, `HandleMasterIncomingPacket` |
 | `CanPacketReceive` / `MaybeSendMimicSummary` (`CMSG_USE_ITEM`) | the master's map thread (`PACKET_PROCESS_MAP`) | same view; reads AI strategy flags and whispers directly: the world thread waits in `MapManager::Update` while map threads run, so no AI is updated or deleted meanwhile |
+
+Both caps drop silently in play; since issue #846 the end-of-tick drain logs
+the drops at `TortoiseBots.LogLevel = 3` (debug), at most once per bot
+per minute, with the count since the bot's last line. General, LFG and World
+channel lines still reach masterless pool bots: they reply there, so their cost
+on the world thread is O(pool bots in the channel x lines).
 
 `BotManager::GetBotsForMaster` (records + `Player*`) is world-thread only.
 

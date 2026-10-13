@@ -1,8 +1,13 @@
 // Issue #833: players' `.bot` / TBM commands are queued off the chat threads
 // and drained on the world thread. Exercises the queue policy standalone.
+// Issue #846 adds the cross-queue order with the deferred bot chat / packet
+// queue (runtime/WorldThreadQueue.h): the drain runs, before each command,
+// everything queued for bots ahead of it (run it under -fsanitize=thread).
 #include "../commands/BotCommandQueue.h"
 
+#include <atomic>
 #include <cassert>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -166,6 +171,154 @@ int main()
         executed += queue.Drain(find, run, none);
         assert(executed == static_cast<size_t>(kThreads * kPerThread));
         assert(seen.size() == static_cast<size_t>(kThreads * kPerThread));
+    }
+
+    // Issue #846: `/p stay` (chat to the bot, deferred chat queue) then
+    // `/p .bot action follow` (command queue) in one tick run in that order,
+    // as BotChatAdapter::DrainQueuedCommands drives it: before each command,
+    // the bot items queued ahead of it; after the commands, the rest.
+    {
+        BotCommandQueue commands;
+        WorldThreadQueue<std::string> chat(64);
+        FakePlayer master{ 1 };
+        chat.Enqueue(100, "stay");                                   // party chat to bot 100
+        commands.Enqueue(1, BotCommandReply::Chat, "action follow"); // `.bot` typed after it
+        chat.Enqueue(100, "attack");                                 // typed after the command
+        std::vector<std::string> ran;
+        auto runChat = [&](uint64_t limit)
+        {
+            for (auto& entry : chat.TakeBefore(limit))
+                ran.push_back("chat:" + entry.item);
+        };
+        commands.Drain(
+            [&](uint64_t guid) -> FakePlayer* { return guid == 1 ? &master : nullptr; },
+            [&](FakePlayer*, PendingBotCommand const& c)
+            {
+                runChat(c.seq);
+                ran.push_back("command:" + c.args);
+            },
+            [&](FakePlayer*, DroppedBotCommands const&) { assert(false); });
+        runChat(commands.DeferredRunLimit());
+        assert((ran == std::vector<std::string>{ "chat:stay", "command:action follow", "chat:attack" }));
+        assert(chat.PendingCount() == 0);
+    }
+
+    // Same order when the command's requester logged out: its command is
+    // dropped, the chat still runs (at the final drain), in order.
+    {
+        BotCommandQueue commands;
+        WorldThreadQueue<std::string> chat(64);
+        chat.Enqueue(100, "a");
+        commands.Enqueue(1, BotCommandReply::Chat, "gone");
+        chat.Enqueue(100, "b");
+        std::vector<std::string> ran;
+        commands.Drain([&](uint64_t) -> FakePlayer* { return nullptr; },
+            [&](FakePlayer*, PendingBotCommand const&) { assert(false); },
+            [&](FakePlayer*, DroppedBotCommands const&) { assert(false); });
+        for (auto& entry : chat.TakeBefore(commands.DeferredRunLimit()))
+            ran.push_back(entry.item);
+        assert((ran == std::vector<std::string>{ "a", "b" }));
+    }
+
+    // A command that arrives during the drain holds back the bot items queued
+    // after it: they run after it, next tick, not ahead of it at the end of
+    // this one. Items queued before it still run this tick.
+    {
+        BotCommandQueue commands;
+        WorldThreadQueue<std::string> chat(64);
+        FakePlayer master{ 1 };
+        commands.Enqueue(1, BotCommandReply::Chat, "first");
+        std::vector<std::string> ran;
+        auto find = [&](uint64_t) -> FakePlayer* { return &master; };
+        auto none = [&](FakePlayer*, DroppedBotCommands const&) { assert(false); };
+        auto runChat = [&](uint64_t limit)
+        {
+            for (auto& entry : chat.TakeBefore(limit))
+                ran.push_back("chat:" + entry.item);
+        };
+        auto runCommand = [&](FakePlayer*, PendingBotCommand const& c)
+        {
+            runChat(c.seq);
+            ran.push_back("command:" + c.args);
+            if (c.args == "first")
+            {
+                // Another thread, meanwhile: chat, a command, more chat.
+                chat.Enqueue(100, "before");
+                commands.Enqueue(1, BotCommandReply::Chat, "second");
+                chat.Enqueue(100, "after");
+            }
+        };
+        commands.Drain(find, runCommand, none);
+        runChat(commands.DeferredRunLimit());
+        assert((ran == std::vector<std::string>{ "command:first", "chat:before" }));
+        commands.Drain(find, runCommand, none);
+        runChat(commands.DeferredRunLimit());
+        assert((ran == std::vector<std::string>{ "command:first", "chat:before", "command:second", "chat:after" }));
+    }
+
+    // Producer threads (one per master, like AsyncPackets / map threads)
+    // alternate bot chat and `.bot` commands while the world thread drains as
+    // above: each producer's items run in exactly the order it queued them,
+    // across both queues.
+    {
+        constexpr int kThreads = 4;
+        constexpr int kPerThread = 1500;
+        BotCommandQueue commands;
+        WorldThreadQueue<int> chat(1000000);
+        std::atomic<int> done{ 0 };
+        std::vector<std::thread> producers;
+        for (int t = 0; t < kThreads; ++t)
+        {
+            producers.emplace_back([&, t]
+            {
+                uint64_t const master = 1 + static_cast<uint64_t>(t);
+                for (int i = 0; i < kPerThread; ++i)
+                {
+                    if (i % 3 == 1)
+                    {
+                        while (!commands.Enqueue(master, BotCommandReply::Chat, std::to_string(i)))
+                            std::this_thread::yield();
+                    }
+                    else
+                        chat.Enqueue(master, i);
+                }
+                ++done;
+            });
+        }
+        std::map<uint64_t, int> next;
+        size_t total = 0;
+        auto see = [&](uint64_t master, int i)
+        {
+            assert(next[master] == i);
+            next[master] = i + 1;
+            ++total;
+        };
+        auto runChat = [&](uint64_t limit)
+        {
+            for (auto& entry : chat.TakeBefore(limit))
+                see(entry.key, entry.item);
+        };
+        auto drain = [&]
+        {
+            commands.Drain([](uint64_t guid) -> uint64_t { return guid; },
+                [&](uint64_t master, PendingBotCommand const& c)
+                {
+                    runChat(c.seq);
+                    see(master, std::stoi(c.args));
+                },
+                // A producer over the cap retries the same command, so a
+                // drop report changes nothing here.
+                [](uint64_t, DroppedBotCommands const&) {});
+            runChat(commands.DeferredRunLimit());
+        };
+        while (done.load() < kThreads)
+            drain();
+        for (std::thread& producer : producers)
+            producer.join();
+        drain();
+        assert(total == static_cast<size_t>(kThreads * kPerThread));
+        for (int t = 0; t < kThreads; ++t)
+            assert(next[1 + static_cast<uint64_t>(t)] == kPerThread);
     }
 
     // Shutdown forgets anything still queued.
