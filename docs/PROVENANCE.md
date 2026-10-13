@@ -9582,3 +9582,11 @@ on the test VM (see the PR); build pending; in-game pending.
 - Reason: the AV objective lookups find no location on a fresh server, so those picks have nowhere to go. Owner approved shipping the data on 2026-10-13 (`docs/LICENSE_AUDIT.md`, the same row as the fishing data).
 - Checks: 17 rows, all map 30; x -1402.2 to 674.0, y -441.6 to -32.4, z 15.1 to 114.2, orientation within plus or minus pi; no zero or sentinel coordinates; the names are exactly the 17 that `BattleGroundTacticsAV.cpp` reads (literal and table entries).
 - Validation: `tools/verify_all.sh` and `git diff --check` on the test VM (see the PR). The SQL was not run against a MySQL server. Not run live; in-game pending.
+
+## Hunter Viper enter threshold: fixed 20 % mana (owner decision) — 2026-10-13
+
+- Feature: `ShouldSwitchToViper` (`runtime/HunterViperPolicy.h`) and `AspectOfTheViperLowManaTrigger` switch to Aspect of the Viper below 20 % mana (`HUNTER_VIPER_ENTER_MANA_PCT`) instead of below `AiPlayerbot.LowMana / 2` (about 7 % with the default 15). `AiPlayerbot.LowMana` no longer affects the Viper. The 60 % exit (`HUNTER_VIPER_EXIT_MANA_PCT`), the hysteresis and the toggle `AiPlayerbot.HunterViperOnLowMana` (default off) are unchanged.
+- Source: deviation from mod-playerbots `79bd428` (`HunterAspectOfTheViperTrigger`, threshold `LowMana / 2`); the 60 % exit still follows the donor. Owner decision, 2026-10-13.
+- Copied / ported / reimplemented: no donor code. A named constant replaces the donor's threshold function and the `lowManaConfig` input. Files: `runtime/HunterViperPolicy.h`, `ai/playerbot/strategy/hunter/HunterTriggers.cpp`, `tools/test_hunter_viper_policy.cpp`, the comment in `ai/playerbot/aiplayerbot.conf.dist.in`, `docs/classes/hunter.md`, `docs/guides/configuration-tuning.md`. No config key added, so the code default and the template are unchanged.
+- Reason: owner decision: the Viper should come on at 20 % mana, not at about 7 %.
+- Validation: `tools/test_hunter_viper_policy.cpp` and `tools/verify_all.sh` on the test VM, tbsyntax of the changed `.cpp` files, and `git diff --check` (see the PR). Not built in the Docker core; not run live; in-game pending.

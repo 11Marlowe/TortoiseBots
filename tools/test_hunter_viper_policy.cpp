@@ -27,24 +27,16 @@ int main()
 {
     std::cout << "Starting TortoiseBots hunter-viper tests...\n";
 
-    CHECK(HunterViperEnterManaPct(15) == 7);
-    CHECK(HunterViperEnterManaPct(40) == 20);
-    CHECK(HunterViperEnterManaPct(0) == 0);
+    CHECK(HUNTER_VIPER_ENTER_MANA_PCT == 20);
     CHECK(HUNTER_VIPER_EXIT_MANA_PCT == 60);
 
-    // Enter: strictly below LowMana / 2.
-    CHECK(ShouldSwitchToViper(base(6)));
-    CHECK(!ShouldSwitchToViper(base(7)));
-    CHECK(!ShouldSwitchToViper(base(50)));
+    // Enter: strictly below 20 %.
     CHECK(ShouldSwitchToViper(base(0)));
-    {
-        HunterViperInputs in = base(19);
-        in.lowManaConfig = 40; // custom LowMana: threshold 20
-        CHECK(ShouldSwitchToViper(in));
-        in.manaPct = 20;
-        CHECK(!ShouldSwitchToViper(in));
-    }
-    std::cout << "  [PASS] enter below LowMana / 2\n";
+    CHECK(ShouldSwitchToViper(base(7)));
+    CHECK(ShouldSwitchToViper(base(19)));
+    CHECK(!ShouldSwitchToViper(base(20)));
+    CHECK(!ShouldSwitchToViper(base(50)));
+    std::cout << "  [PASS] enter below 20 %\n";
 
     // Already in Viper: nothing to cast.
     CHECK(!ShouldSwitchToViper(base(3, true)));
@@ -59,8 +51,8 @@ int main()
     CHECK(!ViperHoldsCombatAspect(base(3, false)));
     std::cout << "  [PASS] hold the Viper until 60 %\n";
 
-    // Hysteresis: between 7 % and 60 % neither rule flips the aspect.
-    for (uint8_t m = 7; m < 60; ++m)
+    // Hysteresis: between 20 % and 60 % neither rule flips the aspect.
+    for (uint8_t m = 20; m < 60; ++m)
     {
         CHECK(!ShouldSwitchToViper(base(m, false)));
         CHECK(ViperHoldsCombatAspect(base(m, true)));
