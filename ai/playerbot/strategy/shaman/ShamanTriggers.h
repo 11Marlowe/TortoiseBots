@@ -5,6 +5,7 @@
 #include "ShamanEarthShockPolicy.h"
 #include "ShamanRecallPolicy.h"
 #include "ShamanTotemGroupPolicy.h"
+#include "ShamanTotemCommandPolicy.h"
 
 namespace ai
 {
@@ -110,6 +111,14 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins for the fire slot too; auto/unset
+                // keeps today's spec-row behaviour (searing/magma/etc.).
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(1));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 return !AI_VALUE2(bool, "has totem", "searing totem") &&
                        !AI_VALUE2(bool, "has totem", "magma totem") &&
                        !AI_VALUE2(bool, "has totem", "frost resistance totem") &&
@@ -221,6 +230,15 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins over the subgroup pick: an
+                // explicit totem (or none) stored for this slot decides.
+                // "auto"/unset falls through to the census pick below.
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(0));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 // No manual earth order: Strength of Earth only for a
                 // subgroup that swings it (warriors/rogues/feral/melee).
                 // Caster/healer groups keep the slot empty instead of
@@ -276,6 +294,14 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins: explicit totem (or none) for the
+                // air slot decides; auto/unset falls to the census pick.
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(3));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 // No manual air order: pick by subgroup (totems only reach
                 // our own party). Melee -> windfury; casters/healers ->
                 // tranquil air (Turtle 25908) or grace of air. The trigger
@@ -335,6 +361,14 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins: explicit totem (or none) for the
+                // water slot decides; auto/unset falls to the census pick.
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(2));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 // No manual water order: mana users in the subgroup -> mana
                 // spring, else healing stream. Shared "water totem" trigger
                 // across both rows: the wanted totem's own aura quiets the

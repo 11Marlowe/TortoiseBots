@@ -1,0 +1,98 @@
+#include "../ai/playerbot/strategy/shaman/ShamanTotemCommandPolicy.h"
+
+#include <cstdio>
+#include <cstdlib>
+
+#define CHECK(x) do { \
+    if (!(x)) { \
+        std::fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #x); \
+        std::exit(1); \
+    } \
+} while (0)
+
+using ai::NormalizeTotemOrder;
+using ai::OrderedTotemForSlot;
+using ai::ParseTotemDropMode;
+using ai::TotemAutoRowsFire;
+using ai::TotemDropMode;
+using ai::TotemDropModeName;
+using ai::TotemDropWantsSlot;
+using ai::TotemModeKey;
+using ai::TotemOrderKey;
+using ai::TotemSlotIndex;
+using ai::TotemSlotName;
+
+int main()
+{
+    // Slots resolve by name, case handled by the caller (lowered).
+    CHECK(TotemSlotIndex("earth") == 0);
+    CHECK(TotemSlotIndex("fire") == 1);
+    CHECK(TotemSlotIndex("water") == 2);
+    CHECK(TotemSlotIndex("air") == 3);
+    CHECK(TotemSlotIndex("mana") == -1);
+    CHECK(std::string(TotemSlotName(0)) == "earth");
+    CHECK(std::string(TotemSlotName(3)) == "air");
+    CHECK(std::string(TotemSlotName(9)) == "");
+    std::puts("  [PASS] slot names resolve, unknown rejected");
+
+    // Order keys are stable per-bot manual values.
+    CHECK(std::string(TotemOrderKey(0)) == std::string("totem order earth"));
+    CHECK(std::string(TotemOrderKey(3)) == std::string("totem order air"));
+    CHECK(std::string(TotemModeKey()) == std::string("totem drop mode"));
+    std::puts("  [PASS] order keys stable");
+
+    // Modes parse; unknown falls back to auto (caller ERRs first, this never
+    // silently invents a mode).
+    CHECK(ParseTotemDropMode("auto") == TotemDropMode::Auto);
+    CHECK(ParseTotemDropMode("prepull") == TotemDropMode::Prepull);
+    CHECK(ParseTotemDropMode("pre-pull") == TotemDropMode::Prepull);
+    CHECK(ParseTotemDropMode("manual") == TotemDropMode::Manual);
+    CHECK(ParseTotemDropMode("whenever") == TotemDropMode::Auto);
+    CHECK(std::string(TotemDropModeName(TotemDropMode::Prepull)) == "prepull");
+    CHECK(std::string(TotemDropModeName(TotemDropMode::Manual)) == "manual");
+    CHECK(std::string(TotemDropModeName(TotemDropMode::Auto)) == "auto");
+    std::puts("  [PASS] drop modes parse, names round-trip");
+
+    // Orders normalize: auto/none pass, canonical totems pass for their
+    // slot only, anything else is rejected.
+    bool valid = false;
+    CHECK(NormalizeTotemOrder(3, "auto", valid) == "auto" && valid);
+    CHECK(NormalizeTotemOrder(3, "none", valid) == "" && valid);
+    CHECK(NormalizeTotemOrder(3, "windfury totem", valid) == "windfury totem" && valid);
+    CHECK(NormalizeTotemOrder(3, "tranquil air totem", valid) == "tranquil air totem" && valid);
+    CHECK(NormalizeTotemOrder(2, "mana spring totem", valid) == "mana spring totem" && valid);
+    CHECK(NormalizeTotemOrder(0, "strength of earth totem", valid) == "strength of earth totem" && valid);
+    CHECK(NormalizeTotemOrder(1, "searing totem", valid) == "searing totem" && valid);
+    // Cross-slot totem rejected: windfury is not a water totem.
+    NormalizeTotemOrder(2, "windfury totem", valid);
+    CHECK(!valid);
+    // Unknown word rejected.
+    NormalizeTotemOrder(3, "wrath of air totem", valid);
+    CHECK(!valid);
+    std::puts("  [PASS] orders validate per slot, cross-slot and unknown rejected");
+
+    // Explicit orders win; auto/none fall back to the subgroup pick.
+    CHECK(OrderedTotemForSlot("windfury totem") == "windfury totem");
+    CHECK(OrderedTotemForSlot("auto") == "");
+    CHECK(OrderedTotemForSlot("") == "");
+    std::puts("  [PASS] explicit orders win, auto falls back");
+
+    // Auto rows: auto always fires; prepull OOC-imminent + combat; manual never.
+    CHECK(TotemAutoRowsFire(TotemDropMode::Auto, false, false));
+    CHECK(TotemAutoRowsFire(TotemDropMode::Auto, true, false));
+    CHECK(TotemAutoRowsFire(TotemDropMode::Prepull, false, true));
+    CHECK(TotemAutoRowsFire(TotemDropMode::Prepull, true, false));
+    CHECK(!TotemAutoRowsFire(TotemDropMode::Prepull, false, false));
+    CHECK(!TotemAutoRowsFire(TotemDropMode::Manual, true, true));
+    CHECK(!TotemAutoRowsFire(TotemDropMode::Manual, false, false));
+    std::puts("  [PASS] auto rows fire per mode");
+
+    // Drop queues free slots with a wanted totem, skips occupied/none.
+    CHECK(TotemDropWantsSlot(false, "mana spring totem"));
+    CHECK(!TotemDropWantsSlot(true, "mana spring totem"));
+    CHECK(!TotemDropWantsSlot(false, ""));
+    std::puts("  [PASS] drop queues free slots only");
+
+    std::puts("All totem command policy checks PASSED!");
+    return 0;
+}
