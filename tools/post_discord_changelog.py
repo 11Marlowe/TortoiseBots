@@ -102,7 +102,7 @@ def main():
             notes_text = f.read().strip()
 
     if args.short:
-        embed_title = f"🐢 {args.title}"
+        embed_title = f"{args.title}"
         if args.tag and args.tag not in args.title and args.tag.lstrip("v") not in args.title:
             embed_title += f" • {args.tag}"
 
@@ -120,7 +120,7 @@ def main():
             desc_parts.append(preview)
             desc_parts.append("")
 
-        desc_parts.append(f"📦 **[Download Release & View Changelog on GitHub]({release_url})**")
+        desc_parts.append(f"**[Download Release & View Changelog on GitHub]({release_url})**")
         embed_desc = "\n".join(desc_parts)
 
         embed = {
