@@ -183,6 +183,23 @@ int AiFactory::GetPlayerSpecTab(const Player* bot)
     }
 }
 
+int AiFactory::GetKitSpecTab(const Player* player, PlayerbotAI* const facade)
+{
+    int const tab = GetPlayerSpecTab(player);
+    uint8 const role = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+    if (!role || (role & BOT_ROLE_TANK))
+        return tab;
+
+    // `.bot role <bot> dps` on a protection warrior kept "protection",
+    // "tank assist" and "pull" from his talent tab, and he taunted the group
+    // tank's target off him. Only the Feral druid read the forced role.
+    if (player->GetClass() == CLASS_WARRIOR && tab == 2)
+        return 0; // arms
+    if (player->GetClass() == CLASS_PALADIN && tab == 1)
+        return (role & BOT_ROLE_HEALER) ? 0 : 2; // holy or retribution
+    return tab;
+}
+
 std::map<uint32, int32> AiFactory::GetPlayerSpecTabs(const Player* bot)
 {
     std::map<uint32, int32> tabs;
@@ -465,7 +482,7 @@ bool AiFactory::KeepsPartyThreatBackoff(Player* player, PlayerbotAI* const facad
 
 void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* combatEngine)
 {
-    int tab = GetPlayerSpecTab(player);
+    int tab = GetKitSpecTab(player, facade);
 
     // Raid/dungeon transition engine: the "dungeon" strategy owns the
     // enter/leave <raid> triggers that swap in MC/Ony/BWL/Naxx tactics.
@@ -977,7 +994,7 @@ std::string AiFactory::StripOpenWorldNonCombatStrategies(std::string const& stra
 
 void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* nonCombatEngine)
 {
-    const int tab = GetPlayerSpecTab(player);
+    const int tab = GetKitSpecTab(player, facade);
     switch (player->GetClass())
     {
         case CLASS_PRIEST:
@@ -1470,7 +1487,7 @@ void AiFactory::AddDefaultDeadStrategies(Player* player, PlayerbotAI* const faca
         deadEngine->removeStrategy("follow");
     }
 
-    const int tab = GetPlayerSpecTab(player);
+    const int tab = GetKitSpecTab(player, facade);
     switch (player->GetClass())
     {
         case CLASS_SHAMAN:
@@ -1672,7 +1689,7 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
 {
     reactionEngine->addStrategies("react", "chat", "avoid aoe", "potions", NULL);
 
-    const int tab = GetPlayerSpecTab(player);
+    const int tab = GetKitSpecTab(player, facade);
     switch (player->GetClass())
     {
         case CLASS_SHAMAN:
