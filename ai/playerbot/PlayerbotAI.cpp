@@ -54,6 +54,7 @@
 #include "Movement/spline/MoveSpline.h"
 #include "Maps/InstanceData.h"
 #include <bitset>
+#include <iterator>
 #include <initializer_list>
 #include "ChatHelper.h"
 #include "strategy/values/BudgetValues.h"
@@ -337,22 +338,23 @@ PacketHandlerSpec const kMasterOutgoingPacketHandlers[] =
 // Built once, read-only afterwards: a constant-time test on packet threads.
 using OpcodeSet = std::bitset<0x10000>;
 
-template <size_t N>
-OpcodeSet BuildOpcodeSet(PacketHandlerSpec const (&specs)[N], std::initializer_list<uint16> extra = {})
+// Plain pointer + count, no array-reference templates and no defaulted
+// initializer_list: MSVC 19.44 rejected the template form of these helpers
+// (issue #918) while GCC accepted it.
+OpcodeSet BuildOpcodeSet(PacketHandlerSpec const* specs, size_t count, std::initializer_list<uint16> extra)
 {
     OpcodeSet set;
-    for (PacketHandlerSpec const& spec : specs)
-        set.set(spec.opcode);
+    for (size_t i = 0; i < count; ++i)
+        set.set(specs[i].opcode);
     for (uint16 opcode : extra)
         set.set(opcode);
     return set;
 }
 
-template <size_t N>
-void RegisterPacketHandlers(PacketHandlingHelper& helper, PacketHandlerSpec const (&specs)[N])
+void RegisterPacketHandlers(PacketHandlingHelper& helper, PacketHandlerSpec const* specs, size_t count)
 {
-    for (PacketHandlerSpec const& spec : specs)
-        helper.AddHandler(spec.opcode, spec.handler, spec.delay);
+    for (size_t i = 0; i < count; ++i)
+        helper.AddHandler(specs[i].opcode, specs[i].handler, specs[i].delay);
 }
 } // namespace
 
@@ -360,20 +362,20 @@ bool PlayerbotAI::HandlesBotOutgoingOpcode(uint16 opcode)
 {
     // HandleBotOutgoingPacket also reads these directly, outside the
     // PacketHandlingHelper queue.
-    static OpcodeSet const set = BuildOpcodeSet(kBotOutgoingPacketHandlers,
+    static OpcodeSet const set = BuildOpcodeSet(kBotOutgoingPacketHandlers, std::size(kBotOutgoingPacketHandlers),
         { SMSG_SPELL_FAILURE, SMSG_SPELL_DELAYED, SMSG_MESSAGECHAT, SMSG_MOVE_KNOCK_BACK });
     return set.test(opcode);
 }
 
 bool PlayerbotAI::HandlesMasterIncomingOpcode(uint16 opcode)
 {
-    static OpcodeSet const set = BuildOpcodeSet(kMasterIncomingPacketHandlers);
+    static OpcodeSet const set = BuildOpcodeSet(kMasterIncomingPacketHandlers, std::size(kMasterIncomingPacketHandlers), {});
     return set.test(opcode);
 }
 
 bool PlayerbotAI::HandlesMasterOutgoingOpcode(uint16 opcode)
 {
-    static OpcodeSet const set = BuildOpcodeSet(kMasterOutgoingPacketHandlers);
+    static OpcodeSet const set = BuildOpcodeSet(kMasterOutgoingPacketHandlers, std::size(kMasterOutgoingPacketHandlers), {});
     return set.test(opcode);
 }
 
@@ -426,9 +428,9 @@ PlayerbotAI::PlayerbotAI(Player* bot) :
     currentEngine = engines[(uint8)BotState::BOT_STATE_NON_COMBAT];
     currentState = BotState::BOT_STATE_NON_COMBAT;
 
-    RegisterPacketHandlers(masterIncomingPacketHandlers, kMasterIncomingPacketHandlers);
-    RegisterPacketHandlers(botOutgoingPacketHandlers, kBotOutgoingPacketHandlers);
-    RegisterPacketHandlers(masterOutgoingPacketHandlers, kMasterOutgoingPacketHandlers);
+    RegisterPacketHandlers(masterIncomingPacketHandlers, kMasterIncomingPacketHandlers, std::size(kMasterIncomingPacketHandlers));
+    RegisterPacketHandlers(botOutgoingPacketHandlers, kBotOutgoingPacketHandlers, std::size(kBotOutgoingPacketHandlers));
+    RegisterPacketHandlers(masterOutgoingPacketHandlers, kMasterOutgoingPacketHandlers, std::size(kMasterOutgoingPacketHandlers));
 
     if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0)
     {
