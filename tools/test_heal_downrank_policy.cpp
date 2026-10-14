@@ -67,10 +67,18 @@ int main()
     CHECK(PickHealRank({{1, 479, 10}, {2, 480, 20}}, State(600, 90)) == 2);
     // Flat floor: missing 50 -> need = max(40, 100) = 100, rank 1 covers.
     CHECK(PickHealRank(ranks, State(50, 98)) == 2060);
+    // Target gate (live spell_template rows, 2026-10-14): plain friend (21)
+    // and jump-less chain id (Healing Wave 25357: 45/0) downrank; real
+    // jumps (Chain Heal 10623: 45/3) and totem summons (Mana Tide 16190:
+    // 42/0) stay top rank.
+    CHECK(HealTargetAllowsDownrank(21, 0));
+    CHECK(HealTargetAllowsDownrank(45, 0));
+    CHECK(!HealTargetAllowsDownrank(45, 3));
+    CHECK(!HealTargetAllowsDownrank(42, 0));
+    CHECK(!HealTargetAllowsDownrank(6, 0));
     // Cheapest-first violation is a caller bug; document order: ascending
     // mana picks the cheapest cover, so the ladder must stay sorted.
     CHECK(PickHealRank(ranks, State(600, 90)) != 25314);
-
     std::printf("heal downrank policy: %d checks passed\n", checks);
     return 0;
 }

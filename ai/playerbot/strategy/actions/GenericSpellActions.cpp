@@ -822,14 +822,12 @@ uint32 HealPartyMemberAction::DownrankSpellId(Unit* target)
         else
             hybrid = true;
     }
-    // Chain-target jumps disqualify: the rank also prices the jumps, not
-    // just the first heal (Chain Heal). Plain Healing Wave rows carry the
-    // chain target id with zero jumps, so they still qualify.
+    // Jump-less single-target lines only (HealTargetAllowsDownrank): Turtle's
+    // Healing Wave rows carry the chain-heal target id with zero jumps, so
+    // they qualify; Chain Heal really jumps and stays top rank.
     if (!directHeal || hybrid || topInfo->IsChanneledSpell() ||
         topInfo->RecoveryTime != 0 || topInfo->CategoryRecoveryTime != 0 ||
-        (topInfo->EffectImplicitTargetA[0] != TARGET_UNIT_FRIEND &&
-         topInfo->EffectImplicitTargetA[0] != TARGET_UNIT_FRIEND_CHAIN_HEAL) ||
-        topInfo->EffectChainTarget[0] != 0)
+        !HealTargetAllowsDownrank(topInfo->EffectImplicitTargetA[0], topInfo->EffectChainTarget[0]))
         return 0;
     std::string name = GetSpellName();
     strToLower(name);
