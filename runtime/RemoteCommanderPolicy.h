@@ -1161,19 +1161,34 @@ inline char const* MoveVerdictCode(MoveVerdict verdict)
 // bridge (a ramp the mesh lacks), the way a player walks it
 // ---------------------------------------------------------------------------
 
-// A direct step is a short hop: every bot must be within this horizontal
+// A direct step is a short hop: the lead bot must be within this horizontal
 // distance and this height difference of the point, and the point needs a floor
 // at most kDirectGroundTolerance below its z (and at most kDirectGroundSlack
 // above it: a floor higher than the point would put the bot inside it). The bots
 // walk to that floor, not to the point's z. There is no navmesh on the line, so
-// each bot must also see the point (line of sight from kDirectLosHeight above
-// the bot to kDirectLosHeight above the floor there): no step cuts through a
-// wall. The limits keep a step from crossing half a dungeon.
+// the lead bot must also see the point (line of sight from kDirectLosHeight above
+// it to kDirectLosHeight above the floor there): no step cuts through a wall.
+// The limits keep a step from crossing half a dungeon.
 constexpr float kDirectMaxDistance = 25.0f;
 constexpr float kDirectMaxVertical = 8.0f;
 constexpr float kDirectGroundTolerance = 3.0f;
 constexpr float kDirectGroundSlack = 0.5f;
 constexpr float kDirectLosHeight = 2.0f;
+// The others take the lead bot's line: each walks to the lead bot's spot first,
+// then on to the point. A follower with a complete navmesh path of at most
+// kDirectMaxGatherPath yards to the spot walks that path (the floor under it is
+// known); only one without such a path that stands within kDirectNearLead yards
+// (and kDirectNearLeadVertical up or down: on the lead bot's floor, not under a
+// ledge) of the lead bot and sees it walks straight to the spot (the lead bot
+// stands in the navmesh hole after an earlier step). A follower below a ledge or
+// behind a corner thus never walks its own straight line through it (Uldaman's
+// scorpid pit: the followers stood on the pit floor, a 2.5 yd ledge below the
+// ramp, and saw the point over it). Its AI sleeps for the walk, at most
+// kDirectMaxSleepMs, so a bot attacked on the way still reacts.
+constexpr float kDirectNearLead = 5.0f;
+constexpr float kDirectNearLeadVertical = 1.0f;
+constexpr uint32_t kDirectMaxSleepMs = 4000;
+constexpr float kDirectMaxGatherPath = 40.0f;
 
 struct MoveOrder
 {
@@ -1234,10 +1249,33 @@ inline DirectVerdict CheckDirectGround(float groundZ, float pointZ)
     return DirectVerdict::Ok;
 }
 
-// One bot's line of sight to the point (Map::isInLineOfSight, both ends raised).
+// The lead bot's line of sight to the point (Map::isInLineOfSight, both ends raised).
 inline DirectVerdict CheckDirectLos(bool inLineOfSight)
 {
     return inLineOfSight ? DirectVerdict::Ok : DirectVerdict::NoLos;
+}
+
+// How a follower reaches the lead bot's spot before it takes the lead bot's line.
+enum class DirectJoin : uint8_t
+{
+    Path,     // its complete navmesh path to the lead bot's spot (preferred)
+    Straight, // no such path, but on the lead bot's floor nearby and in its sight: a straight walk to its spot
+    None,     // neither: the step is refused (too-far) and nobody moves
+};
+
+// horizontal / vertical: the follower's distance to the lead bot; seesLead: line
+// of sight between them (both raised kDirectLosHeight); pathComplete: a complete
+// navmesh path to the lead bot's spot (PATHFIND_NORMAL, ending at the spot), and
+// pathLength its length in yards.
+inline DirectJoin ChooseDirectJoin(float horizontal, float vertical, bool seesLead, bool pathComplete,
+    float pathLength)
+{
+    if (pathComplete && std::isfinite(pathLength) && pathLength >= 0.0f && pathLength <= kDirectMaxGatherPath)
+        return DirectJoin::Path;
+    if (seesLead && std::isfinite(horizontal) && std::isfinite(vertical) && horizontal <= kDirectNearLead &&
+        std::fabs(vertical) <= kDirectNearLeadVertical)
+        return DirectJoin::Straight;
+    return DirectJoin::None;
 }
 
 inline char const* DirectVerdictCode(DirectVerdict verdict)
