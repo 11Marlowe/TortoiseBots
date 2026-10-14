@@ -364,7 +364,10 @@ bool CastSpellAction::isPossible()
     SpellCastResult result = SPELL_CAST_OK;
     if (!ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true, false, false, &result))
     {
-        botdiag::BotActionLog::Write(ai, "CAST_REFUSED", "spell=%s result=%u", spellName.c_str(), (uint32)result);
+        // NOT_READY (GCD / cast in flight) is every tick's normal answer
+        // between casts; logging it would bury the real refusals.
+        if (result != SPELL_FAILED_NOT_READY)
+            botdiag::BotActionLog::Write(ai, "CAST_REFUSED", "spell=%s result=%u", spellName.c_str(), (uint32)result);
         return false;
     }
     return true;
