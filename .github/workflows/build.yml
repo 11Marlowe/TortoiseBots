@@ -2,6 +2,7 @@ name: Build
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, dev]
     paths-ignore:
       - 'docs/**'
@@ -51,6 +52,7 @@ env:
 
 jobs:
   linux:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
@@ -100,6 +102,7 @@ jobs:
         run: cmake --build build -j"$(nproc)"
 
   windows:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: windows-2022
     timeout-minutes: 120
     env:
