@@ -1,0 +1,124 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [main, dev]
+    paths-ignore: ['docs/**', '**/*.md', 'VERSION']
+  push:
+    branches: [main, dev]
+    paths-ignore: ['docs/**', '**/*.md', 'VERSION']
+  workflow_dispatch:
+    inputs:
+      core_ref:
+        description: 'tortoise-wow/tortoise-wow branch, tag or commit'
+        default: 'main'
+      module_ref:
+        description: 'TortoiseBots ref to build (empty = the selected branch)'
+        default: ''
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CORE_REPO: tortoise-wow/tortoise-wow
+  CORE_REF: ${{ inputs.core_ref || 'main' }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout core
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CORE_REPO }}
+          ref: ${{ env.CORE_REF }}
+          path: core
+
+      - name: Checkout module
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.module_ref || github.sha }}
+          path: core/modules/TortoiseBots
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build ccache lld pkg-config \
+            libace-dev default-libmysqlclient-dev libssl-dev \
+            zlib1g-dev libbz2-dev libboost-dev
+
+      - name: ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-${{ env.CORE_REF }}
+          max-size: 2G
+
+      - name: Configure
+        working-directory: core
+        run: |
+          sed -i 's/-march=native/-march=x86-64-v2/g' CMakeLists.txt || true
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DUSE_EXTRACTORS=OFF \
+            -DALLOW_TURTLE_ADDONS=ON \
+            -DMODULES=static -DMODULE_TORTOISEBOTS=static \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
+            -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
+
+      - name: Build
+        working-directory: core
+        run: cmake --build build -j"$(nproc)"
+
+  windows:
+    runs-on: windows-2022
+    timeout-minutes: 120
+    env:
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\vcpkg-cache
+    steps:
+      - name: Checkout core
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.CORE_REPO }}
+          ref: ${{ env.CORE_REF }}
+          path: core
+
+      - name: Checkout module
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.module_ref || github.sha }}
+          path: core/modules/TortoiseBots
+
+      - name: Cache vcpkg packages (ACE)
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}\vcpkg-cache
+          key: vcpkg-ace-x64-windows-v1
+
+      - name: Install ACE via vcpkg
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install ace:x64-windows
+          "ACE_ROOT=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Configure
+        working-directory: core
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+            -DUSE_EXTRACTORS=OFF `
+            -DALLOW_TURTLE_ADDONS=ON `
+            -DMODULES=static -DMODULE_TORTOISEBOTS=static `
+            -DACE_ROOT="$env:ACE_ROOT"
+
+      - name: Build
+        working-directory: core
+        run: cmake --build build --config Release -- /m

@@ -18,10 +18,16 @@ var AcceptedAnomalyTypes = map[string]bool{
 	"BOT_DEATH":          true,
 }
 
-// BotSnapshot represents an active bot's live state in the world.
+// BotSnapshot represents one live row of the world roster: an active bot
+// or (Player == true) a real online player. Players carry the same
+// list/map/detail fields that make sense for them (name, level, class, zone,
+// position, group) and leave bot-only detail empty; GroupID is the core
+// group id (0 = ungrouped).
 type BotSnapshot struct {
 	Name     string  `json:"name"`
 	GUID     uint32  `json:"guid"`
+	Player   bool    `json:"player,omitempty"`
+	GroupID  uint32  `json:"group,omitempty"`
 	Class    string  `json:"class"`
 	Role     string  `json:"role"`
 	Level    uint32  `json:"level"`

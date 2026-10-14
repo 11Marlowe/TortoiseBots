@@ -35,19 +35,15 @@ namespace ai
                 if (!totemOwner)
                     continue;
 
-                if (totemOwner == bot) return true; // Found our own totem in range
-
-                const Group* botGroup = bot->GetGroup();
-                if (!botGroup) continue;
-
-                if (const Player* totemPlayerOwner = totemOwner->IsPlayer() ? dynamic_cast<Player*>(totemOwner) : nullptr)
-                {
-                    // Totem from a player in our group found, and we are either not in a raid or in the same raid subgroup
-                    if (totemPlayerOwner->GetGroup() == botGroup)
-                    {
-                        if (!botGroup->isRaidGroup() || botGroup->SameSubGroup(totemPlayerOwner, bot)) return true;
-                    }
-                }
+                // Owner-scoped: only OUR totem quiets our own slot. Totems
+                // only buff the caster's own party, so another subgroup's
+                // totem must never read as "slot full" for us (live raid
+                // 2026-10-14: 6 of 7 ordered shamans never dropped after
+                // `drop` because a mate's same-slot totem counted).
+                // Same-subgroup cover (not re-dropping a mate's live totem
+                // that already covers us) stays in the slot triggers, which
+                // keep their group-aware aura scan.
+                if (totemOwner == bot) return true;
             }
 
             return false;

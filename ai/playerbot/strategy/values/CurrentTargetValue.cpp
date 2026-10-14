@@ -11,7 +11,13 @@ Unit* CurrentTargetValue::Get()
         return NULL;
 
     Unit* unit = sObjectAccessor.GetUnit(*bot, selection);
-    if (unit && !bot->IsWithinDistInMap(unit, sPlayerbotAIConfig.sightDistance))
+    // An explicit attack order carries the walk to the target: keep it as the current
+    // target out to the order range so the reach chain can close the distance. Every
+    // other target keeps the background sight-distance ceiling.
+    float maxDistance = sPlayerbotAIConfig.sightDistance;
+    if (unit && ai->GetAiObjectContext()->GetValue<ObjectGuid>("explicit attack target")->Get() == unit->getObjectGuid())
+        maxDistance = sPlayerbotAIConfig.reactDistance;
+    if (unit && !bot->IsWithinDistInMap(unit, maxDistance))
         return NULL;
 
     // Distance was the only test here, so a target kept once was kept for good -

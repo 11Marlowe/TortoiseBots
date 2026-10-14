@@ -1,8 +1,9 @@
-
 #include "playerbot/playerbot.h"
 #include "QuestAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireQuestPolicy.h"
 
 using namespace ai;
 
@@ -11,6 +12,14 @@ bool QuestAction::Execute(Event& event)
     ObjectGuid guid = event.getObject();
 
     Player* master = GetMaster();
+
+    // A hired companion never works a quest menu on its own: the hire
+    // follows its master instead of questing. Explicit player orders
+    // (whispered commands, quest-share popups, travel-board hand-ins) carry
+    // an event owner and still run; owned alts are untouched (not hires).
+    bool const isHire = TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+    if (!TortoiseBots::HireMayTalkToQuestGiver(isHire, event.GetOwner() != nullptr))
+        return false;
 
     if (!guid)
     {
@@ -158,6 +167,13 @@ bool QuestAction::ProcessQuests(WorldObject* questGiver)
     for (uint32 blocked : challengeQuestNpcs)
         if (questGiver->GetEntry() == blocked)
             return false;
+
+    // A hired companion never talks to a <Mercenary Hire> recruiter, even on
+    // an explicit order (play-test 2026-10-13: fresh hires walked up to the
+    // recruiter). Pool bots and owned alts are untouched.
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::IsHireQuestRecruiterEntry(questGiver->GetEntry()))
+        return false;
 
     ObjectGuid guid = questGiver->getObjectGuid();
 

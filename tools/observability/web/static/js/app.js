@@ -73,6 +73,7 @@
     showTrails: true,
     // Bots tab
     botsPresence: 'all',
+    botsKind: 'all',
     botsView: 'live',
     botsState: 'all',
     botsClass: 'all',
@@ -512,6 +513,7 @@
     // Bots
     botSearch: document.getElementById('bot-search'),
     presenceSeg: document.getElementById('bots-presence'),
+    kindSeg: document.getElementById('bots-kind'),
     viewSeg: document.getElementById('bots-view'),
     stateChips: document.getElementById('state-chips'),
     classChips: document.getElementById('class-chips'),
@@ -544,6 +546,7 @@
     profileTabs: document.getElementById('profile-tabs'),
     armoryMapBtn: document.getElementById('armory-map-btn'),
     armoryOnline: document.getElementById('armory-online'),
+    armoryKind: document.getElementById('armory-kind'),
     armoryName: document.getElementById('armory-name'),
     armorySubtitle: document.getElementById('armory-subtitle'),
     armorySpecInfo: document.getElementById('armory-spec-info'),
@@ -750,6 +753,7 @@
     commanders: { hash: 'commanders', title: 'Commanders' },
     progress: { hash: 'progress', title: 'Progress' },
     activity: { hash: 'activity', title: 'Activity' },
+    auctions: { hash: 'auctions', title: 'Auction House' },
     issues: { hash: 'issues', title: 'Issues' },
     server: { hash: 'server', title: 'Server' }
   };
@@ -834,6 +838,7 @@
     else if (tab === 'roster') renderBotsTab();
     else if (tab === 'progress') renderProgress();
     else if (tab === 'activity') renderActivityTab();
+    else if (tab === 'auctions') renderAuctions();
     else if (tab === 'issues') { renderIssues(); renderAnomalies(); }
     else if (tab === 'server') renderServerPanel();
   }
@@ -849,6 +854,7 @@
     renderTab(tab);
     if (tab === 'roster' && Date.now() - state.rosterAt > 15000) fetchRoster();
     if (tab === 'activity') fetchFeed();
+    if (tab === 'auctions') fetchAuctions();
     if (tab === 'issues') fetchAnomalyTotals();
     if (tab === 'commanders') { fetchCommanders(); showCommanderFrame(); }
   }
@@ -939,7 +945,7 @@
         .slice(0, 8);
       active = 0;
       box.innerHTML = items.length
-        ? items.map(r => `<div class="qf-row" role="option" data-guid="${esc(r.guid)}"><span class="qf-name" style="color: ${classColor(r.cls)};">${esc(r.name)}</span><span class="qf-meta">L${esc(r.level)} ${esc(capClass(r.cls))} · ${r.online ? 'online' : 'offline'}</span></div>`).join('')
+        ? items.map(r => `<div class="qf-row" role="option" data-guid="${esc(r.guid)}"><span class="qf-name" style="color: ${classColor(r.cls)};">${esc(r.name)}</span><span class="qf-meta">L${esc(r.level)} ${esc(capClass(r.cls))}${r.live && r.live.player ? ' · player' : ''} · ${r.online ? 'online' : 'offline'}</span></div>`).join('')
         : '<div class="qf-empty">No bot matches.</div>';
       box.hidden = false;
       paint();
@@ -1298,7 +1304,7 @@
     const off = state.bots.filter(b => b.map !== 0 && b.map !== 1);
     if (el.worldOffmap) {
       el.worldOffmap.textContent = off.length
-        ? `${off.length} bot${off.length === 1 ? '' : 's'} in instances or other maps (see the Bots list).`
+        ? `${off.length} in instances or other maps (see the Bots list).`
         : '';
     }
     renderMapLegend(bots);
@@ -1985,7 +1991,14 @@
 
   function makeBotDot(b, issue, pctX, pctY) {
     const dot = document.createElement('div');
-    dot.className = 'bot-dot';
+    dot.className = 'bot-dot' + (b.player ? ' player-dot' : '');
+    if (b.player) {
+      dot.title = `${b.name} (player, L${b.level})`;
+      // Ring in the class colour: the CSS hollows the centre, the border
+      // colour has to be set here (currentColor is the text colour).
+      dot.style.borderColor = classColor(b.class);
+      dot.style.backgroundColor = 'transparent';
+    }
     if (issue) dot.classList.add(issue.severity === 'persistent' ? 'issue-persistent' : 'issue-watch');
     if (b.guid === state.profileGuid) dot.classList.add('selected');
     // A corpse must not read as a live bot: the fill stays the class colour,
@@ -1994,7 +2007,7 @@
     dot.dataset.guid = b.guid;
     dot.style.left = `${pctX}%`;
     dot.style.top = `${pctY}%`;
-    dot.style.backgroundColor = classColor(b.class);
+    if (!b.player) dot.style.backgroundColor = classColor(b.class);
     const deg = (b.o || 0) * (180 / Math.PI);
     dot.style.transform = `translate(-50%, -50%) rotate(${-deg}deg)`;
     return dot;
@@ -2021,8 +2034,10 @@
       ? `<br><span style="color: var(--accent-red);">Issue:</span> ${esc(ISSUE_LABELS[issue.type] || issue.type)} (${esc(fmtDuration(issue.duration_sec))})`
       : '';
     el.mapTooltip.innerHTML = `
-      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})<br>
-      <span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>
+      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${b.player ? ' <span class="badge badge-success">player</span>' : ''}<br>
+      ${b.player
+        ? `<span style="color: var(--text-muted);">Group:</span> ${b.group ? `#${esc(b.group)}` : 'solo'}<br>`
+        : `<span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>`}
       <span style="color: var(--text-muted);">Status:</span> ${esc(b.state || 'idle')}<br>
       ${b.killer ? `<span style="color: var(--text-muted);">Killed by:</span> ${esc(b.killer)}${b.killer_level ? ` (${b.killer_level})` : ''}<br>` : ''}
       <span style="color: var(--text-muted);">Zone:</span> ${esc(getZoneName(b.zone, b.map))}<br>
@@ -2124,7 +2139,7 @@
     if (!el.mapLegend) return;
     const present = [...new Set(zoneBots.map(b => b.class))].sort();
     if (present.length === 0) {
-      el.mapLegend.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">No bots in this zone</span>';
+      el.mapLegend.innerHTML = '<span style="color: var(--text-muted); font-size: 0.75rem;">Nobody in this zone</span>';
       return;
     }
     el.mapLegend.innerHTML = present.map(cls =>
@@ -2206,7 +2221,8 @@
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
         const pvp = pvpBadge(r.live);
-        return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${pvp ? ` ${pvp}` : ''}${badge}`;
+        const kind = r.live && r.live.player ? ' <span class="badge badge-success" title="Real player, not a bot">player</span>' : '';
+        return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
     },
     class: {
@@ -2378,12 +2394,14 @@
   function renderRoster() {
     if (!el.rosterTable) return;
     paintSeg(el.presenceSeg, state.botsPresence);
+    paintSeg(el.kindSeg, state.botsKind);
     paintSeg(el.viewSeg, state.botsView);
 
     const rows = botRows();
     const issues = issueSet();
     const query = (el.botSearch ? el.botSearch.value : '').toLowerCase().trim();
     const presenceOk = r => state.botsPresence === 'all' || (state.botsPresence === 'online') === r.online;
+    const kindOk = r => state.botsKind === 'all' || (state.botsKind === 'player') === !!(r.live && r.live.player);
     const words = query.split(/\s+/).filter(Boolean);
     const fields = words.map(queryField);
     const text = words.filter((w, i) => !fields[i]);
@@ -2395,7 +2413,7 @@
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
     const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
 
-    const base = rows.filter(r => presenceOk(r) && queryOk(r));
+    const base = rows.filter(r => presenceOk(r) && kindOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
     const list = base.filter(r => stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
 
@@ -2412,9 +2430,12 @@
     });
 
     const online = rows.filter(r => r.online).length;
-    if (el.rosterCount) el.rosterCount.textContent = `${list.length === rows.length ? rows.length : `${list.length} of ${rows.length}`} bots`;
+    const players = rows.filter(r => r.live && r.live.player).length;
+    const noun = state.botsKind === 'player' ? 'players' : (players ? 'bots + players' : 'bots');
+    if (el.rosterCount) el.rosterCount.textContent = `${list.length === rows.length ? rows.length : `${list.length} of ${rows.length}`} ${noun}`;
     if (el.rosterNote) {
       el.rosterNote.textContent = `${online} online · ${rows.length - online} offline` +
+        (players ? ` · ${players} player${players === 1 ? '' : 's'} live` : '') +
         (state.rosterError ? ' · offline bots unavailable (database list failed)' : '');
     }
 
@@ -2425,7 +2446,7 @@
     }).join('') + '</tr>';
 
     if (!list.length) {
-      el.rosterTable.innerHTML = `<tr><td colspan="${cols.length}" class="table-empty">${rows.length ? 'No bots match these filters.' : 'Waiting for bots…'}</td></tr>`;
+      el.rosterTable.innerHTML = `<tr><td colspan="${cols.length}" class="table-empty">${rows.length ? 'Nobody matches these filters.' : 'Waiting for bots…'}</td></tr>`;
       return;
     }
     const ctx = { issues };
@@ -2459,12 +2480,143 @@
       });
   }
 
+  // ---- Auction house (read-only) ---------------------------------------------
+  // One page per request; the database filters, sorts and pages, so a big
+  // market never ships to the browser. Loaded on tab activation, by its
+  // Refresh button and when a filter changes — never on the 2 s snapshot.
+  // Default order is most time left: the core persists no listing time and
+  // reuses auction ids after a restart, while bots always list for one fixed
+  // duration (24 h on this core).
+  const AH_COLS = [
+    { key: 'name', label: 'Item' },
+    { key: 'level', label: 'Req. lvl' },
+    { key: 'seller', label: 'Seller' },
+    { key: 'bid', label: 'Bid', title: 'Current bid, or the starting bid when nobody has bid yet' },
+    { key: 'buyout', label: 'Buyout' },
+    { key: 'expire', label: 'Time left', title: 'Bots always list for the same duration, so the most time left is the newest listing' }
+  ];
+  const ah = { filter: { q: '', quality: '', min_level: '', max_level: '', seller: '', kind: '', house: '' }, sort: 'expire', desc: true, page: 0, data: null, error: null, seq: 0 };
+
+  function ahTimeLeft(expireAt) {
+    const sec = expireAt - Math.floor(Date.now() / 1000);
+    if (sec <= 0) return 'expiring';
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }
+
+  function fetchAuctions() {
+    const q = new URLSearchParams();
+    Object.entries(ah.filter).forEach(([k, v]) => { if (v !== '') q.set(k, v); });
+    q.set('sort', ah.sort);
+    q.set('dir', ah.desc ? 'desc' : 'asc');
+    q.set('page', ah.page);
+    const seq = ++ah.seq; // a slower older answer must not overwrite a newer one
+    fetch(`/api/v1/auctions?${q}`)
+      .then(jsonOrThrow)
+      .then(data => { if (seq === ah.seq) { ah.data = data; ah.error = null; } })
+      .catch(err => { if (seq === ah.seq) ah.error = err.message || 'request failed'; })
+      .finally(() => { if (seq === ah.seq && state.activeTab === 'auctions') renderAuctions(); });
+  }
+
+  function renderAuctions() {
+    const body = document.getElementById('ah-body');
+    const head = document.getElementById('ah-head');
+    if (!body || !head) return;
+
+    head.innerHTML = '<tr>' + AH_COLS.map(c => {
+      const active = c.key === ah.sort;
+      return `<th class="sortable${active ? ' sort-active' : ''}" tabindex="0" data-sort="${c.key}"${c.title ? ` title="${esc(c.title)}"` : ''}>${esc(c.label)}${active ? (ah.desc ? ' ▼' : ' ▲') : ''}</th>`;
+    }).join('') + '</tr>';
+
+    if (ah.error) {
+      body.innerHTML = `<tr><td colspan="${AH_COLS.length}" class="table-empty">Could not load the auction house: ${esc(ah.error)}</td></tr>`;
+      return;
+    }
+    const d = ah.data;
+    if (!d) return;
+
+    const s = d.summary || {};
+    const byQ = s.by_quality || {};
+    const qualityTiles = [2, 3, 4, 5].filter(q => byQ[q]).map(q =>
+      `<div class="kpi"><div class="kpi-label">${esc(qualityName(q))}</div><div class="kpi-value quality-text-${q}">${byQ[q]}</div><div class="kpi-sub">listings</div></div>`).join('');
+    document.getElementById('ah-summary').innerHTML =
+      `<div class="kpi"><div class="kpi-label">Auctions</div><div class="kpi-value">${s.total || 0}</div><div class="kpi-sub">${s.with_bid || 0} with a bid</div></div>` +
+      qualityTiles +
+      `<div class="kpi"><div class="kpi-label">Buyout value</div><div class="kpi-value" style="font-size: 1.1em;">${formatMoney(s.buyout_value || 0)}</div><div class="kpi-sub">all listings</div></div>`;
+
+    const houses = Object.keys(s.by_house || {});
+    const houseSeg = document.getElementById('ah-house');
+    houseSeg.style.display = houses.length < 2 && !ah.filter.house ? 'none' : '';
+
+    document.getElementById('ah-count').textContent = d.matched === s.total ? `${d.matched} auctions` : `${d.matched} of ${s.total} auctions`;
+    const pages = Math.max(1, Math.ceil(d.matched / d.page_size));
+    document.getElementById('ah-page').textContent = `Page ${d.page + 1} of ${pages}`;
+    document.getElementById('ah-prev').disabled = d.page <= 0;
+    document.getElementById('ah-next').disabled = d.page + 1 >= pages;
+
+    if (!d.rows.length) {
+      body.innerHTML = `<tr><td colspan="${AH_COLS.length}" class="table-empty">${s.total ? 'No auctions match these filters.' : 'The auction house is empty.'}</td></tr>`;
+      return;
+    }
+    body.innerHTML = d.rows.map(r => {
+      const iconUrl = getItemIconUrl(r.icon);
+      const icon = iconUrl ? `<img src="${iconUrl}" style="width: 20px; height: 20px; border-radius: 3px; vertical-align: middle; margin-right: 6px;" onerror="this.style.display='none';">` : '';
+      const count = r.count > 1 ? ` <span class="cell-muted">×${esc(r.count)}</span>` : '';
+      let seller;
+      if (r.seller_kind === 'bot') seller = `${botLink(r.seller_guid, r.seller_name, classNameById(r.seller_class))} <span class="badge badge-info">bot</span>`;
+      else if (r.seller_kind === 'market') seller = '<span class="cell-muted">AH market</span>';
+      else seller = `${esc(r.seller_name || '?')} <span class="badge badge-success">player</span>`;
+      const bid = r.bid > 0 ? formatMoney(r.bid) : `<span class="cell-muted">${formatMoney(r.start_bid)}</span>`;
+      return `<tr><td title="Item level ${esc(r.item_level)} · #${esc(r.item_template)}">${icon}<span class="quality-text-${esc(r.quality)}">${esc(r.name)}</span>${count}</td>` +
+        `<td class="mono">${r.required_level || '–'}</td><td>${seller}</td><td class="mono">${bid}</td>` +
+        `<td class="mono">${r.buyout ? formatMoney(r.buyout) : '–'}</td><td class="mono">${esc(ahTimeLeft(r.expire_at))}</td></tr>`;
+    }).join('');
+  }
+
+  function initAuctions() {
+    const refetch = () => { ah.page = 0; fetchAuctions(); };
+    let typingTimer = null;
+    const bindInput = (id, key, debounce) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.addEventListener(debounce ? 'input' : 'change', () => {
+        ah.filter[key] = node.value.trim();
+        clearTimeout(typingTimer);
+        if (debounce) typingTimer = setTimeout(refetch, 300); else refetch();
+      });
+    };
+    bindInput('ah-search', 'q', true);
+    bindInput('ah-seller', 'seller', true);
+    bindInput('ah-quality', 'quality', false);
+    bindInput('ah-min-level', 'min_level', true);
+    bindInput('ah-max-level', 'max_level', true);
+    bindSeg(document.getElementById('ah-kind'), v => { ah.filter.kind = v; refetch(); });
+    bindSeg(document.getElementById('ah-house'), v => { ah.filter.house = v; refetch(); });
+    document.getElementById('ah-refresh').addEventListener('click', fetchAuctions);
+    document.getElementById('ah-prev').addEventListener('click', () => { if (ah.page > 0) { ah.page--; fetchAuctions(); } });
+    document.getElementById('ah-next').addEventListener('click', () => { ah.page++; fetchAuctions(); });
+
+    const head = document.getElementById('ah-head');
+    const sortBy = (th) => {
+      const key = th.dataset.sort;
+      if (ah.sort === key) ah.desc = !ah.desc;
+      else { ah.sort = key; ah.desc = key !== 'name' && key !== 'seller' && key !== 'expire'; }
+      refetch();
+    };
+    head.addEventListener('click', e => { const th = e.target.closest('th.sortable'); if (th) sortBy(th); });
+    head.addEventListener('keydown', e => {
+      const th = e.target.closest('th.sortable');
+      if (th && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); sortBy(th); }
+    });
+  }
+
   function initBots() {
     const saved = (() => { try { return localStorage.getItem(BOTS_VIEW_STORAGE_KEY); } catch (e) { return null; } })();
     if (saved && BOT_VIEWS[saved]) state.botsView = saved;
 
     if (el.botSearch) el.botSearch.addEventListener('input', renderRoster);
     bindSeg(el.presenceSeg, v => { state.botsPresence = v; renderRoster(); });
+    bindSeg(el.kindSeg, v => { state.botsKind = v; renderRoster(); });
     bindSeg(el.viewSeg, v => {
       state.botsView = v;
       try { localStorage.setItem(BOTS_VIEW_STORAGE_KEY, v); } catch (e) {}
@@ -3010,6 +3162,13 @@
   }
 
   function fetchProfile(guid) {
+    const live = liveBot(guid);
+    if (live && live.player) {
+      state.profile = null;
+      renderProfileHeader();
+      renderProfileOverview();
+      return;
+    }
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
       .then(async r => {
         if (r.status === 401) throw new Error('HTTP 401');
@@ -3107,6 +3266,7 @@
     const live = liveBot(guid);
     const clsName = s ? classNameById(s.class) : (live ? capClass(live.class) : '');
     const online = !!live || !!(s && s.online);
+    const isPlayer = !!(live && live.player);
 
     if (el.armoryName) {
       el.armoryName.textContent = s ? s.name : (live ? live.name : '…');
@@ -3123,6 +3283,11 @@
     if (el.armoryOnline) {
       el.armoryOnline.textContent = online ? 'Online' : 'Offline';
       el.armoryOnline.className = `badge ${online ? 'badge-success' : 'badge-warn'}`;
+    }
+    if (el.armoryKind) {
+      el.armoryKind.textContent = isPlayer ? 'Player' : 'Bot';
+      el.armoryKind.className = `badge ${isPlayer ? 'badge-success' : 'badge-info'}`;
+      el.armoryKind.style.display = live ? '' : 'none';
     }
     if (el.armoryMapBtn) el.armoryMapBtn.style.display = live ? '' : 'none';
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
@@ -3162,13 +3327,14 @@
         <div class="kv-card">
           <div class="section-label">Right now</div>
           ${kv('Status', stateTag(live.state))}
+          ${live.player ? kv('Group', live.group ? `<span class="mono">Group #${esc(live.group)}</span>` : '<span class="cell-muted">solo</span>') : ''}
           ${kv('Target', live.target ? `<strong class="target-cell">${esc(displayTarget(live))}</strong>${live.target_level ? ` <span class="cell-muted">L${esc(live.target_level)}</span>` : ''}` : DASH)}
           ${live.travel_purpose ? kv('Travel', `<strong>${esc(live.travel_purpose)}</strong><span class="cell-muted"> → ${esc(live.travel_to || '')}</span>`) : ''}
-          ${kv('Last action', kvMono(live.last_action))}
-          ${kv('Trigger', kvMono(live.last_trigger))}
-          ${kv('Strategy', kvMono(live.strategy || 'default'))}
+          ${live.player ? '' : kv('Last action', kvMono(live.last_action))}
+          ${live.player ? '' : kv('Trigger', kvMono(live.last_trigger))}
+          ${live.player ? '' : kv('Strategy', kvMono(live.strategy || 'default'))}
           ${live.pvp ? kv('PvP', pvpBadge(live)) : ''}
-          ${kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
+          ${live.player ? '' : kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
         </div>
         <div class="kv-card">
           <div class="section-label">Where &amp; how it is going</div>
@@ -3245,7 +3411,12 @@
     if (tab === 'overview') { renderProfileOverview(); return; }
     if (!p) {
       const host = document.getElementById(`armory-content-${tab}`);
-      if (host && tab !== 'gear') host.innerHTML = '<div class="empty-hint">Loading…</div>';
+      const live = liveBot(state.profileGuid);
+      if (host && tab !== 'gear') {
+        host.innerHTML = (live && live.player)
+          ? '<div class="empty-hint">Players have no database profile — live status is on the Overview tab.</div>'
+          : '<div class="empty-hint">Loading…</div>';
+      }
       return;
     }
     // Gear & stats render together with the profile (renderArmory).
@@ -4745,6 +4916,7 @@
   initZoneSelector();
   initQuickFind();
   initBots();
+  initAuctions();
   initActivity();
   initProfile();
   initIssues();

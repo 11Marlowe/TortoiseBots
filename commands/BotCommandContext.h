@@ -68,8 +68,19 @@ Player* ResolveInterruptExecutor(BotCommandContext const& context, Unit* target,
 // another executor when they lack the mature CC capability. Capability comes
 // from the mature action graph; the optional output identifies the selected
 // action for an immediate attempt.
+enum class CcDenyReason
+{
+    None,
+    NoSpellKnown,
+    OutdoorsOnly,
+    WrongCreatureType,
+    Transient,
+};
+std::string CcDenyText(CcDenyReason reason, std::string const& spell, std::string const& targetName);
 Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::string const& mark,
     std::string* outAction = nullptr);
+Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::string const& mark,
+    std::string* outAction, CcDenyReason* outDeny, std::string* outDenySpell);
 
 // Execute a mature action while suppressing only its transient chat output.
 // The pre-existing non-combat `silent` strategy is restored exactly on scope

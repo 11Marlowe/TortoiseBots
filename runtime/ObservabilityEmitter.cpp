@@ -37,6 +37,7 @@
 #include "MotionMaster.h"
 #include "Battlegrounds/BattleGround.h"
 #include "Battlegrounds/BattleGroundMgr.h"
+#include "Group/Group.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -134,7 +135,7 @@ bool IsActivityEvent(std::string const& event)
         "QuestRewarded", "AcceptQuestAction", "AcceptQuestShareAction",
         "TalkToQuestGiverAction", "QuestUpdateCompleteAction", "QuestCompleted", "QuestDropped",
         // loot & money
-        "StoreLootAction", "GatherLoot", "LootMoney",
+        "StoreLootAction", "GatherLoot", "LootMoney", "RollWon",
         // vendor / trainer / repair / auction
         "SellAction", "BuyAction", "RepairAllAction", "TrainerAction", "NearbyService",
         "AhAction", "AhBidAction",
@@ -154,6 +155,7 @@ bool IsItemEvent(std::string const& event)
 {
     static std::set<std::string> const itemEvents = {
         "StoreLootAction", "GatherLoot", "SellAction", "BuyAction", "AhAction", "AhBidAction",
+        "RollWon",
     };
     return itemEvents.count(event) != 0;
 }
@@ -364,6 +366,86 @@ void FillTravelInfo(PlayerbotAI* ai, std::string& purpose, std::string& to, std:
     uint8 const st = static_cast<uint8>(target->GetStatus());
     status = st < 7 ? statusNames[st] : "unknown";
     dist = static_cast<int32>(target->Distance(ai->GetBot()));
+}
+
+// Online real players, collected from the world's network sessions at
+// snapshot cadence (every 2 s, not per tick): headless bot sessions never
+// enter the network map, so this is the same population the heartbeat's
+// human count reports and a bot can never be double-counted as a player.
+// Only member reads (session, position, group); no DB, no world scans.
+void CollectOnlinePlayers(std::vector<Player*>& out)
+{
+    for (auto const& pair : sWorld.GetAllSessions())
+    {
+        WorldSession* sess = pair.second;
+        if (!sess || !sess->HasNetworkTransport())
+            continue;
+        Player* player = sess->GetPlayer();
+        if (!player || !player->IsInWorld())
+            continue;
+        out.push_back(player);
+    }
+}
+
+// Live-unit fields both roster kinds carry: health, resources, map position,
+// selection, group and battleground state. Bots add AI detail on top.
+void FillLiveUnitSnapshot(Player* unit, BotTelemetrySnapshot& snap)
+{
+    snap.name = unit->GetName();
+    snap.guid = unit->GetGUIDLow();
+    snap.className = GetBotClassName(unit->GetClass());
+    snap.level = unit->GetLevel();
+    snap.xp = unit->GetUInt32Value(PLAYER_XP);
+    snap.nextXp = unit->GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
+    // A dead unit reports GetHealth() == 1 in the core, which made corpse
+    // bars read "1 HP" on the dashboard. Report the corpse as 0 HP.
+    snap.hp = unit->IsAlive() ? unit->GetHealth() : 0;
+    snap.maxHp = unit->GetMaxHealth();
+    snap.power = unit->GetPower(unit->GetPowerType());
+    snap.maxPower = unit->GetMaxPower(unit->GetPowerType());
+    // Core stores rage x10 (0-1000); every other resource is already in
+    // display units. Normalize here so all consumers agree.
+    if (unit->GetPowerType() == POWER_RAGE)
+    {
+        snap.power /= 10;
+        snap.maxPower /= 10;
+    }
+    snap.powerType = GetPowerTypeName(unit->GetPowerType());
+    snap.mapId = unit->GetMapId();
+    snap.zoneId = unit->GetCachedZoneId();
+    snap.x = unit->GetPositionX();
+    snap.y = unit->GetPositionY();
+    snap.z = unit->GetPositionZ();
+    snap.o = unit->GetOrientation();
+    Unit* target = unit->GetSelectedUnit();
+    snap.target = target ? target->GetName() : "";
+    snap.targetLevel = 0;
+    // Any unit target (creature or player, e.g. a follow master) carries
+    // a level; only self-selection (the no-hostile-target case) is 0.
+    if (target && target != unit)
+        snap.targetLevel = static_cast<uint32>(target->GetLevel());
+    Group* group = unit->GetGroup();
+    snap.groupId = group ? group->GetId() : 0;
+    if (unit->InBattleGround())
+    {
+        snap.pvp = "bg";
+        if (BattleGround* bg = unit->GetBattleGround())
+            if (bg->GetName())
+                snap.pvpWhere = bg->GetName();
+    }
+    else if (unit->InBattleGroundQueue())
+    {
+        snap.pvp = "queue";
+        for (uint32 i = 0; i < PLAYER_MAX_BATTLEGROUND_QUEUES; ++i)
+        {
+            BattleGroundQueueTypeId queueType = unit->GetBattleGroundQueueTypeId(i);
+            if (queueType == BATTLEGROUND_QUEUE_NONE)
+                continue;
+            BattleGround* bgTemplate = sBattleGroundMgr.GetBattleGroundTemplate(BattleGroundMgr::BGTemplateId(queueType));
+            if (bgTemplate && bgTemplate->GetName())
+                snap.pvpWhere += (snap.pvpWhere.empty() ? "" : ", ") + std::string(bgTemplate->GetName());
+        }
+    }
 }
 
 } // anonymous namespace
@@ -1158,40 +1240,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         uint8 state = trackIt != m_botTracking.end() ? trackIt->second.stateIndex : BaseMacroState(bot, ai);
 
         BotTelemetrySnapshot snap;
-        snap.name = bot->GetName();
-        snap.guid = bot->GetGUIDLow();
-        snap.className = GetBotClassName(bot->GetClass());
+        FillLiveUnitSnapshot(bot, snap);
         snap.role = GetBotRole(bot, ai);
-        snap.level = bot->GetLevel();
-        snap.xp = bot->GetUInt32Value(PLAYER_XP);
-        snap.nextXp = bot->GetUInt32Value(PLAYER_NEXT_LEVEL_XP);
-        // A dead unit reports GetHealth() == 1 in the core, which made corpse
-        // bars read "1 HP" on the dashboard. Report the corpse as 0 HP.
-        snap.hp = bot->IsAlive() ? bot->GetHealth() : 0;
-        snap.maxHp = bot->GetMaxHealth();
-        snap.power = bot->GetPower(bot->GetPowerType());
-        snap.maxPower = bot->GetMaxPower(bot->GetPowerType());
-        // Core stores rage x10 (0-1000); every other resource is already in
-        // display units. Normalize here so all consumers agree.
-        if (bot->GetPowerType() == POWER_RAGE)
-        {
-            snap.power /= 10;
-            snap.maxPower /= 10;
-        }
-        snap.powerType = GetPowerTypeName(bot->GetPowerType());
-        snap.mapId = bot->GetMapId();
-        snap.zoneId = bot->GetCachedZoneId();
-        snap.x = bot->GetPositionX();
-        snap.y = bot->GetPositionY();
-        snap.z = bot->GetPositionZ();
-        snap.o = bot->GetOrientation();
-        Unit* target = bot->GetSelectedUnit();
-        snap.target = target ? target->GetName() : "";
-        snap.targetLevel = 0;
-        // Any unit target (creature or player, e.g. a follow master) carries
-        // a level; only self-selection (the no-hostile-target case) is 0.
-        if (target && target != bot)
-            snap.targetLevel = static_cast<uint32>(target->GetLevel());
         snap.strategy = FormatStrategies(ai);
         if (!bot->IsAlive())
         {
@@ -1207,26 +1257,6 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         snap.state = MacroStateName(state);
         FillTravelInfo(ai, snap.travelPurpose, snap.travelTo, snap.travelStatus, snap.travelDist);
         BotManager::Instance().GetAiVisitInfo(bot->GetGUIDLow(), snap.aiVisits, snap.aiAgeMs);
-        if (bot->InBattleGround())
-        {
-            snap.pvp = "bg";
-            if (BattleGround* bg = bot->GetBattleGround())
-                if (bg->GetName())
-                    snap.pvpWhere = bg->GetName();
-        }
-        else if (bot->InBattleGroundQueue())
-        {
-            snap.pvp = "queue";
-            for (uint32 i = 0; i < PLAYER_MAX_BATTLEGROUND_QUEUES; ++i)
-            {
-                BattleGroundQueueTypeId queueType = bot->GetBattleGroundQueueTypeId(i);
-                if (queueType == BATTLEGROUND_QUEUE_NONE)
-                    continue;
-                BattleGround* bgTemplate = sBattleGroundMgr.GetBattleGroundTemplate(BattleGroundMgr::BGTemplateId(queueType));
-                if (bgTemplate && bgTemplate->GetName())
-                    snap.pvpWhere += (snap.pvpWhere.empty() ? "" : ", ") + std::string(bgTemplate->GetName());
-            }
-        }
 
         if (ai)
         {
@@ -1237,6 +1267,23 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
             snap.lastTrigger = ai->GetLastExecutedTrigger(ai->GetState());
         }
         botSnapshots.push_back(snap);
+    }
+
+    // Real players ride the same cycle at the same cadence: list, map and
+    // details come from the roster, not from a separate feed. A player has
+    // no AI, so bot-only detail stays empty and state reflects the visible
+    // unit (combat, moving, resting, dead, else idle).
+    {
+        std::vector<Player*> onlinePlayers;
+        CollectOnlinePlayers(onlinePlayers);
+        for (Player* player : onlinePlayers)
+        {
+            BotTelemetrySnapshot snap;
+            FillLiveUnitSnapshot(player, snap);
+            snap.isPlayer = true;
+            snap.state = MacroStateName(BaseMacroState(player, nullptr));
+            botSnapshots.push_back(snap);
+        }
     }
 
     // Rolling window ratios: how bots spent the recent window, not all time.
@@ -1255,23 +1302,20 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
     };
 
     uint64 seq = ++m_snapshotSeq;
-    // Network sessions only: headless bot sessions never enter the
-    // account-keyed network map, so GetActiveSessionCount() already excludes
-    // them. The old "sessions minus bots" math read 0 for any human count
-    // below the bot count; count real sessions with a live networked player
-    // instead.
+    // The roster now carries real players as rows, so the heartbeat reports
+    // the same population the batches deliver (no second session loop).
     uint32 humanCount = 0;
-    for (auto const& pair : sWorld.GetAllSessions())
-    {
-        WorldSession* sess = pair.second;
-        if (sess && sess->HasNetworkTransport() && sess->GetPlayer() && sess->GetPlayer()->IsInWorld())
+    for (BotTelemetrySnapshot const& b : botSnapshots)
+        if (b.isPlayer)
             ++humanCount;
-    }
-    uint32 botCount = static_cast<uint32>(botSnapshots.size());
+    uint32 botCount = static_cast<uint32>(botSnapshots.size()) - humanCount;
 
+    // Bot census only: player rows carry no role and must not pollute the
+    // per-class/role Prometheus gauges.
     std::map<std::pair<std::string, std::string>, uint32> countMap;
     for (BotTelemetrySnapshot const& b : botSnapshots)
-        countMap[{b.className, b.role}]++;
+        if (!b.isPlayer)
+            countMap[{b.className, b.role}]++;
 
     PlayerLagWindow::Stats const tick = m_tickWindow.Compute();
     std::ostringstream ss;
@@ -1338,6 +1382,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
             if (i > start) bss << ",";
             bss << "{\"name\":\"" << EscapeJson(b.name) << "\""
                 << ",\"guid\":" << b.guid
+                << ",\"player\":" << (b.isPlayer ? "true" : "false")
+                << ",\"group\":" << b.groupId
                 << ",\"class\":\"" << EscapeJson(b.className) << "\""
                 << ",\"role\":\"" << EscapeJson(b.role) << "\""
                 << ",\"level\":" << b.level

@@ -257,6 +257,24 @@ func killsOf(act model.ActivityResponse, name string) int {
 	return -1
 }
 
+func TestRollWonCountsAsLootWithRollSource(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+
+	s.ApplyBotEvents(events(1,
+		model.BotEvent{Event: "RollWon", Info1: "Gold-flecked Gloves", Info2: "5195", Bot: "Vaezel", GUID: 11, Class: "priest", Level: 20, ItemID: 5195, Quality: 2, Sell: 100, Money: 500},
+	))
+
+	act := s.Activity()
+	if act.Summary.Counters.LootItems != 1 {
+		t.Fatalf("RollWon did not count as loot: %+v", act.Summary.Counters)
+	}
+	feed := s.LootFeed(LootFilter{})
+	if len(feed) != 1 || feed[0].Source != "roll" || feed[0].Item != "Gold-flecked Gloves" {
+		t.Fatalf("roll feed wrong: %+v", feed)
+	}
+}
+
 // The module's own quest-complete signal is QuestCompleted (OnQuestComplete).
 // QuestUpdateCompleteAction is packet-driven and never reaches a headless bot
 // session, so without this mapping the completed/open-quest numbers were

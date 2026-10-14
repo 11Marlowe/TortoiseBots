@@ -98,7 +98,12 @@ bool AttackMyTargetAction::Execute(Event& event)
                    tgt ? (int)tgt->GetMapId() : -1,
                    bot ? bot->GetMapId() : 0);
 
-            if (Attack(requester, tgt, true))
+            // An explicit order carries the walk to the target with it: the requester
+            // already validated the target at order range, so the bot's own gate must
+            // not refuse it for being beyond the background sight distance. The bot
+            // still walks there through the combat reach chain after accepting.
+            static float const orderDistance = sPlayerbotAIConfig.reactDistance;
+            if (Attack(requester, tgt, orderDistance, true))
             {
                 CommitExplicitAttackTarget(ai, guid);
                 SC_LOG("attack-cmd OK bot=%s tgt=%s",
@@ -130,7 +135,9 @@ bool AttackRTITargetAction::Execute(Event& event)
 
     if (rtiTarget && rtiTarget->IsInWorld() && rtiTarget->GetMapId() == bot->GetMapId())
     {
-        if (Attack(requester, rtiTarget, true))
+        // Same explicit-order ceiling as "attack my target": the mark is the player's
+        // order and the bot walks there after accepting.
+        if (Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance, true))
         {
             CommitExplicitAttackTarget(ai, rtiTarget->getObjectGuid());
             return true;
@@ -196,8 +203,21 @@ bool AttackAction::ArmsMeleeSwing()
         (!ai->IsRanged(bot) || !bot->GetWeaponForAttack(RANGED_ATTACK, true, true));
 }
 
-bool AttackAction::Attack(Player* requester, Unit* target, bool acceptCurrentVictim)
+bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bool acceptCurrentVictim)
 {
+    if (!bot->IsAlive())
+    {
+        // A dead bot refuses every order silently otherwise: nothing below names
+        // the bot's own death (only the target's), so the player re-sends a corpse.
+        SC_LOG("attack-cmd FAIL bot=%s — bot is dead", bot ? bot->GetName() : "(null)");
+        if (verbose)
+        {
+            ai->TellPlayerNoFacing(requester, "I am dead");
+        }
+
+        return false;
+    }
+
     MotionMaster &mm = *bot->GetMotionMaster();
 	if (mm.GetCurrentMovementGeneratorType() == TAXI_MOTION_TYPE || (bot->IsFlying() && WorldPosition(bot).currentHeight() > 10.0f))
     {
@@ -210,7 +230,7 @@ bool AttackAction::Attack(Player* requester, Unit* target, bool acceptCurrentVic
         return false;
     }
 
-    if (IsTargetValid(requester, target))
+    if (IsTargetValid(requester, target, maxDistance))
     {
         SC_LOG("attack-cmd valid-tgt bot=%s tgt=%s mounted=%d range=%.1f",
                bot ? bot->GetName() : "(null)",
@@ -285,6 +305,16 @@ bool AttackAction::Attack(Player* requester, Unit* target, bool acceptCurrentVic
             const bool alreadyAttacking = acceptCurrentVictim && TortoiseBots::IsAlreadyAttackingTarget(
                 bot->GetVictim() == target, meleeEval, bot->HasUnitState(UNIT_STAT_MELEE_ATTACKING));
             result = alreadyAttacking || bot->Attack(target, meleeEval);
+            if (!result && bot->GetVictim() == target)
+            {
+                // A repeated order on the target the bot is already attacking: the
+                // core reports no state change (Unit::Attack returns false when
+                // m_attacking is already the victim), but the order is in effect,
+                // so it succeeds. Without this every re-issued ".bot attack" on a
+                // held target (a stunned boss that takes seconds to engage, a
+                // re-send 3 s later) answers "could not execute attack".
+                result = true;
+            }
             SC_LOG("attack-cmd bot->Attack bot=%s tgt=%s result=%d meleeEval=%d",
                    bot ? bot->GetName() : "(null)",
                    target ? target->GetName() : "(null)",
@@ -305,6 +335,20 @@ bool AttackAction::Attack(Player* requester, Unit* target, bool acceptCurrentVic
             ai->OnCombatStarted();
         }
 
+        // The order carries the walk to the target with it (same as the grind and
+        // enemy-player orders): accept alone leaves a bot standing 20-150 yd from a
+        // mob it just ordered, because the combat reach only runs once the target is
+        // already close. Only for an explicit maxDistance order; background callers
+        // keep the old behaviour. The reach gives up on an unreachable target after
+        // 15 s and blacklists it, so a bad order does not stick forever.
+        if (result && maxDistance > 0.0f)
+        {
+            const bool rangedKit = ai->HasStrategy("ranged", BotState::BOT_STATE_COMBAT) &&
+                !ai->HasStrategy("close", BotState::BOT_STATE_COMBAT);
+            ai::Event reachEvent("attack my target", "", requester);
+            ai->DoSpecificAction(rangedKit ? "reach spell" : "reach melee", reachEvent, true);
+        }
+
         return result;
     }
 
@@ -312,7 +356,7 @@ bool AttackAction::Attack(Player* requester, Unit* target, bool acceptCurrentVic
     return false;
 }
 
-bool AttackAction::IsTargetValid(Player* requester, Unit* target)
+bool AttackAction::IsTargetValid(Player* requester, Unit* target, float maxDistance)
 {
     if (!target)
     {
@@ -366,7 +410,11 @@ bool AttackAction::IsTargetValid(Player* requester, Unit* target)
 
         return false;
     }
-    else if (sServerFacade.getDistance2d(bot, target) > sPlayerbotAIConfig.sightDistance)
+    // Background targeting uses the sight distance; an explicit order passes its own
+    // wider ceiling (the requester's order range) because the bot walks to the target
+    // through the combat reach chain after accepting. The refusal still names the
+    // limit so a genuinely out-of-reach order tells the player how far is too far.
+    else if (sServerFacade.getDistance2d(bot, target) > (maxDistance > 0.0f ? maxDistance : sPlayerbotAIConfig.sightDistance))
     {
         if (verbose)
         {

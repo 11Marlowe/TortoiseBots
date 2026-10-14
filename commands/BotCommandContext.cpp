@@ -4,6 +4,7 @@
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../runtime/ClaimLifecycle.h"
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
 #include "../ai/playerbot/strategy/Action.h"
 #include "../ai/playerbot/strategy/AiObjectContext.h"
@@ -484,7 +485,7 @@ static uint32 CcSpellPreference(std::string const& spell)
 }
 
 static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const& mark,
-    uint32* outPreference = nullptr)
+    uint32* outPreference, CcDenyReason* outDeny, std::string* outDenySpell)
 {
     if (!ai || !target || !target->IsInWorld() || !target->IsAlive())
         return {};
@@ -528,6 +529,10 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
     std::set<std::string> probedSpells;
     std::string selectedAction;
     uint32 selectedPreference = 0;
+    bool anyCcSpellKnown = false;
+    bool anyOutdoorsOnly = false;
+    std::string outdoorsSpell;
+    bool anyCreatureMismatch = false;
     for (std::string const& actionName : actionNames)
     {
         ai::Action* action = context->GetAction(actionName);
@@ -537,6 +542,28 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
         std::string spell = action->GetCrowdControlSpellName();
         if (spell.empty() || !ai->HasSpell(spell))
             continue;
+        anyCcSpellKnown = true;
+
+        // Durable misses first: isPossible() only knows the spell is ready,
+        // and CanCastSpell reports whatever check fails first, so an
+        // outdoors-only Roots indoors or Hibernate on a humanoid slipped
+        // through as castable.
+        if (SpellEntry const* info = sServerFacade.LookupSpellInfo(context->GetValue<uint32>("spell id", spell)->Get()))
+        {
+            Player* bot = ai->GetBot();
+            if ((info->Attributes & SPELL_ATTR_OUTDOORS_ONLY) &&
+                !bot->GetMap()->GetTerrain()->IsOutdoors(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()))
+            {
+                anyOutdoorsOnly = true;
+                outdoorsSpell = spell;
+                continue;
+            }
+            if (info->TargetCreatureType && !(info->TargetCreatureType & target->GetCreatureTypeMask()))
+            {
+                anyCreatureMismatch = true;
+                continue;
+            }
+        }
 
         uint32 preference = CcSpellPreference(spell);
         if (!selectedAction.empty() && preference >= selectedPreference)
@@ -553,9 +580,23 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
             continue;
 
         bool possible = action->isPossible();
-        bool spellLegal = ai->CanCastSpell(spell, target, 0, nullptr, true, true, true);
+        SpellCastResult castResult = SPELL_FAILED_DONT_REPORT;
+        bool spellLegal = ai->CanCastSpell(spell, target, 0, nullptr, true, true, true, &castResult);
         if (!possible && !spellLegal)
+        {
+            // Durable reasons only: a cooldown, a missing reagent, a move
+            // in progress all clear on their own. Outdoors-only and a
+            // creature-type mismatch never clear for this target here.
+            if (castResult == SPELL_FAILED_ONLY_OUTDOORS)
+            {
+                anyOutdoorsOnly = true;
+                outdoorsSpell = spell;
+            }
+            else if (castResult == SPELL_FAILED_BAD_TARGETS || castResult == SPELL_FAILED_TARGET_IS_PLAYER ||
+                castResult == SPELL_FAILED_IMMUNE)
+                anyCreatureMismatch = true;
             continue;
+        }
 
         selectedAction = actionName;
         selectedPreference = preference;
@@ -568,6 +609,20 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
 
     if (outPreference)
         *outPreference = selectedPreference;
+    if (!selectedAction.empty())
+    {
+        if (outDeny)
+            *outDeny = CcDenyReason::None;
+        return selectedAction;
+    }
+    // Rank the durable failure for the caller's message: a spell the bot
+    // knows but can never cast here beats a spell it never learned.
+    if (outDeny)
+        *outDeny = !anyCcSpellKnown ? CcDenyReason::NoSpellKnown
+            : anyOutdoorsOnly ? CcDenyReason::OutdoorsOnly
+            : anyCreatureMismatch ? CcDenyReason::WrongCreatureType : CcDenyReason::Transient;
+    if (outDenySpell)
+        *outDenySpell = outdoorsSpell;
     return selectedAction;
 }
 
@@ -576,6 +631,16 @@ static std::string FindCcAction(PlayerbotAI* ai, Unit* target, std::string const
 Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::string const& mark,
     std::string* outAction)
 {
+    return ResolveCcExecutor(context, target, mark, outAction, nullptr, nullptr);
+}
+
+Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::string const& mark,
+    std::string* outAction, CcDenyReason* outDeny, std::string* outDenySpell)
+{
+    if (outDeny)
+        *outDeny = CcDenyReason::None;
+    if (outDenySpell)
+        outDenySpell->clear();
     if (!target)
         return nullptr;
 
@@ -584,7 +649,7 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(context.selectedBot);
         if (ai)
         {
-            std::string action = FindCcAction(ai, target, mark);
+            std::string action = FindCcAction(ai, target, mark, nullptr, outDeny, outDenySpell);
             if (!action.empty())
             {
                 if (outAction) *outAction = action;
@@ -593,12 +658,15 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
         }
         return nullptr;
     }
-
     // Best spell fit wins; ties go to the lowest GUID so the same target and
-    // state pick the same executor regardless of party invite order.
+    // state pick the same executor regardless of party invite order. Bots
+    // with a durable failure still report it, so the caller can refuse with
+    // a reason instead of a bare no-cc.
     Player* best = nullptr;
     std::string bestAction;
     uint32 bestPreference = 0;
+    CcDenyReason bestDeny = CcDenyReason::Transient;
+    std::string bestDenySpell;
     for (Player* bot : context.partyBots)
     {
         if (!IsLiveHeadlessBot(bot))
@@ -607,9 +675,21 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
         if (!ai)
             continue;
         uint32 preference = 0;
-        std::string action = FindCcAction(ai, target, mark, &preference);
+        CcDenyReason deny = CcDenyReason::None;
+        std::string denySpell;
+        std::string action = FindCcAction(ai, target, mark, &preference, &deny, &denySpell);
         if (action.empty())
+        {
+            // First durable failure wins the message; transient ones stay
+            // silent unless nothing durable was found.
+            if (bestDeny == CcDenyReason::Transient && deny != CcDenyReason::None &&
+                deny != CcDenyReason::Transient)
+            {
+                bestDeny = deny;
+                bestDenySpell = denySpell;
+            }
             continue;
+        }
         if (!best || preference < bestPreference ||
             (preference == bestPreference && bot->GetObjectGuid() < best->GetObjectGuid()))
         {
@@ -621,7 +701,35 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
 
     if (best && outAction)
         *outAction = bestAction;
+    if (!best)
+    {
+        if (outDeny)
+            *outDeny = bestDeny == CcDenyReason::Transient && bestDenySpell.empty()
+                ? CcDenyReason::Transient : bestDeny;
+        if (outDenySpell)
+            *outDenySpell = bestDenySpell;
+    }
+    else if (outDeny)
+        *outDeny = CcDenyReason::None;
     return best;
+}
+
+std::string CcDenyText(CcDenyReason reason, std::string const& spell, std::string const& targetName)
+{
+    std::string const target = targetName.empty() ? "this target" : targetName;
+    switch (reason)
+    {
+        case CcDenyReason::OutdoorsOnly:
+            return "cannot CC " + target + ": " + spell + " only works outdoors.";
+        case CcDenyReason::WrongCreatureType:
+            return "cannot CC " + target + ": no known CC spell fits its creature type here.";
+        case CcDenyReason::NoSpellKnown:
+            return "cannot CC " + target + ": no CC spell known.";
+        case CcDenyReason::Transient:
+        case CcDenyReason::None:
+            break;
+    }
+    return {};
 }
 
 std::string RosterState(Player* bot, BotRecord const* suppliedRecord)

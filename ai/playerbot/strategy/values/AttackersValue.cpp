@@ -396,6 +396,15 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
 {
     Player* playerToCheckAgainst = owner != nullptr ? owner : player;
 
+    // An explicit attack order is the player's pull: the target is valid before either
+    // side has threat, so it passes the combat-only gate below until the pull begins.
+    // Every other check (friendly, evade, range, CC, immunity) still applies.
+    bool explicitAttackTarget = false;
+    if (target)
+    {
+        if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(playerToCheckAgainst))
+            explicitAttackTarget = ai->GetAiObjectContext()->GetValue<ObjectGuid>("explicit attack target")->Get() == target->getObjectGuid();
+    }
     // Validate possible target
     if (validatePossibleTarget && !PossibleTargetsValue::IsValid(target, playerToCheckAgainst))
     {
@@ -459,7 +468,7 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
         // (or was never fighting to begin with) stayed "valid" forever just by being nearby
         // and PvP-flagged, keeping "has attackers" true and the bot latched into combat
         // state with nothing to do (see AttackersValue::AddTargetsOf and InCombat()).
-        if (checkInCombat && !isDuelOpponent && !InCombat(target, player, (player == owner)))
+        if (checkInCombat && !explicitAttackTarget && !isDuelOpponent && !InCombat(target, player, (player == owner)))
         {
             bool isRtiTarget = false;
             if (PlayerbotAIStorage::Instance().GetAI(player) && !PlayerbotAIStorage::Instance().GetAI(player)->HasActivePlayerMaster())
@@ -488,7 +497,7 @@ bool AttackersValue::IsValid(Unit* target, Player* player, Player* owner, bool c
         }
 
         // If the target is not fighting the player (and if the owner bot is not pulling the target)
-        if (checkInCombat && !InCombat(target, player, (player == owner)))
+        if (checkInCombat && !explicitAttackTarget && !InCombat(target, player, (player == owner)))
         {
             bool isRtiTarget = false;
             if (PlayerbotAIStorage::Instance().GetAI(player) && !PlayerbotAIStorage::Instance().GetAI(player)->HasActivePlayerMaster())

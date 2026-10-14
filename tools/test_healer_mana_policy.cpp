@@ -95,7 +95,6 @@ int main()
     // No mana bar: never held back by the reserve.
     CHECK(HealerDpsManaAllows(false, 0, 101));
     CHECK(HealerDpsManaAllows(false, 0, 10));
-
     // Healer damage target: solo or no target -> as before; grouped, only a
     // mob that already fights another party member (Uldaman 2026-10-14:
     // the priest opened on a mob the tank had not touched and took it).
@@ -104,6 +103,23 @@ int main()
     CHECK(HealerDamageTargetAllowed(true, true, true));
     CHECK(!HealerDamageTargetAllowed(true, true, false));
 
+    // Raid floor: minutes-long mana burn, no drink break — off-spec
+    // damage only at near-full mana (live Naxx 2026-10-14: resto dry
+    // at 4-9 % while the generic floor kept firing shocks/bolts).
+    CHECK(HealerDpsManaFloorRaid() == 95);
+    CHECK(HealerDpsManaFloorRaid() > HealerDpsManaFloor(0));
+    // Incoming-heal inflation (review fix): added only above lowHealth.
+    // Tank at 25 % with a 4000 heal incoming still reads 2500/10000.
+    CHECK(HealthWithIncoming(2500, 10000, 4000, 50) == 2500);
+    // At exactly lowHealth (5000/10000 = 50 %): no inflation either.
+    CHECK(HealthWithIncoming(5000, 10000, 4000, 50) == 5000);
+    // Just above (51 %): incoming counts, capped at max.
+    CHECK(HealthWithIncoming(5100, 10000, 4000, 50) == 9100);
+    CHECK(HealthWithIncoming(8000, 10000, 4000, 50) == 10000);
+    // Zero max: passthrough, no divide.
+    CHECK(HealthWithIncoming(0, 0, 4000, 50) == 0);
+    // Over-max current clamps first, then inflates.
+    CHECK(HealthWithIncoming(12000, 10000, 4000, 50) == 10000);
     std::printf("healer mana policy: OK (%d checks)\n", checks);
     return 0;
 }

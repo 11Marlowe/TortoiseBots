@@ -197,8 +197,38 @@ bool NoCurseTrigger::IsActive()
 			   !ai->HasAura("curse of tongues", target, false, true) &&
 			   !ai->HasAura("curse of exhaustion", target, false, true);
 	}
+    return false;
+}
 
-	return false;
+namespace
+{
+// True while any curse sits on the target, anyone-sees (checkIsOwner=false):
+// one curse per target in this core, so a groupmate's curse covers the slot.
+// The caster's OWN curse: the core keeps one curse per warlock per target,
+// so a second warlock may add a different curse beside the first one.
+bool HasMyCurse(PlayerbotAI* ai, Unit* target)
+{
+    static const char* const curses[] = {
+        "curse of agony", "curse of doom", "curse of recklessness", "curse of shadow",
+        "curse of the elements", "curse of weakness", "curse of tongues", "curse of exhaustion"
+    };
+    if (!target)
+        return false;
+    for (const char* curse : curses)
+        if (ai->HasAura(curse, target, false, true))
+            return true;
+    return false;
+}
+}  // namespace
+
+bool CurseOfRecklessnessRaidTrigger::IsActive()
+{
+    return DebuffTrigger::IsActive() && !HasMyCurse(ai, GetTarget());
+}
+
+bool CurseOfShadowRaidTrigger::IsActive()
+{
+    return DebuffTrigger::IsActive() && !HasMyCurse(ai, GetTarget());
 }
 
 bool NoCurseOnAttackerTrigger::IsActive()

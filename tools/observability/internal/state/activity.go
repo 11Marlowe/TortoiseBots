@@ -146,14 +146,18 @@ func (s *Store) applyBotEventLocked(ev model.BotEvent, now time.Time) {
 		a.counters.QuestHandIns++
 		s.appendQuestFeed(model.QuestFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level, Event: ev.Event, Quest: ev.Info1, QuestID: questID})
 
-	case "StoreLootAction":
+	case "StoreLootAction", "RollWon":
 		a.counters.LootItems++
 		a.counters.LootValue += uint64(ev.Sell)
 		if ev.Quality >= notableQuality {
 			a.counters.NotableLoot++
 		}
+		rollSource := "loot"
+		if ev.Event == "RollWon" {
+			rollSource = "roll"
+		}
 		s.appendLootFeed(model.LootFeedItem{At: now.Unix(), Bot: a.name, GUID: ev.GUID, Class: a.class, Level: a.level, MapID: ev.MapID, ZoneID: ev.ZoneID,
-			Source: "loot", Item: ev.Info1, ItemID: ev.ItemID, Quality: ev.Quality, Value: uint64(ev.Sell)})
+			Source: rollSource, Item: ev.Info1, ItemID: ev.ItemID, Quality: ev.Quality, Value: uint64(ev.Sell)})
 	case "GatherLoot":
 		source := "gather"
 		if uint32(parseUint(ev.Info1)) == skillSkinning {
@@ -189,9 +193,9 @@ func (s *Store) applyBotEventLocked(ev model.BotEvent, now time.Time) {
 		case "sell":
 			a.counters.VendorVisits++
 		}
-	case "AhAction":
+	case "AhAction", "AhMarket":
 		a.counters.AHListings++
-	case "AhBidAction":
+	case "AhBidAction", "AhMarketBuy", "GuildAhBuy":
 		a.counters.AHBids++
 
 	case "Kill":
@@ -245,7 +249,9 @@ func (s *Store) appendQuestFeed(item model.QuestFeedItem) {
 func (s *Store) observeLevelsLocked(bots []model.BotSnapshot, now time.Time) {
 	for i := range bots {
 		b := &bots[i]
-		if b.GUID == 0 || b.Level == 0 {
+		if b.GUID == 0 || b.Level == 0 || b.Player {
+			// Players level outside the pool: their dings must not enter
+			// the pool timeline.
 			continue
 		}
 		a := s.activity[b.GUID]

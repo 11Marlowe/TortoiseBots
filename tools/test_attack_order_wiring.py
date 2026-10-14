@@ -25,19 +25,19 @@ def body(text, start, end):
 
 class AttackOrderWiringTest(unittest.TestCase):
     def test_attack_accepts_current_victim_only_on_request(self):
-        fn = body(ATTACK, "bool AttackAction::Attack(Player* requester, Unit* target, bool acceptCurrentVictim)", "\n}\n")
+        fn = body(ATTACK, "bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bool acceptCurrentVictim)", "\n}\n")
         self.assertIn("const bool alreadyAttacking = acceptCurrentVictim && TortoiseBots::IsAlreadyAttackingTarget(", fn)
         header = (ACTIONS / "AttackAction.h").read_text()
-        self.assertIn("bool Attack(Player* requester, Unit* target, bool acceptCurrentVictim = false);", header)
+        self.assertIn("bool Attack(Player* requester, Unit* target, float maxDistance = 0.0f, bool acceptCurrentVictim = false);", header)
 
     def test_only_explicit_orders_pass_true(self):
         calls = re.findall(r"Attack\(requester, [^)]*\)\)?", ATTACK)
         explicit = [c for c in calls if ", true)" in c]
-        self.assertEqual(sorted(explicit), sorted(["Attack(requester, tgt, true))", "Attack(requester, rtiTarget, true))"]))
+        self.assertEqual(len(explicit), 2)
         mine = body(ATTACK, "bool AttackMyTargetAction::Execute(", "\n}\n")
-        self.assertIn("Attack(requester, tgt, true)", mine)
+        self.assertIn("Attack(requester, tgt, orderDistance, true)", mine)
         rti = body(ATTACK, "bool AttackRTITargetAction::Execute(", "\n}\n")
-        self.assertIn("Attack(requester, rtiTarget, true)", rti)
+        self.assertIn("Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance, true)", rti)
         for path in ACTIONS.glob("*.cpp"):
             if path.name == "AttackAction.cpp":
                 continue

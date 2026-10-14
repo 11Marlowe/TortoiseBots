@@ -3,6 +3,10 @@
 #include "UseItemAction.h"
 #include "UseItemNamePolicy.h"
 #include <sstream>
+// Trail (mage-mana-2): item-cast outcome logging needs the AI handle and
+// the action log; both already used the same way from Engine.cpp.
+#include "playerbot/BotActionLog.h"
+#include "../../runtime/PlayerbotAIStorage.h"
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "Database/DBCStore.h"
@@ -66,6 +70,13 @@ SpellCastResult BotUseItemSpell::ForceSpellStart(SpellCastTargets const* targets
 
     if (failed)
     {
+        // Trail: item casts queue silently (no CAST_START line, unlike the
+        // CastSpell path), so a pre-cast refusal (GCD, cooldown, missing
+        // item) was invisible next to the engine's bare FAILED verdict.
+        // Log spell + result code; the prepare path below logs its own.
+        if (Player* botPlayer = m_caster ? m_caster->ToPlayer() : nullptr)
+            if (PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(botPlayer))
+                botdiag::BotActionLog::LogCastResult(botAi, m_spellInfo->Id, result, "ITEM-PREPARE");
         SendCastResult(result);
         finish(false);
         // No SpellEvent owns this Spell, so the standard destruction path
@@ -74,9 +85,17 @@ SpellCastResult BotUseItemSpell::ForceSpellStart(SpellCastTargets const* targets
         return result;
     }
 
+    // Trail: the queued cast runs a tick later in Spell::cast(), where the
+    // core re-validates (power, cooldown, items) with no module-visible
+    // signal. Record the queue so a later silent fizzle is attributable.
+    if (Player* botPlayer = m_caster ? m_caster->ToPlayer() : nullptr)
+        if (PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(botPlayer))
+            botdiag::BotActionLog::LogCastStart(botAi, m_spellInfo->Id,
+                targets ? targets->getUnitTargetGuid() : ObjectGuid(), 0);
     // Hand off to Spell::prepare which creates exactly one SpellEvent and
     // becomes the sole owner of this Spell.
     return prepare(*targets, triggeredByAura);
+
 }
 
 bool BotUseItemSpell::OpenLockCheck()
@@ -698,14 +717,13 @@ bool UseAction::UseItemInternal(Player* requester, uint32 itemId, Unit* unit, Ga
 
             if (successCast)
             {
-                if (itemUsed == nullptr && ai->HasCheat(BotCheatMask::item))
-                {
-                    if (!HasItemCooldown(itemId))
-                    {
-                        bot->RemoveSpellCooldown(spellInfo->Id, false);
-                        bot->AddSpellAndCategoryCooldowns(spellInfo, proto->ItemId);
-                    }
-                }
+                // NOTE: no manual cooldown on the item-cheat path. The core
+                // applies spell + category cooldowns itself in
+                // Spell::SendSpellCooldown, after the cast passes validation.
+                // Pre-applying them here poisoned the deferred SpellEvent:
+                // prepare() only queues it, and the re-validation in cast()
+                // then saw our own cooldown (NOT_READY) and cancelled the cast
+                // it had just started (e.g. every healthstone use failed).
 
                 if (IsFood(proto) || IsDrink(proto))
                 {
@@ -1030,7 +1048,10 @@ bool UseAction::HasItemCooldown(uint32 itemId) const
         uint32 spellId = 0;
         for (uint8 i = 0; i < MAX_ITEM_PROTO_SPELLS; ++i)
         {
-            if (proto->Spells[i].SpellTrigger != ITEM_SPELLTRIGGER_ON_USE)
+            // Same trigger set as isPossible and UseItemInternal: usable
+            // spells fire on use or on no-delay use.
+            if (proto->Spells[i].SpellTrigger != ITEM_SPELLTRIGGER_ON_USE &&
+                proto->Spells[i].SpellTrigger != ITEM_SPELLTRIGGER_ON_NO_DELAY_USE)
             {
                 continue;
             }

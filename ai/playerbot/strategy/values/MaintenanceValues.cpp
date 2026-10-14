@@ -280,7 +280,12 @@ GuidPosition ai::NearbyServiceTarget(PlayerbotAI* ai)
     AiObjectContext* context = ai->GetAiObjectContext();
 
     //Random pool bots only, and only while idle: a bot with a player master or a
-    //fight on its hands is not waiting for anything.
+    //fight on its hands is not waiting for anything. Hired companions never
+    //service NPCs on their own: they follow their master (the ledger check,
+    //not master presence, so the strip holds through grace-period guard duty
+    //while owned alts keep their orders).
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
+        return GuidPosition();
     if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
         return GuidPosition();
 

@@ -72,6 +72,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_autonomous_bg_policy
         test_avoid_aoe_policy
         test_battle_shout_policy
+        test_blessing_coverage_policy
         test_bg_force_reset_policy
         test_bomb_runout_policy
         test_boss_tactics_policy
@@ -79,7 +80,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bot_command_queue
         test_bot_turn_scheduler
         test_bwl_bundle1_policy
-        test_cc_mark_hold_policy
+        test_caster_mana_policy
         test_chromaggus_sand_policy
         test_claimed_bot_policy
         test_class_consumable_policy
@@ -111,10 +112,10 @@ if command -v g++ >/dev/null 2>&1; then
         test_grind_hostility_policy
         test_grind_spot_policy
         test_grobbulus_cloud_policy
-        test_group_buff_policy
         test_group_heal_policy
         test_group_hygiene_policy
         test_heal_reach_policy
+        test_heal_downrank_policy
         test_healer_mana_policy
         test_healing_cast_policy
         test_health_funnel_policy
@@ -125,7 +126,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hire_intro_policy
         test_hire_level_policy
         test_hire_respec_policy
-        test_hire_source_guard_policy
+        test_hire_quest_policy
         test_hire_spec_policy
         test_hire_tier_request_policy
         test_hire_unlock_group_credit
@@ -137,6 +138,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hunter_switch_policy
         test_hunter_viper_policy
         test_instance_guard_policy
+        test_interrupt_casting_policy
         test_judgement_upkeep_policy
         test_jump_policy
         test_kelthuzad_adds_policy
@@ -207,6 +209,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_shaman_mana_loop_policy
         test_shaman_recall_policy
         test_shaman_situational_totem_policy
+        test_shaman_totem_group_policy
         test_shaman_stoneclaw_policy
         test_skinning_loot_policy
         test_spec_weapon_policy
@@ -228,6 +231,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_travel_route_cache_policy
         test_travel_route_policy
         test_trinket_use_policy
+        test_totem_command_policy
         test_undercity_lift_policy
         test_use_item_name_policy
         test_vael_policy

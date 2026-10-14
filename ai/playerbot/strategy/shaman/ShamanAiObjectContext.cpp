@@ -305,6 +305,8 @@ namespace ai
                 creators["ancestral swiftness"] = [](PlayerbotAI* ai) { return new AncestralSwiftnessTrigger(ai); };
                 creators["ancestral swiftness active"] = [](PlayerbotAI* ai) { return new AncestralSwiftnessAuraTrigger(ai); };
                 creators["ancestral swiftness heal"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "ancestral swiftness active", "party member low health"); };
+                creators["fire totem and healer should attack"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fire totem", "healer should attack"); };
+                creators["earth shock and healer should attack"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "shock", "healer should attack"); };
             }
         };
 
@@ -324,6 +326,7 @@ namespace ai
                 creators["stoneclaw totem"] = [](PlayerbotAI* ai) { return new CastStoneclawTotemAction(ai); };
                 creators["grounding totem"] = [](PlayerbotAI* ai) { return new CastGroundingTotemAction(ai); };
                 creators["grace of air totem"] = [](PlayerbotAI* ai) { return new CastGraceOfAirTotemAction(ai); };
+                creators["tranquil air totem"] = [](PlayerbotAI* ai) { return new CastTranquilAirTotemAction(ai); };
                 creators["windwall totem"] = [](PlayerbotAI* ai) { return new CastWindwallTotemAction(ai); };
                 creators["mana spring totem"] = [](PlayerbotAI* ai) { return new CastManaSpringTotemAction(ai); };
                 creators["mana tide totem"] = [](PlayerbotAI* ai) { return new CastManaTideTotemAction(ai); };

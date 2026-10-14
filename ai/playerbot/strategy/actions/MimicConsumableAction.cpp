@@ -191,10 +191,12 @@ bool MimicConsumableAction::ApplyWeaponImbue(uint32_t stoneItemId)
                 (casts > 0) ? TRIGGERED_OLD_TRIGGERED : TRIGGERED_NONE);
             if (!spell)
                 continue;
+            // NOTE: no manual cooldown here (see UseAction::UseItemInternal):
+            // the core applies it in Spell::SendSpellCooldown after
+            // validation. Pre-applying cancelled the deferred cast via its
+            // own cooldown.
             if (spell->ForceSpellStart(&targets) != SPELL_CAST_OK)
                 return false;
-            bot->RemoveSpellCooldown(spellInfo->Id, false);
-            bot->AddSpellAndCategoryCooldowns(spellInfo, proto->ItemId);
             ++casts;
         }
         return casts > 0;
@@ -265,10 +267,10 @@ bool MimicConsumableAction::CastMimicItem(uint32_t botItemId, bool withEatEmote)
             (casts > 0) ? TRIGGERED_OLD_TRIGGERED : TRIGGERED_NONE);
         if (!spell)
             continue;
+        // NOTE: no manual cooldown here (see UseAction::UseItemInternal):
+        // the core applies it in Spell::SendSpellCooldown after validation.
         if (spell->ForceSpellStart(&targets) != SPELL_CAST_OK)
             return false;
-        bot->RemoveSpellCooldown(spellInfo->Id, false);
-        bot->AddSpellAndCategoryCooldowns(spellInfo, proto->ItemId);
         ++casts;
     }
     if (!casts)

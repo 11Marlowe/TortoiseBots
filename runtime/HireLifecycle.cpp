@@ -432,6 +432,14 @@ void HireLifecycle::Reunite(HiredRecord& record, Player* master)
             if (Group* bound = bot->GetGroup())
                 bound->RemoveMember(record.botGuid, 0);
     }
+    // A clean logout removes the master from a non-raid party (WorldSession::LogoutPlayer), but a
+    // party of three or more survives without them, so the hires are still grouped together and
+    // turn down the invite below ("already in a group"). Put the master back into that party as
+    // its leader instead.
+    Group* botGroup = bot->GetGroup();
+    if (!bot->IsInSameRaidWith(master) && !master->GetGroup() && botGroup && !botGroup->isBGGroup() &&
+        !botGroup->IsFull() && botGroup->AddMember(master->GetObjectGuid(), master->GetName()))
+        botGroup->ChangeLeader(master->GetObjectGuid());
     if (!bot->IsInSameRaidWith(master))
     {
         Group* masterGroup = master->GetGroup();
@@ -497,6 +505,10 @@ void HireLifecycle::SweepGracePeriod(time_t now)
         for (ObjectGuid const& commander : commanders)
             BotCommands::SettleCommanderBinding(commander.GetRawValue());
     }
+    // Dismissals run after the loop: Dismiss removes the bot from its group,
+    // and a group that falls apart dismisses the other hires through
+    // OnGroupDisband, erasing m_hired entries under this iterator (SIGSEGV).
+    std::vector<std::pair<HiredRecord, char const*>> ending;
     for (auto it = m_hired.begin(); it != m_hired.end();)
     {
         HiredRecord& record = it->second;
@@ -506,9 +518,8 @@ void HireLifecycle::SweepGracePeriod(time_t now)
         // character. Bookkeeping is never dropped silently.
         if (!BotManager::Instance().FindBot(record.botGuid))
         {
-            HiredRecord orphan = record;
-            it = m_hired.erase(it);
-            Dismiss(orphan, "runtime record gone");
+            ending.emplace_back(record, "runtime record gone");
+            ++it;
             continue;
         }
         // A hire held in transition because it was out of world when its hirer's
@@ -556,9 +567,8 @@ void HireLifecycle::SweepGracePeriod(time_t now)
         // are excluded by MasterLeftGroup.
         if (MasterLeftGroup(record))
         {
-            HiredRecord departing = record;
-            it = m_hired.erase(it);
-            Dismiss(departing, "master left the group");
+            ending.emplace_back(record, "master left the group");
+            ++it;
             continue;
         }
         if (!record.masterOfflineSince)
@@ -589,9 +599,14 @@ void HireLifecycle::SweepGracePeriod(time_t now)
             ++it;
             continue;
         }
-        HiredRecord expired = record;
-        it = m_hired.erase(it);
-        Dismiss(expired, "master grace expired");
+        ending.emplace_back(record, "master grace expired");
+        ++it;
+    }
+    for (auto const& [record, reason] : ending)
+    {
+        // An earlier dismissal can already have ended this hire (group disband).
+        if (IsHired(record.botGuid))
+            Dismiss(record, reason);
     }
 }
 

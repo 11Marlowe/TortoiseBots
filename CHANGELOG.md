@@ -59,6 +59,30 @@
 - A fresh level-1 pool is now actually spread evenly over the starting zones — bots that reached level 2-3 while the pool was still being created stopped counting toward their zone, so the zones where bots level fastest kept getting more (Dun Morogh ended up with twice its share), and high elves were sent to Dun Morogh or Teldrassil instead of Elwynn where they had been counted.
 - Wandering bots no longer stand around after picking a camp or explore errand — the activity they rolled was refused again by a second dice roll (half or nine times in ten), and nothing else was allowed until the choice expired; the roll now decides alone. Your own and hired bots are unchanged.
 
+## 2026-10-14
+
+### Combat & AI
+- Forcing a DPS or healer role on a Protection-specced warrior or paladin now actually builds the damage/heal kit — no more Defensive Stance, Shield Wall, or taunting the real tank's target off him in groups. [#944](https://github.com/Sagiroth/TortoiseBots/pull/944)
+- Role and talent changes now invalidate the cached strategy snapshot, so `.bot role` picks up the newly forced kit instead of reloading the old Protection tank setup. [#944](https://github.com/Sagiroth/TortoiseBots/pull/944)
+
+---
+
+### Combat & AI
+- Healer AI reworked: paladin and druid positioning plus Lay on Hands timing corrected, so healers stop drifting out of range and actually land emergency heals instead of holding cooldowns. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Shaman totem logic fixed so totems are dropped and refreshed where the group actually is, instead of being wasted on stale positions. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Caster mana management tightened: bots pace their rotation, conserve mana and drink/regenerate properly rather than going OOM mid-pull or sitting idle at full mana. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Warlock curse handling fixed so curses are assigned and maintained without overlapping or dropping on target swaps. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Tank behaviour corrected so tanks hold threat and positioning reliably instead of losing mobs or face-pulling into the raid. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+
+### Raid & Encounters
+- All changes are generic class/role/group behaviour, not boss scripting — they apply everywhere, from dungeons to raids, for both factions. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Validated on Patchwerk (Naxxramas) as a straight DPS/uptime check: 39 hired AQ-tier bots plus one player kill him without world buffs, with a normal composition and consumables and zero GM help — no deaths on the Alliance run. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+
+### Build & Tooling
+- `BuildOpcodeSet` and `RegisterPacketHandlers` are now plain pointer + count functions, dropping the array-reference template and defaulted `std::initializer_list` that MSVC 19.44 (VS 2022 17.14) choked on with `C2065 'specs': undeclared identifier` — `PlayerbotAI.cpp` builds cleanly on MSVC again. [#954](https://github.com/Sagiroth/TortoiseBots/pull/954)
+- Call sites now pass `std::size(...)` of the same handler arrays, with an explicit `{}` wherever no extra opcodes are needed. [#954](https://github.com/Sagiroth/TortoiseBots/pull/954)
+- Handler lists and registered handlers are unchanged, so this is a pure build fix with no runtime or gameplay impact. [#954](https://github.com/Sagiroth/TortoiseBots/pull/954)
+
 ## 2026-10-13
 
 ### World & NPC Behavior
@@ -75,6 +99,158 @@
 ### Docs & Onboarding
 
 - README now leads with a 🎯 Vision section: the one-sentence goal stays visible up top while the full vision (player experience, real economy, default vs. config, bot types, player control, performance, change criteria) lives in a collapsible block — handy for new contributors and server operators deciding if the module fits their realm. Docs only, zero gameplay impact. [#870](https://github.com/Sagiroth/TortoiseBots/pull/870)
+
+### Combat & AI
+- Bots now fight back against mobs that aggro from the side or behind while travelling, ending the 5%-fight-back death spiral on turn-in trips. [#458](https://github.com/Sagiroth/TortoiseBots/pull/458)
+- Hunter ranged/melee switching gets dead-zone hysteresis, stopping the flapping that put hunters top of the fair-fight death list. [#458](https://github.com/Sagiroth/TortoiseBots/pull/458)
+- Demonology warlocks now keep Immolate up, same slot as Destruction. [#474](https://github.com/Sagiroth/TortoiseBots/pull/474)
+- Elemental and Enhancement shamans keep Flame Shock up through a new upkeep trigger instead of letting the generic shock trigger block refreshes. [#474](https://github.com/Sagiroth/TortoiseBots/pull/474)
+- Beast Mastery hunters fire Intimidation on cooldown, just below Kill Command. [#474](https://github.com/Sagiroth/TortoiseBots/pull/474)
+- Ranged pool bots now spread out in ordinary open-world group fights; ranged only, no hold/stay order, melee and tanks still stack. [#479](https://github.com/Sagiroth/TortoiseBots/pull/479)
+- Bots remember their last two flee headings, so repeated flees and spread steps pick fresh directions instead of re-running the same line. [#479](https://github.com/Sagiroth/TortoiseBots/pull/479)
+- `.bot action pull`/`pullback` refusals now say why (dead corpse still selected, friendly target, etc.) instead of "rejected the target". [#805](https://github.com/Sagiroth/TortoiseBots/pull/805)
+- Refused pulls are now stateless: DPS bots are no longer parked, a flee is no longer ended, and partial pull state is not saved. [#805](https://github.com/Sagiroth/TortoiseBots/pull/805)
+- Blink-back only fires when the mob attacking the mage is the mage's target, not just any mob fighting the tank within 8 yd. [#812](https://github.com/Sagiroth/TortoiseBots/pull/812)
+- Prowl no longer freezes feral druids out of combat; the 45-minute stall relog is no longer the only way a cat comes back. [#804](https://github.com/Sagiroth/TortoiseBots/pull/804)
+- Enemy-healer detection now requires a real heal (direct, max-health, or HoT), so interrupts stop going to buff casters like Stonevault Oracle. [#809](https://github.com/Sagiroth/TortoiseBots/pull/809)
+- Wand autoshot is stopped while a CC spell like Polymorph waits, so the sheep lands on time instead of after the wand happens to pause. [#810](https://github.com/Sagiroth/TortoiseBots/pull/810)
+- A pull's wait no longer sticks to DPS bots in later fights when the wait is cut short (mob dies, bot dies, helper given). [#820](https://github.com/Sagiroth/TortoiseBots/pull/820)
+- `.bot action cc <mark>` refuses a dead or non-attackable target before moving the raid icon, so marks stay on live mobs. [#841](https://github.com/Sagiroth/TortoiseBots/pull/841)
+- RPG relevance below 1 now gives weight 0 instead of a wrapped uint32, ending the near-4.29-billion weights that made one action dominate every pick. [#842](https://github.com/Sagiroth/TortoiseBots/pull/842)
+- Refused CC orders (`no-cc`, `no-ai`, `failed`) leave the group's raid marks exactly as they were. [#862](https://github.com/Sagiroth/TortoiseBots/pull/862)
+- `AiPlayerbot.AvoidCreatureAuras` keeps bots out of permanent damage auras like Creeping Sludge's Poison Shock (now default on after #874). [#867](https://github.com/Sagiroth/TortoiseBots/pull/867)
+
+### Classes & Specs
+- Subtlety rogues now want daggers like Assassination, so they can actually use Backstab and Ambush. [#464](https://github.com/Sagiroth/TortoiseBots/pull/464)
+- Protection warriors/paladins transition to 1H+shield instead of treating a two-hander as a fury-style stand-in. [#465](https://github.com/Sagiroth/TortoiseBots/pull/465)
+- Shields are kept and bought for prot specs instead of being sold to vendors (87 shields overnight). [#465](https://github.com/Sagiroth/TortoiseBots/pull/465)
+- Shamans now cast Rockbiter/Flametongue/Frostbrand/Windfury imbues on the weapon as an item target, ending the ACTION_LOOP on `shaman weapon upkeep`. [#818](https://github.com/Sagiroth/TortoiseBots/pull/818)
+- Stealthed rogues behind a target now try Ambush → Garrote → Backstab → Cheap Shot, so dagger-less rogues open with Garrote instead of always Cheap Shot. [#824](https://github.com/Sagiroth/TortoiseBots/pull/824)
+- Elemental/Enhancement shamans drop Fire Nova Totem on AoE packs and via the Magma Totem fallback, instead of never casting it. [#826](https://github.com/Sagiroth/TortoiseBots/pull/826)
+- Assassination and Subtlety rogues dump banked combo points with Eviscerate on almost-dead mobs instead of building points into a corpse. [#828](https://github.com/Sagiroth/TortoiseBots/pull/828)
+- Cold Blood now waits for ≥4 combo points so the guaranteed crit lands on Eviscerate, not on a builder. [#830](https://github.com/Sagiroth/TortoiseBots/pull/830)
+- Hunter melee now queues Mongoose Bite in the `hunter enemy is close` row (Turtle has no dodge requirement). [#838](https://github.com/Sagiroth/TortoiseBots/pull/838)
+- `AiPlayerbot.PaladinJudgementUpkeep` (now default on) keeps Judgement of Wisdom/Light on the boss or the tank's target in dungeons/raids. [#852](https://github.com/Sagiroth/TortoiseBots/pull/852)
+- `AiPlayerbot.HunterViperOnLowMana` (now default on) switches a hunter to Aspect of the Viper on low mana and back to Hawk at 60%. [#855](https://github.com/Sagiroth/TortoiseBots/pull/855)
+- `AiPlayerbot.RogueDungeonThreatDrops` (now default on) uses Feint at ≥60% threat and Vanish at ≥80% climbing in 5-man dungeons, only while the tank holds the mob. [#856](https://github.com/Sagiroth/TortoiseBots/pull/856)
+- Feint is now cast on the current target instead of as a self-cast on an enemy spell, un-deadening every existing Feint row. [#860](https://github.com/Sagiroth/TortoiseBots/pull/860)
+- Feint and Vanish no longer get vetoed by the single-target threat gate while threat is high. [#860](https://github.com/Sagiroth/TortoiseBots/pull/860)
+- Hunter Aspect of the Viper switch threshold moves from ~7% to a flat 20% mana, back to Hawk at 60%. [#868](https://github.com/Sagiroth/TortoiseBots/pull/868)
+- The hunter melee row skips the party threat back-off when the mob is on the hunter, so Raptor Strike/Mongoose Bite/Wing Clip actually fire. [#876](https://github.com/Sagiroth/TortoiseBots/pull/876)
+
+### Pets
+- Solo warlocks now summon and keep the Voidwalker instead of sticking with the Imp forever. [#466](https://github.com/Sagiroth/TortoiseBots/pull/466)
+- Hunter and warlock pet ranks now rise with level, and families missing a family ability (a fox with no Bite) get it. [#466](https://github.com/Sagiroth/TortoiseBots/pull/466)
+- `AiPlayerbot.WarlockPetBySpec` lets PvE warlocks summon the demon matching their tree (Affliction/Demonology → Felhunter, Destruction → Imp), with fallbacks by learned level (now default on after #874). [#845](https://github.com/Sagiroth/TortoiseBots/pull/845)
+- A mounted warlock no longer swaps demons while travelling under `WarlockPetBySpec`. [#864](https://github.com/Sagiroth/TortoiseBots/pull/864)
+- The four spec pet rows share one tank read and one soul-shard bag read instead of re-reading per check. [#864](https://github.com/Sagiroth/TortoiseBots/pull/864)
+
+### Travel & Movement
+- The auction-house seller lift no longer teleports bots to a random auctioneer anywhere in the world. [#459](https://github.com/Sagiroth/TortoiseBots/pull/459)
+- Cross-map walk hops are stopped, so bots no longer jump continents and land at Ratchet, Gadgetzan, Everlook, Booty Bay, Darnassus or Stormwind. [#459](https://github.com/Sagiroth/TortoiseBots/pull/459)
+- Graveyard teleports on repop or long-stuck rescue now require the graveyard to be on the bot's map and within 5000 yd, ending Tirisfal→Booty Bay-style resurrections. [#457](https://github.com/Sagiroth/TortoiseBots/pull/457)
+- Service trips now target the NPC with a stable walk point instead of re-rolling a random point every tick, so bots actually arrive at the auctioneer/banker/vendor/trainer/mailbox. [#461](https://github.com/Sagiroth/TortoiseBots/pull/461)
+- Stuck service trips get rescued instead of being dropped after 12 retries. [#461](https://github.com/Sagiroth/TortoiseBots/pull/461)
+- City trips are gated on actual AH need rather than being ungated leisure travel. [#461](https://github.com/Sagiroth/TortoiseBots/pull/461)
+- Travel keeps a partial route for up to 8 s instead of rebuilding every turn, cutting the ~41% `getFullPath` share of the bot pass. [#848](https://github.com/Sagiroth/TortoiseBots/pull/848)
+- Names the creature-level faction cost slots correctly ([0] hostile to both, [1] friendly to Alliance, [2] friendly to Horde) — labels only, no cost change. [#861](https://github.com/Sagiroth/TortoiseBots/pull/861)
+
+### Quests, Loot & Economy
+- War-effort turn-ins are refused at accept for upkeep (masterless pool) bots; level-60 owned bots can still take them. [#460](https://github.com/Sagiroth/TortoiseBots/pull/460)
+- CLUCK! (3861) and inactive or deprecated quest templates are refused at accept, ending the 60×/hour take-and-drop loop in Ironforge/Orgrimmar. [#460](https://github.com/Sagiroth/TortoiseBots/pull/460)
+- Bone Chew Toy looting is stopped; bags stop filling with 892 copies across 118 bots. [#460](https://github.com/Sagiroth/TortoiseBots/pull/460)
+- Under the item cheat, ammo is classified KEEP instead of buy, ending the up-to-10-stack vendor spam (one rogue bought 50 stacks of Rough Arrow). [#462](https://github.com/Sagiroth/TortoiseBots/pull/462)
+- Quivers are NONE for non-hunters, so priests/mages/rogues stop buying Small Quivers (one priest bought 34 in 5 minutes). [#462](https://github.com/Sagiroth/TortoiseBots/pull/462)
+
+### Zones & World
+- Ordinary grind/gather/quest-objective picks now have an outgrown-zone floor, so level 11+ pool bots stop being dragged back to their starter zone. [#456](https://github.com/Sagiroth/TortoiseBots/pull/456)
+- Mining and herb nodes now respect a level floor. [#456](https://github.com/Sagiroth/TortoiseBots/pull/456)
+- The "leave outgrown zone" trigger now compares the same level scale as the search, so the leave actually sticks. [#456](https://github.com/Sagiroth/TortoiseBots/pull/456)
+- Fishing spots ship as world data, giving the travel fish errand real destinations with the same weight as mining/herbalism. [#840](https://github.com/Sagiroth/TortoiseBots/pull/840)
+
+### Dungeons & Raids
+- Healers no longer cleanse Mutating Injection on Grobbulus, so the bomb runout is not undercut by an early Cure Disease/Abolish Disease/Cleanse/Purify/Stoneform. [#825](https://github.com/Sagiroth/TortoiseBots/pull/825)
+- `AiPlayerbot.OnyxiaWhelpsAndEggs` (now default on) gives ranged bots whelp duty in phase 2 and keeps bots out of the egg caves. [#853](https://github.com/Sagiroth/TortoiseBots/pull/853)
+
+### Battlegrounds
+- Arathi Basin bots now click the real banner entries (180058–180091), ignore LOS and throttle captures to 4 s, so they take and retake nodes. [#831](https://github.com/Sagiroth/TortoiseBots/pull/831)
+- The 17 Alterac Valley named points ship as world data, so AV objective logic sets real objectives (Iceblood/Towerpoint/Frostwolf on offense; Stormpike/Dun Baldar/bunkers on defense) instead of falling back to generic BG behaviour. [#866](https://github.com/Sagiroth/TortoiseBots/pull/866)
+
+### Commands & Addon
+- `.bot maintenance <Name>` tops up consumables, reagents and ammo and repairs owned bots (config-gated, off by default). [#480](https://github.com/Sagiroth/TortoiseBots/pull/480)
+- `.bot autogear <Name> [quality|ilvl]` incrementally re-gears an owned bot to its level within quality/ilvl caps. [#480](https://github.com/Sagiroth/TortoiseBots/pull/480)
+- Owned bots (and active hired companions) can be summoned on group accept. [#480](https://github.com/Sagiroth/TortoiseBots/pull/480)
+- A refused `.bot action` now shows the usage error under the offending word instead of an empty action name. [#817](https://github.com/Sagiroth/TortoiseBots/pull/817)
+- `.bot behavior party/raid mimic` replies with a group scope the TBM addon understands, so the status line stops showing "Malformed action response." [#817](https://github.com/Sagiroth/TortoiseBots/pull/817)
+- The invalid-action intent name stays valid UTF-8 (no cut mid-letter) and is never blank. [#823](https://github.com/Sagiroth/TortoiseBots/pull/823)
+- A `stay`/`guard`/`hold` order given while a summon is pending now cancels the follow restore; the latest order wins. [#827](https://github.com/Sagiroth/TortoiseBots/pull/827)
+- Party/whisper chat and `.bot` commands now execute in typed order instead of `.bot` commands draining first. [#858](https://github.com/Sagiroth/TortoiseBots/pull/858)
+- Pool bots no longer copy and parse every Trade line they ignore. [#858](https://github.com/Sagiroth/TortoiseBots/pull/858)
+- Chat and packets dropped over the per-bot caps (64 chat / 256 packets per tick) are logged instead of vanishing. [#858](https://github.com/Sagiroth/TortoiseBots/pull/858)
+- A `.bot` movement order now supersedes older queued chat orders, fixing `/p stay` followed by `.bot action follow` leaving bots behind. [#877](https://github.com/Sagiroth/TortoiseBots/pull/877)
+
+### Observability & Engine
+- `TravelMoveFailed` rows now carry a `moveFailReason` enum (`cantmove`, `arrived-recalc`, `transport`, `empty-path`, `shortcut-empty`, …) stamped at each return-false site. [#463](https://github.com/Sagiroth/TortoiseBots/pull/463)
+- Weighted shuffle rebuilt in O(n log n) with the same distribution; a 5000-candidate pick drops from ~103 ms to a fraction of that. [#834](https://github.com/Sagiroth/TortoiseBots/pull/834)
+- Observability reads the zone from the core cache instead of a per-snapshot terrain lookup, removing the ~80 ms stall every 2 s on large pools. [#847](https://github.com/Sagiroth/TortoiseBots/pull/847)
+- `BOTPERF` now reports route cache reuse vs. rebuild per 30 s window. [#849](https://github.com/Sagiroth/TortoiseBots/pull/849)
+- Value, action-node and shared-value lookups take const refs, single `find`, transparent maps and less allocation churn, saving ~11–16 ms per tick. [#850](https://github.com/Sagiroth/TortoiseBots/pull/850)
+- Travel A* resolves bot invariants once per search and caches water-surface checks, cutting into the 19.2% `getCost` share. [#854](https://github.com/Sagiroth/TortoiseBots/pull/854)
+- Optional value-cache refresh at the full check interval (off by default) stops cached values recalculating at half their interval. [#869](https://github.com/Sagiroth/TortoiseBots/pull/869)
+
+### Core Sync & Fixes
+- `character_transmogs` rows are deleted with the bot character, stopping the next reused guid from inheriting a companion's transmogs and killing `Duplicate entry` log spam. [#816](https://github.com/Sagiroth/TortoiseBots/pull/816)
+- Player `.bot` commands now run on the world thread, removing concurrent AI/BotManager state access from map and packet threads. [#837](https://github.com/Sagiroth/TortoiseBots/pull/837)
+- Chat sent to a bot (`SMSG_MESSAGECHAT` via AsyncPackets, channel broadcaster and map threads) is handled off packet threads safely. [#843](https://github.com/Sagiroth/TortoiseBots/pull/843)
+- Master lookups likewise no longer touch bot AI state from packet threads. [#843](https://github.com/Sagiroth/TortoiseBots/pull/843)
+- Bot AIs are queued by guid so packet threads never hold a `PlayerbotAI*` across a possible world-thread delete, closing the use-after-free around logout under chat/combat load. [#851](https://github.com/Sagiroth/TortoiseBots/pull/851)
+- #490 hire series: gear tiers, BIS data and generator, `.bot hire <class> ... [tier]`, unlock quests 90100–90106, boss-kill unlock credit, respec keeps the tier kit, plus policy tests and migrations. [#875](https://github.com/Sagiroth/TortoiseBots/pull/875)
+- Main's #821 bot-skip change also comes in with the sync. [#875](https://github.com/Sagiroth/TortoiseBots/pull/875)
+- Renames the fishing migration so it no longer collides with #490's file name, making the dev→main release mergeable. [#875](https://github.com/Sagiroth/TortoiseBots/pull/875)
+
+### Configuration & Defaults
+- Six gameplay toggles now default on in code and `aiplayerbot.conf.dist`: `WarlockPetBySpec`, `RogueDungeonThreatDrops`, `HunterViperOnLowMana`, `PaladinJudgementUpkeep`, `OnyxiaWhelpsAndEggs`, `AvoidCreatureAuras`. Set any to `0` for old behaviour. [#874](https://github.com/Sagiroth/TortoiseBots/pull/874)
+
+### Docs
+- Mage AoE rules are de-duplicated (Flamestrike on 3+). [#829](https://github.com/Sagiroth/TortoiseBots/pull/829)
+- Warlock DoT/curse bullets no longer contradict (Destruction opens Curse of the Elements once trained; Felhunter casts Devour Magic). [#829](https://github.com/Sagiroth/TortoiseBots/pull/829)
+- Dungeon tactics sections are back in order (5 before 7). [#829](https://github.com/Sagiroth/TortoiseBots/pull/829)
+- Warrior guide no longer promises an instant-Slam proc; Slam is a hard cast on Turtle and stays out of the DPS rotation. [#832](https://github.com/Sagiroth/TortoiseBots/pull/832)
+- New dungeon tactics section 8 "Turtle 5-Man Reference": boss order, creature entries and rares to skip for 18 dungeons. [#859](https://github.com/Sagiroth/TortoiseBots/pull/859)
+- Removes duplicate rows in player-controls, repeated encounter notes and bomb-runout bullets in dungeon-tactics, the duplicate Travel Target Move Budget row, and a stale `GetTargetIcon` comment. [#863](https://github.com/Sagiroth/TortoiseBots/pull/863)
+- Configuration guide initially recommended `CleanupTerrain = 1` once the core terrain fix lands. [#871](https://github.com/Sagiroth/TortoiseBots/pull/871)
+- `CleanupTerrain = 0` remains the recommendation even with the core fix (#588): 0 stalls vs 3 for `=1` over 35 min on a 1000-bot realm. [#879](https://github.com/Sagiroth/TortoiseBots/pull/879)
+
+### Tooling & Build
+- `tools/test_tactical_stay_release.py` compiles again after #805's pull-refusal helpers, so `verify_all.sh` runs past it. [#815](https://github.com/Sagiroth/TortoiseBots/pull/815)
+- Linux builds link zlib after `libmodules.a`, so bot log packing (`gzopen`/`gzwrite`) no longer fails under `--as-needed`. [#836](https://github.com/Sagiroth/TortoiseBots/pull/836)
+- `verify_all.sh` policy tests are a one-per-line bash array to end constant merge conflicts between open PRs. [#857](https://github.com/Sagiroth/TortoiseBots/pull/857)
+- The loop iterates the array; the test body is unchanged. [#857](https://github.com/Sagiroth/TortoiseBots/pull/857)
+- All 159 existing policy test names are preserved (including the judgment test). [#857](https://github.com/Sagiroth/TortoiseBots/pull/857)
+
+### Observability & Engine
+
+- New read-only **Auction House** tab in the dashboard: summary bar (listings, per-quality breakdown, buyout value, listings with a bid) plus a sortable table of every auction showing item, required level, seller (bots flagged, click through to their profile), bid, buyout, and time left; filter by item name, minimum quality, level range, seller, bots/players, with a faction-house switch that only appears on realms running separate houses — 100 rows per page, loads on tab open or via Refresh, viewing only, no buying. [#878](https://github.com/Sagiroth/TortoiseBots/pull/878)
+- Every bot Auction House purchase is now logged. [#878](https://github.com/Sagiroth/TortoiseBots/pull/878)
+
+### Combat & AI
+- Bear tanks stay in Bear Form through melee Dazes and frost slows; the caster-form cure row is now driven by a real root that actually blocks the fight (target out of reach or LoS), so no more wasted mana shifting back after every slow. [#886](https://github.com/Sagiroth/TortoiseBots/pull/886)
+- Instance cats finally use their finishers: the raid druid strategy gets the same `rip`/`rake` rows as pve/pvp, and Ferocious Bite is skipped below level 32 so low cats never queue it. [#887](https://github.com/Sagiroth/TortoiseBots/pull/887)
+- Holy/disc priests open the medium-health band with Power Word: Shield + Flash Heal (Renew last) instead of buffing and wanding while the tank bleeds out, so first heals land in seconds. [#888](https://github.com/Sagiroth/TortoiseBots/pull/888)
+- `.bot action cc` now refuses assignments a bot can never cast (outdoors-only roots, wrong creature type) and answers with the reason (`no-cc`); a stale selection with a named bot falls back to the live marked mob instead of failing `no-target`. [#890](https://github.com/Sagiroth/TortoiseBots/pull/890)
+
+### Items & Consumables
+- Healthstones, consumable mimics, weapon imbues and rogue poisons no longer cancel themselves: the early cooldown slapped on before the cast executed is gone, and the core applies cooldowns only once the cast goes through. [#889](https://github.com/Sagiroth/TortoiseBots/pull/889)
+
+### Hires & Party
+- Hires survive a master relog: logging out and back in with 3+ companions no longer dismisses them or crashes the world server — reunite no longer gives up on "already in a group", and the grace sweep can't tear the party apart mid-dismiss. [#883](https://github.com/Sagiroth/TortoiseBots/pull/883)
+- Fresh hires stop running their own questing/grind/travel autonomy; quest-giver talk, nearby NPC services and RPG quest targets are refused for hires (explicit quest orders still work). [#892](https://github.com/Sagiroth/TortoiseBots/pull/892)
+
+### Loot & Events
+- Group-loot roll wins are logged as `RollWon` bot events with source `roll`, so items a bot wins show up in the loot feed and its recent events instead of only the money roll. [#893](https://github.com/Sagiroth/TortoiseBots/pull/893)
+
+### Observability & Engine
+- Real online players now appear on the observability dashboard alongside bots — same roster and 2 s cadence, `player` badge, Bots/Players filter, map ring, and their group in tooltip/profile, while staying out of pool KPIs, level bands and census. Wire protocol 8 -> 9. [#891](https://github.com/Sagiroth/TortoiseBots/pull/891)
 
 ## 2026-10-12
 

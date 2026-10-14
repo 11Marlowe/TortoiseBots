@@ -10,6 +10,7 @@
 #include "playerbot/strategy/values/GuildValues.h"
 #include "../../../runtime/HireSourceGuardPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
+#include "../../../runtime/HireQuestPolicy.h"
 
 using namespace ai;
 
@@ -20,6 +21,12 @@ bool TalkToQuestGiverAction::ProcessQuest(Player* requester, Quest const* quest,
         return false;
 
     if (questGiver && (questGiver->GetEntry() == 81030 || questGiver->GetEntry() == 62609))
+        return false;
+
+    // A hired companion never talks to a <Mercenary Hire> recruiter, even on
+    // an explicit order. Pool bots and owned alts are untouched.
+    if (questGiver && TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        TortoiseBots::IsHireQuestRecruiterEntry(questGiver->GetEntry()))
         return false;
 
     bool isCompleted = false;

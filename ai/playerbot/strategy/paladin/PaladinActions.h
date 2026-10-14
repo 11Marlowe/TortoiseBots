@@ -65,6 +65,23 @@ namespace ai
 		CastCrusaderStrikeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "crusader strike") {}
 	};
 
+	// Holy melee-weave: Crusader Strike only when already in melee reach,
+	// never a reason to walk in. Live Alliance raid (Patchwerk): the reach
+	// prerequisite pulled every holy paladin to the boss ~48 times a fight,
+	// where the healer's "enemy too close for spell" row fled it back out.
+	class CastCrusaderStrikeInReachAction : public CastCrusaderStrikeAction
+	{
+	public:
+		CastCrusaderStrikeInReachAction(PlayerbotAI* ai) : CastCrusaderStrikeAction(ai) {}
+		bool isUseful() override
+		{
+			Unit* target = GetTarget();
+			return target && bot->CanReachWithMeleeAutoAttack(target) && CastCrusaderStrikeAction::isUseful();
+		}
+	protected:
+		std::string GetReachActionName() override { return ""; }
+	};
+
 	class CastHolyStrikeAction : public CastMeleeSpellAction
 	{
 	public:
@@ -483,10 +500,29 @@ namespace ai
         CastLayOnHandsAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "lay on hands") {}
     };
 
+    // Lay on Hands drains all of the caster's mana (1 h cooldown), so one
+    // per target is enough: the cast claims the target and other paladins
+    // stand down while the claim is live. Live Alliance raid (Patchwerk,
+    // pull 17): a tank hit critical health 8 s in and all five holy
+    // paladins cast it on him in the same second, going from 100 % to ~5 %
+    // mana for the rest of the fight.
     class CastLayOnHandsOnPartyAction : public HealPartyMemberAction
     {
     public:
         CastLayOnHandsOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "lay on hands") {}
+        bool isUseful() override
+        {
+            Unit* target = GetTarget();
+            if (target && BuffClaimRegistry::IsTargetClaimedByOther(bot, target, "lay on hands"))
+                return false;
+            return HealPartyMemberAction::isUseful();
+        }
+        bool Execute(Event& event) override
+        {
+            if (Unit* target = GetTarget())
+                BuffClaimRegistry::Claim(bot->GetObjectGuid(), target->GetObjectGuid(), "lay on hands");
+            return HealPartyMemberAction::Execute(event);
+        }
     };
 
 	class CastDivineProtectionAction : public CastBuffSpellAction

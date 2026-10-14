@@ -36,6 +36,10 @@ public:
 
 public:
     static int GetPlayerSpecTab(const Player* player);
+    // The tab the default strategy kits are built from: the talent tab, except
+    // that a warrior's or paladin's protection tab gives way to a damage (or,
+    // for a paladin, healing) tab when the bot's forced role leaves out tanking.
+    static int GetKitSpecTab(const Player* player, PlayerbotAI* const facade);
     static std::map<uint32, int32> GetPlayerSpecTabs(const Player* player);
     static BotRoles GetPlayerRoles(uint8 cls, uint8 specTab);
     static BotRoles GetPlayerRoles(const Player* player);
@@ -46,6 +50,11 @@ public:
     // that re-applies the configured combat strategy string checks this after
     // it, since the shipped random-bot string carries -threat.
     static bool KeepsPartyThreatBackoff(Player* player, PlayerbotAI* const facade);
+    // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
+    // tfish, rpg, rpg craft, wander) while the bot is a hired companion.
+    // Ledger-based, so it holds before the group forms and while the master
+    // is offline; owned alts are untouched.
+    static std::string HireSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies);
     // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
     // tfish, rpg, rpg craft, wander) while the bot's master is a real player.
     static std::string RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies);

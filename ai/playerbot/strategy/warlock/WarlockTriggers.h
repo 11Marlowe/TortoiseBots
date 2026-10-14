@@ -65,6 +65,26 @@ namespace ai
         std::string GetTargetName() override { return "current target"; }
     };
 
+    // Raid curse assignment: the core keeps one curse per warlock per target
+    // (live H9: Shadow and Elements from two warlocks sat side by side), so
+    // the Recklessness/Shadow raid rows fire while that curse is missing and
+    // this warlock has no curse of its own on the target. Different
+    // warlocks then cover different curses; the curse-name claim in
+    // CastCurseSlotAction keeps two of them from picking the same one.
+    class CurseOfRecklessnessRaidTrigger : public DebuffTrigger
+    {
+    public:
+        CurseOfRecklessnessRaidTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "curse of recklessness") {}
+        bool IsActive() override;
+    };
+
+    class CurseOfShadowRaidTrigger : public DebuffTrigger
+    {
+    public:
+        CurseOfShadowRaidTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "curse of shadow") {}
+        bool IsActive() override;
+    };
+
     class NoCurseOnAttackerTrigger : public Trigger
     {
     public:

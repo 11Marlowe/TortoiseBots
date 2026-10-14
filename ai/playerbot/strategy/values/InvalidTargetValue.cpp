@@ -77,8 +77,10 @@ bool InvalidTargetValue::Calculate()
         if (ccGuard.IsHeldCcMark(target))
             return true;
     }
+    // An explicit order carries the walk to the target: keep the same wider ceiling
+    // here or the order is accepted and then discarded as invalid on the next tick.
     const bool validTarget = PossibleAttackTargetsValue::IsValid(target, bot,
-        sPlayerbotAIConfig.sightDistance, false, !explicitAttackTarget);
+        explicitAttackTarget ? sPlayerbotAIConfig.reactDistance : sPlayerbotAIConfig.sightDistance, false, !explicitAttackTarget);
     if (!validTarget)
     {
         std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
