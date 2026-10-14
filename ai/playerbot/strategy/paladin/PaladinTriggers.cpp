@@ -274,15 +274,13 @@ bool GreaterBlessingTrigger::IsActive()
     return false;
 }
 
-namespace
-{
-// Any group member (or the bot itself) for whom this bot could still give
-// something: the member lacks at least one known blessing. Mirrors
-// CastBlessingOnPartyAction::GetTarget so the trigger and the action always
-// resolve the same member. The old "party member without my aura" search
-// asked for the first member missing EVERY known blessing, so a healer
-// holding Wisdom was never visited for the Kings only this bot knows (raid
-// 2026-10-14). Decision rule: ai::MemberNeedsBlessingVisit.
+// A group member (or the bot itself) this bot could still bless: it holds
+// no blessing FROM THIS BOT and at least one role-priority pick is
+// uncovered by any caster. Mirrors CastBlessingOnPartyAction::GetTarget so
+// the trigger and the action always resolve the same member. Core aura rule
+// (one blessing per target per caster): own live aura blocks (a second cast
+// would evict it); another paladin's aura never blocks (different casters
+// stack — each member converges to one blessing from EACH paladin).
 Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
 {
     static char const* const kBlessings[] =
@@ -291,24 +289,22 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
         "blessing of sanctuary", "blessing of salvation", "blessing of light",
     };
 
-    std::vector<std::string> knownBlessings;
+    bool knowsAny = false;
     for (char const* blessing : kBlessings)
     {
         std::string const base(blessing);
         std::string const greaterBlessing = "greater " + base;
-        if (greaterOnly)
+        bool const known = greaterOnly
+            ? ai->GetAiObjectContext()->GetValue<uint32>("spell id", greaterBlessing)->Get() != 0
+            : ai->GetAiObjectContext()->GetValue<uint32>("spell id", base)->Get() != 0;
+        if (known)
         {
-            if (ai->GetAiObjectContext()->GetValue<uint32>("spell id", greaterBlessing)->Get())
-                knownBlessings.push_back(greaterBlessing);
-        }
-        else if (ai->GetAiObjectContext()->GetValue<uint32>("spell id", base)->Get())
-        {
-            knownBlessings.push_back(base);
-            knownBlessings.push_back(greaterBlessing);
+            knowsAny = true;
+            break;
         }
     }
 
-    if (knownBlessings.empty())
+    if (!knowsAny)
         return nullptr;
 
     Group* group = bot ? bot->GetGroup() : nullptr;
@@ -320,7 +316,9 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
     {
         if (!member || member->GetMapId() != bot->GetMapId())
             continue;
-        if (!sServerFacade.IsAlive(member))
+        // Hidden GM masters can never land a spell (see the action-side
+        // scan): skip them so they never wedge the trigger either.
+        if (member != bot && member->GetVisibility() == VISIBILITY_OFF)
             continue;
         if (member == bot)
         {
@@ -335,12 +333,18 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
             others.push_back(member);
     }
 
-    auto HasAny = [&](Player* member)
+    // Visit rule: own live blessing blocks; any same-family cover from any
+    // caster blocks that family only. (The action's full role-priority pick
+    // runs at cast time; the trigger only needs "something could land".)
+    auto CouldBless = [&](Player* member)
     {
-        for (std::string const& blessing : knownBlessings)
-            if (!ai->HasAura(blessing, member))
-                return true;
-        return false;
+        for (char const* blessing : kBlessings)
+        {
+            std::string const base(blessing);
+            if (ai->HasMyAura(base, member) || ai->HasMyAura("greater " + base, member))
+                return false;
+        }
+        return true;
     };
 
     for (std::list<Player*>* bucket : { &healers, &tanks, &others })
@@ -349,14 +353,13 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
         {
             if (sServerFacade.getDistance2d(member, bot) > 30.0f)
                 continue;
-            if (HasAny(member) && sServerFacade.IsWithinLOSInMap(bot, member))
+            if (CouldBless(member) && sServerFacade.IsWithinLOSInMap(bot, member))
                 return member;
         }
     }
 
     return nullptr;
 }
-} // namespace
 
 bool BlessingOnPartyTrigger::IsActive()
 {

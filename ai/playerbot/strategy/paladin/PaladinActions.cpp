@@ -124,21 +124,34 @@ bool CastBlessingAction::isPossible()
 
 std::string CastBlessingAction::GetBlessingForTarget(Unit* target)
 {
+    // Same one-slot-per-paladin rule as the on-party choice below: only one
+    // of THIS bot's blessings sits on a member at a time. Own live aura
+    // stands; another caster's never blocks — different casters stack.
     std::string chosenBlessing = "";
     if (target)
     {
+        static char const* const kBlessings[] =
+        {
+            "blessing of might", "blessing of wisdom", "blessing of kings",
+            "blessing of sanctuary", "blessing of salvation", "blessing of light",
+        };
+        for (char const* base : kBlessings)
+        {
+            std::string const single(base);
+            if (ai->HasMyAura(single, target) || ai->HasMyAura("greater " + single, target))
+                return std::string();
+        }
         std::vector<std::string> possibleBlessings = GetPossibleBlessingsForTarget(target);
         for (const std::string& blessing : possibleBlessings)
         {
             const std::string greaterBlessing = "greater " + blessing;
-            if (!ai->HasAura(blessing, target) && !ai->HasAura(greaterBlessing, target))
+            if (ai->HasAura(blessing, target) || ai->HasAura(greaterBlessing, target))
+                continue;
+            if ((greater && ai->CanCastSpell(greaterBlessing, target, 0, nullptr, true)) ||
+                (!greater && ai->CanCastSpell(blessing, target, 0, nullptr, true)))
             {
-                if ((greater && ai->CanCastSpell(greaterBlessing, target, 0, nullptr, true)) ||
-                    (!greater && ai->CanCastSpell(blessing, target, 0, nullptr, true)))
-                {
-                    chosenBlessing = greater ? greaterBlessing : blessing;
-                    break;
-                }
+                chosenBlessing = greater ? greaterBlessing : blessing;
+                break;
             }
         }
     }
@@ -261,27 +274,25 @@ Unit* CastBlessingOnPartyAction::GetTarget()
 {
     // NOTE: PaladinTriggers.cpp FindBlessingCandidate duplicates this scan
     // for the trigger side (different base class, no shared helper). Keep
-    // the two in sync: same order, same any-missing rule, self included.
-    // Decision rule: ai::MemberNeedsBlessingVisit (BlessingCoveragePolicy.h).
-    std::vector<std::string> altBlessings;
-    altBlessings.push_back("blessing of might");
-    altBlessings.push_back("blessing of wisdom");
-    altBlessings.push_back("blessing of kings");
-    altBlessings.push_back("blessing of sanctuary");
-    altBlessings.push_back("blessing of salvation");
-    altBlessings.push_back("blessing of light");
+    // the two in sync: same order, same visit rule (member lacks an uncovered
+    // pick from this bot), self included.
+    static char const* const kBlessings[] =
+    {
+        "blessing of might", "blessing of wisdom", "blessing of kings",
+        "blessing of sanctuary", "blessing of salvation", "blessing of light",
+    };
 
-    std::vector<std::string> knownBlessings;
-    for (auto blessing : altBlessings)
+    bool knowsAny = false;
+    for (char const* blessing : kBlessings)
     {
         if (AI_VALUE2(uint32, "spell id", blessing))
         {
-            knownBlessings.push_back(blessing);
-            knownBlessings.push_back("greater " + blessing);
+            knowsAny = true;
+            break;
         }
     }
 
-    if (knownBlessings.empty())
+    if (!knowsAny)
     {
         return nullptr;
     }
@@ -301,7 +312,11 @@ Unit* CastBlessingOnPartyAction::GetTarget()
     {
         if (!member || member->GetMapId() != bot->GetMapId())
             continue;
-        if (!sServerFacade.IsAlive(member))
+        // Hidden GM masters (VISIBILITY_OFF) can never land a spell: the
+        // core drops them in Spell::CheckTarget after the cast starts, so
+        // they read as "bare" forever and wedge the scan (PartyMemberValue::
+        // Check skips them the same way; paladin loop 2026-10-11).
+        if (member != bot && member->GetVisibility() == VISIBILITY_OFF)
             continue;
         if (member == bot)
         {
@@ -321,20 +336,18 @@ Unit* CastBlessingOnPartyAction::GetTarget()
     order.insert(order.end(), tanks.begin(), tanks.end());
     order.insert(order.end(), others.begin(), others.end());
 
+    // One slot per member PER PALADIN (core: one SPELL_BLESSING per target
+    // per caster): visit a member when this bot has no live blessing on it
+    // and at least one role-priority pick is uncovered by any caster.
+    // Another paladin's aura never blocks the visit — different casters
+    // stack, so each member converges to one blessing from EACH paladin.
     for (Player* member : order)
     {
         if (sServerFacade.getDistance2d(member, bot) > 30.0f)
             continue;
-        bool missing = false;
-        for (auto blessing : knownBlessings)
-        {
-            if (!ai->HasAura(blessing, member))
-            {
-                missing = true;
-                break;
-            }
-        }
-        if (missing && sServerFacade.IsWithinLOSInMap(bot, member))
+        if (GetBlessingForTarget(member).empty())
+            continue;
+        if (sServerFacade.IsWithinLOSInMap(bot, member))
             return member;
     }
 
@@ -387,32 +400,56 @@ bool CastBlessingOnPartyAction::Execute(Event& event)
 
 std::string CastBlessingOnPartyAction::GetBlessingForTarget(Unit* target)
 {
-    std::string chosenBlessing = "";
-    if (target)
-    {
-        std::vector<std::string> possibleBlessings = GetPossibleBlessingsForTarget(target);
-        for (const std::string& blessing : possibleBlessings)
-        {
-            // Don't cast greater salvation on possible tank classes
-            if (greater && blessing == "blessing of salvation" && target->IsPlayer())
-            {
-                const uint8 playerClass = ((Player*)target)->GetClass();
-                if (playerClass == CLASS_PALADIN || playerClass == CLASS_WARRIOR || playerClass == CLASS_DRUID)
-                {
-                    break;
-                }
-            }
+    // Core aura rule (one SPELL_BLESSING per target per caster): a paladin
+    // owns exactly one blessing slot per member. Never cast a second,
+    // different blessing where one of THIS bot's blessings already sits —
+    // that cast evicts the bot's own live aura (the Light/Kings and
+    // Might/Wisdom churn seen live 2026-10-14). Blessings from DIFFERENT
+    // casters stack, so another paladin's aura is no reason to stand down:
+    // pick the highest role-priority blessing this bot knows that NO caster
+    // (self included) already provides on the member. The paladin that
+    // uniquely knows a blessing (Kings) therefore prefers it wherever the
+    // member lacks it, whatever else the member holds from others.
+    if (!target)
+        return std::string();
 
-            const std::string greaterBlessing = "greater " + blessing;
-            if (!ai->HasAura(blessing, target) && !ai->HasAura(greaterBlessing, target))
+    static char const* const kBlessings[] =
+    {
+        "blessing of might", "blessing of wisdom", "blessing of kings",
+        "blessing of sanctuary", "blessing of salvation", "blessing of light",
+    };
+    for (char const* base : kBlessings)
+    {
+        std::string const single(base);
+        if (ai->HasMyAura(single, target) || ai->HasMyAura("greater " + single, target))
+            return std::string(); // own blessing stands: never overwrite it
+    }
+
+    std::string chosenBlessing = "";
+    std::vector<std::string> possibleBlessings = GetPossibleBlessingsForTarget(target);
+    for (const std::string& blessing : possibleBlessings)
+    {
+        // Don't cast greater salvation on possible tank classes
+        if (greater && blessing == "blessing of salvation" && target->IsPlayer())
+        {
+            const uint8 playerClass = ((Player*)target)->GetClass();
+            if (playerClass == CLASS_PALADIN || playerClass == CLASS_WARRIOR || playerClass == CLASS_DRUID)
             {
-                if ((greater && ai->CanCastSpell(greaterBlessing, target, 0, nullptr, true)) ||
-                    (!greater && ai->CanCastSpell(blessing, target, 0, nullptr, true)))
-                {
-                    chosenBlessing = greater ? greaterBlessing : blessing;
-                    break;
-                }
+                break;
             }
+        }
+
+        // Same family from ANY caster already covers the member: single and
+        // greater share the slot per caster, and a second family copy adds
+        // nothing while costing a cast.
+        const std::string greaterBlessing = "greater " + blessing;
+        if (ai->HasAura(blessing, target) || ai->HasAura(greaterBlessing, target))
+            continue;
+        if ((greater && ai->CanCastSpell(greaterBlessing, target, 0, nullptr, true)) ||
+            (!greater && ai->CanCastSpell(blessing, target, 0, nullptr, true)))
+        {
+            chosenBlessing = greater ? greaterBlessing : blessing;
+            break;
         }
     }
 
