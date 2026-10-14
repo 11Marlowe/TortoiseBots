@@ -146,12 +146,17 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "improved shield slam proc",
         NextAction::array(0, new NextAction("shield slam", ACTION_HIGH + 5), NULL)));
 
-    // Shield Slam at medium rage (donor TankWarriorStrategy gates at 40):
-    // at 20 rage slam fired before the sunder stack was complete and stole
-    // the GCD from revenge (5 rage, proc-gated). Thunder clap stays below
-    // at HIGH+1 (matches donor slam+2/devastate+1/clap+1 shape).
+    // Shield Slam at any affordable rage (donor TankWarriorStrategy gates at
+    // 40, but that stranded rage-thin off-tanks): Slam costs 20 rage, and a
+    // Protection bot that is not the boss's victim earns almost no rage
+    // from hits taken - white swings plus Bloodrage only. Gating the row at
+    // 40 parked such bots in melee-only for most of a boss fight (H7
+    // Patchwerk: Fury passed three living off-tanks on threat at 57/69 s
+    // while Shield Slam sat IMPOSSIBLE at 20-39 rage), so the row fires as
+    // soon as the spell is affordable. The main tank is unaffected (it
+    // already slams near cooldown). Thunder clap stays below at HIGH+1.
     triggers.push_back(new TriggerNode(
-        "medium rage available",
+        "light rage available",
         NextAction::array(0, new NextAction("shield slam", ACTION_HIGH + 4), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -195,12 +200,17 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
                              new NextAction("overpower", ACTION_HIGH + 4),
                              new NextAction("defensive stance", ACTION_HIGH + 3), NULL)));
 
-    // Bloodrage opener: Improved Bloodrage 2/2 gives +50% rage generation.
+    // Bloodrage opener and rage maintenance (donor TankWarriorStrategy runs
+    // it at HIGH+2): Improved Bloodrage 2/2 gives +50% rage generation.
     // Cast on engage to jump-start the rotation (Shield Slam needs ~15 rage
-    // to fire, Bloodrage gives 30+).
+    // to fire, Bloodrage gives 30+) and on cooldown for rage-thin
+    // off-tanks. NORMAL+5 lost to the sunder row's melee alternative
+    // (25.04) while the sunder stack was incomplete, delaying the first
+    // Bloodrage ~10 s into the pull; HIGH+2 sits below every threat
+    // builder, so it only ever wins rage the builders cannot spend.
     triggers.push_back(new TriggerNode(
         "bloodrage",
-        NextAction::array(0, new NextAction("bloodrage", ACTION_NORMAL + 5), NULL)));
+        NextAction::array(0, new NextAction("bloodrage", ACTION_HIGH + 2), NULL)));
 }
 
 void ProtectionWarriorStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
