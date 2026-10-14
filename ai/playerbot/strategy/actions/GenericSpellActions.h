@@ -196,6 +196,12 @@ namespace ai
         virtual std::string GetTargetName() override { return "self target"; }
         virtual bool isUseful() override;
         virtual bool Execute(Event& event) override;
+        // Self-cast buffs (death wish, bloodrage, shouts, racials) are not
+        // threat events: vetoing them at high threat starved every cooldown
+        // whose trigger fires through the fight (Patchwerk 2026-10-14: death
+        // wish x0, recklessness x0, blood fury x0 across 77 s at high threat).
+        // Donor parity: donor CastBuffSpellAction carries threat type None.
+        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
 
     protected:
         // Issue #378: retry window for one attempt on one target, out of combat.

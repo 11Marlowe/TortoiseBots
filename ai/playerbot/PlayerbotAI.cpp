@@ -31,6 +31,7 @@
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
+#include "playerbot/InterruptCastingPolicy.h"
 #include "BotDiagnostics.h"
 #include "BotActionLog.h"
 #include "playerbot/PlayerbotFactory.h"
@@ -6444,28 +6445,52 @@ bool PlayerbotAI::RemoveAura(const std::string& name)
 
 bool PlayerbotAI::IsInterruptableSpellCasting(Unit* target, std::string spell, uint8 effectMask)
 {
-	uint32 spellid = aiObjectContext->GetValue<uint32>("spell id", spell)->Get();
-	if (!spellid || !target->IsNonMeleeSpellCasted(true))
-		return false;
+    if (!target)
+        return false;
+    uint32 spellid = aiObjectContext->GetValue<uint32>("spell id", spell)->Get();
+    if (!spellid)
+        return false;
 
-	SpellEntry const *spellInfo = sServerFacade.LookupSpellInfo(spellid);
-	if (!spellInfo)
-		return false;
+    SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellid);
+    if (!spellInfo)
+        return false;
 
-	for (int32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; i++)
-	{
-		if ((spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_COMBAT) && spellInfo->PreventionType == SPELL_PREVENTION_TYPE_SILENCE)
-			return true;
+    // The victim's cast, read off the core spell slots (ai/playerbot/
+    // InterruptCastingPolicy.h owns the verdict): only a generic spell
+    // still on its bar or channeling, or a channeled spell in flight,
+    // counts. The old IsNonMeleeSpellCasted(true) probe also fired on
+    // DELAYED instants (missile in flight, nothing on a bar) and the
+    // autorepeat slot, so melee bosses read as "casting" and Pummel/Kick
+    // fired on cooldown into thin air.
+    auto ReadSlot = [target](CurrentSpellTypes type, bool channeledSlot, ai::InterruptTargetSpell& out) -> ai::InterruptTargetSpell const*
+    {
+        Spell* current = target->GetCurrentSpell(type);
+        if (!current || !current->m_spellInfo)
+            return nullptr;
+        out.spell = current;
+        out.channeledSlot = channeledSlot;
+        out.state = current->getState();
+        out.castTime = current->GetCastTime();
+        out.preventionType = current->m_spellInfo->PreventionType;
+        out.interruptFlags = current->m_spellInfo->InterruptFlags;
+        out.channelInterruptFlags = current->m_spellInfo->ChannelInterruptFlags;
+        return &out;
+    };
+    ai::InterruptTargetSpell generic{}, channeled{};
+    ai::InterruptTargetSpell const* genericSlot = ReadSlot(CURRENT_GENERIC_SPELL, false, generic);
+    ai::InterruptTargetSpell const* channeledSlot = ReadSlot(CURRENT_CHANNELED_SPELL, true, channeled);
 
-		if ((spellInfo->Effect[i] == SPELL_EFFECT_INTERRUPT_CAST) &&
-			!target->IsImmuneToSpellEffect(spellInfo, (SpellEffectIndex)i, true))
-			return true;
-
-        if ((spellInfo->Effect[i] == SPELL_EFFECT_APPLY_AURA) && spellInfo->EffectApplyAuraName[i] == SPELL_AURA_MOD_SILENCE)
-            return true;
-	}
-
-	return false;
+    ai::InterruptSpellInfo interrupt;
+    interrupt.interruptFlags = spellInfo->InterruptFlags;
+    interrupt.preventionType = spellInfo->PreventionType;
+    for (int32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2 && i < ai::InterruptSpellInfo::MAX_EFFECTS; ++i)
+    {
+        interrupt.effect[i] = spellInfo->Effect[i];
+        interrupt.effectAura[i] = spellInfo->EffectApplyAuraName[i];
+        interrupt.effectImmune[i] = target->IsImmuneToSpellEffect(spellInfo, (SpellEffectIndex)i, true);
+    }
+    (void)effectMask;
+    return ai::ShouldInterruptTargetCasting(genericSlot, channeledSlot, interrupt);
 }
 
 bool PlayerbotAI::HasAuraToDispel(Unit* target, uint32 dispelType)

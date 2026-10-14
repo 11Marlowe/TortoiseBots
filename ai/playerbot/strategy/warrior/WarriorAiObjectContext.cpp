@@ -186,6 +186,7 @@ namespace ai
                 creators["rend on attacker"] = [](PlayerbotAI* ai) { return new CastRendOnAttackerAction(ai); };
                 creators["mocking blow"] = [](PlayerbotAI* ai) { return new CastMockingBlowAction(ai); };
                 creators["death wish"] = [](PlayerbotAI* ai) { return new CastDeathWishAction(ai); };
+                creators["recklessness"] = [](PlayerbotAI* ai) { return new CastRecklessnessAction(ai); };
                 creators["berserker rage"] = [](PlayerbotAI* ai) { return new CastBerserkerRageAction(ai); };
                 creators["execute"] = [](PlayerbotAI* ai) { return new CastExecuteAction(ai); };
                 creators["defensive stance"] = [](PlayerbotAI* ai) { return new CastDefensiveStanceAction(ai); };
