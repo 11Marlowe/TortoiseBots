@@ -500,10 +500,29 @@ namespace ai
         CastLayOnHandsAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "lay on hands") {}
     };
 
+    // Lay on Hands drains all of the caster's mana (1 h cooldown), so one
+    // per target is enough: the cast claims the target and other paladins
+    // stand down while the claim is live. Live Alliance raid (Patchwerk,
+    // pull 17): a tank hit critical health 8 s in and all five holy
+    // paladins cast it on him in the same second, going from 100 % to ~5 %
+    // mana for the rest of the fight.
     class CastLayOnHandsOnPartyAction : public HealPartyMemberAction
     {
     public:
         CastLayOnHandsOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "lay on hands") {}
+        bool isUseful() override
+        {
+            Unit* target = GetTarget();
+            if (target && BuffClaimRegistry::IsTargetClaimedByOther(bot, target, "lay on hands"))
+                return false;
+            return HealPartyMemberAction::isUseful();
+        }
+        bool Execute(Event& event) override
+        {
+            if (Unit* target = GetTarget())
+                BuffClaimRegistry::Claim(bot->GetObjectGuid(), target->GetObjectGuid(), "lay on hands");
+            return HealPartyMemberAction::Execute(event);
+        }
     };
 
 	class CastDivineProtectionAction : public CastBuffSpellAction
