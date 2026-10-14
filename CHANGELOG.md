@@ -78,6 +78,11 @@
 - All changes are generic class/role/group behaviour, not boss scripting — they apply everywhere, from dungeons to raids, for both factions. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
 - Validated on Patchwerk (Naxxramas) as a straight DPS/uptime check: 39 hired AQ-tier bots plus one player kill him without world buffs, with a normal composition and consumables and zero GM help — no deaths on the Alliance run. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
 
+### Build & Tooling
+- `BuildOpcodeSet` and `RegisterPacketHandlers` are now plain pointer + count functions, dropping the array-reference template and defaulted `std::initializer_list` that MSVC 19.44 (VS 2022 17.14) choked on with `C2065 'specs': undeclared identifier` — `PlayerbotAI.cpp` builds cleanly on MSVC again. [#954](https://github.com/Sagiroth/TortoiseBots/pull/954)
+- Call sites now pass `std::size(...)` of the same handler arrays, with an explicit `{}` wherever no extra opcodes are needed. [#954](https://github.com/Sagiroth/TortoiseBots/pull/954)
+- Handler lists and registered handlers are unchanged, so this is a pure build fix with no runtime or gameplay impact. [#954](https://github.com/Sagiroth/TortoiseBots/pull/954)
+
 ## 2026-10-13
 
 ### World & NPC Behavior
