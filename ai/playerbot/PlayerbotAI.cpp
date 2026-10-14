@@ -5832,7 +5832,9 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 	bot->SetSelectionGuid(target->getObjectGuid());
 
     WorldObject* faceTo = target;
-    if (!sServerFacade.isInFront(bot, faceTo, sPlayerbotAIConfig.sightDistance, CAST_ANGLE_IN_FRONT))
+    // A self-cast (Evocation, Combustion, Ice Block, ...) needs no facing; a bot is never "in
+    // front" of itself, so the check below deferred every self-cast while the bot moved.
+    if (target != bot && !sServerFacade.isInFront(bot, faceTo, sPlayerbotAIConfig.sightDistance, CAST_ANGLE_IN_FRONT))
     {
         sServerFacade.SetFacingTo(bot, faceTo);
         // ServerFacade::SetFacingTo only turns instantly (Unit::SetOrientation) while the bot
