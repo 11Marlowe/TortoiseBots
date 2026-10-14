@@ -3935,8 +3935,11 @@ void RandomItemMgr::BuildPotionCache()
                 if (!proto)
                     continue;
 
+                // Turtle 1.18.1 combat potions live under subclass 0
+                // (ITEM_SUBCLASS_CONSUMABLE); see FindPotionVisitor. The
+                // spell-effect loop below still restricts to heal/energize.
                 if (proto->Class != ITEM_CLASS_CONSUMABLE ||
-                    (proto->SubClass != ITEM_SUBCLASS_POTION && proto->SubClass != ITEM_SUBCLASS_FLASK) ||
+                    (proto->SubClass != ITEM_SUBCLASS_CONSUMABLE && proto->SubClass != ITEM_SUBCLASS_POTION && proto->SubClass != ITEM_SUBCLASS_FLASK) ||
                     proto->Bonding != NO_BIND)
                     continue;
 
