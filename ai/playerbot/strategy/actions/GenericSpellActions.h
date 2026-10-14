@@ -324,7 +324,13 @@ namespace ai
         HealPartyMemberAction(PlayerbotAI* ai, std::string spell, uint8 estAmount, HealManaEfficiency efficiency) : CastHealingSpellAction(ai, spell, estAmount, efficiency), PartyMemberActionNameSupport(spell) {}
         HealPartyMemberAction(PlayerbotAI* ai, std::string spell) : CastHealingSpellAction(ai, spell), PartyMemberActionNameSupport(spell) {}
         virtual std::string getName() override { return PartyMemberActionNameSupport::getName(); }
-		virtual std::string GetTargetName() override { return "party member to heal"; }
+        virtual std::string GetTargetName() override { return "party member to heal"; }
+        // Party heals never back off for threat: the threat value reads 100
+        // for any mob the tank has not touched yet, so while the tank is
+        // busy elsewhere the veto holds every heal and the healer watches
+        // the party die at full mana. The back-off is for damage that pulls
+        // a mob off the tank, not for keeping its victim alive.
+        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
         virtual bool isUseful() override;
         // Downrank: at cast start, swap the top-rank spell id for the
         // cheapest known rank covering the wound (missing minus incoming).
