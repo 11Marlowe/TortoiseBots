@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "Database/DBCStore.h"
 
 #include "Database/DatabaseEnv.h"
 #include "PlayerbotAI.h"
@@ -117,13 +118,38 @@ bool ServerFacade::IsSpellReady(Player* bot, uint32 spell, uint32 itemId)
     return !bot->HasSpellCooldown(spell);
 #endif
 #ifdef CMANGOS
-    if (itemId)
+    if (!bot || !spell)
+        return false;
+    if (!itemId)
+        return !bot->HasSpellCooldown(spell);
+    // Item casts are gated by the core on the item row's spell category
+    // (Unit::AddSpellAndCategoryCooldowns prefers the item prototype's
+    // SpellCategory/SpellCooldown over the DBC row), so a pure spell-id
+    // check calls ready while the core still refuses with NOT_READY.
+    // Live case: Mana Ruby (8008) carries spell cooldown 0 but category
+    // 1153 cooldown 120 s; every in-combat retry inside that window was
+    // selected (isPossible true) then refused at cast time. Mirror the
+    // core lookup: item row matching this spell, else the DBC category.
+    if (bot->HasSpellCooldown(spell))
+        return false;
+    uint32 category = 0;
+    if (const ItemPrototype* proto = sObjectMgr.GetItemPrototype(itemId))
     {
-        const ItemPrototype* proto = sObjectMgr.GetItemPrototype(itemId);
-        return !bot->HasSpellCooldown(spell);
+        for (const auto& spellData : proto->Spells)
+        {
+            if (spellData.SpellId == spell)
+            {
+                category = spellData.SpellCategory;
+                break;
+            }
+        }
     }
-    else
-        return !bot->HasSpellCooldown(spell);
+    if (!category)
+    {
+        if (const SpellEntry* spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(spell))
+            category = spellInfo->Category;
+    }
+    return !category || !bot->HasSpellCategoryCooldown(category);
 #endif
 }
 
