@@ -8,10 +8,23 @@
 namespace ai
 {
     BUFF_ACTION(CastGhostWolfAction, "ghost wolf");
-    class CastLesserHealingWaveAction : public CastHealingSpellAction
+    // Self-target direct heals share the party downrank swap: the base
+    // HealPartyMemberAction::Execute only runs for the "on party" lines,
+    // so the self rows ("healing wave", "lesser healing wave") always paid
+    // top rank (live raid 2026-10-14: Healing Wave top rank 100x). Same
+    // wound rule, own target — top rank on emergency, cheapest fitting
+    // rank otherwise.
+    class CastSelfDownrankHealingAction : public CastHealingSpellAction
     {
     public:
-        CastLesserHealingWaveAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "lesser healing wave") {}
+        CastSelfDownrankHealingAction(PlayerbotAI* ai, std::string spell) : CastHealingSpellAction(ai, spell) {}
+        bool Execute(Event& event) override;
+    };
+
+    class CastLesserHealingWaveAction : public CastSelfDownrankHealingAction
+    {
+    public:
+        CastLesserHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "lesser healing wave") {}
     };
 
     class CastLesserHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -20,10 +33,10 @@ namespace ai
         CastLesserHealingWaveOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
     };
 
-    class CastHealingWaveAction : public CastHealingSpellAction
+    class CastHealingWaveAction : public CastSelfDownrankHealingAction
     {
     public:
-        CastHealingWaveAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "healing wave") {}
+        CastHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "healing wave") {}
     };
 
     class CastHealingWaveOnPartyAction : public HealPartyMemberAction

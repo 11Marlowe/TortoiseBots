@@ -62,6 +62,17 @@ void RestorationShamanStrategy::InitCombatTriggers(std::list<TriggerNode*> &trig
     triggers.push_back(new TriggerNode(
         "healer low mana",
         NextAction::array(0, new NextAction("mana tide totem", ACTION_EMERGENCY), NULL)));
+    // No 450-mana Earth Shocks mid heal fight (live raid 2026-10-14: 12
+    // shocks while healing was needed): the generic `shock` debuff line
+    // stays off for restoration, and this gated row fires only while
+    // `healer should attack` holds — same rule as the searing gate below.
+    // The two interrupt rows (own target + enemy healer) live in the base
+    // ShamanStrategy and stay exempt: stopping a cast saves more than it
+    // costs.
+    triggers.push_back(new TriggerNode(
+        "earth shock and healer should attack",
+        NextAction::array(0, new NextAction("earth shock", ACTION_DEFAULT), NULL)));
+
 
     triggers.push_back(new TriggerNode(
         "critical health",
@@ -435,6 +446,37 @@ void RestorationShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>
 void RestorationShamanTotemsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ShamanTotemsStrategy::InitNonCombatTriggers(triggers);
+
+    // Pre-pull placement (owner request): out of combat, when the group is
+    // assembled for a fight (ready check / group gathered), drop the same
+    // subgroup-picked totems so the pull starts with Mana Spring etc.
+    // already up. Same triggers as combat: each quiets once its slot holds
+    // a totem, so no re-cast spam while totems live. Relevance below combat
+    // (ACTION_NORMAL): pre-pull never outbids a live fight, and the upkeep
+    // mana floor still gates broke bots.
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("windfury totem", ACTION_NORMAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("tranquil air totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("grace of air totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "water totem",
+        NextAction::array(0, new NextAction("mana spring totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "water totem",
+        NextAction::array(0, new NextAction("healing stream totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "earth totem",
+        NextAction::array(0, new NextAction("strength of earth totem", ACTION_NORMAL), NULL)));
 }
 
 void RestorationShamanTotemsPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

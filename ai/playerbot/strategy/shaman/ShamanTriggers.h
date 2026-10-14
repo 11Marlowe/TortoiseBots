@@ -169,6 +169,14 @@ namespace ai
             }
             else
             {
+                // No manual earth order: Strength of Earth only for a
+                // subgroup that swings it (warriors/rogues/feral/melee).
+                // Caster/healer groups keep the slot empty instead of
+                // buffing nobody (live raid: SoE on mage/warlock groups).
+                std::string want = BestEarthTotemForSubgroup(ReadTotemSubgroup(ai, bot),
+                    ai->HasSpell("strength of earth totem"));
+                if (want.empty())
+                    return false;
                 return !AI_VALUE2(bool, "has totem", "earthbind totem") &&
                        !AI_VALUE2(bool, "has totem", "stoneskin totem") &&
                        !AI_VALUE2(bool, "has totem", "stoneclaw totem") &&
@@ -204,11 +212,13 @@ namespace ai
                 if (member->GetMapId() != bot->GetMapId() || bot->GetDistance(member) > 100.0f)
                     continue;
                 uint8 cls = member->GetClass();
-                // Melee that swings for Windfury/SoE: warriors, rogues, and
-                // feral druids tanking in form (IsTank covers bear). No
-                // AiFactory here (header-inline): enhancement shamans count
-                // as melee via the generic IsMelee strategy check.
+                // Melee that swings for Windfury/SoE: warriors, rogues,
+                // hunters (their pet swings with them), and feral druids
+                // tanking in form (IsTank covers bear). No AiFactory here
+                // (header-inline): enhancement shamans count as melee via
+                // the generic IsMelee strategy check.
                 bool melee = cls == CLASS_WARRIOR || cls == CLASS_ROGUE ||
+                    cls == CLASS_HUNTER ||
                     (cls == CLASS_DRUID && ai->IsTank(member)) ||
                     (cls == CLASS_SHAMAN && ai->IsMelee(member));
                 bool mana = member->GetMaxPower(POWER_MANA) > 0;
@@ -266,20 +276,21 @@ namespace ai
             else
             {
                 // No manual air order: pick by subgroup (totems only reach
-                // our own party). Melee-heavy -> windfury; casters/healers
-                // -> tranquil air (Turtle 25908) or grace of air. Keep the
-                // reactive rows' totems out of the check so grounding swaps
-                // still land while the slot holds the spec totem.
+                // our own party). Melee -> windfury; casters/healers ->
+                // tranquil air (Turtle 25908) or grace of air. The trigger
+                // stays shared "air totem" across the three strategy rows;
+                // each action checks its own aura, so the wrong row goes
+                // USELESS and the engine falls through to the right one.
+                // The slot check lists every air totem so a reactive
+                // grounding swap still lands while the spec totem is up.
                 std::string want = BestAirTotemForSubgroup(ReadTotemSubgroup(ai, bot),
                     ai->HasSpell("windfury totem"), ai->HasSpell("grace of air totem"),
                     ai->HasSpell("tranquil air totem"));
                 if (want.empty())
                     return false;
-                return !AI_VALUE2(bool, "has totem", "grace of air totem") &&
-                       !AI_VALUE2(bool, "has totem", "tranquil air totem") &&
-                       !AI_VALUE2(bool, "has totem", "windwall totem") &&
-                       !AI_VALUE2(bool, "has totem", "windfury totem") &&
-                       !AI_VALUE2(bool, "has totem", "grounding totem") &&
+                if (AI_VALUE2(bool, "has totem", want.c_str()))
+                    return false;
+                return !AI_VALUE2(bool, "has totem", "grounding totem") &&
                        !AI_VALUE2(bool, "has totem", "sentry totem") &&
                        !AI_VALUE2(bool, "has totem", "nature resistance totem");
             }
@@ -324,15 +335,17 @@ namespace ai
             else
             {
                 // No manual water order: mana users in the subgroup -> mana
-                // spring, else healing stream. A resto shaman in a caster
-                // group therefore springs instead of trickle-healing.
+                // spring, else healing stream. Shared "water totem" trigger
+                // across both rows: the wanted totem's own aura quiets the
+                // trigger, the wrong row's action goes USELESS on its aura
+                // scan and the engine falls through to the right one.
                 std::string want = BestWaterTotemForSubgroup(ReadTotemSubgroup(ai, bot),
                     ai->HasSpell("mana spring totem"), ai->HasSpell("healing stream totem"));
                 if (want.empty())
                     return false;
-                return !AI_VALUE2(bool, "has totem", "healing stream totem") &&
-                       !AI_VALUE2(bool, "has totem", "mana spring totem") &&
-                       !AI_VALUE2(bool, "has totem", "poison cleansing totem") &&
+                if (AI_VALUE2(bool, "has totem", want.c_str()))
+                    return false;
+                return !AI_VALUE2(bool, "has totem", "poison cleansing totem") &&
                        !AI_VALUE2(bool, "has totem", "disease cleansing totem") &&
                        !AI_VALUE2(bool, "has totem", "mana tide totem") &&
                        !AI_VALUE2(bool, "has totem", "fire resistance totem");

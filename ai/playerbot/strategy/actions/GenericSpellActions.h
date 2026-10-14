@@ -335,10 +335,12 @@ namespace ai
         // Downrank: at cast start, swap the top-rank spell id for the
         // cheapest known rank covering the wound (missing minus incoming).
         virtual bool Execute(Event& event) override;
-    private:
+    protected:
         // Cheapest known rank covering the target's wound, the top rank on
         // emergency, 0 when this line must not downrank (HoT/shield/hybrid,
         // AoE, cooldown, one rank known, no wound left). Pure scan, no state.
+        // Protected so the self-target direct-heal lines (same wound logic,
+        // different target) can share it without the party name/target.
         uint32 DownrankSpellId(Unit* target);
     };
     class HealHotPartyMemberAction : public HealPartyMemberAction
