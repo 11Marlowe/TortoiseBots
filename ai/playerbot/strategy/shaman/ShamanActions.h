@@ -272,11 +272,6 @@ namespace ai
     {
     public:
         CastWindfuryTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "windfury totem") {}
-
-        virtual bool isUseful() override
-        {
-            return (bot->GetGroup() || ai->HasStrategy("totem air windfury", BotState::BOT_STATE_COMBAT)) && CastTotemAction::isUseful();
-        }
     };
 
     class CastWindwallTotemAction : public CastTotemAction
@@ -289,11 +284,15 @@ namespace ai
     {
     public:
         CastGraceOfAirTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "grace of air totem") {}
+    };
 
-        virtual bool isUseful() override
-        {
-            return (!bot->GetGroup() || ai->HasStrategy("totem air grace", BotState::BOT_STATE_COMBAT)) && CastTotemAction::isUseful();
-        }
+    // Turtle custom (25908): threat-reduction air totem, preferred for
+    // caster subgroups when trained. No strategy gate: the air trigger's
+    // subgroup census picks it, the slot check quiets it once down.
+    class CastTranquilAirTotemAction : public CastTotemAction
+    {
+    public:
+        CastTranquilAirTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "tranquil air totem") {}
     };
 
     class CastSearingTotemAction : public CastTotemAction
