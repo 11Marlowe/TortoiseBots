@@ -130,6 +130,79 @@ int main()
     CHECK(!ShouldSelfHealerHoldGround(true, true, true, 100, 15));
     CHECK(!ShouldSelfHealerHoldGround(false, false, true, 100, 15));
 
+    // Rest refusal reasons (#916): the first gate that held, in order.
+    {
+        using ai::RestRefusalInput;
+        using ai::RestRefusalReason;
+        RestRefusalInput in;
+        in.usesMana = true;
+        in.manaPct = 40;
+        in.healthPct = 100;
+        in.alive = false;
+        CHECK(RestRefusalReason(in) == "dead");
+        in.alive = true;
+        in.inCombat = true;
+        in.groupFighting = true;
+        CHECK(RestRefusalReason(in) == "in combat");
+        in.inCombat = false;
+        CHECK(RestRefusalReason(in) == "party still fighting");
+        in.groupFighting = false;
+        in.hasDrink = false;
+        CHECK(RestRefusalReason(in) == "no drink");
+        in.healthPct = 30;
+        in.hasFood = false;
+        CHECK(RestRefusalReason(in) == "no food or drink");
+        // Food at hand, should-eat false (leader moving), no drink: moving.
+        in.hasFood = true;
+        in.shouldEat = false;
+        CHECK(RestRefusalReason(in) == "leader is moving");
+        // Drink at hand but should-drink false, food path also held.
+        in.hasDrink = true;
+        in.shouldDrink = false;
+        CHECK(RestRefusalReason(in) == "leader is moving");
+        // Should-values say yes but the action still did not start.
+        in.shouldDrink = true;
+        in.shouldEat = true;
+        CHECK(RestRefusalReason(in) == "other: not useful now");
+        // Only the eat side held, the drink side is open: not "moving".
+        in.shouldEat = false;
+        CHECK(RestRefusalReason(in) == "other: not useful now");
+        in.shouldEat = true;
+        in.manaPct = 90;
+        in.healthPct = 96;
+        CHECK(RestRefusalReason(in) == "nothing to rest (mana 90% >= 85%, health 96% >= 50%)");
+        in.usesMana = false;
+        in.healthPct = 20;
+        in.hasFood = false;
+        CHECK(RestRefusalReason(in) == "no food");
+        in.healthPct = 80;
+        CHECK(RestRefusalReason(in) == "nothing to rest (health 80% >= 50%)");
+
+        using ai::FormatRestRefusal;
+        CHECK(FormatRestRefusal({}).empty());
+        CHECK(FormatRestRefusal({ { "Anna", "" } }) == "No bot rested: other: not useful now: Anna.");
+        CHECK(FormatRestRefusal({ { "Anna", "no drink" }, { "Bert", "in combat" }, { "Cara", "no drink" } }) ==
+            "No bot rested: no drink: Anna, Cara; in combat: Bert.");
+
+        // A 40-bot raid stays under the cap and says how many were left out.
+        std::vector<std::pair<std::string, std::string>> raid;
+        for (int i = 0; i < 40; ++i)
+            raid.push_back({ "Raidbot" + std::to_string(i), i % 2 ? "no drink" : "party still fighting" });
+        std::string const line = FormatRestRefusal(raid);
+        CHECK(line.size() <= 240);
+        CHECK(line.rfind("No bot rested: party still fighting: Raidbot0, Raidbot2", 0) == 0);
+        std::size_t shown = 0;
+        for (auto const& entry : raid)
+            if (line.find(entry.first + ",") != std::string::npos ||
+                line.find(entry.first + ";") != std::string::npos ||
+                line.find(entry.first + ".") != std::string::npos)
+                ++shown;
+        CHECK(shown > 0 && shown < 40);
+        CHECK(line.find("; +" + std::to_string(40 - shown) + " more.") != std::string::npos);
+        // A cap too small for even one name still reports the count.
+        CHECK(FormatRestRefusal(raid, 20) == "No bot rested: +40 more.");
+    }
+
     std::cout << "survive policy: OK\n";
     return 0;
 }

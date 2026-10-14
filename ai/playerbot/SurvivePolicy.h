@@ -44,6 +44,118 @@ namespace ai
         return usesMana && manaPct < stopManaPct;
     }
 
+    // Why a bot did not start resting on `.bot action rest` (issue #916). The
+    // order already ran the drink/food actions; this only names the first
+    // gate that held, so the refusal can say why instead of the generic
+    // fallback. shouldDrink/shouldEat are the actions' own "should drink" /
+    // "should eat" values, so the text cannot drift from the real check.
+    struct RestRefusalInput
+    {
+        bool alive = true;
+        bool inCombat = false;        // the bot itself is in combat
+        bool groupFighting = false;   // has attackers or a party member near in combat
+        bool usesMana = false;
+        std::uint32_t manaPct = 100;
+        std::uint32_t drinkStopPct = 85;
+        std::uint32_t healthPct = 100;
+        std::uint32_t eatStopPct = 50;
+        bool hasDrink = true;         // a drink in the bags, or the item cheat
+        bool hasFood = true;          // food in the bags, or the item cheat
+        bool shouldDrink = true;      // AI value "should drink"
+        bool shouldEat = true;        // AI value "should eat"
+    };
+
+    inline std::string RestRefusalReason(RestRefusalInput const& in)
+    {
+        if (!in.alive)
+            return "dead";
+        if (in.inCombat)
+            return "in combat";
+        if (in.groupFighting)
+            return "party still fighting";
+
+        bool const needsDrink = in.usesMana && in.manaPct < in.drinkStopPct;
+        bool const needsFood = in.healthPct < in.eatStopPct;
+        if (!needsDrink && !needsFood)
+        {
+            // Above both stop lines but not full: the drink and food actions
+            // have nothing to do, so the bot does not sit down.
+            std::string text = "nothing to rest (";
+            if (in.usesMana)
+                text += "mana " + std::to_string(in.manaPct) + "% >= " +
+                    std::to_string(in.drinkStopPct) + "%, ";
+            text += "health " + std::to_string(in.healthPct) + "% >= " +
+                std::to_string(in.eatStopPct) + "%)";
+            return text;
+        }
+        bool const canDrink = needsDrink && in.hasDrink;
+        bool const canEat = needsFood && in.hasFood;
+        if (!canDrink && !canEat)
+            return needsDrink && needsFood ? "no food or drink" : needsDrink ? "no drink" : "no food";
+        // Under the stop line with the item at hand, but the should-value
+        // says no: the only extra gate there is following a moving leader
+        // (ShouldDrinkValue / ShouldEatValue).
+        if ((!canDrink || !in.shouldDrink) && (!canEat || !in.shouldEat))
+            return "leader is moving";
+        // A gate the list above does not know (e.g. the eat-side CC hold).
+        return "other: not useful now";
+    }
+
+    // "No bot rested: no drink: Anna, Bert; in combat: Cara." Bots are grouped
+    // under their reason in first-seen order. PSendSysMessage formats into a
+    // 2048-byte buffer and addon chat lines are shorter still, so the text is
+    // capped at maxBytes and ends with "+K more" for the bots left out.
+    inline std::string FormatRestRefusal(
+        std::vector<std::pair<std::string, std::string>> const& reasons,
+        std::size_t maxBytes = 240)
+    {
+        std::vector<std::pair<std::string, std::vector<std::string>>> groups;
+        for (auto const& entry : reasons)
+        {
+            std::string const reason = entry.second.empty() ? "other: not useful now" : entry.second;
+            auto it = groups.begin();
+            while (it != groups.end() && it->first != reason)
+                ++it;
+            if (it == groups.end())
+            {
+                groups.push_back({ reason, {} });
+                it = groups.end() - 1;
+            }
+            it->second.push_back(entry.first);
+        }
+        if (groups.empty())
+            return "";
+
+        std::string text = "No bot rested: ";
+        std::size_t const reserve = 16; // room for "; +NN more."
+        std::size_t left = reasons.size();
+        bool cut = false;
+        bool firstGroup = true;
+        for (auto const& group : groups)
+        {
+            std::string head = (firstGroup ? "" : "; ") + group.first + ": ";
+            bool firstName = true;
+            for (std::string const& name : group.second)
+            {
+                std::string piece = firstName ? head + name : ", " + name;
+                if (text.size() + piece.size() + reserve > maxBytes)
+                {
+                    cut = true;
+                    break;
+                }
+                text += piece;
+                firstName = false;
+                --left;
+            }
+            if (cut)
+                break;
+            firstGroup = false;
+        }
+        if (left)
+            text += (text.back() == ' ' ? "" : "; ") + std::string("+") + std::to_string(left) + " more";
+        return text + ".";
+    }
+
     // Drink is only for mana users: warriors (rage) and rogues (energy) get
     // no water, druids/shamans/paladins/hunters (mana) do. Callers pass
     // bot->GetPowerType() == POWER_MANA.
