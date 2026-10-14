@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.0 (2026-10-14)
+
+### Official Stable Release
+- **Decoupled Architecture**: Standalone, headless C++ bot system designed for Tortoise WoW 1.18.1, maintaining strict `BUILD_PLAYERBOTS=OFF` core invariance.
+- **Combat & Strategy AI**: Full combat rotations and situational AI for all 9 classes and 28 playable specs, dynamic role forcing (`.bot role`), smart threat management, and crowd-control preservation.
+- **Hire Progression**: Level 60 hired bots spawn with spec-fixed gear sets across 7 progression tiers (Pre-raid through Naxxramas and Tower of Karazhan) with full enchantments and custom Turtle items.
+- **Living World & Dungeons**: Autonomous exploration, questing, gathering, dynamic obstacle avoidance, and Looking for Turtles (LFT) dungeon queue fill service.
+- **Multi-Platform & Observability**: Continuous build verification on Linux GCC and Windows MSVC 19.44 + vcpkg ACE, plus standalone Go telemetry dashboard binaries attached to releases.
+
+---
+
 - Warlocks top up mana with Life Tap between pulls — below 85% mana with safe health the bot pre-taps out of combat (after eating, so no sit/stand ping-pong) and enters the pull near-full mana; in combat only the urgent low-mana tap fires, since any low-priority combat row would outrank the shadow-bolt default and tap instead of nuking. The health floor is unchanged.
 - Warlocks use weapon stones again — Affliction and Demonology create and equip Spellstones, Destruction creates and equips its Firestone (only into an empty off-hand, never swapping out real gear).
 - Warlock Immolate now spreads to extra attackers instead of only the main target — Demonology and Destruction keep it up at spec level, all specs spread it with the aoe strategy on.
