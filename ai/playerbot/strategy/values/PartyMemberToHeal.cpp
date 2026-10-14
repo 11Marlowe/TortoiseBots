@@ -2,10 +2,12 @@
 #include "playerbot/GroupMembers.h"
 #include "playerbot/playerbot.h"
 #include "PartyMemberToHeal.h"
+#include "playerbot/HealerManaPolicy.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/RaidTankRolePolicy.h"
 #include "ObjectAccessor.h"
+#include <map>
 
 using namespace ai;
 
@@ -33,11 +35,61 @@ bool compareByHealth(const Unit *u1, const Unit *u2)
     return u1->GetHealthPercent() < u2->GetHealthPercent();
 }
 
+// Direct heals other group members are casting at each target right now
+// (HealComm-style): base spell amounts of cast-time heals still in their cast
+// bar, keyed by target. Healers that ignored these all started big heals on
+// the same tank; Patchwerk measured ~63% overheal on the tanks.
+// Runs ONCE per value refresh (1 s TTL) over the bot's own group slots —
+// at most 40 members, never the spatial grid — so the dozen heal-action
+// checks per tick share one bounded scan. Ungrouped bots return an empty
+// map without touching the grid. Only live group casters count; dead
+// targets collect nothing (a corpse needs no heal credit).
+std::map<ObjectGuid, uint32> IncomingHealsValue::Calculate()
+{
+    std::map<ObjectGuid, uint32> incoming;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return incoming;
+    for (Player* caster : LiveGroupMembers(group))
+    {
+        if (!caster || caster == bot || !caster->IsAlive())
+            continue;
+        Spell* spell = caster->GetCurrentSpell(CURRENT_GENERIC_SPELL);
+        if (!spell || spell->getState() != SPELL_STATE_PREPARING || !PlayerbotAI::IsHealSpell(spell->m_spellInfo))
+            continue;
+        Unit* target = ai->GetUnit(spell->m_targets.getUnitTargetGuid());
+        if (!target || !target->IsAlive())
+            continue;
+        for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+        {
+            if (spell->m_spellInfo->Effect[effect] != SPELL_EFFECT_HEAL)
+                continue;
+            int32 const amount = spell->CalculateDamage(SpellEffectIndex(effect), target);
+            if (amount > 0)
+                incoming[target->GetObjectGuid()] += uint32(amount);
+        }
+    }
+    return incoming;
+}
+
+uint32 ai::GetIncomingHeal(PlayerbotAI* ai, Unit* target)
+{
+    if (!target)
+        return 0;
+    std::map<ObjectGuid, uint32> const incoming =
+        ai->GetAiObjectContext()->GetValue<std::map<ObjectGuid, uint32>>("incoming heals")->Get();
+    auto const it = incoming.find(target->GetObjectGuid());
+    return it == incoming.end() ? 0 : it->second;
+}
+
 // Effective health percent (incoming melee damage taken off first when
 // pre-healing). Ranking by percent, as the donor does, keeps a cloth member at
 // 60 % ahead of a tank at 76 %: by missing hit points the tank's larger pool
 // always won and the member who was actually dying got nothing.
-static float effectiveHealthPercent(const Unit* u, bool incomingDamage)
+// Incoming heals inflate only above lowHealth (HealthWithIncoming): a tank
+// in danger keeps its real urgency so the sort never parks it below
+// scratch DPS while a slow cast is still in flight.
+static float effectiveHealthPercent(const Unit* u, bool incomingDamage, std::map<ObjectGuid, uint32> const& incomingHeals)
 {
     uint32 hp = u->GetHealth();
     if (incomingDamage)
@@ -45,7 +97,12 @@ static float effectiveHealthPercent(const Unit* u, bool incomingDamage)
         uint32 damage = getIncomingdamage(u);
         hp = damage >= hp ? 0 : hp - damage;
     }
+    uint32 incoming = 0;
+    auto const heal = incomingHeals.find(u->GetObjectGuid());
+    if (heal != incomingHeals.end())
+        incoming = heal->second;
     uint32 hpmax = u->GetMaxHealth();
+    hp = HealthWithIncoming(hp, hpmax, incoming, (std::uint8_t)sPlayerbotAIConfig.lowHealth);
     return hpmax ? hp * 100.0f / hpmax : 100.0f;
 }
 
@@ -141,7 +198,9 @@ Unit* PartyMemberToHeal::Calculate()
     }
 
     bool preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
-    sort(needHeals.begin(), needHeals.end(), [preHealing](const Unit* u1, const Unit* u2) { return effectiveHealthPercent(u1, preHealing) < effectiveHealthPercent(u2, preHealing); });
+    std::map<ObjectGuid, uint32> const incomingHeals =
+        ai->GetAiObjectContext()->GetValue<std::map<ObjectGuid, uint32>>("incoming heals")->Get();
+    sort(needHeals.begin(), needHeals.end(), [preHealing, &incomingHeals](const Unit* u1, const Unit* u2) { return effectiveHealthPercent(u1, preHealing, incomingHeals) < effectiveHealthPercent(u2, preHealing, incomingHeals); });
 
     // Prefer an in-LOS member over an out-of-LOS one at similar urgency: an
     // out-of-LOS pick still casts (its reach action walks the healer into
@@ -211,7 +270,7 @@ Unit* PartyMemberToHeal::Calculate()
     // fire, and nobody gets healed at all while the healer stands there doing
     // damage. Fall back to whoever is worst off.
     Unit* chosen = needHeals[healerIndex];
-    if (chosen && chosen->GetHealthPercent() >= sPlayerbotAIConfig.almostFullHealth)
+    if (chosen && effectiveHealthPercent(chosen, false, incomingHeals) >= sPlayerbotAIConfig.almostFullHealth)
         chosen = needHeals[0];
 
     return chosen;

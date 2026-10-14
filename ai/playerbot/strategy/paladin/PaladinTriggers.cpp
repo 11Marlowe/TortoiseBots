@@ -274,48 +274,96 @@ bool GreaterBlessingTrigger::IsActive()
     return false;
 }
 
+// A group member (or the bot itself) this bot could still bless: it holds
+// no blessing FROM THIS BOT and at least one role-priority pick is
+// uncovered by any caster. Mirrors CastBlessingOnPartyAction::GetTarget so
+// the trigger and the action always resolve the same member. Core aura rule
+// (one blessing per target per caster): own live aura blocks (a second cast
+// would evict it); another paladin's aura never blocks (different casters
+// stack — each member converges to one blessing from EACH paladin).
+Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
+{
+    static char const* const kBlessings[] =
+    {
+        "blessing of might", "blessing of wisdom", "blessing of kings",
+        "blessing of sanctuary", "blessing of salvation", "blessing of light",
+    };
+
+    bool knowsAny = false;
+    for (char const* blessing : kBlessings)
+    {
+        std::string const base(blessing);
+        std::string const greaterBlessing = "greater " + base;
+        bool const known = greaterOnly
+            ? ai->GetAiObjectContext()->GetValue<uint32>("spell id", greaterBlessing)->Get() != 0
+            : ai->GetAiObjectContext()->GetValue<uint32>("spell id", base)->Get() != 0;
+        if (known)
+        {
+            knowsAny = true;
+            break;
+        }
+    }
+
+    if (!knowsAny)
+        return nullptr;
+
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
+        return nullptr;
+
+    std::list<Player*> healers, tanks, others;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (!member || member->GetMapId() != bot->GetMapId())
+            continue;
+        // Hidden GM masters can never land a spell (see the action-side
+        // scan): skip them so they never wedge the trigger either.
+        if (member != bot && member->GetVisibility() == VISIBILITY_OFF)
+            continue;
+        if (member == bot)
+        {
+            others.push_back(member);
+            continue;
+        }
+        if (ai->IsHeal(member))
+            healers.push_back(member);
+        else if (ai->IsTank(member))
+            tanks.push_back(member);
+        else
+            others.push_back(member);
+    }
+
+    // Visit rule: own live blessing blocks; any same-family cover from any
+    // caster blocks that family only. (The action's full role-priority pick
+    // runs at cast time; the trigger only needs "something could land".)
+    auto CouldBless = [&](Player* member)
+    {
+        for (char const* blessing : kBlessings)
+        {
+            std::string const base(blessing);
+            if (ai->HasMyAura(base, member) || ai->HasMyAura("greater " + base, member))
+                return false;
+        }
+        return true;
+    };
+
+    for (std::list<Player*>* bucket : { &healers, &tanks, &others })
+    {
+        for (Player* member : *bucket)
+        {
+            if (sServerFacade.getDistance2d(member, bot) > 30.0f)
+                continue;
+            if (CouldBless(member) && sServerFacade.IsWithinLOSInMap(bot, member))
+                return member;
+        }
+    }
+
+    return nullptr;
+}
+
 bool BlessingOnPartyTrigger::IsActive()
 {
-    std::vector<std::string> altBlessings;
-    std::vector<std::string> haveBlessings;
-    altBlessings.push_back("blessing of might");
-    altBlessings.push_back("blessing of wisdom");
-    altBlessings.push_back("blessing of kings");
-    altBlessings.push_back("blessing of sanctuary");
-    altBlessings.push_back("blessing of salvation");
-    altBlessings.push_back("blessing of light");
-
-    for (auto blessing : altBlessings)
-    {
-        if (AI_VALUE2(uint32, "spell id", blessing))
-        {
-            haveBlessings.push_back(blessing);
-
-            const std::string greaterBlessing = "greater " + blessing;
-            if (AI_VALUE2(uint32, "spell id", greaterBlessing))
-            {
-                haveBlessings.push_back(greaterBlessing);
-            }
-        }
-    }
-
-    if (haveBlessings.empty())
-    {
-        return false;
-    }
-
-    std::string blessings = "";
-    for (auto blessing : haveBlessings)
-    {
-        blessings += blessing;
-        if (blessing != haveBlessings[haveBlessings.size() - 1])
-        {
-            blessings += ",";
-        }
-    }
-
-    // Doesn't have any of my blessings
-    return AI_VALUE2(Unit*, "party member without my aura", blessings);
+    return FindBlessingCandidate(ai, bot, false) != nullptr;
 }
 
 bool GreaterBlessingOnPartyTrigger::IsActive()
@@ -323,41 +371,7 @@ bool GreaterBlessingOnPartyTrigger::IsActive()
     if (!bot->GetMap()->IsDungeon() && !bot->GetMap()->IsBattleGround())
         return false;
 
-    std::vector<std::string> altBlessings;
-    std::vector<std::string> haveBlessings;
-    altBlessings.push_back("blessing of might");
-    altBlessings.push_back("blessing of wisdom");
-    altBlessings.push_back("blessing of kings");
-    altBlessings.push_back("blessing of sanctuary");
-    altBlessings.push_back("blessing of salvation");
-    altBlessings.push_back("blessing of light");
-
-    for (auto blessing : altBlessings)
-    {
-        const std::string greaterBlessing = "greater " + blessing;
-        if (AI_VALUE2(uint32, "spell id", greaterBlessing))
-        {
-            haveBlessings.push_back(greaterBlessing);
-        }
-    }
-
-    if (haveBlessings.empty())
-    {
-        return false;
-    }
-
-    std::string blessings = "";
-    for (auto blessing : haveBlessings)
-    {
-        blessings += blessing;
-        if (blessing != haveBlessings[haveBlessings.size() - 1])
-        {
-            blessings += ",";
-        }
-    }
-
-    // Doesn't have any of my blessings
-    Unit* target = AI_VALUE2(Unit*, "party member without my aura", blessings);
+    Unit* target = FindBlessingCandidate(ai, bot, true);
     Player* targetPlayer = dynamic_cast<Player*>(target);
     return targetPlayer && IsInGroup_Helper(bot, targetPlayer);
 }

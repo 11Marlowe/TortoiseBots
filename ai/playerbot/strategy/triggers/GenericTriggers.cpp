@@ -24,19 +24,32 @@
 
 using namespace ai;
 
+namespace
+{
+// Recovery rows (mana gem, mana potion, evocation, innervate) must fire at
+// exactly 0 power too: that is when the bot needs them most. The shared
+// "has mana" value reads CURRENT power, so it is false at 0 and would gate
+// them off. A mana pool (max power) means the bot is a mana user regardless
+// of the current level; rage/energy classes have no mana pool and stay out.
+bool HasManaPool(Player* bot)
+{
+    return bot && bot->GetMaxPower(POWER_MANA) > 0;
+}
+}  // namespace
+
 bool NoManaTrigger::IsActive()
 {
-    return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 5;
+    return HasManaPool(bot) && AI_VALUE2(uint8, "mana", "self target") < 5;
 }
 
 bool LowManaTrigger::IsActive()
 {
-    return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < sPlayerbotAIConfig.lowMana;
+    return HasManaPool(bot) && AI_VALUE2(uint8, "mana", "self target") < sPlayerbotAIConfig.lowMana;
 }
 
 bool MediumManaTrigger::IsActive()
 {
-    return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < sPlayerbotAIConfig.mediumMana;
+    return HasManaPool(bot) && AI_VALUE2(uint8, "mana", "self target") < sPlayerbotAIConfig.mediumMana;
 }
 
 bool HealerLowManaTrigger::IsActive()
@@ -55,7 +68,9 @@ bool HealerLowManaTrigger::IsActive()
 
 bool HighManaTrigger::IsActive()
 {
-    return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 65;
+    // Refill-wanted line (mana below the high-water mark): same 0-power
+    // trap as LowManaTrigger above, fixed the same way.
+    return HasManaPool(bot) && AI_VALUE2(uint8, "mana", "self target") < 65;
 }
 
 bool EnoughManaTrigger::IsActive()
@@ -76,7 +91,13 @@ bool HealerShouldAttackTrigger::IsActive()
 
     // Balance-scaled reserve (HealerManaPolicy.h): hard fights (low balance)
     // keep 85 %, even and easy ones 70 % - deliberately above the donor's
-    // 65 % / 40 % (owner decision 2026-10-12).
+    // 65 % / 40 % (owner decision 2026-10-12). Raids keep 95 %: a
+    // minutes-long mana burn with no drink break must not spend healer
+    // mana on shocks and bolts (live Patchwerk 2026-10-14: resto at
+    // 4-9 % while the gate kept firing).
+    if (bot->GetGroup()->isRaidGroup())
+        return !AI_VALUE2(bool, "has mana", "self target") ||
+            AI_VALUE2(uint8, "mana", "self target") >= HealerDpsManaFloorRaid();
     return HealerDpsManaAllows(AI_VALUE2(bool, "has mana", "self target"),
         AI_VALUE2(uint8, "mana", "self target"), AI_VALUE(uint8, "balance"));
 }
@@ -135,7 +156,10 @@ WandCastBlockers WandBlocksCastTrigger::CastBlockers(std::string const& spell, U
 
 bool WandBlocksCastTrigger::NoManaRowActive()
 {
-    return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") < 5;
+    // Same 0-power trap as NoManaTrigger above: at exactly 0 the shared
+    // "has mana" value is false, so mirror the pool check or "stop wand"
+    // would ping-pong against the "no mana" -> shoot row it guards.
+    return HasManaPool(bot) && AI_VALUE2(uint8, "mana", "self target") < 5;
 }
 
 bool WandBlocksCastTrigger::RaidAggroWand()

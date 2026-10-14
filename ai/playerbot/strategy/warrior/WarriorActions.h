@@ -153,12 +153,12 @@ namespace ai
 
                 // Defer sunder to a spender only when that spender can actually
                 // fire: IsSpellReady is cooldown-only, so without the rage
-                // gate below-40 rage vetoed sunder while the gated slam row
+                // gate below-20 rage vetoed sunder while the gated slam row
                 // was inactive — a melee-only dead zone. Slam's row lives on
-                // `medium rage available`, so the veto follows the same
+                // `light rage available`, so the veto follows the same
                 // trigger; BT/MS rows are CanCast-gated (rage-aware already).
                 bool slamLive = shieldSlam && sServerFacade.IsSpellReady(bot, shieldSlam) &&
-                    AI_VALUE2(bool, "trigger active", "medium rage available");
+                    AI_VALUE2(bool, "trigger active", "light rage available");
                 if ((bloodThirst && sServerFacade.IsSpellReady(bot, bloodThirst)) ||
                     (mortalStrike && sServerFacade.IsSpellReady(bot, mortalStrike)) ||
                     slamLive)

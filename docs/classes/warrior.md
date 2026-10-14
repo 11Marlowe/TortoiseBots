@@ -15,7 +15,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 
 ## Supported Specs & Roles
 
-- **Protection (Tank):** Operates primarily in **Defensive Stance**. Prioritizes threat generation via *Sunder Armor*, *Revenge*, *Shield Slam*, and *Taunt*.
+- **Protection (Tank):** Holds **Defensive Stance** before the pull (non-combat row, tank-gated) and through combat (standalone combat row at HIGH+2, below the overpower dance so dodge procs still dance out and back). Prioritizes threat generation via *Sunder Armor*, *Revenge*, *Shield Slam*, and *Taunt*.
 - **Arms (Melee DPS):** Uses two-handed weapons, pinned to **Battle Stance** (dancing to Berserker for *Whirlwind* only). Centers on *Mortal Strike*, *Overpower* on dodges, and *Sweeping Strikes* for cleaving packs.
 - **Fury (Melee DPS):** Dual-wields in **Berserker Stance**. Drives high rage spend into *Bloodthirst*, *Whirlwind*, and *Execute*.
 
@@ -27,8 +27,8 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 1. **Pull & Engagement:** Charges on enemy-out-of-melee, then swaps to Defensive Stance (no Battle Stance prep in code). No *Intercept* gap-closer: it needs Berserker Stance, and the tank stays in Defensive Stance (donor `TankWarriorStrategy` has none either).
 2. **Threat Generation:**
    - Keeps *Shield Block* active on cooldown to enable *Revenge*.
-   - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh an expiring stack; sunder yields to Shield Slam only once 40+ rage makes slam live).
-   - *Shield Slam* fires on the Improved Shield Slam proc (+35%/+70% damage charge) above the rage ladder but below taunt/shield block, otherwise at 40+ rage — after the sunder stack is complete and *Revenge* has had its GCD.
+   - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh an expiring stack; sunder yields to Shield Slam only once 20+ rage makes slam live).
+   - *Shield Slam* fires on the Improved Shield Slam proc (+35%/+70% damage charge) above the rage ladder but below taunt/shield block, otherwise at any affordable rage (20+) — after the sunder stack is complete and *Revenge* has had its GCD — so off-tanks that are not being hit still convert white-rage trickle into slams instead of sitting melee-only.
    - *Thunder Clap* fires on spare rage (40+) as extra threat, since the AoE toggle the base tree gates it behind is normally off in party pulls.
 3. **Emergency Mitigation:**
    - *Shield Wall* fires early at low health (default 20-50%) so damage is blunted before it becomes lethal.
@@ -45,7 +45,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 1. **Opener:** *Charge* from range when available.
 2. **Rage Spenders:**
    - *Overpower* is wired for Arms (and via the Protection stance-dance); Fury has no Overpower wiring, and the dodge window is core spell data.
-   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus *Rend* upkeep, and the *Master Strike* weapon nuke. With no tank warrior in the group, DPS warriors keep *Sunder Armor* stacked (bottom of the ladder); with a tank warrior present they leave it to the tank.
+   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus *Rend* upkeep, and the *Master Strike* weapon nuke. *Heroic Strike* dumps spare rage from 40+ (donor medium-rage parity) so it fires on bosses instead of pooling. With no tank warrior in the group, DPS warriors keep *Sunder Armor* stacked (bottom of the ladder); with a tank warrior present they leave it to the tank.
    - *Slam* is not in the DPS rotation. On Turtle it is a hard cast (15 rage, a real cast time; the trainer rows 1482/8821/11606/11607 only teach the castable spells 1464/8820/11604/11605) and casting stops auto-attack, so the bots leave it out. There is no instant "Slam!" proc on Turtle (the bot's `instant slam` trigger never fires).
    - *Whirlwind* is used on cooldown above 20% target health; 2+ nearby targets only raises its priority.
    - Cooldowns: both specs fire *Death Wish* and *Recklessness* as boosts, plus *Retaliation* while near full health (70-90%) — all behind the boost toggle.
@@ -65,7 +65,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 
 ## Utility & Interrupts
 
-- **Interrupts:** Protection: *Shield Bash* only (+enemy-healer row; the base *Pummel* rows are not inherited, so a tank never leaves Defensive Stance to interrupt) · Fury: *Pummel* (auto-Berserker) · Arms/Fury base: *Pummel* first, *Shield Bash* as the no-stance-dance fallback (both at ACTION_INTERRUPT, plus enemy-healer rows). Pummel stance-dances via its berserker-stance node; shield bash has no stance gate, so one of the two always fires without per-cast dancing.
+- **Interrupts:** Protection: *Shield Bash* only (+enemy-healer row; the base *Pummel* rows are not inherited, so a tank never leaves Defensive Stance to interrupt) · Fury: *Pummel* (auto-Berserker) · Arms/Fury base: *Pummel* first, *Shield Bash* as the no-stance-dance fallback (both at ACTION_INTERRUPT, plus enemy-healer rows). Pummel stance-dances via its berserker-stance node; shield bash has no stance gate, so one of the two always fires without per-cast dancing. Every interrupt row only fires on a real cast on the bar (generic spell preparing with cast time, or channeling) — delayed instants and idle bosses never trigger it.
 - **Shouts:** Automatically maintains *Battle Shout* on party members (all specs) — skipped while an equal-or-stronger *Blessing of Might* is up, since shouting over it wastes rage for zero gain; only Protection wires *Demoralizing Shout*. *Intimidating Shout* (AoE fear) never fires inside a dungeon or raid, or for a bot grouped with a real player (a feared mob pulls neighbouring packs); outdoors with no master to disrupt, a critical-health bot may still shout to make space.
 - **No break-off (opt-in):** Pool warriors carry the generic `flee` strategy (`panic` and `critical health no master` at critical health, `outnumbered` under medium health with two or more attackers). `AiPlayerbot.PoolMeleeHoldGround = 1` drops it for warriors and rogues so they fight on with their own kit (*Last Stand* / *Shield Wall* where the spec wires them, *Intimidating Shout*), as mod-playerbots melee do. Off by default.
 

@@ -31,6 +31,7 @@
 #include "LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
+#include "playerbot/InterruptCastingPolicy.h"
 #include "BotDiagnostics.h"
 #include "BotActionLog.h"
 #include "playerbot/PlayerbotFactory.h"
@@ -3525,7 +3526,11 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
 		if (master->m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE) && sServerFacade.getDistance2d(bot, master) < 20.0f) bot->m_movementInfo.AddMovementFlag(MOVEFLAG_WALK_MODE);
 		else bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_WALK_MODE);
 
-        if (master->GetStandState() == UNIT_STAND_STATE_SIT && aiInternalUpdateDelay < 1000)
+        // Mirror the master sitting only out of combat. Live H11 (Patchwerk):
+        // the player sat after eating, so every fire mage within 10 yd was
+        // re-seated each tick, the cast path stood it up and deferred the
+        // cast - Fireball failed ~350 times a minute per mage.
+        if (master->GetStandState() == UNIT_STAND_STATE_SIT && aiInternalUpdateDelay < 1000 && !bot->IsInCombat())
         {
             if (!sServerFacade.isMoving(bot) && sServerFacade.getDistance2d(bot, master) < 10.0f)
                 bot->SetStandState(UNIT_STAND_STATE_SIT);
@@ -5832,7 +5837,9 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
 	bot->SetSelectionGuid(target->getObjectGuid());
 
     WorldObject* faceTo = target;
-    if (!sServerFacade.isInFront(bot, faceTo, sPlayerbotAIConfig.sightDistance, CAST_ANGLE_IN_FRONT))
+    // A self-cast (Evocation, Combustion, Ice Block, ...) needs no facing; a bot is never "in
+    // front" of itself, so the check below deferred every self-cast while the bot moved.
+    if (target != bot && !sServerFacade.isInFront(bot, faceTo, sPlayerbotAIConfig.sightDistance, CAST_ANGLE_IN_FRONT))
     {
         sServerFacade.SetFacingTo(bot, faceTo);
         // ServerFacade::SetFacingTo only turns instantly (Unit::SetOrientation) while the bot
@@ -5858,7 +5865,8 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
             *outSpellDuration = sPlayerbotAIConfig.globalCoolDown;
         }
 
-        botdiag::BotActionLog::Write(this, "CAST_GATE", "spell=%u targetGuid=0x%llx reason=stand-or-facing-delay", spellId, (unsigned long long)target->getObjectGuid().GetRawValue());
+        botdiag::BotActionLog::Write(this, "CAST_GATE", "spell=%u targetGuid=0x%llx reason=stand-or-facing-delay stand=%u stopped=%u realMaster=%u motion=%u", spellId, (unsigned long long)target->getObjectGuid().GetRawValue(),
+            (uint32)bot->GetStandState(), (uint32)bot->IsStopped(), (uint32)HasRealPlayerMaster(), (uint32)mm.GetCurrentMovementGeneratorType());
         return false;
     }
 
@@ -6442,28 +6450,52 @@ bool PlayerbotAI::RemoveAura(const std::string& name)
 
 bool PlayerbotAI::IsInterruptableSpellCasting(Unit* target, std::string spell, uint8 effectMask)
 {
-	uint32 spellid = aiObjectContext->GetValue<uint32>("spell id", spell)->Get();
-	if (!spellid || !target->IsNonMeleeSpellCasted(true))
-		return false;
+    if (!target)
+        return false;
+    uint32 spellid = aiObjectContext->GetValue<uint32>("spell id", spell)->Get();
+    if (!spellid)
+        return false;
 
-	SpellEntry const *spellInfo = sServerFacade.LookupSpellInfo(spellid);
-	if (!spellInfo)
-		return false;
+    SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellid);
+    if (!spellInfo)
+        return false;
 
-	for (int32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2; i++)
-	{
-		if ((spellInfo->InterruptFlags & SPELL_INTERRUPT_FLAG_COMBAT) && spellInfo->PreventionType == SPELL_PREVENTION_TYPE_SILENCE)
-			return true;
+    // The victim's cast, read off the core spell slots (ai/playerbot/
+    // InterruptCastingPolicy.h owns the verdict): only a generic spell
+    // still on its bar or channeling, or a channeled spell in flight,
+    // counts. The old IsNonMeleeSpellCasted(true) probe also fired on
+    // DELAYED instants (missile in flight, nothing on a bar) and the
+    // autorepeat slot, so melee bosses read as "casting" and Pummel/Kick
+    // fired on cooldown into thin air.
+    auto ReadSlot = [target](CurrentSpellTypes type, bool channeledSlot, ai::InterruptTargetSpell& out) -> ai::InterruptTargetSpell const*
+    {
+        Spell* current = target->GetCurrentSpell(type);
+        if (!current || !current->m_spellInfo)
+            return nullptr;
+        out.spell = current;
+        out.channeledSlot = channeledSlot;
+        out.state = current->getState();
+        out.castTime = current->GetCastTime();
+        out.preventionType = current->m_spellInfo->PreventionType;
+        out.interruptFlags = current->m_spellInfo->InterruptFlags;
+        out.channelInterruptFlags = current->m_spellInfo->ChannelInterruptFlags;
+        return &out;
+    };
+    ai::InterruptTargetSpell generic{}, channeled{};
+    ai::InterruptTargetSpell const* genericSlot = ReadSlot(CURRENT_GENERIC_SPELL, false, generic);
+    ai::InterruptTargetSpell const* channeledSlot = ReadSlot(CURRENT_CHANNELED_SPELL, true, channeled);
 
-		if ((spellInfo->Effect[i] == SPELL_EFFECT_INTERRUPT_CAST) &&
-			!target->IsImmuneToSpellEffect(spellInfo, (SpellEffectIndex)i, true))
-			return true;
-
-        if ((spellInfo->Effect[i] == SPELL_EFFECT_APPLY_AURA) && spellInfo->EffectApplyAuraName[i] == SPELL_AURA_MOD_SILENCE)
-            return true;
-	}
-
-	return false;
+    ai::InterruptSpellInfo interrupt;
+    interrupt.interruptFlags = spellInfo->InterruptFlags;
+    interrupt.preventionType = spellInfo->PreventionType;
+    for (int32 i = EFFECT_INDEX_0; i <= EFFECT_INDEX_2 && i < ai::InterruptSpellInfo::MAX_EFFECTS; ++i)
+    {
+        interrupt.effect[i] = spellInfo->Effect[i];
+        interrupt.effectAura[i] = spellInfo->EffectApplyAuraName[i];
+        interrupt.effectImmune[i] = target->IsImmuneToSpellEffect(spellInfo, (SpellEffectIndex)i, true);
+    }
+    (void)effectMask;
+    return ai::ShouldInterruptTargetCasting(genericSlot, channeledSlot, interrupt);
 }
 
 bool PlayerbotAI::HasAuraToDispel(Unit* target, uint32 dispelType)

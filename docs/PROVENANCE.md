@@ -7326,6 +7326,53 @@ shared-builder compile via `build-commit.sh` (BUILD OK); live in-game
 check pending: long fight, gem consumed above 15%, evocation still the
 last resort.
 
+## Mage OOM recovery: gem supply, real-first use, 0-power triggers — 2026-10-13
+
+Donor: mod-playerbots (`5397110`):
+`src/Ai/Class/Mage/Strategy/GenericMageNonCombatStrategy.cpp` (no-mana-gem
+→ conjure row), `src/Ai/Class/Mage/MageActions.cpp:31-65` (gem ranks gated
+on in-combat + has-item). Donor `HasManaValue` and low/medium triggers
+(`src/Ai/Base/Value/StatsValues.cpp:121`,
+`src/Ai/Base/Trigger/GenericTriggers.cpp:25-35`) gate on current power.
+
+Source files (module, modified):
+`ai/playerbot/strategy/mage/MageStrategy.cpp`
+(`MageBuffStrategy::InitNonCombatTriggers`: `often` → `conjure mana gem`
+upkeep row), `ai/playerbot/strategy/mage/MageActions.h`
+(`CastConjureManaGemAction`: possession gate added, item-cheat gates
+removed; `UseManaGemAction::GetItemId`: real bags first, virtual id only
+as fallback),
+`ai/playerbot/strategy/triggers/GenericTriggers.cpp` (`NoManaTrigger`,
+`LowManaTrigger`, `MediumManaTrigger`, `HighManaTrigger` and
+`WandBlocksCastTrigger::NoManaRowActive` use a mana-pool check instead
+of current power), `docs/classes/mage.md` (doc lines).
+
+Copied / ported / reimplemented: reimplemented. Deviations from the
+donor, all deliberate: (a) upkeep runs on the always-evaluating `often`
+pulse in the active buff strategy — the `no mana gem` trigger never
+pushes live (zero pushes in full bot logs), so a row hung off it never
+evaluates; (b) mana-pool check instead of current power so recovery rows
+fire at exactly 0 (the shared `has mana` value is false at 0 and locked
+evocation/gem/potion/wand out when most needed); rage/energy classes have
+no mana pool and stay out; (c) conjure/use paths ignore the item cheat —
+hires on pool-classified accounts (e.g. TBAGENT/907) otherwise never
+restock real gems and fire virtual uses that fail at cast time; (d) real
+gems preferred over the virtual id for the same reason.
+
+Reason: Patchwerk raid test 2026-10-13 (10 fire mages): mana gem 0/151,
+combustion 0/519, evocation 0 attempts, mages wanding at 1-3% mana.
+Live diagnosis: gem supply dead (no conjures in any hire log), 0-power
+lockout, virtual-first use.
+
+Local validation: `bash tools/verify_all.sh`; `git diff --check`;
+shared-builder compile + deploy via `build-commit.sh` (BUILD OK, live);
+live: fresh hire conjures Mana Ruby OOC (push → PREREQ → OK → CAST_OK,
+possession gate silent after), `low mana` trigger fires in combat.
+Not verified live: evocation completing a channel in combat (never
+reached <15% stationary post-fix); combustion cast-failure mechanism
+still open (lands solo; raid-only fails unexplained — movement, GCD,
+cooldown and aura-conflict theories disproven against core + DBC).
+
 ## Dual-wield MH->OH cascade (AG-2, 2026-10-09)
 
 Donor: mod-playerbots (`79bd4281`):
@@ -9614,3 +9661,69 @@ on the test VM (see the PR); build pending; in-game pending.
 - Source: live Deadmines play-test 2026-10-13 (fresh hires in Stormwind ran `QuestTravelToGiver "Special Delivery for Gaxim"` and whispered "I can't talk with the quest giver"); donor behaviour checked in `mod-playerbots` (`RpgStayAction`/`RpgWorkAction` gated on `!HasGameClientMaster`, `NewRpgBaseAction` quest verbs need-gated) — reimplemented as ledger-based strategy/action gates, no donor code copied.
 - Reason: owner rule — hired bots follow their master and must not run their own questing/travel or talk to NPCs. The existing `RandomBotNonCombatStrategies` master guard only covered grouped bots with a live master; fresh hires build strategies ungrouped (master bound post-construction) and the travel/quest triggers never checked hire state.
 - Validation: `tools/test_hire_quest_policy.cpp`, `tools/verify_all.sh`, `git diff --check`, module build; live check: two level-20 hires in Stormwind stood 2+ minutes with no QuestTravelToGiver/TravelTarget quest events in bot_events.csv and no quest-giver whisper (before the fix both appeared within seconds).
+
+## Healer downranking (fit rank to wound) — 2026-10-13
+
+- Feature: direct single-target heals downrank at cast start — cheapest known rank covering (missing health minus incoming heals) at 4/5 cover plus a 100-hp floor; top rank at or below lowHealth/criticalHealth; HoTs, shields, hybrids, AoE and cooldown spells never downrank; explicit player `save mana` level keeps the old max-rank pick. Rules in `ai/playerbot/HealDownrankPolicy.h` (`tools/test_heal_downrank_policy.cpp`), hook in `HealPartyMemberAction::Execute` (`ai/playerbot/strategy/actions/GenericSpellActions.*`), per-rank estimates via the server's EffectHeal shape (base `CalculateSpellDamage` + `SpellHealingBonusDone`).
+- Source: 17-healer Patchwerk raid 2026-10-13 (top-rank Greater Heal 202x, Holy Light top rank, ~63% overheal, healers OOM before boss death). Donor survey, no code ported: `mod-playerbots` has no rank selection (only the `HealerAutoSaveManaMultiplier` start-veto, already ported as `HealerManaPolicy::ShouldStartHeal`); `spp-classics-cmangos` has only the level-based core `AutoDownrank` mangosd knob. `mana save level` stays a manual knob (fixed Nth-from-top offset + recast delay), not a wound driver.
+- Reason: generic healer gap (dungeons and raids, every healer class/spec) — healers paid top-rank mana for small wounds.
+- Validation: `tools/test_heal_downrank_policy.cpp` (13 checks), `bash tools/verify_all.sh`, `git diff --check`, module build; live check pending (owner live-tests: lower-rank casts on small wounds, top rank on emergencies, mana lasting the fight).
+
+## Subgroup-aware shaman totems + Mana Tide for the subgroup + resto mana discipline — 2026-10-14
+
+- Feature: air/water totem rows pick by the shaman's own subgroup (totems only reach the own party in 1.12): melee in subgroup -> Windfury, casters/healers -> Tranquil Air (Turtle 25908) else Grace of Air; mana users in subgroup -> Mana Spring else Healing Stream. Mana Tide fires on own low mana OR a dry healer/caster in the subgroup. Restoration drops Searing Totem only while `healer should attack` holds. Rules in `ai/playerbot/strategy/shaman/ShamanTotemGroupPolicy.h` (`tools/test_shaman_totem_group_policy.cpp`); census in `ShamanTriggers.h` (`ReadTotemSubgroup`, SameSubGroup + map/range gate, one walk shared by air/water/tide inputs); new `CastTranquilAirTotemAction` + creator; windfury/grace strategy gates removed (the census picks); manual `totem <slot> <which>` orders still win (trigger branches unchanged).
+- Source: new automation, not a donor port — verified: mod-playerbots `79bd4281` picks situational totems manually per fight via per-slot strategies (`src/Ai/Class/Shaman/ShamanAiObjectContext.cpp:67-68`) with slot-maintenance `NoXxxTotemTrigger`s (`ShamanTriggers.cpp:380-447`); resto tide fires on own `medium mana` only (`Strategy/RestoShamanStrategy.cpp:23`). Donor per-slot trigger/action shape reused (`TotemsShamanStrategy.*`). Turtle data: `locales_spell` Grace of Air 8835/8837/10627/10628/25359/25401/25966 present, Tranquil Air Totem 25908 present, Wrath of Air absent (3738 = Cure Poison here) — so no Wrath row. No donor code copied.
+- Reason: live Horde raid 2026-10-14 (7 resto shamans, caster groups): Windfury/Healing Stream/Strength of Earth on caster groups (Mana Spring only 5 auras), tide only on own mana, resto burning 450-mana Earth Shocks + 170-mana Searing mid heal fight (6% mana at 30 s).
+- Validation: `tools/test_shaman_totem_group_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check`, module build; live check pending (owner live-tests: Mana Spring + Tranquil/Grace on caster groups, Windfury on melee groups, tide on dry subgroup healer, no resto searing/shock while healing).
+
+## Raid Kings gap: any-missing on-party search incl. self — 2026-10-14
+
+- Feature: the generic on-party blessing search (`CastBlessingOnPartyAction::GetTarget` in `ai/playerbot/strategy/paladin/PaladinActions.cpp`, mirrored by `FindBlessingCandidate` for `BlessingOnPartyTrigger` / `GreaterBlessingOnPartyTrigger` in `PaladinTriggers.cpp`) visits the first member missing ANY blessing the bot knows (healers, tanks, then others, self included) instead of the first member missing EVERY known blessing via `"party member without my aura"`. Decision rules in `ai/playerbot/BlessingCoveragePolicy.h` (`tools/test_blessing_coverage_policy.cpp`, 15 checks): same-family presence blocks (either variant), other families coexist, one Greater cast per class bucket (role-split for warrior/paladin/druid/shaman).
+- Source: raid test 2026-10-14 (39 bots, Retribution the only Kings source on Turtle: Greater Kings 22/39, tanks/DPS covered, no healer and not the ret). Donor `mod-playerbots` `src/Ai/Class/Paladin/Actions/PaladinGreaterBlessingAction.h` (per-class buckets, role-resolved priority, same-family skip `HasEquivalentOrStrongerSameFamilyBlessing`; no shared assignment cache ported — every bot derives the answer from its own spellbook). Core exclusivity verified in `tortoise-wow` `src/game/Spells/SpellAuras.cpp` (`_IsExclusiveSpellAura` competes within an aura type; Might explicitly non-exclusive): Kings and Wisdom coexist, so the healer keeps Wisdom and gains Kings.
+- Reason: two combined defects — healers holding another paladin's Wisdom were never visited for the Kings only the ret knows, and the search excluded the bot itself so the unique source skipped its own class bucket.
+- Validation: `tools/test_blessing_coverage_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check`, module build; live raid re-test pending (owner live-tests: Greater Kings on healers and the ret himself after rebuff).
+
+## Subgroup totems round 2: earth gate, trigger fallthrough, resto shock gate, self downrank, pre-pull — 2026-10-14
+
+- Feature: earth trigger picks Strength of Earth only for melee subgroups (`BestEarthTotemForSubgroup`, hunters credited, pets never counted), else leaves the slot empty; air/water triggers check the wanted totem's own aura so the wrong strategy row goes USELESS and the engine falls through to the right one (round 1 checked the whole slot, so windfury-first always won); restoration `earth shock` fires only while `healer should attack` holds (interrupts exempt); self *Healing Wave*/*Lesser Healing Wave* share the party downrank swap via `CastSelfDownrankHealingAction`; all three specs drop the same subgroup-picked air/water/earth totems out of combat at below-combat relevance (pre-pull, quiet once the slot holds a totem). Rules extended in `ShamanTotemGroupPolicy.h` (`PrePullTotemsShouldPlace`, `BestEarthTotemForSubgroup`); census in `ShamanTriggers.h`.
+- Source: live Horde raid 2026-10-14 (caster groups with Windfury/SoE, Mana Spring on 1 group, 12x450-mana Earth Shocks mid heal fight, Healing Wave top rank 100x, totems missing at pull). No donor port — same round-1 survey (mod-playerbots per-slot manual strategies, no census).
+- Reason: four round-1 gaps — earth never gated, shared-trigger fallthrough broken by slot-wide aura checks, resto shock ungated, self heals bypassing `DownrankSpellId` — plus the owner-requested pre-pull placement.
+- Validation: `tools/test_shaman_totem_group_policy.cpp` (earth + pre-pull checks), `bash tools/verify_all.sh`, `git diff --check`, module build; live check pending (owner live-tests: Mana Spring + Tranquil/Grace and empty earth on caster groups, Windfury + SoE on melee groups, totems up at pull, no resto shock while healing, downranked self Healing Waves).
+
+- Validation: `tools/test_blessing_coverage_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check`, module build; live 5-man re-test showed the round-1 model was wrong (see round-2 entry below).
+
+## Raid Kings gap round 2: one slot per member, bless only the bare — 2026-10-14 (SUPERSEDED by round 3)
+
+- Feature: same files as round 1, inverted rule — `GetBlessingForTarget` / `GetTarget` / `FindBlessingCandidate` bless only members holding NO blessing at all (single or greater, any caster); a blessed member is left alone. Policy header + `tools/test_blessing_coverage_policy.cpp` (16 checks) rewritten for the one-slot model; `docs/classes/paladin.md` Blessings row updated.
+- Source: live 5-man 2026-10-14 (ret + holy paladin, deployed round 1): ret alternated Light/Kings on the holy paladin, holy alternated Might/Wisdom on the priest, priest/druid never settled, GM master unblessed. Donor `mod-playerbots` `src/Ai/Class/Paladin/Actions/PaladinActions.cpp` single path (`HasBlessingAura` any-family guard; kings Execute `bkings`/`bwisdom` split) + `PaladinGreaterBlessingAction.cpp` (`HasEquivalentOrStrongerSameFamilyBlessing`, GUID-sorted distinct-owner shards); only the any-family guard ported, no shared cache. Core rule corrected: `tortoise-wow` `src/game/Spells/SpellEntry.h` (`IsSingleFromSpellSpecificPerTargetPerCaster` lists `SPELL_BLESSING`) + `src/game/Objects/Unit.cpp` (`RemoveNoStackAurasDueToAuraHolder`: same-caster GUID evicts) — every blessing is one-per-target-per-caster regardless of family; `_IsExclusiveSpellAura` (`SpellAuras.cpp`) explicitly exempts blessings and never decides them.
+- Reason: round 1 assumed different families coexist; the core evicts same-caster unconditionally, so every "top-up" destroyed the bot's own live aura and the two paladins churned without converging. GM master unblessed is correct (hidden GM `VISIBILITY_OFF`, now skipped like `PartyMemberValue::Check`).
+- Validation: policy test, `bash tools/verify_all.sh`, `git diff --check`, module build + DEPLOY; live 5-man re-test (auras before/after in report-kings.md Round 2).
+- Superseded: the holds-nothing rule overcorrected — different casters stack, so members need one blessing from EACH paladin. Round 3 keeps the eviction finding but makes the rule caster-aware (own aura blocks, others' never do).
+
+## Fury DPS: interrupt gate, 40-rage heroic strike, boost threat bypass — 2026-10-14
+
+- Feature: interrupts (Pummel/Kick/Shield Bash rows) fire only on a real cast on the bar (generic spell PREPARING with cast time, or channeling; victim spell silence-prevented with the matching damage/channel flag); rule in `ai/playerbot/InterruptCastingPolicy.h` (`tools/test_interrupt_casting_policy.cpp`, 8 checks), wired into `PlayerbotAI::IsInterruptableSpellCasting`. Fury Heroic Strike dumps from 40 rage (was 60). `recklessness` action creator registered (trigger existed, action missing — row logged UNKNOWN). Self-buffs (`CastBuffSpellAction`) carry threat type None so the high-threat veto no longer eats Death Wish / Recklessness / racials. Docs: warrior/rogue class pages.
+- Source: live Horde raid 2026-10-14 (Patchwerk, 8 AQ Fury warriors: 64 Pummels / 0 interrupts needed, HS x6 total, DW x0, Recklessness x0). Donor `mod-playerbots` `79bd4281`: fury HS runs on "medium rage available" = 40 (`Strategy/FuryWarriorStrategy.cpp:163-168`), buff actions carry threat None (`GenericSpellActions.h:262`), interrupt predicate is cast-first (`PlayerbotAI.cpp:4411`). Core gate mirrored from `tortoise-docker-penqle/source` `Spell::EffectInterruptCast` (PREPARING-with-cast-time or CASTING + SILENCE + damage/channel flag). No donor code copied.
+- Reason: `IsNonMeleeSpellCasted(true)` also fires on DELAYED instants (Hateful Strike missile in flight) so idle bosses read as casting; 60-rage HS floor never held; threat veto zeroed DW every tick at high threat; recklessness had no action creator.
+- Validation: `tools/test_interrupt_casting_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check`, module build; live re-test pending (owner live-tests: no Pummel/Kick on Patchwerk, HS firing above 40 rage, DW/Recklessness at fight open).
+
+## Raid curse slot claim (one curse lands at pull) — 2026-10-14
+
+- Feature: `CastCurseSlotAction` (`ai/playerbot/strategy/warlock/WarlockActions.h`) — all single-target curse actions (Agony, Doom, Elements, Recklessness, Weakness, Tongues, Shadow, Exhaustion) inherit it. `isUseful` stands down while another bot holds a live claim on the target under any other curse name; `Execute` claims the slot under every curse name after a successful cast. Follows the `CastBlessingOnPartyAction::isUseful` claim precedent; no donor port (donor assumes one curse per caster, this core keeps one curse per target).
+- Source: live H7 Horde raid 2026-10-14 (Patchwerk, 4 Destro warlocks, build af9feb5f): all three curse rows (Elements + Recklessness-raid + Shadow-raid) pushed on the same pull tick while the slot was empty, so every warlock cast Elements then its queued Recklessness/Shadow ~1 s later — 11 curse casts in 5 s, each knocking Elements off, boss kept Shadow instead of Elements. Zero mid-fight curse casts (steady state fine).
+- Reason: the 1ab085fe raid rows gate on aura presence, but the aura from the first cast had not landed when the queued second-row casts executed; per-tick re-evaluation then ping-ponged (Brenaelugae cast Elements 3x in 4 s as others knocked it off).
+- Validation: `bash tools/verify_all.sh`, `git diff --check`, OKF clean (warlock class doc updated); live H9 check pending (owner measures: exactly one curse cast per warlock at pull, Elements held all fight, no re-curse mid-fight).
+
+## Off-tank threat: affordable-rage Shield Slam, HIGH+2 Bloodrage — 2026-10-14
+
+- Feature: Protection `shield slam` row fires on `light rage available` (20, the spell's cost) instead of `medium rage available` (40); the sunder-deferral veto in `CastSunderArmorAction::isUseful` follows the same trigger. `bloodrage` row NORMAL+5 -> HIGH+2 (donor `TankWarriorStrategy` value), below every threat builder. Docs: warrior class page rotation rows.
+- Source: live Horde raid 2026-10-14 (Patchwerk pull 10:57:21, wipe ~10:59:39, 4 Protection + 8 Fury): main tank 144 threat casts (51 HS / 30 slam / 30 revenge), off-tanks 73/55/47; Fury passed three living off-tanks on threat at 57/69 s. Off-tanks not being hit earn almost no rage (white swings only); at 20-39 rage Shield Slam sat IMPOSSIBLE (231x on one bot) while nothing else was affordable, and Bloodrage lost to the sunder row's melee alternative (25.04 vs NORMAL+5) until the 5-stack completed, delaying the first Bloodrage ~10 s. Donor `mod-playerbots` `79bd4281` `Strategy/TankWarriorStrategy.cpp:168-174` (bloodrage HIGH+2), `:185-191` (slam HIGH+2, medium-gated — the 40 gate is the donor value this fix deliberately deviates from for rage-thin off-tanks). No donor code copied.
+- Reason: rage-thin off-tanks parked in melee-only for most of the fight instead of running their normal threat rotation; no DPS-side threat limits added (would cut boss DPS).
+- Validation: `bash tools/verify_all.sh`, `git diff --check`, module build; live raid re-test pending (owner live-tests: off-tank Shield Slam / Heroic Strike counts near main-tank rate, threat above Fury on the boss list).
+
+## Caster mana loop: potion from 65%, rune for DPS, gem fallback, earlier evocation — 2026-10-14
+
+- Feature: generic `UsePotionsStrategy` arms the mana potion at high mana (<65%) so the 2 min line rolls early; `UseDarkRuneAction` prefers a ready held gem for mages but falls through to the rune once the gem is spent/on cooldown (shared line); mage gem node falls back to potion; Evocation arms at medium mana (<40%) with threat-None; `InitPotions` seeds half a stack of Dark Runes (20520) for every mana user 45+ (hourly RestockCompanion covers hires). Pure `ai/playerbot/CasterManaPolicy.h` pins gem ranks/order/thresholds (`tools/test_caster_mana_policy.cpp`, in `verify_all.sh`).
+- Source: donor mod-playerbots@79bd4281 (`src/Ai/Base/Strategy/UsePotionsStrategy.cpp`: medium mana -> mana potion EMERGENCY; `GenericMageStrategy.cpp:119-122`: gem at high mana 65% then evocation at low mana; per-rank gem actions gated on in-combat + possession; no rune concept — Turtle-only item) + live Horde raid H8 2026-10-14 (~7-min boss, build af9feb5f, no Wisdom): mages slid 100% -> 45% in 60 s before the <40% row armed, gem burned ~hourly-on-cooldown with 0 potion casts on most mages (reaction-only gem wins the 90-vs-24 race; combat-engine potion verdicts all IMPOSSIBLE-on-cooldown), rune row class-blocked for mages (0 casts) while rune-holding healers used it ~hourly, Evocation 1x as a <15% last rite then cooldown-gated IMPOSSIBLE (+ threat-vetoed ticks), wand from 11:09 at <5%.
+- Reason: four stacked gates — (1) potion armed at <40% so the first 2 min cycle slipped 40 s; (2) blanket mage rune block; (3) gem node with no potion fallback; (4) evocation late + SINGLE threat type. Spell 51931 is Turtle Hot Streak proc rank 2 (stacking Pyroblast cast-time reduction, not a mana cost).
+- Validation: `tools/test_caster_mana_policy.cpp`, `bash tools/verify_all.sh` clean, module build green (build-commit.sh 4bacbb58); live raid re-test pending (server busy).

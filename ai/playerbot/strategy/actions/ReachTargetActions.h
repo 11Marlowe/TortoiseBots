@@ -721,6 +721,25 @@ namespace ai
             range = 20.0f;
         }
 
+        bool isUseful() override
+        {
+            // No walk without a drop: the aura scan reads "windfury totem"
+            // while the raid buff is "Windfury Totem Effect", so after a
+            // re-cast loop starts every member reads as missing the aura
+            // and this prereq walks the healer to the tanks every tick
+            // (live raid 2026-10-14: resto 4-7 yd from the boss). The
+            // totem-object scan ("has totem") sees the live totem even
+            // when the aura name does not match, so gate the walk on it:
+            // no live totem of this spell -> walk; totem already down ->
+            // stay at range and let the cast go USELESS quietly.
+            std::string totemSpell = spellName;
+            if (totemSpell.empty() && !qualifier.empty())
+                totemSpell = Qualified::getMultiQualifierStr(qualifier, 0, "::");
+            if (!totemSpell.empty() && AI_VALUE2(bool, "has totem", totemSpell.c_str()))
+                return false;
+            return ReachTargetAction::isUseful();
+        }
+
         Unit* GetTarget() override
         {
             std::string totemSpell = spellName;
@@ -745,11 +764,34 @@ namespace ai
                 if (!bot->IsWithinDistInMap(member, 100.0f, false))
                     continue;
 
-                if (!ai->HasAura(totemSpell, member, false, true))
+                // Same effect-name rule as the totem action: match the
+                // totem aura by id, not by cast-spell name.
+                if (!HasTotemAura(totemSpell, member))
                     return member;
             }
 
             return nullptr;
+        }
+
+        bool HasTotemAura(std::string const& totemSpell, Player* member)
+        {
+            if (!member)
+                return false;
+            std::uint32_t spellId = AI_VALUE2(std::uint32_t, "spell id", totemSpell);
+            if (!spellId)
+                return false;
+            SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId);
+            if (!info)
+                return false;
+            for (std::uint32_t effect = 0; effect < (std::uint32_t)MAX_EFFECT_INDEX; ++effect)
+            {
+                std::uint32_t auraId = info->EffectTriggerSpell[effect];
+                if (!auraId)
+                    continue;
+                if (ai->HasAura(auraId, member))
+                    return true;
+            }
+            return ai->HasAura(spellId, member);
         }
     };
 }

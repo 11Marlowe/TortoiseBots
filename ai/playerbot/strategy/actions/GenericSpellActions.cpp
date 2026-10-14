@@ -7,8 +7,10 @@
 #include "GenericActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/TargetValue.h"
+#include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "Database/DBCStores.h"
+#include "BotActionLog.h"
 
 #include <algorithm>
 #include <map>
@@ -276,7 +278,16 @@ bool CastSpellAction::Execute(Event& event)
                 ai->CastSpell("auto shot", target);
         }
 
-        executed = ai->CastSpell(spellName, target, nullptr, false, &spellDuration);
+        // An explicit rank override (SetSpellId) casts that id: re-resolving
+        // the spell name would always land the top rank and drop the pick.
+        if (spellIdOverride)
+        {
+            executed = ai->CastSpell(spellIdOverride, target, nullptr, false, &spellDuration);
+            if (executed)
+                ai->GetAiObjectContext()->GetValue<time_t>("last spell cast time", spellName)->Set(time(0));
+        }
+        else
+            executed = ai->CastSpell(spellName, target, nullptr, false, &spellDuration);
     }
 
     if (executed)
@@ -344,11 +355,22 @@ bool CastSpellAction::isPossible()
 
     if(!canReach)
     {
+        botdiag::BotActionLog::Write(ai, "CAST_REFUSED", "spell=%s reason=out-of-reach", spellName.c_str());
         return false;
     }
 
-    // Check if the spell can be casted
-	return ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true);
+    // Check if the spell can be casted; log the core verdict so a bare
+    // IMPOSSIBLE in the action log names its cause.
+    SpellCastResult result = SPELL_CAST_OK;
+    if (!ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true, false, false, &result))
+    {
+        // NOT_READY (GCD / cast in flight) is every tick's normal answer
+        // between casts; logging it would bury the real refusals.
+        if (result != SPELL_FAILED_NOT_READY)
+            botdiag::BotActionLog::Write(ai, "CAST_REFUSED", "spell=%s result=%u", spellName.c_str(), (uint32)result);
+        return false;
+    }
+    return true;
 }
 
 bool CastSpellAction::isUseful()
@@ -407,6 +429,8 @@ void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDC
     {
         spellName = name;
         spellId = ai->GetAiObjectContext()->GetValue<uint32>(spellIDContextName, name)->Get();
+        resolvedSpellId = spellId;
+        spellIdOverride = 0;
 
         float spellRange;
         if (ai->GetSpellRange(spellName, &spellRange))
@@ -414,6 +438,26 @@ void CastSpellAction::SetSpellName(const std::string& name, std::string spellIDC
             range = spellRange;
         }
     }
+}
+
+void CastSpellAction::SetSpellId(uint32 id)
+{
+    if (id && id != spellId)
+    {
+        spellId = id;
+        spellIdOverride = id;
+        float spellRange;
+        if (ai->GetSpellRange(spellName, &spellRange))
+            range = spellRange;
+    }
+}
+
+void CastSpellAction::ClearSpellIdOverride()
+{
+    if (!spellIdOverride)
+        return;
+    spellIdOverride = 0;
+    spellId = resolvedSpellId;
 }
 
 Value<Unit*>* CastSpellAction::GetTargetValue()
@@ -719,8 +763,23 @@ bool HealPartyMemberAction::isUseful()
     Unit* target = GetTarget();
     if (!target)
         return false;
+    // Skip the start gate while this cast is already downranked: Execute
+    // runs after isUseful each tick and would re-swap the same id (the
+    // cached actions live as long as the bot). Clear-then-gate keeps the
+    // decision stateless across ticks: the gate always sees the top rank.
+    ClearSpellIdOverride();
     HealerManaState heal{};
     heal.targetHealth = target->GetHealthPercent() > 100.0f ? 100 : (std::uint8_t)target->GetHealthPercent();
+    // Count heals other healers are already casting at this target — but only
+    // above lowHealth. A member in danger must read as wounded so every
+    // healer keeps casting: one slow cast in flight (or one spike hit) must
+    // never stand the whole roster down on a 25 % tank.
+    if (heal.targetHealth > sPlayerbotAIConfig.lowHealth && target->GetMaxHealth())
+    {
+        uint32 const withIncoming = HealthWithIncoming(target->GetHealth(), target->GetMaxHealth(),
+            GetIncomingHeal(ai, target), sPlayerbotAIConfig.lowHealth);
+        heal.targetHealth = withIncoming >= target->GetMaxHealth() ? 100 : std::uint8_t(withIncoming * 100 / target->GetMaxHealth());
+    }
     heal.healerMana = AI_VALUE2(uint8, "mana", "self target");
     heal.estAmount = estAmount;
     heal.efficiency = manaEfficiency;
@@ -729,9 +788,137 @@ bool HealPartyMemberAction::isUseful()
     heal.mediumHealth = sPlayerbotAIConfig.mediumHealth;
     heal.mediumMana = sPlayerbotAIConfig.mediumMana;
     if (!ShouldStartHeal(heal))
+    {
+        // A downrankable line still gets its cast when a cheaper rank fits
+        // the wound: the gate above vetoes on the TOP rank's estimate, so a
+        // small wound would never reach Execute to pick the small rank. A
+        // cheaper fitting rank means this is a waste-of-mana veto, not a
+        // no-wound one — a full-health target must stay vetoed.
+        if (target->GetMaxHealth() && target->GetHealth() < target->GetMaxHealth() && DownrankSpellId(target))
+            return CastHealingSpellAction::isUseful();
         return false;
+    }
     return CastHealingSpellAction::isUseful();
 }
+
+uint32 HealPartyMemberAction::DownrankSpellId(Unit* target)
+{
+    // The action was built with the TOP rank's spell id (SpellIdValue always
+    // picks max rank at save level 1), so a small wound still pays the
+    // big-heal price. Return the cheapest known rank covering the wound
+    // (missing minus heals already incoming); the top rank on emergency
+    // (the policy says so). An explicit player save-mana level keeps the old
+    // pick (the player asked for cheap ranks by hand). Only plain
+    // single-target direct heals qualify: no HoT/shield/hybrid (their value
+    // is not the direct amount), no AoE jumps, no cooldown spells. HoTs ride
+    // HealHotPartyMemberAction::Execute below (no downrank: their ticks, not
+    // the direct portion, are the point). 0 = do not downrank.
+    if (!target || AI_VALUE(double, "mana save level") > 1.0)
+        return 0;
+    SpellEntry const* topInfo = sServerFacade.LookupSpellInfo(GetSpellID());
+    if (!topInfo || !PlayerbotAI::IsHealSpell(topInfo))
+        return 0;
+    // Turtle's Healing Wave rows target TARGET_UNIT_FRIEND_CHAIN_HEAL (45)
+    // with zero jumps — same id as Chain Heal, which really jumps
+    // (EffectChainTarget 3). Accept the id, reject actual jumps below.
+    bool directHeal = false;
+    bool hybrid = false;
+    for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+    {
+        if (!topInfo->Effect[effect])
+            continue;
+        if (topInfo->Effect[effect] == SPELL_EFFECT_HEAL ||
+            topInfo->Effect[effect] == SPELL_EFFECT_HEAL_MAX_HEALTH ||
+            topInfo->Effect[effect] == SPELL_EFFECT_HEAL_MECHANICAL)
+            directHeal = true;
+        else
+            hybrid = true;
+    }
+    // Jump-less single-target lines only (HealTargetAllowsDownrank): Turtle's
+    // Healing Wave rows carry the chain-heal target id with zero jumps, so
+    // they qualify; Chain Heal really jumps and stays top rank.
+    if (!directHeal || hybrid || topInfo->IsChanneledSpell() ||
+        topInfo->RecoveryTime != 0 || topInfo->CategoryRecoveryTime != 0 ||
+        !HealTargetAllowsDownrank(topInfo->EffectImplicitTargetA[0], topInfo->EffectChainTarget[0]))
+        return 0;
+    std::string name = GetSpellName();
+    strToLower(name);
+    std::vector<HealRankOption> ranks;
+    for (PlayerSpellMap::const_iterator itr = bot->GetSpellMap().begin();
+         itr != bot->GetSpellMap().end(); ++itr)
+    {
+        if (itr->second.state == PLAYERSPELL_REMOVED || itr->second.disabled ||
+            IsPassiveSpell(itr->first))
+            continue;
+        SpellEntry const* info = sServerFacade.LookupSpellInfo(itr->first);
+        // Same spell line: name match first (cheap), family/icon
+        // confirm (ranks share both; different spells do not).
+        if (!info)
+            continue;
+        std::string rankName = info->SpellName[0];
+        strToLower(rankName);
+        if (rankName != name || info->SpellFamilyName != topInfo->SpellFamilyName ||
+            info->SpellIconID != topInfo->SpellIconID)
+            continue;
+        uint32 heal = 0;
+        for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
+        {
+            if (info->Effect[effect] != SPELL_EFFECT_HEAL &&
+                info->Effect[effect] != SPELL_EFFECT_HEAL_MAX_HEALTH &&
+                info->Effect[effect] != SPELL_EFFECT_HEAL_MECHANICAL)
+                continue;
+            // Same estimate shape as the server's EffectHeal:
+            // base incl. level scaling, then the +healing bonus.
+            int32 base = bot->CalculateSpellDamage(target, info, SpellEffectIndex(effect), nullptr);
+            if (base <= 0)
+                continue;
+            heal += bot->SpellHealingBonusDone(target, info, SpellEffectIndex(effect), base, HEAL);
+        }
+        if (!heal)
+            continue;
+        uint32 mana = info->manaCost
+            ? info->manaCost
+            : uint32(info->ManaCostPercentage) * bot->GetCreateMana() / 100;
+        ranks.push_back({itr->first, heal, mana});
+    }
+    if (ranks.size() < 2)
+        return 0;
+    std::sort(ranks.begin(), ranks.end(),
+        [](HealRankOption const& a, HealRankOption const& b) { return a.mana < b.mana; });
+    uint32 const maxHealth = target->GetMaxHealth();
+    uint32 missing = 0;
+    if (maxHealth && target->GetHealth() < maxHealth)
+        missing = maxHealth - target->GetHealth();
+    uint32 const incoming = GetIncomingHeal(ai, target);
+    missing = incoming >= missing ? 0 : missing - incoming;
+    if (!missing)
+        return 0;
+    float const healthPct = maxHealth ? target->GetHealth() * 100.0f / maxHealth : 100.0f;
+    HealDownrankState const state{missing,
+        healthPct > 100.0f ? 100 : (std::uint8_t)healthPct,
+        (std::uint8_t)sPlayerbotAIConfig.lowHealth,
+        (std::uint8_t)sPlayerbotAIConfig.criticalHealth};
+    return PickHealRank(ranks, state);
+}
+
+bool HealPartyMemberAction::Execute(Event& event)
+{
+    // Downrank at cast start when the wound does not need the top rank.
+    // The base Execute casts whatever SetSpellId pointed at; without a swap
+    // the override stays 0 and the spell name resolves as before.
+    if (Unit* target = GetTarget())
+        if (uint32 const rankId = DownrankSpellId(target))
+            SetSpellId(rankId);
+    return CastSpellAction::Execute(event);
+}
+
+bool HealHotPartyMemberAction::Execute(Event& event)
+{
+    // HoTs are never downranked here: their ticks are the point, not the
+    // direct portion. Skip the rank swap, cast at the resolved rank.
+    return CastSpellAction::Execute(event);
+}
+
 
 bool HealHotPartyMemberAction::isUseful()
 {

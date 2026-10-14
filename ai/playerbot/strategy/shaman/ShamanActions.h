@@ -8,10 +8,29 @@
 namespace ai
 {
     BUFF_ACTION(CastGhostWolfAction, "ghost wolf");
-    class CastLesserHealingWaveAction : public CastHealingSpellAction
+    // Self-target direct heals share the party downrank swap: the base
+    // HealPartyMemberAction::Execute only runs for the "on party" lines,
+    // so the self rows ("healing wave", "lesser healing wave") always paid
+    // top rank (live raid 2026-10-14: Healing Wave top rank 100x). Inherit
+    // the party action for DownrankSpellId + Execute, override the target
+    // back to self and the name back to the plain spell (the party base
+    // reports "<spell> on party").
+    class CastSelfDownrankHealingAction : public HealPartyMemberAction
     {
     public:
-        CastLesserHealingWaveAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "lesser healing wave") {}
+        CastSelfDownrankHealingAction(PlayerbotAI* ai, std::string spell, uint8 estAmount, HealManaEfficiency efficiency)
+            : HealPartyMemberAction(ai, spell, estAmount, efficiency), spell(spell) {}
+        std::string getName() override { return spell; }
+        std::string GetTargetName() override { return "self target"; }
+    private:
+        std::string spell;
+    };
+
+    class CastLesserHealingWaveAction : public CastSelfDownrankHealingAction
+    {
+    public:
+        CastLesserHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
     };
 
     class CastLesserHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -20,10 +39,11 @@ namespace ai
         CastLesserHealingWaveOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
     };
 
-    class CastHealingWaveAction : public CastHealingSpellAction
+    class CastHealingWaveAction : public CastSelfDownrankHealingAction
     {
     public:
-        CastHealingWaveAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "healing wave") {}
+        CastHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "healing wave", 50, HealManaEfficiency::MEDIUM) {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
     };
 
     class CastHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -146,7 +166,15 @@ namespace ai
                 if (!bot->IsWithinDistInMap(member, 100.0f, false))
                     continue;
 
-                if (!ai->HasAura(GetSpellName(), member, false, true))
+                // Totem buffs land under effect names ("Windfury Totem
+                // Effect"), never under the cast spell's name — and the
+                // name scan only matches exact spell names, so it always
+                // reads "missing" and every row stays USELESS-looping
+                // while a same-group totem already covers the member
+                // (live Naxx 2026-10-14: 3x air + 2x water rows USELESS
+                // every tick all fight). Match by the totem spell's aura
+                // id instead: any rank's aura on the member counts.
+                if (!HasTotemAura(GetSpellName(), member))
                     return true;
             }
 
@@ -166,6 +194,29 @@ namespace ai
             return NextAction::merge(
                 NextAction::array(0, new NextAction("reach party member for totem::" + qualifiersStr), nullptr),
                 CastBuffSpellAction::getPrerequisites());
+        }
+
+        // True when the member carries any rank's aura of this totem
+        // spell (own or a group mate's — either one covers them).
+        bool HasTotemAura(std::string const& totemSpell, Player* member)
+        {
+            if (!member)
+                return false;
+            std::uint32_t spellId = AI_VALUE2(std::uint32_t, "spell id", totemSpell);
+            if (!spellId)
+                return false;
+            SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId);
+            if (!info)
+                return false;
+            for (std::uint32_t effect = 0; effect < (std::uint32_t)MAX_EFFECT_INDEX; ++effect)
+            {
+                std::uint32_t auraId = info->EffectTriggerSpell[effect];
+                if (!auraId)
+                    continue;
+                if (ai->HasAura(auraId, member))
+                    return true;
+            }
+            return ai->HasAura(spellId, member);
         }
     };
 
@@ -212,12 +263,29 @@ namespace ai
         virtual bool isUseful() override { return CastTotemAction::isUseful() && !AI_VALUE2(bool, "has totem", "healing stream totem"); }
     };
 
-	class CastManaTideTotemAction : public CastTotemAction
-	{
-	public:
-		CastManaTideTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "mana tide totem") {}
-		virtual std::string GetTargetName() override { return "self target"; }
-	};
+    // Mana Tide shares the water slot with Mana Spring / Healing Stream,
+    // but it is a 5-minute cooldown raid battery, not an upkeep totem: it
+    // must land while Spring/Stream is up (live H7+H8: 0 casts while
+    // healers sat at 18-30% mana — the water aura scan read "covered"
+    // and the cast never started). Skip the cover scan; the trigger rows
+    // ("low mana", "healer low mana") plus the engine cooldown check own
+    // the timing. Other water totems keep the scan.
+    class CastManaTideTotemAction : public CastTotemAction
+    {
+    public:
+        CastManaTideTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "mana tide totem") {}
+        virtual std::string GetTargetName() override { return "self target"; }
+        bool isUseful() override
+        {
+            if (sServerFacade.isMoving(bot))
+            {
+                Unit* target = AI_VALUE(Unit*, "current target");
+                if (!bot->IsInCombat() || !target || bot->GetDistance(target) > 10.0f)
+                    return false;
+            }
+            return CastBuffSpellAction::isUseful();
+        }
+    };
 
 	class CastHealingStreamTotemAction : public CastTotemAction
 	{
@@ -272,11 +340,6 @@ namespace ai
     {
     public:
         CastWindfuryTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "windfury totem") {}
-
-        virtual bool isUseful() override
-        {
-            return (bot->GetGroup() || ai->HasStrategy("totem air windfury", BotState::BOT_STATE_COMBAT)) && CastTotemAction::isUseful();
-        }
     };
 
     class CastWindwallTotemAction : public CastTotemAction
@@ -289,11 +352,15 @@ namespace ai
     {
     public:
         CastGraceOfAirTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "grace of air totem") {}
+    };
 
-        virtual bool isUseful() override
-        {
-            return (!bot->GetGroup() || ai->HasStrategy("totem air grace", BotState::BOT_STATE_COMBAT)) && CastTotemAction::isUseful();
-        }
+    // Turtle custom (25908): threat-reduction air totem, preferred for
+    // caster subgroups when trained. No strategy gate: the air trigger's
+    // subgroup census picks it, the slot check quiets it once down.
+    class CastTranquilAirTotemAction : public CastTotemAction
+    {
+    public:
+        CastTranquilAirTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "tranquil air totem") {}
     };
 
     class CastSearingTotemAction : public CastTotemAction

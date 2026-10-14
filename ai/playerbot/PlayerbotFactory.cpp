@@ -3440,9 +3440,16 @@ void PlayerbotFactory::InitPotions()
         if (effect == SPELL_EFFECT_ENERGIZE && bot->GetPowerType() != POWER_MANA) // Do not give manapots to non-mana users.
             continue;
 
+        // Top up below half a stack instead of only when empty: a raid
+        // healer drinks one per cooldown, and live H9 (Patchwerk) had 18 of
+        // 35 hired mana users bone-dry by the 4th minute with the hourly
+        // restock still far off.
         FindPotionVisitor visitor(bot, effect);
         ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
-        if (!visitor.GetResult().empty()) continue;
+        uint32 held = 0;
+        for (Item* item : visitor.GetResult())
+            held += item->GetCount();
+        if (held && held >= visitor.GetResult().front()->GetProto()->GetMaxStackSize() / 2) continue;
 
         uint32 itemId = sRandomItemMgr.GetRandomPotion(level, effect);
         if (!itemId)
@@ -3456,6 +3463,23 @@ void PlayerbotFactory::InitPotions()
 
         uint32 maxCount = proto->GetMaxStackSize();
         Item* newItem = bot->StoreNewItemInInventorySlot(itemId, urand(maxCount / 2, maxCount));
+    }
+
+    // Long-fight mana battery for every mana user (generic, not a raid
+    // special case): Dark Rune 20520 sits on its own cooldown line from
+    // the mana potion, so it doubles the mana returns on fights past the
+    // potion's 2 min cadence. Live H8: healers with granted runes used
+    // them ~hourly-on-cooldown while rune-less DPS casters never fired
+    // the row. Bounded like the potion seed (half stack when none held);
+    // RestockCompanion re-runs this for hired companions hourly.
+    if (bot->GetPowerType() == POWER_MANA && bot->GetLevel() >= 45)
+    {
+        static uint32 const DARK_RUNE_ITEM = 20520;
+        if (bot->GetItemCount(DARK_RUNE_ITEM) == 0)
+        {
+            if (ItemPrototype const* runeProto = sObjectMgr.GetItemPrototype(DARK_RUNE_ITEM))
+                bot->StoreNewItemInInventorySlot(DARK_RUNE_ITEM, runeProto->GetMaxStackSize() / 2);
+        }
     }
 }
 
