@@ -2,49 +2,43 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-// Paladin blessing coverage (raid Kings gap, rounds 1+2, 2026-10-14): who may
-// still need a blessing, and which one to give them.
+// Paladin blessing coverage (raid Kings gap, rounds 1-3, 2026-10-14): who
+// may still need a blessing, and which one to give them.
 //
 // Core mechanics (this core, verified live): every blessing classifies
 // SPELL_BLESSING (SpellEntry.cpp GetSpellSpecific), which is one-per-target-
 // per-caster (SpellEntry.h IsSingleFromSpellSpecificPerTargetPerCaster). On
 // aura add Unit::RemoveNoStackAurasDueToAuraHolder removes the existing
 // blessing when the caster GUID matches — so a second blessing from the
-// SAME paladin ALWAYS evicts the first, whatever the family (round-1's
-// "different families coexist" model was wrong: _IsExclusiveSpellAura
-// explicitly exempts blessings, SpellAuras.cpp, and never decides them).
-// Different casters coexist for different blessings; the same chain from
-// another caster fights by rank. Consequence: each paladin owns exactly one
-// blessing slot per member. The on-party action/trigger therefore skips any
-// member holding ANY blessing (single or greater, any caster) — the donor
-// mod-playerbots single-path HasBlessingAura guard — and picks its role
-// priority blessing only for members holding nothing. A Greater blessing
-// lands on every group member of the target's class at once (per-CLASS, one
-// cast per class present): coordination is per class bucket, not per member.
-//
-// Round-1 evidence (39 bots, 1 Retribution knowing Kings + 5 Holy without
-// it): Greater Kings reached 22/39 — tanks and DPS, but no healer and not
-// the ret himself. Two defects: the "missing EVERYTHING I know" search never
-// visited healers holding Wisdom, and it excluded the bot itself (its own
-// class bucket never got the Greater cast). Round 1 fixed the visit rule;
-// round-2 live evidence (5-man: ret + holy paladin) showed the fix unmasked
-// the eviction churn underneath: the ret alternated Light/Kings on the holy
-// paladin (each cast evicting its own previous one), the holy paladin
-// alternated Might/Wisdom on the priest the same way, and the GM master got
-// nothing (correct — uncached real player, invisible to the bots).
+// SAME paladin ALWAYS evicts the first, whatever the family. Blessings from
+// DIFFERENT casters stack: each member converges to one blessing from EACH
+// paladin (e.g. Kings from the ret + Wisdom from the holy). Consequence per
+// paladin: never cast a second, different blessing where one of ITS OWN
+// blessings already sits (that cast evicts its own live aura — the
+// Light/Kings and Might/Wisdom churn seen live 2026-10-14); where the member
+// holds no blessing from this bot, pick the highest role-priority blessing
+// the bot knows that no caster already provides (same family from any caster
+// covers the member — single and greater share the slot per caster, a second
+// family copy adds nothing). The paladin that uniquely knows a blessing
+// (Kings, a Retribution talent on Turtle — verified in tw_char for the live
+// rets) therefore prefers it wherever the member lacks it, whatever else the
+// member holds from others. Hidden GM masters (VISIBILITY_OFF) are skipped
+// in the scans: the core drops them in Spell::CheckTarget post-cast, so they
+// read as blessable forever and wedge the loop (same skip as
+// PartyMemberValue::Check).
 //
 // Donor (mod-playerbots PaladinGreaterBlessingAction.h/.cpp,
 // PaladinActions.cpp single path): deterministic per-paladin assignment
 // shards (GUID-sorted pool, distinct owners per bucket), class buckets with
 // role-resolved priority (UsesRoleBucket), HasEquivalentOrStrongerSameFamily
-// skip, and — the piece ported here — the single-target path refuses any
-// member holding ANY blessing family already. Ported as pure per-target
-// rules (no shared cache: every bot derives the same answer from live aura
-// state, no invalidation on learn/talent/respec):
-//   - one blessing slot per member per paladin (core eviction rule);
+// skip, and the single-target HasBlessingAura guard. Ported here as pure
+// per-target rules, caster-aware (HasMyAura for own slot, HasAura for other
+// casters' cover) with no shared cache: every bot derives the same answer
+// from live aura state, no invalidation on learn/talent/respec:
+//   - one blessing slot per member PER PALADIN (core eviction rule);
 //   - within a bucket, the role priority list decides the blessing;
-//   - any blessing already present blocks; a member holding Wisdom is left
-//     alone, never "topped up" with Kings by the same or another bot.
+//   - own live blessing blocks everything; same-family cover from any caster
+//     blocks that family only; other families from other casters never block.
 //
 // No core includes: callers translate game state into plain inputs, so the
 // rules stay testable in tools/test_blessing_coverage_policy.cpp.
@@ -142,17 +136,18 @@ namespace ai
     }
 
     // The blessing this member should carry from this bot: the first
-    // priority-list entry the bot knows, but only when the member holds NO
-    // blessing at all (single or greater, any caster — `present` counts any
-    // family). One slot per member per paladin (core eviction rule): a member
-    // holding Wisdom is left alone, never "topped up" with Kings — the cast
-    // would evict the live aura (same caster) or churn against the other
-    // paladin's. `knows` marks families the bot has trained.
+    // priority-list entry the bot knows that no caster already provides.
+    // `mine` marks families THIS bot already provides (single or greater —
+    // own live aura stands, never overwrite it: the cast would evict it).
+    // `present` marks families ANY caster provides (single or greater —
+    // same-family cover from anyone blocks that family only; other families
+    // from other casters never block, they stack). `knows` marks families
+    // the bot has trained (single or greater).
     inline BlessingFamily BlessingForMember(BlessingMember const& member,
-        bool const* knows, bool const* present)
+        bool const* knows, bool const* present, bool const* mine)
     {
         for (std::size_t f = 1; f <= 6; ++f)
-            if (present[f])
+            if (mine[f])
                 return BlessingFamily::None;
         std::vector<BlessingFamily> priority = BlessingPriorityFor(member);
         for (std::size_t i = 0; i < priority.size(); ++i)
@@ -166,18 +161,18 @@ namespace ai
         return BlessingFamily::None;
     }
 
-    // Target search predicate for the on-party action: visit a member only
-    // when it holds NO blessing at all and the bot knows at least one family.
-    // Any live blessing means the slot is spoken for (see above) — visiting
-    // it could only overwrite. Self is visitable: the bot's own class bucket
-    // still needs its Greater cast.
-    inline bool MemberNeedsBlessingVisit(bool const* knows, bool const* present)
+    // Target search predicate for the on-party action: visit a member when
+    // this bot holds no live blessing on it and at least one known family is
+    // uncovered by any caster. Another paladin's aura never blocks the visit
+    // (different casters stack). Self is visitable: the bot's own class
+    // bucket still needs its Greater cast.
+    inline bool MemberNeedsBlessingVisit(bool const* knows, bool const* present, bool const* mine)
     {
         for (std::size_t f = 1; f <= 6; ++f)
-            if (present[f])
+            if (mine[f])
                 return false;
         for (std::size_t f = 1; f <= 6; ++f)
-            if (knows[f])
+            if (knows[f] && !present[f])
                 return true;
         return false;
     }

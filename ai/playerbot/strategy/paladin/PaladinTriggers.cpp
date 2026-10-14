@@ -274,17 +274,13 @@ bool GreaterBlessingTrigger::IsActive()
     return false;
 }
 
-namespace
-{
-// A group member (or the bot itself) holding NO blessing at all is a
-// candidate for this bot's pick. Mirrors CastBlessingOnPartyAction::
-// GetBlessingForTarget so the trigger and the action always resolve the
-// same member. Core aura rule (live 2026-10-14, one blessing per target
-// per caster): a member holding any blessing already has its slot spoken
-// for — casting over it would evict either the other paladin's live aura
-// (different casters coexist, same caster replaces) or this bot's own.
-// The round-1 "missing anything known" visit rule is folded in: a member
-// with nothing on it trivially misses everything the bot knows.
+// A group member (or the bot itself) this bot could still bless: it holds
+// no blessing FROM THIS BOT and at least one role-priority pick is
+// uncovered by any caster. Mirrors CastBlessingOnPartyAction::GetTarget so
+// the trigger and the action always resolve the same member. Core aura rule
+// (one blessing per target per caster): own live aura blocks (a second cast
+// would evict it); another paladin's aura never blocks (different casters
+// stack — each member converges to one blessing from EACH paladin).
 Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
 {
     static char const* const kBlessings[] =
@@ -337,15 +333,18 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
             others.push_back(member);
     }
 
-    auto HoldsAny = [&](Player* member)
+    // Visit rule: own live blessing blocks; any same-family cover from any
+    // caster blocks that family only. (The action's full role-priority pick
+    // runs at cast time; the trigger only needs "something could land".)
+    auto CouldBless = [&](Player* member)
     {
         for (char const* blessing : kBlessings)
         {
             std::string const base(blessing);
-            if (ai->HasAura(base, member) || ai->HasAura("greater " + base, member))
-                return true;
+            if (ai->HasMyAura(base, member) || ai->HasMyAura("greater " + base, member))
+                return false;
         }
-        return false;
+        return true;
     };
 
     for (std::list<Player*>* bucket : { &healers, &tanks, &others })
@@ -354,14 +353,13 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
         {
             if (sServerFacade.getDistance2d(member, bot) > 30.0f)
                 continue;
-            if (!HoldsAny(member) && sServerFacade.IsWithinLOSInMap(bot, member))
+            if (CouldBless(member) && sServerFacade.IsWithinLOSInMap(bot, member))
                 return member;
         }
     }
 
     return nullptr;
 }
-} // namespace
 
 bool BlessingOnPartyTrigger::IsActive()
 {
