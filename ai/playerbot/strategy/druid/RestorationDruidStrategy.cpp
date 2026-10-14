@@ -183,6 +183,14 @@ void RestorationDruidRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& t
 {
     RestorationDruidStrategy::InitCombatTriggers(triggers);
     DruidRaidStrategy::InitCombatTriggers(triggers);
+    // Raid debuff duty: keep Faerie Fire on the boss while every heal
+    // outbids it. The trigger skips when anyone already holds the aura and
+    // the action refuses without the spell, so non-resto specs and
+    // low-level druids see no change. Below the offdps nukes in spirit:
+    // armor debuff first, damage only when nobody needs healing.
+    triggers.push_back(new TriggerNode(
+        "faerie fire",
+        NextAction::array(0, new NextAction("faerie fire", ACTION_NORMAL), NULL)));
 }
 
 void RestorationDruidRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
