@@ -3457,6 +3457,23 @@ void PlayerbotFactory::InitPotions()
         uint32 maxCount = proto->GetMaxStackSize();
         Item* newItem = bot->StoreNewItemInInventorySlot(itemId, urand(maxCount / 2, maxCount));
     }
+
+    // Long-fight mana battery for every mana user (generic, not a raid
+    // special case): Dark Rune 20520 sits on its own cooldown line from
+    // the mana potion, so it doubles the mana returns on fights past the
+    // potion's 2 min cadence. Live H8: healers with granted runes used
+    // them ~hourly-on-cooldown while rune-less DPS casters never fired
+    // the row. Bounded like the potion seed (half stack when none held);
+    // RestockCompanion re-runs this for hired companions hourly.
+    if (bot->GetPowerType() == POWER_MANA && bot->GetLevel() >= 45)
+    {
+        static uint32 const DARK_RUNE_ITEM = 20520;
+        if (bot->GetItemCount(DARK_RUNE_ITEM) == 0)
+        {
+            if (ItemPrototype const* runeProto = sObjectMgr.GetItemPrototype(DARK_RUNE_ITEM))
+                bot->StoreNewItemInInventorySlot(DARK_RUNE_ITEM, runeProto->GetMaxStackSize() / 2);
+        }
+    }
 }
 
 void PlayerbotFactory::InitFood()

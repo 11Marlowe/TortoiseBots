@@ -549,9 +549,19 @@ namespace ai
             if(!UseItemIdAction::isUseful())
                 return false;
 
-
-            if (bot->GetClass() == CLASS_MAGE) // mage should use mana gem, shares cd with dark rune
-                return false;
+            if (bot->GetClass() == CLASS_MAGE)
+            {
+                // Gem and rune share a cooldown line: prefer the free gem
+                // while one is held and ready; fall through to the rune
+                // once the gem is spent or on cooldown. Live H8: the old
+                // blanket mage block silenced the rune row for the whole
+                // fight, so mages burned the gem hourly-on-cooldown then
+                // wanded below 5% mana with the rune never firing.
+                static const uint32 gemIds[] = { 8008, 8007, 5513, 5514 };
+                for (uint32 gemId : gemIds)
+                    if (bot->HasItemCount(gemId, 1) && !HasItemCooldown(gemId))
+                        return false;
+            }
 
             return bot->GetHealth() > 1000;
         }
