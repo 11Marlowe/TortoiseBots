@@ -3,9 +3,18 @@ name: Generate Changelog & Release
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Wersja wydania (np. 1.0.0)'
-        required: true
+      bump:
+        type: choice
+        description: 'Typ wydania (increment)'
+        options:
+          - 'patch (poprawki błędów, tidy up, małe zmiany: 1.0.X)'
+          - 'minor (nowe funkcje, nowe komendy, ficzery: 1.X.0)'
+          - 'major (duże przełomowe zmiany: X.0.0)'
+          - 'custom (wpisz własną wersję poniżej)'
+        default: 'patch (poprawki błędów, tidy up, małe zmiany: 1.0.X)'
+      custom_version:
+        description: 'Własna wersja (używana jeśli wybrano custom, np. 1.0.0)'
+        required: false
         default: '1.0.0'
 
 permissions:
@@ -37,12 +46,73 @@ jobs:
 
       - name: Compute build version
         id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          CUSTOM_VER: ${{ inputs.custom_version }}
         run: |
-          NEW_VER="${{ inputs.version }}"
-          echo "$NEW_VER" > VERSION
-          echo "build_version=$NEW_VER" >> "$GITHUB_OUTPUT"
-          echo "release_tag=v$NEW_VER" >> "$GITHUB_OUTPUT"
-          echo "release_date=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+          python3 - << 'EOF'
+          import os, re, subprocess
+
+          bump = os.environ.get("BUMP", "")
+          custom_ver = os.environ.get("CUSTOM_VER", "").strip().lstrip("v")
+
+          def parse_semver(t):
+              m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)$", t.strip())
+              return tuple(map(int, m.groups())) if m else None
+
+          latest_semver = None
+          try:
+              out = subprocess.check_output(["git", "tag", "-l"], text=True)
+              tags = out.splitlines()
+              semver_tags = []
+              for t in tags:
+                  parsed = parse_semver(t)
+                  if parsed:
+                      semver_tags.append(parsed)
+              if semver_tags:
+                  semver_tags.sort()
+                  latest_semver = semver_tags[-1]
+          except Exception:
+              pass
+
+          if not latest_semver and os.path.exists("VERSION"):
+              try:
+                  with open("VERSION", "r") as f:
+                      parsed = parse_semver(f.read().strip())
+                      if parsed:
+                          latest_semver = parsed
+              except Exception:
+                  pass
+
+          if bump.startswith("custom") or not latest_semver:
+              if custom_ver and parse_semver(custom_ver):
+                  target_ver = custom_ver
+              elif not latest_semver:
+                  target_ver = custom_ver if custom_ver else "1.0.0"
+              else:
+                  target_ver = f"{latest_semver[0]}.{latest_semver[1]}.{latest_semver[2]}"
+          else:
+              maj, min_, pat = latest_semver
+              if bump.startswith("patch"):
+                  target_ver = f"{maj}.{min_}.{pat + 1}"
+              elif bump.startswith("minor"):
+                  target_ver = f"{maj}.{min_ + 1}.0"
+              elif bump.startswith("major"):
+                  target_ver = f"{maj + 1}.0.0"
+              else:
+                  target_ver = f"{maj}.{min_}.{pat + 1}"
+
+          print(f"Computed release version: {target_ver} (from previous: {latest_semver}, bump: {bump})")
+          with open("VERSION", "w") as f:
+              f.write(target_ver + "\n")
+
+          github_output = os.environ.get("GITHUB_OUTPUT")
+          if github_output:
+              with open(github_output, "a") as f:
+                  f.write(f"build_version={target_ver}\n")
+                  f.write(f"release_tag=v{target_ver}\n")
+                  f.write(f"release_date={subprocess.check_output(['date', '-u', '+%Y-%m-%d'], text=True).strip()}\n")
+          EOF
 
       - name: Generate Changelog & Notes
         id: generate
@@ -52,7 +122,12 @@ jobs:
           OPENCODE_ENDPOINT: ${{ secrets.OPENCODE_ENDPOINT }}
           OPENCODE_MODEL: ${{ secrets.OPENCODE_MODEL }}
         run: |
-          python3 tools/generate_changelog.py --write --out-notes /tmp/release_notes.md --out-delta /tmp/discord_notes.md --date "${{ steps.version.outputs.build_version }} (${{ steps.version.outputs.release_date }})"
+          python3 tools/generate_changelog.py \
+            --write \
+            --out-notes /tmp/release_notes.md \
+            --out-delta /tmp/discord_notes.md \
+            --tag "${{ steps.version.outputs.release_tag }}" \
+            --date "${{ steps.version.outputs.release_tag }} (${{ steps.version.outputs.release_date }})"
 
       - name: Commit CHANGELOG.md and VERSION
         run: |
