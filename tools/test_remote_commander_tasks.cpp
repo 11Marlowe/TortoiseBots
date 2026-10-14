@@ -198,9 +198,9 @@ static void TestActStage()
     TaskFacts facts = Walking(2.0f);
     facts.inRange = true;
     CHECK(AdvanceTask(state, facts, 0).step == TaskStep::BeginAct);
-    facts.inCombat = true;
     facts.targetPresent = false;
     CHECK(AdvanceTask(state, facts, kTaskTickMs).step == TaskStep::Wait);
+    facts.inCombat = true;
 
     TaskFacts gone = facts;
     gone.botAvailable = false;
@@ -473,6 +473,103 @@ static void TestLaterOrderMovement()
     CHECK(!LaterOrderTakesMovement(LaterOrder::Pull));
 }
 
+// `cmd open` on a chest waits for a loot window, not for an object's reaction:
+// the 5 s Opening cast of a locked chest (Baelog's Chest, lock 93) does not fit
+// in 4 s. Once a cast is under way the act stage covers the rest of the cast
+// plus the wait for its result, never less than before and never unbounded.
+static void TestActBudgetCoversTheCast()
+{
+    CHECK(ActBudgetMs(TaskKind::Open, false) == kOpenEffectMs);
+    CHECK(ActBudgetMs(TaskKind::Open, true) == kLootWindowMs);
+    CHECK(ActBudgetMs(TaskKind::Loot, true) == kLootWindowMs);
+    CHECK(ActBudgetMs(TaskKind::Use, false) == kUseCastMs);
+    CHECK(MakeTask(TaskKind::Open, 5.0f, true, true).actBudgetMs == kLootWindowMs);
+    CHECK(MakeTask(TaskKind::Open, 5.0f, true).actBudgetMs == kOpenEffectMs);
+
+    TaskState chest = MakeTask(TaskKind::Open, 3.0f, false, true);
+    chest.stageMs = 500; // one refused attempt before the cast started
+    CHECK(ActBudgetAfterCast(chest, true, 5000) == 500 + 5000 + kLootWindowMs);
+
+    TaskState lever = MakeTask(TaskKind::Open, 3.0f, false);
+    CHECK(ActBudgetAfterCast(lever, false, 0) == kOpenEffectMs);       // instant: unchanged
+    CHECK(ActBudgetAfterCast(lever, false, 3000) == 3000 + kOpenEffectMs);
+
+    TaskState use = MakeInPlaceTask(TaskKind::Use);
+    CHECK(ActBudgetAfterCast(use, false, 1000) == 1000 + kUseCastMs);
+    CHECK(ActBudgetAfterCast(use, false, 600000) == kMaxWalkMs);       // capped
+
+    // The extended budget holds the stage open through the cast.
+    TaskState open = MakeTask(TaskKind::Open, 3.0f, false, true);
+    open.actBudgetMs = ActBudgetAfterCast(open, true, 5000);
+    TaskFacts started;
+    started.inRange = true;
+    started.actStarted = true;
+    CHECK(AdvanceTask(open, started, 9000).step == TaskStep::Wait);
+    CHECK(AdvanceTask(open, started, 4000).step == TaskStep::Fail);
+}
+
+// A refused open says why: the bot's own gates (moving, another cast), the
+// range, or the core's cast check by number.
+static void TestOpenRefusal()
+{
+    CHECK(std::strcmp(CastReasonCode("moving"), "busy") == 0);
+    CHECK(OpenRefusalText("moving", 0).find("moving") != std::string::npos);
+    CHECK(OpenRefusalText("casting", 0).find("casting") != std::string::npos);
+    CHECK(OpenRefusalText("range", 0).find("close enough") != std::string::npos);
+    CHECK(OpenRefusalText("los", 0).find("line of sight") != std::string::npos);
+    CHECK(OpenRefusalText("", 12) == "The opening cast failed (spell check 12).");
+    CHECK(OpenRefusalText("", 0) == "The bot could not start opening it.");
+    CHECK(OpenRefusalText("moving", 33).find("moving") != std::string::npos); // the reason wins
+}
+
+// The hold: orders on a corpse or an object hold the bot still while the action
+// starts and runs; a use with nothing to walk to keeps the bot's stance.
+static void TestActHold()
+{
+    CHECK(HoldsForAct(true, false));
+    CHECK(!HoldsForAct(true, true));
+    CHECK(!HoldsForAct(false, true));
+    CHECK(!HoldsForAct(false, false));
+    CHECK(kActTries >= 2);
+}
+
+// A fight during the act of an order that walked ends it with in-combat at the
+// next look (the hold is released), and a refused start is not retried in it;
+// a result already in still counts, and a use in place keeps going.
+static void TestCombatEndsAct()
+{
+    TaskState chest = MakeTask(TaskKind::Open, 3.0f, true, true);
+    TaskFacts facts = Walking(3.0f);
+    facts.inRange = true;
+    CHECK(AdvanceTask(chest, facts, 0).step == TaskStep::BeginAct);
+    facts.actStarted = true;
+    CHECK(MayRetryAct(chest, facts));
+    facts.inCombat = true;
+    CHECK(!MayRetryAct(chest, facts));
+    TaskVerdict verdict = AdvanceTask(chest, facts, kTaskTickMs);
+    CHECK(verdict.step == TaskStep::Fail && std::strcmp(verdict.code, kCodeInCombat) == 0);
+
+    TaskState done = MakeTask(TaskKind::Loot, 3.0f, true);
+    TaskFacts walk = Walking(3.0f);
+    walk.inRange = true;
+    AdvanceTask(done, walk, 0);
+    walk.inCombat = true;
+    walk.actDone = true;
+    CHECK(AdvanceTask(done, walk, kTaskTickMs).step == TaskStep::Succeed);
+
+    TaskState potion = MakeInPlaceTask(TaskKind::Use);
+    TaskFacts inPlace;
+    inPlace.inRange = true;
+    AdvanceTask(potion, inPlace, 0);
+    inPlace.inCombat = true;
+    CHECK(MayRetryAct(potion, inPlace));
+    CHECK(AdvanceTask(potion, inPlace, kTaskTickMs).step == TaskStep::Wait);
+
+    TaskFacts gone;
+    gone.botAvailable = false;
+    CHECK(!MayRetryAct(potion, gone));
+}
+
 int main()
 {
     TestStandingPoint();
@@ -490,6 +587,10 @@ int main()
     TestObjectEffect();
     TestLockVerdict();
     TestCastReasonCodes();
+    TestActBudgetCoversTheCast();
+    TestOpenRefusal();
+    TestActHold();
+    TestCombatEndsAct();
     TestLootLedger();
     TestLootItemWanted();
     TestLootMethod();
