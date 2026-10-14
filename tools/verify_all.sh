@@ -70,7 +70,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bot_command_queue
         test_bot_turn_scheduler
         test_bwl_bundle1_policy
-        test_cc_mark_hold_policy
+        test_caster_mana_policy
         test_chromaggus_sand_policy
         test_claimed_bot_policy
         test_class_consumable_policy

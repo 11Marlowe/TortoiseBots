@@ -13,6 +13,7 @@ public:
         creators["frostbolt"] = &frostbolt;
         creators["frost nova"] = &frost_nova;
         creators["evocation"] = &evocation;
+        creators["mana gem"] = &mana_gem;
         creators["remove curse"] = &remove_curse;
         creators["remove curse on party"] = &remove_curse_on_party;
         creators["blast wave"] = &blast_wave;
@@ -26,6 +27,12 @@ private:
     ACTION_NODE_A(frost_nova, "frost nova", "cone of cold");
 
     ACTION_NODE_A(evocation, "evocation", "mana potion");
+
+    // Gem spent or on cooldown must not end mana recovery: fall through
+    // to the potion (then its drink alt) instead of leaving the bot with
+    // nothing until Evocation cools down. Live H8: the gem row without a
+    // fallback left mages wanding below 5% once gem + evo were spent.
+    ACTION_NODE_A(mana_gem, "mana gem", "mana potion");
 
     ACTION_NODE_A(remove_curse, "remove curse", "remove lesser curse");
 
@@ -77,8 +84,14 @@ void MageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "medium mana",
         NextAction::array(0, new NextAction("mana gem", ACTION_HIGH + 4), NULL)));
 
+    // Evocation arms with the gem (medium, <40%) instead of waiting for
+    // <15%: on a 7-min fight the channel must land while nukes still need
+    // the mana, not as a last rite at wand time. Live H8: the single
+    // evocation fired at ~70 s, then the row sat on cooldown-gated
+    // IMPOSSIBLE for the rest of the fight. The los/moving/cooldown gates
+    // in isPossible still refuse when it cannot run.
     triggers.push_back(new TriggerNode(
-        "low mana",
+        "medium mana",
         NextAction::array(0, new NextAction("evocation", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(

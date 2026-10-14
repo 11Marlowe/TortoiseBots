@@ -306,6 +306,11 @@ namespace ai
 	public:
 	    CastEvocationAction(PlayerbotAI* ai) : CastSpellAction(ai, "evocation") {}
 	    virtual std::string GetTargetName() override { return "self target"; }
+	    // Self-channel mana return, not a threat event: the inherited
+	    // CastSpellAction SINGLE type lets the high-threat veto zero it
+	    // (live H8: vetoed on the ticks the mage needed it most). Same
+	    // precedent as CastBuffSpellAction's threat-None self casts.
+	    virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
 	};
 
     class CastCounterspellOnEnemyHealerAction : public CastSpellOnEnemyHealerAction

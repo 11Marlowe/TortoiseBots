@@ -52,6 +52,16 @@ void UsePotionsStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
     triggers.push_back(new TriggerNode(
         "medium mana",
         NextAction::array(0, new NextAction("mana potion", ACTION_EMERGENCY), NULL)));
+    // Long-fight top-up (generic, every mana class): fire the potion as
+    // soon as the high-water mark (<65%) breaks so the 2 min cooldown
+    // rolls early and is back for the next cycle. Live H8 (no Wisdom):
+    // mages slid 100% -> 45% in 60 s before the <40% row armed, so the
+    // first potion landed ~40 s late and every later cycle slipped with
+    // it. isPossible still gates on cooldown + possession, so short
+    // fights spend nothing.
+    triggers.push_back(new TriggerNode(
+        "high mana",
+        NextAction::array(0, new NextAction("mana potion", ACTION_EMERGENCY), NULL)));
     triggers.push_back(new TriggerNode(
         "has poison debuff",
         NextAction::array(0, new NextAction("anti-venom", ACTION_DISPEL), NULL)));
