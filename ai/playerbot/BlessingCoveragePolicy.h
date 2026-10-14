@@ -2,47 +2,49 @@
 #include <cstdint>
 #include <string>
 #include <vector>
-// Paladin blessing coverage (raid Kings gap, 2026-10-14): who may still need
-// a blessing, and which one to give them.
+// Paladin blessing coverage (raid Kings gap, rounds 1+2, 2026-10-14): who may
+// still need a blessing, and which one to give them.
 //
-// Vanilla mechanics (1.12, this core): blessings of different families
-// coexist on a target — exclusivity (SpellAuras.cpp _IsExclusiveSpellAura)
-// competes only within an aura type, and Might is explicitly non-exclusive.
-// Kings (stats %) and Wisdom (mana regen) are different aura types, so a
-// healer keeps its Greater Wisdom AND gains Kings. Only the same family
-// blocks: single and greater of one blessing share the slot (the per-target
-// choice already checks both variants via HasAura). A Greater blessing lands
-// on every group member of the target's class at once (per-CLASS, one cast
-// per class present): coordination is per class bucket, not per member.
+// Core mechanics (this core, verified live): every blessing classifies
+// SPELL_BLESSING (SpellEntry.cpp GetSpellSpecific), which is one-per-target-
+// per-caster (SpellEntry.h IsSingleFromSpellSpecificPerTargetPerCaster). On
+// aura add Unit::RemoveNoStackAurasDueToAuraHolder removes the existing
+// blessing when the caster GUID matches — so a second blessing from the
+// SAME paladin ALWAYS evicts the first, whatever the family (round-1's
+// "different families coexist" model was wrong: _IsExclusiveSpellAura
+// explicitly exempts blessings, SpellAuras.cpp, and never decides them).
+// Different casters coexist for different blessings; the same chain from
+// another caster fights by rank. Consequence: each paladin owns exactly one
+// blessing slot per member. The on-party action/trigger therefore skips any
+// member holding ANY blessing (single or greater, any caster) — the donor
+// mod-playerbots single-path HasBlessingAura guard — and picks its role
+// priority blessing only for members holding nothing. A Greater blessing
+// lands on every group member of the target's class at once (per-CLASS, one
+// cast per class present): coordination is per class bucket, not per member.
 //
-// Raid evidence (39 bots, 1 Retribution knowing Kings + 5 Holy without it):
-// Greater Kings reached 22/39 — tanks and DPS, but no healer and not the ret
-// himself. Two defects combined:
+// Round-1 evidence (39 bots, 1 Retribution knowing Kings + 5 Holy without
+// it): Greater Kings reached 22/39 — tanks and DPS, but no healer and not
+// the ret himself. Two defects: the "missing EVERYTHING I know" search never
+// visited healers holding Wisdom, and it excluded the bot itself (its own
+// class bucket never got the Greater cast). Round 1 fixed the visit rule;
+// round-2 live evidence (5-man: ret + holy paladin) showed the fix unmasked
+// the eviction churn underneath: the ret alternated Light/Kings on the holy
+// paladin (each cast evicting its own previous one), the holy paladin
+// alternated Might/Wisdom on the priest the same way, and the GM master got
+// nothing (correct — uncached real player, invisible to the bots).
 //
-//  1. "Missing everything I know" target search. The on-party action asks for
-//     the first member missing EVERY blessing it knows (might, wisdom,
-//     kings, sanctuary, salvation, light). A healer that already has Wisdom
-//     from a Holy paladin still needs Kings from the ret, but it is not
-//     missing everything, so the ret never visits it. The search must visit
-//     members missing ANYTHING the bot could give; the per-target choice
-//     then skips the families already present.
-//  2. Same-class exclusion. "Party member without aura" skips the bot itself
-//     (PartyMemberValue::Check rejects player == bot), so the only Kings
-//     source never blesses its own class. Greater Kings on a warrior covers
-//     warriors only — the ret's own class still needs its cast.
-//
-// Donor (mod-playerbots PaladinGreaterBlessingAction.h): per-class buckets
-// with a role-resolved priority list per bucket, a shared cached assignment,
-// and a target scan that skips only the same family
-// (HasEquivalentOrStrongerSameFamilyBlessing) — different families are
-// freely overwritten/stacked. Ported here as pure per-target rules (no
-// shared cache: every bot derives the same answer from its own spellbook,
-// no invalidation on learn/talent/respec):
-//   - one blessing per class bucket (class, or class+role where roles split
-//     a class: warriors, paladins, druids, shamans — donor UsesRoleBucket);
+// Donor (mod-playerbots PaladinGreaterBlessingAction.h/.cpp,
+// PaladinActions.cpp single path): deterministic per-paladin assignment
+// shards (GUID-sorted pool, distinct owners per bucket), class buckets with
+// role-resolved priority (UsesRoleBucket), HasEquivalentOrStrongerSameFamily
+// skip, and — the piece ported here — the single-target path refuses any
+// member holding ANY blessing family already. Ported as pure per-target
+// rules (no shared cache: every bot derives the same answer from live aura
+// state, no invalidation on learn/talent/respec):
+//   - one blessing slot per member per paladin (core eviction rule);
 //   - within a bucket, the role priority list decides the blessing;
-//   - only the same family already present blocks; a member holding Wisdom
-//     still gains Kings from the paladin that uniquely knows it.
+//   - any blessing already present blocks; a member holding Wisdom is left
+//     alone, never "topped up" with Kings by the same or another bot.
 //
 // No core includes: callers translate game state into plain inputs, so the
 // rules stay testable in tools/test_blessing_coverage_policy.cpp.
@@ -140,15 +142,18 @@ namespace ai
     }
 
     // The blessing this member should carry from this bot: the first
-    // priority-list entry the bot knows and the member lacks. Only the same
-    // family already present blocks (donor HasEquivalentOrStrongerSameFamily:
-    // single and greater share the slot — `present` counts either variant).
-    // A member holding Wisdom still gains Kings: different aura types
-    // coexist, so there is nothing to overwrite. `knows` marks families the
-    // bot has trained (single or greater).
+    // priority-list entry the bot knows, but only when the member holds NO
+    // blessing at all (single or greater, any caster — `present` counts any
+    // family). One slot per member per paladin (core eviction rule): a member
+    // holding Wisdom is left alone, never "topped up" with Kings — the cast
+    // would evict the live aura (same caster) or churn against the other
+    // paladin's. `knows` marks families the bot has trained.
     inline BlessingFamily BlessingForMember(BlessingMember const& member,
         bool const* knows, bool const* present)
     {
+        for (std::size_t f = 1; f <= 6; ++f)
+            if (present[f])
+                return BlessingFamily::None;
         std::vector<BlessingFamily> priority = BlessingPriorityFor(member);
         for (std::size_t i = 0; i < priority.size(); ++i)
         {
@@ -161,16 +166,18 @@ namespace ai
         return BlessingFamily::None;
     }
 
-    // Target search predicate for the on-party action: visit a member when the
-    // bot could actually give it something — the member lacks at least one
-    // known blessing (single or greater counts as having it). Replaces the
-    // "missing every blessing I know" conjunction that starved healers
-    // holding Wisdom while missing Kings. Self is visitable: the bot's own
-    // class bucket still needs its Greater cast.
+    // Target search predicate for the on-party action: visit a member only
+    // when it holds NO blessing at all and the bot knows at least one family.
+    // Any live blessing means the slot is spoken for (see above) — visiting
+    // it could only overwrite. Self is visitable: the bot's own class bucket
+    // still needs its Greater cast.
     inline bool MemberNeedsBlessingVisit(bool const* knows, bool const* present)
     {
         for (std::size_t f = 1; f <= 6; ++f)
-            if (knows[f] && !present[f])
+            if (present[f])
+                return false;
+        for (std::size_t f = 1; f <= 6; ++f)
+            if (knows[f])
                 return true;
         return false;
     }

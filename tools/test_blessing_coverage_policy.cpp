@@ -1,5 +1,8 @@
-// Blessing coverage: one blessing per class bucket, unique source covers all,
-// visit members missing anything known (not everything known).
+// Blessing coverage: one blessing slot per member per paladin (core: one
+// SPELL_BLESSING per target per caster). The on-party action/trigger blesses
+// only members holding NO blessing at all; anything already blessed is left
+// alone — casting over it evicts the live aura (same caster) or churns
+// against the other paladin's (observed Light/Kings alternation, round 2).
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_blessing_coverage_policy.cpp -o /tmp/test_blessing_coverage
@@ -24,78 +27,71 @@ static int checks = 0;
 
 static void Set(bool* arr, BlessingFamily f) { arr[static_cast<std::size_t>(f)] = true; }
 
-// Raid scene (Kings on the ret, Wisdom/Might/Light on the holy paladins):
-// a healer holds Greater Wisdom and lacks Kings.
-static void TestHealerKeepsWisdomGainsKings()
+// Live scene (round 2, 5-man: ret + holy paladin): a member holding ANY
+// blessing is left alone — no top-up, no overwrite, no eviction churn.
+static void TestBlessedMemberLeftAlone()
 {
+    BlessingMember priest;
+    priest.id = 7;
+    priest.classId = 5; // priest
+    priest.healer = true;
+
+    // Ret knows Kings only; priest holds the holy paladin's Wisdom.
     bool retKnows[7] = {};
     Set(retKnows, BlessingFamily::Kings);
+    bool holdsWisdom[7] = {};
+    Set(holdsWisdom, BlessingFamily::Wisdom);
+    CHECK(BlessingForMember(priest, retKnows, holdsWisdom) == BlessingFamily::None);
+    CHECK(!MemberNeedsBlessingVisit(retKnows, holdsWisdom));
 
-    bool present[7] = {};
-    Set(present, BlessingFamily::Wisdom); // holy paladin's greater wisdom
-
-    // The visit predicate fires: the healer misses Kings, not everything.
-    CHECK(MemberNeedsBlessingVisit(retKnows, present));
-
-    BlessingMember healer;
-    healer.id = 42;
-    healer.classId = 5; // priest
-    healer.healer = true;
-    CHECK(BlessingForMember(healer, retKnows, present) == BlessingFamily::Kings);
-
-    // Once Kings has landed, nothing is left for the ret to do.
-    Set(present, BlessingFamily::Kings);
-    CHECK(BlessingForMember(healer, retKnows, present) == BlessingFamily::None);
-    CHECK(!MemberNeedsBlessingVisit(retKnows, present));
+    // Holy paladin knows Wisdom+Might; priest holds its own Might.
+    // (Live: holy paladin cast Might then Wisdom on the same priest,
+    // evicting its own cast each time.)
+    bool holyKnows[7] = {};
+    Set(holyKnows, BlessingFamily::Wisdom);
+    Set(holyKnows, BlessingFamily::Might);
+    bool holdsMight[7] = {};
+    Set(holdsMight, BlessingFamily::Might);
+    CHECK(BlessingForMember(priest, holyKnows, holdsMight) == BlessingFamily::None);
+    CHECK(!MemberNeedsBlessingVisit(holyKnows, holdsMight));
 }
-static void TestHealerPriorityOrder()
+
+// Bare member gets the role priority pick.
+static void TestBareMemberGetsPriorityPick()
 {
     BlessingMember healer;
     healer.classId = 5;
     healer.healer = true;
 
     bool none[7] = {};
-    bool knowsWisdom[7] = {};
-    Set(knowsWisdom, BlessingFamily::Wisdom);
-    Set(knowsWisdom, BlessingFamily::Kings);
-    CHECK(BlessingForMember(healer, knowsWisdom, none) == BlessingFamily::Wisdom);
+    bool knowsWisdomKings[7] = {};
+    Set(knowsWisdomKings, BlessingFamily::Wisdom);
+    Set(knowsWisdomKings, BlessingFamily::Kings);
+    CHECK(BlessingForMember(healer, knowsWisdomKings, none) == BlessingFamily::Wisdom);
+    CHECK(MemberNeedsBlessingVisit(knowsWisdomKings, none));
 
     bool knowsKingsOnly[7] = {};
     Set(knowsKingsOnly, BlessingFamily::Kings);
     CHECK(BlessingForMember(healer, knowsKingsOnly, none) == BlessingFamily::Kings);
+    CHECK(MemberNeedsBlessingVisit(knowsKingsOnly, none));
+
+    // Bot knowing nothing visits nobody.
+    bool knowsNone[7] = {};
+    CHECK(BlessingForMember(healer, knowsNone, none) == BlessingFamily::None);
+    CHECK(!MemberNeedsBlessingVisit(knowsNone, none));
 }
 
-// Same family present blocks; other families do not.
-static void TestSameFamilyBlocks()
+// Once the single slot is filled, nothing is left to do.
+static void TestFilledSlotNeedsNoVisit()
 {
+    bool knows[7] = {};
+    Set(knows, BlessingFamily::Kings);
+    bool present[7] = {};
+    Set(present, BlessingFamily::Kings);
     BlessingMember dps;
     dps.classId = 4; // rogue
-    bool knows[7] = {};
-    Set(knows, BlessingFamily::Might);
-    Set(knows, BlessingFamily::Kings);
-    bool present[7] = {};
-    Set(present, BlessingFamily::Might);
-    // Might held: the bot's next known pick (Kings) still applies.
-    CHECK(BlessingForMember(dps, knows, present) == BlessingFamily::Kings);
-    // Both held: nothing left.
-    Set(present, BlessingFamily::Kings);
     CHECK(BlessingForMember(dps, knows, present) == BlessingFamily::None);
-}
-
-// Visit predicate: full cover needs no visit; any gap does (self included).
-static void TestVisitPredicate()
-{
-    bool knows[7] = {};
-    Set(knows, BlessingFamily::Kings);
-    bool present[7] = {};
-    Set(present, BlessingFamily::Kings);
     CHECK(!MemberNeedsBlessingVisit(knows, present));
-    bool missing[7] = {};
-    CHECK(MemberNeedsBlessingVisit(knows, missing));
-    // A member holding only an unknown blessing is still a candidate.
-    bool strange[7] = {};
-    Set(strange, BlessingFamily::Salvation);
-    CHECK(MemberNeedsBlessingVisit(knows, strange));
 }
 
 // Greater buckets: one cast per class; role splits only where it matters.
@@ -124,10 +120,9 @@ static void TestBuckets()
 
 int main()
 {
-    TestHealerKeepsWisdomGainsKings();
-    TestHealerPriorityOrder();
-    TestSameFamilyBlocks();
-    TestVisitPredicate();
+    TestBlessedMemberLeftAlone();
+    TestBareMemberGetsPriorityPick();
+    TestFilledSlotNeedsNoVisit();
     TestBuckets();
     std::printf("test_blessing_coverage_policy: %d checks passed\n", checks);
     return 0;

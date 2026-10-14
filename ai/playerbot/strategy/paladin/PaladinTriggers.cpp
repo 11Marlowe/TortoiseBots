@@ -276,13 +276,15 @@ bool GreaterBlessingTrigger::IsActive()
 
 namespace
 {
-// Any group member (or the bot itself) for whom this bot could still give
-// something: the member lacks at least one known blessing. Mirrors
-// CastBlessingOnPartyAction::GetTarget so the trigger and the action always
-// resolve the same member. The old "party member without my aura" search
-// asked for the first member missing EVERY known blessing, so a healer
-// holding Wisdom was never visited for the Kings only this bot knows (raid
-// 2026-10-14). Decision rule: ai::MemberNeedsBlessingVisit.
+// A group member (or the bot itself) holding NO blessing at all is a
+// candidate for this bot's pick. Mirrors CastBlessingOnPartyAction::
+// GetBlessingForTarget so the trigger and the action always resolve the
+// same member. Core aura rule (live 2026-10-14, one blessing per target
+// per caster): a member holding any blessing already has its slot spoken
+// for — casting over it would evict either the other paladin's live aura
+// (different casters coexist, same caster replaces) or this bot's own.
+// The round-1 "missing anything known" visit rule is folded in: a member
+// with nothing on it trivially misses everything the bot knows.
 Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
 {
     static char const* const kBlessings[] =
@@ -291,24 +293,22 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
         "blessing of sanctuary", "blessing of salvation", "blessing of light",
     };
 
-    std::vector<std::string> knownBlessings;
+    bool knowsAny = false;
     for (char const* blessing : kBlessings)
     {
         std::string const base(blessing);
         std::string const greaterBlessing = "greater " + base;
-        if (greaterOnly)
+        bool const known = greaterOnly
+            ? ai->GetAiObjectContext()->GetValue<uint32>("spell id", greaterBlessing)->Get() != 0
+            : ai->GetAiObjectContext()->GetValue<uint32>("spell id", base)->Get() != 0;
+        if (known)
         {
-            if (ai->GetAiObjectContext()->GetValue<uint32>("spell id", greaterBlessing)->Get())
-                knownBlessings.push_back(greaterBlessing);
-        }
-        else if (ai->GetAiObjectContext()->GetValue<uint32>("spell id", base)->Get())
-        {
-            knownBlessings.push_back(base);
-            knownBlessings.push_back(greaterBlessing);
+            knowsAny = true;
+            break;
         }
     }
 
-    if (knownBlessings.empty())
+    if (!knowsAny)
         return nullptr;
 
     Group* group = bot ? bot->GetGroup() : nullptr;
@@ -335,11 +335,14 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
             others.push_back(member);
     }
 
-    auto HasAny = [&](Player* member)
+    auto HoldsAny = [&](Player* member)
     {
-        for (std::string const& blessing : knownBlessings)
-            if (!ai->HasAura(blessing, member))
+        for (char const* blessing : kBlessings)
+        {
+            std::string const base(blessing);
+            if (ai->HasAura(base, member) || ai->HasAura("greater " + base, member))
                 return true;
+        }
         return false;
     };
 
@@ -349,7 +352,7 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
         {
             if (sServerFacade.getDistance2d(member, bot) > 30.0f)
                 continue;
-            if (HasAny(member) && sServerFacade.IsWithinLOSInMap(bot, member))
+            if (!HoldsAny(member) && sServerFacade.IsWithinLOSInMap(bot, member))
                 return member;
         }
     }
