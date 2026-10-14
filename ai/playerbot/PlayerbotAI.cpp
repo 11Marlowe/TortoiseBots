@@ -3526,7 +3526,11 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
 		if (master->m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE) && sServerFacade.getDistance2d(bot, master) < 20.0f) bot->m_movementInfo.AddMovementFlag(MOVEFLAG_WALK_MODE);
 		else bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_WALK_MODE);
 
-        if (master->GetStandState() == UNIT_STAND_STATE_SIT && aiInternalUpdateDelay < 1000)
+        // Mirror the master sitting only out of combat. Live H11 (Patchwerk):
+        // the player sat after eating, so every fire mage within 10 yd was
+        // re-seated each tick, the cast path stood it up and deferred the
+        // cast - Fireball failed ~350 times a minute per mage.
+        if (master->GetStandState() == UNIT_STAND_STATE_SIT && aiInternalUpdateDelay < 1000 && !bot->IsInCombat())
         {
             if (!sServerFacade.isMoving(bot) && sServerFacade.getDistance2d(bot, master) < 10.0f)
                 bot->SetStandState(UNIT_STAND_STATE_SIT);
