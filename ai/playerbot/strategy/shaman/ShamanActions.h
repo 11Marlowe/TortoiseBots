@@ -263,12 +263,29 @@ namespace ai
         virtual bool isUseful() override { return CastTotemAction::isUseful() && !AI_VALUE2(bool, "has totem", "healing stream totem"); }
     };
 
-	class CastManaTideTotemAction : public CastTotemAction
-	{
-	public:
-		CastManaTideTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "mana tide totem") {}
-		virtual std::string GetTargetName() override { return "self target"; }
-	};
+    // Mana Tide shares the water slot with Mana Spring / Healing Stream,
+    // but it is a 5-minute cooldown raid battery, not an upkeep totem: it
+    // must land while Spring/Stream is up (live H7+H8: 0 casts while
+    // healers sat at 18-30% mana — the water aura scan read "covered"
+    // and the cast never started). Skip the cover scan; the trigger rows
+    // ("low mana", "healer low mana") plus the engine cooldown check own
+    // the timing. Other water totems keep the scan.
+    class CastManaTideTotemAction : public CastTotemAction
+    {
+    public:
+        CastManaTideTotemAction(PlayerbotAI* ai) : CastTotemAction(ai, "mana tide totem") {}
+        virtual std::string GetTargetName() override { return "self target"; }
+        bool isUseful() override
+        {
+            if (sServerFacade.isMoving(bot))
+            {
+                Unit* target = AI_VALUE(Unit*, "current target");
+                if (!bot->IsInCombat() || !target || bot->GetDistance(target) > 10.0f)
+                    return false;
+            }
+            return CastBuffSpellAction::isUseful();
+        }
+    };
 
 	class CastHealingStreamTotemAction : public CastTotemAction
 	{

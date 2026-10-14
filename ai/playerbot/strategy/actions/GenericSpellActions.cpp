@@ -798,7 +798,7 @@ uint32 HealPartyMemberAction::DownrankSpellId(Unit* target)
     // (the policy says so). An explicit player save-mana level keeps the old
     // pick (the player asked for cheap ranks by hand). Only plain
     // single-target direct heals qualify: no HoT/shield/hybrid (their value
-    // is not the direct amount), no AoE, no cooldown spells. HoTs ride
+    // is not the direct amount), no AoE jumps, no cooldown spells. HoTs ride
     // HealHotPartyMemberAction::Execute below (no downrank: their ticks, not
     // the direct portion, are the point). 0 = do not downrank.
     if (!target || AI_VALUE(double, "mana save level") > 1.0)
@@ -806,6 +806,9 @@ uint32 HealPartyMemberAction::DownrankSpellId(Unit* target)
     SpellEntry const* topInfo = sServerFacade.LookupSpellInfo(GetSpellID());
     if (!topInfo || !PlayerbotAI::IsHealSpell(topInfo))
         return 0;
+    // Turtle's Healing Wave rows target TARGET_UNIT_FRIEND_CHAIN_HEAL (45)
+    // with zero jumps — same id as Chain Heal, which really jumps
+    // (EffectChainTarget 3). Accept the id, reject actual jumps below.
     bool directHeal = false;
     bool hybrid = false;
     for (uint32 effect = 0; effect < MAX_EFFECT_INDEX; ++effect)
@@ -819,9 +822,14 @@ uint32 HealPartyMemberAction::DownrankSpellId(Unit* target)
         else
             hybrid = true;
     }
+    // Chain-target jumps disqualify: the rank also prices the jumps, not
+    // just the first heal (Chain Heal). Plain Healing Wave rows carry the
+    // chain target id with zero jumps, so they still qualify.
     if (!directHeal || hybrid || topInfo->IsChanneledSpell() ||
         topInfo->RecoveryTime != 0 || topInfo->CategoryRecoveryTime != 0 ||
-        topInfo->EffectImplicitTargetA[0] != TARGET_UNIT_FRIEND)
+        (topInfo->EffectImplicitTargetA[0] != TARGET_UNIT_FRIEND &&
+         topInfo->EffectImplicitTargetA[0] != TARGET_UNIT_FRIEND_CHAIN_HEAL) ||
+        topInfo->EffectChainTarget[0] != 0)
         return 0;
     std::string name = GetSpellName();
     strToLower(name);
