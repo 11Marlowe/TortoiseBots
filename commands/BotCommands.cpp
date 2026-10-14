@@ -38,6 +38,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "runtime/OwnedBotQolPolicy.h"
 #include "../ai/playerbot/strategy/shaman/ShamanTotemCommandPolicy.h"
+#include "../ai/playerbot/strategy/shaman/ShamanTotemGroupPolicy.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Chat.h"
 // pi-lens-ignore: clang:pp_file_not_found
