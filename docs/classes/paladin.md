@@ -28,6 +28,7 @@ Paladins provide exceptional party utility, versatile auras, class blessings, an
 - **Maintenance:** Maintains *Flash of Light* on injured allies. Casts *Holy Shock* on low-health bands only (no movement condition). Heavy *Holy Light* fires on headcount when the raid is widely hurt (5+ members within 30 yards, 3 hurt in a 5-man scaling to 15 in a raid).
 - **Mana sense:** Never skips a target at or below the low-health line for mana reasons; above the medium line it refuses oversized or average-efficiency heals, and below the medium-mana line it refuses mana-hungry heals in favor of *Flash of Light* (efficient) over *Holy Light* (heavy). Tanks count the expected heal at two-thirds.
 - **Downranking:** *Holy Light* / *Flash of Light* are downranked to the wound like every healer's direct heals (cheapest rank covering missing health minus incoming heals; top rank at or below the low-health line). Rules in `HealDownrankPolicy.h`.
+- **Melee weave:** *Crusader Strike* (Blessed Strikes resets *Holy Shock*) fires only when the paladin already stands in melee reach of its target; it never walks the healer in, so a ranged holy paladin in a raid does not shuttle between the boss and its healing spot.
 - **Self-Defense:** Pops *Divine Shield* (Bubble) if personal health drops into danger, continuing to heal the group while immune.
 
 ### 2. Protection (Tank)

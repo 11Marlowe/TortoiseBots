@@ -358,6 +358,7 @@ namespace ai
                 creators["crusader aura"] = [](PlayerbotAI* ai) { return new CastCrusaderAuraAction(ai); };
                 creators["redemption"] = [](PlayerbotAI* ai) { return new CastRedemptionAction(ai); };
                 creators["crusader strike"] = [](PlayerbotAI* ai) { return new CastCrusaderStrikeAction(ai); };
+                creators["crusader strike in reach"] = [](PlayerbotAI* ai) { return new CastCrusaderStrikeInReachAction(ai); };
                 creators["holy strike"] = [](PlayerbotAI* ai) { return new CastHolyStrikeAction(ai); };
                 creators["bulwark of the righteous"] = [](PlayerbotAI* ai) { return new CastBulwarkAction(ai); };
                 creators["retribution aura"] = [](PlayerbotAI* ai) { return new CastRetributionAuraAction(ai); };

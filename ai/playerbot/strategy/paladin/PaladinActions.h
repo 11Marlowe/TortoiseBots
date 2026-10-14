@@ -65,6 +65,23 @@ namespace ai
 		CastCrusaderStrikeAction(PlayerbotAI* ai) : CastMeleeSpellAction(ai, "crusader strike") {}
 	};
 
+	// Holy melee-weave: Crusader Strike only when already in melee reach,
+	// never a reason to walk in. Live Alliance raid (Patchwerk): the reach
+	// prerequisite pulled every holy paladin to the boss ~48 times a fight,
+	// where the healer's "enemy too close for spell" row fled it back out.
+	class CastCrusaderStrikeInReachAction : public CastCrusaderStrikeAction
+	{
+	public:
+		CastCrusaderStrikeInReachAction(PlayerbotAI* ai) : CastCrusaderStrikeAction(ai) {}
+		bool isUseful() override
+		{
+			Unit* target = GetTarget();
+			return target && bot->CanReachWithMeleeAutoAttack(target) && CastCrusaderStrikeAction::isUseful();
+		}
+	protected:
+		std::string GetReachActionName() override { return ""; }
+	};
+
 	class CastHolyStrikeAction : public CastMeleeSpellAction
 	{
 	public:
