@@ -320,9 +320,15 @@ void EnhancementShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>
         "grounding totem reactive",
         NextAction::array(0, new NextAction("grounding totem", ACTION_HIGH + 2), NULL)));
 
+    // Air by subgroup: windfury stays top for the usual melee group; a
+    // caster subgroup falls through to tranquil/grace air instead.
     triggers.push_back(new TriggerNode(
         "air totem",
         NextAction::array(0, new NextAction("windfury totem", ACTION_HIGH + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("tranquil air totem", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
         "air totem",

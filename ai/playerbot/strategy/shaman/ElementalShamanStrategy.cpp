@@ -307,13 +307,27 @@ void ElementalShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>& 
         "grounding totem reactive",
         NextAction::array(0, new NextAction("grounding totem", ACTION_HIGH + 2), NULL)));
 
+    // Air/water by subgroup (same census rows as restoration): melee gets
+    // windfury, caster subgroups get tranquil/grace air and mana spring.
     triggers.push_back(new TriggerNode(
         "air totem",
         NextAction::array(0, new NextAction("windfury totem", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("tranquil air totem", ACTION_HIGH), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("grace of air totem", ACTION_HIGH), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "water totem",
         NextAction::array(0, new NextAction("mana spring totem", ACTION_HIGH), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "water totem",
+        NextAction::array(0, new NextAction("healing stream totem", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
         "stoneclaw panic",

@@ -190,6 +190,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_shaman_mana_loop_policy
         test_shaman_recall_policy
         test_shaman_situational_totem_policy
+        test_shaman_totem_group_policy
         test_shaman_stoneclaw_policy
         test_skinning_loot_policy
         test_spec_weapon_policy
