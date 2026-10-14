@@ -166,6 +166,27 @@ jobs:
               --latest
           fi
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Build & Attach Dashboard Binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: tools/observability
+        run: |
+          go vet ./...
+          go test ./...
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o tortoise-observability-linux-amd64 ./cmd/server
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o tortoise-observability-windows-amd64.exe ./cmd/server
+          sha256sum tortoise-observability-linux-amd64 tortoise-observability-windows-amd64.exe > tortoise-observability-sha256.txt
+          gh release upload "${{ steps.version.outputs.release_tag }}" \
+            tortoise-observability-linux-amd64 \
+            tortoise-observability-windows-amd64.exe \
+            tortoise-observability-sha256.txt \
+            --clobber
+
       - name: Post Release Announcement to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK_URL || secrets.DISCORD_WEBHOOK_URL }}
