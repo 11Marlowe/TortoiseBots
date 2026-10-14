@@ -201,10 +201,58 @@ namespace ai
         }
     };
 
-    class CastCurseOfExhaustionAction : public CastRangedDebuffSpellAction
+    // Raid curse slot (one curse per target in this core): the raid
+    // Recklessness/Shadow rows share the slot with Elements, so a curse cast
+    // claims it under every curse name. While the claim is live the other
+    // warlocks' raid rows stand down instead of each casting Elements and
+    // then its queued Recklessness/Shadow right after, knocking Elements
+    // off (H7: 11 curse casts in 5 s, boss kept Shadow). Follows the
+    // blessing-claim precedent (CastBlessingOnPartyAction::isUseful).
+    class CastCurseSlotAction : public CastRangedDebuffSpellAction
     {
     public:
-		CastCurseOfExhaustionAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of exhaustion") {}
+        CastCurseSlotAction(PlayerbotAI* ai, std::string spell) : CastRangedDebuffSpellAction(ai, spell) {}
+        bool isUseful() override
+        {
+            Unit* target = GetTarget();
+            if (!target)
+                return false;
+            static const char* const curses[] = {
+                "curse of agony", "curse of doom", "curse of recklessness",
+                "curse of shadow", "curse of the elements", "curse of weakness",
+                "curse of tongues", "curse of exhaustion"
+            };
+            for (const char* curse : curses)
+            {
+                if (GetSpellName() != curse &&
+                    BuffClaimRegistry::IsTargetClaimedByOther(bot, target, curse))
+                    return false;
+            }
+            return CastRangedDebuffSpellAction::isUseful();
+        }
+        bool Execute(Event& event) override
+        {
+            if (!CastRangedDebuffSpellAction::Execute(event))
+                return false;
+            Unit* target = GetTarget();
+            if (target)
+            {
+                static const char* const curses[] = {
+                    "curse of agony", "curse of doom", "curse of recklessness",
+                    "curse of shadow", "curse of the elements", "curse of weakness",
+                    "curse of tongues", "curse of exhaustion"
+                };
+                for (const char* curse : curses)
+                    BuffClaimRegistry::Claim(bot->GetObjectGuid(), target->GetObjectGuid(), curse);
+            }
+            return true;
+        }
+    };
+
+    class CastCurseOfExhaustionAction : public CastCurseSlotAction
+    {
+    public:
+        CastCurseOfExhaustionAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of exhaustion") {}
     };
 
 	class CastCorruptionAction : public CastRangedDebuffSpellAction
@@ -222,10 +270,10 @@ namespace ai
         std::string GetTargetName() override { return "attacker without my aura"; }
 	};
 
-    class CastCurseOfAgonyAction : public CastRangedDebuffSpellAction
+    class CastCurseOfAgonyAction : public CastCurseSlotAction
     {
     public:
-        CastCurseOfAgonyAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of agony") {}
+        CastCurseOfAgonyAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of agony") {}
     };
 
     class CastCurseOfAgonyOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
@@ -234,10 +282,10 @@ namespace ai
         CastCurseOfAgonyOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "curse of agony") {}
     };
 
-    class CastCurseOfDoomAction : public CastRangedDebuffSpellAction
+    class CastCurseOfDoomAction : public CastCurseSlotAction
     {
     public:
-		CastCurseOfDoomAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of doom") {}
+        CastCurseOfDoomAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of doom") {}
     };
 
     class CastCurseOfDoomOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
@@ -246,10 +294,11 @@ namespace ai
 		CastCurseOfDoomOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "curse of doom") {}
     };
 
-    class CastCurseOfTheElementsAction : public CastRangedDebuffSpellAction
+
+    class CastCurseOfTheElementsAction : public CastCurseSlotAction
     {
     public:
-        CastCurseOfTheElementsAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of the elements") {}
+        CastCurseOfTheElementsAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of the elements") {}
     };
 
     class CastCurseOfTheElementsOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
@@ -258,10 +307,10 @@ namespace ai
         CastCurseOfTheElementsOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "curse of the elements") {}
     };
 
-    class CastCurseOfRecklessnessAction : public CastRangedDebuffSpellAction
+    class CastCurseOfRecklessnessAction : public CastCurseSlotAction
     {
     public:
-        CastCurseOfRecklessnessAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of recklessness") {}
+        CastCurseOfRecklessnessAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of recklessness") {}
     };
 
     class CastCurseOfRecklessnessOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
@@ -270,10 +319,10 @@ namespace ai
         CastCurseOfRecklessnessOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "curse of recklessness") {}
     };
 
-    class CastCurseOfWeaknessAction : public CastRangedDebuffSpellAction
+    class CastCurseOfWeaknessAction : public CastCurseSlotAction
     {
     public:
-        CastCurseOfWeaknessAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of weakness") {}
+        CastCurseOfWeaknessAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of weakness") {}
     };
 
     class CastCurseOfWeaknessOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
@@ -282,10 +331,10 @@ namespace ai
         CastCurseOfWeaknessOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "curse of weakness") {}
     };
 
-    class CastCurseOfTonguesAction : public CastRangedDebuffSpellAction
+    class CastCurseOfTonguesAction : public CastCurseSlotAction
     {
     public:
-        CastCurseOfTonguesAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of tongues") {}
+        CastCurseOfTonguesAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of tongues") {}
     };
 
     class CastCurseOfTonguesOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
@@ -294,10 +343,10 @@ namespace ai
         CastCurseOfTonguesOnAttackerAction(PlayerbotAI* ai) : CastRangedDebuffSpellOnAttackerAction(ai, "curse of tongues") {}
     };
 
-    class CastCurseOfShadowAction : public CastRangedDebuffSpellAction
+    class CastCurseOfShadowAction : public CastCurseSlotAction
     {
     public:
-        CastCurseOfShadowAction(PlayerbotAI* ai) : CastRangedDebuffSpellAction(ai, "curse of shadow") {}
+        CastCurseOfShadowAction(PlayerbotAI* ai) : CastCurseSlotAction(ai, "curse of shadow") {}
     };
 
     class CastCurseOfShadowOnAttackerAction : public CastRangedDebuffSpellOnAttackerAction
