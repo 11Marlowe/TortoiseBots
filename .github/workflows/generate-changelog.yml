@@ -144,24 +144,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          NOTES_ARG=""
+          NOTES_ARGS=()
           if [ -f /tmp/release_notes.md ]; then
-            NOTES_ARG="--notes-file /tmp/release_notes.md"
+            NOTES_ARGS=(--notes-file /tmp/release_notes.md)
           else
-            NOTES_ARG="--notes 'Release ${{ steps.version.outputs.release_tag }}'"
+            NOTES_ARGS=(--notes "Release ${{ steps.version.outputs.release_tag }}")
           fi
 
           if gh release view "${{ steps.version.outputs.release_tag }}" --json tagName >/dev/null 2>&1; then
             echo "Release ${{ steps.version.outputs.release_tag }} already exists. Updating release notes..."
             gh release edit "${{ steps.version.outputs.release_tag }}" \
               --title "TortoiseBots ${{ steps.version.outputs.release_tag }}" \
-              $NOTES_ARG \
+              "${NOTES_ARGS[@]}" \
               --latest
           else
             echo "Creating new release ${{ steps.version.outputs.release_tag }}..."
             gh release create "${{ steps.version.outputs.release_tag }}" \
               --title "TortoiseBots ${{ steps.version.outputs.release_tag }}" \
-              $NOTES_ARG \
+              "${NOTES_ARGS[@]}" \
               --target main \
               --latest
           fi
