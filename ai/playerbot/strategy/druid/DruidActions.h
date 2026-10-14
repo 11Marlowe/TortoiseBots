@@ -324,6 +324,12 @@ namespace ai
     {
     public:
         CastTranquilityAction(PlayerbotAI* ai) : CastAoeHealSpellAction(ai, "tranquility") {}
+        // Tranquility is centred on the caster (self range, the channel heals
+        // the party around the druid), so it must not walk to a hurt member:
+        // with "party member to heal" the reach prerequisite closed to ~0 yd
+        // of the target, i.e. under the boss next to the tank (live Alliance
+        // raid: resto druids shuttled in up to 32 times a fight).
+        virtual std::string GetTargetName() override { return "self target"; }
     };
 
     class CastNaturesSwiftnessAction : public CastBuffSpellAction
