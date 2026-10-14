@@ -63,12 +63,91 @@ bool EnoughManaTrigger::IsActive()
     return AI_VALUE2(bool, "has mana", "self target") && AI_VALUE2(uint8, "mana", "self target") > 65;
 }
 
+bool ai::TargetFightsGroup(Player* bot, Unit* target)
+{
+    if (!bot || !target || !target->IsAlive())
+        return false;
+    Unit* const victim = target->GetVictim();
+    if (!victim)
+        return false;
+    if (victim == bot)
+        return true;
+    Player* const victimPlayer = victim->GetCharmerOrOwnerPlayerOrPlayerItself();
+    return victimPlayer && bot->IsInSameRaidWith(victimPlayer);
+}
+
+bool ai::NoGroupMemberNear(Player* bot)
+{
+    Group* const group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
+        return true;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (member && member != bot && member->IsInWorld() && member->IsAlive() &&
+            member->GetMapId() == bot->GetMapId() &&
+            sServerFacade.getDistance2d(bot, member) <= sPlayerbotAIConfig.sightDistance)
+            return false;
+    }
+    return true;
+}
+
+bool ai::HealerWandAllowed(PlayerbotAI* ai, Unit* target)
+{
+    Player* const bot = ai->GetBot();
+    Group* const group = bot->GetGroup();
+    HealerWandGate gate;
+    gate.groupedHealer = group && ai->ContainsStrategy(STRATEGY_TYPE_HEAL);
+    if (!gate.groupedHealer)
+        return true;
+
+    AiObjectContext* const context = ai->GetAiObjectContext();
+    gate.targetEngaged = TargetFightsGroup(bot, target);
+    gate.aloneNear = NoGroupMemberNear(bot);
+    ObjectGuid const ordered = context->GetValue<ObjectGuid>("explicit attack target")->Get();
+    gate.explicitOrder = target && ordered && ordered == target->GetObjectGuid();
+    gate.noMana = context->GetValue<bool>("has mana", "self target")->Get() &&
+        context->GetValue<uint8>("mana", "self target")->Get() < 5;
+
+    // The heal rows' own lines: the party below almost full (the "healer
+    // should wand" line), the healer itself below low health (its self-heal
+    // rows). Members in the "party member to heal" candidate reach only
+    // (twice the heal range, PartyMemberToHeal::Check).
+    gate.memberNeedsHeal = bot->GetHealthPercent() < sPlayerbotAIConfig.lowHealth;
+    float const reach = 2.0f * (bot->InBattleGround() ? sPlayerbotAIConfig.healDistanceBg : ai->GetRange("heal"));
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (gate.memberNeedsHeal)
+            break;
+        if (!member || member == bot || !member->IsInWorld() || !member->IsAlive() ||
+            member->GetMapId() != bot->GetMapId() || sServerFacade.getDistance2d(bot, member) > reach)
+            continue;
+        gate.memberNeedsHeal = member->GetHealthPercent() < sPlayerbotAIConfig.almostFullHealth;
+    }
+
+    return HealerMayWand(gate);
+}
+
 bool HealerShouldAttackTrigger::IsActive()
 {
     if (!bot->GetGroup())
         return true;
 
+    // Donor escape (mod-playerbots GenericTriggers.cpp:348): nobody of the
+    // group near, the healer fights like a solo bot.
+    if (NoGroupMemberNear(bot))
+        return true;
+
     if (AI_VALUE2(uint8, "health", "party member to heal") < sPlayerbotAIConfig.almostFullHealth)
+        return false;
+
+    // Never open on a fresh mob (HealerManaPolicy.h): the healer pulls it.
+    // An explicit attack order on that mob (`cmd attack <guid> <Healer>`)
+    // counts as engaged: player control first.
+    Unit* const target = AI_VALUE(Unit*, "current target");
+    ObjectGuid const ordered = AI_VALUE(ObjectGuid, "explicit attack target");
+    bool const engaged = TargetFightsGroup(bot, target) ||
+        (target && ordered && ordered == target->GetObjectGuid());
+    if (!HealerDamageTargetAllowed(true, target != nullptr, engaged))
         return false;
 
     if (!checkMana)

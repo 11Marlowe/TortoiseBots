@@ -5134,12 +5134,16 @@ void DropHeldAttacks(uint64 commanderRaw, uint64 onlyBotRaw)
 
 // The per-bot steps of an attack order. selectionOwner carries the target:
 // AttackMyTargetAction reads its event owner's selection.
-bool RunBotAttackOrder(PlayerbotAI* ai, Player* bot, Player* selectionOwner, ObjectGuid targetGuid)
+// A party-wide order leaves dedicated healers healing; an order that names
+// the healer (`cmd attack <guid> <Healer>`) makes it attack (player control
+// first): its explicit attack target then also lets its wand through the
+// healer wand gate (HealerMayWand).
+bool RunBotAttackOrder(PlayerbotAI* ai, Player* bot, Player* selectionOwner, ObjectGuid targetGuid, bool named = false)
 {
     RelaxTacticalMovement(ai);
     ai->ChangeStrategy("-wait for attack", BotState::BOT_STATE_ALL);
     bool accepted = true;
-    if (!PlayerbotAI::IsHeal(bot))
+    if (named || !PlayerbotAI::IsHeal(bot))
     {
         selectionOwner->SetSelectionGuid(targetGuid);
         accepted = ExecuteQuietAction(ai, "attack my target", ai::Event("action attack", "", selectionOwner));
@@ -5211,11 +5215,24 @@ static bool CommanderAttack(ChatHandler* handler, CommanderOrder const& order, U
         }
         // The lead bot's selection is set again for every bot: an earlier
         // bot's first AI step may be the lead bot's own, which can change it.
-        if (RunBotAttackOrder(ai, bot, order.lead, targetGuid))
+        if (RunBotAttackOrder(ai, bot, order.lead, targetGuid, onlyBot != nullptr))
             ++succeeded;
     }
     if (!succeeded)
     {
+        // A named bot farther from the target than it can see refuses it
+        // (AttackAction::IsTargetValid, SightDistance): say so, so the caller
+        // can tell it from a refusal it can do nothing about. Uldaman
+        // 2026-10-14: the tank, revived at the instance entrance after a
+        // wipe, was ordered at a mob 330 yd away and answered only "failed".
+        if (onlyBot && onlyBot->IsInWorld() && onlyBot->GetMap() == target->GetMap() &&
+            sServerFacade.getDistance2d(onlyBot, target) > sPlayerbotAIConfig.sightDistance)
+        {
+            std::string const message = "That bot is too far from the target (" +
+                std::to_string(int(sServerFacade.getDistance2d(onlyBot, target))) + " yd).";
+            SendActionError(handler, intent, "too-far", message.c_str());
+            return true;
+        }
         SendActionError(handler, intent, "failed", onlyBot ? "That bot did not accept the attack."
             : "No bot of the group accepted the attack.");
         return true;
