@@ -169,7 +169,10 @@ void PlayerbotDbStore::InvalidateStrategySnapshots(PlayerbotAI *ai)
         return;
 
     uint64 guid = ai->GetBot()->getObjectGuid().GetRawValue();
-    CharacterDatabase.PExecute(
+    // Synchronous: both callers (`.bot role`, talent changes) call ResetStrategies() right after, and its Load()
+    // reads these rows with a synchronous query. A queued DELETE ran too late, so the old kit was loaded back and
+    // saved again -- a protection warrior sent as dps kept "protection" and taunted.
+    CharacterDatabase.DirectPExecute(
         "DELETE FROM `ai_playerbot_db_store` WHERE `guid` = '%lu' AND `key` IN ('co','nc','dead','react')",
         guid);
 }
