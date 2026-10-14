@@ -5861,7 +5861,8 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
             *outSpellDuration = sPlayerbotAIConfig.globalCoolDown;
         }
 
-        botdiag::BotActionLog::Write(this, "CAST_GATE", "spell=%u targetGuid=0x%llx reason=stand-or-facing-delay", spellId, (unsigned long long)target->getObjectGuid().GetRawValue());
+        botdiag::BotActionLog::Write(this, "CAST_GATE", "spell=%u targetGuid=0x%llx reason=stand-or-facing-delay stand=%u stopped=%u realMaster=%u motion=%u", spellId, (unsigned long long)target->getObjectGuid().GetRawValue(),
+            (uint32)bot->GetStandState(), (uint32)bot->IsStopped(), (uint32)HasRealPlayerMaster(), (uint32)mm.GetCurrentMovementGeneratorType());
         return false;
     }
 
