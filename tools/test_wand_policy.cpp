@@ -51,6 +51,19 @@ int main()
     CHECK(!ShouldStopWandToCast(WandState{true, P::Castable, false, true}));
     CHECK(!ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, true}));
 
+    // Near the tank's threat the "threat" multiplier vetoes the nukes and
+    // they fall back to the wand: keep it (live: Uldaman run 4 mage, stop
+    // wand -> "shoot" again two seconds later at 85-100% mana).
+    CHECK(!ShouldStopWandToCast(WandState{true, P::Castable, false, false, P::Blocked, true}));
+    CHECK(!ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, false, P::Blocked, true}));
+    // A wanted heal is never threat-gated: it still stops the wand.
+    CHECK(ShouldStopWandToCast(WandState{true, P::Blocked, false, false, P::GlobalCooldownOnly, true}));
+    CHECK(ShouldStopWandToCast(WandState{true, P::Castable, false, false, P::Castable, true}));
+    // Warlock (Shadow Bolt) and priest nukes under the same veto: keep it.
+    CHECK(!ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, false, P::Blocked, true}));
+    // Veto off: back to the GCD rule.
+    CHECK(ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, false, P::Blocked, false}));
+
     // Priest heals: a wanted heal held back only by the wand's GCD stops
     // the wand, even with no nuke wanted (holy/discipline without offdps)
     // and below the "no mana" line (heal rows outrank that wand row).
