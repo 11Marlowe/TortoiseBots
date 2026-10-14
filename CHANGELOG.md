@@ -59,6 +59,14 @@
 - A fresh level-1 pool is now actually spread evenly over the starting zones — bots that reached level 2-3 while the pool was still being created stopped counting toward their zone, so the zones where bots level fastest kept getting more (Dun Morogh ended up with twice its share), and high elves were sent to Dun Morogh or Teldrassil instead of Elwynn where they had been counted.
 - Wandering bots no longer stand around after picking a camp or explore errand — the activity they rolled was refused again by a second dice roll (half or nine times in ten), and nothing else was allowed until the choice expired; the roll now decides alone. Your own and hired bots are unchanged.
 
+## 2026-10-14
+
+### Combat & AI
+- Forcing a DPS or healer role on a Protection-specced warrior or paladin now actually builds the damage/heal kit — no more Defensive Stance, Shield Wall, or taunting the real tank's target off him in groups. [#944](https://github.com/Sagiroth/TortoiseBots/pull/944)
+- Role and talent changes now invalidate the cached strategy snapshot, so `.bot role` picks up the newly forced kit instead of reloading the old Protection tank setup. [#944](https://github.com/Sagiroth/TortoiseBots/pull/944)
+
+---
+
 ## 2026-10-13
 
 ### World & NPC Behavior
