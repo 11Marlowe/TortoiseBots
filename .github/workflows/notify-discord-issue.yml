@@ -31,7 +31,7 @@ jobs:
           INPUT_ISSUE_NUMBER: ${{ inputs.issue_number }}
           INPUT_DELETE_MESSAGE_ID: ${{ inputs.delete_message_id }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL || secrets.DISCORD_CHANGELOG_WEBHOOK_URL }}
-          DISCORD_ISSUE_THREAD_ID: ${{ secrets.DISCORD_ISSUE_THREAD_ID || secrets.DISCORD_THREAD_ID || '' }}
+          DISCORD_ISSUE_THREAD_ID: ${{ vars.DISCORD_ISSUE_THREAD_ID || secrets.DISCORD_ISSUE_THREAD_ID || secrets.DISCORD_THREAD_ID || '1560007315858395237' }}
           EVENT_ACTION: ${{ github.event.action }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           ISSUE_TITLE: ${{ github.event.issue.title }}
