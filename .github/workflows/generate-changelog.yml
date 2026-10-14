@@ -91,8 +91,7 @@ jobs:
               --latest
           fi
 
-      - name: Post Changelog to Discord Thread
-        if: steps.generate.outputs.has_changes == 'true'
+      - name: Post Release Announcement to Discord
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK_URL || secrets.DISCORD_WEBHOOK_URL }}
         run: |
@@ -100,5 +99,6 @@ jobs:
             --notes /tmp/discord_notes.md \
             --title "TortoiseBots ${{ steps.version.outputs.release_tag }}" \
             --tag "${{ steps.version.outputs.release_tag }}" \
-            --thread-id "${{ secrets.DISCORD_CHANGELOG_THREAD_ID || '1559276000293158953' }}" \
-            --username "TortoiseBots Changelog"
+            --thread-id "${{ vars.DISCORD_RELEASE_THREAD_ID || vars.DISCORD_CHANGELOG_THREAD_ID || secrets.DISCORD_RELEASE_THREAD_ID || secrets.DISCORD_CHANGELOG_THREAD_ID || '1560007927828586586' }}" \
+            --username "TortoiseBots Releases" \
+            --short
