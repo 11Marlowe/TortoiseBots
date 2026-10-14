@@ -3440,9 +3440,16 @@ void PlayerbotFactory::InitPotions()
         if (effect == SPELL_EFFECT_ENERGIZE && bot->GetPowerType() != POWER_MANA) // Do not give manapots to non-mana users.
             continue;
 
+        // Top up below half a stack instead of only when empty: a raid
+        // healer drinks one per cooldown, and live H9 (Patchwerk) had 18 of
+        // 35 hired mana users bone-dry by the 4th minute with the hourly
+        // restock still far off.
         FindPotionVisitor visitor(bot, effect);
         ai->InventoryIterateItems(&visitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
-        if (!visitor.GetResult().empty()) continue;
+        uint32 held = 0;
+        for (Item* item : visitor.GetResult())
+            held += item->GetCount();
+        if (held && held >= visitor.GetResult().front()->GetProto()->GetMaxStackSize() / 2) continue;
 
         uint32 itemId = sRandomItemMgr.GetRandomPotion(level, effect);
         if (!itemId)

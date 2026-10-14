@@ -41,14 +41,17 @@ void UsePotionsStrategy::InitCombatTriggers(std::list<TriggerNode*> &triggers)
         "low health",
         NextAction::array(0, new NextAction("use bandage", ACTION_MEDIUM_HEAL), NULL)));
 
+    // Dark rune is its own cooldown line next to the potion, so it arms at
+    // the same medium threshold just below the potion. Live H9 (Patchwerk,
+    // 7-min fight): at "low mana" + ACTION_HIGH every nuke outranked it -
+    // mages pushed the row 7887 times and never once executed it while
+    // holding 10 runes each.
     triggers.push_back(new TriggerNode(
-        "low mana",
-        NextAction::array(0, new NextAction("dark rune", ACTION_HIGH), NULL)));
+        "medium mana",
+        NextAction::array(0, new NextAction("dark rune", ACTION_EMERGENCY - 1), NULL)));
 
     // E11: proactive mana-potion arm at the medium threshold (donor
     // UsePotionsStrategy.cpp:36: medium mana -> mana potion EMERGENCY).
-    // Dark rune stays the low-mana answer; this node fires earlier through
-    // the existing action-node fallback ("dark rune" -> "mana potion").
     triggers.push_back(new TriggerNode(
         "medium mana",
         NextAction::array(0, new NextAction("mana potion", ACTION_EMERGENCY), NULL)));
