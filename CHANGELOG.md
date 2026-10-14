@@ -209,6 +209,25 @@
 - New read-only **Auction House** tab in the dashboard: summary bar (listings, per-quality breakdown, buyout value, listings with a bid) plus a sortable table of every auction showing item, required level, seller (bots flagged, click through to their profile), bid, buyout, and time left; filter by item name, minimum quality, level range, seller, bots/players, with a faction-house switch that only appears on realms running separate houses — 100 rows per page, loads on tab open or via Refresh, viewing only, no buying. [#878](https://github.com/Sagiroth/TortoiseBots/pull/878)
 - Every bot Auction House purchase is now logged. [#878](https://github.com/Sagiroth/TortoiseBots/pull/878)
 
+### Combat & AI
+- Bear tanks stay in Bear Form through melee Dazes and frost slows; the caster-form cure row is now driven by a real root that actually blocks the fight (target out of reach or LoS), so no more wasted mana shifting back after every slow. [#886](https://github.com/Sagiroth/TortoiseBots/pull/886)
+- Instance cats finally use their finishers: the raid druid strategy gets the same `rip`/`rake` rows as pve/pvp, and Ferocious Bite is skipped below level 32 so low cats never queue it. [#887](https://github.com/Sagiroth/TortoiseBots/pull/887)
+- Holy/disc priests open the medium-health band with Power Word: Shield + Flash Heal (Renew last) instead of buffing and wanding while the tank bleeds out, so first heals land in seconds. [#888](https://github.com/Sagiroth/TortoiseBots/pull/888)
+- `.bot action cc` now refuses assignments a bot can never cast (outdoors-only roots, wrong creature type) and answers with the reason (`no-cc`); a stale selection with a named bot falls back to the live marked mob instead of failing `no-target`. [#890](https://github.com/Sagiroth/TortoiseBots/pull/890)
+
+### Items & Consumables
+- Healthstones, consumable mimics, weapon imbues and rogue poisons no longer cancel themselves: the early cooldown slapped on before the cast executed is gone, and the core applies cooldowns only once the cast goes through. [#889](https://github.com/Sagiroth/TortoiseBots/pull/889)
+
+### Hires & Party
+- Hires survive a master relog: logging out and back in with 3+ companions no longer dismisses them or crashes the world server — reunite no longer gives up on "already in a group", and the grace sweep can't tear the party apart mid-dismiss. [#883](https://github.com/Sagiroth/TortoiseBots/pull/883)
+- Fresh hires stop running their own questing/grind/travel autonomy; quest-giver talk, nearby NPC services and RPG quest targets are refused for hires (explicit quest orders still work). [#892](https://github.com/Sagiroth/TortoiseBots/pull/892)
+
+### Loot & Events
+- Group-loot roll wins are logged as `RollWon` bot events with source `roll`, so items a bot wins show up in the loot feed and its recent events instead of only the money roll. [#893](https://github.com/Sagiroth/TortoiseBots/pull/893)
+
+### Observability & Engine
+- Real online players now appear on the observability dashboard alongside bots — same roster and 2 s cadence, `player` badge, Bots/Players filter, map ring, and their group in tooltip/profile, while staying out of pool KPIs, level bands and census. Wire protocol 8 -> 9. [#891](https://github.com/Sagiroth/TortoiseBots/pull/891)
+
 ## 2026-10-12
 
 ### Core Sync & Fixes
