@@ -65,6 +65,26 @@ namespace ai
         std::string GetTargetName() override { return "current target"; }
     };
 
+    // Raid curse assignment (one curse per target in this core): the
+    // Recklessness/Shadow raid rows fire only while NO curse sits on the
+    // target, anyone-sees. First warlock's curse (usually Elements) covers
+    // the slot; a second warlock then keeps Recklessness/Shadow up instead
+    // of knocking Elements off. Same-curse churn is still suppressed by
+    // each row's own DebuffTrigger base.
+    class CurseOfRecklessnessRaidTrigger : public DebuffTrigger
+    {
+    public:
+        CurseOfRecklessnessRaidTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "curse of recklessness") {}
+        bool IsActive() override;
+    };
+
+    class CurseOfShadowRaidTrigger : public DebuffTrigger
+    {
+    public:
+        CurseOfShadowRaidTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "curse of shadow") {}
+        bool IsActive() override;
+    };
+
     class NoCurseOnAttackerTrigger : public Trigger
     {
     public:

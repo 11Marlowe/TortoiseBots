@@ -331,7 +331,15 @@ namespace ai
 
         virtual bool Accept(const ItemPrototype* proto) override
         {
-            if (proto->Class == ITEM_CLASS_CONSUMABLE && (proto->SubClass == ITEM_SUBCLASS_POTION || proto->SubClass == ITEM_SUBCLASS_FLASK))
+            // Turtle 1.18.1 stores combat potions under subclass 0
+            // (ITEM_SUBCLASS_CONSUMABLE), not 1 (POTION): every mana/healing
+            // potion in the world DB (13444 Major Mana, 13446 Major Healing,
+            // ...) is class 0 / subclass 0. The donor's 1-or-3 filter matched
+            // nothing here, so "mana potion" never found a bag item and
+            // GetRandomPotion seeded nothing (live: 0 potion uses). Accept
+            // subclass 0 too; the spell-effect loop below still restricts to
+            // true heal/energize items, so food/scrolls cannot slip in.
+            if (proto->Class == ITEM_CLASS_CONSUMABLE && (proto->SubClass == ITEM_SUBCLASS_CONSUMABLE || proto->SubClass == ITEM_SUBCLASS_POTION || proto->SubClass == ITEM_SUBCLASS_FLASK))
             {
                 for (int j = 0; j < MAX_ITEM_PROTO_SPELLS; j++)
                 {

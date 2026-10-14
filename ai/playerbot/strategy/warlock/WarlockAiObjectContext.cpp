@@ -213,11 +213,13 @@ namespace ai
                 creators["curse of the elements on attacker"] = [](PlayerbotAI* ai) { return new CurseOfTheElementsOnAttackerTrigger(ai); };
                 creators["curse of recklessness"] = [](PlayerbotAI* ai) { return new CurseOfRecklessnessTrigger(ai); };
                 creators["curse of recklessness on attacker"] = [](PlayerbotAI* ai) { return new CurseOfRecklessnessOnAttackerTrigger(ai); };
+                creators["curse of recklessness raid"] = [](PlayerbotAI* ai) { return new CurseOfRecklessnessRaidTrigger(ai); };
                 creators["curse of weakness"] = [](PlayerbotAI* ai) { return new CurseOfWeaknessTrigger(ai); };
                 creators["curse of weakness on attacker"] = [](PlayerbotAI* ai) { return new CurseOfWeaknessOnAttackerTrigger(ai); };
                 creators["curse of tongues"] = [](PlayerbotAI* ai) { return new CurseOfTonguesTrigger(ai); };
                 creators["curse of tongues on attacker"] = [](PlayerbotAI* ai) { return new CurseOfTonguesOnAttackerTrigger(ai); };
                 creators["curse of shadow"] = [](PlayerbotAI* ai) { return new CurseOfShadowTrigger(ai); };
+                creators["curse of shadow raid"] = [](PlayerbotAI* ai) { return new CurseOfShadowRaidTrigger(ai); };
                 creators["curse of shadow on attacker"] = [](PlayerbotAI* ai) { return new CurseOfShadowOnAttackerTrigger(ai); };
                 creators["banish"] = [](PlayerbotAI* ai) { return new BanishTrigger(ai); };
                 creators["seduction"] = [](PlayerbotAI* ai) { return new SeductionTrigger(ai); };

@@ -495,6 +495,13 @@ void WarlockPetStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "health funnel",
         NextAction::array(0, new NextAction("health funnel", ACTION_NORMAL + 1), NULL)));
+    // Raid stamina: re-cast Blood Pact mid-fight when the aura drops
+    // (resummon, out of range, dispel). The action refuses without a live
+    // imp in range and while anyone already holds the aura; below the
+    // funnel row so a dying pet is healed before it is buffed.
+    triggers.push_back(new TriggerNode(
+        "often",
+        NextAction::array(0, new NextAction("blood pact", ACTION_NORMAL), NULL)));
 }
 
 void WarlockPetStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
