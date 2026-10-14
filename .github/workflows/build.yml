@@ -3,10 +3,32 @@ name: Build
 on:
   pull_request:
     branches: [main, dev]
-    paths-ignore: ['docs/**', '**/*.md', 'VERSION']
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'VERSION'
+      - '.github/workflows/notify-discord-issue.yml'
+      - '.github/workflows/generate-changelog.yml'
+      - '.github/workflows/dashboard-binaries.yml'
+      - 'tools/post_discord_changelog.py'
+      - 'tools/generate_changelog.py'
+      - 'tools/observability/**'
+      - '.gitignore'
+      - 'LICENSE'
   push:
     branches: [main, dev]
-    paths-ignore: ['docs/**', '**/*.md', 'VERSION']
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - 'VERSION'
+      - '.github/workflows/notify-discord-issue.yml'
+      - '.github/workflows/generate-changelog.yml'
+      - '.github/workflows/dashboard-binaries.yml'
+      - 'tools/post_discord_changelog.py'
+      - 'tools/generate_changelog.py'
+      - 'tools/observability/**'
+      - '.gitignore'
+      - 'LICENSE'
   workflow_dispatch:
     inputs:
       core_ref:
