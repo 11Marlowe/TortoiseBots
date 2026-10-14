@@ -166,7 +166,15 @@ namespace ai
                 if (!bot->IsWithinDistInMap(member, 100.0f, false))
                     continue;
 
-                if (!ai->HasAura(GetSpellName(), member, false, true))
+                // Totem buffs land under effect names ("Windfury Totem
+                // Effect"), never under the cast spell's name — and the
+                // name scan only matches exact spell names, so it always
+                // reads "missing" and every row stays USELESS-looping
+                // while a same-group totem already covers the member
+                // (live Naxx 2026-10-14: 3x air + 2x water rows USELESS
+                // every tick all fight). Match by the totem spell's aura
+                // id instead: any rank's aura on the member counts.
+                if (!HasTotemAura(GetSpellName(), member))
                     return true;
             }
 
@@ -186,6 +194,29 @@ namespace ai
             return NextAction::merge(
                 NextAction::array(0, new NextAction("reach party member for totem::" + qualifiersStr), nullptr),
                 CastBuffSpellAction::getPrerequisites());
+        }
+
+        // True when the member carries any rank's aura of this totem
+        // spell (own or a group mate's — either one covers them).
+        bool HasTotemAura(std::string const& totemSpell, Player* member)
+        {
+            if (!member)
+                return false;
+            std::uint32_t spellId = AI_VALUE2(std::uint32_t, "spell id", totemSpell);
+            if (!spellId)
+                return false;
+            SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId);
+            if (!info)
+                return false;
+            for (std::uint32_t effect = 0; effect < (std::uint32_t)MAX_EFFECT_INDEX; ++effect)
+            {
+                std::uint32_t auraId = info->EffectTriggerSpell[effect];
+                if (!auraId)
+                    continue;
+                if (ai->HasAura(auraId, member))
+                    return true;
+            }
+            return ai->HasAura(spellId, member);
         }
     };
 

@@ -103,6 +103,12 @@ namespace ai
     constexpr std::uint8_t HEALER_DPS_MANA_FLOOR_HARD_FIGHT = 85;
     constexpr std::uint8_t HEALER_DPS_MANA_FLOOR_EVEN_FIGHT = 70;
     constexpr std::uint8_t HEALER_DPS_MANA_FLOOR_EASY_FIGHT = 70;
+    // Raids burn mana for minutes with no drink break: Patchwerk 2026-10-14
+    // ran 6 resto shamans to 4-9 % while `healer should attack` kept
+    // firing (its wound scan only sees the own subgroup, and its mana
+    // line is the generic floor above). Off-spec damage there costs
+    // healer casts later, so the raid floor stays near-full.
+    constexpr std::uint8_t HEALER_DPS_MANA_FLOOR_RAID = 95;
 
     inline std::uint8_t HealerDpsManaFloor(std::uint8_t balance)
     {
@@ -112,6 +118,8 @@ namespace ai
             return HEALER_DPS_MANA_FLOOR_EVEN_FIGHT;
         return HEALER_DPS_MANA_FLOOR_EASY_FIGHT;
     }
+
+    inline std::uint8_t HealerDpsManaFloorRaid() { return HEALER_DPS_MANA_FLOOR_RAID; }
 
     // True when the healer's own mana allows off-spec damage. A bot without
     // a mana bar is never held back here; the wand row (`healer should

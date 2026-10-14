@@ -2698,10 +2698,10 @@ static bool HandleBehavior(ChatHandler* handler, char const* args)
     return true;
 }
 // Totem order helpers (`.bot totem`): read the per-bot stored orders and
-// resolve the wanted totem per slot. Auto/unset falls back to the
-// subgroup-aware round-1/2 pick; the census lives in the trigger, so
-// `drop` only resolves explicit orders here (auto slots resolve at
-// trigger time, never forced by the command).
+// resolve the wanted totem per slot. Explicit orders win; auto/unset falls
+// back to the subgroup-aware pick (same census the triggers use), so
+// `drop` in default auto mode places the automatically chosen set instead
+// of answering "nothing to drop".
 static std::string TotemStatusWord(PlayerbotAI* ai, int slot)
 {
     std::string stored = ai->GetAiObjectContext()->GetValue<std::string>("manual saved string", ai::TotemOrderKey(slot))->Get();
@@ -2718,13 +2718,67 @@ static std::string TotemModeWord(PlayerbotAI* ai)
     return stored;
 }
 
+// Subgroup census for one bot (the trigger's ReadTotemSubgroup shape, game
+// state translated here so the policy stays testable): own-subgroup live
+// mates on the same map within 100 yd. Hunters count as melee (pet swings),
+// warriors/rogues always, feral-tank druids and melee-flagged shamans too.
+static ai::TotemSubgroupCensus TotemDropCensus(PlayerbotAI* ai, Player* bot)
+{
+    ai::TotemGroupMember members[6];
+    std::uint8_t count = 0;
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (group && bot)
+    {
+        for (Group::MemberSlot const& slot : group->GetMemberSlots())
+        {
+            Player* member = ObjectAccessor::FindPlayer(slot.guid);
+            if (!member || member == bot || !member->IsInWorld())
+                continue;
+            if (!group->SameSubGroup(bot, member))
+                continue;
+            if (member->GetMapId() != bot->GetMapId() || bot->GetDistance(member) > 100.0f)
+                continue;
+            if (!sServerFacade.IsAlive(member))
+                continue;
+            std::uint8_t cls = member->GetClass();
+            bool melee = cls == CLASS_WARRIOR || cls == CLASS_ROGUE ||
+                cls == CLASS_HUNTER ||
+                (cls == CLASS_DRUID && ai->IsTank(member)) ||
+                (cls == CLASS_SHAMAN && ai->IsMelee(member));
+            bool mana = member->GetMaxPower(POWER_MANA) > 0;
+            if (count < 6)
+                members[count++] = ai::TotemGroupMember{false, melee, mana};
+        }
+    }
+    return ai::CountTotemSubgroup(members, count);
+}
+
 static std::string TotemWantForBot(PlayerbotAI* ai, Player* bot, int slot)
 {
-    (void)bot;
     std::string stored = ai->GetAiObjectContext()->GetValue<std::string>("manual saved string", ai::TotemOrderKey(slot))->Get();
-    // Explicit order only: auto slots keep the trigger-time census pick,
-    // so `drop` never forces a totem the subgroup would not want.
-    return ai::OrderedTotemForSlot(stored);
+    std::string ordered = ai::OrderedTotemForSlot(stored);
+    if (!ordered.empty())
+        return ordered;
+    // Explicit "none" ("") holds the slot empty; auto/unset resolves the
+    // subgroup pick at drop time (drop never forces a totem the subgroup
+    // would not want — caster groups keep earth empty the same way).
+    if (!stored.empty() && stored != "auto")
+        return "";
+    ai::TotemSubgroupCensus census = TotemDropCensus(ai, bot);
+    switch (slot)
+    {
+    case 0:
+        return ai::BestEarthTotemForSubgroup(census, ai->HasSpell("strength of earth totem"));
+    case 2:
+        return ai::BestWaterTotemForSubgroup(census,
+            ai->HasSpell("mana spring totem"), ai->HasSpell("healing stream totem"));
+    case 3:
+        return ai::BestAirTotemForSubgroup(census,
+            ai->HasSpell("windfury totem"), ai->HasSpell("grace of air totem"),
+            ai->HasSpell("tranquil air totem"));
+    default:
+        return "";
+    }
 }
 
 // `.bot totem <bot|party|raid> <earth|fire|water|air> <totem|auto|none>` —

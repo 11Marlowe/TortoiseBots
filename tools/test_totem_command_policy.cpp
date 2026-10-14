@@ -54,7 +54,8 @@ int main()
     std::puts("  [PASS] drop modes parse, names round-trip");
 
     // Orders normalize: auto/none pass, canonical totems pass for their
-    // slot only, anything else is rejected.
+    // slot only, anything else is rejected. Short names (with or without
+    // "totem", caller already lowered) resolve to the canonical spell.
     bool valid = false;
     CHECK(NormalizeTotemOrder(3, "auto", valid) == "auto" && valid);
     CHECK(NormalizeTotemOrder(3, "none", valid) == "" && valid);
@@ -63,11 +64,19 @@ int main()
     CHECK(NormalizeTotemOrder(2, "mana spring totem", valid) == "mana spring totem" && valid);
     CHECK(NormalizeTotemOrder(0, "strength of earth totem", valid) == "strength of earth totem" && valid);
     CHECK(NormalizeTotemOrder(1, "searing totem", valid) == "searing totem" && valid);
+    CHECK(NormalizeTotemOrder(2, "mana spring", valid) == "mana spring totem" && valid);
+    CHECK(NormalizeTotemOrder(3, "windfury", valid) == "windfury totem" && valid);
+    CHECK(NormalizeTotemOrder(3, "tranquil air", valid) == "tranquil air totem" && valid);
+    CHECK(NormalizeTotemOrder(0, "strength of earth", valid) == "strength of earth totem" && valid);
     // Cross-slot totem rejected: windfury is not a water totem.
     NormalizeTotemOrder(2, "windfury totem", valid);
     CHECK(!valid);
+    NormalizeTotemOrder(2, "windfury", valid);
+    CHECK(!valid);
     // Unknown word rejected.
     NormalizeTotemOrder(3, "wrath of air totem", valid);
+    CHECK(!valid);
+    NormalizeTotemOrder(3, "wrath of air", valid);
     CHECK(!valid);
     std::puts("  [PASS] orders validate per slot, cross-slot and unknown rejected");
 

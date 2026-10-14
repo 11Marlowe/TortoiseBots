@@ -29,6 +29,12 @@ namespace ai
         {
             // Out-of-combat mana refund (mod-playerbots parity SHM-5):
             // recall only when the bot and no group member is fighting.
+            // The unit-combat flags above lag the engine flip (a new pull
+            // re-arms `combat start` before the flag lands), so the
+            // combat engine itself never recalls: a mid-fight recall
+            // destroys the just-dropped set for pennies and the re-drop
+            // loop burns more mana than the refund (live Naxx 2026-10-14:
+            // 7 recalls mid fight, 26 water re-drops to repair it).
             // Never recall mana tide: destroying the cooldown totem wastes
             // it for pennies. (No fire-elemental totem action exists in
             // 1.18.1, so there is nothing else to spare.)
@@ -36,6 +42,8 @@ namespace ai
             // teammate's tide must not veto us and strangers' totems must
             // not trigger us. Gate lives in ShamanRecallPolicy.h so the unit
             // test pins this exact logic.
+            if (ai->IsStateActive(BotState::BOT_STATE_COMBAT))
+                return false;
             bool hasSpell = ai->HasSpell("totemic recall");
             bool anyOwn = AI_VALUE(bool, "have any own totem");
             bool tideOwn = AI_VALUE2(bool, "has own totem", "mana tide totem");
@@ -271,11 +279,21 @@ namespace ai
             {
                 // `.bot totem` order wins over the subgroup pick: an
                 // explicit totem (or none) stored for this slot decides.
+                // Same slot-replacement rule as air/water: a live sibling
+                // quiets the ordered row.
                 // "auto"/unset falls through to the census pick below.
                 std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(0));
                 std::string ordered = OrderedTotemForSlot(stored);
                 if (!ordered.empty())
+                {
+                    if (AI_VALUE2(bool, "has totem", "earthbind totem") ||
+                        AI_VALUE2(bool, "has totem", "stoneskin totem") ||
+                        AI_VALUE2(bool, "has totem", "stoneclaw totem") ||
+                        AI_VALUE2(bool, "has totem", "strength of earth totem") ||
+                        AI_VALUE2(bool, "has totem", "tremor totem"))
+                        return false;
                     return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                }
                 if (!stored.empty() && stored != "auto")
                     return false;
                 // No manual earth order: Strength of Earth only for a
@@ -337,10 +355,23 @@ namespace ai
             {
                 // `.bot totem` order wins: explicit totem (or none) for the
                 // air slot decides; auto/unset falls to the census pick.
+                // An ordered totem still replaces the whole slot: a live
+                // Tranquil/Grace quiets an ordered Windfury the same way
+                // (live raid 2026-10-14: ordered windfury re-fired 12x in
+                // 8 min while thrown-off tranquil/grace came and went).
                 std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(3));
                 std::string ordered = OrderedTotemForSlot(stored);
                 if (!ordered.empty())
+                {
+                    if (AI_VALUE2(bool, "has totem", "tranquil air totem") ||
+                        AI_VALUE2(bool, "has totem", "grace of air totem") ||
+                        AI_VALUE2(bool, "has totem", "windwall totem") ||
+                        AI_VALUE2(bool, "has totem", "sentry totem") ||
+                        AI_VALUE2(bool, "has totem", "nature resistance totem") ||
+                        AI_VALUE2(bool, "has totem", "grounding totem"))
+                        return false;
                     return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                }
                 if (!stored.empty() && stored != "auto")
                     return false;
                 // No manual air order: pick by subgroup (totems only reach
@@ -413,10 +444,24 @@ namespace ai
             {
                 // `.bot totem` order wins: explicit totem (or none) for the
                 // water slot decides; auto/unset falls to the census pick.
+                // Same slot-replacement rule as air: a live sibling quiets
+                // the ordered row (tide keeps its carve-out below).
                 std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(2));
                 std::string ordered = OrderedTotemForSlot(stored);
                 if (!ordered.empty())
+                {
+                    if (AI_VALUE2(bool, "has totem", "mana spring totem") ||
+                        AI_VALUE2(bool, "has totem", "healing stream totem") ||
+                        AI_VALUE2(bool, "has totem", "cleansing totem") ||
+                        AI_VALUE2(bool, "has totem", "poison cleansing totem") ||
+                        AI_VALUE2(bool, "has totem", "disease cleansing totem") ||
+                        AI_VALUE2(bool, "has totem", "fire resistance totem"))
+                        return false;
+                    if (ordered != "mana tide totem" &&
+                        AI_VALUE2(bool, "has totem", "mana tide totem"))
+                        return false;
                     return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                }
                 if (!stored.empty() && stored != "auto")
                     return false;
                 // No manual water order: mana users in the subgroup -> mana

@@ -91,7 +91,13 @@ bool HealerShouldAttackTrigger::IsActive()
 
     // Balance-scaled reserve (HealerManaPolicy.h): hard fights (low balance)
     // keep 85 %, even and easy ones 70 % - deliberately above the donor's
-    // 65 % / 40 % (owner decision 2026-10-12).
+    // 65 % / 40 % (owner decision 2026-10-12). Raids keep 95 %: a
+    // minutes-long mana burn with no drink break must not spend healer
+    // mana on shocks and bolts (live Patchwerk 2026-10-14: resto at
+    // 4-9 % while the gate kept firing).
+    if (bot->GetGroup()->isRaidGroup())
+        return !AI_VALUE2(bool, "has mana", "self target") ||
+            AI_VALUE2(uint8, "mana", "self target") >= HealerDpsManaFloorRaid();
     return HealerDpsManaAllows(AI_VALUE2(bool, "has mana", "self target"),
         AI_VALUE2(uint8, "mana", "self target"), AI_VALUE(uint8, "balance"));
 }

@@ -95,7 +95,11 @@ int main()
     // No mana bar: never held back by the reserve.
     CHECK(HealerDpsManaAllows(false, 0, 101));
     CHECK(HealerDpsManaAllows(false, 0, 10));
-
+    // Raid floor: minutes-long mana burn, no drink break — off-spec
+    // damage only at near-full mana (live Naxx 2026-10-14: resto dry
+    // at 4-9 % while the generic floor kept firing shocks/bolts).
+    CHECK(HealerDpsManaFloorRaid() == 95);
+    CHECK(HealerDpsManaFloorRaid() > HealerDpsManaFloor(0));
     // Incoming-heal inflation (review fix): added only above lowHealth.
     // Tank at 25 % with a 4000 heal incoming still reads 2500/10000.
     CHECK(HealthWithIncoming(2500, 10000, 4000, 50) == 2500);

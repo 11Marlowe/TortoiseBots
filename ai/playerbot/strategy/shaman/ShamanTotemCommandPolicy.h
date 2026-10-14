@@ -120,11 +120,26 @@ inline char const* const* TotemChoicesForSlot(int slot, std::uint32_t& count)
     }
 }
 
-// Validate one order word: "auto", "none", or a canonical totem for the
-// slot. Returns the canonical stored form ("" for none, "auto" for auto,
-// the totem name otherwise) or "" + valid=false on rejection. "none"
-// stores as "" so an unset value and an explicit none behave the same
-// downstream; the command layer echoes "none" back to the player.
+// Short name the player may use instead of the full spell ("mana spring"
+// for "mana spring totem", "windfury" for "windfury totem"). Strips one
+// trailing " totem" so "tremor totem" and "tremor" both land; anything
+// else passes through unchanged for the exact compare below.
+inline std::string TotemShortName(std::string const& word)
+{
+    std::string const suffix(" totem");
+    if (word.size() > suffix.size() &&
+        word.compare(word.size() - suffix.size(), suffix.size(), suffix) == 0)
+        return word.substr(0, word.size() - suffix.size());
+    return word;
+}
+
+// Validate one order word: "auto", "none", a canonical totem for the
+// slot, or its short form with or without "totem" (case handled by the
+// caller, which lowers first). Returns the canonical stored form ("" for
+// none, "auto" for auto, the totem name otherwise) or "" + valid=false
+// on rejection. "none" stores as "" so an unset value and an explicit
+// none behave the same downstream; the command layer echoes "none" back
+// to the player.
 inline std::string NormalizeTotemOrder(int slot, std::string const& word, bool& valid)
 {
     if (word == "auto")
@@ -139,8 +154,9 @@ inline std::string NormalizeTotemOrder(int slot, std::string const& word, bool& 
     }
     std::uint32_t count = 0;
     char const* const* choices = TotemChoicesForSlot(slot, count);
+    std::string const shortWord = TotemShortName(word);
     for (std::uint32_t i = 0; i < count; ++i)
-        if (word == choices[i])
+        if (word == choices[i] || shortWord == choices[i] || shortWord == TotemShortName(choices[i]))
         {
             valid = true;
             return std::string(choices[i]);

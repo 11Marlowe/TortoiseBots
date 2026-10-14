@@ -764,11 +764,34 @@ namespace ai
                 if (!bot->IsWithinDistInMap(member, 100.0f, false))
                     continue;
 
-                if (!ai->HasAura(totemSpell, member, false, true))
+                // Same effect-name rule as the totem action: match the
+                // totem aura by id, not by cast-spell name.
+                if (!HasTotemAura(totemSpell, member))
                     return member;
             }
 
             return nullptr;
+        }
+
+        bool HasTotemAura(std::string const& totemSpell, Player* member)
+        {
+            if (!member)
+                return false;
+            std::uint32_t spellId = AI_VALUE2(std::uint32_t, "spell id", totemSpell);
+            if (!spellId)
+                return false;
+            SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId);
+            if (!info)
+                return false;
+            for (std::uint32_t effect = 0; effect < (std::uint32_t)MAX_EFFECT_INDEX; ++effect)
+            {
+                std::uint32_t auraId = info->EffectTriggerSpell[effect];
+                if (!auraId)
+                    continue;
+                if (ai->HasAura(auraId, member))
+                    return true;
+            }
+            return ai->HasAura(spellId, member);
         }
     };
 }
