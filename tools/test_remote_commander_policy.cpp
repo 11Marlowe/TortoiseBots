@@ -734,6 +734,68 @@ static void TestMasterLeftRule()
     CHECK(LeavesWhenMasterLeaves(false));
 }
 
+// Commanded damage bots and healers back off near the tank's threat; the tank
+// and bots outside a commanded group are left to the general rule.
+static void TestCommandedThreatBackoff()
+{
+    CHECK(KeepsCommandedThreatBackoff(true, false));
+    CHECK(!KeepsCommandedThreatBackoff(true, true));
+    CHECK(!KeepsCommandedThreatBackoff(false, false));
+    CHECK(!KeepsCommandedThreatBackoff(false, true));
+}
+
+// Only a party-wide attack leaves a tank on the mob it holds; a named attack
+// and a tank holding nothing go as ordered, and damage bots always go.
+static void TestPartyAttackTankStays()
+{
+    CHECK(PartyAttackLeavesTankOnItsMob(true, true, true));
+    CHECK(!PartyAttackLeavesTankOnItsMob(false, true, true));
+    CHECK(!PartyAttackLeavesTankOnItsMob(true, true, false));
+    CHECK(!PartyAttackLeavesTankOnItsMob(true, false, true));
+}
+
+// The ACK says when the tank stayed, so the client can name it for the add.
+static void TestPartyAttackAckDetail()
+{
+    CHECK(PartyAttackAckDetail("").empty());
+    CHECK(PartyAttackAckDetail("Lcwarra") == "tank-stays:Lcwarra");
+}
+
+// The back-off yields on a mob hitting the healer or a damage bot of a
+// commanded party, never on a mob hitting the tank, and never outside one.
+static void TestCommandedBackoffYields()
+{
+    CHECK(CommandedBackoffYields(true, true, false));
+    CHECK(!CommandedBackoffYields(true, true, true));
+    CHECK(!CommandedBackoffYields(true, false, false));
+    CHECK(!CommandedBackoffYields(false, true, false));
+}
+
+// Lifecycle of a binding's "threat": given only to an eligible bot that
+// lacks it, never stored while held, taken off on release unless still due;
+// a strategy reset or a load while bound notes it too (a late joiner).
+static void TestCommanderThreatLedger()
+{
+    CommanderThreatLedger ledger;
+    CHECK(ledger.Give(1, true, false));          // damage bot: added
+    CHECK(!ledger.Give(2, false, false));        // tank: not eligible
+    CHECK(!ledger.Give(3, true, true));          // owner's own toggle: not ours
+    CHECK(!ledger.Give(0, true, false));
+    CHECK(!ledger.Persists(1));                  // never written while held
+    CHECK(ledger.Persists(2) && ledger.Persists(3));
+    CHECK(ledger.Release(1, false));             // unbind: taken off
+    CHECK(ledger.Persists(1));
+    CHECK(!ledger.Release(1, false));            // only once
+    CHECK(!ledger.Release(3, false));            // never ours: left alone
+    ledger.Note(4);                              // joined after the bind
+    CHECK(ledger.Holds(4) && !ledger.Persists(4));
+    CHECK(!ledger.Release(4, true));             // a real master still gives it
+    CHECK(!ledger.Holds(4));
+    ledger.Note(5);
+    ledger.Clear();
+    CHECK(!ledger.Holds(5));
+}
+
 int main()
 {
     TestBindingTable();
@@ -743,6 +805,11 @@ int main()
     TestBindGate();
     TestBindGroupPlan();
     TestMasterLeftRule();
+    TestCommandedThreatBackoff();
+    TestPartyAttackTankStays();
+    TestPartyAttackAckDetail();
+    TestCommandedBackoffYields();
+    TestCommanderThreatLedger();
     TestOrderGate();
     TestParseGuid();
     TestParseMovePoint();

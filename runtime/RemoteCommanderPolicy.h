@@ -24,6 +24,7 @@
 #include <cstdlib>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace TortoiseBots {
@@ -497,6 +498,84 @@ inline bool LeavesWhenMasterLeaves(bool inCommandedGroup)
 {
     return !inCommandedGroup;
 }
+
+// A commanded party is bot-only and its commander stands outside it, so no
+// bot in it has a real-player master and the party threat back-off (the
+// "threat" combat strategy, AiFactory::KeepsPartyThreatBackoff) was never
+// given: the damage bots burned through the tank's lead on every mob
+// (uldaman-remote-5: 26 threat overrides, the warlock on top for 47 s). A
+// commanded bot gets it the way a bot in a player's party does: every bot
+// but a tank.
+inline bool KeepsCommandedThreatBackoff(bool inCommandedGroup, bool isTank)
+{
+    return inCommandedGroup && !isTank;
+}
+
+// A party-wide `cmd attack` sends every damage bot at the target. A tank that
+// already holds another living mob (its victim is attacking it) stays on that
+// mob: the order otherwise pulled it off, and the mob it left went for the
+// healer or a damage bot (uldaman-remote-5: 20 of 27 such orders moved the
+// tank, 19 of the mobs it left were on another bot 4 s later). The named form
+// `cmd attack <guid> <tank>` still moves the tank, and a tank that holds
+// nothing goes with the party as before.
+inline bool PartyAttackLeavesTankOnItsMob(bool partyWide, bool isTank, bool holdsAnotherMob)
+{
+    return partyWide && isTank && holdsAnotherMob;
+}
+
+// The ACK detail of a party-wide `cmd attack` that left the tank on its mob:
+// `tank-stays:<Tank>`, so the client knows the tank did not go and can name it
+// for the target (`cmd attack <guid> <tank>`). Empty when the tank went.
+inline std::string PartyAttackAckDetail(std::string const& stayingTank)
+{
+    return stayingTank.empty() ? std::string() : "tank-stays:" + stayingTank;
+}
+
+// The threat back-off holds a damage bot off a mob the tank has no threat on
+// (ThreatValue reads 100 then). In a commanded party a mob that is hitting a
+// party member who is not a tank is already off the tank: backing off it only
+// leaves it on the healer or a damage bot, so the back-off yields there.
+inline bool CommandedBackoffYields(bool inCommandedGroup, bool targetHitsPartyMember, bool victimIsTank)
+{
+    return inCommandedGroup && targetHitsPartyMember && !victimIsTank;
+}
+
+// The bots a binding gave the "threat" strategy to (they did not have it).
+// The strategy is the binding's, not the bot's: it is never written to the
+// bot's stored strategies, and it comes off when the bot leaves the binding
+// unless the general rule (a real-player master) still gives it.
+class CommanderThreatLedger
+{
+public:
+    // A bound bot: whether to add "threat" now (eligible, and it lacks it).
+    // Noted when it is added.
+    bool Give(uint64_t guid, bool eligible, bool hasThreat)
+    {
+        if (!guid || !eligible || hasThreat)
+            return false;
+        bots_.insert(guid);
+        return true;
+    }
+    // "threat" added for the binding by another path (a strategy reset or a
+    // snapshot load while bound).
+    void Note(uint64_t guid)
+    {
+        if (guid)
+            bots_.insert(guid);
+    }
+    // The bot left the binding: whether to take "threat" off.
+    bool Release(uint64_t guid, bool stillDue)
+    {
+        return bots_.erase(guid) > 0 && !stillDue;
+    }
+    // Whether the bot's stored strategies may carry "threat".
+    bool Persists(uint64_t guid) const { return bots_.find(guid) == bots_.end(); }
+    bool Holds(uint64_t guid) const { return bots_.find(guid) != bots_.end(); }
+    void Clear() { bots_.clear(); }
+
+private:
+    std::unordered_set<uint64_t> bots_;
+};
 
 // ---------------------------------------------------------------------------
 // Order auth gate
