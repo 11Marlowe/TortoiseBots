@@ -358,26 +358,6 @@ bool CastSpellAction::isPossible()
     }
 
     // Check if the spell can be casted
-    // dps5 probe (temporary): death wish never fires on the H7 Patchwerk
-    // log (IMPOSSIBLE at rage levels where bloodthirst casts). Record the
-    // core CheckCast verdict once per process so the live raid reveals which
-    // gate refuses it.
-    if (spellName == "death wish")
-    {
-        SpellCastResult probe = SPELL_CAST_OK;
-        bool ok = ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true, false, false, &probe);
-        if (!ok)
-        {
-            static bool logged = false;
-            if (!logged)
-            {
-                logged = true;
-                sLog.outBasic("dps5: death wish refused result=%u rage=%u stance=%u", (uint32)probe,
-                    bot->GetPower(POWER_RAGE), (uint32)bot->GetShapeshiftForm());
-            }
-        }
-        return ok;
-    }
     return ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true);
 }
 
