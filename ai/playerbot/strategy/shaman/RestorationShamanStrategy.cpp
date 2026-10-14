@@ -56,6 +56,13 @@ void RestorationShamanStrategy::InitCombatTriggers(std::list<TriggerNode*> &trig
         "low mana",
         NextAction::array(0, new NextAction("mana tide totem", ACTION_EMERGENCY), NULL)));
 
+    // Mana Tide restores the whole subgroup, so a dry healer/caster in our
+    // own subgroup arms it too — not just our own bar (live raid: healers
+    // OOM while the shaman's own mana stayed above the line).
+    triggers.push_back(new TriggerNode(
+        "healer low mana",
+        NextAction::array(0, new NextAction("mana tide totem", ACTION_EMERGENCY), NULL)));
+
     triggers.push_back(new TriggerNode(
         "critical health",
         NextAction::array(0, new NextAction("healing wave", ACTION_CRITICAL_HEAL + 1), NULL)));
@@ -368,9 +375,26 @@ void RestorationShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>
         "grounding totem reactive",
         NextAction::array(0, new NextAction("grounding totem", ACTION_HIGH + 2), NULL)));
 
+    // Air/water by subgroup (the "air totem"/"water totem" triggers pick by
+    // census: melee -> windfury, casters -> tranquil/grace air; mana users
+    // -> mana spring). Both rows queued: the wrong one goes USELESS on its
+    // trigger and the engine falls through to the right one. Reactive rows
+    // below keep their slots' priority.
     triggers.push_back(new TriggerNode(
         "air totem",
         NextAction::array(0, new NextAction("windfury totem", ACTION_HIGH + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("tranquil air totem", ACTION_HIGH), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("grace of air totem", ACTION_HIGH), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "water totem",
+        NextAction::array(0, new NextAction("mana spring totem", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(
         "water totem",
@@ -400,8 +424,11 @@ void RestorationShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>
         "earth totem",
         NextAction::array(0, new NextAction("strength of earth totem", ACTION_HIGH), NULL)));
 
+    // No damage totem while healing: searing burns 170 mana a drop for
+    // chip damage (live raid: resto OOM at 6% while healing). Gated on
+    // `healer should attack` like the offdps rows.
     triggers.push_back(new TriggerNode(
-        "fire totem",
+        "fire totem and healer should attack",
         NextAction::array(0, new NextAction("searing totem", ACTION_HIGH), NULL)));
 }
 
