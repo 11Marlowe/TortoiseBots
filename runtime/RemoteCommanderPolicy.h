@@ -295,6 +295,15 @@ struct BindFacts
     bool leadGroupIsRaidOrBg = false;
     bool leadGroupHasRealPlayer = false; // a human other than the commander
     bool leadGroupBound = false;         // another commander holds it
+    // The commander's own party is kept (BindGroupPlan::KeepCommanderParty) and
+    // holds a bot other than the lead that the command did not name: it would
+    // be commanded without being asked for.
+    bool keptPartyHasUnnamedBot = false;
+    // The group's leader is about to change to the lead bot, and the lead bot
+    // holds its own bind for an instance map the group is bound to a different
+    // instance of: Player::ConvertInstancesToGroup copies the lead's binds onto
+    // the group and would replace the group's bind with the lead's.
+    bool leadBindWouldReplaceGroupBind = false;
     // Every bot the group would contain besides the lead: current members of
     // the lead's group plus the named bots not yet in it.
     std::vector<BindMember> members;
@@ -317,6 +326,8 @@ enum class BindRefusal : uint8_t
     MemberHired,
     MemberInOtherGroup,
     BotInOtherBinding,
+    PartyUnnamed,
+    LeadBound,
 };
 
 // The bind is refused (fail closed) unless the commander controls every bot,
@@ -347,6 +358,10 @@ inline BindRefusal CheckBind(BindFacts const& facts)
             return BindRefusal::GroupHasPlayer;
         if (facts.leadGroupBound)
             return BindRefusal::GroupBound;
+        if (facts.keptPartyHasUnnamedBot)
+            return BindRefusal::PartyUnnamed;
+        if (facts.leadBindWouldReplaceGroupBind)
+            return BindRefusal::LeadBound;
     }
     if (facts.members.empty())
         return BindRefusal::NoMembers;
@@ -385,6 +400,8 @@ inline char const* BindRefusalCode(BindRefusal refusal)
         case BindRefusal::MemberHired: return "hired";
         case BindRefusal::MemberInOtherGroup: return "member-grouped";
         case BindRefusal::BotInOtherBinding: return "bot-bound";
+        case BindRefusal::PartyUnnamed: return "party-unnamed";
+        case BindRefusal::LeadBound: return "lead-bound";
     }
     return "rejected";
 }
@@ -408,8 +425,76 @@ inline char const* BindRefusalText(BindRefusal refusal)
         case BindRefusal::MemberHired: return "Hired companions cannot join a commanded group (their hire ends when they leave your party).";
         case BindRefusal::MemberInOtherGroup: return "A named bot is in another group. Remove it from that group first.";
         case BindRefusal::BotInOtherBinding: return "A named bot is still in another commander's group. That commander must unbind first.";
+        case BindRefusal::PartyUnnamed: return "Your party holds a bot you did not name. Name every bot in your party in the bind (or take the others out of it first).";
+        case BindRefusal::LeadBound: return "The lead bot has its own saved instance that would replace the group's. Reset it first (.instance unbind for the lead bot) or pick another lead.";
     }
     return "Request rejected.";
+}
+
+// ---------------------------------------------------------------------------
+// Bind plan: keep the party or re-form it
+// ---------------------------------------------------------------------------
+
+// What the bind does with the party the lead bot is in. An instance bind lives
+// on the Group (Group::m_boundInstances); a new group has none until somebody
+// enters the map, so a bot that is re-grouped inside a dungeon becomes
+// invalid and is sent to its homebind about 60 s later (Group::
+// _homebindIfInstance, Player::UpdateHomebindTime). The core keeps a group's
+// non-permanent binds across a leader change (Group::_setLeader drops only the
+// permanent ones, and a five-man bind is not permanent) and across a member
+// leaving (RemoveMember only starts the homebind timer for the member who
+// left). So the commander's own party is kept, with the lead bot made leader
+// and the commander taken out, instead of being rebuilt.
+enum class BindGroupPlan : uint8_t
+{
+    // No group yet: the lead bot invites the named bots (a new, unbound group).
+    FormNew,
+    // The lead bot is in a group of its own: adopted as it is.
+    AdoptLeadGroup,
+    // The lead bot is in the commander's party and nobody but bots and the
+    // commander is in it: the lead bot becomes leader, the commander leaves,
+    // the group (and its instance bind) stays.
+    KeepCommanderParty,
+    // The lead bot is in the commander's party, but it is a raid or battleground
+    // group or holds another player: the old behaviour (the bots leave it and
+    // form a new group).
+    ReformFromCommanderParty,
+};
+
+struct BindPlanFacts
+{
+    bool leadInCommanderParty = false;  // the lead bot shares the commander's party
+    bool leadInOwnGroup = false;        // the lead bot is in some other group
+    bool partyIsRaidOrBg = false;       // the commander's party (when shared)
+    bool partyHasOtherPlayer = false;   // a human other than the commander (when shared)
+};
+
+inline BindGroupPlan DecideBindGroup(BindPlanFacts const& facts)
+{
+    if (facts.leadInCommanderParty)
+        return (facts.partyIsRaidOrBg || facts.partyHasOtherPlayer)
+            ? BindGroupPlan::ReformFromCommanderParty
+            : BindGroupPlan::KeepCommanderParty;
+    if (facts.leadInOwnGroup)
+        return BindGroupPlan::AdoptLeadGroup;
+    return BindGroupPlan::FormNew;
+}
+
+// The core disbands a party that would be left with fewer than two members
+// (Group::RemoveMember with GetMembersCount() <= 2), so the commander may leave
+// a kept party only while it holds the commander and at least two bots.
+inline bool CanDropCommanderFromParty(size_t partyMembers)
+{
+    return partyMembers >= 3;
+}
+
+// While a bot is in a group a commander commands, its master leaving the party
+// is not a reason to leave: the commander is meant to be out of the party, and
+// the bind's instance would be lost with the group. Every other bot keeps the
+// general rule (a bot leaves when its master does).
+inline bool LeavesWhenMasterLeaves(bool inCommandedGroup)
+{
+    return !inCommandedGroup;
 }
 
 // ---------------------------------------------------------------------------

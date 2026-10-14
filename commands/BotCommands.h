@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+#include "../runtime/CommandedGroupQuery.h" // IsInCommandedGroup
+
 class ChatHandler;
 class Player;
 

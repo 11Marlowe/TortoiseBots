@@ -193,6 +193,33 @@ static void TestBindGate()
     facts.commanderIsBot = true;
     CHECK(CheckBind(facts) == BindRefusal::CommanderIsBot);
 
+    // A kept party is commanded as a whole: a bot in it that was not named is a
+    // refusal (before its own hired/controllable verdict), with no change made.
+    facts = GoodBind(2);
+    facts.leadGrouped = true;
+    facts.keptPartyHasUnnamedBot = true;
+    facts.members[1].hired = true;
+    CHECK(CheckBind(facts) == BindRefusal::PartyUnnamed);
+    CHECK(std::string(BindRefusalCode(BindRefusal::PartyUnnamed)) == "party-unnamed");
+    CHECK(std::string(BindRefusalText(BindRefusal::PartyUnnamed)).find("did not name") != std::string::npos);
+    // Every bot named: the same hired bot is then judged as a named member.
+    facts.keptPartyHasUnnamedBot = false;
+    CHECK(CheckBind(facts) == BindRefusal::MemberHired);
+    // Not a kept party (no leadGrouped): the flag is never looked at.
+    facts = GoodBind(2);
+    facts.keptPartyHasUnnamedBot = true;
+    CHECK(CheckBind(facts) == BindRefusal::None);
+
+    // The lead bot's own bind for the group's instance map would replace the
+    // group's bind when it takes the lead: refused as lead-bound.
+    facts = GoodBind(2);
+    facts.leadGrouped = true;
+    facts.leadBindWouldReplaceGroupBind = true;
+    CHECK(CheckBind(facts) == BindRefusal::LeadBound);
+    CHECK(std::string(BindRefusalCode(BindRefusal::LeadBound)) == "lead-bound");
+    facts.leadBindWouldReplaceGroupBind = false;
+    CHECK(CheckBind(facts) == BindRefusal::None);
+
     facts = GoodBind(2);
     facts.commanderAlreadyBound = true;
     CHECK(CheckBind(facts) == BindRefusal::AlreadyBound);
@@ -538,6 +565,52 @@ static void TestOwnerOrderBotName()
     CHECK(OwnerOrderBotName("teleport", Args("a b")).empty());
 }
 
+// The bind keeps the party the lead bot is in (the instance bind lives on the
+// group), and only re-forms one it cannot keep.
+static void TestBindGroupPlan()
+{
+    BindPlanFacts facts;
+    CHECK(DecideBindGroup(facts) == BindGroupPlan::FormNew);
+
+    facts = BindPlanFacts();
+    facts.leadInOwnGroup = true;
+    CHECK(DecideBindGroup(facts) == BindGroupPlan::AdoptLeadGroup);
+
+    // Lead bot in the commander's party: kept, whether the party is the
+    // commander plus bots (the 19i case) or holds more bots than were named.
+    facts = BindPlanFacts();
+    facts.leadInCommanderParty = true;
+    CHECK(DecideBindGroup(facts) == BindGroupPlan::KeepCommanderParty);
+
+    // A raid / battleground party, or one with another player, is re-formed.
+    facts.partyIsRaidOrBg = true;
+    CHECK(DecideBindGroup(facts) == BindGroupPlan::ReformFromCommanderParty);
+    facts.partyIsRaidOrBg = false;
+    facts.partyHasOtherPlayer = true;
+    CHECK(DecideBindGroup(facts) == BindGroupPlan::ReformFromCommanderParty);
+
+    // The commander's party wins over "some other group" when both are set.
+    facts = BindPlanFacts();
+    facts.leadInCommanderParty = true;
+    facts.leadInOwnGroup = true;
+    CHECK(DecideBindGroup(facts) == BindGroupPlan::KeepCommanderParty);
+
+    // The core disbands a party left with fewer than two members: the
+    // commander leaves a kept party only with at least two bots staying.
+    CHECK(!CanDropCommanderFromParty(0));
+    CHECK(!CanDropCommanderFromParty(2));   // commander + 1 bot
+    CHECK(CanDropCommanderFromParty(3));    // commander + 2 bots
+    CHECK(CanDropCommanderFromParty(5));
+}
+
+// A bot in a commanded group does not leave when its master does; every other
+// bot keeps the general rule.
+static void TestMasterLeftRule()
+{
+    CHECK(!LeavesWhenMasterLeaves(true));
+    CHECK(LeavesWhenMasterLeaves(false));
+}
+
 int main()
 {
     TestBindingTable();
@@ -545,6 +618,8 @@ int main()
     TestDepartedFollowers();
     TestReleaseRule();
     TestBindGate();
+    TestBindGroupPlan();
+    TestMasterLeftRule();
     TestOrderGate();
     TestParseGuid();
     TestParseMovePoint();
