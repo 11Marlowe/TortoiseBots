@@ -107,7 +107,7 @@ def main():
             embed_title += f" • {args.tag}"
 
         desc_parts = [
-            f"Nowe wydanie **{args.tag or 'TortoiseBots'}** jest już dostępne!",
+            f"A new release of **{args.tag or 'TortoiseBots'}** is now available!",
             ""
         ]
         if notes_text:
@@ -120,7 +120,7 @@ def main():
             desc_parts.append(preview)
             desc_parts.append("")
 
-        desc_parts.append(f"📦 **[Pobierz wydanie i przeczytaj changelog na GitHubie]({release_url})**")
+        desc_parts.append(f"📦 **[Download Release & View Changelog on GitHub]({release_url})**")
         embed_desc = "\n".join(desc_parts)
 
         embed = {
