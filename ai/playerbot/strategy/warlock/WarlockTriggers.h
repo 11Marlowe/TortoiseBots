@@ -65,12 +65,12 @@ namespace ai
         std::string GetTargetName() override { return "current target"; }
     };
 
-    // Raid curse assignment (one curse per target in this core): the
-    // Recklessness/Shadow raid rows fire only while NO curse sits on the
-    // target, anyone-sees. First warlock's curse (usually Elements) covers
-    // the slot; a second warlock then keeps Recklessness/Shadow up instead
-    // of knocking Elements off. Same-curse churn is still suppressed by
-    // each row's own DebuffTrigger base.
+    // Raid curse assignment: the core keeps one curse per warlock per target
+    // (live H9: Shadow and Elements from two warlocks sat side by side), so
+    // the Recklessness/Shadow raid rows fire while that curse is missing and
+    // this warlock has no curse of its own on the target. Different
+    // warlocks then cover different curses; the curse-name claim in
+    // CastCurseSlotAction keeps two of them from picking the same one.
     class CurseOfRecklessnessRaidTrigger : public DebuffTrigger
     {
     public:

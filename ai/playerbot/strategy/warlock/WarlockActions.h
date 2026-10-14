@@ -201,13 +201,15 @@ namespace ai
         }
     };
 
-    // Raid curse slot (one curse per target in this core): the raid
-    // Recklessness/Shadow rows share the slot with Elements, so a curse cast
-    // claims it under every curse name. While the claim is live the other
-    // warlocks' raid rows stand down instead of each casting Elements and
-    // then its queued Recklessness/Shadow right after, knocking Elements
-    // off (H7: 11 curse casts in 5 s, boss kept Shadow). Follows the
-    // blessing-claim precedent (CastBlessingOnPartyAction::isUseful).
+    // Raid curses: one curse per warlock per target (the core keeps several
+    // warlocks' curses side by side, but a warlock's new curse replaces its
+    // own old one). A curse cast claims its curse name on the target so
+    // another warlock picks a different curse, and claims the caster's own
+    // slot so its queued second curse row cannot overwrite the first before
+    // the aura lands. Live H9 (Patchwerk, 8 warlocks): the old one-curse-per-
+    // target claim left the boss with Shadow alone until Elements landed at
+    // 44 s, and one warlock overwrote its own Recklessness with Shadow 1 s
+    // later. Follows the blessing-claim precedent (BuffClaimRegistry).
     class CastCurseSlotAction : public CastRangedDebuffSpellAction
     {
     public:
@@ -217,6 +219,9 @@ namespace ai
             Unit* target = GetTarget();
             if (!target)
                 return false;
+            // Own pending cast: a claim by anyone but the null guid is ours.
+            if (BuffClaimRegistry::IsClaimedByOther(ObjectGuid(), target->GetObjectGuid(), OwnSlotKey()))
+                return false;
             static const char* const curses[] = {
                 "curse of agony", "curse of doom", "curse of recklessness",
                 "curse of shadow", "curse of the elements", "curse of weakness",
@@ -224,29 +229,26 @@ namespace ai
             };
             for (const char* curse : curses)
             {
-                if (GetSpellName() != curse &&
-                    BuffClaimRegistry::IsTargetClaimedByOther(bot, target, curse))
+                if (GetSpellName() != curse && ai->HasAura(curse, target, false, true))
                     return false;
             }
+            if (BuffClaimRegistry::IsTargetClaimedByOther(bot, target, GetSpellName()))
+                return false;
             return CastRangedDebuffSpellAction::isUseful();
         }
         bool Execute(Event& event) override
         {
             if (!CastRangedDebuffSpellAction::Execute(event))
                 return false;
-            Unit* target = GetTarget();
-            if (target)
+            if (Unit* target = GetTarget())
             {
-                static const char* const curses[] = {
-                    "curse of agony", "curse of doom", "curse of recklessness",
-                    "curse of shadow", "curse of the elements", "curse of weakness",
-                    "curse of tongues", "curse of exhaustion"
-                };
-                for (const char* curse : curses)
-                    BuffClaimRegistry::Claim(bot->GetObjectGuid(), target->GetObjectGuid(), curse);
+                BuffClaimRegistry::Claim(bot->GetObjectGuid(), target->GetObjectGuid(), GetSpellName());
+                BuffClaimRegistry::Claim(bot->GetObjectGuid(), target->GetObjectGuid(), OwnSlotKey());
             }
             return true;
         }
+    private:
+        std::string OwnSlotKey() const { return "curse slot " + std::to_string(bot->GetObjectGuid().GetRawValue()); }
     };
 
     class CastCurseOfExhaustionAction : public CastCurseSlotAction
