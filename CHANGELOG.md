@@ -67,6 +67,17 @@
 
 ---
 
+### Combat & AI
+- Healer AI reworked: paladin and druid positioning plus Lay on Hands timing corrected, so healers stop drifting out of range and actually land emergency heals instead of holding cooldowns. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Shaman totem logic fixed so totems are dropped and refreshed where the group actually is, instead of being wasted on stale positions. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Caster mana management tightened: bots pace their rotation, conserve mana and drink/regenerate properly rather than going OOM mid-pull or sitting idle at full mana. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Warlock curse handling fixed so curses are assigned and maintained without overlapping or dropping on target swaps. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Tank behaviour corrected so tanks hold threat and positioning reliably instead of losing mobs or face-pulling into the raid. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+
+### Raid & Encounters
+- All changes are generic class/role/group behaviour, not boss scripting — they apply everywhere, from dungeons to raids, for both factions. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+- Validated on Patchwerk (Naxxramas) as a straight DPS/uptime check: 39 hired AQ-tier bots plus one player kill him without world buffs, with a normal composition and consumables and zero GM help — no deaths on the Alliance run. [#930](https://github.com/Sagiroth/TortoiseBots/pull/930)
+
 ## 2026-10-13
 
 ### World & NPC Behavior
