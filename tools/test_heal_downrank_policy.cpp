@@ -1,6 +1,6 @@
 // Standalone regression test for healer downranking: fit the rank to the
 // wound (missing health after incoming heals), with a safety margin, and
-// never downrank an emergency (at/below lowHealth/criticalHealth).
+// never downrank a critical emergency (at/below criticalHealth).
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_heal_downrank_policy.cpp -o /tmp/test_heal_downrank
@@ -48,12 +48,15 @@ int main()
     CHECK(PickHealRank(ranks, State(1500, 70)) == 10964);
     // Huge wound (3000 missing): need = 2400, nothing covers -> top rank.
     CHECK(PickHealRank(ranks, State(3000, 60)) == 25314);
-    // Emergency at lowHealth (50%): top rank whatever the wound.
-    CHECK(PickHealRank(ranks, State(200, 50)) == 25314);
+    // Emergency at/below criticalHealth (20%): top rank whatever the wound.
+    CHECK(PickHealRank(ranks, State(200, 20)) == 25314);
     // Emergency below criticalHealth (15%): top rank.
     CHECK(PickHealRank(ranks, State(100, 15)) == 25314);
-    // Just above the danger line (51%): downranks again.
-    CHECK(PickHealRank(ranks, State(200, 51)) == 2060);
+    // Medium band (50%, old emergency line): now fits the wound — 200
+    // missing -> need 160 -> rank 1. Live raid 2026-10-14 paid top rank
+    // here 56x.
+    CHECK(PickHealRank(ranks, State(200, 50)) == 2060);
+    // Just above the old danger line (51%): downranks as before.
     // No wound left (incoming covers it): cheapest if forced to cast.
     CHECK(PickHealRank(ranks, State(0, 90)) == 2060);
     // Empty list: 0, caller falls back to the old top-rank selection.

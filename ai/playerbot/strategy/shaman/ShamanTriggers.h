@@ -282,18 +282,25 @@ namespace ai
                 // stays shared "air totem" across the three strategy rows;
                 // each action checks its own aura, so the wrong row goes
                 // USELESS and the engine falls through to the right one.
-                // The slot check lists every air totem so a reactive
-                // grounding swap still lands while the spec totem is up.
+                // Slot-quiet on EVERY air totem, not just the wanted one:
+                // one air totem replaces another, so a live Tranquil/Grace
+                // must stop the Windfury row too (live raid 2026-10-14: the
+                // own-spell check re-fired Windfury 19x in 30 s while the
+                // other air totems came and went). Reactive grounding keeps
+                // its carve-out below so the swap still lands mid fight.
                 std::string want = BestAirTotemForSubgroup(ReadTotemSubgroup(ai, bot),
                     ai->HasSpell("windfury totem"), ai->HasSpell("grace of air totem"),
                     ai->HasSpell("tranquil air totem"));
                 if (want.empty())
                     return false;
-                if (AI_VALUE2(bool, "has totem", want.c_str()))
+                if (AI_VALUE2(bool, "has totem", "windfury totem") ||
+                    AI_VALUE2(bool, "has totem", "tranquil air totem") ||
+                    AI_VALUE2(bool, "has totem", "grace of air totem") ||
+                    AI_VALUE2(bool, "has totem", "windwall totem") ||
+                    AI_VALUE2(bool, "has totem", "sentry totem") ||
+                    AI_VALUE2(bool, "has totem", "nature resistance totem"))
                     return false;
-                return !AI_VALUE2(bool, "has totem", "grounding totem") &&
-                       !AI_VALUE2(bool, "has totem", "sentry totem") &&
-                       !AI_VALUE2(bool, "has totem", "nature resistance totem");
+                return !AI_VALUE2(bool, "has totem", "grounding totem");
             }
         }
 
@@ -340,16 +347,22 @@ namespace ai
                 // across both rows: the wanted totem's own aura quiets the
                 // trigger, the wrong row's action goes USELESS on its aura
                 // scan and the engine falls through to the right one.
+                // Slot-quiet on EVERY water totem, not just the wanted one
+                // (same 2026-10-14 re-cast loop as air: one water totem
+                // replaces another). Mana Tide keeps its carve-out: the
+                // cooldown totem must still land while Spring/Stream is up.
                 std::string want = BestWaterTotemForSubgroup(ReadTotemSubgroup(ai, bot),
                     ai->HasSpell("mana spring totem"), ai->HasSpell("healing stream totem"));
                 if (want.empty())
                     return false;
-                if (AI_VALUE2(bool, "has totem", want.c_str()))
+                if (AI_VALUE2(bool, "has totem", "mana spring totem") ||
+                    AI_VALUE2(bool, "has totem", "healing stream totem") ||
+                    AI_VALUE2(bool, "has totem", "cleansing totem") ||
+                    AI_VALUE2(bool, "has totem", "poison cleansing totem") ||
+                    AI_VALUE2(bool, "has totem", "disease cleansing totem") ||
+                    AI_VALUE2(bool, "has totem", "fire resistance totem"))
                     return false;
-                return !AI_VALUE2(bool, "has totem", "poison cleansing totem") &&
-                       !AI_VALUE2(bool, "has totem", "disease cleansing totem") &&
-                       !AI_VALUE2(bool, "has totem", "mana tide totem") &&
-                       !AI_VALUE2(bool, "has totem", "fire resistance totem");
+                return !AI_VALUE2(bool, "has totem", "mana tide totem");
             }
         }
 

@@ -721,6 +721,25 @@ namespace ai
             range = 20.0f;
         }
 
+        bool isUseful() override
+        {
+            // No walk without a drop: the aura scan reads "windfury totem"
+            // while the raid buff is "Windfury Totem Effect", so after a
+            // re-cast loop starts every member reads as missing the aura
+            // and this prereq walks the healer to the tanks every tick
+            // (live raid 2026-10-14: resto 4-7 yd from the boss). The
+            // totem-object scan ("has totem") sees the live totem even
+            // when the aura name does not match, so gate the walk on it:
+            // no live totem of this spell -> walk; totem already down ->
+            // stay at range and let the cast go USELESS quietly.
+            std::string totemSpell = spellName;
+            if (totemSpell.empty() && !qualifier.empty())
+                totemSpell = Qualified::getMultiQualifierStr(qualifier, 0, "::");
+            if (!totemSpell.empty() && AI_VALUE2(bool, "has totem", totemSpell.c_str()))
+                return false;
+            return ReachTargetAction::isUseful();
+        }
+
         Unit* GetTarget() override
         {
             std::string totemSpell = spellName;

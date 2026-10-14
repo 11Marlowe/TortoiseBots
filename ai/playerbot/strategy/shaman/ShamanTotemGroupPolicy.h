@@ -71,27 +71,6 @@ inline std::string BestEarthTotemForSubgroup(TotemSubgroupCensus const& census,
     return strengthKnown ? "strength of earth totem" : "";
 }
 
-// Pre-pull placement (owner request 2026-10-14): out of combat, when the
-// group is assembled and a fight is about to start (ready check / group
-// gathered / pre-pull), shamans place their group totems so the fight
-// starts with Mana Spring etc. already up. The trigger already quiets once
-// the slot holds a totem, so placement never spams while totems live; the
-// range gate comes from the totem aura scan (group in totem range keeps
-// its aura). OOC drops still pay upkeep rules (mana floor, retry), so a
-// fresh-hire shaman at zero mana does not queue totems it cannot cast.
-inline bool PrePullTotemsShouldPlace(bool inCombat, bool totemSlotOccupied,
-    bool fightImminent, bool moving = false)
-{
-    if (inCombat)
-        return false;
-    if (moving)
-        return false;
-    if (totemSlotOccupied)
-        return false;
-    return fightImminent;
-}
-
-
 // Air slot: Windfury when the subgroup has melee to buff, otherwise the
 // agility for casters/healers (Grace of Air when trained, Tranquil Air when
 // trained and aggro matters — Turtle custom 25908 — else no air totem).
@@ -126,15 +105,5 @@ inline std::string BestWaterTotemForSubgroup(TotemSubgroupCensus const& census,
 inline bool ManaTideShouldFire(bool selfLowMana, bool subgroupHealerLowMana, bool subgroupCasterLowMana)
 {
     return selfLowMana || subgroupHealerLowMana || subgroupCasterLowMana;
-}
-
-// Restoration mana discipline (live raid 2026-10-14: 7 resto shamans OOM at
-// 6% after 30 s while casting 450-mana Earth Shocks and Searing Totems mid
-// heal fight). A resto shaman spends mana on damage only while `healer
-// should attack` holds (nobody needs healing, mana comfortable). Interrupts
-// are exempt: stopping an enemy heal/cast saves more mana than it costs.
-inline bool RestoDamageAffordable(bool healerShouldAttack, bool isInterrupt)
-{
-    return isInterrupt || healerShouldAttack;
 }
 }
