@@ -10,6 +10,7 @@
 #include "playerbot/strategy/values/PartyMemberToHeal.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "Database/DBCStores.h"
+#include "BotActionLog.h"
 
 #include <algorithm>
 #include <map>
@@ -354,11 +355,19 @@ bool CastSpellAction::isPossible()
 
     if(!canReach)
     {
+        botdiag::BotActionLog::Write(ai, "CAST_REFUSED", "spell=%s reason=out-of-reach", spellName.c_str());
         return false;
     }
 
-    // Check if the spell can be casted
-    return ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true);
+    // Check if the spell can be casted; log the core verdict so a bare
+    // IMPOSSIBLE in the action log names its cause.
+    SpellCastResult result = SPELL_CAST_OK;
+    if (!ai->CanCastSpell(spellName, spellTarget, 0, nullptr, true, false, false, &result))
+    {
+        botdiag::BotActionLog::Write(ai, "CAST_REFUSED", "spell=%s result=%u", spellName.c_str(), (uint32)result);
+        return false;
+    }
+    return true;
 }
 
 bool CastSpellAction::isUseful()
