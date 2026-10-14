@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 using namespace TortoiseBots::RemoteCommander;
 
@@ -624,6 +625,346 @@ static void TestGoStateText()
     CHECK(std::strcmp(kCodeNotFound, "not-found") == 0);
 }
 
+// ---------------------------------------------------------------------------
+// Summoning rituals
+// ---------------------------------------------------------------------------
+
+// A three-bot ritual, the slowest walk 20 s.
+static RitualState Ritual3() { return MakeRitual(3, 3, 20000); }
+
+static RitualFacts AllReady()
+{
+    RitualFacts facts;
+    facts.allReady = true;
+    return facts;
+}
+
+// Walk the machine into the Join stage.
+static RitualState Joining()
+{
+    RitualState state = Ritual3();
+    RitualVerdict verdict = AdvanceRitual(state, AllReady(), kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Wait && state.stage == RitualStage::Join);
+    return state;
+}
+
+static void TestRitualBudget()
+{
+    // walk + 3 joins x 2 s x 2 tries + 4 s + 7 s
+    CHECK(RitualBudgetMs(20000, 3) == 20000 + 12000 + 4000 + 7000);
+    CHECK(MakeRitual(3, 3, 20000).ceilingMs == RitualBudgetMs(20000, 3));
+}
+
+static void TestRitualGather()
+{
+    RitualState state = Ritual3();
+    RitualFacts facts;
+    for (int i = 0; i < 20; ++i)                       // bots still walking: nothing happens, no use
+        CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+    CHECK(state.stage == RitualStage::Gather);
+    // The object turned active before anyone used it: someone else's ritual.
+    facts.goActive = true;
+    RitualVerdict verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeBusy) == 0);
+    // A bot lost on the way, a walk that failed, a fight, the object gone.
+    state = Ritual3();
+    facts = RitualFacts();
+    facts.unavailable = true;
+    CHECK(std::strcmp(AdvanceRitual(state, facts, 0).code, kCodeUnavailable) == 0);
+    state = Ritual3();
+    facts = RitualFacts();
+    facts.walkFailCode = kCodeUnreachable;
+    facts.walkFailMessage = "stuck";
+    verdict = AdvanceRitual(state, facts, 0);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeUnreachable) == 0 &&
+        std::strcmp(verdict.message, "stuck") == 0);
+    state = Ritual3();
+    facts = RitualFacts();
+    facts.inCombat = true;
+    CHECK(std::strcmp(AdvanceRitual(state, facts, 0).code, kCodeInCombat) == 0);
+    state = Ritual3();
+    facts = RitualFacts();
+    facts.targetPresent = false;
+    CHECK(std::strcmp(AdvanceRitual(state, facts, 0).code, kCodeInvalidTarget) == 0);
+}
+
+// A bot that waits for the others never makes the order wait forever: the ceiling is the budget.
+static void TestRitualCeiling()
+{
+    RitualState state = Ritual3();
+    RitualFacts facts;
+    uint32_t ticks = 0;
+    RitualVerdict verdict;
+    do
+    {
+        verdict = AdvanceRitual(state, facts, kTaskTickMs);
+        ++ticks;
+    } while (verdict.step == RitualStep::Wait && ticks < 100000);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeTimeout) == 0);
+    CHECK(ticks * kTaskTickMs >= state.ceilingMs && ticks * kTaskTickMs < state.ceilingMs + kTaskTickMs);
+}
+
+// The three bots use one after the other; the third use turns the object active; the settle ends it.
+static void TestRitualHappyPath()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    for (uint32_t member = 0; member < 3; ++member)
+    {
+        RitualVerdict verdict = AdvanceRitual(state, facts, kTaskTickMs);
+        CHECK(verdict.step == RitualStep::UseNext && state.nextUse == member && state.useSent);
+        // The use is under way: nothing is sent again while the bot is not yet a participant.
+        CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+        facts.nextJoined = true;
+        facts.membersJoined = member + 1;
+        facts.uniqueUsers = member + 1;
+        if (member == 2)
+            facts.goActive = true;                     // the third participant makes the object active
+        CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+        if (member < 2)
+        {
+            CHECK(state.nextUse == member + 1 && !state.useSent);
+            facts.nextJoined = false;
+        }
+    }
+    CHECK(state.stage == RitualStage::Settle);
+    for (uint32_t ms = 0; ms + kTaskTickMs < kRitualSettleMs; ms += kTaskTickMs)
+        CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Succeed);
+}
+
+// A fourth named bot stays out of it: only `required` uses are sent.
+static void TestRitualExtraBotDoesNotUse()
+{
+    RitualState state = MakeRitual(4, 3, 20000);
+    RitualFacts facts = AllReady();
+    AdvanceRitual(state, facts, kTaskTickMs);
+    for (uint32_t member = 0; member < 3; ++member)
+    {
+        CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::UseNext);
+        facts.nextJoined = true;
+        facts.membersJoined = member + 1;
+        facts.uniqueUsers = member + 1;
+        AdvanceRitual(state, facts, kTaskTickMs);
+        facts.nextJoined = false;
+    }
+    CHECK(state.nextUse == 3);
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);   // not a fourth use
+}
+
+// A use that never registers is sent once more, then the order fails.
+static void TestRitualUseNeverRegisters()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::UseNext);
+    uint32_t uses = 1;
+    RitualVerdict verdict;
+    for (int i = 0; i < 100; ++i)
+    {
+        verdict = AdvanceRitual(state, facts, kTaskTickMs);
+        if (verdict.step == RitualStep::UseNext)
+            ++uses;
+        if (verdict.step != RitualStep::Wait && verdict.step != RitualStep::UseNext)
+            break;
+    }
+    CHECK(uses == kRitualUseTries);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeFailed) == 0);
+}
+
+// The bot's own checks refuse the use (in use, out of reach): the same two tries.
+static void TestRitualUseRefused()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::UseNext);
+    CHECK(RitualUseRefused(state).step == RitualStep::Wait && !state.useSent);
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::UseNext);
+    RitualVerdict verdict = RitualUseRefused(state);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeBusy) == 0);
+}
+
+// One of two joined bots moves: it leaves the participants, the order stops with `interrupted`.
+static void TestRitualInterruptedBeforeActive()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    AdvanceRitual(state, facts, kTaskTickMs);                  // use 1
+    facts.nextJoined = true;
+    facts.membersJoined = 1;
+    facts.uniqueUsers = 1;
+    AdvanceRitual(state, facts, kTaskTickMs);
+    facts.nextJoined = false;
+    AdvanceRitual(state, facts, kTaskTickMs);                  // use 2
+    facts.nextJoined = true;
+    facts.membersJoined = 2;
+    facts.uniqueUsers = 2;
+    AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(state.nextUse == 2);
+    facts.membersJoined = 1;                                   // the first bot's channel broke
+    facts.uniqueUsers = 1;
+    RitualVerdict verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeInterrupted) == 0);
+}
+
+// The object went active, then back to ready within the settle: the core cancelled the cast.
+static void TestRitualCancelledInSettle()
+{
+    RitualState state = Joining();
+    state.stage = RitualStage::Settle;
+    RitualFacts facts = AllReady();
+    facts.goActive = true;
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+    facts.goActive = false;
+    RitualVerdict verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeInterrupted) == 0);
+    // A ritual object that is used up and gone after its cast is the success.
+    state = Joining();
+    state.stage = RitualStage::Settle;
+    facts = AllReady();
+    facts.goActive = false;
+    facts.targetPresent = false;
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Succeed);
+}
+
+// All bots joined but the object does not turn active: fewer participants than needed, else a plain failure.
+static void TestRitualNotActive()
+{
+    for (int enough = 0; enough < 2; ++enough)
+    {
+        RitualState state = MakeRitual(2, 2, 20000);
+        RitualFacts facts = AllReady();
+        AdvanceRitual(state, facts, kTaskTickMs);
+        for (uint32_t member = 0; member < 2; ++member)
+        {
+            AdvanceRitual(state, facts, kTaskTickMs);
+            facts.nextJoined = true;
+            facts.membersJoined = member + 1;
+            facts.uniqueUsers = enough ? 2 : 1;                // a count that disagrees with the joined bots
+            AdvanceRitual(state, facts, kTaskTickMs);
+            facts.nextJoined = false;
+        }
+        RitualVerdict verdict;
+        for (int i = 0; i < 100 && verdict.step == RitualStep::Wait; ++i)
+            verdict = AdvanceRitual(state, facts, kTaskTickMs);
+        CHECK(verdict.step == RitualStep::Fail);
+        CHECK(std::strcmp(verdict.code, enough ? kCodeFailed : kCodeNotEnough) == 0);
+    }
+}
+
+// A bot pushed out of reach before its use is not sent to use the object from there.
+static void TestRitualPushedAway()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    facts.nextInRange = false;
+    RitualVerdict verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeTooFar) == 0);
+}
+
+// The object going active while the bots still use it (the third use) moves on without a confirmation.
+static void TestRitualActiveAtOnce()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    facts.goActive = true;
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+    CHECK(state.stage == RitualStage::Settle);
+}
+
+// A ritual member is an ordinary walk task until it stands in range.
+static void TestRitualMemberWalks()
+{
+    TaskState member = MakeTask(TaskKind::Ritual, 40.0f, true);
+    CHECK(member.kind == TaskKind::Ritual && member.stage == TaskStage::Walk);
+    CHECK(member.walkBudgetMs == WalkBudgetMs(40.0f));
+    TaskFacts facts = Walking(30.0f);
+    CHECK(AdvanceTask(member, facts, kTaskTickMs).step == TaskStep::Wait);
+    facts.inRange = true;
+    facts.distance = 1.5f;
+    CHECK(AdvanceTask(member, facts, kTaskTickMs).step == TaskStep::BeginAct);
+    // A fight during the walk ends it, as for the other orders.
+    member = MakeTask(TaskKind::Ritual, 40.0f, true);
+    facts = Walking(30.0f);
+    facts.inCombat = true;
+    CHECK(AdvanceTask(member, facts, kTaskTickMs).step == TaskStep::Fail);
+}
+
+// The altars' cast ends with the Stone Keepers or Archaedas waking and attacking: a fight (or a bot lost in
+// it) once the object is active is the ritual having worked, not an in-combat failure. Before it, a fight
+// still fails the order.
+static void TestRitualCombatAfterActiveIsDone()
+{
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    facts.goActive = true;
+    facts.inCombat = true;                       // the third use and the first hit in one look
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Succeed);
+    CHECK(state.stage == RitualStage::Settle);
+    // In the settle, mid-way: still active, a bot in combat or dead.
+    state = Joining();
+    facts = AllReady();
+    facts.goActive = true;
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Wait);
+    facts.inCombat = true;
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Succeed);
+    state = Joining();
+    facts = AllReady();
+    facts.goActive = true;
+    AdvanceRitual(state, facts, kTaskTickMs);
+    facts.unavailable = true;                    // a bot the Keeper killed
+    CHECK(AdvanceRitual(state, facts, kTaskTickMs).step == RitualStep::Succeed);
+    // But the object back at ready while a bot is in combat is the ritual cancelled.
+    facts = AllReady();
+    facts.goActive = false;
+    facts.inCombat = true;
+    RitualVerdict verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeInterrupted) == 0);
+    // Before the object is active a fight fails the order.
+    state = Joining();
+    facts = AllReady();
+    facts.inCombat = true;
+    verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.code, kCodeInCombat) == 0);
+}
+
+// The settle covers the ritual cast: spells 11568 and 10340 have cast time index 6 = 5000 ms (SpellCastTimes.dbc).
+static void TestRitualSettleCoversTheCast()
+{
+    constexpr uint32_t kRitualCastMs = 5000;
+    CHECK(kRitualSettleMs >= kRitualCastMs + 1000);
+    CHECK(RitualBudgetMs(0, 3) >= 3 * kRitualJoinWaitMs + kRitualActiveMs + kRitualSettleMs);
+}
+
+// A joined bot's AI is held for the ritual until the order lets it go.
+static void TestRitualHolds()
+{
+    RitualHoldSet holds;
+    CHECK(holds.Empty() && !holds.Holds(7));
+    holds.Hold(7);
+    holds.Hold(8);
+    CHECK(holds.Holds(7) && holds.Holds(8) && !holds.Holds(9));
+    holds.Release(7);
+    CHECK(!holds.Holds(7) && holds.Holds(8));
+    holds.Clear();
+    CHECK(holds.Empty() && !holds.Holds(8));
+    CHECK(RitualHolds().Empty());                // the shared set starts empty
+}
+
+// The ERR for a use that never registered names the cause that is not the party's doing (the first user ever).
+static void TestRitualNotJoinedText()
+{
+    CHECK(std::string(kRitualNotJoinedText).find("FIRST user ever") != std::string::npos);
+    CHECK(std::string(kRitualNotJoinedText).find("outside this party") != std::string::npos);
+    RitualState state = Joining();
+    RitualFacts facts = AllReady();
+    AdvanceRitual(state, facts, kTaskTickMs);
+    RitualVerdict verdict;
+    for (int i = 0; i < 100 && (verdict.step == RitualStep::Wait || verdict.step == RitualStep::UseNext); ++i)
+        verdict = AdvanceRitual(state, facts, kTaskTickMs);
+    CHECK(verdict.step == RitualStep::Fail && std::strcmp(verdict.message, kRitualNotJoinedText) == 0);
+}
+
 int main()
 {
     TestStandingPoint();
@@ -651,6 +992,23 @@ int main()
     TestLootItemWanted();
     TestLootMethod();
     TestGoStateText();
+    TestRitualBudget();
+    TestRitualGather();
+    TestRitualCeiling();
+    TestRitualHappyPath();
+    TestRitualExtraBotDoesNotUse();
+    TestRitualUseNeverRegisters();
+    TestRitualUseRefused();
+    TestRitualInterruptedBeforeActive();
+    TestRitualCancelledInSettle();
+    TestRitualNotActive();
+    TestRitualPushedAway();
+    TestRitualActiveAtOnce();
+    TestRitualMemberWalks();
+    TestRitualCombatAfterActiveIsDone();
+    TestRitualSettleCoversTheCast();
+    TestRitualHolds();
+    TestRitualNotJoinedText();
     std::printf("remote commander tasks: %d checks passed\n", checks);
     return 0;
 }
