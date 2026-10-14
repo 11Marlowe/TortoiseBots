@@ -86,13 +86,14 @@ namespace ai
     // live or force-rebuff window open). auto/unset: today's behaviour.
     inline bool TotemAutoRowActive(PlayerbotAI* ai, Player* bot, bool inCombat)
     {
-        std::string stored = AI_VALUE2(std::string, "manual saved string", TotemModeKey());
+        (void)bot;
+        AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
+        std::string stored = ctx ? ctx->GetValue<std::string>("manual saved string", TotemModeKey())->Get() : "";
         TotemDropMode mode = StoredTotemDropMode(stored);
         if (mode == TotemDropMode::Manual)
             return false;
         if (mode == TotemDropMode::Prepull && !inCombat)
         {
-            AiObjectContext* ctx = ai->GetAiObjectContext();
             time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
             bool imminent = anchor != time_t(0) &&
                 time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec();
