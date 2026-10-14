@@ -124,21 +124,33 @@ bool CastBlessingAction::isPossible()
 
 std::string CastBlessingAction::GetBlessingForTarget(Unit* target)
 {
+    // Same one-slot rule as the on-party choice below: a second blessing
+    // from the same paladin evicts the first (core SPELL_BLESSING
+    // per-target-per-caster), so never overwrite a live blessing — own or
+    // another caster's — with a "better" pick for self.
     std::string chosenBlessing = "";
     if (target)
     {
+        static char const* const kBlessings[] =
+        {
+            "blessing of might", "blessing of wisdom", "blessing of kings",
+            "blessing of sanctuary", "blessing of salvation", "blessing of light",
+        };
+        for (char const* base : kBlessings)
+        {
+            std::string const single(base);
+            if (ai->HasAura(single, target) || ai->HasAura("greater " + single, target))
+                return std::string();
+        }
         std::vector<std::string> possibleBlessings = GetPossibleBlessingsForTarget(target);
         for (const std::string& blessing : possibleBlessings)
         {
             const std::string greaterBlessing = "greater " + blessing;
-            if (!ai->HasAura(blessing, target) && !ai->HasAura(greaterBlessing, target))
+            if ((greater && ai->CanCastSpell(greaterBlessing, target, 0, nullptr, true)) ||
+                (!greater && ai->CanCastSpell(blessing, target, 0, nullptr, true)))
             {
-                if ((greater && ai->CanCastSpell(greaterBlessing, target, 0, nullptr, true)) ||
-                    (!greater && ai->CanCastSpell(blessing, target, 0, nullptr, true)))
-                {
-                    chosenBlessing = greater ? greaterBlessing : blessing;
-                    break;
-                }
+                chosenBlessing = greater ? greaterBlessing : blessing;
+                break;
             }
         }
     }
