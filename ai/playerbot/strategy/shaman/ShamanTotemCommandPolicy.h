@@ -85,6 +85,16 @@ inline char const* TotemOrderKey(int slot)
 }
 
 inline char const* TotemModeKey() { return "totem drop mode"; }
+// Read the stored drop mode (auto when unset). The trigger passes the raw
+// stored string; unknown values fail open to auto (today's behaviour).
+inline TotemDropMode StoredTotemDropMode(std::string const& stored)
+{
+    if (stored == "prepull" || stored == "pre-pull")
+        return TotemDropMode::Prepull;
+    if (stored == "manual")
+        return TotemDropMode::Manual;
+    return TotemDropMode::Auto;
+}
 
 // Canonical totem spell names per slot (what the player may order). "auto"
 // and "none" are handled before this table; anything else must match one

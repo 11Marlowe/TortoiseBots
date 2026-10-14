@@ -6,6 +6,8 @@
 #include "ShamanRecallPolicy.h"
 #include "ShamanTotemGroupPolicy.h"
 #include "ShamanTotemCommandPolicy.h"
+#include "playerbot/ReadyRebuffPolicy.h"
+#include "playerbot/ForceRebuffPolicy.h"
 
 namespace ai
 {
@@ -77,6 +79,34 @@ namespace ai
         int attackerCount;
     };
 
+    // Drop-mode gate for the automatic totem rows (`.bot totem ... mode`).
+    // manual: every automatic row stays quiet — only `drop` and the manual
+    // `totem <slot> ...` strategies queue totems. prepull: combat rows fire
+    // normally, OOC rows only while a fight is imminent (ready-check anchor
+    // live or force-rebuff window open). auto/unset: today's behaviour.
+    inline bool TotemAutoRowActive(PlayerbotAI* ai, Player* bot, bool inCombat)
+    {
+        std::string stored = AI_VALUE2(std::string, "manual saved string", TotemModeKey());
+        TotemDropMode mode = StoredTotemDropMode(stored);
+        if (mode == TotemDropMode::Manual)
+            return false;
+        if (mode == TotemDropMode::Prepull && !inCombat)
+        {
+            AiObjectContext* ctx = ai->GetAiObjectContext();
+            time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
+            bool imminent = anchor != time_t(0) &&
+                time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec();
+            if (!imminent)
+            {
+                int beginMs = ctx ? ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get() : 0;
+                imminent = beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
+            }
+            if (!imminent)
+                return false;
+        }
+        return true;
+    }
+
     class FireTotemTrigger : public Trigger
     {
     public:
@@ -84,6 +114,12 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            // Drop mode gate: manual quiets every automatic row (only
+            // `drop` and manual strategies queue totems); prepull quiets
+            // the OOC rows unless a fight is imminent (ready-check anchor
+            // or force-rebuff window). Combat rows always fire.
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -203,6 +239,8 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -267,6 +305,8 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -334,6 +374,8 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
