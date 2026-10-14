@@ -1,6 +1,8 @@
 
 #include "playerbot/playerbot.h"
 #include "PaladinActions.h"
+#include "playerbot/ServerFacade.h"
+#include "playerbot/GroupMembers.h"
 
 using namespace ai;
 
@@ -257,8 +259,11 @@ std::vector<std::string> CastRaidBlessingAction::GetPossibleBlessingsForTarget(U
 
 Unit* CastBlessingOnPartyAction::GetTarget()
 {
+    // NOTE: PaladinTriggers.cpp FindBlessingCandidate duplicates this scan
+    // for the trigger side (different base class, no shared helper). Keep
+    // the two in sync: same order, same any-missing rule, self included.
+    // Decision rule: ai::MemberNeedsBlessingVisit (BlessingCoveragePolicy.h).
     std::vector<std::string> altBlessings;
-    std::vector<std::string> haveBlessings;
     altBlessings.push_back("blessing of might");
     altBlessings.push_back("blessing of wisdom");
     altBlessings.push_back("blessing of kings");
@@ -266,31 +271,74 @@ Unit* CastBlessingOnPartyAction::GetTarget()
     altBlessings.push_back("blessing of salvation");
     altBlessings.push_back("blessing of light");
 
+    std::vector<std::string> knownBlessings;
     for (auto blessing : altBlessings)
     {
         if (AI_VALUE2(uint32, "spell id", blessing))
         {
-            haveBlessings.push_back(blessing);
-            haveBlessings.push_back("greater " + blessing);
+            knownBlessings.push_back(blessing);
+            knownBlessings.push_back("greater " + blessing);
         }
     }
 
-    if (haveBlessings.empty())
+    if (knownBlessings.empty())
     {
         return nullptr;
     }
 
-    std::string blessList = "";
-    for (auto blessing : haveBlessings)
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
     {
-        blessList += blessing;
-        if (blessing != haveBlessings[haveBlessings.size() - 1])
-        {
-            blessList += ",";
-        }
+        return nullptr;
     }
 
-    return AI_VALUE2(Unit*, "party member without my aura", blessList);
+    // Same member order as PartyMemberValue (healers, tanks, others) so the
+    // first gap found is the most urgent one; unlike that search the bot
+    // itself is included — its own class bucket still needs the Greater
+    // cast (the ret that uniquely knows Kings must cover its own class).
+    std::list<Player*> healers, tanks, others;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (!member || member->GetMapId() != bot->GetMapId())
+            continue;
+        if (!sServerFacade.IsAlive(member))
+            continue;
+        if (member == bot)
+        {
+            others.push_back(member);
+            continue;
+        }
+        if (ai->IsHeal(member))
+            healers.push_back(member);
+        else if (ai->IsTank(member))
+            tanks.push_back(member);
+        else
+            others.push_back(member);
+    }
+
+    std::list<Player*> order;
+    order.insert(order.end(), healers.begin(), healers.end());
+    order.insert(order.end(), tanks.begin(), tanks.end());
+    order.insert(order.end(), others.begin(), others.end());
+
+    for (Player* member : order)
+    {
+        if (sServerFacade.getDistance2d(member, bot) > 30.0f)
+            continue;
+        bool missing = false;
+        for (auto blessing : knownBlessings)
+        {
+            if (!ai->HasAura(blessing, member))
+            {
+                missing = true;
+                break;
+            }
+        }
+        if (missing && sServerFacade.IsWithinLOSInMap(bot, member))
+            return member;
+    }
+
+    return nullptr;
 }
 
 bool CastBlessingOnPartyAction::isUseful()

@@ -63,6 +63,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_autonomous_bg_policy
         test_avoid_aoe_policy
         test_battle_shout_policy
+        test_blessing_coverage_policy
         test_bg_force_reset_policy
         test_bomb_runout_policy
         test_bot_chat_gate
@@ -100,7 +101,6 @@ if command -v g++ >/dev/null 2>&1; then
         test_grind_hostility_policy
         test_grind_spot_policy
         test_grobbulus_cloud_policy
-        test_group_buff_policy
         test_group_heal_policy
         test_group_hygiene_policy
         test_heal_reach_policy
