@@ -5,6 +5,9 @@
 #include "ShamanEarthShockPolicy.h"
 #include "ShamanRecallPolicy.h"
 #include "ShamanTotemGroupPolicy.h"
+#include "ShamanTotemCommandPolicy.h"
+#include "playerbot/ReadyRebuffPolicy.h"
+#include "playerbot/ForceRebuffPolicy.h"
 
 namespace ai
 {
@@ -76,6 +79,35 @@ namespace ai
         int attackerCount;
     };
 
+    // Drop-mode gate for the automatic totem rows (`.bot totem ... mode`).
+    // manual: every automatic row stays quiet — only `drop` and the manual
+    // `totem <slot> ...` strategies queue totems. prepull: combat rows fire
+    // normally, OOC rows only while a fight is imminent (ready-check anchor
+    // live or force-rebuff window open). auto/unset: today's behaviour.
+    inline bool TotemAutoRowActive(PlayerbotAI* ai, Player* bot, bool inCombat)
+    {
+        (void)bot;
+        AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
+        std::string stored = ctx ? ctx->GetValue<std::string>("manual saved string", TotemModeKey())->Get() : "";
+        TotemDropMode mode = StoredTotemDropMode(stored);
+        if (mode == TotemDropMode::Manual)
+            return false;
+        if (mode == TotemDropMode::Prepull && !inCombat)
+        {
+            time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
+            bool imminent = anchor != time_t(0) &&
+                time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec();
+            if (!imminent)
+            {
+                int beginMs = ctx ? ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get() : 0;
+                imminent = beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
+            }
+            if (!imminent)
+                return false;
+        }
+        return true;
+    }
+
     class FireTotemTrigger : public Trigger
     {
     public:
@@ -83,6 +115,12 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            // Drop mode gate: manual quiets every automatic row (only
+            // `drop` and manual strategies queue totems); prepull quiets
+            // the OOC rows unless a fight is imminent (ready-check anchor
+            // or force-rebuff window). Combat rows always fire.
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -110,6 +148,14 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins for the fire slot too; auto/unset
+                // keeps today's spec-row behaviour (searing/magma/etc.).
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(1));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 return !AI_VALUE2(bool, "has totem", "searing totem") &&
                        !AI_VALUE2(bool, "has totem", "magma totem") &&
                        !AI_VALUE2(bool, "has totem", "frost resistance totem") &&
@@ -194,6 +240,8 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -221,6 +269,15 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins over the subgroup pick: an
+                // explicit totem (or none) stored for this slot decides.
+                // "auto"/unset falls through to the census pick below.
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(0));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 // No manual earth order: Strength of Earth only for a
                 // subgroup that swings it (warriors/rogues/feral/melee).
                 // Caster/healer groups keep the slot empty instead of
@@ -249,6 +306,8 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -276,6 +335,14 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins: explicit totem (or none) for the
+                // air slot decides; auto/unset falls to the census pick.
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(3));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 // No manual air order: pick by subgroup (totems only reach
                 // our own party). Melee -> windfury; casters/healers ->
                 // tranquil air (Turtle 25908) or grace of air. The trigger
@@ -315,6 +382,8 @@ namespace ai
 
         virtual bool IsActive() override
         {
+            if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+                return false;
             if (!inMovement && bot->IsMoving() && bot->GetMotionMaster() && bot->GetMotionMaster()->GetCurrentMovementGeneratorType() != IDLE_MOTION_TYPE)
             {
                 return false;
@@ -342,6 +411,14 @@ namespace ai
             }
             else
             {
+                // `.bot totem` order wins: explicit totem (or none) for the
+                // water slot decides; auto/unset falls to the census pick.
+                std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(2));
+                std::string ordered = OrderedTotemForSlot(stored);
+                if (!ordered.empty())
+                    return !AI_VALUE2(bool, "has totem", ordered.c_str());
+                if (!stored.empty() && stored != "auto")
+                    return false;
                 // No manual water order: mana users in the subgroup -> mana
                 // spring, else healing stream. Shared "water totem" trigger
                 // across both rows: the wanted totem's own aura quiets the

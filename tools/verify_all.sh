@@ -212,6 +212,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_travel_route_cache_policy
         test_travel_route_policy
         test_trinket_use_policy
+        test_totem_command_policy
         test_undercity_lift_policy
         test_vael_policy
         test_value_refresh_policy
