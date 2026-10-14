@@ -64,6 +64,27 @@ namespace ai
         std::uint8_t criticalHealth;  // spike line: top rank regardless
     };
 
+    // Implicit-target ids the downrank gate accepts, mirroring the core's
+    // SpellTarget enum (game/Spells/SpellDefines.h, verified 2026-10-14):
+    // 21 = TARGET_UNIT_FRIEND, 45 = TARGET_UNIT_FRIEND_CHAIN_HEAL.
+    // Turtle's Healing Wave rows use 45 with zero jumps; Chain Heal uses
+    // 45 with 3 jumps. Literals, not the enum: this header takes no core
+    // includes so the rules stay testable without the server.
+    constexpr std::uint32_t kDownrankTargetFriend = 21;
+    constexpr std::uint32_t kDownrankTargetFriendChainHeal = 45;
+
+    // True when the spell line aims at one friendly target: plain friend
+    // targeting, or the chain-heal id WITHOUT jumps (Healing Wave). Lines
+    // that really jump (Chain Heal, EffectChainTarget 3) price the jumps
+    // in every rank, so fitting a rank to the first target's wound would
+    // underpay the cast — they stay top rank.
+    inline bool HealTargetAllowsDownrank(std::uint32_t implicitTargetA, std::uint32_t chainTargets)
+    {
+        return (implicitTargetA == kDownrankTargetFriend ||
+                implicitTargetA == kDownrankTargetFriendChainHeal) &&
+               chainTargets == 0;
+    };
+
     // Fraction of the wound the chosen rank must cover: full coverage would
     // keep picking top rank on any rounding miss, so 4/5 with a flat floor
     // keeps small wounds on cheap ranks while big wounds still land.
