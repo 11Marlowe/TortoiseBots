@@ -455,6 +455,56 @@ static MoveFacts Walkable()
     return facts;
 }
 
+static void TestParseMoveOrder()
+{
+    MoveOrder order;
+    CHECK(ParseMoveOrder("-155.7 279.6 -46.8", order) && !order.direct);
+    CHECK(order.point.x == -155.7f && order.point.y == 279.6f && order.point.z == -46.8f);
+    order = MoveOrder();
+    CHECK(ParseMoveOrder("-155.7 279.6 -46.8 direct", order) && order.direct && order.point.z == -46.8f);
+    order = MoveOrder();
+    CHECK(ParseMoveOrder("1,2,3 DIRECT", order) && order.direct && order.point.x == 1.0f);
+    CHECK(ParseMoveOrder("1;2;3;Direct", order) && order.direct);
+    order = MoveOrder();
+    CHECK(!ParseMoveOrder("1 2 3 straight", order));
+    CHECK(!ParseMoveOrder("1 2 3 directly", order));
+    CHECK(!ParseMoveOrder("1 2 direct", order));
+    CHECK(!ParseMoveOrder("direct 1 2 3", order));
+    CHECK(!ParseMoveOrder("1 2 3 direct direct", order));
+    CHECK(!ParseMoveOrder("1 2 nan direct", order));
+    CHECK(!ParseMoveOrder("", order));
+    CHECK(!order.direct && order.point.x == 0.0f); // a refused parse leaves the output alone
+}
+
+static void TestDirectVerdict()
+{
+    CHECK(CheckDirectStep(0.0f, 0.0f) == DirectVerdict::Ok);
+    CHECK(CheckDirectStep(25.0f, 8.0f) == DirectVerdict::Ok);   // on the limit
+    CHECK(CheckDirectStep(25.0f, -8.0f) == DirectVerdict::Ok);
+    CHECK(CheckDirectStep(25.1f, 0.0f) == DirectVerdict::TooFar);
+    CHECK(CheckDirectStep(10.0f, 8.1f) == DirectVerdict::TooFar);
+    CHECK(CheckDirectStep(10.0f, -8.1f) == DirectVerdict::TooFar);
+    CHECK(CheckDirectStep(std::nanf(""), 0.0f) == DirectVerdict::TooFar);
+    CHECK(CheckDirectStep(5.0f, std::nanf("")) == DirectVerdict::TooFar);
+    // The scorpid-pit lip to the east plateau (about 20.6 yd across, about 5 yd up).
+    CHECK(CheckDirectStep(std::sqrt(7.8f * 7.8f + 19.1f * 19.1f), 5.0f) == DirectVerdict::Ok);
+    CHECK(std::string(DirectVerdictCode(DirectVerdict::TooFar)) == "too-far");
+
+    CHECK(CheckDirectGround(-46.8f, -46.8f) == DirectVerdict::Ok);
+    CHECK(CheckDirectGround(-49.8f, -46.8f) == DirectVerdict::Ok);   // 3 yd below: on the limit
+    CHECK(CheckDirectGround(-46.3f, -46.8f) == DirectVerdict::Ok);   // 0.5 yd above: the slack
+    CHECK(CheckDirectGround(-50.0f, -46.8f) == DirectVerdict::NoGround); // too far below: the bots would hang
+    CHECK(CheckDirectGround(-46.2f, -46.8f) == DirectVerdict::NoGround); // a floor above the point: inside the geometry
+    CHECK(CheckDirectGround(-43.8f, -46.8f) == DirectVerdict::NoGround);
+    CHECK(CheckDirectGround(-100000.0f, -46.8f) == DirectVerdict::NoGround); // INVALID_HEIGHT
+    CHECK(CheckDirectGround(std::nanf(""), 0.0f) == DirectVerdict::NoGround);
+    CHECK(std::string(DirectVerdictCode(DirectVerdict::NoGround)) == "no-ground");
+
+    CHECK(CheckDirectLos(true) == DirectVerdict::Ok);
+    CHECK(CheckDirectLos(false) == DirectVerdict::NoLos);
+    CHECK(std::string(DirectVerdictCode(DirectVerdict::NoLos)) == "no-los");
+}
+
 static void TestMoveVerdict()
 {
     CHECK(CheckMove(Walkable()) == MoveVerdict::Ok);
@@ -874,8 +924,10 @@ int main()
     TestOrderGate();
     TestParseGuid();
     TestParseMovePoint();
+    TestParseMoveOrder();
     TestTargetVerdict();
     TestMoveVerdict();
+    TestDirectVerdict();
     TestParseItemId();
     TestParseTargetSpec();
     TestSplitKeepsEntryPoint();
