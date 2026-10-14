@@ -51,8 +51,14 @@ namespace ai
         const std::string& GetSpellName() const { return spellName; }
         void SetSpellName(const std::string& name, std::string spellIDContextName = "spell id", bool force = false);
         // Downrank swap: point this action at an already-chosen rank id
-        // (same spell line) and refresh the cached range.
+        // (same spell line) and refresh the cached range. The id is an
+        // explicit override: the next Execute casts it instead of
+        // re-resolving the top rank from the spell name.
         void SetSpellId(uint32 id);
+        // Drop a stale rank override and point back at the resolved rank
+        // (action objects live as long as the bot; an override set for one
+        // cast must not leak into the next). No-op when no override is set.
+        void ClearSpellIdOverride();
 
         Value<Unit*>* GetTargetValue() override;
         Unit* GetTarget() override;
@@ -68,6 +74,11 @@ namespace ai
     private:
         std::string spellName;
         uint32 spellId;
+        // Rank override from SetSpellId (0 = none, cast by spell name).
+        // resolvedSpellId is the id SetSpellName resolved, so clearing the
+        // override points back at it (spellId itself holds the swap).
+        uint32 resolvedSpellId = 0;
+        uint32 spellIdOverride = 0;
     };
 
     class CastPetSpellAction : public CastSpellAction
@@ -318,6 +329,11 @@ namespace ai
         // Downrank: at cast start, swap the top-rank spell id for the
         // cheapest known rank covering the wound (missing minus incoming).
         virtual bool Execute(Event& event) override;
+    private:
+        // Cheapest known rank covering the target's wound, the top rank on
+        // emergency, 0 when this line must not downrank (HoT/shield/hybrid,
+        // AoE, cooldown, one rank known, no wound left). Pure scan, no state.
+        uint32 DownrankSpellId(Unit* target);
     };
     class HealHotPartyMemberAction : public HealPartyMemberAction
     {
