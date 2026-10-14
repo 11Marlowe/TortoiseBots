@@ -398,4 +398,16 @@ void DestructionWarlockCursesRaidStrategy::InitCombatTriggers(std::list<TriggerN
 {
     DestructionWarlockCursesStrategy::InitCombatTriggers(triggers);
     WarlockCursesRaidStrategy::InitCombatTriggers(triggers);
+    // Raid curse assignment: while no curse sits on the target, a second
+    // warlock covers Recklessness (melee AP) or Shadow (shadow damage)
+    // instead of doubling Elements. Both rows stand down the moment any
+    // curse lands (see the raid triggers), so the first curse wins and the
+    // pair never knocks each other off. Recklessness outranks Shadow: its
+    // melee-AP gain applies to every physical DPS on the boss.
+    triggers.push_back(new TriggerNode(
+        "curse of recklessness raid",
+        NextAction::array(0, new NextAction("curse of recklessness", ACTION_NORMAL + 1), NULL)));
+    triggers.push_back(new TriggerNode(
+        "curse of shadow raid",
+        NextAction::array(0, new NextAction("curse of shadow", ACTION_NORMAL), NULL)));
 }

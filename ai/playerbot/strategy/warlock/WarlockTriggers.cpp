@@ -183,8 +183,35 @@ bool NoCurseTrigger::IsActive()
 			   !ai->HasAura("curse of tongues", target, false, true) &&
 			   !ai->HasAura("curse of exhaustion", target, false, true);
 	}
+    return false;
+}
 
-	return false;
+namespace
+{
+// True while any curse sits on the target, anyone-sees (checkIsOwner=false):
+// one curse per target in this core, so a groupmate's curse covers the slot.
+bool HasAnyCurse(PlayerbotAI* ai, Unit* target)
+{
+    return target &&
+        (ai->HasAura("curse of agony", target) ||
+         ai->HasAura("curse of doom", target) ||
+         ai->HasAura("curse of recklessness", target) ||
+         ai->HasAura("curse of shadow", target) ||
+         ai->HasAura("curse of the elements", target) ||
+         ai->HasAura("curse of weakness", target) ||
+         ai->HasAura("curse of tongues", target) ||
+         ai->HasAura("curse of exhaustion", target));
+}
+}  // namespace
+
+bool CurseOfRecklessnessRaidTrigger::IsActive()
+{
+    return DebuffTrigger::IsActive() && !HasAnyCurse(ai, GetTarget());
+}
+
+bool CurseOfShadowRaidTrigger::IsActive()
+{
+    return DebuffTrigger::IsActive() && !HasAnyCurse(ai, GetTarget());
 }
 
 bool NoCurseOnAttackerTrigger::IsActive()
