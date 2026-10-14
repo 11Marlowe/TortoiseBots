@@ -320,7 +320,9 @@ Unit* FindBlessingCandidate(PlayerbotAI* ai, Player* bot, bool greaterOnly)
     {
         if (!member || member->GetMapId() != bot->GetMapId())
             continue;
-        if (!sServerFacade.IsAlive(member))
+        // Hidden GM masters can never land a spell (see the action-side
+        // scan): skip them so they never wedge the trigger either.
+        if (member != bot && member->GetVisibility() == VISIBILITY_OFF)
             continue;
         if (member == bot)
         {
