@@ -306,6 +306,7 @@ namespace ai
                 creators["ancestral swiftness active"] = [](PlayerbotAI* ai) { return new AncestralSwiftnessAuraTrigger(ai); };
                 creators["ancestral swiftness heal"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "ancestral swiftness active", "party member low health"); };
                 creators["fire totem and healer should attack"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "fire totem", "healer should attack"); };
+                creators["earth shock and healer should attack"] = [](PlayerbotAI* ai) { return new TwoTriggers(ai, "shock", "healer should attack"); };
             }
         };
 

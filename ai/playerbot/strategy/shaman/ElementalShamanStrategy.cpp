@@ -362,6 +362,33 @@ void ElementalShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>& 
 void ElementalShamanTotemsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     ShamanTotemsStrategy::InitNonCombatTriggers(triggers);
+
+    // Pre-pull placement (owner request): same subgroup-picked totems as
+    // combat, at below-combat relevance. Triggers quiet once the slot
+    // holds a totem, so no OOC re-cast spam while totems live.
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("windfury totem", ACTION_NORMAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("tranquil air totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "air totem",
+        NextAction::array(0, new NextAction("grace of air totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "water totem",
+        NextAction::array(0, new NextAction("mana spring totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "water totem",
+        NextAction::array(0, new NextAction("healing stream totem", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "earth totem",
+        NextAction::array(0, new NextAction("strength of earth totem", ACTION_NORMAL), NULL)));
 }
 
 void ElementalShamanTotemsPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

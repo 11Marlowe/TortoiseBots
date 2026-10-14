@@ -57,6 +57,41 @@ inline TotemSubgroupCensus CountTotemSubgroup(TotemGroupMember const* members, u
     return census;
 }
 
+// Earth slot: Strength of Earth only pays when the subgroup swings it —
+// warriors, rogues, feral druids, melee shamans. Caster/healer groups get no
+// automatic Strength of Earth (live raid 2026-10-14: SoE on 10 people in
+// mage/warlock groups buffed nobody); the slot stays empty unless the
+// player orders one. Stoneskin (damage reduction) is the fallback caller
+// action when it wants one — this picks "" for caster groups, never it.
+inline std::string BestEarthTotemForSubgroup(TotemSubgroupCensus const& census,
+    bool strengthKnown)
+{
+    if (census.meleeAttackers == 0)
+        return "";
+    return strengthKnown ? "strength of earth totem" : "";
+}
+
+// Pre-pull placement (owner request 2026-10-14): out of combat, when the
+// group is assembled and a fight is about to start (ready check / group
+// gathered / pre-pull), shamans place their group totems so the fight
+// starts with Mana Spring etc. already up. The trigger already quiets once
+// the slot holds a totem, so placement never spams while totems live; the
+// range gate comes from the totem aura scan (group in totem range keeps
+// its aura). OOC drops still pay upkeep rules (mana floor, retry), so a
+// fresh-hire shaman at zero mana does not queue totems it cannot cast.
+inline bool PrePullTotemsShouldPlace(bool inCombat, bool totemSlotOccupied,
+    bool fightImminent, bool moving = false)
+{
+    if (inCombat)
+        return false;
+    if (moving)
+        return false;
+    if (totemSlotOccupied)
+        return false;
+    return fightImminent;
+}
+
+
 // Air slot: Windfury when the subgroup has melee to buff, otherwise the
 // agility for casters/healers (Grace of Air when trained, Tranquil Air when
 // trained and aggro matters — Turtle custom 25908 — else no air totem).

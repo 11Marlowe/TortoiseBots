@@ -8,10 +8,29 @@
 namespace ai
 {
     BUFF_ACTION(CastGhostWolfAction, "ghost wolf");
-    class CastLesserHealingWaveAction : public CastHealingSpellAction
+    // Self-target direct heals share the party downrank swap: the base
+    // HealPartyMemberAction::Execute only runs for the "on party" lines,
+    // so the self rows ("healing wave", "lesser healing wave") always paid
+    // top rank (live raid 2026-10-14: Healing Wave top rank 100x). Inherit
+    // the party action for DownrankSpellId + Execute, override the target
+    // back to self and the name back to the plain spell (the party base
+    // reports "<spell> on party").
+    class CastSelfDownrankHealingAction : public HealPartyMemberAction
     {
     public:
-        CastLesserHealingWaveAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "lesser healing wave") {}
+        CastSelfDownrankHealingAction(PlayerbotAI* ai, std::string spell, uint8 estAmount, HealManaEfficiency efficiency)
+            : HealPartyMemberAction(ai, spell, estAmount, efficiency), spell(spell) {}
+        std::string getName() override { return spell; }
+        std::string GetTargetName() override { return "self target"; }
+    private:
+        std::string spell;
+    };
+
+    class CastLesserHealingWaveAction : public CastSelfDownrankHealingAction
+    {
+    public:
+        CastLesserHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
     };
 
     class CastLesserHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -20,10 +39,11 @@ namespace ai
         CastLesserHealingWaveOnPartyAction(PlayerbotAI* ai) : HealPartyMemberAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
     };
 
-    class CastHealingWaveAction : public CastHealingSpellAction
+    class CastHealingWaveAction : public CastSelfDownrankHealingAction
     {
     public:
-        CastHealingWaveAction(PlayerbotAI* ai) : CastHealingSpellAction(ai, "healing wave") {}
+        CastHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "healing wave", 50, HealManaEfficiency::MEDIUM) {}
+        ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
     };
 
     class CastHealingWaveOnPartyAction : public HealPartyMemberAction

@@ -11,9 +11,11 @@
 } while (0)
 
 using ai::BestAirTotemForSubgroup;
+using ai::BestEarthTotemForSubgroup;
 using ai::BestWaterTotemForSubgroup;
 using ai::CountTotemSubgroup;
 using ai::ManaTideShouldFire;
+using ai::PrePullTotemsShouldPlace;
 using ai::RestoDamageAffordable;
 using ai::TotemGroupMember;
 using ai::TotemSubgroupCensus;
@@ -72,7 +74,21 @@ int main()
     CHECK(RestoDamageAffordable(true, false));
     CHECK(RestoDamageAffordable(false, true));
     CHECK(!RestoDamageAffordable(false, false));
-    std::puts("  [PASS] resto damage gated, interrupts exempt");
+    // Earth: melee -> strength; caster groups -> empty (no buff-nobody SoE).
+    CHECK(BestEarthTotemForSubgroup(melee, true) == "strength of earth totem");
+    CHECK(BestEarthTotemForSubgroup(melee, false) == "");
+    CHECK(BestEarthTotemForSubgroup(caster, true) == "");
+    CHECK(BestEarthTotemForSubgroup(solo, true) == "");
+    std::puts("  [PASS] earth picks strength for melee, empty for casters");
+
+    // Pre-pull: OOC + slot free + fight imminent places; combat, moving,
+    // or an occupied slot never re-casts (no OOC spam while totems live).
+    CHECK(PrePullTotemsShouldPlace(false, false, true));
+    CHECK(!PrePullTotemsShouldPlace(true, false, true));
+    CHECK(!PrePullTotemsShouldPlace(false, true, true));
+    CHECK(!PrePullTotemsShouldPlace(false, false, false));
+    CHECK(!PrePullTotemsShouldPlace(false, false, true, true));
+    std::puts("  [PASS] pre-pull places OOC on imminent fight, never spams");
 
     std::puts("All shaman totem group policy checks PASSED!");
     return 0;
