@@ -58,14 +58,14 @@ def send_discord_message(url, payload):
     )
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.status in (200, 204)
+            return resp.status in (200, 204), resp.status
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         print(f"Discord API error HTTP {e.code}: {body}", file=sys.stderr)
-        return False
+        return False, e.code
     except Exception as e:
         print(f"Network error sending to Discord: {e}", file=sys.stderr)
-        return False
+        return False, 0
 
 
 def main():
@@ -133,7 +133,12 @@ def main():
         if args.avatar_url:
             payload["avatar_url"] = args.avatar_url
 
-        success = send_discord_message(endpoint, payload)
+        success, code = send_discord_message(endpoint, payload)
+        if not success and thread_id and code in (400, 404):
+            print(f"Warning: Discord thread {thread_id} failed with HTTP {code}. Retrying directly to channel webhook...", file=sys.stderr)
+            success, _ = send_discord_message(webhook_url, payload)
+            if success:
+                endpoint = webhook_url  # Use fallback for any subsequent chunks
         if not success:
             sys.exit(1)
 
