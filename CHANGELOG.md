@@ -2,12 +2,11 @@
 
 ## v1.0.0 (2026-10-14)
 
-### Official Stable Release
-- **Decoupled Architecture**: Standalone, headless C++ bot system designed for Tortoise WoW 1.18.1, maintaining strict `BUILD_PLAYERBOTS=OFF` core invariance.
-- **Combat & Strategy AI**: Full combat rotations and situational AI for all 9 classes and 28 playable specs, dynamic role forcing (`.bot role`), smart threat management, and crowd-control preservation.
-- **Hire Progression**: Level 60 hired bots spawn with spec-fixed gear sets across 7 progression tiers (Pre-raid through Naxxramas and Tower of Karazhan) with full enchantments and custom Turtle items.
-- **Living World & Dungeons**: Autonomous exploration, questing, gathering, dynamic obstacle avoidance, and Looking for Turtles (LFT) dungeon queue fill service.
-- **Multi-Platform & Observability**: Continuous build verification on Linux GCC and Windows MSVC 19.44 + vcpkg ACE, plus standalone Go telemetry dashboard binaries attached to releases.
+Stable release with Windows and Linux CI in place.
+
+- Verified multi-platform CI for Linux (GCC) and Windows (MSVC 19.44 + ACE).
+- Decoupled native C++ module for Tortoise WoW 1.18.1.
+- Prebuilt dashboard binaries attached for Linux and Windows.
 
 ---
 
