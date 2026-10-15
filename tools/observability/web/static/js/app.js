@@ -1740,11 +1740,59 @@
   }
 
   // rows: [label, valueHtml, confKeyOrHint]
+  // Hover text for the Server panel rows, keyed by the row's config hint.
+  // Summarised from aiplayerbot.conf.dist / mangosd.conf; keep in sync.
+  const SETTING_HELP = {
+    CONFIG_FLOAT_RATE_XP_KILL: 'Server XP multiplier for killing normal mobs (players and bots).',
+    CONFIG_FLOAT_RATE_XP_KILL_ELITE: 'Server XP multiplier for killing elite mobs.',
+    CONFIG_FLOAT_RATE_XP_QUEST: 'Server XP multiplier for quest rewards.',
+    CONFIG_FLOAT_RATE_XP_EXPLORE: 'Server XP multiplier for discovering new areas.',
+    CONFIG_FLOAT_RATE_DROP_MONEY: 'Server multiplier for gold dropped by mobs.',
+    CONFIG_FLOAT_RATE_HONOR: 'Server multiplier for honor gained in PvP.',
+    CONFIG_FLOAT_RATE_REPUTATION_GAIN: 'Server multiplier for reputation gains.',
+    CONFIG_FLOAT_RATE_TALENT: 'Server multiplier for talent points per level.',
+    'AiPlayerbot.MinRandomBots / AiPlayerbot.MaxRandomBots': 'How many random (pool) bots the server keeps online. The main performance knob: weaker PCs 100-200, strong ones 2000+.',
+    'AiPlayerbot.RandomBotUpdateInterval': 'How often (ms) the pool manager checks bot logins/logouts.',
+    'AiPlayerbot.RandomBotMaxLevel': 'Highest level a random bot can reach.',
+    'AiPlayerbot.botActiveAlone': 'Percent of bots with no player nearby that stay fully active. Only used when activity priorities are on.',
+    'AiPlayerbot.PoolTickBudgetUs / AiPlayerbot.PoolBudgetWhenTickOverMs': 'Time per server tick the pool bots may use to think, so player lag stays low. The server lowers it on its own when ticks get slow.',
+    'AiPlayerbot.XPRate': 'Extra XP multiplier for bots only, on top of the server XP rates.',
+    'AiPlayerbot.BotLootRateUncommon': 'Pool bots find green items this many times more often (players and hired bots unaffected). 1 = normal.',
+    'AiPlayerbot.BotLootRateRare': 'Pool bots find blue items this many times more often (players and hired bots unaffected). 1 = normal.',
+    'AiPlayerbot.AhMarketEnabled': 'Bots sell their own real loot on the auction house, so the AH fills up naturally.',
+    'AiPlayerbot.AhMarketBuyer': 'Bots buy fairly priced auctions (also yours), so items listed on the AH actually sell.',
+    'AiPlayerbot.AutoLearnTrainerSpells': 'Bots learn all trainer spells for free on level-up. Off = they must visit a trainer and pay, like players.',
+    'AiPlayerbot.AutoLearnQuestSpells': 'Bots learn class-quest spells (stances, forms, totems, pet skills) on level-up without doing the quest.',
+    'AiPlayerbot.LevelUpMounts': 'Bots get their mount when they reach level 40, and the epic mount at 60.',
+    'AiPlayerbot.TurtleMountAtLevel': 'Level at which bots get the Swift Riding Turtle, as if they did the quest. 0 = never.',
+    'AiPlayerbot.RandomBotGroupNearby': 'Pool bots invite nearby bots into groups. Off by default: bot-only groups slow the pool down.',
+    'AiPlayerbot.RandomBotRaidNearby': 'Pool bots invite nearby bots into raids.',
+    'AiPlayerbot.RandomBotInvitePlayer': 'Pool bots may invite real players to groups (turn on Do Not Disturb to avoid it).',
+    'AiPlayerbot.RandomBotTimedLogout': 'Pool bots log out after their time in world and others log in, so the online set rotates.',
+    'AiPlayerbot.ForceActiveWhenNearPlayer': 'Bots near a player always run at full activity.',
+    'AiPlayerbot.LimitCombatActivity': 'Reduces bot combat thinking for a small performance gain.',
+    'AiPlayerbot.AutoDoQuests': 'Pool bots pick up and complete quests on their own.',
+    'AiPlayerbot.AvoidHostileTowns': 'Bots do not travel into or grind in enemy towns, where guards would kill them.',
+    'AiPlayerbot.LeaveOutgrownZones': 'Bots that are 5+ levels above their zone travel (on foot, flight or boat) to a zone that fits their level.',
+    'AiPlayerbot.RandomBotLftEnabled': 'Bots fill missing roles when a real player is waiting in the dungeon finder (LFT).',
+    'AiPlayerbot.RandomBotBgEnabled': 'Bots join battlegrounds when a real player is queued, filling both sides so the match starts.',
+    'AiPlayerbot.DisableRandomLevels': 'Not about spawn levels (that is RandomBotStartLevelMin/Max). On = bots below randombotStartingLevel are raised to it. Off = bots keep their seed level and level up by playing.',
+    'AiPlayerbot.LevelLadder': 'Chooses which bots log in by level band, so every level range has bots and level 60 is capped.',
+    'AiPlayerbot.DisableActivityPriorities': 'On = every bot always thinks at full speed (bots always alive). Off = bots with no player nearby are throttled to botActiveAlone percent.',
+    'AiPlayerbot.PerfMonEnabled': 'Built-in performance monitor for bot actions (debugging; costs some CPU).',
+    'forwarded activity stream (bot_events.csv)': 'Bot activity log (quests, loot, deaths...) written to bot_events.csv and shown on this dashboard.',
+    'unreachable_targets.csv': 'Log of targets bots could not path to; useful for movement bug reports.',
+    'deaths.csv': 'Log of every bot death with the killer and place; useful for balance reports.'
+  };
+
   function settingsSection(title, rows) {
     return `<div class="settings-col">
       <div class="section-label" style="margin: 0 0 8px;">${esc(title)}</div>
-      <div class="settings-rows">${rows.map(([label, value, hint]) =>
-        `<div class="setting-row"${hint ? ` title="${esc(hint)}"` : ''}><span class="setting-key">${esc(label)}</span><span class="setting-val">${value}</span></div>`).join('')}</div>
+      <div class="settings-rows">${rows.map(([label, value, hint]) => {
+        const help = SETTING_HELP[hint];
+        const tip = help ? `${help}\n\n${hint}` : hint;
+        return `<div class="setting-row"${tip ? ` title="${esc(tip)}"` : ''}><span class="setting-key${help ? ' has-help' : ''}">${esc(label)}</span><span class="setting-val">${value}</span></div>`;
+      }).join('')}</div>
     </div>`;
   }
 
