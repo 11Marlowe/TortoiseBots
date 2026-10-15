@@ -27,3 +27,15 @@ func TestCommandersJS(t *testing.T) {
 func TestMapLayersJS(t *testing.T) {
 	runCheck(t, "maplayers_check.js", "../../web/static/js/maplayers.js")
 }
+
+// TestUnitInfoJS runs unitinfo_check.js: what a character does, the hover box, health bars, threat colours, status icons, events and
+// the run line.
+func TestUnitInfoJS(t *testing.T) {
+	runCheck(t, "unitinfo_check.js", "../../web/static/js/unitinfo.js")
+}
+
+// TestPartyRowsJS runs partyrows_check.js: the party table header and every row have the same number of cells, and app.js declares
+// no helper twice.
+func TestPartyRowsJS(t *testing.T) {
+	runCheck(t, "partyrows_check.js", "../../web/static/js/app.js")
+}
