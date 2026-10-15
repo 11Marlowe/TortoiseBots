@@ -724,6 +724,20 @@ AiPlayerbot.DungeonTactics = 0
 # 1 - a bound commander may start a run
 AiPlayerbot.DungeonSelfClear = 0
 
+# Scripted area triggers for bots.
+# A bot has no game client, so it never tells the server it walked into an area
+# trigger, and a trigger with a script never fired for it: Zul'Farrak's Witch
+# Doctor Zum'rah, who only turns hostile through such a script, stayed friendly
+# in front of an all-bot party. With this on, a living bot in a group inside a
+# dungeon or raid runs the script of a trigger it walks into, once per entry, as
+# a player's client would. Only triggers with a script count; instance
+# entrances and exits, taverns and battleground entrances never fire. Each bot
+# checks the few triggers of its own map twice a second (no world scan).
+# On by default: it only does what a player's client already does.
+# 0 - off, bots never fire area triggers
+# 1 - grouped bots in instances fire scripted area triggers (Default)
+AiPlayerbot.BotAreaTriggers = 1
+
 # Keep out of creature auras.
 # Some creatures carry a permanent damaging aura that pulses around them even
 # while they are idle. With this on, every bot steps out when it is within 8 yd

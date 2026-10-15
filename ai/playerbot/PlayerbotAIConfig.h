@@ -743,6 +743,7 @@ public:
     bool jumpFollow;
     bool jumpChase;
     bool useKnockback;
+    bool botAreaTriggers;
     float jumpNoCombatChance;
     float jumpMeleeInCombatChance;
     float jumpRandomChance;
