@@ -15,8 +15,17 @@ issue  ->  your branch  ->  PR into dev (owner approves)  ->  dev into main (own
    default, what it does not cover) or a **Bug report**. A **Feature request**
    is an idea; it becomes work once someone writes the spec for it. Search the
    existing issues first. A pull request without an issue is not merged.
-2. **Work on your own branch.** Collaborators use `pjerra/<topic>` style
-   branches; everybody else works on a fork.
+2. **Work on your own branch**, named after what it is:
+
+   | Branch | For |
+   | :--- | :--- |
+   | `feat/<topic>` | a new feature or improvement, e.g. `feat/hire-level` |
+   | `fix/<topic>` | a bug fix, e.g. `fix/wand-on-fresh-mob` |
+   | `docs/<topic>` | documentation only |
+
+   Collaborators with write access push these branches to this repository;
+   everybody else uses the same names on a fork. Never push to `dev` or
+   `main` directly.
 3. **Only finished features go to `dev`.** A pull request into `dev` brings a
    whole, working feature or a whole fix, never a first part of one. A feature
    that takes several pull requests lives on its own feature branch (for
