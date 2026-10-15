@@ -26,8 +26,8 @@
 
 Ported code (tick one):
 
-- [ ] This PR ports or copies code (e.g. from mod-playerbots): the original
+- [ ] This PR ports or copies code from another project: the original
       licence header is kept, the source licence is AGPL-3.0 compatible
-      (mod-playerbots GPL-2.0-or-later is fine; GPL-2.0-only is not), and the
+      (e.g. GPL-2.0-or-later, GPL-3.0, AGPL-3.0; not GPL-2.0-only), and the
       source repo + SHA are in `docs/PROVENANCE.md`.
 - [ ] This PR contains only original code.

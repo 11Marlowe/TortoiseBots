@@ -58,8 +58,7 @@ submitting a contribution, you agree that:
 - your contribution is licensed under AGPL-3.0-or-later, the same terms as the
   rest of the project;
 - you wrote it yourself, or you have the right to submit it under these terms;
-- code copied or ported from another project (porting is welcome, for example
-  from mod-playerbots) keeps its original copyright and licence notice, is
+- code copied or ported from another project (porting is welcome) keeps its original copyright and licence notice, is
   compatible with AGPL-3.0, and is recorded in
   [`docs/PROVENANCE.md`](docs/PROVENANCE.md).
 
