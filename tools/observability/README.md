@@ -75,9 +75,9 @@ The dashboard Server panel has a **Copy diagnostic report** button producing a c
 
 ## Map artwork (generated locally)
 
-The zone/continent images are the WoW client's WorldMap textures. They are
-**not** in this repository and **not** in the dashboard binaries: generate them
-once from your own client.
+The zone/continent images are the WoW client's WorldMap textures (Turtle's
+custom zones included). They are **not** in this repository and **not** in the
+dashboard binaries: generate them once from your own client.
 
 ```bash
 python3 -m pip install mpyq Pillow
@@ -100,10 +100,6 @@ that canvas, so the sizes must not change. It reads Turtle's newer patches
 (their file list is encrypted) and matches patch file names regardless of case.
 Pass `--overlay-dbc` with the server's extracted `WorldMapOverlay.dbc` if the
 client copy is unreadable.
-
-Maps of Mystery artwork (`"source": "mapsofmystery"` in `map_canvas.json`) is
-hand-drawn, stays in `web/maps/`, is built into the binary and is never
-regenerated.
 
 ## Validation
 

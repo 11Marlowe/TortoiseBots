@@ -12,9 +12,7 @@ both continents) are written from the base tiles alone.
 Client artwork is not shipped in the repository or the dashboard binaries, so
 every operator generates it locally once. Canvas sizes come from
 `web/data/map_canvas.json`: the daemon's world->map percentages are relative to
-that canvas, so the art geometry must not move. Entries with
-`"source": "mapsofmystery"` are hand-drawn maps shipped with the dashboard and
-are skipped.
+that canvas, so the art geometry must not move.
 
 Requires: python3 -m pip install mpyq Pillow
 Usage:
@@ -276,11 +274,8 @@ def main():
 
     if not args.dry_run:
         os.makedirs(args.out, exist_ok=True)
-    written = shipped = failed = 0
+    written = failed = 0
     for file, size in sorted(canvas.items()):
-        if size["source"] != "client":
-            shipped += 1
-            continue
         folder = client.folder_for(file[:-5])
         if folder is None:
             print(f"  {file}: no client WorldMap folder, skipped")
@@ -296,7 +291,7 @@ def main():
         print(f"  {file}: {painted}/{len(overlays)} overlays -> {size['width']}x{size['height']}")
         written += 1
 
-    print(f"\n{written} written to {args.out}, {shipped} shipped with the dashboard, {failed} failed")
+    print(f"\n{written} written to {args.out}, {failed} failed")
     if failed:
         sys.exit(1)
 
