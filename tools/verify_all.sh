@@ -79,6 +79,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_boss_tactics_policy
         test_bot_chat_gate
         test_bot_command_queue
+        test_bot_names_policy
         test_bot_turn_scheduler
         test_bwl_bundle1_policy
         test_caster_mana_policy

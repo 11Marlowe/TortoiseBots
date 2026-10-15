@@ -4,6 +4,7 @@
 #include "playerbot/AmmoStackPolicy.h"
 #include "playerbot/BossTacticsMgr.h"
 #include "playerbot/DungeonPlanMgr.h"
+#include "../../runtime/BotNames.h"
 #include "../../runtime/HireLevelPolicy.h"
 #include "../../runtime/HireFeePolicy.h"
 #include "../../runtime/HireUnlockPolicy.h"
@@ -442,6 +443,11 @@ bool PlayerbotAIConfig::Initialize()
             randomBotStartZoneWeights[i] = zoneWeights[i];
         randomBotStartZoneWeightsValid = true;
     }
+    std::string nameWeights = config.GetStringDefault("AiPlayerbot.RandomBotNameStyleWeights", "55,20,25");
+    if (!TortoiseBots::ParseBotNameStyleWeights(nameWeights, randomBotNameStyleWeights))
+        sLog.outError("AiPlayerbot.RandomBotNameStyleWeights '%s' is malformed, keeping %u,%u,%u (three numbers: race-flavoured,compound,fun)",
+            nameWeights.c_str(), randomBotNameStyleWeights[0], randomBotNameStyleWeights[1], randomBotNameStyleWeights[2]);
+    randomBotNamesFile = config.GetStringDefault("AiPlayerbot.RandomBotNamesFile", "");
     allowIsolatedCustomStartingZones = config.GetBoolDefault("AiPlayerbot.AllowIsolatedCustomStartingZones", false);
     relocateHopelessDeaths = config.GetBoolDefault("AiPlayerbot.RelocateHopelessDeaths", true);
     repopAtGraveyard = config.GetBoolDefault("AiPlayerbot.RepopAtGraveyard", true);

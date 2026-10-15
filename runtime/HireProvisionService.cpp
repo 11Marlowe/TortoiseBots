@@ -2,6 +2,7 @@
 #include "../ai/playerbot/GroupMembers.h"
 #include "HireProvisionService.h"
 #include "HireCost.h"
+#include "BotNameService.h"
 #include "HireLifecycle.h"
 #include "HireIntroPolicy.h"
 #include "HireSpecPolicy.h"
@@ -63,31 +64,6 @@ namespace TortoiseBots
 namespace
 {
 constexpr uint32 kPendingProvisionTimeoutSec = 300;
-
-std::string RandomHireName()
-{
-    static const char* onset[] = {
-        "b", "br", "c", "cr", "d", "dr", "f", "g", "gr", "h", "j", "k", "kr", "l", "m", "n",
-        "p", "r", "s", "sh", "st", "t", "th", "tr", "v", "w", "z", "kh", "mor", "thal", "bren",
-    };
-    static const char* nucleus[] = { "a", "e", "i", "o", "u", "ae", "ia", "or", "an", "el" };
-    static const char* coda[] = { "", "", "", "n", "r", "s", "th", "ric", "d", "l" };
-    uint32 nOn = sizeof(onset) / sizeof(onset[0]);
-    uint32 nNu = sizeof(nucleus) / sizeof(nucleus[0]);
-    uint32 nCo = sizeof(coda) / sizeof(coda[0]);
-    std::string name;
-    for (uint32 i = 0, syllables = urand(2, 3); i < syllables; ++i)
-    {
-        name += onset[urand(0, nOn - 1)];
-        name += nucleus[urand(0, nNu - 1)];
-    }
-    name += coda[urand(0, nCo - 1)];
-    if (name.size() > 11)
-        name.resize(11);
-    if (!name.empty())
-        name[0] = char(name[0] & ~0x20);
-    return name;
-}
 
 } // namespace
 
@@ -565,11 +541,8 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
 
     for (int attempt = 0; attempt < 8; ++attempt)
     {
-        std::string name = RandomHireName();
-        std::string norm = name;
-        if (!normalizePlayerName(norm))
-            continue;
-        if (sObjectMgr.GetPlayerGuidByName(norm))
+        std::string norm = PickBotCharacterName(sel.race, sel.classId, sel.gender);
+        if (norm.empty())
             continue;
 
         CharacterCreateInfo info;
