@@ -4452,6 +4452,7 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 
 uint32 s_dungeonRunMs = 0;
 bool s_runIssuing = false;    // the run leader is sending an order now (it does not pause itself)
+bool s_runGather = false;     // ... and it is a gather on the lead bot's own spot (`cmd move` lets it through)
 
 // The commanders' last orders with the module's answer, for the observability
 // dashboard (runtime/CommanderTelemetry.h): bounded, noted when a reply is
@@ -5833,6 +5834,7 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
     RemoteCommander::MoveFacts facts;
     facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);
     facts.maxDistance = sPlayerbotAIConfig.reactDistance;
+    facts.leadSpotGather = s_runIssuing && s_runGather;
     PathFinder path(lead);
     path.calculate(point.x, point.y, point.z, false);
     facts.pathType = static_cast<uint32>(path.getPathType());
@@ -8522,14 +8524,16 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
 
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
-bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer)
+bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false)
 {
     ChatHandler handler(commander);
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
     s_runIssuing = true;
+    s_runGather = gather;
     HandleCommanderOrder(&handler, text.c_str());
     s_runIssuing = false;
+    s_runGather = false;
     RunOrderCapture const got = s_runOrderCapture;
     s_runOrderCapture = RunOrderCapture();
     answer = got.text;
@@ -8653,10 +8657,17 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         ++f.alive;
         if (bot->IsInCombat())
             f.anyInCombat = true;
-        if (bot->GetMap() == lead->GetMap())
-            f.maxMemberYd = std::max(f.maxMemberYd, bot->GetDistance(lead));
-        else
-            f.maxMemberYd = std::max(f.maxMemberYd, 1000.0f);
+        float const yd = bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;
+        f.maxMemberYd = std::max(f.maxMemberYd, yd);
+        if (bot != lead)
+        {
+            // A gather's straggler is summoned by name (DungeonRun::SummonStraggler).
+            MemberFact member;
+            member.name = bot->GetName();
+            member.yd = yd;
+            member.moving = bot->IsMoving();
+            f.members.push_back(member);
+        }
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
         if (bot->GetPowerType() == POWER_MANA && bot->GetMaxPower(POWER_MANA))
@@ -8669,16 +8680,19 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         }
     }
 
-    ai::PlanStep const* step = Current(slot.run);
+    // The current step, or during a walk back after a regroup the move point
+    // it replays (its hop pulls are read for that point).
+    ai::PlanStep const* step = FactStep(slot.run);
     if (!step || !lead->IsInWorld())
         return;
     float const toPoint = DistanceTo(lead, step->x, step->y, step->z);
     f.seen = toPoint <= kSeeYd;
     // The navmesh query for the next approach hop runs only when the policy
     // can use one: not while it walks a hop already fixed, not in a regroup
-    // (the lead bot may be a ghost on another map), and never off the plan's map.
+    // (the lead bot may be a ghost on another map) or a walk back (it walks
+    // the plan's points), and never off the plan's map.
     bool const wantsApproach = !f.seen && slot.run.phase != Phase::Walk && !slot.run.regroup &&
-        lead->GetMapId() == slot.run.plan->map;
+        !slot.run.walkBack && lead->GetMapId() == slot.run.plan->map;
 
     switch (step->kind)
     {
@@ -8736,7 +8750,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             {
                 if (DistanceTo(unit, step->x, step->y, step->z) > kHopPullYd || unit->IsInCombat())
                     continue;
-                if (ai::OwnedByLaterStep(*slot.run.plan, slot.run.step, unit->GetEntry(),
+                if (ai::OwnedByLaterStep(*slot.run.plan, OwnerFrom(slot.run), unit->GetEntry(),
                         unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), f.team))
                     continue;
                 UnitFact fact;
@@ -8847,7 +8861,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             slot.taskText.clear();
         }
         std::string answer;
-        bool const accepted = IssueRunOrder(commander, order, answer);
+        bool const accepted = IssueRunOrder(commander, order, answer,
+            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));
         // The order may have released the binding (and the run with it): `slot`
         // is not to be touched before the run is looked up again.
         it = DungeonRuns().find(commanderRaw);

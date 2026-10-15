@@ -694,7 +694,7 @@ static void TestWipeRegroupsAndWalksBack()
     f.leadAlive = false;
     CHECK(Tick(r, f).empty());
     CHECK(r.state == State::Running && r.regroup && r.wipes == 1 && r.autoRegroups == 1);
-    CHECK(r.note.find("(wipe 1)") != std::string::npos);
+    CHECK(r.note.find("(1 wipe this run)") != std::string::npos);
     CHECK(Tick(r, f) == "revive party");
     for (int i = 0; i < 30; ++i)
         Tick(r, f); // the corpse run: still one wipe
@@ -704,18 +704,33 @@ static void TestWipeRegroupsAndWalksBack()
     f.maxMemberYd = 40;
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
     f.maxMemberYd = 5;
+    CHECK(Tick(r, f).empty()); // regrouped; the walk back starts with the facts of its first point
+    CHECK(r.walkBack && r.walkBackIdx == 0 && FactStep(r) == &plan.steps[0] && OwnerFrom(r) == 2);
     CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
-    CHECK(r.walkBack && r.note.find("walk back") == 0);
+    CHECK(r.note.find("walk back") == 0);
     f.leadX = 10;
+    CHECK(Tick(r, f).empty()); // arrived: the next point's facts come next tick
+    CHECK(FactStep(r) == &plan.steps[1]);
+    // A pack that came back beside the replayed point is pulled before the move.
+    f.hopUnits = {Unit(9, 4, 30)};
+    CHECK(Tick(r, f) == "pullback 9");
+    CHECK(r.walkBack && r.note.find("walk back: pulling") == 0);
+    f.hopUnits.clear();
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.anyInCombat = false;
     CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
     // A point the navmesh refuses now is passed for the next one.
     OrderRefused(r, "move 50.0 0.0 0.0", "unreachable");
     CHECK(r.state == State::Running);
     CHECK(Tick(r, f) == "move 90.0 0.0 0.0");
     f.leadX = 90;
+    CHECK(Tick(r, f).empty());
+    CHECK(Tick(r, f).empty() && !r.walkBack && r.note.find("walked back") == 0);
+    CHECK(FactStep(r) == &plan.steps[3] && OwnerFrom(r) == 3);
     f.units = {Unit(7, 1, 40)};
     CHECK(Tick(r, f) == "pullback 7");
-    CHECK(!r.walkBack && r.step == 3);
+    CHECK(r.step == 3);
 
     // Second wipe at the step: regroups once more; the third pauses.
     f = Party(130);
@@ -733,6 +748,7 @@ static void TestWipeRegroupsAndWalksBack()
     f.leadAlive = false;
     Tick(r, f);
     CHECK(r.state == State::Paused && r.wipes == 3 && r.note.find("did not hold") != std::string::npos);
+    CHECK(r.note.find("(cmd revive party)") != std::string::npos);
     // A resume gives the step its regroups back; a new step too.
     CHECK(Resume(r) && r.autoRegroups == 0);
 }
@@ -753,7 +769,8 @@ static void TestThreeDeadRegroupAfterTheFight()
     CHECK(r.state == State::Running && !r.regroup && r.note.find("regroup follows") != std::string::npos);
     f.anyInCombat = false;
     Tick(r, f);
-    CHECK(r.state == State::Running && r.regroup && r.wipes == 0);
+    CHECK(r.state == State::Running && r.regroup && r.wipes == 0 && r.nearWipes == 1);
+    CHECK(r.note.find("(1 near wipe this run)") != std::string::npos);
     CHECK(Tick(r, f) == "revive party");
     // No earlier move point: nothing to walk back, the step goes on.
     f = Party(0);
@@ -763,7 +780,49 @@ static void TestThreeDeadRegroupAfterTheFight()
     r.wipes = 2;
     f.leadX = 40;
     Tick(r, f);
-    CHECK(r.state == State::Done && r.note == "plan done (2 wipes)");
+    CHECK(r.state == State::Done && r.note == "plan done (2 wipes, 1 near wipe)");
+}
+
+// Issue #999 (third observe run, step 35): the healer stood 82 yd behind and
+// did not move; the gather paused the run again and again. At the gather's
+// ceiling a straggler is summoned to the lead bot once, then the gather waits
+// again; still not gathered, it pauses as before.
+static void TestGatherSummonsAStalledStraggler()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 82;
+    MemberFact walking{"Walky", 45, true};
+    MemberFact healer{"Healy", 82, false};
+    MemberFact near{"Nearby", 30, false};
+    f.members = {walking, near, healer};
+    f.units = {Unit(7, 1, 20)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::string order;
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Healy"); // not the one still walking, not the one within 40 yd
+    CHECK(r.state == State::Running && r.phase == Phase::Gather && r.note.find("Healy") != std::string::npos);
+    // A refused summon does not pause: the gather's ceiling does.
+    OrderRefused(r, order, "lead-unavailable");
+    CHECK(r.state == State::Running);
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+        CHECK(Tick(r, f).find("summon") == std::string::npos); // once per bot
+    CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+
+    // The summoned bot arrives: the pull goes out.
+    Run g = Start(&plan);
+    Facts h = f;
+    Tick(g, h);
+    std::string got;
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && got.empty(); ++i)
+        got = Tick(g, h);
+    CHECK(got == "summon Healy");
+    h.maxMemberYd = 5;
+    h.members.clear();
+    CHECK(Tick(g, h) == "pullback 7");
 }
 
 static void TestStepIdleCeiling()
@@ -937,6 +996,7 @@ int main()
     TestRefusedGatherIsRetriedOnceThenLeftOut();
     TestWipeRegroupsAndWalksBack();
     TestThreeDeadRegroupAfterTheFight();
+    TestGatherSummonsAStalledStraggler();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

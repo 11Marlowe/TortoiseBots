@@ -30,6 +30,7 @@
 //     kAutoRegroupsPerStep times a step, then it pauses); the lead bot dead
 //     alone pauses the run;
 //   - a refused gather is sent once more, then the run goes on without it;
+//     at a gather's ceiling a stalled straggler (kSummonYd) is summoned once;
 //   - every wait has a ceiling (gather, walk, pull, fight, rest, task, object
 //     wait, and kStepIdleCapMs per step); a ceiling pauses the run with the
 //     reason, it never loops;
@@ -67,6 +68,7 @@ constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point m
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
 constexpr std::uint32_t kGatherCapMs = 30000;
+constexpr float kSummonYd = 40.0f;                // at a gather's ceiling a bot this far and not moving is summoned
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
 constexpr float kWalkProgressYd = 2.0f;
@@ -130,6 +132,14 @@ struct UnitFact
     bool evading = false;    // running home: not pulled this tick
 };
 
+// A living bot of the party other than the lead bot.
+struct MemberFact
+{
+    std::string name;
+    float yd = 0.0f;        // from the lead bot (1000 on another map)
+    bool moving = false;
+};
+
 // What the glue reads once a tick for the run's current step.
 struct Facts
 {
@@ -139,6 +149,7 @@ struct Facts
     bool anyInCombat = false;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
+    std::vector<MemberFact> members;    // the living bots but the lead bot (gather stragglers)
     std::uint32_t minHealthPct = 100;   // living bots
     std::uint32_t minHealerManaPct = 100;
     std::uint32_t minManaPct = 100;     // mana users that are not healers
@@ -211,6 +222,7 @@ struct Run
     std::string gatherOrder;
     std::uint32_t gatherRefusals = 0;
     bool gatherWaived = false;
+    std::unordered_set<std::string> summoned; // stragglers this step summoned already (once each)
     // Regroups the run started by itself at this step (a wipe or kWipeDead
     // dead), and the walk back over the plan's move points after one.
     std::uint32_t autoRegroups = 0;
@@ -220,6 +232,8 @@ struct Run
     // Run-wide counts for the report.
     std::uint32_t wipes = 0;     // the whole party dead, counted once each time
     bool wiped = false;
+    std::uint32_t nearWipes = 0; // kWipeDead or more dead with someone alive, counted once each time
+    bool nearWiped = false;
 };
 
 inline const PlanStep* Current(const Run& r)
@@ -281,15 +295,45 @@ inline void ResetStep(Run& r)
     r.gatherOrder.clear();
     r.gatherRefusals = 0;
     r.gatherWaived = false;
+    r.summoned.clear();
     r.walkBackDue = false;
     r.walkBack = false;
     r.walkBackIdx = 0;
 }
 
+// "N wipe(s), M near wipe(s)", or "" for none.
+inline std::string WipeCounts(const Run& r)
+{
+    std::string out;
+    if (r.wipes)
+        out = std::to_string(r.wipes) + (r.wipes == 1 ? " wipe" : " wipes");
+    if (r.nearWipes)
+        out += (out.empty() ? "" : ", ") + std::to_string(r.nearWipes) + (r.nearWipes == 1 ? " near wipe" : " near wipes");
+    return out;
+}
+
 inline std::string DoneNote(const Run& r)
 {
-    return r.wipes == 0 ? std::string("plan done")
-                        : "plan done (" + std::to_string(r.wipes) + (r.wipes == 1 ? " wipe)" : " wipes)");
+    std::string const counts = WipeCounts(r);
+    return counts.empty() ? std::string("plan done") : "plan done (" + counts + ")";
+}
+
+// A gather's ceiling: a straggler (more than kSummonYd from the lead bot and
+// not moving: stuck behind) is summoned to the lead bot (`cmd summon`), once
+// per bot and step, and the gather waits again. False when there is none
+// left to summon: the caller pauses as before.
+inline bool SummonStraggler(Run& r, const Facts& f, std::string& order)
+{
+    for (const MemberFact& m : f.members)
+    {
+        if (m.yd <= kSummonYd || m.moving || m.name.empty() || r.summoned.count(m.name))
+            continue;
+        r.summoned.insert(m.name);
+        order = "summon " + m.name;
+        r.note = "gather: " + m.name + " stands " + Num(m.yd) + " yd from the lead bot and does not move: summoned";
+        return true;
+    }
+    return false;
 }
 
 // The step's walk points: what a walk back after a regroup replays.
@@ -303,6 +347,31 @@ inline void SendGather(Run& r, const Facts& f, std::string& order)
 {
     order = MoveOrder(f.leadX, f.leadY, f.leadZ, false);
     r.gatherOrder = order;
+}
+
+// Whether `order` is the gather this tick sent (the glue tells `cmd move` it
+// is the run leader's gather on the lead bot's own spot).
+inline bool IsGatherOrder(const Run& r, const std::string& order)
+{
+    return !r.gatherOrder.empty() && order == r.gatherOrder;
+}
+
+// The step the glue reads the step facts for (seen, approach, hopUnits): the
+// move point a walk back replays, else the current step.
+inline const PlanStep* FactStep(const Run& r)
+{
+    if (r.walkBack && r.plan && r.walkBackIdx < r.step && r.step < r.plan->steps.size())
+        return &r.plan->steps[r.walkBackIdx];
+    return r.plan && r.step < r.plan->steps.size() ? &r.plan->steps[r.step] : nullptr;
+}
+
+// OwnedByLaterStep's `from` for the hop pulls: the current step; during a walk
+// back the step before it, so a pack of a step already done (back after a
+// respawn) is pulled on the way, and the current step's own pack and later
+// ones are left to their steps.
+inline std::size_t OwnerFrom(const Run& r)
+{
+    return r.walkBack && r.step > 0 ? r.step - 1 : r.step;
 }
 
 inline void BeginRegroup(Run& r)
@@ -396,9 +465,9 @@ inline bool PauseForPlayer(Run& r, const std::string& order)
 // refused point of a walk back is passed for the next one.
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
-    if (order == "rest" || order == "revive party")
+    if (order == "rest" || order == "revive party" || order.compare(0, 7, "summon ") == 0)
     {
-        // The rest gate and the regroup have their own ceilings.
+        // The rest gate, the regroup and the gather have their own ceilings.
         r.note = order + " refused: " + answer;
         return;
     }
@@ -497,83 +566,6 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     return false;
 }
 
-// After a regroup the run started by itself the party stands where it came
-// back to life (the instance entrance after a corpse run). It walks the plan's
-// own move points again, in order, from the one nearest the lead bot up to the
-// current step: the way the run came, with no new path search. Nothing to walk
-// when the current step's point is nearer than every earlier move point.
-inline void StartWalkBack(Run& r, const Facts& f)
-{
-    r.walkBackDue = false;
-    r.walkBack = false;
-    const PlanStep* cur = Current(r);
-    if (!cur)
-        return;
-    float best = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
-    bool found = false;
-    for (std::size_t i = 0; i < r.step; ++i)
-    {
-        const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p))
-            continue;
-        float const d = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
-        if (d < best)
-        {
-            best = d;
-            r.walkBackIdx = i;
-            found = true;
-        }
-    }
-    if (!found)
-        return;
-    r.walkBack = true;
-    EnterPhase(r, Phase::Begin);
-}
-
-// One second of the walk back. True while it walks (the tick ends there);
-// false once it is over. Each point is a WalkTo (bounded by kWalkTries), a
-// direct one gathers first like its step.
-inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
-{
-    while (r.walkBack && r.walkBackIdx < r.step)
-    {
-        const PlanStep& p = r.plan->steps[r.walkBackIdx];
-        if (!IsMovePoint(p))
-        {
-            ++r.walkBackIdx;
-            continue;
-        }
-        bool const direct = p.kind == PlanStepKind::MoveDirect;
-        if (direct && r.phase != Phase::Walk && f.maxMemberYd > kGatherYd && !r.gatherWaived)
-        {
-            if (r.phase != Phase::Gather)
-            {
-                EnterPhase(r, Phase::Gather);
-                r.note = "walk back: gathering before a direct step";
-                SendGather(r, f, order);
-            }
-            else if (r.phaseMs >= kGatherCapMs)
-                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
-                    " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
-            return true;
-        }
-        r.note = "walk back: to the point of step " + std::to_string(r.walkBackIdx + 1);
-        if (!WalkTo(r, f, p.x, p.y, p.z, direct, dt, order))
-            return true;
-        ++r.walkBackIdx;
-        r.gatherWaived = false;
-        r.gatherRefusals = 0;
-        EnterPhase(r, Phase::Begin);
-    }
-    if (!r.walkBack)
-        return false;
-    r.walkBack = false;
-    r.stepIdleMs = 0;
-    r.note = "walked back to step " + std::to_string(r.step + 1);
-    EnterPhase(r, Phase::Begin);
-    return false;
-}
-
 // The unit to pull now: hostile, not evading, not passed, not stealthed;
 // nearest to the lead bot. When `entry` is not 0 only that entry. Null for none.
 inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units, std::uint32_t entry)
@@ -614,8 +606,13 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
             SendGather(r, f, order);
         }
         else if (r.phaseMs >= kGatherCapMs)
-            Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) + " s (a bot is " +
-                Num(f.maxMemberYd) + " yd from the lead bot)");
+        {
+            if (SummonStraggler(r, f, order))
+                EnterPhase(r, Phase::Gather);
+            else
+                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) + " s (a bot is " +
+                    Num(f.maxMemberYd) + " yd from the lead bot)");
+        }
         return;
     }
     if (r.pulls >= kMaxPullsPerStep)
@@ -655,6 +652,102 @@ inline void AwaitPull(Run& r)
         r.passed.insert(r.pullGuid);
     r.pullGuid = 0;
     EnterPhase(r, Phase::Begin);
+}
+
+// After a regroup the run started by itself the party stands where it came
+// back to life (the instance entrance after a corpse run). It walks the plan's
+// own move points again, in order, from the one nearest the lead bot up to the
+// current step: the way the run came, with no new path search. Nothing to walk
+// when the current step's point is nearer than every earlier move point.
+inline void StartWalkBack(Run& r, const Facts& f)
+{
+    r.walkBackDue = false;
+    r.walkBack = false;
+    const PlanStep* cur = Current(r);
+    if (!cur)
+        return;
+    float best = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
+    bool found = false;
+    for (std::size_t i = 0; i < r.step; ++i)
+    {
+        const PlanStep& p = r.plan->steps[i];
+        if (!IsMovePoint(p))
+            continue;
+        float const d = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
+        if (d < best)
+        {
+            best = d;
+            r.walkBackIdx = i;
+            found = true;
+        }
+    }
+    if (!found)
+        return;
+    r.walkBack = true;
+    EnterPhase(r, Phase::Begin);
+}
+
+// One second of the walk back. True while it walks (the tick ends there);
+// false once it is over. Each point is replayed as its move step would be:
+// the hostiles within kHopPullYd of it (the glue's hopUnits, read for this
+// point: FactStep) are pulled first, a direct one gathers first, then a
+// WalkTo (bounded by kWalkTries). One point a tick: the facts are read for it.
+inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
+{
+    if (!r.walkBack)
+        return false;
+    while (r.walkBackIdx < r.step && !IsMovePoint(r.plan->steps[r.walkBackIdx]))
+        ++r.walkBackIdx;
+    if (r.walkBackIdx >= r.step)
+    {
+        r.walkBack = false;
+        r.stepIdleMs = 0;
+        r.note = "walked back to step " + std::to_string(r.step + 1);
+        EnterPhase(r, Phase::Begin);
+        return true; // the next tick reads the facts for the step itself
+    }
+    if (r.phase == Phase::AwaitPull)
+    {
+        AwaitPull(r);
+        if (r.phase == Phase::AwaitPull)
+            return true;
+    }
+    if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0))
+    {
+        PullUnit(r, f, *hopUnit, order);
+        if (r.state == State::Running)
+            r.note = "walk back: " + r.note;
+        return true;
+    }
+    const PlanStep& p = r.plan->steps[r.walkBackIdx];
+    bool const direct = p.kind == PlanStepKind::MoveDirect;
+    if (direct && r.phase != Phase::Walk && f.maxMemberYd > kGatherYd && !r.gatherWaived)
+    {
+        if (r.phase != Phase::Gather)
+        {
+            EnterPhase(r, Phase::Gather);
+            r.note = "walk back: gathering before a direct step";
+            SendGather(r, f, order);
+        }
+        else if (r.phaseMs >= kGatherCapMs)
+        {
+            if (SummonStraggler(r, f, order))
+                EnterPhase(r, Phase::Gather);
+            else
+                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
+                    " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+        }
+        return true;
+    }
+    r.note = "walk back: to the point of step " + std::to_string(r.walkBackIdx + 1);
+    if (WalkTo(r, f, p.x, p.y, p.z, direct, dt, order))
+    {
+        ++r.walkBackIdx;
+        r.gatherWaived = false;
+        r.gatherRefusals = 0;
+        EnterPhase(r, Phase::Begin);
+    }
+    return true;
 }
 
 // Walks toward a step whose point is out of sight, one navmesh hop at a time
@@ -826,8 +919,13 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
             SendGather(r, f, order);
         }
         else if (r.phaseMs >= kGatherCapMs)
-            Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
-                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+        {
+            if (SummonStraggler(r, f, order))
+                EnterPhase(r, Phase::Gather);
+            else
+                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
+                    " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+        }
         return;
     }
     if (r.detour)
@@ -988,6 +1086,12 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     if (allDead && !r.wiped)
         ++r.wipes;
     r.wiped = allDead;
+    // A near wipe (kWipeDead or more dead, someone still alive) counts once
+    // too; one that ends in a wipe counts as both.
+    bool const nearWipe = f.dead >= kWipeDead && f.alive > 0;
+    if (nearWipe && !r.nearWiped)
+        ++r.nearWipes;
+    r.nearWiped = nearWipe;
 
     // After a resume or a skip from a pause: the dead get up, the living
     // gather on the lead bot, then the step goes on.
@@ -1017,8 +1121,13 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
                 SendGather(r, f, order);
             }
             else if (r.regroupMs > kRegroupGatherMs)
-                Pause(r, "regroup: the party did not gather within " + std::to_string(kRegroupGatherMs / 1000) +
-                    " s (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+            {
+                if (SummonStraggler(r, f, order))
+                    r.regroupMs = 0;
+                else
+                    Pause(r, "regroup: the party did not gather within " + std::to_string(kRegroupGatherMs / 1000) +
+                        " s (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+            }
             return order;
         }
         r.regroup = false;
@@ -1026,7 +1135,11 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         r.gatherRefusals = 0;
         r.note = "regrouped";
         if (r.walkBackDue)
+        {
             StartWalkBack(r, f);
+            if (r.walkBack)
+                return order; // the next tick reads the facts for the first point
+        }
     }
 
     // A wipe or kWipeDead dead: once the fight is over the run regroups by
@@ -1036,7 +1149,7 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     bool const autoRegroup = wipe && r.autoRegroups < kAutoRegroupsPerStep;
     if (wipe && !autoRegroup)
     {
-        Pause(r, std::to_string(f.dead) + " dead: regroup (cmd revive), then .bot run resume (" +
+        Pause(r, std::to_string(f.dead) + " dead: regroup (cmd revive party), then .bot run resume (" +
             std::to_string(kAutoRegroupsPerStep) + " regroups by itself at this step did not hold)");
         return order;
     }
@@ -1047,9 +1160,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         ResetStep(r);
         BeginRegroup(r);
         r.walkBackDue = true;
-        r.note = std::to_string(f.dead) + " dead" + (allDead ? " (wipe " + std::to_string(r.wipes) + ")" : "") +
-            ": regrouping by itself (" + std::to_string(r.autoRegroups) + " of " +
-            std::to_string(kAutoRegroupsPerStep) + " at this step)";
+        r.note = std::to_string(f.dead) + " dead (" + WipeCounts(r) + " this run): regrouping by itself (" +
+            std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
         return order;
     }
     if (!f.leadAlive && !autoRegroup)

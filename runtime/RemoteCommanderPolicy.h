@@ -1322,6 +1322,7 @@ struct MoveFacts
     float maxDistance = 0.0f;      // AiPlayerbot.ReactDistance (a farther stay spot is dropped)
     uint32_t pathType = 0;         // PathFinder::getPathType()
     float endOffset = 0.0f;        // the path's actual end to the point
+    bool leadSpotGather = false;   // the run leader's gather on the lead bot's own spot (never a player's order)
 };
 
 enum class MoveVerdict : uint8_t
@@ -1336,17 +1337,17 @@ enum class MoveVerdict : uint8_t
 // drops a stay spot farther than that, ReturnToStayPositionAction), with a
 // navmesh path. An incomplete path is the path finder's length cap on a long
 // route and is walked in legs; a complete path that ends far from the point
-// means the point is not on walkable ground. A point within kMoveHereYd of the
-// lead bot is where it already stands (the run leader's gather on the lead's
-// own spot): it is Ok whatever the path finder answers, which can be NoPath at
-// 0 yd.
+// means the point is not on walkable ground. The run leader's gather on the
+// lead bot's own spot (leadSpotGather, within kMoveHereYd of it) is where the
+// lead bot already stands: it is Ok whatever the path finder answers, which can
+// be NoPath at 0 yd. A player's order to a point that close is judged as any.
 constexpr float kMoveHereYd = 3.0f;
 
 inline MoveVerdict CheckMove(MoveFacts const& facts)
 {
     if (facts.maxDistance <= 0.0f || facts.distanceFromLead > facts.maxDistance)
         return MoveVerdict::TooFar;
-    if (facts.distanceFromLead <= kMoveHereYd)
+    if (facts.leadSpotGather && facts.distanceFromLead <= kMoveHereYd)
         return MoveVerdict::Ok;
     if (facts.pathType & kPathNoPath)
         return MoveVerdict::NoPath;
