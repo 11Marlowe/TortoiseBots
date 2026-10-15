@@ -2,7 +2,7 @@
 
 An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1** core repository ([`tortoise-wow`](https://github.com/tortoise-wow/tortoise-wow), `main` branch).
 
-This is an unofficial, community-driven project. Do not represent it, or anyone using it, as the creators of Turtle WoW or any server that runs it.
+This is an unofficial, community-driven project, not affiliated with Turtle WoW or Blizzard Entertainment.
 
 `TortoiseBots` delivers native AI companions through a decoupled C++ architecture: bot AI, combat strategies, and lifecycle management live entirely within this module, while session transport and character state stay cleanly owned by the core via generic headless sessions (`SessionTransport::Headless`). The core builds and runs 100% cleanly without the module (`MODULES=disabled`).
 
