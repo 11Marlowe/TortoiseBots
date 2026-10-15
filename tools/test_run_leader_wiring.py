@@ -110,8 +110,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         spells = (ROOT / "ai/playerbot/strategy/actions/GenericSpellActions.cpp").read_text()
         useful = body(spells, "bool CastSpellAction::isUseful()", "\n}\n")
         self.assertIn("static_cast<Creature*>(spellTarget)->IsTotem()", useful)
-        self.assertIn("TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName, MAX_EFFECT_INDEX,", useful)
-        self.assertIn("info->IsPositiveSpell()))", useful)
+        self.assertIn("TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName,", useful)
+        self.assertIn("info->EffectImplicitTargetA, MAX_EFFECT_INDEX, info->IsPositiveSpell()))", useful)
 
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")

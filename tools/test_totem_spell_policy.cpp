@@ -14,12 +14,23 @@
 
 using namespace TortoiseBots;
 
+// Effects aimed at the single unit target (TARGET_UNIT_ENEMY 6).
 static bool Works(bool positive, std::uint32_t e0, std::uint32_t a0, std::uint32_t e1 = 0, std::uint32_t a1 = 0,
     std::uint32_t e2 = 0, std::uint32_t a2 = 0)
 {
     std::uint32_t const effects[3] = {e0, e1, e2};
     std::uint32_t const auras[3] = {a0, a1, a2};
-    return SpellWorksOnTotem(effects, auras, 3, positive);
+    std::uint32_t const targets[3] = {6, 6, 6};
+    return SpellWorksOnTotem(effects, auras, targets, 3, positive);
+}
+
+static bool WorksAt(std::uint32_t e0, std::uint32_t a0, std::uint32_t t0, std::uint32_t e1 = 0, std::uint32_t a1 = 0,
+    std::uint32_t t1 = 0)
+{
+    std::uint32_t const effects[3] = {e0, e1, 0};
+    std::uint32_t const auras[3] = {a0, a1, 0};
+    std::uint32_t const targets[3] = {t0, t1, 0};
+    return SpellWorksOnTotem(effects, auras, targets, 3, false);
 }
 
 int main()
@@ -52,6 +63,17 @@ int main()
     CHECK(Works(true, 6, 22)); // a positive non-regen aura is not immune
     // No effects at all: left to the cast checks.
     CHECK(Works(false, 0, 0));
+    // Caster-centred area spells are not judged by the current target: a
+    // Demoralizing Shout (APPLY_AURA on enemies around the caster, target 22
+    // source + 15 enemies in area), Challenging Shout (taunt around the
+    // caster), Psychic Scream / Intimidating Shout (fear around the caster).
+    CHECK(WorksAt(6, 99, 15));
+    CHECK(WorksAt(114, 0, 15, 6, 0, 15));
+    CHECK(WorksAt(6, 7, 22));
+    // TARGET_UNIT (25) counts as the single unit target too: Hunter's Mark.
+    CHECK(!WorksAt(6, 26, 25));
+    // A spell with a single-target damage effect and an area aura works.
+    CHECK(WorksAt(2, 0, 6, 6, 33, 15));
 
     // Crowd control: a totem never; outside a run a mob's summoned pet or
     // skeleton stays a candidate; in a run only a kill_first summon is left out.

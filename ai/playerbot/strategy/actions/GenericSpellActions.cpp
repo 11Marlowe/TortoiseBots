@@ -396,8 +396,8 @@ bool CastSpellAction::isUseful()
         !sServerFacade.IsFriendlyTo(spellTarget, bot))
     {
         if (SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId))
-            if (!TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName, MAX_EFFECT_INDEX,
-                    info->IsPositiveSpell()))
+            if (!TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName,
+                    info->EffectImplicitTargetA, MAX_EFFECT_INDEX, info->IsPositiveSpell()))
                 return false;
     }
 

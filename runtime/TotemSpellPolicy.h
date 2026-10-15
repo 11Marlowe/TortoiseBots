@@ -23,8 +23,9 @@
 // weapon strikes, auto attack, auto shot, wands, PERSISTENT_AREA_AURA 27,
 // which the function does not list) is not immune by it; the creature's own
 // immunities (Creature::IsImmuneToSpellEffect) are the core's to answer.
-// A spell whose every effect is immune is not cast at a hostile totem
-// (CastSpellAction::isUseful); the bot falls through to its next action.
+// A spell whose every effect on its single unit target is immune is not cast
+// at a hostile totem (CastSpellAction::isUseful); the bot falls through to its
+// next action. Area spells around the caster or at a place are not judged.
 //
 // Numbers are the core's (SpellDefines.h, SpellAuraDefines.h), copied so this
 // stays standalone (tools/test_totem_spell_policy.cpp).
@@ -64,15 +65,27 @@ inline bool TotemImmuneToEffect(std::uint32_t effect, std::uint32_t auraName, bo
     return auraName == 24 || auraName == 8 || auraName == 62;
 }
 
-// True when the spell has an effect a hostile totem is not immune to (a spell
-// without effects is left to the cast checks).
-inline bool SpellWorksOnTotem(const std::uint32_t* effects, const std::uint32_t* auraNames, std::size_t count,
-    bool positiveSpell)
+// An effect aimed at the single unit target of the cast (EffectImplicitTargetA
+// TARGET_UNIT_ENEMY 6 or TARGET_UNIT 25), as opposed to the caster, an area
+// around it (Demoralizing Shout, Challenging Shout, Psychic Scream, Howl of
+// Terror, Intimidating Shout) or a place.
+inline bool SingleUnitTarget(std::uint32_t implicitTarget)
+{
+    return implicitTarget == 6 || implicitTarget == 25;
+}
+
+// True unless the spell's effects on its single unit target are all ones a
+// hostile totem is immune to. Only those effects are judged: a caster-centred
+// or ground area spell cast while a totem is the current target hits whatever
+// stands in its area and is left to the other checks, as is a spell without
+// effects on the target.
+inline bool SpellWorksOnTotem(const std::uint32_t* effects, const std::uint32_t* auraNames,
+    const std::uint32_t* implicitTargets, std::size_t count, bool positiveSpell)
 {
     bool any = false;
     for (std::size_t i = 0; i < count; ++i)
     {
-        if (effects[i] == 0)
+        if (effects[i] == 0 || !SingleUnitTarget(implicitTargets[i]))
             continue;
         any = true;
         if (!TotemImmuneToEffect(effects[i], auraNames[i], positiveSpell))

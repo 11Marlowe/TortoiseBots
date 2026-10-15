@@ -118,26 +118,30 @@ namespace ai
         // Plan-wide unit lists (ai_dungeon_plan columns, plan v1's fields of the
         // same names; creature entries, best first):
         std::vector<std::uint32_t> ccPriority; // what the run leader's crowd control takes in a pack
-        std::vector<std::uint32_t> ccAlways;   // ... in any pack it is in (also ranked after ccPriority)
+        std::vector<std::uint32_t> ccAlways;   // ... taken first whenever one is in the pack (ahead of ccPriority)
         std::vector<std::uint32_t> killFirst;  // killed first in a fight (the run leader focuses them)
 
         // An entry's crowd-control rank (0 best), or -1 when it is not to be
-        // crowd-controlled. cc_priority's order first, then cc_always entries
-        // it does not list.
+        // crowd-controlled: cc_always entries first, in their order (one of
+        // them is crowd-controlled whenever it is in the pack, whatever
+        // cc_priority unit stands beside it), then the cc_priority entries
+        // cc_always does not list. The run leader holds one Polymorph at a
+        // time (one mage), so the best-ranked unit present gets it.
         int CcRank(std::uint32_t entry) const
         {
-            for (std::size_t i = 0; i < ccPriority.size(); ++i)
-                if (ccPriority[i] == entry)
-                    return static_cast<int>(i);
             for (std::size_t i = 0; i < ccAlways.size(); ++i)
                 if (ccAlways[i] == entry)
-                    return static_cast<int>(ccPriority.size() + i);
+                    return static_cast<int>(i);
+            int rank = static_cast<int>(ccAlways.size());
+            for (std::uint32_t e : ccPriority)
+            {
+                if (std::find(ccAlways.begin(), ccAlways.end(), e) != ccAlways.end())
+                    continue;
+                if (e == entry)
+                    return rank;
+                ++rank;
+            }
             return -1;
-        }
-
-        bool CcAlways(std::uint32_t entry) const
-        {
-            return std::find(ccAlways.begin(), ccAlways.end(), entry) != ccAlways.end();
         }
 
         // An entry's kill-first rank (0 first), or -1.
