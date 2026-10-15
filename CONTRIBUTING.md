@@ -10,9 +10,10 @@ all welcome.
 issue  ->  your branch  ->  PR into dev (owner approves)  ->  dev into main (owner, release)
 ```
 
-1. **Every change has an issue.** Before a pull request, there is an issue
-   that documents the feature or the bug: what it does or what is broken, how
-   a player turns it on or sees it, and what it does not cover yet. Search the
+1. **Every change has an issue.** Before a pull request, there is a
+   **Feature spec** issue (what it does, how a player turns it on, its
+   default, what it does not cover) or a **Bug report**. A **Feature request**
+   is an idea; it becomes work once someone writes the spec for it. Search the
    existing issues first. A pull request without an issue is not merged.
 2. **Work on your own branch.** Collaborators use `pjerra/<topic>` style
    branches; everybody else works on a fork.
