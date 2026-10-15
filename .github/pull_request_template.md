@@ -23,6 +23,8 @@
       the project (see [`LICENSE`](https://github.com/Sagiroth/TortoiseBots/blob/main/LICENSE) and
       [`CONTRIBUTING.md`](https://github.com/Sagiroth/TortoiseBots/blob/main/CONTRIBUTING.md#licence-of-contributions)), and I
       have the right to do so.
-- [ ] Code copied or ported from another project keeps its original notice, is
-      AGPL-3.0 compatible, and is recorded in `docs/PROVENANCE.md` (or: no such
-      code).
+- [ ] Ported code (porting is welcome, e.g. from mod-playerbots): if this PR
+      copies or ports code from another project, it keeps the original
+      copyright/licence header, that licence is AGPL-3.0 compatible (for
+      example GPL-2.0-or-later or GPL-3.0), and the source repo + SHA are
+      recorded in `docs/PROVENANCE.md`. Tick this too if nothing was ported.
