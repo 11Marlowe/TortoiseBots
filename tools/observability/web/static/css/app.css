@@ -2762,3 +2762,282 @@ select.input {
     min-height: 38px;
   }
 }
+
+/* ---------- Commanders tab ---------- */
+.cmd-card { --role-tank: #2f80ff; --role-healer: #22c55e; --role-dps: #ff9f1c; --role-other: #bc8cff; --role-dead: #6b7280; margin-bottom: 16px; }
+.cmd-card.stale { opacity: 0.7; }
+.cmd-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.cmd-title { font-size: 1.05rem; font-weight: 650; color: #fff; margin: 0; overflow-wrap: anywhere; }
+.cmd-badges { display: flex; gap: 6px; }
+.cmd-sub { color: var(--text-muted); font-size: 0.8rem; margin: 2px 0 8px; }
+.cmd-sub b { color: var(--text-main); font-weight: 600; }
+.cmd-state { font-weight: 650; color: var(--text-main); }
+.cmd-state.s-fighting, .cmd-state.s-attacking, .cmd-state.s-pulling { color: var(--accent-red); }
+.cmd-state.s-moving { color: var(--accent-blue-bright); }
+.cmd-state.s-wiped { color: var(--accent-red); }
+.cmd-state.s-idle, .cmd-state.s-no-bots-reporting { color: var(--text-muted); font-weight: 500; }
+.cmd-warn { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+.cmd-pill { display: inline-flex; align-items: baseline; gap: 5px; padding: 2px 9px; border-radius: 999px; font-size: 0.78rem; border: 1px solid var(--border-color); color: var(--text-muted); }
+.cmd-pill.warn { color: var(--accent-yellow); border-color: var(--accent-yellow); background: rgba(210, 153, 34, 0.12); }
+.cmd-pill.bad { color: #fff; border-color: var(--accent-red); background: rgba(248, 81, 73, 0.25); }
+.cmd-pill.ok { color: var(--accent-green-bright); border-color: rgba(63, 185, 80, 0.4); }
+.cmd-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, 1fr); gap: 16px; }
+@media (max-width: 1000px) { .cmd-body { grid-template-columns: minmax(0, 1fr); } }
+.cmd-h { color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; margin: 14px 0 4px; font-weight: 600; }
+.cmd-row { display: grid; grid-template-columns: 28px minmax(130px, 1.5fr) minmax(96px, 1fr) minmax(96px, 1fr) 76px; gap: 4px 10px; align-items: center; padding: 5px 0; border-top: 1px solid var(--border-color); font-size: 0.86rem; }
+.cmd-row-head { border-top: 0; padding: 0 0 3px; color: var(--text-dim); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.cmd-who { min-width: 0; overflow-wrap: anywhere; }
+.cmd-who b { font-weight: 600; }
+.cmd-row.dead .cmd-who { color: var(--text-dim); text-decoration: line-through; }
+.cmd-dist { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.cmd-card .muted { color: var(--text-muted); }
+.cmd-flag { color: var(--accent-yellow); font-weight: 600; }
+.cmd-deadtxt { color: var(--accent-red); font-weight: 600; }
+.cmd-role { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 6px; color: var(--role-other); background: rgba(188, 140, 255, 0.14); }
+.cmd-role svg { width: 15px; height: 15px; }
+.cmd-role.tank { color: var(--role-tank); background: rgba(47, 128, 255, 0.16); }
+.cmd-role.healer { color: var(--role-healer); background: rgba(34, 197, 94, 0.16); }
+.cmd-role.dps { color: var(--role-dps); background: rgba(255, 159, 28, 0.16); }
+.cmd-role.dead { color: var(--role-dead); background: rgba(107, 114, 128, 0.16); }
+.cmd-meter { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cmd-meter em { font-style: normal; font-size: 0.74rem; color: var(--text-muted); min-width: 2.6em; font-variant-numeric: tabular-nums; }
+.cmd-bar { flex: 1 1 auto; min-width: 40px; max-width: 120px; height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 4px; overflow: hidden; }
+.cmd-bar i { display: block; height: 100%; background: var(--accent-green-bright); }
+.cmd-bar.low i { background: var(--accent-red); }
+.cmd-bar.mana i { background: var(--accent-blue-bright); }
+.cmd-bar.rage i { background: var(--accent-red); }
+.cmd-bar.energy i { background: var(--accent-yellow); }
+@media (max-width: 640px) {
+  .cmd-row { grid-template-columns: 28px minmax(0, 1fr) auto; grid-template-areas: "role who dist" ". hp hp" ". pw pw"; }
+  .cmd-row > :nth-child(1) { grid-area: role; }
+  .cmd-row > :nth-child(2) { grid-area: who; }
+  .cmd-row > :nth-child(3) { grid-area: hp; }
+  .cmd-row > :nth-child(4) { grid-area: pw; }
+  .cmd-row > :nth-child(5) { grid-area: dist; }
+  .cmd-row-head { display: none; }
+  .cmd-bar { max-width: none; }
+}
+.cmd-orders { display: grid; gap: 1px; font-size: 0.82rem; }
+.cmd-order { display: grid; grid-template-columns: 1.2em minmax(0, 1fr) auto; gap: 6px; align-items: baseline; padding: 2px 0; }
+.cmd-order .txt { overflow-wrap: anywhere; }
+.cmd-order.ok .mark { color: var(--accent-green-bright); }
+.cmd-order.err .mark, .cmd-order.err .txt { color: var(--accent-red); }
+.cmd-order .when { color: var(--text-dim); font-size: 0.74rem; white-space: nowrap; }
+.cmd-stage { position: relative; height: 320px; background: var(--bg-card-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-sm); overflow: hidden; touch-action: none; user-select: none; }
+@media (max-width: 640px) { .cmd-stage { height: 260px; } }
+.cmd-map { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.cmd-map:active { cursor: grabbing; }
+.cmd-map .grid { stroke: rgba(255, 255, 255, 0.07); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cmd-map rect.zone { fill: rgba(88, 166, 255, 0.04); stroke: rgba(88, 166, 255, 0.45); stroke-width: 1.5; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.cmd-map text.zone { fill: rgba(139, 148, 158, 0.9); font-weight: 600; }
+.cmd-map .trail { fill: none; stroke: #fff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.cmd-map .dot { stroke: #fff; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.cmd-map .bot.tank .dot { fill: var(--role-tank); }
+.cmd-map .bot.healer .dot { fill: var(--role-healer); }
+.cmd-map .bot.dps .dot { fill: var(--role-dps); }
+.cmd-map .bot.other .dot { fill: var(--role-other); }
+.cmd-map .bot.dead .dot { fill: var(--role-dead); stroke: rgba(255, 255, 255, 0.4); }
+.cmd-map .bot.dead text { fill: var(--text-dim); }
+.cmd-map .leadring { fill: none; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.cmd-map .bot text { fill: #fff; font-weight: 600; paint-order: stroke; stroke: #000; stroke-linejoin: round; }
+.cmd-maptools { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.cmd-maptools button { min-width: 34px; height: 32px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(14, 19, 27, 0.85); color: var(--text-main); font: inherit; cursor: pointer; }
+.cmd-maptools button.on { background: var(--accent-blue); border-color: var(--accent-blue); color: #fff; }
+.cmd-grid-size { position: absolute; left: 8px; bottom: 6px; font-size: 0.7rem; color: var(--text-dim); pointer-events: none; }
+.cmd-mapnote { position: absolute; left: 0; right: 0; top: 0; padding: 3px 10px; font-size: 0.74rem; color: var(--accent-yellow); pointer-events: none; }
+.cmd-mapnote:empty { display: none; }
+.cmd-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 0.74rem; color: var(--text-muted); }
+.cmd-legend i { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; border: 1.5px solid #fff; }
+.cmd-legend i.tank { background: #2f80ff; } .cmd-legend i.healer { background: #22c55e; } .cmd-legend i.dps { background: #ff9f1c; } .cmd-legend i.dead { background: #6b7280; }
+.cmd-legend i.lead { background: transparent; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35); }
+.cmd-legend i.trail { width: 16px; height: 3px; border: 0; border-radius: 2px; background: #fff; }
+.cmd-empty { text-align: left; }
+.cmd-empty-title { font-size: 1rem; margin: 0 0 6px; }
+.cmd-empty .empty-hint { margin: 4px 0; }
+.cmd-external summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.cmd-frame { width: 100%; height: 78vh; min-height: 480px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-card-subtle); display: block; margin-top: 8px; }
+/* Commanders maps: the real game-map picture, the layers panel and the layers' own marks */
+.cmd-map image.bg { filter: brightness(var(--bgb, 0.7)); }
+.cmd-map text.zone2 { fill: rgba(139, 148, 158, 0.7); font-weight: 600; }
+.cmd-map rect.zone2 { fill: none; stroke: rgba(139, 148, 158, 0.35); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+.cmd-map .range { fill: rgba(34, 197, 94, 0.07); stroke: var(--role-healer, #22c55e); stroke-width: 1.5; stroke-dasharray: 7 5; vector-effect: non-scaling-stroke; }
+.cmd-map polygon.heading { fill: #fff; stroke: #000; stroke-width: 1.2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.cmd-map .stamp circle { fill: #fff; stroke: #000; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cmd-map .stamp text { fill: #fff; font-weight: 600; paint-order: stroke; stroke: #000; stroke-linejoin: round; }
+.cmd-maptools select { height: 32px; max-width: 120px; border-radius: 6px; border: 1px solid var(--border-color); background: rgba(14, 19, 27, 0.85); color: var(--text-main); font: inherit; }
+.cmd-maptools select[hidden] { display: none; }
+.cmd-scale { position: absolute; right: 8px; bottom: 6px; display: flex; flex-direction: column; align-items: flex-end; font-size: 0.7rem; color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; pointer-events: none; }
+.cmd-scale[hidden] { display: none; }
+.cmd-scale i { display: block; height: 5px; border: 2px solid #fff; border-top: 0; box-shadow: 0 1px 2px #000; }
+.cmd-legend i.heading { width: 0; height: 0; border: 0; border-radius: 0; border-style: solid; border-width: 5px 0 5px 11px; border-color: transparent transparent transparent #fff; background: none; }
+.cmd-legend i.ring { background: rgba(34, 197, 94, 0.15); border: 1.5px dashed #22c55e; }
+.cmd-layers { margin-bottom: 12px; }
+.cmd-layers summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.cmd-layers-body { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px 18px; margin: 8px 0; }
+.cmd-lgroup h4 { margin: 0 0 4px; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.cmd-lrow { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 8px; align-items: center; min-height: 36px; padding: 2px 0; cursor: pointer; font-size: 0.86rem; }
+.cmd-lrow input { width: 18px; height: 18px; margin: 0; }
+.cmd-lrow em { grid-column: 2; font-style: normal; font-size: 0.72rem; color: var(--text-dim); }
+.cmd-lrow em:empty { display: none; }
+.cmd-lrow.off { opacity: 0.55; cursor: default; }
+.cmd-botlink { color: inherit; text-decoration: none; cursor: pointer; border-bottom: 1px dotted var(--text-dim); }
+.cmd-botlink:hover, .cmd-botlink:focus-visible { color: var(--accent-blue-bright); border-bottom-color: currentColor; }
+.cmd-map g.bot[data-guid] { cursor: pointer; }
+.cmd-map g.bot[data-guid]:hover .dot { stroke-width: 3; }
+.cmd-map g.bot[data-guid]:hover text { fill: var(--accent-blue-bright); }
+
+/* Commanders maps: dim slider, mobs, threat and target lines, the commander, the paused-follow chip */
+.cmd-dim { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 0.84rem; }
+.cmd-dim input { flex: 0 1 220px; }
+.cmd-dim b { min-width: 3em; font-variant-numeric: tabular-nums; }
+.cmd-dim.off { opacity: 0.45; }
+.cmd-map line.threat { stroke: #ef4444; stroke-width: 1.5; opacity: 0.85; vector-effect: non-scaling-stroke; }
+.cmd-map line.bottarget { stroke: #58a6ff; stroke-width: 1.5; stroke-dasharray: 4 3; opacity: 0.9; vector-effect: non-scaling-stroke; }
+.cmd-map circle.aggro { fill: rgba(239, 68, 68, 0.06); stroke: #ef4444; }
+.cmd-map line.cmdline { stroke: #facc15; stroke-width: 1.2; stroke-dasharray: 2 5; opacity: 0.9; vector-effect: non-scaling-stroke; }
+.cmd-map .cmdr polygon { fill: #facc15; stroke: #000; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cmd-map .cmdr text { fill: #facc15; font-weight: 600; paint-order: stroke; stroke: #000; stroke-linejoin: round; }
+.cmd-legend i.mobh, .cmd-legend i.mobn, .cmd-legend i.mobc { border-color: #000; }
+.cmd-legend i.mobh { background: #ef4444; } .cmd-legend i.mobn { background: #9ca3af; } .cmd-legend i.mobc { background: #a8a29e; width: 8px; height: 8px; }
+.cmd-legend i.lthreat, .cmd-legend i.ltarget { width: 16px; height: 0; border: 0; border-radius: 0; border-top: 2px solid #ef4444; vertical-align: 3px; }
+.cmd-legend i.ltarget { border-top: 2px dashed #58a6ff; }
+.cmd-legend i.cmdr { width: 9px; height: 9px; border: 1px solid #000; border-radius: 0; background: #facc15; transform: rotate(45deg); }
+.cmd-legend i.aggro { background: rgba(239, 68, 68, 0.1); border: 1.5px dashed #ef4444; }
+.cmd-resume { position: absolute; left: 8px; top: 8px; height: 28px; padding: 0 10px; border-radius: 14px; border: 1px solid var(--accent-blue); background: rgba(14, 19, 27, 0.9); color: var(--text-main); font: inherit; font-size: 0.78rem; cursor: pointer; }
+.cmd-resume[hidden] { display: none; }
+
+/* Commanders tab: what each character does, the unit box, bosses, health bars, status icons, threat colours, events, run line. */
+.cmd-doing { display: block; font-size: 0.74rem; color: var(--text-muted); font-weight: 500; line-height: 1.25; text-decoration: none; }
+.cmd-doing.ic-fight, .cmd-doing.ic-cast { color: var(--accent-red); }
+.cmd-doing.ic-cc { color: var(--accent-yellow); }
+.cmd-doing.ic-rest { color: var(--accent-blue-bright); }
+.cmd-doing.ic-dead { color: var(--text-dim); }
+.cmd-row.dead .cmd-doing { text-decoration: none; }
+.cmd-run { color: var(--text-main); font-size: 0.8rem; font-weight: 600; margin: -4px 0 8px; font-variant-numeric: tabular-nums; }
+.cmd-run[hidden], .cmd-feed[hidden], .cmd-tip[hidden] { display: none; }
+.cmd-feed { margin-top: 6px; padding: 4px 8px; max-height: 8.6em; overflow: auto; background: var(--bg-card-subtle); border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-size: 0.76rem; }
+.cmd-feed .ev { display: grid; grid-template-columns: 4.6em minmax(0, 1fr); gap: 6px; padding: 1px 0; }
+.cmd-feed .ev b { color: var(--text-dim); font-weight: 500; font-variant-numeric: tabular-nums; }
+.cmd-feed .ev span { overflow-wrap: anywhere; }
+.cmd-feed .ev-death span, .cmd-feed .ev-wipe span { color: var(--accent-red); }
+.cmd-feed .ev-boss span { color: #facc15; font-weight: 600; }
+.cmd-feed .ev-open span, .cmd-feed .ev-loot span { color: var(--accent-blue-bright); }
+
+.cmd-tip { position: absolute; z-index: 5; min-width: 150px; max-width: min(260px, calc(100% - 8px)); padding: 7px 9px; border-radius: 8px; background: rgba(14, 19, 27, 0.96); border: 1px solid var(--border-color); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); color: var(--text-main); font-size: 0.78rem; line-height: 1.3; pointer-events: none; }
+.cmd-tip .tt-head { display: flex; flex-direction: column; margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid var(--border-color); }
+.cmd-tip .tt-head b { font-size: 0.9rem; font-weight: 650; overflow-wrap: anywhere; }
+.cmd-tip .tt-head span { color: var(--text-muted); font-size: 0.72rem; }
+.cmd-tip .tt-head span:empty { display: none; }
+.cmd-tip .tt-row { display: grid; grid-template-columns: 6.6em minmax(0, 1fr); gap: 6px; padding: 1px 0; }
+.cmd-tip .tt-row > span:first-child { color: var(--text-dim); }
+.cmd-tip .tt-row > span:last-child { overflow-wrap: anywhere; }
+.cmd-tip.tone-hostile { border-color: rgba(239, 68, 68, 0.7); }
+.cmd-tip.tone-boss { border-color: #facc15; }
+.cmd-tip.tone-boss .tt-head b { color: #facc15; }
+.cmd-tip.tone-friendly { border-color: rgba(34, 197, 94, 0.6); }
+.cmd-tip.tone-dead .tt-head b { color: var(--text-dim); }
+.cmd-tip.tone-commander { border-color: #facc15; }
+
+.cmd-map .hit { fill: transparent; stroke: none; pointer-events: all; }
+.cmd-map .mob circle.body { stroke: #000; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.cmd-map .mob.hostile circle.body { fill: #ef4444; }
+.cmd-map .mob.neutral circle.body { fill: #9ca3af; }
+.cmd-map .mob.critter circle.body { fill: #a8a29e; stroke: rgba(0, 0, 0, 0.5); }
+.cmd-map .mob.boss circle.body { stroke: #facc15; stroke-width: 2; }
+.cmd-map text.mname { fill: #fecaca; font-weight: 600; paint-order: stroke; stroke: #000; stroke-linejoin: round; pointer-events: none; }
+.cmd-map text.mname.boss { fill: #facc15; font-weight: 700; }
+.cmd-map .bot text, .cmd-map .cmdr text { pointer-events: none; }
+.cmd-map circle.tring { fill: none; stroke-width: 2.4; vector-effect: non-scaling-stroke; }
+.cmd-map circle.tring.tank { stroke: #2f80ff; }
+.cmd-map circle.tring.other { stroke: #ef4444; }
+.cmd-map circle.ttarget { fill: none; stroke: #fff; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.cmd-map circle.tpull { fill: none; stroke: #facc15; stroke-width: 1.6; stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; }
+.cmd-map .hpbar rect.bg { fill: rgba(0, 0, 0, 0.7); }
+.cmd-map .hpbar.good rect.fg { fill: #22c55e; }
+.cmd-map .hpbar.mid rect.fg { fill: #facc15; }
+.cmd-map .hpbar.low rect.fg { fill: #ef4444; }
+.cmd-map .hpbar.mob rect.fg { fill: #f87171; }
+.cmd-map .ic { pointer-events: none; fill: #fff; stroke: none; }
+.cmd-map .ic .bgd { fill: rgba(10, 14, 20, 0.82); stroke: rgba(255, 255, 255, 0.35); stroke-width: 0.6; }
+.cmd-map .ic .eye { fill: #0b0f14; }
+.cmd-map .ic .ln, .cmd-map .ic .ring { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.cmd-map .ic .eyeln { stroke: #0b0f14; }
+.cmd-map .ic .head { fill: #d1d5db; }
+.cmd-map .ic .leg { fill: none; stroke: #d1d5db; stroke-width: 1; }
+.cmd-map .ic-skull { fill: #e5e7eb; } .cmd-map .ic-spark { fill: #facc15; } .cmd-map .ic-sheep { fill: #f9a8d4; }
+.cmd-map .ic-stun, .cmd-map .ic-arrow, .cmd-map .ic-root, .cmd-map .ic-cup { fill: #7dd3fc; color: #7dd3fc; }
+.cmd-map .ic-stun, .cmd-map .ic-arrow { color: #fb923c; } .cmd-map .ic-root { color: #86efac; }
+.cmd-map .ic-crown { fill: #facc15; } .cmd-map .ic-door { fill: #93c5fd; } .cmd-map .ic-coin { fill: #fcd34d; }
+.cmd-map .ic.crownmark .bgd { fill: rgba(127, 29, 29, 0.0); stroke: none; }
+.cmd-map .evpin .ic-skull .bgd { stroke: #ef4444; stroke-width: 1.2; }
+.cmd-map .evpin .ic-crown .bgd { stroke: #facc15; stroke-width: 1.2; }
+.cmd-map g.evpin, .cmd-map g.mob, .cmd-map g.cmdr { cursor: help; }
+
+.cmd-legend svg { width: 14px; height: 14px; vertical-align: -3px; margin-left: 3px; fill: #fff; background: rgba(10, 14, 20, 0.82); border-radius: 50%; }
+.cmd-legend svg .eye { fill: #0b0f14; }
+.cmd-legend svg .ln, .cmd-legend svg .ring { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.cmd-legend svg .eyeln { stroke: #0b0f14; } .cmd-legend svg .head { fill: #d1d5db; } .cmd-legend svg .leg { fill: none; stroke: #d1d5db; }
+.cmd-legend svg.ic-skull { fill: #e5e7eb; } .cmd-legend svg.ic-spark { fill: #facc15; } .cmd-legend svg.ic-sheep { fill: #f9a8d4; }
+.cmd-legend svg.ic-cup { fill: #7dd3fc; color: #7dd3fc; } .cmd-legend svg.ic-arrow { color: #fb923c; } .cmd-legend svg.ic-crown { fill: #facc15; }
+.cmd-legend svg.ic-door { fill: #93c5fd; } .cmd-legend svg.ic-coin { fill: #fcd34d; }
+.cmd-legend i.lboss { background: #ef4444; border-color: #facc15; width: 14px; height: 14px; }
+.cmd-legend i.lhp { width: 16px; height: 4px; border: 0; border-radius: 2px; background: linear-gradient(90deg, #22c55e 65%, rgba(0, 0, 0, 0.7) 65%); vertical-align: 2px; }
+.cmd-legend i.tc-tank, .cmd-legend i.tc-other { background: #9ca3af; border-width: 2.5px; }
+.cmd-legend i.tc-tank { border-color: #2f80ff; } .cmd-legend i.tc-other { border-color: #ef4444; }
+.cmd-legend i.tc-target { background: transparent; border-color: #fff; box-shadow: 0 0 0 1.5px #ef4444 inset; }
+.cmd-legend i.tc-pull { background: transparent; border: 1.5px dashed #facc15; }
+
+.cmd-runstep { color: var(--text-main); font-weight: 600; }
+.cmd-runstep.paused { color: var(--accent-yellow); }
+.cmd-state.s-run-paused { color: var(--accent-yellow); }
+
+/* Commanders maps: paths of the group, run steps, stall spots, objects, heal and crowd-control lines, and the line styles in the layers panel */
+.cmd-map .mtrail { fill: none; stroke: #9ca3af; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.cmd-map .mtrail.tank { stroke: var(--role-tank, #2f80ff); } .cmd-map .mtrail.healer { stroke: var(--role-healer, #22c55e); }
+.cmd-map .mtrail.dps { stroke: var(--role-dps, #ff9f1c); } .cmd-map .mtrail.other { stroke: var(--role-other, #9ca3af); } .cmd-map .mtrail.dead { stroke: var(--role-dead, #6b7280); }
+.cmd-map .route { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.cmd-map .route.done { stroke: #94a3b8; stroke-dasharray: 3 6; }
+.cmd-map .route.ahead { stroke: #38bdf8; stroke-dasharray: 8 5; }
+.cmd-map .route.toward { stroke: #facc15; stroke-dasharray: 2 4; }
+.cmd-map .rstep .stepdot { fill: rgba(14, 19, 27, 0.88); stroke: #38bdf8; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+.cmd-map .rstep.cleared .stepdot { stroke: #4ade80; opacity: 0.6; }
+.cmd-map .rstep.next .stepdot { stroke: #facc15; stroke-width: 2.8; fill: rgba(250, 204, 21, 0.2); }
+.cmd-map .rstep.skipped .stepdot { stroke: #6b7280; opacity: 0.75; }
+.cmd-map .rstep .stepnum { fill: #fff; text-anchor: middle; font-weight: 700; pointer-events: none; }
+.cmd-map .rstep.cleared .stepnum { fill: #86efac; } .cmd-map .rstep.skipped .stepnum { fill: #9ca3af; }
+.cmd-map .rstep .stepskip { stroke: #ef4444; stroke-width: 1.8; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.cmd-map .rstep .steparea { fill: rgba(250, 204, 21, 0.06); stroke: #facc15; stroke-width: 1.2; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; pointer-events: none; }
+.cmd-map .rstep .stepmove { fill: #38bdf8; stroke: #000; stroke-width: 0.8; vector-effect: non-scaling-stroke; }
+.cmd-map .rstep.cleared .stepmove { fill: #64748b; } .cmd-map .rstep.next .stepmove { fill: #facc15; }
+.cmd-map .rstep.cleared .ic, .cmd-map .rstep.skipped .ic { opacity: 0.55; }
+.cmd-map text.stepname { fill: #fde68a; font-weight: 600; paint-order: stroke; stroke: #000; stroke-linejoin: round; pointer-events: none; }
+.cmd-map g.rstep, .cmd-map g.stall, .cmd-map g.obj { cursor: help; }
+.cmd-map .stall .xcase { fill: none; stroke: #000; stroke-width: 5.5; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.cmd-map .stall .xmark { fill: none; stroke: #ef4444; stroke-width: 2.8; stroke-linecap: round; vector-effect: non-scaling-stroke; pointer-events: none; }
+.cmd-map .stall:not(.live) .xmark { stroke: #f87171; opacity: 0.8; }
+.cmd-map text.stalltext { fill: #fecaca; font-weight: 600; paint-order: stroke; stroke: #000; stroke-linejoin: round; pointer-events: none; }
+.cmd-map .obj.st-u .ic { opacity: 0.55; }
+.cmd-map .obj.st-a .ic .bgd { stroke: #4ade80; stroke-width: 1.4; }
+.cmd-map .ic-chest { fill: #fbbf24; } .cmd-map .ic-stop { fill: #94a3b8; }
+.cmd-map .ic-lever { fill: #c4b5fd; color: #c4b5fd; } .cmd-map .ic-gong { fill: #fdba74; color: #fdba74; }
+.cmd-map line.healline { stroke: #4ade80; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
+.cmd-map line.ccline { stroke: #c084fc; stroke-width: 1.6; stroke-dasharray: 5 3; vector-effect: non-scaling-stroke; }
+.cmd-legend i.mtrail { width: 16px; height: 2px; border: 0; border-radius: 2px; background: linear-gradient(90deg, #2f80ff 33%, #22c55e 33% 66%, #ff9f1c 66%); vertical-align: 3px; }
+.cmd-legend i.route { width: 16px; height: 0; border: 0; border-radius: 0; border-top: 2px dashed #38bdf8; vertical-align: 3px; }
+.cmd-legend i.lstep { width: 12px; height: 12px; background: rgba(14, 19, 27, 0.88); border: 2px solid #38bdf8; }
+.cmd-legend i.lheal, .cmd-legend i.lcc { width: 16px; height: 0; border: 0; border-radius: 0; border-top: 2px solid #4ade80; vertical-align: 3px; }
+.cmd-legend i.lcc { border-top: 2px dashed #c084fc; }
+.cmd-legend svg.ic-x { fill: none; stroke: #ef4444; stroke-width: 2; stroke-linecap: round; }
+.cmd-legend svg.ic-chest { fill: #fbbf24; } .cmd-legend svg.ic-lever { fill: #c4b5fd; color: #c4b5fd; } .cmd-legend svg.ic-gong { fill: #fdba74; color: #fdba74; }
+.cmd-lstyle { display: grid; gap: 0; margin: 0 0 6px 30px; font-size: 0.74rem; color: var(--text-muted); }
+.cmd-lstyle[hidden] { display: none; }
+.cmd-lstyle label { display: grid; grid-template-columns: 5.4em minmax(0, 1fr) 3.2em; align-items: center; gap: 6px; min-height: 30px; }
+.cmd-lstyle input[type="range"] { width: 100%; min-width: 0; height: 28px; margin: 0; }
+.cmd-lstyle b { font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
+
+/* Demo map (simulated group) */
+.cmd-demo-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-bottom: 12px; padding: 10px 16px; }
+.cmd-demo-switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-weight: 600; }
+.cmd-demo-bar .empty-hint { margin: 0; }
+.cmd-demo-note { margin-left: auto; }
+.cmd-card.cmd-demo { border: 1px dashed var(--accent-amber, #d29922); }

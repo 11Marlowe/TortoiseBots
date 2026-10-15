@@ -5,6 +5,31 @@
 
 using namespace ai;
 
+bool ai::PriestPackLoose(PlayerbotAI* ai)
+{
+    Player* bot = ai->GetBot();
+    if (!bot || !bot->GetGroup())
+        return false;
+
+    // Attackers whose victim is not a tank (a pet, a healer, a DPS).
+    uint32 offTank = 0;
+    for (ObjectGuid const& guid : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get())
+    {
+        Unit* attacker = ai->GetUnit(guid);
+        if (!attacker || !attacker->IsAlive())
+            continue;
+        Unit* victim = attacker->GetVictim();
+        if (!victim)
+            continue;
+        Player* victimPlayer = victim->IsPlayer() ? static_cast<Player*>(victim) : nullptr;
+        if (victimPlayer && PlayerbotAI::IsTank(victimPlayer))
+            continue;
+        if (++offTank >= 2)
+            return true;
+    }
+    return false;
+}
+
 bool InnerFireTrigger::IsActive()
 {
     return BuffTrigger::IsActive();
@@ -145,7 +170,15 @@ bool PriestWandBlocksCastTrigger::IsActive()
         }
     }
 
-    // Priests have no raid "has aggro -> shoot" row.
-    WandState const state{true, bestNuke, false, NoManaRowActive(), bestHeal};
+    // Priests have no raid "has aggro -> shoot" row. Near the tank's threat
+    // the "threat" multiplier vetoes the nukes (Smite falls back to the
+    // wand); heals are never threat-gated, so a wanted heal still stops it.
+    bool const nukeThreatVetoed = bestNuke != WandSpellProbe::Blocked && ThreatVetoesNuke();
+    WandState state{true, bestNuke, false, NoManaRowActive(), bestHeal, nukeThreatVetoed};
+    // A healer stops its wand as soon as the wand is no longer allowed
+    // (HealerMayWand): somebody needs a heal, or the mob left the party.
+    // The heal probes above only see heals below "medium health" or a
+    // missing Renew, and a wand renews the GCD that every heal row needs.
+    state.healerMustStop = healerSpec && !HealerWandAllowed(ai, target);
     return ShouldStopWandToCast(state);
 }

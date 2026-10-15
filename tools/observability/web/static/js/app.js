@@ -8,6 +8,7 @@
 //   Map       where are they?             Progress  are they levelling?
 //   Activity  what happened?              Issues    what is broken?
 //   Server    how is it configured?
+//   Commanders  who leads which bots, and what did they order?
 // A bot's detail lives in ONE slide-over profile that any tab can open; the
 // URL hash (#/bots?bot=123&p=gear) records the tab and the open profile.
 (function() {
@@ -47,6 +48,8 @@
     anomalyTotals: null,
     grinding: { bots_tracked: 0, bots_gaining_xp: 0, pct_gaining_xp: 0, median_xp_hour: 0, total_xp_hour: 0, deaths_per_min: 0, pct_died_5min: 0, state_counts: {}, level_bands: [] },
     serverInfo: null,
+    // Remote-commander bindings reported by the module (COMMANDERS datagrams).
+    commanders: { list: [], fresh: false, updatedAt: 0, freshAt: 0, reportedAt: 0, lost: false, externalUrl: '' },
     server: {
       online: false,
       stale: true,
@@ -747,6 +750,7 @@
     overview: { hash: 'overview', title: 'Overview' },
     roster: { hash: 'bots', title: 'Bots' },
     map: { hash: 'map', title: 'Map' },
+    commanders: { hash: 'commanders', title: 'Commanders' },
     progress: { hash: 'progress', title: 'Progress' },
     activity: { hash: 'activity', title: 'Activity' },
     auctions: { hash: 'auctions', title: 'Auction House' },
@@ -774,7 +778,7 @@
     const [path, query] = window.location.hash.replace(/^#\/?/, '').split('?');
     const q = new URLSearchParams(query || '');
     const bot = parseInt(q.get('bot'), 10);
-    return { tab: HASH_TO_TAB[path] || null, bot: Number.isFinite(bot) ? bot : null, ptab: q.get('p') };
+    return { tab: HASH_TO_TAB[path] || null, bot: Number.isFinite(bot) ? bot : null, ptab: q.get('p'), demo: q.get('demo') === '1' };
   }
 
   function routeHash(r) {
@@ -809,6 +813,7 @@
     const tab = r.tab || state.activeTab;
     if (tab !== state.activeTab || !routeApplied) showTab(tab);
     routeApplied = true;
+    if (r.demo && tab === 'commanders') setCmdDemo(true, true); // #/commanders?demo=1
     if (r.bot !== null) {
       state.profileTab = PROFILE_TABS.includes(r.ptab) ? r.ptab : 'overview';
       showProfile(r.bot);
@@ -830,12 +835,22 @@
   function renderTab(tab) {
     if (tab === 'overview') { renderOverviewCharts(); renderStates(); renderAttention(); }
     else if (tab === 'map') renderMap();
+    else if (tab === 'commanders') renderCommanders();
     else if (tab === 'roster') renderBotsTab();
     else if (tab === 'progress') renderProgress();
     else if (tab === 'activity') renderActivityTab();
     else if (tab === 'auctions') renderAuctions();
     else if (tab === 'issues') { renderIssues(); renderAnomalies(); }
     else if (tab === 'server') renderServerPanel();
+  }
+
+  // The Commanders tab belongs to the remote commander: shown only while the server runs AiPlayerbot.RemoteCommander = 1.
+  function applyCommanderTabFlag() {
+    const bots = state.serverInfo && state.serverInfo.bots;
+    const on = !!bots && bots.remote_commander === '1';
+    const item = document.querySelector('.menu-item[data-tab="commanders"]');
+    if (item) item.style.display = on ? '' : 'none';
+    if (!on && state.activeTab === 'commanders') go({ tab: 'overview' }, { replace: true });
   }
 
   function showTab(tab) {
@@ -851,6 +866,7 @@
     if (tab === 'activity') fetchFeed();
     if (tab === 'auctions') fetchAuctions();
     if (tab === 'issues') fetchAnomalyTotals();
+    if (tab === 'commanders') fetchCommanders();
   }
 
   el.menuItems.forEach(item => item.addEventListener('click', closeNavDrawer));
@@ -898,6 +914,7 @@
       fetchIssues(true);
       fetchActivity();
       fetchRoster();
+      fetchCommanders();
       if (state.activeTab === 'activity') fetchFeed();
       if (state.profileGuid !== null) fetchProfile(state.profileGuid);
     });
@@ -1062,6 +1079,7 @@
         ZONE_CONFIG = cfg;
         populateZoneSelect(el.zoneFilterInput ? el.zoneFilterInput.value : '');
         loadZoneMap(state.currentZoneId);
+        if (state.activeTab === 'commanders') renderCommanders();
       })
       .catch(() => {});
 
@@ -1086,6 +1104,7 @@
           EXTRA_ZONE_NAMES = cfg;
           if (state.activeTab === 'map') renderMap();
           if (state.activeTab === 'overview') renderAttention();
+          if (state.activeTab === 'commanders') renderCommanders();
         }
       })
       .catch(() => {});
@@ -1249,6 +1268,7 @@
         if (cfg && Object.keys(cfg).length > 0) {
           ZONE_BOUNDS = cfg;
           if (state.mapView === 'world') renderMap();
+          if (state.activeTab === 'commanders') renderCommanders();
         }
       })
       .catch(() => {});
@@ -1768,6 +1788,7 @@
     'AiPlayerbot.RandomBotGroupNearby': 'Pool bots invite nearby bots into groups. Off by default: bot-only groups slow the pool down.',
     'AiPlayerbot.RandomBotRaidNearby': 'Pool bots invite nearby bots into raids.',
     'AiPlayerbot.RandomBotInvitePlayer': 'Pool bots may invite real players to groups (turn on Do Not Disturb to avoid it).',
+    'AiPlayerbot.RemoteCommander': 'Lets a GM, or a player who owns every bot in it, lead a bot-only party from anywhere with .bot commander / .bot cmd. Also shows the Commanders tab. Off by default.',
     'AiPlayerbot.RandomBotTimedLogout': 'Pool bots log out after their time in world and others log in, so the online set rotates.',
     'AiPlayerbot.ForceActiveWhenNearPlayer': 'Bots near a player always run at full activity.',
     'AiPlayerbot.LimitCombatActivity': 'Reduces bot combat thinking for a small performance gain.',
@@ -1846,6 +1867,7 @@
           ['Raid nearby', flagBadge(bots.raid_nearby), cfg('RandomBotRaidNearby')],
           ['Invite player', flagBadge(bots.invite_player), cfg('RandomBotInvitePlayer')],
           ['Timed logout', flagBadge(bots.timed_logout), cfg('RandomBotTimedLogout')],
+          ['Remote commander', flagBadge(bots.remote_commander), cfg('RemoteCommander')],
           ['Force active near', flagBadge(bots.force_active_near), cfg('ForceActiveWhenNearPlayer')],
           ['Limit combat', flagBadge(bots.limit_combat), cfg('LimitCombatActivity')],
           ['Auto quests', flagBadge(bots.auto_do_quests), cfg('AutoDoQuests')]
@@ -4414,7 +4436,7 @@
       if (!r.ok) return null;
       return r.json();
     }).then(info => {
-      if (info && !info.error) { state.serverInfo = info; renderServerPanel(); }
+      if (info && !info.error) { state.serverInfo = info; renderServerPanel(); applyCommanderTabFlag(); }
     }).catch(() => {});
   }
 
@@ -4488,7 +4510,7 @@
       const prevCount = state.bots.length;
       state.bots = Array.isArray(data.bots) ? data.bots : [];
       if (data.grinding) state.grinding = data.grinding;
-      if (data.info) { state.serverInfo = data.info; renderServerPanel(); }
+      if (data.info) { state.serverInfo = data.info; renderServerPanel(); applyCommanderTabFlag(); }
       state.lastSnapshotAt = Date.now();
       applyServerStatus(data.server);
       applyIssues(data.issues);
@@ -4524,6 +4546,8 @@
     } else if (msg.event === 'status') {
       applyServerStatus(msg.data);
       updateOverviewMetrics();
+    } else if (msg.event === 'commanders') {
+      applyCommanders(msg.data);
     } else if (msg.event === 'server_info') {
       if (msg.data) { state.serverInfo = msg.data; renderServerPanel(); }
     } else if (msg.event === 'anomaly') {
@@ -4541,6 +4565,1088 @@
         appendConsoleLog(time, a.type, `<span class="log-bot">${esc(a.bot || 'Bot')}</span>: ${esc(a.details || a.last_action || '')}`, sev);
       }
     }
+  }
+
+
+  // ---- Commanders -----------------------------------------------------------
+  // What the MODULE knows about each standing remote-commander binding, as one card per binding: a one-line header, the
+  // few warnings worth a glance, the party, the commander's last orders in plain words and a small map. The wording and the
+  // map math live in commanders.js (CmdView, unit-tested under node); this part only draws. It is the same for any client of
+  // the commander protocol. The optional link to an external commander dashboard (TBDASH_COMMANDER_URL) only appears when
+  // the daemon reports a URL, and nothing of it is loaded until the viewer opens it.
+
+  // The daemon calls its list stale after 12 s. The last list stays on screen, dimmed and with a warning, so a stopped
+  // server is visible instead of the cards vanishing; it is dropped after this long without a report.
+  const COMMANDERS_KEEP_MS = 5 * 60 * 1000;
+  const CMD_DIM_MS = 15000;
+  const cmdTracker = CmdView.newTracker();
+  const cmdCards = new Map(); // commander -> card element
+  const cmdMaps = {};         // commander -> {follow, view, userScale (the viewer's own zoom, kept while following), pic}
+  // Map layers: one choice for every card and every map, kept in the browser once (maplayers.js). cmdAvail is what each card has data for.
+  const cmdLayerStore = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  let cmdLayers = MapLayers.load(cmdLayerStore);
+  const cmdAvail = {};        // commander -> availability of each layer on its map
+  const cmdEvents = UnitInfo.newEvents(); // deaths, wipes, boss kills, objects opened (derived from the reports as they come)
+  const cmdPics = new Map();  // map id -> [picture layer] | 'loading' | null (the folder has none; asked again after a while)
+  const cmdPicMiss = new Map();
+  const cmdTrails = CmdPaths.newTrails(); // every bot's path (the lead's is in cmdTracker.trail), kept from the 2 s reports
+  const cmdStalls = CmdPaths.newStalls(); // where the run paused or an order was refused, fixed when first seen
+  let cmdTrailsLoading = false;
+
+  // Seconds since the game server last reported, by this browser's clock (-1: never).
+  function cmdAgeSec() {
+    const c = state.commanders;
+    return c.freshAt ? (Date.now() - c.freshAt) / 1000 : -1;
+  }
+  // The game server's clock now: the time of its last report plus what has passed here since (orders carry its clock).
+  function cmdServerNow() {
+    const c = state.commanders;
+    return c.updatedAt ? c.updatedAt + (Date.now() - c.freshAt) / 1000 : Date.now() / 1000;
+  }
+
+  // The Demo map: a simulated group (demo.js) on its own card, off by default. It goes through the same note / draw functions as a real
+  // report; it is never put in state.commanders.list, so the counts, the badge and the real cards never see it.
+  const cmdDemo = { on: false, timer: null, start: 0, bind: null };
+  const CMD_DEMO_MS = 2000;
+  const cmdAllBinds = () => (cmdDemo.on && cmdDemo.bind ? state.commanders.list.concat([cmdDemo.bind]) : state.commanders.list);
+  const cmdFindBind = key => cmdAllBinds().find(b => b.commander === key);
+  const cmdNowFor = bind => (bind && bind.demo ? Date.now() / 1000 : cmdServerNow());
+
+  function cmdDemoTick() {
+    if (!cmdDemo.on) return;
+    const now = Date.now() / 1000, bind = CmdDemo.frame(now, cmdDemo.start);
+    cmdDemo.bind = bind;
+    cmdTrails.seeded[bind.commander] = true; // the daemon has no history of it
+    CmdView.note(cmdTracker, bind, now);
+    UnitInfo.noteEvents(cmdEvents, bind, now);
+    cmdNotePaths(bind, now);
+    cmdPruneAll();
+    if (state.activeTab === 'commanders') renderCommanders();
+  }
+
+  // Forget what the page remembers of a binding that is gone (the demo one included).
+  function cmdPruneAll() {
+    const all = cmdAllBinds(), keys = all.map(b => b.commander);
+    CmdView.prune(cmdTracker, keys);
+    UnitInfo.pruneEvents(cmdEvents, keys);
+    CmdPaths.pruneTrails(cmdTrails, all);
+    CmdPaths.pruneStalls(cmdStalls, keys);
+  }
+
+  function setCmdDemo(on, quiet) {
+    on = !!on;
+    if (on === cmdDemo.on) return;
+    cmdDemo.on = on;
+    if (cmdDemo.timer) { clearInterval(cmdDemo.timer); cmdDemo.timer = null; }
+    const box = document.getElementById('cmd-demo');
+    if (box) box.checked = on;
+    const note = document.getElementById('cmd-demo-note');
+    if (note) note.hidden = !on;
+    if (on) {
+      cmdDemo.start = Date.now() / 1000;
+      cmdDemo.timer = setInterval(cmdDemoTick, CMD_DEMO_MS);
+      cmdDemoTick();
+    } else {
+      cmdDemo.bind = null;
+      cmdPruneAll();
+      delete cmdTrails.seeded[CmdDemo.COMMANDER];
+      if (state.activeTab === 'commanders') renderCommanders();
+    }
+    if (!quiet) {
+      const q = new URLSearchParams((window.location.hash.split('?')[1]) || '');
+      if (on) q.set('demo', '1'); else q.delete('demo');
+      const qs = q.toString();
+      try { history.replaceState(null, '', '#/commanders' + (qs ? '?' + qs : '')); } catch (e) {}
+    }
+  }
+  function initCmdDemo() {
+    const box = document.getElementById('cmd-demo');
+    if (box) box.addEventListener('change', () => setCmdDemo(box.checked));
+    const all = document.getElementById('cmd-demo-all');
+    if (all) all.addEventListener('click', () => {
+      MapLayers.DEFS.forEach(d => { cmdLayers = MapLayers.set(cmdLayers, d.key, true); }); // for this page only: not saved
+      cmdCards.forEach((_, k) => drawCmdMap(k));
+      paintCmdLayers();
+    });
+  }
+
+  function applyCommanders(view) {
+    if (!view || typeof view !== 'object') return;
+    const c = state.commanders;
+    if (typeof view.external_url === 'string') c.externalUrl = view.external_url;
+    if (typeof view.real_maps === 'boolean') c.realMaps = view.real_maps; // the daemon was given TBDASH_MAP_DIR (only the REST answer says)
+    c.reportedAt = view.updated_at || c.reportedAt || 0;
+    if (view.fresh) {
+      c.list = Array.isArray(view.commanders) ? view.commanders : [];
+      c.fresh = true;
+      c.updatedAt = view.updated_at || Math.round(Date.now() / 1000);
+      c.freshAt = Date.now();
+      c.lost = false;
+      c.list.forEach(bind => { CmdView.note(cmdTracker, bind, c.updatedAt); UnitInfo.noteEvents(cmdEvents, bind, c.updatedAt); cmdNotePaths(bind, c.updatedAt); });
+      cmdPruneAll();
+      seedCmdTrails(c.list);
+    } else {
+      // No fresh report: keep what was last shown (see COMMANDERS_KEEP_MS) and say so.
+      c.fresh = false;
+    }
+    paintCommandersBadge();
+    if (state.activeTab === 'commanders') renderCommanders();
+  }
+
+  // What the browser remembers of a binding between reports: every bot's path and the places where the run stalled or an order was refused.
+  function cmdNotePaths(bind, nowSec) {
+    CmdPaths.noteTrails(cmdTrails, bind, nowSec);
+    const lead = CmdView.leadBot(bind), tr = cmdTracker.trail[bind.commander];
+    const leadPts = lead && tr && tr.map === lead.map ? tr.pts : [];
+    CmdPaths.noteStalls(cmdStalls, bind, nowSec, leadPts, lead ? { x: lead.x, y: lead.y } : null, CmdPaths.runSteps(bind.run), lead ? lead.map : null);
+  }
+
+  // A binding the page has not asked the daemon about yet gets its short stored history once: the paths then start with what happened
+  // before this page was opened. One request at a time; a failure only means the paths start now.
+  function seedCmdTrails(list) {
+    if (cmdTrailsLoading || !list.some(b => !cmdTrails.seeded[b.commander])) return;
+    list.forEach(b => { cmdTrails.seeded[b.commander] = true; });
+    cmdTrailsLoading = true;
+    fetch('/api/v1/commanders/trails').then(jsonOrThrow).then(data => {
+      CmdPaths.seedTrails(cmdTrails, data);
+      state.commanders.list.forEach(bind => {
+        const lead = CmdView.leadBot(bind), h = lead && data && data[bind.commander] && data[bind.commander][lead.guid];
+        if (h) CmdView.prependTrail(cmdTracker, bind.commander, h.map, CmdPaths.cleanPoints(h.pts));
+      });
+      if (state.activeTab === 'commanders') renderCommanders();
+    }).catch(() => {}).then(() => { cmdTrailsLoading = false; });
+  }
+
+  function fetchCommanders() {
+    fetch('/api/v1/commanders').then(jsonOrThrow).then(applyCommanders).catch(() => {});
+  }
+
+  // Runs every few seconds: ages the warnings and drops a list nobody has reported for a long time.
+  function expireCommanders() {
+    const c = state.commanders;
+    if (!c.list.length) return;
+    if (Date.now() - c.freshAt > COMMANDERS_KEEP_MS) {
+      c.list = [];
+      c.fresh = false;
+      c.lost = true;
+      paintCommandersBadge();
+    }
+    if (state.activeTab === 'commanders') renderCommanders();
+  }
+
+  function paintCommandersBadge() {
+    const badge = document.getElementById('commanders-count');
+    if (!badge) return;
+    const n = state.commanders.fresh ? state.commanders.list.length : 0;
+    badge.textContent = String(n);
+    badge.style.display = n > 0 ? '' : 'none';
+  }
+
+  // Sets innerHTML only when it changed, so a tooltip or a text selection survives the 2 s refresh.
+  function setHtml(node, html) {
+    if (!node || node._h === html) return;
+    node._h = html;
+    node.innerHTML = html;
+  }
+
+  const CMD_ICONS = {
+    tank: '<path d="M8 1.2l5.8 2.2V8c0 3.3-2.4 5.7-5.8 6.8C4.6 13.7 2.2 11.3 2.2 8V3.4z" fill="currentColor"/>',
+    healer: '<path d="M6.3 2h3.4v4.3H14v3.4H9.7V14H6.3V9.7H2V6.3h4.3z" fill="currentColor"/>',
+    dps: '<path d="M3 13L13 3M9.5 3H13v3.5M4.5 9.5l2 2M2.5 13.5L4 12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>',
+    other: '<circle cx="8" cy="8" r="4.5" fill="currentColor"/>',
+    dead: '<path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+  };
+  function cmdIcon(role, title) {
+    return `<span class="cmd-role ${role}" title="${esc(title)}"><svg viewBox="0 0 16 16" aria-hidden="true">${CMD_ICONS[role] || CMD_ICONS.other}</svg></span>`;
+  }
+
+  function cmdPlace(bind) {
+    const lead = CmdView.leadBot(bind) || (bind.bots || [])[0];
+    if (!lead) return '';
+    const zone = lead.zone ? getZoneName(lead.zone, lead.map) : '';
+    return zone && zone !== '-' && !/^Zone \d+$/.test(zone) ? zone : `Map ${lead.map}`;
+  }
+
+  // A character's name as the dashboard's usual way to its detail view: a link (the route's own hash, so a middle click or copy works)
+  // that app.js opens like any other bot pick. No guid, no link.
+  function cmdBotLink(guid, name) {
+    const href = CmdView.botHref(guid);
+    return href ? `<a class="cmd-botlink" href="${esc(href)}" data-guid="${esc(guid)}" title="Open ${esc(name)}'s details">${esc(name)}</a>` : esc(name);
+  }
+
+  function cmdBarHtml(p, kind, text) {
+    return `<span class="cmd-bar ${kind}" title="${esc(text)}"><i style="width:${p}%"></i></span><em>${p}%</em>`;
+  }
+
+  // What a character is doing, under its name: "fighting Revelosh", "casting Frostbolt on Revelosh", "drinking", "moving", "dead".
+  // Empty when the module does not say (an older one).
+  function cmdDoingHtml(bind, guid) {
+    const bots = bind.bots || [], b = bots.find(x => x.guid === guid);
+    if (!b) return '';
+    const mobs = CmdView.mobsOf(bind, b.map);
+    const target = b.target ? mobs.find(m => m.id === b.target) : null;
+    const act = UnitInfo.activity(b, { targetName: (target && target.name) || b.tname });
+    if (!act) return '';
+    const full = b.act ? `${act.text} (last action: ${b.act})` : act.text;
+    return `<span class="cmd-doing ic-${esc(act.icon)}" title="${esc(full)}">${esc(act.text)}</span>`;
+  }
+
+  function cmdPartyHtml(bind) {
+    const rows = CmdView.partyRows(bind);
+    if (!rows.length) return '<div class="empty-hint">No bound bot is in the world.</div>';
+    const head = '<div class="cmd-row cmd-row-head"><span></span><span>Bot</span><span>Health</span><span>Mana / rage</span><span>From lead</span></div>';
+    return head + rows.map(r => {
+      const dist = r.lead ? '<span class="muted">lead</span>'
+        : r.otherMap ? '<span class="cmd-flag">other map</span>'
+        : r.dist == null ? '' : `<span class="${r.far ? 'cmd-flag' : ''}">${r.dist} yd</span>`;
+      const bars = r.alive
+        ? `<span class="cmd-meter">${cmdBarHtml(r.hp, r.hp < CmdView.LOW_HP_PCT ? 'low' : 'hp', 'Health ' + r.hpText)}</span>
+           <span class="cmd-meter">${r.hasPower ? cmdBarHtml(r.power, r.powerKind, r.powerKind + ' ' + r.powerText) : '<span class="muted">–</span>'}</span>`
+        : '<span class="cmd-meter cmd-deadtxt">Dead</span><span class="cmd-meter"></span>';
+      return `<div class="cmd-row ${r.alive ? '' : 'dead'}">
+        ${cmdIcon(r.role, r.alive ? r.roleLabel : r.roleLabel + ' (dead)')}
+        <span class="cmd-who"><b>${r.lead ? '★ ' : ''}${cmdBotLink(r.guid, r.name)}</b> <span class="muted">${esc(r.cls)}${r.level ? ' · ' + esc(r.level) : ''}</span>${cmdDoingHtml(bind, r.guid)}</span>
+        ${bars}<span class="cmd-dist">${dist}</span></div>`;
+    }).join('');
+  }
+
+  function cmdOrdersHtml(bind, serverNow) {
+    const orders = (bind.orders || []).slice().reverse();
+    if (!orders.length) return '<div class="empty-hint">No order since the server started or the binding was made.</div>';
+    return orders.map(o => {
+      const t = CmdView.orderText(o);
+      const ago = o.at ? CmdView.ageText(serverNow - o.at) + ' ago' : '';
+      return `<div class="cmd-order ${t.ok ? 'ok' : 'err'}" title="${esc(cmdTime(o.at) + '  ' + t.raw)}">
+        <span class="mark" aria-hidden="true">${t.ok ? '✓' : '✗'}</span><span class="txt">${esc(t.text)}</span><span class="when">${esc(ago)}</span></div>`;
+    }).join('');
+  }
+
+  function cmdTime(sec) {
+    return sec ? new Date(sec * 1000).toLocaleTimeString() : '';
+  }
+
+  // ---- the map of one card ----
+
+  // Small pictures in a box from -5 to 5: over a unit (status), as the boss crown and as event pins. Drawn by cmdMapIcon().
+  const CMD_MAP_ICONS = {
+    skull: '<path d="M-3.6 0.4a3.6 3.6 0 1 1 7.2 0v2h-1.4v1.8h-1v-1h-1v1h-1.6v-1h-1v1h-1V2.4h-1.4z"/><circle class="eye" cx="-1.4" cy="-0.2" r="0.95"/><circle class="eye" cx="1.4" cy="-0.2" r="0.95"/>',
+    spark: '<path d="M0 -4.6L1.2 -1.2L4.6 0L1.2 1.2L0 4.6L-1.2 1.2L-4.6 0L-1.2 -1.2Z"/>',
+    sheep: '<circle cx="-1.6" cy="-0.6" r="2.3"/><circle cx="0.6" cy="-1.6" r="2.1"/><circle cx="1" cy="0.6" r="2.2"/><circle class="head" cx="3.1" cy="0.6" r="1.5"/><path class="leg" d="M-1.5 2.4V4M1 2.6V4"/>',
+    stun: '<circle class="ring" cx="0" cy="0" r="3.6"/><path class="ln" d="M-1.9 -1.5h3.8l-3.8 3h3.8"/>',
+    arrow: '<path class="ln" d="M-4 0H2.6M0 -3.2L3.8 0L0 3.2"/>',
+    root: '<path class="ln" d="M-4 4H4M0 -4V3M-2.4 0.8L0 3.2L2.4 0.8"/>',
+    cup: '<path d="M-3.2 -2.6h6.4l-1.1 5.6h-4.2z"/><path class="ln" d="M3 -1.2h1.4v2.2H2.4"/>',
+    crown: '<path d="M-5 3.2V-2.2L-2.5 0.4L0 -3.8L2.5 0.4L5 -2.2V3.2z"/>',
+    door: '<path d="M-3 4.2V-4.2h6v8.4z"/><circle class="eye" cx="1.2" cy="0.4" r="0.8"/>',
+    coin: '<circle cx="0" cy="0" r="3.8"/><path class="ln eyeln" d="M0 -2V2"/>',
+    chest: '<path d="M-4 -0.8a4 3.2 0 0 1 8 0V3.6h-8z"/><path class="ln eyeln" d="M-4 0.6h8"/><circle class="eye" cx="0" cy="1.8" r="0.8"/>',
+    lever: '<path class="ln" d="M-3.4 3.6h6.8M0 3.4L2.6 -2.6"/><circle cx="2.8" cy="-3.2" r="1.5"/>',
+    gong: '<circle class="ring" cx="0" cy="0" r="3.7"/><circle cx="0" cy="0" r="1.5"/>',
+    stop: '<path d="M-3.4 -3.4h6.8v6.8h-6.8z"/><path class="ln eyeln" d="M-1 -1.8v3.6M1 -1.8v3.6"/>',
+  };
+  // One icon centred at plane point (x, y); size in drawing units (px * k) on a dark disc so it reads on any picture.
+  function cmdMapIcon(name, x, y, size, title) {
+    const body = CMD_MAP_ICONS[name];
+    if (!body) return '';
+    const sc = size / 11;
+    return `<g class="ic ic-${name}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) scale(${sc.toFixed(4)})">${title ? `<title>${esc(title)}</title>` : ''}<circle class="bgd" r="6.2"/>${body}</g>`;
+  }
+
+  function cmdLegendHtml(on) {
+    const o = on || {};
+    return '<span><i class="tank"></i>Tank</span><span><i class="healer"></i>Healer</span><span><i class="dps"></i>DPS</span>'
+      + '<span><i class="lead"></i>Lead</span><span><i class="dead"></i>Dead</span>'
+      + (o.trail ? '<span><i class="trail"></i>Lead\'s path</span>' : '')
+      + (o.membertrails ? '<span><i class="mtrail"></i>Group paths</span>' : '')
+      + (o.runsteps ? '<span><i class="route"></i>Run route</span><span><i class="lstep"></i>Pull / boss step</span>' : '')
+      + (o.stalls ? '<span class="lic">stalled / refused <svg viewBox="-6 -6 12 12" class="ic-x"><path d="M-3.4 -3.4L3.4 3.4M3.4 -3.4L-3.4 3.4"/></svg></span>' : '')
+      + (o.objects ? '<span class="lic">door <svg viewBox="-6 -6 12 12" class="ic-door">' + CMD_MAP_ICONS.door + '</svg></span><span class="lic">chest <svg viewBox="-6 -6 12 12" class="ic-chest">' + CMD_MAP_ICONS.chest + '</svg></span>'
+        + '<span class="lic">lever <svg viewBox="-6 -6 12 12" class="ic-lever">' + CMD_MAP_ICONS.lever + '</svg></span><span class="lic">altar / gong <svg viewBox="-6 -6 12 12" class="ic-gong">' + CMD_MAP_ICONS.gong + '</svg></span>' : '')
+      + (o.healline ? '<span><i class="lheal"></i>Heals</span>' : '')
+      + (o.ccline ? '<span><i class="lcc"></i>Crowd control</span>' : '')
+      + (o.heading ? '<span><i class="heading"></i>Heading</span>' : '')
+      + (o.healring ? '<span><i class="ring"></i>Healer range</span>' : '')
+      + (o.mobhostile ? '<span><i class="mobh"></i>Hostile</span>' : '')
+      + (o.mobneutral ? '<span><i class="mobn"></i>Neutral</span>' : '')
+      + (o.mobcritter ? '<span><i class="mobc"></i>Critter</span>' : '')
+      + (o.threat ? '<span><i class="lthreat"></i>Mob on</span>' : '')
+      + (o.bottarget ? '<span><i class="ltarget"></i>Bot target</span>' : '')
+      + (o.commander ? '<span><i class="cmdr"></i>Commander</span>' : '')
+      + (o.aggro ? '<span><i class="aggro"></i>Aggro range (by level)</span>' : '')
+      + (o.bossmark ? '<span><i class="lboss"></i>Boss (crown, name shown)</span>' : '')
+      + (o.hpbars ? '<span><i class="lhp"></i>Health bar</span>' : '')
+      + (o.threatcolors ? '<span><i class="tc-tank"></i>On the tank</span><span><i class="tc-other"></i>On someone else</span><span><i class="tc-target"></i>Tank\'s target</span><span><i class="tc-pull"></i>Pull target</span>' : '')
+      + (o.statusicons ? '<span class="lic">dead <svg viewBox="-6 -6 12 12" class="ic-skull">' + CMD_MAP_ICONS.skull + '</svg></span><span class="lic">casting <svg viewBox="-6 -6 12 12" class="ic-spark">' + CMD_MAP_ICONS.spark + '</svg></span>'
+        + '<span class="lic">crowd controlled <svg viewBox="-6 -6 12 12" class="ic-sheep">' + CMD_MAP_ICONS.sheep + '</svg></span><span class="lic">drinking / eating <svg viewBox="-6 -6 12 12" class="ic-cup">' + CMD_MAP_ICONS.cup + '</svg></span>'
+        + '<span class="lic">fleeing <svg viewBox="-6 -6 12 12" class="ic-arrow">' + CMD_MAP_ICONS.arrow + '</svg></span>' : '')
+      + (o.events ? '<span class="lic">death <svg viewBox="-6 -6 12 12" class="ic-skull">' + CMD_MAP_ICONS.skull + '</svg></span><span class="lic">boss down <svg viewBox="-6 -6 12 12" class="ic-crown">' + CMD_MAP_ICONS.crown + '</svg></span>'
+        + '<span class="lic">opened <svg viewBox="-6 -6 12 12" class="ic-door">' + CMD_MAP_ICONS.door + '</svg></span><span class="lic">looted <svg viewBox="-6 -6 12 12" class="ic-coin">' + CMD_MAP_ICONS.coin + '</svg></span>' : '');
+  }
+
+  function cmdZoneRect(lead) {
+    if (!lead || !ZONE_BOUNDS) return null;
+    const zb = ZONE_BOUNDS[`${lead.map}_${lead.zone}`];
+    if (!zb || typeof zb.loc_left !== 'number') return null;
+    // loc_left/right are game y (west positive), loc_top/bottom game x (north positive)
+    const a = CmdView.project(zb.loc_top, zb.loc_left), b = CmdView.project(zb.loc_bottom, zb.loc_right);
+    return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y), name: displayZoneName(zb.name) };
+  }
+
+  // The real game-map pictures of a map id, when the daemon has a folder of them (TBDASH_MAP_DIR): undefined = not offered, 'loading',
+  // null = none for this map (looked for again after 30 s), else the list of {name, url, x, y, w, h}.
+  function ensureCmdPics(mapId) {
+    if (!state.commanders.realMaps || mapId == null) return undefined;
+    const have = cmdPics.get(mapId);
+    if (cmdPics.has(mapId) && !(have === null && Date.now() - (cmdPicMiss.get(mapId) || 0) > 30000)) return have;
+    cmdPics.set(mapId, 'loading');
+    fetch('/api/v1/maps/' + encodeURIComponent(mapId)).then(r => (r.ok ? r.json() : null)).then(ls => {
+      const l = CmdView.pictureLayers(ls);
+      cmdPics.set(mapId, l.length ? l : null);
+      cmdPicMiss.set(mapId, Date.now());
+      if (state.activeTab === 'commanders') renderCommanders();
+    }).catch(() => { cmdPics.set(mapId, null); cmdPicMiss.set(mapId, Date.now()); });
+    return 'loading';
+  }
+
+  // What one card's map has data for, from the report and the browser's own memory.
+  function cmdMapFacts(bind) {
+    const lead = CmdView.leadBot(bind), first = lead || (bind.bots || [])[0] || null;
+    const onMap = first ? (bind.bots || []).filter(b => b.map === first.map) : [];
+    const pl = first ? ensureCmdPics(first.map) : undefined;
+    const pics = Array.isArray(pl) ? pl : [];
+    const tr = cmdTracker.trail[bind.commander];
+    const trail = tr && first && tr.map === first.map ? tr.pts : [];
+    const heading = lead && lead.map === (first && first.map) ? CmdView.heading(trail, cmdNowFor(bind)) : null;
+    const zr = cmdZoneRect(first);
+    const zonesAround = !!(first && ZONE_BOUNDS && Object.keys(ZONE_BOUNDS).some(k => ZONE_BOUNDS[k] && ZONE_BOUNDS[k].map_id === first.map && ZONE_BOUNDS[k].area_id !== first.zone));
+    // What the module reports for the map the party is on (a mob list that is empty still counts: the layers stay selectable).
+    const mapId = first ? first.map : null;
+    const mobs = first ? CmdView.mobsOf(bind, mapId) : [];
+    const reported = !!first && Array.isArray(bind.mobs) && bind.mobs_map === mapId;
+    const commanderAt = first ? CmdView.commanderPlace(bind, mapId) : null;
+    // What the drawing layers have: the other bots' paths, the plan steps of the run, stall spots, the objects the bots have seen.
+    const steps = CmdPaths.runSteps(bind.run);
+    const stalls = first ? CmdPaths.stallsOf(cmdStalls, bind.commander, mapId) : [];
+    const objs = first ? CmdPaths.objectsOf(bind, mapId) : [];
+    const objsReported = !!first && Array.isArray(bind.objects) && bind.mobs_map === mapId;
+    const ctx = {
+      memberTrails: !!first && CmdPaths.memberTrails(cmdTrails, bind, mapId, CmdPaths.TRAIL_MAX).length > 0,
+      runSteps: steps.length > 0, stalls: stalls.length > 0, objects: objsReported,
+      picture: pics.length > 0, zone: !!zr, zonesAround, bots: onMap.length > 0, lead: !!lead && onMap.indexOf(lead) >= 0,
+      trail: trail.length >= 2, heading: !!heading, healer: onMap.some(b => b.role === 'healer' && b.alive !== false),
+      commanderPos: !!commanderAt, mobs: reported, mobTargets: reported, botTargets: reported && onMap.some(b => !!b.id),
+      activity: onMap.some(b => b.st != null) || mobs.some(m => m.cast || m.cc),
+      events: UnitInfo.eventsOf(cmdEvents, bind.commander).length > 0,
+    };
+    return { lead, first, onMap, pics, trail, heading, zr, ctx, mobs, commanderAt, steps, stalls, objs };
+  }
+
+  // A clock time for a label on the path: the game server's seconds in the browser's locale.
+  function cmdClock(sec) {
+    return new Date(sec * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  // ---- the drawing layers of a card's map: paths, run steps, stall spots, objects, combat lines ----
+  // Each builder returns SVG for the map's dynamic group. c = {f (number format), k (drawing units per pixel), units (the hover table)}.
+  // Every server string (names, reasons) goes through esc(); the lines' opacity and thickness come from the layers panel.
+
+  // Inline style of a line layer: stroke width (base px times the panel's thickness) and opacity (alpha times the panel's opacity).
+  function cmdLineStyle(key, basePx, alpha) {
+    const st = MapLayers.styleOf(cmdLayers, key);
+    return `stroke-width:${(basePx * st.th).toFixed(2)}px;opacity:${((alpha == null ? 1 : alpha) * st.op).toFixed(2)}`;
+  }
+
+  const cmdPt = (c, x, y) => { const p = CmdView.project(x, y); return `${c.f(p.x)},${c.f(p.y)}`; };
+
+  // The lead's path (fading with age, brighter than the others') or another bot's, cut to the length set in the panel.
+  function cmdTrailSvg(c, key, cls, pts, baseAlpha, basePx) {
+    let g = '';
+    CmdView.trailSegments(pts.map(p => CmdView.project(p[0], p[1])), 14, 0.15).forEach(sg => {
+      g += `<polyline class="${cls}" style="${cmdLineStyle(key, basePx, sg.alpha * baseAlpha)}" points="${sg.points.map(p => `${c.f(p.x)},${c.f(p.y)}`).join(' ')}"/>`;
+    });
+    return g;
+  }
+
+  function cmdMemberTrailsSvg(c, bind, mapId) {
+    let g = '';
+    CmdPaths.memberTrails(cmdTrails, bind, mapId, cmdLayers.trailLen).forEach(m => {
+      g += cmdTrailSvg(c, 'membertrails', `mtrail ${CmdView.roleKey(m.bot)}`, m.pts, 0.75, 2);
+    });
+    return g;
+  }
+
+  // The run's route (dashed: grey where it has been, bright ahead), a thin line from the lead to the step it is on, and the marks:
+  // numbered circles for pulls and bosses (cleared / next / skipped), icons for loot, doors, rituals and stops, small dots on moves.
+  function cmdRunStepsSvg(c, steps, lead) {
+    let g = '';
+    CmdPaths.routeSegments(steps).forEach(sg => {
+      g += `<polyline class="route ${sg.done ? 'done' : 'ahead'}" style="${cmdLineStyle('runsteps', sg.done ? 2 : 2.6, sg.done ? 0.6 : 1)}" points="${sg.points.map(p => cmdPt(c, p.x, p.y)).join(' ')}"/>`;
+    });
+    const next = steps.find(x => x.state === 'next');
+    if (lead && next) {
+      const a = CmdView.project(lead.x, lead.y), b = CmdView.project(next.x, next.y);
+      g += `<line class="route toward" style="${cmdLineStyle('runsteps', 1.4, 0.8)}" x1="${c.f(a.x)}" y1="${c.f(a.y)}" x2="${c.f(b.x)}" y2="${c.f(b.y)}"/>`;
+    }
+    const k = c.k;
+    steps.forEach(st => {
+      const p = CmdView.project(st.x, st.y), uid = 's:' + st.i;
+      c.units[uid] = { kind: 's', obj: st };
+      g += `<g class="rstep ${esc(st.state)} k-${esc(st.k)}" data-u="${esc(uid)}"><circle class="hit" cx="${c.f(p.x)}" cy="${c.f(p.y)}" r="${c.f(12 * k)}"/>`;
+      if (st.k === 'pull' || st.k === 'boss') {
+        const r = (st.k === 'boss' ? 11 : 9) * k;
+        if (st.state === 'next' && st.r) g += `<circle class="steparea" cx="${c.f(p.x)}" cy="${c.f(p.y)}" r="${c.f(st.r)}"/>`;
+        g += `<circle class="stepdot" cx="${c.f(p.x)}" cy="${c.f(p.y)}" r="${c.f(r)}"/>`
+          + `<text class="stepnum" x="${c.f(p.x)}" y="${c.f(p.y + 3.6 * k)}" style="font-size:${c.f((st.i > 99 ? 8.5 : 10) * k)}px">${esc(st.i)}</text>`;
+        if (st.state === 'skipped') g += `<line class="stepskip" x1="${c.f(p.x - r)}" y1="${c.f(p.y + r)}" x2="${c.f(p.x + r)}" y2="${c.f(p.y - r)}"/>`;
+        if (st.k === 'boss') {
+          g += cmdMapIcon('crown', p.x, p.y - 17 * k, 12 * k).replace('class="ic ic-crown"', 'class="ic ic-crown crownmark"');
+          if (st.n) g += `<text class="stepname" x="${c.f(p.x + r + 4 * k)}" y="${c.f(p.y + 4 * k)}" style="font-size:${c.f(11 * k)}px;stroke-width:${c.f(3 * k)}px">${esc(st.n)}</text>`;
+        }
+      } else if (CmdPaths.stepIcon(st.k)) {
+        g += cmdMapIcon(CmdPaths.stepIcon(st.k), p.x, p.y, 13 * k);
+      } else {
+        g += `<circle class="stepmove" cx="${c.f(p.x)}" cy="${c.f(p.y)}" r="${c.f(2.8 * k)}"/>`;
+      }
+      g += '</g>';
+    });
+    return g;
+  }
+
+  // A red cross where the run paused or an order was refused, with the reason beside the newest few; hover or tap for the whole text.
+  function cmdStallsSvg(c, stalls) {
+    let g = '';
+    const k = c.k, d = 5 * k;
+    stalls.forEach((st, i) => {
+      const p = CmdView.project(st.x, st.y), uid = 'x:' + st.id;
+      c.units[uid] = { kind: 'x', obj: st };
+      const path = `M${c.f(p.x - d)},${c.f(p.y - d)}L${c.f(p.x + d)},${c.f(p.y + d)}M${c.f(p.x + d)},${c.f(p.y - d)}L${c.f(p.x - d)},${c.f(p.y + d)}`;
+      g += `<g class="stall${st.live ? ' live' : ''}" data-u="${esc(uid)}"><circle class="hit" cx="${c.f(p.x)}" cy="${c.f(p.y)}" r="${c.f(12 * k)}"/>`
+        + `<path class="xcase" d="${path}"/><path class="xmark" d="${path}"/>`;
+      if (i >= stalls.length - 3) {
+        const why = st.reason.length > 44 ? st.reason.slice(0, 43) + '…' : st.reason;
+        g += `<text class="stalltext" x="${c.f(p.x + 8 * k)}" y="${c.f(p.y + 4 * k)}" style="font-size:${c.f(10.5 * k)}px;stroke-width:${c.f(3 * k)}px">${esc(why)}</text>`;
+      }
+      g += '</g>';
+    });
+    return g;
+  }
+
+  const CMD_OBJECT_ICON = { d: 'door', c: 'chest', b: 'lever', g: 'gong', r: 'spark', o: 'gong' };
+  function cmdObjectsSvg(c, objs) {
+    let g = '';
+    objs.forEach(o => {
+      const p = CmdView.project(o.x, o.y), uid = 'o:' + o.id;
+      c.units[uid] = { kind: 'o', obj: o };
+      g += `<g class="obj st-${esc(o.state)}" data-u="${esc(uid)}"><circle class="hit" cx="${c.f(p.x)}" cy="${c.f(p.y)}" r="${c.f(11 * c.k)}"/>`
+        + cmdMapIcon(CMD_OBJECT_ICON[o.type] || 'gong', p.x, p.y, 12 * c.k) + '</g>';
+    });
+    return g;
+  }
+
+  // Lines between two game points: from (a) to (b), classed and styled as one of the combat layers.
+  function cmdLineSvg(c, key, cls, a, b, baseAlpha) {
+    const p = CmdView.project(a.x, a.y), q = CmdView.project(b.x, b.y);
+    return `<line class="${cls}" style="${cmdLineStyle(key, 1.6, baseAlpha)}" x1="${c.f(p.x)}" y1="${c.f(p.y)}" x2="${c.f(q.x)}" y2="${c.f(q.y)}"/>`;
+  }
+
+  function drawCmdMap(key) {
+    const card = cmdCards.get(key);
+    const bind = cmdFindBind(key);
+    if (!card || !bind) return;
+    const stage = card.querySelector('.cmd-stage'), svg = card.querySelector('svg.cmd-map');
+    const pw = stage.clientWidth, ph = stage.clientHeight;
+    if (!pw || !ph) return; // the tab is hidden
+    const ms = cmdMaps[key] || (cmdMaps[key] = { follow: true, view: null, userScale: null, pic: '' });
+    const facts = cmdMapFacts(bind);
+    const { lead, first, onMap, pics, trail, heading, zr, mobs, commanderAt, steps, stalls, objs } = facts;
+    const avail = MapLayers.availability(facts.ctx);
+    cmdAvail[key] = avail;
+    const on = MapLayers.active(cmdLayers, avail);
+    const away = (bind.bots || []).length - onMap.length;
+    const pts = onMap.map(b => CmdView.project(b.x, b.y));
+    if (ms.follow || !ms.view) ms.view = CmdView.followView(pts, pw, ph, 44, 60, ms.userScale);
+    const v = ms.view, box = CmdView.viewBox(v, pw, ph), k = 1 / v.scale;
+    const step = CmdView.gridStep(v.scale), grid = CmdView.gridLines(box, step);
+    const f = n => n.toFixed(2);
+
+    // the picture sits in its own group that is only rebuilt when it changes, so it does not flicker while the rest is redrawn
+    const pick = pics.find(l => l.name === ms.pic) || pics[0] || null;
+    const picKey = on.bg && pick ? `${pick.url}|${pick.x}|${pick.y}|${pick.w}|${pick.h}` : '';
+    const picG = svg.querySelector('g.pic');
+    if (picG._k !== picKey) {
+      picG._k = picKey;
+      picG.innerHTML = picKey ? `<image class="bg" href="${esc(pick.url)}" x="${pick.x}" y="${pick.y}" width="${pick.w}" height="${pick.h}" preserveAspectRatio="none"/>` : '';
+    }
+    svg.style.setProperty('--bgb', String((100 - cmdLayers.dim) / 100)); // the picture's brightness (the dim slider)
+    const sel = card.querySelector('select.cmd-pic');
+    sel.hidden = pics.length < 2;
+    if (pics.length >= 2 && sel._k !== pics.map(l => l.name).join('|')) {
+      sel._k = pics.map(l => l.name).join('|');
+      sel.replaceChildren(...pics.map(l => { const o = document.createElement('option'); o.value = l.name; o.textContent = l.name; return o; }));
+    }
+    if (pick) sel.value = pick.name;
+
+    let g = '';
+    if (on.grid) {
+      grid.xs.forEach(x => { g += `<line class="grid" x1="${f(x)}" y1="${f(box[1])}" x2="${f(x)}" y2="${f(box[1] + box[3])}"/>`; });
+      grid.ys.forEach(y => { g += `<line class="grid" x1="${f(box[0])}" y1="${f(y)}" x2="${f(box[0] + box[2])}" y2="${f(y)}"/>`; });
+    }
+    if (on.zonelabels && first) {
+      CmdView.zonesIn(ZONE_BOUNDS, first.map, box, first.zone).slice(0, 12).forEach(z => {
+        g += `<rect class="zone2" x="${f(z.x)}" y="${f(z.y)}" width="${f(z.w)}" height="${f(z.h)}"/>`
+          + `<text class="zone2" x="${f(z.x + 6 * k)}" y="${f(z.y + 14 * k)}" style="font-size:${f(10.5 * k)}px">${esc(displayZoneName(z.name))}</text>`;
+      });
+    }
+    if (on.zone && zr) {
+      g += `<rect class="zone" x="${f(zr.x)}" y="${f(zr.y)}" width="${f(zr.w)}" height="${f(zr.h)}"/>`
+        + `<text class="zone" x="${f(zr.x + 6 * k)}" y="${f(zr.y + 14 * k)}" style="font-size:${f(11 * k)}px">${esc(zr.name)}</text>`;
+    }
+    if (on.healring) {
+      onMap.filter(b => b.role === 'healer' && b.alive !== false).forEach(b => {
+        const p = CmdView.project(b.x, b.y);
+        g += `<circle class="range heal" cx="${f(p.x)}" cy="${f(p.y)}" r="${CmdView.HEAL_RANGE_YD}"><title>${esc(b.name)}: healing range ${CmdView.HEAL_RANGE_YD} yd</title></circle>`;
+      });
+    }
+    // units: every thing that can be hovered gets a key; the hover box looks it up here, so it follows the 2 s refresh.
+    const units = ms.units = {};
+    const dc = { f, k, units };
+    if (on.runsteps) g += cmdRunStepsSvg(dc, steps, lead && first && lead.map === first.map ? lead : null);
+    if (on.membertrails && first) g += cmdMemberTrailsSvg(dc, bind, first.map);
+    if (on.trail && trail.length >= 2) g += cmdTrailSvg(dc, 'trail', 'trail', trail.slice(-cmdLayers.trailLen), 1, 3);
+    if (on.trailtime) {
+      CmdView.trailStamps(trail, v.scale, 70, 8).forEach(s => {
+        g += `<g class="stamp"><circle cx="${f(s.x)}" cy="${f(s.y)}" r="${f(3 * k)}"/>`
+          + `<text x="${f(s.x + 6 * k)}" y="${f(s.y - 5 * k)}" style="font-size:${f(10 * k)}px;stroke-width:${f(3 * k)}px">${esc(cmdClock(s.t))}</text></g>`;
+      });
+    }
+    if (on.heading && heading && lead) {
+      const p = CmdView.project(lead.x, lead.y), nx = -heading.y, ny = heading.x; // the arrow's normal
+      const tip = { x: p.x + heading.x * 34 * k, y: p.y + heading.y * 34 * k }, base = 16 * k, half = 7 * k;
+      const pt = (a, b) => `${f(a)},${f(b)}`;
+      g += `<polygon class="heading" points="${pt(tip.x, tip.y)} ${pt(p.x + heading.x * base + nx * half, p.y + heading.y * base + ny * half)} ${pt(p.x + heading.x * base - nx * half, p.y + heading.y * base - ny * half)}"><title>${esc(lead.name)} is heading this way (from its movement)</title></polygon>`;
+    }
+    const lead2 = lead && first && lead.map === first.map ? lead : null;
+    const boxCtx = { lead: lead2, bots: onMap, mobs };
+    // mobs, their threat and the bots' targets sit under the party's dots
+    const shown = mobs.filter(m => on['mob' + CmdView.mobClass(m)]);
+    if (on.aggro) {
+      CmdView.aggroMobs(shown).forEach(m => {
+        const p = CmdView.project(m.x, m.y), r = CmdPaths.aggroRadius(m.lvl, lead ? lead.level : 0);
+        g += `<circle class="range aggro" style="${cmdLineStyle('aggro', 1.5)}" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(r)}"><title>${esc(m.name || 'unit')}: aggro range about ${Math.round(r)} yd</title></circle>`;
+      });
+    }
+    if (on.threat) {
+      CmdView.threatLines(shown, onMap).forEach(l => {
+        const a = CmdView.project(l.mob.x, l.mob.y), b = CmdView.project(l.bot.x, l.bot.y);
+        g += `<line class="threat" style="${cmdLineStyle('threat', 1.5, 0.85)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
+      });
+    }
+    if (on.bottarget) {
+      CmdView.botTargetLines(onMap, mobs).forEach(l => {
+        const a = CmdView.project(l.bot.x, l.bot.y), b = CmdView.project(l.mob.x, l.mob.y);
+        g += `<line class="bottarget" style="${cmdLineStyle('bottarget', 1.5, 0.9)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
+      });
+    }
+    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(dc, 'healline', 'healline', l.from, l.to, 0.9); });
+    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(dc, 'ccline', 'ccline', l.from, l.to, 0.9); });
+    if (on.objects) g += cmdObjectsSvg(dc, objs);
+    // the health bar and status icons over a unit at plane point p, radius r (drawing units)
+    const overlay = (u, kind, p, r) => {
+      let o = '';
+      const bar = on.hpbars ? UnitInfo.hpBar(u, kind) : null;
+      if (bar) {
+        const w = 22 * k, h = 3.4 * k, x0 = p.x - w / 2, y0 = p.y - r - 7 * k;
+        o += `<g class="hpbar ${bar.cls}"><rect class="bg" x="${f(x0)}" y="${f(y0)}" width="${f(w)}" height="${f(h)}"/><rect class="fg" x="${f(x0)}" y="${f(y0)}" width="${f(w * bar.pct / 100)}" height="${f(h)}"/></g>`;
+      }
+      if (on.statusicons) {
+        const ic = UnitInfo.statusIcons(u, kind), step = 12 * k, y0 = p.y - r - (bar ? 15 : 9) * k;
+        ic.forEach((x, i) => { o += cmdMapIcon(x.icon, p.x + (i - (ic.length - 1) / 2) * step, y0, 11 * k, x.title); });
+      }
+      return o;
+    };
+    const marks = on.threatcolors ? UnitInfo.targetMarks(mobs, onMap) : { tank: {}, pull: {} };
+    shown.forEach(m => {
+      const p = CmdView.project(m.x, m.y), cls = CmdView.mobClass(m), boss = on.bossmark && m.rank === 'b';
+      const r = (boss ? 9 : cls === 'critter' ? 3 : 5) * k, uid = 'm:' + m.id;
+      units[uid] = { kind: 'm', obj: m };
+      g += `<g class="mob ${cls}${boss ? ' boss' : ''}" data-u="${esc(uid)}"><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(Math.max(r, 11 * k))}"/>`;
+      if (on.threatcolors) {
+        const tc = UnitInfo.threatClass(m, onMap);
+        if (marks.pull[m.id]) g += `<circle class="tpull" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(r + 9 * k)}"/>`;
+        if (marks.tank[m.id]) g += `<circle class="ttarget" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(r + 5.5 * k)}"/>`;
+        if (tc !== 'none') g += `<circle class="tring ${tc}" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(r + 2.2 * k)}"/>`;
+      }
+      g += `<circle class="body" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(r)}"/>`;
+      if (boss) g += cmdMapIcon('crown', p.x, p.y, 12 * k).replace('class="ic ic-crown"', 'class="ic ic-crown crownmark"');
+      g += overlay(m, 'mob', p, boss ? r + 8 * k : r);
+      if (boss || (on.hostilenames && cls === 'hostile')) {
+        g += `<text class="mname${boss ? ' boss' : ''}" x="${f(p.x + (r + 4 * k))}" y="${f(p.y + 4 * k)}" style="font-size:${f((boss ? 12.5 : 10.5) * k)}px;stroke-width:${f(3 * k)}px">${esc(m.name || (m.entry ? 'creature ' + m.entry : 'unit'))}</text>`;
+      }
+      g += '</g>';
+    });
+    if (on.events) {
+      UnitInfo.pinsOn(UnitInfo.eventsOf(cmdEvents, bind.commander), first ? first.map : null, 30).forEach(e => {
+        const p = CmdView.project(e.x, e.y), uid = 'e:' + e.id, big = e.kind === 'wipe' || e.kind === 'boss';
+        units[uid] = { kind: 'e', obj: e };
+        g += `<g class="evpin ev-${esc(e.kind)}" data-u="${esc(uid)}"><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(11 * k)}"/>`
+          + cmdMapIcon(e.kind === 'death' || e.kind === 'wipe' ? 'skull' : e.kind === 'boss' ? 'crown' : e.kind === 'loot' ? 'coin' : 'door', p.x, p.y, (big ? 17 : 12) * k) + '</g>';
+      });
+    }
+    if (on.stalls) g += cmdStallsSvg(dc, stalls);
+    if (on.commander && commanderAt) {
+      const c = CmdView.project(commanderAt.x, commanderAt.y), tgt = lead2 ? CmdView.project(lead.x, lead.y) : null;
+      if (tgt) g += `<line class="cmdline" x1="${f(c.x)}" y1="${f(c.y)}" x2="${f(tgt.x)}" y2="${f(tgt.y)}"/>`;
+      const d = 8 * k;
+      units['c:'] = { kind: 'c', obj: { name: bind.commander, x: commanderAt.x, y: commanderAt.y } };
+      g += `<g class="cmdr" data-u="c:"><circle class="hit" cx="${f(c.x)}" cy="${f(c.y)}" r="${f(11 * k)}"/><polygon points="${f(c.x)},${f(c.y - d)} ${f(c.x + d)},${f(c.y)} ${f(c.x)},${f(c.y + d)} ${f(c.x - d)},${f(c.y)}"/>`
+        + `<text x="${f(c.x + 11 * k)}" y="${f(c.y + 4 * k)}" style="font-size:${f(11.5 * k)}px;stroke-width:${f(3 * k)}px">${esc(bind.commander)}</text></g>`;
+    }
+    // dead first so a live bot is drawn over them
+    onMap.slice().sort((a, b) => (a.alive === false ? 0 : 1) - (b.alive === false ? 0 : 1)).forEach(b => {
+      const p = CmdView.project(b.x, b.y), role = CmdView.roleKey(b), isLead = b === lead && on.lead, uid = 'b:' + (b.guid || b.name);
+      units[uid] = { kind: 'b', obj: b };
+      g += `<g class="bot ${role}" data-u="${esc(uid)}"${CmdView.botHref(b.guid) ? ` data-guid="${esc(b.guid)}"` : ''}><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(12 * k)}"/>`
+        + (isLead ? `<circle class="leadring" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(11 * k)}"/>` : '')
+        + (on.bots ? `<circle class="dot" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(6 * k)}"/>` : '')
+        + (on.bots ? overlay(b, 'bot', p, (isLead ? 11 : 6) * k) : '')
+        + (on.botnames ? `<text x="${f(p.x + 10 * k)}" y="${f(p.y + 4 * k)}" style="font-size:${f(11.5 * k)}px;stroke-width:${f(3 * k)}px">${isLead ? '★ ' : ''}${esc(b.name)}</text>` : '')
+        + '</g>';
+    });
+    svg.setAttribute('viewBox', box.map(f).join(' '));
+    svg.querySelector('g.dyn').innerHTML = g;
+    const note = away > 0 ? `${away} bot${away === 1 ? ' is' : 's are'} on another map` : '';
+    card.querySelector('.cmd-mapnote').textContent = note;
+    card.querySelector('.cmd-grid-size').textContent = on.grid ? `grid ${step} yd` : '';
+    const sc = card.querySelector('.cmd-scale');
+    sc.hidden = !on.scale;
+    if (on.scale) {
+      const sb = CmdView.scaleBar(v.scale, 110);
+      sc.querySelector('i').style.width = sb.px.toFixed(0) + 'px';
+      sc.querySelector('span').textContent = sb.yd >= 1000 ? (sb.yd / 1000) + ' km' : sb.yd + ' yd';
+    }
+    setHtml(card.querySelector('.cmd-legend'), cmdLegendHtml(on));
+    const fb = card.querySelector('[data-act="follow"]');
+    fb.setAttribute('aria-pressed', ms.follow ? 'true' : 'false');
+    fb.classList.toggle('on', ms.follow);
+    card.querySelector('.cmd-resume').hidden = ms.follow;
+
+    // the run line and the event feed
+    const evs = UnitInfo.eventsOf(cmdEvents, bind.commander), now = cmdNowFor(bind);
+    const run = card.querySelector('.cmd-run');
+    run.hidden = !on.runinfo;
+    if (on.runinfo) run.textContent = UnitInfo.runInfo(bind, cmdEvents, now).text;
+    const start = bind.bound_at > 0 ? bind.bound_at : UnitInfo.firstSeen(cmdEvents, bind.commander);
+    const feed = card.querySelector('.cmd-feed');
+    feed.hidden = !(on.feed && evs.length);
+    if (!feed.hidden) {
+      const lines = evs.slice(-8).reverse(), sig = lines.map(e => e.id).join(',') + '|' + start;
+      if (feed._k !== sig) {
+        feed._k = sig;
+        feed.replaceChildren(...lines.map(e => {
+          const l = UnitInfo.feedLine(e, start), row = document.createElement('div'), t = document.createElement('b'), x = document.createElement('span');
+          row.className = 'ev ev-' + e.kind;
+          row.title = cmdClock(e.t);
+          t.textContent = l.time || cmdClock(e.t);
+          x.textContent = l.text;
+          row.append(t, x);
+          return row;
+        }));
+      }
+    }
+    paintCmdTip(key);
+  }
+
+  // ---- the box shown when the pointer rests on a unit ----
+
+  // Fills and places the box of a card's map for the unit it names (cmdMaps[key].tip = {id, x, y} in stage pixels); hides it when the
+  // unit is gone. Built with textContent only: names and spell names come from the game server.
+  function paintCmdTip(key) {
+    const card = cmdCards.get(key), ms = cmdMaps[key];
+    if (!card || !ms) return;
+    const stage = card.querySelector('.cmd-stage'), tip = card.querySelector('.cmd-tip');
+    const u = ms.tip && ms.units ? ms.units[ms.tip.id] : null;
+    if (!u) { tip.hidden = true; if (ms.tip) ms.tip = null; return; }
+    const bind = cmdFindBind(key);
+    const facts = bind ? cmdMapFacts(bind) : null;
+    if (!facts) { tip.hidden = true; return; }
+    const ctx = { lead: facts.lead && facts.first && facts.lead.map === facts.first.map ? facts.lead : null, bots: facts.onMap, mobs: facts.mobs };
+    const d = u.kind === 'b' ? UnitInfo.describeBot(u.obj, ctx) : u.kind === 'm' ? UnitInfo.describeMob(u.obj, ctx)
+      : u.kind === 'c' ? UnitInfo.describeCommander(u.obj.name, u.obj, ctx)
+      : u.kind === 'o' ? UnitInfo.describeObject(u.obj, ctx)
+      : u.kind === 's' ? UnitInfo.describeNote('Run step ' + u.obj.i, CmdPaths.stepText(u.obj), 'event')
+      : u.kind === 'x' ? UnitInfo.describeNote(u.obj.kind === 'pause' ? 'Run paused here' : 'Refused here', CmdPaths.stallText(u.obj), 'hostile')
+      : UnitInfo.describeEvent(u.obj, bind.bound_at > 0 ? bind.bound_at : UnitInfo.firstSeen(cmdEvents, key));
+    const sig = JSON.stringify(d);
+    if (tip._k !== sig) {
+      tip._k = sig;
+      const head = document.createElement('div'), title = document.createElement('b'), sub = document.createElement('span');
+      head.className = 'tt-head';
+      title.textContent = d.title;
+      sub.textContent = d.sub;
+      head.append(title, sub);
+      const kids = [head];
+      d.rows.forEach(r => {
+        const row = document.createElement('div'), l = document.createElement('span'), v = document.createElement('span');
+        row.className = 'tt-row';
+        l.textContent = r[0];
+        v.textContent = r[1];
+        row.append(l, v);
+        kids.push(row);
+      });
+      tip.replaceChildren(...kids);
+      tip.className = 'cmd-tip tone-' + d.tone;
+    }
+    tip.hidden = false;
+    const pos = UnitInfo.boxPosition(ms.tip.x, ms.tip.y, tip.offsetWidth, tip.offsetHeight, stage.clientWidth, stage.clientHeight);
+    tip.style.left = pos.left + 'px';
+    tip.style.top = pos.top + 'px';
+  }
+
+  function bindCmdMap(card, key) {
+    const stage = card.querySelector('.cmd-stage');
+    const ms = () => cmdMaps[key] || (cmdMaps[key] = { follow: true, view: null, userScale: null });
+    const size = () => [stage.clientWidth, stage.clientHeight];
+    const rel = e => { const r = stage.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    const free = () => { ms().follow = false; };
+    const pointers = new Map();
+    let lastPinch = null;
+    const svg = stage.querySelector('svg');
+    // A tap on a bot's dot or name (not a drag) opens that character's details, like a bot picked anywhere else.
+    let tap = null;
+    const unitAt = e => { const n = e.target.closest && e.target.closest('[data-u]'); return n ? n.dataset.u : ''; };
+    const hideTip = () => { const m = ms(); if (m.tip) { m.tip = null; paintCmdTip(key); } };
+    // A mouse resting on a unit shows its box; moving off hides it. (A touch shows it on a tap, see below.)
+    svg.addEventListener('pointermove', e => {
+      if (e.pointerType !== 'mouse' || e.buttons) return;
+      const uid = unitAt(e);
+      if (!uid) { hideTip(); return; }
+      ms().tip = { id: uid, x: rel(e).x, y: rel(e).y };
+      paintCmdTip(key);
+    });
+    svg.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') hideTip(); });
+    svg.addEventListener('pointerdown', e => {
+      const hit = e.target.closest && e.target.closest('g.bot[data-guid]');
+      tap = pointers.size === 0 ? { id: e.pointerId, guid: hit ? parseInt(hit.dataset.guid, 10) : 0, uid: unitAt(e), touch: e.pointerType !== 'mouse', x: e.clientX, y: e.clientY } : null;
+      pointers.set(e.pointerId, rel(e));
+      try { svg.setPointerCapture(e.pointerId); } catch (_) { /* a synthetic pointer */ }
+      lastPinch = null;
+    });
+    svg.addEventListener('pointermove', e => {
+      if (!pointers.has(e.pointerId)) return;
+      const prev = pointers.get(e.pointerId), cur = rel(e), [pw, ph] = size();
+      const m = ms();
+      if (pointers.size === 1) {
+        if (!m.view) return;
+        if (Math.hypot(cur.x - prev.x, cur.y - prev.y) < 1) return;
+        free();
+        m.view = CmdView.panBy(m.view, cur.x - prev.x, cur.y - prev.y);
+      } else if (pointers.size === 2 && m.view) {
+        const ids = [...pointers.keys()], other = pointers.get(ids[0] === e.pointerId ? ids[1] : ids[0]);
+        // Pinching only zooms: while following, the party stays in the middle and the following goes on.
+        m.view = m.follow ? CmdView.pinchFollow(m.view, prev, other, cur, other) : CmdView.pinch(m.view, prev, other, cur, other, pw, ph);
+        m.userScale = m.view.scale;
+      }
+      pointers.set(e.pointerId, cur);
+      drawCmdMap(key);
+    });
+    const up = e => {
+      pointers.delete(e.pointerId);
+      if (tap && tap.id === e.pointerId && e.type === 'pointerup' && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) < 6) {
+        const m = ms();
+        if (!tap.touch) {
+          if (tap.guid) openProfile(tap.guid); // a click on a bot opens its details; its box is already up from the hover
+        } else if (tap.uid && !(m.tip && m.tip.id === tap.uid)) {
+          m.tip = { id: tap.uid, x: rel(e).x, y: rel(e).y }; // first tap: the box
+          paintCmdTip(key);
+        } else if (tap.uid && tap.guid) {
+          openProfile(tap.guid); // second tap on the same bot: its details
+        } else {
+          hideTip(); // a tap on nothing, or on the same unit that has no details
+        }
+      }
+      if (tap && tap.id === e.pointerId) tap = null;
+    };
+    svg.addEventListener('pointerup', up);
+    svg.addEventListener('pointercancel', up);
+    svg.addEventListener('wheel', e => {
+      const m = ms();
+      if (!m.view) return;
+      e.preventDefault();
+      const p = rel(e), [pw, ph] = size(), factor = e.deltaY < 0 ? 1.25 : 0.8;
+      // Zooming never pauses the following; while following it zooms around the party (the middle), not around the cursor.
+      m.view = m.follow ? CmdView.zoomFollow(m.view, factor) : CmdView.zoomAt(m.view, factor, pw, ph, p.x, p.y);
+      m.userScale = m.view.scale;
+      drawCmdMap(key);
+    }, { passive: false });
+    card.querySelector('select.cmd-pic').addEventListener('change', e => { ms().pic = e.target.value; drawCmdMap(key); });
+    card.querySelector('.cmd-resume').addEventListener('click', () => { ms().follow = true; drawCmdMap(key); });
+    card.querySelector('.cmd-maptools').addEventListener('click', e => {
+      const btn = e.target.closest('button[data-act]');
+      if (!btn) return;
+      const m = ms(), [pw, ph] = size();
+      if (btn.dataset.act === 'follow') {
+        m.follow = !m.follow;
+      } else if (m.view) {
+        const factor = btn.dataset.act === 'in' ? 1.5 : 1 / 1.5;
+        m.view = m.follow ? CmdView.zoomFollow(m.view, factor) : CmdView.zoomAt(m.view, factor, pw, ph, pw / 2, ph / 2);
+        m.userScale = m.view.scale;
+      }
+      drawCmdMap(key);
+    });
+  }
+
+  function newCmdCard(key) {
+    const card = document.createElement('div');
+    card.className = 'card cmd-card';
+    card.innerHTML = `
+      <div class="cmd-head"><h2 class="cmd-title"></h2><div class="cmd-badges"></div></div>
+      <div class="cmd-sub"></div>
+      <div class="cmd-run" hidden></div>
+      <div class="cmd-warn" aria-live="polite"></div>
+      <div class="cmd-body">
+        <div class="cmd-left">
+          <div class="cmd-party"></div>
+          <h3 class="cmd-h">Last orders</h3>
+          <div class="cmd-orders"></div>
+        </div>
+        <div class="cmd-mapbox">
+          <div class="cmd-stage">
+            <svg class="cmd-map" role="img" aria-label="Map of the party" preserveAspectRatio="xMidYMid meet"><g class="pic"></g><g class="dyn"></g></svg>
+            <div class="cmd-maptools">
+              <select class="cmd-pic" hidden title="Which picture of this map to draw under the party" aria-label="Map picture"></select>
+              <button type="button" data-act="in" title="Zoom in" aria-label="Zoom in">+</button>
+              <button type="button" data-act="out" title="Zoom out" aria-label="Zoom out">&minus;</button>
+              <button type="button" data-act="follow" class="follow" title="Keep the party in view">Follow</button>
+            </div>
+            <button type="button" class="cmd-resume" data-act="resume" hidden title="You moved the map. Click to keep the party in the middle again.">Paused - click to follow</button>
+            <div class="cmd-grid-size"></div>
+            <div class="cmd-scale" hidden><i></i><span></span></div>
+            <div class="cmd-mapnote"></div>
+            <div class="cmd-tip" hidden></div>
+          </div>
+          <div class="cmd-feed" hidden></div>
+          <div class="cmd-legend">${cmdLegendHtml()}</div>
+        </div>
+      </div>`;
+    bindCmdMap(card, key);
+    // the names in the header, the party table and the lead line: a plain click opens the details in the page (modified clicks keep the link)
+    card.addEventListener('click', e => {
+      const a = e.target.closest && e.target.closest('a.cmd-botlink');
+      if (!a || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+      if (card.classList.contains('cmd-demo')) return; // the simulated bots have no details
+      openProfile(parseInt(a.dataset.guid, 10));
+    });
+    return card;
+  }
+
+  function renderCommanders() {
+    const c = state.commanders;
+    const listEl = document.getElementById('cmd-list');
+    const emptyEl = document.getElementById('cmd-empty');
+    if (!listEl || !emptyEl) return;
+    const age = cmdAgeSec(), dim = age * 1000 > CMD_DIM_MS;
+    const bots = c.list.reduce((n, b) => n + (b.bots || []).length, 0);
+    const down = c.list.reduce((n, b) => n + (b.bots || []).filter(x => x.alive === false).length, 0);
+    const set = (id, text) => { const e = document.getElementById(id); if (e) e.textContent = text; };
+    set('cmd-kpi-bindings', c.list.length);
+    set('cmd-kpi-bots', bots);
+    set('cmd-kpi-dead', down);
+    set('cmd-kpi-age', age >= 0 ? CmdView.ageText(age) + ' ago' : '–');
+    emptyEl.style.display = c.list.length ? 'none' : '';
+    const why = document.getElementById('cmd-empty-why');
+    if (why) {
+      why.textContent = c.lost ? 'The game server has not reported for several minutes, so the last bindings were dropped.'
+        : c.reportedAt ? `The last commander report from the game server was at ${cmdTime(c.reportedAt)}: either the last binding ended, or the server stopped reporting.`
+        : 'The game server has not reported any commander yet (it sends them only while a binding stands).';
+    }
+
+    const all = cmdAllBinds(), keys = all.map(b => b.commander);
+    cmdCards.forEach((card, key) => { if (!keys.includes(key)) { card.remove(); cmdCards.delete(key); delete cmdMaps[key]; delete cmdAvail[key]; } });
+    all.forEach((bind, i) => {
+      const key = bind.commander, demo = !!bind.demo, nowSec = cmdNowFor(bind);
+      let card = cmdCards.get(key);
+      if (!card) { card = newCmdCard(key); cmdCards.set(key, card); }
+      if (listEl.children[i] !== card) listEl.insertBefore(card, listEl.children[i] || null);
+      card.classList.toggle('stale', dim && !demo);
+      card.classList.toggle('cmd-demo', demo);
+      const word = CmdView.stateWord(bind, CmdView.context(cmdTracker, bind, nowSec));
+      const place = cmdPlace(bind);
+      const hp = CmdView.headerParts(bind, place, '');
+      setHtml(card.querySelector('.cmd-title'), `${demo ? 'DEMO &middot; simulated group' : cmdBotLink(bind.commander_guid, hp[0]) + esc(hp[1])} &middot; <span class="cmd-state s-${esc(word.replace(/\s+/g, '-'))}">${esc(word)}</span>`);
+      const rb = UnitInfo.runBrief(bind, nowSec);
+      setHtml(card.querySelector('.cmd-badges'),
+        (demo ? '<span class="badge badge-warn" title="Made up by this page to try the map drawings. Nothing of it comes from the game server.">simulated</span>' : '')
+        + (rb ? `<span class="badge ${rb.paused ? 'badge-warn' : 'badge-info'}" title="The run leader clears the dungeon plan with this party; the commander only watches (observe mode) and may pause, skip or stop.">observe${rb.paused ? ' · paused' : ''}</span>` : '')
+        + `<span class="badge ${bind.online ? 'badge-info' : 'badge-error'}">${bind.online ? 'online' : 'offline'}</span>`
+        + `<span class="badge ${bind.view ? 'badge-info' : 'badge-warn'}" title="The commander's TBM:VIEW perception feed">feed ${bind.view ? 'on' : 'off'}</span>`);
+      const leadBot = CmdView.leadBot(bind);
+      setHtml(card.querySelector('.cmd-sub'), `Led by <b>${leadBot ? cmdBotLink(leadBot.guid, leadBot.name) : esc(bind.lead || '?')}</b> &middot; group ${esc(bind.group)}`
+        + (rb && rb.text ? ` &middot; <span class="cmd-runstep${rb.paused ? ' paused' : ''}" title="${esc((rb.note ? rb.note + '. ' : '') + (rb.changedAgo != null ? 'Last change ' + CmdView.ageText(rb.changedAgo) + ' ago.' : ''))}">${esc((bind.run.plan ? bind.run.plan + ' · ' : '') + rb.text)}</span>` : ''));
+      const warns = CmdView.warnings(bind, { ageSec: demo ? 0 : age >= 0 ? age : null });
+      setHtml(card.querySelector('.cmd-warn'), warns.length
+        ? warns.map(w => `<span class="cmd-pill ${w.level}"><b aria-hidden="true">${w.level === 'bad' ? '!' : '▲'}</b> ${esc(w.text)}</span>`).join('')
+        : '<span class="cmd-pill ok"><b aria-hidden="true">✓</b> No warnings</span>');
+      setHtml(card.querySelector('.cmd-party'), cmdPartyHtml(bind));
+      setHtml(card.querySelector('.cmd-orders'), cmdOrdersHtml(bind, nowSec));
+      drawCmdMap(key);
+    });
+    paintCmdLayers();
+    showCommanderLink();
+  }
+
+  // ---- the layers panel: one choice for all maps ----
+
+  const cmdLayerRows = {}; // layer key -> {box, row, why}
+  let cmdDimRow = null;    // the dim slider's {row, box, val}
+  let cmdTrailRow = null;  // the path-length slider's {row, box, val}
+
+  function initCmdLayers() {
+    const body = document.getElementById('cmd-layers-body');
+    if (!body || body.childElementCount) return;
+    const dimRow = document.createElement('label');
+    dimRow.className = 'cmd-dim';
+    dimRow.innerHTML = '<span>Dim the map picture</span><input type="range" min="0" max="' + MapLayers.DIM_MAX + '" step="5" aria-label="Dim the map picture"><b></b>';
+    const dimBox = dimRow.querySelector('input'), dimVal = dimRow.querySelector('b');
+    dimBox.addEventListener('input', () => {
+      cmdLayers = MapLayers.setDim(cmdLayers, dimBox.value);
+      MapLayers.save(cmdLayerStore, cmdLayers);
+      dimVal.textContent = cmdLayers.dim + '%';
+      cmdCards.forEach((_, k) => drawCmdMap(k));
+    });
+    body.appendChild(dimRow);
+    cmdDimRow = { row: dimRow, box: dimBox, val: dimVal };
+    const lenRow = document.createElement('label');
+    lenRow.className = 'cmd-dim';
+    lenRow.innerHTML = '<span>Path length (positions drawn)</span><input type="range" min="' + MapLayers.TRAIL_LEN_MIN + '" max="' + MapLayers.TRAIL_LEN_MAX + '" step="10" aria-label="Path length"><b></b>';
+    const lenBox = lenRow.querySelector('input'), lenVal = lenRow.querySelector('b');
+    lenBox.addEventListener('input', () => {
+      cmdLayers = MapLayers.setTrailLen(cmdLayers, lenBox.value);
+      MapLayers.save(cmdLayerStore, cmdLayers);
+      lenVal.textContent = String(cmdLayers.trailLen);
+      cmdCards.forEach((_, k) => drawCmdMap(k));
+    });
+    body.appendChild(lenRow);
+    cmdTrailRow = { row: lenRow, box: lenBox, val: lenVal };
+    MapLayers.groups().forEach(group => {
+      const wrap = document.createElement('div');
+      wrap.className = 'cmd-lgroup';
+      const h = document.createElement('h4');
+      h.textContent = group;
+      wrap.appendChild(h);
+      MapLayers.DEFS.filter(d => d.group === group).forEach(d => {
+        const row = document.createElement('label'), box = document.createElement('input'), text = document.createElement('span'), why = document.createElement('em');
+        row.className = 'cmd-lrow';
+        box.type = 'checkbox';
+        text.textContent = d.label;
+        box.addEventListener('change', () => {
+          cmdLayers = MapLayers.set(cmdLayers, d.key, box.checked);
+          MapLayers.save(cmdLayerStore, cmdLayers);
+          cmdCards.forEach((_, k) => drawCmdMap(k));
+          paintCmdLayers();
+        });
+        row.append(box, text, why);
+        wrap.appendChild(row);
+        cmdLayerRows[d.key] = { box, row, why };
+        if (d.line) {
+          // a line layer also has its opacity and thickness (shown while the layer is on)
+          const st = document.createElement('div');
+          st.className = 'cmd-lstyle';
+          st.hidden = true;
+          const mk = (label, field, min, max) => {
+            const lab = document.createElement('label'), name = document.createElement('span'), inp = document.createElement('input'), val = document.createElement('b');
+            name.textContent = label;
+            inp.type = 'range';
+            inp.min = String(min);
+            inp.max = String(max);
+            inp.step = field === 'op' ? '5' : '10';
+            inp.setAttribute('aria-label', label + ' of ' + d.label);
+            inp.addEventListener('input', () => {
+              cmdLayers = MapLayers.setStyle(cmdLayers, d.key, field, inp.value);
+              MapLayers.save(cmdLayerStore, cmdLayers);
+              val.textContent = cmdLayers.style[d.key][field] + '%';
+              cmdCards.forEach((_, k) => drawCmdMap(k));
+            });
+            lab.append(name, inp, val);
+            st.appendChild(lab);
+            return { inp, val };
+          };
+          cmdLayerRows[d.key].style = { wrap: st, op: mk('Opacity', 'op', MapLayers.OP_MIN, MapLayers.OP_MAX), th: mk('Thickness', 'th', MapLayers.TH_MIN, MapLayers.TH_MAX) };
+          wrap.appendChild(st);
+        }
+      });
+      body.appendChild(wrap);
+    });
+    const reset = document.getElementById('cmd-layers-reset');
+    if (reset) reset.addEventListener('click', () => {
+      cmdLayers = MapLayers.defaults();
+      MapLayers.save(cmdLayerStore, cmdLayers);
+      cmdCards.forEach((_, k) => drawCmdMap(k));
+      paintCmdLayers();
+    });
+    paintCmdLayers();
+  }
+
+  // Ticks and greys the rows: a layer no map has data for is greyed out and says why.
+  function paintCmdLayers() {
+    const keys = Object.keys(cmdAvail);
+    const avail = MapLayers.mergeAvailability(keys.length ? keys.map(k => cmdAvail[k]) : [MapLayers.availability({})]);
+    if (cmdDimRow) {
+      cmdDimRow.box.value = String(cmdLayers.dim);
+      cmdDimRow.val.textContent = cmdLayers.dim + '%';
+      cmdDimRow.box.disabled = !avail.bg.ok;
+      cmdDimRow.row.classList.toggle('off', !avail.bg.ok);
+      cmdDimRow.row.title = avail.bg.ok ? '' : 'Greyed out: ' + avail.bg.why;
+    }
+    if (cmdTrailRow) {
+      const any = avail.trail.ok || avail.membertrails.ok;
+      cmdTrailRow.box.value = String(cmdLayers.trailLen);
+      cmdTrailRow.val.textContent = String(cmdLayers.trailLen);
+      cmdTrailRow.box.disabled = !any;
+      cmdTrailRow.row.classList.toggle('off', !any);
+    }
+    MapLayers.DEFS.forEach(d => {
+      const r = cmdLayerRows[d.key];
+      if (!r) return;
+      const a = avail[d.key];
+      if (r.style) {
+        const sv = cmdLayers.style[d.key];
+        r.style.wrap.hidden = !(cmdLayers[d.key] && a.ok);
+        r.style.op.inp.value = String(sv.op);
+        r.style.op.val.textContent = sv.op + '%';
+        r.style.th.inp.value = String(sv.th);
+        r.style.th.val.textContent = sv.th + '%';
+      }
+      r.box.checked = !!cmdLayers[d.key];
+      r.box.disabled = !a.ok;
+      r.row.classList.toggle('off', !a.ok);
+      r.why.textContent = a.ok ? '' : a.why;
+      r.row.title = a.ok ? '' : 'Greyed out: ' + a.why;
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    if (state.activeTab !== 'commanders') return;
+    cmdCards.forEach((_, key) => drawCmdMap(key));
+  });
+
+  // The external commander dashboard: nothing is drawn, and no request is made to it, unless the daemon was started with
+  // TBDASH_COMMANDER_URL; and its frame is only loaded once the viewer opens the section.
+  function showCommanderLink() {
+    const box = document.getElementById('cmd-external');
+    const frame = document.getElementById('cmd-external-frame');
+    const link = document.getElementById('cmd-external-link');
+    if (!box || !frame || !link) return;
+    const url = state.commanders.externalUrl;
+    if (!url) { box.hidden = true; return; }
+    box.hidden = false;
+    link.href = url;
+    if (box.open && frame.getAttribute('src') !== url) frame.src = url;
+  }
+
+  function initCommanderLink() {
+    const box = document.getElementById('cmd-external');
+    if (box) box.addEventListener('toggle', showCommanderLink);
   }
 
   // ---- Persistent issues --------------------------------------------------
@@ -4799,6 +5905,12 @@
   fetchHistory();
   fetchActivity();
   setInterval(fetchActivity, 30000);
+  initCommanderLink();
+  initCmdLayers();
+  initCmdDemo();
+  fetchCommanders();
+  setInterval(fetchCommanders, 30000);
+  setInterval(expireCommanders, 3000);
   setInterval(fetchRoster, 60000);
   initWebSocket();
 

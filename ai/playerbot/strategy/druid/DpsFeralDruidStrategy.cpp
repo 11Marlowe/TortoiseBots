@@ -12,7 +12,6 @@ public:
     {
         creators["omen of clarity"] = &omen_of_clarity;
         creators["shred"] = &shred;
-        creators["mangle (cat)"] = &mangle_cat;
         creators["powershift"] = &powershift;
         creators["innervate"] = &innervate;
     }
@@ -23,9 +22,7 @@ private:
 
     ACTION_NODE_P(innervate, "innervate", "caster form");
 
-    ACTION_NODE_A(shred, "shred", "mangle (cat)");
-
-    ACTION_NODE_A(mangle_cat, "mangle (cat)", "claw");
+    ACTION_NODE_A(shred, "shred", "claw");
 
     ACTION_NODE_A(pounce, "pounce", "ravage");
 
@@ -47,13 +44,10 @@ public:
         creators["pounce"] = &pounce;
         creators["ravage"] = &ravage;
         creators["shred"] = &shred;
-        creators["mangle (cat)"] = &mangle_cat;
     }
 
 private:
-    ACTION_NODE_A(shred, "shred", "mangle (cat)");
-
-    ACTION_NODE_A(mangle_cat, "mangle (cat)", "claw");
+    ACTION_NODE_A(shred, "shred", "claw");
 
     ACTION_NODE_A(pounce, "pounce", "ravage");
 
@@ -136,9 +130,10 @@ void DpsFeralDruidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
         "behind target",
         NextAction::array(0, new NextAction("shred", ACTION_NORMAL + 1), NULL)));
 
+    // Claw is the 1.12 builder here: Turtle has no Mangle (Cat) spell.
     triggers.push_back(new TriggerNode(
         "not behind target",
-        NextAction::array(0, new NextAction("mangle (cat)", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("claw", ACTION_NORMAL), NULL)));
 }
 
 void DpsFeralDruidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -280,11 +275,8 @@ void DpsFeralDruidRaidStrategy::InitDeadTriggers(std::list<TriggerNode*>& trigge
 
 void DpsFeralDruidAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Cat form has no area attack on 1.12: Swipe is a bear-form spell.
     DruidAoeStrategy::InitCombatTriggers(triggers);
-
-    triggers.push_back(new TriggerNode(
-        "melee medium aoe",
-        NextAction::array(0, new NextAction("swipe (cat)", ACTION_HIGH), NULL)));
 }
 
 void DpsFeralDruidAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -626,7 +618,6 @@ public:
         if ((actionName == "unstealth") ||
             (actionName == "check stealth") ||
             (actionName == "claw") ||
-            (actionName == "mangle (cat)") ||
             (actionName == "pounce") ||
             (actionName == "ravage") ||
             (actionName == "shred") ||

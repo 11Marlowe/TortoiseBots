@@ -256,6 +256,10 @@ public:
     std::string randomBotStartZoneWeightsText;
     uint32 randomBotStartZoneWeights[6] = {};
     bool randomBotStartZoneWeightsValid = false;
+    // Issue #1003: share of new bot names per style (race-flavoured /
+    // compound / fun) and an optional extra names file (read once).
+    uint32 randomBotNameStyleWeights[3] = { 55, 20, 25 };
+    std::string randomBotNamesFile;
     // Whether random bots are allowed in custom isolated starting zones
     // (Blackstone Island 5536, Thalassian Highlands 5225, Alah'Thalas 2040).
     // Default false (blocked and normalized to mainland starting zones).
@@ -364,6 +368,12 @@ public:
     // Maximum hired companions per player. Party hires cap at 4 regardless;
     // raise toward 39 to fill a full 40-man raid (player + hires).
     uint32 hireMaxBotsPerPlayer = 4;
+    // Issue #936: how many levels above the hirer a `.bot hire ... level=<n>`
+    // companion may be (0 = never above the hirer; a GM is not limited by it).
+    uint32 hireMaxLevelAboveHirer = 0;
+    // Accounts with this security level or more hire for free (no gold taken,
+    // reply says "free (GM)"). 0 = off. runtime/HireFeePolicy.h is the rule.
+    uint32 hireFreeMinSecurity = 0;
     // Companions are hired at a <Mercenary Hire> recruiter. When set, the fast
     // `.bot hire` command also works anywhere; fees are the same either way.
     bool hireAnywhere = false;
@@ -416,6 +426,8 @@ public:
     uint32 worldBuffsSilithystPricePerPersonCopper = 4000;
     uint32 worldBuffsUnlockFeeRaidCopper = 2000000;
     uint32 worldBuffsUnlockFeeCopper = 1000000;
+    // Ammo stacks (200 rounds each) a warrior or rogue with a bow/gun/crossbow carries; hunters keep 5 + level / 10.
+    uint32 ammoStacksNonHunter = 2;
     // Issue #473: opt-in alternative play style for owned/hired bots only.
     // Every part defaults off and never touches pool bots. The maintenance
     // command refreshes one owned bot's kit (consumables/reagents/ammo/
@@ -436,6 +448,15 @@ public:
     // minutes). An uninvite/invite cycle inside the window is refused, so it
     // cannot be macroed into a free in-combat rez/repair.
     uint32 ownedBotSummonCooldown = 300;
+    // Issue #884: remote commander. A GM or the owner of every bot binds a
+    // bot-only group of up to five to themselves (`.bot commander bind`) and
+    // leads it from anywhere with GUID-targeted orders (`.bot cmd`). Off by
+    // default: with 0 both commands answer that the feature is off.
+    bool remoteCommander = false;
+    // Issue #884, phase 2: milliseconds between two TBM:VIEW frames to a bound
+    // commander whose feed is on (`.bot commander view on|off`). Clamped to
+    // 250..60000; default 1000.
+    uint32 remoteCommanderViewMs = 1000;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
@@ -533,6 +554,12 @@ public:
     uint32 pullDpsJoinDelay;
     uint32 pullBackDpsJoinDelay;
     uint32 pullBackMaxReturnTime;
+    // Commanded pulls open from range (the tank's ranged weapon) when the mob
+    // is in sight and in shot range but cannot be walked to, or is farther than
+    // rangedPullMeleeApproach. Off = a plain pull always walks in unless the
+    // order says `ranged`.
+    bool rangedPull;
+    float rangedPullMeleeApproach;
     uint32 randombotStartingLevel;
     // Level seeding for persistent-level pools (DisableRandomLevels=1). Fresh
     // pool bots are created at level 1 by CharacterCreation, so the pool

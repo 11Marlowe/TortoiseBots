@@ -91,6 +91,16 @@ namespace ai
         // (PlanCreatureAuraFollow) instead of following in. True when it
         // handled the follow this tick (moved or held); false to follow normally.
         bool HoldFollowOutsideKeepout(Unit* target, float distance, float angle);
+        // The same for a chase: when the chase goal (the target for melee)
+        // lies inside a listed creature's hold ring, approach, hold or back
+        // off outside it instead of chasing in. True when it handled the
+        // chase this tick; false to chase normally.
+        bool HoldChaseOutsideKeepout(WorldObject* target, float distance);
+        // AiPlayerbot.AvoidCreatureAuras: true when a move's end point lies in
+        // a listed creature's ring (rear flank, set behind, move out of
+        // collision refuse it; the hazard registry only bends the path). A
+        // tank in combat is exempt, the player's attack target is skipped.
+        bool EndPointInCreatureAuraKeepout(float x, float y);
         bool Flee(Unit *target);
         // Pool-bot flee: one checked point step of `distance` away from
         // target (fanned to the sides), false when no spot is usable.
@@ -121,11 +131,27 @@ namespace ai
 
     private:
         bool GeneratePathAvoidingHazards(std::vector<WorldPosition>& movePath);
+        // Shared by the follow and chase keep-out holds: plan against each
+        // listed creature near the bot for goal (gx, gy), then (ax, ay) if the
+        // first is clear; `engaged` carries the hysteresis, `nativeType` is
+        // the core generator (follow or chase) stopped when holding.
+        // `first` (the chase target) is planned against before the cached
+        // 15 yd list, so a target that is itself a keep-out creature is
+        // known from any distance.
+        bool HoldOutsideKeepout(float gx, float gy, float ax, float ay, ObjectGuid& engaged,
+            MovementGeneratorType nativeType, Unit* first = nullptr);
 
         LedgeStepDownClock ledgeStepDown;
         // The keep-out creature the last follow decision held, approached or
         // backed off from (empty when it followed normally): goal hysteresis.
         ObjectGuid keepoutFollowEngaged;
+        // The same for chase decisions (HoldChaseOutsideKeepout).
+        ObjectGuid keepoutChaseEngaged;
+        // Bounded chase hold: the target held on, since when, and the last
+        // hold tick (a pause longer than kCreatureAuraChaseHoldGapMs restarts it).
+        ObjectGuid keepoutChaseHoldTarget;
+        uint32 keepoutChaseHoldSinceMs = 0;
+        uint32 keepoutChaseHoldLastMs = 0;
     };
 
     class FleeAction : public MovementAction

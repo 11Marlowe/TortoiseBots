@@ -4,10 +4,13 @@
 #include "playerbot/PerformanceMonitor.h"
 #include "playerbot/SurvivePolicy.h"
 #include "playerbot/SpellRankPolicy.h"
+#include "playerbot/AmmoStackPolicy.h"
+#include "../../runtime/BotNameService.h"
 #include "../../runtime/HunterPetPolicy.h"
 #include "../../runtime/PetSpellRankPolicy.h"
 #include "../../runtime/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
+#include "../../runtime/OwnedBotQolPolicy.h"
 
 #include "Database/SQLStorages.h"
 #include "Objects/ItemPrototype.h"
@@ -31,6 +34,22 @@ namespace
 // tools/test_starter_kit_policy.cpp); local aliases keep call sites short.
 uint32 const STARTER_PLAIN_BAG = TortoiseBots::STARTER_PLAIN_BAG_ENTRY;
 uint32 const STARTER_SOUL_BAG = TortoiseBots::STARTER_SOUL_BAG_ENTRY;
+
+// Ammo type a ranged-slot item needs: gun -> bullets, bow/crossbow -> arrows;
+// thrown, wands and relics need none. Policy in runtime/OwnedBotQolPolicy.h.
+TortoiseBots::RangedAmmoKind RangedAmmoKindOf(ItemPrototype const* proto)
+{
+    if (!proto)
+        return TortoiseBots::RangedAmmoKind::Empty;
+    if (proto->Class == ITEM_CLASS_WEAPON)
+    {
+        if (proto->SubClass == ITEM_SUBCLASS_WEAPON_GUN)
+            return TortoiseBots::RangedAmmoKind::Bullet;
+        if (proto->SubClass == ITEM_SUBCLASS_WEAPON_BOW || proto->SubClass == ITEM_SUBCLASS_WEAPON_CROSSBOW)
+            return TortoiseBots::RangedAmmoKind::Arrow;
+    }
+    return TortoiseBots::RangedAmmoKind::NoAmmo;
+}
 
 std::vector<std::pair<uint32, uint32>> const& CollectionMounts()
 {
@@ -166,8 +185,22 @@ void PlayerbotFactory::AutogearOwned(uint32 cappedQuality, uint32 ilvlCap)
     if (cappedQuality > ITEM_QUALITY_LEGENDARY)
         cappedQuality = ITEM_QUALITY_LEGENDARY;
     itemQuality = cappedQuality;
+    ammoAwareRanged = true;
     InitEquipment(true, false, sPlayerbotAIConfig.randomGearProgression, false, ilvlCap);
+    ammoAwareRanged = false;
     bot->SaveToDB();
+}
+
+bool PlayerbotFactory::HasAmmoInBagsFor(uint32 weaponSubClass)
+{
+    if (!bot || !ai)
+        return true;
+    if (weaponSubClass != ITEM_SUBCLASS_WEAPON_GUN && weaponSubClass != ITEM_SUBCLASS_WEAPON_BOW &&
+        weaponSubClass != ITEM_SUBCLASS_WEAPON_CROSSBOW)
+        return true;
+    FindAmmoVisitor ammoVisitor(bot, weaponSubClass);
+    ai->InventoryIterateItems(&ammoVisitor, IterateItemsMask::ITERATE_ITEMS_IN_BAGS);
+    return !ammoVisitor.GetResult().empty();
 }
 
 void PlayerbotFactory::LearnSeedLevelSpells()
@@ -533,6 +566,10 @@ void PlayerbotFactory::InitPet()
             pet->LearnPetPassives();
             pet->CastPetAuras(true);
             pet->UpdateAllStats();
+            // Issue #1003: a name from the pet pool instead of the core's "Pet".
+            std::string petName = TortoiseBots::PickBotPetName();
+            if (!petName.empty())
+                pet->SetName(petName);
             bot->SetPet(pet);
             bot->SetPetGuid(pet->getObjectGuid());
 
@@ -553,6 +590,13 @@ void PlayerbotFactory::InitPet()
         pet->SetHealth(pet->GetMaxHealth());
         pet->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PLAYER_CONTROLLED);
         pet->SetReactState(REACT_DEFENSIVE);
+        // Pets created before issue #1003 are still called "Pet".
+        std::string petName = std::string(pet->GetName()) == "Pet" ? TortoiseBots::PickBotPetName() : std::string();
+        if (!petName.empty())
+        {
+            pet->SetName(petName);
+            pet->SavePetToDB(PET_SAVE_AS_CURRENT);
+        }
     }
     else
     {
@@ -1288,6 +1332,17 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
     // Randomize) keep deterministic best-first behaviour.
     bool const seedSpread = incremental && !syncWithMaster && itemQuality == 0;
 
+    // Autogear ranged pick (owned bots): which ammo the bags hold now, so a
+    // gun is not picked for a bot that only carries arrows (auto shot would
+    // be dead). Read once; the ranged slot never changes the bags.
+    bool bagsHaveArrows = false;
+    bool bagsHaveBullets = false;
+    if (ammoAwareRanged)
+    {
+        bagsHaveArrows = HasAmmoInBagsFor(ITEM_SUBCLASS_WEAPON_BOW);
+        bagsHaveBullets = HasAmmoInBagsFor(ITEM_SUBCLASS_WEAPON_GUN);
+    }
+
     for(uint8 slot = 0; slot < EQUIPMENT_SLOT_END; ++slot)
     {
         if (slot == EQUIPMENT_SLOT_TABARD)
@@ -1748,7 +1803,19 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                                 continue;
                         }
 
-                    if (incremental && oldItem && oldStatValue >= newStatValue && oldStatValue > 1)
+                    // Autogear: an equipped ranged weapon without ammo in the bags is
+                    // replaced by any weapon the bags do have ammo for, even a lower-scored one.
+                    bool const rangedDudFixed = ammoAwareRanged && slot == EQUIPMENT_SLOT_RANGED &&
+                        TortoiseBots::OwnedBotRangedReplacesDud(RangedAmmoKindOf(oldProto), RangedAmmoKindOf(proto),
+                            bagsHaveArrows, bagsHaveBullets);
+                    if (incremental && oldItem && oldStatValue >= newStatValue && oldStatValue > 1 && !rangedDudFixed)
+                        continue;
+
+                    // Autogear ranged pick: bow/crossbow only with arrows, gun
+                    // only with bullets; with no ammo, keep the previous type.
+                    if (ammoAwareRanged && slot == EQUIPMENT_SLOT_RANGED &&
+                        !TortoiseBots::OwnedBotAcceptRangedPick(RangedAmmoKindOf(oldProto), oldStatValue,
+                            RangedAmmoKindOf(proto), newStatValue, bagsHaveArrows, bagsHaveBullets))
                         continue;
 
                     // replace grey items right away
@@ -3152,10 +3219,10 @@ void PlayerbotFactory::InitAmmo()
             entry = 0;
     }
     uint32 count = entry ? bot->GetItemCount(entry) / 200 : 0;
-    uint32 maxCount = 5 + level / 10;
-
-    if (ai->HasCheat(BotCheatMask::item))
-        maxCount = 1;
+    // Hunters keep 5 + level / 10 stacks; warriors and rogues carry
+    // AiPlayerbot.AmmoStacksNonHunter (default 2); the item cheat keeps 1.
+    uint32 maxCount = AmmoStackTarget(bot->GetClass() == CLASS_HUNTER, level,
+        sPlayerbotAIConfig.ammoStacksNonHunter, ai->HasCheat(BotCheatMask::item));
 
     if (!entry || count <= 2)
     {

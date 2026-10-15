@@ -8,6 +8,8 @@
 #include "../../../runtime/HealthFunnelPolicy.h"
 #include "../../../runtime/WarlockPetPolicy.h"
 #include "../../../runtime/WarlockTapPolicy.h"
+#include "../../../runtime/WarlockStonePolicy.h"
+#include "../../../../runtime/WarlockSoulstonePolicy.h"
 
 using namespace ai;
 
@@ -21,33 +23,46 @@ bool DemonArmorTrigger::IsActive()
 			   !ai->HasAura("demon armor", target);
 }
 
+namespace
+{
+// Held off-hand stone in the bags that can go into the off-hand right now
+// (runtime/WarlockStonePolicy.h). Turtle's bag-consumable Spellstone and
+// Firestone share the vanilla names but cannot be equipped; matching on the
+// name alone made the equip action fail on every tick.
+bool HasHoldableStoneToEquip(Player* bot, std::list<Item*> const& stones)
+{
+    TortoiseBots::WarlockStoneSlotFacts slots;
+    slots.offHandEmpty = !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+    Item* mainHand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
+    slots.hasMainHand = mainHand != nullptr;
+    slots.mainHandInventoryType = mainHand ? mainHand->GetProto()->InventoryType : 0;
+    for (Item* stone : stones)
+    {
+        if (stone && !stone->IsEquipped() &&
+            TortoiseBots::CanHoldWarlockStone(stone->GetProto()->InventoryType, slots))
+            return true;
+    }
+    return false;
+}
+}
+
 bool SpellstoneTrigger::IsActive()
 {
+    // Off-hand held item like firestone (not a weapon temp-enchant: the
+    // stone's on-use spell targets the caster). Never displace worn gear,
+    // and a two-handed main-hand leaves nowhere to put it.
     if (AI_VALUE2(uint32, "item count", getName()) == 0)
         return false;
-    // Off-hand held item like firestone (not a weapon temp-enchant: the
-    // stone's on-use spell targets the caster). Same gates: never displace
-    // worn gear, and a two-handed main-hand leaves nowhere to put it.
-    if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
-        return false;
-    Item* mainHand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
-    if (!mainHand || mainHand->GetProto()->InventoryType == INVTYPE_2HWEAPON)
-        return false;
-    return true;
+    return HasHoldableStoneToEquip(bot, AI_VALUE2(std::list<Item*>, "inventory items", getName()));
 }
 
 bool FirestoneTrigger::IsActive()
 {
+    // Same gates as the spellstone: never displace worn gear, and a
+    // two-handed main-hand leaves nowhere to put it.
     if (AI_VALUE2(uint32, "item count", getName()) == 0)
         return false;
-    // Off-hand held item: never displace worn gear, and a two-handed
-    // main-hand leaves nowhere to put it (the equip would fail every tick).
-    if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND))
-        return false;
-    Item* mainHand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
-    if (!mainHand || mainHand->GetProto()->InventoryType == INVTYPE_2HWEAPON)
-        return false;
-    return true;
+    return HasHoldableStoneToEquip(bot, AI_VALUE2(std::list<Item*>, "inventory items", getName()));
 }
 
 bool UnendingBreathTrigger::IsActive()
@@ -458,30 +473,22 @@ bool WrongPetTrigger::IsActive()
 
 uint32 SoulstoneTrigger::GetItemId()
 {
-    uint32 itemId = 0;
-    const uint32 level = bot->GetLevel();
-    if (level >= 18 && level < 30)
-    {
-        itemId = 5232;
-    }
-    else if (level >= 30 && level < 40)
-    {
-        itemId = 16892;
-    }
-    else if (level >= 40 && level < 50)
-    {
-        itemId = 16893;
-    }
-    else if (level >= 50 && level < 60)
-    {
-        itemId = 16895;
-    }
-    else if (level >= 60)
-    {
-        itemId = 16896;
-    }
+    return TortoiseBots::PickSoulstoneItem(bot->GetLevel(), [this](uint32 itemId) { return bot->GetItemCount(itemId); });
+}
 
-    return itemId;
+bool HasSoulstoneTrigger::IsActive()
+{
+    if (!WarlockConjuredItemTrigger::IsActive())
+        return false;
+
+    // Create Soulstone consumes a Soul Shard: shardless, stay quiet instead of
+    // queueing a cast that fails isPossible every time the trigger fires.
+    TortoiseBots::SoulstoneCreateFacts facts;
+    facts.level = bot->GetLevel();
+    facts.soulShards = bot->GetItemCount(TortoiseBots::WARLOCK_SOUL_SHARD_ITEM);
+    facts.soulstonesHeld = 0; // the count check above already found none
+    facts.inCombat = bot->IsInCombat();
+    return TortoiseBots::ShouldCreateSoulstone(facts);
 }
 
 bool RainOfFireChannelCheckTrigger::IsActive()
@@ -655,12 +662,21 @@ bool WarlockWandBlocksNukeTrigger::IsActive()
     if (noManaRowActive)
         return false;
 
+    // Near the tank's threat the "threat" multiplier vetoes Shadow Bolt:
+    // stopping the wand then leaves the warlock idle (or restarts the wand
+    // from the "has aggro" row a swing later), never casting.
+    bool const nukeThreatVetoed = ThreatVetoesNuke();
+    if (nukeThreatVetoed)
+        return false;
+
     // Shadow Bolt is every spec's filler (default combat action), known
     // from level 1, with no cooldown of its own: NOT_READY is the GCD.
     WandState const state{
         true,
         ProbeSpell("shadow bolt", target),
         keepWandForThreat,
-        noManaRowActive};
+        noManaRowActive,
+        WandSpellProbe::Blocked,
+        nukeThreatVetoed};
     return ShouldStopWandToCast(state);
 }

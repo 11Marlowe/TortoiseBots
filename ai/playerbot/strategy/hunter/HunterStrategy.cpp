@@ -23,7 +23,12 @@ public:
 private:
     ACTION_NODE_A(aimed_shot, "aimed shot", "arcane shot");
 
-    ACTION_NODE_A(rapid_fire, "rapid fire", "readiness");
+    // No alternative: on 1.12 Readiness resets Deterrence, Feign Death and Trap,
+    // not Rapid Fire, so casting it while Rapid Fire is down only spends it.
+    static ActionNode* rapid_fire([[maybe_unused]] PlayerbotAI* botAI)
+    {
+        return new ActionNode("rapid fire", /*P*/ NULL, /*A*/ NULL, /*C*/ NULL);
+    }
 
     ACTION_NODE_A(aspect_of_the_pack, "aspect of the pack", "aspect of the cheetah");
 
@@ -148,6 +153,10 @@ void HunterStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("flare", ACTION_NORMAL + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
+        "low ammo",
+        NextAction::array(0, new NextAction("say::low ammo", ACTION_NORMAL), NULL)));
+
+    triggers.push_back(new TriggerNode(
         "no ammo",
     NextAction::array(0,
         new NextAction("equip ammo", ACTION_EMERGENCY),
@@ -256,6 +265,11 @@ void HunterAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "ranged medium aoe",
         NextAction::array(0, new NextAction("volley", ACTION_HIGH + 3), NULL)));
+
+    // Volley is a channel: stop it once the pack is gone (warlock Rain of Fire model).
+    triggers.push_back(new TriggerNode(
+        "volley channel check",
+        NextAction::array(0, new NextAction("cancel channel", ACTION_HIGH + 3), NULL)));
 
     triggers.push_back(new TriggerNode(
         "multi-shot",

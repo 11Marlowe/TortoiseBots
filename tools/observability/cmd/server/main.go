@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"tortoise-observability/internal/armory"
 	"tortoise-observability/internal/auth"
 	zoneproject "tortoise-observability/internal/map"
+	"tortoise-observability/internal/mapdir"
 	"tortoise-observability/internal/metrics"
 	"tortoise-observability/internal/model"
 	"tortoise-observability/internal/ringbuf"
@@ -58,6 +60,13 @@ func main() {
 	dbcDir := flag.String("dbc-dir", getEnv("DBC_DIR", ""), "Optional operator DBC directory (same files mangosd reads); enables talent trees when world talent mirrors are empty")
 	issueMinAgeSec := flag.Int("issue-min-age-sec", getEnvInt("ISSUE_MIN_AGE_SEC", 300), "Only surface bot issues that persist at least this many seconds")
 	minGMLevel := flag.Int("min-gm-level", getEnvInt("MIN_GM_LEVEL", 2), "Minimum GM rank required for dashboard login (2 = gamemaster)")
+	// An optional external commander dashboard (for example turtle-agent's
+	// `turtle-agent dashboard`) that the Commanders tab embeds. Unset: the tab
+	// shows what the module knows and nothing else.
+	commanderURLRaw := flag.String("commander-url", getEnv("TBDASH_COMMANDER_URL", ""), "Optional URL of an external commander dashboard to embed in the Commanders tab (env TBDASH_COMMANDER_URL)")
+	// Optional folder of real game-map pictures (turtle-agent `minimap-extract` output) for the Commanders tab maps. Never part of the
+	// repository: the owner's own extracted assets. Unset: the maps keep their plain grid.
+	mapDirRaw := flag.String("map-dir", getEnv("TBDASH_MAP_DIR", ""), "Optional folder of map pictures (<id>.png + <id>.json from `turtle-agent minimap-extract`) drawn under the Commanders tab maps (env TBDASH_MAP_DIR)")
 	devNoAuth := flag.Bool("dev-no-auth", false, "Disable Game Master authentication check for local dev testing")
 	// The activity rollup is in-memory, so without this a dashboard restart
 	// resets every counter. The file sits in the mounted icon-cache directory
@@ -192,6 +201,22 @@ func main() {
 			time.Sleep(sweepInterval)
 		}
 	}()
+
+	commanderURL, err := state.NormalizeCommanderURL(*commanderURLRaw)
+	if err != nil {
+		log.Printf("[Commanders] ignoring commander URL: %v", err)
+		commanderURL = ""
+	} else if commanderURL != "" {
+		log.Printf("[Commanders] embedding the commander dashboard at %s", commanderURL)
+	}
+
+	mapPics, err := mapdir.New(*mapDirRaw)
+	if err != nil {
+		log.Printf("[Commanders] ignoring the map folder %q: %v", *mapDirRaw, err)
+		mapPics = nil
+	} else if mapPics != nil {
+		log.Printf("[Commanders] real map pictures served from %s", mapPics.Root())
+	}
 
 	// 5. WebSocket hub and UDP ingestion
 	hub := ws.NewHub()
@@ -397,6 +422,46 @@ func main() {
 		writeJSON(w, store.QuestFeed(f))
 	}))
 
+	// Commanders: the standing remote-commander bindings the module reports
+	// (COMMANDERS datagrams), plus the embedded external dashboard's URL when
+	// the operator set one. Memory only; nothing here reads a database.
+	mux.HandleFunc("/api/v1/commanders", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, struct {
+			model.CommandersView
+			ExternalURL string `json:"external_url,omitempty"`
+			RealMaps    bool   `json:"real_maps"`
+		}{store.Commanders(), commanderURL, mapPics != nil})
+	}))
+
+	// The bound bots' recent paths (a short bounded history kept in memory), so a page opened mid-run starts with the trails drawn:
+	// {"<commander>": {"<bot guid>": {"map": 209, "pts": [[x, y, unix seconds], ...]}}}, oldest point first.
+	mux.HandleFunc("/api/v1/commanders/trails", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		type trailJSON struct {
+			Map uint32       `json:"map"`
+			Pts [][3]float64 `json:"pts"`
+		}
+		out := map[string]map[string]trailJSON{}
+		for c, bots := range store.Trails() {
+			m := make(map[string]trailJSON, len(bots))
+			for g, t := range bots {
+				pts := make([][3]float64, len(t.Points))
+				for i, p := range t.Points {
+					pts[i] = [3]float64{math.Round(float64(p.X)*10) / 10, math.Round(float64(p.Y)*10) / 10, float64(p.T)}
+				}
+				m[strconv.FormatUint(uint64(g), 10)] = trailJSON{Map: t.Map, Pts: pts}
+			}
+			out[c] = m
+		}
+		writeJSON(w, out)
+	}))
+
+	// Real map pictures for the Commanders maps: the layer list of a map id, and the .png/.json files of the TBDASH_MAP_DIR folder
+	// (nothing else). Behind the same login as the rest of the API.
+	if mapPics != nil {
+		mux.HandleFunc(mapdir.MapsPrefix, requireAuth(mapPics.HandleLayers))
+		mux.HandleFunc(mapdir.FilePrefix, requireAuth(mapPics.HandleFile))
+	}
+
 	mux.HandleFunc("/api/v1/server-info", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if info := store.ServerInfo(); info != nil {
 			writeJSON(w, info)
@@ -514,6 +579,7 @@ func main() {
 		initial := []ws.Event{
 			{Name: "snapshot", Data: store.Snapshot()},
 			{Name: "status", Data: store.Status()},
+			{Name: "commanders", Data: store.Commanders()},
 		}
 		if info := store.ServerInfo(); info != nil {
 			initial = append(initial, ws.Event{Name: "server_info", Data: info})

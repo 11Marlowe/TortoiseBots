@@ -7,6 +7,7 @@
 #include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
 #include "../ai/playerbot/strategy/Action.h"
+#include "../ai/playerbot/strategy/AiObjectContext.h"
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
 #include "../ai/playerbot/WorldPosition.h"
@@ -97,6 +98,18 @@ bool ExecuteQuietAction(PlayerbotAI* ai, std::string const& action, ai::Event co
     if (!silent.IsActive())
         return ai && ai->DoSpecificAction(action, ai::Event(event), true);
     return ai->DoSpecificAction(action, ai::Event(event), true);
+}
+
+bool ExecuteOrderedAction(PlayerbotAI* ai, std::string const& action, ai::Event const& event)
+{
+    if (!ai || !ai->GetAiObjectContext())
+        return false;
+    ai::Action* ordered = ai->GetAiObjectContext()->GetAction(action);
+    if (!ordered)
+        return false;
+    ScopedSilentStrategy silent(ai);
+    ai::Event copy(event);
+    return ordered->Execute(copy);
 }
 
 void ExecuteQuietNextAction(PlayerbotAI* ai, bool minimal)
@@ -262,6 +275,29 @@ Player* ResolvePullExecutor(BotCommandContext const& context, bool allowSelected
     return nullptr;
 }
 
+bool PullTankIsBusy(BotCommandContext const& context)
+{
+    if (!context.requester)
+        return false;
+
+    auto busyTank = [&](Player* bot)
+    {
+        if (!bot || !bot->IsInWorld() || !bot->IsAlive() || !bot->IsInCombat() ||
+            bot->GetMap() != context.requester->GetMap())
+            return false;
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        return ai && (ai->GetForcedRole() == static_cast<uint8>(BOT_ROLE_TANK) ||
+            PlayerbotAI::IsTank(bot, true));
+    };
+
+    if (busyTank(context.selectedBot))
+        return true;
+    for (Player* bot : context.partyBots)
+        if (busyTank(bot))
+            return true;
+    return false;
+}
+
 // Threat window: while the tank pulls and establishes threat, party DPS bots
 // hold at the command anchor. Healers stay active. Uses the mature
 // "wait for attack" gate the rotation already honors (AttackAction skips
@@ -324,7 +360,7 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
 // but the command snapshots the tank's default and records the per-request
 // mode on the PullStrategy. PullEndAction restores the default, so a pull
 // never leaks into the next command and a pullback never sticks.
-bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds)
+bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds, bool rangedOrder)
 {
     if (!ai)
         return false;
@@ -341,7 +377,7 @@ bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds)
     if (applied)
     {
         if (PullStrategy* strategy = PullStrategy::Get(ai))
-            strategy->BeginCommand(pullback, hadPullBack, joinDelaySeconds);
+            strategy->BeginCommand(pullback, hadPullBack, joinDelaySeconds, rangedOrder);
     }
     return applied;
 }

@@ -1,7 +1,12 @@
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/playerbot.h"
+#include "playerbot/AmmoStackPolicy.h"
+#include "../../runtime/BotNames.h"
+#include "../../runtime/HireLevelPolicy.h"
+#include "../../runtime/HireFeePolicy.h"
 #include "../../runtime/HireUnlockPolicy.h"
+#include "../../runtime/RemoteCommanderView.h"
 #include <cerrno>
 #include <cstring>
 #include <thread>
@@ -436,6 +441,11 @@ bool PlayerbotAIConfig::Initialize()
             randomBotStartZoneWeights[i] = zoneWeights[i];
         randomBotStartZoneWeightsValid = true;
     }
+    std::string nameWeights = config.GetStringDefault("AiPlayerbot.RandomBotNameStyleWeights", "55,20,25");
+    if (!TortoiseBots::ParseBotNameStyleWeights(nameWeights, randomBotNameStyleWeights))
+        sLog.outError("AiPlayerbot.RandomBotNameStyleWeights '%s' is malformed, keeping %u,%u,%u (three numbers: race-flavoured,compound,fun)",
+            nameWeights.c_str(), randomBotNameStyleWeights[0], randomBotNameStyleWeights[1], randomBotNameStyleWeights[2]);
+    randomBotNamesFile = config.GetStringDefault("AiPlayerbot.RandomBotNamesFile", "");
     allowIsolatedCustomStartingZones = config.GetBoolDefault("AiPlayerbot.AllowIsolatedCustomStartingZones", false);
     relocateHopelessDeaths = config.GetBoolDefault("AiPlayerbot.RelocateHopelessDeaths", true);
     repopAtGraveyard = config.GetBoolDefault("AiPlayerbot.RepopAtGraveyard", true);
@@ -470,6 +480,12 @@ bool PlayerbotAIConfig::Initialize()
     hireMaxBotsPerPlayer = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireMaxBotsPerPlayer", 4));
     if (hireMaxBotsPerPlayer > 39)
         hireMaxBotsPerPlayer = 39;
+    // Read signed: a negative value must mean 0, not wrap to a huge allowance.
+    hireMaxLevelAboveHirer = TortoiseBots::ClampHireLevelAllowance(
+        static_cast<int64_t>(config.GetIntDefault("AiPlayerbot.HireMaxLevelAboveHirer", 0)));
+    // Read signed: a negative value must mean 0 (off), not wrap to a huge level.
+    hireFreeMinSecurity = TortoiseBots::ClampHireFreeMinSecurity(
+        static_cast<int64_t>(config.GetIntDefault("AiPlayerbot.HireFreeMinSecurity", 0)));
     hireAnywhere = config.GetBoolDefault("AiPlayerbot.HireAnywhere", false);
     hireBaseCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireBaseCostCopper", 15000));
     if (hireBaseCostCopper > 100000000)
@@ -548,6 +564,8 @@ bool PlayerbotAIConfig::Initialize()
     worldBuffsUnlockFeeCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.WorldBuffsUnlockFeeCopper", 1000000));
     if (worldBuffsUnlockFeeCopper > 100000000)
         worldBuffsUnlockFeeCopper = 100000000;
+    ammoStacksNonHunter = ai::ClampNonHunterAmmoStacks(
+        config.GetIntDefault("AiPlayerbot.AmmoStacksNonHunter", static_cast<int>(ai::kAmmoStacksNonHunterDefault)));
     // Issue #473: opt-in owned/hired-bot quality of life (all off by default).
     ownedBotMaintenanceEnabled = config.GetBoolDefault("AiPlayerbot.OwnedBotMaintenanceEnabled", false);
     ownedBotAutogearEnabled = config.GetBoolDefault("AiPlayerbot.OwnedBotAutogearEnabled", false);
@@ -564,6 +582,12 @@ bool PlayerbotAIConfig::Initialize()
     ownedBotSummonCooldown = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotSummonCooldown", 300));
     if (ownedBotSummonCooldown > 3600)
         ownedBotSummonCooldown = 3600;
+    // Issue #884: remote commander (off by default).
+    remoteCommander = config.GetBoolDefault("AiPlayerbot.RemoteCommander", false);
+    // Issue #884, phase 2: the commander's TBM:VIEW feed period (250..60000 ms).
+    remoteCommanderViewMs = TortoiseBots::RemoteCommander::View::ClampIntervalMs(
+        config.GetIntDefault("AiPlayerbot.RemoteCommanderViewMs",
+            static_cast<int>(TortoiseBots::RemoteCommander::View::kDefaultIntervalMs)));
      openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
@@ -781,6 +805,8 @@ bool PlayerbotAIConfig::Initialize()
     pullDpsJoinDelay = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.PullDpsJoinDelay", 10));
     pullBackDpsJoinDelay = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.PullBackDpsJoinDelay", 5));
     pullBackMaxReturnTime = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.PullBackMaxReturnTime", 15));
+    rangedPull = config.GetBoolDefault("AiPlayerbot.RangedPull", true);
+    rangedPullMeleeApproach = config.GetFloatDefault("AiPlayerbot.RangedPullMeleeApproach", 20.0f);
     randombotStartingLevel = config.GetIntDefault("AiPlayerbot.randombotStartingLevel", 1);
     randomBotStartLevelMin = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMin", 1);
     randomBotStartLevelMax = config.GetIntDefault("AiPlayerbot.RandomBotStartLevelMax", 60);

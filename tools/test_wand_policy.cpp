@@ -51,6 +51,19 @@ int main()
     CHECK(!ShouldStopWandToCast(WandState{true, P::Castable, false, true}));
     CHECK(!ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, true}));
 
+    // Near the tank's threat the "threat" multiplier vetoes the nukes and
+    // they fall back to the wand: keep it (live: Uldaman run 4 mage, stop
+    // wand -> "shoot" again two seconds later at 85-100% mana).
+    CHECK(!ShouldStopWandToCast(WandState{true, P::Castable, false, false, P::Blocked, true}));
+    CHECK(!ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, false, P::Blocked, true}));
+    // A wanted heal is never threat-gated: it still stops the wand.
+    CHECK(ShouldStopWandToCast(WandState{true, P::Blocked, false, false, P::GlobalCooldownOnly, true}));
+    CHECK(ShouldStopWandToCast(WandState{true, P::Castable, false, false, P::Castable, true}));
+    // Warlock (Shadow Bolt) and priest nukes under the same veto: keep it.
+    CHECK(!ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, false, P::Blocked, true}));
+    // Veto off: back to the GCD rule.
+    CHECK(ShouldStopWandToCast(WandState{true, P::GlobalCooldownOnly, false, false, P::Blocked, false}));
+
     // Priest heals: a wanted heal held back only by the wand's GCD stops
     // the wand, even with no nuke wanted (holy/discipline without offdps)
     // and below the "no mana" line (heal rows outrank that wand row).
@@ -95,6 +108,83 @@ int main()
     // A heal out of line of sight does not stop the wand either.
     CHECK(!ShouldStopWandToCast(WandState{true, P::Blocked, false, false,
         ClassifyWandSpellProbe(false, true, B{false, false, false, true})}));
+
+    // Healer wand gate (HealerMayWand). Not a grouped healer: never held back.
+    {
+        HealerWandGate g;
+        CHECK(HealerMayWand(g));
+        g.memberNeedsHeal = true;
+        CHECK(HealerMayWand(g));
+    }
+    // Grouped healer, healthy party, mob fighting the tank: wand.
+    {
+        HealerWandGate g;
+        g.groupedHealer = true;
+        g.targetEngaged = true;
+        CHECK(HealerMayWand(g));
+        // Uldaman 2026-10-14: the tank drops under 90 % -> no wand, even at
+        // full mana with a "shoot" still queued from the healthy tick.
+        g.memberNeedsHeal = true;
+        CHECK(!HealerMayWand(g));
+        // Out of mana the wand is all that is left.
+        g.noMana = true;
+        CHECK(HealerMayWand(g));
+    }
+    // A fresh mob (nobody of the party fights it yet): never, not even
+    // out of mana - the healer would pull it onto itself.
+    {
+        HealerWandGate g;
+        g.groupedHealer = true;
+        CHECK(!HealerMayWand(g));
+        g.noMana = true;
+        CHECK(!HealerMayWand(g));
+    }
+    // Review #956: the mob on the healer itself counts as engaged; out of
+    // mana the healer may then wand it (it would otherwise heal until OOM
+    // and die without a shot). With mana and nobody hurt, it wands too.
+    {
+        HealerWandGate g;
+        g.groupedHealer = true;
+        g.targetEngaged = true; // victim == the healer
+        g.memberNeedsHeal = true; // the healer itself under the low line
+        CHECK(!HealerMayWand(g));
+        g.noMana = true;
+        CHECK(HealerMayWand(g));
+    }
+    // Donor escape: no other group member near -> like solo, even on a
+    // fresh mob with somebody hurt far away.
+    {
+        HealerWandGate g;
+        g.groupedHealer = true;
+        g.memberNeedsHeal = true;
+        g.aloneNear = true;
+        CHECK(HealerMayWand(g));
+    }
+    // Explicit attack order on the mob (cmd attack <guid> <Healer>).
+    {
+        HealerWandGate g;
+        g.groupedHealer = true;
+        g.memberNeedsHeal = true;
+        g.explicitOrder = true;
+        CHECK(HealerMayWand(g));
+    }
+    // A running wand the gate no longer allows stops, whatever the probes
+    // say and even under the raid "has aggro" row; no wand, nothing to stop.
+    {
+        WandState s{true, P::Blocked, false, false};
+        s.healerMustStop = true;
+        CHECK(ShouldStopWandToCast(s));
+        s.keepWandForThreat = true;
+        CHECK(ShouldStopWandToCast(s));
+        s.noManaRowActive = true;
+        CHECK(ShouldStopWandToCast(s));
+        s.wandAutoRepeat = false;
+        CHECK(!ShouldStopWandToCast(s));
+        // Default: unchanged behaviour.
+        WandState d{true, P::Blocked, false, false};
+        CHECK(!d.healerMustStop);
+        CHECK(!ShouldStopWandToCast(d));
+    }
 
     // Wait after the stop: until the next shot would have fired, plus the
     // react delay; never more than one swing.

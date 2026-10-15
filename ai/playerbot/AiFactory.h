@@ -45,7 +45,8 @@ public:
     static BotRoles GetPlayerRoles(const Player* player);
 
     // Party back-off rule: a non-tank bot grouped with a real-player master,
-    // outside battlegrounds, keeps the "threat" combat strategy. Every path
+    // or in a party a remote commander leads, outside battlegrounds, keeps the
+    // "threat" combat strategy. Every path
     // that re-applies the configured combat strategy string checks this after
     // it, since the shipped random-bot string carries -threat.
     static bool KeepsPartyThreatBackoff(Player* player, PlayerbotAI* const facade);
@@ -57,6 +58,10 @@ public:
     // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
     // tfish, rpg, rpg craft, wander) while the bot's master is a real player.
     static std::string RealMasterSafeNonCombatStrategies(PlayerbotAI* ai, std::string const& strategies);
+    // RandomBotNonCombatStrategies without its open-world adds (grind, travel,
+    // tfish, rpg, rpg craft, wander) while a remote commander has bound the
+    // bot: it moves only on the commander's orders.
+    static std::string CommandedSafeNonCombatStrategies(Player* player, std::string const& strategies, uint32* held = nullptr);
     // The list with every "+grind/+travel/+tfish/+rpg/+rpg craft/+wander" entry removed.
     static std::string StripOpenWorldNonCombatStrategies(std::string const& strategies);
 };

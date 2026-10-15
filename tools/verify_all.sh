@@ -43,6 +43,11 @@ python3 -m unittest tools/test_travel_route_distance.py
 python3 -m unittest tools/test_outfit_item_parser.py
 python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
+python3 -m unittest tools/test_stay_anchor_wiring.py
+python3 -m unittest tools/test_attack_order_wiring.py
+python3 -m unittest tools/test_keepout_set_aside_wiring.py
+python3 -m unittest tools/test_pull_end_engaged.py
+python3 -m unittest tools/test_priest_fade_flash_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -54,11 +59,14 @@ if command -v g++ >/dev/null 2>&1; then
         test_adaptive_budget
         test_ah_buyer_policy
         test_ah_seller_teleport_policy
+        test_ammo_cache_policy
         test_ammo_cheat_policy
+        test_ammo_stack_policy
         test_anubrekhan_swarm_policy
         test_aoe_fear_policy
         test_aoe_off_policy
         test_arcane_rupture_policy
+        test_attack_order_policy
         test_auto_tools_kit_policy
         test_autonomous_bg_policy
         test_avoid_aoe_policy
@@ -68,6 +76,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bomb_runout_policy
         test_bot_chat_gate
         test_bot_command_queue
+        test_bot_names_policy
         test_bot_turn_scheduler
         test_bwl_bundle1_policy
         test_caster_mana_policy
@@ -76,6 +85,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_class_consumable_policy
         test_combat_spread_policy
         test_combat_stuck_policy
+        test_commander_telemetry
         test_creature_aura_keepout_policy
         test_death_cluster_policy
         test_debuff_spread_policy
@@ -111,8 +121,10 @@ if command -v g++ >/dev/null 2>&1; then
         test_heigan_dance_policy
         test_hire_deletion_policy
         test_hire_departure_policy
+        test_hire_fee_policy
         test_hire_gear_policy
         test_hire_intro_policy
+        test_hire_level_policy
         test_hire_respec_policy
         test_hire_quest_policy
         test_hire_spec_policy
@@ -161,7 +173,9 @@ if command -v g++ >/dev/null 2>&1; then
         test_profession_grant_policy
         test_protection_potion_policy
         test_pull_firing_policy
+        test_pull_opening_policy
         test_pull_join_window_policy
+        test_pull_refusal_policy
         test_pull_regen_policy
         test_quest_giver_stall_policy
         test_quest_log_triage_policy
@@ -176,7 +190,12 @@ if command -v g++ >/dev/null 2>&1; then
         test_razorgore_policy
         test_ready_rebuff_policy
         test_rear_flank_policy
+        test_remote_commander_enter
+        test_remote_commander_policy
+        test_remote_commander_tasks
+        test_remote_commander_view
         test_resist_aura_policy
+        test_retaliation_policy
         test_rogue_threat_policy
         test_rogue_weapon_policy
         test_rpg_mixer_policy
@@ -215,6 +234,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_trinket_use_policy
         test_totem_command_policy
         test_undercity_lift_policy
+        test_use_item_name_policy
         test_vael_policy
         test_value_refresh_policy
         test_vendor_buy_policy
@@ -223,6 +243,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_voidwalker_policy
         test_wand_policy
         test_warlock_pet_policy
+        test_warlock_stone_policy test_warlock_soulstone_policy
         test_warlock_tap_policy
         test_weighted_shuffle_policy
         test_work_idle_policy

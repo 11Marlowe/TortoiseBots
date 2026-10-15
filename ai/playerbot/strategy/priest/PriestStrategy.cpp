@@ -103,9 +103,23 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "low health",
         NextAction::array(0, new NextAction("greater heal", ACTION_MEDIUM_HEAL), NULL)));
 
+    // Owner-approved (2026-10-14): Flash Heal over Greater Heal while the
+    // tank does not hold the pack (PriestPackLoose).
+    triggers.push_back(new TriggerNode(
+        "low health loose pack",
+        NextAction::array(0, new NextAction("flash heal", ACTION_MEDIUM_HEAL + 0.5f), NULL)));
+
     triggers.push_back(new TriggerNode(
         "target of attacker",
         NextAction::array(0, new NextAction("power word: shield", ACTION_HIGH), NULL)));
+
+    // Owner-approved (2026-10-14): a mob on the priest is shed with Fade
+    // before the next heal, above every heal row (critical heal + 2 is the
+    // highest). The action needs a group to shed to, so solo priests are
+    // unaffected; its 30 s cooldown keeps it to one cast per window.
+    triggers.push_back(new TriggerNode(
+        "target of attacker",
+        NextAction::array(0, new NextAction("fade", ACTION_CRITICAL_HEAL + 3), NULL)));
 
     // Drop aggro while climbing the threat table in a group (donor
     // GenericPriestStrategy fires fade at 55 here; the raid-only node below
@@ -118,12 +132,16 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     // Each Turtle wand shot renews the GCD, so a running wand keeps every
     // heal and nuke "not ready" for as long as it runs. Stop it while a heal
-    // (or a wanted nuke) is held back by that GCD alone. Every row above
-    // this one fails during the wand GCD, so the engine reaches it; below
-    // the HIGH tier like the mage row.
+    // (or a wanted nuke) is held back by that GCD alone, or while a healer
+    // may not wand at all (HealerMayWand). The row sits above every heal row
+    // (and Fade): those all fail while the wand runs, and below them the
+    // engine reached "dps assist" (60), which succeeds and ends the tick, so
+    // the old NORMAL + 5 slot was starved while the tank died (Uldaman
+    // 2026-10-14). The trigger only fires when stopping lets a spell out
+    // (or the wand is not allowed), so this never costs a cast.
     triggers.push_back(new TriggerNode(
         "wand blocks cast",
-        NextAction::array(0, new NextAction("stop wand", ACTION_NORMAL + 5), NULL)));
+        NextAction::array(0, new NextAction("stop wand", ACTION_CRITICAL_HEAL + 4), NULL)));
 }
 
 void PriestStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

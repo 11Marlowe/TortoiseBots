@@ -2,11 +2,14 @@
 #include "../ai/playerbot/GroupMembers.h"
 #include "HireProvisionService.h"
 #include "HireCost.h"
+#include "BotNameService.h"
 #include "HireLifecycle.h"
 #include "HireIntroPolicy.h"
 #include "HireSpecPolicy.h"
 #include "HireGearCache.h"
 #include "HireGearPolicy.h"
+#include "HireLevelPolicy.h"
+#include "HireFeePolicy.h"
 #include "HireTierRequestPolicy.h"
 #include "HireUnlockPolicy.h"
 #include "BotManager.h"
@@ -60,33 +63,7 @@ namespace TortoiseBots
 
 namespace
 {
-constexpr uint32 kMaxLevel = 60;
 constexpr uint32 kPendingProvisionTimeoutSec = 300;
-
-std::string RandomHireName()
-{
-    static const char* onset[] = {
-        "b", "br", "c", "cr", "d", "dr", "f", "g", "gr", "h", "j", "k", "kr", "l", "m", "n",
-        "p", "r", "s", "sh", "st", "t", "th", "tr", "v", "w", "z", "kh", "mor", "thal", "bren",
-    };
-    static const char* nucleus[] = { "a", "e", "i", "o", "u", "ae", "ia", "or", "an", "el" };
-    static const char* coda[] = { "", "", "", "n", "r", "s", "th", "ric", "d", "l" };
-    uint32 nOn = sizeof(onset) / sizeof(onset[0]);
-    uint32 nNu = sizeof(nucleus) / sizeof(nucleus[0]);
-    uint32 nCo = sizeof(coda) / sizeof(coda[0]);
-    std::string name;
-    for (uint32 i = 0, syllables = urand(2, 3); i < syllables; ++i)
-    {
-        name += onset[urand(0, nOn - 1)];
-        name += nucleus[urand(0, nNu - 1)];
-    }
-    name += coda[urand(0, nCo - 1)];
-    if (name.size() > 11)
-        name.resize(11);
-    if (!name.empty())
-        name[0] = char(name[0] & ~0x20);
-    return name;
-}
 
 } // namespace
 
@@ -266,11 +243,13 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
         return outcome;
     }
 
-    uint32_t level = requester->GetLevel();
-    if (level < 1)
-        level = 1;
-    if (level > kMaxLevel)
-        level = kMaxLevel;
+    // Issue #936: the hire's level. No request = the hirer's level, as ever;
+    // a request runs from 1 up to the hirer's level plus the configured
+    // allowance (a GM only up to 60). HireLevelPolicy.h is the one rule.
+    HireLevelResult levelChoice = ResolveHireLevel(requester->GetLevel(), sel.level,
+        sPlayerbotAIConfig.hireMaxLevelAboveHirer,
+        requester->GetSession()->GetSecurity() >= static_cast<int>(SEC_GAMEMASTER));
+    uint32_t level = levelChoice.level;
     // Issue #490 PR 2: the chosen tier must be unlocked (start tier or a
     // rewarded unlock quest). Clamp above the max; re-validate here so a
     // stale gossip menu cannot hire above the unlock.
@@ -296,6 +275,12 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     costs.raidFlatCopper = sPlayerbotAIConfig.hireRaidFlatCostCopper;
     uint32_t cost = HireCostAtTier(HireCost::ForNextHire(costs, owned, level),
         gearTier, sPlayerbotAIConfig.hireGearTierCostMult);
+    // AiPlayerbot.HireFreeMinSecurity (0 = off): staff accounts hire free.
+    // The cost drops to 0 before the affordability check, the charge and every
+    // refund below, so no gold moves in either direction.
+    int const requesterSecurity = static_cast<int>(requester->GetSession()->GetSecurity());
+    bool const feeWaived = TortoiseBots::HireFeeWaived(requesterSecurity, sPlayerbotAIConfig.hireFreeMinSecurity);
+    cost = TortoiseBots::HireFeeCharged(cost, requesterSecurity, sPlayerbotAIConfig.hireFreeMinSecurity);
     if (requester->GetMoney() < cost)
     {
         outcome.status = HireStatus::Poor;
@@ -328,16 +313,22 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
 
     // Charge before the login queue: a queued login that later fails must not
     // mint a free companion, and a failed charge path must not queue a login.
-    requester->ModifyMoney(-static_cast<int32>(cost));
-    requester->SaveToDB();
+    if (cost)
+    {
+        requester->ModifyMoney(-static_cast<int32>(cost));
+        requester->SaveToDB();
+    }
 
     ObjectGuid masterGuid = requester->GetObjectGuid();
     uint32_t ownerAccountId = requester->GetSession()->GetAccountId();
     if (!BotManager::Instance().AddBotWithMaster(accountId, guid, masterGuid))
     {
         // Refund: the login queue rejected us (already online/pending).
-        requester->ModifyMoney(static_cast<int32>(cost));
-        requester->SaveToDB();
+        if (cost)
+        {
+            requester->ModifyMoney(static_cast<int32>(cost));
+            requester->SaveToDB();
+        }
         outcome.status = HireStatus::Failed;
         outcome.message = "That mercenary is already mustering. Try again shortly.";
         return outcome;
@@ -345,8 +336,11 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     if (!BotManager::Instance().RegisterOwnedCharacter(ownerAccountId, accountId, guid, masterGuid))
     {
         BotManager::Instance().RemoveBot(guid, false);
-        requester->ModifyMoney(static_cast<int32>(cost));
-        requester->SaveToDB();
+        if (cost)
+        {
+            requester->ModifyMoney(static_cast<int32>(cost));
+            requester->SaveToDB();
+        }
         outcome.status = HireStatus::Failed;
         outcome.message = "Could not record your ownership. No gold was taken.";
         return outcome;
@@ -357,8 +351,11 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     if (!HireLifecycle::Instance().Claim(guid, masterGuid, ownerAccountId, accountId))
     {
         BotManager::Instance().RemoveBot(guid, false);
-        requester->ModifyMoney(static_cast<int32>(cost));
-        requester->SaveToDB();
+        if (cost)
+        {
+            requester->ModifyMoney(static_cast<int32>(cost));
+            requester->SaveToDB();
+        }
         outcome.status = HireStatus::Failed;
         outcome.message = "Could not record your hire. No gold was taken.";
         sLog.outError("TortoiseBots: hire ledger unavailable; the hire of character %s (%u) was rolled back",
@@ -385,7 +382,15 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
     outcome.cost = cost;
     outcome.botName = data ? data->sName : "companion";
     outcome.message = std::string("Hired ") + outcome.botName + " for " +
-        ai::ChatHelper::formatMoney(cost) + ". Your companion is mustering.";
+        (feeWaived ? std::string("free (GM)") : ai::ChatHelper::formatMoney(cost)) +
+        ". Your companion is mustering.";
+    if (sel.level)
+    {
+        outcome.message += std::string(" Level ") + std::to_string(level) + ".";
+        if (levelChoice.clamped)
+            outcome.message += std::string(" The level you asked for is above your limit (") +
+                std::to_string(levelChoice.maxAllowed) + ").";
+    }
     return outcome;
 }
 
@@ -536,11 +541,8 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
 
     for (int attempt = 0; attempt < 8; ++attempt)
     {
-        std::string name = RandomHireName();
-        std::string norm = name;
-        if (!normalizePlayerName(norm))
-            continue;
-        if (sObjectMgr.GetPlayerGuidByName(norm))
+        std::string norm = PickBotCharacterName(sel.race, sel.classId, sel.gender);
+        if (norm.empty())
             continue;
 
         CharacterCreateInfo info;

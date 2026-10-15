@@ -38,7 +38,14 @@ public:
         uint32 cooldown = 0;
     };
 
-    bool RequestSummon(Player* requester, Player* bot);
+    // requester is the bot's master (the durable master binding must match).
+    // anchor, when given, is where the bot is summoned to instead of the
+    // master: the remote commander (issue #884) summons a bot to the lead
+    // bot of its group while the commander itself is elsewhere. The anchor
+    // then also carries the portal and the map/alive/teleport checks the
+    // master carries otherwise; the master check and the follow restore on
+    // arrival stay the master's.
+    bool RequestSummon(Player* requester, Player* bot, Player* anchor = nullptr);
     // Conditional entry: applies the donor condition knobs before (and
     // after) the native RequestSummon preconditions. Revive runs first when
     // both the dead-bot and revive knobs are on; repair runs after arrival.
@@ -61,6 +68,8 @@ private:
     {
         ObjectGuid botGuid;
         ObjectGuid masterGuid;
+        // Empty: the master is the summon point (the normal case).
+        ObjectGuid anchorGuid;
         float destX = 0.0f;
         float destY = 0.0f;
         float destZ = 0.0f;

@@ -25,8 +25,12 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
 
 ### 1. Protection (Tank)
 1. **Pull & Engagement:** Charges on enemy-out-of-melee, then swaps to Defensive Stance (no Battle Stance prep in code). No *Intercept* gap-closer: it needs Berserker Stance, and the tank stays in Defensive Stance (donor `TankWarriorStrategy` has none either).
+   - *Ranged pull (commanded):* a tank hired with a gun, bow, crossbow or thrown weapon plus ammo opens a `.bot action pull`/`.bot cmd pull` from range when the mob stands where walking in is wrong — no walkable path (a ledge), farther than `AiPlayerbot.RangedPullMeleeApproach` (20 yd), or the order says `ranged` — and a pullback always does. It fires *Shoot Bow/Gun/Crossbow* or *Throw* once, stands still until the shot lands, then falls back to the pull anchor as usual. Without the weapon, its skill, the shoot spell or ammo it walks in (and whispers what is missing when the order said `ranged` or the weapon lacks ammo or skill). A rogue pulls the same way; see [player controls](../guides/player-controls.md).
 2. **Threat Generation:**
    - Keeps *Shield Block* active on cooldown to enable *Revenge*.
+   - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh an expiring stack; sunder yields to Shield Slam only once 40+ rage makes slam live).
+   - *Shield Slam* fires on the Improved Shield Slam proc (+35%/+70% damage charge) above the rage ladder but below taunt/shield block, otherwise at 40+ rage — after the sunder stack is complete and *Revenge* has had its GCD.
+   - *Thunder Clap* (usable in Defensive Stance on Turtle) fires first whenever two or more mobs are in melee and the current target is not clapped yet: it outranks *Demoralizing Shout* and *Sunder Armor*, so the tank's rage goes to threat on the whole pack before the single-target builders.
    - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh an expiring stack; sunder yields to Shield Slam only once 20+ rage makes slam live).
    - *Shield Slam* fires on the Improved Shield Slam proc (+35%/+70% damage charge) above the rage ladder but below taunt/shield block, otherwise at any affordable rage (20+) — after the sunder stack is complete and *Revenge* has had its GCD — so off-tanks that are not being hit still convert white-rage trickle into slams instead of sitting melee-only.
    - *Thunder Clap* fires on spare rage (40+) as extra threat, since the AoE toggle the base tree gates it behind is normally off in party pulls.
@@ -48,7 +52,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages r
    - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus *Rend* upkeep, and the *Master Strike* weapon nuke. *Heroic Strike* dumps spare rage from 40+ (donor medium-rage parity) so it fires on bosses instead of pooling. With no tank warrior in the group, DPS warriors keep *Sunder Armor* stacked (bottom of the ladder); with a tank warrior present they leave it to the tank.
    - *Slam* is not in the DPS rotation. On Turtle it is a hard cast (15 rage, a real cast time; the trainer rows 1482/8821/11606/11607 only teach the castable spells 1464/8820/11604/11605) and casting stops auto-attack, so the bots leave it out. There is no instant "Slam!" proc on Turtle (the bot's `instant slam` trigger never fires).
    - *Whirlwind* is used on cooldown above 20% target health; 2+ nearby targets only raises its priority.
-   - Cooldowns: both specs fire *Death Wish* and *Recklessness* as boosts, plus *Retaliation* while near full health (70-90%) — all behind the boost toggle.
+   - Cooldowns: both specs fire *Death Wish* and *Recklessness* as boosts, plus *Retaliation* while near full health (70-90%) with two or more melee attackers on the warrior — all behind the boost toggle.
 3. **Execute Phase:** Below 20% enemy health, *Execute* becomes highest priority, consuming all available rage.
 
 ---

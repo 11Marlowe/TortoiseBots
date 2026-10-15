@@ -46,14 +46,19 @@ std::vector<Player*> ResolveDynamicScope(BotCommandContext const& context);
 // bot. A selected bot is considered first only when the request also resolves
 // a valid enemy target; otherwise a live tank-capable party bot is selected.
 Player* ResolvePullExecutor(BotCommandContext const& context, bool allowSelected = true);
+// True when no executor was free but a tank-capable bot (the selected one or a
+// party bot) is alive and in combat: the pull is refused as `tank-busy`, not
+// `no-tank`. Read only after ResolvePullExecutor returned null.
+bool PullTankIsBusy(BotCommandContext const& context);
 // Hold party DPS for the join delay while the tank pulls and
 // establishes threat. Healers and tanks are untouched. For a pullback the
 // window additionally covers the tank's return leg and is narrowed to the
 // join delay on arrival.
 void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, uint32 joinDelaySeconds, bool pullback = false);
 // Records the per-command return mode (plus join delay) on the PullStrategy;
-// PullEndAction restores the tank's default when the pull ends.
-bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds = 0);
+// PullEndAction restores the tank's default when the pull ends. rangedOrder is
+// the `ranged` word of the order: open from range on any pull.
+bool ConfigurePullMode(PlayerbotAI* ai, bool pullback, uint32 joinDelaySeconds = 0, bool rangedOrder = false);
 // Resolve one live executor with a currently usable interrupt action. The
 // action name comes from the mature class/pet action graph, not a duplicated
 // class-to-spell table. Explicitly targeted bots never fall back to another
@@ -82,6 +87,11 @@ Player* ResolveCcExecutor(BotCommandContext const& context, Unit* target, std::s
 // The pre-existing non-combat `silent` strategy is restored exactly on scope
 // exit, so this helper cannot change a bot's durable strategy configuration.
 bool ExecuteQuietAction(PlayerbotAI* ai, std::string const& action, ai::Event const& event);
+// Execute one action for an explicit order, quietly, past the engine's
+// isUseful/isPossible gates: those say when the automation may pick the action
+// (a movement action is useless while the bot holds "stay"), and the order put
+// the bot on that stay itself. The action's own checks still apply.
+bool ExecuteOrderedAction(PlayerbotAI* ai, std::string const& action, ai::Event const& event);
 // Run one normal AI step without exposing incidental bot chat to the owner.
 void ExecuteQuietNextAction(PlayerbotAI* ai, bool minimal = false);
 // Put a named mature action on the active engine so its existing prerequisite

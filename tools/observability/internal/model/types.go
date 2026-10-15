@@ -522,3 +522,158 @@ type ZoneBoundingBox struct {
 	LocTop    float64 `json:"loc_top"`    // x1
 	LocBottom float64 `json:"loc_bottom"` // x2
 }
+
+// CommandersPayload is the COMMANDERS datagram: the standing remote-commander
+// bindings (a commander that leads a bot-only party from anywhere) with the
+// bound bots and the commander's last orders. Sent every snapshot cycle while
+// a binding stands, and once with an empty list when the last one ends. It
+// describes what the module knows, for any client of the commander protocol.
+type CommandersPayload struct {
+	V          int                `json:"v"`
+	Session    uint64             `json:"session"`
+	Seq        uint64             `json:"seq"`
+	TS         int64              `json:"ts"`
+	Type       string             `json:"type"`
+	Commanders []CommanderBinding `json:"commanders"`
+}
+
+// CommanderBinding is one commander's standing binding.
+type CommanderBinding struct {
+	Commander     string           `json:"commander"`
+	CommanderGUID uint32           `json:"commander_guid,omitempty"` // the commander character's guid (low part; absent from an older module): opens its detail view
+	Online        bool             `json:"online"`                   // the commander has a network session
+	View          bool             `json:"view"`                     // its TBM:VIEW perception feed is on
+	Group         uint32           `json:"group"`
+	Lead          string           `json:"lead"`
+	Bots          []CommanderBot   `json:"bots"`
+	Orders        []CommanderOrder `json:"orders"` // oldest first
+
+	// Map data, from a module that reports it (all absent from an older one; the dashboard then greys the layers out).
+	CommanderPos *CommanderPos  `json:"commander_pos,omitempty"` // where the commander stands, when online and in the world
+	MobsMap      uint32         `json:"mobs_map,omitempty"`      // the map the mobs are on (the lead's)
+	Mobs         []CommanderMob `json:"mobs"`                    // hostile units near the lead; null = not reported, [] = reported, none near
+	BoundAt      int64          `json:"bound_at,omitempty"`      // unix seconds the binding was first seen standing (the run timer starts here); absent from an older module
+	Run          *CommanderRun  `json:"run,omitempty"`           // the run leader's run of this binding ("observe" mode); absent when it has none or from an older module
+
+	// Doors, chests, altars and gongs the bots have seen near them (on the map of MobsMap), capped; null = not reported, [] = reported, none seen.
+	Objects []CommanderObject `json:"objects"`
+}
+
+// CommanderObject is a game object a bot of the binding has seen near it. IDs are decimal strings, as the mobs' are.
+type CommanderObject struct {
+	ID    string  `json:"id"`
+	Entry uint32  `json:"entry"`
+	Name  string  `json:"name"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	Type  string  `json:"type"`  // d door, c chest, b button or lever, g goober (gong, altar, switch), r ritual, o other
+	State string  `json:"state"` // r ready (closed, untouched), a active (open, pressed), u used (looted or spent)
+}
+
+// CommanderRunStep is one step of the run's plan in the current section: where it is and what it is for.
+type CommanderRunStep struct {
+	Index   uint32  `json:"i"` // 1-based position in the plan (the run's "step" counts the same way)
+	Kind    string  `json:"k"` // move, move_direct, pull, boss, loot, open, use_item, wait_object, wait_clear, rest, ritual
+	X       float64 `json:"x"`
+	Y       float64 `json:"y"`
+	Radius  float64 `json:"r,omitempty"`  // pull, boss, wait_clear: the area the step cares about
+	Entry   uint32  `json:"e,omitempty"`  // the creature or object the step is about
+	Name    string  `json:"n,omitempty"`  // its name when the module knows it
+	Skipped bool    `json:"sk,omitempty"` // left out with `.bot run skip`
+}
+
+// CommanderRun is where the run leader (`.bot run`) stands in a dungeon plan for one binding.
+type CommanderRun struct {
+	Plan    string `json:"plan"`
+	State   string `json:"state"`   // running, paused or done
+	Step    uint32 `json:"step"`    // 1-based step shown (0 before the first)
+	Steps   uint32 `json:"steps"`   // steps in the plan
+	Leg     string `json:"leg"`     // the current leg's name: the section
+	Kind    string `json:"kind"`    // move, pull, boss, loot, open ...
+	Phase   string `json:"phase"`   // what the step is doing
+	Note    string `json:"note"`    // what it does now, or why it paused
+	Changed int64  `json:"changed"` // unix seconds the step, phase, state or note last changed
+
+	// The plan's steps of the current section (the next ~20), from a module that reports them; absent otherwise.
+	PlanSteps []CommanderRunStep `json:"plan_steps,omitempty"`
+}
+
+// CommanderPos is the commander character's own position.
+type CommanderPos struct {
+	MapID uint32  `json:"map"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+}
+
+// CommanderMob is a unit near the lead of a binding. IDs are decimal strings: a creature guid is 64 bits, more than a JSON
+// number holds in a browser.
+type CommanderMob struct {
+	ID       string  `json:"id"`
+	Entry    uint32  `json:"entry"`
+	Name     string  `json:"name"`
+	HP       uint32  `json:"hp"` // percent
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	Victim   string  `json:"victim,omitempty"`   // guid of the unit it targets; matches a bot's id
+	Reaction string  `json:"reaction"`           // h hostile, n neutral, f friendly (to the bound bots)
+	Kind     string  `json:"kind,omitempty"`     // k critter, v civilian, g guard, u unattackable; empty: an ordinary unit
+	Level    uint32  `json:"lvl,omitempty"`      // absent: unknown
+	Rank     string  `json:"rank,omitempty"`     // b boss, e elite, r rare; empty: an ordinary unit
+	CC       string  `json:"cc,omitempty"`       // s stunned, c confused (polymorph, sleep), f fleeing, r rooted; empty: free
+	Cast     string  `json:"cast,omitempty"`     // the spell it is casting right now
+}
+
+// CommanderBot is a bot of a bound party.
+type CommanderBot struct {
+	Name      string  `json:"name"`
+	GUID      uint32  `json:"guid"`
+	Class     string  `json:"class"`
+	Role      string  `json:"role"`
+	Level     uint32  `json:"level"`
+	HP        uint32  `json:"hp"`
+	MaxHP     uint32  `json:"max_hp"`
+	Power     uint32  `json:"power"`
+	MaxPower  uint32  `json:"max_power"`
+	PowerType string  `json:"power_type"`
+	Alive     bool    `json:"alive"`
+	Lead      bool    `json:"lead"`
+	MapID     uint32  `json:"map"`
+	ZoneID    uint32  `json:"zone"`
+	X         float64 `json:"x"`
+	Y         float64 `json:"y"`
+	Z         float64 `json:"z"`
+	ID        string  `json:"id,omitempty"`     // the bot's guid as a decimal string (what a mob's victim and a bot's target name)
+	Target    string  `json:"target,omitempty"` // guid of its target, absent when it has none
+
+	// Activity, from a newer module (all absent from an older one).
+	State      string `json:"st,omitempty"`    // the AI's state: c combat, n non-combat, d dead, r reaction
+	Action     string `json:"act,omitempty"`   // the engine's newest action name
+	Result     string `json:"res,omitempty"`   // that action's verdict: O ok, F failed, I impossible, U useless, P prereq, V vetoed, - none
+	Cast       string `json:"cast,omitempty"`  // the spell it is casting right now
+	CastTarget string `json:"ctgt,omitempty"`  // guid (decimal string) of the unit that spell is aimed at: a healer's heal target, a caster's crowd-controlled mob
+	CC         string `json:"cc,omitempty"`    // s stunned, c confused, f fleeing, r rooted; empty: free
+	Rest       string `json:"rest,omitempty"`  // d drinking, e eating
+	Moving     bool   `json:"mv,omitempty"`
+	TargetName string `json:"tname,omitempty"` // name of its target
+}
+
+// CommanderOrder is one order of the commander and the module's answer.
+type CommanderOrder struct {
+	At     int64  `json:"at"` // unix seconds
+	Verb   string `json:"verb"`
+	Detail string `json:"detail"`
+	OK     bool   `json:"ok"`
+	Result string `json:"result"`
+}
+
+// CommandersView is what GET /api/v1/commanders and the "commanders" stream
+// event carry.
+type CommandersView struct {
+	Commanders []CommanderBinding `json:"commanders"`
+	// UpdatedAt is the unix time of the last COMMANDERS datagram (0: none yet).
+	UpdatedAt int64 `json:"updated_at"`
+	// AgeSec is how old that datagram is; Fresh is false past the stale limit,
+	// when Commanders is empty whatever the last datagram said.
+	AgeSec float64 `json:"age_sec"`
+	Fresh  bool    `json:"fresh"`
+}

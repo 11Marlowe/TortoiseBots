@@ -173,7 +173,7 @@ Current adapters:
 
 | Adapter | Responsibility |
 | --- | --- |
-| `BotHostAdapter` | startup, shutdown and world update |
+| `BotHostAdapter` | startup, shutdown and world update; at startup registers the observability emitter's commander provider (`ObservabilityEmitter::SetCommanderProvider` -> `BotCommands::CollectCommanderTelemetry`, module-internal: the dashboard's Commanders tab, no core seam; the `COMMANDERS` datagram also carries map data, i.e. the commander's position, each bound bot's target and up to 24 hostile units near the lead from the `TBM:VIEW` feed's own builder, plus unit info (each bot's AI state, newest action, spell being cast, crowd control, drinking/eating and target name; each unit's level, rank, cast and crowd control; the binding's start time), read once per 2 s cycle only while a binding stands: no per-tick cost, no world scan, no new core call; fields in `runtime/CommanderTelemetry.h`, see `tools/observability/README.md`) |
 | `BotSessionAdapter` | Headless session lifecycle |
 | `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`); logs bot quest completions for `bot_events.csv`; on a bot's own `OnMapChanged` re-applies the Issue #218 instance guard to its non-combat strategies (`AiFactory::ApplyInstanceGuardOnMapChange`) |
 | `BotUnitAdapter` | `UnitScript::OnUnitDeath`: killer attribution for `deaths.csv`; `UnitScript::OnDamage`: last-non-self-damager memory so Spirit of Redemption expiries (core self-kill) still log the real killer |
@@ -195,7 +195,23 @@ seam.
 Bot AI runs on the normal world/game thread. The core exposes a generic world
 update listener mechanism, and `BotHostAdapter` drives `BotManager` / AI,
 module-owned `PlayerConvenience`, `AhMarketService`, and
-`BattlegroundQueueService` updates from that tick.
+`BattlegroundQueueService` updates from that tick. The remote commander's
+binding sweep (issue #884, `BotCommands::UpdateRemoteCommanders`) runs there
+too: nothing while no commander is bound, otherwise a once-a-second check of
+each binding by guid (commander logout, disband, lead change), plus the
+bound commanders' `TBM:VIEW` perception feed (phase 2: one frame per
+`AiPlayerbot.RemoteCommanderViewMs`, read from the bots' cached values, at
+most 8 lines per commander per tick). It needs no core hook: bindings live in the module and are looked up again each time,
+never kept as `Group` or `Player` pointers.
+
+The dashboard's `COMMANDERS` datagram (`runtime/CommanderTelemetry.h`, built by the observability emitter once per 2 s
+snapshot cycle and only while a binding stands) carries, besides vitals, orders, mobs and the run line, the data the Commanders
+map draws from, all additive and bounded: per casting bot `ctgt` (the spell's unit target, read from the bot's current spell),
+per binding `objects[]` (doors, chests, levers, goobers and rituals from the bots' already calculated `nearest game objects`
+lists, resolved on the lead's map, at most 16 per binding and 24 per datagram) and, for a run leader's run (reserved: the run leader is not in this release), `run.plan_steps[]`
+(the current section's steps, at most 20 per run and 32 per datagram, windowed around the current step). None of it runs per
+bot tick, scans the grid or touches the database; the datagram stays under 60 000 bytes in the worst case
+(`tools/test_commander_telemetry.cpp`). An older module simply omits the fields.
 
 The core listener is generic; it does not call a PlayerBots singleton.
 
@@ -466,6 +482,8 @@ action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/sk
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
+commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander (issue #884, AiPlayerbot.RemoteCommander, default off)
+cmd attack|pull|pullback <guid> [seconds] | cc <mark> <guid> [bot] | focus <guid> | move <x> <y> <z> | stay | follow | rest | revive <bot> | summon <bot>  # orders to the bound group; ACK/ERR intent "cmd <verb>"
 inv <bot>  # TBM:INV_BEGIN/INV_EQ/INV_ITEM/INV_END inventory snapshot
 item <bot> trade | equip|unequip|give <bag> <slot>  # item order by server bag/slot; ACK/ERR intent "item <op>"
 behavior <bot> <loot|aoe|autocc|savemana|boost|threat|potions> <on|off>  # allowlisted per-bot strategy toggle; ACK + TBM:BOTSTATE line

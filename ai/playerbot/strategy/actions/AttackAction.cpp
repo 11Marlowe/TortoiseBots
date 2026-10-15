@@ -8,6 +8,7 @@
 #include "playerbot/BotDiagnostics.h" // SC_LOG for attack-command diagnostic trace
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "../../../../runtime/AttackOrderPolicy.h"
 
 using namespace ai;
 
@@ -29,6 +30,9 @@ void CommitExplicitAttackTarget(PlayerbotAI* ai, ObjectGuid guid)
     // when the five minutes ran out. If the mob really is out of reach, the
     // reach action gives up on it again after 15 s.
     context->GetValue<std::map<ObjectGuid, uint32>&>("unreachable targets")->Get().erase(guid);
+    // The order also lifts a creature aura keep-out set-aside: the bot holds
+    // outside the ring on it (or, on the keep-out creature itself, fights it).
+    context->GetValue<std::map<ObjectGuid, uint32>&>("keepout set aside")->Get().erase(guid);
     if (Unit* unit = ai->GetUnit(guid))
     {
         if (unit->IsCreature())
@@ -99,7 +103,7 @@ bool AttackMyTargetAction::Execute(Event& event)
             // not refuse it for being beyond the background sight distance. The bot
             // still walks there through the combat reach chain after accepting.
             static float const orderDistance = sPlayerbotAIConfig.reactDistance;
-            if (Attack(requester, tgt, orderDistance))
+            if (Attack(requester, tgt, orderDistance, true))
             {
                 CommitExplicitAttackTarget(ai, guid);
                 SC_LOG("attack-cmd OK bot=%s tgt=%s",
@@ -133,7 +137,7 @@ bool AttackRTITargetAction::Execute(Event& event)
     {
         // Same explicit-order ceiling as "attack my target": the mark is the player's
         // order and the bot walks there after accepting.
-        if (Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance))
+        if (Attack(requester, rtiTarget, sPlayerbotAIConfig.reactDistance, true))
         {
             CommitExplicitAttackTarget(ai, rtiTarget->getObjectGuid());
             return true;
@@ -192,7 +196,14 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     return true;
 }
 
-bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
+bool AttackAction::ArmsMeleeSwing()
+{
+    // Why "ranged" bots without a ranged weapon still swing: see Attack().
+    return !ai->IsHeal(bot) &&
+        (!ai->IsRanged(bot) || !bot->GetWeaponForAttack(RANGED_ATTACK, true, true));
+}
+
+bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bool acceptCurrentVictim)
 {
     if (!bot->IsAlive())
     {
@@ -285,9 +296,15 @@ bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance)
             // attack order against 0.035-0.079 for warrior/paladin/rogue and 0.11-0.23 for
             // the nukers. "ranged" describes the talent spec, not what the bot attacks
             // with; healers keep the old, deliberate hands-off handling.
-            const bool meleeEval = !ai->IsHeal(bot) &&
-                (!ai->IsRanged(bot) || !bot->GetWeaponForAttack(RANGED_ATTACK, true, true));
-            result = bot->Attack(target, meleeEval);
+            const bool meleeEval = ArmsMeleeSwing();
+            // Unit::Attack returns false for the victim the bot is already
+            // attacking (unless it only has to arm the melee swing). For an
+            // explicit order that is the goal already reached, not a failure.
+            // Automatic callers keep the raw result: a success ends the engine
+            // tick, and some (razorgore engage) rely on the false as a guard.
+            const bool alreadyAttacking = acceptCurrentVictim && TortoiseBots::IsAlreadyAttackingTarget(
+                bot->GetVictim() == target, meleeEval, bot->HasUnitState(UNIT_STAT_MELEE_ATTACKING));
+            result = alreadyAttacking || bot->Attack(target, meleeEval);
             if (!result && bot->GetVictim() == target)
             {
                 // A repeated order on the target the bot is already attacking: the

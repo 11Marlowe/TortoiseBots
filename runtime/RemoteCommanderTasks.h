@@ -1,0 +1,1087 @@
+#pragma once
+
+// Remote commander (issue #884): the per-bot player orders `cmd loot`, `cmd open`
+// and `cmd use`, and `cmd lootmethod`. A bound commander can do with its bots
+// what a player does at a corpse, a chest, a lever or a bag: walk to it, open
+// it, take the loot, use an item.
+//
+// The orders that need a walk or a cast run as a short task per bot: the glue in
+// commands/BotCommands.cpp accepts the order (synchronous refusals answer at once),
+// walks the bot to the object, does the one action and answers later with the
+// final `TBM:ACTION_ACK` or `TBM:ACTION_ERR` of the same verb. Everything that
+// decides is a pure function here, so tools/test_remote_commander_tasks.cpp
+// exercises it standalone: the walk and act state machine with its budgets, the
+// standing point, the lock verdict, the loot ledger the loot window reports into,
+// the cast-failure mapping and the loot-method names.
+//
+// Plain data and the standard library only. World thread only, like the rest of
+// the commander.
+
+#include <algorithm>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace TortoiseBots {
+namespace RemoteCommander {
+
+// How often the task sweep looks at the running tasks (never while none runs).
+constexpr uint32_t kTaskTickMs = 250;
+// The bot stands this far short of the object, on the side it comes from, so
+// the walk ends inside every interaction range (loot, game object use).
+constexpr float kApproachBackoff = 1.5f;
+// A game object is used from inside INTERACTION_DISTANCE minus this margin, so the
+// action's own range check passes after the last step.
+constexpr float kInteractMargin = 0.5f;
+// Walk budget: a floor plus the distance at a pessimistic walking speed, capped.
+constexpr uint32_t kMinWalkMs = 10000;
+constexpr uint32_t kMaxWalkMs = 60000;
+constexpr float kAssumedWalkYardsPerSecond = 4.0f;
+// No closer approach by at least kProgressYards for this long: the bot is stuck.
+constexpr uint32_t kStallMs = 8000;
+constexpr float kProgressYards = 1.0f;
+// After the open: how long the loot window, the object's reaction or the cast
+// may take to show before the order reports a timeout.
+constexpr uint32_t kLootWindowMs = 8000;
+constexpr uint32_t kOpenEffectMs = 4000;
+constexpr uint32_t kUseCastMs = 15000;
+// A nudge (a direct path step) is repeated at most this often while the bot stands still short of the object.
+constexpr uint32_t kNudgeMs = 1000;
+
+// ---------------------------------------------------------------------------
+// Result codes (the second field of TBM:ACTION_ERR). The first group is the
+// documented set; the rest are shared with the older commander orders.
+// ---------------------------------------------------------------------------
+
+constexpr char const* kCodeNoBot = "no-bot";
+constexpr char const* kCodeTooFar = "too-far";
+constexpr char const* kCodeNoItem = "no-item";
+constexpr char const* kCodeLocked = "locked";
+constexpr char const* kCodeBusy = "busy";
+constexpr char const* kCodeInCombat = "in-combat";
+constexpr char const* kCodeInvalid = "invalid";
+constexpr char const* kCodeFailed = "failed";
+constexpr char const* kCodeInvalidTarget = "invalid-target";
+constexpr char const* kCodeUnavailable = "unavailable";
+constexpr char const* kCodeUnreachable = "unreachable";
+constexpr char const* kCodeTimeout = "timeout";
+constexpr char const* kCodeCancelled = "cancelled";
+// A by-entry target (cmd open|loot|use entry:<id>, cmd state) with no spawned object in the search area.
+constexpr char const* kCodeNotFound = "not-found";
+// `cmd ritual`: fewer bots than the ritual needs participants / a participant stopped channeling.
+constexpr char const* kCodeNotEnough = "not-enough";
+constexpr char const* kCodeInterrupted = "interrupted";
+
+// ---------------------------------------------------------------------------
+// Standing point and budgets
+// ---------------------------------------------------------------------------
+
+struct Point3
+{
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+};
+
+// The point `backoff` yards short of the object on the line from the object to
+// the bot (2D), at the object's height. A bot already closer than that stands
+// where it is (its own x/y at the object's height).
+inline Point3 StandingPoint(float botX, float botY, float objX, float objY, float objZ,
+    float backoff = kApproachBackoff)
+{
+    Point3 point;
+    point.z = objZ;
+    float const dx = botX - objX;
+    float const dy = botY - objY;
+    float const length = std::sqrt(dx * dx + dy * dy);
+    if (length <= backoff || length < 0.001f)
+    {
+        point.x = botX;
+        point.y = botY;
+        return point;
+    }
+    point.x = objX + dx / length * backoff;
+    point.y = objY + dy / length * backoff;
+    return point;
+}
+
+inline uint32_t WalkBudgetMs(float distance)
+{
+    float const walking = distance > 0.0f ? distance / kAssumedWalkYardsPerSecond * 1000.0f : 0.0f;
+    uint64_t const budget = static_cast<uint64_t>(kMinWalkMs) + static_cast<uint64_t>(walking);
+    return static_cast<uint32_t>(std::min<uint64_t>(budget, kMaxWalkMs));
+}
+
+// ---------------------------------------------------------------------------
+// Task state machine
+// ---------------------------------------------------------------------------
+
+enum class TaskKind : uint8_t
+{
+    Loot,
+    Open,
+    Use,
+    Ritual, // one member of a `cmd ritual` group: the walk is its own, the act belongs to the group (RitualState)
+};
+
+enum class TaskStage : uint8_t
+{
+    Walk, // closing in on the object
+    Act,  // the one action is under way; waiting for its result
+};
+
+struct TaskState
+{
+    TaskKind kind = TaskKind::Loot;
+    TaskStage stage = TaskStage::Walk;
+    uint32_t elapsedMs = 0;
+    uint32_t stageMs = 0;
+    uint32_t stalledMs = 0;
+    float bestDistance = 1.0e9f;
+    uint32_t walkBudgetMs = kMinWalkMs;
+    uint32_t actBudgetMs = kLootWindowMs;
+    // false: nothing to walk to (a use on the bot itself or on a unit). Such an
+    // order is allowed in combat, so a fight does not stop it before the action.
+    bool walks = true;
+};
+
+inline uint32_t ActBudgetMs(TaskKind kind)
+{
+    switch (kind)
+    {
+        case TaskKind::Loot: return kLootWindowMs;
+        case TaskKind::Open: return kOpenEffectMs;
+        case TaskKind::Use: return kUseCastMs;
+        case TaskKind::Ritual: return kLootWindowMs; // never used: the group's own clock runs the act
+    }
+    return kLootWindowMs;
+}
+
+// An order that ends in a loot window (a corpse, a chest) waits for the loot
+// window, also `cmd open` on a chest: an object's 4 s is shorter than the 5 s
+// Opening cast of a locked chest.
+inline uint32_t ActBudgetMs(TaskKind kind, bool lootLike)
+{
+    return lootLike ? kLootWindowMs : ActBudgetMs(kind);
+}
+
+// Once the action's cast is under way the act stage lasts until the cast has
+// run out plus the usual wait for its result (the loot window, the object's
+// reaction), never less than before. stageMs is what the act stage has used so
+// far (refused attempts before the cast started); castMs is the cast time
+// still to run.
+inline uint32_t ActBudgetAfterCast(TaskState const& state, bool lootLike, uint32_t castMs)
+{
+    uint64_t const needed = static_cast<uint64_t>(state.stageMs) + castMs + ActBudgetMs(state.kind, lootLike);
+    uint64_t const capped = std::min<uint64_t>(needed, kMaxWalkMs);
+    return static_cast<uint32_t>(std::max<uint64_t>(state.actBudgetMs, capped));
+}
+
+inline TaskState MakeTask(TaskKind kind, float startDistance, bool needsWalk, bool lootLike = false)
+{
+    TaskState state;
+    state.kind = kind;
+    state.stage = needsWalk ? TaskStage::Walk : TaskStage::Act;
+    state.walkBudgetMs = WalkBudgetMs(startDistance);
+    state.actBudgetMs = ActBudgetMs(kind, lootLike);
+    return state;
+}
+
+// An order with nothing to walk to: it passes the walk stage at the first look
+// (the glue reports it in range) and a fight does not stop it.
+inline TaskState MakeInPlaceTask(TaskKind kind)
+{
+    TaskState state = MakeTask(kind, 0.0f, true);
+    state.walks = false;
+    return state;
+}
+
+struct TaskFacts
+{
+    bool botAvailable = true;   // in world, alive, not teleporting, on the target's map
+    bool teleporting = false;   // alive but in a teleport or between maps (an item's teleport)
+    bool actStarted = false;    // the action itself has been started (a cast is under way or over)
+    bool inCombat = false;
+    bool targetPresent = true;  // the object is still there (checked while walking)
+    bool inRange = false;       // the bot stands inside the interaction range
+    float distance = 0.0f;      // bot to object
+    bool actDone = false;       // the action's result is in (window closed, effect seen, cast over)
+};
+
+enum class TaskStep : uint8_t
+{
+    Wait,
+    BeginAct, // the walk is over: do the action now
+    Succeed,
+    Fail,
+};
+
+struct TaskVerdict
+{
+    TaskStep step = TaskStep::Wait;
+    char const* code = "";
+    char const* message = "";
+};
+
+inline TaskVerdict TaskFail(char const* code, char const* message)
+{
+    TaskVerdict verdict;
+    verdict.step = TaskStep::Fail;
+    verdict.code = code;
+    verdict.message = message;
+    return verdict;
+}
+
+// One look at a running task, `diffMs` after the last. Walk: refuse when the
+// bot cannot act any more, a fight starts (only for an order that walks), the object is gone, the bot stalls or
+// the budget runs out; begin the action when it stands in range. Act: succeed
+// when the result is in, time out otherwise.
+inline TaskVerdict AdvanceTask(TaskState& state, TaskFacts const& facts, uint32_t diffMs)
+{
+    state.elapsedMs += diffMs;
+    state.stageMs += diffMs;
+    TaskVerdict verdict;
+    if (!facts.botAvailable)
+    {
+        // An item that teleports the bot (a hearthstone) ends with the bot between maps:
+        // its cast completed, that is the result.
+        if (facts.teleporting && facts.actStarted && state.kind == TaskKind::Use && state.stage == TaskStage::Act)
+        {
+            verdict.step = TaskStep::Succeed;
+            return verdict;
+        }
+        return TaskFail(kCodeUnavailable, "The bot died, left the map or is teleporting.");
+    }
+
+    if (state.stage == TaskStage::Walk)
+    {
+        if (!facts.targetPresent)
+            return TaskFail(kCodeInvalidTarget, "The object is gone.");
+        if (facts.inCombat && state.walks)
+            return TaskFail(kCodeInCombat, "The bot is in combat and stopped.");
+        if (facts.inRange)
+        {
+            state.stage = TaskStage::Act;
+            state.stageMs = 0;
+            verdict.step = TaskStep::BeginAct;
+            return verdict;
+        }
+        if (facts.distance < state.bestDistance - kProgressYards)
+        {
+            state.bestDistance = facts.distance;
+            state.stalledMs = 0;
+        }
+        else
+            state.stalledMs += diffMs;
+        if (state.stalledMs >= kStallMs)
+            return TaskFail(kCodeUnreachable, "The bot stopped short of the object and cannot get closer.");
+        if (state.elapsedMs >= state.walkBudgetMs)
+            return TaskFail(kCodeTimeout, "The bot did not reach the object in time.");
+        return verdict;
+    }
+
+    if (facts.actDone)
+    {
+        verdict.step = TaskStep::Succeed;
+        return verdict;
+    }
+    // A fight ends the act of an order on an object or a corpse like it ends the
+    // walk: the hold is released at once instead of keeping the bot on the spot
+    // until the budget runs out. A use in place keeps going in a fight.
+    if (facts.inCombat && state.walks)
+        return TaskFail(kCodeInCombat, "The bot is in combat and stopped.");
+    if (state.stageMs >= state.actBudgetMs)
+        return TaskFail(kCodeTimeout, "No result came back in time.");
+    return verdict;
+}
+
+// A refused start of the act is tried again on the next look only while the
+// bot may still act: not in a fight for an order that walks (AdvanceTask then
+// ends it with in-combat, and the bot is neither held nor has its spell stopped).
+inline bool MayRetryAct(TaskState const& state, TaskFacts const& facts)
+{
+    return facts.botAvailable && state.stage == TaskStage::Act && !(facts.inCombat && state.walks);
+}
+
+// ---------------------------------------------------------------------------
+// Summoning rituals: `cmd ritual <target> <bot> <bot> [<bot>...]`
+// ---------------------------------------------------------------------------
+
+// A GAMEOBJECT_TYPE_SUMMONING_RITUAL (Uldaman's Altar of the Keepers and Altar of
+// Archaedas) is used by `reqParticipants` DIFFERENT players. What the core does
+// (GameObject::Use, GameObject::AddUniqueUse, Spell::cancel and Spell::update):
+//  - each use by a player of the same group as the first user (castersGrouped) adds
+//    that player to the object's unique users and starts the helper's animation
+//    spell, a channel that any step of more than 0.5 yd, a hit or a stun breaks;
+//    a broken channel takes the player out of the unique users again;
+//  - the use that brings the count to reqParticipants turns the object active
+//    (GO_STATE_ACTIVE) and casts the ritual spell (5 s: SpellCastTimes index 6) at the object;
+//    the object's script reacts to it (the altars wake the Stone Keepers or
+//    Archaedas); while that cast runs the count must stay at reqParticipants;
+//  - the core has no timer of its own: an object left half used stays half used.
+// So the order has to bring all bots to the object first, let them use it one after
+// the other, and keep every one still until the object is active and the cast has run.
+//
+// The group below is the order's clock and verdict. The glue (BotCommands.cpp) reads
+// the facts off the world once per look, sends the uses and holds the bots.
+
+// Bots a ritual order may name (the bound party is at most five).
+constexpr uint32_t kRitualMaxBots = 5;
+// A use must show the bot among the object's participants within this long, else it is sent again.
+constexpr uint32_t kRitualJoinWaitMs = 2000;
+constexpr uint32_t kRitualUseTries = 2;
+// After the last bot joined the object must turn active within this long.
+constexpr uint32_t kRitualActiveMs = 4000;
+// After it turned active the bots stay this long for the ritual cast to run; it still being active
+// at the end is the success (the cast itself has no result a client could see). Spells 11568 and 10340
+// (the altars') have cast time index 6 = 5000 ms in SpellCastTimes.dbc, so this is that cast plus
+// 2 s. The helper channel 11206 lasts SpellDuration index 6 = 600 s, far longer than the order.
+constexpr uint32_t kRitualSettleMs = 7000;
+
+enum class RitualStage : uint8_t
+{
+    Gather, // the bots walk to the object; each holds still where it arrives
+    Join,   // the bots use the object one after the other
+    Settle, // the object is active: everyone stays still until the cast has run
+};
+
+// The core remembers the FIRST player ever to use the object (GameObject::m_firstUser, set once and never reset
+// by a failed or finished ritual); that player is the caster and fixes the group the later users must belong to
+// (castersGrouped). If anyone outside the party clicked the altar before, every use of the party's bots is
+// ignored without a word and the bots never become participants: the order then ends with this text.
+constexpr char const* kRitualNotJoinedText =
+    "A bot's use did not make it a participant. The bots must be in the party of the object's FIRST user ever "
+    "(the core never forgets who that was): if anyone outside this party used the altar before, its ritual "
+    "cannot be fired from here (a fresh instance resets it). Otherwise the bot was out of reach.";
+
+struct RitualState
+{
+    RitualStage stage = RitualStage::Gather;
+    uint32_t members = 0;       // bots ordered
+    uint32_t required = 0;      // the object's reqParticipants
+    uint32_t ceilingMs = 0;     // the whole order's hard limit
+    uint32_t elapsedMs = 0;
+    uint32_t stageMs = 0;
+    uint32_t nextUse = 0;       // the member (by index) that uses next = members confirmed so far
+    bool useSent = false;       // the use of member nextUse is under way
+    uint32_t useWaitMs = 0;
+    uint32_t useTries = 0;
+    uint32_t activeWaitMs = 0;  // since the last member joined
+};
+
+// The seconds a PENDING line promises: the slowest walk, every join (twice over: a
+// retry), the wait for the object to turn active, and the settle.
+inline uint32_t RitualBudgetMs(uint32_t slowestWalkMs, uint32_t uses)
+{
+    return slowestWalkMs + uses * kRitualJoinWaitMs * kRitualUseTries + kRitualActiveMs + kRitualSettleMs;
+}
+
+inline RitualState MakeRitual(uint32_t members, uint32_t required, uint32_t slowestWalkMs)
+{
+    RitualState state;
+    state.members = members;
+    state.required = required;
+    state.ceilingMs = RitualBudgetMs(slowestWalkMs, required);
+    return state;
+}
+
+// The bots that have used the ritual object and are being held for it. A participant is a participant only
+// while its helper channel runs (11206): any spell of its own (a buff, a heal, a drink, which the bot's AI
+// casts on its own account: PlayerbotAI::CanCastSpell does not count a channel as a cast in progress) or any
+// step ends the channel (Object.cpp SetCurrentCastedSpell, Spell::update), takes the bot out of the object's
+// participants and sends an active altar back to ready. So the bot's AI does nothing of its own from its use
+// until the order lets it go (every end of the order releases: ReleaseTaskStance).
+class RitualHoldSet
+{
+public:
+    void Hold(uint64_t bot) { m_bots.insert(bot); }
+    void Release(uint64_t bot) { m_bots.erase(bot); }
+    bool Holds(uint64_t bot) const { return !m_bots.empty() && m_bots.count(bot) != 0; }
+    bool Empty() const { return m_bots.empty(); }
+    void Clear() { m_bots.clear(); }
+
+private:
+    std::unordered_set<uint64_t> m_bots;
+};
+
+inline RitualHoldSet& RitualHolds()
+{
+    static RitualHoldSet holds;
+    return holds;
+}
+
+struct RitualFacts
+{
+    bool unavailable = false;       // a member died, left the map or the party, or teleports
+    char const* walkFailCode = nullptr; // a member's walk ended in failure (its AdvanceTask verdict)
+    char const* walkFailMessage = "";
+    bool inCombat = false;          // any member
+    bool targetPresent = true;      // the object is still spawned
+    bool allReady = false;          // every member stands in range of the object, holding
+    bool nextInRange = true;        // the member to use now still stands in range
+    bool goActive = false;          // the object's state is active (the ritual's cast is sent)
+    bool nextJoined = false;        // the member to use now is among the object's participants
+    uint32_t membersJoined = 0;     // members among the participants now
+    uint32_t uniqueUsers = 0;       // all participants of the object (ours or not)
+};
+
+enum class RitualStep : uint8_t
+{
+    Wait,
+    UseNext, // the glue sends the use of member `nextUse` now
+    Succeed,
+    Fail,
+};
+
+struct RitualVerdict
+{
+    RitualStep step = RitualStep::Wait;
+    char const* code = "";
+    char const* message = "";
+};
+
+inline RitualVerdict RitualFail(char const* code, char const* message)
+{
+    RitualVerdict verdict;
+    verdict.step = RitualStep::Fail;
+    verdict.code = code;
+    verdict.message = message;
+    return verdict;
+}
+
+// The glue's use of the member was refused by the bot's own checks (already in use, out of reach):
+// counts as one try like a use that did not register.
+inline RitualVerdict RitualUseRefused(RitualState& state)
+{
+    state.useSent = false;
+    state.useWaitMs = 0;
+    if (++state.useTries >= kRitualUseTries)
+        return RitualFail(kCodeBusy, "The bot could not use the ritual object (already in use, or out of reach).");
+    return RitualVerdict();
+}
+
+// One look at a running ritual order, `diffMs` after the last.
+inline RitualVerdict AdvanceRitual(RitualState& state, RitualFacts const& facts, uint32_t diffMs)
+{
+    state.elapsedMs += diffMs;
+    state.stageMs += diffMs;
+    RitualVerdict verdict;
+
+    // The object turned active: the ritual cast is sent and nothing a bot meets from now on undoes
+    // it. The altars' cast ends with the Stone Keepers or Archaedas waking and attacking, so a fight
+    // (or a bot lost in it) inside the settle is the ritual having worked: the order is done. Only
+    // the object going back to ready, which is a participant leaving before the cast ended, fails it.
+    if (state.stage == RitualStage::Join && facts.goActive)
+    {
+        state.stage = RitualStage::Settle;
+        state.stageMs = 0;
+    }
+    if (state.stage == RitualStage::Settle)
+    {
+        if (!facts.goActive)
+        {
+            // A ritual that is used up leaves with its cast done; one that went back to ready was cancelled.
+            if (!facts.targetPresent)
+            {
+                verdict.step = RitualStep::Succeed;
+                return verdict;
+            }
+            return RitualFail(kCodeInterrupted, "The ritual was cancelled (a participant stopped channeling).");
+        }
+        if (facts.inCombat || facts.unavailable || state.stageMs >= kRitualSettleMs)
+            verdict.step = RitualStep::Succeed;
+        return verdict;
+    }
+
+    if (facts.unavailable)
+        return RitualFail(kCodeUnavailable, "A bot died, left the map or the party, or is teleporting.");
+    if (facts.walkFailCode)
+        return RitualFail(facts.walkFailCode, facts.walkFailMessage);
+    if (facts.inCombat)
+        return RitualFail(kCodeInCombat, "A bot is in combat and stopped.");
+    if (state.elapsedMs >= state.ceilingMs)
+        return RitualFail(kCodeTimeout, "The ritual did not finish in time.");
+
+    switch (state.stage)
+    {
+        case RitualStage::Gather:
+            if (!facts.targetPresent)
+                return RitualFail(kCodeInvalidTarget, "The ritual object is gone.");
+            if (facts.goActive)
+                return RitualFail(kCodeBusy, "The ritual is already in progress.");
+            if (facts.allReady)
+            {
+                state.stage = RitualStage::Join;
+                state.stageMs = 0;
+            }
+            return verdict;
+
+        case RitualStage::Join:
+            if (!facts.targetPresent)
+                return RitualFail(kCodeInvalidTarget, "The ritual object is gone.");
+            // A bot that had joined is not a participant any more: it moved, was hit or stunned.
+            if (facts.membersJoined < state.nextUse)
+                return RitualFail(kCodeInterrupted, "A participant stopped channeling (it moved, was hit or stunned).");
+            if (state.useSent)
+            {
+                if (facts.nextJoined)
+                {
+                    state.useSent = false;
+                    state.useWaitMs = 0;
+                    state.useTries = 0;
+                    ++state.nextUse;
+                    return verdict;
+                }
+                state.useWaitMs += diffMs;
+                if (state.useWaitMs >= kRitualJoinWaitMs)
+                {
+                    if (state.useTries + 1 >= kRitualUseTries)
+                        return RitualFail(kCodeFailed, kRitualNotJoinedText);
+                    ++state.useTries;
+                    state.useSent = false;
+                    state.useWaitMs = 0;
+                }
+                return verdict;
+            }
+            if (state.nextUse < state.members && state.nextUse < state.required)
+            {
+                if (!facts.nextInRange)
+                    return RitualFail(kCodeTooFar, "A bot was pushed out of reach of the ritual object.");
+                state.useSent = true;
+                state.useWaitMs = 0;
+                verdict.step = RitualStep::UseNext;
+                return verdict;
+            }
+            // Everyone who had to join has: the object must turn active now.
+            state.activeWaitMs += diffMs;
+            if (state.activeWaitMs >= kRitualActiveMs)
+                return facts.uniqueUsers < state.required
+                    ? RitualFail(kCodeNotEnough, "The ritual needs more participants than joined.")
+                    : RitualFail(kCodeFailed, "The ritual object did not turn active.");
+            return verdict;
+
+        case RitualStage::Settle:
+            break; // handled above
+    }
+    return verdict;
+}
+
+// ---------------------------------------------------------------------------
+// Later orders
+// ---------------------------------------------------------------------------
+
+// The commander orders that cancel a running task (the bot answers `cancelled`).
+enum class LaterOrder : uint8_t
+{
+    Move,
+    Stay,
+    Follow,
+    Summon,
+    Attack,
+    Focus,
+    Pull, // pull and pullback
+};
+
+// Does the later order set the bot's movement itself? Then the cancelled walk
+// leaves the stance alone. An attack, a focus or a pull does not: the bot ends
+// the walk as a finished one does (re-forms on the lead bot, or holds where it
+// stands), so it does not go back to the object's standing point after the fight.
+inline bool LaterOrderTakesMovement(LaterOrder order)
+{
+    switch (order)
+    {
+        case LaterOrder::Move:
+        case LaterOrder::Stay:
+        case LaterOrder::Follow:
+        case LaterOrder::Summon:
+            return true;
+        case LaterOrder::Attack:
+        case LaterOrder::Focus:
+        case LaterOrder::Pull:
+            return false;
+    }
+    return false;
+}
+
+// ---------------------------------------------------------------------------
+// Range checks
+// ---------------------------------------------------------------------------
+
+// The order is refused up front when the object is farther from the bot than the
+// react distance (the same bound `cmd move` keeps).
+inline bool WithinReactDistance(float distance, float reactDistance)
+{
+    return reactDistance > 0.0f && distance <= reactDistance;
+}
+
+// A game object is used from inside this distance (interactionDistance is the
+// core's INTERACTION_DISTANCE).
+inline bool InUseRange(float distance, float interactionDistance)
+{
+    return distance <= interactionDistance - kInteractMargin;
+}
+
+// ---------------------------------------------------------------------------
+// Object state after a use
+// ---------------------------------------------------------------------------
+
+enum class ObjectEffect : uint8_t
+{
+    Waiting, // still the same state: no reaction yet
+    Reacted, // the object changed state
+    Gone,    // the object (or the map) is gone: not a result
+};
+
+// A used object shows its effect by changing state. One that disappears is not
+// an "opened": a despawn or a map change during the wait fails the order.
+inline ObjectEffect JudgeObjectEffect(bool present, uint32_t baseline, uint32_t now)
+{
+    if (!present)
+        return ObjectEffect::Gone;
+    return now != baseline ? ObjectEffect::Reacted : ObjectEffect::Waiting;
+}
+
+// ---------------------------------------------------------------------------
+// Lock verdict
+// ---------------------------------------------------------------------------
+
+struct LockFacts
+{
+    uint32_t keyItem = 0;      // LOCK_KEY_ITEM row: the item that opens it (0 = none)
+    bool hasKey = false;       // the bot carries that item
+    uint32_t skillId = 0;      // LOCK_KEY_SKILL row: the skill that opens it (0 = none)
+    uint32_t reqSkill = 0;     // the skill value it asks for
+    uint32_t skillValue = 0;   // the bot's value in that skill
+};
+
+enum class LockVerdict : uint8_t
+{
+    Open,
+    NeedsItem,
+    Locked,
+};
+
+// The rows of a lock are alternatives: a carried key or enough skill opens it.
+// A lock the bot cannot open asks for the key when it has a key row (the item
+// to fetch), otherwise it is plainly locked.
+inline LockVerdict CheckLock(LockFacts const& facts)
+{
+    bool const keyRow = facts.keyItem != 0;
+    bool const skillRow = facts.skillId != 0;
+    if (!keyRow && !skillRow)
+        return LockVerdict::Open;
+    if (keyRow && facts.hasKey)
+        return LockVerdict::Open;
+    if (skillRow && facts.skillValue >= facts.reqSkill)
+        return LockVerdict::Open;
+    return keyRow ? LockVerdict::NeedsItem : LockVerdict::Locked;
+}
+
+inline char const* LockVerdictCode(LockVerdict verdict)
+{
+    switch (verdict)
+    {
+        case LockVerdict::Open: return "ok";
+        case LockVerdict::NeedsItem: return kCodeNoItem;
+        case LockVerdict::Locked: return kCodeLocked;
+    }
+    return kCodeFailed;
+}
+
+inline char const* LockVerdictText(LockVerdict verdict)
+{
+    switch (verdict)
+    {
+        case LockVerdict::Open: return "ok";
+        case LockVerdict::NeedsItem: return "The bot does not carry the key or item that opens this lock.";
+        case LockVerdict::Locked: return "The lock needs more skill than the bot has.";
+    }
+    return "The bot cannot open it.";
+}
+
+// ---------------------------------------------------------------------------
+// Cast failures
+// ---------------------------------------------------------------------------
+
+// The short reason of the view feed's party record (oom, range, los, cd, moving,
+// casting, no-item, no-target) as an order code. Anything else is a plain failure.
+inline char const* CastReasonCode(std::string const& reason)
+{
+    if (reason == "range")
+        return kCodeTooFar;
+    if (reason == "no-item")
+        return kCodeNoItem;
+    if (reason == "no-target")
+        return kCodeInvalidTarget;
+    if (reason == "cd" || reason == "casting" || reason == "moving" || reason == "in-use")
+        return kCodeBusy;
+    return kCodeFailed;
+}
+
+// SPELL_CAST_OK in this core (Spells/SpellDefines.h: 0xFF, "custom value"): the
+// glue's "no cast check was recorded", never a reason (the glue asserts it).
+constexpr uint32_t kCastOk = 0xFF;
+
+// The message of a refused open (the code is CastReasonCode(reason)). reason is
+// the short cast reason; castResult the core's SpellCastResult number of the
+// refused cast (0 or kCastOk = none was recorded: the bot's own gate refused
+// before the core saw a cast; "spell check 255" named the core's OK as a failure).
+inline std::string OpenRefusalText(std::string const& reason, uint32_t castResult)
+{
+    if (reason == "moving")
+        return "The bot was moving and could not start the opening cast.";
+    if (reason == "casting")
+        return "The bot is busy casting another spell.";
+    if (reason == "range")
+        return "The bot is not close enough to open it.";
+    if (reason == "los")
+        return "The bot has no line of sight to it.";
+    if (reason == "no-target")
+        return "The opening cast found no valid target.";
+    if (reason == "no-item")
+        return "The opening needs an item the bot does not carry.";
+    if (reason == "in-use")
+        return "Someone else is opening or looting it right now.";
+    if (castResult && castResult != kCastOk)
+        return "The opening cast failed (spell check " + std::to_string(castResult) + ").";
+    return "The bot could not start opening it.";
+}
+
+// ---------------------------------------------------------------------------
+// The act hold
+// ---------------------------------------------------------------------------
+
+// While the one action of an order on a corpse or an object starts and runs,
+// the bot holds still where it stands: the Opening cast of a locked chest takes
+// 5 s and breaks on the first step, and the bot's own follow, formation or stay
+// movement would otherwise take it (the glue stops the bot, anchors its stay on
+// the spot and clears a movement generator before each attempt and while the
+// cast runs). A use with nothing to walk to (a potion, a bandage) keeps its stance.
+inline bool HoldsForAct(bool hasObjectTarget, bool noWalk)
+{
+    return hasObjectTarget && !noWalk;
+}
+
+// A start attempt that the bot's own movement refused (still on the last yards,
+// a follow step) is retried after the hold stopped it, like any other refusal;
+// after kActTries refused attempts the order ends with the newest refusal.
+constexpr uint32_t kActTries = 4;
+
+// The started act's cast (the 5 s Opening of a locked chest) is gone before its
+// cast time ran out: the core cancelled it (a step of more than 0.5 yd, damage,
+// a stun). The order ends there with what the glue saw, instead of waiting out
+// its budget for a window that cannot come. One look of slack: the sweep sees
+// the cast every kTaskTickMs, so a cast that completed is never called broken.
+inline bool ActCastBroken(bool castRunning, uint32_t castMs, uint32_t sinceStartMs)
+{
+    return castMs && !castRunning && sinceStartMs + kTaskTickMs < castMs;
+}
+
+// The answer of a broken act cast: how long it ran and what the glue saw of the
+// usual causes, so a live run names the interrupter.
+inline std::string ActCastBrokenText(uint32_t sinceStartMs, float movedYards, bool inCombat)
+{
+    char ran[16];
+    std::snprintf(ran, sizeof(ran), "%.1f", sinceStartMs / 1000.0f);
+    std::string text = std::string("The opening cast was interrupted after ") + ran + " s (";
+    if (movedYards > 0.5f)
+    {
+        char moved[16];
+        std::snprintf(moved, sizeof(moved), "%.1f", movedYards);
+        text += std::string("the bot moved ") + moved + " yd";
+    }
+    else if (inCombat)
+        text += "the bot is in combat";
+    else
+        text += "it did not move and is not in combat";
+    return text + ").";
+}
+
+// ---------------------------------------------------------------------------
+// The bound group's own looting
+// ---------------------------------------------------------------------------
+
+// A bot in a group a commander has bound leaves game objects (chests, herb and
+// ore nodes, quest objects) to the commander's orders; corpses stay its own.
+// Its own 5 s Opening casts on a chest (several bots at once, on arrival) broke
+// on their next follow step, and raced the bot the commander had ordered.
+inline bool OwnLootTakesObject(bool isGameObject, bool inCommandedGroup, bool commanderOrdered)
+{
+    return !isGameObject || !inCommandedGroup || commanderOrdered;
+}
+
+// ---------------------------------------------------------------------------
+// Loot ledger
+// ---------------------------------------------------------------------------
+
+// What a commanded loot order sees of its loot window. The order watches one
+// object per bot; StoreLootAction (the bot's loot window handler) reports into
+// it: every item taken, the money, and how the window ended. With a watch on the
+// object, the window takes the order's item or everything its group rights allow,
+// where the strategy's loot filter does not apply (an explicit order).
+struct LootWatch
+{
+    uint64_t target = 0;
+    uint32_t onlyItem = 0;      // 0 = everything
+    bool finished = false;      // the loot window of the object has closed
+    bool refused = false;       // the server refused the window
+    uint32_t copper = 0;
+    std::vector<std::pair<uint32_t, uint32_t>> items; // itemId, count
+};
+
+class LootLedger
+{
+public:
+    void Watch(uint64_t bot, uint64_t target, uint32_t onlyItem)
+    {
+        LootWatch watch;
+        watch.target = target;
+        watch.onlyItem = onlyItem;
+        m_watches[bot] = watch;
+    }
+
+    void Forget(uint64_t bot) { m_watches.erase(bot); }
+
+    LootWatch const* Find(uint64_t bot) const
+    {
+        auto it = m_watches.find(bot);
+        return it == m_watches.end() ? nullptr : &it->second;
+    }
+
+    // True when the bot has a watch on this object; onlyItem is the order's filter.
+    bool Watching(uint64_t bot, uint64_t target, uint32_t& onlyItem) const
+    {
+        LootWatch const* watch = Find(bot);
+        if (!watch || watch->target != target || watch->finished)
+            return false;
+        onlyItem = watch->onlyItem;
+        return true;
+    }
+
+    void NoteItem(uint64_t bot, uint64_t target, uint32_t itemId, uint32_t count)
+    {
+        LootWatch* watch = Mine(bot, target);
+        if (!watch || !itemId || !count)
+            return;
+        for (auto& entry : watch->items)
+            if (entry.first == itemId)
+            {
+                entry.second += count;
+                return;
+            }
+        watch->items.emplace_back(itemId, count);
+    }
+
+    void NoteCopper(uint64_t bot, uint64_t target, uint32_t copper)
+    {
+        if (LootWatch* watch = Mine(bot, target))
+            watch->copper += copper;
+    }
+
+    void NoteWindowEnd(uint64_t bot, uint64_t target, bool refused)
+    {
+        if (LootWatch* watch = Mine(bot, target))
+        {
+            watch->finished = true;
+            watch->refused = refused;
+        }
+    }
+
+    bool Empty() const { return m_watches.empty(); }
+    void Clear() { m_watches.clear(); }
+
+private:
+    LootWatch* Mine(uint64_t bot, uint64_t target)
+    {
+        auto it = m_watches.find(bot);
+        if (it == m_watches.end() || it->second.target != target || it->second.finished)
+            return nullptr;
+        return &it->second;
+    }
+
+    std::unordered_map<uint64_t, LootWatch> m_watches;
+};
+
+// The one ledger. StoreLootAction reports into it, the commander glue reads it.
+inline LootLedger& LootOrders()
+{
+    static LootLedger ledger;
+    return ledger;
+}
+
+// Does the order's filter let this item through (0 = everything)?
+inline bool LootItemWanted(uint32_t onlyItem, uint32_t itemId)
+{
+    return onlyItem == 0 || onlyItem == itemId;
+}
+
+inline uint32_t LootedItemCount(LootWatch const& watch)
+{
+    uint32_t total = 0;
+    for (auto const& entry : watch.items)
+        total += entry.second;
+    return total;
+}
+
+// "7741:1,7740:1" (+ ",copper:N" when money was taken); "-" when nothing was taken.
+inline std::string FormatLootedItems(LootWatch const& watch)
+{
+    std::string text;
+    for (auto const& entry : watch.items)
+    {
+        if (!text.empty())
+            text += ',';
+        text += std::to_string(entry.first) + ":" + std::to_string(entry.second);
+    }
+    if (watch.copper)
+    {
+        if (!text.empty())
+            text += ',';
+        text += "copper:" + std::to_string(watch.copper);
+    }
+    return text.empty() ? std::string("-") : text;
+}
+
+// ---------------------------------------------------------------------------
+// Loot method
+// ---------------------------------------------------------------------------
+
+// Values of the core's LootMethod (Group.h): the same numbers the client sends.
+constexpr int kLootFfa = 0;
+constexpr int kLootRoundRobin = 1;
+constexpr int kLootMaster = 2;
+constexpr int kLootGroup = 3;
+constexpr int kLootNeedBeforeGreed = 4;
+// Loot thresholds the core accepts (ItemQualities): common to legendary.
+constexpr int kThresholdMin = 1;
+constexpr int kThresholdMax = 5;
+
+inline std::string LowerAscii(std::string text)
+{
+    for (char& c : text)
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    return text;
+}
+
+inline bool ParseLootMethod(std::string const& token, int& method)
+{
+    std::string const word = LowerAscii(token);
+    if (word == "ffa" || word == "freeforall" || word == "free")
+        method = kLootFfa;
+    else if (word == "rr" || word == "roundrobin")
+        method = kLootRoundRobin;
+    else if (word == "master" || word == "masterloot" || word == "ml")
+        method = kLootMaster;
+    else if (word == "group" || word == "grouploot")
+        method = kLootGroup;
+    else if (word == "nbg" || word == "needbeforegreed")
+        method = kLootNeedBeforeGreed;
+    else
+        return false;
+    return true;
+}
+
+inline char const* LootMethodName(int method)
+{
+    switch (method)
+    {
+        case kLootFfa: return "ffa";
+        case kLootRoundRobin: return "rr";
+        case kLootMaster: return "master";
+        case kLootGroup: return "group";
+        case kLootNeedBeforeGreed: return "nbg";
+    }
+    return "unknown";
+}
+
+// A quality number 1-5, or common/green/uncommon/blue/rare/purple/epic/orange/legendary.
+inline bool ParseLootThreshold(std::string const& token, int& threshold)
+{
+    std::string const word = LowerAscii(token);
+    if (word.size() == 1 && word[0] >= '0' && word[0] <= '9')
+        threshold = word[0] - '0';
+    else if (word == "common" || word == "white")
+        threshold = 1;
+    else if (word == "uncommon" || word == "green")
+        threshold = 2;
+    else if (word == "rare" || word == "blue")
+        threshold = 3;
+    else if (word == "epic" || word == "purple")
+        threshold = 4;
+    else if (word == "legendary" || word == "orange")
+        threshold = 5;
+    else
+        return false;
+    return threshold >= kThresholdMin && threshold <= kThresholdMax;
+}
+
+// ---------------------------------------------------------------------------
+// `cmd state`: the answer about a game object
+// ---------------------------------------------------------------------------
+
+// GOState: GO_STATE_ACTIVE 0 (a door open, a lever pulled), GO_STATE_READY 1
+// (a door closed, a lever at rest), GO_STATE_ACTIVE_ALTERNATIVE 2.
+inline char const* GoStateName(uint32_t state)
+{
+    switch (state)
+    {
+        case 0: return "active";
+        case 1: return "ready";
+        case 2: return "alternative";
+    }
+    return "unknown";
+}
+
+// LootState: GO_NOT_READY 0, GO_READY 1, GO_ACTIVATED 2, GO_JUST_DEACTIVATED 3.
+inline char const* GoLootStateName(uint32_t state)
+{
+    switch (state)
+    {
+        case 0: return "not-ready";
+        case 1: return "ready";
+        case 2: return "activated";
+        case 3: return "just-deactivated";
+    }
+    return "unknown";
+}
+
+// GameObjectFlags: in-use 0x1 (disables interaction while animated), locked
+// 0x2, interact-cond 0x4, no-interact 0x10; joined with '+', "none" for none.
+inline std::string GoFlagsText(uint32_t flags)
+{
+    std::string text;
+    auto add = [&text](char const* name)
+    {
+        if (!text.empty())
+            text += '+';
+        text += name;
+    };
+    if (flags & 0x1)
+        add("in-use");
+    if (flags & 0x2)
+        add("locked");
+    if (flags & 0x4)
+        add("interact-cond");
+    if (flags & 0x10)
+        add("no-interact");
+    return text.empty() ? std::string("none") : text;
+}
+
+// The detail of `TBM:ACTION_ACK|cmd state|party|1|<detail>`: comma-separated
+// key:value pairs, no spaces and no '|'. The guid is decimal, like ACTION_PENDING's.
+inline std::string FormatGoState(uint64_t guid, uint32_t entry, uint32_t type, uint32_t goState,
+    uint32_t lootState, uint32_t flags)
+{
+    return "guid:" + std::to_string(guid) + ",entry:" + std::to_string(entry) + ",type:" + std::to_string(type) +
+        ",state:" + GoStateName(goState) + ",loot:" + GoLootStateName(lootState) + ",flags:" + GoFlagsText(flags);
+}
+
+} // namespace RemoteCommander
+} // namespace TortoiseBots

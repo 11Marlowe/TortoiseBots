@@ -643,6 +643,11 @@ void ObservabilityEmitter::SetExternalRosterProvider(std::function<void(std::vec
     m_externalRosterProvider = std::move(provider);
 }
 
+void ObservabilityEmitter::SetCommanderProvider(std::function<void(std::vector<CommanderTelemetry::BindingRef>&)> provider)
+{
+    m_commanderProvider = std::move(provider);
+}
+
 void ObservabilityEmitter::SendDatagram(std::string const& payload)
 {
     if (!IsEnabled())
@@ -1159,6 +1164,7 @@ void ObservabilityEmitter::Update(uint32 diff)
 
     PruneState(nowMs);
     EmitSnapshotCycle(activeBots, diff);
+    EmitCommanders();
 
     for (size_t i = 0; i < kArmoryBotsPerSnapshot && i < activeBots.size(); ++i)
     {
@@ -1415,6 +1421,99 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
         SendDatagram(bss.str());
     }
 }
+void ObservabilityEmitter::EmitCommanders()
+{
+    if (!m_commanderProvider)
+        return;
+    m_commanderRefs.clear();
+    m_commanderProvider(m_commanderRefs);
+    if (m_commanderRefs.empty() && !m_commandersSent)
+        return; // nothing stands and nothing was shown: no datagram
+
+    std::vector<CommanderTelemetry::BindingInfo> infos;
+    infos.reserve(m_commanderRefs.size());
+    for (CommanderTelemetry::BindingRef const& ref : m_commanderRefs)
+    {
+        CommanderTelemetry::BindingInfo info;
+        info.commander = ref.commander;
+        info.commanderGuid = ref.commanderGuid;
+        info.commanderOnline = ref.commanderOnline;
+        info.viewOn = ref.viewOn;
+        info.groupId = ref.groupId;
+        info.lead = ref.lead ? ref.lead->GetName() : "";
+        info.orders = ref.orders;
+        info.commanderPlaced = ref.commanderPlaced;
+        info.commanderMap = ref.commanderMap;
+        info.commanderX = ref.commanderX;
+        info.commanderY = ref.commanderY;
+        info.mobsReported = ref.mobsReported;
+        info.mobsMap = ref.mobsMap;
+        info.mobs = ref.mobs; // at most kMaxMobsPerBinding, copied once per 2 s
+        info.objectsReported = ref.objectsReported;
+        info.objects = ref.objects; // at most kMaxObjectsPerBinding, copied once per 2 s
+        // Since when the binding has stood (first seen here), for the dashboard's run timer; forgotten with the binding.
+        int64_t& since = m_commanderSince[ref.commanderGuid];
+        if (!since)
+            since = static_cast<int64_t>(time(nullptr));
+        info.boundAt = since;
+        info.run = ref.run;
+        for (Player* bot : ref.bots)
+        {
+            if (!bot || !bot->IsInWorld() || info.bots.size() >= CommanderTelemetry::kMaxBotsPerBinding)
+                continue;
+            CommanderTelemetry::BotInfo b;
+            b.name = bot->GetName();
+            b.guid = bot->GetGUIDLow();
+            b.className = GetBotClassName(bot->GetClass());
+            b.role = GetBotRole(bot, GET_PLAYERBOT_AI(bot));
+            b.level = bot->GetLevel();
+            b.alive = bot->IsAlive();
+            b.hp = b.alive ? bot->GetHealth() : 0; // a corpse reads 1 in the core
+            b.maxHp = bot->GetMaxHealth();
+            b.power = bot->GetPower(bot->GetPowerType());
+            b.maxPower = bot->GetMaxPower(bot->GetPowerType());
+            if (bot->GetPowerType() == POWER_RAGE) // the core stores rage x10
+            {
+                b.power /= 10;
+                b.maxPower /= 10;
+            }
+            b.powerType = GetPowerTypeName(bot->GetPowerType());
+            b.lead = ref.lead && bot == ref.lead;
+            b.mapId = bot->GetMapId();
+            b.zoneId = bot->GetCachedZoneId();
+            b.x = bot->GetPositionX();
+            b.y = bot->GetPositionY();
+            b.z = bot->GetPositionZ();
+            b.id = bot->GetObjectGuid().GetRawValue();
+            // What it has selected, else what it fights: two field reads.
+            ::ObjectGuid target = bot->GetTargetGuid();
+            if (target.IsEmpty())
+                if (Unit* victim = bot->GetVictim())
+                    target = victim->GetObjectGuid();
+            b.target = target.GetRawValue();
+            for (CommanderTelemetry::BotExtra const& extra : ref.botExtras) // at most kMaxBotsPerBinding of them
+                if (extra.id == b.id)
+                {
+                    b.hasExtra = true;
+                    b.extra = extra;
+                    break;
+                }
+            info.bots.push_back(std::move(b));
+        }
+        infos.push_back(std::move(info));
+    }
+    // Forget the start time of the bindings that ended.
+    for (auto it = m_commanderSince.begin(); it != m_commanderSince.end();)
+    {
+        bool standing = false;
+        for (CommanderTelemetry::BindingRef const& ref : m_commanderRefs)
+            standing = standing || ref.commanderGuid == it->first;
+        it = standing ? std::next(it) : m_commanderSince.erase(it);
+    }
+    m_commandersSent = !infos.empty();
+    SendDatagram(CommanderTelemetry::BuildPayload(kProtocolVersion, m_sessionId, m_snapshotSeq, time(nullptr), infos));
+}
+
 // Effective running settings for the dashboard Server panel. Reads live core
 // rate getters and AiPlayerbot fields — never .env or conf files — so what
 // the panel shows is what the server actually runs. Small (~1 KB) JSON,
@@ -1482,6 +1581,7 @@ void ObservabilityEmitter::EmitServerInfo()
        << ",\"auto_learn_quest_spells\":\"" << flag(sPlayerbotAIConfig.autoLearnQuestSpells) << "\""
        << ",\"level_up_mounts\":\"" << flag(sPlayerbotAIConfig.levelUpMounts) << "\""
        << ",\"turtle_mount_at_level\":" << sPlayerbotAIConfig.turtleMountAtLevel
+       << ",\"remote_commander\":\"" << flag(sPlayerbotAIConfig.remoteCommander) << "\""
        << "}"
        << ",\"diagnostics\":{"
        << "\"perf_mon\":\"" << flag(sPlayerbotAIConfig.perfMonEnabled) << "\""

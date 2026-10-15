@@ -23,6 +23,7 @@
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/PoolFleePolicy.h"
 #include "playerbot/JumpPolicy.h"
+#include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
 
 using namespace ai;
@@ -1575,34 +1576,130 @@ bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, floa
     float const slotAngle = target->GetOrientation() + angle;
     float const slotX = target->GetPositionX() + distance * cos(slotAngle);
     float const slotY = target->GetPositionY() + distance * sin(slotAngle);
+    return HoldOutsideKeepout(slotX, slotY, target->GetPositionX(), target->GetPositionY(),
+        keepoutFollowEngaged, FOLLOW_MOTION_TYPE);
+}
+
+bool MovementAction::HoldChaseOutsideKeepout(WorldObject* target, float distance)
+{
+    // Chase goal: `distance` from the target toward the bot (the target for a
+    // melee chase). Without this a melee chase never met the keep-out: the
+    // hazard end-point check below in ChaseTo looks at a point `distance`
+    // toward the target from the bot (the bot's own spot for melee), finds no
+    // hazard there and hands the move to the core chase, which runs into
+    // melee contact with the creature - inside its pulse (Maraudon live test
+    // 2026-10-13: a warrior on "reach melee" stood 2-4 yd from a sludge).
+    // Tanks pick up and hold mobs: their chase is never held.
+    if (CreatureAuraChaseExempt(PlayerbotAI::IsTank(bot)))
+    {
+        keepoutChaseEngaged = ObjectGuid();
+        keepoutChaseHoldTarget = ObjectGuid();
+        return false;
+    }
+    float gx = 0.0f, gy = 0.0f;
+    CreatureAuraChaseGoal(bot->GetPositionX(), bot->GetPositionY(),
+        target->GetPositionX(), target->GetPositionY(), distance, gx, gy);
+    // The target itself is planned against first: the cached 15 yd list
+    // does not see a sludge chased from farther away until the bot is almost
+    // in its pulse.
+    Unit* const targetUnit = target->ToUnit();
+    if (!HoldOutsideKeepout(gx, gy, gx, gy, keepoutChaseEngaged, CHASE_MOTION_TYPE, targetUnit))
+    {
+        keepoutChaseHoldTarget = ObjectGuid();
+        return false;
+    }
+
+    // Bounded hold: holding outside a ring because the target is inside is
+    // no headway. After a few seconds on the same hostile current target the
+    // bot sets it aside and picks another (owner decision 2026-10-13), also
+    // in group dungeons where the reach give-up is off, so a self-picked
+    // sludge is not kited forever. A player's attack order keeps the hold.
+    uint32 const nowMs = WorldTimer::getMSTime();
+    ObjectGuid const targetGuid = target->GetObjectGuid();
+    // The timer starts over for a new target and after a pause in the hold
+    // (combat ended mid-hold): a later hold on the same mob must not set it
+    // aside on its first tick.
+    if (CreatureAuraChaseHoldRestarts(keepoutChaseHoldTarget == targetGuid, nowMs - keepoutChaseHoldLastMs))
+    {
+        keepoutChaseHoldTarget = targetGuid;
+        keepoutChaseHoldSinceMs = nowMs;
+    }
+    keepoutChaseHoldLastMs = nowMs;
+    bool const hostileCurrentTarget = targetUnit && targetUnit == AI_VALUE(Unit*, "current target") &&
+        !sServerFacade.IsFriendlyTo(bot, targetUnit);
+    bool const ordered = targetGuid == AI_VALUE(ObjectGuid, "explicit attack target");
+    if (CreatureAuraSetAsideTarget(hostileCurrentTarget, ordered, nowMs - keepoutChaseHoldSinceMs))
+    {
+        // Its own book, read by IgnoreTarget and by the picks that bypass
+        // the attackers list (the tank's victim, raid marks): all of them
+        // refuse the target until the set-aside runs out.
+        context->GetValue<std::map<ObjectGuid, uint32>&>("keepout set aside")->Get()[targetGuid] =
+            nowMs + kCreatureAuraSetAsideMs;
+        context->GetValue<ObjectGuid>("attack target")->Set(ObjectGuid());
+        context->GetValue<Unit*>("current target")->Set(nullptr);
+        bot->AttackStop();
+        // Cached picks would hand the target back within the cache window.
+        context->GetValue<std::list<ObjectGuid>>("attackers")->Reset();
+        context->GetValue<std::list<ObjectGuid>>("attackers", 1)->Reset();
+        context->GetValue<std::list<ObjectGuid>>("possible attack targets")->Reset();
+        context->GetValue<Unit*>("dps target")->Reset();
+        context->GetValue<Unit*>("dps aoe target")->Reset();
+        context->GetValue<Unit*>("tank target")->Reset();
+        context->GetValue<bool>("has attackers")->Reset();
+        keepoutChaseHoldTarget = ObjectGuid();
+        ai->TellDebug(GetMaster(), "Setting aside " + std::string(target->GetName()) +
+            " - it stands in a creature aura keep-out", "debug move");
+        // Once per set-aside (at most one per 3 s hold), never per tick: the
+        // per-bot action log (AiPlayerbot.EnableActionLog) and the detail
+        // server log, which carries the other [BOT CHASE] lines.
+        botdiag::BotActionLog::Write(ai, "KEEPOUT_SET_ASIDE", "target=%s entry=%u guid=0x%llx forMs=%u",
+            target->GetName(), target->GetEntry(), (unsigned long long)targetGuid.GetRawValue(),
+            kCreatureAuraSetAsideMs);
+        sLog.outDetail("[BOT CHASE] %s: set aside %s (entry %u) for %u ms - it stands in a creature aura keep-out",
+            bot->GetName(), target->GetName(), target->GetEntry(), kCreatureAuraSetAsideMs);
+    }
+    return true;
+}
+
+bool MovementAction::HoldOutsideKeepout(float gx, float gy, float ax, float ay, ObjectGuid& engaged,
+    MovementGeneratorType nativeType, Unit* first)
+{
     float const bx = bot->GetPositionX(), by = bot->GetPositionY();
     ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
     MotionMaster& mm = *bot->GetMotionMaster();
-    auto stopFollow = [&mm]()
+    auto stopNative = [&mm, nativeType]()
     {
-        // Only a native follow is stopped: the hold and back-off moves and
-        // the step-out's strafe are point moves that never head inward.
-        if (mm.GetCurrentMovementGeneratorType() == FOLLOW_MOTION_TYPE)
+        // Only the native follow or chase is stopped: the hold and back-off
+        // moves and the step-out's strafe are point moves that never head
+        // inward.
+        if (mm.GetCurrentMovementGeneratorType() == nativeType)
         {
             mm.Clear(false, true);
             mm.MoveIdle();
         }
     };
-    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+    std::list<ObjectGuid> candidates = AI_VALUE(std::list<ObjectGuid>, "possible triggers");
+    if (first && PossibleTriggersValue::KeepoutFor(first))
+    {
+        ObjectGuid const firstGuid = first->GetObjectGuid();
+        candidates.remove(firstGuid);
+        candidates.push_front(firstGuid);
+    }
+    for (ObjectGuid const& guid : candidates)
     {
         Unit* unit = ai->GetUnit(guid);
         CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
         if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
             continue;
-        bool const engaged = guid == keepoutFollowEngaged;
+        bool const wasEngaged = guid == engaged;
         float const cx = unit->GetPositionX(), cy = unit->GetPositionY();
         float hx = 0.0f, hy = 0.0f;
-        CreatureAuraFollowStep step = PlanCreatureAuraFollow(*row, engaged, bx, by, slotX, slotY, cx, cy, hx, hy);
+        CreatureAuraFollowStep step = PlanCreatureAuraFollow(*row, wasEngaged, bx, by, gx, gy, cx, cy, hx, hy);
         if (step == CreatureAuraFollowStep::Follow)
-            step = PlanCreatureAuraFollow(*row, engaged, bx, by, target->GetPositionX(), target->GetPositionY(), cx, cy, hx, hy);
+            step = PlanCreatureAuraFollow(*row, wasEngaged, bx, by, ax, ay, cx, cy, hx, hy);
         if (step == CreatureAuraFollowStep::Follow)
             continue;
-        keepoutFollowEngaged = guid;
+        engaged = guid;
         if (step == CreatureAuraFollowStep::BackOff || step == CreatureAuraFollowStep::Approach)
         {
             WorldPosition point(bot->GetMapId(), hx, hy, bot->GetPositionZ());
@@ -1629,12 +1726,19 @@ bool MovementAction::HoldFollowOutsideKeepout(Unit* target, float distance, floa
             }
         }
         // StepOut (the avoid-aoe step-out moves the bot), Hold, or no way to
-        // the point: stop rather than follow into the pulse.
-        stopFollow();
+        // the point: stop rather than follow or chase into the pulse.
+        stopNative();
         return true;
     }
-    keepoutFollowEngaged = ObjectGuid();
+    engaged = ObjectGuid();
     return false;
+}
+
+bool MovementAction::EndPointInCreatureAuraKeepout(float x, float y)
+{
+    if (!sPlayerbotAIConfig.avoidCreatureAuras || CreatureAuraCombatExempt(PlayerbotAI::IsTank(bot), bot->IsInCombat()))
+        return false;
+    return PossibleTriggersValue::KeepoutRingAt(ai, x, y, AI_VALUE(Unit*, "current target")) != nullptr;
 }
 
 WorldPosition CalculatePerpendicularPoint(const WorldPosition& A, const WorldPosition& B, float offset, bool left = true)
@@ -1667,6 +1771,13 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
         sLog.outDetail("[BOT CHASE] %s: IsSafe() blocked", bot->GetName());
         return false;
     }
+
+    // Creature aura keep-out: never chase into a listed creature's pulse.
+    // Before every chase branch below (the far/out-of-sight walk, the hazard
+    // end-point shift and the core chase fallback, which ends in melee
+    // contact with the target whatever hazard it stands in).
+    if (sPlayerbotAIConfig.avoidCreatureAuras && HoldChaseOutsideKeepout(obj, distance))
+        return true;
 
 
     if (ai->HasStrategy("behind", BotState::BOT_STATE_COMBAT))
@@ -2670,6 +2781,9 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
         {
             if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
                 continue;
+            // A tank in combat may stand in the ring to hold its mobs.
+            if (CreatureAuraCombatExempt(PlayerbotAI::IsTank(bot), bot->IsInCombat()))
+                continue;
             // Centre to centre, the same measure as the movement hazard.
             if (!InsideCreatureAuraKeepout(*row, WorldPosition(bot).distance(WorldPosition(unit))))
                 continue;
@@ -2749,6 +2863,26 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
     // bomb/spread step-outs: FindStep itself lives in DungeonActions.cpp):
     // one cached "possible targets" read, no scan per candidate.
     std::list<ObjectGuid> const& possibleTargets = AI_VALUE(std::list<ObjectGuid>, "possible targets");
+    // Creature aura keep-out: listed creatures other than the one stepped
+    // away from (sludges stand in groups; in the Maraudon live test four
+    // pulled at once). A landing clears their keep-out, or on the second
+    // pass at least their pulse, so a step-out never lands in another one.
+    struct OtherKeepout { WorldPosition centre; CreatureAuraKeepout const* row; };
+    std::vector<OtherKeepout> otherKeepouts;
+    if (sPlayerbotAIConfig.avoidCreatureAuras)
+    {
+        ObjectGuid const explicitTarget = AI_VALUE(ObjectGuid, "explicit attack target");
+        for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "possible triggers"))
+        {
+            if (guid == keepoutSource)
+                continue;
+            Unit* unit = ai->GetUnit(guid);
+            CreatureAuraKeepout const* row = PossibleTriggersValue::KeepoutFor(unit);
+            if (!CreatureAuraKeepoutApplies(true, row, true, true, guid == explicitTarget))
+                continue;
+            otherKeepouts.push_back({ WorldPosition(unit), row });
+        }
+    }
     for (int pass = 0; pass < 2; ++pass)
     {
         bool const vetoSecondPass = (pass == 1);
@@ -2791,6 +2925,17 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
             // Keep-out step-out: the landing must clear the keep-out circle
             // (centre measure), or the next tick steps out again.
             if (!keepoutSource.IsEmpty() && cand.distance(hazardCenter) <= radius)
+                continue;
+            bool inOtherKeepout = false;
+            for (OtherKeepout const& other : otherKeepouts)
+            {
+                if (cand.distance(other.centre) <= CreatureAuraLandingClearance(*other.row, vetoSecondPass))
+                {
+                    inOtherKeepout = true;
+                    break;
+                }
+            }
+            if (inOtherKeepout)
                 continue;
             WorldPosition out = cand;
             if (!bot->IsWithinLOS(out.getX(), out.getY(), out.getZ() + bot->GetCollisionHeight()))
@@ -3009,7 +3154,9 @@ bool SetBehindTargetAction::Execute(Event& event)
     target->GetMap()->GetLosHitPosition(ox, oy, oz + bot->GetCollisionHeight(), x, y, z, -0.5f);
 
     const bool isLos = target->IsWithinLOS(x, y, z + bot->GetCollisionHeight(), true);
-    bool moved = MoveTo(bot->GetMapId(), x, y, z);
+    // Creature aura keep-out: never end behind a mob inside a listed
+    // creature's ring (the hazard check only bends the path there).
+    bool moved = !EndPointInCreatureAuraKeepout(x, y) && MoveTo(bot->GetMapId(), x, y, z);
     if (!moved && !isLos)
     {
         distance = sPlayerbotAIConfig.contactDistance;
@@ -3017,7 +3164,7 @@ bool SetBehindTargetAction::Execute(Event& event)
         y = target->getPositionY() + sin(angle) * distance;
         z = target->getPositionZ();
         bot->UpdateGroundPositionZ(x, y, z);
-        moved = MoveTo(bot->GetMapId(), x, y, z);
+        moved = !EndPointInCreatureAuraKeepout(x, y) && MoveTo(bot->GetMapId(), x, y, z);
     }
 
     return moved;
@@ -3105,8 +3252,17 @@ bool RearFlankAction::Execute(Event& event)
     float rightY = target->getPositionY() + sinf(facing - flankAngle) * baseDist;
     float dxl = leftX - bot->getPositionX(), dyl = leftY - bot->getPositionY();
     float dxr = rightX - bot->getPositionX(), dyr = rightY - bot->getPositionY();
-    float destX = (dxl * dxl + dyl * dyl) < (dxr * dxr + dyr * dyr) ? leftX : rightX;
-    float destY = (dxl * dxl + dyl * dyl) < (dxr * dxr + dyr * dyr) ? leftY : rightY;
+    bool leftFirst = (dxl * dxl + dyl * dyl) < (dxr * dxr + dyr * dyr);
+    // Creature aura keep-out: a flank inside a listed creature's ring is
+    // refused; take the other flank, or stay put when both are ringed.
+    bool const leftRinged = EndPointInCreatureAuraKeepout(leftX, leftY);
+    bool const rightRinged = EndPointInCreatureAuraKeepout(rightX, rightY);
+    if (leftRinged && rightRinged)
+        return false;
+    if (leftRinged || rightRinged)
+        leftFirst = !leftRinged;
+    float destX = leftFirst ? leftX : rightX;
+    float destY = leftFirst ? leftY : rightY;
     float destZ = target->getPositionZ();
     bot->UpdateGroundPositionZ(destX, destY, destZ);
     float ox, oy, oz;
@@ -3192,6 +3348,10 @@ bool MoveOutOfCollisionAction::Execute(Event& event)
         WorldPosition randomPoint = botPos;
         if (randomPoint.GetReachableRandomPointOnGround(bot, ai->GetRange("follow")))
         {
+            // Creature aura keep-out: try another point rather than unstack
+            // into a listed creature's ring.
+            if (EndPointInCreatureAuraKeepout(randomPoint.getX(), randomPoint.getY()))
+                continue;
             return MoveTo(bot->GetMapId(), randomPoint.getX(), randomPoint.getY(), randomPoint.getZ());
         }
     }
@@ -3199,7 +3359,11 @@ bool MoveOutOfCollisionAction::Execute(Event& event)
     // old style
     float angle = M_PI * 2000 / (float)urand(1, 1000);
     float distance = ai->GetRange("follow");
-    return MoveTo(bot->GetMapId(), bot->getPositionX() + cos(angle) * distance, bot->getPositionY() + sin(angle) * distance, bot->getPositionZ());
+    float const oldX = bot->getPositionX() + cos(angle) * distance;
+    float const oldY = bot->getPositionY() + sin(angle) * distance;
+    if (EndPointInCreatureAuraKeepout(oldX, oldY))
+        return false;
+    return MoveTo(bot->GetMapId(), oldX, oldY, bot->getPositionZ());
 }
 
 bool MoveOutOfCollisionAction::isUseful()

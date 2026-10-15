@@ -95,6 +95,14 @@ int main()
     // No mana bar: never held back by the reserve.
     CHECK(HealerDpsManaAllows(false, 0, 101));
     CHECK(HealerDpsManaAllows(false, 0, 10));
+    // Healer damage target: solo or no target -> as before; grouped, only a
+    // mob that already fights another party member (Uldaman 2026-10-14:
+    // the priest opened on a mob the tank had not touched and took it).
+    CHECK(HealerDamageTargetAllowed(false, true, false));
+    CHECK(HealerDamageTargetAllowed(true, false, false));
+    CHECK(HealerDamageTargetAllowed(true, true, true));
+    CHECK(!HealerDamageTargetAllowed(true, true, false));
+
     // Raid floor: minutes-long mana burn, no drink break — off-spec
     // damage only at near-full mana (live Naxx 2026-10-14: resto dry
     // at 4-9 % while the generic floor kept firing shocks/bolts).

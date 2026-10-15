@@ -167,3 +167,20 @@ bool SerpentStingOnAttackerTrigger::IsActive()
 
     return false;
 }
+
+// Volley is a channel: stop it once the pack is gone, the same rule as the
+// warlock's Rain of Fire check. Turtle has three Volley ranks (1510, 14294,
+// 14295); the WotLK ranks 27022/58431/58434 are not in its spell data.
+bool VolleyChannelCheckTrigger::IsActive()
+{
+    if (Spell* spell = bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+    {
+        if (spell->m_spellInfo)
+        {
+            uint32 id = spell->m_spellInfo->Id;
+            if (id == 1510 || id == 14294 || id == 14295)
+                return AI_VALUE(uint8, "aoe count") < 2;
+        }
+    }
+    return false;
+}

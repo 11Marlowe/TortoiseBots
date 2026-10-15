@@ -15,6 +15,7 @@
 #include "BotPacketAdapter.h"
 #include "HireRecruiterScript.h"
 #include "../commands/BotCommandQueue.h"
+#include "../commands/BotCommands.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "Config/Config.h"
 #include "ObjectMgr.h"
@@ -134,6 +135,9 @@ void BotHostAdapter::OnStartup()
     TB_LOG_BASIC("TortoiseBots %s (AI %s)", BuildVersion().c_str(), configured ? "enabled" : "disabled");
     TB_LOG_BASIC("%s", AttributionLine().c_str());
     ObservabilityEmitter::Instance().Initialize();
+    // The dashboard's Commanders tab: the standing remote-commander bindings.
+    ObservabilityEmitter::Instance().SetCommanderProvider(
+        [](std::vector<CommanderTelemetry::BindingRef>& out) { BotCommands::CollectCommanderTelemetry(out); });
 }
 void BotHostAdapter::OnUpdate(uint32 diff)
 {
@@ -168,6 +172,9 @@ void BotHostAdapter::OnUpdate(uint32 diff)
     // (issue #846).
     BotPacketAdapter::DrainDeferredPackets(deferredLimit, true);
     BotManager::Instance().OnWorldUpdate(diff);
+    // Issue #884: release remote-commander bindings whose commander logged
+    // out or whose group broke up (nothing runs while none is bound).
+    BotCommands::UpdateRemoteCommanders(diff);
     PlayerConvenience::Instance().Update(diff);
     RandomBotService::Instance().Update(diff);
     // Issue #192: complete queued hire provisions, then sweep grace timers.
@@ -183,6 +190,7 @@ void BotHostAdapter::OnShutdown()
     ObservabilityEmitter::Instance().Shutdown();
     BattlegroundQueueService::Instance().Shutdown();
     BotCommandQueue::Instance().Clear();
+    BotCommands::ClearRemoteCommanders();
     BotPacketAdapter::ClearDeferredPackets();
     BotManager::Instance().Shutdown();
     RandomBotService::Instance().Shutdown();

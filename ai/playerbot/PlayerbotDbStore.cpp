@@ -4,12 +4,15 @@
 #include "playerbot/PlayerbotFactory.h"
 #include "PlayerbotDbStore.h"
 #include "MovementModePolicy.h"
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <utility>
 #include <vector>
 
 #include "LootObjectStack.h"
+#include "../../runtime/CommandedGroupQuery.h"
+#include "../../runtime/RemoteCommanderPolicy.h"
 #include "strategy/values/Formations.h"
 #include "strategy/values/PositionValue.h"
 INSTANTIATE_SINGLETON_1(PlayerbotDbStore);
@@ -79,6 +82,23 @@ void PlayerbotDbStore::Load(PlayerbotAI *ai, std::string preset)
         }
 
         ai->GetAiObjectContext()->Load(values);
+
+        // The snapshot never holds a binding's "threat" (Save below): a bot
+        // that is still bound gets it back for the binding.
+        Player* bot = ai->GetBot();
+        if (stored.combat && TortoiseBots::BotCommands::IsInCommandedGroup(bot) &&
+            !ai->HasRealPlayerMaster() && !bot->InBattleGround() &&
+            TortoiseBots::RemoteCommander::KeepsCommandedThreatBackoff(true, PlayerbotAI::IsTank(bot)) &&
+            !ai->HasStrategy("threat", BotState::BOT_STATE_COMBAT))
+        {
+            ai->ChangeStrategy("+threat", BotState::BOT_STATE_COMBAT);
+            TortoiseBots::BotCommands::NoteCommanderThreat(bot);
+        }
+
+        // A snapshot keeps the bot's own open-world kit (Save below); a bot
+        // that is still bound holds it off until the release.
+        if (stored.nonCombat)
+            TortoiseBots::BotCommands::HoldCommanderAutonomy(bot, ai, false);
     }
 
     // An anchor ("pull hold") restored from the snapshot has no pull left to
@@ -133,6 +153,23 @@ void PlayerbotDbStore::Save(PlayerbotAI *ai, std::string preset)
         std::list<std::string_view> strategies = ai->GetStrategies(state);
         if (ai->PullWindowAdded(state))
             strategies.remove(std::string_view("wait for attack"));
+        // A commander binding's "threat" is the binding's, not the bot's
+        // (RemoteCommander::CommanderThreatLedger): never stored, so a save
+        // while bound does not keep the back-off after the binding ends.
+        if (state == BotState::BOT_STATE_COMBAT && TortoiseBots::BotCommands::IsCommanderThreat(ai->GetBot()))
+            strategies.remove(std::string_view("threat"));
+        // The open-world kit a binding holds off the bot is still the bot's
+        // own: stored, so a restart or a save while bound does not lose it.
+        if (state == BotState::BOT_STATE_NON_COMBAT)
+        {
+            uint32_t const withheld = TortoiseBots::BotCommands::CommanderAutonomyWithheld(ai->GetBot());
+            for (unsigned i = 0; withheld && i < TortoiseBots::RemoteCommander::kCommanderAutonomyCount; ++i)
+            {
+                std::string_view const name(TortoiseBots::RemoteCommander::CommanderAutonomyStrategy(i));
+                if ((withheld & (1u << i)) && std::find(strategies.begin(), strategies.end(), name) == strategies.end())
+                    strategies.push_back(name);
+            }
+        }
         return strategies;
     };
     SaveValue(guid, preset, "co", FormatStrategies("co", stored(BotState::BOT_STATE_COMBAT)));

@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "DpsTargetValue.h"
 #include "LeastHpTargetValue.h"
+#include "AttackersValue.h"
 #include "PossibleAttackTargetsValue.h"
 #include "playerbot/DpsTargetPolicy.h"
 #include "playerbot/FourHorsemenRotationPolicy.h"
@@ -318,6 +319,13 @@ namespace
             (!target->IsInCombat() && !IsAttackedByParty(target, group)))
             return nullptr;
 
+        // The tank's victim skips the attackers list, so a mob this bot set
+        // aside in a creature aura keep-out came straight back here (the
+        // tank holds it in the ring): hold 3 s, set aside, re-pick, all
+        // fight. Refuse it until the set-aside runs out.
+        if (AttackersValue::IsKeepoutSetAside(target, bot))
+            return nullptr;
+
         return target;
     }
 }
@@ -335,8 +343,10 @@ Unit* DpsTargetValue::Calculate()
     if (Unit* horseman = FourHorsemenRotationTarget(ai, bot))
         return horseman;
 
+    // A raid mark set aside in a creature aura keep-out falls through to
+    // the next pick like the tank's victim below.
     Unit* rti = RtiTargetValue::Calculate();
-    if (rti) return rti;
+    if (rti && !AttackersValue::IsKeepoutSetAside(rti, bot)) return rti;
 
     GeneralDpsStrategy ccProbe(ai, 0.0f);
     if (Unit* tankTarget = GetGroupTankTarget(ai))
@@ -402,7 +412,7 @@ Unit* DpsAoeTargetValue::Calculate()
         return explicitTarget;
 
     Unit* rti = RtiTargetValue::Calculate();
-    if (rti) return rti;
+    if (rti && !AttackersValue::IsKeepoutSetAside(rti, bot)) return rti;
 
     FindMaxHpTargetStrategy strategy(ai);
     return TargetValue::FindTarget(&strategy);

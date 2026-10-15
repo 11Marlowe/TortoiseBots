@@ -92,6 +92,10 @@ namespace ai
         virtual void Set(T value) override { this->value = value; }
         virtual void Update() { }
         virtual void Reset() override { lastCheckTime = 0; }
+        // True once calculated and not reset since, so LazyGet() returns the
+        // cached value without calculating. For readers that must never cause
+        // a calculation (the remote commander's view feed, issue #884).
+        bool HasCachedValue() const { return lastCheckTime != 0; }
         virtual bool Expired() override { return Expired(ValueRefreshSeconds(checkInterval, ValueRefreshAtIntervalEnabled(), keepLegacyRefresh)); }
         virtual bool Expired(uint32 interval) override { return time(0) - lastCheckTime >= interval; }
     protected:
