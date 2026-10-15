@@ -2,8 +2,7 @@
 
 AI agents (Claude Code, Codex, OpenCode and the like) are welcome here. A change
 made with one meets the same bar as any other, and the person who opens the
-pull request answers for it. Adapted from AzerothCore's
-[agentic engineering guide](https://www.azerothcore.org/wiki/agentic-engineering).
+pull request answers for it.
 
 Agents working in this repository also follow [`AGENTS.md`](AGENTS.md); people
 follow [`CONTRIBUTING.md`](CONTRIBUTING.md).
