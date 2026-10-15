@@ -724,7 +724,7 @@ AiPlayerbot.DungeonTactics = 0
 # 1 - a bound commander may start a run
 AiPlayerbot.DungeonSelfClear = 0
 
-# Scripted area triggers for bots (an audited allowlist of trigger ids).
+# Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
 # Zum'rah, who only turns hostile through such a script, stayed friendly in
@@ -740,12 +740,14 @@ AiPlayerbot.DungeonSelfClear = 0
 # the Blackrock Depths arena, the UBRS stadium trigger starts that event,
 # at_shadowforge_bridge spawns guards), so read and document a trigger's script
 # in docs/guides/configuration-tuning.md before adding its id here.
+# Audited ids (set the key to these to opt in):
 #   962 - Zul'Farrak, at_zumrah: if Witch Doctor Zum'rah is alive within 30 yd,
 #         he turns hostile, yells, and his encounter is marked in progress
-#         (nothing else).
-# Comma-separated trigger ids; an empty value turns the feature off.
-# Default: 962
-AiPlayerbot.BotAreaTriggers = 962
+#         (nothing else). Opt in with: AiPlayerbot.BotAreaTriggers = 962
+# Comma-separated trigger ids; empty (the default) turns the feature off.
+# New automation, so it is off by default.
+# Default: (empty)
+AiPlayerbot.BotAreaTriggers =
 
 # Keep out of creature auras.
 # Some creatures carry a permanent damaging aura that pulses around them even

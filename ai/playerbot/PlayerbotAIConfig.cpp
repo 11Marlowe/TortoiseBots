@@ -260,7 +260,7 @@ bool PlayerbotAIConfig::Initialize()
     jumpFollow = config.GetBoolDefault("AiPlayerbot.JumpFollow", true);
     jumpChase = config.GetBoolDefault("AiPlayerbot.JumpChase", true);
     useKnockback = config.GetBoolDefault("AiPlayerbot.UseKnockback", true);
-    LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.BotAreaTriggers", "962"), botAreaTriggerIds);
+    LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.BotAreaTriggers", ""), botAreaTriggerIds);
 
     iterationsPerTick = config.GetIntDefault("AiPlayerbot.IterationsPerTick", 100);
 

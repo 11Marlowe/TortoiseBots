@@ -65,16 +65,22 @@ class BotAreaTriggerWiringTest(unittest.TestCase):
         self.assertIn("state.Step(bot->GetMapId(), bot->GetInstanceId(), insideNow, nearNow, partyAllowed)", fn)
         self.assertNotIn("state.Update(", fn)
 
-    def test_config_default_matches_template_and_doc(self):
-        self.assertIn('LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.BotAreaTriggers", "962"), botAreaTriggerIds);', CONF_CPP)
-        self.assertRegex(TEMPLATE, r"(?m)^AiPlayerbot\.BotAreaTriggers = 962$")
-        self.assertIn("# Default: 962", TEMPLATE)
+    def test_config_default_is_off_everywhere(self):
+        # New automation ships off (AGENTS.md): empty in code, template and doc.
+        self.assertIn('LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.BotAreaTriggers", ""), botAreaTriggerIds);', CONF_CPP)
+        self.assertRegex(TEMPLATE, r"(?m)^AiPlayerbot\.BotAreaTriggers =$")
+        self.assertIn("# Default: (empty)", TEMPLATE)
         doc = (ROOT / "docs/guides/configuration-tuning.md").read_text()
-        self.assertIn("| `AiPlayerbot.BotAreaTriggers` | `962` | `962` |", doc)
-        # Every listed id is documented with what its script does.
-        listed = re.search(r"(?m)^AiPlayerbot\.BotAreaTriggers = (.*)$", TEMPLATE).group(1)
-        for tid in filter(None, (t.strip() for t in listed.split(","))):
-            self.assertIn("#   %s - " % tid, TEMPLATE)
+        self.assertIn("| `AiPlayerbot.BotAreaTriggers` | *(empty)* | `962` |", doc)
+
+    def test_audited_ids_are_documented(self):
+        # 962 is the opt-in example; every audited id says what its script does.
+        doc = (ROOT / "docs/guides/configuration-tuning.md").read_text()
+        audited = re.findall(r"(?m)^#   (\d+) - ", TEMPLATE)
+        self.assertEqual(audited, ["962"])
+        self.assertIn("Opt in with: AiPlayerbot.BotAreaTriggers = 962", TEMPLATE)
+        self.assertIn("Opt in with `AiPlayerbot.BotAreaTriggers = 962`", doc)
+        for tid in audited:
             self.assertIn("**%s**" % tid, doc)
 
     def test_source_is_built(self):

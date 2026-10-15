@@ -10,7 +10,7 @@
 // client). Not every trigger script is safe to start from a bot (Codex review
 // on #1002: at_ring_of_law starts the BRD arena, the UBRS stadium trigger its
 // event, at_shadowforge_bridge spawns guards), so only an audited allowlist
-// (AiPlayerbot.BotAreaTriggers, default 962) fires, and only for a party that
+// (AiPlayerbot.BotAreaTriggers, off by default; 962 audited) fires, and only for a party that
 // is clearing on purpose: a commander-bound or run-leader party, or one with a
 // human member close by. This header holds the pure parts: the inside test
 // (the same math as the core's IsPointInAreaTriggerZone), the filters, and the

@@ -66,7 +66,7 @@ int main()
     CHECK(!IsBotFireableAreaTrigger(true, true, true, false, true, false));   // tavern
     CHECK(!IsBotFireableAreaTrigger(true, true, true, false, false, true));   // BG entrance
 
-    // The allowlist: the shipped default holds 962 only.
+    // The allowlist: 962 is the audited opt-in; the shipped default is empty.
     std::vector<uint32_t> const defaults = {962};
     CHECK(IsListedAreaTrigger(defaults, 962));
     CHECK(!IsListedAreaTrigger(defaults, 1526)); // at_ring_of_law (BRD arena)
