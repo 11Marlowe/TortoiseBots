@@ -4,12 +4,17 @@
 // so it never sends CMSG_AREATRIGGER and a scripted area trigger never fires for
 // it. Zul'Farrak's Witch Doctor Zum'rah only turns hostile through the script
 // `at_zumrah`, so an all-bot party waited in front of a friendly boss forever.
-// The module now runs the trigger's script for a grouped bot in an instance,
+// The module now runs the trigger's script for a grouped bot in a dungeon,
 // the way WorldSession::HandleAreaTriggerOpcode does for a player (only the
 // sScriptMgr.OnAreaTrigger part; teleports, taverns and the rest stay with the
-// client). This header holds the pure parts: the inside test (the same math as
-// the core's IsPointInAreaTriggerZone), the filter of which triggers qualify,
-// and the edge detection that fires each trigger once per entry.
+// client). Not every trigger script is safe to start from a bot (Codex review
+// on #1002: at_ring_of_law starts the BRD arena, the UBRS stadium trigger its
+// event, at_shadowforge_bridge spawns guards), so only an audited allowlist
+// (AiPlayerbot.BotAreaTriggers, default 962) fires, and only for a party that
+// is clearing on purpose: a commander-bound or run-leader party, or one with a
+// human member close by. This header holds the pure parts: the inside test
+// (the same math as the core's IsPointInAreaTriggerZone), the filters, and the
+// edge detection that fires each trigger once per entry.
 // Unit-tested in tools/test_bot_area_trigger_policy.cpp.
 
 #include <algorithm>
@@ -53,13 +58,31 @@ inline bool IsInsideAreaTriggerShape(BotAreaTriggerShape const& at, float px, fl
            std::fabs(dz) <= at.boxZ / 2 + delta;
 }
 
-// Which triggers a bot may fire: only those with a script, on an instance map,
-// and none the core's handler also treats as a teleport (instance entrances and
-// exits), a tavern or a battleground entrance. Those need the client's own
-// checks and replies, and a bot following its leader must never be ported.
-inline bool IsBotFireableAreaTrigger(bool hasScript, bool instanceMap, bool isTeleport, bool isTavern, bool isBgEntrance)
+// Which triggers a bot may fire: only those on the audited allowlist, with a
+// script, on a dungeon map (not a raid: the caller passes
+// MapEntry::IsNonRaidDungeon; raids wait until bots are tested there), and none
+// the core's handler also treats as a teleport (instance entrances and exits),
+// a tavern or a battleground entrance. Those need the client's own checks and
+// replies, and a bot following its leader must never be ported.
+inline bool IsBotFireableAreaTrigger(bool listed, bool hasScript, bool dungeonMap, bool isTeleport, bool isTavern, bool isBgEntrance)
 {
-    return hasScript && instanceMap && !isTeleport && !isTavern && !isBgEntrance;
+    return listed && hasScript && dungeonMap && !isTeleport && !isTavern && !isBgEntrance;
+}
+
+template <class List>
+inline bool IsListedAreaTrigger(List const& allowlist, uint32_t id)
+{
+    return std::find(allowlist.begin(), allowlist.end(), id) != allowlist.end();
+}
+
+// Whose bot may fire: a party clearing on purpose (bound to a remote commander,
+// which every run-leader run is), or one with a human member within
+// kBotAreaTriggerHumanRange. A follower that runs ahead of its player then
+// cannot start an event alone; the player's own client fires it on arrival.
+constexpr float kBotAreaTriggerHumanRange = 40.0f;
+inline bool IsBotAreaTriggerPartyAllowed(bool commandedParty, bool humanNearby)
+{
+    return commandedParty || humanNearby;
 }
 
 // Outside this margin a trigger the bot was inside counts as left, so a bot
@@ -109,6 +132,23 @@ struct BotAreaTriggerState
     }
 
     void Clear() { inside.clear(); }
+
+    // One check: partyAllowed is only asked for (the callable runs) while the
+    // bot stands inside a trigger. A party that may not fire forgets the
+    // triggers, so they fire once it may (a human arrives, a run starts).
+    template <class PartyAllowed>
+    std::vector<uint32_t> Step(uint32_t map, uint32_t instance,
+                               std::vector<uint32_t> const& insideNow,
+                               std::vector<uint32_t> const& nearNow,
+                               PartyAllowed partyAllowed)
+    {
+        if (!insideNow.empty() && !partyAllowed())
+        {
+            Clear();
+            return {};
+        }
+        return Update(map, instance, insideNow, nearNow);
+    }
 };
 
 } // namespace ai

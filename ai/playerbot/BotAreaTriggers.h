@@ -6,7 +6,7 @@ class Player;
 
 namespace ai
 {
-    // Fires the scripted area triggers a grouped bot in an instance walks into
+    // Fires the allowlisted area triggers a grouped bot in a dungeon (not a raid) walks into
     // (Sagiroth/TortoiseBots#984; see BotAreaTriggerPolicy.h). Called from
     // PlayerbotAI::UpdateAI on the world thread, at most every
     // kBotAreaTriggerCheckMs per bot. The first call builds a per-map index of

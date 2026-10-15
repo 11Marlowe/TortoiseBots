@@ -1,6 +1,7 @@
 // Standalone check for ai/playerbot/BotAreaTriggerPolicy.h (issue #984):
-// the inside test matches the core's IsPointInAreaTriggerZone, only scripted
-// triggers on instance maps qualify, and a trigger fires once per entry.
+// the inside test matches the core's IsPointInAreaTriggerZone, only listed,
+// scripted triggers on dungeon maps (not raids) qualify, only a run/commander
+// party or one with a human nearby fires, and a trigger fires once per entry.
 //   g++ -std=c++17 -Wall -Wextra tools/test_bot_area_trigger_policy.cpp -o /tmp/test_bot_area_trigger_policy && /tmp/test_bot_area_trigger_policy
 #include "../ai/playerbot/BotAreaTriggerPolicy.h"
 
@@ -56,13 +57,28 @@ int main()
     CHECK(!IsInsideAreaTriggerShape(turned, 9.0f, 0.0f, 0.0f, 0.0f));
     CHECK(IsInsideAreaTriggerShape(turned, 4.0f, -9.0f, 0.0f, 0.0f));
 
-    // Filter: scripted + instance map, and not a teleport, tavern or BG entrance.
-    CHECK(IsBotFireableAreaTrigger(true, true, false, false, false));
-    CHECK(!IsBotFireableAreaTrigger(false, true, false, false, false)); // no script (quest explore)
-    CHECK(!IsBotFireableAreaTrigger(true, false, false, false, false)); // open world
-    CHECK(!IsBotFireableAreaTrigger(true, true, true, false, false));   // entrance / exit
-    CHECK(!IsBotFireableAreaTrigger(true, true, false, true, false));   // tavern
-    CHECK(!IsBotFireableAreaTrigger(true, true, false, false, true));   // BG entrance
+    // Filter: listed + scripted + dungeon map, and not a teleport, tavern or BG entrance.
+    CHECK(IsBotFireableAreaTrigger(true, true, true, false, false, false));
+    CHECK(!IsBotFireableAreaTrigger(false, true, true, false, false, false)); // not on the allowlist
+    CHECK(!IsBotFireableAreaTrigger(true, false, true, false, false, false)); // no script (quest explore)
+    CHECK(!IsBotFireableAreaTrigger(true, true, false, false, false, false)); // open world or a raid
+    CHECK(!IsBotFireableAreaTrigger(true, true, true, true, false, false));   // entrance / exit
+    CHECK(!IsBotFireableAreaTrigger(true, true, true, false, true, false));   // tavern
+    CHECK(!IsBotFireableAreaTrigger(true, true, true, false, false, true));   // BG entrance
+
+    // The allowlist: the shipped default holds 962 only.
+    std::vector<uint32_t> const defaults = {962};
+    CHECK(IsListedAreaTrigger(defaults, 962));
+    CHECK(!IsListedAreaTrigger(defaults, 1526)); // at_ring_of_law (BRD arena)
+    CHECK(!IsListedAreaTrigger(defaults, 1786)); // at_shadowforge_bridge
+    CHECK(!IsListedAreaTrigger(defaults, 2046)); // UBRS stadium
+    CHECK(!IsListedAreaTrigger(std::vector<uint32_t>{}, 962)); // empty: off
+
+    // Party gate.
+    CHECK(IsBotAreaTriggerPartyAllowed(true, false));   // all-bot run / commander party
+    CHECK(IsBotAreaTriggerPartyAllowed(false, true));   // a human within 40 yd
+    CHECK(IsBotAreaTriggerPartyAllowed(true, true));
+    CHECK(!IsBotAreaTriggerPartyAllowed(false, false)); // follower alone, no run
 
     // Edge detection: fires once on entry, not while inside, again after leaving.
     BotAreaTriggerState st;
@@ -87,6 +103,29 @@ int main()
     st.Clear();
     e = st.Update(209, 8, {962}, {962});
     CHECK(e.size() == 1 && e[0] == 962);
+
+    // Step: 962 fires for an all-bot run party ...
+    {
+        BotAreaTriggerState run;
+        int asked = 0;
+        auto runParty = [&]() { ++asked; return IsBotAreaTriggerPartyAllowed(true, false); };
+        CHECK(run.Step(209, 1, {}, {}, runParty).empty());
+        CHECK(asked == 0); // not asked while outside every trigger
+        e = run.Step(209, 1, {962}, {962}, runParty);
+        CHECK(e.size() == 1 && e[0] == 962);
+        CHECK(run.Step(209, 1, {962}, {962}, runParty).empty());
+    }
+    // ... but not for a grouped bot with no run and no human nearby,
+    {
+        BotAreaTriggerState alone;
+        auto noRun = []() { return IsBotAreaTriggerPartyAllowed(false, false); };
+        CHECK(alone.Step(209, 1, {962}, {962}, noRun).empty());
+        CHECK(alone.Step(209, 1, {962}, {962}, noRun).empty());
+        // and it fires once the player arrives while the bot still stands there.
+        auto human = []() { return IsBotAreaTriggerPartyAllowed(false, true); };
+        e = alone.Step(209, 1, {962}, {962}, human);
+        CHECK(e.size() == 1 && e[0] == 962);
+    }
 
     std::printf("test_bot_area_trigger_policy: %d checks passed\n", checks);
     return 0;

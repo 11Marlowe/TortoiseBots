@@ -553,9 +553,10 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
 
     // Issue #984: a Headless bot never sends CMSG_AREATRIGGER, so a scripted
     // area trigger (Zum'rah's at_zumrah) never fired for an all-bot party. Run
-    // the script of a trigger the bot just walked into, as the client would.
+    // the script of a trigger the bot just walked into, as the client would
+    // (dungeons only, not raids).
     // A few position tests against the bot's map's index, twice a second.
-    if (sPlayerbotAIConfig.botAreaTriggers)
+    if (!sPlayerbotAIConfig.botAreaTriggerIds.empty())
     {
         if (areaTriggerCheckDelay > elapsed)
             areaTriggerCheckDelay -= elapsed;

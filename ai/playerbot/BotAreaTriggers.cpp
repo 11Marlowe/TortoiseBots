@@ -3,6 +3,7 @@
 
 #include "ObjectMgr.h"
 #include "ScriptMgr.h"
+#include "../../runtime/CommandedGroupQuery.h"
 
 #include <unordered_map>
 
@@ -13,6 +14,8 @@ namespace
     using BotAreaTriggerIndex = std::unordered_map<uint32, std::vector<BotAreaTriggerShape>>;
 
     // Built once, on the world thread, from the loaded world; read-only after.
+    // Only the audited allowlist (AiPlayerbot.BotAreaTriggers), dungeons only
+    // (raid triggers wait until bots are tested in raids).
     BotAreaTriggerIndex const& GetIndex()
     {
         static BotAreaTriggerIndex index;
@@ -26,8 +29,9 @@ namespace
         {
             AreaTriggerEntry const& at = itr.second;
             MapEntry const* map = sMapStorage.LookupEntry<MapEntry>(at.mapid);
-            if (!IsBotFireableAreaTrigger(sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,
-                                          map && map->IsDungeon(),
+            if (!IsBotFireableAreaTrigger(IsListedAreaTrigger(sPlayerbotAIConfig.botAreaTriggerIds, at.id),
+                                          sScriptMgr.GetAreaTriggerScriptId(at.id) != 0,
+                                          map && map->IsNonRaidDungeon(),
                                           sObjectMgr.GetAreaTriggerTeleport(at.id) != nullptr,
                                           sObjectMgr.IsTavernAreaTrigger(at.id),
                                           sObjectMgr.GetBattlegroundEntranceTrigger(at.id) != nullptr))
@@ -46,7 +50,7 @@ namespace
             index[at.mapid].push_back(shape);
             ++count;
         }
-        sLog.outString("TortoiseBots: %u scripted area triggers on %u instance maps can fire for bots.",
+        sLog.outString("TortoiseBots: %u listed area triggers on %u dungeon maps can fire for bots.",
                        count, uint32(index.size()));
         return index;
     }
@@ -54,10 +58,10 @@ namespace
 
 void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
 {
-    // Only a living bot in a group, inside an instance, standing still or
+    // Only a living bot in a group, inside a dungeon (not a raid), standing still or
     // walking (not on a taxi, not mid-teleport), the way a client would send it.
     if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || bot->IsTaxiFlying() ||
-        !bot->IsAlive() || !bot->GetGroup() || !bot->GetMap() || !bot->GetMap()->IsDungeon())
+        !bot->IsAlive() || !bot->GetGroup() || !bot->GetMap() || !bot->GetMap()->IsNonRaidDungeon())
     {
         state.Clear();
         return;
@@ -84,7 +88,30 @@ void ai::UpdateBotAreaTriggers(Player* bot, BotAreaTriggerState& state)
             nearNow.push_back(shape.id);
     }
 
-    for (uint32_t id : state.Update(bot->GetMapId(), bot->GetInstanceId(), insideNow, nearNow))
+    // Asked only while the bot stands inside a listed trigger. A human member
+    // close by is resolved through the group's own slots (a GroupReference
+    // pointer can outlive a relogging bot, issue #225).
+    auto partyAllowed = [bot]()
+    {
+        bool humanNearby = false;
+        for (Group::MemberSlot const& slot : bot->GetGroup()->GetMemberSlots())
+        {
+            Player* member = ObjectAccessor::FindPlayer(slot.guid);
+            if (member && member != bot && member->IsInWorld() && member->GetSession() &&
+                member->GetSession()->HasNetworkTransport() && member->GetMapId() == bot->GetMapId() &&
+                member->GetInstanceId() == bot->GetInstanceId() &&
+                member->IsWithinDist(bot, kBotAreaTriggerHumanRange))
+            {
+                humanNearby = true;
+                break;
+            }
+        }
+        // Bound to a remote commander: every run-leader run is.
+        bool const commanded = TortoiseBots::BotCommands::IsInCommandedGroup(bot);
+        return IsBotAreaTriggerPartyAllowed(commanded, humanNearby);
+    };
+
+    for (uint32_t id : state.Step(bot->GetMapId(), bot->GetInstanceId(), insideNow, nearNow, partyAllowed))
     {
         // Re-read the entry from the store: the index keeps copies, never
         // pointers into it.
