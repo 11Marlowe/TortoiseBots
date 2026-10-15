@@ -198,6 +198,23 @@ AiPlayerbot.RandomBotFactionRatio = 50
 # so weighted zones only control where level-1 bots start. Default empty.
 AiPlayerbot.RandomBotStartZoneWeights =
 
+# Names for new bot characters (pool bots and hires), as percentages of three
+# styles: race-flavoured,compound,fun. Race-flavoured names fit the bot's race
+# and gender ("Thorvin" for a dwarf), compound names join two words with a
+# class lean ("Nightrunner"), fun names are puns and nods ("Kidneyshotz",
+# "Gnomebody"). Every name passes the same checks as a player's name. Only new
+# characters follow it; existing bots keep their names. 100,0,0 = serious
+# names only, 0,0,100 = fun names only. Default 55,20,25.
+AiPlayerbot.RandomBotNameStyleWeights = 55,20,25
+
+# Optional text file with more names, added to the built-in ones. Same format
+# as runtime/BotNameData.h: a [key] line, then names separated by spaces or
+# new lines, e.g. "[fun:rogue]" then "Stabbyjoe Sneakypants". Keys: fun,
+# fun:<class>, fun:<race>, rp:<race>:<male|female> (samples for race names),
+# start, start:<class>, end, prefix:<class|race>, suffix, pet:hunter.
+# Read once at the first name pick; restart to reload. Default empty.
+AiPlayerbot.RandomBotNamesFile =
+
 # Where a random bot without a player master comes back after a repop (the
 # evacuation used when it keeps dying or is stuck while dead): 1 = nearest
 # graveyard, like a player at the spirit healer; 0 = its racial starting area

@@ -256,6 +256,10 @@ public:
     std::string randomBotStartZoneWeightsText;
     uint32 randomBotStartZoneWeights[6] = {};
     bool randomBotStartZoneWeightsValid = false;
+    // Issue #1003: share of new bot names per style (race-flavoured /
+    // compound / fun) and an optional extra names file (read once).
+    uint32 randomBotNameStyleWeights[3] = { 55, 20, 25 };
+    std::string randomBotNamesFile;
     // Whether random bots are allowed in custom isolated starting zones
     // (Blackstone Island 5536, Thalassian Highlands 5225, Alah'Thalas 2040).
     // Default false (blocked and normalized to mainland starting zones).

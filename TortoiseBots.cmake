@@ -160,6 +160,7 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/host/HireUnlockKillAdapter.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/BotManager.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/BotActivityLease.cpp"
+    "${TORTOISEBOTS_ROOT}/runtime/BotNameService.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/CharacterCleanup.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/RandomBotAccountRegistry.cpp"
     "${TORTOISEBOTS_ROOT}/runtime/RandomBotPoolReset.cpp"

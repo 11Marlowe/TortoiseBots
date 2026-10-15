@@ -5,6 +5,7 @@
 #include "playerbot/SurvivePolicy.h"
 #include "playerbot/SpellRankPolicy.h"
 #include "playerbot/AmmoStackPolicy.h"
+#include "../../runtime/BotNameService.h"
 #include "../../runtime/HunterPetPolicy.h"
 #include "../../runtime/PetSpellRankPolicy.h"
 #include "../../runtime/StarterKitPolicy.h"
@@ -565,6 +566,10 @@ void PlayerbotFactory::InitPet()
             pet->LearnPetPassives();
             pet->CastPetAuras(true);
             pet->UpdateAllStats();
+            // Issue #1003: a name from the pet pool instead of the core's "Pet".
+            std::string petName = TortoiseBots::PickBotPetName();
+            if (!petName.empty())
+                pet->SetName(petName);
             bot->SetPet(pet);
             bot->SetPetGuid(pet->getObjectGuid());
 
@@ -585,6 +590,13 @@ void PlayerbotFactory::InitPet()
         pet->SetHealth(pet->GetMaxHealth());
         pet->SetFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_PLAYER_CONTROLLED);
         pet->SetReactState(REACT_DEFENSIVE);
+        // Pets created before issue #1003 are still called "Pet".
+        std::string petName = std::string(pet->GetName()) == "Pet" ? TortoiseBots::PickBotPetName() : std::string();
+        if (!petName.empty())
+        {
+            pet->SetName(petName);
+            pet->SavePetToDB(PET_SAVE_AS_CURRENT);
+        }
     }
     else
     {
