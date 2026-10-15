@@ -990,6 +990,44 @@ static void TestWipeWithTheLeadOnTheGraveyardMap()
     CHECK(Tick(r, f) == "revive party");
 }
 
+// Codex on #1000: a near wipe that becomes a wipe, then the revive one by one
+// (4 dead, 3 dead with someone up again), is one near wipe and one wipe.
+static void TestNearWipeLatchHoldsThroughTheWipe()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.dead = 3;
+    f.alive = 2;
+    Tick(r, f);
+    CHECK(r.nearWipes == 1 && r.wipes == 0);
+    f.anyInCombat = false;
+    f.dead = 5;
+    f.alive = 0;
+    f.leadAlive = false;
+    Tick(r, f);
+    CHECK(r.nearWipes == 1 && r.wipes == 1);
+    for (std::uint32_t dead : {4u, 3u})
+    {
+        f.dead = dead;
+        f.alive = 5 - dead;
+        Tick(r, f);
+        CHECK(r.nearWipes == 1 && r.wipes == 1);
+    }
+    // All up again: a later near wipe counts anew.
+    f = Party(0);
+    f.units = {Unit(7, 1, 20)};
+    Tick(r, f);
+    CHECK(r.state == State::Running);
+    f.anyInCombat = true;
+    f.dead = 3;
+    f.alive = 2;
+    Tick(r, f);
+    CHECK(r.nearWipes == 2 && r.wipes == 1);
+}
+
 static void TestStepIdleCeiling()
 {
     DungeonPlan plan;
@@ -1232,6 +1270,7 @@ int main()
     TestWalkBackFarPointIsApproached();
     TestRefusedPullOnlyForInvalidTarget();
     TestWipeWithTheLeadOnTheGraveyardMap();
+    TestNearWipeLatchHoldsThroughTheWipe();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

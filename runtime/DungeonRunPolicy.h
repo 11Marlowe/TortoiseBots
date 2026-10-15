@@ -1212,9 +1212,14 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     // A near wipe (kWipeDead or more dead, someone still alive) counts once
     // too; one that ends in a wipe counts as both.
     bool const nearWipe = f.dead >= kWipeDead && f.alive > 0;
+    // The latch holds until fewer than kWipeDead are dead: a near wipe that
+    // turns into a wipe, and the revive one by one after it, is one event.
     if (nearWipe && !r.nearWiped)
         ++r.nearWipes;
-    r.nearWiped = nearWipe;
+    if (nearWipe)
+        r.nearWiped = true;
+    else if (f.dead < kWipeDead)
+        r.nearWiped = false;
 
     // After a resume or a skip from a pause: the dead get up, the living
     // gather on the lead bot, then the step goes on.
