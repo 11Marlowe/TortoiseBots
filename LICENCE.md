@@ -75,6 +75,10 @@ Distributing or publicly showing a build (for example a Docker bundle, repack,
 video or public server) should also credit TortoiseBots by Sagiroth with a link
 to the repository. See the README for ready-to-paste credit text.
 
+## Disclaimer
+
+TortoiseBots is a non-commercial hobby project. Voluntary donations (Ko-fi) only support development; they buy no access, features or service, and are not tied to any server. The author is not affiliated with, does not operate, endorse or receive money from any server that uses this code, and is not responsible for how third parties use it. TortoiseBots is not affiliated with Turtle WoW or its creators. World of Warcraft is a trademark of Blizzard Entertainment; this project is not affiliated with Blizzard.
+
 ## Donor / reference projects
 
 | Project | Licence | Notes |
