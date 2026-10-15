@@ -32,8 +32,9 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("TortoiseBots::DungeonRun::OrderRefused(it->second.run, order, answer", COMMANDS)
 
     def test_ghost_lead_tolerated_during_a_regroup(self):
-        self.assertIn("bool const ghostInRegroup = slot.run.regroup && !lead->IsAlive();", COMMANDS)
-        self.assertIn("if (lead->GetMapId() != slot.run.plan->map && !ghostInRegroup)", COMMANDS)
+        # Any dead lead bot off the map (a ghost after a wipe too) lets the tick run; it starts the regroup.
+        self.assertIn("bool const deadLeadAway = !lead->IsAlive();", COMMANDS)
+        self.assertIn("if (lead->GetMapId() != slot.run.plan->map && !deadLeadAway)", COMMANDS)
 
     def test_cmd_move_checks_the_lead_distance(self):
         self.assertIn("facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);", COMMANDS)
@@ -55,8 +56,10 @@ class RunLeaderWiringTest(unittest.TestCase):
 
     def test_boss_down_needs_his_corpse(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("if (step->kind == ai::PlanStepKind::Boss && creature->GetEntry() == step->entry)\n"
-                      "                            f.bossDead = true;", facts)
+        self.assertIn("if (bossEntry && fromPoint <= step->radius + kSeeYd)\n"
+                      "                            f.bossDeadNearSpot = true;", facts)
+        self.assertIn("if (bossEntry && lead->GetDistance(creature) <= kSeeYd)\n"
+                      "                            f.bossDeadNearLead = true;", facts)
 
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")

@@ -871,6 +871,125 @@ static void TestWalkBackRefusalKinds()
     CHECK(Tick(p, f) == "move 50.0 0.0 0.0");
 }
 
+// Cold review on #1000: a pullback drags the boss to the party, so his
+// corpse 30 yd from his spot is normal (radius + kSeeYd); and a boss seen
+// alive in this step and now dead near the lead bot is down wherever he fell.
+static void TestBossKilledAwayFromHisSpot()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 6910;             // Uldaman: Revelosh, his adds first
+    boss.entries = {7076, 7077};
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(5, 6910, 30)};
+    CHECK(Tick(r, f) == "pullback 5");
+    CHECK(r.bossSeenAlive);
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.anyInCombat = false;
+    f.units.clear();
+    f.bossDeadNearSpot = true; // the glue: his corpse 30 yd from the spot, within radius + kSeeYd
+    Tick(r, f);
+    CHECK(r.step == 1 && r.note == "boss down");
+
+    // Fell far from his spot but near the lead bot: down, because he was seen alive.
+    Run n = Start(&plan);
+    Facts g = Party(0);
+    g.units = {Unit(5, 6910, 30)};
+    CHECK(Tick(n, g) == "pullback 5");
+    g.anyInCombat = true;
+    Tick(n, g);
+    g.anyInCombat = false;
+    g.units.clear();
+    g.bossDeadNearLead = true;
+    Tick(n, g);
+    CHECK(n.step == 1 && n.note == "boss down");
+    // Never seen alive this step: a corpse near the lead bot alone is not enough.
+    Run m = Start(&plan);
+    Facts h = Party(0);
+    h.bossDeadNearLead = true;
+    Tick(m, h);
+    CHECK(m.step == 0 && m.note.find("not at his spot") != std::string::npos);
+}
+
+// Cold review on #1000: after a wipe the party stands at the entrance and the
+// nearest walk-back point is more than ReactDistance away: it is approached in
+// navmesh hops (as a resume does), not sent as one refused move; with no path
+// toward it at all it is passed. Walk-back pulls have their own count.
+static void TestWalkBackFarPointIsApproached()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 200), Step(PlanStepKind::Move, 230), PullStep(400, {1})};
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    Facts f = Party(0);
+    f.seen = false; // FactStep: the walk-back point, 200 yd away
+    f.approachKnown = true;
+    f.approachX = 40;
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(r.note.find("walk back: approaching") == 0);
+    f.leadX = 40;
+    CHECK(Tick(r, f).empty()); // at the hop: the next one next tick
+    f.approachX = 80;
+    CHECK(Tick(r, f) == "move 80.0 0.0 0.0");
+    f.leadX = 80;
+    Tick(r, f);
+    f.seen = true;
+    CHECK(Tick(r, f) == "move 200.0 0.0 0.0");
+    // A hostile on the way: pulled, counted apart from the step's pulls.
+    f.hopUnits = {Unit(9, 3, 20)};
+    CHECK(Tick(r, f) == "pullback 9");
+    CHECK(r.pulls == 0 && r.walkBackPulls == 1);
+
+    // No path toward a far point: passed for the next one.
+    Run p = Start(&plan, 2);
+    p.walkBack = true;
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = false;
+    CHECK(Tick(p, g).empty());
+    CHECK(p.state == State::Running && p.walkBackIdx == 1 && p.note.find("no walkable path") != std::string::npos);
+}
+
+// Codex on #1000: only an invalid-target refusal of a pullback marks the unit
+// for a skip; a busy tank or an unavailable lead bot does not.
+static void TestRefusedPullOnlyForInvalidTarget()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    OrderRefused(r, "pullback 7", "busy: the tank is pulling");
+    CHECK(r.refusedPull == 0);
+    Run l = Start(&plan);
+    OrderRefused(l, "pullback 7", "lead-unavailable: The lead bot is dead");
+    CHECK(l.refusedPull == 0);
+    Run i = Start(&plan);
+    OrderRefused(i, "pullback 7", "invalid-target: The group cannot attack that target.");
+    CHECK(i.refusedPull == 7);
+}
+
+// Codex on #1001: the dead lead bot already released to the graveyard map;
+// the glue lets the tick run (its map guard pauses only a living lead bot off
+// the map), and the wipe starts the regroup.
+static void TestWipeWithTheLeadOnTheGraveyardMap()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), PullStep(130, {1})};
+    Run r = Start(&plan, 1);
+    Facts f = Party(-9000); // the lead's ghost far away on another map
+    f.dead = 5;
+    f.alive = 0;
+    f.leadAlive = false;
+    f.maxMemberYd = 0;
+    f.seen = false;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.regroup && r.wipes == 1);
+    CHECK(Tick(r, f) == "revive party");
+}
+
 static void TestStepIdleCeiling()
 {
     DungeonPlan plan;
@@ -956,7 +1075,7 @@ static void TestOtherTeamBossIsLookedAtAndFoughtUnlessFriendly()
     CHECK(r4.step == 1 && r4.note == "boss is for the other team and not here: skipped");
     // The party's own boss in sight and dead: down.
     f.team = ai::kPlanFlagHorde;
-    f.bossDead = true;
+    f.bossDeadNearSpot = true;
     Run r5 = Start(&plan);
     Tick(r5, f);
     CHECK(r5.step == 1 && r5.note == "boss down");
@@ -986,7 +1105,7 @@ static void TestBossDownNeedsASeenDeath()
     f.anyInCombat = false;
     // Killed: his corpse is seen.
     f.units.clear();
-    f.bossDead = true;
+    f.bossDeadNearSpot = true;
     Tick(r, f);
     CHECK(r.step == 1 && r.note == "boss down");
 
@@ -1109,6 +1228,10 @@ int main()
     TestWalkBackRefusalKinds();
     TestBossDownNeedsASeenDeath();
     TestSkipDropsTheRefusedPullTarget();
+    TestBossKilledAwayFromHisSpot();
+    TestWalkBackFarPointIsApproached();
+    TestRefusedPullOnlyForInvalidTarget();
+    TestWipeWithTheLeadOnTheGraveyardMap();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

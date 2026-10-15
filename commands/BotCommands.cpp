@@ -8689,9 +8689,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // The navmesh query for the next approach hop runs only when the policy
     // can use one: not while it walks a hop already fixed, not in a regroup
     // (the lead bot may be a ghost on another map) or a walk back (it walks
-    // the plan's points), and never off the plan's map.
+    // (a walk back approaches a far point of its own this way too), and never off the plan's map.
     bool const wantsApproach = !f.seen && slot.run.phase != Phase::Walk && !slot.run.regroup &&
-        !slot.run.walkBack && lead->GetMapId() == slot.run.plan->map;
+        lead->GetMapId() == slot.run.plan->map;
 
     switch (step->kind)
     {
@@ -8710,19 +8710,26 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             float const range = std::min(toPoint + step->radius, 2.0f * kSeeYd);
             for (uint32 entry : entries)
             {
+                // The boss's own entry is looked for farther: his corpse may lie
+                // where a pullback dragged him (DungeonRun::Facts::bossDeadNearSpot).
+                bool const bossEntry = step->kind == ai::PlanStepKind::Boss && entry == step->entry;
                 std::list<Creature*> found;
-                lead->GetCreatureListWithEntryInGrid(found, entry, range);
+                lead->GetCreatureListWithEntryInGrid(found, entry,
+                    bossEntry ? std::min(toPoint + step->radius + kSeeYd, 2.0f * kSeeYd) : range);
                 for (Creature* creature : found)
                 {
-                    if (DistanceTo(creature, step->x, step->y, step->z) > step->radius)
-                        continue;
+                    float const fromPoint = DistanceTo(creature, step->x, step->y, step->z);
                     if (!creature->IsAlive())
                     {
                         // "Boss down" needs his corpse in sight, not just his absence (a patrol).
-                        if (step->kind == ai::PlanStepKind::Boss && creature->GetEntry() == step->entry)
-                            f.bossDead = true;
+                        if (bossEntry && fromPoint <= step->radius + kSeeYd)
+                            f.bossDeadNearSpot = true;
+                        if (bossEntry && lead->GetDistance(creature) <= kSeeYd)
+                            f.bossDeadNearLead = true;
                         continue;
                     }
+                    if (fromPoint > step->radius)
+                        continue;
                     bool known = false;
                     for (UnitFact const& have : f.units)
                         known = known || have.guid == creature->GetObjectGuid().GetRawValue();
@@ -8843,11 +8850,13 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     // Between maps: look again next second (the binding sweep bounds a lead that never comes back).
     if (!lead || !group || !lead->IsInWorld())
         return;
-    // A dead lead bot released by the regroup's `revive party` is a ghost on
-    // the graveyard's map until its corpse run brings it back: the regroup's
-    // own ceiling (kRegroupReviveMs) bounds that, not this check.
-    bool const ghostInRegroup = slot.run.regroup && !lead->IsAlive();
-    if (lead->GetMapId() != slot.run.plan->map && !ghostInRegroup)
+    // A dead lead bot (released by the regroup's `revive party`, or by itself
+    // after a wipe) is a ghost on the graveyard's map until its corpse run
+    // brings it back. The tick sees the wipe and starts or runs the regroup,
+    // whose ceiling (kRegroupReviveMs) bounds it; a dead lead bot alone pauses
+    // there. Only a living lead bot off the plan's map pauses here.
+    bool const deadLeadAway = !lead->IsAlive();
+    if (lead->GetMapId() != slot.run.plan->map && !deadLeadAway)
     {
         TortoiseBots::DungeonRun::Pause(slot.run, "the lead bot is not on the plan's map (" +
             std::to_string(slot.run.plan->map) + ")");
