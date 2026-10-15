@@ -11,8 +11,16 @@
 // or the NPC's script through sScriptMgr.OnGossipHello) and runs the choice
 // (sScriptMgr.OnGossipSelect or Player::OnGossipSelect) exactly as for a player.
 // Everything that decides is here, pure, so tools/test_gossip_order_policy.cpp
-// exercises it standalone: the argument parse, which options count as plain
-// gossip, and which option an index or a text names.
+// exercises it standalone: the allowlist, the argument parse, which options
+// count as plain gossip, and which option an index or a text names.
+//
+// The allowlist is the guard. A gossip option can do anything its script or
+// database row says (take money, give items, teleport, remove titles), and the
+// hello alone already runs the NPC's OnGossipHello, a menu's script_id or a quest
+// window. No rule on icons or action numbers can tell those apart, so a bot talks
+// only to NPC entries an operator listed in AiPlayerbot.BotGossipNpcs after
+// reading what their scripts do (empty by default: the order is off). The order
+// checks the list before anything is sent to the NPC.
 //
 // Plain data and the standard library only. World thread only, like the rest of
 // the commander.
@@ -20,6 +28,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -38,6 +47,52 @@ constexpr char const* kCodeNoNpc = "no-npc";
 constexpr char const* kCodeNoOption = "no-option";
 constexpr char const* kCodeAmbiguous = "ambiguous";
 constexpr char const* kCodeNpcBusy = "npc-busy";
+constexpr char const* kCodeNotAllowed = "not-allowed";
+
+// AiPlayerbot.BotGossipNpcs: creature entries, separated by commas or spaces.
+// Returns how many words were not an entry (1..kMaxEntry); those are skipped.
+inline uint32_t ParseNpcList(std::string const& text, std::set<uint32_t>& out)
+{
+    out.clear();
+    uint32_t bad = 0;
+    std::string word;
+    auto flush = [&]() {
+        if (word.empty())
+            return;
+        bool digits = word.size() <= 8;
+        for (char c : word)
+            if (c < '0' || c > '9')
+                digits = false;
+        unsigned long const value = digits ? std::stoul(word) : 0;
+        if (value >= 1 && value <= kMaxEntry)
+            out.insert(static_cast<uint32_t>(value));
+        else
+            ++bad;
+        word.clear();
+    };
+    for (char c : text)
+    {
+        if (c == ',' || c == ';' || std::isspace(static_cast<unsigned char>(c)))
+            flush();
+        else
+            word += c;
+    }
+    flush();
+    return bad;
+}
+
+// The gate, before the bot walks and again right before the hello.
+inline bool IsAllowedNpc(std::set<uint32_t> const& allowed, uint32_t entry)
+{
+    return allowed.count(entry) != 0;
+}
+
+inline std::string NotAllowedText(std::set<uint32_t> const& allowed)
+{
+    if (allowed.empty())
+        return "Bots talk to no NPC: AiPlayerbot.BotGossipNpcs is empty (the order is off by default).";
+    return "That NPC is not in AiPlayerbot.BotGossipNpcs, so bots may not talk to it.";
+}
 
 // The core's numbers this policy reads (GossipDef.h, ScriptedGossip.h). The glue
 // checks them against the core's enums with static_asserts.
@@ -49,8 +104,6 @@ constexpr uint8_t kIconTrainer = 3;        // GOSSIP_ICON_TRAINER
 constexpr uint8_t kIconMoneyBag = 6;       // GOSSIP_ICON_MONEY_BAG
 constexpr uint8_t kIconTabard = 8;         // GOSSIP_ICON_TABARD
 constexpr uint32_t kSenderMain = 1;        // GOSSIP_SENDER_MAIN
-constexpr uint32_t kActionTrade = 1;       // GOSSIP_ACTION_TRADE ...
-constexpr uint32_t kActionUnlearn = 12;    // ... GOSSIP_ACTION_UNLEARN
 
 // One line of the menu the core built for the bot (GossipMenuItem).
 struct Option
@@ -62,12 +115,14 @@ struct Option
     bool coded = false;   // asks for a typed code
 };
 
-// A plain gossip option: talk, nothing else. Refused: the database's service
-// options (vendor, trainer, taxi, banker, innkeeper, spirit healer, auction,
-// battlemaster, stable, tabard, talent reset ...), a script's trade/train/taxi/
-// bank/inn actions or a service or money icon, and a coded option (it needs a
-// typed code). A database option keeps its GOSSIP_OPTION_* in action with sender
-// 0; a script option has a sender of its own (GOSSIP_SENDER_MAIN and up).
+// A second check on a listed NPC's menu, not the guard (that is the allowlist):
+// the database's service options (vendor, trainer, taxi, banker, innkeeper,
+// spirit healer, auction, battlemaster, stable, tabard, talent reset ...), a
+// script option with a vendor, flight, trainer, money or tabard icon, and a coded
+// option (it needs a typed code) are refused. A database option keeps its
+// GOSSIP_OPTION_* in action with sender 0; a script option has a sender of its
+// own (GOSSIP_SENDER_MAIN and up) and an action only its script reads, so a
+// script's action number says nothing here.
 inline bool IsPlainOption(Option const& option)
 {
     if (option.coded)
@@ -76,8 +131,6 @@ inline bool IsPlainOption(Option const& option)
         return option.action == kOptionGossip;
     if (option.icon == kIconVendor || option.icon == kIconTaxi || option.icon == kIconTrainer ||
         option.icon == kIconMoneyBag || option.icon == kIconTabard)
-        return false;
-    if (option.sender == kSenderMain && option.action >= kActionTrade && option.action <= kActionUnlearn)
         return false;
     return true;
 }
@@ -216,7 +269,7 @@ inline Match Pick(uint32_t listIndex)
 inline Match MatchOption(std::vector<Option> const& options, Request const& request)
 {
     static char const kService[] =
-        " is a service (vendor, trainer, flight, bank, inn or similar); a bot picks only plain gossip options. ";
+        " is a service option (vendor, trainer, flight, bank, inn or similar); bots do not pick those. ";
     if (request.byIndex)
     {
         if (request.index == 0 || request.index > options.size())

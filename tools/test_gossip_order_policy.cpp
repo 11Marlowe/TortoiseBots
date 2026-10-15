@@ -92,11 +92,10 @@ static void TestPlain()
     CHECK(!IsPlainOption(DbOption("Train me.", 5, kIconTrainer)));                     // trainer
     CHECK(!IsPlainOption(DbOption("Make this inn your home.", 8)));                    // innkeeper
     CHECK(!IsPlainOption(DbOption("I would like to check my deposit box.", 9)));      // banker
-    // Script service actions and icons.
-    CHECK(!IsPlainOption(ScriptChat("Let me browse your goods.", kActionTrade)));
-    CHECK(!IsPlainOption(ScriptChat("Teach me.", 2)));
-    CHECK(!IsPlainOption(ScriptChat("Fly me.", 3)));
-    CHECK(!IsPlainOption(ScriptChat("Forget my talents.", kActionUnlearn)));
+    // A script's action number is its own business: black_morass offers its plain
+    // option as GOSSIP_SENDER_MAIN with action 1, which a listed NPC may use.
+    CHECK(IsPlainOption(ScriptChat("black_morass-shaped option", 1)));
+    // Script service icons are refused.
     Option money = ScriptChat("Buy a world buff", 1001);
     money.icon = kIconMoneyBag;
     CHECK(!IsPlainOption(money));
@@ -207,9 +206,48 @@ static void TestOrderWiring()
     CHECK(verdict.step == TaskStep::Fail && std::string(verdict.code) == kCodeInCombat);
 }
 
+// The allowlist (AiPlayerbot.BotGossipNpcs) is the guard: empty = off, only listed
+// entries pass, whatever their menus look like.
+static void TestAllowlist()
+{
+    std::set<uint32_t> list;
+    CHECK(ParseNpcList("", list) == 0 && list.empty());
+    CHECK(ParseNpcList("7607,7604", list) == 0 && list.size() == 2 && list.count(7607) && list.count(7604));
+    CHECK(ParseNpcList(" 7607 ; 7604 ,, 7607 ", list) == 0 && list.size() == 2);
+    CHECK(ParseNpcList("7607,weegli,0,16777216,-5,7604", list) == 4 && list.size() == 2);
+    CHECK(ParseNpcList("123456789", list) == 1 && list.empty());
+
+    std::set<uint32_t> const none;
+    CHECK(!IsAllowedNpc(none, 7607));
+    CHECK(NotAllowedText(none).find("empty") != std::string::npos);
+    ParseNpcList("7607,7604", list);
+    CHECK(IsAllowedNpc(list, 7607) && IsAllowedNpc(list, 7604));
+    // An unlisted NPC is refused although its options look plain: title_masker
+    // (chat icon, GOSSIP_SENDER_MAIN, GOSSIP_ACTION_INFO_DEF) takes titles away,
+    // carlos_matos (talk icon, INFO_DEF + 1/2) buys and sells for money.
+    CHECK(IsPlainOption(ScriptChat("title_masker-shaped option", 1000)));
+    Option carlos = ScriptChat("carlos_matos-shaped option", 1001);
+    carlos.icon = 7; // GOSSIP_ICON_TALK
+    CHECK(IsPlainOption(carlos));
+    CHECK(!IsAllowedNpc(list, 50000));
+    CHECK(NotAllowedText(list).find("not in AiPlayerbot.BotGossipNpcs") != std::string::npos);
+}
+
+// cmd gossip follows a walking NPC once its standing point moved a yard.
+static void TestFollow()
+{
+    using namespace TortoiseBots::RemoteCommander;
+    Point3 const a{ 10.0f, 10.0f, 5.0f };
+    CHECK(!StandMoved(a, Point3{ 10.5f, 10.5f, 5.0f }));
+    CHECK(StandMoved(a, Point3{ 11.0f, 10.0f, 5.0f }));
+    CHECK(StandMoved(a, Point3{ 10.0f, 10.0f, 7.0f }));
+}
+
 int main()
 {
     TestParse();
+    TestAllowlist();
+    TestFollow();
     TestOrderWiring();
     TestPlain();
     TestMatch();

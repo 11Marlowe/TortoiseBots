@@ -6782,6 +6782,19 @@ void BeginEnterWalk(CommanderTask& task, Player* commander, Player* bot, Playerb
     StartTaskStayWalk(task, commander, bot, ai);
 }
 
+// cmd gossip: the NPC may walk (Weegli during his event). Once the standing point
+// it gives moved, the walk (the stay anchor and a path step) goes to the new one.
+void FollowGossipNpc(CommanderTask& task, Player* bot, PlayerbotAI* ai, Creature* npc)
+{
+    RemoteCommander::Point3 const stand = RemoteCommander::StandingPoint(bot->GetPositionX(), bot->GetPositionY(),
+        npc->GetPositionX(), npc->GetPositionY(), npc->GetPositionZ());
+    if (!task.walking || task.superseded || !RemoteCommander::StandMoved(task.stand, stand))
+        return;
+    task.stand = stand;
+    SetStayAnchor(ai, stand.x, stand.y, stand.z, bot->GetMapId());
+    bot->GetMotionMaster()->MovePoint(0, stand.x, stand.y, stand.z, MOVE_RUN_MODE | MOVE_PATHFINDING);
+}
+
 // A bot that stands still short of the object takes a direct path step to
 // the standing point (the stay action stops within its follow range).
 void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)
@@ -6987,8 +7000,9 @@ ActStart BeginUseAct(CommanderTask& task, Player* commander, Player* bot, Player
 // The core builds the menu (the NPC's script through sScriptMgr.OnGossipHello, else
 // Player::PrepareGossipMenu) into the bot's PlayerTalkClass and runs the choice
 // (sScriptMgr.OnGossipSelect, else Player::OnGossipSelect), as for a player. The
-// option is chosen from that menu by runtime/GossipOrderPolicy.h; service options are
-// refused there.
+// option is chosen from that menu by runtime/GossipOrderPolicy.h. The hello itself
+// runs the NPC's scripts, so nothing is sent unless the NPC's entry is in
+// AiPlayerbot.BotGossipNpcs (checked first, here and when the order was given).
 static_assert(GossipOrder::kOptionGossip == static_cast<uint32>(GOSSIP_OPTION_GOSSIP), "GOSSIP_OPTION_GOSSIP");
 static_assert(GossipOrder::kOptionMax == static_cast<uint32>(GOSSIP_OPTION_MAX), "GOSSIP_OPTION_MAX");
 static_assert(GossipOrder::kIconVendor == GOSSIP_ICON_VENDOR && GossipOrder::kIconTaxi == GOSSIP_ICON_TAXI &&
@@ -6998,6 +7012,9 @@ static_assert(GossipOrder::kIconVendor == GOSSIP_ICON_VENDOR && GossipOrder::kIc
 ActStart BeginGossipAct(CommanderTask& task, Player* bot, TaskTarget const& target)
 {
     Creature* npc = target.creature;
+    if (npc && !GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, npc->GetEntry()))
+        return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNotAllowed,
+            GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs));
     if (!npc || !npc->IsAlive())
         return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNoNpc, "The NPC died or despawned.");
     if (npc->IsInCombat())
@@ -7372,7 +7389,11 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
     {
         case RemoteCommander::TaskStep::Wait:
             if (facts.botAvailable && task.state.stage == RemoteCommander::TaskStage::Walk && !task.noWalk)
+            {
+                if (task.state.kind == RemoteCommander::TaskKind::Gossip && target.creature)
+                    FollowGossipNpc(task, bot, ai, target.creature);
                 NudgeTaskWalk(task, bot, diff);
+            }
             return false;
         case RemoteCommander::TaskStep::BeginAct:
         {
@@ -7896,6 +7917,12 @@ static bool CommanderOpen(ChatHandler* handler, CommanderOrder const& order, Pla
 static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, Player* bot,
     GossipOrder::Request const& request, std::string const& intent)
 {
+    if (!GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, request.entry))
+    {
+        SendActionError(handler, intent, GossipOrder::kCodeNotAllowed,
+            GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs).c_str());
+        return true;
+    }
     PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
     if (!CommanderTaskGuard(handler, intent, bot, ai, true))
         return true;
