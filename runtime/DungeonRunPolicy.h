@@ -151,7 +151,11 @@ struct UnitFact
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
 // a `cc moon`, and the spell a mage must know to be the run's crowd control.
 constexpr std::uint32_t kPolymorphSpells[] = {118, 12824, 12825, 12826, 28270, 28271, 28272};
-constexpr std::uint32_t kCcLandMs = 5000; // in the fight a `cc moon` must show its aura within this, else once more, then noted
+// In the fight a `cc moon` must show its aura within this much of the mage's
+// own fight time (19z5: the mage waits for the tank's threat, walks into range
+// and casts 1.5 s; Polymorphs landed 7-8 s into its fight), else once more,
+// then noted.
+constexpr std::uint32_t kCcLandMs = 8000;
 
 // A living bot of the party other than the lead bot.
 struct MemberFact
@@ -159,6 +163,7 @@ struct MemberFact
     std::string name;
     float yd = 0.0f;        // from the lead bot (1000 on another map)
     bool polymorph = false; // a mage that knows Polymorph (kPolymorphSpells): the run's crowd control
+    bool inCombat = false;
     float dz = 0.0f;        // height difference to the lead bot (another floor)
 };
 
@@ -810,10 +815,13 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
         r.ccPending = 0;
         return false;
     }
-    r.ccWaitMs += dt;
+    // Counted only while the crowd control itself is in the fight.
+    std::string const bot = CcBot(f);
+    for (const MemberFact& m : f.members)
+        if (m.name == bot && m.inCombat)
+            r.ccWaitMs += dt;
     if (r.ccWaitMs < kCcLandMs)
         return false;
-    std::string const bot = CcBot(f);
     if (!r.ccResent && !bot.empty())
     {
         r.ccResent = true;

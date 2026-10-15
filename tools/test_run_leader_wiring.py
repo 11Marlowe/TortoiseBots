@@ -88,10 +88,22 @@ class RunLeaderWiringTest(unittest.TestCase):
         for scan in ("GetCreatureListWithEntryInGrid", "Cell::Visit", "VisitAllObjects", "HostileCreaturesAround"):
             self.assertNotIn(scan, kill)
         self.assertIn("fact.engaged = EngagedWithParty(unit, party);", kill)
+        # A ward is read off its engaged owner at once (totems and guardians), not when a cached list takes it in.
+        self.assertIn("CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS", kill)
         self.assertIn("EngagedWithParty(summoner, party);", kill)
         loader = (ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text()
         self.assertIn("SELECT `plan`, `map`, `cc_priority`, `cc_always`, `kill_first` FROM `ai_dungeon_plan`", loader)
         self.assertIn("table.SetUnits(plan, fields[2].GetCppString(), fields[3].GetCppString(), fields[4].GetCppString())", loader)
+
+    def test_crowd_control_keeps_to_the_runs_mark(self):
+        cc = (ROOT / "ai/playerbot/strategy/values/CcTargetValue.cpp").read_text()
+        # Never a totem or an NPC's summon (the healing ward), and in a run only the ordered mark.
+        self.assertIn("static_cast<Creature*>(creature)->IsTotem() ||", cc)
+        self.assertIn("creature->GetOwnerGuid().IsCreature() || creature->GetCreatorGuid().IsCreature()", cc)
+        self.assertIn("inRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(ai->GetBot());", cc)
+        self.assertIn("if (inRun && !assignedTarget)\n            return;", cc)
+        query = body(COMMANDS, "bool IsInRunningDungeonRun(Player* bot)", "\n}\n")
+        self.assertIn("State::Running", query)
 
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")

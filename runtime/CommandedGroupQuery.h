@@ -18,6 +18,11 @@ namespace BotCommands {
 
 bool IsInCommandedGroup(Player* bot);
 
+// The bot's bound party has a running run leader (`.bot run`): its crowd
+// control then takes only the run's ordered mark, never a free pick
+// (CcTargetValue). Cheap: a look over the few runs.
+bool IsInRunningDungeonRun(Player* bot);
+
 // A real player's chat command (whisper, `.bot command`, party chat) reached
 // this bot and passed its authorization: a run leader (`.bot run`) of the
 // bot's bound party pauses, so the player's order is not overridden by the

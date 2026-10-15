@@ -8679,6 +8679,31 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
     for (Player* bot : bots)
         party.insert(bot->GetObjectGuid().GetRawValue());
     std::unordered_set<uint64> seen;
+    auto add = [&](Unit* unit)
+    {
+        if (!unit || !unit->IsAlive() || !seen.insert(unit->GetObjectGuid().GetRawValue()).second)
+            return;
+        if (plan.KillFirstRank(unit->GetEntry()) < 0 || sServerFacade.IsFriendlyTo(unit, lead))
+            return;
+        TortoiseBots::DungeonRun::UnitFact fact;
+        fact.guid = unit->GetObjectGuid().GetRawValue();
+        fact.entry = unit->GetEntry();
+        fact.distLead = lead->GetDistance(unit);
+        fact.stealthed = IsStealthed(unit);
+        fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
+        fact.engaged = EngagedWithParty(unit, party);
+        ObjectGuid owner = unit->GetOwnerGuid();
+        if (owner.IsEmpty())
+            owner = unit->GetCreatorGuid();
+        if (!owner.IsEmpty())
+        {
+            fact.owner = owner.GetRawValue();
+            Unit* summoner = lead->GetMap()->GetUnit(owner);
+            fact.ownerEngaged = summoner && !sServerFacade.IsFriendlyTo(summoner, lead) &&
+                EngagedWithParty(summoner, party);
+        }
+        f.killFirst.push_back(fact);
+    };
     std::list<ObjectGuid> guids;
     for (Player* bot : bots)
     {
@@ -8687,29 +8712,17 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
         ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "attackers", guids);
         for (ObjectGuid const& guid : guids)
         {
-            if (!seen.insert(guid.GetRawValue()).second)
-                continue;
             Unit* unit = SeenHostile(bot, guid);
-            if (!unit || plan.KillFirstRank(unit->GetEntry()) < 0)
+            if (!unit)
                 continue;
-            TortoiseBots::DungeonRun::UnitFact fact;
-            fact.guid = guid.GetRawValue();
-            fact.entry = unit->GetEntry();
-            fact.distLead = lead->GetDistance(unit);
-            fact.stealthed = IsStealthed(unit);
-            fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
-            fact.engaged = EngagedWithParty(unit, party);
-            ObjectGuid owner = unit->GetOwnerGuid();
-            if (owner.IsEmpty())
-                owner = unit->GetCreatorGuid();
-            if (!owner.IsEmpty())
-            {
-                fact.owner = owner.GetRawValue();
-                Unit* summoner = lead->GetMap()->GetUnit(owner);
-                fact.ownerEngaged = summoner && !sServerFacade.IsFriendlyTo(summoner, lead) &&
-                    EngagedWithParty(summoner, party);
-            }
-            f.killFirst.push_back(fact);
+            add(unit);
+            // The totems and guardians of an attacker in this fight, read off
+            // the attacker itself: a Greater Healing Ward the moment it is up,
+            // not when a bot's cached list next takes it in (19z5: one ward was
+            // focused 16 s after it came up).
+            if (EngagedWithParty(unit, party))
+                unit->CallForAllControlledUnits([&](Unit* summon) { add(summon); },
+                    CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS);
         }
     }
 }
@@ -8745,6 +8758,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.yd = yd;
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
+        member.inCombat = bot->IsInCombat();
         f.members.push_back(member);
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
@@ -9546,6 +9560,23 @@ void CommanderAutonomyMapChange(Player* bot, PlayerbotAI* ai)
     uint32 const mask = CommanderAutonomyBots().TakeDeferred(bot->GetObjectGuid().GetRawValue());
     if (mask && !ai->HasRealPlayerMaster())
         ai->ChangeStrategy(RemoteCommander::CommanderAutonomyChange(mask, '+'), BotState::BOT_STATE_NON_COMBAT);
+}
+
+bool IsInRunningDungeonRun(Player* bot)
+{
+    if (!bot || !bot->GetGroup() || DungeonRuns().empty())
+        return false;
+    for (auto const& entry : DungeonRuns())
+    {
+        if (entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
+            continue;
+        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first);
+        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        Group* group = lead ? lead->GetGroup() : nullptr;
+        if (group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid()))
+            return true;
+    }
+    return false;
 }
 
 bool IsInCommandedGroup(Player* bot)

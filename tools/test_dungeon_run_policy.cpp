@@ -1309,7 +1309,7 @@ static void TestPullCrowdControlsTheHealer()
     DungeonPlan plan = ZfPlan();
     Run r = Start(&plan);
     Facts f = Party(0);
-    f.members = {MemberFact{"Magey", 5, true}};
+    f.members = {MemberFact{"Magey", 5, true, true}};
     f.units = {Unit(1, 5648, 10), Unit(2, 5650, 20), Unit(3, 7247, 25)};
     // The witch doctor is the best cc rank: it is sheeped, not pulled.
     CHECK(Tick(r, f) == "cc moon 2 Magey");
@@ -1358,7 +1358,7 @@ static void TestNoCrowdControlWithoutAMageOrPlanList()
     bare.steps = {ZfPack()};
     Run b = Start(&bare);
     Facts g = Party(0);
-    g.members = {MemberFact{"Magey", 5, true}};
+    g.members = {MemberFact{"Magey", 5, true, true}};
     g.units = {Unit(1, 5648, 10), Unit(2, 5650, 20)};
     CHECK(Tick(b, g) == "pullback 1"); // the nearest, as before
     g.anyInCombat = true;
@@ -1368,7 +1368,7 @@ static void TestNoCrowdControlWithoutAMageOrPlanList()
     // A lone cc unit is pulled, not sheeped.
     Run c = Start(&plan);
     Facts h = Party(0);
-    h.members = {MemberFact{"Magey", 5, true}};
+    h.members = {MemberFact{"Magey", 5, true, true}};
     h.units = {Unit(2, 5650, 20)};
     CHECK(Tick(c, h) == "pullback 2");
 }
@@ -1382,7 +1382,7 @@ static void TestCrowdControlMustLand()
     plan.killFirst.clear();
     Run r = Start(&plan);
     Facts f = Party(0);
-    f.members = {MemberFact{"Tanky", 0, false}, MemberFact{"Magey", 5, true}};
+    f.members = {MemberFact{"Tanky", 0, false}, MemberFact{"Magey", 5, true, true}};
     f.units = {Unit(1, 5648, 10), Unit(2, 5650, 20)};
     CHECK(Tick(r, f) == "cc moon 2 Magey");
     CHECK(r.ccPending == 2);
@@ -1396,7 +1396,7 @@ static void TestCrowdControlMustLand()
     // Never lands: once more after kCcLandMs, then noted.
     Run n = Start(&plan);
     Facts g = Party(0);
-    g.members = {MemberFact{"Magey", 5, true}};
+    g.members = {MemberFact{"Magey", 5, true, true}};
     g.units = {Unit(1, 5648, 10), Unit(2, 5650, 20)};
     CHECK(Tick(n, g) == "cc moon 2 Magey");
     CHECK(Tick(n, g) == "pullback 1");
@@ -1434,6 +1434,32 @@ static void TestKillFirstIsThisFightsOnly()
     CHECK(Tick(r, f).empty());
     f.killFirst.push_back(Ward(21, 1, true)); // the ward of a unit in this fight
     CHECK(Tick(r, f) == "focus 21");
+}
+
+// 19z5: the mage enters the fight seconds after the pull (it waits for the
+// tank's threat, then walks into range); its Polymorphs landed 7-8 s into its
+// own fight. The window counts only the mage's fight time.
+static void TestCcWindowCountsTheMagesFightTime()
+{
+    DungeonPlan plan = ZfPlan();
+    plan.killFirst.clear();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    MemberFact mage{"Magey", 5, true, false};
+    f.members = {mage};
+    f.units = {Unit(1, 5648, 10), Unit(2, 5650, 20)};
+    CHECK(Tick(r, f) == "cc moon 2 Magey");
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    for (int i = 0; i < 20; ++i)
+        CHECK(Tick(r, f).empty()); // the mage not in the fight yet: not counted
+    CHECK(r.ccPending == 2 && !r.ccResent);
+    f.members[0].inCombat = true;
+    std::string order;
+    std::uint32_t ticks = 0;
+    for (; ticks <= kCcLandMs / kTickMs && order.empty(); ++ticks)
+        order = Tick(r, f);
+    CHECK(order == "cc moon 2 Magey" && ticks == kCcLandMs / kTickMs);
 }
 
 static void TestStepIdleCeiling()
@@ -1688,6 +1714,7 @@ int main()
     TestNoCrowdControlWithoutAMageOrPlanList();
     TestCrowdControlMustLand();
     TestKillFirstIsThisFightsOnly();
+    TestCcWindowCountsTheMagesFightTime();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
