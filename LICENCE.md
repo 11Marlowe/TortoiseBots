@@ -31,6 +31,8 @@ submitting a contribution you confirm that you wrote it or otherwise have the
 right to license it under these terms. Code taken from another project must
 keep its original notice and be compatible with AGPL-3.0 — see
 [`CONTRIBUTING.md`](CONTRIBUTING.md#licence-of-contributions).
+Contributors confirm their consent by adding themselves to
+[`CONTRIBUTORS.md`](CONTRIBUTORS.md).
 
 ### Donor code
 
