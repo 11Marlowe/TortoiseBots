@@ -53,6 +53,11 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("member.yd = yd;", facts)
         self.assertIn("f.members.push_back(member);", facts)
 
+    def test_boss_down_needs_his_corpse(self):
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("if (step->kind == ai::PlanStepKind::Boss && creature->GetEntry() == step->entry)\n"
+                      "                            f.bossDead = true;", facts)
+
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("ai::PlanStep const* step = FactStep(slot.run);", facts)

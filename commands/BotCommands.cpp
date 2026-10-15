@@ -8714,8 +8714,15 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 lead->GetCreatureListWithEntryInGrid(found, entry, range);
                 for (Creature* creature : found)
                 {
-                    if (!creature->IsAlive() || DistanceTo(creature, step->x, step->y, step->z) > step->radius)
+                    if (DistanceTo(creature, step->x, step->y, step->z) > step->radius)
                         continue;
+                    if (!creature->IsAlive())
+                    {
+                        // "Boss down" needs his corpse in sight, not just his absence (a patrol).
+                        if (step->kind == ai::PlanStepKind::Boss && creature->GetEntry() == step->entry)
+                            f.bossDead = true;
+                        continue;
+                    }
                     bool known = false;
                     for (UnitFact const& have : f.units)
                         known = known || have.guid == creature->GetObjectGuid().GetRawValue();

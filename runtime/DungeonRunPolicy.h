@@ -40,6 +40,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -87,6 +88,7 @@ constexpr std::uint32_t kRestCapMs = 60000;
 constexpr std::uint32_t kRestRepeatMs = 20000;
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
+constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
 
 // Rest gate: it starts when someone is below a "start" line after a fight or
 // before a step, and ends when everybody is at the "end" line (or at kRestCapMs).
@@ -164,6 +166,7 @@ struct Facts
     float approachX = 0.0f, approachY = 0.0f, approachZ = 0.0f;
     std::vector<UnitFact> units;        // pull/boss: living units of the step's entries within its radius
     std::vector<UnitFact> hopUnits;     // move: living hostile units within kHopPullYd of the point, not owned by a later step
+    bool bossDead = false;              // boss: a dead unit (corpse) of the boss's entry within the step's radius
     int objectState = -1;               // wait_object: 0 ready, 1 active, 2 active_alt; -1 not found
     std::uint32_t hostilesNear = 0;     // wait_clear: living hostiles within the radius
     std::string carrier;                // the bot that does object and item steps (the lead bot)
@@ -208,6 +211,8 @@ struct Run
     std::unordered_set<std::uint64_t> passed;
     std::size_t openAtLastPull = 0;
     std::uint32_t fruitlessPulls = 0;
+    std::uint64_t refusedPull = 0;  // the unit of a `pullback` the module refused (a skip leaves it out for good)
+    std::uint32_t bossWaitMs = 0;   // a boss step: time at the spot with the boss neither alive nor dead in sight
     // Run-wide (kept across steps).
     std::unordered_set<std::uint64_t> unreachable;   // units given up on: never pulled again this run
     std::unordered_set<std::uint32_t> missing;       // items the run did not get (a skipped loot or use)
@@ -295,6 +300,8 @@ inline void ResetStep(Run& r)
     r.passed.clear();
     r.openAtLastPull = 0;
     r.fruitlessPulls = 0;
+    r.refusedPull = 0;
+    r.bossWaitMs = 0;
     r.gatherOrder.clear();
     r.gatherRefusals = 0;
     r.gatherWaived = false;
@@ -475,6 +482,11 @@ inline bool Skip(Run& r)
         r.missing.insert(r.pendingMissing);
     if (s->kind == PlanStepKind::Open)
         r.skippedOpenStep = r.step;
+    // A pull target the module refused (invalid-target) is not picked again
+    // by a later step that sees the same unit; the step's pull state goes
+    // with the step (NextStep -> ResetStep).
+    if (r.refusedPull)
+        r.unreachable.insert(r.refusedPull);
     std::size_t const skipped = r.step + 1;
     r.state = State::Running;
     NextStep(r, "skipped step " + std::to_string(skipped));
@@ -518,6 +530,8 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         return;
     }
     const PlanStep* s = Current(r);
+    if (order.compare(0, 9, "pullback ") == 0)
+        r.refusedPull = std::strtoull(order.c_str() + 9, nullptr, 10);
     if (r.walkBack && r.plan && r.walkBackIdx < r.step)
     {
         const PlanStep& p = r.plan->steps[r.walkBackIdx];
@@ -875,6 +889,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             pick = PickPull(r, f.units, entry);
     if (pick)
     {
+        r.bossWaitMs = 0;
         // Pulls that kill nothing, three in a row: the rest of the pack is
         // out of reach (a pit, a ledge). It is left, not counted cleared.
         std::size_t const open = OpenUnits(r, f.units);
@@ -936,8 +951,22 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         NextStep(r, what + " skipped, not cleared: " + std::to_string(outOfReach) + " units out of reach");
     else if (friendlyLeft)
         NextStep(r, what + " is friendly to this party: left alone");
+    else if (s.kind != PlanStepKind::Boss)
+        NextStep(r, "pack cleared");
+    else if (f.bossDead)
+        NextStep(r, "boss down");
     else
-        NextStep(r, s.kind == PlanStepKind::Boss ? "boss down" : "pack cleared");
+    {
+        // Not seen alive and not seen dead: he is away (a patrol, Theka in
+        // Zul'Farrak), not killed. The plan rows carry no patrol path: the
+        // party waits at his spot for him to come by, then pauses.
+        r.bossWaitMs += dt;
+        r.note = "boss " + std::to_string(s.entry) + " not at his spot: waiting for him";
+        if (r.bossWaitMs >= kBossSearchMs)
+            Pause(r, "boss " + std::to_string(s.entry) + " not found: not alive or dead within " + Num(s.radius) +
+                " yd of " + Num(s.x) + " " + Num(s.y) + " " + Num(s.z) + " for " +
+                std::to_string(kBossSearchMs / 1000) + " s (.bot run skip if he is already dead)");
+    }
 }
 
 inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order)

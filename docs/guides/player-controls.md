@@ -199,7 +199,7 @@ Off by default: needs `AiPlayerbot.DungeonSelfClear = 1` **and** `AiPlayerbot.Re
 | `.bot run start [plan]` | Starts the plan for your bound party (without a name: the one plan of the lead bot's map). The lead bot must be on the plan's map (`.bot cmd enter` first). ERR `not-bound`, `no-plan`, `wrong-map`, `busy` (a run is going). |
 | `.bot run pause` | Pauses the run; the bots hold what they do. |
 | `.bot run resume` | Goes on with a paused run: the party regroups first (`cmd revive party` while anyone is dead, then it gathers on the lead bot), then the paused step starts over with fresh tries and ceilings. |
-| `.bot run skip` | Leaves out the current step and goes on running (from a pause too, after the regroup of a resume). An item the step failed to get is noted missing, and the later steps that need it are left out with a note. |
+| `.bot run skip` | Leaves out the current step (its pull target and pull counts too; a unit whose `pullback` the module refused is not pulled again in the run) and goes on running (from a pause too, after the regroup of a resume). An item the step failed to get is noted missing, and the later steps that need it are left out with a note. |
 | `.bot run stop` | Ends the run; the bots stay where they are, still bound. |
 | `.bot run status` | Sends the run's status line again. |
 | `.bot run list` | The loaded plans: name, map, steps, and how many steps are not supported yet. |

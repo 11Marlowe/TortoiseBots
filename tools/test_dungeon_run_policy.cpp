@@ -954,11 +954,74 @@ static void TestOtherTeamBossIsLookedAtAndFoughtUnlessFriendly()
     Run r4 = Start(&plan);
     Tick(r4, f);
     CHECK(r4.step == 1 && r4.note == "boss is for the other team and not here: skipped");
-    // The party's own boss in sight and gone: down.
+    // The party's own boss in sight and dead: down.
     f.team = ai::kPlanFlagHorde;
+    f.bossDead = true;
     Run r5 = Start(&plan);
     Tick(r5, f);
     CHECK(r5.step == 1 && r5.note == "boss down");
+}
+
+// Fourth observe run (Theka, ZF steps 54-56): "boss down" 2 s after arriving,
+// with no fight; Theka patrols. A boss neither alive nor dead in sight is
+// waited for at his spot, then the run pauses; never counted down.
+static void TestBossDownNeedsASeenDeath()
+{
+    DungeonPlan plan;
+    PlanStep boss = Step(PlanStepKind::Boss, 30);
+    boss.entry = 7272;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Move, 60)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.step == 0 && r.state == State::Running && r.note.find("not at his spot") != std::string::npos);
+    // He walks in on his patrol: pulled.
+    for (int i = 0; i < 20; ++i)
+        Tick(r, f);
+    f.units = {Unit(5, 7272, 40)};
+    CHECK(Tick(r, f) == "pullback 5");
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.anyInCombat = false;
+    // Killed: his corpse is seen.
+    f.units.clear();
+    f.bossDead = true;
+    Tick(r, f);
+    CHECK(r.step == 1 && r.note == "boss down");
+
+    // Never there: paused after kBossSearchMs, "not found".
+    Run p = Start(&plan);
+    Facts g = Party(0);
+    for (std::uint32_t i = 0; i <= kBossSearchMs / kTickMs + 1 && p.state == State::Running; ++i)
+        Tick(p, g);
+    CHECK(p.state == State::Paused && p.step == 0 && p.note.find("boss 7272 not found") == 0);
+}
+
+// Fourth observe run (step 43 -> 45): a pullback refused invalid-target, the
+// step skipped; the next pull picked the same unit and was refused again. A
+// skip leaves the refused target out for good and clears the pull state.
+static void TestSkipDropsTheRefusedPullTarget()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1}), Step(PlanStepKind::Move, 20), PullStep(30, {1, 2})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(7, 1, 10)};
+    CHECK(Tick(r, f) == "pullback 7");
+    OrderRefused(r, "pullback 7", "invalid-target: The group cannot attack that target.");
+    CHECK(r.state == State::Paused && r.refusedPull == 7);
+    CHECK(Skip(r));
+    CHECK(r.step == 1 && r.pullGuid == 0 && r.pulls == 0 && r.pullTries.empty() && r.refusedPull == 0);
+    Tick(r, Party(0)); // revive/gather of the regroup: nothing to do
+    f = Party(20);
+    CHECK(Tick(r, f).empty() || r.step == 2);
+    // Step 3 sees the same unit and another: only the other is pulled.
+    f.units = {Unit(7, 1, 5), Unit(8, 2, 15)};
+    std::string order;
+    for (int i = 0; i < 3 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(r.step == 2 && order == "pullback 8");
 }
 
 // Round 2: a resume after a wipe in which the lead bot itself is dead: the
@@ -1044,6 +1107,8 @@ int main()
     TestThreeDeadRegroupAfterTheFight();
     TestGatherSummonsAStalledStraggler();
     TestWalkBackRefusalKinds();
+    TestBossDownNeedsASeenDeath();
+    TestSkipDropsTheRefusedPullTarget();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
