@@ -47,6 +47,7 @@
 #include "../runtime/RemoteCommanderView.h"
 #include "../runtime/RemoteCommanderTasks.h"
 #include "../runtime/RemoteCommanderEnter.h"
+#include "../runtime/GossipOrderPolicy.h"
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
@@ -73,6 +74,7 @@
 #include "WorldSession.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "WorldPacket.h"
+#include "GossipDef.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Log.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -6242,6 +6244,9 @@ struct CommanderTask
     uint32 enterOrder = 0;    // the order's serial (EnterOrders())
     uint32 triggerId = 0;
     RemoteCommander::EnterState enterState;
+    // cmd gossip: the option to pick, and the text of the one picked (the ACK's detail).
+    GossipOrder::Request gossip;
+    std::string gossipPicked;
 };
 
 std::unordered_map<uint64, CommanderTask>& CommanderTasks()
@@ -6344,11 +6349,11 @@ TaskTarget ResolveTaskTarget(PlayerbotAI* ai, uint64 raw)
     return target;
 }
 
-// Still there to walk to: a corpse, or a spawned game object.
-bool TaskTargetPresent(TaskTarget const& target)
+// Still there to walk to: a corpse (a living NPC for cmd gossip), or a spawned game object.
+bool TaskTargetPresent(TaskTarget const& target, bool livingNpc = false)
 {
     if (target.creature)
-        return sServerFacade.GetDeathState(target.creature) == CORPSE;
+        return livingNpc ? target.creature->IsAlive() : sServerFacade.GetDeathState(target.creature) == CORPSE;
     if (target.go)
         return sServerFacade.isSpawned(target.go);
     return false;
@@ -6530,6 +6535,46 @@ uint64 FindEntryTarget(Player* bot, RemoteCommander::TargetSpec const& spec, boo
     return RemoteCommander::PickNearestEntry(pool, radius, guid) ? guid : 0;
 }
 
+// Grid-search predicate (cmd gossip): a living creature of the entry within range of the bot.
+class EntryLivingCreatureCheck
+{
+public:
+    EntryLivingCreatureCheck(uint32 entry, RemoteCommander::MovePoint const& reference, float range)
+        : m_entry(entry), m_reference(reference), m_range(range) {}
+    bool operator()(Creature* creature)
+    {
+        return creature && creature->GetEntry() == m_entry && creature->IsAlive() &&
+            DistanceToPoint(m_reference, creature) <= m_range;
+    }
+
+private:
+    uint32 m_entry;
+    RemoteCommander::MovePoint m_reference;
+    float m_range;
+};
+
+// The GUID of the nearest living creature of the entry within GossipOrder::kSearchYards
+// of the bot (one bounded grid search, like FindEntryTarget); 0 when none is there.
+uint64 FindGossipNpc(Player* bot, uint32 entry)
+{
+    Map* map = bot->GetMap();
+    if (!map || !entry)
+        return 0;
+    RemoteCommander::MovePoint reference;
+    reference.x = bot->GetPositionX();
+    reference.y = bot->GetPositionY();
+    reference.z = bot->GetPositionZ();
+    std::list<Creature*> found;
+    EntryLivingCreatureCheck check(entry, reference, GossipOrder::kSearchYards);
+    MaNGOS::CreatureListSearcher<EntryLivingCreatureCheck> searcher(found, check);
+    Cell::VisitGridObjects(reference.x, reference.y, map, searcher, GossipOrder::kSearchYards);
+    std::vector<RemoteCommander::EntryCandidate> pool;
+    for (Creature* creature : found)
+        pool.push_back({creature->GetObjectGuid().GetRawValue(), DistanceToPoint(reference, creature)});
+    uint64 guid = 0;
+    return RemoteCommander::PickNearestEntry(pool, GossipOrder::kSearchYards, guid) ? guid : 0;
+}
+
 // The GUID an order's target names: the GUID as typed, or the nearest object
 // of the entry. 0 (with the ERR already sent) when the point is out of the bot's reach (`too-far`,
 // before any search) or the search finds nothing. The ACK of a by-entry order is preceded by one
@@ -6563,6 +6608,8 @@ bool TaskInRange(CommanderTask const& task, Player* bot, TaskTarget const& targe
 {
     if (task.noWalk)
         return true;
+    if (target.creature && task.state.kind == RemoteCommander::TaskKind::Gossip)
+        return RemoteCommander::InUseRange(bot->GetDistance(target.creature), INTERACTION_DISTANCE);
     if (target.creature)
         return target.creature->IsWithinDistInMap(bot, bot->GetMaxLootDistance(target.creature), true,
             SizeFactor::None);
@@ -6935,6 +6982,66 @@ ActStart BeginUseAct(CommanderTask& task, Player* commander, Player* bot, Player
         "The bot could not use the item (cooldown, not usable by it, or not usable on that target).");
 }
 
+// cmd gossip: the bot talks to the NPC through the same two packets a client sends
+// (CMSG_GOSSIP_HELLO, then CMSG_GOSSIP_SELECT_OPTION), handed to the bot's session.
+// The core builds the menu (the NPC's script through sScriptMgr.OnGossipHello, else
+// Player::PrepareGossipMenu) into the bot's PlayerTalkClass and runs the choice
+// (sScriptMgr.OnGossipSelect, else Player::OnGossipSelect), as for a player. The
+// option is chosen from that menu by runtime/GossipOrderPolicy.h; service options are
+// refused there.
+static_assert(GossipOrder::kOptionGossip == static_cast<uint32>(GOSSIP_OPTION_GOSSIP), "GOSSIP_OPTION_GOSSIP");
+static_assert(GossipOrder::kOptionMax == static_cast<uint32>(GOSSIP_OPTION_MAX), "GOSSIP_OPTION_MAX");
+static_assert(GossipOrder::kIconVendor == GOSSIP_ICON_VENDOR && GossipOrder::kIconTaxi == GOSSIP_ICON_TAXI &&
+    GossipOrder::kIconTrainer == GOSSIP_ICON_TRAINER && GossipOrder::kIconMoneyBag == GOSSIP_ICON_MONEY_BAG &&
+    GossipOrder::kIconTabard == GOSSIP_ICON_TABARD, "GOSSIP_ICON_*");
+
+ActStart BeginGossipAct(CommanderTask& task, Player* bot, TaskTarget const& target)
+{
+    Creature* npc = target.creature;
+    if (!npc || !npc->IsAlive())
+        return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNoNpc, "The NPC died or despawned.");
+    if (npc->IsInCombat())
+        return RefuseAct(task, ActStart::Failed, RemoteCommander::kCodeInCombat, "The NPC is in combat.");
+    if (!npc->IsWithinDistInMap(bot, INTERACTION_DISTANCE))
+        return RefuseAct(task, ActStart::Retry, RemoteCommander::kCodeUnreachable,
+            "The bot could not get close enough to the NPC to talk.");
+    if (!bot->CanInteractWithNPC(npc, UNIT_NPC_FLAG_NONE))
+        return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNpcBusy,
+            "The NPC will not talk to the bot now (busy with its own script, hostile, or not selectable).");
+
+    sServerFacade.SetFacingTo(bot, npc);
+    bot->PlayerTalkClass->ClearMenus();
+    WorldPacket hello(CMSG_GOSSIP_HELLO, 8);
+    hello << npc->GetObjectGuid();
+    bot->GetSession()->HandleGossipHelloOpcode(hello);
+
+    GossipMenu& menu = bot->PlayerTalkClass->GetGossipMenu();
+    std::vector<GossipOrder::Option> options;
+    for (unsigned int i = 0; i < menu.MenuItemCount(); ++i)
+    {
+        GossipMenuItem const& item = menu.GetItem(i);
+        GossipOrder::Option option;
+        option.text = item.m_gMessage;
+        option.icon = item.m_gIcon;
+        option.sender = item.m_gSender;
+        option.action = item.m_gOptionId;
+        option.coded = item.m_gCoded;
+        options.push_back(option);
+    }
+    GossipOrder::Match const match = GossipOrder::MatchOption(options, task.gossip);
+    if (!match.ok)
+    {
+        bot->PlayerTalkClass->CloseGossip();
+        return RefuseAct(task, ActStart::Failed, match.code.c_str(), match.message);
+    }
+    task.gossipPicked = options[match.listIndex].text;
+    WorldPacket select(CMSG_GOSSIP_SELECT_OPTION, 8 + 4);
+    select << npc->GetObjectGuid();
+    select << uint32(match.listIndex);
+    bot->GetSession()->HandleGossipSelectOptionOpcode(select);
+    return ActStart::Started;
+}
+
 ActStart BeginTaskAct(CommanderTask& task, Player* commander, Player* bot, PlayerbotAI* ai, TaskTarget const& target)
 {
     task.actStarted = false;
@@ -6943,6 +7050,8 @@ ActStart BeginTaskAct(CommanderTask& task, Player* commander, Player* bot, Playe
     ActStart start;
     if (task.lootLike)
         start = BeginLootAct(task, commander, bot, ai, target);
+    else if (task.state.kind == RemoteCommander::TaskKind::Gossip)
+        start = BeginGossipAct(task, bot, target);
     else if (task.state.kind == RemoteCommander::TaskKind::Open)
         start = BeginObjectAct(task, commander, bot, ai, target);
     else
@@ -6986,6 +7095,8 @@ bool TaskActDone(CommanderTask const& task, Player* bot, PlayerbotAI* ai)
     }
     if (task.state.kind == RemoteCommander::TaskKind::Open)
         return ObjectEffectOf(task, ai) == RemoteCommander::ObjectEffect::Reacted;
+    if (task.state.kind == RemoteCommander::TaskKind::Gossip)
+        return true; // the core ran the choice inside the select handler
     return !bot->IsNonMeleeSpellCasted(false);
 }
 
@@ -7020,6 +7131,11 @@ void CompleteCommanderTask(CommanderTask& task)
     if (task.state.kind == RemoteCommander::TaskKind::Open)
     {
         FinishCommanderTask(task, true, 1, "opened", "", "");
+        return;
+    }
+    if (task.state.kind == RemoteCommander::TaskKind::Gossip)
+    {
+        FinishCommanderTask(task, true, 1, task.gossipPicked, "", "");
         return;
     }
     FinishCommanderTask(task, true, 1, task.spellId ? "spell:" + std::to_string(task.spellId) : "-", "", "");
@@ -7196,7 +7312,8 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
     {
         if (task.targetRaw)
             target = ResolveTaskTarget(ai, task.targetRaw);
-        facts.targetPresent = !task.targetRaw || TaskTargetPresent(target);
+        facts.targetPresent = !task.targetRaw ||
+            TaskTargetPresent(target, task.state.kind == RemoteCommander::TaskKind::Gossip);
         facts.inCombat = bot->IsInCombat();
         facts.inRange = TaskInRange(task, bot, target);
         if (WorldObject* object = target.object())
@@ -7293,6 +7410,13 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
                     code = RemoteCommander::kCodeFailed;
                     message = "The object showed no change after the bot used it.";
                 }
+            }
+            // cmd gossip names the NPC it lost in its own words.
+            if (task.state.kind == RemoteCommander::TaskKind::Gossip &&
+                std::strcmp(verdict.code, RemoteCommander::kCodeInvalidTarget) == 0)
+            {
+                code = GossipOrder::kCodeNoNpc;
+                message = "The NPC died or despawned before the bot reached it.";
             }
             FinishCommanderTask(task, false, 0, "", code, message);
             return true;
@@ -7766,6 +7890,38 @@ static bool CommanderOpen(ChatHandler* handler, CommanderOrder const& order, Pla
     return LaunchCommanderTask(handler, order, bot, ai, task);
 }
 
+// cmd gossip <npc entry> <bot> <option index | "option text"> (issue #1012): the bot
+// walks to the nearest living NPC of the entry within 40 yd (the task walk of `open`),
+// talks to it and picks the option (BeginGossipAct). ACK detail: the option's text.
+static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, Player* bot,
+    GossipOrder::Request const& request, std::string const& intent)
+{
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!CommanderTaskGuard(handler, intent, bot, ai, true))
+        return true;
+    uint64 const guid = FindGossipNpc(bot, request.entry);
+    TaskTarget const target = guid ? ResolveTaskTarget(ai, guid) : TaskTarget();
+    if (!target.creature)
+    {
+        SendActionError(handler, intent, GossipOrder::kCodeNoNpc,
+            "No living NPC of that entry is within 40 yd of the bot.");
+        return true;
+    }
+    if (target.creature->IsInCombat())
+    {
+        SendActionError(handler, intent, RemoteCommander::kCodeInCombat, "The NPC is in combat.");
+        return true;
+    }
+    handler->PSendSysMessage("TBM:ACTION_TARGET|%s|bot:%s|%s|%u", ProtocolSafe(intent).c_str(),
+        ProtocolSafe(bot->GetName()).c_str(), std::to_string(guid).c_str(), request.entry);
+    CommanderTask task;
+    task.state = RemoteCommander::MakeTask(RemoteCommander::TaskKind::Gossip, bot->GetDistance(target.creature), true);
+    task.targetRaw = guid;
+    task.gossip = request;
+    task.intent = intent;
+    return LaunchCommanderTask(handler, order, bot, ai, task);
+}
+
 // cmd use <itemId> <bot> [target-guid | entry:id[@x,y,z]]
 static bool CommanderUse(ChatHandler* handler, CommanderOrder const& order, Player* bot,
     RemoteCommander::UseOrder const& request, std::string const& intent)
@@ -8212,7 +8368,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     if (!RemoteCommander::IsKnownOrder(verb))
     {
         SendActionError(handler, intent, "invalid",
-            "Usage: .bot cmd attack <guid> [bot] / pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / focus <guid> / move <x> <y> <z> / stay / follow / rest / lootmethod <ffa|group|rr|master|nbg> [threshold] / revive <bot> / summon <bot> / loot <guid|entry:id[@x,y,z]> <bot> [itemId] / open <guid|entry:id[@x,y,z]> <bot> / use <itemId> <bot> [guid|entry:id[@x,y,z]] / ritual <guid|entry:id[@x,y,z]> <bot1> <bot2> [<bot3>...] / state <guid|entry:id[@x,y,z]> / enter <area trigger id|near> [bot]");
+            "Usage: .bot cmd attack <guid> [bot] / pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / focus <guid> / move <x> <y> <z> / stay / follow / rest / lootmethod <ffa|group|rr|master|nbg> [threshold] / revive <bot> / summon <bot> / loot <guid|entry:id[@x,y,z]> <bot> [itemId] / open <guid|entry:id[@x,y,z]> <bot> / use <itemId> <bot> [guid|entry:id[@x,y,z]] / ritual <guid|entry:id[@x,y,z]> <bot1> <bot2> [<bot3>...] / gossip <npc entry> <bot> <option number|\"option text\"> / state <guid|entry:id[@x,y,z]> / enter <area trigger id|near> [bot]");
         return true;
     }
 
@@ -8279,6 +8435,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         RemoteCommander::OpenOrder openRequest;
         RemoteCommander::UseOrder useRequest;
         RemoteCommander::RitualOrder ritualRequest;
+        GossipOrder::Request gossipRequest;
         bool parsed = true;
         char const* usage = nullptr;
         if (verb == "loot")
@@ -8300,6 +8457,12 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         {
             parsed = RemoteCommander::ParseRitualOrder(parts, ritualRequest);
             usage = "Usage: .bot cmd ritual <object guid | entry:<id>[@x,y,z]> <bot1> <bot2> [<bot3>...] (2-5 different bots)";
+        }
+        else if (verb == "gossip")
+        {
+            // The option text is the rest of the line as typed (commas and spaces kept).
+            parsed = GossipOrder::ParseRequest(rest, gossipRequest);
+            usage = "Usage: .bot cmd gossip <npc entry> <bot> <option number 1-15 | \"option text\">";
         }
         if (!parsed)
         {
@@ -8371,6 +8534,8 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             return CommanderOpen(handler, order, bot, openRequest, intent);
         if (verb == "use")
             return CommanderUse(handler, order, bot, useRequest, intent);
+        if (verb == "gossip")
+            return CommanderGossip(handler, order, bot, gossipRequest, intent);
         return verb == "revive"
             ? CommanderRevive(handler, order, bot, intent)
             : CommanderSummon(handler, order, bot, intent);

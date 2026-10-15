@@ -128,6 +128,7 @@ enum class TaskKind : uint8_t
     Open,
     Use,
     Ritual, // one member of a `cmd ritual` group: the walk is its own, the act belongs to the group (RitualState)
+    Gossip, // `cmd gossip`: talk to an NPC and pick an option (runtime/GossipOrderPolicy.h); the act is over at once
 };
 
 enum class TaskStage : uint8_t
@@ -159,6 +160,7 @@ inline uint32_t ActBudgetMs(TaskKind kind)
         case TaskKind::Open: return kOpenEffectMs;
         case TaskKind::Use: return kUseCastMs;
         case TaskKind::Ritual: return kLootWindowMs; // never used: the group's own clock runs the act
+        case TaskKind::Gossip: return kOpenEffectMs;
     }
     return kLootWindowMs;
 }
