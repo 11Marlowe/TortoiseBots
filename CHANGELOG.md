@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.1.0 (2026-10-15)
+
+### Dashboard
+- Hovering over a setting in the dashboard's Server panel now explains in plain words what it does. [#996](https://github.com/Sagiroth/TortoiseBots/pull/996)
+- The dashboard no longer includes game map pictures; if you run it, you make them once from your own game files. [#991](https://github.com/Sagiroth/TortoiseBots/pull/991)
+
+### Behind the scenes
+- The project now states plainly that it is an unofficial community project, with a disclaimer. [#990](https://github.com/Sagiroth/TortoiseBots/pull/990)
+- The gear tool no longer keeps copies of other websites' data; it downloads them when needed. [#992](https://github.com/Sagiroth/TortoiseBots/pull/992)
+- A contributors list now records who has agreed to share their work under the project licence. [#985](https://github.com/Sagiroth/TortoiseBots/pull/985) [#989](https://github.com/Sagiroth/TortoiseBots/pull/989) [#994](https://github.com/Sagiroth/TortoiseBots/pull/994)
+- Release notes are now written in plain English for players instead of technical detail. [#998](https://github.com/Sagiroth/TortoiseBots/pull/998)
+- Builds finish faster, and changes that only touch tooling no longer wait for a full compile. [#997](https://github.com/Sagiroth/TortoiseBots/pull/997)
+
+---
+
 ## v1.0.1 (2026-10-15)
 
 ### Licensing & Contributions
