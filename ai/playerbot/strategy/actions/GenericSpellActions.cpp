@@ -386,15 +386,18 @@ bool CastSpellAction::isUseful()
     if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
         return false;
 
-    // A hostile totem (a healing ward too) is immune to every negative aura:
-    // a DoT, curse, sting, slow or CC cast at it does nothing. Only spells
-    // with an effect it takes (direct damage, a strike) are cast at it; the
-    // bot falls through to its strikes, shots and wand (TotemSpellPolicy.h).
+    // A hostile totem (a healing ward too) is immune to every aura of a
+    // non-positive spell, to heals, energize and taunts (the core's
+    // Totem::IsImmuneToSpellEffect, Totem.cpp): a DoT, curse, sting, mark,
+    // slow or CC cast at it does nothing. Only spells with an effect it takes
+    // are cast at it; the bot falls through to its strikes, shots and wand
+    // (runtime/TotemSpellPolicy.h).
     if (spellTarget != bot && spellTarget->IsCreature() && static_cast<Creature*>(spellTarget)->IsTotem() &&
         !sServerFacade.IsFriendlyTo(spellTarget, bot))
     {
         if (SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId))
-            if (!TortoiseBots::SpellWorksOnTotem(info->Effect, MAX_EFFECT_INDEX))
+            if (!TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName, MAX_EFFECT_INDEX,
+                    info->IsPositiveSpell()))
                 return false;
     }
 

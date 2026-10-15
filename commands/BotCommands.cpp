@@ -9562,10 +9562,11 @@ void CommanderAutonomyMapChange(Player* bot, PlayerbotAI* ai)
         ai->ChangeStrategy(RemoteCommander::CommanderAutonomyChange(mask, '+'), BotState::BOT_STATE_NON_COMBAT);
 }
 
-bool IsInRunningDungeonRun(Player* bot)
+// The running run of the bot's bound party, or null.
+static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot)
 {
     if (!bot || !bot->GetGroup() || DungeonRuns().empty())
-        return false;
+        return nullptr;
     for (auto const& entry : DungeonRuns())
     {
         if (entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
@@ -9574,9 +9575,20 @@ bool IsInRunningDungeonRun(Player* bot)
         Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
         Group* group = lead ? lead->GetGroup() : nullptr;
         if (group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid()))
-            return true;
+            return &entry.second.run;
     }
-    return false;
+    return nullptr;
+}
+
+bool IsInRunningDungeonRun(Player* bot)
+{
+    return RunningRunOf(bot) != nullptr;
+}
+
+bool IsRunKillFirst(Player* bot, uint32_t entry)
+{
+    TortoiseBots::DungeonRun::Run const* run = RunningRunOf(bot);
+    return run && run->plan && run->plan->KillFirstRank(entry) >= 0;
 }
 
 bool IsInCommandedGroup(Player* bot)
