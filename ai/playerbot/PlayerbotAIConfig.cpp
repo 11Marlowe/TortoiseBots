@@ -595,6 +595,7 @@ bool PlayerbotAIConfig::Initialize()
         config.GetIntDefault("AiPlayerbot.RunTrace.IntervalMs",
             static_cast<int>(TortoiseBots::RunTrace::kDefaultIntervalMs)));
     runTraceDir = config.GetStringDefault("AiPlayerbot.RunTrace.Dir", "traces");
+    runTraceGmOnly = config.GetBoolDefault("AiPlayerbot.RunTrace.GmOnly", true);
     runTraceMaxFileMb = TortoiseBots::RunTrace::ClampMaxFileMb(
         config.GetIntDefault("AiPlayerbot.RunTrace.MaxFileMb",
             static_cast<int>(TortoiseBots::RunTrace::kDefaultMaxFileMb)));
