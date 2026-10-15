@@ -58,20 +58,27 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertFalse(missing, "%s: the loader reads columns no migration creates: %s" % (table, missing))
 
     def test_zulfarrak_keeps_its_crowd_control(self):
-        # The newest Zul'Farrak plan row carries hand-set cc_always and kill_first (pending
-        # pjerra/turtle-agent#190); a re-export from an exporter that does not write them must not
-        # land silently.
-        newest = None
-        for name, text in migrations():
-            for cols, values in re.findall(r"INSERT INTO `ai_dungeon_plan` \(([^)]*)\) VALUES\s*(.*?);", text, re.S):
-                columns = re.findall(r"`(\w+)`", cols)
-                for row in re.findall(r"\(('zulfarrak'.*?)\)\s*(?:,|$)", values, re.S):
-                    fields = [f.strip().strip("'") for f in re.findall(r"'(?:[^']|'')*'|[^,\s][^,]*", row)]
-                    newest = (name, dict(zip(columns, fields)))
-        self.assertIsNotNone(newest, "no migration inserts the zulfarrak plan row")
-        name, row = newest
+        # The Zul'Farrak plan row after all migrations (its newest INSERT, then the UPDATEs after it)
+        # carries hand-set cc_always and kill_first (pending pjerra/turtle-agent#190); a re-export from
+        # an exporter that does not write them must not land silently.
+        row, name = None, None
+        for name_, text in migrations():
+            for statement in re.findall(r"(INSERT INTO `ai_dungeon_plan`.*?;|UPDATE `ai_dungeon_plan`.*?;)", text, re.S):
+                if statement.startswith("INSERT"):
+                    cols, values = re.match(r"INSERT INTO `ai_dungeon_plan` \(([^)]*)\) VALUES\s*(.*);", statement, re.S).groups()
+                    columns = re.findall(r"`(\w+)`", cols)
+                    for found in re.findall(r"\(('zulfarrak'.*?)\)\s*(?:,|;|$)", values + ";", re.S):
+                        fields = [f.strip().strip("'") for f in re.findall(r"'(?:[^']|'')*'|[^,\s][^,]*", found)]
+                        row, name = dict(zip(columns, fields)), name_
+                elif row is not None and re.search(r"WHERE\s+`plan`\s*=\s*'zulfarrak'", statement):
+                    for column, value in re.findall(r"`(\w+)`\s*=\s*'((?:[^']|'')*)'", statement.split("WHERE")[0]):
+                        row[column] = value
+                    name = name_
+        self.assertIsNotNone(row, "no migration inserts the zulfarrak plan row")
         for column in ("cc_always", "kill_first"):
             self.assertTrue(row.get(column), "%s: the zulfarrak plan row has no %s" % (name, column))
+        self.assertEqual(row.get("cc_always"), "7246")
+        self.assertEqual(row.get("kill_first"), "8179,5650,7247")
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():

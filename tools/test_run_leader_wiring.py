@@ -105,6 +105,12 @@ class RunLeaderWiringTest(unittest.TestCase):
         query = body(COMMANDS, "bool IsInRunningDungeonRun(Player* bot)", "\n}\n")
         self.assertIn("State::Running", query)
 
+    def test_spells_at_a_totem_must_hit_it(self):
+        spells = (ROOT / "ai/playerbot/strategy/actions/GenericSpellActions.cpp").read_text()
+        useful = body(spells, "bool CastSpellAction::isUseful()", "\n}\n")
+        self.assertIn("static_cast<Creature*>(spellTarget)->IsTotem()", useful)
+        self.assertIn("TortoiseBots::SpellWorksOnTotem(info->Effect, MAX_EFFECT_INDEX)", useful)
+
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("ai::PlanStep const* step = FactStep(slot.run);", facts)

@@ -4,6 +4,7 @@
 #include "playerbot/ForceRebuffPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/WandPolicy.h"
+#include "../../../../runtime/TotemSpellPolicy.h"
 #include "GenericActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/TargetValue.h"
@@ -384,6 +385,18 @@ bool CastSpellAction::isUseful()
 
     if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
         return false;
+
+    // A hostile totem (a healing ward too) is immune to every negative aura:
+    // a DoT, curse, sting, slow or CC cast at it does nothing. Only spells
+    // with an effect it takes (direct damage, a strike) are cast at it; the
+    // bot falls through to its strikes, shots and wand (TotemSpellPolicy.h).
+    if (spellTarget != bot && spellTarget->IsCreature() && static_cast<Creature*>(spellTarget)->IsTotem() &&
+        !sServerFacade.IsFriendlyTo(spellTarget, bot))
+    {
+        if (SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId))
+            if (!TortoiseBots::SpellWorksOnTotem(info->Effect, MAX_EFFECT_INDEX))
+                return false;
+    }
 
     // Never splash crowd control: an enemy-area spell whose blast would reach
     // a sheeped/sapped mob, the caster's own CC mark (it sheeps that mob
