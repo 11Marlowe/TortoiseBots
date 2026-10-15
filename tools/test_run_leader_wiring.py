@@ -50,7 +50,7 @@ class RunLeaderWiringTest(unittest.TestCase):
     def test_gather_stragglers_are_reported_by_name(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("member.name = bot->GetName();", facts)
-        self.assertIn("member.moving = bot->IsMoving();", facts)
+        self.assertIn("member.yd = yd;", facts)
         self.assertIn("f.members.push_back(member);", facts)
 
     def test_walk_back_reads_facts_for_the_replayed_point(self):

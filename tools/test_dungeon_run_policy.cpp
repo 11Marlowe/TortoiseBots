@@ -784,37 +784,48 @@ static void TestThreeDeadRegroupAfterTheFight()
 }
 
 // Issue #999 (third observe run, step 35): the healer stood 82 yd behind and
-// did not move; the gather paused the run again and again. At the gather's
-// ceiling a straggler is summoned to the lead bot once, then the gather waits
-// again; still not gathered, it pauses as before.
+// did not come; the gather paused the run again and again. At the gather's
+// ceiling the farthest bot over 40 yd that came less than 5 yd closer since
+// the last sample is summoned to the lead bot, once; one on its way is not.
 static void TestGatherSummonsAStalledStraggler()
 {
     DungeonPlan plan;
     plan.steps = {PullStep(10, {1})};
     Run r = Start(&plan);
     Facts f = Party(0);
-    f.maxMemberYd = 82;
-    MemberFact walking{"Walky", 45, true};
-    MemberFact healer{"Healy", 82, false};
-    MemberFact near{"Nearby", 30, false};
-    f.members = {walking, near, healer};
+    f.maxMemberYd = 90;
+    f.members = {MemberFact{"Walky", 90}, MemberFact{"Healy", 82}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 50}};
     f.units = {Unit(7, 1, 20)};
-    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the gather: first sample
+    // By the ceiling Walky came 30 yd closer; Healy and Stuck did not.
+    f.members = {MemberFact{"Walky", 60}, MemberFact{"Healy", 81}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 50}};
+    f.maxMemberYd = 81;
     std::string order;
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
         order = Tick(r, f);
-    CHECK(order == "summon Healy"); // not the one still walking, not the one within 40 yd
+    CHECK(order == "summon Healy"); // the farthest stalled one
     CHECK(r.state == State::Running && r.phase == Phase::Gather && r.note.find("Healy") != std::string::npos);
     // A refused summon does not pause: the gather's ceiling does.
     OrderRefused(r, order, "lead-unavailable");
     CHECK(r.state == State::Running);
+    // Next ceiling: Walky still comes (no summon), Stuck stalled since the last sample: summoned.
+    f.members = {MemberFact{"Walky", 50}, MemberFact{"Healy", 81}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 49}};
+    order.clear();
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Stuck");
+    // Nobody left to summon (Walky still makes progress): the next ceiling pauses.
+    f.members = {MemberFact{"Walky", 44}, MemberFact{"Healy", 81}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 49}};
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
-        CHECK(Tick(r, f).find("summon") == std::string::npos); // once per bot
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
 
     // The summoned bot arrives: the pull goes out.
     Run g = Start(&plan);
-    Facts h = f;
+    Facts h = Party(0);
+    h.maxMemberYd = 82;
+    h.members = {MemberFact{"Healy", 82}};
+    h.units = {Unit(7, 1, 20)};
     Tick(g, h);
     std::string got;
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && got.empty(); ++i)
@@ -823,6 +834,41 @@ static void TestGatherSummonsAStalledStraggler()
     h.maxMemberYd = 5;
     h.members.clear();
     CHECK(Tick(g, h) == "pullback 7");
+}
+
+// Codex on #1000: a walk-back point refused for the lead bot's state of the
+// moment is sent again (3 times, then pause); only a path refusal passes it.
+static void TestWalkBackRefusalKinds()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 50), PullStep(130, {1})};
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    r.walkBackIdx = 0;
+    r.gatherWaived = true;
+    r.gatherRefusals = 2;
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
+    for (std::uint32_t i = 1; i <= kWalkBackRetries; ++i)
+    {
+        OrderRefused(r, "move 10.0 0.0 0.0", "lead-unavailable: The lead bot is dead, on a taxi or teleporting.");
+        CHECK(r.state == State::Running && r.walkBackIdx == 0 && r.note.find("again") != std::string::npos);
+        CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
+    }
+    OrderRefused(r, "move 10.0 0.0 0.0", "busy: a task runs");
+    CHECK(r.state == State::Paused && r.walkBackIdx == 0);
+
+    Run p = Start(&plan, 2);
+    p.walkBack = true;
+    p.gatherWaived = true;
+    p.gatherRefusals = 2;
+    CHECK(Tick(p, f) == "move 10.0 0.0 0.0");
+    OrderRefused(p, "move 10.0 0.0 0.0", "lead-unavailable: teleporting");
+    OrderRefused(p, "move 10.0 0.0 0.0", "off-mesh: The point is not on walkable ground.");
+    // Passed: the next point, its own refusal count and gather waiver fresh.
+    CHECK(p.state == State::Running && p.walkBackIdx == 1 && p.walkBackRefusals == 0);
+    CHECK(!p.gatherWaived && p.gatherRefusals == 0);
+    CHECK(Tick(p, f) == "move 50.0 0.0 0.0");
 }
 
 static void TestStepIdleCeiling()
@@ -997,6 +1043,7 @@ int main()
     TestWipeRegroupsAndWalksBack();
     TestThreeDeadRegroupAfterTheFight();
     TestGatherSummonsAStalledStraggler();
+    TestWalkBackRefusalKinds();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

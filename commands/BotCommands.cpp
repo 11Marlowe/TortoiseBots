@@ -8665,7 +8665,6 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             MemberFact member;
             member.name = bot->GetName();
             member.yd = yd;
-            member.moving = bot->IsMoving();
             f.members.push_back(member);
         }
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
