@@ -6,3 +6,22 @@ tortoise-observability-linux-amd64
 *.out
 .icon-cache/
 *.log
+# Zone art generated locally from your own client (scripts/gen_zone_maps.py).
+# Only the Maps of Mystery art is versioned.
+/maps/
+web/maps/*.webp
+!web/maps/alahthalas.webp
+!web/maps/balor.webp
+!web/maps/blackstoneisland.webp
+!web/maps/gillijim.webp
+!web/maps/gilneas.webp
+!web/maps/gmisland.webp
+!web/maps/grimreaches.webp
+!web/maps/hyjal.webp
+!web/maps/icepoint.webp
+!web/maps/lapidis.webp
+!web/maps/northwind.webp
+!web/maps/stonetalonmountains.webp
+!web/maps/telabim.webp
+!web/maps/thalassianhighlands.webp
+!web/maps/upperkarazhan2f.webp

@@ -188,6 +188,8 @@ The three class trees in DBC page order (1.12 frame left-to-right), each as a 7-
 
 ## 6. Zone Map Artwork Credits
 
+Client zone maps (every map not listed below) are not shipped with the dashboard: generate them once from your own WoW client with `python3 tools/observability/scripts/gen_zone_maps.py --data "<WoW>/Data"` (needs `pip install mpyq Pillow`; details in `tools/observability/README.md`, "Map artwork"). Until then the map tab shows a note instead of the picture; bot dots still work.
+
 Zone map artwork for custom Turtle WoW locations and upgraded classic zones is by fantasy cartographer **Maps of Mystery (Cameron Holt)** — [Maps of Mystery on ArtStation](https://www.artstation.com/mapsofmystery).
 
 Covered zones (`tools/observability/web/maps/`, WebP at 1002x668):

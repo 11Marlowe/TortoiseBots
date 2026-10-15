@@ -494,6 +494,7 @@
     worldView: document.getElementById('world-view'),
     worldViewport: document.getElementById('world-viewport'),
     worldImg: document.getElementById('world-img'),
+    worldNoart: document.getElementById('world-noart'),
     worldCanvas: document.getElementById('world-canvas'),
     worldOverlay: document.getElementById('world-overlay'),
     worldTab0: document.getElementById('world-tab-0'),
@@ -1210,6 +1211,34 @@
     // The default src may already be decoded before this listener attaches.
     if (el.mapImg.complete && el.mapImg.naturalWidth) fitZoneArt();
   }
+
+  // Client zone art is generated locally (scripts/gen_zone_maps.py), so a file
+  // can be missing: show a note instead of a broken image. Dots keep the
+  // 1002x668 canvas the art would fill. Dropping src lets a revisit retry.
+  const MISSING_ART = 'Map art not generated yet: run <code>scripts/gen_zone_maps.py</code> (see the dashboard README).';
+  function watchArt(img, note, onMissing) {
+    if (!img) return;
+    const missing = () => {
+      img.removeAttribute('src');
+      img.style.display = 'none';
+      if (onMissing) onMissing();
+      if (note) {
+        note.innerHTML = MISSING_ART;
+        note.style.display = 'block';
+      }
+    };
+    img.addEventListener('error', missing);
+    img.addEventListener('load', () => {
+      img.style.display = 'block';
+      if (note && img === el.worldImg) note.style.display = 'none';
+    });
+    if (img.complete && img.getAttribute('src') && !img.naturalWidth) missing();
+  }
+  watchArt(el.mapImg, el.zoneNoart, () => {
+    resetZoneArt();
+    if (el.zoneViewport) el.zoneViewport.style.aspectRatio = '1002 / 668';
+  });
+  watchArt(el.worldImg, el.worldNoart);
 
   // World view: both continents from WorldMapArea.dbc bounds (data/zones.json).
   let ZONE_BOUNDS = null; // key "map_area" -> {map_id, area_id, name, loc_*}

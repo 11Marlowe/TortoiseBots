@@ -142,6 +142,10 @@ $iconDir = if ($env:ICON_CACHE_DIR) { $env:ICON_CACHE_DIR } else { Join-Path $He
 New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
 $env:ICON_CACHE_DIR = $iconDir
 
+if (-not (Test-Path (Join-Path $Here "maps\*.webp"))) {
+  Write-Host "note: no zone maps in $(Join-Path $Here 'maps'); generate them from your client: python $(Join-Path $Here 'scripts\gen_zone_maps.py') --data `"<WoW>\Data`""
+}
+
 Write-Host "starting dashboard (logs: $LogFile) ..."
 # stdout and stderr need separate files: one path for both throws
 # IOException (both streams open it with exclusive write access).
