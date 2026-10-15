@@ -27,6 +27,15 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
 
+
+def load_snapshot(name, fetcher):
+    """Site snapshots are not vendored: fail clearly before writing anything."""
+    path = DATA / name
+    if not path.exists():
+        sys.exit(f"{path} not found: run {fetcher} first "
+                 "(site snapshots are generated locally, not vendored)")
+    return json.loads(path.read_text())
+
 # (class id, hire spec key) in HireSpecOptions order; druid bear/cat distinct.
 SPECS = [(1, "protection"), (1, "arms"), (1, "fury"),
          (2, "protection"), (2, "holy"), (2, "retribution"),
@@ -221,8 +230,8 @@ def main():
     args = ap.parse_args()
 
     bc = json.load(gzip.open(DATA / "bisclassic.json.gz", "rt"))
-    ts = json.loads((DATA / "turtle_sheets.json").read_text())
-    wic = json.loads((DATA / "wowisclassic.json").read_text())
+    ts = load_snapshot("turtle_sheets.json", "tools/hire_gear/sources/turtle_sheets/fetch.py")
+    wic = load_snapshot("wowisclassic.json", "tools/hire_gear/sources/wowisclassic/scrape.py")
     tiers = {}
     with open(DATA / "item_tiers.csv") as f:
         for r in csv.DictReader(f):
