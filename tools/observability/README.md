@@ -73,17 +73,33 @@ Bot profile: Spells and Professions are separate tabs (profession spells moved o
 
 The dashboard Server panel has a **Copy diagnostic report** button producing a compact plain-text (markdown) snapshot: module/core versions, effective rates and bot flags, the bot-tuning line (XP rate, loot rates, autolearn trainer/quest, level-up mounts, AH market), pool health (tracked/gaining, median/total XP/hour, deaths/min, died-5min %, combat/grind %, level bands with their average item level), a pool gear line (swept bots, average item level, equipped-piece quality census), pool activity counters (quests/loot/money/kills/deaths/ghost time/services), issue counts, and server freshness. A flag the running server did not report reads `?`, never a false "off". It contains no secrets (no IPs, hosts, account names, passwords). Paste it into a GitHub issue or Discord when reporting bugs — it answers "how is this server configured" without config-file archaeology.
 
-## Map artwork (`web/maps`)
+## Map artwork (generated locally)
 
-The zone/continent images are the client's WorldMap texture. The client draws a
-zone as 12 base tiles (a 4x3 grid of 256px textures, `Interface\WorldMap\<Zone>\<Zone><n>.blp`)
-plus one `WorldMapOverlay.dbc` texture per sub-area that paints in the revealed
-detail — exporting the base tiles alone leaves every zone looking fogged.
-`scripts/gen_zone_maps.py` composites both at their DBC offsets and rewrites
-`web/maps/*.webp` **at the existing file sizes**: the daemon's world->map
-percentages are relative to that canvas. Maps of Mystery artwork (custom zones)
-is hand-drawn and must not be regenerated. Run it against a client Data
-directory when the art needs refreshing; the script needs `mpyq` and `Pillow`.
+The zone/continent images are the WoW client's WorldMap textures (Turtle's
+custom zones included). They are **not** in this repository and **not** in the
+dashboard binaries: generate them once from your own client.
+
+```bash
+python3 -m pip install mpyq Pillow
+python3 tools/observability/scripts/gen_zone_maps.py --data "<WoW>/Data" --out tools/observability/maps
+```
+
+`--out` defaults to `tools/observability/maps/`, which is where
+`run-dashboard.sh` / `run-dashboard.ps1` put the binary. The binary serves
+`maps/` next to itself; point it elsewhere with `--maps-dir` / `MAPS_DIR`
+(e.g. a mounted folder in a container). Without the art the map tab still works:
+a note replaces the picture and the bot dots stay on the same 1002x668 canvas.
+
+How it is built: the client draws a zone as 12 base tiles (a 4x3 grid of 256px
+textures, `Interface\WorldMap\<Zone>\<Zone><n>.blp`) plus one
+`WorldMapOverlay.dbc` texture per sub-area that paints in the revealed detail.
+The script composites both at their DBC offsets (instances and continents have
+base tiles only) and writes each file at the canvas size recorded in
+`web/data/map_canvas.json`: the daemon's world->map percentages are relative to
+that canvas, so the sizes must not change. It reads Turtle's newer patches
+(their file list is encrypted) and matches patch file names regardless of case.
+Pass `--overlay-dbc` with the server's extracted `WorldMapOverlay.dbc` if the
+client copy is unreadable.
 
 ## Validation
 
