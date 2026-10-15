@@ -197,3 +197,126 @@ CreatureAuraKeepout const* PossibleTriggersValue::KeepoutFor(Unit* unit)
         return nullptr;
     return row;
 }
+
+Unit* PossibleTriggersValue::KeepoutRingAt(PlayerbotAI* ai, float x, float y, Unit* extra)
+{
+    if (!sPlayerbotAIConfig.avoidCreatureAuras || !ai)
+        return nullptr;
+    AiObjectContext* context = ai->GetAiObjectContext();
+    ObjectGuid const explicitTarget = context->GetValue<ObjectGuid>("explicit attack target")->Get();
+    auto ringed = [&](Unit* unit)
+    {
+        CreatureAuraKeepout const* row = KeepoutFor(unit);
+        if (!CreatureAuraKeepoutApplies(true, row, true, true, unit && unit->GetObjectGuid() == explicitTarget))
+            return false;
+        float const dx = unit->GetPositionX() - x, dy = unit->GetPositionY() - y;
+        return CreatureAuraEndPointBlocked(*row, std::sqrt(dx * dx + dy * dy));
+    };
+    if (extra && ringed(extra))
+        return extra;
+    for (ObjectGuid const& guid : context->GetValue<std::list<ObjectGuid>>("possible triggers")->Get())
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && unit != extra && ringed(unit))
+            return unit;
+    }
+    return nullptr;
+}
+
+bool PossibleTriggersValue::GapCloserCouldFire(PlayerbotAI* ai, std::string const& spell, Unit* target)
+{
+    // Mirrors the refusals of CastSpellAction::isPossible and
+    // PlayerbotAI::CanCastSpell (their order and their tests), nothing more.
+    Player* bot = ai->GetBot();
+    CreatureAuraGapCloserReadiness r;
+    uint32 const spellId = ai->GetAiObjectContext()->GetValue<uint32>("spell id", spell)->Get();
+    SpellEntry const* spellInfo = spellId ? sServerFacade.LookupSpellInfo(spellId) : nullptr;
+    r.knowsSpell = spellInfo != nullptr;
+    if (!r.knowsSpell)
+        return CreatureAuraGapCloserCouldFire(r);
+    r.lostControl = bot->HasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL);
+    r.onCooldown = !sServerFacade.IsSpellReady(bot, spellId);
+    // CheckSpellPower (PlayerbotAI.cpp): the cost without caster spellmods.
+    if (spellInfo->powerType < MAX_POWERS)
+        r.powerShort = bot->GetPower(Powers(spellInfo->powerType)) <
+            Spell::CalculatePowerCost(spellInfo, bot, nullptr, nullptr);
+    // Spell::CheckCast(strict): SPELL_FAILED_AFFECTING_COMBAT.
+    r.nonCombatSpell = spellInfo->IsNonCombatSpell();
+    r.inCombat = bot->IsInCombat();
+    if (spellInfo->rangeIndex != SPELL_RANGE_IDX_COMBAT && spellInfo->rangeIndex != SPELL_RANGE_IDX_SELF_ONLY &&
+        spellInfo->rangeIndex != SPELL_RANGE_IDX_ANYWHERE)
+    {
+        float maxRange = 0.0f, minRange = 0.0f;
+        if (ai->GetSpellRange(spell, &maxRange, &minRange))
+        {
+            r.rangeKnown = true;
+            r.minRange = minRange;
+            r.maxRange = maxRange;
+            r.distance = bot->GetDistance(target, ai->IsRanged(bot) ? SizeFactor::CombatReach : SizeFactor::CombatReachWithMelee);
+        }
+    }
+    return CreatureAuraGapCloserCouldFire(r);
+}
+
+bool PossibleTriggersValue::GapCloserIntoKeepout(PlayerbotAI* ai, std::string const& spell, Unit* target)
+{
+    if (!sPlayerbotAIConfig.avoidCreatureAuras || !ai || !target)
+        return false;
+    Player* bot = ai->GetBot();
+    AiObjectContext* context = ai->GetAiObjectContext();
+    bool const isTank = PlayerbotAI::IsTank(bot);
+    ObjectGuid const explicitTarget = context->GetValue<ObjectGuid>("explicit attack target")->Get();
+    bool const ordered = target->GetObjectGuid() == explicitTarget;
+    if (isTank || ordered)
+        return false; // CreatureAuraGapCloserVetoed allows these; skip the lookups
+    // Asked from isUseful() on every tick the trigger fires: nothing to veto
+    // while the cast cannot fire, and isPossible() refuses it then anyway.
+    if (!GapCloserCouldFire(ai, spell, target))
+        return false;
+    if (KeepoutFor(target))
+        return CreatureAuraGapCloserVetoed(true, false, isTank, ordered);
+    float lx = 0.0f, ly = 0.0f;
+    CreatureAuraGapCloserLanding(bot->GetPositionX(), bot->GetPositionY(),
+        target->GetPositionX(), target->GetPositionY(), bot->GetCombatReach(target, true, 0.0f), lx, ly);
+    // Fast path: the bot's cached 15 yd list, read fresh every time.
+    if (KeepoutRingAt(ai, lx, ly))
+        return CreatureAuraGapCloserVetoed(false, true, isTank, ordered);
+    // The bounded lookup's result is kept per bot for this target for
+    // kCreatureAuraLandingMemoMs (the memo lives on this bot's value).
+    PossibleTriggersValue* self = dynamic_cast<PossibleTriggersValue*>(
+        context->GetValue<std::list<ObjectGuid>>("possible triggers"));
+    uint64 const targetRaw = target->GetObjectGuid().GetRawValue();
+    uint32 const now = WorldTimer::getMSTime();
+    if (self && CreatureAuraLandingMemoHit(self->landingMemo, targetRaw, now))
+        return CreatureAuraGapCloserVetoed(false, self->landingMemo.ringed, isTank, ordered);
+    // Bounded lookup around the target, listed entries on this map only.
+    bool landingInRing = false;
+    float const ldx = lx - target->GetPositionX(), ldy = ly - target->GetPositionY();
+    float const landingToTarget = std::sqrt(ldx * ldx + ldy * ldy);
+    for (CreatureAuraKeepout const& row : kCreatureAuraKeepouts)
+    {
+        if (landingInRing)
+            break;
+        if (row.mapId != target->GetMapId())
+            continue;
+        float const radius = CreatureAuraLandingSearchRadius(row, landingToTarget);
+        std::list<Unit*> nearby;
+        MaNGOS::AllCreaturesOfEntryInRange check(target, row.creatureEntry, radius);
+        MaNGOS::UnitListSearcher<MaNGOS::AllCreaturesOfEntryInRange> searcher(nearby, check);
+        Cell::VisitAllObjects(target, searcher, radius);
+        for (Unit* unit : nearby)
+        {
+            if (!unit || unit->GetObjectGuid() == explicitTarget || !KeepoutFor(unit))
+                continue;
+            float const dx = unit->GetPositionX() - lx, dy = unit->GetPositionY() - ly;
+            if (CreatureAuraEndPointBlocked(row, std::sqrt(dx * dx + dy * dy)))
+            {
+                landingInRing = true;
+                break;
+            }
+        }
+    }
+    if (self)
+        CreatureAuraLandingMemoStore(self->landingMemo, targetRaw, now, landingInRing);
+    return CreatureAuraGapCloserVetoed(false, landingInRing, isTank, ordered);
+}

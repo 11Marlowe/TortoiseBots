@@ -13,6 +13,7 @@
 #include "playerbot/PlayerbotFactory.h"
 #include "playerbot/PullFiringPolicy.h"
 #include "playerbot/RangedApproachPolicy.h"
+#include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "AI/CreatureAI.h"
 #include <ctime>
 
@@ -539,10 +540,24 @@ namespace ai
             if (ai->HasStrategy("stay", ai->GetState()))
                 return false;
 
-			return sServerFacade.IsDistanceGreaterThan(AI_VALUE2(float, "distance", "current target"), (distance + sPlayerbotAIConfig.contactDistance));
+			if (!sServerFacade.IsDistanceGreaterThan(AI_VALUE2(float, "distance", "current target"), (distance + sPlayerbotAIConfig.contactDistance)))
+                return false;
+
+            return !(sPlayerbotAIConfig.avoidCreatureAuras && GapCloserIntoKeepout());
 		}
 
     protected:
+        // AiPlayerbot.AvoidCreatureAuras: Charge, Intercept and Feral Charge
+        // jump the bot past every keep-out hold (they never go through the
+        // chase). The engine asks isUseful() every tick the trigger fires, so
+        // the veto first checks the cast could fire this tick (cooldown,
+        // rage, Charge out of combat, min/max range) and only then looks at
+        // the landing.
+        bool GapCloserIntoKeepout()
+        {
+            return PossibleTriggersValue::GapCloserIntoKeepout(ai, GetSpellName(), AI_VALUE(Unit*, "current target"));
+        }
+
         float distance;
     };
 

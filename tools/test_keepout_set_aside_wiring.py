@@ -64,6 +64,76 @@ class KeepoutSetAsideWiringTest(unittest.TestCase):
                      "void CommitExplicitAttackTarget(", "\n}\n")
         self.assertRegex(order, r'"keepout set aside"\)->Get\(\)\.erase\(guid\)')
 
+    def test_set_aside_leaves_a_trace(self):
+        # Live run 2 (2026-10-13) could not prove the set-aside fired: its
+        # only message was a debug-move whisper. One action-log row and one
+        # detail log line per set-aside, never per tick.
+        move = (ROOT / "ai/playerbot/strategy/actions/MovementActions.cpp").read_text()
+        hold = body(move, "bool MovementAction::HoldChaseOutsideKeepout(", "\n}\n")
+        self.assertIn('"KEEPOUT_SET_ASIDE"', hold)
+        self.assertIn('[BOT CHASE] %s: set aside', hold)
+
+    def test_gap_closers_and_end_points_ask_the_ring(self):
+        # Charge / Intercept / Feral Charge are CastReachTargetSpellAction.
+        reach = (ROOT / "ai/playerbot/strategy/actions/ReachTargetActions.h").read_text()
+        cls = body(reach, "class CastReachTargetSpellAction", "\n    };\n")
+        self.assertIn("GapCloserIntoKeepout()", cls)
+        self.assertIn("PossibleTriggersValue::GapCloserIntoKeepout(", cls)
+        warrior = (ROOT / "ai/playerbot/strategy/warrior/WarriorActions.h").read_text()
+        for spell in ("CastChargeAction", "CastInterceptAction"):
+            self.assertRegex(warrior, r"REACH_ACTION\(" + spell + r",")
+        # Intercept on the enemy healer or the snare target is gated the same way.
+        for cls_name in ("CastInterceptOnEnemyHealerAction", "CastInterceptOnSnareTargetAction"):
+            self.assertNotRegex(warrior, r"_ACTION\(" + cls_name + r",")
+            gated = body(warrior, "class " + cls_name, "\n    };\n")
+            self.assertIn("PossibleTriggersValue::GapCloserIntoKeepout(ai, GetSpellName(), GetTarget())", gated)
+        self.assertIn("PossibleTriggersValue::GapCloserIntoKeepout(ai, GetSpellName(), ", cls)
+        # The shared veto: cached list first, then a bounded lookup of listed
+        # entries around the target (Charge fires past the 15 yd list).
+        values = (VALUES / "PossibleTargetsValue.cpp").read_text()
+        veto = body(values, "bool PossibleTriggersValue::GapCloserIntoKeepout(", "\n}\n")
+        self.assertIn('"explicit attack target"', veto)
+        self.assertIn("CreatureAuraGapCloserVetoed(", veto)
+        self.assertLess(veto.index("KeepoutRingAt(ai, lx, ly)"), veto.index("AllCreaturesOfEntryInRange"))
+        self.assertIn("Cell::VisitAllObjects(target, searcher, radius)", veto)
+        self.assertIn("CreatureAuraLandingSearchRadius(", veto)
+        self.assertIn("class CastFeralChargeBearAction : public CastReachTargetSpellAction",
+                      (ROOT / "ai/playerbot/strategy/druid/DruidActions.h").read_text())
+        move = (ROOT / "ai/playerbot/strategy/actions/MovementActions.cpp").read_text()
+        for start in ("bool SetBehindTargetAction::Execute(", "bool RearFlankAction::Execute(",
+                      "bool MoveOutOfCollisionAction::Execute("):
+            self.assertIn("EndPointInCreatureAuraKeepout(", body(move, start, "\n}\n"), start)
+
+    def test_gap_closer_lookup_waits_for_a_castable_spell(self):
+        # Review #882 round 2: the engine asks isUseful() before the stance
+        # prerequisite and isPossible(), every tick the trigger fires. The
+        # landing checks sit behind the readiness gate, and the grid visit
+        # behind the per-bot 1 s memo.
+        values = (VALUES / "PossibleTargetsValue.cpp").read_text()
+        veto = body(values, "bool PossibleTriggersValue::GapCloserIntoKeepout(", "\n}\n")
+        gate = veto.index("if (!GapCloserCouldFire(ai, spell, target))\n        return false;")
+        self.assertLess(veto.index("if (isTank || ordered)"), gate)
+        for later in ("KeepoutFor(target)", "KeepoutRingAt(ai, lx, ly)", "CreatureAuraLandingMemoHit(",
+                      "Cell::VisitAllObjects(", "CreatureAuraLandingMemoStore("):
+            self.assertLess(gate, veto.index(later), later)
+        self.assertLess(veto.index("KeepoutRingAt(ai, lx, ly)"), veto.index("CreatureAuraLandingMemoHit("))
+        self.assertLess(veto.index("CreatureAuraLandingMemoHit("), veto.index("Cell::VisitAllObjects("))
+        self.assertLess(veto.index("Cell::VisitAllObjects("), veto.index("CreatureAuraLandingMemoStore("))
+        self.assertEqual(veto.count("Cell::VisitAllObjects("), 1)
+        # The gate mirrors isPossible's refusals and leaves the stance to the
+        # prerequisite (gating on it would switch stance, then veto).
+        ready = body(values, "bool PossibleTriggersValue::GapCloserCouldFire(", "\n}\n")
+        for probe in ('"spell id", spell', "UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL", "sServerFacade.IsSpellReady(bot, spellId)",
+                      "Spell::CalculatePowerCost(spellInfo, bot, nullptr, nullptr)", "IsNonCombatSpell()",
+                      "IsInCombat()", "ai->GetSpellRange(spell, &maxRange, &minRange)",
+                      "CreatureAuraGapCloserCouldFire(r)"):
+            self.assertIn(probe, ready)
+        self.assertNotIn("GetErrorAtShapeshiftedCast", ready)
+        self.assertNotIn("Cell::", ready)
+        header = (VALUES / "PossibleTargetsValue.h").read_text()
+        self.assertIn("CreatureAuraLandingMemo landingMemo;", header)
+        self.assertNotIn("never per tick", header)
+
 
 if __name__ == "__main__":
     unittest.main()

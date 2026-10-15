@@ -502,6 +502,131 @@ int main()
     }
     std::cout << "  [PASS] tank holds a ringed mob: the set-aside is not re-picked through assist or mark\n";
 
+    // Gap closers and end points (Maraudon live run 2, 2026-10-13): a warrior
+    // DPS charged a sludge from 21 yd, past every hold, and died in its pulse.
+    {
+        CreatureAuraKeepout const& row = *FindCreatureAuraKeepout(349, 12222);
+        float const hazard = CreatureAuraHazardRadius(row); // 9 yd
+        // End points: inside the hazard ring refused, on or past it allowed.
+        CHECK(CreatureAuraEndPointBlocked(row, 0.0f));
+        CHECK(CreatureAuraEndPointBlocked(row, 2.0f));  // rear flank on the sludge
+        CHECK(CreatureAuraEndPointBlocked(row, 8.9f));
+        CHECK(!CreatureAuraEndPointBlocked(row, hazard));
+        CHECK(!CreatureAuraEndPointBlocked(row, 12.0f));
+
+        // Landing: melee reach from the target on the bot's side.
+        float lx = 0.0f, ly = 0.0f;
+        CreatureAuraGapCloserLanding(21.0f, 0.0f, 0.0f, 0.0f, 2.0f, lx, ly);
+        CHECK(std::fabs(lx - 2.0f) < 0.01f && std::fabs(ly) < 0.01f);
+        // A charge onto a mob 3 yd from a sludge (sludge at (-3, 0)) lands
+        // 5 yd from it: in the ring. A mob 15 yd from the sludge: clear.
+        CHECK(CreatureAuraEndPointBlocked(row, std::fabs(lx - (-3.0f))));
+        CHECK(!CreatureAuraEndPointBlocked(row, std::fabs(lx - (-15.0f))));
+
+        // Veto: charge onto the sludge, non-tank, no order -> vetoed.
+        CHECK(CreatureAuraGapCloserVetoed(true, true, false, false));
+        CHECK(CreatureAuraGapCloserVetoed(true, false, false, false));
+        // Charge onto a mob whose landing is in a sludge's ring -> vetoed.
+        CHECK(CreatureAuraGapCloserVetoed(false, true, false, false));
+        // Tank: allowed (it picks up mobs in the ring).
+        CHECK(!CreatureAuraGapCloserVetoed(true, true, true, false));
+        CHECK(!CreatureAuraGapCloserVetoed(false, true, true, false));
+        // Explicit attack order on that target: today's behaviour.
+        CHECK(!CreatureAuraGapCloserVetoed(true, true, false, true));
+        CHECK(!CreatureAuraGapCloserVetoed(false, true, false, true));
+        // Nothing listed nearby: allowed.
+        CHECK(!CreatureAuraGapCloserVetoed(false, false, false, false));
+
+        // Review #882: Charge from 20 yd onto a mob with a sludge 5 yd beyond
+        // it. The sludge is 25 yd from the bot, outside the cached 15 yd list
+        // (kMaxAoeAvoidRadiusYd); the bounded lookup around the target finds
+        // it, and the landing (2 yd short of the mob) is in its ring.
+        {
+            float const bx = 0.0f, by = 0.0f, tx = 20.0f, ty = 0.0f, sx = 25.0f, sy = 0.0f;
+            CHECK(std::hypot(sx - bx, sy - by) > kMaxAoeAvoidRadiusYd);
+            float fx = 0.0f, fy = 0.0f;
+            CreatureAuraGapCloserLanding(bx, by, tx, ty, 2.0f, fx, fy);
+            float const landingToTarget = std::hypot(fx - tx, fy - ty);
+            CHECK(std::fabs(landingToTarget - 2.0f) < 0.01f);
+            float const radius = CreatureAuraLandingSearchRadius(row, landingToTarget);
+            CHECK(std::hypot(sx - tx, sy - ty) <= radius);              // found by the lookup
+            bool const ringed = CreatureAuraEndPointBlocked(row, std::hypot(sx - fx, sy - fy)); // 7 yd
+            CHECK(ringed);
+            CHECK(CreatureAuraGapCloserVetoed(false, ringed, false, false)); // vetoed
+            // Any creature whose ring holds the landing is inside the search
+            // radius: the worst case stands just inside the hazard ring on
+            // the far side of the landing.
+            float const far = CreatureAuraHazardRadius(row) - 0.01f;
+            CHECK(std::hypot((fx - far) - tx, fy - ty) <= radius);
+            // A sludge 15 yd beyond the mob: outside its ring, allowed.
+            CHECK(!CreatureAuraEndPointBlocked(row, std::hypot(35.0f - fx, 0.0f - fy)));
+            CHECK(CreatureAuraLandingSearchRadius(row, -1.0f) == CreatureAuraHazardRadius(row));
+        }
+    }
+    std::cout << "  [PASS] gap closers and end points stay out of the ring (tank and order exempt)\n";
+
+    // Review #882 round 2: isUseful() runs every tick the trigger fires, so
+    // the landing lookup sits behind a readiness gate and a 1 s memo.
+    {
+        CreatureAuraGapCloserReadiness ready;
+        ready.knowsSpell = true;
+        ready.rangeKnown = true;
+        ready.distance = 20.0f;
+        ready.minRange = 8.0f;
+        ready.maxRange = 25.0f;
+        CHECK(CreatureAuraGapCloserCouldFire(ready)); // Charge from 20 yd, out of combat
+
+        CreatureAuraGapCloserReadiness r = ready;
+        r.onCooldown = true;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // on cooldown: no lookup
+        r = ready;
+        r.distance = 30.0f;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // past 25 yd: no lookup
+        r.distance = 25.0f;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // max range is exclusive, as in isPossible
+        r.distance = 7.9f;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // inside the 8 yd minimum
+        r.distance = 8.0f;
+        CHECK(CreatureAuraGapCloserCouldFire(r));
+        r = ready;
+        r.nonCombatSpell = true;
+        CHECK(CreatureAuraGapCloserCouldFire(r)); // Charge out of combat
+        r.inCombat = true;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // Charge in combat (Arms chase): no lookup
+        r.nonCombatSpell = false;
+        CHECK(CreatureAuraGapCloserCouldFire(r)); // Intercept in combat
+        r.powerShort = true;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // Intercept without 10 rage
+        r = ready;
+        r.lostControl = true;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // stunned
+        r = ready;
+        r.knowsSpell = false;
+        CHECK(!CreatureAuraGapCloserCouldFire(r)); // not learned
+        r = ready;
+        r.rangeKnown = false;
+        r.distance = 40.0f;
+        CHECK(CreatureAuraGapCloserCouldFire(r)); // no range data: never skip the veto on range
+
+        // Memo: one scan per bot and target per second.
+        CreatureAuraLandingMemo memo;
+        uint64_t const mob = 0xF130000000001234ull, other = 0xF130000000005678ull;
+        CHECK(!CreatureAuraLandingMemoHit(memo, mob, 5000));               // empty
+        CreatureAuraLandingMemoStore(memo, mob, 5000, true);
+        CHECK(CreatureAuraLandingMemoHit(memo, mob, 5000) && memo.ringed); // same tick (Charge, then Intercept)
+        CHECK(CreatureAuraLandingMemoHit(memo, mob, 5000 + kCreatureAuraLandingMemoMs - 1));
+        CHECK(!CreatureAuraLandingMemoHit(memo, mob, 5000 + kCreatureAuraLandingMemoMs)); // expired: rescan
+        CHECK(!CreatureAuraLandingMemoHit(memo, other, 5100));             // another target: rescan
+        CreatureAuraLandingMemoStore(memo, other, 5100, false);
+        CHECK(CreatureAuraLandingMemoHit(memo, other, 5200) && !memo.ringed);
+        CHECK(!CreatureAuraLandingMemoHit(memo, mob, 5200));
+        // Millisecond clock wrap: the entry expires on time, it never sticks.
+        CreatureAuraLandingMemoStore(memo, mob, 0xFFFFFF00u, true);
+        CHECK(CreatureAuraLandingMemoHit(memo, mob, 0x00000010u));  // 272 ms later
+        CHECK(!CreatureAuraLandingMemoHit(memo, mob, 0x00000400u)); // 1280 ms later
+    }
+    std::cout << "  [PASS] gap-closer veto looks only when the cast could fire, one scan per second\n";
+
     std::cout << "All creature aura keep-out tests passed.\n";
     return 0;
 }
