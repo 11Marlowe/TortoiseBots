@@ -518,5 +518,10 @@
     "name": "Northwind",
     "map": 0,
     "file": "northwind.webp"
+  },
+  "5642": {
+    "name": "Moonwhisper",
+    "map": 1,
+    "file": "moonwhisper.webp"
   }
 }
