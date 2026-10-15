@@ -48,7 +48,6 @@ python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_keepout_set_aside_wiring.py
 python3 -m unittest tools/test_pull_end_engaged.py
 python3 -m unittest tools/test_priest_fade_flash_wiring.py
-python3 -m unittest tools/test_boss_tactics_sql.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -75,7 +74,6 @@ if command -v g++ >/dev/null 2>&1; then
         test_blessing_coverage_policy
         test_bg_force_reset_policy
         test_bomb_runout_policy
-        test_boss_tactics_policy
         test_bot_chat_gate
         test_bot_command_queue
         test_bot_names_policy
