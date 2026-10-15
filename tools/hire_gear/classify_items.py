@@ -39,6 +39,15 @@ HERE = Path(__file__).resolve().parent
 DATA = HERE / "data"
 OUT = DATA / "item_tiers.csv"
 
+
+def load_snapshot(name, fetcher):
+    """Site snapshots are not vendored: fail clearly before writing anything."""
+    path = DATA / name
+    if not path.exists():
+        sys.exit(f"{path} not found: run {fetcher} first "
+                 "(site snapshots are generated locally, not vendored)")
+    return json.loads(path.read_text())
+
 MAP_TIER = {230: 1, 429: 1, 229: 1, 289: 1, 329: 1, 800: 1,
             309: 2, 509: 2, 532: 2,
             409: 3, 249: 3, 819: 3,  # 819 = Timbermaw Hold (Turtle 20-man)
@@ -578,10 +587,10 @@ def main():
     ids = set()
     bc = json.load(gzip.open(DATA / "bisclassic.json.gz", "rt"))
     ids.update(r["item_id"] for r in bc["rows"])
-    wic = json.loads((DATA / "wowisclassic.json").read_text())
+    wic = load_snapshot("wowisclassic.json", "tools/hire_gear/sources/wowisclassic/scrape.py")
     for r in wic["rows"]:
         ids.update(g["item_id"] for g in r["gear"])
-    ts = json.loads((DATA / "turtle_sheets.json").read_text())
+    ts = load_snapshot("turtle_sheets.json", "tools/hire_gear/sources/turtle_sheets/fetch.py")
     ids.update(r["item_id"] for r in ts["rows"] if r["item_id"])
     ids = sorted(ids)
     print(f"items to classify: {len(ids)}", flush=True)

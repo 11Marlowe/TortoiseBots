@@ -152,6 +152,10 @@ main() {
   export ICON_CACHE_DIR="${ICON_CACHE_DIR:-$HERE/.icon-cache}"
   mkdir -p "$ICON_CACHE_DIR"
 
+  if ! compgen -G "$HERE/maps/*.webp" >/dev/null; then
+    echo "note: no zone maps in $HERE/maps; generate them from your client: python3 $HERE/scripts/gen_zone_maps.py --data \"<WoW>/Data\""
+  fi
+
   echo "starting dashboard (logs: $HERE/dashboard.log) ..."
   nohup "$BIN" > "$HERE/dashboard.log" 2>&1 &
   sleep 2
