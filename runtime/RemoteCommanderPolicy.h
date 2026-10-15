@@ -1336,11 +1336,18 @@ enum class MoveVerdict : uint8_t
 // drops a stay spot farther than that, ReturnToStayPositionAction), with a
 // navmesh path. An incomplete path is the path finder's length cap on a long
 // route and is walked in legs; a complete path that ends far from the point
-// means the point is not on walkable ground.
+// means the point is not on walkable ground. A point within kMoveHereYd of the
+// lead bot is where it already stands (the run leader's gather on the lead's
+// own spot): it is Ok whatever the path finder answers, which can be NoPath at
+// 0 yd.
+constexpr float kMoveHereYd = 3.0f;
+
 inline MoveVerdict CheckMove(MoveFacts const& facts)
 {
     if (facts.maxDistance <= 0.0f || facts.distanceFromLead > facts.maxDistance)
         return MoveVerdict::TooFar;
+    if (facts.distanceFromLead <= kMoveHereYd)
+        return MoveVerdict::Ok;
     if (facts.pathType & kPathNoPath)
         return MoveVerdict::NoPath;
     if (!(facts.pathType & kPathIncomplete) && facts.endOffset > kMaxMoveEndOffset)

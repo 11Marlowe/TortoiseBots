@@ -223,12 +223,14 @@ static void TestResumeRegroups()
     DungeonPlan plan;
     plan.steps = {Step(PlanStepKind::Move, 40)};
     Run r = Start(&plan);
+    r.autoRegroups = kAutoRegroupsPerStep; // the regroups by itself are used up: it pauses
     Facts f = Party(0);
     f.dead = 3;
     f.alive = 2;
     Tick(r, f);
     CHECK(r.state == State::Paused);
     CHECK(Resume(r));
+    CHECK(r.autoRegroups == 0);
     CHECK(Tick(r, f) == "revive party");
     CHECK(r.state == State::Running && r.note.find("regroup") == 0);
     CHECK(Tick(r, f).empty());
@@ -241,6 +243,7 @@ static void TestResumeRegroups()
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
     // Revive that never works is bounded.
     Run r2 = Start(&plan);
+    r2.autoRegroups = kAutoRegroupsPerStep;
     Facts g = Party(0);
     g.dead = 3;
     g.alive = 2;
@@ -468,6 +471,7 @@ static void TestWipeAndLeadDeathPause()
     DungeonPlan plan;
     plan.steps = {Step(PlanStepKind::Move, 40)};
     Run r = Start(&plan);
+    r.autoRegroups = kAutoRegroupsPerStep;
     Facts f = Party(0);
     f.dead = 3;
     f.alive = 2;
@@ -628,6 +632,138 @@ static void TestPlayerOrderAndRefusalPause()
     for (char c : line)
         bars += c == '|';
     CHECK(bars == 7);
+}
+
+// Issue #999: a gather refused (a live ZF run: "cmd move 1420.7 801.1 11.0
+// refused unreachable" with the tank on that very spot) is sent once more,
+// then the pull goes on without it instead of pausing the run.
+static void TestRefusedGatherIsRetriedOnceThenLeftOut()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 30;
+    f.units = {Unit(7, 1, 20), Unit(8, 1, 25)};
+    std::string const gather = "move 0.0 0.0 0.0";
+    CHECK(Tick(r, f) == gather);
+    OrderRefused(r, gather, "unreachable: The lead bot has no walkable path to that point.");
+    CHECK(r.state == State::Running && r.note.find("once more") != std::string::npos);
+    CHECK(Tick(r, f) == gather);
+    OrderRefused(r, gather, "unreachable: The lead bot has no walkable path to that point.");
+    CHECK(r.state == State::Running && r.note.find("without it") != std::string::npos);
+    CHECK(Tick(r, f) == "pullback 7");
+    // The next pull gathers again: the waiver held for one pull only.
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.anyInCombat = false;
+    f.units = {Unit(8, 1, 25)};
+    CHECK(Tick(r, f) == gather);
+    CHECK(r.state == State::Running);
+
+    // A direct step: refused twice, the direct walk goes out ungathered.
+    DungeonPlan direct;
+    direct.steps = {Step(PlanStepKind::MoveDirect, 5)};
+    Run d = Start(&direct);
+    Facts g = Party(0);
+    g.maxMemberYd = 30;
+    CHECK(Tick(d, g) == gather);
+    OrderRefused(d, gather, "unreachable");
+    CHECK(Tick(d, g) == gather);
+    OrderRefused(d, gather, "unreachable");
+    CHECK(d.state == State::Running && Tick(d, g) == "move 5.0 0.0 0.0 direct");
+
+    // Other refusals still pause, also a gather's text sent on an earlier tick.
+    Run o = Start(&plan);
+    OrderRefused(o, gather, "unreachable");
+    CHECK(o.state == State::Paused);
+}
+
+// Issue #999: a wipe regroups by itself once the fight is over (revive,
+// gather), then walks the plan's own move points back from the entrance to
+// the step; it counts the wipe; the third at one step pauses as before.
+static void TestWipeRegroupsAndWalksBack()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 50), Step(PlanStepKind::Move, 90),
+        PullStep(130, {1})};
+    Run r = Start(&plan, 3);
+    Facts f = Party(130);
+    f.dead = 5;
+    f.alive = 0;
+    f.leadAlive = false;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.regroup && r.wipes == 1 && r.autoRegroups == 1);
+    CHECK(r.note.find("(wipe 1)") != std::string::npos);
+    CHECK(Tick(r, f) == "revive party");
+    for (int i = 0; i < 30; ++i)
+        Tick(r, f); // the corpse run: still one wipe
+    CHECK(r.wipes == 1 && r.state == State::Running);
+    // Alive at the entrance, spread: gather, then the walk back.
+    f = Party(0);
+    f.maxMemberYd = 40;
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    f.maxMemberYd = 5;
+    CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
+    CHECK(r.walkBack && r.note.find("walk back") == 0);
+    f.leadX = 10;
+    CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    // A point the navmesh refuses now is passed for the next one.
+    OrderRefused(r, "move 50.0 0.0 0.0", "unreachable");
+    CHECK(r.state == State::Running);
+    CHECK(Tick(r, f) == "move 90.0 0.0 0.0");
+    f.leadX = 90;
+    f.units = {Unit(7, 1, 40)};
+    CHECK(Tick(r, f) == "pullback 7");
+    CHECK(!r.walkBack && r.step == 3);
+
+    // Second wipe at the step: regroups once more; the third pauses.
+    f = Party(130);
+    f.dead = 5;
+    f.alive = 0;
+    f.leadAlive = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.wipes == 2 && r.autoRegroups == 2);
+    f = Party(130); // revived where it stands, near the step: no walk back
+    f.units = {Unit(7, 1, 40)};
+    CHECK(Tick(r, f) == "pullback 7");
+    CHECK(!r.regroup && !r.walkBack);
+    f.dead = 5;
+    f.alive = 0;
+    f.leadAlive = false;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.wipes == 3 && r.note.find("did not hold") != std::string::npos);
+    // A resume gives the step its regroups back; a new step too.
+    CHECK(Resume(r) && r.autoRegroups == 0);
+}
+
+// Three dead while the other two still fight: the fight goes on (bounded by
+// its ceiling), the regroup starts when it ends; no wipe is counted.
+static void TestThreeDeadRegroupAfterTheFight()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.dead = 3;
+    f.alive = 2;
+    f.leadAlive = false;
+    f.anyInCombat = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && !r.regroup && r.note.find("regroup follows") != std::string::npos);
+    f.anyInCombat = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.regroup && r.wipes == 0);
+    CHECK(Tick(r, f) == "revive party");
+    // No earlier move point: nothing to walk back, the step goes on.
+    f = Party(0);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(!r.walkBack);
+    // The done note carries the wipes.
+    r.wipes = 2;
+    f.leadX = 40;
+    Tick(r, f);
+    CHECK(r.state == State::Done && r.note == "plan done (2 wipes)");
 }
 
 static void TestStepIdleCeiling()
@@ -798,6 +934,9 @@ int main()
     TestStepIdleCeiling();
     TestTeamFlags();
     TestOtherTeamBossIsLookedAtAndFoughtUnlessFriendly();
+    TestRefusedGatherIsRetriedOnceThenLeftOut();
+    TestWipeRegroupsAndWalksBack();
+    TestThreeDeadRegroupAfterTheFight();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
