@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.0.1 (2026-10-15)
+
+### Licensing & Contributions
+- Added full AGPL-3.0 `LICENSE` file, matching the tortoise-wow core, so the module’s distribution terms are explicit. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- `LICENCE.md` now states original TortoiseBots work is © Sagiroth and contributors under AGPL-3.0-or-later, with contributions accepted on the same inbound=outbound terms. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- `CONTRIBUTING.md` gains a “Licence of contributions” section so contributors know exactly what they’re agreeing to. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- `README.md` licence section rewritten to clarify AGPL obligations for anyone distributing or running modified versions. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- PR template adds licence checkboxes to catch compliance gaps before merge. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- Practical effect: if you distribute the module — or run a modified version on a server players connect to — you must publish the full source of that version. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+
+---
+
 ## v1.0.0 (2026-10-14)
 
 Stable release with Windows and Linux CI in place.
