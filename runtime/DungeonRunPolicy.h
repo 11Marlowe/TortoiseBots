@@ -157,9 +157,10 @@ struct Facts
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots but the lead bot (gather stragglers)
-    // The lead bot has a navmesh path back to the run's anchor (Run::anchor*);
-    // the glue reads it only when the anchor is known, the lead bot is away
-    // from it and on its floor. True when not read.
+    // The lead bot has a navmesh path back to the run's anchor (Run::anchor*).
+    // Read lazily: only on a tick after the policy asked for it
+    // (Run::anchorPathWanted, set when a gather needs the answer).
+    bool anchorPathRead = false;
     bool anchorReachable = true;
     // A walk back straight to its last point: the navmesh path the glue read
     // for the next hop passes an uncleared pull or boss group
@@ -220,6 +221,10 @@ struct Run
     // bot off it (another floor, no path back), not where the lead bot stands.
     bool anchorKnown = false;
     float anchorX = 0.0f, anchorY = 0.0f, anchorZ = 0.0f;
+    bool anchorPathWanted = false; // a gather needs the lead bot's path back read (next tick)
+    // Pull and boss steps left without being cleared (skipped, out of reach):
+    // a direct walk back keeps clear of them too.
+    std::unordered_set<std::size_t> notCleared;
     // Walk.
     float walkX = 0.0f, walkY = 0.0f, walkZ = 0.0f;
     std::uint32_t walkTries = 0;
@@ -396,14 +401,32 @@ inline bool IsMovePoint(const PlanStep& s)
     return s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect;
 }
 
-// The lead bot stands off the run's anchor: more than kStragglerDzYd above or
-// below it (a fight chased it up a ridge), or with no navmesh path back.
-inline bool LeadOffAnchor(const Run& r, const Facts& f)
+// Where the lead bot stands against the run's anchor: on it (or no anchor),
+// off it (more than kStragglerDzYd above or below: a fight chased it up a
+// ridge; or no navmesh path back), or not known yet (away on the anchor's
+// floor and the path back not read: asked for, the glue reads it next tick).
+enum class AnchorState : std::uint8_t { On, Off, Unknown };
+
+inline AnchorState CheckAnchor(Run& r, const Facts& f)
 {
     if (!r.anchorKnown)
-        return false;
+        return AnchorState::On;
     float const dz = f.leadZ > r.anchorZ ? f.leadZ - r.anchorZ : r.anchorZ - f.leadZ;
-    return dz > kStragglerDzYd || !f.anchorReachable;
+    if (dz > kStragglerDzYd)
+        return AnchorState::Off;
+    if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.anchorX, r.anchorY, r.anchorZ) <= kArriveYd)
+        return AnchorState::On;
+    if (!f.anchorPathRead)
+    {
+        r.anchorPathWanted = true;
+        return AnchorState::Unknown;
+    }
+    return f.anchorReachable ? AnchorState::On : AnchorState::Off;
+}
+
+inline bool LeadOffAnchor(Run& r, const Facts& f)
+{
+    return CheckAnchor(r, f) == AnchorState::Off;
 }
 
 // Sends a gather: the lead bot holds where it stands and the others form up on
@@ -523,6 +546,8 @@ inline bool Skip(Run& r)
         r.missing.insert(r.pendingMissing);
     if (s->kind == PlanStepKind::Open)
         r.skippedOpenStep = r.step;
+    if (s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Boss)
+        r.notCleared.insert(r.step);
     // The step's pull state goes with the step (NextStep -> ResetStep); a
     // target refused as invalid-target is already out of reach for the run.
     std::size_t const skipped = r.step + 1;
@@ -646,16 +671,18 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     std::string& order)
 {
     float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
-    auto arrived = [&]
+    // The anchor is where the lead bot actually stands on arrival: the point,
+    // or, for a stalled arrival short of it (a point off the mesh), its own spot.
+    auto arrived = [&](float ax, float ay, float az)
     {
         r.anchorKnown = true;
-        r.anchorX = x;
-        r.anchorY = y;
-        r.anchorZ = z;
+        r.anchorX = ax;
+        r.anchorY = ay;
+        r.anchorZ = az;
         return true;
     };
     if (dist <= kArriveYd)
-        return arrived();
+        return arrived(x, y, z);
     bool const fresh = r.phase != Phase::Walk || r.walkX != x || r.walkY != y || r.walkZ != z;
     if (fresh)
     {
@@ -676,7 +703,7 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkStillMs = 0;
     }
     if (r.walkStillMs >= kWalkRetryMs && dist <= kStalledArriveYd)
-        return arrived();
+        return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs)
     {
         if (r.walkTries >= kWalkTries)
@@ -722,12 +749,18 @@ inline std::size_t OpenUnits(const Run& r, const std::vector<UnitFact>& units)
 // Gathers the party, then sends `pullback <guid>`.
 inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& order, bool walkBack = false)
 {
-    if ((f.maxMemberYd > kGatherYd || LeadOffAnchor(r, f)) && !r.gatherWaived)
+    AnchorState const anchor = r.gatherWaived ? AnchorState::On : CheckAnchor(r, f);
+    if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
+    {
+        r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
+        return; // the glue reads the path next tick
+    }
+    if ((f.maxMemberYd > kGatherYd || anchor == AnchorState::Off) && !r.gatherWaived)
     {
         if (r.phase != Phase::Gather)
         {
             EnterPhase(r, Phase::Gather);
-            r.note = LeadOffAnchor(r, f) ? "gathering back at " + Num(r.anchorX) + " " + Num(r.anchorY) + " " +
+            r.note = anchor == AnchorState::Off ? "gathering back at " + Num(r.anchorX) + " " + Num(r.anchorY) + " " +
                 Num(r.anchorZ) + " before a pull (the fight left the lead bot off the way)"
                                          : std::string("gathering before a pull");
             SendGather(r, f, order);
@@ -837,22 +870,22 @@ inline float SegmentDistance(const PathPoint& a, const PathPoint& b, float px, f
 }
 
 // Whether a path passes within a pull or boss group's radius plus
-// kPackClearanceYd of its point, for every group not cleared yet (the step
-// `from` and later ones, of the party's team), but one by the path's end. The shortest navmesh path back
+// kPackClearanceYd of its point, for every group not cleared yet: the step
+// `from` and later ones, and earlier ones left without being cleared
+// (`notCleared`: skipped, out of reach), of the party's team. The whole path
+// counts, its last leg too. The shortest navmesh path back
 // ignores packs: a straight walk past an uncleared one body-pulls it.
 inline bool PathCrossesUnclearedPack(const DungeonPlan& plan, std::size_t from, const std::vector<PathPoint>& path,
-    std::uint32_t team)
+    std::uint32_t team, const std::unordered_set<std::size_t>& notCleared = {})
 {
-    for (std::size_t i = from; i < plan.steps.size(); ++i)
+    for (std::size_t i = 0; i < plan.steps.size(); ++i)
     {
+        if (i < from && !notCleared.count(i))
+            continue; // cleared before
         const PlanStep& g = plan.steps[i];
         if ((g.kind != PlanStepKind::Pull && g.kind != PlanStepKind::Boss) || !ai::StepForTeam(g, team))
             continue;
         float const reach = g.radius + kPackClearanceYd;
-        // A group by the plan point the path ends at is where the replay
-        // goes too (the run walked the party there before): not a reason.
-        if (!path.empty() && ai::PlanDistance(path.back().x, path.back().y, path.back().z, g.x, g.y, g.z) <= reach)
-            continue;
         if (path.size() == 1 && ai::PlanDistance(path[0].x, path[0].y, path[0].z, g.x, g.y, g.z) <= reach)
             return true;
         for (std::size_t k = 1; k < path.size(); ++k)
@@ -1086,6 +1119,13 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     if (pick)
     {
         r.bossWaitMs = 0;
+        // The way back to the anchor not known yet: read it first (one tick),
+        // before this pull counts as one.
+        if (r.phase != Phase::Gather && !r.gatherWaived && CheckAnchor(r, f) == AnchorState::Unknown)
+        {
+            r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
+            return;
+        }
         // Pulls that kill nothing, three in a row: the rest of the pack is
         // out of reach (a pit, a ledge). It is left, not counted cleared.
         std::size_t const open = OpenUnits(r, f.units);
@@ -1102,6 +1142,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             for (const UnitFact& u : f.units)
                 if (u.hostile && !r.passed.count(u.guid))
                     r.unreachable.insert(u.guid);
+            r.notCleared.insert(r.step);
             NextStep(r, std::string(s.kind == PlanStepKind::Boss ? "boss" : "pack") + " skipped, not cleared: " +
                 std::to_string(open) + " units out of reach after " + std::to_string(kFruitlessPulls) +
                 " pulls that killed nothing");
@@ -1144,7 +1185,10 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     }
     std::string const what = s.kind == PlanStepKind::Boss ? "boss" : "pack";
     if (outOfReach)
+    {
+        r.notCleared.insert(r.step);
         NextStep(r, what + " skipped, not cleared: " + std::to_string(outOfReach) + " units out of reach");
+    }
     else if (friendlyLeft)
         NextStep(r, what + " is friendly to this party: left alone");
     else if (s.kind != PlanStepKind::Boss)
@@ -1357,6 +1401,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     }
     r.phaseMs += dt;
     r.gatherOrder.clear(); // only this tick's gather can be refused next
+    if (f.anchorPathRead)
+        r.anchorPathWanted = false;
 
     // A wipe (the whole party dead) counts once, however long it lasts.
     bool const allDead = f.total > 0 && f.alive == 0;

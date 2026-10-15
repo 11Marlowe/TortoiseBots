@@ -1183,6 +1183,10 @@ static void TestGatherGoesBackToTheAnchorAfterARidgeChase()
     p.anchorX = 1622; p.anchorY = 1051; p.anchorZ = 18;
     Facts g = Party(0);
     g.leadX = 1627; g.leadY = 1078; g.leadZ = 22;
+    g.units = {Unit(2, 5650, 30)};
+    // The path back is read lazily: asked for on the first tick, no pull yet.
+    CHECK(Tick(p, g).empty() && p.anchorPathWanted && p.pulls == 0 && p.fruitlessPulls == 0);
+    g.anchorPathRead = true;
     g.anchorReachable = false;
     g.units = {Unit(2, 5650, 30)};
     CHECK(Tick(p, g) == "move 1622.0 1051.0 18.0");
@@ -1192,6 +1196,7 @@ static void TestGatherGoesBackToTheAnchorAfterARidgeChase()
     q.anchorX = 1622; q.anchorY = 1051; q.anchorZ = 18;
     Facts h = Party(0);
     h.leadX = 1630; h.leadY = 1060; h.leadZ = 20;
+    h.anchorPathRead = true;
     h.maxMemberYd = 30;
     h.units = {Unit(2, 5650, 30)};
     CHECK(Tick(q, h) == "move 1630.0 1060.0 20.0");
@@ -1214,9 +1219,6 @@ static void TestDirectWalkBackAvoidsUnclearedPacks()
     CHECK(PathCrossesUnclearedPack(plan, 2, straight, 0));
     CHECK(!PathCrossesUnclearedPack(plan, 2, around, 0));
     CHECK(!PathCrossesUnclearedPack(plan, 4, straight, 0)); // that pack is cleared (an earlier step)
-    // A pack by the path's end (the plan point) does not count.
-    std::vector<PathPoint> toPack = {{0, 0, 0}, {60, 5, 0}};
-    CHECK(!PathCrossesUnclearedPack(plan, 2, toPack, 0));
 
     Run r = Start(&plan, 2);
     Facts f = Party(0);
@@ -1235,6 +1237,36 @@ static void TestDirectWalkBackAvoidsUnclearedPacks()
     f.seen = true;
     f.directPathCrossesPack = false;
     CHECK(Tick(r, f) == "move 30.0 0.0 0.0");
+}
+
+// Cold review on #1000: a stalled arrival short of the point (off the mesh)
+// anchors where the lead bot stands, not at the unreachable point; skipped
+// packs count in the walk back's pack check, the path's last leg too.
+static void TestStalledAnchorAndSkippedPacks()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    f.leadX = 35; // 5 yd short, stuck
+    for (std::uint32_t i = 0; i <= kWalkRetryMs / kTickMs + 1 && r.step == 0; ++i)
+        Tick(r, f);
+    CHECK(r.step == 1 && r.anchorKnown && r.anchorX == 35.0f);
+
+    DungeonPlan p;
+    PlanStep skipped = PullStep(60, {9});
+    skipped.y = 20;
+    ai::NormalizePlanStep(skipped);
+    PlanStep atEnd = PullStep(120, {8});
+    ai::NormalizePlanStep(atEnd);
+    p.steps = {skipped, Step(PlanStepKind::Move, 120), atEnd, Step(PlanStepKind::Move, 200)};
+    std::vector<PathPoint> straight = {{0, 0, 0}, {119, 0, 0}};
+    std::unordered_set<std::size_t> notCleared;
+    CHECK(!PathCrossesUnclearedPack(p, 3, straight, 0, notCleared)); // both groups before step 3, cleared
+    notCleared.insert(0);
+    CHECK(PathCrossesUnclearedPack(p, 3, straight, 0, notCleared)); // the skipped one counts
+    CHECK(PathCrossesUnclearedPack(p, 2, straight, 0));             // a group by the path's end counts too
 }
 
 static void TestStepIdleCeiling()
@@ -1484,6 +1516,7 @@ int main()
     TestResumeFromTheEntranceWalksBack();
     TestGatherGoesBackToTheAnchorAfterARidgeChase();
     TestDirectWalkBackAvoidsUnclearedPacks();
+    TestStalledAnchorAndSkippedPacks();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

@@ -8684,13 +8684,13 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         }
     }
 
-    // The lead bot's way back to the run's anchor (DungeonRun::LeadOffAnchor):
-    // one navmesh query, only while the lead bot is away from the anchor and on
-    // its floor (another floor already decides it).
-    if (slot.run.anchorKnown && lead->IsAlive() && lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
+    // The lead bot's way back to the run's anchor (DungeonRun::CheckAnchor):
+    // one navmesh query, only on a tick after a gather asked for it.
+    if (slot.run.anchorPathWanted && slot.run.anchorKnown && lead->IsAlive() && lead->IsInWorld() &&
+        lead->GetMapId() == slot.run.plan->map)
     {
         float const ax = slot.run.anchorX, ay = slot.run.anchorY, az = slot.run.anchorZ;
-        if (DistanceTo(lead, ax, ay, az) > kArriveYd && std::fabs(lead->GetPositionZ() - az) <= kStragglerDzYd)
+        f.anchorPathRead = true;
         {
             PathFinder path(lead);
             path.calculate(ax, ay, az, false);
@@ -8790,7 +8790,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY,
                         f.approachZ, direct ? &whole : nullptr);
                     if (direct && f.approachKnown)
-                        f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team);
+                        f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,
+                            slot.run.notCleared);
                 }
                 if (!slot.run.walkBack)
                     break;

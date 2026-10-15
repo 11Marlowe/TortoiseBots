@@ -66,12 +66,15 @@ class RunLeaderWiringTest(unittest.TestCase):
 
     def test_gather_anchor_path_is_read(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("if (DistanceTo(lead, ax, ay, az) > kArriveYd && std::fabs(lead->GetPositionZ() - az) <= kStragglerDzYd)", facts)
+        # Read lazily: only after the policy asked for it.
+        self.assertIn("if (slot.run.anchorPathWanted && slot.run.anchorKnown && lead->IsAlive() && lead->IsInWorld() &&", facts)
+        self.assertIn("f.anchorPathRead = true;", facts)
         self.assertIn("f.anchorReachable = !(type & RemoteCommander::kPathNoPath) &&", facts)
 
     def test_direct_walk_back_checks_the_path_against_packs(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
-        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team);", facts)
+        self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,\n"
+                      "                            slot.run.notCleared);", facts)
 
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
