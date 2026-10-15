@@ -8680,6 +8680,25 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         }
     }
 
+    // The lead bot's way back to the run's anchor (DungeonRun::LeadOffAnchor):
+    // one navmesh query, only while the lead bot is away from the anchor and on
+    // its floor (another floor already decides it).
+    if (slot.run.anchorKnown && lead->IsAlive() && lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
+    {
+        float const ax = slot.run.anchorX, ay = slot.run.anchorY, az = slot.run.anchorZ;
+        if (DistanceTo(lead, ax, ay, az) > kArriveYd && std::fabs(lead->GetPositionZ() - az) <= kStragglerDzYd)
+        {
+            PathFinder path(lead);
+            path.calculate(ax, ay, az, false);
+            uint32 const type = static_cast<uint32>(path.getPathType());
+            Vector3 const end = path.getActualEndPosition();
+            float const offset = std::sqrt((end.x - ax) * (end.x - ax) + (end.y - ay) * (end.y - ay) +
+                (end.z - az) * (end.z - az));
+            f.anchorReachable = !(type & RemoteCommander::kPathNoPath) &&
+                ((type & RemoteCommander::kPathIncomplete) || offset <= RemoteCommander::kMaxMoveEndOffset);
+        }
+    }
+
     // The current step, or during a walk back after a regroup the move point
     // it replays (its hop pulls are read for that point).
     ai::PlanStep const* step = FactStep(slot.run);

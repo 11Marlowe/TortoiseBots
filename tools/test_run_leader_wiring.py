@@ -64,6 +64,11 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (bossEntry && lead->GetDistance(creature) <= kSeeYd)\n"
                       "                            f.bossDeadNearLead = true;", facts)
 
+    def test_gather_anchor_path_is_read(self):
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("if (DistanceTo(lead, ax, ay, az) > kArriveYd && std::fabs(lead->GetPositionZ() - az) <= kStragglerDzYd)", facts)
+        self.assertIn("f.anchorReachable = !(type & RemoteCommander::kPathNoPath) &&", facts)
+
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("ai::PlanStep const* step = FactStep(slot.run);", facts)

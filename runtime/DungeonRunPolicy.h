@@ -157,6 +157,10 @@ struct Facts
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots but the lead bot (gather stragglers)
+    // The lead bot has a navmesh path back to the run's anchor (Run::anchor*);
+    // the glue reads it only when the anchor is known, the lead bot is away
+    // from it and on its floor. True when not read.
+    bool anchorReachable = true;
     std::uint32_t minHealthPct = 100;   // living bots
     std::uint32_t minHealerManaPct = 100;
     std::uint32_t minManaPct = 100;     // mana users that are not healers
@@ -207,6 +211,11 @@ struct Run
     bool fighting = false;
     std::uint32_t fightMs = 0;
     std::uint32_t restRepeatMs = 0;
+    // The last point the run itself walked the party to (a move, an approach
+    // hop, a stand point): a gather goes back there when a fight left the lead
+    // bot off it (another floor, no path back), not where the lead bot stands.
+    bool anchorKnown = false;
+    float anchorX = 0.0f, anchorY = 0.0f, anchorZ = 0.0f;
     // Walk.
     float walkX = 0.0f, walkY = 0.0f, walkZ = 0.0f;
     std::uint32_t walkTries = 0;
@@ -383,10 +392,24 @@ inline bool IsMovePoint(const PlanStep& s)
     return s.kind == PlanStepKind::Move || s.kind == PlanStepKind::MoveDirect;
 }
 
-// Sends a gather: the lead bot holds where it stands and the others form up on it.
+// The lead bot stands off the run's anchor: more than kStragglerDzYd above or
+// below it (a fight chased it up a ridge), or with no navmesh path back.
+inline bool LeadOffAnchor(const Run& r, const Facts& f)
+{
+    if (!r.anchorKnown)
+        return false;
+    float const dz = f.leadZ > r.anchorZ ? f.leadZ - r.anchorZ : r.anchorZ - f.leadZ;
+    return dz > kStragglerDzYd || !f.anchorReachable;
+}
+
+// Sends a gather: the lead bot holds where it stands and the others form up on
+// it; a lead bot off the anchor walks back to the anchor first and the party
+// gathers there (19z5 step 83: a gather on the lead's own spot pinned the party
+// on a hilltop with no path down).
 inline void SendGather(Run& r, const Facts& f, std::string& order)
 {
-    order = MoveOrder(f.leadX, f.leadY, f.leadZ, false);
+    order = LeadOffAnchor(r, f) ? MoveOrder(r.anchorX, r.anchorY, r.anchorZ, false)
+                                : MoveOrder(f.leadX, f.leadY, f.leadZ, false);
     r.gatherOrder = order;
     SampleMembers(r, f);
 }
@@ -429,6 +452,7 @@ inline bool IsPathRefusal(const std::string& answer)
 
 inline void BeginRegroup(Run& r)
 {
+    r.anchorKnown = false; // the party comes back to life elsewhere
     r.regroup = true;
     r.reviveSent = false;
     r.regroupGatherSent = false;
@@ -618,8 +642,16 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     std::string& order)
 {
     float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
-    if (dist <= kArriveYd)
+    auto arrived = [&]
+    {
+        r.anchorKnown = true;
+        r.anchorX = x;
+        r.anchorY = y;
+        r.anchorZ = z;
         return true;
+    };
+    if (dist <= kArriveYd)
+        return arrived();
     bool const fresh = r.phase != Phase::Walk || r.walkX != x || r.walkY != y || r.walkZ != z;
     if (fresh)
     {
@@ -640,7 +672,7 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkStillMs = 0;
     }
     if (r.walkStillMs >= kWalkRetryMs && dist <= kStalledArriveYd)
-        return true;
+        return arrived();
     if (r.walkStillMs >= kWalkRetryMs)
     {
         if (r.walkTries >= kWalkTries)
@@ -686,12 +718,14 @@ inline std::size_t OpenUnits(const Run& r, const std::vector<UnitFact>& units)
 // Gathers the party, then sends `pullback <guid>`.
 inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& order, bool walkBack = false)
 {
-    if (f.maxMemberYd > kGatherYd && !r.gatherWaived)
+    if ((f.maxMemberYd > kGatherYd || LeadOffAnchor(r, f)) && !r.gatherWaived)
     {
         if (r.phase != Phase::Gather)
         {
             EnterPhase(r, Phase::Gather);
-            r.note = "gathering before a pull";
+            r.note = LeadOffAnchor(r, f) ? "gathering back at " + Num(r.anchorX) + " " + Num(r.anchorY) + " " +
+                Num(r.anchorZ) + " before a pull (the fight left the lead bot off the way)"
+                                         : std::string("gathering before a pull");
             SendGather(r, f, order);
         }
         else if (r.phaseMs >= kGatherCapMs)

@@ -1136,6 +1136,67 @@ static void TestResumeFromTheEntranceWalksBack()
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
 }
 
+// 19z5 steps 83-84: the approach hop left the party at about 1622 1051 z 18;
+// the tank chased over a ridge to 1625 1075 z 44 in the fight, and the next
+// gather (on the lead's own spot) pinned the party on the hilltop, where no
+// path led down. A gather now goes back to the run's anchor (the last point
+// the run walked to) when the lead bot is off it, and gathers there.
+static void TestGatherGoesBackToTheAnchorAfterARidgeChase()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(1639.4f, {5649, 5650})};
+    plan.steps[0].y = 1106.8f;
+    plan.steps[0].z = 9.0f;
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadX = 1584; f.leadY = 1082; f.leadZ = 10;
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 1622; f.approachY = 1051; f.approachZ = 18;
+    CHECK(Tick(r, f) == "move 1622.0 1051.0 18.0");
+    f.leadX = 1622; f.leadY = 1051; f.leadZ = 18;
+    Tick(r, f); // at the hop: the anchor
+    CHECK(r.anchorKnown && r.anchorZ == 18.0f);
+    // In sight; the fight drags the tank up the ridge.
+    f.seen = true;
+    f.units = {Unit(1, 5649, 25)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.leadX = 1625; f.leadY = 1075; f.leadZ = 44;
+    Tick(r, f);
+    f.anyInCombat = false;
+    f.units = {Unit(2, 5650, 30)};
+    f.maxMemberYd = 29.1f;
+    // The gather walks the lead bot back down to the anchor, not up the hill.
+    CHECK(Tick(r, f) == "move 1622.0 1051.0 18.0");
+    CHECK(r.phase == Phase::Gather && r.note.find("gathering back at 1622.0 1051.0 18.0") == 0);
+    // Even with the party close, no pull while the lead bot is still up there.
+    f.maxMemberYd = 5;
+    CHECK(Tick(r, f).empty());
+    // Back at the anchor and gathered: the pull goes out.
+    f.leadX = 1622; f.leadY = 1052; f.leadZ = 18;
+    CHECK(Tick(r, f) == "pullback 2");
+
+    // Same floor but no navmesh path back (a pocket): back to the anchor too.
+    Run p = Start(&plan);
+    p.anchorKnown = true;
+    p.anchorX = 1622; p.anchorY = 1051; p.anchorZ = 18;
+    Facts g = Party(0);
+    g.leadX = 1627; g.leadY = 1078; g.leadZ = 22;
+    g.anchorReachable = false;
+    g.units = {Unit(2, 5650, 30)};
+    CHECK(Tick(p, g) == "move 1622.0 1051.0 18.0");
+    // On the anchor's floor with a path back: the gather stays on the lead's spot.
+    Run q = Start(&plan);
+    q.anchorKnown = true;
+    q.anchorX = 1622; q.anchorY = 1051; q.anchorZ = 18;
+    Facts h = Party(0);
+    h.leadX = 1630; h.leadY = 1060; h.leadZ = 20;
+    h.maxMemberYd = 30;
+    h.units = {Unit(2, 5650, 30)};
+    CHECK(Tick(q, h) == "move 1630.0 1060.0 20.0");
+}
+
 static void TestStepIdleCeiling()
 {
     DungeonPlan plan;
@@ -1381,6 +1442,7 @@ int main()
     TestFightCeilingWithFourDeadRegroups();
     TestStragglerOnAnotherFloorIsSummoned();
     TestResumeFromTheEntranceWalksBack();
+    TestGatherGoesBackToTheAnchorAfterARidgeChase();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
