@@ -75,16 +75,13 @@ jobs:
             libace-dev default-libmysqlclient-dev libssl-dev \
             zlib1g-dev libbz2-dev libboost-dev
 
+      # PCH is off: GCC rebuilds the precompiled header with different bytes
+      # on every run, so ccache could never reuse anything compiled with it.
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: linux-${{ env.CORE_REF }}
           max-size: 2G
-
-      # The core builds with precompiled headers; without these ccache marks
-      # almost every compile "uncacheable" (same settings as the local builder).
-      - name: Let ccache cache PCH builds
-        run: echo "CCACHE_SLOPPINESS=pch_defines,time_macros" >> "$GITHUB_ENV"
 
       - name: Configure
         working-directory: core
@@ -95,9 +92,9 @@ jobs:
             -DUSE_EXTRACTORS=OFF \
             -DALLOW_TURTLE_ADDONS=ON \
             -DMODULES=static -DMODULE_TORTOISEBOTS=static \
+            -DUSE_PCH=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
-            -DCMAKE_CXX_FLAGS=-fpch-preprocess \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
             -DCMAKE_SHARED_LINKER_FLAGS=-fuse-ld=lld
 
