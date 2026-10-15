@@ -946,7 +946,13 @@ def main():
     # rows (oh/ranged missing on some pages) align from the BACK: the page
     # always ends with feet/ring/ring/trinket/trinket, so offset =
     # len(order) - len(gear).
-    snap = json.load(open(a.snapshot))
+    # The snapshot is generated locally (sources/wowisclassic/scrape.py), not
+    # vendored; without it check 7 is skipped and the rest still runs.
+    snap_found = Path(a.snapshot).exists()
+    snap = json.load(open(a.snapshot)) if snap_found else {"rows": [], "gear_order": []}
+    if not snap_found:
+        print(f"check 7 SKIP: {a.snapshot} not found "
+              "(run sources/wowisclassic/scrape.py first)", flush=True)
     snap_idx = {}
     for r in snap["rows"]:
         snap_idx[(r["class"], r["spec"], r["phase"])] = r
@@ -997,7 +1003,10 @@ def main():
     L.append("|---|---|---|")
     for c in ("1-equip", "2-sourcetier", "3-forbidden", "4-unique",
               "5-stats", "6-progression", "8-completeness", "7-crosscheck"):
-        if c == "7-crosscheck":
+        if c == "7-crosscheck" and not snap_found:
+            L.append(f"| {c} | SKIP | no snapshot (run "
+                     "sources/wowisclassic/scrape.py) |")
+        elif c == "7-crosscheck":
             pct = (100.0 * agree_n / agree_d) if agree_d else 0
             L.append(f"| {c} | review-only | agree {agree_n}/{agree_d} "
                      f"({pct:.1f}%) |")

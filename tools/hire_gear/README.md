@@ -16,9 +16,14 @@ the ladder-tier table it will select from.
   all class/spec/phase pages (pre-raid, 1..6) → `data/wowisclassic.json`.
 - `sources/turtle_sheets/fetch.py` — Turtle class workbooks (xlsx export;
   gear hyperlinks are the Turtle item IDs) → `data/turtle_sheets.json`.
+- Those two site snapshots are **not in the repository** (git-ignored since
+  2026-10-15). Run `scrape.py` / `fetch.py` locally before `generate.py`,
+  `classify_items.py` or `enchants/build.py`; without them those tools stop
+  with a "run … first" error and write nothing. The applied SQL keeps only
+  item ids and an origin label per row.
 - `classify_items.py` — ladder tier 0..7 per item id from the world DB
   → `data/item_tiers.csv`.
-- `turtle_sheets.json`: `{class, tab, list_name(Naxx/K40), slot, item_name,
+- `turtle_sheets.json` (local): `{class, tab, list_name(Naxx/K40), slot, item_name,
   item_id, enchant}` — Naxx + Tower-of-Karazhan-40 lists only.
 - `item_tiers.csv`: `item_id,name,tier(0..7),flags,evidence` — lowest tier
   wins; flags `rep`/`pvp`/`legendary`/`unobtainable`. Ladder: 0 base,
@@ -62,16 +67,17 @@ sibling tier.
 
 - BestInSlotClassic data: GPLv2, (c) Warkdev + class-Discord authors; see
   `sources/bisclassic/LICENSE.txt`. Facts (rankings) parsed into JSON.
-- wowisclassic.com pages: cross-check snapshot (item/enchant ids per slot).
+- wowisclassic.com pages: cross-check snapshot (item/enchant ids per slot);
+  not vendored, generated locally by `scrape.py`.
 - Turtle WoW class gear sheets (community theorycraft, "Created by Ash of
-  Bad Apples …"): Naxx/K40 tier overlay; ask authors before vendoring
-  wholesale into game data.
+  Bad Apples …"): Naxx/K40 tier overlay; not vendored, generated locally by
+  `fetch.py`.
 
 ## Audit (`audit.py`, issue #490)
 
 Independent checker for the generated `data/hire_gear.csv`. Derives
-everything itself from the world DB (read-only) + the CSV + the
-wowisclassic snapshot. Deliberately does NOT read `generate.py`,
+everything itself from the world DB (read-only) + the CSV + the local
+wowisclassic snapshot (if present). Deliberately does NOT read `generate.py`,
 `classify_items.py` or `item_tiers.csv`.
 
 ```sh
@@ -95,7 +101,8 @@ name prefixes, legendary), 4 ANY duplicate item id in one set FAILs
 5 spec stat sanity (WARN; threat/DPS procs count for tanks, mana procs
 for healers, trigger-spell text included), 6 progression (avg ilvl per
 tier must not decrease; slot downgrades > 5 WARN; source-tier reverts
-WARN as 6-revert), 7 wowisclassic cross-check (review-only agreement %),
+WARN as 6-revert), 7 wowisclassic cross-check (review-only agreement %; SKIP when the local
+snapshot is missing),
 8 completeness (every full set covers slots 0,1,2,4–17; single-row
 racial overrides exempt), 9 new content (tiers 3/5/6/7 need ≥3 own-tier
 items per set, WARN).
