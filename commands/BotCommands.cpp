@@ -8665,6 +8665,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             MemberFact member;
             member.name = bot->GetName();
             member.yd = yd;
+            member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
             f.members.push_back(member);
         }
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
@@ -8751,17 +8752,37 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         case ai::PlanStepKind::Move:
         case ai::PlanStepKind::MoveDirect:
         {
+            // The point the hop pulls are read around: the step's point when in
+            // sight; during a walk back out of sight, the next approach hop (or
+            // the one being walked), so each hop gets the pull-before-move check.
+            float cx = step->x, cy = step->y, cz = step->z;
             if (!f.seen)
             {
                 if (wantsApproach)
                     f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
-                break;
+                if (!slot.run.walkBack)
+                    break;
+                if (f.approachKnown)
+                {
+                    cx = f.approachX;
+                    cy = f.approachY;
+                    cz = f.approachZ;
+                }
+                else if (slot.run.phase == Phase::Walk)
+                {
+                    cx = slot.run.walkX;
+                    cy = slot.run.walkY;
+                    cz = slot.run.walkZ;
+                }
+                else
+                    break;
             }
+            float const toCentre = DistanceTo(lead, cx, cy, cz);
             std::list<Unit*> hostiles;
-            HostileCreaturesAround(lead, std::min(toPoint + kHopPullYd, 2.0f * kSeeYd), hostiles);
+            HostileCreaturesAround(lead, std::min(toCentre + kHopPullYd, 2.0f * kSeeYd), hostiles);
             for (Unit* unit : hostiles)
             {
-                if (DistanceTo(unit, step->x, step->y, step->z) > kHopPullYd || unit->IsInCombat())
+                if (DistanceTo(unit, cx, cy, cz) > kHopPullYd || unit->IsInCombat())
                     continue;
                 if (ai::OwnedByLaterStep(*slot.run.plan, OwnerFrom(slot.run), unit->GetEntry(),
                         unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), f.team))

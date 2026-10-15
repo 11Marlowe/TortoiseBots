@@ -704,14 +704,17 @@ static void TestWipeRegroupsAndWalksBack()
     f.maxMemberYd = 40;
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
     f.maxMemberYd = 5;
-    CHECK(Tick(r, f).empty()); // regrouped; the walk back starts with the facts of its first point
-    CHECK(r.walkBack && r.walkBackIdx == 0 && FactStep(r) == &plan.steps[0] && OwnerFrom(r) == 2);
-    CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
-    CHECK(r.note.find("walk back") == 0);
-    f.leadX = 10;
-    CHECK(Tick(r, f).empty()); // arrived: the next point's facts come next tick
-    CHECK(FactStep(r) == &plan.steps[1]);
-    // A pack that came back beside the replayed point is pulled before the move.
+    CHECK(Tick(r, f).empty()); // regrouped; the walk back starts with the facts of its point
+    // 19z5: straight to the last point before the step (90), in navmesh hops.
+    CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 2 && FactStep(r) == &plan.steps[2] && OwnerFrom(r) == 2);
+    f.seen = false; // FactStep's point, 90 yd away
+    f.approachKnown = true;
+    f.approachX = 40;
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(r.note.find("walk back: approaching") == 0);
+    f.leadX = 40;
+    CHECK(Tick(r, f).empty()); // at the hop
+    // A pack that came back by the next hop is pulled before the move.
     f.hopUnits = {Unit(9, 4, 30)};
     CHECK(Tick(r, f) == "pullback 9");
     CHECK(r.walkBack && r.note.find("walk back: pulling") == 0);
@@ -719,6 +722,12 @@ static void TestWipeRegroupsAndWalksBack()
     f.anyInCombat = true;
     Tick(r, f);
     f.anyInCombat = false;
+    // The hops fail (no path from here): the plan's points are replayed from
+    // the nearest one (50, from 40).
+    f.approachKnown = false;
+    Tick(r, f);
+    CHECK(r.walkBack && !r.walkBackDirect && r.walkBackIdx == 1 && r.note.find("replaying") != std::string::npos);
+    f.seen = true;
     CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
     // A point the navmesh refuses now is passed for the next one.
     OrderRefused(r, "move 50.0 0.0 0.0", "unreachable");
@@ -954,21 +963,22 @@ static void TestWalkBackFarPointIsApproached()
     CHECK(p.state == State::Running && p.walkBackIdx == 1 && p.note.find("no walkable path") != std::string::npos);
 }
 
-// Codex on #1000: only an invalid-target refusal of a pullback marks the unit
-// for a skip; a busy tank or an unavailable lead bot does not.
+// Codex on #1000 / 19z5 step 57: only an invalid-target refusal of a pullback
+// leaves the unit out (for the run, no pause); a busy tank or an unavailable
+// lead bot pauses as before.
 static void TestRefusedPullOnlyForInvalidTarget()
 {
     DungeonPlan plan;
     plan.steps = {PullStep(10, {1})};
     Run r = Start(&plan);
     OrderRefused(r, "pullback 7", "busy: the tank is pulling");
-    CHECK(r.refusedPull == 0);
+    CHECK(r.state == State::Paused && !r.unreachable.count(7));
     Run l = Start(&plan);
     OrderRefused(l, "pullback 7", "lead-unavailable: The lead bot is dead");
-    CHECK(l.refusedPull == 0);
+    CHECK(l.state == State::Paused && !l.unreachable.count(7));
     Run i = Start(&plan);
     OrderRefused(i, "pullback 7", "invalid-target: The group cannot attack that target.");
-    CHECK(i.refusedPull == 7);
+    CHECK(i.state == State::Running && i.unreachable.count(7) && i.note.find("left out") != std::string::npos);
 }
 
 // Codex on #1001: the dead lead bot already released to the graveyard map;
@@ -1026,6 +1036,104 @@ static void TestNearWipeLatchHoldsThroughTheWipe()
     f.alive = 2;
     Tick(r, f);
     CHECK(r.nearWipes == 2 && r.wipes == 1);
+}
+
+// 19z5 steps 27 and 81: the lead bot died first; the run paused "the lead bot
+// is dead" and the rest died while it waited. Now the others fight on; when
+// they fall too it is a wipe and the run regroups by itself. A dead lead bot
+// alone after the fight still pauses.
+static void TestLeadDiesFirstThenTheWipeRegroups()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), PullStep(130, {1})};
+    Run r = Start(&plan, 1);
+    Facts f = Party(130);
+    f.units = {Unit(7, 1, 10)};
+    f.anyInCombat = true;
+    f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.note.find("the others fight on") != std::string::npos);
+    f.dead = 5;
+    f.alive = 0;
+    f.anyInCombat = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.regroup && r.wipes == 1);
+
+    Run p = Start(&plan, 1);
+    Facts g = Party(130);
+    g.units = {Unit(7, 1, 10)};
+    g.leadAlive = false;
+    g.dead = 1;
+    g.alive = 4;
+    Tick(p, g);
+    CHECK(p.state == State::Paused && p.note.find("lead bot is dead") != std::string::npos);
+}
+
+// 19z5 step 80 (15:43): 4 dead and the tank alone past the fight ceiling
+// paused as "a fight lasted more than 180 s". It is a wipe: the run regroups
+// by itself, within the step's budget.
+static void TestFightCeilingWithFourDeadRegroups()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.dead = 4;
+    f.alive = 1;
+    for (std::uint32_t i = 0; i <= kFightCapMs / kTickMs + 1 && !r.regroup; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.regroup && r.autoRegroups == 1 && r.note.find("went past") != std::string::npos);
+    // Over budget: the ceiling pauses as before.
+    Run p = Start(&plan);
+    p.autoRegroups = kAutoRegroupsPerStep;
+    for (std::uint32_t i = 0; i <= kFightCapMs / kTickMs + 1 && p.state == State::Running; ++i)
+        Tick(p, f);
+    CHECK(p.state == State::Paused);
+}
+
+// 19z5 step 83: Draezur 29 yd away but on another floor (z 21 against 43);
+// the gather paused twice. A bot more than 8 yd up or down that comes no
+// closer is a straggler too.
+static void TestStragglerOnAnotherFloorIsSummoned()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 29.1f;
+    MemberFact healer{"Draezur", 29.1f};
+    healer.dz = 22;
+    MemberFact near{"Nearby", 25};
+    near.dz = 2;
+    f.members = {near, healer};
+    f.units = {Unit(7, 1, 20)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::string order;
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Draezur");
+}
+
+// 19z5 step 27 and 81: after a revive by hand and `.bot run resume` the party
+// stood at the entrance and the step's approach paused (no path / 8 hops).
+// A resume walks back too: straight to the last plan point, in hops.
+static void TestResumeFromTheEntranceWalksBack()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 300), PullStep(330, {1})};
+    Run r = Start(&plan, 2);
+    Pause(r, "the lead bot is dead: revive it, then .bot run resume");
+    CHECK(Resume(r));
+    Facts f = Party(0);
+    CHECK(Tick(r, f).empty()); // regrouped
+    CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 1);
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 40;
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
 }
 
 static void TestStepIdleCeiling()
@@ -1155,9 +1263,10 @@ static void TestBossDownNeedsASeenDeath()
     CHECK(p.state == State::Paused && p.step == 0 && p.note.find("boss 7272 not found") == 0);
 }
 
-// Fourth observe run (step 43 -> 45): a pullback refused invalid-target, the
-// step skipped; the next pull picked the same unit and was refused again. A
-// skip leaves the refused target out for good and clears the pull state.
+// Fourth observe run (step 43 -> 45) and 19z5 step 57 (Sul'lithuz Hatchlings
+// 8130): a pullback refused invalid-target. The unit is left out for the
+// run without a pause; the pack is skipped as out of reach, and a later step
+// that sees the same unit pulls the other one. A skip clears the pull state.
 static void TestSkipDropsTheRefusedPullTarget()
 {
     DungeonPlan plan;
@@ -1167,22 +1276,19 @@ static void TestSkipDropsTheRefusedPullTarget()
     f.units = {Unit(7, 1, 10)};
     CHECK(Tick(r, f) == "pullback 7");
     OrderRefused(r, "pullback 7", "invalid-target: The group cannot attack that target.");
-    CHECK(r.state == State::Paused && r.refusedPull == 7);
-    CHECK(Skip(r));
-    CHECK(r.step == 1 && r.pullGuid == 0 && r.pulls == 0 && r.pullTries.empty() && r.refusedPull == 0);
-    Tick(r, Party(0)); // revive/gather of the regroup: nothing to do
+    CHECK(r.state == State::Running && r.pullGuid == 0);
+    Tick(r, f);
+    CHECK(r.step == 1 && r.note.find("out of reach") != std::string::npos);
     f = Party(20);
-    CHECK(Tick(r, f).empty() || r.step == 2);
-    // Step 3 sees the same unit and another: only the other is pulled.
+    Tick(r, f);
+    CHECK(r.step == 2);
     f.units = {Unit(7, 1, 5), Unit(8, 2, 15)};
-    std::string order;
-    for (int i = 0; i < 3 && order.empty(); ++i)
-        order = Tick(r, f);
-    CHECK(r.step == 2 && order == "pullback 8");
+    CHECK(Tick(r, f) == "pullback 8");
+    // A skip clears the step's pull state.
+    CHECK(Skip(r));
+    CHECK(r.pullGuid == 0 && r.pulls == 0 && r.pullTries.empty());
 }
 
-// Round 2: a resume after a wipe in which the lead bot itself is dead: the
-// regroup revives it (its ghost may be on another map meanwhile), bounded.
 static void TestResumeWithLeadDead()
 {
     DungeonPlan plan;
@@ -1271,6 +1377,10 @@ int main()
     TestRefusedPullOnlyForInvalidTarget();
     TestWipeWithTheLeadOnTheGraveyardMap();
     TestNearWipeLatchHoldsThroughTheWipe();
+    TestLeadDiesFirstThenTheWipeRegroups();
+    TestFightCeilingWithFourDeadRegroups();
+    TestStragglerOnAnotherFloorIsSummoned();
+    TestResumeFromTheEntranceWalksBack();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

@@ -65,12 +65,14 @@ constexpr float kSeeYd = 60.0f;                   // a pack, boss or spot is jud
 constexpr float kApproachYd = 30.0f;              // an unseen pack is approached to this far from its centre
 constexpr float kApproachHopYd = 40.0f;           // ... in navmesh path hops of at most this length
 constexpr std::uint32_t kMaxApproachHops = 8;     // ... and at most this many, then pause
+constexpr std::uint32_t kMaxWalkBackHops = 40;    // a walk back straight to its last point: hops before the replay
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
                                                   // reachable one at most this far from it
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
 constexpr std::uint32_t kGatherCapMs = 30000;
 constexpr float kSummonYd = 40.0f;                // at a gather's ceiling a bot this far that ...
+constexpr float kStragglerDzYd = 8.0f;            // ... or this far up or down (another floor) ...
 constexpr float kStragglerGainYd = 5.0f;          // ... came less than this closer since the last sample is summoned
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
@@ -142,6 +144,7 @@ struct MemberFact
 {
     std::string name;
     float yd = 0.0f;        // from the lead bot (1000 on another map)
+    float dz = 0.0f;        // height difference to the lead bot (another floor)
 };
 
 // What the glue reads once a tick for the run's current step.
@@ -216,7 +219,6 @@ struct Run
     std::unordered_set<std::uint64_t> passed;
     std::size_t openAtLastPull = 0;
     std::uint32_t fruitlessPulls = 0;
-    std::uint64_t refusedPull = 0;  // the unit of a `pullback` the module refused (a skip leaves it out for good)
     std::uint32_t bossWaitMs = 0;   // a boss step: time at the spot with the boss neither alive nor dead in sight
     bool bossSeenAlive = false;     // a boss step: the boss was among the step's living units
     std::uint32_t walkBackPulls = 0; // pulls on the way of the walk back (not counted in `pulls`)
@@ -242,6 +244,7 @@ struct Run
     std::uint32_t autoRegroups = 0;
     bool walkBackDue = false;    // walk back once the regroup is over
     bool walkBack = false;
+    bool walkBackDirect = false; // straight to the last point in hops (before a replay of every point)
     std::size_t walkBackIdx = 0; // the plan step whose point is walked now
     std::uint32_t walkBackRefusals = 0; // passing refusals of that point
     // Run-wide counts for the report.
@@ -307,7 +310,6 @@ inline void ResetStep(Run& r)
     r.passed.clear();
     r.openAtLastPull = 0;
     r.fruitlessPulls = 0;
-    r.refusedPull = 0;
     r.bossWaitMs = 0;
     r.bossSeenAlive = false;
     r.walkBackPulls = 0;
@@ -318,6 +320,7 @@ inline void ResetStep(Run& r)
     r.memberYd.clear();
     r.walkBackDue = false;
     r.walkBack = false;
+    r.walkBackDirect = false;
     r.walkBackIdx = 0;
     r.walkBackRefusals = 0;
 }
@@ -357,7 +360,7 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order)
     const MemberFact* pick = nullptr;
     for (const MemberFact& m : f.members)
     {
-        if (m.yd <= kSummonYd || m.name.empty() || r.summoned.count(m.name))
+        if ((m.yd <= kSummonYd && m.dz <= kStragglerDzYd) || m.name.empty() || r.summoned.count(m.name))
             continue;
         auto it = r.memberYd.find(m.name);
         if (it == r.memberYd.end() || it->second - m.yd >= kStragglerGainYd)
@@ -473,6 +476,7 @@ inline bool Resume(Run& r)
     r.autoRegroups = 0;
     ResetStep(r);
     BeginRegroup(r);
+    r.walkBackDue = true; // a party revived at the entrance walks back the plan's way
     r.note = "resumed: regrouping";
     return true;
 }
@@ -491,11 +495,8 @@ inline bool Skip(Run& r)
         r.missing.insert(r.pendingMissing);
     if (s->kind == PlanStepKind::Open)
         r.skippedOpenStep = r.step;
-    // A pull target the module refused (invalid-target) is not picked again
-    // by a later step that sees the same unit; the step's pull state goes
-    // with the step (NextStep -> ResetStep).
-    if (r.refusedPull)
-        r.unreachable.insert(r.refusedPull);
+    // The step's pull state goes with the step (NextStep -> ResetStep); a
+    // target refused as invalid-target is already out of reach for the run.
     std::size_t const skipped = r.step + 1;
     r.state = State::Running;
     NextStep(r, "skipped step " + std::to_string(skipped));
@@ -539,10 +540,21 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         return;
     }
     const PlanStep* s = Current(r);
-    // Only a refusal of the target itself (not a busy tank, no tank, an
-    // unavailable lead bot) puts the unit out of reach on a skip.
+    // A pull target the module refuses as such (invalid-target: not an enemy,
+    // or the group cannot attack it; Zul'Farrak's Sul'lithuz Hatchlings 8130)
+    // is left out for the run; the step goes on with what is left. Other
+    // refusals of a pullback (a busy tank, no tank, the lead bot unavailable)
+    // pause as before.
     if (order.compare(0, 9, "pullback ") == 0 && answer.compare(0, 14, "invalid-target") == 0)
-        r.refusedPull = std::strtoull(order.c_str() + 9, nullptr, 10);
+    {
+        std::uint64_t const guid = std::strtoull(order.c_str() + 9, nullptr, 10);
+        r.unreachable.insert(guid);
+        if (r.pullGuid == guid)
+            r.pullGuid = 0;
+        EnterPhase(r, Phase::Begin);
+        r.note = "pull refused (" + answer + "): that unit is left out";
+        return;
+    }
     if (r.walkBack && r.plan && r.walkBackIdx < r.step)
     {
         const PlanStep& p = r.plan->steps[r.walkBackIdx];
@@ -768,13 +780,17 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
 // own move points again, in order, from the one nearest the lead bot up to the
 // current step: the way the run came, with no new path search. Nothing to walk
 // when the current step's point is nearer than every earlier move point.
-inline void StartWalkBack(Run& r, const Facts& f)
+// The walk back first goes straight to the last move point before the step
+// (in navmesh hops, StartWalkBack); when that fails it replays every point
+// from the one nearest the lead bot (ReplayWalkBack). True when there is one.
+inline bool ReplayWalkBack(Run& r, const Facts& f)
 {
-    r.walkBackDue = false;
+    r.walkBackDirect = false;
     r.walkBack = false;
+    r.approachHops = 0;
     const PlanStep* cur = Current(r);
     if (!cur)
-        return;
+        return false;
     float best = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
     bool found = false;
     for (std::size_t i = 0; i < r.step; ++i)
@@ -791,8 +807,35 @@ inline void StartWalkBack(Run& r, const Facts& f)
         }
     }
     if (!found)
-        return;
+        return false;
     r.walkBack = true;
+    EnterPhase(r, Phase::Begin);
+    return true;
+}
+
+inline void StartWalkBack(Run& r, const Facts& f)
+{
+    r.walkBackDue = false;
+    r.walkBack = false;
+    r.walkBackDirect = false;
+    const PlanStep* cur = Current(r);
+    if (!cur)
+        return;
+    std::size_t last = r.step;
+    for (std::size_t i = 0; i < r.step; ++i)
+        if (IsMovePoint(r.plan->steps[i]))
+            last = i;
+    if (last == r.step)
+        return;
+    const PlanStep& p = r.plan->steps[last];
+    float const toLast = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
+    float const toStep = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
+    if (toStep <= toLast || toLast <= kArriveYd)
+        return; // back near the step already
+    r.walkBack = true;
+    r.walkBackDirect = true;
+    r.walkBackIdx = last;
+    r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
 }
 
@@ -845,16 +888,35 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
     // no path toward it at all: it is passed for the next one.
     if (!f.seen && !(r.phase == Phase::Walk && r.walkX == p.x && r.walkY == p.y && r.walkZ == p.z))
     {
-        if (r.phase != Phase::Walk && !f.approachKnown)
+        std::string const what = "the point of step " + std::to_string(r.walkBackIdx + 1);
+        if (r.phase == Phase::Walk)
         {
-            r.note = "walk back: no walkable path toward the point of step " + std::to_string(r.walkBackIdx + 1) +
-                ": on to the next";
+            r.note = "walk back: approaching " + what;
+            if (WalkTo(r, f, r.walkX, r.walkY, r.walkZ, false, dt, order))
+                EnterPhase(r, Phase::Begin);
+            return true;
+        }
+        std::uint32_t const cap = r.walkBackDirect ? kMaxWalkBackHops : kMaxApproachHops;
+        if (!f.approachKnown || r.approachHops >= cap)
+        {
+            std::string const why = !f.approachKnown ? "no walkable path toward " + what
+                                                     : std::to_string(cap) + " hops did not reach " + what;
+            if (r.walkBackDirect)
+            {
+                // Straight there failed: replay the plan's points instead.
+                if (ReplayWalkBack(r, f))
+                    r.note = "walk back: " + why + ": replaying the plan's points";
+                else
+                    r.note = "walk back: " + why;
+                return true;
+            }
+            r.note = "walk back: " + why + ": on to the next";
             NextWalkBackPoint(r);
             return true;
         }
-        ApproachHop(r, f, p, dt, order, "point of step " + std::to_string(r.walkBackIdx + 1));
-        if (r.state == State::Running)
-            r.note = "walk back: " + r.note;
+        ++r.approachHops;
+        r.note = "walk back: approaching " + what;
+        WalkTo(r, f, f.approachX, f.approachY, f.approachZ, false, dt, order);
         return true;
     }
     bool const direct = p.kind == PlanStepKind::MoveDirect;
@@ -1292,7 +1354,10 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
             std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
         return order;
     }
-    if (!f.leadAlive && !autoRegroup)
+    // The lead bot dead with fewer than kWipeDead dead: the others fight on
+    // (more may fall: then it is a wipe and the run regroups by itself);
+    // once the fight is over it pauses.
+    if (!f.leadAlive && !autoRegroup && !f.anyInCombat)
     {
         Pause(r, "the lead bot is dead: revive it, then .bot run resume");
         return order;
@@ -1308,10 +1373,24 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         }
         r.fightMs += dt;
         std::uint32_t const cap = s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
-        if (r.fightMs > cap)
+        if (r.fightMs > cap && autoRegroup)
+        {
+            // kWipeDead or more dead and one left fighting past the ceiling:
+            // a wipe, not a long fight. The regroup starts.
+            ++r.autoRegroups;
+            r.fighting = false;
+            ResetStep(r);
+            BeginRegroup(r);
+            r.walkBackDue = true;
+            r.note = std::to_string(f.dead) + " dead and the fight went past " + std::to_string(cap / 1000) +
+                " s (" + WipeCounts(r) + " this run): regrouping by itself (" + std::to_string(r.autoRegroups) +
+                " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
+        }
+        else if (r.fightMs > cap)
             Pause(r, "a fight lasted more than " + std::to_string(cap / 1000) + " s");
         else
-            r.note = autoRegroup ? std::to_string(f.dead) + " dead: fighting on, a regroup follows" : "fighting";
+            r.note = autoRegroup ? std::to_string(f.dead) + " dead: fighting on, a regroup follows"
+                   : !f.leadAlive ? std::string("the lead bot is dead: the others fight on") : std::string("fighting");
         return order;
     }
     if (r.fighting)

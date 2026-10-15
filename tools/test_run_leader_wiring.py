@@ -52,6 +52,9 @@ class RunLeaderWiringTest(unittest.TestCase):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("member.name = bot->GetName();", facts)
         self.assertIn("member.yd = yd;", facts)
+        self.assertIn("member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;", facts)
+        # During a walk back out of sight the hop pulls are read around the next approach hop.
+        self.assertIn("cx = f.approachX;", facts)
         self.assertIn("f.members.push_back(member);", facts)
 
     def test_boss_down_needs_his_corpse(self):
