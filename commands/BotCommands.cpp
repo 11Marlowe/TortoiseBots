@@ -8568,7 +8568,8 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
 // path, the first one kApproachYd from the target or kApproachHopYd along the
 // path (or its end). False when the navmesh has no path at all. A point on the
 // path is what `cmd move` accepts; a straight-line guess can sit off the mesh.
-bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz)
+bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz,
+    std::vector<TortoiseBots::DungeonRun::PathPoint>* whole = nullptr)
 {
     using namespace TortoiseBots::DungeonRun;
     PathFinder path(lead);
@@ -8578,6 +8579,9 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
     Movement::PointsArray const& points = path.getPath();
     if (points.size() < 2)
         return false;
+    if (whole)
+        for (Vector3 const& p : points)
+            whole->push_back(PathPoint{p.x, p.y, p.z});
     float walked = 0.0f;
     for (size_t i = 1; i < points.size(); ++i)
     {
@@ -8778,7 +8782,16 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (!f.seen)
             {
                 if (wantsApproach)
-                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
+                {
+                    // A walk back straight to its last point: the whole path read
+                    // is checked against every pull group not cleared yet.
+                    std::vector<PathPoint> whole;
+                    bool const direct = slot.run.walkBack && slot.run.walkBackDirect;
+                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY,
+                        f.approachZ, direct ? &whole : nullptr);
+                    if (direct && f.approachKnown)
+                        f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team);
+                }
                 if (!slot.run.walkBack)
                     break;
                 if (f.approachKnown)

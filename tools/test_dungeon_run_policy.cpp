@@ -1197,6 +1197,46 @@ static void TestGatherGoesBackToTheAnchorAfterARidgeChase()
     CHECK(Tick(q, h) == "move 1630.0 1060.0 20.0");
 }
 
+// Codex on #1000: the shortest navmesh path back ignores packs. A direct walk
+// back whose path passes within a not-yet-cleared pull group's radius + 10 yd
+// drops the shortcut and replays the plan's points; no move enters the pack.
+static void TestDirectWalkBackAvoidsUnclearedPacks()
+{
+    DungeonPlan plan;
+    PlanStep later = PullStep(60, {9});
+    later.y = 20;   // a later pack, 20 yd off the straight line
+    ai::NormalizePlanStep(later);
+    plan.steps = {Step(PlanStepKind::Move, 30), Step(PlanStepKind::Move, 120), PullStep(150, {1}), later};
+    // Geometry: the straight path from 0 to 120 passes 20 yd from the later
+    // pack (radius 15 + 10); a path that bends away does not.
+    std::vector<PathPoint> straight = {{0, 0, 0}, {120, 0, 0}};
+    std::vector<PathPoint> around = {{0, 0, 0}, {60, -30, 0}, {120, 0, 0}};
+    CHECK(PathCrossesUnclearedPack(plan, 2, straight, 0));
+    CHECK(!PathCrossesUnclearedPack(plan, 2, around, 0));
+    CHECK(!PathCrossesUnclearedPack(plan, 4, straight, 0)); // that pack is cleared (an earlier step)
+    // A pack by the path's end (the plan point) does not count.
+    std::vector<PathPoint> toPack = {{0, 0, 0}, {60, 5, 0}};
+    CHECK(!PathCrossesUnclearedPack(plan, 2, toPack, 0));
+
+    Run r = Start(&plan, 2);
+    Facts f = Party(0);
+    r.walkBack = true;
+    r.walkBackDirect = true;
+    r.walkBackIdx = 1;
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 40;
+    f.approachY = 0;
+    f.directPathCrossesPack = true;
+    std::string order = Tick(r, f);
+    CHECK(order.empty() && !r.walkBackDirect && r.walkBack && r.walkBackIdx == 0);
+    CHECK(r.note.find("passes an uncleared pack") != std::string::npos);
+    // The replay walks the plan's first point (30 0 0), not the hop toward the pack.
+    f.seen = true;
+    f.directPathCrossesPack = false;
+    CHECK(Tick(r, f) == "move 30.0 0.0 0.0");
+}
+
 static void TestStepIdleCeiling()
 {
     DungeonPlan plan;
@@ -1443,6 +1483,7 @@ int main()
     TestStragglerOnAnotherFloorIsSummoned();
     TestResumeFromTheEntranceWalksBack();
     TestGatherGoesBackToTheAnchorAfterARidgeChase();
+    TestDirectWalkBackAvoidsUnclearedPacks();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;

@@ -161,6 +161,10 @@ struct Facts
     // the glue reads it only when the anchor is known, the lead bot is away
     // from it and on its floor. True when not read.
     bool anchorReachable = true;
+    // A walk back straight to its last point: the navmesh path the glue read
+    // for the next hop passes an uncleared pull or boss group
+    // (PathCrossesUnclearedPack); the shortcut is dropped for the replay.
+    bool directPathCrossesPack = false;
     std::uint32_t minHealthPct = 100;   // living bots
     std::uint32_t minHealerManaPct = 100;
     std::uint32_t minManaPct = 100;     // mana users that are not healers
@@ -814,6 +818,50 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
 // own move points again, in order, from the one nearest the lead bot up to the
 // current step: the way the run came, with no new path search. Nothing to walk
 // when the current step's point is nearer than every earlier move point.
+// A point of a navmesh path (the glue's PathFinder points).
+struct PathPoint
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
+// The margin past a pull group's radius a direct walk back keeps from it.
+constexpr float kPackClearanceYd = 10.0f;
+
+inline float SegmentDistance(const PathPoint& a, const PathPoint& b, float px, float py, float pz)
+{
+    float const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    float const len2 = dx * dx + dy * dy + dz * dz;
+    float t = len2 > 0.0f ? ((px - a.x) * dx + (py - a.y) * dy + (pz - a.z) * dz) / len2 : 0.0f;
+    t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+    return ai::PlanDistance(a.x + t * dx, a.y + t * dy, a.z + t * dz, px, py, pz);
+}
+
+// Whether a path passes within a pull or boss group's radius plus
+// kPackClearanceYd of its point, for every group not cleared yet (the step
+// `from` and later ones, of the party's team), but one by the path's end. The shortest navmesh path back
+// ignores packs: a straight walk past an uncleared one body-pulls it.
+inline bool PathCrossesUnclearedPack(const DungeonPlan& plan, std::size_t from, const std::vector<PathPoint>& path,
+    std::uint32_t team)
+{
+    for (std::size_t i = from; i < plan.steps.size(); ++i)
+    {
+        const PlanStep& g = plan.steps[i];
+        if ((g.kind != PlanStepKind::Pull && g.kind != PlanStepKind::Boss) || !ai::StepForTeam(g, team))
+            continue;
+        float const reach = g.radius + kPackClearanceYd;
+        // A group by the plan point the path ends at is where the replay
+        // goes too (the run walked the party there before): not a reason.
+        if (!path.empty() && ai::PlanDistance(path.back().x, path.back().y, path.back().z, g.x, g.y, g.z) <= reach)
+            continue;
+        if (path.size() == 1 && ai::PlanDistance(path[0].x, path[0].y, path[0].z, g.x, g.y, g.z) <= reach)
+            return true;
+        for (std::size_t k = 1; k < path.size(); ++k)
+            if (SegmentDistance(path[k - 1], path[k], g.x, g.y, g.z) <= reach)
+                return true;
+    }
+    return false;
+}
+
 // The walk back first goes straight to the last move point before the step
 // (in navmesh hops, StartWalkBack); when that fails it replays every point
 // from the one nearest the lead bot (ReplayWalkBack). True when there is one.
@@ -928,6 +976,16 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
             r.note = "walk back: approaching " + what;
             if (WalkTo(r, f, r.walkX, r.walkY, r.walkZ, false, dt, order))
                 EnterPhase(r, Phase::Begin);
+            return true;
+        }
+        if (r.walkBackDirect && f.directPathCrossesPack)
+        {
+            // The shortest way passes a pack not cleared yet: the plan's own
+            // points instead (the way the run came, its packs cleared).
+            if (ReplayWalkBack(r, f))
+                r.note = "walk back: the straight way to " + what + " passes an uncleared pack: replaying the plan's points";
+            else
+                r.note = "walk back: the straight way to " + what + " passes an uncleared pack";
             return true;
         }
         std::uint32_t const cap = r.walkBackDirect ? kMaxWalkBackHops : kMaxApproachHops;
