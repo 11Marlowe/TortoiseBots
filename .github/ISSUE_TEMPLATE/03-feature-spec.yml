@@ -32,7 +32,7 @@ body:
     id: use
     attributes:
       label: How is it turned on and used?
-      description: The command and the config key with its default. New automation is off by default.
+      description: The command, and for a big new feature the config key that turns it on (off by default). Fixes and small improvements need no key.
       placeholder: |
         Command: .bot ...
         Config: AiPlayerbot.Something = 0 (default off)

@@ -25,8 +25,9 @@ issue  ->  your branch  ->  PR into dev (owner approves)  ->  dev into main (own
 4. **The owner approves every merge into `dev`.** `dev` is where finished work
    waits for the next release; only the owner merges `dev` into `main` and
    makes releases.
-5. **New automation is opt-in.** Anything that changes how bots play by
-   themselves ships behind a config key that is off by default.
+5. **Big new features are opt-in.** A big new feature or system (a new mode,
+   a new way of controlling bots) ships behind a config key that is off by
+   default. Fixes and smaller behaviour improvements do not need one.
 6. **Test it and say how.** Build, run, and check in game where it matters.
    Say clearly what you did not test.
 
