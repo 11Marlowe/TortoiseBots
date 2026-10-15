@@ -89,6 +89,23 @@ inline std::string NormalizeBotName(std::string const& raw)
     return name;
 }
 
+// Generated names can land on rude words the client's profanity list misses
+// ("Vajina" from troll samples); refuse any name containing one of these.
+inline bool IsUnfortunateBotName(std::string const& name)
+{
+    static char const* const banned[] = { "vagin", "vajin", "penis", "penus", "anus", "anal", "nazi", "rape",
+        "fuck", "fuk", "shit", "cunt", "kunt", "cock", "dick", "dik", "porn", "slut", "whore",
+        "nigg", "nigr", "fag", "cum", "sex", "boob", "tits", "nipp", "pube", "semen", "puss", "jizz",
+        "wank", "twat", "bitch", "hitler", "rapist", "kkk", "retard", "spaz" };
+    std::string lower;
+    for (char c : name)
+        lower += (c >= 'A' && c <= 'Z') ? char(c - 'A' + 'a') : c;
+    for (char const* word : banned)
+        if (lower.find(word) != std::string::npos)
+            return true;
+    return false;
+}
+
 class BotNamePools
 {
 public:
@@ -167,6 +184,8 @@ public:
             name = Compound(cls_key, rng);
         if (name.empty())
             name = Rp(race_key, gender, rng);
+        if (IsUnfortunateBotName(name))
+            return std::string();
         return NormalizeBotName(name);
     }
 
@@ -304,7 +323,7 @@ private:
                 continue;
             if (rng(0u, 99u) < kBotNameTakenVariantPct)
                 name = TakenVariant(name, rng);
-            if (!chain->samples.count(name))
+            if (!chain->samples.count(name) && !IsUnfortunateBotName(name))
                 return name;
         }
         return std::string();

@@ -58,6 +58,14 @@ void TestNormalize()
     assert(NormalizeBotName("Leeroy2").empty());
 }
 
+void TestUnfortunate()
+{
+    assert(IsUnfortunateBotName("Vajina"));
+    assert(IsUnfortunateBotName("Grimdik"));
+    assert(!IsUnfortunateBotName("Thorvin"));
+    assert(!IsUnfortunateBotName("Kidneyshotz"));
+}
+
 void TestParse()
 {
     BotNamePools pools;
@@ -85,7 +93,8 @@ void TestAllCombos(bool print)
                     for (int i = 0; i < 20; ++i)
                     {
                         std::string name = pools.Generate(race, cls, gender, w, rng);
-                        assert(Valid(name));
+                        assert(Valid(name) || name.empty());
+                        assert(!IsUnfortunateBotName(name));
                         if (style == NAME_STYLE_RP)
                         {
                             std::string key = std::string("rp:") + BotNameRaceKey(race) + (gender ? ":female" : ":male");
@@ -140,6 +149,7 @@ int main(int argc, char** argv)
     TestWeights();
     TestNormalize();
     TestParse();
+    TestUnfortunate();
     TestEmptyPools();
     TestAllCombos(argc > 1 && std::strcmp(argv[1], "--print") == 0);
     std::printf("test_bot_names_policy: OK\n");
