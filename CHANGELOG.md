@@ -1,5 +1,32 @@
 # Changelog
 
+## v1.1.0 (2026-10-15)
+
+### Dashboard
+- Hovering over a setting in the dashboard's Server panel now explains in plain words what it does. [#996](https://github.com/Sagiroth/TortoiseBots/pull/996)
+- The dashboard no longer includes game map pictures; if you run it, you make them once from your own game files. [#991](https://github.com/Sagiroth/TortoiseBots/pull/991)
+
+### Behind the scenes
+- The project now states plainly that it is an unofficial community project, with a disclaimer. [#990](https://github.com/Sagiroth/TortoiseBots/pull/990)
+- The gear tool no longer keeps copies of other websites' data; it downloads them when needed. [#992](https://github.com/Sagiroth/TortoiseBots/pull/992)
+- A contributors list now records who has agreed to share their work under the project licence. [#985](https://github.com/Sagiroth/TortoiseBots/pull/985) [#989](https://github.com/Sagiroth/TortoiseBots/pull/989) [#994](https://github.com/Sagiroth/TortoiseBots/pull/994)
+- Release notes are now written in plain English for players instead of technical detail. [#998](https://github.com/Sagiroth/TortoiseBots/pull/998)
+- Builds finish faster, and changes that only touch tooling no longer wait for a full compile. [#997](https://github.com/Sagiroth/TortoiseBots/pull/997)
+
+---
+
+## v1.0.1 (2026-10-15)
+
+### Licensing & Contributions
+- Added full AGPL-3.0 `LICENSE` file, matching the tortoise-wow core, so the module’s distribution terms are explicit. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- `LICENCE.md` now states original TortoiseBots work is © Sagiroth and contributors under AGPL-3.0-or-later, with contributions accepted on the same inbound=outbound terms. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- `CONTRIBUTING.md` gains a “Licence of contributions” section so contributors know exactly what they’re agreeing to. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- `README.md` licence section rewritten to clarify AGPL obligations for anyone distributing or running modified versions. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- PR template adds licence checkboxes to catch compliance gaps before merge. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+- Practical effect: if you distribute the module — or run a modified version on a server players connect to — you must publish the full source of that version. [#983](https://github.com/Sagiroth/TortoiseBots/pull/983)
+
+---
+
 ## v1.0.0 (2026-10-14)
 
 Stable release with Windows and Linux CI in place.

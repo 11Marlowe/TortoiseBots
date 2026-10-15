@@ -16,3 +16,18 @@
 ## Notes
 
 <!-- Optional: add screenshots, logs, SQL notes, or anything reviewers should know. -->
+
+## Licence
+
+- [ ] I license this contribution under **AGPL-3.0-or-later**, the same terms as
+      the project (see [`LICENSE`](https://github.com/Sagiroth/TortoiseBots/blob/main/LICENSE) and
+      [`CONTRIBUTING.md`](https://github.com/Sagiroth/TortoiseBots/blob/main/CONTRIBUTING.md#licence-of-contributions)), and I
+      have the right to do so.
+
+Ported code (tick one):
+
+- [ ] This PR ports or copies code from another project: the original
+      licence header is kept, the source licence is AGPL-3.0 compatible
+      (e.g. GPL-2.0-or-later, GPL-3.0, AGPL-3.0; not GPL-2.0-only), and the
+      source repo + SHA are in `docs/PROVENANCE.md`.
+- [ ] This PR contains only original code.

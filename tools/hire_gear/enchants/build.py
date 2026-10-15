@@ -28,8 +28,19 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 DATA = HERE.parent / "data"
-WOW = json.load(open(DATA / "wowisclassic.json"))
-TS = json.load(open(DATA / "turtle_sheets.json"))
+
+
+def load_snapshot(name, fetcher):
+    """Site snapshots are not vendored: fail clearly before writing anything."""
+    path = DATA / name
+    if not path.exists():
+        sys.exit(f"{path} not found: run {fetcher} first "
+                 "(site snapshots are generated locally, not vendored)")
+    return json.loads(path.read_text())
+
+
+WOW = load_snapshot("wowisclassic.json", "tools/hire_gear/sources/wowisclassic/scrape.py")
+TS = load_snapshot("turtle_sheets.json", "tools/hire_gear/sources/turtle_sheets/fetch.py")
 
 # 28 spec keys "<class>_<spec>"; pathName per runtime/HireSpecPolicy.h
 # (druid bear+cat share the feral path; keys use gossip order).
