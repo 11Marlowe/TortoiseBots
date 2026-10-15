@@ -4,7 +4,7 @@
 
 It is a hobby project built for its owner and interested players: pragmatic, small, working changes beat ceremony.
 
-**Before you start:** every change needs an issue, only complete features go into `dev` (unfinished ones live on a feature branch), and the pull request description must say plainly what is added, changed and removed. Read [`AGENTIC_GUIDELINES.md`](AGENTIC_GUIDELINES.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Before you start:** every change needs an issue, only complete features go into `dev` (unfinished ones live on a feature branch), branches are named `feat/<topic>`, `fix/<topic>` or `docs/<topic>`, and the pull request description must say plainly what is added, changed and removed. Read [`AGENTIC_GUIDELINES.md`](AGENTIC_GUIDELINES.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Product direction
 
