@@ -1,7 +1,7 @@
 -- Uldaman (map 70), the whole plan from the entrance to Archaedas, with its two scripted events as run leader steps
 -- (issue #984, Uldaman part). Exported from turtle-agent dd05724 (dev: dungeons/uldaman.json, plan v1, live-checked
 -- for legs 0-3) with `turtle-agent plan-export --mmaps <map 70 mmaps> --rev dd05724 --stamp 20261016120000 uldaman`,
--- then FIVE ROWS HAND-SET for the event steps the exporter at dd05724 cannot write yet (its ritual row has no
+-- then FIVE ROWS HAND-SET and ONE DROPPED for the event steps the exporter at dd05724 cannot write yet (its ritual row has no
 -- participant count and it has no `hold` kind; follow-up for the exporter: write them from the plan's ritual and
 -- wait_for, then this note goes). The rows are marked HAND-SET in their comment:
 --   * (10,4) and (13,16) ritual: param 3, the participants of the Altar of the Keepers (130511) and of the Altar of
@@ -13,6 +13,8 @@
 --     DONE (3) and the temple door 124367 opens. A keeper that evades sets FAIL (2, EventAI 485701) and all four
 --     stand up stoned again. flags 40 = done by instance data (8) + encounter states (32).
 --   * (11,2) wait_object 124367: 60 s instead of 600 (the door opens the moment the data is DONE).
+--   * (11,0), the leg's move to 101.5 271.2 -26.5, is dropped: the hold walks to that same spot itself, and with the
+--     ritual followed straight by its hold the Keepers' fight (it starts with the ritual's cast) is the hold's.
 --   * (13,17) hold, replaces the boss row of Archaedas (2748): the altar's spell 10340 sends event 2268
 --     (boss_archaedas.cpp:45), which sets ULDAMAN_ENCOUNTER_ARCHAEDAS (instance data 2) IN_PROGRESS; he wakes 4 s
 --     later, wakes a wall minion (Earthen Custodian 7309, Hallshaper 7077) every 10 s, the six Earthen Guardians
@@ -29,7 +31,7 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- uldaman: map 70, 14 legs, 205 steps
+-- uldaman: map 70, 14 legs, 204 steps (205 exported, one dropped: see above)
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'uldaman';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'uldaman';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'uldaman';
@@ -228,7 +230,6 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('uldaman', 10, 2, 'pull', 0, 121.9, 254.67, -26.58, 24.1, 0, 0, 0, 0, '7396,4860,7397', 'pull group 1'),
 ('uldaman', 10, 3, 'pull', 0, 97.78, 296.55, -26.5, 21.3, 0, 0, 0, 0, '7396,7397,4860', 'pull group 2'),
 ('uldaman', 10, 4, 'ritual', 130511, 104.8, 272.5, -26.5, 0, 0, 3, 0, 0, '', 'HAND-SET param 3: three bots use the Altar of the Keepers (event start)'),
-('uldaman', 11, 0, 'move', 0, 101.5, 271.2, -26.5, 0, 0, 0, 0, 0, '', 'to'),
 ('uldaman', 11, 1, 'hold', 1, 101.5, 271.2, -26.5, 30, 0, 3, 40, 600, '4857', 'HAND-SET event: the Stone Keepers wake one by one; done when instance data 1 reads 3 (DONE)'),
 ('uldaman', 11, 2, 'wait_object', 124367, 137.7, 288.1, -26.4, 0, 0, 1, 0, 60, '', 'HAND-SET 60 s: the temple door opens with DONE'),
 ('uldaman', 12, 0, 'move', 0, 141, 290, -26.4, 0, 0, 0, 0, 0, '', 'to'),

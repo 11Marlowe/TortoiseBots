@@ -9270,6 +9270,14 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 f.taskReply = slot.taskReply;
                 f.taskText = slot.taskText;
             }
+            // The encounter the ritual starts (its hold's data): a retry waits
+            // for a reset before the ritual goes out (DungeonRun::RitualStep).
+            if (ai::PlanStep const* hold = EventHoldAhead(slot.run))
+                if (hold->flags & ai::kPlanFlagDoneData)
+                {
+                    InstanceData* data = lead->GetMap() ? lead->GetMap()->GetInstanceData() : nullptr;
+                    f.eventData = data ? static_cast<long long>(data->GetData(hold->entry)) : -1;
+                }
             break;
         case ai::PlanStepKind::Loot:
         case ai::PlanStepKind::Open:

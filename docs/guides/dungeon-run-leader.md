@@ -154,6 +154,10 @@ A scripted event is two or more steps: a **start** (`ritual`, or an `open` / `us
    - neither: every unit of `entries` within `radius` is dead, after one was seen awake.
 4. Is bounded by `timeout_s` (fights included; a fight in a hold may last that long, not just 180 s): then it pauses (*event not done after N s*); `resume` waits again, `skip` goes on.
 
+An event may start fighting before its hold: the first Stone Keeper wakes with the ritual's cast. A fight while the current step is a start (`ritual`, `open`, `use_item`) or a move with only moves between it and a hold is the event's: it is bounded by the hold's timeout, not 180 s, and a ritual that answered ACK hands over to the hold at once.
+
+Before a `ritual` whose hold reads an encounter state, the run looks at that data: already done, the ritual is left out; in progress or failed (a boss still walking home after a reset), it waits up to 60 s for the reset before the ritual goes out (the Stone Keepers stay at fail for good, so there the wait runs out and the ritual goes). A retry refused because the altar is still active (`busy`, "already in progress": the core leaves a summoning ritual active after its last use, and nothing in the Uldaman scripts resets it) pauses with *the altar is spent; an instance reset is needed to retry the event* (unverified live).
+
 A **failed event** never hangs: the run goes back to the start step (the nearest `ritual`, `open` or `use_item` before the hold, with only moves, rests and waits between) and pauses with the reason (*event failed (data 1 reads 2, fail: the encounter reset): .bot run resume regroups and starts it again at step N (ritual)*). A wipe in a hold regroups by itself as anywhere; the hold then starts over and finds the reset.
 
 A hold owns its event's units: no hop before it pulls them (as a later `pull` or `boss` step owns its pack). The status line's phase shows the event: `hold 1/4 down` between fights, `fight 1/4 down` in one (dead units of the event of all seen, the dormant ones too), the note says it in words (*event: fighting (1 of 4 down, 1 awake)*).

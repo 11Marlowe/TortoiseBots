@@ -369,6 +369,103 @@ static void TestFarHoldIsApproached()
     CHECK(!r.eventOn && r.eventMs == 0);
 }
 
+static void TestFightAtTheRitualIsTheHolds()
+{
+    // The first Stone Keeper wakes with the ritual's cast: combat starts in the
+    // same update as the ACK. That fight is the event's, bounded by the hold's
+    // timeout, not the 180 s of an ordinary fight.
+    DungeonPlan plan;
+    plan.steps = {KeepersRitual(), KeepersHold()};
+    Run r = Start(&plan);
+    Facts f = Party();
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 1;
+    f.anyInCombat = true;
+    for (int i = 0; i < 250; ++i)
+        CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && r.step == 1 && r.eventOn);
+
+    // The fight begins before the answer, and a move stands between: still the hold's.
+    plan.steps = {KeepersRitual(), Move(0), KeepersHold()};
+    r = Start(&plan);
+    f = Party();
+    CHECK(!Tick(r, f).empty());
+    f.carrierBusy = true;
+    f.anyInCombat = true;
+    for (int i = 0; i < 250; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 0);
+    // Past the hold's own ceiling it does pause.
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && Has(r.note, "more than 600 s"));
+}
+
+static void TestRetryWaitsForTheEncounterToReset()
+{
+    DungeonPlan plan;
+    plan.steps = {KeepersRitual(), KeepersHold()};
+    // Archaedas after a reset: FAIL while he walks home, then NOT_STARTED.
+    Run r = Start(&plan);
+    Facts f = Party();
+    f.eventData = 2;
+    for (int i = 0; i < 10; ++i)
+        CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running && Has(r.note, "waiting for the encounter to reset"));
+    f.eventData = 0;
+    CHECK(Has(Tick(r, f), "ritual entry:130511"));
+
+    // The Stone Keepers stay at FAIL for good: the wait is bounded, then the ritual goes out.
+    r = Start(&plan);
+    f = Party();
+    f.eventData = 2;
+    std::string order;
+    int ticks = 0;
+    while (order.empty() && ticks < 100)
+    {
+        order = Tick(r, f);
+        ++ticks;
+    }
+    CHECK(Has(order, "ritual entry:130511") && ticks >= 60 && ticks <= 62);
+
+    // The event is done already: no ritual.
+    r = Start(&plan);
+    f = Party();
+    f.eventData = 3;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.step == 1 && Has(r.note, "done already"));
+}
+
+static void TestSpentAltarAfterAFailure()
+{
+    DungeonPlan plan;
+    plan.steps = {KeepersRitual(), KeepersHold()};
+    std::string const order = "ritual entry:130511@104.8,272.5,-26.5 Tanky Mage Heals";
+    std::string const busy = "busy: That ritual is already in progress.";
+    // First try: the module's words.
+    Run r = Start(&plan);
+    OrderRefused(r, order, busy);
+    CHECK(r.state == State::Paused && Has(r.note, "refused: busy") && !Has(r.note, "spent"));
+    // The retry after a failed event: the altar is spent.
+    r = Start(&plan, 1);
+    Facts f = Party();
+    f.eventData = 2;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0 && r.eventRetry);
+    CHECK(Resume(r));
+    OrderRefused(r, order, busy);
+    CHECK(r.state == State::Paused && Has(r.note, "spent") && Has(r.note, "instance reset"));
+    // The same answer as the ritual's final ERR.
+    CHECK(Resume(r));
+    r.regroup = false;
+    f = Party();
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 2;
+    f.taskText = busy;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && Has(r.note, "spent"));
+}
+
 int main()
 {
     TestNormalizeEventSteps();
@@ -380,6 +477,9 @@ int main()
     TestHoldByUnitsAndItsCeiling();
     TestHoldDoneByObject();
     TestFarHoldIsApproached();
+    TestFightAtTheRitualIsTheHolds();
+    TestRetryWaitsForTheEncounterToReset();
+    TestSpentAltarAfterAFailure();
     std::cout << "test_dungeon_event_policy: ok\n";
     return 0;
 }

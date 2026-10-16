@@ -101,6 +101,8 @@ constexpr float kHoldReturnYd = 8.0f;             // out of a fight, a lead bot 
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
 constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
 constexpr std::uint32_t kRitualNoReplyMs = 5000;  // a ritual whose bots are free again with no answer this long: pause
+constexpr std::uint32_t kEventResetWaitMs = 60000; // before a ritual: an encounter still in progress or failed (a boss
+                                                   // walking home) is waited for this long, then the ritual goes out
 
 // Rest gate: it starts when someone is below a "start" line after a fight or
 // before a step, and ends when everybody is at the "end" line (or at kRestCapMs).
@@ -308,6 +310,7 @@ struct Run
     // A scripted event's hold (Hold steps): its clock runs from the first look,
     // in fights too; a regroup or resume starts it over.
     bool eventOn = false;
+    std::uint32_t eventResetWaitMs = 0; // a ritual waiting for its encounter to reset (kEventResetWaitMs)
     std::uint32_t eventMs = 0;
     bool eventStarted = false;   // the done data left "not started", or an event unit was seen awake
     bool holdArrived = false;    // the party stood on the hold spot once
@@ -318,11 +321,48 @@ struct Run
     bool wiped = false;
     std::uint32_t nearWipes = 0; // kWipeDead or more dead with someone alive, counted once each time
     bool nearWiped = false;
+    bool eventRetry = false;     // an event failed this run: a ritual sent now is its retry
 };
 
 inline const PlanStep* Current(const Run& r)
 {
     return r.plan && r.step < r.plan->steps.size() ? &r.plan->steps[r.step] : nullptr;
+}
+
+// The hold a start step leads into: the current step is a ritual, open,
+// use_item or move, and the next steps up to a hold are moves only. Its event
+// may already be fighting (the Stone Keepers wake with the ritual's cast), so
+// such a fight is bounded as the hold's. Null for none.
+inline const PlanStep* EventHoldAhead(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    if (!s || (s->kind != PlanStepKind::Ritual && s->kind != PlanStepKind::Open && s->kind != PlanStepKind::UseItem &&
+            s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
+        return nullptr;
+    for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
+    {
+        const PlanStep& next = r.plan->steps[i];
+        if (next.kind == PlanStepKind::Hold)
+            return &next;
+        if (next.kind != PlanStepKind::Move && next.kind != PlanStepKind::MoveDirect)
+            return nullptr;
+    }
+    return nullptr;
+}
+
+// A ritual refused because its object is still active ("already in
+// progress") after the event failed: the core leaves a summoning ritual active
+// after its last use, so the retry cannot be started in this instance.
+inline bool SpentRitual(const Run& r, const std::string& order, const std::string& answer)
+{
+    return r.eventRetry && order.compare(0, 7, "ritual ") == 0 && answer.compare(0, 4, "busy") == 0 &&
+        answer.find("already in progress") != std::string::npos;
+}
+
+inline std::string SpentRitualNote(const std::string& what)
+{
+    return what + " refused: the altar is still active from the failed try, so it is spent; an instance reset is "
+        "needed to retry the event (.bot run skip goes on without it)";
 }
 
 inline std::string Num(float v)
@@ -395,6 +435,7 @@ inline void ResetStep(Run& r)
     r.walkBackIdx = 0;
     r.walkBackRefusals = 0;
     r.eventOn = false;
+    r.eventResetWaitMs = 0;
     r.eventMs = 0;
     r.eventStarted = false;
     r.holdArrived = false;
@@ -654,6 +695,11 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         return;
     }
     const PlanStep* s = Current(r);
+    if (SpentRitual(r, order, answer))
+    {
+        Pause(r, SpentRitualNote("ritual " + std::to_string(s ? s->entry : 0)));
+        return;
+    }
     // A pull target the module refuses as such (invalid-target: not an enemy,
     // or the group cannot attack it; Zul'Farrak's Sul'lithuz Hatchlings 8130)
     // is left out for the run; the step goes on with what is left. Other
@@ -1643,6 +1689,29 @@ inline void RitualStep(Run& r, const Facts& f, const PlanStep& s, std::string& o
     std::uint32_t const want = s.param ? s.param : ai::kPlanDefaultRitualBots;
     if (!r.orderSent)
     {
+        // The event this ritual starts, when its hold reads an encounter state
+        // (the glue reads that data on the ritual step too).
+        const PlanStep* hold = EventHoldAhead(r);
+        if (hold && (hold->flags & ai::kPlanFlagDoneData) && (hold->flags & ai::kPlanFlagEncounter) && f.eventData >= 0)
+        {
+            if (f.eventData == static_cast<long long>(hold->param))
+            {
+                NextStep(r, what + " left out: the event is done already (data " + std::to_string(hold->entry) +
+                    " reads " + std::to_string(hold->param) + ")");
+                return;
+            }
+            // Still in progress or failed (Archaedas walking home after a
+            // reset): a ritual now would start a dead event. Wait for the
+            // reset, bounded (the Stone Keepers stay at fail for good).
+            bool const busy = f.eventData == 1 || f.eventData == static_cast<long long>(ai::kPlanEncounterFail);
+            if (busy && r.eventResetWaitMs < kEventResetWaitMs)
+            {
+                r.eventResetWaitMs += kTickMs;
+                r.note = what + ": waiting for the encounter to reset (data " + std::to_string(hold->entry) + " reads " +
+                    std::to_string(f.eventData) + ")";
+                return;
+            }
+        }
         if (f.carrierBusy)
         {
             r.note = what + ": waiting for " + f.carrier + " to finish an earlier order";
@@ -1669,7 +1738,7 @@ inline void RitualStep(Run& r, const Facts& f, const PlanStep& s, std::string& o
     }
     if (f.taskReply == 2)
     {
-        Pause(r, what + " failed: " + f.taskText);
+        Pause(r, SpentRitual(r, "ritual ", f.taskText) ? SpentRitualNote(what) : what + " failed: " + f.taskText);
         return;
     }
     if (f.taskReply == 1)
@@ -1741,6 +1810,7 @@ inline void EventFailed(Run& r, const std::string& why)
             ai::PlanStepKindName(r.plan->steps[start].kind) + ")";
     }
     r.fighting = false;
+    r.eventRetry = true;
     Pause(r, "event failed (" + why + ")" + again);
 }
 
@@ -1986,6 +2056,17 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     // Fights are the bots' own; the run only bounds them.
     if (f.anyInCombat)
     {
+        // The ritual answered and its event is fighting already (the first
+        // Stone Keeper wakes with the cast): the fight is the hold's.
+        if (s->kind == PlanStepKind::Ritual && r.orderSent && f.taskReply == 1)
+        {
+            NextStep(r, "ritual " + std::to_string(s->entry) + " done: the event started");
+            s = Current(r);
+            if (!s)
+                return order;
+            if (s->kind == PlanStepKind::Hold)
+                r.eventOn = true;
+        }
         if (!r.fighting)
         {
             r.fighting = true;
@@ -1994,8 +2075,11 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         r.fightMs += dt;
         // A hold's fights are the event (one wave after the other, no pause
         // between): its own timeout bounds them when that is longer.
-        std::uint32_t const holdCap = s->timeoutS * 1000u > kBossFightCapMs ? s->timeoutS * 1000u : kBossFightCapMs;
-        std::uint32_t const cap = s->kind == PlanStepKind::Hold ? holdCap
+        // A start step's fight (or a move's) before its hold is the event's too.
+        const PlanStep* const event = s->kind == PlanStepKind::Hold ? s : EventHoldAhead(r);
+        std::uint32_t const holdCap = event && event->timeoutS * 1000u > kBossFightCapMs ? event->timeoutS * 1000u
+                                                                                       : kBossFightCapMs;
+        std::uint32_t const cap = event ? holdCap
                                 : s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
         if (r.fightMs > cap && autoRegroup)
         {
