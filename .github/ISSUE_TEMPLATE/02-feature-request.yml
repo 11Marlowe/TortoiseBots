@@ -1,6 +1,6 @@
 name: Feature request
 description: Suggest an idea or an improvement. Going to build it yourself? Use "Feature spec" instead.
-title: "[Feature]: "
+title: "[feature][area]: "
 labels:
   - enhancement
 
@@ -9,6 +9,7 @@ body:
     id: area
     attributes:
       label: What does this relate to?
+      description: "Optional: put a short area in the title too, e.g. [bug][commander], [feature][random-bots], [bug][combat]."
       options:
         - Combat or class behavior
         - Movement or travel
