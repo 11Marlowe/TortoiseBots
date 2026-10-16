@@ -268,10 +268,13 @@ public:
     }
 
     void SetDriver(std::string d) { driver_ = std::move(d); }
-    // The server image (the build version) and the core revision it runs on.
-    void SetBuild(std::string image, std::string core)
+    // The module build version (TORTOISEBOTS_BUILD_VERSION; written as both
+    // "image" and "module": the server does not know its image tag) and the
+    // core revision it runs on.
+    void SetBuild(std::string version, std::string core)
     {
-        buildImage_ = std::move(image);
+        buildImage_ = version;
+        buildModule_ = std::move(version);
         buildCore_ = std::move(core);
     }
     void NoteMode(RunMode m) { mode_ = StrongerMode(mode_, m); }
@@ -454,7 +457,7 @@ public:
             return std::string("\"") + key + "\":\"" + JsonEscape(v) + "\"";
         };
         add(str("mode", ModeName(mode_)));
-        add("\"build\":{\"image\":\"" + JsonEscape(buildImage_) + "\"" +
+        add("\"build\":{\"image\":\"" + JsonEscape(buildImage_) + "\",\"module\":\"" + JsonEscape(buildModule_) + "\"" +
             (buildCore_.empty() ? std::string() : ",\"core\":\"" + JsonEscape(buildCore_) + "\"") + "}");
         add(str("driver", EffectiveDriver(driver_, mode_)));
         if (a.startUnix)
@@ -564,6 +567,7 @@ private:
 
     std::string driver_;
     std::string buildImage_;
+    std::string buildModule_;
     std::string buildCore_;
     RunMode mode_ = RunMode::Observe;
     uint32_t dungeonMap_ = 0;

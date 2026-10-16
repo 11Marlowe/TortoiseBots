@@ -173,7 +173,7 @@ static void TestFullClear()
     CHECK(d.NoteBossKill(7267, 4260500));
     std::string const s = d.Render(Final());
     CHECK(Has(s, "\"mode\":\"commander\""));
-    CHECK(Has(s, "\"build\":{\"image\":\"2026-10-16-v2\",\"core\":\"abc12345\"}"));
+    CHECK(Has(s, "\"build\":{\"image\":\"2026-10-16-v2\",\"module\":\"2026-10-16-v2\",\"core\":\"abc12345\"}"));
     CHECK(Has(s, "\"driver\":\"sonnet:medium:zf-ab-1-s2\""));
     CHECK(Has(s, "\"started\":\"2025-10-09T08:53:20Z\",\"ended\":\"2025-10-09T10:05:00Z\""));
     CHECK(Has(s, "\"stop_reason\":\"stop\""));
@@ -372,7 +372,7 @@ static void TestSummaryMembers()
     CHECK(s.find("\"status\"", status + 1) == std::string::npos);
     CHECK(s.find("\"end_reason\"", s.find("\"end_reason\"") + 1) == std::string::npos);
     CHECK(Has(s, "\"tb_version\":\"2026-10-16-v2\""));  // the old key stays
-    CHECK(Has(s, "\"build\":{\"image\":\"2026-10-16-v2\",\"core\":\"abc12345\"}"));
+    CHECK(Has(s, "\"build\":{\"image\":\"2026-10-16-v2\",\"module\":\"2026-10-16-v2\",\"core\":\"abc12345\"}"));
     CHECK(Has(s, "\"driver\":\"opus:high:zf-1\""));
     // Old callers pass no members and get the old summary byte for byte.
     std::string const old = b.BuildSummary(h, "complete", "stop", 160, 60000, c, "run-9.jsonl");

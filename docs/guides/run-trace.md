@@ -93,7 +93,7 @@ The server also writes the fields the dashboard's Dungeons tab reads ([observabi
 | Field | Content |
 | :--- | :--- |
 | `mode` | `run_leader` when the module's run leader (`.bot run`) walks a plan for the requester, `commander` when the requester has a bound remote commander, else `observe`. Read at start and once a second; the strongest sign seen wins. |
-| `build` | `{"image": <build version>, "core": <core revision, 8 chars>}`: `TORTOISEBOTS_BUILD_VERSION` (the same string as `tb_version`) and the core the module runs in. The module's own git sha is not compiled in (follow-up). |
+| `build` | `{"image", "module", "core"}`: `image` and `module` both hold `TORTOISEBOTS_BUILD_VERSION` (the same string as `tb_version`; the server does not know its image tag or the module's git sha, follow-up), `core` the core revision (8 chars). |
 | `driver` | The `driver=` argument; `human` for an `observe` run without one, `unknown` otherwise. |
 | `started`, `ended` | ISO 8601 UTC (`ended` only in the final summary); `start_unix` / `end_unix` stay. |
 | `plan` | The plan name the bosses come from, when known. |
