@@ -489,6 +489,19 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # run ends (end reason size_cap) with its end record intact.
 #AiPlayerbot.RunTrace.MaxFileMb = 64
 
+# Issue #1012: `.bot cmd gossip <npc entry> <bot> <option>` lets a commanded bot
+# talk to an NPC and pick a gossip option (needs AiPlayerbot.RemoteCommander = 1
+# and a binding). A gossip option can do anything its script says (take money,
+# give items, teleport), so a bot talks only to the creature entries listed
+# here, comma-separated, after you have read what their scripts do. Empty = the
+# order is refused for every NPC (the default). Audited entries:
+#   7607 Weegli Blastfuse (Zul'Farrak): after the pyramid event his one option
+#        sends him to blow the End Door open; before it his menu is empty.
+#   7604 Sergeant Bly (Zul'Farrak): after the pyramid event his one option starts
+#        his fight (he and his crew turn hostile and attack the bot that asked).
+# To allow both: AiPlayerbot.BotGossipNpcs = 7607,7604
+#AiPlayerbot.BotGossipNpcs =
+
 # Bounded AH market population through the native bot/session auction path. Default off.
 # When enabled, online random Headless bots use real inventory items, pricing, deposits,
 # account limits, and HandleAuctionSellItem. Auctioneer spawns are loaded once and
@@ -744,6 +757,31 @@ AiPlayerbot.PaladinJudgementUpkeep = 1
 # 0 - generic target choice and no egg avoidance
 # 1 - whelp duty and egg avoidance (Default)
 AiPlayerbot.OnyxiaWhelpsAndEggs = 1
+
+# Dungeon boss tactics.
+# Per-boss rows from the world table ai_boss_tactic (map + boss entry) that bots
+# apply while they fight that boss: interrupt a listed spell, kill a listed add
+# before anything else (in a listed order), stay out of the boss's front during a
+# listed frontal attack. Built from Turtle's own core data; Uldaman up to
+# Ironaya and the Obsidian Sentinel so far (docs/guides/boss-tactics.md).
+# This changes how bots play in dungeons, so it is off for everybody by default.
+# Bots in a group that a remote commander has bound get the tactics regardless of
+# this key. An explicit target order from a player always wins.
+# 0 - off, except for commander-bound groups (Default)
+# 1 - on for every bot on a map that has rows
+AiPlayerbot.DungeonTactics = 0
+
+# Dungeon self-clear (the run leader).
+# `.bot run start [plan]` lets a remote commander's bound party clear a dungeon
+# plan (world tables ai_dungeon_plan/leg/step) by itself: it walks the route,
+# pulls the packs, kills the bosses and opens the doors with the commander's own
+# orders, and pauses on 3 dead, on any player order and at every wait's ceiling.
+# Needs AiPlayerbot.RemoteCommander = 1 and a binding (.bot commander bind).
+# Bots then clear without a player giving each order, so it is off by default
+# (docs/guides/dungeon-run-leader.md).
+# 0 - `.bot run` is refused (Default)
+# 1 - a bound commander may start a run
+AiPlayerbot.DungeonSelfClear = 0
 
 # Keep out of creature auras.
 # Some creatures carry a permanent damaging aura that pulses around them even

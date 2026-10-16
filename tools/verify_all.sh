@@ -29,6 +29,7 @@ python3 -m unittest tools/test_engine_walk_gating.py
 python3 -m unittest tools/test_instance_grind_target.py
 python3 -m unittest tools/test_disabled_world_update.py
 python3 -m unittest tools/test_loot_content.py
+python3 -m unittest tools/test_target_flag_locked.py
 python3 -m unittest tools/test_flee_selection.py
 python3 -m unittest tools/test_hazard_waypoint.py
 python3 -m unittest tools/test_talent_link_validation.py
@@ -45,11 +46,16 @@ python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
 python3 -m unittest tools/test_stay_anchor_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
+python3 -m unittest tools/test_gossip_order_wiring.py
 python3 -m unittest tools/test_keepout_set_aside_wiring.py
 python3 -m unittest tools/test_pull_end_engaged.py
 python3 -m unittest tools/test_priest_fade_flash_wiring.py
 python3 -m unittest tools/test_trace_score.py
 python3 -m unittest tools/test_run_trace_glue.py
+python3 -m unittest tools/test_wand_fallback_wiring.py
+python3 -m unittest tools/test_boss_tactics_sql.py
+python3 -m unittest tools/test_dungeon_plan_sql.py
+python3 -m unittest tools/test_run_leader_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -69,6 +75,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_aoe_off_policy
         test_arcane_rupture_policy
         test_attack_order_policy
+        test_totem_spell_policy
         test_auto_tools_kit_policy
         test_autonomous_bg_policy
         test_avoid_aoe_policy
@@ -76,6 +83,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_blessing_coverage_policy
         test_bg_force_reset_policy
         test_bomb_runout_policy
+        test_boss_tactics_policy
         test_bot_chat_gate
         test_bot_command_queue
         test_bot_names_policy
@@ -96,6 +104,8 @@ if command -v g++ >/dev/null 2>&1; then
         test_dps_target_policy
         test_dual_wield_policy
         test_dungeon_follow_hold_policy
+        test_dungeon_plan_policy
+        test_dungeon_run_policy
         test_dungeon_follow_stall_policy
         test_equip_threshold_policy
         test_fishing_spot_policy
@@ -109,6 +119,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_ghost_stall_policy
         test_gluth_kite_policy
         test_golemagg_policy
+        test_gossip_order_policy
         test_graveyard_teleport_policy
         test_grind_hostility_policy
         test_grind_spot_policy
@@ -176,6 +187,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_protection_potion_policy
         test_pull_firing_policy
         test_pull_opening_policy
+        test_pull_start_policy
         test_pull_join_window_policy
         test_pull_refusal_policy
         test_pull_regen_policy

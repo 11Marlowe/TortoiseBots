@@ -15,6 +15,7 @@
 #include "PullTriggers.h"
 #include "DungeonTriggers.h"
 #include "OnyxiasLairDungeonTriggers.h"
+#include "BossTacticsTriggers.h"
 #include "MoltenCoreDungeonTriggers.h"
 #include "BlackwingLairDungeonTriggers.h"
 #include "NaxxramasDungeonTriggers.h"
@@ -111,6 +112,7 @@ namespace ai
             creators["tank assist"] = [](PlayerbotAI* ai) { return new TankAssistTrigger(ai); };
             creators["lose aggro"] = [](PlayerbotAI* ai) { return new LoseAggroTrigger(ai); };
             creators["has aggro"] = [](PlayerbotAI* ai) { return new HasAggroTrigger(ai); };
+            creators["has aggro in raid group"] = [](PlayerbotAI* ai) { return new HasAggroInRaidGroupTrigger(ai); };
 
             creators["ranged light aoe"] = [](PlayerbotAI* ai) { return new RangedLightAoeTrigger(ai); };
             creators["ranged medium aoe"] = [](PlayerbotAI* ai) { return new RangedMediumAoeTrigger(ai); };
@@ -315,6 +317,11 @@ namespace ai
             creators["perception"] = [](PlayerbotAI* ai) { return new PerceptionTrigger(ai); };
 
             // Dungeon Triggers
+            creators["enter boss tactics"] = [](PlayerbotAI* ai) { return new BossTacticsEnterTrigger(ai); };
+            creators["leave boss tactics"] = [](PlayerbotAI* ai) { return new BossTacticsLeaveTrigger(ai); };
+            creators["boss tactics interrupt"] = [](PlayerbotAI* ai) { return new BossTacticsInterruptTrigger(ai); };
+            creators["boss tactics kill first"] = [](PlayerbotAI* ai) { return new BossTacticsKillFirstTrigger(ai); };
+            creators["boss tactics front"] = [](PlayerbotAI* ai) { return new BossTacticsFrontTrigger(ai); };
             creators["enter onyxia's lair"] = [](PlayerbotAI* ai) { return new OnyxiasLairEnterDungeonTrigger(ai); };
             creators["leave onyxia's lair"] = [](PlayerbotAI* ai) { return new OnyxiasLairLeaveDungeonTrigger(ai); };
             creators["enter molten core"] = [](PlayerbotAI* ai) { return new MoltenCoreEnterDungeonTrigger(ai); };

@@ -470,6 +470,9 @@ public:
     bool runTraceGmOnly = true;
     // Size cap of one trace file, in MiB (1..1024); the trace stops when reached.
     uint32 runTraceMaxFileMb = 64;
+    // Issue #1012: creature entries a commanded bot may talk to with `.bot cmd
+    // gossip` (AiPlayerbot.BotGossipNpcs). Empty by default: the order is off.
+    std::set<uint32> botGossipNpcs;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
@@ -523,6 +526,9 @@ public:
     bool paladinJudgementUpkeep;
     // Onyxia phase 2 whelp duty for AoE ranged DPS and egg-cave avoidance (opt-in).
     bool onyxiaWhelpsAndEggs;
+    bool dungeonTactics;
+    // `.bot run`: a bound party clears a dungeon plan by itself (opt-in).
+    bool dungeonSelfClear;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

@@ -9,6 +9,7 @@ relates_to:
   - guide-getting-started
   - concept-bot-mechanics-and-quirks
   - class-overview
+  - guide-boss-tactics
 ---
 
 # Dungeon & Raid Tactics Guide
@@ -334,9 +335,13 @@ Bots do not clear dungeons on their own. Autonomous dungeon clearing is an expli
 | Field | Detail |
 | --- | --- |
 | Map | 70, read off the in-game Atlas by the server owner on 2026-09-02 |
+| Kill order | [Horde only: Baelog (6906)] → Revelosh (6910) → Ironaya (7228) → Obsidian Sentinel (7023) → [Altar of the Keepers] → Ancient Stone Keeper (7206) → Galgann Firehammer (7291) → Grimlok (4854) → [Altar of Archaedas] → Archaedas (2748, end boss) |
+| Do not wait for | Annora (11073), a friendly enchanter; Eric "The Swift" (6907) and Olaf (6908). Baelog, Eric and Olaf are friendly to Alliance and nothing links their deaths, so they are not a kill group |
+| Quirks | Alliance skips the Baelog step: Baelog, Eric and Olaf are quest givers there, and the team loots Baelog's Chest (GO 123329) for the Gni'kiv Medallion (7740). Both altars are objectives, not bosses. Grimlok is seventh, not first |
 | Kill order | Baelog (6906) → Revelosh (6910) → Ironaya (7228) → Obsidian Sentinel (7023) → [Altar of the Keepers] → Ancient Stone Keeper (7206) → Galgann Firehammer (7291) → Grimlok (4854) → [Altar of Archaedas] → Archaedas (2748, end boss) |
 | Do not wait for | Annora (11073), a friendly enchanter; Eric "The Swift" (6907) and Olaf (6908), who die with Baelog |
 | Quirks | Both altars are objectives, not bosses. Grimlok is seventh, not first |
+| Bot tactics | Opt-in per-boss rows for Revelosh, the Lost Dwarves, Ironaya and the Obsidian Sentinel: [Boss Tactics](boss-tactics.md) |
 
 #### Zul'Farrak (map 209)
 
