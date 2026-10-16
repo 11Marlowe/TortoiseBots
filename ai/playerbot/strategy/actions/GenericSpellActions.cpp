@@ -4,6 +4,7 @@
 #include "playerbot/ForceRebuffPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/WandPolicy.h"
+#include "../../../../runtime/TotemSpellPolicy.h"
 #include "GenericActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/TargetValue.h"
@@ -384,6 +385,21 @@ bool CastSpellAction::isUseful()
 
     if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
         return false;
+
+    // A hostile totem (a healing ward too) is immune to every aura of a
+    // non-positive spell, to heals, energize and taunts (the core's
+    // Totem::IsImmuneToSpellEffect, Totem.cpp): a DoT, curse, sting, mark,
+    // slow or CC cast at it does nothing. Only spells with an effect it takes
+    // are cast at it; the bot falls through to its strikes, shots and wand
+    // (runtime/TotemSpellPolicy.h).
+    if (spellTarget != bot && spellTarget->IsCreature() && static_cast<Creature*>(spellTarget)->IsTotem() &&
+        !sServerFacade.IsFriendlyTo(spellTarget, bot))
+    {
+        if (SpellEntry const* info = sServerFacade.LookupSpellInfo(spellId))
+            if (!TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName,
+                    info->EffectImplicitTargetA, MAX_EFFECT_INDEX, info->IsPositiveSpell()))
+                return false;
+    }
 
     // Never splash crowd control: an enemy-area spell whose blast would reach
     // a sheeped/sapped mob, the caster's own CC mark (it sheeps that mob
@@ -1072,7 +1088,9 @@ bool StopWandAction::isUseful()
 
 bool StopWandAction::Execute(Event& event)
 {
-    uint32 const wait = WandStopWaitMs(bot->GetAttackTimer(RANGED_ATTACK), bot->GetAttackTime(RANGED_ATTACK), sPlayerbotAIConfig.reactDelay);
+    // Sleep until both the last shot's GCD (it ends with the ranged timer)
+    // and the GCD of the bot's own last cast have run out (WandPolicy.h).
+    uint32 const wait = WandStopWaitMs(bot->GetAttackTimer(RANGED_ATTACK), ai->SpellGlobalCooldownRemainingMs(), sPlayerbotAIConfig.reactDelay);
     bot->InterruptSpell(CURRENT_AUTOREPEAT_SPELL);
     SetDuration(wait);
     return true;

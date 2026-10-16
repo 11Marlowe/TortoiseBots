@@ -2,11 +2,14 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AmmoStackPolicy.h"
+#include "playerbot/BossTacticsMgr.h"
+#include "playerbot/DungeonPlanMgr.h"
 #include "../../runtime/BotNames.h"
 #include "../../runtime/HireLevelPolicy.h"
 #include "../../runtime/HireFeePolicy.h"
 #include "../../runtime/HireUnlockPolicy.h"
 #include "../../runtime/RemoteCommanderView.h"
+#include "../../runtime/GossipOrderPolicy.h"
 #include <cerrno>
 #include <cstring>
 #include <thread>
@@ -588,6 +591,15 @@ bool PlayerbotAIConfig::Initialize()
     remoteCommanderViewMs = TortoiseBots::RemoteCommander::View::ClampIntervalMs(
         config.GetIntDefault("AiPlayerbot.RemoteCommanderViewMs",
             static_cast<int>(TortoiseBots::RemoteCommander::View::kDefaultIntervalMs)));
+    {
+        // Issue #1012: the NPCs `.bot cmd gossip` may talk to. Empty (the default) = off.
+        std::string const gossipText = config.GetStringDefault("AiPlayerbot.BotGossipNpcs", "");
+        std::set<uint32_t> gossipNpcs;
+        if (uint32_t const bad = TortoiseBots::GossipOrder::ParseNpcList(gossipText, gossipNpcs))
+            sLog.outError("AiPlayerbot.BotGossipNpcs '%s': %u word(s) are not creature entries and were skipped",
+                gossipText.c_str(), bad);
+        botGossipNpcs = std::set<uint32>(gossipNpcs.begin(), gossipNpcs.end());
+    }
      openGoSpell = config.GetIntDefault("AiPlayerbot.OpenGoSpell", 6477);
 
     randomChangeMultiplier = config.GetFloatDefault("AiPlayerbot.RandomChangeMultiplier", 1.0);
@@ -923,6 +935,8 @@ bool PlayerbotAIConfig::Initialize()
     hunterViperOnLowMana = config.GetBoolDefault("AiPlayerbot.HunterViperOnLowMana", true);
     paladinJudgementUpkeep = config.GetBoolDefault("AiPlayerbot.PaladinJudgementUpkeep", true);
     onyxiaWhelpsAndEggs = config.GetBoolDefault("AiPlayerbot.OnyxiaWhelpsAndEggs", true);
+    dungeonTactics = config.GetBoolDefault("AiPlayerbot.DungeonTactics", false);
+    dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);
     avoidCreatureAuras = config.GetBoolDefault("AiPlayerbot.AvoidCreatureAuras", true);
     allowRepairedTaxiPaths = config.GetBoolDefault("AiPlayerbot.AllowRepairedTaxiPaths", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);
@@ -1132,6 +1146,10 @@ bool PlayerbotAIConfig::Initialize()
 
     sLog.outString("Loading named locations.");
     sRandomBotFacade.LoadNamedLocationCache();
+    sLog.outString("Loading boss tactics.");
+    ai::LoadBossTactics();
+    sLog.outString("Loading dungeon plans.");
+    ai::LoadDungeonPlans();
     sRandomBotFacade.LoadBattleMastersCache();
     sRandomBotFacade.LoadAuctionPrices();
 

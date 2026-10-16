@@ -8,6 +8,7 @@
 // thread only); the AI includes this header instead of the command layer.
 
 #include <cstdint>
+#include <string>
 
 class Player;
 class PlayerbotAI;
@@ -16,6 +17,19 @@ namespace TortoiseBots {
 namespace BotCommands {
 
 bool IsInCommandedGroup(Player* bot);
+
+// The bot's bound party has a running run leader (`.bot run`): its crowd
+// control then takes only the run's ordered mark, never a free pick
+// (CcTargetValue). Cheap: a look over the few runs.
+bool IsInRunningDungeonRun(Player* bot);
+// The running run of the bot's party lists this creature entry kill_first.
+bool IsRunKillFirst(Player* bot, uint32_t entry);
+
+// A real player's chat command (whisper, `.bot command`, party chat) reached
+// this bot and passed its authorization: a run leader (`.bot run`) of the
+// bot's bound party pauses, so the player's order is not overridden by the
+// run's next one (player control first). Does nothing while no run exists.
+void NoteHumanChatOrder(Player* bot, std::string const& text);
 
 // The "threat" back-off a binding gave a bot (RemoteCommander::
 // CommanderThreatLedger): AiFactory and the strategy snapshot load note it,
