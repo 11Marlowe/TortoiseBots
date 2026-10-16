@@ -12,6 +12,8 @@
 
 using ai::LootMethodTakesRolls;
 using ai::LootRollVote;
+using ai::LootVoteIsEcho;
+using ai::LootWireVote;
 using ai::PoliteRollVote;
 using ai::RealPlayerCompetes;
 using ai::RecipeRollVote;
@@ -110,6 +112,24 @@ int main()
         CHECK(RollWaitElapsed(60000, true));
         CHECK(RollWaitElapsed(0, false) == false);
         std::cout << "  [PASS] roll wait elapses on votes or margin\n";
+    }
+
+    // (8) Wire mapping (#967 M2): live votes are (number 0, type 0) NEED,
+    // (128, 2) GREED, (128, 128) PASS per Group::CountRollVote; anything
+    // with a real roll number is a post-resolution echo (CountTheRoll).
+    {
+        CHECK(LootWireVote(0, 0) == LootRollVote::Need);
+        CHECK(LootWireVote(128, 2) == LootRollVote::Greed);
+        CHECK(LootWireVote(128, 128) == LootRollVote::Pass);
+        CHECK(LootWireVote(42, 1) == LootRollVote::Pass);
+        CHECK(LootWireVote(87, 2) == LootRollVote::Pass);
+        CHECK(!LootVoteIsEcho(0, 0));
+        CHECK(!LootVoteIsEcho(128, 2));
+        CHECK(!LootVoteIsEcho(128, 128));
+        CHECK(LootVoteIsEcho(42, 1));
+        CHECK(LootVoteIsEcho(87, 2));
+        CHECK(LootVoteIsEcho(100, 0));
+        std::cout << "  [PASS] wire vote mapping, echoes ignored\n";
     }
 
     std::cout << "All loot-roll gate checks PASSED!\n";

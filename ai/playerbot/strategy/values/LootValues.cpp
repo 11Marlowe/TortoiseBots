@@ -610,7 +610,8 @@ std::string SeenNeedRolls::Format()
     std::ostringstream out;
 
     for (auto& roll : value)
-        out << roll.first.GetRawValue() << ":" << roll.second << ",";
+        out << std::get<0>(roll.first).GetRawValue() << ":" << std::get<1>(roll.first) << ":" <<
+            std::get<2>(roll.first).GetRawValue() << "=" << (uint32)roll.second << ",";
 
     return out.str();
 }

@@ -25,9 +25,12 @@ namespace ai
     };
 
     // SMSG_LOOT_ROLL (one per cast vote) reaches every roller, so a pool bot
-    // waiting on its vote learns each human vote as it lands (#967). A NEED
-    // from a real player is remembered in "seen need rolls" and steps the
-    // bot's own NEED down to GREED at vote time; other votes need no record.
+    // waiting on its vote learns each live human vote as it lands (#967).
+    // Every live vote (need/greed/pass) is remembered per voter in "seen
+    // need rolls"; any NEED among them steps the bot's own NEED down to
+    // GREED at vote time, and the per-voter record tells when every real
+    // roller voted. Post-resolution echoes carry a real roll number and are
+    // ignored.
     class LootVoteAction : public QueryItemUsageAction
     {
     public:

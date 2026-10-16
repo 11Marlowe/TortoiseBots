@@ -89,6 +89,28 @@ namespace ai
 
         return yieldUnseenUsable && canUse;
     }
+    // Wire mapping for SMSG_LOOT_ROLL (Group::CountRollVote vs CountTheRoll):
+    // a live vote is (number 0, type 0) NEED, (128, 2) GREED, (128, 128)
+    // PASS. Anything with a real roll number is a post-resolution echo and
+    // maps to Pass so the call site ignores it. Pure data rule, unit-tested.
+    inline LootRollVote LootWireVote(std::uint8_t rollNumber, std::uint8_t rollType)
+    {
+        if (rollNumber == 0 && rollType == 0)
+            return LootRollVote::Need;
+        if (rollNumber == 128 && rollType == 2)
+            return LootRollVote::Greed;
+        if (rollNumber == 128 && rollType == 128)
+            return LootRollVote::Pass;
+        return LootRollVote::Pass;
+    }
+
+    // True for a post-resolution echo: any packet carrying a real roll
+    // number. The roll is already decided; the vote recorder ignores it.
+    inline bool LootVoteIsEcho(std::uint8_t rollNumber, std::uint8_t rollType)
+    {
+        return LootWireVote(rollNumber, rollType) == LootRollVote::Pass &&
+            (rollNumber != 128 || rollType != 128);
+    }
 
     // Roll-wait timing (#967): pool bots in a group with real players hold
     // their vote so the humans get the whole window. They vote this many
