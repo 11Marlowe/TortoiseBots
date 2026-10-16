@@ -1859,6 +1859,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                             Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
                             if (pItem)
                             {
+                                // Issue #960: EquipNewItem never rolls a suffix; when no suffix
+                                // scores for this spec (e.g. resistance-only jewelry groups),
+                                // roll one like loot instead of wearing it stat-less.
+                                if (!randomEnchBestId && proto->RandomProperty)
+                                    randomEnchBestId = Item::GenerateItemRandomPropertyId(newItemId);
                                 if (randomEnchBestId)
                                 {
                                     pItem->SetItemRandomProperties(randomEnchBestId);
@@ -1944,8 +1949,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) != EQUIP_ERR_OK)
                         continue;
                     // Guarded empty above: equip directly, destroy nothing.
-                    if (bot->EquipNewItem(eDest, fallbackId, true))
+                    if (Item* pItem = bot->EquipNewItem(eDest, fallbackId, true))
                     {
+                        // Issue #960: same suffix-blind create as the main loop above.
+                        if (proto->RandomProperty)
+                            pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(fallbackId));
                         sLog.outDetail("Bot #%d <%s>: slot %u low-level fallback equipped %u",
                             bot->GetGUIDLow(), bot->GetName(), slot, fallbackId);
                         found = true;
