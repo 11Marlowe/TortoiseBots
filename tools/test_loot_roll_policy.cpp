@@ -15,6 +15,8 @@ using ai::LootRollVote;
 using ai::PoliteRollVote;
 using ai::RealPlayerCompetes;
 using ai::RecipeRollVote;
+using ai::RollWaitElapsed;
+using ai::RollWaitVoteMarginMs;
 using ai::TokenUsableByClass;
 using ai::UniqueCopyOwned;
 
@@ -69,7 +71,8 @@ int main()
     // PASS steps aside even for an item they could use. An unseen vote
     // never competes on bare usability alone (#967: in an LFT/pool group
     // every usable drop is usable by someone, which demoted every upgrade
-    // NEED to GREED); only a bot the player directly drives yields those.
+    // NEED to GREED); only a hired companion grouped with its master yields
+    // those. Alts wait like pool bots instead.
     {
         CHECK(RealPlayerCompetes(true, LootRollVote::Need, false));
         CHECK(!RealPlayerCompetes(true, LootRollVote::Greed, true));
@@ -91,6 +94,20 @@ int main()
         CHECK(PoliteRollVote(LootRollVote::Greed, true, false) == LootRollVote::Greed);
         CHECK(PoliteRollVote(LootRollVote::Pass, true, false) == LootRollVote::Pass);
         std::cout << "  [PASS] never NEED against a player\n";
+    }
+
+    // (7) Roll wait (#967): the wait ends when every real roller voted, or
+    // when the window ends within the 5 s margin; unknown remaining time
+    // never ends it on its own (the call site votes at once instead).
+    {
+        CHECK(RollWaitVoteMarginMs() == 5000);
+        CHECK(RollWaitElapsed(60000, false) == false);
+        CHECK(RollWaitElapsed(5001, false) == false);
+        CHECK(RollWaitElapsed(5000, false));
+        CHECK(RollWaitElapsed(1000, false));
+        CHECK(RollWaitElapsed(60000, true));
+        CHECK(RollWaitElapsed(0, false) == false);
+        std::cout << "  [PASS] roll wait elapses on votes or margin\n";
     }
 
     std::cout << "All loot-roll gate checks PASSED!\n";

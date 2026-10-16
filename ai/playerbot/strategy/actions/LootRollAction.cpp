@@ -5,9 +5,9 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/LootValues.h"
+#include "../../../runtime/HireLifecycle.h"
 #include "Group/Group.h"
 #include "Maps/Map.h"
-
 using namespace ai;
 
 bool LootStartRollAction::Execute(Event& event)
@@ -55,7 +55,56 @@ bool LootStartRollAction::Execute(Event& event)
 
     SET_AI_VALUE(LootRollMap, "active rolls", lootRolls);
 
+    // Prune NEED sightings for rolls that already resolved (#967).
+    LootNeedMap seenNeeds = AI_VALUE(LootNeedMap, "seen need rolls");
+    for (auto itr = seenNeeds.begin(); itr != seenNeeds.end();)
+    {
+        bool alive = lootRolls.find(itr->first) != lootRolls.end();
+        if (!alive)
+            itr = seenNeeds.erase(itr);
+        else
+            ++itr;
+    }
+    SET_AI_VALUE(LootNeedMap, "seen need rolls", seenNeeds);
+
     return false;
+}
+
+bool LootVoteAction::Execute(Event& event)
+{
+    WorldPacket p(event.GetPacket()); //WorldPacket packet for SMSG_LOOT_ROLL, (8+4+8+4+4+4+1+1)
+    ObjectGuid lootGuid;
+    uint32 itemSlot;
+    ObjectGuid voterGuid;
+    uint32 itemId;
+    p.rpos(0); //reset packet pointer
+    p >> lootGuid; //creature guid what we're looting
+    p >> itemSlot; // the loot slot rolled for
+    p >> voterGuid; // who voted
+    p >> itemId; // the itemEntryId voted on
+    p.read_skip<uint32>(); // randomSuffix, unused
+    uint32 randomPropertyId = 0;
+    p >> randomPropertyId;
+    uint8 rollNumber = 0;
+    p >> rollNumber;
+    uint8 rollType = ROLL_PASS;
+    p >> rollType;
+
+    if (rollType != ROLL_NEED)
+        return false;
+
+    if (voterGuid == bot->getObjectGuid())
+        return false;
+
+    Player* voter = sObjectMgr.GetPlayer(voterGuid);
+    if (!voter || !ai->IsRealPlayer(voter))
+        return false;
+
+    LootNeedMap seenNeeds = AI_VALUE(LootNeedMap, "seen need rolls");
+    seenNeeds.insert({ lootGuid, itemSlot });
+    SET_AI_VALUE(LootNeedMap, "seen need rolls", seenNeeds);
+
+    return true;
 }
 
 bool RollAction::Execute(Event& event)
@@ -348,7 +397,8 @@ bool RollAction::RollOnItemInSlot(RollVote vote, ObjectGuid lootGuid, uint32 slo
 // core's loot distance of the corpse). seenVoter/seenVote carry the one
 // vote the bot knows: its owner's own CMSG_LOOT_ROLL that woke "delayed
 // roll". The core keeps the other votes private, so an unseen player's bare
-// "can use it" only competes for a bot the player directly drives (#967).
+// "can use it" only competes for a hired companion grouped with its master
+// (#967): alts wait like pool bots instead.
 bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQualifier, ObjectGuid seenVoter, uint8 seenVote)
 {
     const ItemPrototype* proto = itemQualifier.GetProto();
@@ -357,10 +407,8 @@ bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQuali
 
     Creature* lootTarget = bot->GetMap()->GetCreature(lootGuid);
 
-    // A bot the player directly drives (alt / hire grouped with its master)
-    // still yields usable items to unseen players; pool bots only step aside
-    // for a NEED they actually saw (#967).
-    bool const yieldUnseenUsable = ai->IsAlt() || ai->HasRealPlayerMaster();
+    bool const yieldUnseenUsable = TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
+        ai->HasRealPlayerMaster();
     for (Player* member : ai->GetPlayersInGroup())
     {
         if (member == bot || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
@@ -380,6 +428,93 @@ bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQuali
     return false;
 }
 
+// True while this bot must hold its vote on this roll: a pool bot (or alt)
+// in a group with real players waits so the humans get the whole window,
+// voting ~5 s before it ends or as soon as every real roller has voted
+// (#967). Hired companions grouped with their master never wait (they keep
+// the old yield-on-usable behaviour); bot-only groups vote at once.
+bool RollAction::ShouldWaitForPlayers(ObjectGuid lootGuid, uint32 slot)
+{
+    Group* group = bot->GetGroup();
+    if (!group || !bot->GetMap())
+        return false;
+
+    if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) && ai->HasRealPlayerMaster())
+        return false;
+
+    bool anyRealPlayer = false;
+    Creature* lootTarget = bot->GetMap()->GetCreature(lootGuid);
+    for (Player* member : ai->GetPlayersInGroup())
+    {
+        if (member == bot || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
+            continue;
+
+        if (lootTarget && !member->IsWithinLootXPDist(lootTarget))
+            continue;
+
+        anyRealPlayer = true;
+        break;
+    }
+
+    if (!anyRealPlayer)
+        return false;
+
+    // A NEED the bot already saw ends the wait on its own: the vote is
+    // decided (step down to GREED), so cast it now.
+    LootNeedMap seenNeeds = AI_VALUE(LootNeedMap, "seen need rolls");
+    if (seenNeeds.find({ lootGuid, slot }) != seenNeeds.end())
+        return false;
+
+    // The core counts down from LOOT_ROLL_TIMEOUT (60 s); a zero timer means
+    // the window already resolved - vote now rather than hold forever.
+    uint32 remainingMs = lootTarget ? lootTarget->GetGroupLootTimer() : 0;
+    if (!remainingMs)
+        return false;
+
+    return !ai::RollWaitElapsed(remainingMs, AllRealRollersVoted(lootGuid, slot));
+}
+
+// True when no real player in this roll can still vote. The bot cannot read
+// the core's private vote map, so this is conservative: only a NEED the bot
+// recorded counts as voted (GREED/PASS from anyone but the owner are
+// invisible). Everyone else counts as pending and the wait then ends on the
+// time margin instead. Cheap on purpose: one short member walk over the
+// group (usually 5), no world scan, no DB.
+bool RollAction::AllRealRollersVoted(ObjectGuid lootGuid, uint32 slot)
+{
+    const ItemQualifier itemQualifier = GetRollItem(lootGuid, slot);
+    const ItemPrototype* proto = itemQualifier.GetProto();
+    if (!proto)
+        return false;
+
+    Loot* loot = sLootMgr.GetLoot(bot, lootGuid);
+    LootItem* item = (loot && slot < loot->items.size()) ? &loot->items[slot] : nullptr;
+
+    Creature* lootTarget = bot->GetMap() ? bot->GetMap()->GetCreature(lootGuid) : nullptr;
+    LootNeedMap seenNeeds = AI_VALUE(LootNeedMap, "seen need rolls");
+    if (seenNeeds.find({ lootGuid, slot }) != seenNeeds.end())
+        return true;
+
+    for (Player* member : ai->GetPlayersInGroup())
+    {
+        if (member == bot || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
+            continue;
+
+        if (lootTarget && !member->IsWithinLootXPDist(lootTarget))
+            continue;
+
+        if (member->CanUseItem(proto) != EQUIP_ERR_OK)
+            continue;
+
+        if (item && !item->AllowedForPlayer(member, lootTarget))
+            continue;
+
+        return false;
+    }
+
+    return true;
+}
+
 // Vote on one item the polite way: never roll need against a real player.
 bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid seenVoter, uint8 seenVote)
 {
@@ -393,7 +528,9 @@ bool RollAction::RollWithEtiquette(ObjectGuid lootGuid, uint32 slot, ObjectGuid 
     {
         // A FORCE_NEED usage is the player's own order and still needs.
         bool forcedNeed = AI_VALUE2(ItemUsage, "item usage", itemQualifier.GetQualifier()) == ItemUsage::ITEM_USAGE_FORCE_NEED;
-        bool competes = !forcedNeed && RealPlayerMayNeed(lootGuid, itemQualifier, seenVoter, seenVote);
+        LootNeedMap seen = AI_VALUE(LootNeedMap, "seen need rolls");
+        bool competes = !forcedNeed && (RealPlayerMayNeed(lootGuid, itemQualifier, seenVoter, seenVote) ||
+            seen.find({ lootGuid, slot }) != seen.end());
         if (ai::PoliteRollVote(ai::LootRollVote::Need, competes, forcedNeed) == ai::LootRollVote::Greed)
         {
             vote = ROLL_GREED;
@@ -432,6 +569,13 @@ bool AutoLootRollAction::Execute(Event& event)
         return false;
 
     auto currentRoll = std::next(lootRolls.begin(), urand(0, lootRolls.size() - 1));
+
+    // Pool bots (and alts) in a group with real players hold their vote so
+    // the humans get the whole window; the trigger fires every ~5 s, so the
+    // vote lands once the wait elapses (#967). Returning false keeps the
+    // roll in "active rolls" for the next tick.
+    if (ShouldWaitForPlayers(currentRoll->first, currentRoll->second))
+        return false;
 
     return RollWithEtiquette(currentRoll->first, currentRoll->second);
 }

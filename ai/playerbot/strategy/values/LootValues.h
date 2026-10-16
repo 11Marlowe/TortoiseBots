@@ -227,7 +227,28 @@ namespace ai
 #endif
     };
 
-    typedef std::unordered_multimap<ObjectGuid, uint32> LootRollMap;
+    // Rolls (loot guid + slot) where a real player voted NEED while the bot
+    // waited (#967). SMSG_LOOT_ROLL reaches every roller, so a waiting pool
+    // bot sees each human vote as it lands; a NEED here steps its own NEED
+    // down to GREED at vote time. Entries are pruned with the roll.
+    typedef std::set<std::pair<ObjectGuid, uint32>> LootNeedMap;
+
+    class SeenNeedRolls : public ManualSetValue<LootNeedMap>
+    {
+    public:
+        SeenNeedRolls(PlayerbotAI* ai) : ManualSetValue(ai, {}, "seen need rolls") {}
+        virtual std::string Format() override;
+
+#ifdef GenerateBotHelp
+        virtual std::string GetHelpName() { return "seen need rolls"; } //Must equal iternal name
+        virtual std::string GetHelpTypeName() { return "loot"; }
+        virtual std::string GetHelpDescription()
+        {
+            return "Rolls where a real player voted need while the bot waited.";
+        }
+        virtual std::vector<std::string> GetUsedValues() { return { }; }
+#endif
+    };
 
     class ActiveRolls : public ManualSetValue<LootRollMap>
     {

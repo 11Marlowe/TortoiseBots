@@ -604,3 +604,13 @@ std::string ActiveRolls::Format()
 
 	return out.str();
 }
+
+std::string SeenNeedRolls::Format()
+{
+    std::ostringstream out;
+
+    for (auto& roll : value)
+        out << roll.first.GetRawValue() << ":" << roll.second << ",";
+
+    return out.str();
+}

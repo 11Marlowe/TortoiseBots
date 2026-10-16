@@ -3049,9 +3049,15 @@ pending; in-game pending.
 Amendment 2026-10-16 (#967): the "anyone else competes when CanUseItem is
 OK" fallback demoted every upgrade NEED to GREED in LFT/pool groups —
 someone can always use a usable drop — even though no player had voted.
-Unseen players now compete only via a NEED the bot actually saw (its
-owner's forwarded vote). A bot the player directly drives (alt, or hire
-grouped with its master) keeps the old yield-on-usable behaviour.
+Reworked per owner: pool bots and alts now WAIT instead of voting at once.
+They hold the vote while real players are in the roll and cast it ~5 s
+before the core's 60 s window ends (`LOOT_ROLL_TIMEOUT`, Group.cpp), or as
+soon as every real roller voted — whichever comes first. Human NEEDs seen
+on the wire (`SMSG_LOOT_ROLL`, new `loot vote` action into "seen need
+rolls") step the bot's NEED down to GREED; otherwise it votes its computed
+vote. Only hired companions grouped with their master keep the old
+immediate yield-on-usable behaviour. No donor change: mod-playerbots votes
+at once; the wait is a Turtle-original on top of the ported gates.
 ## 2026-10-03 — pet upkeep + gather tools + medium-mana potion (r-donor E01/E02/E10/E11)
 
 Donor: `mod-playerbots` @ b6696bdbd3740e575598d167d69f39f68cc0b907.

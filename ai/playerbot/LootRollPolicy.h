@@ -77,16 +77,38 @@ namespace ai
     // Everyone else's vote stays private in the core, and "can use it" alone
     // must not demote: in an LFT/pool group every usable drop is usable by
     // someone, so that reading turned every upgrade NEED into GREED (#967).
-    // The one exception is a bot the player directly drives (alt / hire in
-    // the group with its master): it still steps aside for a usable item,
-    // because taking the player's upgrade from their own companion is
-    // always wrong.
+    // The one exception is a hired companion grouped with its master: it
+    // still steps aside for a usable item, because taking the hirer's
+    // upgrade from their own companion is always wrong. Alts (the player's
+    // own-account bots) wait like pool bots instead: if the player wants to
+    // gear the alt, they click greed and the alt needs.
     inline bool RealPlayerCompetes(bool voteSeen, LootRollVote seenVote, bool canUse, bool yieldUnseenUsable = false)
     {
         if (voteSeen)
             return seenVote == LootRollVote::Need;
 
         return yieldUnseenUsable && canUse;
+    }
+
+    // Roll-wait timing (#967): pool bots in a group with real players hold
+    // their vote so the humans get the whole window. They vote this many
+    // milliseconds before the core's group-loot window ends
+    // (LOOT_ROLL_TIMEOUT = 60 s in Group.cpp): late enough that every human
+    // had their chance, early enough that the vote always lands. Pure data
+    // rule, tested on its own; the call site reads the live deadline.
+    inline std::uint32_t RollWaitVoteMarginMs() { return 5000; }
+
+    // True when the wait is over: the roll ends within the vote margin, or
+    // every real player who can roll on the item already voted. remainingMs
+    // is the live time left on the roll (0 = unknown: keep waiting, the
+    // margin test cannot fire). allVotersVoted arrives precomputed so the
+    // per-tick call stays trivial.
+    inline bool RollWaitElapsed(std::uint32_t remainingMs, bool allVotersVoted)
+    {
+        if (allVotersVoted)
+            return true;
+
+        return remainingMs > 0 && remainingMs <= RollWaitVoteMarginMs();
     }
 
     // An automatic NEED becomes GREED while a real player competes. An
