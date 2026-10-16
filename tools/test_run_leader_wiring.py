@@ -76,6 +76,43 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,\n"
                       "                            slot.run.notCleared);", facts)
 
+    def test_crowd_control_and_kill_first_facts(self):
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        # The crowd control is a mage that knows Polymorph (the policy picks it from the members).
+        self.assertIn("member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);", facts)
+        self.assertIn("unit.polymorphed = Polymorphed(creature);", facts)
+        # Kill-first units come from the bots' cached attackers lists: no grid or world scan (AGENTS.md).
+        self.assertIn("ReadKillFirst(*slot.run.plan, lead, bots, f);", facts)
+        kill = body(COMMANDS, "void ReadKillFirst(", "\n}\n")
+        self.assertIn('ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "attackers", guids);', kill)
+        for scan in ("GetCreatureListWithEntryInGrid", "Cell::Visit", "VisitAllObjects", "HostileCreaturesAround"):
+            self.assertNotIn(scan, kill)
+        self.assertIn("fact.engaged = EngagedWithParty(unit, party);", kill)
+        # A ward is read off its engaged owner at once (totems and guardians), not when a cached list takes it in.
+        self.assertIn("CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS", kill)
+        self.assertIn("EngagedWithParty(summoner, party);", kill)
+        loader = (ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text()
+        self.assertIn("SELECT `plan`, `map`, `cc_priority`, `cc_always`, `kill_first` FROM `ai_dungeon_plan`", loader)
+        self.assertIn("table.SetUnits(plan, fields[2].GetCppString(), fields[3].GetCppString(), fields[4].GetCppString())", loader)
+
+    def test_crowd_control_keeps_to_the_runs_mark(self):
+        cc = (ROOT / "ai/playerbot/strategy/values/CcTargetValue.cpp").read_text()
+        # Never a totem or an NPC's summon (the healing ward), and in a run only the ordered mark.
+        self.assertIn("bool const totem = static_cast<Creature*>(creature)->IsTotem();", cc)
+        self.assertIn("TortoiseBots::BotCommands::IsRunKillFirst(bot, creature->GetEntry());", cc)
+        self.assertIn("if (TortoiseBots::CcLeavesOut(totem, npcSummoned, inRun, runKillFirst))", cc)
+        self.assertIn("inRun = TortoiseBots::BotCommands::IsInRunningDungeonRun(ai->GetBot());", cc)
+        self.assertIn("if (inRun && !assignedTarget)\n            return;", cc)
+        query = body(COMMANDS, "RunningRunOf(Player* bot)", "\n}\n")
+        self.assertIn("State::Running", query)
+
+    def test_spells_at_a_totem_must_hit_it(self):
+        spells = (ROOT / "ai/playerbot/strategy/actions/GenericSpellActions.cpp").read_text()
+        useful = body(spells, "bool CastSpellAction::isUseful()", "\n}\n")
+        self.assertIn("static_cast<Creature*>(spellTarget)->IsTotem()", useful)
+        self.assertIn("TortoiseBots::SpellWorksOnTotem(info->Effect, info->EffectApplyAuraName,", useful)
+        self.assertIn("info->EffectImplicitTargetA, MAX_EFFECT_INDEX, info->IsPositiveSpell()))", useful)
+
     def test_walk_back_reads_facts_for_the_replayed_point(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("ai::PlanStep const* step = FactStep(slot.run);", facts)
