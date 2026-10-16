@@ -78,6 +78,7 @@ constexpr std::uint32_t kGatherCapMs = 30000;
 constexpr float kSummonYd = 40.0f;                // at a gather's ceiling a bot this far that ...
 constexpr float kStragglerDzYd = 8.0f;            // ... or this far up or down (another floor) ...
 constexpr float kStragglerGainYd = 5.0f;          // ... came less than this closer since the last sample is summoned
+constexpr std::uint32_t kSummonWaitMs = 6000;     // a direct step's summoned follower is waited for this long (the summon takes 3 s)
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
 constexpr float kWalkProgressYd = 2.0f;
@@ -293,6 +294,8 @@ struct Run
     bool gatherWaived = false;
     std::unordered_set<std::string> summoned; // stragglers this step summoned already (once each)
     std::string summonDue; // a follower a direct step left behind (refused too-far): summoned on the next tick
+    std::string summonWait; // ... the summon sent: the step waits for that bot at the lead bot (kSummonWaitMs at most)
+    std::uint32_t summonWaitMs = 0;
     std::unordered_map<std::string, float> memberYd; // each bot's distance to the lead at the gather's last sample
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
@@ -425,6 +428,8 @@ inline void ResetStep(Run& r)
     r.gatherWaived = false;
     r.summoned.clear();
     r.summonDue.clear();
+    r.summonWait.clear();
+    r.summonWaitMs = 0;
     r.memberYd.clear();
     r.ccSent.clear();
     r.focusGuid = 0;
@@ -691,6 +696,19 @@ inline std::string DirectStragglerName(const std::string& answer)
 
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
+    // The summon of a direct step's follower: `busy` (a summon of that bot is
+    // pending already) keeps the wait; any other refusal ends it, so the step
+    // goes out again at once (and pauses if that bot is named again).
+    if (order.compare(0, 7, "summon ") == 0 && !r.summonWait.empty() && order.substr(7) == r.summonWait)
+    {
+        if (answer.compare(0, 4, "busy") != 0)
+        {
+            r.summonWait.clear();
+            r.summonWaitMs = 0;
+        }
+        r.note = order + " refused: " + answer + (r.summonWait.empty() ? "" : ": waiting for it");
+        return;
+    }
     if (order == "rest" || order == "revive party" || order.compare(0, 7, "summon ") == 0 ||
         order.compare(0, 3, "cc ") == 0 || order.compare(0, 6, "focus ") == 0)
     {
@@ -2277,8 +2295,29 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     if (!r.summonDue.empty())
     {
         order = "summon " + r.summonDue;
+        r.summonWait = r.summonDue;
+        r.summonWaitMs = 0;
         r.summonDue.clear();
         return order;
+    }
+    // ... then waits for that bot to stand at the lead bot (the summon is the
+    // 3 s `.bot summon` flow: a step sent at once still finds it away), at most
+    // kSummonWaitMs; then the step goes out again.
+    if (!r.summonWait.empty())
+    {
+        const MemberFact* member = nullptr;
+        for (const MemberFact& m : f.members)
+            if (m.name == r.summonWait)
+                member = &m;
+        r.summonWaitMs += dt;
+        if (member && member->yd > kArriveYd && r.summonWaitMs < kSummonWaitMs)
+        {
+            r.note = "direct step: waiting for " + r.summonWait + " (summoned)";
+            return order;
+        }
+        r.summonWait.clear();
+        r.summonWaitMs = 0;
+        EnterPhase(r, Phase::Begin);
     }
 
     if (WalkBack(r, f, dt, order))

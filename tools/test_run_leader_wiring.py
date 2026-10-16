@@ -143,7 +143,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn('" is not with " + lead->GetName()', direct)
         # 4. A door whose lock needs no key and no skill opens on a plain use.
         use = (ROOT / "ai/playerbot/strategy/actions/UseItemAction.cpp").read_text()
-        self.assertIn("TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex, skillNeeded)", use)
+        self.assertIn("TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex)", use)
 
 if __name__ == "__main__":
     unittest.main()

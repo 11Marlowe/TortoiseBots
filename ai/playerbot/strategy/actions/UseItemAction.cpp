@@ -957,18 +957,15 @@ bool UseAction::UseGameObject(Player* requester, Event& event, GameObject* gameO
             }
 
             // A lock that needs no key and no skill (Uldaman's Temple Doors, lock 86: quick open) opens on a
-            // plain use, as a player's click does (TortoiseBots::DoorLock::OpensOnPlainUse): on to the packet below.
+            // plain use, as a player's click does (an allowlist of lock types: TortoiseBots::DoorLock::OpensOnPlainUse): on to the packet below.
             uint32 lockTypes[TortoiseBots::DoorLock::kLockSlots];
             uint32 lockIndex[TortoiseBots::DoorLock::kLockSlots];
-            bool skillNeeded[TortoiseBots::DoorLock::kLockSlots];
             for (int j = 0; j < TortoiseBots::DoorLock::kLockSlots; ++j)
             {
                 lockTypes[j] = lockInfo->Type[j];
                 lockIndex[j] = lockInfo->Index[j];
-                skillNeeded[j] = lockInfo->Type[j] == LOCK_KEY_SKILL &&
-                    SkillByLockType(LockType(lockInfo->Index[j])) != SKILL_NONE;
             }
-            if (!TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex, skillNeeded))
+            if (!TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex))
             {
                 std::ostringstream out; out << "I can't open " << chat->formatGameobject(gameObject);
                 ai->TellPlayerNoFacing(requester, out.str(), PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);

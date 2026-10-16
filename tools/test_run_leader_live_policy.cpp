@@ -4,7 +4,7 @@
 //      still refuses is summoned before the step goes out again;
 //   3. after a regroup the party walks the plan's way back (not straight at the pack), replaying the
 //      plan's points at once when a direct step is on the way;
-//   4. a door whose lock needs no key and no skill opens on a plain use;
+//   4. a door whose lock is of an allowlisted type (open, quick open, slow open) opens on a plain use;
 //   5. a hold counts the event's own units, not every dormant statue of its entries.
 //
 //   g++ -std=c++17 -Wall -Wextra tools/test_run_leader_live_policy.cpp -o /tmp/t && /tmp/t
@@ -106,12 +106,47 @@ static void TestDirectSummon()
     std::string const answer = "too-far: Elia is not with Nobble (no navmesh path of at most 40 yd to its spot)";
     OrderRefused(r, order, answer);
     CHECK(r.state == State::Running);
+    MemberFact elia;
+    elia.name = "Elia";
+    elia.yd = 12.0f;
+    f.members = {elia};
     CHECK(Tick(r, f) == "summon Elia");
-    // Then the step goes out again.
+    // The summon is the 3 s `.bot summon` flow: on the tick after it Elia is still away, so the step waits.
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Running);
+    // `busy` (her summon pending) keeps the wait.
+    OrderRefused(r, "summon Elia", "busy: That bot already has a summon pending.");
+    CHECK(r.state == State::Running);
+    CHECK(Tick(r, f).empty());
+    // She stands at the lead bot: the step goes out again.
+    f.members[0].yd = 1.5f;
     CHECK(Tick(r, f) == "move 20.0 0.0 0.0 direct");
     // Refused for the same bot again: once per bot and step, so it pauses.
     OrderRefused(r, "move 20.0 0.0 0.0 direct", answer);
     CHECK(r.state == State::Paused);
+    // The wait is capped: a summoned bot that never arrives lets the step go out after kSummonWaitMs.
+    Run c = Start(&plan, 1);
+    Facts far = Party(10);
+    far.members = {elia};
+    CHECK(Tick(c, far) == "move 20.0 0.0 0.0 direct");
+    OrderRefused(c, "move 20.0 0.0 0.0 direct", answer);
+    CHECK(Tick(c, far) == "summon Elia");
+    std::uint32_t waited = 0;
+    std::string next;
+    while (next.empty() && waited <= kSummonWaitMs + kTickMs)
+    {
+        next = Tick(c, far);
+        waited += kTickMs;
+    }
+    CHECK(next == "move 20.0 0.0 0.0 direct");
+    CHECK(waited >= kSummonWaitMs);
+    // Any other refusal of the summon ends the wait at once.
+    Run u = Start(&plan, 1);
+    CHECK(Tick(u, far) == "move 20.0 0.0 0.0 direct");
+    OrderRefused(u, "move 20.0 0.0 0.0 direct", answer);
+    CHECK(Tick(u, far) == "summon Elia");
+    OrderRefused(u, "summon Elia", "unavailable: That bot is dead, in combat, on a taxi or teleporting.");
+    CHECK(Tick(u, far) == "move 20.0 0.0 0.0 direct");
     // A plain move is never answered with a summon.
     Run m = Start(&plan, 1);
     OrderRefused(m, "move 20.0 0.0 0.0", answer);
@@ -163,18 +198,36 @@ static void TestDoorLock()
     // Lock 86 (Uldaman's Temple Doors 124368, 141869): slot 1 a skill entry, lock type 10 (quick open), no skill.
     std::uint32_t types[kLockSlots] = {0, 2, 0, 0, 0, 0, 0, 0};
     std::uint32_t index[kLockSlots] = {0, 10, 0, 0, 0, 0, 0, 0};
-    bool skill[kLockSlots] = {};
-    CHECK(OpensOnPlainUse(types, index, skill));
-    // A lockpicking lock: never by a use.
-    bool pick[kLockSlots] = {false, true};
-    CHECK(!OpensOnPlainUse(types, index, pick));
+    CHECK(OpensOnPlainUse(types, index));
+    // The allowlist: OPEN (5), QUICK_OPEN (10), SLOW_OPEN (17); every other lock type is refused, BLASTING (16)
+    // and GAHZRIDIAN (15) among them, and the profession skills.
+    for (std::uint32_t lockType = 0; lockType <= 20; ++lockType)
+    {
+        std::uint32_t one[kLockSlots] = {0, 2, 0, 0, 0, 0, 0, 0};
+        std::uint32_t idx[kLockSlots] = {0, lockType, 0, 0, 0, 0, 0, 0};
+        bool const allowed = lockType == 5 || lockType == 10 || lockType == 17;
+        CHECK(OpensOnPlainUse(one, idx) == allowed);
+    }
+    std::uint32_t blasting[kLockSlots] = {0, 16, 0, 0, 0, 0, 0, 0};
+    std::uint32_t gahzridian[kLockSlots] = {0, 15, 0, 0, 0, 0, 0, 0};
+    std::uint32_t pick[kLockSlots] = {0, 1, 0, 0, 0, 0, 0, 0};
+    CHECK(!OpensOnPlainUse(types, blasting));
+    CHECK(!OpensOnPlainUse(types, gahzridian));
+    CHECK(!OpensOnPlainUse(types, pick));
+    // An allowed slot beside a refused one: refused.
+    std::uint32_t mixedTypes[kLockSlots] = {2, 2, 0, 0, 0, 0, 0, 0};
+    std::uint32_t mixedIndex[kLockSlots] = {10, 16, 0, 0, 0, 0, 0, 0};
+    CHECK(!OpensOnPlainUse(mixedTypes, mixedIndex));
     // A key: the key path, not a plain use.
     std::uint32_t keyTypes[kLockSlots] = {1, 0, 0, 0, 0, 0, 0, 0};
     std::uint32_t keyIndex[kLockSlots] = {5396, 0, 0, 0, 0, 0, 0, 0};
-    CHECK(!OpensOnPlainUse(keyTypes, keyIndex, skill));
-    // An empty lock.
+    CHECK(!OpensOnPlainUse(keyTypes, keyIndex));
+    // An unknown kind of slot.
+    std::uint32_t oddTypes[kLockSlots] = {3, 0, 0, 0, 0, 0, 0, 0};
     std::uint32_t none[kLockSlots] = {};
-    CHECK(OpensOnPlainUse(none, none, skill));
+    CHECK(!OpensOnPlainUse(oddTypes, none));
+    // An empty lock.
+    CHECK(OpensOnPlainUse(none, none));
 }
 
 static DungeonRun::UnitFact EventUnit(std::uint64_t guid, std::uint32_t entry, bool hostile)
