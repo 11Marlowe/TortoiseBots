@@ -1071,12 +1071,14 @@ protected:
     // but the window itself: those copies are no longer the pull's, and the
     // hold is over once the combat engine has none left.
     void SyncPullWindow(BotState type);
+public:
     // Park this bot's own pet passive for a pull hold, remembering the stance
     // to put back; restore it when the window ends. Member-owned: runs on the
     // member's own AI, so group-leave, logout and death paths (which all end
     // the window) restore the pet even when the tank's loop can't reach it.
     void ParkPetForPullHold();
     void RestorePullHoldPet();
+protected:
 
     // Evade probe (diagnostics only): samples the health and evade state of the creature
     // this bot is fighting, and logs the cases where the mob evades or regenerates faster
