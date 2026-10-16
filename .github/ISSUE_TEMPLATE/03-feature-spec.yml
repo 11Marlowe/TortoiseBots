@@ -1,6 +1,6 @@
 name: Feature spec
 description: Describe a feature you are going to build. Every pull request needs one of these (or a bug report) first.
-title: "[Spec]: "
+title: "[spec][area]: "
 labels:
   - enhancement
 
