@@ -88,24 +88,27 @@ Every line is a flat JSON object with the same five leading fields: `"v":1` (sch
 
 ### Summary fields for the dashboard
 
-The server also writes the fields the dashboard's Dungeons tab reads ([observability dashboard](../../tools/observability/README.md), issue #986). They come from events the recorder already sees; nothing is read from the database, nothing scans the world, and the JSON is rendered once, when the summary is written (also in the `running` one at the start). Old summaries without them still parse, and the dashboard shows their runs with outcome `unknown`.
+The server also writes the fields the dashboard's Dungeons tab reads ([observability dashboard](../../tools/observability/README.md), issue #986). They come from events the recorder already sees; nothing is read from the database, nothing scans the world, and the JSON is rendered once, when the summary is written. The `running` summary written at start carries only the live fields (`mode`, `build`, `driver`, `started`, `plan`, `dungeon`, `furthest`, `wipes`, `deaths`, `party`): no `outcome`, `bosses` or `clear_s` until the run ends, so a live run is never read as a failure. Old summaries without any of these still parse; the dashboard shows their runs with outcome `unknown`.
 
 | Field | Content |
 | :--- | :--- |
 | `mode` | `run_leader` when the module's run leader (`.bot run`) walks a plan for the requester, `commander` when the requester has a bound remote commander, else `observe`. Read at start and once a second; the strongest sign seen wins. |
-| `build` | The module build version (`TORTOISEBOTS_BUILD_VERSION`, the same string as `tb_version`). |
+| `build` | `{"image": <build version>, "core": <core revision, 8 chars>}`: `TORTOISEBOTS_BUILD_VERSION` (the same string as `tb_version`) and the core the module runs in. The module's own git sha is not compiled in (follow-up). |
 | `driver` | The `driver=` argument; `human` for an `observe` run without one, `unknown` otherwise. |
+| `started`, `ended` | ISO 8601 UTC (`ended` only in the final summary); `start_unix` / `end_unix` stay. |
 | `plan` | The plan name the bosses come from, when known. |
 | `dungeon` | `{"map": <id>}` once the party stood on an instance map. The top-level `map` is still the map at start. |
+| `furthest` | `{"leg", "pull_group"}`: the highest plan step the run leader reached (`pull_group` is the step's sequence number in its leg). Run leader runs only. |
 | `bosses` | `[{"entry", "name", "killed_at_s"}]`, `killed_at_s` seconds from the run start (one decimal, frame resolution), `null` for a boss not killed. |
-| `outcome` | `cleared`, `partial` or `abandoned` (see below). |
+| `outcome`, `stop_reason` | See below; `stop_reason` is the end reason (`stop`, `scope_lost`, `size_cap`, `shutdown`, `disabled`, `write_failed`). |
 | `clear_s` | Seconds from the run start to the last boss kill; written only when `outcome` is `cleared`. |
-| `wipes` | `[{"t_s", "map", "x", "y", "z", "role", "dead"}]`: every traced bot dead at once (at least two bots in scope; one wipe until somebody is up again). Position: the centroid of where they fell; `role`: of the first to fall. |
-| `deaths` | `[{"t_s", "map", "x", "y", "z", "bot", "role"}]`: each time a traced bot goes from alive to dead (where it fell). `x`, `y` are game coordinates. |
+| `wipes` | `[{"t_s", "map", "x", "y", "z", "role", "dead", "leg", "pull_group"}]`: every traced bot dead at once (at least two bots in scope; one wipe until somebody is up again). Position: the centroid of where they fell; `role`: of the first to fall. |
+| `deaths` | `[{"t_s", "map", "x", "y", "z", "bot", "role", "leg", "pull_group"}]`: each time a traced bot goes from alive to dead (where it fell). `x`, `y` are game coordinates. `leg` and `pull_group` are the run leader's step (once a second) and are left out without a run leader. |
+| `party` | `[{"class", "role", "level"}]` of the traced bots, as first seen. |
 
-**Boss list.** The run leader's own plan when it runs; otherwise the one plan on the party's map if there is exactly one (a commander's agent keeps its plan to itself, so a map with several plans, or none, has no list). The list is the plan's `boss` steps (those for the party's team). Without a plan the list is the world-boss rank units the bots met. A boss counts as killed when a unit the bots saw alive is found dead by guid on the bot's map (the `boss_kill` event, `a` the unit, `v` the entry, `s` the name).
+**Boss list.** The run leader's own plan when it runs; otherwise the one plan on the party's map if there is exactly one (a commander's agent keeps its plan to itself). The list is the plan's `boss` steps for the party's team. With several plans on the map and none chosen there is no list: the bosses of all of them are still watched, and the bosses met are reported. A boss counts as killed when a unit the bots saw alive is found dead by guid on the map of a bot in its instance (the `boss_kill` event, `a` the unit, `v` the entry, `s` the name). A boss killed before the trace started was never seen alive, so such a run cannot be `cleared`: start the trace before the first pull.
 
-**Outcome rule.** `cleared`: every boss on the plan's list was killed (a run without a plan never claims it). `partial`: at least one boss was killed, not all. `abandoned`: no boss was killed (the dashboard's name for an aborted run; the run's `status` still says how the recording ended). A trace that never stood on an instance map and met no boss carries no `outcome`, `bosses` or `dungeon`, so the dashboard ignores it. At most 200 wipes and 200 deaths are kept.
+**Outcome rule** (first match wins). `cleared`: every boss on the plan's list was killed (never without a list). `wiped_out`: not cleared and the run ended while the whole party was dead. `stopped`: there is no list, so nothing says how far it got; or there is a list, no boss was killed and the run was stopped by hand. `partial`: a list and at least one boss killed, not all. `abandoned`: a list, no boss killed, and the run ended by itself. A trace that never stood on an instance map and met no boss carries no `outcome`, `bosses` or `dungeon`, so the dashboard ignores it. At most 200 wipes and 200 deaths are kept. Not written yet (follow-up): `gm_assists`, and the module's git sha in `build`.
 
 ## Scoring
 

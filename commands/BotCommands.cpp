@@ -9924,13 +9924,15 @@ static bool MayTraceBot(uint64_t requesterGuid, Player* bot)
 // who drives the run and, while `wantPlan`, the plan whose bosses the outcome
 // is judged against. The run leader's own plan when it runs for this
 // commander; otherwise the one plan on the party's map, if there is exactly
-// one (a commander's agent keeps its plan to itself). In-memory reads only.
+// one (a commander's agent keeps its plan to itself); with several, only their
+// bosses' entries (kills are seen, the outcome has no list). In-memory reads only.
 static bool TraceContext(uint64_t requesterGuid, Player* anchor, bool wantPlan, RunTrace::Context& out)
 {
     if (!anchor)
         return false;
     out.mode = RunTrace::RunMode::Observe;
     ai::DungeonPlan const* plan = nullptr;
+    std::uint32_t const team = anchor->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
     if (CommanderBindings().FindByCommander(requesterGuid))
     {
         out.mode = RunTrace::RunMode::Commander;
@@ -9939,6 +9941,12 @@ static bool TraceContext(uint64_t requesterGuid, Player* anchor, bool wantPlan, 
         {
             out.mode = RunTrace::RunMode::RunLeader;
             plan = it->second.run.plan;
+            if (ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(it->second.run))
+            {
+                out.hasStep = true;
+                out.leg = step->leg;
+                out.seq = step->seq;
+            }
         }
     }
     if (!wantPlan)
@@ -9948,12 +9956,17 @@ static bool TraceContext(uint64_t requesterGuid, Player* anchor, bool wantPlan, 
         std::vector<std::string> const here = ai::GetDungeonPlans().PlansOnMap(anchor->GetMapId());
         if (here.size() == 1)
             plan = ai::GetDungeonPlans().Find(here.front());
+        else
+            // Several plans on the map and none chosen: the outcome has no list, but their bosses' deaths are seen.
+            for (std::string const& name : here)
+                if (ai::DungeonPlan const* other = ai::GetDungeonPlans().Find(name))
+                    for (std::uint32_t entry : RunTrace::PlanBossEntries(*other, team))
+                        out.knownBosses.push_back(entry);
     }
     if (plan)
     {
         out.planName = plan->name;
-        out.bossEntries = RunTrace::PlanBossEntries(*plan,
-            anchor->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde);
+        out.bossEntries = RunTrace::PlanBossEntries(*plan, team);
     }
     return true;
 }

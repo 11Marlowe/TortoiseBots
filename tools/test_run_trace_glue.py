@@ -296,6 +296,10 @@ class SummaryFieldsGlueTest(unittest.TestCase):
     def test_boss_kills_are_found_by_guid_not_by_a_scan(self):
         body = function_body(self.src, "void RunTraceService::CheckBossKills(")
         self.assertIn("map->GetUnit(ObjectGuid(it->first))", body)
+        # the boss is looked up on the map of a bot in ITS instance, not on the first bot's map
+        self.assertIn("bot->GetMapId() == it->second.map", body)
+        self.assertIn("bot->GetInstanceId() == it->second.instance", body)
+        self.assertNotIn("bots.front()->GetMap()", body)
         self.assertIn("digest_.NoteBossKill(", body)
         for scan in ("VisitAll", "CellImpl", "Searcher", "GetCreatureListWithEntryInGrid"):
             self.assertNotIn(scan, body, scan)
@@ -316,12 +320,14 @@ class SummaryFieldsGlueTest(unittest.TestCase):
 
     def test_summary_is_rendered_once_and_handed_to_the_writer_as_text(self):
         body = function_body(self.src, "void RunTraceService::Finish(")
-        self.assertEqual(body.count("digest_.Render()"), 1)
+        self.assertEqual(body.count("digest_.Render("), 1)
+        self.assertIn("RenderArgs{ true,", body)
         self.assertIn("traceFile, digest]", body)
         self.assertIn("failure, digest)", body)
         # the running summary written at start carries the fields too
         start = function_body(self.src, "bool RunTraceService::Start(")
-        self.assertIn("digest_.Render()", start)
+        # ... but as a live run: no outcome, bosses or clear_s until it ends
+        self.assertIn("RenderArgs{ false,", start)
 
     def test_command_takes_driver_and_passes_the_context(self):
         body = function_body(self.cmd, "static bool HandleTrace(")
@@ -333,6 +339,8 @@ class SummaryFieldsGlueTest(unittest.TestCase):
         self.assertIn("RunTrace::RunMode::RunLeader", ctx)
         self.assertIn("RunTrace::PlanBossEntries(", ctx)
         self.assertIn("PlansOnMap(", ctx)
+        self.assertIn("DungeonRun::Current(", ctx)
+        self.assertIn("out.knownBosses.push_back(entry)", ctx)
 
 
 if __name__ == "__main__":

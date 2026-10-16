@@ -150,7 +150,14 @@ private:
     RunTrace::ActionCoalescer coalescer_;
     RunTrace::LoopDetector loops_;
     RunTrace::RunDigest digest_;  // what the summary says besides the counters (RunTraceSummary.h)
-    std::unordered_map<uint64_t, uint32_t> bossGuids_;  // boss units seen alive and not yet found dead: guid -> entry
+    // Boss units seen alive and not yet found dead, with the instance they stand in (the bots may be split across maps).
+    struct BossUnit
+    {
+        uint32_t entry = 0;
+        uint32_t map = 0;
+        uint32_t instance = 0;
+    };
+    std::unordered_map<uint64_t, BossUnit> bossGuids_;
     bool (*context_)(uint64_t requesterGuid, Player* anchor, bool wantPlan, RunTrace::Context& out) = nullptr;
     std::string tracePath_;
     std::string summaryPath_;

@@ -306,7 +306,7 @@ bool RunTraceService::Start(StartParams const& params, std::string& message)
     loops_ = RunTrace::LoopDetector();
     digest_.Reset();
     digest_.SetDriver(params.driver);
-    digest_.SetBuild(header_.tbVersion);
+    digest_.SetBuild(header_.tbVersion, CoreRevision().substr(0, 8));
     bossGuids_.clear();
     context_ = params.context;
     tracks_.clear();
@@ -326,7 +326,8 @@ bool RunTraceService::Start(StartParams const& params, std::string& message)
     Emit(builder_->BuildHeader(header_));
     // The "running" summary is written by the writer thread too.
     writer_.PushFile(summaryPath_, builder_->BuildSummary(header_, "running", "", 0, 0, counters_,
-        std::filesystem::path(tracePath_).filename().string(), std::string(), digest_.Render()));
+        std::filesystem::path(tracePath_).filename().string(), std::string(),
+        digest_.Render(RunTrace::RenderArgs{ false, std::string(), header_.startUnix, 0 })));
     lifecycle_.Start();
     lastFailure_.clear();
     active_.store(true, std::memory_order_relaxed);
@@ -593,6 +594,9 @@ void RunTraceService::RefreshContext()
     if (!context_(requesterGuid_, anchor, !digest_.HasPlan(), ctx))
         return;
     digest_.NoteMode(ctx.mode);
+    if (ctx.hasStep)
+        digest_.NoteStep(ctx.leg, ctx.seq);
+    digest_.NoteKnownBosses(ctx.knownBosses);
     if (digest_.HasPlan() || ctx.bossEntries.empty())
         return;
     std::vector<RunTrace::BossProgress> bosses;
@@ -614,20 +618,25 @@ void RunTraceService::CheckBossKills(std::vector<Player*> const& bots)
 {
     if (bossGuids_.empty() || bots.empty())
         return;
-    Map* map = bots.front()->GetMap();
-    if (!map)
-        return;
     for (auto it = bossGuids_.begin(); it != bossGuids_.end();)
     {
-        Unit* unit = map->GetUnit(ObjectGuid(it->first));
+        // The map the boss stands in: that of a bot in the same instance.
+        Map* map = nullptr;
+        for (Player* bot : bots)
+            if (bot->GetMapId() == it->second.map && bot->GetInstanceId() == it->second.instance && bot->GetMap())
+            {
+                map = bot->GetMap();
+                break;
+            }
+        Unit* unit = map ? map->GetUnit(ObjectGuid(it->first)) : nullptr;
         if (unit && unit->IsInWorld() && !unit->IsAlive())
         {
-            if (digest_.NoteBossKill(it->second, elapsedMs_))
+            if (digest_.NoteBossKill(it->second.entry, elapsedMs_))
             {
                 RunTrace::Event e;
                 e.ev = "boss_kill";
                 e.a = it->first;
-                e.v = it->second;
+                e.v = it->second.entry;
                 e.s = unit->GetName();
                 EmitEvent(e);
             }
@@ -742,6 +751,7 @@ void RunTraceService::Sample()
             Emit(builder_->BuildParty(elapsedMs_, member));
             track.name = member.name;
             track.role = member.role;
+            digest_.NoteParty({ member.cls, member.role, member.level });
             if (!alive)
                 track.lastDeath = fallSpot();  // first seen dead: the wipe spot still needs a place
             track.known = true;
@@ -838,16 +848,14 @@ void RunTraceService::Sample()
         uint64_t const raw = guid.GetRawValue();
         if (bossGuids_.size() < RunTrace::kMaxBosses * 2 && !bossGuids_.count(raw))
         {
-            // The plan's boss, or (no plan known yet) any world-boss rank unit: its death is a boss kill.
+            // The plan's boss, a boss of a plan on this map, or any world-boss rank unit: its death is a boss kill.
             Creature const* creature = unit->ToCreature();
             CreatureInfo const* info = creature ? creature->GetCreatureInfo() : nullptr;
             uint32_t const entry = unit->GetEntry();
-            bool const planBoss = digest_.HasPlan() ? digest_.IsPlanBoss(entry)
-                : (info && info->rank == CREATURE_ELITE_WORLDBOSS);
-            if (planBoss)
+            if (digest_.IsTrackedBoss(entry, info && info->rank == CREATURE_ELITE_WORLDBOSS))
             {
                 digest_.NoteSeenBoss(entry, unit->GetName());
-                bossGuids_.emplace(raw, entry);
+                bossGuids_[raw] = BossUnit{ entry, bot->GetMapId(), bot->GetInstanceId() };
             }
         }
         if (seenMobs_.size() < RunTrace::kMaxRegistryMobs && seenMobs_.insert(raw).second)
@@ -952,7 +960,8 @@ void RunTraceService::Finish(char const* reason, char const* status)
     std::string const endReason = reason;
     std::string const endStatus = status;
     std::string const traceFile = std::filesystem::path(tracePath_).filename().string();
-    std::string const digest = digest_.Render();  // rendered once, here; the writer thread gets the text
+    // Rendered once, here; the writer thread gets the text.
+    std::string const digest = digest_.Render(RunTrace::RenderArgs{ true, endReason, header.startUnix, endUnix });
     job.buildEnd = [builder, elapsed, endReason](RunTrace::Counters const& c)
         {
             RunTrace::EndInfo end;
