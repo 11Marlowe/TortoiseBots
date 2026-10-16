@@ -9920,6 +9920,44 @@ static bool MayTraceBot(uint64_t requesterGuid, Player* bot)
         CommandsBotsGroup(requester, bot));
 }
 
+// What the run trace's summary needs from the command side (RunTraceSummary.h):
+// who drives the run and, while `wantPlan`, the plan whose bosses the outcome
+// is judged against. The run leader's own plan when it runs for this
+// commander; otherwise the one plan on the party's map, if there is exactly
+// one (a commander's agent keeps its plan to itself). In-memory reads only.
+static bool TraceContext(uint64_t requesterGuid, Player* anchor, bool wantPlan, RunTrace::Context& out)
+{
+    if (!anchor)
+        return false;
+    out.mode = RunTrace::RunMode::Observe;
+    ai::DungeonPlan const* plan = nullptr;
+    if (CommanderBindings().FindByCommander(requesterGuid))
+    {
+        out.mode = RunTrace::RunMode::Commander;
+        auto it = DungeonRuns().find(requesterGuid);
+        if (it != DungeonRuns().end())
+        {
+            out.mode = RunTrace::RunMode::RunLeader;
+            plan = it->second.run.plan;
+        }
+    }
+    if (!wantPlan)
+        return true;
+    if (!plan)
+    {
+        std::vector<std::string> const here = ai::GetDungeonPlans().PlansOnMap(anchor->GetMapId());
+        if (here.size() == 1)
+            plan = ai::GetDungeonPlans().Find(here.front());
+    }
+    if (plan)
+    {
+        out.planName = plan->name;
+        out.bossEntries = RunTrace::PlanBossEntries(*plan,
+            anchor->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde);
+    }
+    return true;
+}
+
 static bool HandleTrace(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -9946,7 +9984,7 @@ static bool HandleTrace(ChatHandler* handler, char const* args)
     if (verb != "start" && verb != "stop" && verb != "status")
     {
         SendActionError(handler, intent, "invalid",
-            "Usage: .bot trace start <run_id> [party|bot <Name>] / stop / status");
+            "Usage: .bot trace start <run_id> [party|bot <Name>] [driver=<model>:<effort>:<run>] / stop / status");
         return true;
     }
     if (!requester || !requester->GetSession())
@@ -10004,13 +10042,37 @@ static bool HandleTrace(ChatHandler* handler, char const* args)
             "Only a GameMaster may start a trace (AiPlayerbot.RunTrace.GmOnly = 1).");
         return true;
     }
+    // `driver=<model>:<effort>:<run>` may stand anywhere after the run id.
+    std::string driver;
+    bool haveDriver = false;
+    for (size_t i = 2; i < parts.size();)
+    {
+        if (!RunTrace::IsDriverToken(parts[i]))
+        {
+            ++i;
+            continue;
+        }
+        std::string const value = parts[i].substr(7);
+        char const* refusal = haveDriver ? "driver= was given twice." : RunTrace::DriverRefusal(value);
+        if (refusal)
+        {
+            SendActionError(handler, intent, "invalid", refusal);
+            return true;
+        }
+        driver = value;
+        haveDriver = true;
+        parts.erase(parts.begin() + static_cast<std::ptrdiff_t>(i));
+    }
     if (parts.size() < 2)
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot trace start <run_id> [party|bot <Name>]");
+        SendActionError(handler, intent, "invalid",
+            "Usage: .bot trace start <run_id> [party|bot <Name>] [driver=<model>:<effort>:<run>]");
         return true;
     }
     RunTraceService::StartParams params;
     params.runId = parts[1];
+    params.driver = driver;
+    params.context = &TraceContext;
     params.requester = requester->GetName();
     params.requesterGuid = requester->GetObjectGuid().GetRawValue();
     params.mayRecord = &MayTraceBot;
@@ -10023,7 +10085,7 @@ static bool HandleTrace(ChatHandler* handler, char const* args)
     {
         if (parts.size() < 4)
         {
-            SendActionError(handler, intent, "invalid", "Usage: .bot trace start <run_id> bot <Name>");
+            SendActionError(handler, intent, "invalid", "Usage: .bot trace start <run_id> bot <Name> [driver=<model>:<effort>:<run>]");
             return true;
         }
         Player* bot = nullptr;
@@ -10084,7 +10146,8 @@ static bool HandleTrace(ChatHandler* handler, char const* args)
     }
     else
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot trace start <run_id> [party|bot <Name>]");
+        SendActionError(handler, intent, "invalid",
+            "Usage: .bot trace start <run_id> [party|bot <Name>] [driver=<model>:<effort>:<run>]");
         return true;
     }
 

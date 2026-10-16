@@ -220,6 +220,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_rpg_mixer_policy
         test_rpg_relevance_weight_policy
         test_run_trace_records
+        test_run_trace_summary
         test_sapphiron_ice_policy
         test_seduction_policy
         test_service_trip_policy
