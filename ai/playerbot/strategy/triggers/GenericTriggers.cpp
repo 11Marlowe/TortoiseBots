@@ -118,9 +118,11 @@ bool ai::HealerWandAllowed(PlayerbotAI* ai, Unit* target)
     AiObjectContext* const context = ai->GetAiObjectContext();
     gate.targetEngaged = TargetFightsGroup(bot, target);
     gate.aloneNear = NoGroupMemberNear(bot);
+    ObjectGuid const ordered = context->GetValue<ObjectGuid>("explicit attack target")->Get();
+    gate.explicitOrder = target && ordered && ordered == target->GetObjectGuid();
     gate.noMana = context->GetValue<bool>("has mana", "self target")->Get() &&
         context->GetValue<uint8>("mana", "self target")->Get() < 5;
-    gate.pullHold = ai->HasPullWindow();
+    gate.pullHold = ai->HasPullWindow() && !gate.explicitOrder;
 
     // The heal rows' own lines: the party below almost full (the "healer
     // should wand" line), the healer itself below low health (its self-heal

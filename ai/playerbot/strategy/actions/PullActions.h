@@ -11,8 +11,9 @@ namespace ai
     // for attack" join window on its own clock). Healers get the window but
     // no stay: they may heal, never damage, while it runs (see the
     // heal-only gates in GenericTriggers.cpp / WandPolicy.h). Pets go
-    // passive for the window; the tank's own PullStartAction already pins
-    // its pet, and PullEndAction restores every stance.
+    // passive via their owner's own AI (ParkPetForPullHold, restored by
+    // their own EndPullWindow even on group-leave/logout/death); the tank's
+    // own pet is pinned by PullStartAction and restored by PullEndAction.
     void PausePartyPullHold(Player* tank, uint32 joinDelaySeconds);
 
     class PullRequestAction : public ChatCommandAction

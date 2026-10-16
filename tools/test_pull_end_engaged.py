@@ -46,5 +46,32 @@ class PullEndEngagedTest(unittest.TestCase):
         self.assertLess(engaged, final)
 
 
+ACTIONS = (ROOT / "ai/playerbot/strategy/actions/PullActions.cpp").read_text()
+TRIGGER_SRC = (ROOT / "ai/playerbot/strategy/triggers/GenericTriggers.cpp").read_text()
+
+
+class ChatPullbackOrderTest(unittest.TestCase):
+    def setUp(self):
+        self.fn = body(ACTIONS, "bool PullbackMyTargetAction::Execute(Event& event)", "\n}\n")
+
+    def test_mode_before_request(self):
+        # F1: RequestPull snapshots intent and DecideOpening reads the command
+        # state, so BeginCommand must run before the request action.
+        begin = self.fn.index("BeginCommand(true")
+        request = self.fn.index("PullRequestAction::Execute(event)")
+        self.assertLess(begin, request)
+
+    def test_real_prior_state_with_rollback(self):
+        # F2: the tank's real prior "pull back" state is recorded and put back
+        # when the request refuses (no hardcoded hadPullBack=true leak).
+        self.assertIn('HasStrategy("pull back"', self.fn)
+        self.assertIn("RestoreCommand(commandBefore)", self.fn)
+
+    def test_wand_explicit_order_escape(self):
+        # F3: a direct attack order still lets the healer wand, even mid-hold.
+        self.assertIn("gate.explicitOrder", TRIGGER_SRC)
+        self.assertIn("gate.pullHold = ai->HasPullWindow() && !gate.explicitOrder;", TRIGGER_SRC)
+
+
 if __name__ == "__main__":
     unittest.main()
