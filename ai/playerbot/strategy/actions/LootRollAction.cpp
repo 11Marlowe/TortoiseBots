@@ -430,7 +430,7 @@ bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQuali
 
 // True while this bot must hold its vote on this roll: a pool bot (or alt)
 // in a group with real players waits so the humans get the whole window,
-// voting ~5 s before it ends or as soon as every real roller has voted
+// voting ~15 s before it ends or as soon as every real roller has voted
 // (#967). Hired companions grouped with their master never wait (they keep
 // the old yield-on-usable behaviour); bot-only groups vote at once.
 bool RollAction::ShouldWaitForPlayers(ObjectGuid lootGuid, uint32 slot)
@@ -571,9 +571,9 @@ bool AutoLootRollAction::Execute(Event& event)
     auto currentRoll = std::next(lootRolls.begin(), urand(0, lootRolls.size() - 1));
 
     // Pool bots (and alts) in a group with real players hold their vote so
-    // the humans get the whole window; the trigger fires every ~5 s, so the
-    // vote lands once the wait elapses (#967). Returning false keeps the
-    // roll in "active rolls" for the next tick.
+    // the humans get the whole window; the 15 s margin clears the ~5 s
+    // re-check gap plus tick jitter, so the vote lands once the wait
+    // elapses (#967). Returning false keeps the roll for the next tick.
     if (ShouldWaitForPlayers(currentRoll->first, currentRoll->second))
         return false;
 

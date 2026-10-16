@@ -94,9 +94,15 @@ namespace ai
     // their vote so the humans get the whole window. They vote this many
     // milliseconds before the core's group-loot window ends
     // (LOOT_ROLL_TIMEOUT = 60 s in Group.cpp): late enough that every human
-    // had their chance, early enough that the vote always lands. Pure data
-    // rule, tested on its own; the call site reads the live deadline.
-    inline std::uint32_t RollWaitVoteMarginMs() { return 5000; }
+    // had their chance, early enough that the vote always lands. The margin
+    // must clear the worst-case gap between two vote checks: the "very
+    // often" roll trigger only re-fires every 5 s (TimeTrigger interval,
+    // second-resolution), plus AI tick jitter under load (1000+ bots slow
+    // every bot's tick), so a 5 s margin could check at 5.01 s left, wait,
+    // and find the window closed on the next tick. 15 s leaves room for a
+    // missed check and slow ticks. Pure data rule, tested on its own; the
+    // call site reads the live deadline.
+    inline std::uint32_t RollWaitVoteMarginMs() { return 15000; }
 
     // True when the wait is over: the roll ends within the vote margin, or
     // every real player who can roll on the item already voted. remainingMs

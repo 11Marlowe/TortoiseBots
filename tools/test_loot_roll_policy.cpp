@@ -97,12 +97,14 @@ int main()
     }
 
     // (7) Roll wait (#967): the wait ends when every real roller voted, or
-    // when the window ends within the 5 s margin; unknown remaining time
-    // never ends it on its own (the call site votes at once instead).
+    // when the window ends within the 15 s margin (clears the 5 s "very
+    // often" re-check gap plus tick jitter under load); unknown remaining
+    // time never ends it on its own (the call site votes at once instead).
     {
-        CHECK(RollWaitVoteMarginMs() == 5000);
+        CHECK(RollWaitVoteMarginMs() == 15000);
         CHECK(RollWaitElapsed(60000, false) == false);
-        CHECK(RollWaitElapsed(5001, false) == false);
+        CHECK(RollWaitElapsed(15001, false) == false);
+        CHECK(RollWaitElapsed(15000, false));
         CHECK(RollWaitElapsed(5000, false));
         CHECK(RollWaitElapsed(1000, false));
         CHECK(RollWaitElapsed(60000, true));
