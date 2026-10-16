@@ -2689,6 +2689,7 @@ bool AvoidAoeAction::isUseful()
     float radius = 0.0f;
     WorldPosition center;
     keepoutSource = ObjectGuid();
+    keepoutRow = nullptr;
     // Cheap sensor first (dynobj scan the value already caches); the GO
     // and trigger scans run only when no aura already marks the bot.
     if (AvoidAuraWithDynamicObj(radius, center))
@@ -2709,13 +2710,14 @@ bool AvoidAoeAction::Execute(Event& event)
     float radius = 0.0f;
     WorldPosition center;
     keepoutSource = ObjectGuid();
+    keepoutRow = nullptr;
     if (!AvoidAuraWithDynamicObj(radius, center) &&
         !AvoidDamagingTrap(radius, center) &&
         !AvoidTriggerNpc(radius, center))
         return false;
     bool const moved = StrafeToSafety(center, radius);
-    if (!moved && !keepoutSource.IsEmpty())
-        keepoutNoLandingUntilMs = WorldTimer::getMSTime() + 2000;
+    if (!moved && !keepoutSource.IsEmpty() && keepoutRow)
+        keepoutNoLandingUntilMs = CreatureAuraNoLandingUntilMs(*keepoutRow, WorldTimer::getMSTime());
     return moved;
 }
 
@@ -2797,6 +2799,7 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
             if (!InsideCreatureAuraKeepout(*row, WorldPosition(bot).distance(WorldPosition(unit))))
                 continue;
             keepoutSource = guid;
+            keepoutRow = row;
             outRadius = row->keepoutRadius;
             outCenter = WorldPosition(unit->GetMapId(), unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
             return true;
@@ -2980,6 +2983,24 @@ bool AvoidAoeAction::StrafeToSafety(const WorldPosition& hazardCenter, float rad
                 target ? sServerFacade.getDistance2d(bot, target) : 0.0f, nowMs, bot->movespline->GetId());
             return true;
         }
+    }
+    // A lethal keep-out (Living Poison) with every landing refused: step
+    // straight away from the creature rather than stand in the blast. Only
+    // the module's own safe-point checks stay (line of sight and a path, then
+    // MoveTo); the heading veto, the target band and the unpulled-hostile
+    // guard are dropped, because they are what refused the landings and
+    // staying put is worse.
+    if (!keepoutSource.IsEmpty() && keepoutRow && !keepoutRow->tankExempt)
+    {
+        float px = 0.0f, py = 0.0f;
+        CreatureAuraStepAwayPoint(hazardCenter.getX(), hazardCenter.getY(), botPos.getX(), botPos.getY(),
+            keepoutRow->keepoutRadius, angleFromHazard, px, py);
+        WorldPosition away(bot->GetMapId(), px, py, botPos.getZ() + 1.0f, 0.0f);
+        away.setZ(away.GetHeight());
+        if (bot->IsWithinLOS(away.getX(), away.getY(), away.getZ() + bot->GetCollisionHeight()) &&
+            botPos.canPathTo(away, bot) &&
+            MoveTo(bot->GetMapId(), away.getX(), away.getY(), away.getZ(), false, IsReaction(), false, true))
+            return true;
     }
     return false;
 }

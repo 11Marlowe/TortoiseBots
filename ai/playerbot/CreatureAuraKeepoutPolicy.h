@@ -61,9 +61,11 @@ namespace ai
         // 1602701, out-of-combat LOS event, range 4 yd) casts Explode 28433
         // (about 30k) on a hostile that comes close. Explode is an area
         // school-damage spell at EffectRadiusIndex 8 (5 yd, the index the
-        // sludge's 22638 pulse uses), so the pulse is 5 yd and the keep-out the
-        // same 5 + 3 yd as the sludge's.
-        { 533, 16027, 0, 5.0f, 8.0f, false },
+        // sludge's 22638 pulse uses), so the pulse is 5 yd. The keep-out is the
+        // pulse plus 5 yd (the sludge gets 3): it drifts at only about 0.9 yd/s
+        // (speed 0.375) but one hit is lethal, so it gets the wider margin. The
+        // path ring is keepout + kCreatureAuraHazardMargin, as for every row.
+        { 533, 16027, 0, 5.0f, 10.0f, false },
         // Not tank-exempt: Explode does about 30k, which is how #906 lost both tanks.
         // The creature is also NOT_SELECTABLE (unit_flags 0x2000040, 28296 HP),
         // so no bot can target it: nobody kills it or sets it aside, bots only
@@ -255,6 +257,49 @@ namespace ai
     inline bool CreatureAuraCombatExempt(CreatureAuraKeepout const& row, bool isTank, bool inCombat)
     {
         return isTank && inCombat && row.tankExempt;
+    }
+
+    // ---- No landing spot (Codex review of #1038) --------------------------
+    //
+    // A step-out that finds no landing spot backs off for a moment so the
+    // action does not win the reaction pick every tick without moving. That
+    // is fine for a row that only chips (the sludge); a lethal row (not
+    // tank-exempt: Living Poison, one Explode kills) retries on the next
+    // tick, and when the landings still fail it steps straight away from the
+    // creature (CreatureAuraStepAwayPoint).
+    constexpr uint32_t kCreatureAuraNoLandingBackoffMs = 2000;
+    // Yards past the keep-out rim the straight step-away aims for.
+    constexpr float kCreatureAuraStepAwayMargin = 1.5f;
+
+    inline uint32_t CreatureAuraNoLandingUntilMs(CreatureAuraKeepout const& row, uint32_t nowMs)
+    {
+        return row.tankExempt ? nowMs + kCreatureAuraNoLandingBackoffMs : nowMs;
+    }
+
+    // The point straight away from the creature centre (hx, hy) through the
+    // bot (bx, by): the remaining distance to the keep-out rim plus the margin
+    // from where the bot stands (it never aims closer than the margin, so a
+    // bot already outside the rim is not sent back in). A bot standing on the
+    // centre heads along `fallbackAngle`.
+    inline void CreatureAuraStepAwayPoint(float hx, float hy, float bx, float by, float keepoutRadius,
+        float fallbackAngle, float& px, float& py)
+    {
+        float dx = bx - hx, dy = by - hy;
+        float const d = std::sqrt(dx * dx + dy * dy);
+        if (d > 0.001f)
+        {
+            dx /= d;
+            dy /= d;
+        }
+        else
+        {
+            dx = std::cos(fallbackAngle);
+            dy = std::sin(fallbackAngle);
+        }
+        float const remaining = keepoutRadius - d;
+        float const dist = (remaining > 0.0f ? remaining : 0.0f) + kCreatureAuraStepAwayMargin;
+        px = bx + dx * dist;
+        py = by + dy * dist;
     }
 
     // True when some row of the map gives tanks no pass; on a map without one

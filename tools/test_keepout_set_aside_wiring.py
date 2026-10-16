@@ -187,6 +187,19 @@ class KeepoutSetAsideWiringTest(unittest.TestCase):
         self.assertIn("EndPointInCreatureAuraKeepout(oldX, oldY, bot->getPositionZ())", unstack)
         self.assertIn("MoveTo(bot->GetMapId(), oldX, oldY, bot->getPositionZ())", unstack)
 
+    def test_lethal_keepout_retries_and_steps_straight_away(self):
+        # Codex review of #1038: a lethal row (Living Poison) skips the 2 s
+        # no-landing back-off and, with every landing refused, steps straight
+        # away from the creature.
+        move = (ROOT / "ai/playerbot/strategy/actions/MovementActions.cpp").read_text()
+        execute = body(move, "bool AvoidAoeAction::Execute(", "\n}\n")
+        self.assertIn("CreatureAuraNoLandingUntilMs(*keepoutRow", execute)
+        self.assertNotIn("+ 2000", execute)
+        strafe = body(move, "bool AvoidAoeAction::StrafeToSafety(", "\n}\n")
+        self.assertIn("CreatureAuraStepAwayPoint(", strafe)
+        self.assertIn("!keepoutRow->tankExempt", strafe)
+        self.assertLess(strafe.index("MoveTo(bot->GetMapId(), out.getX()"), strafe.index("CreatureAuraStepAwayPoint("))
+
 
 if __name__ == "__main__":
     unittest.main()

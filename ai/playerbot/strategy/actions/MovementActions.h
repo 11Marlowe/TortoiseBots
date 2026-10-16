@@ -8,6 +8,7 @@
 #include "Movement/WaypointMovementGenerator.h"
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
+#include "playerbot/CreatureAuraKeepoutPolicy.h"
 #include "playerbot/LedgeStepDownPolicy.h"
 #include <atomic>
 
@@ -190,6 +191,7 @@ namespace ai
         // short back-off after a keep-out step-out found no landing spot, so
         // the action does not win the reaction pick every tick without moving.
         ObjectGuid keepoutSource;
+        CreatureAuraKeepout const* keepoutRow = nullptr; // the row of keepoutSource
         uint32 keepoutNoLandingUntilMs = 0;
     };
 
