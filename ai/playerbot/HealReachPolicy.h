@@ -65,14 +65,22 @@ namespace ai
         return (inBattleground ? healDistanceBg : healDistance) - contactDistance;
     }
 
+    // Cover never applies to an ally at or below the critical line: every
+    // healer keeps it on its list and may walk to it (AnotherHealerCoversAlly
+    // answers false for it, so the trigger, the walk-up and the pick agree).
+    inline bool CoverApplies(float healthPct, float criticalHealthPct)
+    {
+        return healthPct > criticalHealthPct;
+    }
+
     // Target pick, in combat: an ally this healer cannot reach and another
     // healer covers is left to that healer, so this one falls back to somebody
     // it can reach. An ally at or below the critical line always stays on the
-    // list, covered or not. The two callables run only when needed.
+    // list (CoverApplies). The two callables run only when needed.
     template <typename OutOfReach, typename Covered>
     inline bool DropCoveredCandidate(float healthPct, float criticalHealthPct, OutOfReach outOfReach, Covered covered)
     {
-        return healthPct > criticalHealthPct && outOfReach() && covered();
+        return CoverApplies(healthPct, criticalHealthPct) && outOfReach() && covered();
     }
 
     inline bool HealReachWanted(bool inCombat, float targetHealthPct, float almostFullHealthPct,

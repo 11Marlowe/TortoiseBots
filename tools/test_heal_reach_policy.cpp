@@ -15,6 +15,7 @@ using ai::HealerCoversAlly;
 using ai::HealerFitToCover;
 using ai::HealReachLimitFor;
 using ai::DropCoveredCandidate;
+using ai::CoverApplies;
 
 int main()
 {
@@ -130,6 +131,9 @@ int main()
         CHECK(!DropCoveredCandidate(5.0f, 20.0f, out, cov));
         CHECK(reachCalls == 0 && coverCalls == 0);
         CHECK(DropCoveredCandidate(21.0f, 20.0f, out, cov));
+        CHECK(CoverApplies(21.0f, 20.0f));
+        CHECK(!CoverApplies(20.0f, 20.0f)); // critical: cover ignored, walk and pick allowed
+        CHECK(!CoverApplies(1.0f, 20.0f));
         std::cout << "  [PASS] pick: covered ally dropped, never at critical health\n";
     }
 

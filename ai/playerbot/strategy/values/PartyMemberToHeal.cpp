@@ -122,6 +122,10 @@ bool ai::AnotherHealerCoversAlly(PlayerbotAI* ai, Unit* ally, float maxDistance)
     if (!group || !ally)
         return false;
 
+    // A critical ally is never "covered": every healer may walk to it.
+    if (!CoverApplies(ally->GetHealthPercent(), float(sPlayerbotAIConfig.criticalHealth)))
+        return false;
+
     for (Player* member : LiveGroupMembers(group))
     {
         if (!member || member == bot || member == ally)
