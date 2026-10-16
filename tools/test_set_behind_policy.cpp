@@ -61,6 +61,21 @@ int main()
     CHECK(SetBehindStreakExpired(p, 10000u));
     std::cout << "  [PASS] idle gap restarts the streak\n";
 
+    // Polls stop while the mob attacks the bot or moves (isUseful returns
+    // before polling). After 3+ s without polls the streak is fresh, so a
+    // taunted-then-released rogue gets the full window again.
+    SetBehindStreak a;
+    SetBehindStreakPoll(a, 4u, 0u);
+    SetBehindStreakPoll(a, 4u, 5000u);
+    CHECK(!SetBehindStreakExpired(a, 5000u));
+    for (uint32_t t = 5500u; t < 5000u + SET_BEHIND_GIVE_UP_MS; t += 500u)
+        SetBehindStreakPoll(a, 4u, t);
+    CHECK(!SetBehindStreakExpired(a, 10900u));
+    uint32_t const resume = 20000u; // long aggro pause, no polls
+    SetBehindStreakPoll(a, 4u, resume);
+    CHECK(!SetBehindStreakExpired(a, resume));
+    std::cout << "  [PASS] paused polls (aggro on the bot) start a fresh streak\n";
+
     // The 32-bit millisecond clock wrapping does not trip or hide the expiry.
     SetBehindStreak w;
     uint32_t const base = 0xFFFFFFFFu - 2000u;

@@ -3179,6 +3179,11 @@ bool SetBehindTargetAction::isUseful()
     if (!target)
         return false;
 
+    // Mirror isPossible/Execute (donor): while the mob attacks the bot or is
+    // moving, set-behind cannot act, so do not count the streak either.
+    if ((target->GetVictim() && target->GetVictim()->getObjectGuid() == bot->getObjectGuid()) || target->IsMoving())
+        return false;
+
     // Issue #911: position only once in melee reach (donor shape); closing in
     // is "reach melee"'s job, which this ACTION_HIGH row used to starve.
     const bool inMeleeReach = bot->CanReachWithMeleeAutoAttack(target);
