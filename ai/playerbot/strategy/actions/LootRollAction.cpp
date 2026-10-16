@@ -347,8 +347,8 @@ bool RollAction::RollOnItemInSlot(RollVote vote, ObjectGuid lootGuid, uint32 slo
 // player in the group who is in this roll counts (same map, inside the
 // core's loot distance of the corpse). seenVoter/seenVote carry the one
 // vote the bot knows: its owner's own CMSG_LOOT_ROLL that woke "delayed
-// roll". The core keeps the other votes private, so for anyone else the
-// test is whether they can use the item at all.
+// roll". The core keeps the other votes private, so an unseen player's bare
+// "can use it" only competes for a bot the player directly drives (#967).
 bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQualifier, ObjectGuid seenVoter, uint8 seenVote)
 {
     const ItemPrototype* proto = itemQualifier.GetProto();
@@ -357,6 +357,10 @@ bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQuali
 
     Creature* lootTarget = bot->GetMap()->GetCreature(lootGuid);
 
+    // A bot the player directly drives (alt / hire grouped with its master)
+    // still yields usable items to unseen players; pool bots only step aside
+    // for a NEED they actually saw (#967).
+    bool const yieldUnseenUsable = ai->IsAlt() || ai->HasRealPlayerMaster();
     for (Player* member : ai->GetPlayersInGroup())
     {
         if (member == bot || !member->IsInWorld() || member->GetMapId() != bot->GetMapId())
@@ -369,7 +373,7 @@ bool RollAction::RealPlayerMayNeed(ObjectGuid lootGuid, ItemQualifier& itemQuali
         ai::LootRollVote vote = voteSeen ? ai::LootRollVote(seenVote) : ai::LootRollVote::Pass;
         bool canUse = member->CanUseItem(proto) == EQUIP_ERR_OK;
 
-        if (ai::RealPlayerCompetes(voteSeen, vote, canUse))
+        if (ai::RealPlayerCompetes(voteSeen, vote, canUse, yieldUnseenUsable))
             return true;
     }
 

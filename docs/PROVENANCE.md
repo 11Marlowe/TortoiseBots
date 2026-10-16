@@ -3045,6 +3045,13 @@ could use, even after the player clicked Need.
 Validation: `tools/test_loot_roll_policy.cpp` (cases 5-6);
 `bash tools/verify_all.sh`; `git diff --check`; code review + build
 pending; in-game pending.
+
+Amendment 2026-10-16 (#967): the "anyone else competes when CanUseItem is
+OK" fallback demoted every upgrade NEED to GREED in LFT/pool groups —
+someone can always use a usable drop — even though no player had voted.
+Unseen players now compete only via a NEED the bot actually saw (its
+owner's forwarded vote). A bot the player directly drives (alt, or hire
+grouped with its master) keeps the old yield-on-usable behaviour.
 ## 2026-10-03 — pet upkeep + gather tools + medium-mana potion (r-donor E01/E02/E10/E11)
 
 Donor: `mod-playerbots` @ b6696bdbd3740e575598d167d69f39f68cc0b907.

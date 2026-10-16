@@ -71,18 +71,22 @@ namespace ai
     }
 
     // "Never NEED against a player": does one real player in the roll stand
-    // between this bot and the item? A vote the bot saw (its owner's own
-    // CMSG_LOOT_ROLL, forwarded to the owner's bots) is the answer: NEED
-    // competes, GREED or PASS steps aside. The core keeps everyone else's
-    // vote private, so an unseen player competes whenever the item is
-    // usable for them (Player::CanUseItem, the same test the core applies
-    // under need-before-greed).
-    inline bool RealPlayerCompetes(bool voteSeen, LootRollVote seenVote, bool canUse)
+    // between this bot and the item? Only a NEED the bot actually saw
+    // competes: the owner's own CMSG_LOOT_ROLL (forwarded to the owner's
+    // bots) is the one vote the core shows it, so GREED or PASS steps aside.
+    // Everyone else's vote stays private in the core, and "can use it" alone
+    // must not demote: in an LFT/pool group every usable drop is usable by
+    // someone, so that reading turned every upgrade NEED into GREED (#967).
+    // The one exception is a bot the player directly drives (alt / hire in
+    // the group with its master): it still steps aside for a usable item,
+    // because taking the player's upgrade from their own companion is
+    // always wrong.
+    inline bool RealPlayerCompetes(bool voteSeen, LootRollVote seenVote, bool canUse, bool yieldUnseenUsable = false)
     {
         if (voteSeen)
             return seenVote == LootRollVote::Need;
 
-        return canUse;
+        return yieldUnseenUsable && canUse;
     }
 
     // An automatic NEED becomes GREED while a real player competes. An

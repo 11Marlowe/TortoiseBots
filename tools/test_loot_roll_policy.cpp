@@ -66,14 +66,18 @@ int main()
     }
 
     // (5) Real player in the roll: a seen NEED competes, a seen GREED or
-    // PASS steps aside even for an item they could use; an unseen vote
-    // competes exactly when the player can use the item.
+    // PASS steps aside even for an item they could use. An unseen vote
+    // never competes on bare usability alone (#967: in an LFT/pool group
+    // every usable drop is usable by someone, which demoted every upgrade
+    // NEED to GREED); only a bot the player directly drives yields those.
     {
         CHECK(RealPlayerCompetes(true, LootRollVote::Need, false));
         CHECK(!RealPlayerCompetes(true, LootRollVote::Greed, true));
         CHECK(!RealPlayerCompetes(true, LootRollVote::Pass, true));
-        CHECK(RealPlayerCompetes(false, LootRollVote::Pass, true));
+        CHECK(!RealPlayerCompetes(false, LootRollVote::Pass, true));
         CHECK(!RealPlayerCompetes(false, LootRollVote::Pass, false));
+        CHECK(RealPlayerCompetes(false, LootRollVote::Pass, true, true));
+        CHECK(!RealPlayerCompetes(false, LootRollVote::Pass, false, true));
         std::cout << "  [PASS] real-player competition\n";
     }
 
