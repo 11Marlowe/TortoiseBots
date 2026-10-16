@@ -225,4 +225,19 @@ assert.strictEqual(P.hasCastTargets(bots), true); assert.strictEqual(P.hasCastTa
   assert.deepStrictEqual(P.trailOf(sk, "C", 1).pts.map((p) => p[3] || ""), ["", "t", "", "d", ""], "daemon history keeps its break kinds");
   assert.deepStrictEqual(P.cleanPoints([[1, 2, 3, "r"], [1, 2, 3, 9], [1, 2, 3, "x"]]), [[1, 2, 3, "r"], [1, 2, 3], [1, 2, 3]]);
 }
+// gap and seeding
+{
+  const tg = P.newTrails();
+  const mkg = (x) => ({ commander: "C", bots: [{ guid: 1, name: "B", map: 1, x, y: 0, alive: true }] });
+  P.noteTrails(tg, mkg(0), 100); P.markGap(tg); P.noteTrails(tg, mkg(30), 102); P.noteTrails(tg, mkg(50), 104);
+  assert.deepStrictEqual(P.trailOf(tg, "C", 1).pts, [[0, 0, 100], [30, 0, 102, "g"], [50, 0, 104]]);
+  assert.deepStrictEqual(P.cleanPoints([[1, 2, 3, "g"]]), [[1, 2, 3, "g"]]);
+  const ts2 = P.newTrails();
+  assert.deepStrictEqual(P.seedTargets(ts2, [{ commander: "C" }], false), [], "no trail of its own yet: nothing to attach history to");
+  P.noteTrails(ts2, mkg(0), 100);
+  assert.deepStrictEqual(P.seedTargets(ts2, [{ commander: "C" }], true), [], "not while paused");
+  assert.deepStrictEqual(P.seedTargets(ts2, [{ commander: "C" }, { commander: "D" }], false), ["C"]);
+  ts2.seeded.C = true;
+  assert.deepStrictEqual(P.seedTargets(ts2, [{ commander: "C" }], false), [], "once");
+}
 console.log("paths.js ok");

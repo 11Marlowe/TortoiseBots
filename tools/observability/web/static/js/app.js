@@ -4752,8 +4752,9 @@
   // A binding the page has not asked the daemon about yet gets its short stored history once: the paths then start with what happened
   // before this page was opened. One request at a time; a failure only means the paths start now.
   function seedCmdTrails(list) {
-    if (cmdTrailsLoading || !list.some(b => !cmdTrails.seeded[b.commander])) return;
-    list.forEach(b => { cmdTrails.seeded[b.commander] = true; });
+    const targets = CmdPaths.seedTargets(cmdTrails, list, refreshGate.paused());
+    if (cmdTrailsLoading || !targets.length) return;
+    targets.forEach(c => { cmdTrails.seeded[c] = true; });
     cmdTrailsLoading = true;
     fetch('/api/v1/commanders/trails').then(jsonOrThrow).then(data => {
       CmdPaths.seedTrails(cmdTrails, data);
@@ -5972,7 +5973,8 @@
   initCmdLayers();
   initCmdDemo();
   initRefreshPicker();
-  refreshGate.onChange(() => { if (cmdDemo.on) { clearInterval(cmdDemo.timer); cmdDemo.timer = setInterval(refreshGate.guard(cmdDemoTick), cmdDemoMs()); } });
+  refreshGate.onGap(() => { CmdView.markGap(cmdTracker); CmdPaths.markGap(cmdTrails); });
+  refreshGate.onChange(() => { seedCmdTrails(state.commanders.list); if (cmdDemo.on) { clearInterval(cmdDemo.timer); cmdDemo.timer = setInterval(refreshGate.guard(cmdDemoTick), cmdDemoMs()); } });
   fetchCommanders();
   setInterval(fetchCommanders, 30000); // goes through the refresh gate like the stream's reports
   setInterval(refreshGate.guard(expireCommanders), 3000); // a paused page keeps what it froze

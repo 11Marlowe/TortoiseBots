@@ -49,6 +49,14 @@
     const slot = {}; // key -> { last: ms of the last run or null, fn: waiting update or null, timer: handle or null }
     const listeners = [];
     let held = []; // memory notes of reports that arrived while paused, replayed on resume
+    let overflowed = false; // the oldest held reports were dropped: the replay starts after a gap
+    const gapListeners = [];
+    function replay() {
+      const q = held, gap = overflowed;
+      held = []; overflowed = false;
+      if (gap && q.length) gapListeners.forEach((f) => { try { f(); } catch (e) { /* ignore */ } });
+      q.forEach((f) => f());
+    }
     const get = (key) => slot[key] || (slot[key] = { last: null, fn: null, timer: null });
 
     function run(key) {
@@ -83,7 +91,7 @@
       note(fn) {
         if (interval !== 0) { fn(); return; }
         held.push(fn);
-        if (held.length > HOLD_MAX) held.splice(0, held.length - HOLD_MAX);
+        if (held.length > HOLD_MAX) { held.splice(0, held.length - HOLD_MAX); overflowed = true; }
       },
       heldCount() { return held.length; },
       interval() { return interval; },
@@ -94,15 +102,17 @@
         const was = interval;
         interval = normalize(next);
         if (interval === was) return interval;
-        if (interval !== 0) { const q = held; held = []; q.forEach((f) => f()); } // catch up before the newest update is shown
+        if (interval !== 0) replay(); // catch up before the newest update is shown
         Object.keys(slot).forEach((k) => arm(k)); // resuming runs what waited; a new interval re-times it; pausing stops the timers
         listeners.forEach((f) => { try { f(interval, was); } catch (e) { /* a broken listener must not stop the others */ } });
         return interval;
       },
-      flush() { const q = held; held = []; q.forEach((f) => f()); Object.keys(slot).forEach((k) => run(k)); },
+      flush() { replay(); Object.keys(slot).forEach((k) => run(k)); },
       // A timer callback that does nothing while paused: setInterval(gate.guard(poll), ms) stops polling when the viewer pauses.
       guard(fn) { return function () { if (interval !== 0) return fn.apply(this, arguments); }; },
       onChange(f) { listeners.push(f); },
+      // f() runs just before a replay whose start was lost (more than HOLD_MAX reports were held): the page marks "a gap here" on its paths.
+      onGap(f) { gapListeners.push(f); },
     };
   }
 

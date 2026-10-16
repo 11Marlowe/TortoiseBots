@@ -366,4 +366,16 @@ assert.strictEqual(C.jumpLimitYd(500), 612, "...and at most 30 s, so a long sile
   C.prependTrail(t4, "Gbmage", q2.bots[0].map, [[1, 2, 10, "t"], [3, 4, 20, "zzz"], [5, 6, 30, "d"]]);
   assert.deepStrictEqual(t4.trail.Gbmage.pts.slice(0, 3), [[1, 2, 10, "t"], [3, 4, 20], [5, 6, 30, "d"]]);
 }
+// a gap (reports lost in a very long pause): the next point starts a new piece, with no mark
+{
+  const tg = C.newTracker(); let q;
+  const stepg = (x, t) => { q = party(); q.bots[0].x = x; q.bots[0].y = 0; C.note(tg, q, t); };
+  stepg(0, 100); stepg(20, 102);
+  C.markGap(tg);
+  stepg(40, 104);
+  assert.deepStrictEqual(tg.trail.Gbmage.pts[2], [40, 0, 104, "g"], "the point after a gap is marked");
+  assert.strictEqual(C.trailRuns(tg.trail.Gbmage.pts).length, 2, "not joined to the point before");
+  assert.strictEqual(C.trailEvent({ gap: true }, { map: 1, x: 0, y: 0, t: 1 }), "g");
+  stepg(60, 106); assert.strictEqual(tg.trail.Gbmage.pts[3].length, 3, "only that one point");
+}
 console.log("commanders.js ok");

@@ -57,7 +57,7 @@
     const out = [];
     pts.forEach((p) => {
       if (!Array.isArray(p) || !num(p[0]) || !num(p[1]) || !num(p[2])) return;
-      out.push(["d", "t", "r", "m"].indexOf(p[3]) >= 0 ? [p[0], p[1], p[2], p[3]] : [p[0], p[1], p[2]]);
+      out.push(["d", "t", "r", "m", "g"].indexOf(p[3]) >= 0 ? [p[0], p[1], p[2], p[3]] : [p[0], p[1], p[2]]);
     });
     return out.slice(-TRAIL_MAX);
   }
@@ -83,6 +83,18 @@
       });
     });
     return taken;
+  }
+
+  // Like CmdView.markGap for every other bot's trail.
+  function markGap(tr) {
+    Object.keys(tr.by).forEach((c) => Object.keys(tr.by[c]).forEach((g) => { tr.by[c][g].seen = { gap: true }; }));
+  }
+
+  // The bindings to ask the daemon's trail history for: not asked yet, not while the page is paused, and only once the page has a trail
+  // of its own for them (the history goes in front of it; with none there is nothing to attach it to, and asking would use up the one go).
+  function seedTargets(tr, list, paused) {
+    if (paused) return [];
+    return (list || []).map((b) => b.commander).filter((c) => !tr.seeded[c] && tr.by[c]);
   }
 
   // Forget the commanders that are gone, and the bots that left a binding.
@@ -325,7 +337,7 @@
 
   const api = {
     TRAIL_MAX, TRAIL_STEP_YD, TRAIL_LEN_DEFAULT, TRAIL_LEN_MIN, STALL_KEEP_SEC, STALL_MAX, AGGRO_BASE_YD,
-    newTrails, trailOf, noteTrails, seedTrails, pruneTrails, trailPoints, memberTrails, cleanPoints,
+    newTrails, markGap, seedTargets, trailOf, noteTrails, seedTrails, pruneTrails, trailPoints, memberTrails, cleanPoints,
     runSteps, routeSegments, numberedSteps, stepIcon, stepText,
     newStalls, noteStalls, stallsOf, pruneStalls, stallText, orderPoint, placeAt, refusedReason,
     objectsOf, objectText, aggroRadius, healLines, ccLines, hasCastTargets,

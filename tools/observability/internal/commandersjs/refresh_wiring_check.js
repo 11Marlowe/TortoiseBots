@@ -40,4 +40,25 @@ const tab = html.slice(html.indexOf('id="tab-commanders"'), html.indexOf('id="ta
 assert.ok(/data-refresh-select/.test(tab) && /data-refresh-badge/.test(tab), "the picker and the paused badge are on the Commanders tab");
 const top = html.slice(html.indexOf('<header class="topbar">'), html.indexOf("</header>"));
 assert.ok(/data-refresh-select/.test(top) && /data-refresh-badge/.test(top), "...and in the top bar, so every live tab has them");
+// a page loaded while paused: the first report is shown but its trail memory is held, so the history must not be asked for (and the
+// binding must not be marked as asked) until the replay has given the page a trail; then it is asked once
+assert.ok(/CmdPaths\.seedTargets\(cmdTrails, list, refreshGate\.paused\(\)\)/.test(src) && /targets\.forEach\(c => \{ cmdTrails\.seeded\[c\] = true; \}\)/.test(src), "seedCmdTrails asks seedTargets and marks only those");
+assert.ok(/refreshGate\.onChange\(\(\) => \{ seedCmdTrails\(/.test(src), "and tries again when the rate changes (resume)");
+assert.ok(/refreshGate\.onGap\(\(\) => \{ CmdView\.markGap\(cmdTracker\); CmdPaths\.markGap\(cmdTrails\); \}\);/.test(src), "a lost start of a replay marks a gap on the paths");
+{
+  const R = require("./../../web/static/js/refresh.js"), P = require("./../../web/static/js/paths.js");
+  let t = 0; const env = { now: () => t, setTimer: () => 1, clearTimer: () => {} };
+  const gate = R.createGate(0, env), trails = P.newTrails(), list = [{ commander: "C", bots: [{ guid: 1, map: 1, x: 0, y: 0, alive: true }] }];
+  const asked = [];
+  const seed = () => P.seedTargets(trails, list, gate.paused()).forEach((c) => { trails.seeded[c] = true; asked.push(c); });
+  // the first report of a page that starts paused
+  gate.note(() => P.noteTrails(trails, list[0], 100));
+  gate.submit("commanders", () => seed());
+  assert.deepStrictEqual(asked, [], "paused at load: not asked, not marked");
+  assert.ok(!trails.seeded.C);
+  gate.onChange(() => seed());
+  gate.set(2);
+  assert.deepStrictEqual(asked, ["C"], "resume: the held report is replayed, the trail exists, and the history is asked for once");
+  seed(); assert.deepStrictEqual(asked, ["C"]);
+}
 console.log("refresh wiring ok");

@@ -246,8 +246,9 @@
   // A trail point is [x, y, t] or, where something happened, [x, y, t, kind]: "d" the bot died here (the line goes on), "t" it
   // teleported (a jump no walking explains: summon, portal), "r" the same jump while it was dead before or after (spirit release,
   // resurrection at the spirit healer), "m" it arrived on another map. A point of kind t, r or m starts a new segment.
-  const BREAK_KINDS = { t: 1, r: 1, m: 1 };
-  const POINT_KINDS = { d: 1, t: 1, r: 1, m: 1 };
+  // "g" is a gap with no icon: reports were lost (a very long pause), so the path is not joined across them.
+  const BREAK_KINDS = { t: 1, r: 1, m: 1, g: 1 };
+  const POINT_KINDS = { d: 1, t: 1, r: 1, m: 1, g: 1 };
 
   function jumpLimitYd(gapSec) {
     const g = Math.min(TRAVEL_MAX_GAP_SEC, Math.max(1, num(gapSec) ? gapSec : 1));
@@ -257,6 +258,7 @@
   // What happened between two reports of one bot, {map, x, y, t, alive}: "" nothing, "m" map change, "t" / "r" a jump, "d" died.
   function trailEvent(prev, cur) {
     if (!prev || !cur) return "";
+    if (prev.gap) return "g";
     if (prev.map !== cur.map) return "m";
     const jump = Math.hypot(prev.x - cur.x, prev.y - cur.y) > jumpLimitYd(cur.t - prev.t);
     if (jump) return prev.alive === false || cur.alive === false ? "r" : "t";
@@ -283,6 +285,9 @@
     (pts || []).forEach((p) => { const kind = pointKind(p); if (kind && num(p[0]) && num(p[1])) out.push({ x: p[0], y: p[1], t: p[2], kind }); });
     return out;
   }
+
+  // A very long pause lost reports: the next point of every trail starts a new piece, marked by nothing (see RefreshRate onGap).
+  function markGap(tr) { Object.keys(tr.trail).forEach((k) => { tr.trail[k].seen = { gap: true }; }); }
 
   function newTracker() { return { hp: {}, hpDropAt: {}, leadMovedAt: {}, trail: {} }; }
 
@@ -551,7 +556,7 @@
   const api = {
     HEAL_RANGE_YD, FAR_YD, LOW_HP_PCT, STALE_WARN_SEC, pretty, plural, ageText, roleKey, roleLabel, distance, leadBot, partyRows, orderText, stateWord,
     headerText, headerParts, botHref, warnings, newTracker, note, context, prune, project, fitView, viewBox, zoomAt, panBy, pinch, gridStep, gridLines,
-    trailSegments, trailSegmentsBroken, trailRuns, trailMarks, trailEvent, jumpLimitYd, TRAVEL_MAX_YD_PER_SEC, TRAVEL_SLACK_YD, TRAVEL_MAX_GAP_SEC, clampScale, prependTrail, heading, trailStamps, scaleBar, zonesIn, pictureLayers,
+    trailSegments, markGap, trailSegmentsBroken, trailRuns, trailMarks, trailEvent, jumpLimitYd, TRAVEL_MAX_YD_PER_SEC, TRAVEL_SLACK_YD, TRAVEL_MAX_GAP_SEC, clampScale, prependTrail, heading, trailStamps, scaleBar, zonesIn, pictureLayers,
     AGGRO_RANGE_YD, followView, zoomFollow, pinchFollow, mobsOf, mobClass, threatLines, botTargetLines, aggroMobs, commanderPlace,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.CmdView = api;

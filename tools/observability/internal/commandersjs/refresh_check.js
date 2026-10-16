@@ -148,4 +148,12 @@ e = env(); g = R.createGate(0, e); let cnt = 0, last = 0;
 for (let i = 1; i <= R.HOLD_MAX + 50; i++) g.note(() => { cnt++; last = i; });
 assert.strictEqual(g.heldCount(), R.HOLD_MAX); g.set(2);
 assert.strictEqual(cnt, R.HOLD_MAX); assert.strictEqual(last, R.HOLD_MAX + 50);
+// more than HOLD_MAX held: the replay starts after a gap, announced once before the replay
+e = env(); g = R.createGate(0, e); const order = [];
+g.onGap(() => order.push("gap"));
+for (let i = 1; i <= R.HOLD_MAX; i++) g.note(() => {});
+g.set(2); assert.deepStrictEqual(order, [], "up to the cap nothing is lost: no gap");
+g.set(0); for (let i = 1; i <= R.HOLD_MAX + 1; i++) g.note(() => order.push("n"));
+g.set(2); assert.strictEqual(order[0], "gap", "the gap is announced before the first replayed report"); assert.strictEqual(order.filter((x) => x === "gap").length, 1);
+g.set(0); g.set(2); assert.strictEqual(order.filter((x) => x === "gap").length, 1, "and not again");
 console.log("refresh ok");
