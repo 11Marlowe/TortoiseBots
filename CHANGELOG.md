@@ -1,5 +1,34 @@
 # Changelog
 
+## v1.2.1 (2026-10-16)
+
+### Classes & Combat
+- Hunters no longer switch to melee for a mob a tank or pet is holding; they step back and shoot instead. [#1025]
+- Hunters return to ranged as soon as a mob stops attacking them, instead of staying in melee. [#1025]
+- Rogues no longer cast Feint when there is no living tank or party pet to take the threat. [#1024]
+- Mages only fall back to their wand when they cannot afford their main spell, not at high mana. [#1023]
+- Wands no longer restart right after a mage, priest or warlock stops one to cast a spell. [#1023]
+- Warlocks no longer cast Banish on targets that are not demons or elementals, or that are immune to it. [#1020]
+- Ranged pulls no longer end by themselves right after the tank starts walking into position. [#1029]
+- Bots also avoid dangerous creatures they cannot see, and charges no longer land inside hazards. [#995]
+
+### Groups & Dungeons
+- Hired companions, and bots in a group a commander has bound, no longer leave on their own. [#1015]
+- Hired companions keep their hirer as their master while the hirer moves between maps. [#1015]
+
+### Commands
+- Bots can now use a key item on a locked object, such as the Mallet on the Zul'Farrak gong. [#1031]
+- `raid status` now says a bot is in an instance instead of calling it outdoors. [#1022]
+
+### Dungeon Guides
+- The Uldaman guide no longer claims Baelog, Eric and Olaf die together, and points Alliance to Baelog's Chest. [#1021]
+
+### Behind the scenes
+- Hazard checks now share one scan per area, with new counters to watch the cost. [#995]
+- Bug, feature and spec forms now suggest titles like `[bug][area]`, and open issues were renamed to match. [#1033]
+
+---
+
 ## v1.2.0 (2026-10-15)
 
 ### Classes & Combat
