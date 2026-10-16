@@ -16,6 +16,8 @@
   const AGGRO_BASE_YD = 20, AGGRO_MIN_YD = 5, AGGRO_MAX_YD = 45;
 
   const num = (n) => typeof n === "number" && isFinite(n);
+  // The break rule for trails lives with the lead's tracker in commanders.js (CmdView): a trail is never joined across a teleport.
+  const CV = typeof module !== "undefined" && module.exports && typeof require === "function" ? require("./commanders.js") : root.CmdView;
   const isId = (s) => typeof s === "string" && /^[0-9]{1,20}$/.test(s);
 
   // ---- trails of every bound bot ------------------------------------------------------------------------------------
@@ -29,16 +31,22 @@
     return bots && bots[guid] ? bots[guid] : null;
   }
 
-  // Add each bot's place when it has moved TRAIL_STEP_YD since its last point; a bot on a new map starts a new trail.
+  // Add each bot's place when it has moved TRAIL_STEP_YD since its last point; a bot on a new map starts a new trail. A teleport (a jump
+  // no walking explains), a death and a map change are recorded on their point as a 4th element (see CmdView.trailEvent) so the trail
+  // is drawn in pieces and marked, never as a line through the world.
   function noteTrails(tr, bind, nowSec) {
     const bots = tr.by[bind.commander] || (tr.by[bind.commander] = {});
     (bind.bots || []).forEach((b) => {
       if (!b || !b.guid || !num(b.x) || !num(b.y)) return;
-      let t = bots[b.guid];
-      if (!t || t.map !== b.map) t = bots[b.guid] = { map: b.map, pts: [] };
+      const cur = { map: b.map, x: b.x, y: b.y, t: nowSec, alive: b.alive !== false };
+      let t = bots[b.guid], ev = "";
+      if (!t) t = bots[b.guid] = { map: b.map, pts: [], seen: null };
+      else if (t.map !== b.map) { t = bots[b.guid] = { map: b.map, pts: [], seen: null }; ev = "m"; }
+      else ev = CV.trailEvent(t.seen, cur);
+      t.seen = cur;
       const last = t.pts[t.pts.length - 1];
-      if (last && Math.hypot(last[0] - b.x, last[1] - b.y) < TRAIL_STEP_YD) return;
-      t.pts.push([b.x, b.y, nowSec]);
+      if (!ev && last && Math.hypot(last[0] - b.x, last[1] - b.y) < TRAIL_STEP_YD) return;
+      t.pts.push(ev ? [b.x, b.y, nowSec, ev] : [b.x, b.y, nowSec]);
       if (t.pts.length > TRAIL_MAX) t.pts.splice(0, t.pts.length - TRAIL_MAX);
     });
   }
@@ -47,7 +55,10 @@
   function cleanPoints(pts) {
     if (!Array.isArray(pts)) return [];
     const out = [];
-    pts.forEach((p) => { if (Array.isArray(p) && num(p[0]) && num(p[1]) && num(p[2])) out.push([p[0], p[1], p[2]]); });
+    pts.forEach((p) => {
+      if (!Array.isArray(p) || !num(p[0]) || !num(p[1]) || !num(p[2])) return;
+      out.push(["d", "t", "r", "m"].indexOf(p[3]) >= 0 ? [p[0], p[1], p[2], p[3]] : [p[0], p[1], p[2]]);
+    });
     return out.slice(-TRAIL_MAX);
   }
 
