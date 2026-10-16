@@ -14,6 +14,7 @@ echo ""
 echo "=== 2. Verifying Tortoise Core Module Surface ==="
 bash tools/verify_tortoise_surface.sh
 echo "✓ Module surface verified."
+python3 tools/check_eluna_guards.py
 
 echo ""
 echo "=== 3. Verifying Action & Trigger Wiring ==="
