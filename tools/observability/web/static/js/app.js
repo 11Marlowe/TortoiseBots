@@ -4717,8 +4717,9 @@
     if (view.fresh) {
       const list = Array.isArray(view.commanders) ? view.commanders : [];
       const updatedAt = view.updated_at || Math.round(Date.now() / 1000), receivedAt = Date.now();
-      // What the page remembers (paths, hp changes, events) keeps every report, so a slow refresh rate or a pause loses no part of a path.
-      list.forEach(bind => { CmdView.note(cmdTracker, bind, updatedAt); UnitInfo.noteEvents(cmdEvents, bind, updatedAt); cmdNotePaths(bind, updatedAt); });
+      // What the page remembers (paths, hp changes, events) keeps every report, so a slow refresh rate loses no part of a path; while
+      // paused it is held too, so nothing on the map moves, and it is replayed in order on resume.
+      refreshGate.note(() => list.forEach(bind => { CmdView.note(cmdTracker, bind, updatedAt); UnitInfo.noteEvents(cmdEvents, bind, updatedAt); cmdNotePaths(bind, updatedAt); }));
       refreshGate.submit('commanders', () => {
         c.list = list;
         c.fresh = true;

@@ -28,6 +28,7 @@ assert.ok(hs.indexOf("applyServerStatus(data.server)") < hs.indexOf("refreshGate
 // the page remembers every report even when it shows fewer
 const ac = fn("applyCommanders");
 assert.ok(ac.indexOf("cmdNotePaths(") >= 0 && ac.indexOf("cmdNotePaths(") < ac.indexOf("refreshGate.submit('commanders'"), "paths are noted for every report, before the gate");
+assert.ok(/refreshGate\.note\(\(\) => list\.forEach\(bind => \{[^\n]*cmdNotePaths\(/.test(ac), "the memory update goes through gate.note, so a pause freezes the paths too");
 assert.ok(/refreshGate\.flush\(\)/.test(src), "the Refresh button shows what a paused page holds");
 // the saved choice goes through try/catch helpers only
 assert.ok(/RefreshRate\.load\(refreshStore\)/.test(src) && /RefreshRate\.save\(refreshStore/.test(src));

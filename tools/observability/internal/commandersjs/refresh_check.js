@@ -124,4 +124,28 @@ let polls = 0; const poll = g.guard(() => { polls++; });
 poll(); poll(); assert.strictEqual(polls, 2);
 g.set(0); poll(); poll(); poll(); assert.strictEqual(polls, 2, "paused: the poll does not run");
 g.set(30); poll(); assert.strictEqual(polls, 3, "resumed: it runs again");
+
+// ---- paused freezes what the page remembers too (the paths), and resume catches up in order
+e = env(); g = R.createGate(2, e);
+const memory = [], shownLog = [];
+const report = (n) => { g.note(() => memory.push(n)); g.submit("commanders", () => shownLog.push(n)); };
+report(1); report(2);
+assert.deepStrictEqual(memory, [1, 2], "running: the memory takes every report at once");
+g.set(0);
+for (let n = 3; n <= 8; n++) { report(n); e.advance(2000); }
+assert.deepStrictEqual(memory, [1, 2], "paused: the paths do not grow, nothing the map draws moves");
+assert.strictEqual(g.heldCount(), 6);
+g.set(5);
+assert.deepStrictEqual(memory, [1, 2, 3, 4, 5, 6, 7, 8], "resume: every held report is replayed in order, none lost");
+assert.strictEqual(shownLog[shownLog.length - 1], 8, "...and the newest is shown, after the catch-up");
+assert.strictEqual(g.heldCount(), 0);
+// the Refresh button catches up while still paused
+e = env(); g = R.createGate(0, e); const mem2 = [];
+g.note(() => mem2.push("a")); g.note(() => mem2.push("b"));
+assert.deepStrictEqual(mem2, []); g.flush(); assert.deepStrictEqual(mem2, ["a", "b"]); assert.strictEqual(g.paused(), true);
+// bounded: a very long pause keeps the newest reports
+e = env(); g = R.createGate(0, e); let cnt = 0, last = 0;
+for (let i = 1; i <= R.HOLD_MAX + 50; i++) g.note(() => { cnt++; last = i; });
+assert.strictEqual(g.heldCount(), R.HOLD_MAX); g.set(2);
+assert.strictEqual(cnt, R.HOLD_MAX); assert.strictEqual(last, R.HOLD_MAX + 50);
 console.log("refresh ok");

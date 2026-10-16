@@ -6,6 +6,7 @@
   const OPTIONS = [1, 2, 5, 10, 30, 0]; // seconds; 0 = paused
   const DEFAULT_SEC = 2;                // the emit interval: nothing is held back until the viewer picks something slower
   const STORAGE_KEY = "tbdash.refresh.v1";
+  const HOLD_MAX = 1000;                // reports kept for the catch-up after a pause (about 30 min at 2 s); older ones are dropped
   const EARLY_MS = 400;                 // an update this much short of the interval still counts (the 2 s stream jitters)
 
   function normalize(v) {
@@ -47,6 +48,7 @@
     let interval = normalize(sec);
     const slot = {}; // key -> { last: ms of the last run or null, fn: waiting update or null, timer: handle or null }
     const listeners = [];
+    let held = []; // memory notes of reports that arrived while paused, replayed on resume
     const get = (key) => slot[key] || (slot[key] = { last: null, fn: null, timer: null });
 
     function run(key) {
@@ -76,6 +78,14 @@
         if (interval === 0) return;                         // paused: keep the newest
         arm(key);
       },
+      // note(fn): fn updates what the page remembers of a live report (paths, events). Runs at once, except while paused: it is then held,
+      // so nothing the page can draw moves, and replayed in order on resume (or flush), so the paths catch up in full.
+      note(fn) {
+        if (interval !== 0) { fn(); return; }
+        held.push(fn);
+        if (held.length > HOLD_MAX) held.splice(0, held.length - HOLD_MAX);
+      },
+      heldCount() { return held.length; },
       interval() { return interval; },
       paused() { return interval === 0; },
       // Waiting updates (what a viewer would see change on resume).
@@ -84,17 +94,18 @@
         const was = interval;
         interval = normalize(next);
         if (interval === was) return interval;
+        if (interval !== 0) { const q = held; held = []; q.forEach((f) => f()); } // catch up before the newest update is shown
         Object.keys(slot).forEach((k) => arm(k)); // resuming runs what waited; a new interval re-times it; pausing stops the timers
         listeners.forEach((f) => { try { f(interval, was); } catch (e) { /* a broken listener must not stop the others */ } });
         return interval;
       },
-      flush() { Object.keys(slot).forEach((k) => run(k)); },
+      flush() { const q = held; held = []; q.forEach((f) => f()); Object.keys(slot).forEach((k) => run(k)); },
       // A timer callback that does nothing while paused: setInterval(gate.guard(poll), ms) stops polling when the viewer pauses.
       guard(fn) { return function () { if (interval !== 0) return fn.apply(this, arguments); }; },
       onChange(f) { listeners.push(f); },
     };
   }
 
-  const api = { OPTIONS, DEFAULT_SEC, STORAGE_KEY, normalize, label, load, save, createGate };
+  const api = { HOLD_MAX, OPTIONS, DEFAULT_SEC, STORAGE_KEY, normalize, label, load, save, createGate };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.RefreshRate = api;
 })(typeof self !== "undefined" ? self : this);
