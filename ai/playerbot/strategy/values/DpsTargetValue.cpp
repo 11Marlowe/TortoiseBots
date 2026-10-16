@@ -349,13 +349,15 @@ namespace
         }
     }
 
-    bool HasGapCloser(PlayerbotAI* ai, Player* bot)
+    // A gap closer castable on this mob right now. In 1.12 only Intercept
+    // counts: Charge is out-of-combat only, and Feral Charge needs bear form
+    // (bears tank, and tanks never chase runners). Intercept still needs
+    // Berserker Stance, rage and its cooldown, which CanCastSpell checks; its
+    // range is the runner leash, so range is left to the policy.
+    bool GapCloserReady(PlayerbotAI* ai, Player* bot, Unit* unit)
     {
-        if (bot->GetClass() == CLASS_WARRIOR)
-            return ai->HasSpell("charge") || ai->HasSpell("intercept");
-        if (bot->GetClass() == CLASS_DRUID)
-            return ai->HasSpell("feral charge");
-        return false;
+        return bot->GetClass() == CLASS_WARRIOR &&
+            ai->CanCastSpell("intercept", unit, 0, nullptr, true);
     }
 
     // Finish a mob of the party's fight that runs away at low health
@@ -371,11 +373,11 @@ namespace
         if (chaser.healer || chaser.tank)
             return nullptr;
         chaser.ranged = ai->IsRanged(bot);
-        chaser.hasGapCloser = !chaser.ranged && HasGapCloser(ai, bot);
         chaser.holding = ai->HasStrategy("stay", BotState::BOT_STATE_COMBAT);
         chaser.spellRange = ai->GetRange("spell");
         chaser.meleeReach = sPlayerbotAIConfig.meleeDistance + 5.0f;
 
+        Unit* const ccTarget = ai->GetAiObjectContext()->GetValue<Unit*>("cc target")->Get();
         Unit* best = nullptr;
         ai::RunnerFacts bestFacts;
         for (ObjectGuid const& guid : ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get())
@@ -390,9 +392,15 @@ namespace
             facts.feared = unit->HasAuraType(SPELL_AURA_MOD_FEAR);
             facts.healthPct = unit->GetHealthPercent();
             facts.distance = bot->GetDistance(unit);
-            if (!ai::ShouldFinishRunner(facts, chaser))
+            facts.ccTarget = unit == ccTarget || ccProbe.IsCcTarget(unit);
+            if (!ai::IsFinishableRunner(facts))
                 continue;
-            if (ccProbe.IsCcTarget(unit) || IsWastedDpsTarget(ai, unit) || AttackersValue::IsKeepoutSetAside(unit, bot))
+            // The gap closer is judged per mob, and only for a melee bot.
+            ai::RunnerChaser mobChaser = chaser;
+            mobChaser.hasGapCloser = !chaser.ranged && GapCloserReady(ai, bot, unit);
+            if (!ai::ShouldFinishRunner(facts, mobChaser))
+                continue;
+            if (IsWastedDpsTarget(ai, unit) || AttackersValue::IsKeepoutSetAside(unit, bot))
                 continue;
             if (chaser.ranged && !bot->IsWithinLOSInMap(unit))
                 continue;

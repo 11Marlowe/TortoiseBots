@@ -55,6 +55,9 @@ int main()
         CHECK(!IsFinishableRunner(still));
         RunnerFacts feared = Runner(10.0f, 10.0f); feared.feared = true;
         CHECK(!IsFinishableRunner(feared));                 // our own fear CC
+        RunnerFacts cc = Runner(10.0f, 10.0f); cc.ccTarget = true;
+        CHECK(!IsFinishableRunner(cc));                     // the bot's CC target / held mark
+        CHECK(!ShouldFinishRunner(cc, Ranged(false)));
         RunnerFacts dead = Runner(10.0f, 10.0f); dead.alive = false;
         CHECK(!IsFinishableRunner(dead));
         RunnerFacts stranger = Runner(10.0f, 10.0f); stranger.inPartyFight = false;
@@ -77,6 +80,12 @@ int main()
         CHECK(!ShouldFinishRunner(Runner(10.0f, kRunnerMeleeLeash + 1.0f), Melee(true, false)));
         CHECK(!ShouldFinishRunner(Runner(10.0f, 15.0f), Melee(false, false)));
         CHECK(ShouldFinishRunner(Runner(10.0f, 4.0f), Melee(false, false)));
+        // A known but not castable gap closer (Charge in combat, Intercept
+        // out of stance, rage or on cooldown) falls back to melee reach.
+        RunnerChaser notReady = Melee(false, false);
+        CHECK(RunnerLeash(notReady) == notReady.meleeReach);
+        CHECK(!ShouldFinishRunner(Runner(10.0f, 12.0f), notReady));
+        CHECK(ShouldFinishRunner(Runner(10.0f, 12.0f), Melee(true, false)));
         std::cout << "  [PASS] melee leash\n";
     }
 

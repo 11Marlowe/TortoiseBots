@@ -26,8 +26,9 @@ namespace ai
     // Below this health a running mob is finished rather than left to fetch help.
     constexpr float kRunnerFinishHealthPct = 30.0f;
 
-    // How far a melee bot with a gap closer (Charge/Intercept, Feral Charge)
-    // goes after a runner: the gap closers' own reach. Short on purpose so the
+    // How far a melee bot whose gap closer is castable now (Intercept: in
+    // combat, Berserker Stance, rage, off cooldown) goes after a runner: the
+    // gap closer's own reach. Short on purpose so the
     // party does not chase into the next pack.
     constexpr float kRunnerMeleeLeash = 25.0f;
 
@@ -39,6 +40,7 @@ namespace ai
     {
         bool running = false;      // fleeing state or flee / seek-assistance motion
         bool feared = false;       // a fear aura: our own CC, not a runner
+        bool ccTarget = false;     // the bot's CC target or a held CC mark
         bool alive = false;
         bool inPartyFight = false; // in the bot's attackers list
         float healthPct = 100.0f;
@@ -50,7 +52,7 @@ namespace ai
         bool healer = false;       // healers keep healing
         bool tank = false;         // the tank stays on the pack
         bool ranged = false;
-        bool hasGapCloser = false; // melee only
+        bool hasGapCloser = false; // melee only: castable on this mob right now
         bool holding = false;      // "stay" in combat: the run leader's hold
         float spellRange = 30.0f;
         float meleeReach = 5.0f;
@@ -59,7 +61,7 @@ namespace ai
     // The mob is a runner worth finishing, whoever looks at it.
     inline bool IsFinishableRunner(RunnerFacts const& mob)
     {
-        return mob.alive && mob.inPartyFight && mob.running && !mob.feared &&
+        return mob.alive && mob.inPartyFight && mob.running && !mob.feared && !mob.ccTarget &&
             mob.healthPct < kRunnerFinishHealthPct;
     }
 
