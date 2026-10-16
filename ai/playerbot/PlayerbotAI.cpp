@@ -13,6 +13,7 @@
 #include "../../runtime/ObservabilityEmitter.h"
 #include "../../runtime/BotActivityLease.h"
 #include "../../runtime/HireLifecycle.h"
+#include "../../runtime/HireMasterPolicy.h"
 #include "../../runtime/PoolBotTradePolicy.h"
 #include "../../runtime/QueuedOrderPolicy.h"
 #include "../../runtime/RemoteCommanderTasks.h"
@@ -33,6 +34,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
 #include "playerbot/InterruptCastingPolicy.h"
+#include "playerbot/WandPolicy.h"
 #include "BotDiagnostics.h"
 #include "BotActionLog.h"
 #include "playerbot/PlayerbotFactory.h"
@@ -3254,6 +3256,27 @@ void PlayerbotAI::SpellInterrupted(uint32 spellid)
     lastSpell.id = 0;
 }
 
+void PlayerbotAI::NoteSpellGlobalCooldown(SpellEntry const* spellInfo)
+{
+    // Mirrors Spell::TriggerGlobalCooldown for category 133
+    // (SPELLCATEGORY_GLOBAL): a 1.0-1.5 s GCD scales with cast speed and
+    // stays inside that range.
+    if (!spellInfo || spellInfo->StartRecoveryCategory != SPELLCATEGORY_GLOBAL || !spellInfo->StartRecoveryTime)
+        return;
+    int32 gcd = spellInfo->StartRecoveryTime;
+    if (gcd >= 1000 && gcd <= 1500)
+        gcd = std::min(1500, std::max(1000, int32(float(gcd) * bot->GetFloatValue(UNIT_MOD_CAST_SPEED))));
+    spellGcdStartMs_ = WorldTimer::getMSTime();
+    spellGcdDurationMs_ = uint32(gcd);
+}
+
+uint32 PlayerbotAI::SpellGlobalCooldownRemainingMs() const
+{
+    if (!spellGcdDurationMs_)
+        return 0;
+    return CooldownRemainingMs(spellGcdStartMs_, spellGcdDurationMs_, WorldTimer::getMSTime());
+}
+
 int32 PlayerbotAI::CalculateGlobalCooldown(uint32 spellid)
 {
     if (!spellid)
@@ -3398,6 +3421,24 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
     // mid-fight and, through the BotManager (ClaimForMaster / ReleaseMaster), replace
     // the Dungeon lease that keeps the random-bot services off the crew.
     bool const dungeonCrew = TortoiseBots::BotActivityLeaseManager::Instance().GetActivity(bot->GetGUIDLow()) == TortoiseBots::BotActivity::Dungeon;
+
+    // Issue #1014: a hire keeps its hirer. While the hirer changes maps it is out
+    // of the world (FindPlayer misses it, so UpdateAI dropped the pointer) but
+    // still exists (the not-in-world lookup finds it); the binding stays and the
+    // pointer comes back once the hirer is in the world again. Non-hires skip it.
+    bool const hired = TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
+    ObjectGuid const hirerGuid = hired ? TortoiseBots::HireLifecycle::Instance().GetMaster(bot->GetObjectGuid()) : ObjectGuid();
+    Player* const hirer = hirerGuid.IsEmpty() ? nullptr : ObjectAccessor::FindPlayerNotInWorld(hirerGuid);
+    bool const hirerBetweenMaps = hirer && !hirer->IsInWorld();
+    if (hired && !dungeonCrew)
+    {
+        TortoiseBots::BotRecord const* record = TortoiseBots::BotManager::Instance().FindBot(bot->GetObjectGuid());
+        bool const boundToHirer = !hirerGuid.IsEmpty() && masterGuid == hirerGuid &&
+            record && record->masterGuid == hirerGuid;
+        if (TortoiseBots::HireRestoresHirer(hired, boundToHirer, master != nullptr, hirer && hirer->IsInWorld()))
+            master = hirer;
+    }
+
     //Remove bot masters not in our group.
     if (!dungeonCrew && master && master != bot && !HasActivePlayerMaster() && (!group || group->GetLeaderGuid() != master->getObjectGuid()))
     {
@@ -3483,7 +3524,10 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
                     break;
                 }
 
-        if (newMaster && (!master || master != newMaster) && bot != newMaster)
+        // Issue #1014: never hand a hire to a bot, nor to anyone while its hirer
+        // is only between maps.
+        if (newMaster && (!master || master != newMaster) && bot != newMaster &&
+            TortoiseBots::HireAllowsMasterAdoption(hired, hirerBetweenMaps, IsRealPlayer(newMaster)))
         {
             bool masterChanged = true;
             if (TortoiseBots::BotManager::Instance().IsBot(bot->GetObjectGuid()))
@@ -6074,6 +6118,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
         NoteCastCheckFail(spellSuccess);
         return false;
     }
+    NoteSpellGlobalCooldown(pSpellInfo);
 
     PlayAttackEmote(6);
 
@@ -6219,6 +6264,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarg
     botdiag::BotActionLog::LogCastResult(this, spellId, spellSuccess, "PREPARE-go");
     if (spellSuccess != SPELL_CAST_OK)
         return false;
+    NoteSpellGlobalCooldown(pSpellInfo);
 
     PlayAttackEmote(6);
 
@@ -6363,6 +6409,7 @@ bool PlayerbotAI::CastSpell(uint32 spellId, float x, float y, float z, Item* ite
     botdiag::BotActionLog::LogCastResult(this, spellId, coordPrep, "PREPARE-coord");
     if (coordPrep != SPELL_CAST_OK)
         return false;
+    NoteSpellGlobalCooldown(pSpellInfo);
 
     if (pSpellInfo->Effect[0] == SPELL_EFFECT_OPEN_LOCK ||
         pSpellInfo->Effect[0] == SPELL_EFFECT_SKINNING)

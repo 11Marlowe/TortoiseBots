@@ -26,6 +26,7 @@
 #include "../ai/playerbot/ChatHelper.h"
 #include "../ai/playerbot/BotState.h"
 #include "../ai/playerbot/PullOpeningPolicy.h"
+#include "../ai/playerbot/PullStartPolicy.h"
 #include "../ai/playerbot/PullRefusalPolicy.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
@@ -3722,9 +3723,18 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
             pullRange = probe->GetRange();
         }
 
-        bool started = !pullTarget || !pullTarget->IsInWorld() ||
-            sServerFacade.isMoving(executor) ||
-            executor->GetDistance(pullTarget) <= pullRange;
+        // A point move is registered with the motion master at once but the
+        // unit reads as moving only after the next movement tick, so a launched
+        // point or chase motion counts as started (ai/playerbot/PullStartPolicy.h).
+        MovementGeneratorType const motion = executor->GetMotionMaster()->GetCurrentMovementGeneratorType();
+        ai::PullStartFacts startFacts;
+        startFacts.hasTarget = pullTarget && pullTarget->IsInWorld();
+        startFacts.moving = sServerFacade.isMoving(executor);
+        startFacts.motionLaunched = motion == POINT_MOTION_TYPE || motion == CHASE_MOTION_TYPE;
+        if (startFacts.hasTarget)
+            startFacts.distance = executor->GetDistance(pullTarget);
+        startFacts.range = pullRange;
+        bool started = ai::PullWalkStarted(startFacts);
 
         if (!started)
         {
@@ -4252,8 +4262,13 @@ static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& cont
                 if (ai->HasStrategy(strategy, BotState::BOT_STATE_COMBAT))
                     active += (active.empty() ? "" : ",") + std::string(strategy);
             }
+            // No raid strategy active: say whether the bot is in an instance instead of always "outdoor".
+            Map* statusMap = bot->GetMap();
+            std::string const idle = statusMap && statusMap->IsDungeon()
+                ? "instance map " + std::to_string(bot->GetMapId()) + ", no raid strategy"
+                : "outdoor";
             handler->PSendSysMessage("TBM:ACTION_ACK|raid status|bot:%s|1|%s",
-                bot->GetName(), active.empty() ? "outdoor" : active.c_str());
+                bot->GetName(), active.empty() ? idle.c_str() : active.c_str());
             ++count;
         }
         if (!count)
