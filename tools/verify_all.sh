@@ -50,6 +50,7 @@ python3 -m unittest tools/test_keepout_set_aside_wiring.py
 python3 -m unittest tools/test_pull_end_engaged.py
 python3 -m unittest tools/test_priest_fade_flash_wiring.py
 python3 -m unittest tools/test_hire_never_leaves_wiring.py
+python3 -m unittest tools/test_raid_status_instance_wiring.py
 python3 -m unittest tools/test_wand_fallback_wiring.py
 echo "✓ Engine unit tests passed."
 
