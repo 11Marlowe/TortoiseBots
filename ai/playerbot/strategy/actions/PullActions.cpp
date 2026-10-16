@@ -91,7 +91,8 @@ void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
 // window with its own clock - except healers are held too: they get the
 // window but no stay, so they stand free to heal while their damage rows
 // stay vetoed (HealerShouldAttackTrigger / HealerWandAllowed, gated on
-// HasPullWindow below). Member pets go passive for the window; the tank's
+// HasPullWindow below). Member pets go passive for the window via their own
+// AI (ParkPetForPullHold, restored by their own EndPullWindow); the tank's
 // PullStartAction already pins its own pet and PullEndAction restores it.
 // The tank is skipped here (its own pull drives it), and other tanks are
 // left alone so an off-tank can still pick up loose mobs.
@@ -128,12 +129,11 @@ void ai::PausePartyPullHold(Player* tank, uint32 joinDelaySeconds)
         }
         memberAi->StartPullWindow(static_cast<uint8>(windowSeconds));
         memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
-        if (Pet* pet = member->GetPet())
-        {
-            if (PullStrategy* memberPull = PullStrategy::Get(memberAi))
-                memberPull->SetPetReactState(pet->GetReactState());
-            pet->SetReactState(REACT_PASSIVE);
-        }
+        // Member-owned stance (PlayerbotAI::ParkPetForPullHold): saved on the
+        // member's own AI and restored by its own EndPullWindow, so a member
+        // that leaves the group, logs out or dies mid-hold still gets its
+        // pet back. Re-hold while passive keeps the original stance.
+        memberAi->ParkPetForPullHold();
     }
 }
 
@@ -278,15 +278,43 @@ bool PullbackMyTargetAction::Execute(Event& event)
     // "pull my target" here would walk the whole party at the mob.
     if (!ai->IsTank(bot, true))
         return false;
-    if (!PullRequestAction::Execute(event))
-        return false;
 
     int seconds = ParsePullbackJoinDelay(event.GetParam());
     uint32 joinDelay = seconds >= 0 ? static_cast<uint32>(seconds)
         : sPlayerbotAIConfig.pullBackDpsJoinDelay;
+
+    // The command path configures the pull mode before the request action
+    // runs (BotCommands.cpp: ConfigurePullMode, then "pull my target"):
+    // RequestPull snapshots the return-leg intent and DecideOpening reads
+    // the command state, so the order must exist first. Do the same here:
+    // flip "pull back" on with the tank's real prior state, record the
+    // per-request mode, and roll everything back when the request refuses
+    // (validation failures below place no hold and touch no party bot).
+    bool hadPullBack = ai->HasStrategy("pull back", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("pull back", BotState::BOT_STATE_NON_COMBAT);
+    PullStrategy::CommandState commandBefore;
+    bool hasCommandBefore = false;
+    if (PullStrategy* probe = PullStrategy::Get(ai))
+    {
+        commandBefore = probe->SaveCommand();
+        hasCommandBefore = true;
+    }
     ai->ChangeStrategy("+pull back", BotState::BOT_STATE_ALL);
     if (PullStrategy* strategy = PullStrategy::Get(ai))
-        strategy->BeginCommand(true, true, joinDelay, false);
+        strategy->BeginCommand(true, hadPullBack, joinDelay, false);
+    if (!PullRequestAction::Execute(event))
+    {
+        if (PullStrategy* strategy = PullStrategy::Get(ai))
+        {
+            if (hasCommandBefore)
+                strategy->RestoreCommand(commandBefore);
+            else
+                strategy->OnPullEnded();
+        }
+        if (!hadPullBack)
+            ai->ChangeStrategy("-pull back", BotState::BOT_STATE_ALL);
+        return false;
+    }
     PausePartyPullHold(bot, joinDelay);
     return true;
 }
@@ -350,14 +378,18 @@ bool PullStartAction::Execute(Event& event)
                     SetDuration(ai->GetAIInternalUpdateDelay());
             }
 
-            // Set the pet on passive mode during the pull
+            // Set the pet on passive mode during the pull. Save once: a
+            // re-start while the pet is already passive must not overwrite
+            // the pre-pull stance with REACT_PASSIVE (same guard as the
+            // party hold above).
             Pet* pet = bot->GetPet();
             if (pet)
             {
                 UnitAI* creatureAI = ((Creature*)pet)->AI();
                 if (creatureAI)
                 {
-                    strategy->SetPetReactState(pet->GetReactState());
+                    if (pet->GetReactState() != REACT_PASSIVE)
+                        strategy->SetPetReactState(pet->GetReactState());
                     pet->SetReactState(REACT_PASSIVE);
                 }
             }
@@ -551,10 +583,12 @@ bool PullEndAction::Execute(Event& event)
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy)
     {
-        // Restore the pet react state: the tank's own stance, plus every
-        // party pet the pull held passive (see PausePartyPullHold). Held pets
-        // are found through their owners' pull windows so this also covers a
-        // tank that died mid-pull (the early return below skips the rest).
+        // Restore the tank's own pet stance. Member pets restore themselves:
+        // each held member parked its stance on its own AI and its own
+        // EndPullWindow puts it back when its window ends - including a
+        // member that left the group, logged out or died mid-hold, which
+        // this loop (current members only) can never reach.
+        ai->RestorePullHoldPet();
         {
             Pet* pet = bot->GetPet();
             if (pet)
@@ -562,25 +596,8 @@ bool PullEndAction::Execute(Event& event)
                 UnitAI* creatureAI = ((Creature*)pet)->AI();
                 if (creatureAI)
                 {
-                    pet->SetReactState(strategy->GetPetReactState());
-                }
-            }
-            if (bot->GetGroup())
-            {
-                for (Player* member : LiveGroupMembers(bot->GetGroup()))
-                {
-                    if (!member || member == bot)
-                        continue;
-                    PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
-                    if (!memberAi || !memberAi->HasPullWindow())
-                        continue;
-                    Pet* memberPet = member->GetPet();
-                    if (!memberPet || memberPet->GetReactState() != REACT_PASSIVE)
-                        continue;
-                    if (PullStrategy* memberPull = PullStrategy::Get(memberAi))
-                        memberPet->SetReactState(memberPull->GetPetReactState());
-                    else
-                        memberPet->SetReactState(REACT_DEFENSIVE);
+                    if (pet->GetReactState() == REACT_PASSIVE)
+                        pet->SetReactState(strategy->GetPetReactState());
                 }
             }
         }
