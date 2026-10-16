@@ -9809,3 +9809,10 @@ with a Soul Shard in the bags.
   leader, aura skip and re-apply, combat skip, wait for an unready healer,
   no shard no create, rank pick), `bash tools/verify_all.sh`, `-fsyntax-only`
   of the touched translation units on the VM. Not run: live group (no deploy).
+
+## Healers do not walk to an ally another healer covers (#904) — 2026-10-16
+
+- Feature: `PartyMemberToHealOutOfSpellRangeTrigger::IsActive` (`ai/playerbot/strategy/triggers/RangeTriggers.h`) no longer fires in combat when another healer of the group already has the ally in heal range. `HealReachWanted` (`ai/playerbot/HealReachPolicy.h`) takes a `otherHealerCovers` flag (in combat: no reach when set); `HealerCoversAlly` is the pure per-member test (healer, alive, same map, in sight, within the trigger's own heal distance). The trigger looks only at group slots (`LiveGroupMembers`, at most 40), only when the ally is out of reach, and only in combat; the role is `PlayerbotAI::IsHeal`, which also reads a real player's class and spec. The requesting bot and the ally itself do not count. With no covering healer the walk is unchanged; out of combat is unchanged.
+- Source: none. mod-playerbots (`79bd428`) has no such rule: its trigger is the plain range test. Kind: reimplemented (module-original), owner decision 2026-10-16 on issue #904.
+- Reason: Magmadar attempt 1 (m910q, build 19g, 2026-10-13/14): healers about 110 yd from the boss walked on `reach party member to heal` and died; 18 of 86 healer deaths in the Onyxia and MC fights ended on that action.
+- Validation: `tools/test_heal_reach_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check`, `-fsyntax-only` of `RangeTriggers.cpp`. Full build via CI; not tested in game.

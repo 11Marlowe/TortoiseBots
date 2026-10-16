@@ -343,7 +343,39 @@ namespace ai
                     float(sPlayerbotAIConfig.almostFullHealth)))
                 return false;
 
-            return target && (bot->GetDistance(target, SizeFactor::CombatReach) > (distance - sPlayerbotAIConfig.contactDistance)) || !bot->IsWithinLOSInMap(target, true);
+            bool const outOfRange = (bot->GetDistance(target, SizeFactor::CombatReach) > (distance - sPlayerbotAIConfig.contactDistance)) ||
+                !bot->IsWithinLOSInMap(target, true);
+            if (!outOfRange)
+                return false;
+
+            // In combat another healer with the ally in heal range covers it
+            // (issue #904): the walk is the one that killed healers. Looked up
+            // only when the ally really is out of reach.
+            bool const inCombat = ai->IsStateActive(BotState::BOT_STATE_COMBAT);
+            return HealReachWanted(inCombat, target->GetHealthPercent(), float(sPlayerbotAIConfig.almostFullHealth),
+                inCombat && AnotherHealerCovers(target));
+        }
+
+    private:
+        // Group slots only (at most 40, no grid scan, no DB).
+        bool AnotherHealerCovers(Unit* ally) const
+        {
+            Group* group = bot->GetGroup();
+            if (!group)
+                return false;
+
+            float const maxDistance = distance - sPlayerbotAIConfig.contactDistance;
+            for (Player* member : LiveGroupMembers(group))
+            {
+                if (!member || member == bot || member == ally || !member->IsAlive() || member->GetMap() != bot->GetMap())
+                    continue;
+                if (!PlayerbotAI::IsHeal(member))
+                    continue;
+                if (HealerCoversAlly(true, true, true, member->GetDistance(ally, SizeFactor::CombatReach), maxDistance,
+                        member->IsWithinLOSInMap(ally, true)))
+                    return true;
+            }
+            return false;
         }
     };
 
