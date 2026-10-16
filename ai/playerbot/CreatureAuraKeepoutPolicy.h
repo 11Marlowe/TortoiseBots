@@ -38,6 +38,10 @@ namespace ai
         uint32_t auraSpellId;
         float pulseRadius;   // radius of the damaging pulse (yd)
         float keepoutRadius; // bot steps out when this close (yd)
+        // A tank may stand in this creature's ring while it fights (and its
+        // chase is never held at it): true where the creature only chips
+        // (sludge, 200 per tick), false where one hit is lethal (Explode).
+        bool tankExempt;
     };
 
     // Extra yards the movement hazard reaches past the keep-out radius, so a
@@ -51,7 +55,7 @@ namespace ai
 
     constexpr CreatureAuraKeepout kCreatureAuraKeepouts[] = {
         // Maraudon, Creeping Sludge, Poison Shock (180-220 nature every 2 s, 5 yd).
-        { 349, 12222, 22638, 5.0f, 8.0f },
+        { 349, 12222, 22638, 5.0f, 8.0f, true },
         // Naxxramas, Living Poison (#906). Listed without an aura: its
         // creature_template (16027) carries none and its EventAI (script
         // 1602701, out-of-combat LOS event, range 4 yd) casts Explode 28433
@@ -59,7 +63,11 @@ namespace ai
         // school-damage spell at EffectRadiusIndex 8 (5 yd, the index the
         // sludge's 22638 pulse uses), so the pulse is 5 yd and the keep-out the
         // same 5 + 3 yd as the sludge's.
-        { 533, 16027, 0, 5.0f, 8.0f },
+        { 533, 16027, 0, 5.0f, 8.0f, false },
+        // Not tank-exempt: Explode does about 30k, which is how #906 lost both tanks.
+        // The creature is also NOT_SELECTABLE (unit_flags 0x2000040, 28296 HP),
+        // so no bot can target it: nobody kills it or sets it aside, bots only
+        // keep their distance.
     };
 
     inline CreatureAuraKeepout const* FindCreatureAuraKeepout(uint32_t mapId, uint32_t creatureEntry)
@@ -237,14 +245,26 @@ namespace ai
     // ring, and in combat a tank neither steps out of a keep-out nor has it
     // registered as a path hazard. Out of combat (following, walking past an
     // idle creature) a tank keeps out like everyone else.
-    inline bool CreatureAuraChaseExempt(bool isTank)
+    // Both exemptions are per row (CreatureAuraKeepout::tankExempt): a tank
+    // gets no pass at a creature whose hit is lethal (Living Poison).
+    inline bool CreatureAuraChaseExempt(CreatureAuraKeepout const& row, bool isTank)
     {
-        return isTank;
+        return isTank && row.tankExempt;
     }
 
-    inline bool CreatureAuraCombatExempt(bool isTank, bool inCombat)
+    inline bool CreatureAuraCombatExempt(CreatureAuraKeepout const& row, bool isTank, bool inCombat)
     {
-        return isTank && inCombat;
+        return isTank && inCombat && row.tankExempt;
+    }
+
+    // True when some row of the map gives tanks no pass; on a map without one
+    // a tank in combat skips the keep-out lookups altogether.
+    inline bool CreatureAuraMapHasNonTankExemptRow(uint32_t mapId)
+    {
+        for (CreatureAuraKeepout const& row : kCreatureAuraKeepouts)
+            if (row.mapId == mapId && !row.tankExempt)
+                return true;
+        return false;
     }
 
     // A chase held outside a ring because its goal is inside is no headway:
@@ -442,6 +462,9 @@ namespace ai
         // idle). Only a moving creature gets the age drift; a still one keeps
         // its exact ring at any age. Defaults to moving (the safe side).
         bool moving = true;
+        // CreatureAuraKeepout::tankExempt of the row (defaults to exempt, the
+        // sludge's setting; the game code always sets it).
+        bool tankExempt = true;
     };
 
     struct CreatureAuraSnapshotKey
@@ -598,12 +621,14 @@ namespace ai
     // by `driftYd` when it was moving at the visit, its exact ring when it
     // stood still. 0 when none.
     inline uint64_t CreatureAuraEntriesRingAt(std::vector<CreatureAuraHazardEntry> const& entries, float x, float y,
-        float z, float driftYd, std::vector<uint64_t> const& skip)
+        float z, float driftYd, std::vector<uint64_t> const& skip, bool ignoreTankExempt = false)
     {
         for (CreatureAuraHazardEntry const& e : entries)
         {
             if (e.guidRaw == 0 || std::find(skip.begin(), skip.end(), e.guidRaw) != skip.end())
                 continue;
+            if (ignoreTankExempt && e.tankExempt)
+                continue; // the asking tank may stand in this ring
             if (std::fabs(e.z - z) > kCreatureAuraSnapshotHeightYd)
                 continue;
             float const dx = e.x - x, dy = e.y - y;
@@ -625,11 +650,11 @@ namespace ai
     // attack target). 0 when none, when there is no snapshot, or when the
     // point lies outside its cover.
     inline uint64_t CreatureAuraSnapshotRingAt(CreatureAuraSnapshotView const& view, float x, float y, float z,
-        std::vector<uint64_t> const& skip)
+        std::vector<uint64_t> const& skip, bool ignoreTankExempt = false)
     {
         if (!CreatureAuraSnapshotUsable(view, x, y))
             return 0;
-        return CreatureAuraEntriesRingAt(view.snap->entries, x, y, z, view.driftYd, skip);
+        return CreatureAuraEntriesRingAt(view.snap->entries, x, y, z, view.driftYd, skip, ignoreTankExempt);
     }
 
     // The whole snapshot check, the seam the game code and the tests share:
@@ -638,12 +663,12 @@ namespace ai
     template <class Fill>
     inline uint64_t CreatureAuraSnapshotRinged(CreatureAuraSnapshotCache& cache, CreatureAuraSnapshotKey const& key,
         uint32_t nowMs, float x, float y, float z, std::vector<uint64_t> const& skip, Fill&& fill,
-        CreatureAuraSnapshotView* view = nullptr)
+        CreatureAuraSnapshotView* view = nullptr, bool ignoreTankExempt = false)
     {
         CreatureAuraSnapshotView const v = CreatureAuraSnapshotCacheGet(cache, key, nowMs, std::forward<Fill>(fill));
         if (view)
             *view = v;
-        return CreatureAuraSnapshotRingAt(v, x, y, z, skip);
+        return CreatureAuraSnapshotRingAt(v, x, y, z, skip, ignoreTankExempt);
     }
 
     // A gap-closer landing (review round 4 of #995): the snapshot when it is
@@ -656,7 +681,7 @@ namespace ai
     template <class Fill, class Lookup>
     inline uint64_t CreatureAuraLandingRinged(CreatureAuraSnapshotCache& cache, CreatureAuraSnapshotKey const& key,
         uint32_t nowMs, float x, float y, float z, std::vector<uint64_t> const& skip, Fill&& fill, Lookup&& lookup,
-        CreatureAuraSnapshotView* view = nullptr, bool* lookedUp = nullptr)
+        CreatureAuraSnapshotView* view = nullptr, bool* lookedUp = nullptr, bool ignoreTankExempt = false)
     {
         CreatureAuraSnapshotView const v = CreatureAuraSnapshotCacheGet(cache, key, nowMs, std::forward<Fill>(fill));
         if (view)
@@ -664,10 +689,10 @@ namespace ai
         if (lookedUp)
             *lookedUp = false;
         if (CreatureAuraSnapshotUsable(v, x, y))
-            return CreatureAuraSnapshotRingAt(v, x, y, z, skip);
+            return CreatureAuraSnapshotRingAt(v, x, y, z, skip, ignoreTankExempt);
         if (lookedUp)
             *lookedUp = true;
         std::vector<CreatureAuraHazardEntry> const live = lookup(x, y);
-        return CreatureAuraEntriesRingAt(live, x, y, z, 0.0f, skip);
+        return CreatureAuraEntriesRingAt(live, x, y, z, 0.0f, skip, ignoreTankExempt);
     }
 } // namespace ai

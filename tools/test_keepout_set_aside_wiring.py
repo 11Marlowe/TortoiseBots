@@ -94,7 +94,7 @@ class KeepoutSetAsideWiringTest(unittest.TestCase):
         veto = body(values, "bool PossibleTriggersValue::GapCloserIntoKeepout(", "\n}\n")
         self.assertIn('"explicit attack target"', veto)
         self.assertIn("CreatureAuraGapCloserVetoed(", veto)
-        self.assertLess(veto.index("KeepoutRingAt(ai, lx, ly)"), veto.index("SnapshotRingedAt(ai, lx, ly, target->GetPositionZ(), target, true)"))
+        self.assertLess(veto.index("KeepoutRingAt(ai, lx, ly, nullptr, isTank)"), veto.index("SnapshotRingedAt(ai, lx, ly, target->GetPositionZ(), target, true, isTank)"))
         self.assertNotIn("Cell::", veto)
         self.assertIn("class CastFeralChargeBearAction : public CastReachTargetSpellAction",
                       (ROOT / "ai/playerbot/strategy/druid/DruidActions.h").read_text())
@@ -111,8 +111,9 @@ class KeepoutSetAsideWiringTest(unittest.TestCase):
         values = (VALUES / "PossibleTargetsValue.cpp").read_text()
         veto = body(values, "bool PossibleTriggersValue::GapCloserIntoKeepout(", "\n}\n")
         gate = veto.index("if (!GapCloserCouldFire(ai, spell, target))\n        return false;")
-        self.assertLess(veto.index("if (isTank || ordered)"), gate)
-        for later in ("KeepoutFor(target)", "KeepoutRingAt(ai, lx, ly)", "SnapshotRingedAt("):
+        self.assertLess(veto.index("if (ordered)"), gate)
+        self.assertLess(veto.index("CreatureAuraMapHasNonTankExemptRow("), gate)
+        for later in ("KeepoutFor(target)", "KeepoutRingAt(ai, lx, ly, nullptr, isTank)", "SnapshotRingedAt("):
             self.assertLess(gate, veto.index(later), later)
         # The gate mirrors isPossible's refusals and leaves the stance to the
         # prerequisite (gating on it would switch stance, then veto).

@@ -316,11 +316,33 @@ int main()
     // Roles: tanks are exempt from the chase hold always, from the step-out
     // and the path hazard only in combat.
     {
-        CHECK(CreatureAuraChaseExempt(true));
-        CHECK(!CreatureAuraChaseExempt(false));
-        CHECK(CreatureAuraCombatExempt(true, true));
-        CHECK(!CreatureAuraCombatExempt(true, false)); // a following tank keeps out
-        CHECK(!CreatureAuraCombatExempt(false, true));
+        CreatureAuraKeepout const& sludgeRow = *FindCreatureAuraKeepout(349, 12222);
+        CreatureAuraKeepout const& poisonRow = *FindCreatureAuraKeepout(533, 16027);
+        CHECK(sludgeRow.tankExempt);
+        CHECK(CreatureAuraChaseExempt(sludgeRow, true));
+        CHECK(!CreatureAuraChaseExempt(sludgeRow, false));
+        CHECK(CreatureAuraCombatExempt(sludgeRow, true, true));
+        CHECK(!CreatureAuraCombatExempt(sludgeRow, true, false)); // a following tank keeps out
+        CHECK(!CreatureAuraCombatExempt(sludgeRow, false, true));
+        // #906: Explode one-shot both tanks, so Living Poison gives tanks no pass.
+        CHECK(!poisonRow.tankExempt);
+        CHECK(!CreatureAuraChaseExempt(poisonRow, true));
+        CHECK(!CreatureAuraCombatExempt(poisonRow, true, true));
+        CHECK(!CreatureAuraCombatExempt(poisonRow, true, false));
+        CHECK(!CreatureAuraCombatExempt(poisonRow, false, true));
+        CHECK(CreatureAuraMapHasNonTankExemptRow(533));
+        CHECK(!CreatureAuraMapHasNonTankExemptRow(349)); // a tank in combat skips the lookups there
+        CHECK(!CreatureAuraMapHasNonTankExemptRow(1));
+        // A tank in combat ignores only the exempt entries of a snapshot.
+        std::vector<CreatureAuraHazardEntry> const entries = {
+            { 0xA1ull, 0.0f, 0.0f, 0.0f, 9.0f, false, true },   // sludge ring
+            { 0xA2ull, 30.0f, 0.0f, 0.0f, 9.0f, false, false }, // Living Poison ring
+        };
+        std::vector<uint64_t> const none;
+        CHECK(CreatureAuraEntriesRingAt(entries, 1.0f, 0.0f, 0.0f, 0.0f, none, false) == 0xA1ull);
+        CHECK(CreatureAuraEntriesRingAt(entries, 1.0f, 0.0f, 0.0f, 0.0f, none, true) == 0);  // tank: sludge ring is a pass
+        CHECK(CreatureAuraEntriesRingAt(entries, 31.0f, 0.0f, 0.0f, 0.0f, none, true) == 0xA2ull); // tank: poison ring is not
+        CHECK(CreatureAuraEntriesRingAt(entries, 31.0f, 0.0f, 0.0f, 0.0f, none, false) == 0xA2ull);
     }
     std::cout << "  [PASS] tank exemption\n";
 
