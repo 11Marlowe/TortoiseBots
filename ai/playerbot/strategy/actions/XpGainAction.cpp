@@ -89,7 +89,7 @@ bool XpGainAction::Execute(Event& event)
         p >> groupBonus;   // 8 group bonus
     }
 
-    Unit* victim;
+    Unit* victim = nullptr;
     if (guid)
         victim = ai->GetUnit(guid);
 
