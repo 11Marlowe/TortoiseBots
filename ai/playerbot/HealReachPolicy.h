@@ -31,11 +31,17 @@ namespace ai
     // True when one other group member covers the ally: a healer (not the
     // requester, not the ally itself), alive, on the same map, within heal
     // range of the ally and with line of sight to it. "maxDistance" is the
-    // reach trigger's own limit, so both sides use the same range.
-    inline bool HealerCoversAlly(bool isOtherHealer, bool alive, bool sameMap, float distanceToAlly,
-        float maxDistance, bool inSight)
+    // reach trigger's own limit, so every caller uses the same range.
+    // The tests run cheapest first and stop at the first miss: the plain
+    // flags and the distance, then the class filter, then "isHealer" (it
+    // walks talents for a role the bot was not told), then "inSight" (a
+    // line-of-sight ray). The last two are callables so they only run when
+    // everything before them passed. This runs every tick in a raid.
+    template <typename IsHealer, typename InSight>
+    inline bool HealerCoversAlly(bool alive, bool sameMap, float distanceToAlly, float maxDistance,
+        bool classCanHeal, IsHealer isHealer, InSight inSight)
     {
-        return isOtherHealer && alive && sameMap && inSight && distanceToAlly <= maxDistance;
+        return alive && sameMap && distanceToAlly <= maxDistance && classCanHeal && isHealer() && inSight();
     }
 
     inline bool HealReachWanted(bool inCombat, float targetHealthPct, float almostFullHealthPct,

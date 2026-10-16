@@ -57,14 +57,35 @@ int main()
 
     // What counts as cover: a living healer on the map, in range and in sight.
     {
-        CHECK(HealerCoversAlly(true, true, true, 30.0f, 38.0f, true));
-        CHECK(HealerCoversAlly(true, true, true, 38.0f, 38.0f, true));
-        CHECK(!HealerCoversAlly(true, true, true, 38.5f, 38.0f, true));  // too far
-        CHECK(!HealerCoversAlly(true, true, true, 30.0f, 38.0f, false)); // no line of sight
-        CHECK(!HealerCoversAlly(true, false, true, 30.0f, 38.0f, true)); // dead
-        CHECK(!HealerCoversAlly(true, true, false, 30.0f, 38.0f, true)); // other map
-        CHECK(!HealerCoversAlly(false, true, true, 30.0f, 38.0f, true)); // not a healer
+        auto yes = [] { return true; };
+        auto no = [] { return false; };
+        CHECK(HealerCoversAlly(true, true, 30.0f, 38.0f, true, yes, yes));
+        CHECK(HealerCoversAlly(true, true, 38.0f, 38.0f, true, yes, yes));
+        CHECK(!HealerCoversAlly(true, true, 38.5f, 38.0f, true, yes, yes));  // too far
+        CHECK(!HealerCoversAlly(true, true, 30.0f, 38.0f, true, yes, no));   // no line of sight
+        CHECK(!HealerCoversAlly(false, true, 30.0f, 38.0f, true, yes, yes)); // dead
+        CHECK(!HealerCoversAlly(true, false, 30.0f, 38.0f, true, yes, yes)); // other map
+        CHECK(!HealerCoversAlly(true, true, 30.0f, 38.0f, true, no, yes));   // not a healer
+        CHECK(!HealerCoversAlly(true, true, 30.0f, 38.0f, false, yes, yes)); // class cannot heal
         std::cout << "  [PASS] cover: living healer on the map, in range and sight\n";
+    }
+
+    // Raid cost: the talent walk and the line-of-sight ray run last, and only
+    // when everything cheaper passed.
+    {
+        int roleCalls = 0, sightCalls = 0;
+        auto role = [&] { ++roleCalls; return true; };
+        auto sight = [&] { ++sightCalls; return true; };
+        CHECK(!HealerCoversAlly(true, true, 60.0f, 38.0f, true, role, sight));  // out of range
+        CHECK(!HealerCoversAlly(true, true, 30.0f, 38.0f, false, role, sight)); // wrong class
+        CHECK(!HealerCoversAlly(false, true, 30.0f, 38.0f, true, role, sight)); // dead
+        CHECK(roleCalls == 0 && sightCalls == 0);
+        auto notHealer = [&] { ++roleCalls; return false; };
+        CHECK(!HealerCoversAlly(true, true, 30.0f, 38.0f, true, notHealer, sight));
+        CHECK(roleCalls == 1 && sightCalls == 0);
+        CHECK(HealerCoversAlly(true, true, 30.0f, 38.0f, true, role, sight));
+        CHECK(roleCalls == 2 && sightCalls == 1);
+        std::cout << "  [PASS] cover: cheap tests first, role and sight lazy\n";
     }
 
     std::cout << "All heal reach policy tests passed.\n";
