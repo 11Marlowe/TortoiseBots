@@ -457,6 +457,9 @@ public:
     // commander whose feed is on (`.bot commander view on|off`). Clamped to
     // 250..60000; default 1000.
     uint32 remoteCommanderViewMs = 1000;
+    // Issue #1012: creature entries a commanded bot may talk to with `.bot cmd
+    // gossip` (AiPlayerbot.BotGossipNpcs). Empty by default: the order is off.
+    std::set<uint32> botGossipNpcs;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
