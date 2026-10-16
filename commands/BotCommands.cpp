@@ -26,6 +26,7 @@
 #include "../ai/playerbot/ChatHelper.h"
 #include "../ai/playerbot/BotState.h"
 #include "../ai/playerbot/PullOpeningPolicy.h"
+#include "../ai/playerbot/PullStartPolicy.h"
 #include "../ai/playerbot/PullRefusalPolicy.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/strategy/generic/PullStrategy.h"
@@ -47,6 +48,7 @@
 #include "../runtime/RemoteCommanderView.h"
 #include "../runtime/RemoteCommanderTasks.h"
 #include "../runtime/RemoteCommanderEnter.h"
+#include "../runtime/GossipOrderPolicy.h"
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
@@ -73,6 +75,7 @@
 #include "WorldSession.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "WorldPacket.h"
+#include "GossipDef.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "Log.h"
 // pi-lens-ignore: clang:pp_file_not_found
@@ -3750,9 +3753,18 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
             pullRange = probe->GetRange();
         }
 
-        bool started = !pullTarget || !pullTarget->IsInWorld() ||
-            sServerFacade.isMoving(executor) ||
-            executor->GetDistance(pullTarget) <= pullRange;
+        // A point move is registered with the motion master at once but the
+        // unit reads as moving only after the next movement tick, so a launched
+        // point or chase motion counts as started (ai/playerbot/PullStartPolicy.h).
+        MovementGeneratorType const motion = executor->GetMotionMaster()->GetCurrentMovementGeneratorType();
+        ai::PullStartFacts startFacts;
+        startFacts.hasTarget = pullTarget && pullTarget->IsInWorld();
+        startFacts.moving = sServerFacade.isMoving(executor);
+        startFacts.motionLaunched = motion == POINT_MOTION_TYPE || motion == CHASE_MOTION_TYPE;
+        if (startFacts.hasTarget)
+            startFacts.distance = executor->GetDistance(pullTarget);
+        startFacts.range = pullRange;
+        bool started = ai::PullWalkStarted(startFacts);
 
         if (!started)
         {
@@ -4452,6 +4464,7 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 
 uint32 s_dungeonRunMs = 0;
 bool s_runIssuing = false;    // the run leader is sending an order now (it does not pause itself)
+bool s_runGather = false;     // ... and it is a gather on the lead bot's own spot (`cmd move` lets it through)
 
 // The commanders' last orders with the module's answer, for the observability
 // dashboard (runtime/CommanderTelemetry.h): bounded, noted when a reply is
@@ -5833,6 +5846,7 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
     RemoteCommander::MoveFacts facts;
     facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);
     facts.maxDistance = sPlayerbotAIConfig.reactDistance;
+    facts.leadSpotGather = s_runIssuing && s_runGather;
     PathFinder path(lead);
     path.calculate(point.x, point.y, point.z, false);
     facts.pathType = static_cast<uint32>(path.getPathType());
@@ -6242,6 +6256,9 @@ struct CommanderTask
     uint32 enterOrder = 0;    // the order's serial (EnterOrders())
     uint32 triggerId = 0;
     RemoteCommander::EnterState enterState;
+    // cmd gossip: the option to pick, and the text of the one picked (the ACK's detail).
+    GossipOrder::Request gossip;
+    std::string gossipPicked;
 };
 
 std::unordered_map<uint64, CommanderTask>& CommanderTasks()
@@ -6344,11 +6361,11 @@ TaskTarget ResolveTaskTarget(PlayerbotAI* ai, uint64 raw)
     return target;
 }
 
-// Still there to walk to: a corpse, or a spawned game object.
-bool TaskTargetPresent(TaskTarget const& target)
+// Still there to walk to: a corpse (a living NPC for cmd gossip), or a spawned game object.
+bool TaskTargetPresent(TaskTarget const& target, bool livingNpc = false)
 {
     if (target.creature)
-        return sServerFacade.GetDeathState(target.creature) == CORPSE;
+        return livingNpc ? target.creature->IsAlive() : sServerFacade.GetDeathState(target.creature) == CORPSE;
     if (target.go)
         return sServerFacade.isSpawned(target.go);
     return false;
@@ -6530,6 +6547,46 @@ uint64 FindEntryTarget(Player* bot, RemoteCommander::TargetSpec const& spec, boo
     return RemoteCommander::PickNearestEntry(pool, radius, guid) ? guid : 0;
 }
 
+// Grid-search predicate (cmd gossip): a living creature of the entry within range of the bot.
+class EntryLivingCreatureCheck
+{
+public:
+    EntryLivingCreatureCheck(uint32 entry, RemoteCommander::MovePoint const& reference, float range)
+        : m_entry(entry), m_reference(reference), m_range(range) {}
+    bool operator()(Creature* creature)
+    {
+        return creature && creature->GetEntry() == m_entry && creature->IsAlive() &&
+            DistanceToPoint(m_reference, creature) <= m_range;
+    }
+
+private:
+    uint32 m_entry;
+    RemoteCommander::MovePoint m_reference;
+    float m_range;
+};
+
+// The GUID of the nearest living creature of the entry within GossipOrder::kSearchYards
+// of the bot (one bounded grid search, like FindEntryTarget); 0 when none is there.
+uint64 FindGossipNpc(Player* bot, uint32 entry)
+{
+    Map* map = bot->GetMap();
+    if (!map || !entry)
+        return 0;
+    RemoteCommander::MovePoint reference;
+    reference.x = bot->GetPositionX();
+    reference.y = bot->GetPositionY();
+    reference.z = bot->GetPositionZ();
+    std::list<Creature*> found;
+    EntryLivingCreatureCheck check(entry, reference, GossipOrder::kSearchYards);
+    MaNGOS::CreatureListSearcher<EntryLivingCreatureCheck> searcher(found, check);
+    Cell::VisitGridObjects(reference.x, reference.y, map, searcher, GossipOrder::kSearchYards);
+    std::vector<RemoteCommander::EntryCandidate> pool;
+    for (Creature* creature : found)
+        pool.push_back({creature->GetObjectGuid().GetRawValue(), DistanceToPoint(reference, creature)});
+    uint64 guid = 0;
+    return RemoteCommander::PickNearestEntry(pool, GossipOrder::kSearchYards, guid) ? guid : 0;
+}
+
 // The GUID an order's target names: the GUID as typed, or the nearest object
 // of the entry. 0 (with the ERR already sent) when the point is out of the bot's reach (`too-far`,
 // before any search) or the search finds nothing. The ACK of a by-entry order is preceded by one
@@ -6563,6 +6620,8 @@ bool TaskInRange(CommanderTask const& task, Player* bot, TaskTarget const& targe
 {
     if (task.noWalk)
         return true;
+    if (target.creature && task.state.kind == RemoteCommander::TaskKind::Gossip)
+        return RemoteCommander::InUseRange(bot->GetDistance(target.creature), INTERACTION_DISTANCE);
     if (target.creature)
         return target.creature->IsWithinDistInMap(bot, bot->GetMaxLootDistance(target.creature), true,
             SizeFactor::None);
@@ -6733,6 +6792,19 @@ void BeginEnterWalk(CommanderTask& task, Player* commander, Player* bot, Playerb
     task.wasStaying = ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
     task.stand = RemoteCommander::Point3{ trigger->x, trigger->y, trigger->z };
     StartTaskStayWalk(task, commander, bot, ai);
+}
+
+// cmd gossip: the NPC may walk (Weegli during his event). Once the standing point
+// it gives moved, the walk (the stay anchor and a path step) goes to the new one.
+void FollowGossipNpc(CommanderTask& task, Player* bot, PlayerbotAI* ai, Creature* npc)
+{
+    RemoteCommander::Point3 const stand = RemoteCommander::StandingPoint(bot->GetPositionX(), bot->GetPositionY(),
+        npc->GetPositionX(), npc->GetPositionY(), npc->GetPositionZ());
+    if (!task.walking || task.superseded || !RemoteCommander::StandMoved(task.stand, stand))
+        return;
+    task.stand = stand;
+    SetStayAnchor(ai, stand.x, stand.y, stand.z, bot->GetMapId());
+    bot->GetMotionMaster()->MovePoint(0, stand.x, stand.y, stand.z, MOVE_RUN_MODE | MOVE_PATHFINDING);
 }
 
 // A bot that stands still short of the object takes a direct path step to
@@ -6935,6 +7007,70 @@ ActStart BeginUseAct(CommanderTask& task, Player* commander, Player* bot, Player
         "The bot could not use the item (cooldown, not usable by it, or not usable on that target).");
 }
 
+// cmd gossip: the bot talks to the NPC through the same two packets a client sends
+// (CMSG_GOSSIP_HELLO, then CMSG_GOSSIP_SELECT_OPTION), handed to the bot's session.
+// The core builds the menu (the NPC's script through sScriptMgr.OnGossipHello, else
+// Player::PrepareGossipMenu) into the bot's PlayerTalkClass and runs the choice
+// (sScriptMgr.OnGossipSelect, else Player::OnGossipSelect), as for a player. The
+// option is chosen from that menu by runtime/GossipOrderPolicy.h. The hello itself
+// runs the NPC's scripts, so nothing is sent unless the NPC's entry is in
+// AiPlayerbot.BotGossipNpcs (checked first, here and when the order was given).
+static_assert(GossipOrder::kOptionGossip == static_cast<uint32>(GOSSIP_OPTION_GOSSIP), "GOSSIP_OPTION_GOSSIP");
+static_assert(GossipOrder::kOptionMax == static_cast<uint32>(GOSSIP_OPTION_MAX), "GOSSIP_OPTION_MAX");
+static_assert(GossipOrder::kIconVendor == GOSSIP_ICON_VENDOR && GossipOrder::kIconTaxi == GOSSIP_ICON_TAXI &&
+    GossipOrder::kIconTrainer == GOSSIP_ICON_TRAINER && GossipOrder::kIconMoneyBag == GOSSIP_ICON_MONEY_BAG &&
+    GossipOrder::kIconTabard == GOSSIP_ICON_TABARD, "GOSSIP_ICON_*");
+
+ActStart BeginGossipAct(CommanderTask& task, Player* bot, TaskTarget const& target)
+{
+    Creature* npc = target.creature;
+    if (npc && !GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, npc->GetEntry()))
+        return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNotAllowed,
+            GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs));
+    if (!npc || !npc->IsAlive())
+        return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNoNpc, "The NPC died or despawned.");
+    if (npc->IsInCombat())
+        return RefuseAct(task, ActStart::Failed, RemoteCommander::kCodeInCombat, "The NPC is in combat.");
+    if (!npc->IsWithinDistInMap(bot, INTERACTION_DISTANCE))
+        return RefuseAct(task, ActStart::Retry, RemoteCommander::kCodeUnreachable,
+            "The bot could not get close enough to the NPC to talk.");
+    if (!bot->CanInteractWithNPC(npc, UNIT_NPC_FLAG_NONE))
+        return RefuseAct(task, ActStart::Failed, GossipOrder::kCodeNpcBusy,
+            "The NPC will not talk to the bot now (busy with its own script, hostile, or not selectable).");
+
+    sServerFacade.SetFacingTo(bot, npc);
+    bot->PlayerTalkClass->ClearMenus();
+    WorldPacket hello(CMSG_GOSSIP_HELLO, 8);
+    hello << npc->GetObjectGuid();
+    bot->GetSession()->HandleGossipHelloOpcode(hello);
+
+    GossipMenu& menu = bot->PlayerTalkClass->GetGossipMenu();
+    std::vector<GossipOrder::Option> options;
+    for (unsigned int i = 0; i < menu.MenuItemCount(); ++i)
+    {
+        GossipMenuItem const& item = menu.GetItem(i);
+        GossipOrder::Option option;
+        option.text = item.m_gMessage;
+        option.icon = item.m_gIcon;
+        option.sender = item.m_gSender;
+        option.action = item.m_gOptionId;
+        option.coded = item.m_gCoded;
+        options.push_back(option);
+    }
+    GossipOrder::Match const match = GossipOrder::MatchOption(options, task.gossip);
+    if (!match.ok)
+    {
+        bot->PlayerTalkClass->CloseGossip();
+        return RefuseAct(task, ActStart::Failed, match.code.c_str(), match.message);
+    }
+    task.gossipPicked = options[match.listIndex].text;
+    WorldPacket select(CMSG_GOSSIP_SELECT_OPTION, 8 + 4);
+    select << npc->GetObjectGuid();
+    select << uint32(match.listIndex);
+    bot->GetSession()->HandleGossipSelectOptionOpcode(select);
+    return ActStart::Started;
+}
+
 ActStart BeginTaskAct(CommanderTask& task, Player* commander, Player* bot, PlayerbotAI* ai, TaskTarget const& target)
 {
     task.actStarted = false;
@@ -6943,6 +7079,8 @@ ActStart BeginTaskAct(CommanderTask& task, Player* commander, Player* bot, Playe
     ActStart start;
     if (task.lootLike)
         start = BeginLootAct(task, commander, bot, ai, target);
+    else if (task.state.kind == RemoteCommander::TaskKind::Gossip)
+        start = BeginGossipAct(task, bot, target);
     else if (task.state.kind == RemoteCommander::TaskKind::Open)
         start = BeginObjectAct(task, commander, bot, ai, target);
     else
@@ -6986,6 +7124,8 @@ bool TaskActDone(CommanderTask const& task, Player* bot, PlayerbotAI* ai)
     }
     if (task.state.kind == RemoteCommander::TaskKind::Open)
         return ObjectEffectOf(task, ai) == RemoteCommander::ObjectEffect::Reacted;
+    if (task.state.kind == RemoteCommander::TaskKind::Gossip)
+        return true; // the core ran the choice inside the select handler
     return !bot->IsNonMeleeSpellCasted(false);
 }
 
@@ -7020,6 +7160,11 @@ void CompleteCommanderTask(CommanderTask& task)
     if (task.state.kind == RemoteCommander::TaskKind::Open)
     {
         FinishCommanderTask(task, true, 1, "opened", "", "");
+        return;
+    }
+    if (task.state.kind == RemoteCommander::TaskKind::Gossip)
+    {
+        FinishCommanderTask(task, true, 1, task.gossipPicked, "", "");
         return;
     }
     FinishCommanderTask(task, true, 1, task.spellId ? "spell:" + std::to_string(task.spellId) : "-", "", "");
@@ -7196,7 +7341,8 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
     {
         if (task.targetRaw)
             target = ResolveTaskTarget(ai, task.targetRaw);
-        facts.targetPresent = !task.targetRaw || TaskTargetPresent(target);
+        facts.targetPresent = !task.targetRaw ||
+            TaskTargetPresent(target, task.state.kind == RemoteCommander::TaskKind::Gossip);
         facts.inCombat = bot->IsInCombat();
         facts.inRange = TaskInRange(task, bot, target);
         if (WorldObject* object = target.object())
@@ -7255,7 +7401,11 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
     {
         case RemoteCommander::TaskStep::Wait:
             if (facts.botAvailable && task.state.stage == RemoteCommander::TaskStage::Walk && !task.noWalk)
+            {
+                if (task.state.kind == RemoteCommander::TaskKind::Gossip && target.creature)
+                    FollowGossipNpc(task, bot, ai, target.creature);
                 NudgeTaskWalk(task, bot, diff);
+            }
             return false;
         case RemoteCommander::TaskStep::BeginAct:
         {
@@ -7293,6 +7443,13 @@ bool StepCommanderTask(CommanderTask& task, uint32 diff)
                     code = RemoteCommander::kCodeFailed;
                     message = "The object showed no change after the bot used it.";
                 }
+            }
+            // cmd gossip names the NPC it lost in its own words.
+            if (task.state.kind == RemoteCommander::TaskKind::Gossip &&
+                std::strcmp(verdict.code, RemoteCommander::kCodeInvalidTarget) == 0)
+            {
+                code = GossipOrder::kCodeNoNpc;
+                message = "The NPC died or despawned before the bot reached it.";
             }
             FinishCommanderTask(task, false, 0, "", code, message);
             return true;
@@ -7766,6 +7923,44 @@ static bool CommanderOpen(ChatHandler* handler, CommanderOrder const& order, Pla
     return LaunchCommanderTask(handler, order, bot, ai, task);
 }
 
+// cmd gossip <npc entry> <bot> <option index | "option text"> (issue #1012): the bot
+// walks to the nearest living NPC of the entry within 40 yd (the task walk of `open`),
+// talks to it and picks the option (BeginGossipAct). ACK detail: the option's text.
+static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, Player* bot,
+    GossipOrder::Request const& request, std::string const& intent)
+{
+    if (!GossipOrder::IsAllowedNpc(sPlayerbotAIConfig.botGossipNpcs, request.entry))
+    {
+        SendActionError(handler, intent, GossipOrder::kCodeNotAllowed,
+            GossipOrder::NotAllowedText(sPlayerbotAIConfig.botGossipNpcs).c_str());
+        return true;
+    }
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!CommanderTaskGuard(handler, intent, bot, ai, true))
+        return true;
+    uint64 const guid = FindGossipNpc(bot, request.entry);
+    TaskTarget const target = guid ? ResolveTaskTarget(ai, guid) : TaskTarget();
+    if (!target.creature)
+    {
+        SendActionError(handler, intent, GossipOrder::kCodeNoNpc,
+            "No living NPC of that entry is within 40 yd of the bot.");
+        return true;
+    }
+    if (target.creature->IsInCombat())
+    {
+        SendActionError(handler, intent, RemoteCommander::kCodeInCombat, "The NPC is in combat.");
+        return true;
+    }
+    handler->PSendSysMessage("TBM:ACTION_TARGET|%s|bot:%s|%s|%u", ProtocolSafe(intent).c_str(),
+        ProtocolSafe(bot->GetName()).c_str(), std::to_string(guid).c_str(), request.entry);
+    CommanderTask task;
+    task.state = RemoteCommander::MakeTask(RemoteCommander::TaskKind::Gossip, bot->GetDistance(target.creature), true);
+    task.targetRaw = guid;
+    task.gossip = request;
+    task.intent = intent;
+    return LaunchCommanderTask(handler, order, bot, ai, task);
+}
+
 // cmd use <itemId> <bot> [target-guid | entry:id[@x,y,z]]
 static bool CommanderUse(ChatHandler* handler, CommanderOrder const& order, Player* bot,
     RemoteCommander::UseOrder const& request, std::string const& intent)
@@ -8212,7 +8407,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     if (!RemoteCommander::IsKnownOrder(verb))
     {
         SendActionError(handler, intent, "invalid",
-            "Usage: .bot cmd attack <guid> [bot] / pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / focus <guid> / move <x> <y> <z> / stay / follow / rest / lootmethod <ffa|group|rr|master|nbg> [threshold] / revive <bot> / summon <bot> / loot <guid|entry:id[@x,y,z]> <bot> [itemId] / open <guid|entry:id[@x,y,z]> <bot> / use <itemId> <bot> [guid|entry:id[@x,y,z]] / ritual <guid|entry:id[@x,y,z]> <bot1> <bot2> [<bot3>...] / state <guid|entry:id[@x,y,z]> / enter <area trigger id|near> [bot]");
+            "Usage: .bot cmd attack <guid> [bot] / pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / focus <guid> / move <x> <y> <z> / stay / follow / rest / lootmethod <ffa|group|rr|master|nbg> [threshold] / revive <bot> / summon <bot> / loot <guid|entry:id[@x,y,z]> <bot> [itemId] / open <guid|entry:id[@x,y,z]> <bot> / use <itemId> <bot> [guid|entry:id[@x,y,z]] / ritual <guid|entry:id[@x,y,z]> <bot1> <bot2> [<bot3>...] / gossip <npc entry> <bot> <option number|\"option text\"> / state <guid|entry:id[@x,y,z]> / enter <area trigger id|near> [bot]");
         return true;
     }
 
@@ -8279,6 +8474,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         RemoteCommander::OpenOrder openRequest;
         RemoteCommander::UseOrder useRequest;
         RemoteCommander::RitualOrder ritualRequest;
+        GossipOrder::Request gossipRequest;
         bool parsed = true;
         char const* usage = nullptr;
         if (verb == "loot")
@@ -8300,6 +8496,12 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         {
             parsed = RemoteCommander::ParseRitualOrder(parts, ritualRequest);
             usage = "Usage: .bot cmd ritual <object guid | entry:<id>[@x,y,z]> <bot1> <bot2> [<bot3>...] (2-5 different bots)";
+        }
+        else if (verb == "gossip")
+        {
+            // The option text is the rest of the line as typed (commas and spaces kept).
+            parsed = GossipOrder::ParseRequest(rest, gossipRequest);
+            usage = "Usage: .bot cmd gossip <npc entry> <bot> <option number 1-15 | \"option text\">";
         }
         if (!parsed)
         {
@@ -8371,6 +8573,8 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             return CommanderOpen(handler, order, bot, openRequest, intent);
         if (verb == "use")
             return CommanderUse(handler, order, bot, useRequest, intent);
+        if (verb == "gossip")
+            return CommanderGossip(handler, order, bot, gossipRequest, intent);
         return verb == "revive"
             ? CommanderRevive(handler, order, bot, intent)
             : CommanderSummon(handler, order, bot, intent);
@@ -8522,14 +8726,16 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
 
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
-bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer)
+bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false)
 {
     ChatHandler handler(commander);
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
     s_runIssuing = true;
+    s_runGather = gather;
     HandleCommanderOrder(&handler, text.c_str());
     s_runIssuing = false;
+    s_runGather = false;
     RunOrderCapture const got = s_runOrderCapture;
     s_runOrderCapture = RunOrderCapture();
     answer = got.text;
@@ -8564,7 +8770,8 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
 // path, the first one kApproachYd from the target or kApproachHopYd along the
 // path (or its end). False when the navmesh has no path at all. A point on the
 // path is what `cmd move` accepts; a straight-line guess can sit off the mesh.
-bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz)
+bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz,
+    std::vector<TortoiseBots::DungeonRun::PathPoint>* whole = nullptr)
 {
     using namespace TortoiseBots::DungeonRun;
     PathFinder path(lead);
@@ -8574,6 +8781,9 @@ bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& o
     Movement::PointsArray const& points = path.getPath();
     if (points.size() < 2)
         return false;
+    if (whole)
+        for (Vector3 const& p : points)
+            whole->push_back(PathPoint{p.x, p.y, p.z});
     float walked = 0.0f;
     for (size_t i = 1; i < points.size(); ++i)
     {
@@ -8631,6 +8841,94 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
     return false;
 }
 
+bool KnowsPolymorph(Player* bot)
+{
+    for (uint32 spell : TortoiseBots::DungeonRun::kPolymorphSpells)
+        if (bot->HasSpell(spell))
+            return true;
+    return false;
+}
+
+bool Polymorphed(Unit const* unit)
+{
+    for (uint32 spell : TortoiseBots::DungeonRun::kPolymorphSpells)
+        if (unit->HasAura(spell))
+            return true;
+    return false;
+}
+
+// In this fight: a party bot is its victim or attacks it.
+bool EngagedWithParty(Unit* unit, std::unordered_set<uint64> const& party)
+{
+    if (!unit || !unit->IsAlive() || !unit->IsInCombat())
+        return false;
+    if (Unit* victim = unit->GetVictim())
+        if (party.count(victim->GetObjectGuid().GetRawValue()))
+            return true;
+    for (Unit* attacker : unit->GetAttackers())
+        if (attacker && party.count(attacker->GetObjectGuid().GetRawValue()))
+            return true;
+    return false;
+}
+
+// The plan's kill_first units of this fight, from the bots' cached
+// "attackers" lists (no scan): each with whether it is engaged with the party
+// and, for a summoned one (a healing ward), whether its owner is.
+void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player*> const& bots,
+    TortoiseBots::DungeonRun::Facts& f)
+{
+    std::unordered_set<uint64> party;
+    for (Player* bot : bots)
+        party.insert(bot->GetObjectGuid().GetRawValue());
+    std::unordered_set<uint64> seen;
+    auto add = [&](Unit* unit)
+    {
+        if (!unit || !unit->IsAlive() || !seen.insert(unit->GetObjectGuid().GetRawValue()).second)
+            return;
+        if (plan.KillFirstRank(unit->GetEntry()) < 0 || sServerFacade.IsFriendlyTo(unit, lead))
+            return;
+        TortoiseBots::DungeonRun::UnitFact fact;
+        fact.guid = unit->GetObjectGuid().GetRawValue();
+        fact.entry = unit->GetEntry();
+        fact.distLead = lead->GetDistance(unit);
+        fact.stealthed = IsStealthed(unit);
+        fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
+        fact.engaged = EngagedWithParty(unit, party);
+        ObjectGuid owner = unit->GetOwnerGuid();
+        if (owner.IsEmpty())
+            owner = unit->GetCreatorGuid();
+        if (!owner.IsEmpty())
+        {
+            fact.owner = owner.GetRawValue();
+            Unit* summoner = lead->GetMap()->GetUnit(owner);
+            fact.ownerEngaged = summoner && !sServerFacade.IsFriendlyTo(summoner, lead) &&
+                EngagedWithParty(summoner, party);
+        }
+        f.killFirst.push_back(fact);
+    };
+    std::list<ObjectGuid> guids;
+    for (Player* bot : bots)
+    {
+        if (!bot->IsAlive() || !bot->IsInWorld() || bot->GetMap() != lead->GetMap())
+            continue;
+        ReadCachedGuidList(PlayerbotAIStorage::Instance().GetAI(bot), "attackers", guids);
+        for (ObjectGuid const& guid : guids)
+        {
+            Unit* unit = SeenHostile(bot, guid);
+            if (!unit)
+                continue;
+            add(unit);
+            // The totems and guardians of an attacker in this fight, read off
+            // the attacker itself: a Greater Healing Ward the moment it is up,
+            // not when a bot's cached list next takes it in (19z5: one ward was
+            // focused 16 s after it came up).
+            if (EngagedWithParty(unit, party))
+                unit->CallForAllControlledUnits([&](Unit* summon) { add(summon); },
+                    CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS);
+        }
+    }
+}
+
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -8653,10 +8951,17 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         ++f.alive;
         if (bot->IsInCombat())
             f.anyInCombat = true;
-        if (bot->GetMap() == lead->GetMap())
-            f.maxMemberYd = std::max(f.maxMemberYd, bot->GetDistance(lead));
-        else
-            f.maxMemberYd = std::max(f.maxMemberYd, 1000.0f);
+        float const yd = bot == lead ? 0.0f : bot->GetMap() == lead->GetMap() ? bot->GetDistance(lead) : 1000.0f;
+        f.maxMemberYd = std::max(f.maxMemberYd, yd);
+        // By name: a gather's straggler is summoned (DungeonRun::SummonStraggler),
+        // and a mage that knows Polymorph is the plan's crowd control (CcBot).
+        MemberFact member;
+        member.name = bot->GetName();
+        member.yd = yd;
+        member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
+        member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
+        member.inCombat = bot->IsInCombat();
+        f.members.push_back(member);
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
         if (bot->GetPowerType() == POWER_MANA && bot->GetMaxPower(POWER_MANA))
@@ -8669,14 +8974,43 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         }
     }
 
-    ai::PlanStep const* step = Current(slot.run);
+    // The lead bot's way back to the run's anchor (DungeonRun::CheckAnchor):
+    // one navmesh query, only on a tick after a gather asked for it.
+    if (slot.run.anchorPathWanted && slot.run.anchorKnown && lead->IsAlive() && lead->IsInWorld() &&
+        lead->GetMapId() == slot.run.plan->map)
+    {
+        float const ax = slot.run.anchorX, ay = slot.run.anchorY, az = slot.run.anchorZ;
+        f.anchorPathRead = true;
+        {
+            PathFinder path(lead);
+            path.calculate(ax, ay, az, false);
+            uint32 const type = static_cast<uint32>(path.getPathType());
+            Vector3 const end = path.getActualEndPosition();
+            float const offset = std::sqrt((end.x - ax) * (end.x - ax) + (end.y - ay) * (end.y - ay) +
+                (end.z - az) * (end.z - az));
+            f.anchorReachable = !(type & RemoteCommander::kPathNoPath) &&
+                ((type & RemoteCommander::kPathIncomplete) || offset <= RemoteCommander::kMaxMoveEndOffset);
+        }
+    }
+
+    // In a fight of a plan with kill_first: those units among what the bots
+    // already hold, their own cached "attackers" lists (which carry the
+    // attackers' totems and guardians, a healing ward too; read only when
+    // already calculated), resolved by guid. No grid or world scan.
+    if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
+        ReadKillFirst(*slot.run.plan, lead, bots, f);
+
+    // The current step, or during a walk back after a regroup the move point
+    // it replays (its hop pulls are read for that point).
+    ai::PlanStep const* step = FactStep(slot.run);
     if (!step || !lead->IsInWorld())
         return;
     float const toPoint = DistanceTo(lead, step->x, step->y, step->z);
     f.seen = toPoint <= kSeeYd;
     // The navmesh query for the next approach hop runs only when the policy
     // can use one: not while it walks a hop already fixed, not in a regroup
-    // (the lead bot may be a ghost on another map), and never off the plan's map.
+    // (the lead bot may be a ghost on another map) or a walk back (it walks
+    // (a walk back approaches a far point of its own this way too), and never off the plan's map.
     bool const wantsApproach = !f.seen && slot.run.phase != Phase::Walk && !slot.run.regroup &&
         lead->GetMapId() == slot.run.plan->map;
 
@@ -8697,11 +9031,25 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             float const range = std::min(toPoint + step->radius, 2.0f * kSeeYd);
             for (uint32 entry : entries)
             {
+                // The boss's own entry is looked for farther: his corpse may lie
+                // where a pullback dragged him (DungeonRun::Facts::bossDeadNearSpot).
+                bool const bossEntry = step->kind == ai::PlanStepKind::Boss && entry == step->entry;
                 std::list<Creature*> found;
-                lead->GetCreatureListWithEntryInGrid(found, entry, range);
+                lead->GetCreatureListWithEntryInGrid(found, entry,
+                    bossEntry ? std::min(toPoint + step->radius + kSeeYd, 2.0f * kSeeYd) : range);
                 for (Creature* creature : found)
                 {
-                    if (!creature->IsAlive() || DistanceTo(creature, step->x, step->y, step->z) > step->radius)
+                    float const fromPoint = DistanceTo(creature, step->x, step->y, step->z);
+                    if (!creature->IsAlive())
+                    {
+                        // "Boss down" needs his corpse in sight, not just his absence (a patrol).
+                        if (bossEntry && fromPoint <= step->radius + kSeeYd)
+                            f.bossDeadNearSpot = true;
+                        if (bossEntry && lead->GetDistance(creature) <= kSeeYd)
+                            f.bossDeadNearLead = true;
+                        continue;
+                    }
+                    if (fromPoint > step->radius)
                         continue;
                     bool known = false;
                     for (UnitFact const& have : f.units)
@@ -8716,6 +9064,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.hostile = !sServerFacade.IsFriendlyTo(creature, lead);
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
+                    unit.polymorphed = Polymorphed(creature);
                     f.units.push_back(unit);
                 }
             }
@@ -8724,19 +9073,49 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         case ai::PlanStepKind::Move:
         case ai::PlanStepKind::MoveDirect:
         {
+            // The point the hop pulls are read around: the step's point when in
+            // sight; during a walk back out of sight, the next approach hop (or
+            // the one being walked), so each hop gets the pull-before-move check.
+            float cx = step->x, cy = step->y, cz = step->z;
             if (!f.seen)
             {
                 if (wantsApproach)
-                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
-                break;
+                {
+                    // A walk back straight to its last point: the whole path read
+                    // is checked against every pull group not cleared yet.
+                    std::vector<PathPoint> whole;
+                    bool const direct = slot.run.walkBack && slot.run.walkBackDirect;
+                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY,
+                        f.approachZ, direct ? &whole : nullptr);
+                    if (direct && f.approachKnown)
+                        f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,
+                            slot.run.notCleared);
+                }
+                if (!slot.run.walkBack)
+                    break;
+                if (f.approachKnown)
+                {
+                    cx = f.approachX;
+                    cy = f.approachY;
+                    cz = f.approachZ;
+                }
+                else if (slot.run.phase == Phase::Walk)
+                {
+                    cx = slot.run.walkX;
+                    cy = slot.run.walkY;
+                    cz = slot.run.walkZ;
+                }
+                else
+                    break;
             }
+            float const toCentre = DistanceTo(lead, cx, cy, cz);
             std::list<Unit*> hostiles;
-            HostileCreaturesAround(lead, std::min(toPoint + kHopPullYd, 2.0f * kSeeYd), hostiles);
+            HostileCreaturesAround(lead, std::min(toCentre + kHopPullYd, 2.0f * kSeeYd), hostiles);
             for (Unit* unit : hostiles)
             {
-                if (DistanceTo(unit, step->x, step->y, step->z) > kHopPullYd || unit->IsInCombat())
+                if (DistanceTo(unit, cx, cy, cz) > kHopPullYd || unit->IsInCombat())
                     continue;
-                if (ai::OwnedByLaterStep(*slot.run.plan, slot.run.step, unit->GetEntry(),
+                if (ai::OwnedByLaterStep(*slot.run.plan, OwnerFrom(slot.run), unit->GetEntry(),
                         unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), f.team))
                     continue;
                 UnitFact fact;
@@ -8823,11 +9202,13 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     // Between maps: look again next second (the binding sweep bounds a lead that never comes back).
     if (!lead || !group || !lead->IsInWorld())
         return;
-    // A dead lead bot released by the regroup's `revive party` is a ghost on
-    // the graveyard's map until its corpse run brings it back: the regroup's
-    // own ceiling (kRegroupReviveMs) bounds that, not this check.
-    bool const ghostInRegroup = slot.run.regroup && !lead->IsAlive();
-    if (lead->GetMapId() != slot.run.plan->map && !ghostInRegroup)
+    // A dead lead bot (released by the regroup's `revive party`, or by itself
+    // after a wipe) is a ghost on the graveyard's map until its corpse run
+    // brings it back. The tick sees the wipe and starts or runs the regroup,
+    // whose ceiling (kRegroupReviveMs) bounds it; a dead lead bot alone pauses
+    // there. Only a living lead bot off the plan's map pauses here.
+    bool const deadLeadAway = !lead->IsAlive();
+    if (lead->GetMapId() != slot.run.plan->map && !deadLeadAway)
     {
         TortoiseBots::DungeonRun::Pause(slot.run, "the lead bot is not on the plan's map (" +
             std::to_string(slot.run.plan->map) + ")");
@@ -8847,7 +9228,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             slot.taskText.clear();
         }
         std::string answer;
-        bool const accepted = IssueRunOrder(commander, order, answer);
+        bool const accepted = IssueRunOrder(commander, order, answer,
+            TortoiseBots::DungeonRun::IsGatherOrder(it->second.run, order));
         // The order may have released the binding (and the run with it): `slot`
         // is not to be touched before the run is looked up again.
         it = DungeonRuns().find(commanderRaw);
@@ -9380,6 +9762,35 @@ void CommanderAutonomyMapChange(Player* bot, PlayerbotAI* ai)
     uint32 const mask = CommanderAutonomyBots().TakeDeferred(bot->GetObjectGuid().GetRawValue());
     if (mask && !ai->HasRealPlayerMaster())
         ai->ChangeStrategy(RemoteCommander::CommanderAutonomyChange(mask, '+'), BotState::BOT_STATE_NON_COMBAT);
+}
+
+// The running run of the bot's bound party, or null.
+static TortoiseBots::DungeonRun::Run const* RunningRunOf(Player* bot)
+{
+    if (!bot || !bot->GetGroup() || DungeonRuns().empty())
+        return nullptr;
+    for (auto const& entry : DungeonRuns())
+    {
+        if (entry.second.run.state != TortoiseBots::DungeonRun::State::Running)
+            continue;
+        RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(entry.first);
+        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        Group* group = lead ? lead->GetGroup() : nullptr;
+        if (group && group->GetId() == binding->groupId && group->IsMember(bot->GetObjectGuid()))
+            return &entry.second.run;
+    }
+    return nullptr;
+}
+
+bool IsInRunningDungeonRun(Player* bot)
+{
+    return RunningRunOf(bot) != nullptr;
+}
+
+bool IsRunKillFirst(Player* bot, uint32_t entry)
+{
+    TortoiseBots::DungeonRun::Run const* run = RunningRunOf(bot);
+    return run && run->plan && run->plan->KillFirstRank(entry) >= 0;
 }
 
 bool IsInCommandedGroup(Player* bot)

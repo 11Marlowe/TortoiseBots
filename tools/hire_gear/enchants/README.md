@@ -6,6 +6,12 @@ Generator: `build.py` (offline data, no server code) reads
 (matching `runtime/HireSpecPolicy.h` gossip order) x tiers 1..7 x equip slot
 (0,1,2,4,5,6,7,8,9,10,11,14,15,16,17) -> permanent-enchant **spell id**.
 
+Both inputs are snapshots of third-party pages and are **not vendored**:
+generate them locally first with `../sources/wowisclassic/scrape.py` and
+`../sources/turtle_sheets/fetch.py` (see `../README.md`). Without them
+`build.py` stops with a "run … first" error and writes nothing. The output
+keeps only enchant spell ids, enchant names and project-written source/pick labels.
+
 ## Id space
 
 The `spell` values are **enchant spell ids** — the same space as the
@@ -70,6 +76,8 @@ Needs the world DB only for the one-off `work/invtypes.tsv` dump
 resolution). The generator itself is offline:
 
 ```sh
+python3 ../sources/wowisclassic/scrape.py   # local snapshots first
+python3 ../sources/turtle_sheets/fetch.py
 python3 build.py   # -> ../data/enchants_by_tier.json
 ```
 

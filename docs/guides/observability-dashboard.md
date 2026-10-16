@@ -206,11 +206,6 @@ The three class trees in DBC page order (1.12 frame left-to-right), each as a 7-
 
 ---
 
-## 6. Zone Map Artwork Credits
+## 6. Zone Map Artwork
 
-Zone map artwork for custom Turtle WoW locations and upgraded classic zones is by fantasy cartographer **Maps of Mystery (Cameron Holt)** — [Maps of Mystery on ArtStation](https://www.artstation.com/mapsofmystery).
-
-Covered zones (`tools/observability/web/maps/`, WebP at 1002x668):
-- Placeholder replacements: Gillijim's Isle (`gillijim.webp`), Gilneas (`gilneas.webp`), Mount Hyjal (`hyjal.webp`), Icepoint Rock (`icepoint.webp`), Lapidis Isle (`lapidis.webp`), Tel'Abim (`telabim.webp`)
-- New maps: Balor Island (`balor.webp`), Grim Reaches (`grimreaches.webp`), Northwind (`northwind.webp`)
-- High-res upgrades: Alah'Thalas (`alahthalas.webp`), Blackstone Island (`blackstoneisland.webp`), GM Island (`gmisland.webp`), Thalassian Highlands (`thalassianhighlands.webp`), Stonetalon Mountains (`stonetalonmountains.webp`), Upper Karazhan 2F (`upperkarazhan2f.webp`)
+Zone and continent maps (Turtle WoW's custom zones included) are not shipped with the dashboard: generate them once from your own WoW client with `python3 tools/observability/scripts/gen_zone_maps.py --data "<WoW>/Data"` (needs `pip install mpyq Pillow`; details in `tools/observability/README.md`, "Map artwork"). Until then the map tab shows a note instead of the picture; bot dots still work.

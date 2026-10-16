@@ -1324,6 +1324,13 @@ select.input {
   text-overflow: ellipsis;
 }
 
+/* Rows with an explanation on hover (title). */
+.setting-key.has-help {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
 .setting-val {
   font-family: 'JetBrains Mono', monospace;
   color: #e6edf3;

@@ -198,6 +198,23 @@ AiPlayerbot.RandomBotFactionRatio = 50
 # so weighted zones only control where level-1 bots start. Default empty.
 AiPlayerbot.RandomBotStartZoneWeights =
 
+# Names for new bot characters (pool bots and hires), as percentages of three
+# styles: race-flavoured,compound,fun. Race-flavoured names fit the bot's race
+# and gender ("Thorvin" for a dwarf), compound names join two words with a
+# class lean ("Nightrunner"), fun names are puns and nods ("Kidneyshotz",
+# "Gnomebody"). Every name passes the same checks as a player's name. Only new
+# characters follow it; existing bots keep their names. 100,0,0 = serious
+# names only, 0,0,100 = fun names only. Default 55,20,25.
+AiPlayerbot.RandomBotNameStyleWeights = 55,20,25
+
+# Optional text file with more names, added to the built-in ones. Same format
+# as runtime/BotNameData.h: a [key] line, then names separated by spaces or
+# new lines, e.g. "[fun:rogue]" then "Stabbyjoe Sneakypants". Keys: fun,
+# fun:<class>, fun:<race>, rp:<race>:<male|female> (samples for race names),
+# start, start:<class>, end, prefix:<class|race>, suffix, pet:hunter.
+# Read once at the first name pick; restart to reload. Default empty.
+AiPlayerbot.RandomBotNamesFile =
+
 # Where a random bot without a player master comes back after a repop (the
 # evacuation used when it keeps dying or is stuck while dead): 1 = nearest
 # graveyard, like a player at the spirit healer; 0 = its racial starting area
@@ -343,7 +360,8 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #AiPlayerbot.HireMaxLevelAboveHirer = 0
 # Free hires for staff: accounts with this security level or more hire
 # companions for free (no gold taken; the reply says "free (GM)"). 0 = off,
-# everyone pays. 3 = accounts with GM level 3 and up hire free. Range 0-6.
+# everyone pays. Account levels on this core: 1 observer, 2 moderator,
+# 3 developer, 4 administrator; e.g. 2 = moderators and up hire free. Range 0-6.
 #AiPlayerbot.HireFreeMinSecurity = 0
 # HireAnywhere: 0 = hire only at a <Mercenary Hire> recruiter (the .bot hire
 # command points players to one); 1 = .bot hire also works anywhere. Fees are
@@ -442,6 +460,19 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # engaged hostile's threat list) every this many milliseconds. Built from what
 # the bots already track; no extra world scan. Clamped to 250..60000.
 #AiPlayerbot.RemoteCommanderViewMs = 1000
+
+# Issue #1012: `.bot cmd gossip <npc entry> <bot> <option>` lets a commanded bot
+# talk to an NPC and pick a gossip option (needs AiPlayerbot.RemoteCommander = 1
+# and a binding). A gossip option can do anything its script says (take money,
+# give items, teleport), so a bot talks only to the creature entries listed
+# here, comma-separated, after you have read what their scripts do. Empty = the
+# order is refused for every NPC (the default). Audited entries:
+#   7607 Weegli Blastfuse (Zul'Farrak): after the pyramid event his one option
+#        sends him to blow the End Door open; before it his menu is empty.
+#   7604 Sergeant Bly (Zul'Farrak): after the pyramid event his one option starts
+#        his fight (he and his crew turn hostile and attack the bot that asked).
+# To allow both: AiPlayerbot.BotGossipNpcs = 7607,7604
+#AiPlayerbot.BotGossipNpcs =
 
 # Bounded AH market population through the native bot/session auction path. Default off.
 # When enabled, online random Headless bots use real inventory items, pricing, deposits,

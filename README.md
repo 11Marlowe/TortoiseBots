@@ -2,6 +2,8 @@
 
 An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1** core repository ([`tortoise-wow`](https://github.com/tortoise-wow/tortoise-wow), `main` branch).
 
+This is an unofficial, community-driven project, not affiliated with Turtle WoW or Blizzard Entertainment.
+
 `TortoiseBots` delivers native AI companions through a decoupled C++ architecture: bot AI, combat strategies, and lifecycle management live entirely within this module, while session transport and character state stay cleanly owned by the core via generic headless sessions (`SessionTransport::Headless`). The core builds and runs 100% cleanly without the module (`MODULES=disabled`).
 
 > **Companion in-game UI:** pair with [**TortoiseBotsManager**](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`). All player-facing control — roster, lifecycle, and tactical party actions — is driven from this addon; the server-side command surface is an internal/advanced transport, not a player API.
@@ -273,4 +275,6 @@ modified builds (see [`LICENCE.md`](LICENCE.md#attribution-author-notice)).
 
 ## 📜 License & Provenance
 
-Original module code combined with donor PlayerBots implementations under GPL-2.0 / AGPL-3.0 compatible licenses. See [`LICENCE.md`](LICENCE.md), [`docs/PROVENANCE.md`](docs/PROVENANCE.md), and [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md).
+Original TortoiseBots work is licensed under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)). If you distribute it, or run a modified version on a server players connect to, you must publish the full source of that version under the same licence. Contributions are accepted under the same terms. Donor code keeps its own notices (GPL-2.0-or-later / AGPL-3.0 lineages). See [`LICENCE.md`](LICENCE.md), [`docs/PROVENANCE.md`](docs/PROVENANCE.md), and [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md).
+
+**Disclaimer:** TortoiseBots is a non-commercial hobby project. Voluntary donations (Ko-fi) only support development; they buy no access, features or service, and are not tied to any server. The author is not affiliated with, does not operate, endorse or receive money from any server that uses this code, and is not responsible for how third parties use it. TortoiseBots is not affiliated with Turtle WoW or its creators. World of Warcraft is a trademark of Blizzard Entertainment; this project is not affiliated with Blizzard.

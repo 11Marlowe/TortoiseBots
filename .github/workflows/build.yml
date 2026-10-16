@@ -11,9 +11,8 @@ on:
       - '.github/workflows/notify-discord-issue.yml'
       - '.github/workflows/generate-changelog.yml'
       - '.github/workflows/dashboard-binaries.yml'
-      - 'tools/post_discord_changelog.py'
-      - 'tools/generate_changelog.py'
-      - 'tools/observability/**'
+      # tools/ is never compiled into the server (scripts, offline tests, dashboard)
+      - 'tools/**'
       - '.gitignore'
       - 'LICENSE'
   push:
@@ -25,9 +24,8 @@ on:
       - '.github/workflows/notify-discord-issue.yml'
       - '.github/workflows/generate-changelog.yml'
       - '.github/workflows/dashboard-binaries.yml'
-      - 'tools/post_discord_changelog.py'
-      - 'tools/generate_changelog.py'
-      - 'tools/observability/**'
+      # tools/ is never compiled into the server (scripts, offline tests, dashboard)
+      - 'tools/**'
       - '.gitignore'
       - 'LICENSE'
   workflow_dispatch:
@@ -77,6 +75,8 @@ jobs:
             libace-dev default-libmysqlclient-dev libssl-dev \
             zlib1g-dev libbz2-dev libboost-dev
 
+      # PCH is off: GCC rebuilds the precompiled header with different bytes
+      # on every run, so ccache could never reuse anything compiled with it.
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
@@ -92,6 +92,7 @@ jobs:
             -DUSE_EXTRACTORS=OFF \
             -DALLOW_TURTLE_ADDONS=ON \
             -DMODULES=static -DMODULE_TORTOISEBOTS=static \
+            -DUSE_PCH=OFF \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache \
             -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld \
@@ -134,16 +135,36 @@ jobs:
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install ace:x64-windows
           "ACE_ROOT=$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows" | Out-File $env:GITHUB_ENV -Append
 
+      # Ninja + sccache instead of MSBuild so unchanged files come from the
+      # cache. sccache cannot cache MSVC precompiled headers or /MP, so PCH is
+      # off and /MP (meaningless under Ninja) is stripped, like -march above.
+      - name: MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: x64
+
+      - name: sccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          variant: sccache
+          key: windows-${{ env.CORE_REF }}
+          max-size: 2G
+
       - name: Configure
         working-directory: core
         shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64 `
+          (Get-Content CMakeLists.txt) -replace ' /MP', '' | Set-Content CMakeLists.txt
+          cmake -S . -B build -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DUSE_PCH=OFF `
             -DUSE_EXTRACTORS=OFF `
             -DALLOW_TURTLE_ADDONS=ON `
             -DMODULES=static -DMODULE_TORTOISEBOTS=static `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
             -DACE_ROOT="$env:ACE_ROOT"
 
       - name: Build
         working-directory: core
-        run: cmake --build build --config Release -- /m
+        run: cmake --build build

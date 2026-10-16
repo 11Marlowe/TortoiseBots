@@ -19,6 +19,7 @@
 #include "RandomBotAccountRegistry.h"
 #include "RandomBotPoolReset.h"
 #include "StartZoneBalance.h"
+#include "BotNameService.h"
 #include "AccountMgr.h"
 #include "SharedDefines.h"
 #include "Database/DBCStores.h"
@@ -57,35 +58,6 @@ namespace
 // legitimately carry.
 uint32_t const LADDER_BUSY_RETRY_MS = 60000;
 uint32_t const LADDER_QUICK_LOGOUT_HOLD_MS = 3600000;
-
-std::string GenerateRndBotName()
-{
-    // Pronounceable 2-3 syllable fantasy names (consonant onset + vowel nucleus,
-    // optional coda). Letters only, first upper -> passes CheckPlayerName.
-    // Uniqueness via DB (GetPlayerGuidByName + core NAME_IN_USE) with retry.
-    static const char* onset[] = {
-        "b","br","c","cr","d","dr","f","g","gr","h","j","k","kr","l","m","n",
-        "p","r","s","sh","st","t","th","tr","v","w","z","kh","gh","mor","thar","zar"
-    };
-    static const char* nucleus[] = { "a","e","i","o","u","ae","ar","or","ur","al","yr" };
-    static const char* coda[]    = { "","","","n","r","k","l","th","sh","g","rn" };
-    uint32 const nOn = sizeof(onset)   / sizeof(onset[0]);
-    uint32 const nNu = sizeof(nucleus) / sizeof(nucleus[0]);
-    uint32 const nCo = sizeof(coda)    / sizeof(coda[0]);
-    uint32 const syllables = urand(2, 3);
-    std::string name;
-    name.reserve(12);
-    for (uint32 i = 0; i < syllables; ++i)
-    {
-        name += onset[urand(0, nOn - 1)];
-        name += nucleus[urand(0, nNu - 1)];
-    }
-    name += coda[urand(0, nCo - 1)];
-    if (name.size() > 11)
-        name.resize(11);
-    name[0] = char(name[0] & ~0x20); // uppercase first letter, ASCII a-z
-    return name;
-}
 
 std::string GenerateRandomPassword()
 {
@@ -612,15 +584,8 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
     }
     for (int nameAttempt = 0; nameAttempt < 5; ++nameAttempt)
     {
-        std::string name = GenerateRndBotName();
-        std::string norm = name;
-        if (!normalizePlayerName(norm))
-            continue;
-        if (sObjectMgr.GetPlayerGuidByName(norm))
-            continue;
-
-        // Zone re-rolls per name attempt on purpose (faction does not): each
-        // attempt is an independent weighted draw, so a name collision just
+        // Zone re-rolls per attempt on purpose (faction does not): each
+        // attempt is an independent weighted draw, so a failed creation just
         // redraws instead of pinning a colliding name to one zone.
         std::vector<std::pair<uint8_t, uint8_t>> const* pool = factionBase;
         std::vector<std::pair<uint8_t, uint8_t>> zonePool = WeightedZoneCombos(*pool);
@@ -635,12 +600,17 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
         auto pr = (*pool)[urand(0, uint32(pool->size() - 1))];
         uint8 race = pr.first;
         uint8 cls = pr.second;
+        // Gender before the name: issue #1003 names follow race and gender.
+        uint8 gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
+        std::string norm = PickBotCharacterName(race, cls, gender);
+        if (norm.empty())
+            continue;
 
         CharacterCreateInfo info;
         info.name = norm;
         info.race = race;
         info.class_ = cls;
-        info.gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
+        info.gender = gender;
         info.skin = uint8(urand(0, 7));
         info.face = uint8(urand(0, 7));
         info.hairStyle = uint8(urand(0, 7));

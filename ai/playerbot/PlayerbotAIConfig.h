@@ -256,6 +256,10 @@ public:
     std::string randomBotStartZoneWeightsText;
     uint32 randomBotStartZoneWeights[6] = {};
     bool randomBotStartZoneWeightsValid = false;
+    // Issue #1003: share of new bot names per style (race-flavoured /
+    // compound / fun) and an optional extra names file (read once).
+    uint32 randomBotNameStyleWeights[3] = { 55, 20, 25 };
+    std::string randomBotNamesFile;
     // Whether random bots are allowed in custom isolated starting zones
     // (Blackstone Island 5536, Thalassian Highlands 5225, Alah'Thalas 2040).
     // Default false (blocked and normalized to mainland starting zones).
@@ -453,6 +457,9 @@ public:
     // commander whose feed is on (`.bot commander view on|off`). Clamped to
     // 250..60000; default 1000.
     uint32 remoteCommanderViewMs = 1000;
+    // Issue #1012: creature entries a commanded bot may talk to with `.bot cmd
+    // gossip` (AiPlayerbot.BotGossipNpcs). Empty by default: the order is off.
+    std::set<uint32> botGossipNpcs;
     bool logInGroupOnly, logValuesPerTick;
     bool fleeingEnabled;
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
