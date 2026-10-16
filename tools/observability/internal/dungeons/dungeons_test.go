@@ -428,12 +428,24 @@ func TestOutcomeMapping(t *testing.T) {
 		}
 	}
 	// build object, ISO times with the unix fallback, stop_reason over end_reason
-	r, _, _ := Parse([]byte(`{"run":"b","map":209,"build":{"image":"19z4","module":"9adde948cafe"},"started":"2026-10-15T09:00:00Z","ended":"2026-10-15T09:10:00Z","stop_reason":"plan_done","end_reason":"stop","outcome":"cleared"}`), "b.summary.json")
-	if r.Build != "19z4 / 9adde948" || r.Started != time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC).Unix() || r.DurationS != 600 || r.StopReason != "plan_done" {
+	r, _, _ := Parse([]byte(`{"run":"b","map":209,"build":{"image":"19z4","module":"2026-10-16-v2","core":"c0ffee0123456789c0ffee0123456789c0ffee01"},"started":"2026-10-15T09:00:00Z","ended":"2026-10-15T09:10:00Z","stop_reason":"plan_done","end_reason":"stop","outcome":"cleared"}`), "b.summary.json")
+	if r.Build != "19z4 / 2026-10-16-v2 / core c0ffee01" || r.Started != time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC).Unix() || r.DurationS != 600 || r.StopReason != "plan_done" {
 		t.Fatalf("build/times/stop_reason wrong: %+v", r)
 	}
 	r, _, _ = Parse([]byte(`{"run":"b","map":209,"start_unix":1760500000,"end_unix":1760500600,"outcome":"stopped"}`), "b.summary.json")
 	if r.Started != 1760500000 || r.Ended != 1760500600 || r.DurationS != 600 {
 		t.Fatalf("unix fallback wrong: %+v", r)
+	}
+}
+
+func TestShortSha(t *testing.T) {
+	sha := "9adde948cafe0123456789abcdef0123456789ab"
+	if got := shortSha(sha); got != "9adde948" {
+		t.Fatalf("a 40-hex sha must be cut to 8, got %q", got)
+	}
+	for _, keep := range []string{"2026-10-16-v2", "9adde948", "9adde948cafe", "zzzzz948cafe0123456789abcdef0123456789ab"} {
+		if got := shortSha(keep); got != keep {
+			t.Fatalf("%q must be kept whole, got %q", keep, got)
+		}
 	}
 }

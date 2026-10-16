@@ -248,25 +248,42 @@ func dungeonOf(raw map[string]json.RawMessage) (uint32, string, bool) {
 	return id, clip(name, 60), present
 }
 
+// shortSha cuts a 40-character git sha to 8; any other value (a version such as "2026-10-16-v2") is kept whole.
+func shortSha(s string) string {
+	if len(s) == 40 {
+		for _, c := range s {
+			if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+				return clip(s, 60)
+			}
+		}
+		return s[:8]
+	}
+	return clip(s, 60)
+}
+
+// buildOf reads `build`: a string, or {image, module, core}. The module is its version string or sha, core the core's build when given.
 func buildOf(raw map[string]json.RawMessage) string {
 	if o := rawObj(raw["build"]); o != nil {
 		var parts []string
 		for _, k := range []string{"image", "tag", "server"} {
 			if s := rawString(o[k]); s != "" {
-				parts = append(parts, s)
+				parts = append(parts, clip(s, 60))
 				break
 			}
 		}
 		for _, k := range []string{"module", "sha", "module_sha"} {
 			if s := rawString(o[k]); s != "" {
-				parts = append(parts, clip(s, 8))
+				parts = append(parts, shortSha(s))
 				break
 			}
 		}
-		return clip(strings.Join(parts, " / "), 60)
+		if s := rawString(o["core"]); s != "" {
+			parts = append(parts, "core "+shortSha(s))
+		}
+		return clip(strings.Join(parts, " / "), 100)
 	}
 	if s := rawString(raw["build"]); s != "" {
-		return clip(s, 60)
+		return clip(s, 100)
 	}
 	return clip(rawString(raw["tb_version"]), 60)
 }
