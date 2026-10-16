@@ -84,6 +84,60 @@ void RestampPullParty(Player* tank, uint32 waitSeconds, bool narrowWindow)
 }
 } // namespace
 
+// Chat pullback's party hold: mirrors PausePartyDpsForPull
+// (commands/BotCommandContext.cpp), which the chat path cannot reach (it
+// lives in the command layer, not the AI). Same anchor (the requester's
+// position, falling back to the tank), same stay + "wait for attack" join
+// window with its own clock - except healers are held too: they get the
+// window but no stay, so they stand free to heal while their damage rows
+// stay vetoed (HealerShouldAttackTrigger / HealerWandAllowed, gated on
+// HasPullWindow below). Member pets go passive for the window; the tank's
+// PullStartAction already pins its own pet and PullEndAction restores it.
+// The tank is skipped here (its own pull drives it), and other tanks are
+// left alone so an off-tank can still pick up loose mobs.
+void ai::PausePartyPullHold(Player* tank, uint32 joinDelaySeconds)
+{
+    if (!tank || !tank->GetGroup())
+        return;
+    PlayerbotAI* tankAi = PlayerbotAIStorage::Instance().GetAI(tank);
+    Player* requester = (tankAi && tankAi->GetMaster()) ? tankAi->GetMaster() : tank;
+    WorldPosition anchor((requester && requester->IsInWorld() &&
+        requester->GetMapId() == tank->GetMapId()) ? requester : tank);
+    uint32 windowSeconds = std::min<uint32>(255,
+        sPlayerbotAIConfig.pullBackMaxReturnTime + joinDelaySeconds);
+    for (Player* member : LiveGroupMembers(tank->GetGroup()))
+    {
+        if (!member || member == tank)
+            continue;
+        PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+        if (!memberAi || !memberAi->GetAiObjectContext())
+            continue;
+        if (PlayerbotAI::IsTank(member, true))
+            continue;
+        bool const healer = PlayerbotAI::IsHeal(member, true);
+        if (!healer)
+        {
+            memberAi->SetMovementStrategy("stay");
+            ai::PositionMap& posMap = memberAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+            ai::PositionEntry stayPos = posMap["stay"];
+            stayPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
+            posMap["stay"] = stayPos;
+            ai::PositionEntry holdPos = posMap["pull hold"];
+            holdPos.Set(anchor.getX(), anchor.getY(), anchor.getZ(), anchor.GetMapId());
+            posMap["pull hold"] = holdPos;
+        }
+        memberAi->StartPullWindow(static_cast<uint8>(windowSeconds));
+        memberAi->GetAiObjectContext()->GetValue<time_t>("combat start time")->Set(time(0));
+        if (Pet* pet = member->GetPet())
+        {
+            if (PullStrategy* memberPull = PullStrategy::Get(memberAi))
+                memberPull->SetPetReactState(pet->GetReactState());
+            pet->SetReactState(REACT_PASSIVE);
+        }
+    }
+}
+
+
 Unit* PullNearestTargetAction::FindPullTarget(PlayerbotAI* ai)
 {
     Player* bot = ai->GetBot();
@@ -193,6 +247,50 @@ bool PullRequestAction::Execute(Event& event)
     return true;
 }
 
+// "pullback [seconds]" from party chat: the event param is the "[seconds]"
+// tail ("" for a bare "pullback"). Parsed like the .bot option: 0-60, or
+// -1 when the tail is not a bare number (fall back to the configured
+// pullBackDpsJoinDelay instead of refusing a chat order).
+static int ParsePullbackJoinDelay(std::string const& param)
+{
+    std::string tail = param;
+    size_t first = tail.find_first_not_of(" \t");
+    if (first == std::string::npos)
+        return -1;
+    size_t last = tail.find_last_not_of(" \t");
+    tail = tail.substr(first, last - first + 1);
+    if (tail.empty() || tail.find_first_of(" \t") != std::string::npos)
+        return -1;
+    for (char character : tail)
+    {
+        if (character < '0' || character > '9')
+            return -1;
+    }
+    long seconds = std::atol(tail.c_str());
+    return (seconds >= 0 && seconds <= 60) ? static_cast<int>(seconds) : -1;
+}
+
+bool PullbackMyTargetAction::Execute(Event& event)
+{
+    // Chat pullback: only the tank may start the shared pull path, like the
+    // chat "pull" before it. Every other bot stays held by the trigger (its
+    // "pullback my target" resolves to no action there). A plain
+    // "pull my target" here would walk the whole party at the mob.
+    if (!ai->IsTank(bot, true))
+        return false;
+    if (!PullRequestAction::Execute(event))
+        return false;
+
+    int seconds = ParsePullbackJoinDelay(event.GetParam());
+    uint32 joinDelay = seconds >= 0 ? static_cast<uint32>(seconds)
+        : sPlayerbotAIConfig.pullBackDpsJoinDelay;
+    ai->ChangeStrategy("+pull back", BotState::BOT_STATE_ALL);
+    if (PullStrategy* strategy = PullStrategy::Get(ai))
+        strategy->BeginCommand(true, true, joinDelay, false);
+    PausePartyPullHold(bot, joinDelay);
+    return true;
+}
+
 Unit* PullMyTargetAction::GetTarget(Event& event)
 {
     // Prefer the GUID snapshotted by the command (event object): the live
@@ -220,6 +318,14 @@ Unit* PullMyTargetAction::GetTarget(Event& event)
     return target;
 }
 
+Unit* PullbackMyTargetAction::GetTarget(Event& event)
+{
+    // Chat path only (the .bot commands snapshot the target GUID into the
+    // event object and use "pull my target" directly): same target, from the
+    // requester's live selection.
+    Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
+    return requester ? ai->GetUnit(requester->GetSelectionGuid()) : nullptr;
+}
 
 Unit* PullRTITargetAction::GetTarget(Event& event)
 {
@@ -445,14 +551,37 @@ bool PullEndAction::Execute(Event& event)
     PullStrategy* strategy = PullStrategy::Get(ai);
     if (strategy)
     {
-        // Restore the pet react state
-        Pet* pet = bot->GetPet();
-        if (pet)
+        // Restore the pet react state: the tank's own stance, plus every
+        // party pet the pull held passive (see PausePartyPullHold). Held pets
+        // are found through their owners' pull windows so this also covers a
+        // tank that died mid-pull (the early return below skips the rest).
         {
-            UnitAI* creatureAI = ((Creature*)pet)->AI();
-            if (creatureAI)
+            Pet* pet = bot->GetPet();
+            if (pet)
             {
-                pet->SetReactState(strategy->GetPetReactState());
+                UnitAI* creatureAI = ((Creature*)pet)->AI();
+                if (creatureAI)
+                {
+                    pet->SetReactState(strategy->GetPetReactState());
+                }
+            }
+            if (bot->GetGroup())
+            {
+                for (Player* member : LiveGroupMembers(bot->GetGroup()))
+                {
+                    if (!member || member == bot)
+                        continue;
+                    PlayerbotAI* memberAi = PlayerbotAIStorage::Instance().GetAI(member);
+                    if (!memberAi || !memberAi->HasPullWindow())
+                        continue;
+                    Pet* memberPet = member->GetPet();
+                    if (!memberPet || memberPet->GetReactState() != REACT_PASSIVE)
+                        continue;
+                    if (PullStrategy* memberPull = PullStrategy::Get(memberAi))
+                        memberPet->SetReactState(memberPull->GetPetReactState());
+                    else
+                        memberPet->SetReactState(REACT_DEFENSIVE);
+                }
             }
         }
 

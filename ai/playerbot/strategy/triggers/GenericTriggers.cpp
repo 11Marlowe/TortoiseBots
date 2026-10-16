@@ -118,10 +118,9 @@ bool ai::HealerWandAllowed(PlayerbotAI* ai, Unit* target)
     AiObjectContext* const context = ai->GetAiObjectContext();
     gate.targetEngaged = TargetFightsGroup(bot, target);
     gate.aloneNear = NoGroupMemberNear(bot);
-    ObjectGuid const ordered = context->GetValue<ObjectGuid>("explicit attack target")->Get();
-    gate.explicitOrder = target && ordered && ordered == target->GetObjectGuid();
     gate.noMana = context->GetValue<bool>("has mana", "self target")->Get() &&
         context->GetValue<uint8>("mana", "self target")->Get() < 5;
+    gate.pullHold = ai->HasPullWindow();
 
     // The heal rows' own lines: the party below almost full (the "healer
     // should wand" line), the healer itself below low health (its self-heal
@@ -146,6 +145,13 @@ bool HealerShouldAttackTrigger::IsActive()
 {
     if (!bot->GetGroup())
         return true;
+
+    // Ordered pull hold: while the pull's own join window runs, the healer
+    // heals but never opens fire (a pullback parks the party at the anchor
+    // while the tank walks the mob in). A player-placed "wait for attack"
+    // without a pull window still allows damage, as before.
+    if (ai->HasPullWindow())
+        return false;
 
     // Donor escape (mod-playerbots GenericTriggers.cpp:348): nobody of the
     // group near, the healer fights like a solo bot.
