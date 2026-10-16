@@ -9,6 +9,7 @@
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "playerbot/LedgeStepDownPolicy.h"
+#include "playerbot/SetBehindPolicy.h"
 #include <atomic>
 
 namespace ai
@@ -247,6 +248,10 @@ namespace ai
         virtual bool Execute(Event& event) override;
         virtual bool isUseful() override;
         virtual bool isPossible() override;
+
+    private:
+        // Per-target give-up (issue #911): see SetBehindPolicy.h.
+        SetBehindStreak streak;
     };
 
     // Generic rear-flank (mod-playerbots RearFlankAction shape): a melee
