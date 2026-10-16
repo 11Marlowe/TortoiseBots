@@ -53,6 +53,7 @@ python3 -m unittest tools/test_priest_fade_flash_wiring.py
 python3 -m unittest tools/test_wand_fallback_wiring.py
 python3 -m unittest tools/test_boss_tactics_sql.py
 python3 -m unittest tools/test_dungeon_plan_sql.py
+python3 -m unittest tools/test_run_leader_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
