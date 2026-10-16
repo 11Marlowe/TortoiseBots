@@ -402,3 +402,38 @@ func TestDumpAPIForNode(t *testing.T) {
 		}
 	}
 }
+
+func TestOutcomeMapping(t *testing.T) {
+	for given, want := range map[string]string{
+		"cleared": OutcomeCleared, "partial": OutcomePartial, "abandoned": OutcomeAbandoned, "wiped_out": OutcomeWipedOut, "stopped": OutcomeStopped,
+		"CLEARED": OutcomeCleared, "": OutcomeUnknown,
+		// not in the issue's list: not accepted
+		"clear": OutcomeUnknown, "complete": OutcomeUnknown, "done": OutcomeUnknown, "wiped": OutcomeUnknown,
+	} {
+		js := `{"run":"o","map":209,"status":"complete","outcome":"` + given + `"}`
+		r, _, err := Parse([]byte(js), "o.summary.json")
+		if err != nil || r.Outcome != want {
+			t.Fatalf("outcome %q -> %q, want %q (err %v)", given, r.Outcome, want, err)
+		}
+	}
+	// a live run is running even if it carries an outcome or all its bosses are dead; no outcome while running is the recorder's normal shape
+	for _, js := range []string{
+		`{"run":"o","map":209,"status":"running"}`,
+		`{"run":"o","map":209,"status":"running","outcome":"cleared","bosses":[{"name":"A","killed_at_s":5}]}`,
+		`{"run":"o","map":209,"status":"RUNNING","outcome":"wiped_out"}`,
+	} {
+		r, _, _ := Parse([]byte(js), "o.summary.json")
+		if r.Outcome != OutcomeRunning || r.ClearS != nil {
+			t.Fatalf("%s -> %q clear %v", js, r.Outcome, r.ClearS)
+		}
+	}
+	// build object, ISO times with the unix fallback, stop_reason over end_reason
+	r, _, _ := Parse([]byte(`{"run":"b","map":209,"build":{"image":"19z4","module":"9adde948cafe"},"started":"2026-10-15T09:00:00Z","ended":"2026-10-15T09:10:00Z","stop_reason":"plan_done","end_reason":"stop","outcome":"cleared"}`), "b.summary.json")
+	if r.Build != "19z4 / 9adde948" || r.Started != time.Date(2026, 10, 15, 9, 0, 0, 0, time.UTC).Unix() || r.DurationS != 600 || r.StopReason != "plan_done" {
+		t.Fatalf("build/times/stop_reason wrong: %+v", r)
+	}
+	r, _, _ = Parse([]byte(`{"run":"b","map":209,"start_unix":1760500000,"end_unix":1760500600,"outcome":"stopped"}`), "b.summary.json")
+	if r.Started != 1760500000 || r.Ended != 1760500600 || r.DurationS != 600 {
+		t.Fatalf("unix fallback wrong: %+v", r)
+	}
+}

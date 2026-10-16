@@ -489,18 +489,16 @@ func firstNonZero(vs ...int64) int64 {
 	return 0
 }
 
-// outcomeOf takes the summary's own outcome; without one it is worked out from the bosses and the status.
+// outcomeOf decides a run's outcome. A summary still being written (status "running") is running whatever else it says, so a live run
+// never counts as a success or a failure. Otherwise the summary's own outcome is taken when it is one of #986's five; without one it is
+// worked out from the bosses.
 func outcomeOf(given string, r *Run) string {
-	switch o := strings.ToLower(strings.TrimSpace(given)); o {
-	case OutcomeCleared, OutcomePartial, OutcomeWipedOut, OutcomeStopped, OutcomeAbandoned:
-		return o
-	case "wiped", "wipedout", "wiped-out":
-		return OutcomeWipedOut
-	case "clear", "complete", "completed", "done":
-		return OutcomeCleared
-	}
 	if strings.EqualFold(r.Status, "running") {
 		return OutcomeRunning
+	}
+	switch o := strings.ToLower(strings.TrimSpace(given)); o {
+	case OutcomeCleared, OutcomePartial, OutcomeWipedOut, OutcomeStopped, OutcomeAbandoned, OutcomeRunning, OutcomeUnknown:
+		return o
 	}
 	if len(r.Bosses) > 0 {
 		killed := 0
