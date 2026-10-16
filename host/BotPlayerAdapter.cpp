@@ -20,10 +20,6 @@
 #include "ModuleVersion.h"
 #include "Pet.h"
 
-#include <cmath>
-#include <mutex>
-#include <unordered_map>
-
 namespace TortoiseBots {
 
 BotPlayerAdapter::BotPlayerAdapter()
@@ -159,53 +155,34 @@ void BotPlayerAdapter::OnMapChanged(Player* player)
     }
 }
 
-namespace {
-
-// Issue #1043: the last pet guid checked per bot (low guid -> raw pet guid).
-// OnUpdate runs on map threads, so the table has its own lock; it is touched
-// only by a bot that has a pet out, once per tick.
-std::mutex g_checkedPetMutex;
-std::unordered_map<uint32, uint64> g_checkedPetByBot;
-
-} // namespace
-
 void BotPlayerAdapter::OnUpdate(Player* player, uint32 /*diff*/)
 {
-    // Bots only, and only while a pet is out: a real player or a petless bot
-    // returns here on two field reads.
+    // Issue #1043, second call site. The main check runs on the world thread
+    // right after each bot's AI turn (BotManager::UpdateBots), which covers the
+    // resummon after a teleport. A Call Pet or demon summon whose cast
+    // completes inside Player::Update creates its pet during the map update,
+    // and the pet's first Pet::Update follows in the same tick. This hook runs
+    // at the end of the owner's update, before the map updates its creatures.
+    //
+    // Fast path, no lock: a real player, a petless bot or a pet beside its
+    // owner returns on field reads and one map-local lookup. Only a pet that
+    // is clearly misplaced reaches the AI lookup and the once-per-pet check.
     if (!player || !player->GetSession() || player->GetSession()->HasNetworkTransport())
         return;
-    uint64 const petGuid = player->GetPetGuid().GetRawValue();
-    if (!petGuid)
+    ObjectGuid const petGuid = player->GetPetGuid();
+    if (petGuid.IsEmpty() || !player->IsInWorld())
         return;
-    {
-        std::lock_guard<std::mutex> lock(g_checkedPetMutex);
-        uint64& lastChecked = g_checkedPetByBot[player->GetGUIDLow()];
-        if (!IsUncheckedPet(petGuid, lastChecked))
-            return;
-        lastChecked = petGuid;
-    }
-
-    // Runs at the end of the owner's update, before the map updates its
-    // creatures, so a pet summoned this tick is moved before its own update
-    // would unsummon it for being out of range.
-    Pet* pet = player->GetPet();
-    if (!pet || !pet->IsInWorld() || pet->GetMap() != player->GetMap() || player->GetTransport())
+    Pet* pet = player->GetMap()->GetPet(petGuid);
+    if (!pet || !pet->IsInWorld())
         return;
-
     PetSpawnCheckInputs inputs;
     inputs.dx = pet->GetPositionX() - player->GetPositionX();
     inputs.dy = pet->GetPositionY() - player->GetPositionY();
     inputs.dz = pet->GetPositionZ() - player->GetPositionZ();
-    inputs.ownerSeesPet = player->IsWithinLOSInMap(pet);
-    if (!ShouldPullNewPetToOwner(inputs))
+    if (!ShouldPullNewPetToOwner(inputs)) // line of sight is left to the full check
         return;
-
-    TB_LOG_DETAIL("TortoiseBots: pet of %s appeared %.1f yd off (dz %.1f, los %u); moved to its owner",
-        player->GetName(), std::sqrt(inputs.dx * inputs.dx + inputs.dy * inputs.dy + inputs.dz * inputs.dz),
-        inputs.dz, inputs.ownerSeesPet ? 1u : 0u);
-    pet->NearTeleportTo(player->GetPositionX(), player->GetPositionY(), player->GetPositionZ(),
-        player->GetOrientation());
+    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player))
+        BotManager::CheckNewPetSpawn(player, ai);
 }
 
 void BotPlayerAdapter::OnPlayerCompleteQuest(Player* player, Quest const* quest)
@@ -238,11 +215,6 @@ void BotPlayerAdapter::OnBeforeLogout(Player* player)
 
 void BotPlayerAdapter::OnLogout(Player* player)
 {
-    if (player)
-    {
-        std::lock_guard<std::mutex> lock(g_checkedPetMutex);
-        g_checkedPetByBot.erase(player->GetGUIDLow());
-    }
     BotManager::Instance().OnPlayerLogout(player);
     if (player && player->GetSession() && player->GetSession()->HasNetworkTransport())
         RandomBotService::Instance().OnHumanLogout();

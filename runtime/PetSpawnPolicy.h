@@ -12,12 +12,14 @@
 // yards away (core Pet::Update). Call Pet then brought it back to the same roof
 // every time, so the hunter never had a pet.
 //
-// The bot side checks each new pet once, right after it appears (the tick
-// hook in host/BotPlayerAdapter.cpp runs at the end of the owner's update,
-// before the map updates its creatures), and pulls it onto the owner when the
-// spot is clearly wrong. A pet is checked once per guid: every summon, Call Pet
-// or post-teleport resummon makes a new pet object with a new guid, and a pet
-// that has been out a while is left alone wherever it walks.
+// The bot side checks each new pet once, right after it appears, and pulls it
+// onto the owner when the spot is clearly wrong (BotManager::CheckNewPetSpawn:
+// on the world thread after the bot's AI turn, which covers the resummon after
+// a teleport, and from the map-thread player hook in host/BotPlayerAdapter.cpp
+// for a summon cast that completes inside Player::Update, before the map
+// updates its creatures). A pet is checked once per guid: every summon, Call
+// Pet or post-teleport resummon makes a new pet object with a new guid, and a
+// pet that has been out a while is left alone wherever it walks.
 //
 // Pure decision logic, unit-tested on its own (tools/test_pet_spawn_policy.cpp).
 
