@@ -164,9 +164,9 @@ void BotPlayerAdapter::OnUpdate(Player* player, uint32 /*diff*/)
     // and the pet's first Pet::Update follows in the same tick. This hook runs
     // at the end of the owner's update, before the map updates its creatures.
     //
-    // Fast path, no lock: a real player, a petless bot or a pet beside its
-    // owner returns on field reads and one map-local lookup. Only a pet that
-    // is clearly misplaced reaches the AI lookup and the once-per-pet check.
+    // Fast path, no lock: a real player, a petless bot or a pet within 100
+    // yards returns on field reads and one map-local lookup. Only a pet about
+    // to be unsummoned for range reaches the AI lookup and the full check.
     if (!player || !player->GetSession() || player->GetSession()->HasNetworkTransport())
         return;
     ObjectGuid const petGuid = player->GetPetGuid();
@@ -179,7 +179,9 @@ void BotPlayerAdapter::OnUpdate(Player* player, uint32 /*diff*/)
     inputs.dx = pet->GetPositionX() - player->GetPositionX();
     inputs.dy = pet->GetPositionY() - player->GetPositionY();
     inputs.dz = pet->GetPositionZ() - player->GetPositionZ();
-    if (!ShouldPullNewPetToOwner(inputs)) // line of sight is left to the full check
+    // Only the case the pet's own update is about to unsummon (beyond 100 of
+    // the core's 120 yards): a pet at range or chasing returns here, lock-free.
+    if (!IsPetAboutToBeUnsummoned(inputs))
         return;
     if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player))
         BotManager::CheckNewPetSpawn(player, ai);

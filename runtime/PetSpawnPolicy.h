@@ -16,10 +16,11 @@
 // onto the owner when the spot is clearly wrong (BotManager::CheckNewPetSpawn:
 // on the world thread after the bot's AI turn, which covers the resummon after
 // a teleport, and from the map-thread player hook in host/BotPlayerAdapter.cpp
-// for a summon cast that completes inside Player::Update, before the map
-// updates its creatures). A pet is checked once per guid: every summon, Call
-// Pet or post-teleport resummon makes a new pet object with a new guid, and a
-// pet that has been out a while is left alone wherever it walks.
+// for a summon cast that completes inside Player::Update and leaves the pet
+// over 100 yards away, before the map updates its creatures). A pet is checked
+// once per guid: every summon, Call Pet or post-teleport resummon makes a new
+// pet object with a new guid, and a pet that has been out a while is left
+// alone wherever it walks.
 //
 // Pure decision logic, unit-tested on its own (tools/test_pet_spawn_policy.cpp).
 
@@ -49,6 +50,18 @@ inline bool ShouldPullNewPetToOwner(PetSpawnCheckInputs const& inputs)
         return true;
     float const distSq = inputs.dx * inputs.dx + inputs.dy * inputs.dy + inputs.dz * inputs.dz;
     return distSq > PET_SPAWN_MAX_DISTANCE * PET_SPAWN_MAX_DISTANCE;
+}
+
+// The core unsummons a pet more than 120 yards from its owner on the pet's
+// next update (Pet::Update). The map-thread hook only acts beyond this, so a
+// pet at range or chasing a target never costs it the AI lookup.
+inline constexpr float PET_UNSUMMON_GUARD_DISTANCE = 100.0f;
+
+// True when the pet is far enough that its own update is about to unsummon it.
+inline bool IsPetAboutToBeUnsummoned(PetSpawnCheckInputs const& inputs)
+{
+    float const distSq = inputs.dx * inputs.dx + inputs.dy * inputs.dy + inputs.dz * inputs.dz;
+    return distSq > PET_UNSUMMON_GUARD_DISTANCE * PET_UNSUMMON_GUARD_DISTANCE;
 }
 
 // True when the owner's current pet has not been checked yet. 0 means no pet.

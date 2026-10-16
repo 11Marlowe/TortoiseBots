@@ -79,6 +79,17 @@ static void TestCheckedOncePerPet()
     CHECK(IsUncheckedPet(0xF1400000D3000077ull, 0xF1400000D3000071ull));
 }
 
+// The map-thread hook acts only where the core is about to unsummon the pet
+// (120 yd): a pet at range, chasing, or a floor away stays lock-free.
+static void TestUnsummonGuard()
+{
+    CHECK(!IsPetAboutToBeUnsummoned(Inputs(35.0f, 0.0f, 0.0f, true)));
+    CHECK(!IsPetAboutToBeUnsummoned(Inputs(2.0f, 1.0f, 8.0f, true)));
+    CHECK(!IsPetAboutToBeUnsummoned(Inputs(70.0f, 70.0f, 0.0f, true)));
+    CHECK(IsPetAboutToBeUnsummoned(Inputs(-0.5f, 3.2f, 205.5f, true)));
+    CHECK(IsPetAboutToBeUnsummoned(Inputs(101.0f, 0.0f, 0.0f, true)));
+}
+
 int main()
 {
     TestPetBesideOwnerStays();
@@ -87,6 +98,7 @@ int main()
     TestDistance();
     TestNoLineOfSight();
     TestCheckedOncePerPet();
+    TestUnsummonGuard();
     std::printf("test_pet_spawn_policy: %d checks passed\n", checks);
     return 0;
 }
