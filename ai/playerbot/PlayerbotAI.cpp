@@ -323,6 +323,7 @@ PacketHandlerSpec const kBotOutgoingPacketHandlers[] =
     { SMSG_TEXT_EMOTE, "receive text emote", false },
     { SMSG_EMOTE, "receive emote", false },
     { SMSG_LOOT_START_ROLL, "loot start roll", true },
+    { SMSG_LOOT_ROLL, "loot vote", true },
     { SMSG_LOOT_ROLL_WON, "loot roll won", true },
     { SMSG_SUMMON_REQUEST, "summon request", false },
     { MSG_RAID_READY_CHECK, "ready check", false },
