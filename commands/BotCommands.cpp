@@ -5826,7 +5826,7 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
     }
     if (request.direct)
         return CommanderMoveDirect(handler, order, request.point, intent);
-    RemoteCommander::MovePoint const point = request.point;
+    RemoteCommander::MovePoint point = request.point;
     Player* lead = order.lead;
     if (!lead->IsAlive() || lead->IsTaxiFlying() || lead->IsBeingTeleported())
     {
@@ -5840,6 +5840,21 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
         return true;
     }
 
+    // Snap the point to the map floor at its x,y (a point a few yd under the
+    // floor has no navmesh poly within the path finder's reach: NOPATH).
+    {
+        float const floorZ = lead->GetMap()->GetHeight(point.x, point.y,
+            point.z + RemoteCommander::kFloorSnapRange, true,
+            2.0f * RemoteCommander::kFloorSnapRange);
+        float const snapped = RemoteCommander::SnapToFloorZ(point.z, floorZ, floorZ > INVALID_HEIGHT);
+        if (snapped != point.z)
+        {
+            point.z = snapped;
+            handler->PSendSysMessage("Move point snapped to the floor: %.1f %.1f %.1f",
+                point.x, point.y, point.z);
+        }
+    }
+
     float const dx = point.x - lead->GetPositionX();
     float const dy = point.y - lead->GetPositionY();
     float const dz = point.z - lead->GetPositionZ();
@@ -5847,14 +5862,19 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
     facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);
     facts.maxDistance = sPlayerbotAIConfig.reactDistance;
     facts.leadSpotGather = s_runIssuing && s_runGather;
-    PathFinder path(lead);
-    path.calculate(point.x, point.y, point.z, false);
-    facts.pathType = static_cast<uint32>(path.getPathType());
-    Vector3 const end = path.getActualEndPosition();
-    float const ex = end.x - point.x;
-    float const ey = end.y - point.y;
-    float const ez = end.z - point.z;
-    facts.endOffset = std::sqrt(ex * ex + ey * ey + ez * ez);
+    // The lead bot already stands on the point ("hold here"): the path finder
+    // answers NOPATH for a zero-length path, so skip it; CheckMove accepts it.
+    if (!RemoteCommander::IsAtLead(facts.distanceFromLead))
+    {
+        PathFinder path(lead);
+        path.calculate(point.x, point.y, point.z, false);
+        facts.pathType = static_cast<uint32>(path.getPathType());
+        Vector3 const end = path.getActualEndPosition();
+        float const ex = end.x - point.x;
+        float const ey = end.y - point.y;
+        float const ez = end.z - point.z;
+        facts.endOffset = std::sqrt(ex * ex + ey * ey + ez * ez);
+    }
     RemoteCommander::MoveVerdict verdict = RemoteCommander::CheckMove(facts);
     if (verdict != RemoteCommander::MoveVerdict::Ok)
     {

@@ -549,10 +549,13 @@ static void TestMoveVerdict()
 
     // Issue #999: the run leader's gather on the lead bot's own spot (within
     // kMoveHereYd of it) is Ok, even when the path finder answers no path or
-    // an off-mesh end at 0 yd. A player's order to the same point is not.
+    // an off-mesh end at 0 yd. A player's order is Ok only within
+    // kAtLeadDistance (issue #1026, "hold here").
     facts = Walkable();
     facts.distanceFromLead = 0.0f;
     facts.pathType = kPathNoPath;
+    CHECK(CheckMove(facts) == MoveVerdict::Ok);
+    facts.distanceFromLead = 2.0f;
     CHECK(CheckMove(facts) == MoveVerdict::NoPath);
     facts.leadSpotGather = true;
     CHECK(CheckMove(facts) == MoveVerdict::Ok);
@@ -561,7 +564,7 @@ static void TestMoveVerdict()
     facts.distanceFromLead = kMoveHereYd + 0.5f;
     CHECK(CheckMove(facts) == MoveVerdict::NoPath);
     facts = Walkable();
-    facts.distanceFromLead = 1.0f;
+    facts.distanceFromLead = 2.0f;
     facts.endOffset = 12.0f;
     CHECK(CheckMove(facts) == MoveVerdict::OffMesh); // a player's sub-3 yd off-mesh point
     facts.leadSpotGather = true;
@@ -584,6 +587,34 @@ static void TestMoveVerdict()
     facts = Walkable();
     facts.pathType = 0x0010;
     CHECK(CheckMove(facts) == MoveVerdict::Ok);
+
+    // A move to the lead bot's own spot ("hold here"): the path finder says
+    // NOPATH for a zero-length path, and that is not a refusal.
+    facts = Walkable();
+    facts.distanceFromLead = 0.0f;
+    facts.pathType = kPathNoPath;
+    CHECK(IsAtLead(facts.distanceFromLead));
+    CHECK(CheckMove(facts) == MoveVerdict::Ok);
+    facts.distanceFromLead = 1.0f;
+    CHECK(CheckMove(facts) == MoveVerdict::Ok);
+    facts.distanceFromLead = 1.5f; // beyond the hold-here radius: NOPATH stands
+    CHECK(!IsAtLead(facts.distanceFromLead));
+    CHECK(CheckMove(facts) == MoveVerdict::NoPath);
+}
+
+static void TestSnapToFloorZ()
+{
+    // A point 4.5 yd under the floor snaps up to it (Ragefire Chasm).
+    CHECK(SnapToFloorZ(-10.5f, -6.0f, true) == -6.0f);
+    // A point above the floor snaps down.
+    CHECK(SnapToFloorZ(-2.0f, -6.0f, true) == -6.0f);
+    // Exactly the range still snaps; beyond it the point stays (another level).
+    CHECK(SnapToFloorZ(0.0f, 6.0f, true) == 6.0f);
+    CHECK(SnapToFloorZ(0.0f, -6.0f, true) == -6.0f);
+    CHECK(SnapToFloorZ(0.0f, 6.5f, true) == 0.0f);
+    CHECK(SnapToFloorZ(0.0f, -6.5f, true) == 0.0f);
+    // No floor found: unchanged.
+    CHECK(SnapToFloorZ(3.0f, -100000.0f, false) == 3.0f);
 }
 
 static std::vector<std::string> Args(std::string const& text)
@@ -1098,6 +1129,7 @@ int main()
     TestParseMoveOrder();
     TestTargetVerdict();
     TestMoveVerdict();
+    TestSnapToFloorZ();
     TestDirectVerdict();
     TestParseItemId();
     TestParseTargetSpec();

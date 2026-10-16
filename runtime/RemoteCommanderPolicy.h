@@ -37,6 +37,10 @@ constexpr uint32_t kSweepIntervalMs = 1000;
 // A move point further than this from the walkable end of its path is not on
 // the ground (inside a wall, in the air): refused as off-mesh.
 constexpr float kMaxMoveEndOffset = 5.0f;
+// A move to a point this close to the lead bot is "hold here": there is no path
+// to walk (the path finder answers NOPATH for a zero-length path), the point is
+// reached already.
+constexpr float kAtLeadDistance = 1.0f;
 // Coordinates outside this box are not on any 1.12 map.
 constexpr float kMaxMapCoordinate = 20000.0f;
 
@@ -1317,6 +1321,25 @@ inline char const* TargetVerdictText(TargetVerdict verdict)
 constexpr uint32_t kPathNoPath = 0x0008;
 constexpr uint32_t kPathIncomplete = 0x0004;
 
+// A requested point may sit below (or a little above) the floor; the path
+// finder ignores a navmesh floor more than 3 yd above the point. The point is
+// snapped to the map floor at its x,y, but only a floor this close: a point
+// on another level of a multi-floor room keeps its own height.
+constexpr float kFloorSnapRange = 6.0f;
+
+// floorZ is the map's floor height at the point's x,y found by a search
+// starting kFloorSnapRange above the point; floorValid is false when none was
+// found. Returns the z to use.
+inline float SnapToFloorZ(float pointZ, float floorZ, bool floorValid)
+{
+    if (!floorValid)
+        return pointZ;
+    float const delta = floorZ - pointZ;
+    if (delta > kFloorSnapRange || delta < -kFloorSnapRange)
+        return pointZ;
+    return floorZ;
+}
+
 struct MoveFacts
 {
     float distanceFromLead = 0.0f; // 3D, lead bot to the point
@@ -1341,14 +1364,20 @@ enum class MoveVerdict : uint8_t
 // means the point is not on walkable ground. The run leader's gather on the
 // lead bot's own spot (leadSpotGather, within kMoveHereYd of it) is where the
 // lead bot already stands: it is Ok whatever the path finder answers, which can
-// be NoPath at 0 yd. A player's order to a point that close is judged as any.
+// be NoPath at 0 yd. Any order within kAtLeadDistance is "hold here" (IsAtLead).
 constexpr float kMoveHereYd = 3.0f;
+
+inline bool IsAtLead(float distanceFromLead)
+{
+    return distanceFromLead <= kAtLeadDistance;
+}
 
 inline MoveVerdict CheckMove(MoveFacts const& facts)
 {
     if (facts.maxDistance <= 0.0f || facts.distanceFromLead > facts.maxDistance)
         return MoveVerdict::TooFar;
-    if (facts.leadSpotGather && facts.distanceFromLead <= kMoveHereYd)
+    if (IsAtLead(facts.distanceFromLead)
+        || (facts.leadSpotGather && facts.distanceFromLead <= kMoveHereYd))
         return MoveVerdict::Ok;
     if (facts.pathType & kPathNoPath)
         return MoveVerdict::NoPath;
