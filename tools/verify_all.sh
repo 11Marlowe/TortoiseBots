@@ -49,6 +49,7 @@ python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_keepout_set_aside_wiring.py
 python3 -m unittest tools/test_pull_end_engaged.py
 python3 -m unittest tools/test_priest_fade_flash_wiring.py
+python3 -m unittest tools/test_hire_never_leaves_wiring.py
 python3 -m unittest tools/test_raid_status_instance_wiring.py
 python3 -m unittest tools/test_wand_fallback_wiring.py
 echo "✓ Engine unit tests passed."
@@ -128,6 +129,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hire_gear_policy
         test_hire_intro_policy
         test_hire_level_policy
+        test_hire_master_policy
         test_hire_respec_policy
         test_hire_quest_policy
         test_hire_spec_policy
