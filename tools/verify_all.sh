@@ -209,6 +209,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_sapphiron_ice_policy
         test_seduction_policy
         test_service_trip_policy
+        test_set_behind_policy
         test_shaman_earth_shock_policy
         test_shaman_fire_gate_policy
         test_shaman_healer_dps_policy

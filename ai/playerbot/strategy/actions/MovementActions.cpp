@@ -3206,14 +3206,26 @@ bool SetBehindTargetAction::isUseful()
         return false;
 
     Unit* target = AI_VALUE(Unit*, "current target");
-    if (target && !bot->IsBehindTarget(target, false))
-    {
-        // Don't move behind if the target is too far away
-        const float distance = bot->GetDistance(target);
-        return distance <= 15.0f;
-    }
+    if (!target)
+        return false;
 
-    return false;
+    // Mirror isPossible/Execute (donor): while the mob attacks the bot or is
+    // moving, set-behind cannot act, so do not count the streak either.
+    if ((target->GetVictim() && target->GetVictim()->getObjectGuid() == bot->getObjectGuid()) || target->IsMoving())
+        return false;
+
+    // Issue #911: position only once in melee reach (donor shape); closing in
+    // is "reach melee"'s job, which this ACTION_HIGH row used to starve.
+    const bool inMeleeReach = bot->CanReachWithMeleeAutoAttack(target);
+    const bool alreadyBehind = bot->IsBehindTarget(target, false);
+    if (!inMeleeReach || alreadyBehind)
+        return false;
+
+    // Bounded per-target streak: a blocked behind spot falls back to
+    // attacking from the front instead of re-issuing the move forever.
+    const uint32 nowMs = WorldTimer::getMSTime();
+    SetBehindStreakPoll(streak, target->getObjectGuid().GetRawValue(), nowMs);
+    return SetBehindUseful(inMeleeReach, alreadyBehind, SetBehindStreakExpired(streak, nowMs));
 }
 
 bool SetBehindTargetAction::isPossible()
