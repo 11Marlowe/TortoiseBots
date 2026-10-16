@@ -14,6 +14,9 @@ public:
     uint8 GetBotRoles(Player* who) override;
     void OnLogin(Player* player) override;
     void OnMapChanged(Player* player) override;
+    // Issue #1043: once per new pet, pulls a bot's pet that appeared on the
+    // wrong floor or out of sight onto its owner (runtime/PetSpawnPolicy.h).
+    void OnUpdate(Player* player, uint32 diff) override;
     void OnPlayerCompleteQuest(Player* player, Quest const* quest) override;
     void OnBeforeLogout(Player* player) override;
     void OnLogout(Player* player) override;
