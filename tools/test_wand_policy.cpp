@@ -186,12 +186,64 @@ int main()
         CHECK(!ShouldStopWandToCast(d));
     }
 
-    // Wait after the stop: until the next shot would have fired, plus the
-    // react delay; never more than one swing.
-    CHECK(WandStopWaitMs(1200, 1800, 100) == 1300);
-    CHECK(WandStopWaitMs(0, 1800, 100) == 100);
-    CHECK(WandStopWaitMs(5000, 1800, 100) == 1900);
+    // Wait after the stop: the later of the ranged timer (= the last
+    // shot's GCD) and the bot's own last cast's GCD, plus the react delay.
+    CHECK(WandStopWaitMs(1200, 0, 100) == 1300);
+    CHECK(WandStopWaitMs(0, 0, 100) == 100);
     CHECK(WandStopWaitMs(700, 0, 100) == 800);
+    // An instant cast's GCD outlasts the ranged timer: wait for the GCD
+    // (Zul'Farrak: the old ranged-timer wait left Frostbolt "not ready"
+    // and Shoot came back within 1 s in ~70% of stops).
+    CHECK(WandStopWaitMs(300, 1500, 100) == 1600);
+    CHECK(WandStopWaitMs(1500, 300, 100) == 1600);
+    // A slowed caster's ranged timer runs past the unmodified swing; the
+    // shot's GCD does too, so no swing cap (the old rule waited 1800+100).
+    CHECK(WandStopWaitMs(3600, 0, 100) == 3700);
+    // Garbage input never sleeps the bot for long.
+    CHECK(WandStopWaitMs(0xFFFFFFF0u, 0, 100) == WAND_STOP_MAX_WAIT_MS + 100);
+    CHECK(WandStopWaitMs(0, 90000, 0) == WAND_STOP_MAX_WAIT_MS);
+
+    // What is left of a GCD, wrap-safe.
+    CHECK(CooldownRemainingMs(1000, 1500, 1000) == 1500);
+    CHECK(CooldownRemainingMs(1000, 1500, 1600) == 900);
+    CHECK(CooldownRemainingMs(1000, 1500, 2500) == 0);
+    CHECK(CooldownRemainingMs(1000, 1500, 9000) == 0);
+    CHECK(CooldownRemainingMs(0xFFFFFF00u, 1500, 0x100u) == 1500 - 0x200u);
+    CHECK(CooldownRemainingMs(1000, 0, 1000) == 0);
+
+    // The raid "has aggro -> shoot" row and the wand stop's exception: a
+    // real raid group with aggro only. A 5-man dungeon party is not one,
+    // even though the "raid" class strategies are on there.
+    CHECK(RaidAggroWandRow(true, true));
+    CHECK(!RaidAggroWandRow(false, true));
+    CHECK(!RaidAggroWandRow(true, false));
+    CHECK(!RaidAggroWandRow(false, false));
+
+    // Mana-short row: wand only while the filler nuke costs more than the
+    // mana left; never for a GCD or threat refusal (those leave the mana
+    // there), never without a mana pool or a known filler.
+    CHECK(NukeUnaffordable(true, 200, 290));   // 6% of 3500, Frostbolt 290
+    CHECK(NukeUnaffordable(true, 0, 290));
+    CHECK(!NukeUnaffordable(true, 290, 290));  // exactly affordable: cast it
+    CHECK(!NukeUnaffordable(true, 2900, 290)); // high mana: GCD/threat refusals stay unwanded
+    CHECK(!NukeUnaffordable(false, 0, 290));
+    CHECK(!NukeUnaffordable(true, 100, 0));
+    // The stop leaves that wand alone even when a cheaper probe is only
+    // GCD-blocked (arcane/fire mage between Frostbolt's and its filler's
+    // cost), so it does not ping-pong; a wanted heal still stops it.
+    {
+        WandState s{true, P::GlobalCooldownOnly, false, false};
+        CHECK(ShouldStopWandToCast(s));
+        s.manaShortRowActive = true;
+        CHECK(!ShouldStopWandToCast(s));
+        s.bestHeal = P::GlobalCooldownOnly;
+        CHECK(ShouldStopWandToCast(s));
+        WandState h{true, P::Castable, false, false};
+        h.manaShortRowActive = true;
+        h.healerMustStop = true;
+        CHECK(ShouldStopWandToCast(h));
+        CHECK(!WandState{}.manaShortRowActive);
+    }
 
     std::printf("wand policy: %d checks passed\n", checks);
     return 0;
