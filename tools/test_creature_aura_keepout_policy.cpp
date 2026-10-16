@@ -35,6 +35,38 @@ int main()
     }
     std::cout << "  [PASS] table lookup by map and entry\n";
 
+    // #906: Naxxramas Living Poison, listed without an aura. Explode 28433 is
+    // an area spell at EffectRadiusIndex 8 (5 yd); the EventAI fires it from 4 yd.
+    {
+        CreatureAuraKeepout const* poison = FindCreatureAuraKeepout(533, 16027);
+        CHECK(poison != nullptr);
+        CHECK(poison->auraSpellId == 0);
+        CHECK(poison->pulseRadius == 5.0f);
+        CHECK(poison->keepoutRadius == 8.0f);
+        CHECK(poison->keepoutRadius > 5.0f + 3.0f - 0.01f); // Explode radius plus the sludge's margin
+        CHECK(poison->keepoutRadius > 4.0f);                // clear of the 4 yd trigger range
+        CHECK(FindCreatureAuraKeepout(349, 16027) == nullptr); // other map
+        CHECK(FindCreatureAuraKeepout(533, 12222) == nullptr);
+        CHECK(FindCreatureAuraKeepout(533, 16028) == nullptr); // Patchwerk's neighbours are not listed
+        // Aura-less row: alive is enough. A row with an aura still needs it.
+        CHECK(CreatureAuraKeepoutMarkedLive(*poison, false));
+        CHECK(CreatureAuraKeepoutApplies(true, poison, true, CreatureAuraKeepoutMarkedLive(*poison, false), false));
+        CHECK(!CreatureAuraKeepoutApplies(true, poison, false, CreatureAuraKeepoutMarkedLive(*poison, false), false)); // dead
+        CHECK(!CreatureAuraKeepoutApplies(false, poison, true, CreatureAuraKeepoutMarkedLive(*poison, false), false)); // toggle off
+        CHECK(!CreatureAuraKeepoutApplies(true, poison, true, CreatureAuraKeepoutMarkedLive(*poison, false), true));   // ordered
+        CreatureAuraKeepout const& sludgeRow = *FindCreatureAuraKeepout(349, 12222);
+        CHECK(!CreatureAuraKeepoutMarkedLive(sludgeRow, false));
+        CHECK(CreatureAuraKeepoutMarkedLive(sludgeRow, true));
+        // The step-out and path rings, and the snapshot gate for the map.
+        CHECK(InsideCreatureAuraKeepout(*poison, 4.0f));
+        CHECK(InsideCreatureAuraKeepout(*poison, 8.0f));
+        CHECK(!InsideCreatureAuraKeepout(*poison, 8.1f));
+        CHECK(CreatureAuraHazardRadius(*poison) == 9.0f);
+        CHECK(CreatureAuraMaxHazardRadiusOnMap(533) == 9.0f);
+        CHECK(CreatureAuraMaxHazardRadiusOnMap(1) == 0.0f); // no snapshot visit on a map without a row
+    }
+    std::cout << "  [PASS] Living Poison (Naxxramas): aura-less row, 5 yd Explode, 8 yd keep-out\n";
+
     // Every row keeps out past its pulse and fits the avoid-aoe radius cap,
     // so the existing strafe-first step-out handles it.
     for (CreatureAuraKeepout const& row : kCreatureAuraKeepouts)

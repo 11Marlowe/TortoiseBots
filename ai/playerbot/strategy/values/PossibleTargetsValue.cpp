@@ -195,7 +195,9 @@ CreatureAuraKeepout const* PossibleTriggersValue::KeepoutFor(Unit* unit)
     if (!row)
         return nullptr;
     // The explicit-order exemption is checked by the callers (per bot).
-    if (!CreatureAuraKeepoutApplies(true, row, sServerFacade.IsAlive(unit), unit->HasAura(row->auraSpellId), false))
+    // An aura-less row (Living Poison) needs no aura check.
+    if (!CreatureAuraKeepoutApplies(true, row, sServerFacade.IsAlive(unit),
+            CreatureAuraKeepoutMarkedLive(*row, row->auraSpellId && unit->HasAura(row->auraSpellId)), false))
         return nullptr;
     return row;
 }

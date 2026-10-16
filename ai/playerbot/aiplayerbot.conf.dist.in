@@ -727,7 +727,8 @@ AiPlayerbot.OnyxiaWhelpsAndEggs = 1
 # also when the tank fights it or it carries the bot's raid mark. Tanks are
 # exempt in combat (they may hold mobs inside). The creature the player
 # ordered the bot to attack is never avoided by that bot. Listed today:
-# Maraudon's Creeping Sludge (12222, aura 22638 Poison Shock, 5 yd every 2 s).
+# Maraudon's Creeping Sludge (12222, aura 22638 Poison Shock, 5 yd every 2 s)
+# and Naxxramas' Living Poison (16027, no aura, Explode 28433 within 5 yd).
 # With it on, a non-tank bot without an attack order also does not Charge,
 # Intercept or Feral Charge onto a listed creature or onto a mob within 9 yd
 # of one, and its flank, set-behind and unstack moves never end in the ring.

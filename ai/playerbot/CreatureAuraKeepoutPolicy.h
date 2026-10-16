@@ -6,6 +6,9 @@
 // into that circle. The table lists each such creature by map and entry with
 // the aura that marks it live, the aura's pulse radius and the keep-out
 // radius the bot steps out from (pulse plus a drift margin).
+// A row whose auraSpellId is 0 lists a creature that is itself the hazard and
+// carries no marking aura (Naxxramas' Living Poison): it counts whenever it is
+// alive, see CreatureAuraKeepoutMarkedLive.
 //
 // Behaviour reimplemented from the T-imothy tortoise-wow registry
 // (modules/mod-dungeon-clear/.../Data/DcHazardRegistry.cpp, 0fb4d7c): every
@@ -49,6 +52,14 @@ namespace ai
     constexpr CreatureAuraKeepout kCreatureAuraKeepouts[] = {
         // Maraudon, Creeping Sludge, Poison Shock (180-220 nature every 2 s, 5 yd).
         { 349, 12222, 22638, 5.0f, 8.0f },
+        // Naxxramas, Living Poison (#906). Listed without an aura: its
+        // creature_template (16027) carries none and its EventAI (script
+        // 1602701, out-of-combat LOS event, range 4 yd) casts Explode 28433
+        // (about 30k) on a hostile that comes close. Explode is an area
+        // school-damage spell at EffectRadiusIndex 8 (5 yd, the index the
+        // sludge's 22638 pulse uses), so the pulse is 5 yd and the keep-out the
+        // same 5 + 3 yd as the sludge's.
+        { 533, 16027, 0, 5.0f, 8.0f },
     };
 
     inline CreatureAuraKeepout const* FindCreatureAuraKeepout(uint32_t mapId, uint32_t creatureEntry)
@@ -57,6 +68,14 @@ namespace ai
             if (row.mapId == mapId && row.creatureEntry == creatureEntry)
                 return &row;
         return nullptr;
+    }
+
+    // The marker that makes a live listed creature a keep-out: its aura, or
+    // nothing for an aura-less row (auraSpellId 0), where the creature is the
+    // hazard whenever it is alive.
+    inline bool CreatureAuraKeepoutMarkedLive(CreatureAuraKeepout const& row, bool hasAura)
+    {
+        return row.auraSpellId == 0 || hasAura;
     }
 
     // A listed creature is a keep-out for this bot when the toggle is on, the
