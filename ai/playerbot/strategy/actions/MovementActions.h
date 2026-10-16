@@ -8,6 +8,7 @@
 #include "Movement/WaypointMovementGenerator.h"
 #include "playerbot/strategy/values/HazardsValue.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
+#include "playerbot/CreatureAuraKeepoutPolicy.h"
 #include "playerbot/LedgeStepDownPolicy.h"
 #include <atomic>
 
@@ -138,9 +139,10 @@ namespace ai
         // the core generator (follow or chase) stopped when holding.
         // `first` (the chase target) is planned against before the cached
         // 15 yd list, so a target that is itself a keep-out creature is
-        // known from any distance.
+        // known from any distance. `tankChase`: the bot is a tank on a chase,
+        // which skips the rows that give tanks a pass.
         bool HoldOutsideKeepout(float gx, float gy, float ax, float ay, ObjectGuid& engaged,
-            MovementGeneratorType nativeType, Unit* first = nullptr);
+            MovementGeneratorType nativeType, Unit* first = nullptr, bool tankChase = false);
 
         LedgeStepDownClock ledgeStepDown;
         // The keep-out creature the last follow decision held, approached or
@@ -189,6 +191,7 @@ namespace ai
         // short back-off after a keep-out step-out found no landing spot, so
         // the action does not win the reaction pick every tick without moving.
         ObjectGuid keepoutSource;
+        CreatureAuraKeepout const* keepoutRow = nullptr; // the row of keepoutSource
         uint32 keepoutNoLandingUntilMs = 0;
     };
 
