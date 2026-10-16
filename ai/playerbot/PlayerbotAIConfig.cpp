@@ -9,6 +9,7 @@
 #include "../../runtime/HireFeePolicy.h"
 #include "../../runtime/HireUnlockPolicy.h"
 #include "../../runtime/RemoteCommanderView.h"
+#include "../../runtime/RunTrace.h"
 #include "../../runtime/GossipOrderPolicy.h"
 #include <cerrno>
 #include <cstring>
@@ -592,6 +593,16 @@ bool PlayerbotAIConfig::Initialize()
     remoteCommanderViewMs = TortoiseBots::RemoteCommander::View::ClampIntervalMs(
         config.GetIntDefault("AiPlayerbot.RemoteCommanderViewMs",
             static_cast<int>(TortoiseBots::RemoteCommander::View::kDefaultIntervalMs)));
+    // Run trace (opt-in): see docs/guides/run-trace.md.
+    runTrace = config.GetBoolDefault("AiPlayerbot.RunTrace.Enabled", false);
+    runTraceIntervalMs = TortoiseBots::RunTrace::ClampIntervalMs(
+        config.GetIntDefault("AiPlayerbot.RunTrace.IntervalMs",
+            static_cast<int>(TortoiseBots::RunTrace::kDefaultIntervalMs)));
+    runTraceDir = config.GetStringDefault("AiPlayerbot.RunTrace.Dir", "traces");
+    runTraceGmOnly = config.GetBoolDefault("AiPlayerbot.RunTrace.GmOnly", true);
+    runTraceMaxFileMb = TortoiseBots::RunTrace::ClampMaxFileMb(
+        config.GetIntDefault("AiPlayerbot.RunTrace.MaxFileMb",
+            static_cast<int>(TortoiseBots::RunTrace::kDefaultMaxFileMb)));
     {
         // Issue #1012: the NPCs `.bot cmd gossip` may talk to. Empty (the default) = off.
         std::string const gossipText = config.GetStringDefault("AiPlayerbot.BotGossipNpcs", "");
@@ -1594,7 +1605,12 @@ void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, std::st
     // telemetry feature, not a CSV-logging one. EmitBotActivity filters to its
     // own whitelist and no-ops when the emitter is disabled.
     if (ai)
+    {
         sObservabilityEmitter.EmitBotActivity(eventName, info1, info2, ai->GetBot());
+        // Run trace: loot events of the traced bots (one atomic load when off).
+        if (TortoiseBots::RunTraceService::Instance().Active())
+            TortoiseBots::RunTraceService::Instance().NoteBotEvent(ai, eventName, info1, info2);
+    }
 };
 
 void PlayerbotAIConfig::logEvent(PlayerbotAI* ai, std::string eventName, ObjectGuid guid, std::string info2)
