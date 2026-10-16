@@ -6,7 +6,7 @@
 // AiPlayerbot.DungeonSelfClear (default 0).
 //
 // It gives the party ONLY the remote commander's own orders (`cmd move`,
-// `move ... direct`, `pullback`, `rest`, `loot`, `open`, `use`), so every
+// `move ... direct`, `pullback`, `rest`, `loot`, `open`, `use`, `ritual`), so every
 // commander fix also fixes the run leader and the two cannot drift apart. The
 // fights themselves are the bots' own combat AI (with the boss tactics table).
 //
@@ -41,6 +41,7 @@
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -95,6 +96,11 @@ constexpr std::uint32_t kRestRepeatMs = 20000;
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
+// Scripted events (ritual, hold; docs/guides/dungeon-run-leader.md "Events").
+constexpr float kHoldReturnYd = 8.0f;             // out of a fight, a lead bot farther than this from the hold spot walks back
+constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
+constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
+constexpr std::uint32_t kRitualNoReplyMs = 5000;  // a ritual whose bots are free again with no answer this long: pause
 
 // Rest gate: it starts when someone is below a "start" line after a fight or
 // before a step, and ends when everybody is at the "end" line (or at kRestCapMs).
@@ -105,7 +111,7 @@ struct RestLines
 };
 
 enum class State : std::uint8_t { Running, Paused, Done };
-enum class Phase : std::uint8_t { Begin, Gather, Walk, AwaitPull, AwaitTask, Rest, Wait };
+enum class Phase : std::uint8_t { Begin, Gather, Walk, AwaitPull, AwaitTask, Rest, Wait, Hold };
 
 inline const char* StateName(State s)
 {
@@ -127,6 +133,7 @@ inline const char* PhaseName(Phase p)
         case Phase::AwaitPull: return "pull";
         case Phase::AwaitTask: return "task";
         case Phase::Rest: return "rest";
+        case Phase::Hold: return "hold";
         default: return "wait";
     }
 }
@@ -207,7 +214,11 @@ struct Facts
     // within kSeeYd of the lead bot; bossAlive: he stands in the step's units.
     bool bossDeadNearSpot = false;
     bool bossDeadNearLead = false;
-    int objectState = -1;               // wait_object: 0 ready, 1 active, 2 active_alt; -1 not found
+    int objectState = -1;               // wait_object, hold done by object: 0 ready, 1 active, 2 active_alt; -1 not found
+    // hold (units: the living units of its `entries` within its radius, the
+    // friendly, still dormant ones too):
+    std::uint32_t eventDown = 0;        // dead units of its `entries` within its radius
+    long long eventData = -1;           // done by instance data: the value now; -1 the map has no instance data
     std::uint32_t hostilesNear = 0;     // wait_clear: living hostiles within the radius
     std::string carrier;                // the bot that does object and item steps (the lead bot)
     bool carrierHasItem = false;        // the step's `item` is in the carrier's bags
@@ -294,6 +305,14 @@ struct Run
     bool walkBackDirect = false; // straight to the last point in hops (before a replay of every point)
     std::size_t walkBackIdx = 0; // the plan step whose point is walked now
     std::uint32_t walkBackRefusals = 0; // passing refusals of that point
+    // A scripted event's hold (Hold steps): its clock runs from the first look,
+    // in fights too; a regroup or resume starts it over.
+    bool eventOn = false;
+    std::uint32_t eventMs = 0;
+    bool eventStarted = false;   // the done data left "not started", or an event unit was seen awake
+    bool holdArrived = false;    // the party stood on the hold spot once
+    std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
+    std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
     // Run-wide counts for the report.
     std::uint32_t wipes = 0;     // the whole party dead, counted once each time
     bool wiped = false;
@@ -375,6 +394,12 @@ inline void ResetStep(Run& r)
     r.walkBackDirect = false;
     r.walkBackIdx = 0;
     r.walkBackRefusals = 0;
+    r.eventOn = false;
+    r.eventMs = 0;
+    r.eventStarted = false;
+    r.holdArrived = false;
+    r.eventIdleMs = 0;
+    r.eventUp = r.eventDown = r.eventTotal = 0;
 }
 
 // "N wipe(s), M near wipe(s)", or "" for none.
@@ -1585,11 +1610,257 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
     NextStep(r, kind + " done");
 }
 
+// ---------------------------------------------------------------------------
+// Scripted events (docs/guides/dungeon-run-leader.md "Events"): a start step
+// (`ritual` here; `open` and `use_item` start events too), then a `hold` that
+// stands on a spot and fights what the event sends until its done condition.
+// ---------------------------------------------------------------------------
+
+// The bots of a ritual: the carrier (the lead bot) first, then the nearest
+// living bots of the party, `want` in all (fewer when the party has fewer).
+inline std::vector<std::string> RitualBots(const Facts& f, std::uint32_t want)
+{
+    std::vector<const MemberFact*> others;
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && m.name != f.carrier)
+            others.push_back(&m);
+    std::sort(others.begin(), others.end(), [](const MemberFact* a, const MemberFact* b) { return a->yd < b->yd; });
+    std::vector<std::string> names;
+    if (!f.carrier.empty() && want)
+        names.push_back(f.carrier);
+    for (const MemberFact* m : others)
+        if (names.size() < want)
+            names.push_back(m->name);
+    return names;
+}
+
+// ritual: `cmd ritual` for `param` bots (the commander's own order: they walk
+// to the object, use it in turn and hold still until it has cast), then its
+// one answer. An ERR pauses with the module's words; it never waits blind.
+inline void RitualStep(Run& r, const Facts& f, const PlanStep& s, std::string& order)
+{
+    std::string const what = "ritual " + std::to_string(s.entry);
+    std::uint32_t const want = s.param ? s.param : ai::kPlanDefaultRitualBots;
+    if (!r.orderSent)
+    {
+        if (f.carrierBusy)
+        {
+            r.note = what + ": waiting for " + f.carrier + " to finish an earlier order";
+            return;
+        }
+        std::vector<std::string> const bots = RitualBots(f, want);
+        if (bots.size() < want)
+        {
+            Pause(r, what + " needs " + std::to_string(want) + " living bots; " + std::to_string(bots.size()) +
+                " are up (revive the party, then .bot run resume)");
+            return;
+        }
+        r.orderSent = true;
+        EnterPhase(r, Phase::AwaitTask);
+        order = "ritual " + EntryArg(s.entry, s.x, s.y, s.z);
+        std::string list;
+        for (const std::string& name : bots)
+        {
+            order += " " + name;
+            list += (list.empty() ? "" : ", ") + name;
+        }
+        r.note = what + ": starting the event (" + list + ")";
+        return;
+    }
+    if (f.taskReply == 2)
+    {
+        Pause(r, what + " failed: " + f.taskText);
+        return;
+    }
+    if (f.taskReply == 1)
+    {
+        NextStep(r, what + " done: the event started");
+        return;
+    }
+    if (f.carrierBusy)
+    {
+        if (r.phaseMs >= kTaskCapMs)
+            Pause(r, what + ": the bots did not finish in " + std::to_string(kTaskCapMs / 1000) + " s");
+        return;
+    }
+    if (r.phaseMs >= kRitualNoReplyMs)
+        Pause(r, what + ": the bots are free again but the ritual gave no answer (.bot run resume tries it again)");
+}
+
+// The event's units now (the glue lists the living ones within the hold's
+// radius, the friendly, still dormant ones too, and counts the dead).
+inline void CountEvent(Run& r, const Facts& f)
+{
+    std::uint32_t up = 0;
+    for (const UnitFact& u : f.units)
+        up += u.hostile ? 1 : 0;
+    r.eventUp = up;
+    r.eventDown = f.eventDown;
+    r.eventTotal = static_cast<std::uint32_t>(f.units.size()) + f.eventDown;
+}
+
+// "2 of 4 down, 1 awake", or "" before any unit of the event was seen.
+inline std::string EventProgress(const Run& r)
+{
+    if (!r.eventTotal)
+        return std::string();
+    return std::to_string(r.eventDown) + " of " + std::to_string(r.eventTotal) + " down" +
+        (r.eventUp ? ", " + std::to_string(r.eventUp) + " awake" : std::string());
+}
+
+// The step that started the event a hold waits on: the nearest ritual, open or
+// use_item before it, with only moves, rests and waits between. npos for none.
+inline std::size_t EventStartStep(const Run& r)
+{
+    if (!r.plan)
+        return static_cast<std::size_t>(-1);
+    for (std::size_t i = r.step; i-- > 0;)
+    {
+        PlanStepKind const k = r.plan->steps[i].kind;
+        if (k == PlanStepKind::Ritual || k == PlanStepKind::Open || k == PlanStepKind::UseItem)
+            return i;
+        if (k != PlanStepKind::Move && k != PlanStepKind::MoveDirect && k != PlanStepKind::Rest &&
+            k != PlanStepKind::WaitObject && k != PlanStepKind::WaitClear)
+            break;
+    }
+    return static_cast<std::size_t>(-1);
+}
+
+// The event reset (or never started): the run goes back to the step that
+// starts it and pauses, so `.bot run resume` regroups and starts it again.
+inline void EventFailed(Run& r, const std::string& why)
+{
+    std::size_t const start = EventStartStep(r);
+    std::string again = ": .bot run resume waits for it again, .bot run skip goes on without it";
+    if (start != static_cast<std::size_t>(-1))
+    {
+        r.step = start;
+        r.autoRegroups = 0;
+        ResetStep(r);
+        again = ": .bot run resume regroups and starts it again at step " + std::to_string(start + 1) + " (" +
+            ai::PlanStepKindName(r.plan->steps[start].kind) + ")";
+    }
+    r.fighting = false;
+    Pause(r, "event failed (" + why + ")" + again);
+}
+
+// hold: walks to the spot, then stands there and lets the bots fight what the
+// event sends (no pulls of its own, but for an awake unit of the event that
+// does not come within kHoldIdlePullMs), walks back to the spot after a fight
+// that took it more than kHoldReturnYd away, and ends on the done condition.
+// A failed event goes back to its start step (EventFailed); `timeout_s` is the
+// event's ceiling, fights included.
+inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order)
+{
+    if (r.phase == Phase::AwaitPull)
+    {
+        AwaitPull(r);
+        if (r.phase == Phase::AwaitPull)
+            return;
+    }
+    if (!f.seen)
+    {
+        ApproachHop(r, f, s, dt, order, "event spot");
+        return;
+    }
+    r.eventOn = true;
+    CountEvent(r, f);
+    std::string const progress = EventProgress(r);
+    std::string const tail = progress.empty() ? std::string() : " (" + progress + ")";
+    std::string const data = "data " + std::to_string(s.entry);
+    if (s.flags & ai::kPlanFlagDoneData)
+    {
+        if (f.eventData < 0)
+        {
+            Pause(r, "event: the lead bot's map has no instance data to read (" + data + ")");
+            return;
+        }
+        if (f.eventData == static_cast<long long>(s.param))
+        {
+            NextStep(r, "event done: " + data + " reads " + std::to_string(s.param) + tail);
+            return;
+        }
+        if (s.flags & ai::kPlanFlagEncounter)
+        {
+            bool const notStarted = f.eventData == static_cast<long long>(ai::kPlanEncounterNotStarted);
+            bool const failed = f.eventData == static_cast<long long>(ai::kPlanEncounterFail);
+            if (!notStarted && !failed)
+                r.eventStarted = true;
+            if (failed)
+            {
+                EventFailed(r, data + " reads 2, fail: the encounter reset" + tail);
+                return;
+            }
+            if (notStarted && r.eventStarted)
+            {
+                EventFailed(r, data + " is back to 0, not started: the encounter reset" + tail);
+                return;
+            }
+            if (notStarted && r.eventMs >= kEventStartMs)
+            {
+                EventFailed(r, data + " did not leave 0, not started, in " + std::to_string(kEventStartMs / 1000) +
+                    " s: the start did not take");
+                return;
+            }
+        }
+    }
+    else if (s.flags & ai::kPlanFlagDoneObject)
+    {
+        if (f.objectState == static_cast<int>(s.param))
+        {
+            NextStep(r, "event done: object " + std::to_string(s.entry) + " is in state " + std::to_string(s.param) + tail);
+            return;
+        }
+    }
+    else
+    {
+        if (r.eventUp)
+            r.eventStarted = true;
+        if (r.eventStarted && f.units.empty())
+        {
+            NextStep(r, "event done: every unit of it is dead" + tail);
+            return;
+        }
+    }
+    if (r.eventMs >= s.timeoutS * 1000u)
+    {
+        Pause(r, "event not done after " + std::to_string(s.timeoutS) + " s" + tail +
+            ": .bot run resume waits again, .bot run skip goes on");
+        return;
+    }
+    // Hold the spot: walk there first, and back after a fight that took the
+    // lead bot away (the bots chase in a fight; the run brings them back).
+    float const fromSpot = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z);
+    if (!r.holdArrived || fromSpot > kHoldReturnYd)
+    {
+        if (!WalkTo(r, f, s.x, s.y, s.z, false, dt, order))
+        {
+            if (r.state == State::Running)
+                r.note = (r.holdArrived ? "event: back to the hold spot" : "event: walking to the hold spot") + tail;
+            return;
+        }
+        r.holdArrived = true;
+    }
+    if (r.phase != Phase::Hold)
+        EnterPhase(r, Phase::Hold);
+    // An awake unit of the event that does not come is pulled after a while.
+    const UnitFact* idle = PickPull(r, f.units, 0);
+    r.eventIdleMs = idle ? r.eventIdleMs + dt : 0;
+    if (idle && r.eventIdleMs >= kHoldIdlePullMs)
+    {
+        r.eventIdleMs = 0;
+        PullUnit(r, f, *idle, order);
+        return;
+    }
+    r.note = "event: holding the spot" + tail;
+}
+
 // The out-of-combat ceiling of a step: kStepIdleCapMs, or a wait's own
 // timeout plus a minute to get there when that is longer.
 inline std::uint32_t StepIdleCapMs(const PlanStep& s)
 {
-    bool const wait = s.kind == PlanStepKind::WaitObject || s.kind == PlanStepKind::WaitClear;
+    bool const wait = s.kind == PlanStepKind::WaitObject || s.kind == PlanStepKind::WaitClear ||
+        s.kind == PlanStepKind::Hold;
     std::uint32_t const own = wait ? s.timeoutS * 1000 + 60000 : 0;
     return own > kStepIdleCapMs ? own : kStepIdleCapMs;
 }
@@ -1609,6 +1880,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         return order;
     }
     r.phaseMs += dt;
+    if (r.eventOn)
+        r.eventMs += dt; // an event's clock runs in its fights too
     r.gatherOrder.clear(); // only this tick's gather can be refused next
     if (f.anchorPathRead)
         r.anchorPathWanted = false;
@@ -1719,7 +1992,11 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
             r.fightMs = 0;
         }
         r.fightMs += dt;
-        std::uint32_t const cap = s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
+        // A hold's fights are the event (one wave after the other, no pause
+        // between): its own timeout bounds them when that is longer.
+        std::uint32_t const holdCap = s->timeoutS * 1000u > kBossFightCapMs ? s->timeoutS * 1000u : kBossFightCapMs;
+        std::uint32_t const cap = s->kind == PlanStepKind::Hold ? holdCap
+                                : s->kind == PlanStepKind::Boss ? kBossFightCapMs : kFightCapMs;
         if (r.fightMs > cap && autoRegroup)
         {
             // kWipeDead or more dead and one left fighting past the ceiling:
@@ -1741,6 +2018,13 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         }
         r.note = autoRegroup ? std::to_string(f.dead) + " dead: fighting on, a regroup follows"
                : !f.leadAlive ? std::string("the lead bot is dead: the others fight on") : std::string("fighting");
+        if (s->kind == PlanStepKind::Hold && r.eventOn && f.seen)
+        {
+            CountEvent(r, f);
+            std::string const progress = EventProgress(r);
+            if (!autoRegroup && f.leadAlive)
+                r.note = "event: fighting" + (progress.empty() ? std::string() : " (" + progress + ")");
+        }
         if (CheckCc(r, f, dt, order))
             return order;
         // The plan's kill_first unit of the fight (a healer, its healing ward)
@@ -1866,12 +2150,30 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         case PlanStepKind::Rest:
             NextStep(r, "rested");
             break;
+        case PlanStepKind::Ritual:
+            RitualStep(r, f, *s, order);
+            break;
+        case PlanStepKind::Hold:
+            HoldStep(r, f, *s, dt, order);
+            break;
         default:
             Pause(r, std::string("step kind ") + ai::PlanStepKindName(s->kind) +
                 " is not supported yet: do it by hand, then .bot run skip and .bot run resume");
             break;
     }
     return order;
+}
+
+// The run's phase as the status line and the dashboard show it: during an
+// event's hold, how far the event is ("hold 1/4 down", "fight 2/4 down": units
+// of the event dead of all seen), else the phase's name.
+inline std::string PhaseText(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    if (s && s->kind == PlanStepKind::Hold && r.eventOn && r.eventTotal && r.state == State::Running)
+        return std::string(r.fighting ? "fight " : "hold ") + std::to_string(r.eventDown) + "/" +
+            std::to_string(r.eventTotal) + " down";
+    return PhaseName(r.phase);
 }
 
 // The status line for the commander:
@@ -1892,13 +2194,13 @@ inline std::string StatusLine(const Run& r)
         leg = std::to_string(s->leg);
     return "TBM:RUN|" + (r.plan ? r.plan->name : std::string("-")) + "|" + StateName(r.state) + "|" +
         std::to_string(shown) + "/" + std::to_string(total) + "|" + (leg.empty() ? "-" : leg) + "|" +
-        (s ? ai::PlanStepKindName(s->kind) : "-") + "|" + PhaseName(r.phase) + "|" + (note.empty() ? "-" : note);
+        (s ? ai::PlanStepKindName(s->kind) : "-") + "|" + PhaseText(r) + "|" + (note.empty() ? "-" : note);
 }
 
 // Which steps the run leader does today; the rest pause the run.
 inline bool Supported(PlanStepKind kind)
 {
-    return kind != PlanStepKind::None && kind != PlanStepKind::Ritual;
+    return kind != PlanStepKind::None;
 }
 
 } // namespace DungeonRun
