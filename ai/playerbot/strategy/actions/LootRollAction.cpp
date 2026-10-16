@@ -536,7 +536,7 @@ bool RollAction::ShouldWaitForPlayers(ObjectGuid lootGuid, uint32 slot)
 // (usually 5), no world scan, no DB.
 bool RollAction::AllRealRollersVoted(ObjectGuid lootGuid, uint32 slot)
 {
-    const ItemQualifier itemQualifier = GetRollItem(lootGuid, slot);
+    ItemQualifier itemQualifier = GetRollItem(lootGuid, slot);
     const ItemPrototype* proto = itemQualifier.GetProto();
     if (!proto)
         return false;
