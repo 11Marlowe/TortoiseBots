@@ -37,11 +37,42 @@ namespace ai
     // walks talents for a role the bot was not told), then "inSight" (a
     // line-of-sight ray). The last two are callables so they only run when
     // everything before them passed. This runs every tick in a raid.
-    template <typename IsHealer, typename InSight>
-    inline bool HealerCoversAlly(bool alive, bool sameMap, float distanceToAlly, float maxDistance,
-        bool classCanHeal, IsHealer isHealer, InSight inSight)
+    // A healer only covers while it can act: not stunned, feared, confused,
+    // charmed, silenced or pacified, and with enough mana left to heal. Out of
+    // mana or crowd-controlled it covers nobody, so the others do not leave the
+    // ally to it. Every healing class uses mana.
+    constexpr float kCoverMinManaPct = 20.0f;
+
+    inline bool HealerFitToCover(bool lostControl, bool silencedOrPacified, float manaPct)
     {
-        return alive && sameMap && distanceToAlly <= maxDistance && classCanHeal && isHealer() && inSight();
+        return !lostControl && !silencedOrPacified && manaPct >= kCoverMinManaPct;
+    }
+
+    // "isFit" (HealerFitToCover from the unit's flags and mana) and "isHealer"
+    // run after the plain tests and the class filter, "inSight" last.
+    template <typename IsFit, typename IsHealer, typename InSight>
+    inline bool HealerCoversAlly(bool alive, bool sameMap, float distanceToAlly, float maxDistance,
+        bool classCanHeal, IsFit isFit, IsHealer isHealer, InSight inSight)
+    {
+        return alive && sameMap && distanceToAlly <= maxDistance && classCanHeal && isFit() && isHealer() && inSight();
+    }
+
+    // The reach limit of the trigger, the walk-up and the target pick: heal
+    // range (the battleground one inside a battleground) less the contact
+    // distance.
+    inline float HealReachLimitFor(bool inBattleground, float healDistance, float healDistanceBg, float contactDistance)
+    {
+        return (inBattleground ? healDistanceBg : healDistance) - contactDistance;
+    }
+
+    // Target pick, in combat: an ally this healer cannot reach and another
+    // healer covers is left to that healer, so this one falls back to somebody
+    // it can reach. An ally at or below the critical line always stays on the
+    // list, covered or not. The two callables run only when needed.
+    template <typename OutOfReach, typename Covered>
+    inline bool DropCoveredCandidate(float healthPct, float criticalHealthPct, OutOfReach outOfReach, Covered covered)
+    {
+        return healthPct > criticalHealthPct && outOfReach() && covered();
     }
 
     inline bool HealReachWanted(bool inCombat, float targetHealthPct, float almostFullHealthPct,

@@ -111,7 +111,8 @@ static float effectiveHealthPercent(const Unit* u, bool incomingDamage, std::map
 
 float ai::HealReachLimit(PlayerbotAI* ai)
 {
-    return ai->GetRange("heal") - sPlayerbotAIConfig.contactDistance;
+    return HealReachLimitFor(ai->GetBot()->InBattleGround(), ai->GetRange("heal"), sPlayerbotAIConfig.healDistanceBg,
+        sPlayerbotAIConfig.contactDistance);
 }
 
 bool ai::AnotherHealerCoversAlly(PlayerbotAI* ai, Unit* ally, float maxDistance)
@@ -129,7 +130,15 @@ bool ai::AnotherHealerCoversAlly(PlayerbotAI* ai, Unit* ally, float maxDistance)
         bool const classCanHeal = cls == CLASS_PRIEST || cls == CLASS_PALADIN || cls == CLASS_DRUID || cls == CLASS_SHAMAN;
         bool const sameMap = member->GetMap() == bot->GetMap();
         if (HealerCoversAlly(member->IsAlive(), sameMap, sameMap ? member->GetDistance(ally, SizeFactor::CombatReach) : 0.0f,
-                maxDistance, classCanHeal, [member]() { return PlayerbotAI::IsHeal(member); },
+                maxDistance, classCanHeal,
+                [member]()
+                {
+                    uint32 const maxMana = member->GetMaxPower(POWER_MANA);
+                    float const manaPct = maxMana ? member->GetPower(POWER_MANA) * 100.0f / maxMana : 100.0f;
+                    return HealerFitToCover(member->HasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL),
+                        (member->GetUInt32Value(UNIT_FIELD_FLAGS) & (UNIT_FLAG_SILENCED | UNIT_FLAG_PACIFIED)) != 0, manaPct);
+                },
+                [member]() { return PlayerbotAI::IsHeal(member); },
                 [member, ally]() { return member->IsWithinLOSInMap(ally, true); }))
             return true;
     }
@@ -236,9 +245,13 @@ Unit* PartyMemberToHeal::Calculate()
         {
             list.erase(std::remove_if(list.begin(), list.end(), [this, reachLimit](Unit* candidate)
             {
-                bool const outOfReach = bot->GetDistance(candidate, SizeFactor::CombatReach) > reachLimit ||
-                    !bot->IsWithinLOSInMap(candidate, true);
-                return outOfReach && AnotherHealerCoversAlly(ai, candidate, reachLimit);
+                return DropCoveredCandidate(candidate->GetHealthPercent(), float(sPlayerbotAIConfig.criticalHealth),
+                    [&]()
+                    {
+                        return bot->GetDistance(candidate, SizeFactor::CombatReach) > reachLimit ||
+                            !bot->IsWithinLOSInMap(candidate, true);
+                    },
+                    [&]() { return AnotherHealerCoversAlly(ai, candidate, reachLimit); });
             }), list.end());
         };
         dropCovered(needHeals);

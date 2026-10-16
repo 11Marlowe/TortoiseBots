@@ -354,7 +354,7 @@ namespace ai
             // only when the ally really is out of reach.
             bool const inCombat = ai->IsStateActive(BotState::BOT_STATE_COMBAT);
             return HealReachWanted(inCombat, target->GetHealthPercent(), float(sPlayerbotAIConfig.almostFullHealth),
-                inCombat && AnotherHealerCoversAlly(ai, target, distance - sPlayerbotAIConfig.contactDistance));
+                inCombat && AnotherHealerCoversAlly(ai, target, HealReachLimit(ai)));
         }
     };
 
