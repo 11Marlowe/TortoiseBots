@@ -91,8 +91,9 @@ private:
 
     uint32_t m_instanceSweepMs = 0; // last alone-in-instance sweep (WorldTimer)
     mutable std::mutex m_sessionsMutex;
-     std::unordered_map<uint32_t, Session> m_sessions; // key = alt guid counter
-     std::mutex m_pendingMutex;
-     std::vector<ObjectGuid> m_pendingLeaves;
+    std::unordered_map<uint32_t, Session> m_sessions; // key = alt guid counter
+    std::mutex m_pendingMutex;
+    std::vector<ObjectGuid> m_pendingLeaves;
+};
 
 } // namespace TortoiseBots

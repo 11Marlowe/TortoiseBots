@@ -311,7 +311,8 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why =
     // Issue #872: autonomous alts get stuck-recovery like the pool.
     if (!record || (!record->random && !AltBotService::Instance().IsAutonomous(bot->GetObjectGuid())) ||
         record->lifecycle != BotLifecycle::InWorld)
-        return no(!record ? "no bot record" : "not a random bot" : "record not in world");
+        return no(!record ? "no bot record" :
+            record->lifecycle != BotLifecycle::InWorld ? "record not in world" : "not a random bot");
     if (!record->masterGuid.IsEmpty())
         return no("has a master");
     if (sRandomBotFacade.IsPinnedBot(bot->GetGUIDLow()))

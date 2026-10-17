@@ -8,6 +8,7 @@
 #include "MaintenanceValues.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"
+#include "runtime/AltBotService.h"
 #include "BudgetValues.h"
 #include "GuildValues.h"
 #include "Guild/GuildMgr.h"
