@@ -57,6 +57,18 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("cx = f.approachX;", facts)
         self.assertIn("f.members.push_back(member);", facts)
 
+    def test_help_reads_cached_attackers_only(self):
+        # The help for a member fighting on its way back (DungeonRun::HelpReturning) reads the
+        # core's attacker set of each bot and resolves the remembered guids one by one: no scan.
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("for (Unit* attacker : bot->GetAttackers())", facts)
+        self.assertIn("f.leadInCombat = member.inCombat;", facts)
+        self.assertIn("for (uint64 raw : slot.run.helpGuids)", facts)
+        self.assertIn("Unit* unit = lead->GetMap()->GetUnit(ObjectGuid(raw));", facts)
+        self.assertIn("f.helpPathCrossesPack = PathCrossesUnclearedPack(", facts)
+        help_block = facts[facts.index("for (uint64 raw : slot.run.helpGuids)"):]
+        self.assertNotIn("Cell::Visit", help_block[:1500])
+
     def test_boss_down_needs_his_corpse(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("if (bossEntry && fromPoint <= step->radius + kSeeYd)\n"

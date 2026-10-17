@@ -179,6 +179,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_ooc_rebirth_policy
         test_ossirian_crystal_policy
         test_owned_bot_qol_policy
+        test_party_help_policy
         test_pet_revive_policy
         test_pet_spell_rank_policy
         test_pet_taunt_policy

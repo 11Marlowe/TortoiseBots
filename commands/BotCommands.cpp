@@ -9023,6 +9023,17 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.inCombat = bot->IsInCombat();
+        if (bot == lead)
+            f.leadInCombat = member.inCombat;
+        // Its own attackers: the core's attacker set of that bot (no scan),
+        // for a member fighting alone on its way back (DungeonRun::HelpReturning).
+        member.x = bot->GetPositionX();
+        member.y = bot->GetPositionY();
+        member.z = bot->GetPositionZ();
+        if (bot != lead && bot->GetMap() == lead->GetMap())
+            for (Unit* attacker : bot->GetAttackers())
+                if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
+                    member.attackers.push_back(attacker->GetObjectGuid().GetRawValue());
         f.members.push_back(member);
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
@@ -9061,6 +9072,40 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // already calculated), resolved by guid. No grid or world scan.
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
+
+    // A help in progress (DungeonRun::HelpReturning): the attackers it
+    // remembers, resolved by guid on the lead bot's map (no scan; a dead,
+    // despawned or far one is left out), and one navmesh query toward the
+    // point the policy asked for: its next hop and whether that path passes an
+    // uncleared pack.
+    if (!slot.run.helpBot.empty() && lead->IsAlive() && lead->IsInWorld() && slot.run.plan &&
+        lead->GetMapId() == slot.run.plan->map)
+    {
+        for (uint64 raw : slot.run.helpGuids)
+        {
+            Unit* unit = lead->GetMap()->GetUnit(ObjectGuid(raw));
+            if (!unit || !unit->IsInWorld() || !unit->IsAlive() || sServerFacade.IsFriendlyTo(unit, lead))
+                continue;
+            float const dist = lead->GetDistance(unit);
+            if (dist > kHelpMaxYd + kSeeYd)
+                continue;
+            UnitFact fact;
+            fact.guid = raw;
+            fact.entry = unit->GetEntry();
+            fact.distLead = dist;
+            fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
+            fact.x = unit->GetPositionX();
+            fact.y = unit->GetPositionY();
+            fact.z = unit->GetPositionZ();
+            f.helpUnits.push_back(fact);
+        }
+        std::vector<PathPoint> whole;
+        f.helpHopKnown = ApproachOnPath(lead, slot.run.helpX, slot.run.helpY, slot.run.helpZ, f.helpHopX, f.helpHopY,
+            f.helpHopZ, &whole);
+        if (f.helpHopKnown)
+            f.helpPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,
+                slot.run.notCleared);
+    }
 
     // The current step, or during a walk back after a regroup the move point
     // it replays (its hop pulls are read for that point).
