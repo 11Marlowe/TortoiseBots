@@ -1,7 +1,8 @@
 // Standalone check for the run leader's Uldaman run 4 fixes (2026-10-17, runtime/DungeonRunPolicy.h):
 //   g++ -std=c++17 -Wall -Wextra tools/test_run_leader_sentinel_policy.cpp -o /tmp/test_run_leader_sentinel_policy && /tmp/test_run_leader_sentinel_policy
 //  - the tank's reach for a pull stops once a mob has aggro (CheckReach),
-//  - a walk back replays the plan's points only from the last point before the first direct step,
+//  - a walk back replays every direct step the lead bot has not crossed (route checkpoint), from the last point
+//    before the first of them,
 //  - a dead bot is revived first, before any walk back point or direct step (FallenFirst).
 // The healer's stay during a reach and its heal-only stance are glue and AI rules (tools/test_run_leader_wiring.py,
 // tools/test_run_healer_policy.cpp).
@@ -144,31 +145,24 @@ static void TestWalkBackStartsBeforeTheFirstDirectStep()
     f.seen = true;
     f.leadX = 90;
     CHECK(Tick(r, f).empty()); // arrived at idx 2
-    CHECK(r.walkBackIdx == 3);
+    CHECK(r.walkBackIdx == 3 && r.checkpoint == 2 && r.routeKnown);
     CHECK(Tick(r, f) == "move 100.0 0.0 0.0 direct");
 
-    // A lead bot already east of the hole walks straight to the last point.
+    // A lead bot known east of the hole (its checkpoint is step 6) walks straight to the last point.
     Run e = Start(&plan, 7);
+    NoteCheckpoint(e, 5);
     Facts g = Party(140);
     g.seen = false;
     StartWalkBack(e, g);
     CHECK(e.walkBack && e.walkBackDirect && e.walkBackIdx == 6);
 
-    // A lead bot on the direct step itself starts at it.
+    // A lead bot known between the hops (it reached the first one): the second hop is replayed, from the first.
     Run d = Start(&plan, 7);
+    NoteCheckpoint(d, 3);
     Facts h = Party(104);
     h.seen = false;
     StartWalkBack(d, h);
-    CHECK(d.walkBack && d.walkBackIdx >= 3);
-
-    // Without a direct step on the way: straight to the last point, as before.
-    DungeonPlan flat;
-    flat.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 90), PullStep(230, {1})};
-    Run p = Start(&flat, 2);
-    Facts k = Party(0);
-    k.seen = false;
-    StartWalkBack(p, k);
-    CHECK(p.walkBack && p.walkBackDirect && p.walkBackIdx == 1);
+    CHECK(d.walkBack && d.walkBackIdx == 3);
 
     // Two holes: the first one decides where the replay starts.
     DungeonPlan two;
@@ -182,44 +176,149 @@ static void TestWalkBackStartsBeforeTheFirstDirectStep()
     CHECK(t.walkBack && t.walkBackDirect && t.walkBackIdx == 1);
 }
 
-// Uldaman doubles back: a point past the pit can lie nearer the entrance than the route's own first points. The lead
-// bot at the entrance still starts before the hole (it stands before every hole of the route), not at the nearest point.
-static void TestFoldedRouteStartsFromTheEntrance()
+// The folded route (Uldaman doubles back): 0-1 before the hole, 2-3 the direct hops over it, 4-5 past it, 6 a later
+// point that folds back to (160, 0), 7 the pull. The party's checkpoint is step 6 (index 5) when the lead bot dies.
+static DungeonPlan FoldedPlan()
 {
     DungeonPlan plan;
-    // 0-1 west of the hole, 2-3 the direct hops over it, 4 a point past the hole that lies 11 yd from the entrance
-    // (the fold), 5 far east, 6 the pull.
-    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80), Step(PlanStepKind::MoveDirect, 90),
-        Step(PlanStepKind::MoveDirect, 100), Step(PlanStepKind::Move, 11), Step(PlanStepKind::Move, 300),
-        PullStep(330, {1})};
-    Run r = Start(&plan, 6);
-    Facts f = Party(0); // the entrance
+    plan.steps = {Step(PlanStepKind::Move, 0, 0), Step(PlanStepKind::Move, 40, 0), Step(PlanStepKind::MoveDirect, 50, 10),
+        Step(PlanStepKind::MoveDirect, 60, 20), Step(PlanStepKind::Move, 100, 100), Step(PlanStepKind::Move, 150, 150),
+        Step(PlanStepKind::Move, 160, 0), PullStep(200, {1})};
+    plan.steps[7].y = 200;
+    return plan;
+}
+
+static Facts At(float x, float y, bool alive = true)
+{
+    Facts f = Party(x);
+    f.leadY = y;
+    f.leadAlive = alive;
     f.seen = false;
-    CHECK(NearestMovePoint(r, f) == 4); // by distance the fold point is the nearest
+    return f;
+}
+
+// The lead bot dies at its checkpoint (150, 150) and comes back to life at (x, y).
+static Run DiesAndRevivesAt(const DungeonPlan& plan, float x, float y)
+{
+    Run r = Start(&plan, 7);
+    NoteCheckpoint(r, 5);
+    NoteLeadDeath(r, At(150, 150));        // alive at the checkpoint
+    NoteLeadDeath(r, At(150, 150, false)); // dead
+    CHECK(r.routeCheck);
+    NoteLeadDeath(r, At(x, y));            // alive again
+    r.leadDied = false;                    // ... and regrouped (the regroup ends the death)
+    return r;
+}
+
+// Codex round 2 on #1079: the lead bot revived more than 60 yd from the plan's first point, a later folded point is
+// the nearest and reachable, and the recovery must still replay the earlier direct steps.
+static void TestFoldedRouteReplaysTheEarlierHole()
+{
+    DungeonPlan plan = FoldedPlan();
+    Facts f = At(165, 5);
+    Run r = DiesAndRevivesAt(plan, 165, 5);
+    CHECK(!r.routeKnown); // came back away from where it fell: where it is on the route is not known
+    CHECK(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, 0, 0, 0) > kSeeYd);
+    CHECK(NearestMovePoint(r, f) == 6); // by distance the fold point is the nearest
+    f.approachKnown = true;             // ... and reachable
     StartWalkBack(r, f);
     CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 1 && r.walkBackStart == 1);
-    // At step 2 the straight walk is over: the plan's points go on one by one, the straight cap no longer applies.
-    f.seen = true;
-    f.leadX = 80;
-    CHECK(Tick(r, f).empty());
-    CHECK(r.walkBackIdx == 2 && !r.walkBackDirect);
-    CHECK(Tick(r, f) == "move 90.0 0.0 0.0 direct");
+    // The straight way to step 2 fails: the replay from the nearest point stays before the hole, never step 7.
+    f.approachKnown = false;
+    Tick(r, f);
+    CHECK(r.walkBack && !r.walkBackDirect && r.walkBackIdx < 2);
+    // The replay crosses the hole in plan order.
+    Facts at1 = At(40, 0);
+    at1.seen = true;
+    r.walkBackIdx = 1;
+    EnterPhase(r, Phase::Begin);
+    CHECK(Tick(r, at1).empty());
+    CHECK(r.walkBackIdx == 2 && r.checkpoint == 1);
+    CHECK(Tick(r, at1) == "move 50.0 10.0 0.0 direct");
 
-    // A replay that cannot begin (no walkable path to its first point: it began on the wrong side of a hole) goes
-    // back to the plan's first point, once.
-    Run q = Start(&plan, 6);
-    q.walkBack = true;
-    q.walkBackIdx = q.walkBackStart = 4;
-    EnterPhase(q, Phase::Begin);
-    Facts g = Party(0);
-    g.seen = false;
-    g.approachKnown = false;
-    Tick(q, g);
-    CHECK(q.walkBack && q.walkBackRestarted && q.walkBackIdx == 0 && q.walkBackStart == 0);
-    CHECK(q.note.find("first point") != std::string::npos);
-    // Not again: the next failure passes the point as before.
-    Tick(q, g);
-    CHECK(q.walkBackIdx == 1 && q.note.find("on to the next") != std::string::npos);
+    // The full wipe recovery: the lead bot dies in a fight at its checkpoint, `revive party` brings it back at a
+    // spot where the fold point is nearest; once the party is gathered the walk back starts before the hole.
+    Run w = Start(&plan, 7);
+    NoteCheckpoint(w, 5);
+    Facts alive = At(150, 150);
+    NoteLeadDeath(w, alive); // the living lead bot seen at its checkpoint
+    Facts dead = alive;
+    dead.leadAlive = false;
+    dead.dead = 1;
+    dead.alive = 4;
+    dead.deadNames = {"Tanky"};
+    std::string sent;
+    for (int i = 0; i < 3 && sent != "revive party"; ++i)
+        sent = Tick(w, dead);
+    CHECK(sent == "revive party" && w.regroup && w.walkBackDue);
+    Facts back = At(165, 5);
+    back.members = {Mem("Tanky", 0), Mem("Bearcaller", 3)};
+    back.approachKnown = true;
+    for (int i = 0; i < 6 && w.regroup; ++i)
+        Tick(w, back);
+    CHECK(!w.regroup && w.walkBack && w.walkBackIdx == 1 && !w.routeKnown);
+}
+
+// A revive at the entrance (14:03 and 14:39: (-229, 46)): before every hole, the replay starts before the first.
+static void TestEntranceReviveReplaysEveryHole()
+{
+    DungeonPlan plan = FoldedPlan();
+    Run r = DiesAndRevivesAt(plan, 2, 1);
+    CHECK(!r.routeKnown);
+    StartWalkBack(r, At(2, 1));
+    CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 1);
+}
+
+// Raised where it fell, past every hole: no replay of the holes, straight to the last point; a fallback replay stays
+// on the checkpoint's stretch.
+static void TestRevivePastAllHolesNeedsNoReplay()
+{
+    DungeonPlan plan = FoldedPlan();
+    Run r = DiesAndRevivesAt(plan, 152, 150);
+    CHECK(r.routeKnown && r.checkpoint == 5);
+    Facts f = At(152, 150);
+    StartWalkBack(r, f);
+    CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 6);
+    f.approachKnown = false;
+    Tick(r, f); // the straight way fails: the replay starts at the checkpoint, not behind the hole
+    CHECK(r.walkBack && r.walkBackIdx >= 5);
+
+    // A pause with the lead bot left where it stood keeps the checkpoint; a lead bot moved away loses it.
+    Run p = Start(&plan, 7);
+    NoteCheckpoint(p, 5);
+    NoteLeadDeath(p, At(150, 150));
+    Pause(p, "test");
+    NoteLeadDeath(p, At(151, 150));
+    CHECK(p.routeKnown && !p.routeCheck);
+    Run q = Start(&plan, 7);
+    NoteCheckpoint(q, 5);
+    NoteLeadDeath(q, At(150, 150));
+    Pause(q, "test");
+    NoteLeadDeath(q, At(165, 5));
+    CHECK(!q.routeKnown);
+    StartWalkBack(q, At(165, 5));
+    CHECK(q.walkBack && q.walkBackIdx == 1);
+}
+
+// No direct step in the plan: the old rule, whatever the checkpoint.
+static void TestNoDirectStepKeepsTheOldWalkBack()
+{
+    DungeonPlan flat;
+    flat.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 90), Step(PlanStepKind::Move, 150),
+        PullStep(230, {1})};
+    Run p = Start(&flat, 3);
+    StartWalkBack(p, At(0, 0));
+    CHECK(p.walkBack && p.walkBackDirect && p.walkBackIdx == 2);
+    Run k = Start(&flat, 3);
+    NoteCheckpoint(k, 1);
+    StartWalkBack(k, At(0, 0));
+    CHECK(k.walkBack && k.walkBackDirect && k.walkBackIdx == 2);
+    Run n = Start(&flat, 3);
+    StartWalkBack(n, At(220, 0)); // near the step
+    CHECK(!n.walkBack);
+    Run o = Start(&flat, 3);
+    StartWalkBack(o, At(151, 0)); // on the last point
+    CHECK(!o.walkBack && o.checkpoint == 2 && o.routeKnown);
 }
 
 // 14:03: a bot that died after the regroup was over (the rogue on his corpse run) held the walk back at the pit's
@@ -281,7 +380,10 @@ int main()
 {
     TestReachStopsOnAggro();
     TestWalkBackStartsBeforeTheFirstDirectStep();
-    TestFoldedRouteStartsFromTheEntrance();
+    TestFoldedRouteReplaysTheEarlierHole();
+    TestEntranceReviveReplaysEveryHole();
+    TestRevivePastAllHolesNeedsNoReplay();
+    TestNoDirectStepKeepsTheOldWalkBack();
     TestDeadBotIsRevivedBeforeAWalkBackOrADirectStep();
     std::cout << "ok\n";
     return 0;
