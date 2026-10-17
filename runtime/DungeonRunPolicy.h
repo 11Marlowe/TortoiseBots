@@ -99,6 +99,8 @@ constexpr std::uint32_t kFightCapMs = 180000;
 constexpr std::uint32_t kBossFightCapMs = 420000;
 constexpr std::uint32_t kRestCapMs = 60000;
 constexpr std::uint32_t kRestRepeatMs = 20000;
+constexpr std::uint32_t kPartyRezWaitMs = 15000;  // a regroup with a living rezzer (priest, paladin, shaman) waits this
+                                                  // long for its resurrection before `revive party` releases the dead
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
@@ -218,6 +220,8 @@ struct Facts
     std::uint32_t minHealthPct = 100;   // living bots
     std::uint32_t minHealerManaPct = 100;
     std::uint32_t minManaPct = 100;     // mana users that are not healers
+    std::uint32_t eating = 0;           // living bots with a food or drink aura up (seated: standing ends it)
+    bool rezzer = false;                // a living bot out of combat that can resurrect (priest, paladin, shaman)
     // The step.
     std::uint32_t team = 0;             // the party's team: ai::kPlanFlagAlliance or kPlanFlagHorde (0 unknown)
     bool seen = false;                  // the lead bot stands within kSeeYd of the step's point
@@ -270,6 +274,9 @@ struct Run
     std::uint32_t phaseMs = 0;
     std::uint32_t stepIdleMs = 0;
     bool restDue = true;     // check the rest lines before the step
+    int regroupDead = -1;    // the dead when the regroup was first read (-1 not yet): more than that is a new wipe
+    std::uint32_t eatWaitMs = 0; // meal wait used since the last fight (kRestCapMs per fight: it cannot loop)
+    bool restForEating = false; // the rest phase is the meal wait: it also ends when nobody eats any more
     bool stepRested = false; // a `rest` step has had its gate
     bool orderSent = false;  // task steps: the order went out
     bool walkedThrough = false;
@@ -397,6 +404,16 @@ inline const PlanStep* EventHoldAhead(const Run& r)
     return nullptr;
 }
 
+// The run is inside a scripted event or leading into one: a hold, its
+// ritual or start step, the moves up to the hold, or an event already on.
+// The event's quiet gaps between waves are not the end of a fight.
+inline bool InEvent(const Run& r)
+{
+    const PlanStep* s = Current(r);
+    return r.eventOn || (s && (s->kind == PlanStepKind::Hold || s->kind == PlanStepKind::Ritual)) ||
+        EventHoldAhead(r) != nullptr;
+}
+
 // A ritual refused because its object is still active ("already in
 // progress") after the event failed: the core leaves a summoning ritual active
 // after its last use, so the retry cannot be started in this instance.
@@ -464,6 +481,8 @@ inline void ResetStep(Run& r)
     EnterPhase(r, Phase::Begin);
     r.stepIdleMs = 0;
     r.restDue = true;
+    r.eatWaitMs = 0;
+    r.restForEating = false;
     r.stepRested = false;
     r.orderSent = false;
     r.walkedThrough = false;
@@ -650,6 +669,7 @@ inline void BeginRegroup(Run& r)
     r.reviveSent = false;
     r.regroupGatherSent = false;
     r.regroupMs = 0;
+    r.regroupDead = -1;
 }
 
 inline void NextStep(Run& r, const std::string& note)
@@ -2278,11 +2298,26 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
 
     // After a resume or a skip from a pause: the dead get up, the living
     // gather on the lead bot, then the step goes on.
-    if (r.regroup && !runBackWait)
+    // A fight during the regroup (a pack met on the corpse run) is fought
+    // first: the combat block below bounds it, and the regroup goes on after.
+    // Deaths in it that make a wipe hand over to the regroup by itself.
+    if (r.regroup && r.regroupDead < 0)
+        r.regroupDead = static_cast<int>(f.dead);
+    if (r.regroup && !f.anyInCombat && (f.dead >= kWipeDead || allDead) &&
+        static_cast<int>(f.dead) > r.regroupDead)
+        r.regroup = false;
+    if (r.regroup && !runBackWait && !f.anyInCombat)
     {
         r.regroupMs += dt;
         if (f.dead > 0 || !f.leadAlive)
         {
+            // A living priest, paladin or shaman raises the dead where they
+            // lie: `revive party` (a release and a corpse run) waits for it.
+            if (f.rezzer && f.leadAlive && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
+            {
+                r.note = "regroup: " + std::to_string(f.dead) + " dead, waiting for a resurrection in the party";
+                return order;
+            }
             r.note = "regroup: " + std::to_string(f.dead) + " dead, reviving";
             if (!r.reviveSent || r.regroupMs % 60000 < dt)
             {
@@ -2353,6 +2388,18 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     if (!f.leadAlive && !autoRegroup && !f.anyInCombat)
     {
         Pause(r, "the lead bot is dead: revive it, then .bot run resume");
+        return order;
+    }
+    // Fewer than kWipeDead dead and the fight over: the dead get up and the
+    // party gathers before anything else is pulled, the regroup a resume does
+    // (revive, gather; no walk back). Pulling on with the healer dead was the
+    // Uldaman rerun's pull 58 (build 19z11): the pullback went out with the
+    // priest and the mage dead and walking back, and the step paused.
+    if (f.dead > 0 && f.leadAlive && !autoRegroup && !f.anyInCombat && !r.regroup && !InEvent(r) &&
+        r.phase != Phase::AwaitTask && r.phase != Phase::Wait)
+    {
+        BeginRegroup(r);
+        r.note = std::to_string(f.dead) + " dead after the fight: reviving and gathering before the next pull";
         return order;
     }
 
@@ -2435,6 +2482,7 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         // Back to the step's start: it looks at what is left, and rests first.
         r.fighting = false;
         r.restDue = true;
+        r.eatWaitMs = 0;
         r.pullGuid = 0;
         r.focusGuid = 0;
         if (r.phase != Phase::AwaitTask && r.phase != Phase::Wait)
@@ -2454,8 +2502,14 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     // Rest gate.
     if (r.phase == Phase::Rest)
     {
-        if (Rested(f, lines) || r.phaseMs >= kRestCapMs)
+        if (r.restForEating)
+            r.eatWaitMs += dt;
+        if (Rested(f, lines) || r.phaseMs >= kRestCapMs ||
+            (r.restForEating && (f.eating == 0 || r.eatWaitMs >= kRestCapMs)))
+        {
+            r.restForEating = false;
             EnterPhase(r, Phase::Begin);
+        }
         else
         {
             r.restRepeatMs += dt;
@@ -2475,9 +2529,27 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         if (forced || NeedsRest(f, lines))
         {
             EnterPhase(r, Phase::Rest);
+            r.restForEating = false;
             r.restRepeatMs = 0;
             r.note = "resting";
             order = "rest";
+            return order;
+        }
+    }
+    // A bot that sat down to eat or drink after the fight is resting even
+    // above the start lines (the tank at 82 % ate before Uldaman pull 17 and
+    // the pull order found it seated): the run waits until nobody eats or
+    // everyone is at the end lines. Looked at on every tick before the pull
+    // goes out (Begin, Gather: bots sit down a tick after the fight ends),
+    // kRestCapMs of waiting per fight.
+    if ((r.phase == Phase::Begin || r.phase == Phase::Gather) && r.eatWaitMs < kRestCapMs)
+    {
+        if (f.eating > 0 && !Rested(f, lines) && !InEvent(r))
+        {
+            EnterPhase(r, Phase::Rest);
+            r.restForEating = true;
+            r.restRepeatMs = 0;
+            r.note = "resting: " + std::to_string(f.eating) + " eating or drinking";
             return order;
         }
     }

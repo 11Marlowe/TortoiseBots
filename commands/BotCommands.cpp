@@ -3729,6 +3729,20 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
     // its delay before the second pull tick ever runs - the reported "tank
     // stands still for seconds, then starts pulling".
     ai->ClearActionClock();
+    // The same for a meal or any cast: "reach pull" does not move a casting
+    // bot (ai/playerbot/PullStartPolicy.h, ReadyTankForPull). The run leader
+    // waits out a meal before it pulls (DungeonRunPolicy.h, the meal wait);
+    // this is the fallback for an explicit or commander order.
+    ai::PullReadyFacts readyFacts;
+    readyFacts.casting = executor->IsNonMeleeSpellCasted(true, false, true);
+    readyFacts.seated = executor->GetStandState() != UNIT_STAND_STATE_STAND;
+    ai::PullReadySteps const ready = ai::ReadyTankForPull(readyFacts);
+    // Every non-melee cast, channelled ones and those without an interrupt
+    // flag too (PlayerbotAI::InterruptSpell skips both).
+    if (ready.interrupt)
+        executor->InterruptNonMeleeSpells(false);
+    if (ready.stand)
+        executor->SetStandState(UNIT_STAND_STATE_STAND);
     // Pull start/action are normal movement-priority actions.  A minimal
     // step filters them out and leaves the tank waiting for a later tick.
     ExecuteQuietNextAction(ai, false);
@@ -3758,14 +3772,26 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
         // A point move is registered with the motion master at once but the
         // unit reads as moving only after the next movement tick, so a launched
         // point or chase motion counts as started (ai/playerbot/PullStartPolicy.h).
-        MovementGeneratorType const motion = executor->GetMotionMaster()->GetCurrentMovementGeneratorType();
-        ai::PullStartFacts startFacts;
-        startFacts.hasTarget = pullTarget && pullTarget->IsInWorld();
-        startFacts.moving = sServerFacade.isMoving(executor);
-        startFacts.motionLaunched = motion == POINT_MOTION_TYPE || motion == CHASE_MOTION_TYPE;
-        if (startFacts.hasTarget)
-            startFacts.distance = executor->GetDistance(pullTarget);
-        startFacts.range = pullRange;
+        auto readStart = [&]()
+        {
+            MovementGeneratorType const motion = executor->GetMotionMaster()->GetCurrentMovementGeneratorType();
+            ai::PullStartFacts facts;
+            facts.hasTarget = pullTarget && pullTarget->IsInWorld();
+            facts.moving = sServerFacade.isMoving(executor);
+            facts.motionLaunched = motion == POINT_MOTION_TYPE || motion == CHASE_MOTION_TYPE;
+            if (facts.hasTarget)
+                facts.distance = executor->GetDistance(pullTarget);
+            facts.range = pullRange;
+            return facts;
+        };
+        ai::PullStartFacts startFacts = readStart();
+        // A decision that went to another action leaves the walk unlaunched:
+        // one direct "reach pull" (the pull's own prerequisite) before refusing.
+        if (ai::RetryPullWalk(startFacts, bodyPull))
+        {
+            ExecuteQuietAction(ai, "reach pull", ai::Event(intent, "", requester));
+            startFacts = readStart();
+        }
         bool started = ai::PullWalkStarted(startFacts);
 
         if (!started)
@@ -8953,6 +8979,19 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
     return false;
 }
 
+// A food or drink aura is up: the core removes it when the bot stands
+// (AURA_INTERRUPT_FLAG_NOT_SEATED), for the cheat meal spells and real food alike.
+bool HasMealAura(Player* bot)
+{
+    for (auto const& entry : bot->GetSpellAuraHolderMap())
+    {
+        SpellEntry const* spell = entry.second ? entry.second->GetSpellProto() : nullptr;
+        if (spell && (spell->AuraInterruptFlags & AURA_INTERRUPT_FLAG_NOT_SEATED))
+            return true;
+    }
+    return false;
+}
+
 bool KnowsPolymorph(Player* bot)
 {
     for (uint32 spell : TortoiseBots::DungeonRun::kPolymorphSpells)
@@ -9081,6 +9120,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
                 ++member.attackers;
         f.members.push_back(member);
+        if (HasMealAura(bot))
+            ++f.eating;
+        uint8 const cls = bot->GetClass();
+        if ((cls == CLASS_PRIEST || cls == CLASS_PALADIN || cls == CLASS_SHAMAN) && !bot->IsInCombat())
+            f.rezzer = true;
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
         if (bot->GetPowerType() == POWER_MANA && bot->GetMaxPower(POWER_MANA))

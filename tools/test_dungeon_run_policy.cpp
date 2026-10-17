@@ -466,6 +466,246 @@ static void TestHopPullsNearUnitsFirst()
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
 }
 
+// Uldaman rerun pull 58 (build 19z11): the fight ended with the priest and the
+// mage dead (fewer than kWipeDead) and the next pullback went out at once. Now
+// the dead are revived and the party gathers before the pull.
+static void TestFewDeadReviveBeforePull()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(21, 7011, 30)};
+    f.dead = 2;
+    f.alive = 3;
+    // No pull while two are dead: the regroup's revive goes out instead.
+    CHECK(Tick(r, f).empty());
+    CHECK(r.regroup && r.note.find("2 dead after the fight") == 0);
+    CHECK(Tick(r, f) == "revive party");
+    CHECK(Tick(r, f).empty());
+    // Up again and gathered: the pull follows.
+    f.dead = 0;
+    f.alive = 5;
+    std::string order;
+    for (int i = 0; i < 5 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 21");
+    // In a fight with one dead nothing changes: the fight is the bots' own.
+    Run r2 = Start(&plan);
+    f.dead = 1;
+    f.alive = 4;
+    f.anyInCombat = true;
+    CHECK(Tick(r2, f).empty());
+    CHECK(!r2.regroup && r2.note.find("fighting") == 0);
+}
+
+// Review of #1055: the 1-2 dead rule stays out of scripted events (a quiet
+// gap between waves is not the end of the fight).
+static void TestFewDeadRuleSkipsEvents()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    r.eventOn = true;
+    Facts f = Party(0);
+    f.units = {Unit(21, 7011, 30)};
+    f.dead = 1;
+    f.alive = 4;
+    Tick(r, f);
+    CHECK(!r.regroup);
+    // A move leading into a hold counts as the event too.
+    DungeonPlan holdPlan;
+    holdPlan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Hold, 40)};
+    Run h = Start(&holdPlan);
+    Tick(h, f);
+    CHECK(!h.regroup);
+}
+
+// Review of #1055: a fight during a regroup (a pack met on the corpse run)
+// gets the combat block: fight note, fight ceiling, and a third death reaches
+// the regroup by itself.
+static void TestRegroupFightsFirst()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.dead = 1;
+    f.alive = 4;
+    BeginRegroup(r);
+    f.anyInCombat = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.note == "fighting" && r.fighting);
+    // The fight ceiling still holds inside the regroup.
+    for (std::uint32_t ms = 0; ms <= kFightCapMs && r.state == State::Running; ms += kTickMs)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.note.find("a fight lasted") == 0);
+    // Three dead in the regroup's fight: the regroup by itself follows the fight.
+    Run w = Start(&plan);
+    BeginRegroup(w);
+    f.dead = 1;
+    f.alive = 4;
+    CHECK(Tick(w, f).empty());
+    f.dead = 3;
+    f.alive = 2;
+    CHECK(Tick(w, f).empty());
+    CHECK(w.note.find("3 dead: fighting on") == 0);
+    f.anyInCombat = false;
+    Tick(w, f);
+    CHECK(w.regroup && w.autoRegroups == 1);
+}
+
+// Review of #1055: a living rezzer gets kPartyRezWaitMs to raise the dead
+// before `revive party` releases them; without one the revive goes out at once.
+static void TestRegroupWaitsForPartyRez()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(21, 7011, 30)};
+    f.dead = 1;
+    f.alive = 4;
+    f.rezzer = true;
+    CHECK(Tick(r, f).empty()); // the regroup starts
+    std::uint32_t waited = 0;
+    std::string order;
+    while (order.empty() && waited < 60000)
+    {
+        order = Tick(r, f);
+        waited += kTickMs;
+        if (order.empty())
+            CHECK(r.note.find("waiting for a resurrection") != std::string::npos);
+    }
+    CHECK(order == "revive party" && waited >= kPartyRezWaitMs && waited <= kPartyRezWaitMs + 2 * kTickMs);
+    // Raised in time: no revive at all, the pull follows.
+    Run q = Start(&plan);
+    Tick(q, f);
+    Tick(q, f);
+    f.dead = 0;
+    f.alive = 5;
+    order.clear();
+    for (int i = 0; i < 5 && order.empty(); ++i)
+        order = Tick(q, f);
+    CHECK(order == "pullback 21");
+    // No rezzer: the revive goes out on the regroup's first tick.
+    Run n = Start(&plan);
+    f.dead = 1;
+    f.alive = 4;
+    f.rezzer = false;
+    Tick(n, f);
+    CHECK(Tick(n, f) == "revive party");
+}
+
+// The regroup's revive is bounded: still dead after kRegroupReviveMs pauses.
+static void TestRegroupRevivePauses()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.dead = 2;
+    f.alive = 3;
+    BeginRegroup(r);
+    int revives = 0;
+    for (std::uint32_t ms = 0; ms <= kRegroupReviveMs + kTickMs && r.state == State::Running; ms += kTickMs)
+        if (Tick(r, f) == "revive party")
+            ++revives;
+    CHECK(r.state == State::Paused && r.note.find("2 still dead after 240 s") != std::string::npos);
+    CHECK(revives >= 4); // the first, then again every 60 s
+}
+
+// Review of #1055 (owner decision): a bot eating or drinking after the fight
+// is resting. Uldaman pulls 17 and 61 (19z11): the tank sat eating at 82 %
+// (above the 80 % start line) and the pullback found it seated.
+static void TestMealWaitBeforePull()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(31, 4852, 54.7f)};
+    f.minHealthPct = 82;
+    f.eating = 1;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.phase == Phase::Rest && r.note.find("1 eating") != std::string::npos);
+    for (int i = 0; i < 10; ++i)
+        CHECK(Tick(r, f).find("pullback") == std::string::npos);
+    // The meal ends (the tank stood up full): the pull goes out.
+    f.eating = 0;
+    f.minHealthPct = 100;
+    std::string order;
+    for (int i = 0; i < 5 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 31");
+    // Eating on and on: kRestCapMs at most, then the pull; once per fight.
+    Run c = Start(&plan);
+    f.eating = 1;
+    f.minHealthPct = 82;
+    order.clear();
+    std::uint32_t ms = 0;
+    for (; ms <= kRestCapMs + 5 * kTickMs && order.find("pullback") == std::string::npos; ms += kTickMs)
+        order = Tick(c, f);
+    CHECK(order == "pullback 31" && ms >= kRestCapMs);
+    // Eating starts a tick after the fight ends (bots sit on their next AI
+    // tick), as at pull 17: "pack cleared" on one tick, the next step's pull on
+    // the next. The wait still holds that pull.
+    DungeonPlan two;
+    two.steps = {PullStep(40, {4851}), PullStep(40, {4852})};
+    Run late = Start(&two);
+    f.eating = 0;
+    f.minHealthPct = 100;
+    f.units = {Unit(30, 4851, 20)};
+    CHECK(Tick(late, f) == "pullback 30");
+    f.anyInCombat = true;
+    Tick(late, f);
+    f.anyInCombat = false;
+    f.units.clear();
+    f.minHealthPct = 82;
+    std::string first;
+    for (int i = 0; i < 3 && late.step == 0; ++i)
+        first = Tick(late, f);
+    CHECK(late.step == 1 && first.find("pullback") == std::string::npos);
+    f.units = {Unit(31, 4852, 54.7f)};
+    f.eating = 1;
+    CHECK(Tick(late, f).empty());
+    CHECK(late.phase == Phase::Rest && late.restForEating);
+    // The same step: the fight ends with the party scattered (a gather goes
+    // out, nobody eats yet), and the tank sits down on the next tick.
+    Run same = Start(&plan);
+    f.eating = 0;
+    f.minHealthPct = 100;
+    f.units = {Unit(30, 4852, 20), Unit(31, 4852, 54.7f)};
+    CHECK(Tick(same, f) == "pullback 30");
+    f.anyInCombat = true;
+    Tick(same, f);
+    f.anyInCombat = false;
+    f.units = {Unit(31, 4852, 54.7f)};
+    f.minHealthPct = 82;
+    f.maxMemberYd = 35;
+    CHECK(Tick(same, f) == "move 0.0 0.0 0.0");
+    f.maxMemberYd = 5;
+    f.eating = 1;
+    CHECK(Tick(same, f).empty());
+    CHECK(same.phase == Phase::Rest && same.restForEating);
+    // One budget per fight: after kRestCapMs of meal wait the pull goes out
+    // even if the bot sits down again.
+    order.clear();
+    for (std::uint32_t t = 0; t <= kRestCapMs + 5 * kTickMs && order.find("pullback") == std::string::npos; t += kTickMs)
+        order = Tick(late, f);
+    CHECK(order == "pullback 31" && late.eatWaitMs >= kRestCapMs);
+    // At the end lines already: no wait.
+    Run e = Start(&plan);
+    f.minHealthPct = 95;
+    CHECK(Tick(e, f) == "pullback 31");
+    // Not inside an event.
+    Run v = Start(&plan);
+    v.eventOn = true;
+    f.minHealthPct = 82;
+    Tick(v, f);
+    CHECK(v.phase != Phase::Rest);
+}
+
 static void TestWipeAndLeadDeathPause()
 {
     DungeonPlan plan;
@@ -1685,6 +1925,12 @@ int main()
     TestBossKillOrderAndTeamGate();
     TestHopPullsNearUnitsFirst();
     TestWipeAndLeadDeathPause();
+    TestFewDeadReviveBeforePull();
+    TestFewDeadRuleSkipsEvents();
+    TestRegroupFightsFirst();
+    TestRegroupWaitsForPartyRez();
+    TestRegroupRevivePauses();
+    TestMealWaitBeforePull();
     TestFightCeiling();
     TestTaskSteps();
     TestOpenWithoutKeyAndTaskError();
