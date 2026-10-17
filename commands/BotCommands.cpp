@@ -4474,8 +4474,9 @@ void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead);
 
 // Bots a run made passive followers of their lead bot while they run back to
 // the party with attackers on them (DungeonRun::RunBack): bot -> commander.
-// Only bots that were not passive already are listed, so a player's own
-// `flee` is never undone here.
+// Only bots that were not passive already are listed, so a passive stance a
+// player set before is never undone here; a player's order to the party
+// restores the listed bots before it runs (PauseDungeonRunForPlayer).
 std::unordered_map<uint64, uint64>& RunBackPassive()
 {
     static std::unordered_map<uint64, uint64> bots;
@@ -9072,6 +9073,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.inCombat = bot->IsInCombat();
+        if (bot == lead)
+            f.leadInCombat = member.inCombat;
         // Units attacking it: the core's attacker set of that bot (no scan),
         // for a member coming back with attackers (DungeonRun::RunBack).
         for (Unit* attacker : bot->GetAttackers())
@@ -9541,11 +9544,19 @@ static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& ord
     auto it = DungeonRuns().find(commanderRaw);
     if (it == DungeonRuns().end() || !TortoiseBots::DungeonRun::PauseForPlayer(it->second.run, ProtocolSafe(order)))
         return;
-    // A player's own `flee` keeps the passive stance the run gave a bot
-    // running back; any other order gets it back its own AI (SyncRunBackPassive).
-    if (order.find("flee") != std::string::npos)
-        for (auto passive = RunBackPassive().begin(); passive != RunBackPassive().end();)
-            passive = passive->second == commanderRaw ? RunBackPassive().erase(passive) : std::next(passive);
+    // Every bot the run made passive for a run back gets its own AI back now,
+    // before the player's order runs (every caller notes the order first): a
+    // `flee` then puts only the bots it names in that stance.
+    for (auto passive = RunBackPassive().begin(); passive != RunBackPassive().end();)
+    {
+        if (passive->second != commanderRaw)
+        {
+            ++passive;
+            continue;
+        }
+        EndRunBackPassive(passive->first);
+        passive = RunBackPassive().erase(passive);
+    }
     SendRunLine(FindCharacter(commanderRaw), it->second, false);
 }
 

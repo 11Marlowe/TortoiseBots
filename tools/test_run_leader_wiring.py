@@ -75,6 +75,19 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("EndRunBackPassive(it->first);", sync)
         update = body(COMMANDS, "static void UpdateDungeonRuns(", "\n}\n")
         self.assertIn("SyncRunBackPassive();", update)
+        self.assertIn("f.leadInCombat = member.inCombat;", facts)
+
+    def test_player_order_restores_every_run_back_bot_first(self):
+        # A player's order (a `cmd flee Bob` too) gives every bot the run made passive its own AI back
+        # before the order runs; the order is noted before it executes at every call site, so a flee
+        # then sets the stance on the bots it names only. No bot of the commander stays passive.
+        pause = body(COMMANDS, "static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)\n{", "\n}\n")
+        self.assertIn("EndRunBackPassive(passive->first);", pause)
+        self.assertNotIn('order.find("flee")', pause)
+        # The order is noted before it runs: right after parsing in `.bot action`.
+        action = body(COMMANDS, "static bool HandleAction(ChatHandler* handler, char const* args)", "\n}\n")
+        self.assertIn("if (parsed)\n        PauseDungeonRunForPlayer(", action)
+
 
     def test_boss_down_needs_his_corpse(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")

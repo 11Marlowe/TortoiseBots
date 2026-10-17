@@ -199,6 +199,7 @@ struct Facts
     std::uint32_t total = 0, alive = 0, dead = 0;
     bool leadAlive = true;
     bool anyInCombat = false;
+    bool leadInCombat = false;          // the lead bot itself is in a fight
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
@@ -2114,8 +2115,6 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     r.note = "event: holding the spot" + tail;
 }
 
-// The out-of-combat ceiling of a step: kStepIdleCapMs, or a wait's own
-// timeout plus a minute to get there when that is longer.
 // A party member coming back with attackers on it. The owner's rule
 // (2026-10-17): "the party members running back to party should just run past
 // the mobs and try to run to the party, when its with the party and gets help
@@ -2142,7 +2141,10 @@ inline bool RunBackAllowed(const Run& r)
 // meet it. A bot that stops gaining ground (kStragglerGainYd in kWalkRetryMs:
 // the Uldaman scorpid pit floor has no navmesh path out) or runs longer than
 // kRunBackCapMs is let go; the gather's summon of a stalled straggler takes it
-// from there. True while someone runs back: the run waits (the tick ends).
+// from there. A bot is listed only while the lead bot is out of combat. True
+// while someone runs back: the run waits (no regroup or step order), but its
+// fight handling (the wipe regroup, crowd control, kill_first, the ceilings)
+// still runs.
 inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
 {
     bool const allowed = RunBackAllowed(r) && f.leadAlive && (r.regroup || (f.dead < kWipeDead && f.alive > 0));
@@ -2190,9 +2192,12 @@ inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
         else
             ++i;
     }
-    // New ones.
+    // New ones, only while the lead bot is in no fight of its own: a healer
+    // standing back in the party's fight is not called in (and keeps healing).
     for (const MemberFact& m : f.members)
     {
+        if (f.leadInCombat)
+            break;
         if (m.name.empty() || m.name == f.carrier || !m.attackers || m.yd <= kGatherYd || m.yd > kRunBackMaxYd ||
             r.runBackDone.count(m.name) ||
             std::find(r.runBack.begin(), r.runBack.end(), m.name) != r.runBack.end())
@@ -2217,6 +2222,8 @@ inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
     return true;
 }
 
+// The out-of-combat ceiling of a step: kStepIdleCapMs, or a wait's own
+// timeout plus a minute to get there when that is longer.
 inline std::uint32_t StepIdleCapMs(const PlanStep& s)
 {
     bool const wait = s.kind == PlanStepKind::WaitObject || s.kind == PlanStepKind::WaitClear ||
@@ -2264,13 +2271,14 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         r.nearWiped = false;
 
     // A party member coming back with attackers runs on to the party; the run
-    // waits for it where it stands (RunBack), in a fight too.
-    if (RunBack(r, f, dt))
-        return order;
+    // waits for it where it stands (RunBack): no regroup or step order, but
+    // the fight handling below still runs.
+    bool const runBackWait = RunBack(r, f, dt);
+    std::string const runBackNote = runBackWait ? r.note : std::string();
 
     // After a resume or a skip from a pause: the dead get up, the living
     // gather on the lead bot, then the step goes on.
-    if (r.regroup)
+    if (r.regroup && !runBackWait)
     {
         r.regroupMs += dt;
         if (f.dead > 0 || !f.leadAlive)
@@ -2397,6 +2405,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         }
         r.note = autoRegroup ? std::to_string(f.dead) + " dead: fighting on, a regroup follows"
                : !f.leadAlive ? std::string("the lead bot is dead: the others fight on") : std::string("fighting");
+        if (runBackWait && !autoRegroup)
+            r.note = runBackNote;
         if (s->kind == PlanStepKind::Hold && r.eventOn && f.seen)
         {
             CountEvent(r, f, *s);
@@ -2418,6 +2428,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
             }
         return order;
     }
+    if (runBackWait)
+        return order;
     if (r.fighting)
     {
         // Back to the step's start: it looks at what is left, and rests first.

@@ -223,8 +223,51 @@ static void TestBounds()
     CHECK(r3.runBack.empty());
 }
 
+// The party in a fight of its own (the lead bot fighting a patrol): a healer
+// standing back 25 yd with one attacker is not called in, it keeps healing.
+static void TestNoNewRunBackWhileTheLeadFights()
+{
+    DungeonPlan plan = Plan();
+    Run r = RegroupingRun(plan);
+    Facts f = Party(25.0f, 1);
+    f.leadInCombat = true;
+    f.anyInCombat = true;
+    for (int i = 0; i < 3; ++i)
+    {
+        Tick(r, f);
+        CHECK(r.runBack.empty());
+    }
+}
+
+// While a bot is listed, the run's fight handling still runs: the plan's
+// kill_first unit is focused, and the fight ceiling still bounds the fight.
+static void TestFightHandlingRunsWhileListed()
+{
+    DungeonPlan plan = Plan();
+    plan.killFirst = {7012};
+    Run r = RegroupingRun(plan);
+    Facts f = Party(60.0f, 2);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.runBack.size() == 1);
+    // The bot closes in (not stalled) and a kill_first unit is in the fight.
+    UnitFact k;
+    k.guid = 555;
+    k.entry = 7012;
+    k.distLead = 10.0f;
+    k.engaged = true;
+    f = Party(50.0f, 2);
+    f.killFirst = {k};
+    CHECK(Tick(r, f) == "focus 555");
+    CHECK(r.runBack.size() == 1);
+    CHECK(r.note == "regroup: Priest running back with 2 attackers" || r.note.find("kill 7012 first") != std::string::npos);
+    // The fight ceiling still counts while it is listed.
+    CHECK(r.fighting && r.fightMs > 0);
+}
+
 int main()
 {
+    TestNoNewRunBackWhileTheLeadFights();
+    TestFightHandlingRunsWhileListed();
     TestReturningBotKeepsRunningPartyStays();
     TestDiesOnTheWay();
     TestEventHoldNoRunBack();
