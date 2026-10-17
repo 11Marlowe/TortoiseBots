@@ -87,6 +87,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bwl_bundle1_policy
         test_caster_mana_policy
         test_cast_keeps_running_policy
+        test_cast_while_moving_policy
         test_claimed_bot_policy
         test_class_consumable_policy
         test_combat_spread_policy
@@ -105,6 +106,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_fishing_spot_policy
         test_flamestrike_window_policy
         test_flight_errand_policy
+        test_formation_station_policy
         test_force_rebuff_policy
         test_four_horsemen_rotation_policy
         test_gather_spot_policy
@@ -142,6 +144,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hire_unlock_sync
         test_hot_streak_policy
         test_human_bg_demand_policy
+        test_hunter_feign_death_policy
         test_hunter_pet_policy
         test_hunter_switch_policy
         test_hunter_viper_policy
@@ -167,7 +170,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_onyxia_breath_policy
         test_onyxia_whelp_egg_policy
         test_ooc_rebirth_policy
-        test_ossirian_crystal_policy
+        test_open_follow_step_policy
         test_owned_bot_qol_policy
         test_pet_revive_policy
         test_pet_spawn_policy
@@ -183,9 +186,10 @@ if command -v g++ >/dev/null 2>&1; then
         test_profession_grant_policy
         test_protection_potion_policy
         test_pull_firing_policy
+        test_pull_executor_policy
         test_pull_opening_policy
         test_pull_start_policy
-        test_pull_join_window_policy
+        test_pull_reach_policy
         test_pull_refusal_policy
         test_pull_regen_policy
         test_quest_giver_stall_policy
@@ -234,6 +238,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_tank_add_pickup_policy
         test_taxi_path_policy
         test_thaddius_polarity_policy
         test_trade_lockbox_policy

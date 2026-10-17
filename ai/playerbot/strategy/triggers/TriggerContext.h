@@ -170,6 +170,7 @@ namespace ai
             creators["out of react range"] = [](PlayerbotAI* ai) { return new OutOfReactRangeTrigger(ai); };
             creators["out of free move range"] = [](PlayerbotAI* ai) { return new OutOfFreeMoveRangeTrigger(ai); };
             creators["update follow"] = [](PlayerbotAI* ai) { return new UpdateFollowTrigger(ai); };
+            creators["formation station"] = [](PlayerbotAI* ai) { return new FormationStationTrigger(ai); };
             creators["master target active"] = [](PlayerbotAI* ai) { return new MasterTargetActiveTrigger(ai); };
             creators["stop follow"] = [](PlayerbotAI* ai) { return new StopFollowTrigger(ai); };
 

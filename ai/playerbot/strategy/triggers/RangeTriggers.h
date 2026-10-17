@@ -8,6 +8,7 @@
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/Formations.h"
+#include "playerbot/FormationStationPolicy.h"
 
 namespace ai
 {
@@ -442,6 +443,39 @@ namespace ai
                 return false;
 
             return true;
+        }
+    };
+
+    // Idle station-keeping for formations. "update follow" only fires past
+    // 5 yd from the master, but a formation slot sits ~1.5 yd out, so an
+    // idle bot inside the dead zone never walks to a newly set formation
+    // (queue, circle, shield, ... visibly do nothing). This fires while the
+    // bot stands off its own slot, and "follow" then walks it there with
+    // the formation's angle/offset. Cheap: one value read, one distance.
+    class FormationStationTrigger : public Trigger
+    {
+    public:
+        FormationStationTrigger(PlayerbotAI* ai) : Trigger(ai, "formation station", 3) {}
+
+        virtual bool IsActive() override
+        {
+            if (ai->IsStateActive(BotState::BOT_STATE_COMBAT))
+                return false;
+            Unit* followTarget = AI_VALUE(Unit*, "follow target");
+            if (!followTarget || !ai->IsSafe(followTarget))
+                return false;
+            // A walking leader is the core follow's job; a slot point taken
+            // mid-walk is stale by the time the bot gets there.
+            if (sServerFacade.isMoving(followTarget))
+                return false;
+            Formation* formation = AI_VALUE(Formation*, "formation");
+            if (!formation)
+                return false;
+            WorldLocation loc = formation->GetLocation();
+            if (Formation::IsNullLocation(loc) || loc.mapId == -1 || bot->GetMapId() != loc.mapId)
+                return false;
+            float const distance = sServerFacade.getDistance2d(bot, loc.x, loc.y);
+            return FormationStationWanted(distance);
         }
     };
 

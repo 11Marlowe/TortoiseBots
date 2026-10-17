@@ -34,6 +34,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
 #include "playerbot/InterruptCastingPolicy.h"
+#include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/WandPolicy.h"
 #include "BotDiagnostics.h"
 #include "BotActionLog.h"
@@ -5524,6 +5525,29 @@ bool PlayerbotAI::CheckCanCastSpell(uint32 spellid, Unit* target, uint8 effectMa
             }
         }
 
+        // Issue #903 (donor mod-playerbots @ 79bd4281,
+        // src/Bot/PlayerbotAI.cpp:3459-3466): a cast-time cast started while
+        // the bot is still moving is cancelled on the first movement packet,
+        // so it only burns the GCD and logs an interrupt. Refuse it here so
+        // the trigger falls through to instant casts instead of firing the
+        // doomed cast. Same cast-time shape as CastSpell below; a spline
+        // still in flight counts as moving (GO-overload clause).
+        {
+            uint32 castTime = GetSpellCastTime(spellInfo, bot);
+            bool spellNeedsStandStill = castTime > 0 ||
+                (IsChanneledSpell(spellInfo) && GetSpellDuration(spellInfo) > 0);
+            if (ai::CastStartBlockedByMove(sServerFacade.isMoving(bot),
+                !bot->movespline->Finalized(), spellNeedsStandStill))
+            {
+                if (checkResult)
+                {
+                    *checkResult = SPELL_FAILED_MOVING;
+                }
+
+                return false;
+            }
+        }
+
         if (!ignoreRange && bot != target && sServerFacade.getDistance2d(bot, target) > sPlayerbotAIConfig.sightDistance)
         {
             if (checkResult)
@@ -6033,7 +6057,10 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
     }
 
     // Fail the cast if the bot is moving and the spell is a casting/channeled spell
-    if (sServerFacade.isMoving(bot) && ((GetSpellCastTime(pSpellInfo, bot, spell) > 0) || (IsChanneledSpell(pSpellInfo) && (GetSpellDuration(pSpellInfo) > 0))))
+    // (#903: CastStartBlockedByMove - the probe above already refused this
+    // case, this is the direct-call backstop for callers that skip it).
+    if (ai::CastStartBlockedByMove(sServerFacade.isMoving(bot), false,
+        (GetSpellCastTime(pSpellInfo, bot, spell) > 0) || (IsChanneledSpell(pSpellInfo) && (GetSpellDuration(pSpellInfo) > 0))))
     {
         // always fail when jumping
         if (IsJumping() || bot->IsFalling())
@@ -6632,7 +6659,7 @@ inline int strcmpi(const char* s1, const char* s2)
 // Debuffs a healer must not cleanse (Turtle 1.18.1 spell ids). Mutating Injection (Grobbulus, Naxx, 28169) drops a
 // poison cloud where its carrier stands when it is removed, by dispel or by expiry (core boss_grobbulus.cpp,
 // spell_mutating_injection). A cleanse while the carrier is still in the raid puts the cloud in the raid; bomb runout
-// moves the carrier clear first (BombRunoutPolicy.h). Ported from mod-playerbots dispel_whitelist (docs/PROVENANCE.md).
+// moves the carrier clear first (BombRunoutPolicy.h). Ported from mod-playerbots dispel_whitelist.
 // StoneformTrigger is held back by the same list: Stoneform removes every disease on the bot when it is cast.
 static constexpr uint32 kNeverDispelSpellIds[] = { 28169 };
 

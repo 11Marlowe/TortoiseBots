@@ -186,7 +186,7 @@ Encounter notes:
 - **Paladin resistance auras:** the first paladin bot in the raid that is alive, on the boss's map and in the fight auto-swaps to Fire Resistance Aura (Magmadar, Garr, Geddon, Sulfuron, Golemagg, Ragnaros, Onyxia, Razorgore, Vaelastrasz, Broodlord, Firemaw, Flamegor, Chromaggus) or Shadow Resistance Aura (Lucifron, Gehennas, Majordomo, Ebonroc, Nefarian) and returns to its spec aura once out of combat (human paladins never count; any manual `aura ...` order wins).
 - **AQ20 Ossirian:** runners head for the nearest crystal while his *Strength of Ossirian* (25176) buff is up (or the weakness is nearly out), wait in range, and use the crystal while he is within 25yd (kiting Ossirian to a crystal stays the raid's job — no bot kite tactic, same gap as the donor); other AQ20 bosses have no scripted tactics yet.
 
-**Onyxia whelps and eggs (`AiPlayerbot.OnyxiaWhelpsAndEggs`, on by default).** While Onyxia is airborne (phase 2, Hover aura), AoE-capable ranged DPS bots (mage, warlock, hunter, ranged shaman and druid; never tanks or healers) take the nearest Onyxian Whelp (11262) within 40yd as their target and keep it until it dies, then return to the boss; melee, priests and healers keep their usual duty, a whelp within 10yd of an unbroken egg is skipped and an explicit target order from a player wins. Every bot in the fight steps back to the nearest cave mouth (`-10,-180` north, `-16,-250` south) when it stands within 12yd of an unbroken *Onyxia Egg* (trap 176511: 10yd circle, hatches whelps); outside the egg fields west of the arena no search runs. Map 249 only, active once the `onyxia` fight strategy is on. Based on the mod-playerbots Onyxia strategy (see `PROVENANCE.md`); the deep-breath safe zones above still take priority.
+**Onyxia whelps and eggs (`AiPlayerbot.OnyxiaWhelpsAndEggs`, on by default).** While Onyxia is airborne (phase 2, Hover aura), AoE-capable ranged DPS bots (mage, warlock, hunter, ranged shaman and druid; never tanks or healers) take the nearest Onyxian Whelp (11262) within 40yd as their target and keep it until it dies, then return to the boss; melee, priests and healers keep their usual duty, a whelp within 10yd of an unbroken egg is skipped and an explicit target order from a player wins. Every bot in the fight steps back to the nearest cave mouth (`-10,-180` north, `-16,-250` south) when it stands within 12yd of an unbroken *Onyxia Egg* (trap 176511: 10yd circle, hatches whelps); outside the egg fields west of the arena no search runs. Map 249 only, active once the `onyxia` fight strategy is on. Based on the mod-playerbots Onyxia strategy; the deep-breath safe zones above still take priority.
 
 ## 7. Custom Turtle Raids (Emerald Sanctum / Lower Karazhan / Karazhan Crypt)
 
@@ -206,7 +206,7 @@ Bots do not clear dungeons on their own. Autonomous dungeon clearing is an expli
 - **Provisional** means the server owner has not confirmed that order. Treat it as a guess and check it in game.
 - **Do not wait for** lists rares, pool spawns, escorts and friendly NPCs. A group that waits on one stalls, because its spawn may not be in the instance.
 - Objectives that are not bosses are shown in [brackets].
-- The data comes from the T-imothy/tortoise-wow fork's dungeon-clear roster. See [PROVENANCE](../PROVENANCE.md) for the source and licence.
+- The data comes from the T-imothy/tortoise-wow fork's dungeon-clear roster. See [LICENSE_AUDIT](../LICENSE_AUDIT.md) for the source and licence.
 
 ### Pooled rares to never wait for
 

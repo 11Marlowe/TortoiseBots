@@ -22,6 +22,7 @@
 #include "playerbot/AvoidAoePolicy.h"
 #include "playerbot/strategy/values/PossibleTargetsValue.h"
 #include "playerbot/PoolFleePolicy.h"
+#include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/JumpPolicy.h"
 #include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
@@ -2037,6 +2038,12 @@ bool MovementAction::Flee(Unit *target)
         ai->TellError(GetMaster(), "I am stuck while fleeing");
         return false;
     }
+
+    // (#903: melee-range repositioning is not a hazard escape - stepping
+    // out mid-cast cancels the bar. Finish the cast first; the trigger
+    // re-fires next tick. The already-running flee above keeps running.)
+    if (ai::MoveBlockedByCast(bot->IsNonMeleeSpellCasted(false, true, true), false))
+        return false;
 
     HostileReference* ref = sServerFacade.GetThreatManager(target).getCurrentVictim();
     const bool isTarget = ref && ref->getTarget() == bot;
