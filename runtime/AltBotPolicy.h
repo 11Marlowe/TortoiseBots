@@ -142,5 +142,67 @@ inline uint32_t PoolTargetWithAlts(uint32_t target, uint32_t activeAlts)
 {
     return activeAlts >= target ? 0 : target - activeAlts;
 }
+// Location safety (Issue #872, instances worker): an alt that becomes
+// autonomous inside an instance/BG or on a transport is out of place alone,
+// and an autonomous alt left alone inside an instance should leave.
+// The module can only teleport it out; the core owns graveyards and portals.
+enum class AltBotExitTarget : uint8_t
+{
+    None,            // no relocation needed
+    InstanceExit,    // dungeon/raid map portal out (or BG entry point): preferred
+    Graveyard,       // BG or no usable exit portal: nearest graveyard
+    LevelZone,       // ordinary map: the C19 level-fitting scatter
+};
+
+struct AltBotLocation
+{
+    bool inWorld = false;
+    bool alive = false;
+    bool inBattleGround = false;
+    bool onTransport = false;   // boat/zeppelin: outside the world routing
+    bool instanceableMap = false; // dungeon, raid or BG map
+    bool dungeonMap = false;    // dungeon or raid only (has an exit portal)
+    bool haveExit = false;      // GetGoBackTrigger(map) returns a portal out
+    bool haveGrave = false;     // nearest graveyard lookup returned a row
+    bool graveSameMap = false;
+};
+
+// Where should an autonomous alt start out? Ungrouped and misplaced (in an
+// instance/BG or on a transport) it leaves via the exit portal when one
+// exists, else falls to the nearest graveyard (BGs always do: the BG exit
+// teleports nowhere useful mid-match). Ordinary maps take the C19 scatter
+// (None: the caller still runs TeleportToLevelFittingZone, it already
+// fail-closes). Grouped with someone else it stays put (F42, handled by
+// TryStart's early return, not here).
+inline AltBotExitTarget PickAltBotStartExit(AltBotLocation const& where, bool grouped)
+{
+    if (!where.inWorld || grouped)
+        return AltBotExitTarget::None;
+    if (!where.inBattleGround && !where.onTransport && !where.instanceableMap)
+        return AltBotExitTarget::None;
+    if (where.inBattleGround || !where.dungeonMap || !where.haveExit)
+        return where.haveGrave ? AltBotExitTarget::Graveyard : AltBotExitTarget::None;
+    return AltBotExitTarget::InstanceExit;
+}
+
+// Throttle guard for the alone-in-instance sweep (AltBotService::Update runs
+// every world tick; scanning the alt sessions is cheap but pointless per
+// tick). Elapsed `nowMs - lastMs` ms with 32-bit wraparound.
+constexpr uint32_t kAltBotSweepIntervalMs = 5000;
+inline bool AltBotSweepDue(uint32_t nowMs, uint32_t lastMs)
+{
+    return nowMs - lastMs >= kAltBotSweepIntervalMs;
+}
+
+// An autonomous alt in a dungeon/raid map with no other real players in its
+// group on that map leaves for the entrance (Issue #872). Cheap inputs only:
+// the caller walks its own session list, never scans the world.
+inline bool ShouldAltBotLeaveInstance(bool autonomous, bool inWorld, bool alive, bool teleporting,
+    bool dungeonMap, bool grouped, bool groupHasOthersOnMap)
+{
+    if (!autonomous || !inWorld || !alive || teleporting || !dungeonMap)
+        return false;
+    return !grouped || !groupHasOthersOnMap;
+}
 
 } // namespace TortoiseBots

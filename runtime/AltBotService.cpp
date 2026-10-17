@@ -12,13 +12,18 @@
 
 #include "Bag.h"
 #include "Chat.h"
+#include "Database/DBCStructure.h"
 #include "Group/Group.h"
 #include "Maps/Map.h"
 #include "ObjectAccessor.h"
+#include "ObjectMgr.h"
 #include "Player.h"
+#include "Timer.h"
+#include "Transports/Transport.h"
 #include "WorldSession.h"
 #include "World.h"
 #include "Util.h"
+#include "../ai/playerbot/GroupMembers.h"
 
 namespace TortoiseBots
 {
@@ -65,6 +70,101 @@ char const* RefusalText(AltBotStartRefusal refusal)
         default:
             return nullptr;
     }
+}
+// Location inputs for the pure PickAltBotStartExit decision (Issue #872).
+AltBotLocation DescribeLocation(Player* bot)
+{
+    AltBotLocation where;
+    if (!bot || !bot->IsInWorld())
+        return where;
+    where.inWorld = true;
+    where.alive = bot->IsAlive();
+    where.inBattleGround = bot->InBattleGround();
+    where.onTransport = bot->GetTransport() != nullptr;
+    // bot->GetMap() is null only while the bot is between maps: fail closed
+    // (no relocation) rather than guessing dungeon-ness from the map id.
+    if (Map const* map = bot->GetMap())
+    {
+        where.instanceableMap = map->Instanceable();
+        where.dungeonMap = map->IsDungeon();
+    }
+    if (where.dungeonMap)
+        where.haveExit = sObjectMgr.GetGoBackTrigger(bot->GetMapId()) != nullptr;
+    where.haveGrave = sObjectMgr.GetClosestGraveYard(bot->GetPositionX(), bot->GetPositionY(),
+        bot->GetPositionZ(), bot->GetMapId(), bot->GetTeam()) != nullptr;
+    return where;
+}
+
+// True when no other real player shares the bot's group on its own map.
+bool GroupAloneOnMap(Player* bot)
+{
+    Group* group = bot ? bot->GetGroup() : nullptr;
+    if (!group)
+        return true;
+    for (Player* member : LiveGroupMembers(group))
+    {
+        if (member && member != bot && member->GetMapId() == bot->GetMapId() && member->GetSession() &&
+            member->GetSession()->HasNetworkTransport())
+            return false;
+    }
+    return true;
+}
+
+// Teleports an autonomous alt out of where it stands alone (Issue #872):
+// instance exit portal first, else the BG/graveyard release, else the C19
+// level-fitting scatter. Called after the session exists, so Update's sweep
+// keeps it even if the bot relogs inside.
+bool RelocateMisplacedAlt(Player* bot, AltBotExitTarget target)
+{
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported())
+        return false;
+    if (!bot->IsAlive())
+    {
+        TB_LOG_DETAIL("TortoiseBots: alt-bot %s misplaced but dead: leaving it with its corpse", bot->GetName());
+        return false;
+    }
+    switch (target)
+    {
+        case AltBotExitTarget::InstanceExit:
+        {
+            AreaTriggerTeleport const* exit = sObjectMgr.GetGoBackTrigger(bot->GetMapId());
+            if (!exit)
+                return false;
+            bot->GetMotionMaster()->Clear();
+            bot->StopMoving();
+            bool const ok = bot->TeleportTo(exit->destination.mapId, exit->destination.x, exit->destination.y,
+                exit->destination.z, exit->destination.o, TELE_TO_NOT_UNSUMMON_PET);
+            TB_LOG_BASIC("TortoiseBots: alt-bot %s left its instance via the exit portal: %s",
+                bot->GetName(), ok ? "ok" : "failed");
+            return ok;
+        }
+        case AltBotExitTarget::Graveyard:
+        {
+            if (bot->GetTransport())
+                bot->GetTransport()->RemovePassenger(bot);
+            bot->GetMotionMaster()->Clear();
+            bot->StopMoving();
+            if (bot->InBattleGround())
+                return bot->TeleportToBGEntryPoint();
+            WorldSafeLocsEntry const* grave = sObjectMgr.GetClosestGraveYard(bot->GetPositionX(),
+                bot->GetPositionY(), bot->GetPositionZ(), bot->GetMapId(), bot->GetTeam());
+            if (!grave)
+                return false;
+            float orientation = bot->GetOrientation();
+            if (float facing = sObjectMgr.GetWorldSafeLocFacing(grave->ID))
+                orientation = facing;
+            bool const ok = bot->TeleportTo(grave->map_id, grave->x, grave->y, grave->z, orientation,
+                TELE_TO_NOT_UNSUMMON_PET);
+            TB_LOG_BASIC("TortoiseBots: alt-bot %s released to its graveyard (map %u): %s",
+                bot->GetName(), grave->map_id, ok ? "ok" : "failed");
+            return ok;
+        }
+        case AltBotExitTarget::LevelZone:
+            return BotManager::Instance().TeleportToLevelFittingZone(bot);
+        case AltBotExitTarget::None:
+            return false;
+    }
+    return false;
 }
 } // namespace
 
@@ -113,6 +213,32 @@ void AltBotService::Update()
     }
     for (ObjectGuid const& guid : pending)
         TryStart(guid);
+
+    // Issue #872: an autonomous alt left alone inside an instance leaves for
+    // the entrance. Throttled to ~5 s and limited to the alt sessions: never
+    // a world scan. Grouped alts with company stay put (F42).
+    uint32_t const nowMs = WorldTimer::getMSTime();
+    if (!AltBotSweepDue(nowMs, m_instanceSweepMs))
+        return;
+    m_instanceSweepMs = nowMs;
+    std::vector<ObjectGuid> stray;
+    {
+        std::lock_guard<std::mutex> lock(m_sessionsMutex);
+        for (auto const& kv : m_sessions)
+            stray.emplace_back(HIGHGUID_PLAYER, kv.first);
+    }
+    for (ObjectGuid const& guid : stray)
+    {
+        Player* bot = sObjectAccessor.FindPlayer(guid);
+        if (!bot || !bot->GetMap() || !bot->GetMap()->IsDungeon())
+            continue;
+        if (!ShouldAltBotLeaveInstance(true, bot->IsInWorld(), bot->IsAlive(), bot->IsBeingTeleported(),
+                true, bot->GetGroup() != nullptr, !GroupAloneOnMap(bot)))
+            continue;
+        if (RelocateMisplacedAlt(bot, AltBotExitTarget::InstanceExit))
+            Tell(OnlineOwner(GetOwnerAccount(guid.GetCounter())),
+                std::string(bot->GetName()) + " was alone in an instance and came out to the entrance.");
+    }
 }
 
 void AltBotService::TryStart(ObjectGuid guid)
@@ -170,8 +296,15 @@ void AltBotService::TryStart(ObjectGuid guid)
     ai->ResetStrategies();
 
     // C19: alone, it goes to a zone that fits its level, like a pool bot's
-    // login scatter. Below level 10 its quests are where it stands.
-    BotManager::Instance().TeleportToLevelFittingZone(bot);
+    // login scatter. Below level 10 its quests are where it stands. Logged
+    // out inside an instance/BG or left on a boat (Issue #872), the scatter
+    // cannot reach it: the exit portal (or the BG/graveyard release) comes
+    // first. Dead alts keep their corpse: the corpse run owns them.
+    AltBotExitTarget target = PickAltBotStartExit(DescribeLocation(bot), false);
+    if (target == AltBotExitTarget::None)
+        RelocateMisplacedAlt(bot, AltBotExitTarget::LevelZone);
+    else
+        RelocateMisplacedAlt(bot, target);
 
     Tell(owner, std::string(bot->GetName()) + " now plays on its own, .bot remove " + bot->GetName() +
         " to log it out.");

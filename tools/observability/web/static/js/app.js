@@ -2126,7 +2126,7 @@
       ? `<br><span style="color: var(--accent-red);">Issue:</span> ${esc(ISSUE_LABELS[issue.type] || issue.type)} (${esc(fmtDuration(issue.duration_sec))})`
       : '';
     el.mapTooltip.innerHTML = `
-      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${b.player ? ' <span class="badge badge-success">player</span>' : ''}<br>
+      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${b.player ? ' <span class="badge badge-success">player</span>' : (b.alt ? ' <span class="badge badge-info" title="Autonomous owned alt-bot">alt</span>' : '')}<br>
       ${b.player
         ? `<span style="color: var(--text-muted);">Group:</span> ${b.group ? `#${esc(b.group)}` : 'solo'}<br>`
         : `<span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>`}
@@ -2313,7 +2313,7 @@
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
         const pvp = pvpBadge(r.live);
-        const kind = r.live && r.live.player ? ' <span class="badge badge-success" title="Real player, not a bot">player</span>' : '';
+        const kind = r.live && r.live.player ? ' <span class="badge badge-success" title="Real player, not a bot">player</span>' : (r.live && r.live.alt ? ' <span class="badge badge-info" title="Autonomous owned alt-bot">alt</span>' : '');
         return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
     },
@@ -3377,8 +3377,9 @@
       el.armoryOnline.className = `badge ${online ? 'badge-success' : 'badge-warn'}`;
     }
     if (el.armoryKind) {
-      el.armoryKind.textContent = isPlayer ? 'Player' : 'Bot';
+      el.armoryKind.textContent = isPlayer ? 'Player' : ((live && live.alt) ? 'Alt' : 'Bot');
       el.armoryKind.className = `badge ${isPlayer ? 'badge-success' : 'badge-info'}`;
+      el.armoryKind.title = (!isPlayer && live && live.alt) ? 'Autonomous owned alt-bot' : '';
       el.armoryKind.style.display = live ? '' : 'none';
     }
     if (el.armoryMapBtn) el.armoryMapBtn.style.display = live ? '' : 'none';

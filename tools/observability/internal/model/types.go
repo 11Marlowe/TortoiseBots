@@ -4,7 +4,7 @@ import "time"
 
 // ProtocolVersion is bumped whenever the C++ -> Go datagram layout changes in
 // a way the daemon must understand. It is carried in every datagram.
-const ProtocolVersion = 9
+const ProtocolVersion = 10
 
 // Anomaly types accepted from the game server. Anything else is rejected so
 // that Prometheus label cardinality stays bounded. STUCK is counter-only
@@ -27,8 +27,10 @@ type BotSnapshot struct {
 	Name     string  `json:"name"`
 	GUID     uint32  `json:"guid"`
 	Player   bool    `json:"player,omitempty"`
+	// Alt marks an autonomous owned alt-bot (Issue #872). Additive since
+	// protocol v10; an older module omits it and it reads false.
+	Alt      bool    `json:"alt,omitempty"`
 	GroupID  uint32  `json:"group,omitempty"`
-	Class    string  `json:"class"`
 	Role     string  `json:"role"`
 	Level    uint32  `json:"level"`
 	XP       uint32  `json:"xp,omitempty"`      // PLAYER_XP: progress into the current level

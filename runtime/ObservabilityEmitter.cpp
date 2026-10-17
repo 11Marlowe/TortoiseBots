@@ -19,7 +19,7 @@
 #include "ObservabilityEmitter.h"
 
 #include "BotManager.h"
-#include "PlayerbotAIStorage.h"
+#include "AltBotService.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/TravelMgr.h"
@@ -52,7 +52,7 @@ namespace {
 
 // Datagram schema version. The Go daemon ignores datagrams it cannot parse;
 // this is bumped when the wire format changes incompatibly.
-constexpr int kProtocolVersion = 9;
+constexpr int kProtocolVersion = 10;
 
 // Snapshot cadence and batching. Datagrams are kept well under the loopback
 // MTU so a large roster arrives as several unpredictable chunks; the receiver
@@ -1241,6 +1241,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
 
         BotTelemetrySnapshot snap;
         FillLiveUnitSnapshot(bot, snap);
+        snap.isAlt = AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
         snap.role = GetBotRole(bot, ai);
         snap.strategy = FormatStrategies(ai);
         if (!bot->IsAlive())
@@ -1383,6 +1384,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
             bss << "{\"name\":\"" << EscapeJson(b.name) << "\""
                 << ",\"guid\":" << b.guid
                 << ",\"player\":" << (b.isPlayer ? "true" : "false")
+                << ",\"alt\":" << (b.isAlt ? "true" : "false")
                 << ",\"group\":" << b.groupId
                 << ",\"class\":\"" << EscapeJson(b.className) << "\""
                 << ",\"role\":\"" << EscapeJson(b.role) << "\""

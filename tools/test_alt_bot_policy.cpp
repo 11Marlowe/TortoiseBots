@@ -50,6 +50,79 @@ static void TestTarget()
     assert(PoolTargetWithAlts(2, 5) == 0);
 }
 
+static AltBotLocation Base()
+{
+    AltBotLocation loc;
+    loc.inWorld = true;
+    loc.alive = true;
+    loc.haveGrave = true;
+    loc.graveSameMap = true;
+    return loc;
+}
+
+static void TestStartExit()
+{
+    // Grouped: stays put (F42).
+    AltBotLocation in = Base();
+    in.instanceableMap = true;
+    in.dungeonMap = true;
+    in.haveExit = true;
+    assert(PickAltBotStartExit(in, true) == AltBotExitTarget::None);
+    // Ordinary map with no group anywhere odd: no relocation.
+    assert(PickAltBotStartExit(Base(), false) == AltBotExitTarget::None);
+    // Dungeon exit preferred over the graveyard.
+    assert(PickAltBotStartExit(in, false) == AltBotExitTarget::InstanceExit);
+    // Dungeon without a usable exit: the graveyard.
+    in.haveExit = false;
+    assert(PickAltBotStartExit(in, false) == AltBotExitTarget::Graveyard);
+    // Dungeon with no graveyard row at all: stay (caller scatter is per-map).
+    in.haveGrave = false;
+    assert(PickAltBotStartExit(in, false) == AltBotExitTarget::None);
+    // BG: always the graveyard, never the instance exit path.
+    AltBotLocation bg = Base();
+    bg.inBattleGround = true;
+    bg.instanceableMap = true;
+    bg.dungeonMap = true;
+    bg.haveExit = true;
+    assert(PickAltBotStartExit(bg, false) == AltBotExitTarget::Graveyard);
+    // Transport: graveyard when one is known.
+    AltBotLocation boat = Base();
+    boat.onTransport = true;
+    assert(PickAltBotStartExit(boat, false) == AltBotExitTarget::Graveyard);
+    // Not in world or dead: no relocation.
+    AltBotLocation out = in;
+    out.inWorld = false;
+    assert(PickAltBotStartExit(out, false) == AltBotExitTarget::None);
+}
+
+static void TestSweepDue()
+{
+    assert(!AltBotSweepDue(4999, 0));
+    assert(AltBotSweepDue(5000, 0));
+    assert(AltBotSweepDue(9000, 4000));
+    assert(!AltBotSweepDue(8999, 4000));
+    // 32-bit wrap: 0xFFFFFF00 -> 0x1500 is 0x1600 ms past (due);
+    // -> 0x1000 is only 0x1100 ms (not due).
+    assert(AltBotSweepDue(0x1500, 0xFFFFFF00));
+    assert(!AltBotSweepDue(0x1000, 0xFFFFFF00));
+}
+
+static void TestLeaveInstance()
+{
+    // Solo alt forgotten in a dungeon: leaves.
+    assert(ShouldAltBotLeaveInstance(true, true, true, false, true, false, false));
+    // Grouped but nobody else on its map: leaves.
+    assert(ShouldAltBotLeaveInstance(true, true, true, false, true, true, false));
+    // Party mate on the same map: stays.
+    assert(!ShouldAltBotLeaveInstance(true, true, true, false, true, true, true));
+    // Not autonomous, dead, teleporting, or not in a dungeon: stays.
+    assert(!ShouldAltBotLeaveInstance(false, true, true, false, true, false, false));
+    assert(!ShouldAltBotLeaveInstance(true, false, true, false, true, false, false));
+    assert(!ShouldAltBotLeaveInstance(true, true, false, false, true, false, false));
+    assert(!ShouldAltBotLeaveInstance(true, true, true, true, true, false, false));
+    assert(!ShouldAltBotLeaveInstance(true, true, true, false, false, false, false));
+}
+
 static void TestSummary()
 {
     AltBotSessionCounters c;
@@ -71,13 +144,15 @@ static void TestSummary()
     assert(FormatAltBotMoney(0) == "+0c");
     assert(FormatAltBotMoney(100) == "+1s 0c");
 }
-
 int main()
 {
     TestStart();
     TestDisplace();
     TestTarget();
     TestSummary();
+    TestStartExit();
+    TestSweepDue();
+    TestLeaveInstance();
     std::cout << "test_alt_bot_policy: OK" << std::endl;
     return 0;
 }
