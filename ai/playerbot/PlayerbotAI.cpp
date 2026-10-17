@@ -17,6 +17,7 @@
 #include "../../runtime/PoolBotTradePolicy.h"
 #include "../../runtime/QueuedOrderPolicy.h"
 #include "../../runtime/RemoteCommanderTasks.h"
+#include "../../runtime/AltBotService.h"
 #include "ByteBuffer.h"
 #include "ObjectAccessor.h"
 
@@ -437,7 +438,11 @@ PlayerbotAI::PlayerbotAI(Player* bot) :
     RegisterPacketHandlers(botOutgoingPacketHandlers, kBotOutgoingPacketHandlers, std::size(kBotOutgoingPacketHandlers));
     RegisterPacketHandlers(masterOutgoingPacketHandlers, kMasterOutgoingPacketHandlers, std::size(kMasterOutgoingPacketHandlers));
 
-    if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0)
+    // Issue #872: autonomous alts never auto-spend talents (B12). The
+    // IsOwnedBot guard already covers companions; this covers the
+    // masterless autonomous state (master was cleared at session start).
+    if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0 &&
+        !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
     {
         DoSpecificAction("auto talents");
     }
@@ -7356,6 +7361,15 @@ bool PlayerbotAI::HasCheat(BotCheatMask mask) const
     else
     {
         if (((uint32)mask & sPlayerbotAIConfig.botCheatMask) != 0)
+            return true;
+        // Issue #872: the item cheat (ammo/reagents) applies to autonomous
+        // alts as for the pool (B15). The cheat mask is never set per-bot,
+        // so without this an alt would read the Bank list (BotCheats:
+        // repair,breath) and lose the refill/ration/kit paths the pool gets
+        // from the random list. Scoped to the item cheat only: gold/health/
+        // mana/cooldown cheats stay off, so repair stays paid (B10).
+        if (mask == BotCheatMask::item &&
+            TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
             return true;
     }
 

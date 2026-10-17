@@ -5,7 +5,8 @@
 #include "playerbot/strategy/values/ItemUsageValue.h"
 #include "../../../runtime/HireLifecycle.h"
 #include "../../../runtime/HireQuestPolicy.h"
-
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 using namespace ai;
 
 static bool IsFixedRewardUpgrade(AiObjectContext* context, Quest const* quest)
@@ -108,6 +109,18 @@ bool AcceptAllQuestsAction::WouldAcceptQuest(PlayerbotAI* ai, Player* bot, Quest
         bot->GetLevel() > bot->GetQuestLevelForPlayer(quest) + (uint32)sWorld.getConfig(CONFIG_INT32_QUEST_LOW_LEVEL_HIDE_DIFF) + 1)
     {
         if (!AI_VALUE2(bool, "need quest reward", (int32)quest->GetQuestId()) && !IsFixedRewardUpgrade(context, quest))
+            return false;
+    }
+
+    // Issue #872: an autonomous alt keeps free quest-log slots for the player
+    // (10). Count the log the same way FreeQuestLogSlotValue does.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+    {
+        uint32 held = 0;
+        for (uint8 slot = 0; slot < MAX_QUEST_LOG_SIZE; ++slot)
+            if (GetQuestSlotIdCompat(bot, slot))
+                ++held;
+        if (!TortoiseBots::AltBotMayAcceptQuest(held))
             return false;
     }
 
@@ -267,6 +280,8 @@ bool AcceptQuestShareAction::Execute(Event& event)
     if( bot->CanAddQuest( qInfo, false ) )
     {
         bot->AddQuest( qInfo, requester);
+        // Issue #872: remember quests the autonomous alt took itself.
+        TortoiseBots::AltBotService::Instance().AddTakenQuest(bot, quest);
 
         sPlayerbotAIConfig.logEvent(ai, "AcceptQuestShareAction", qInfo->GetTitle(), std::to_string(qInfo->GetQuestId()));
 
@@ -318,6 +333,8 @@ bool ConfirmQuestAction::Execute(Event& event)
     if( bot->CanAddQuest( qInfo, false ) )
     {
         bot->AddQuest( qInfo, requester );
+        // Issue #872: remember quests the autonomous alt took itself.
+        TortoiseBots::AltBotService::Instance().AddTakenQuest(bot, quest);
 
         if( bot->CanCompleteQuest( quest ) )
             bot->CompleteQuest( quest );
@@ -366,6 +383,8 @@ bool QuestDetailsAction::Execute(Event& event)
     if (bot->CanAddQuest(qInfo, false))
     {
         bot->AddQuest(qInfo, requester);
+        // Issue #872: remember quests the autonomous alt took itself.
+        TortoiseBots::AltBotService::Instance().AddTakenQuest(bot, quest);
 
         // The gossip/quest-details path is the one accept that used to be
         // invisible in bot_events.csv (the emote-time hello makes the core send

@@ -4,6 +4,7 @@
 #include "playerbot/ServerFacade.h"
 #include "../../../runtime/HireLifecycle.h"
 #include "../../../runtime/HireQuestPolicy.h"
+#include "../../../../runtime/AltBotService.h"
 
 using namespace ai;
 
@@ -293,6 +294,9 @@ bool QuestAction::AcceptQuest(Player* requester, Quest const* quest, uint64 ques
             BroadcastHelper::BroadcastQuestAccepted(ai, bot, quest);
 
             sPlayerbotAIConfig.logEvent(ai, "AcceptQuestAction", quest->GetTitle(), std::to_string(quest->GetQuestId()));
+            // Issue #872: remember quests the autonomous alt took itself so
+            // only those may be abandoned later.
+            TortoiseBots::AltBotService::Instance().AddTakenQuest(bot, questId);
             outputMessage = BOT_TEXT2("quest_accepted", args);
             success = true;
         }

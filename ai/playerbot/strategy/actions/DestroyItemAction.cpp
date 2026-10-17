@@ -195,6 +195,10 @@ bool SmartDestroyItemAction::Execute(Event& event)
 
 bool DestroyAllGrayItemsAction::Execute(Event& event)
 {
+    // Issue #872: an autonomous alt never destroys the player's items,
+    // including grey trash (B14-adjacent footprint rule).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
 
     bool hasDestroyedAnyItems = false;

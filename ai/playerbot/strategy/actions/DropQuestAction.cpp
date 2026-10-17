@@ -2,6 +2,8 @@
 #include "playerbot/playerbot.h"
 #include "DropQuestAction.h"
 #include "playerbot/QuestLogPolicy.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 #include <algorithm>
 #include <vector>
 
@@ -27,6 +29,11 @@ bool DropQuestAction::Execute(Event& event)
 
         if (questId == entry || link.find(quest->GetTitle()) != std::string::npos || link == "all")
         {
+            // Issue #872: an autonomous alt only abandons quests it took
+            // itself. Explicit companion orders keep today's behaviour.
+            if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+                !TortoiseBots::AltBotService::Instance().IsTakenQuest(bot->GetGUIDLow(), questId))
+                continue;
             questIds.push_back(questId);
             if (link != "all")
                 break;
@@ -172,6 +179,10 @@ bool CleanQuestLogAction::Execute(Event& event)
     // full (donor OrganizeQuestLog runs at freeSlotNum < 2); otherwise the
     // scan only applies the old per-quest rules.
     bool upkeep = IsUpkeepBot();
+    // Issue #872: an autonomous alt only abandons quests it took itself.
+    // The pass below drops anything IsDroppable matches, so without this
+    // the upkeep pass could throw away the player's own quests.
+    bool const isAltBot = TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
     bool dropped = false;
     // Pass 1: the per-quest rules (grey, banned, FAILED, unrewardable
     // COMPLETE, itemless deliver) drop everything they match, as before.
@@ -196,6 +207,9 @@ bool CleanQuestLogAction::Execute(Event& event)
             drop = !quest->GetRequiredClasses();
         if (!drop)
             continue;
+        // Issue #872: an autonomous alt only abandons quests it took itself.
+        if (isAltBot && !TortoiseBots::AltBotService::Instance().IsTakenQuest(bot->GetGUIDLow(), questId))
+            continue;
 
         ai->DropQuest(questId);
         ai->TellPlayer(requester, BOT_TEXT("quest_remove") + " " + chat->formatQuest(quest),
@@ -218,6 +232,9 @@ bool CleanQuestLogAction::Execute(Event& event)
             uint32 questId = GetQuestSlotIdCompat(bot, slot);
             QuestStatus status = questId ? bot->GetQuestStatus(questId) : QUEST_STATUS_NONE;
             if (status != QUEST_STATUS_INCOMPLETE)
+                continue;
+            // Issue #872: an autonomous alt only abandons quests it took itself.
+            if (isAltBot && !TortoiseBots::AltBotService::Instance().IsTakenQuest(bot->GetGUIDLow(), questId))
                 continue;
             Quest const* quest = sObjectMgr.GetQuestTemplate(questId);
             if (!IsDroppable(quest, status, upkeep, true))

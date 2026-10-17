@@ -10,6 +10,7 @@
 #include "playerbot/TravelMgr.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/HireQuestPolicy.h"
+#include "../../../runtime/AltBotService.h"
 
 using namespace ai;
 
@@ -202,6 +203,9 @@ bool RpgSellTrigger::IsActive()
 
 bool RpgAHSellTrigger::IsActive()
 {
+    // Issue #872: autonomous alts never touch the AH (B9).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
     GuidPosition guidP(getGuidP());
 
     if (!guidP.HasNpcFlag(UNIT_NPC_FLAG_AUCTIONEER))
@@ -221,6 +225,9 @@ bool RpgAHSellTrigger::IsActive()
 
 bool RpgAHBuyTrigger::IsActive()
 {
+    // Issue #872: autonomous alts never touch the AH (B9).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
     GuidPosition guidP(getGuidP());
 
     if (!guidP.HasNpcFlag(UNIT_NPC_FLAG_AUCTIONEER))
@@ -240,6 +247,9 @@ bool RpgAHBuyTrigger::IsActive()
 
 bool RpgGetMailTrigger::IsActive()
 {
+    // Issue #872: autonomous alts never touch mail (B9).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
     GuidPosition guidP(getGuidP());
 
     if (!guidP.isGoType(GAMEOBJECT_TYPE_MAILBOX))
@@ -399,6 +409,15 @@ bool RpgTrainTrigger::IsActive()
 
     if (!IsTrainerOf(guidP.GetCreatureTemplate(), bot))
         return false;
+    // Issue #872: autonomous alts train class spells only - never mount,
+    // pet or tradeskill trainers (B11 spends gold on trainer spells, but
+    // riding/pet training is a mount purchase by another name).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+    {
+        CreatureInfo const* cInfo = guidP.GetCreatureTemplate();
+        if (!cInfo || cInfo->trainer_type != TRAINER_TYPE_CLASS)
+            return false;
+    }
 
     return TeachesAffordableSpell(ai, guidP, bot);
 }
@@ -429,6 +448,9 @@ bool RpgHealTrigger::IsActive()
 
 bool RpgHomeBindTrigger::IsActive()
 {
+    // Issue #872: autonomous alts never rebind their hearthstone.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
     GuidPosition guidP(getGuidP());
 
     if (!guidP.HasNpcFlag(UNIT_NPC_FLAG_INNKEEPER))
@@ -673,6 +695,9 @@ bool RpgTradeUsefulTrigger::isFriend(Player* player)
 
 bool RpgTradeUsefulTrigger::IsActive()
 {
+    // Issue #872: autonomous alts never trade (B9).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
     GuidPosition guidP(getGuidP());
 
     if (!guidP.IsPlayer())

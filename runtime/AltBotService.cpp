@@ -1,5 +1,6 @@
 // pi-lens-ignore-file: clang:pp_file_not_found,clang:unknown_typename,clang:use_of_undeclared_identifier,clang:unknown_type_name,clang:undeclared_var_use,clang:incomplete_member_access
 #include "AltBotService.h"
+#include <algorithm>
 #include "BotManager.h"
 #include "ClaimLifecycle.h"
 #include "HireLifecycle.h"
@@ -475,4 +476,32 @@ void AltBotService::OnDeath(Player* bot)
         ++it->second.counters.deaths;
 }
 
+void AltBotService::AddTakenQuest(Player* bot, uint32_t questId)
+{
+    if (bot && questId)
+        AddTakenQuest(bot->GetGUIDLow(), questId);
+}
+
+void AltBotService::AddTakenQuest(uint32_t guidLow, uint32_t questId)
+{
+    if (!questId)
+        return;
+    std::lock_guard<std::mutex> lock(m_sessionsMutex);
+    auto it = m_sessions.find(guidLow);
+    if (it == m_sessions.end())
+        return;
+    std::vector<uint32_t>& taken = it->second.takenQuests;
+    if (std::find(taken.begin(), taken.end(), questId) == taken.end())
+        taken.push_back(questId);
+}
+
+bool AltBotService::IsTakenQuest(uint32_t guidLow, uint32_t questId) const
+{
+    std::lock_guard<std::mutex> lock(m_sessionsMutex);
+    auto it = m_sessions.find(guidLow);
+    if (it == m_sessions.end() || !questId)
+        return false;
+    std::vector<uint32_t> const& taken = it->second.takenQuests;
+    return std::find(taken.begin(), taken.end(), questId) != taken.end();
+}
 } // namespace TortoiseBots

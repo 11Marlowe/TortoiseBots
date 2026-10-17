@@ -12,6 +12,8 @@
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 #include "../../../runtime/HireSourceGuardPolicy.h"
 #include "../../../runtime/HireGearPolicy.h"
 
@@ -627,7 +629,21 @@ bool EquipUpgradesAction::Execute(Event& event)
         if (slot == EQUIPMENT_SLOT_MAINHAND && proto->Class == ITEM_CLASS_WEAPON &&
             proto->InventoryType != INVTYPE_2HWEAPON && bot->CanDualWield())
             displacedMH = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_MAINHAND);
-
+        // Issue #872: an autonomous alt auto-equips upgrades only if the old
+        // piece fits in the bags (B14). Core SwapItem needs one free slot
+        // once the worn piece leaves its slot; without it the audit stops
+        // equipping and the bot keeps playing.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        {
+            Item* oldItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot);
+            if (oldItem)
+            {
+                ItemPosCountVec dest;
+                if (bot->CanStoreItem(NULL_BAG, NULL_SLOT, dest, oldItem, false) != EQUIP_ERR_OK ||
+                    !TortoiseBots::AltBotMayAutoEquip(true))
+                    continue;
+            }
+        }
         filledSlots.insert(slot);
         didEquip = true;
 
