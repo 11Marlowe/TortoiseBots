@@ -18,6 +18,7 @@
 #include "playerbot/strategy/values/BudgetValues.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "runtime/HireLifecycle.h"
+#include "runtime/AltBotService.h"
 #include <cstdlib>
 #include <iomanip>
 
@@ -373,7 +374,10 @@ bool MoveToTravelTargetAction::TryRescueStuckTravel(TravelTarget* target, std::s
     if (!bot->IsAlive() || bot->IsInCombat() || bot->InBattleGround() || bot->IsTaxiFlying() ||
         bot->IsBeingTeleported() || bot->GetTransport())
         return false;
-    if (ai->HasRealPlayerMaster() || ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot) ||
+    // Issue #872: an alt-bot gets the pool's same-map stuck recovery (C22).
+    if (ai->HasRealPlayerMaster() ||
+        (!TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+         (ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot))) ||
         TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
         return false;
 
@@ -779,7 +783,10 @@ bool MoveToTravelTargetAction::TryUndercityLift(WorldPosition const& location)
         return false;
     if (!bot->IsAlive() || bot->IsInCombat() || bot->IsTaxiFlying() || bot->IsBeingTeleported() || bot->GetTransport())
         return false;
-    if (ai->HasRealPlayerMaster() || ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot) ||
+    // Issue #872: an alt-bot gets the pool's same-map stuck recovery (C22).
+    if (ai->HasRealPlayerMaster() ||
+        (!TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+         (ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot))) ||
         TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
         return false;
 
