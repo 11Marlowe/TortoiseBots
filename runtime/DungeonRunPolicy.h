@@ -198,9 +198,10 @@ struct UnitFact
     bool engaged = false;
     std::uint64_t owner = 0;
     bool ownerEngaged = false;
+    bool victimHealer = false; // its victim is a healer (Facts::partyAttackers, and a hold's units)
+    bool victimLead = false;   // a hold's units: its victim is the lead bot (the tank holds it)
     // Facts::partyAttackers only:
     bool hitting = false;      // it hits its victim now: in melee reach of it, or standing and casting (not running in)
-    bool victimHealer = false; // its victim is a healer
     float distSpot = -1.0f;    // ... during a hold: its distance from the hold spot (-1: not read)
 };
 
@@ -2435,24 +2436,39 @@ inline const UnitFact* HoldGuardTarget(const Run& r, const Facts& f)
 // useful (19z12 attempt 1: Trian's "tank assist" was useless and "select new
 // target" failed 1871 times in 100 s; it never swung at the keepers, only
 // taunted). So once an awake unit of the event is in the fight (hostile, in
-// combat, within the radius: the hold's units), the tank is sent at the
-// nearest one (`attack`, which ends its stay) and fights it where it stands;
-// out of the fight the hold puts it back on the spot. Also once a hold order
-// took it off its stay this fight (holdUnstayed): the next unit of the event
-// that wakes is sent too (off its stay, not the unit it was sent at already:
-// it fights that one by itself).
+// combat, within the radius: the hold's units), the tank on stay is sent at
+// one (`attack`, which ends its stay) and fights it where it stands; out of
+// the fight the hold puts it back on the spot. The healer's attacker first,
+// then one on someone else, then one on the tank itself, each the nearest.
+//
+// Once a hold order took it off its stay this fight (holdUnstayed), its own
+// AI fights and the run only sends it at a unit nobody holds: never one
+// already on the tank, nor the one it was sent at last, and while the tank
+// holds a unit (one on it, or a mob hitting it in melee reach) only one that
+// hits the healer. Switching costs the threat it built: with two units in the
+// fight (Archaedas and a waking statue every 10 s) a "the one it is not on"
+// rule sent it A, B, A every 2 s.
 inline const UnitFact* HoldEngageTarget(const Run& r, const Facts& f)
 {
     if (!(f.leadStaying || r.holdUnstayed) || !InHoldArea(r, f))
         return nullptr;
+    auto const awake = [](const UnitFact& u)
+    {
+        return u.hostile && u.engaged && !u.evading && !u.polymorphed && u.distLead <= kGuardYd;
+    };
+    bool holding = f.leadHit;
+    for (const UnitFact& u : f.units)
+        if (awake(u) && u.victimLead)
+            holding = true;
+    auto const rank = [](const UnitFact& u) { return u.victimHealer ? 0 : u.victimLead ? 2 : 1; };
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.units)
     {
-        if (!u.hostile || !u.engaged || u.evading || u.polymorphed || u.distLead > kGuardYd)
+        if (!awake(u))
             continue;
-        if (!f.leadStaying && u.guid == r.holdEngageGuid)
+        if (!f.leadStaying && (u.victimLead || u.guid == r.holdEngageGuid || (holding && !u.victimHealer)))
             continue;
-        if (!best || u.distLead < best->distLead)
+        if (!best || rank(u) < rank(*best) || (rank(u) == rank(*best) && u.distLead < best->distLead))
             best = &u;
     }
     return best;

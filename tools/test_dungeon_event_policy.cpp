@@ -678,6 +678,115 @@ static void TestHoldGuardLimits()
     }
 }
 
+// Review of #1072, round 2: off its stay the tank was sent at any awake unit
+// but the last one it was sent at, so with two in the fight (Archaedas and a
+// statue waking every 10 s) it went A, B, A every 2 s, 3 times per death,
+// losing threat with each switch. Now it keeps what it holds: never a unit
+// already on it, and while it holds one only a unit hitting the healer.
+static void TestHoldEngageKeepsItsTarget()
+{
+    auto holdRun = [](DungeonPlan& plan)
+    {
+        plan.steps = {KeepersRitual(), KeepersHold()};
+        Run r = Start(&plan);
+        Facts f = Party();
+        f.eventData = 0;
+        Tick(r, f); // the ritual
+        f.eventData = 1;
+        f.taskReply = 1;
+        f.anyInCombat = true;
+        Tick(r, f); // ACK: the hold's fight
+        CHECK(r.step == 1 && r.eventOn);
+        return r;
+    };
+    auto fight = []()
+    {
+        Facts f = Party();
+        f.eventData = 1;
+        f.anyInCombat = true;
+        f.leadIsTank = true;
+        f.leadStaying = true;
+        return f;
+    };
+    auto unit = [](std::uint64_t guid, float yd, bool onTank, bool onHealer)
+    {
+        UnitFact u = Keeper(guid, true);
+        u.engaged = true;
+        u.distLead = yd;
+        u.victimLead = onTank;
+        u.victimHealer = onHealer;
+        return u;
+    };
+    auto orders = [](Run& r, const Facts& f, int ticks, std::vector<std::string>& sent)
+    {
+        for (int i = 0; i < ticks; ++i)
+        {
+            std::string const o = Tick(r, f);
+            if (o.compare(0, 7, "attack ") == 0)
+                sent.push_back(o);
+        }
+    };
+    {
+        // One on the tank (nearer), one on the mage: one order, for the mage's.
+        DungeonPlan plan;
+        Run r = holdRun(plan);
+        Facts f = fight();
+        f.units = {unit(1, 3.0f, true, false), unit(2, 12.0f, false, false)};
+        std::vector<std::string> sent;
+        orders(r, f, 1, sent);
+        CHECK(sent.size() == 1 && sent[0] == "attack 2 Tanky");
+        // Off its stay, the mage's attacker not yet turned: no flip-flop back.
+        f.leadStaying = false;
+        orders(r, f, 20, sent);
+        CHECK(sent.size() == 1);
+        // Both on the tank now: still nothing.
+        f.units = {unit(1, 3.0f, true, false), unit(2, 4.0f, true, false)};
+        orders(r, f, 20, sent);
+        CHECK(sent.size() == 1);
+        // A death resets the count; the next one wakes onto the mage while
+        // the tank holds the other: it keeps that one.
+        f.eventDown = 1;
+        f.units = {unit(2, 4.0f, true, false), unit(3, 14.0f, false, false)};
+        orders(r, f, 20, sent);
+        CHECK(sent.size() == 1);
+        // That one turns on the healer: taken, once, and not back again.
+        f.units = {unit(2, 4.0f, true, false), unit(3, 14.0f, false, true)};
+        orders(r, f, 20, sent);
+        CHECK(sent.size() == 2 && sent[1] == "attack 3 Tanky");
+        // The healer's attacker first, on stay too, over a nearer one on the mage.
+        Run r2 = holdRun(plan);
+        Facts g = fight();
+        g.units = {unit(4, 3.0f, false, false), unit(5, 15.0f, false, true)};
+        std::vector<std::string> sent2;
+        orders(r2, g, 1, sent2);
+        CHECK(sent2.size() == 1 && sent2[0] == "attack 5 Tanky");
+    }
+    {
+        // Two units both on the tank off its stay: no orders at all, also
+        // across a death.
+        DungeonPlan plan;
+        Run r = holdRun(plan);
+        r.holdUnstayed = true; // an earlier hold order took it off its stay
+        Facts f = fight();
+        f.leadStaying = false;
+        f.units = {unit(1, 3.0f, true, false), unit(2, 5.0f, true, false)};
+        std::vector<std::string> sent;
+        orders(r, f, 20, sent);
+        f.eventDown = 1;
+        orders(r, f, 20, sent);
+        CHECK(sent.empty());
+        // On stay the tank does not swing at all: one order for the nearest,
+        // then its own AI fights both.
+        Run r2 = holdRun(plan);
+        Facts g = fight();
+        g.units = f.units;
+        orders(r2, g, 1, sent);
+        g.leadStaying = false;
+        orders(r2, g, 20, sent);
+        CHECK(sent.size() == 1 && sent[0] == "attack 1 Tanky");
+    }
+}
+
 int main()
 {
     TestNormalizeEventSteps();
@@ -694,6 +803,7 @@ int main()
     TestSpentAltarAfterAFailure();
     TestTankGuardsTheHold();
     TestHoldGuardLimits();
+    TestHoldEngageKeepsItsTarget();
     std::cout << "test_dungeon_event_policy: ok\n";
     return 0;
 }

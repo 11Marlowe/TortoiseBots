@@ -9455,7 +9455,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = Polymorphed(creature);
                     // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
-                    unit.engaged = unit.hostile && creature->IsInCombat() && creature->GetVictim();
+                    Unit* const victim = creature->GetVictim();
+                    unit.engaged = unit.hostile && creature->IsInCombat() && victim;
+                    // Whom it is on: the tank keeps what it holds, the healer's attacker first.
+                    unit.victimLead = victim == lead;
+                    unit.victimHealer = victim && victim->IsPlayer() &&
+                        PlayerbotAI::IsHeal(static_cast<Player*>(victim));
                     f.units.push_back(unit);
                 }
             }
