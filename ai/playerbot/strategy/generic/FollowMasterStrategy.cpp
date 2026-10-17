@@ -25,6 +25,13 @@ void FollowMasterStrategy::InitNonCombatTriggers(std::list<TriggerNode*> &trigge
     triggers.push_back(new TriggerNode(
         "update follow",
         NextAction::array(0, new NextAction("follow", ACTION_IDLE), NULL)));
+    // Idle station-keeping: a formation slot sits inside "update follow"'s
+    // 5 yd dead zone, so without this a newly set formation (queue, circle,
+    // shield, ...) visibly does nothing until the party moves. Fires while
+    // the bot stands off its slot and re-runs "follow" to walk it there.
+    triggers.push_back(new TriggerNode(
+        "formation station",
+        NextAction::array(0, new NextAction("follow", ACTION_IDLE), NULL)));
 }
 
 void FollowMasterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
