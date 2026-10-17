@@ -9159,6 +9159,11 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
     {
         TortoiseBots::DungeonRun::BagFact bag;
         bag.name = bot->GetName();
+        // Never a dead bot, or one that is not in the world on the lead bot's map.
+        if (!bot->IsAlive())
+            bag.away = "dead";
+        else if (!bot->IsInWorld() || bot->GetMap() != lead->GetMap())
+            bag.away = "not in the instance";
         for (uint32 item : inputs)
             if (item && bot->HasItemCount(item))
                 bag.held.push_back(item);

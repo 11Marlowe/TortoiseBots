@@ -2072,13 +2072,16 @@ struct BagFact
 {
     std::string name;
     std::vector<std::uint32_t> held; // the step's input items this bot carries
+    std::string away;                // why it cannot take the task ("dead", "not in the instance"); "": it can
 };
 
 // The bot an open / use_item goes to: the lead bot when it carries every input
 // of the step (its item, the item to use, and the second item in `param`),
-// else the first bot that does. None carries them all: the lead bot, and
-// `split` names who holds what when someone holds the step's first input.
-// Only the step's own inputs count, never loot a bot kept for other reasons.
+// else the first available bot that does. None does: the lead bot, and `split`
+// says who holds what (an unavailable bot: item N is with X, who is dead) when
+// someone holds the step's first input. Only the step's own inputs count,
+// never loot a bot kept for other reasons; a dead bot or one off the lead
+// bot's map is never chosen.
 inline std::string PickItemCarrier(const std::vector<BagFact>& bags, const std::vector<std::uint32_t>& inputs,
     const std::string& lead, std::string* split = nullptr)
 {
@@ -2091,7 +2094,7 @@ inline std::string PickItemCarrier(const std::vector<BagFact>& bags, const std::
     };
     std::string best;
     for (const BagFact& b : bags)
-        if (holdsAll(b) && (best.empty() || b.name == lead))
+        if (b.away.empty() && holdsAll(b) && (best.empty() || b.name == lead))
             best = b.name;
     if (!best.empty())
         return best;
@@ -2106,8 +2109,11 @@ inline std::string PickItemCarrier(const std::vector<BagFact>& bags, const std::
                 std::string has;
                 for (std::uint32_t item : b.held)
                     has += (has.empty() ? "" : ", ") + std::to_string(item);
-                if (!has.empty())
-                    *split += (split->empty() ? "" : "; ") + b.name + " holds " + has;
+                if (has.empty())
+                    continue;
+                *split += std::string(split->empty() ? "" : "; ") +
+                    (b.away.empty() ? b.name + " holds " + has
+                                    : std::string("item ") + has + " is with " + b.name + ", who is " + b.away);
             }
     }
     return lead;

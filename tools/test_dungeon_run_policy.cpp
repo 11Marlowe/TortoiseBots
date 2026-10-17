@@ -661,6 +661,23 @@ static void TestItemCarrierIsPickedFromTheStepsOwnInputs()
     bags[2].held.clear();
     CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky");
     CHECK(split == "Tanky holds 7740; Healy holds 7741");
+    // The only carrier is dead or off the map: never chosen; the note says where the item is.
+    bags[0].held = {7740};
+    bags[1].held = {7740, 7741};
+    bags[1].away = "dead";
+    split.clear();
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky");
+    CHECK(split == "Tanky holds 7740; item 7740, 7741 is with Healy, who is dead");
+    bags[1].away = "not in the instance";
+    split.clear();
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky");
+    CHECK(split.find("who is not in the instance") != std::string::npos);
+    // ... and another available bot that carries everything is preferred over the unavailable one.
+    bags[2].held = {7740, 7741};
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Stabby");
+    bags[1].away.clear();
+    bags[1].held = {7741};
+    bags[2].held.clear();
     // Nobody has the first input: no split note (the missing-item rules apply).
     split.clear();
     bags[0].held.clear();
