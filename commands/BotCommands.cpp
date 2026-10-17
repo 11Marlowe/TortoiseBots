@@ -9132,59 +9132,42 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
 
 // The bot a loot/open/use task goes to: the lead bot, or for a loot the one a
 // refusal moved the order to (DungeonRun::Run::taskBot), or for an open /
-// use_item after a loot that another bot's bags answered (Run::itemHolder) the
-// bot that carries every item it needs. `split` (when given) names who holds
-// what if no bot carries them all.
+// use_item the bot that carries every input of the step (its item, the item to
+// use, the second item in `param`; DungeonRun::PickItemCarrier). `split` (when
+// given) names who holds what if no bot carries them all.
 Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     ai::PlanStep const* step = nullptr, std::string* split = nullptr)
 {
-    if (step && step->kind == ai::PlanStepKind::Loot && !slot.run.taskBot.empty())
+    if (!step)
+        return lead;
+    if (step->kind == ai::PlanStepKind::Loot)
     {
-        for (Player* bot : bots)
-            if (bot->GetName() == slot.run.taskBot)
-                return bot;
+        if (!slot.run.taskBot.empty())
+            for (Player* bot : bots)
+                if (bot->GetName() == slot.run.taskBot)
+                    return bot;
         return lead;
     }
-    if (!step || slot.run.itemHolder.empty() ||
-        (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem))
+    if (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem)
         return lead;
-    // What the step needs: its own item (the key, the item to use) and the loot
-    // items another bot carries, while some bot still has them.
-    std::vector<uint32> need;
-    need.push_back(step->kind == ai::PlanStepKind::Open ? step->item : step->entry);
-    for (auto const& held : slot.run.itemHolder)
-        for (Player* bot : bots)
-            if (bot->HasItemCount(held.first))
-            {
-                need.push_back(held.first);
-                break;
-            }
-    Player* best = nullptr;
+    std::vector<uint32> inputs;
+    inputs.push_back(step->kind == ai::PlanStepKind::Open ? step->item : step->entry);
+    if (step->param)
+        inputs.push_back(step->param);
+    std::vector<TortoiseBots::DungeonRun::BagFact> bags;
     for (Player* bot : bots)
     {
-        bool all = true;
-        for (uint32 item : need)
-            all = all && item && bot->HasItemCount(item);
-        if (all && (!best || bot == lead))
-            best = bot;
+        TortoiseBots::DungeonRun::BagFact bag;
+        bag.name = bot->GetName();
+        for (uint32 item : inputs)
+            if (item && bot->HasItemCount(item))
+                bag.held.push_back(item);
+        bags.push_back(bag);
     }
-    if (best)
-        return best;
-    // Only when the step's own item is there: without it the step's own missing
-    // item rules apply.
-    bool primaryHeld = false;
+    std::string const name = TortoiseBots::DungeonRun::PickItemCarrier(bags, inputs, lead->GetName(), split);
     for (Player* bot : bots)
-        primaryHeld = primaryHeld || (need[0] && bot->HasItemCount(need[0]));
-    if (split && primaryHeld)
-        for (Player* bot : bots)
-        {
-            std::string has;
-            for (uint32 item : need)
-                if (item && bot->HasItemCount(item))
-                    has += (has.empty() ? "" : ", ") + std::to_string(item);
-            if (!has.empty())
-                *split += std::string(split->empty() ? "" : "; ") + bot->GetName() + " holds " + has;
-        }
+        if (bot->GetName() == name)
+            return bot;
     return lead;
 }
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
@@ -9197,7 +9180,6 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
     f.carrier = lead->GetName();
-    f.leadName = lead->GetName();
     f.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
     for (Player* bot : bots)
     {

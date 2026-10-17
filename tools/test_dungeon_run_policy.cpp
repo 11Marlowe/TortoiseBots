@@ -409,10 +409,11 @@ static void TestUnseenPackIsApproachedNotCleared()
 }
 
 // Ragefire 19z13, trogg cave pull 13: the pack is 70 yd down a ramp. The hop
-// toward it ended with the pack in sight, but the anchor was still the previous
-// stand 11 yd higher (more than kStragglerDzYd): the gather "went back" to it,
-// the next hop came forward again, eight times, then the hop cap. The anchor
-// follows the lead bot to where the pack came in sight.
+// toward it was broken off by the pull's gather as soon as the pack came in
+// sight, while the anchor was still the previous stand 11 yd higher (more than
+// kStragglerDzYd): the gather "went back" to it, the next hop came forward
+// again, eight times, then the hop cap. The hop is walked to its end first, and
+// its point becomes the anchor.
 static void TestFarPackHopIsNotUndoneByTheGatherBack()
 {
     DungeonPlan plan;
@@ -429,23 +430,46 @@ static void TestFarPackHopIsNotUndoneByTheGatherBack()
     f.approachKnown = true;
     f.approachX = -205; f.approachY = -34; f.approachZ = -52;
     CHECK(Tick(r, f) == "move -205.0 -34.0 -52.0");
-    // Half way down the pack comes in sight (60 yd), the hop not finished.
-    f.leadX = -200.7f; f.leadY = -35.6f; f.leadZ = -48.5f; // 7.6 yd below the anchor
+    // Half way down the pack comes in sight (60 yd): the hop goes on.
+    f.leadX = -200.7f; f.leadY = -35.6f; f.leadZ = -48.5f;
     f.seen = true;
     f.units = {Unit(1, 11318, 38)};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.phase == Phase::Walk && r.note == "approaching the pack");
+    // At the hop's point: it is the anchor and the pull goes out, no gather back.
+    f.leadX = -205; f.leadY = -34; f.leadZ = -52;
+    f.units = {Unit(1, 11318, 34)};
     CHECK(Tick(r, f) == "pullback 1");
-    CHECK(r.phase == Phase::AwaitPull);
-    CHECK(r.anchorX == -200.7f && r.anchorZ == -48.5f);
+    CHECK(r.anchorX == -205.0f && r.anchorZ == -52.0f);
     CHECK(r.note.find("gathering back") == std::string::npos);
-    // Further down, 11 yd below the old anchor: still not "off the way".
+    // A unit of the pack within kHopClearYd: no walking on, the pull goes from
+    // here and the anchor stays (the party is not gathered next to the pack).
     Run q = Start(&plan);
     q.restDue = false;
     q.anchorKnown = true;
     q.anchorX = -169.1f; q.anchorY = -34.9f; q.anchorZ = -40.9f;
-    Facts g = f;
-    g.leadX = -205; g.leadY = -34; g.leadZ = -52; // a player's `cmd move` there, then a resume
-    CHECK(Tick(q, g) == "pullback 1");
-    CHECK(q.anchorZ == -52.0f);
+    Facts g = Party(-169.1f);
+    g.leadY = -34.9f; g.leadZ = -40.9f;
+    g.seen = false;
+    g.approachKnown = true;
+    g.approachX = -205; g.approachY = -34; g.approachZ = -52;
+    Tick(q, g);
+    g.leadX = -222; g.leadY = -34; g.leadZ = -54;
+    g.seen = true;
+    g.maxMemberYd = 40;
+    g.units = {Unit(1, 11318, 17)};
+    CHECK(Tick(q, g).compare(0, 5, "move ") == 0);
+    CHECK(q.note.find("gathering back at -169.1 -34.9 -40.9") == 0);
+    CHECK(q.anchorX == -169.1f);
+    // A player's move next to the visible pack, the party behind: the anchor stays too.
+    Run m = Start(&plan);
+    m.restDue = false;
+    m.anchorKnown = true;
+    m.anchorX = -169.1f; m.anchorY = -34.9f; m.anchorZ = -40.9f;
+    Facts h = g;
+    h.units = {Unit(1, 11318, 15)};
+    Tick(m, h);
+    CHECK(m.anchorX == -169.1f && m.anchorZ == -40.9f);
 }
 
 // A hop loop that really gets nowhere still pauses after kMaxApproachHops, with
@@ -590,107 +614,66 @@ static void TestLootRefusalTriesTheTurnBotThenEachBot()
     CHECK(n.state == State::Paused && n.note.find("not-found") != std::string::npos);
 }
 
-// A fight no pull of the run started (a self-aggro on the approach, a patrol)
-// may have chased the lead bot: the anchor stays, also over a resume.
-static void TestAnchorStaysAfterAFightWithoutAPull()
+// open / use_item go to the bot that carries every input of the step: its item
+// (or the item to use) and `param`. Loot another bot keeps for other reasons
+// does not count.
+static void TestItemCarrierIsPickedFromTheStepsOwnInputs()
 {
-    DungeonPlan plan;
-    plan.steps = {PullStep(-238.0f, {11318})};
-    plan.steps[0].y = -36.0f;
-    plan.steps[0].z = -56.4f;
-    Run r = Start(&plan);
-    r.restDue = false;
-    r.anchorKnown = true;
-    r.anchorX = -169.1f; r.anchorY = -34.9f; r.anchorZ = -40.9f;
-    Facts f = Party(-169.1f);
-    f.leadY = -34.9f; f.leadZ = -40.9f;
-    f.anyInCombat = true;
-    f.leadInCombat = true;
-    f.units = {Unit(1, 11318, 38)};
-    Tick(r, f); // a patrol hits the party on the approach
-    CHECK(r.stepFought && r.pulls == 0);
-    // The tank is chased down the ramp, the fight over, the pack in sight.
-    f.anyInCombat = false;
-    f.leadInCombat = false;
-    f.leadX = -215; f.leadY = -34; f.leadZ = -55;
-    f.maxMemberYd = 30;
-    Tick(r, f);
-    CHECK(r.anchorX == -169.1f && r.anchorZ == -40.9f);
-    // The same after a pause and a resume (ResetStep zeroes the pulls).
-    Pause(r, "test");
-    CHECK(Resume(r));
-    CHECK(r.stepFought);
-    f.maxMemberYd = 0;
-    Tick(r, f);
-    Tick(r, f);
-    CHECK(r.anchorX == -169.1f && r.anchorZ == -40.9f);
+    std::vector<BagFact> bags(3);
+    bags[0].name = "Tanky";
+    bags[1].name = "Healy";
+    bags[2].name = "Stabby";
+    std::string split;
+    // The Medallion use: 7740, and the Shaft 7741 in `param`.
+    std::vector<std::uint32_t> inputs = {7740, 7741};
+    bags[0].held = {7740};
+    bags[1].held = {7740, 7741};
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Healy");
+    // The lead bot carries all: it keeps the step.
+    bags[0].held = {7740, 7741};
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky");
+    // The Keystone: only its key matters; two bots carry unrelated loot (the
+    // glue lists only the step's own inputs, so those do not show up at all).
+    std::vector<std::uint32_t> key = {7733};
+    bags[0].held.clear();
+    bags[1].held.clear();
+    bags[2].held = {7733};
+    CHECK(PickItemCarrier(bags, key, "Tanky", &split) == "Stabby");
+    CHECK(split.empty());
+    // Split: the lead bot stays the carrier and the note says who holds what.
+    bags[0].held = {7740};
+    bags[1].held = {7741};
+    bags[2].held.clear();
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky");
+    CHECK(split == "Tanky holds 7740; Healy holds 7741");
+    // Nobody has the first input: no split note (the missing-item rules apply).
+    split.clear();
+    bags[0].held.clear();
+    CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky" && split.empty());
 }
 
-// A walk of the step that is not an approach hop (the stealth walk through a
-// pack's centre) is not ended by the anchor refresh: no new move every tick.
-static void TestAnchorRefreshKeepsANonHopWalk()
+// The use_item pauses, naming who holds what, when the inputs are split.
+static void TestUseItemPausesOnSplitInputs()
 {
     DungeonPlan plan;
-    plan.steps = {PullStep(100, {11318})};
-    Run r = Start(&plan);
-    r.restDue = false;
-    r.anchorKnown = true;
-    r.anchorX = 0; r.anchorY = 0; r.anchorZ = 0;
-    EnterPhase(r, Phase::Walk);
-    r.walkX = 100; r.walkY = 0; r.walkZ = 0;
-    Facts f = Party(50);
-    RefreshAnchorBeforeFirstPull(r, f, plan.steps[0]);
-    CHECK(r.anchorX == 50.0f && r.phase == Phase::Walk);
-    // The approach hop it was walking is ended: the pack is in sight there.
-    r.hopWalk = true;
-    r.hopX = 100; r.hopY = 0; r.hopZ = 0;
-    f.leadX = 70;
-    RefreshAnchorBeforeFirstPull(r, f, plan.steps[0]);
-    CHECK(r.anchorX == 70.0f && r.phase == Phase::Begin);
-}
-
-// Uldaman: the loot step passed on another bot's bags; the use_item after it
-// needs that item, so it goes to that bot, or pauses saying who holds what.
-static void TestUseItemAfterALootOnAnotherBot()
-{
-    DungeonPlan plan;
-    PlanStep loot = Step(PlanStepKind::Loot, 1, 2, 3);
-    loot.entry = 6910;
-    loot.item = 7741;
     PlanStep use = Step(PlanStepKind::UseItem);
     use.entry = 7740;
     use.item = 7733;
-    plan.steps = {loot, use};
+    use.param = 7741;
+    plan.steps = {use};
     Run r = Start(&plan);
     Facts f = Party(0);
-    f.leadName = "Tanky";
-    f.members = {Mem("Tanky", 0), Mem("Healy", 5)};
-    f.partyHasItem = true;
-    f.itemHolder = "Healy";
-    Tick(r, f);
-    CHECK(r.step == 1 && r.itemHolder.count(7741) == 1 && r.itemHolder[7741] == "Healy");
-    // The glue gives the use_item to Healy, who holds every item it needs.
-    f.partyHasItem = false;
-    f.carrier = "Healy";
     f.carrierHasEntryItem = true;
-    CHECK(Tick(r, f) == "use 7740 Healy");
-    // The items split between two bots: the pause says who holds what.
-    Run q = Start(&plan, 1);
-    q.itemHolder[7741] = "Healy";
+    f.itemsSplit = "Tanky holds 7740; Healy holds 7741";
+    Tick(r, f);
+    CHECK(r.state == State::Paused);
+    CHECK(r.note.find("no bot carries every item it needs: Tanky holds 7740; Healy holds 7741") != std::string::npos);
+    // Healy carries both: the glue names her the carrier and the use goes to her.
+    Run q = Start(&plan);
     Facts g = Party(0);
-    g.leadName = "Tanky";
+    g.carrier = "Healy";
     g.carrierHasEntryItem = true;
-    g.itemsSplit = "Tanky holds 7740; Healy holds 7741";
-    Tick(q, g);
-    CHECK(q.state == State::Paused);
-    CHECK(q.note.find("no bot carries every item it needs: Tanky holds 7740; Healy holds 7741") != std::string::npos);
-    // The lead bot's own loot is not remembered.
-    Run p = Start(&plan);
-    Facts h = Party(0);
-    h.leadName = "Tanky";
-    h.carrierHasItem = true;
-    Tick(p, h);
-    CHECK(p.step == 1 && p.itemHolder.empty());
+    CHECK(Tick(q, g) == "use 7740 Healy");
 }
 
 static void TestPullThatStartsNoFightIsPassed()
@@ -1739,12 +1722,11 @@ static void TestGatherGoesBackToTheAnchorAfterARidgeChase()
     Run p = Start(&plan);
     p.anchorKnown = true;
     p.anchorX = 1622; p.anchorY = 1051; p.anchorZ = 18;
-    p.pulls = 1; // the chase follows a pull of the step (before the first, the anchor follows the lead bot)
     Facts g = Party(0);
     g.leadX = 1627; g.leadY = 1078; g.leadZ = 22;
     g.units = {Unit(2, 5650, 30)};
     // The path back is read lazily: asked for on the first tick, no pull yet.
-    CHECK(Tick(p, g).empty() && p.anchorPathWanted && p.pulls == 1 && p.fruitlessPulls == 0);
+    CHECK(Tick(p, g).empty() && p.anchorPathWanted && p.pulls == 0 && p.fruitlessPulls == 0);
     g.anchorPathRead = true;
     g.anchorReachable = false;
     g.units = {Unit(2, 5650, 30)};
@@ -2789,9 +2771,8 @@ int main()
     TestUnseenPackIsApproachedNotCleared();
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
-    TestAnchorStaysAfterAFightWithoutAPull();
-    TestAnchorRefreshKeepsANonHopWalk();
-    TestUseItemAfterALootOnAnotherBot();
+    TestItemCarrierIsPickedFromTheStepsOwnInputs();
+    TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
     TestLootRefusalTriesTheTurnBotThenEachBot();
     TestPullThatStartsNoFightIsPassed();
