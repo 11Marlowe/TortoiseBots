@@ -9089,8 +9089,10 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
 // the mobs that have a party bot within kGuardYd of it as their victim, each
 // with whether it hits that bot now (in melee reach of it, or standing and
 // casting: a pullback's mobs running in do not count) and whether that bot is a
-// healer. Read off each bot's own attacker set: no grid or world scan.
-void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+// healer, and during a hold (`hold` not null) each one's distance from the
+// hold spot. Read off each bot's own attacker set: no grid or world scan.
+void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f,
+    ai::PlanStep const* hold)
 {
     using namespace TortoiseBots::DungeonRun;
     PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
@@ -9101,6 +9103,21 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
         return;
     f.leadStaying = leadAi->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
         leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
+    if (f.leadStaying)
+    {
+        // The stand it holds (the pullback's or SetStayAnchor's "stay"
+        // point): the guard's walk back goes there, not to where a tank still
+        // dragging its pull in stands at the pick-up.
+        ai::PositionMap& posMap = leadAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        auto const stay = posMap.find("stay");
+        if (stay != posMap.end() && stay->second.isSet() && stay->second.mapId == lead->GetMapId())
+        {
+            f.leadStayKnown = true;
+            f.leadStayX = stay->second.x;
+            f.leadStayY = stay->second.y;
+            f.leadStayZ = stay->second.z;
+        }
+    }
     for (Unit* attacker : lead->GetAttackers())
         if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead &&
             attacker->CanReachWithMeleeAutoAttack(lead))
@@ -9128,6 +9145,8 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.hitting = attacker->CanReachWithMeleeAutoAttack(bot) ||
                 (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
             fact.victimHealer = healer;
+            if (hold)
+                fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
             f.partyAttackers.push_back(fact);
         }
     }
@@ -9251,7 +9270,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
     if (f.anyInCombat)
-        ReadGuardFacts(lead, bots, f);
+    {
+        // In a hold: the attackers' distance from its spot (DungeonRun::HoldGuardTarget).
+        ai::PlanStep const* current = FactStep(slot.run);
+        ReadGuardFacts(lead, bots, f,
+            current && current->kind == ai::PlanStepKind::Hold ? current : nullptr);
+    }
 
     // A hold's done condition on every tick, its spot in sight or not
     // (DungeonRun::HoldDoneNote): the run's own step, also during a walk back.
@@ -9473,6 +9497,13 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = Polymorphed(creature);
+                    // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
+                    Unit* const victim = creature->GetVictim();
+                    unit.engaged = unit.hostile && creature->IsInCombat() && victim;
+                    // Whom it is on: the tank keeps what it holds, the healer's attacker first.
+                    unit.victimLead = victim == lead;
+                    unit.victimHealer = victim && victim->IsPlayer() &&
+                        PlayerbotAI::IsHeal(static_cast<Player*>(victim));
                     f.units.push_back(unit);
                 }
             }
