@@ -65,17 +65,24 @@ int main()
 
     // Spinning self-centred hazard (#971: Herod's Whirlwind 8989 -> 15578
     // is WEAPON_DAMAGE_NOSCHOOL around the caster, 8 yd — the old
-    // school-damage-only gate never saw it).
-    CHECK(TriggerSpellMarksSpinHazard(2, 0, 0));     // school damage: old shape, any target
-    CHECK(TriggerSpellMarksSpinHazard(2, 22, 15));
-    CHECK(TriggerSpellMarksSpinHazard(17, 22, 15));  // Herod 15578
-    CHECK(TriggerSpellMarksSpinHazard(58, 22, 15));  // plain weapon damage spin
-    CHECK(TriggerSpellMarksSpinHazard(31, 22, 15));  // weapon percent spin
-    CHECK(!TriggerSpellMarksSpinHazard(17, 6, 0));   // single-target weapon hit (Cleave 15496): no spin
-    CHECK(!TriggerSpellMarksSpinHazard(17, 22, 0));  // weapon damage, wrong B target
-    CHECK(!TriggerSpellMarksSpinHazard(17, 15, 22)); // weapon damage, swapped targets
-    CHECK(!TriggerSpellMarksSpinHazard(10, 22, 15)); // heal around caster: not a hazard
-    CHECK(!TriggerSpellMarksSpinHazard(0, 0, 0));    // empty effect
+    // school-damage-only gate never saw it). School damage keeps the old
+    // rule (invisible emitters only: a selectable mob with a permanent
+    // burning aura such as Fire Shield II 184 stays fightable); weapon
+    // spins list anyone.
+    CHECK(TriggerSpellMarksSpinHazard(2, 0, 0, false));    // school damage, emitter: old shape
+    CHECK(TriggerSpellMarksSpinHazard(2, 22, 15, false));
+    CHECK(!TriggerSpellMarksSpinHazard(2, 0, 0, true));    // school damage, selectable: stay and fight
+    CHECK(!TriggerSpellMarksSpinHazard(2, 22, 15, true));  // Fire Shield II 184 shape: no step-out
+    CHECK(TriggerSpellMarksSpinHazard(17, 22, 15, true));  // Herod 15578, selectable boss
+    CHECK(TriggerSpellMarksSpinHazard(17, 22, 15, false)); // same spin on an emitter
+    CHECK(TriggerSpellMarksSpinHazard(58, 22, 15, true));  // plain weapon damage spin
+    CHECK(TriggerSpellMarksSpinHazard(31, 22, 15, true));  // weapon percent spin
+    CHECK(!TriggerSpellMarksSpinHazard(17, 6, 0, true));   // single-target weapon hit (Cleave 15496): no spin
+    CHECK(!TriggerSpellMarksSpinHazard(17, 6, 0, false));
+    CHECK(!TriggerSpellMarksSpinHazard(17, 22, 0, true));  // weapon damage, wrong B target
+    CHECK(!TriggerSpellMarksSpinHazard(17, 15, 22, true)); // weapon damage, swapped targets
+    CHECK(!TriggerSpellMarksSpinHazard(10, 22, 15, true)); // heal around caster: not a hazard
+    CHECK(!TriggerSpellMarksSpinHazard(0, 0, 0, false));   // empty effect
     std::cout << "  [PASS] whirlwind-type trigger marks a spin hazard\n";
 
     // Escape step: just past the edge, capped at flee distance.

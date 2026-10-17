@@ -2834,6 +2834,11 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
             outCenter = WorldPosition(unit->GetMapId(), unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
             return true;
         }
+        // Selectable spinning bosses (Herod 8989) count; a selectable mob
+        // with a permanent burning aura (Fire Shield II 184) does not — its
+        // school-damage pulse keeps the invisible-emitter-only rule, or
+        // melee would step out forever and never fight it.
+        bool const selectable = !unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
         Unit::AuraList const& periodic = unit->GetAurasByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL);
         for (Unit::AuraList::const_iterator it = periodic.begin(); it != periodic.end(); ++it)
         {
@@ -2849,11 +2854,12 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
                 continue;
             for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
             {
-                // School damage (old shape) plus self-centred weapon-damage
-                // spins (Herod's Whirlwind 8989 -> 15578); the radius gate
-                // and the range test below are unchanged.
+                // School damage lists invisible emitters only; self-centred
+                // weapon-damage spins (Herod's Whirlwind 8989 -> 15578) list
+                // anyone. The radius gate and the range test below are
+                // unchanged.
                 if (!TriggerSpellMarksSpinHazard((int)triggerProto->Effect[i],
-                    (int)triggerProto->EffectImplicitTargetA[i], (int)triggerProto->EffectImplicitTargetB[i]))
+                    (int)triggerProto->EffectImplicitTargetA[i], (int)triggerProto->EffectImplicitTargetB[i], selectable))
                     continue;
                 SpellRadiusEntry const* radiusEntry = sSpellRadiusStore.LookupEntry(triggerProto->EffectRadiusIndex[i]);
                 float radius = radiusEntry ? radiusEntry->Radius : 0.0f;

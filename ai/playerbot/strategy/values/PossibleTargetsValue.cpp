@@ -163,6 +163,11 @@ bool PossibleTriggersValue::AcceptUnit(Unit* unit)
     // Listed permanent-aura creature (opt-in keep-out), selectable or not.
     if (KeepoutFor(unit))
         return true;
+    // Selectable bosses spin too (Herod's Whirlwind 8989), but a selectable
+    // mob with a permanent burning aura (Fire Shield II 184 on Scarlet
+    // Conjuror 4297) must stay fightable: school damage still lists
+    // invisible emitters only, weapon spins list anyone.
+    bool const selectable = !unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
     Unit::AuraList const& triggered = unit->GetAurasByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL);
     bool spinning = false;
     for (Unit::AuraList::const_iterator it = triggered.begin(); it != triggered.end(); ++it)
@@ -179,13 +184,9 @@ bool PossibleTriggersValue::AcceptUnit(Unit* unit)
             continue;
         for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
             if (TriggerSpellMarksSpinHazard((int)triggerProto->Effect[i],
-                (int)triggerProto->EffectImplicitTargetA[i], (int)triggerProto->EffectImplicitTargetB[i]))
+                (int)triggerProto->EffectImplicitTargetA[i], (int)triggerProto->EffectImplicitTargetB[i], selectable))
                 spinning = true;
     }
-    // Any live unit carrying a matching periodic-trigger damage aura is a
-    // trigger: invisible NOT_SELECTABLE emitters (old shape) and selectable
-    // spinning bosses (Herod's Whirlwind 8989) alike. Without such an aura
-    // nothing is accepted, so selectable mobs never enter the list idly.
     return spinning;
 }
 
