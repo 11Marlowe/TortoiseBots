@@ -46,6 +46,17 @@ namespace ai
         virtual bool isUseful() override;
 	};
 
+    // Walks an idle bot onto its own formation slot ("formation station"
+    // trigger). The core follow only keeps a distance, so a bot already
+    // close to its master never moves to a new slot; like mod-playerbots
+    // FollowAction, go to the slot point itself.
+    class FormationStationAction : public MovementAction {
+    public:
+        FormationStationAction(PlayerbotAI* ai) : MovementAction(ai, "formation station") {}
+        virtual bool Execute(Event& event) override;
+        virtual bool isUseful() override;
+    };
+
     class FleeToMasterAction : public FollowAction {
     public:
         FleeToMasterAction(PlayerbotAI* ai) : FollowAction(ai, "flee to master") {}

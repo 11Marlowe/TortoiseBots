@@ -464,6 +464,10 @@ namespace ai
             Unit* followTarget = AI_VALUE(Unit*, "follow target");
             if (!followTarget || !ai->IsSafe(followTarget))
                 return false;
+            // A walking leader is the core follow's job; a slot point taken
+            // mid-walk is stale by the time the bot gets there.
+            if (sServerFacade.isMoving(followTarget))
+                return false;
             Formation* formation = AI_VALUE(Formation*, "formation");
             if (!formation)
                 return false;
