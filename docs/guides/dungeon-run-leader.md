@@ -192,7 +192,7 @@ The same steps carry other events: a hold done by the instance data a script kee
 
 ### Plans on the server
 
-`uldaman` (`20261016220000_world.sql`), `zulfarrak` (`20261015200100_world.sql`, its unit lists set in `20261015200200`), and from `20261017130000_world.sql` `ragefire_chasm` (9 legs, 4 bosses), `wailing_caverns` (12 legs, 5 bosses) and `deadmines` (16 legs, 7 bosses; the plan is still a draft in turtle-agent). That migration's header lists every plan field the rows cannot carry (`skip`, patrols, fleers, tactics, `avoid`, the Naralex event, the `gm_cross`).
+`uldaman` (`20261016220000_world.sql`), `zulfarrak` (`20261015200100_world.sql`, its unit lists set in `20261015200200`), and from `20261017130000_world.sql` `ragefire_chasm` (9 legs, 4 bosses; its `trogg_cave` leg rewritten by `20261017230000_world.sql`: approach stands before pull groups 1 and 2), `wailing_caverns` (12 legs, 5 bosses) and `deadmines` (16 legs, 7 bosses; the plan is still a draft in turtle-agent). That migration's header lists every plan field the rows cannot carry (`skip`, patrols, fleers, tactics, `avoid`, the Naralex event, the `gm_cross`).
 
 ### Not supported yet
 
