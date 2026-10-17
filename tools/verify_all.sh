@@ -169,7 +169,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_onyxia_breath_policy
         test_onyxia_whelp_egg_policy
         test_ooc_rebirth_policy
-        test_ossirian_crystal_policy
+        test_open_follow_step_policy
         test_owned_bot_qol_policy
         test_pet_revive_policy
         test_pet_spawn_policy
