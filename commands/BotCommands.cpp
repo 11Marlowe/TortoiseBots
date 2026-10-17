@@ -3729,15 +3729,18 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
     // its delay before the second pull tick ever runs - the reported "tank
     // stands still for seconds, then starts pulling".
     ai->ClearActionClock();
-    // The same for a meal: the run leader pulls a second after a fight ends,
-    // while the tank sits eating, and "reach pull" does not move a casting bot
-    // (ai/playerbot/PullStartPolicy.h, ReadyTankForPull).
+    // The same for a meal or any cast: "reach pull" does not move a casting
+    // bot (ai/playerbot/PullStartPolicy.h, ReadyTankForPull). The run leader
+    // waits out a meal before it pulls (DungeonRunPolicy.h, the meal wait);
+    // this is the fallback for an explicit or commander order.
     ai::PullReadyFacts readyFacts;
     readyFacts.casting = executor->IsNonMeleeSpellCasted(true, false, true);
     readyFacts.seated = executor->GetStandState() != UNIT_STAND_STATE_STAND;
     ai::PullReadySteps const ready = ai::ReadyTankForPull(readyFacts);
+    // Every non-melee cast, channelled ones and those without an interrupt
+    // flag too (PlayerbotAI::InterruptSpell skips both).
     if (ready.interrupt)
-        ai->InterruptSpell(false);
+        executor->InterruptNonMeleeSpells(false);
     if (ready.stand)
         executor->SetStandState(UNIT_STAND_STATE_STAND);
     // Pull start/action are normal movement-priority actions.  A minimal
@@ -8926,6 +8929,19 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
     return false;
 }
 
+// A food or drink aura is up: the core removes it when the bot stands
+// (AURA_INTERRUPT_FLAG_NOT_SEATED), for the cheat meal spells and real food alike.
+bool HasMealAura(Player* bot)
+{
+    for (auto const& entry : bot->GetSpellAuraHolderMap())
+    {
+        SpellEntry const* spell = entry.second ? entry.second->GetSpellProto() : nullptr;
+        if (spell && (spell->AuraInterruptFlags & AURA_INTERRUPT_FLAG_NOT_SEATED))
+            return true;
+    }
+    return false;
+}
+
 bool KnowsPolymorph(Player* bot)
 {
     for (uint32 spell : TortoiseBots::DungeonRun::kPolymorphSpells)
@@ -9047,6 +9063,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.inCombat = bot->IsInCombat();
         f.members.push_back(member);
+        if (HasMealAura(bot))
+            ++f.eating;
+        uint8 const cls = bot->GetClass();
+        if ((cls == CLASS_PRIEST || cls == CLASS_PALADIN || cls == CLASS_SHAMAN) && !bot->IsInCombat())
+            f.rezzer = true;
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
         if (bot->GetPowerType() == POWER_MANA && bot->GetMaxPower(POWER_MANA))
