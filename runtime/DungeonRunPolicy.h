@@ -3239,6 +3239,24 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     UpdateStill(r, f, dt);
     NoteLeadDeath(r, f);
 
+    // The stale flag's clocks: one snapshot of "nothing hostile engaged" proves
+    // nothing (a guardian, a scripted fight), so the grace is spent once per
+    // combat and a wait step is finished over it only when it stands unbroken.
+    // They end with the combat (any early return below included), not with a
+    // step finished over the flag.
+    if (!f.anyInCombat)
+    {
+        r.staleMs = 0;
+        r.staleRunMs = 0;
+    }
+    else if (f.staleCombat)
+    {
+        r.staleMs += dt;
+        r.staleRunMs += dt;
+    }
+    else
+        r.staleRunMs = 0;
+
     // A hold whose event is done ends on any tick (HoldDoneNote): in a fight,
     // a regroup, a rest or an approach too, the spot in sight or not.
     if (s->kind == PlanStepKind::Hold)
@@ -3422,16 +3440,6 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // fight or not (a leftover combat flag must not hold it): Uldaman run 4,
     // Archaedas down, the vault door 124369 active, "a fight lasted more than
     // 180 s" at the wait step.
-    // The stale flag's clocks: one snapshot of "nothing hostile engaged" proves
-    // nothing (a guardian, a scripted fight), so the grace is spent once per
-    // fight and a wait step is finished over it only when it stands unbroken.
-    if (f.anyInCombat && f.staleCombat)
-    {
-        r.staleMs += dt;
-        r.staleRunMs += dt;
-    }
-    else
-        r.staleRunMs = 0;
     // Only on a stale flag: a real fight keeps its handling and its timer.
     bool const objectDone = s->kind == PlanStepKind::WaitObject && r.staleRunMs >= kStaleConfirmMs &&
         f.objectState >= 0 && f.objectState == static_cast<int>(s->param);
@@ -3517,13 +3525,6 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     }
     if (runBackWait)
         return order;
-    // The stale clocks end with the combat, not with a step finished over its
-    // flag (objectDone falls through here with the flag still up).
-    if (!f.anyInCombat)
-    {
-        r.staleMs = 0;
-        r.staleRunMs = 0;
-    }
     if (r.fighting)
     {
         // Back to the step's start: it looks at what is left, and rests first.

@@ -496,6 +496,18 @@ static void TestWaitObjectDoneWinsOverAStaleFightTimer()
     std::uint32_t const spent = w.staleMs;
     Tick(w, z);
     CHECK(w.staleMs > spent);
+    // Stale combat, then a wipe regroup by itself when it clears: the next
+    // combat gets a fresh grace and a full confirmation.
+    Run g2 = Start(&plan);
+    g2.fighting = true;
+    g2.staleMs = kStaleCombatGraceMs;
+    g2.staleRunMs = kStaleConfirmMs;
+    Facts wipe = Party(0);
+    wipe.dead = kWipeDead;
+    wipe.alive = 2;
+    wipe.anyInCombat = false;
+    Tick(g2, wipe);
+    CHECK(g2.regroup && g2.staleMs == 0 && g2.staleRunMs == 0);
     // The flag clearing resets the grace.
     Run c = Start(&plan);
     c.fighting = true;
