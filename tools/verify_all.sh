@@ -87,6 +87,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bwl_bundle1_policy
         test_caster_mana_policy
         test_cast_keeps_running_policy
+        test_cast_while_moving_policy
         test_claimed_bot_policy
         test_class_consumable_policy
         test_combat_spread_policy
@@ -184,9 +185,10 @@ if command -v g++ >/dev/null 2>&1; then
         test_profession_grant_policy
         test_protection_potion_policy
         test_pull_firing_policy
+        test_pull_executor_policy
         test_pull_opening_policy
         test_pull_start_policy
-        test_pull_join_window_policy
+        test_pull_reach_policy
         test_pull_refusal_policy
         test_pull_regen_policy
         test_quest_giver_stall_policy

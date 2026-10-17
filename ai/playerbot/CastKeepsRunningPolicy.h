@@ -19,7 +19,11 @@
 // arrives, "store loot" takes the items. After the cast the next tick resumes
 // normally, so a master that kept walking is followed with the loot in the
 // bags instead of the cast broken halfway.
-//
+// Issue #903 extends the same rule to combat casts: while a cast-time cast
+// runs, "reach spell", spread / move-away / follow-up moves stand down, and
+// a cast-time cast never starts while the bot is still moving. Hazard
+// escapes (standing in fire / void zone, the bomb carrier's runout) still
+// interrupt - living beats casting.
 // The predicate below is pure (bools only) so it can be unit-tested; the
 // call sites pass bot->IsNonMeleeSpellCasted(false, true, true) - the exact
 // expression PlayerbotAI::CastSpell uses for its in-progress gate (channeled
@@ -42,5 +46,29 @@ namespace ai
     inline bool LootChainBlockedByCast(bool castingInProgress)
     {
         return castingInProgress;
+    }
+
+    // A cast-time spell must not start while the bot is still moving: the
+    // core cancels it on the first movement packet, so starting it only
+    // burns the GCD and logs an interrupt. Instant casts are unaffected.
+    // Donor: mod-playerbots @ 79bd4281, src/Bot/PlayerbotAI.cpp:3459-3466
+    // (CanCastSpell refuses a cast-time or auto-repeat cast while the bot
+    // is moving). Call sites pass sServerFacade.isMoving(bot) for `moving`,
+    // the GO-overload's in-flight spline clause for `splineRunning`, and
+    // the PlayerbotAI::CastSpell cast-time expression (GetSpellCastTime > 0,
+    // or channeled with duration) for `spellNeedsStandStill`.
+    inline bool CastStartBlockedByMove(bool moving, bool splineRunning,
+        bool spellNeedsStandStill)
+    {
+        return spellNeedsStandStill && (moving || splineRunning);
+    }
+
+    // A move that is not a hazard escape must not start (or re-issue) while
+    // a cast-time cast runs: the first step cancels the bar, so the move
+    // eats the cast it just started. Hazard escapes (standing in fire /
+    // void zone) still interrupt - living beats casting.
+    inline bool MoveBlockedByCast(bool castingInProgress, bool hazardEscape)
+    {
+        return castingInProgress && !hazardEscape;
     }
 }
