@@ -401,6 +401,35 @@ static void TestFightAtTheRitualIsTheHolds()
     CHECK(r.state == State::Paused && Has(r.note, "more than 600 s"));
 }
 
+static void TestInterruptedReplyWhileEventRunsStillReachesTheHold()
+{
+    // Uldaman run 4 (19z13): the ritual answered "interrupted" as the altar reset
+    // while the keepers woke. The event is in progress (data 1) and fighting: the
+    // step moves on to the hold anyway.
+    DungeonPlan plan;
+    plan.steps = {KeepersRitual(), KeepersHold()};
+    Run r = Start(&plan);
+    Facts f = Party();
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 2;
+    f.taskText = "interrupted: The ritual was cancelled (a participant stopped channeling)";
+    f.anyInCombat = true;
+    f.eventData = 1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.eventOn);
+
+    // A real failure in a fight with the event not running stays on the ritual (it pauses).
+    r = Start(&plan);
+    f = Party();
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 2;
+    f.taskText = "in_combat: A bot is in combat and stopped.";
+    f.anyInCombat = true;
+    f.eventData = 0;
+    Tick(r, f);
+    CHECK(r.step == 0);
+}
+
 static void TestRetryWaitsForTheEncounterToReset()
 {
     DungeonPlan plan;
@@ -799,6 +828,7 @@ int main()
     TestHoldDoneByObject();
     TestFarHoldIsApproached();
     TestFightAtTheRitualIsTheHolds();
+    TestInterruptedReplyWhileEventRunsStillReachesTheHold();
     TestRetryWaitsForTheEncounterToReset();
     TestSpentAltarAfterAFailure();
     TestTankGuardsTheHold();

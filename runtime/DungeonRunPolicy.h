@@ -3414,7 +3414,17 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     {
         // The ritual answered and its event is fighting already (the first
         // Stone Keeper wakes with the cast): the fight is the hold's.
-        if (s->kind == PlanStepKind::Ritual && r.orderSent && f.taskReply == 1)
+        // An interrupted answer counts too while the event reads in progress:
+        // the altar going back to ready as the keepers woke is the event
+        // starting (Uldaman run 4, 19z13: the tank stood on stay all fight).
+        bool eventRunning = false;
+        if (s->kind == PlanStepKind::Ritual && r.orderSent && f.taskReply == 2)
+        {
+            const PlanStep* ahead = EventHoldAhead(r);
+            eventRunning = ahead && (ahead->flags & ai::kPlanFlagDoneData) && (ahead->flags & ai::kPlanFlagEncounter) &&
+                f.eventData == 1;
+        }
+        if (s->kind == PlanStepKind::Ritual && r.orderSent && (f.taskReply == 1 || eventRunning))
         {
             NextStep(r, "ritual " + std::to_string(s->entry) + " done: the event started");
             s = Current(r);
