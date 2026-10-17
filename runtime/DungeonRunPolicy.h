@@ -108,7 +108,8 @@ constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead m
 constexpr std::uint32_t kRegroupGatherMs = 60000;  // ... and the party gathered within this after that
 constexpr std::uint32_t kFightCapMs = 180000;
 constexpr std::uint32_t kBossFightCapMs = 420000;
-constexpr std::uint32_t kStaleCombatGraceMs = 20000; // a combat flag with nothing hostile engaged is waited out this long, then the fight ceiling runs again
+constexpr std::uint32_t kStaleCombatGraceMs = 20000; // a combat flag with nothing hostile engaged is waited out this long in all of one fight, then the fight ceiling runs again
+constexpr std::uint32_t kStaleConfirmMs = 3000;      // ... and it must stand this long without a break before a wait_object is finished over it
 constexpr std::uint32_t kRestCapMs = 60000;
 constexpr std::uint32_t kRestRepeatMs = 20000;
 constexpr std::uint32_t kPartyRezWaitMs = 15000;  // a regroup with a living rezzer (priest, paladin, shaman) waits this
@@ -378,7 +379,8 @@ struct Run
     float detourX = 0.0f, detourY = 0.0f, detourZ = 0.0f;
     bool fighting = false;
     std::uint32_t fightMs = 0;
-    std::uint32_t staleMs = 0;          // how long the combat flag has stood with nothing hostile engaged (Facts::staleCombat)
+    std::uint32_t staleMs = 0;          // all the time in this fight the combat flag stood with nothing hostile engaged (Facts::staleCombat)
+    std::uint32_t staleRunMs = 0;       // ... and the time it has stood so without a break
     std::uint32_t restRepeatMs = 0;
     // The last point the run itself walked the party to (a move, an approach
     // hop, a stand point): a gather goes back there when a fight left the lead
@@ -3420,9 +3422,19 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // fight or not (a leftover combat flag must not hold it): Uldaman run 4,
     // Archaedas down, the vault door 124369 active, "a fight lasted more than
     // 180 s" at the wait step.
+    // The stale flag's clocks: one snapshot of "nothing hostile engaged" proves
+    // nothing (a guardian, a scripted fight), so the grace is spent once per
+    // fight and a wait step is finished over it only when it stands unbroken.
+    if (f.anyInCombat && f.staleCombat)
+    {
+        r.staleMs += dt;
+        r.staleRunMs += dt;
+    }
+    else
+        r.staleRunMs = 0;
     // Only on a stale flag: a real fight keeps its handling and its timer.
-    bool const objectDone = s->kind == PlanStepKind::WaitObject && f.staleCombat && f.objectState >= 0 &&
-        f.objectState == static_cast<int>(s->param);
+    bool const objectDone = s->kind == PlanStepKind::WaitObject && r.staleRunMs >= kStaleConfirmMs &&
+        f.objectState >= 0 && f.objectState == static_cast<int>(s->param);
 
     // Fights are the bots' own; the run only bounds them.
     if (f.anyInCombat && !objectDone)
@@ -3446,7 +3458,6 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // A stale flag (nothing hostile engaged) is waited out for a grace
         // period; past it the fight ceiling runs again, so a flag that never
         // clears still ends in a pause.
-        r.staleMs = f.staleCombat ? r.staleMs + dt : 0;
         bool const staleGrace = f.staleCombat && r.staleMs <= kStaleCombatGraceMs;
         if (!staleGrace)
             r.fightMs += dt;
@@ -3507,6 +3518,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     if (runBackWait)
         return order;
     r.staleMs = 0;
+    r.staleRunMs = 0;
     if (r.fighting)
     {
         // Back to the step's start: it looks at what is left, and rests first.

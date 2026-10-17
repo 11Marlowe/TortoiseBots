@@ -427,8 +427,24 @@ static void TestWaitObjectDoneWinsOverAStaleFightTimer()
     f.anyInCombat = true;
     f.staleCombat = true;
     f.objectState = 1;
+    // One stale snapshot proves nothing: the wait step is finished once the
+    // flag has stood unbroken for kStaleConfirmMs.
     Tick(r, f);
+    CHECK(r.step == 0 && r.state == State::Running);
+    for (std::uint32_t i = 0; i < kStaleConfirmMs / kTickMs && r.step == 0; ++i)
+        Tick(r, f);
     CHECK(r.state == State::Running && r.step == 1);
+    // A break (one engaged tick) starts the confirmation over.
+    Run b = Start(&plan);
+    b.fighting = true;
+    Facts e = f;
+    Tick(b, e);
+    Tick(b, e);
+    e.staleCombat = false;
+    Tick(b, e);
+    e.staleCombat = true;
+    Tick(b, e);
+    CHECK(b.step == 0 && b.staleRunMs == kTickMs);
     // A real fight (a hostile engaged) with the door open keeps its handling
     // and its ceiling: the step does not advance.
     Run q = Start(&plan);
@@ -453,6 +469,18 @@ static void TestWaitObjectDoneWinsOverAStaleFightTimer()
     for (std::uint32_t i = 0; i < kStaleCombatGraceMs / kTickMs + 2 && p.state == State::Running; ++i)
         Tick(p, h);
     CHECK(p.state == State::Paused && p.note.find("a fight lasted more than 180 s") != std::string::npos);
+    // The grace is spent once per fight: alternating 19 stale ticks with one
+    // engaged tick does not renew it, the ceiling still fires.
+    Run a = Start(&plan);
+    a.fighting = true;
+    a.fightMs = kFightCapMs + 5000;
+    Facts k = h;
+    for (int i = 0; i < 200 && a.state == State::Running; ++i)
+    {
+        k.staleCombat = (i % 20) != 19;
+        Tick(a, k);
+    }
+    CHECK(a.state == State::Paused && a.note.find("a fight lasted more than 180 s") != std::string::npos);
     // The flag clearing resets the grace.
     Run c = Start(&plan);
     c.fighting = true;
