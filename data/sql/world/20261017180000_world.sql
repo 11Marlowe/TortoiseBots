@@ -1,6 +1,6 @@
 -- Uldaman (map 70): the whole plan again, replacing the rows of 20261016220000_world.sql and the two points
 -- 20261017120000_world.sql changed (both files stay as applied). Exported from turtle-agent b507ade (dungeons/uldaman.json,
--- stacked on pjerra/turtle-agent#218) with
+-- stacked on pjerra/turtle-agent#218; mirrored in pjerra/turtle-agent#223) with
 -- `turtle-agent plan-export --mmaps <map 70 mmaps> --rev b507ade --stamp 20261017180000 uldaman`; NO ROW IS HAND-SET.
 -- Against the rows in force before it, only two move rows are new (row for row otherwise; 135 steps instead of 133):
 --   * leg 0 (baelog), before pull group 5 (-274.05 138.45 -47.3, run step 7, now step 8): 'pull group 5 approach'
