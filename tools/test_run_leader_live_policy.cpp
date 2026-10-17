@@ -153,6 +153,59 @@ static void TestDirectSummon()
     CHECK(m.state == State::Paused);
 }
 
+// uldaman-events-4 (2026-10-17, 14:03 and 14:39): the lead bot died and came back at the entrance; the two
+// still alive where it fell were held there (Run::hold) while it walked back. At the scorpid pit's direct step the
+// module named a held bot (its check counts every bot), the run summoned it, but the wait read the bot from the
+// facts without the held bots, saw nobody to wait for and sent the step again 2 s later, before the 3 s summon
+// landed: refused again, then the second held bot the same, and the walk back paused with the whole party
+// standing on the lip a second later. A summoned held bot leaves the hold, so the wait sees it.
+static void TestDirectSummonHeldBot()
+{
+    using namespace DungeonRun;
+    DungeonPlan plan;
+    plan.name = "t";
+    plan.steps = {Step(PlanStepKind::Move, 10, 0, 0), Step(PlanStepKind::MoveDirect, 14, 0, 0),
+        Step(PlanStepKind::Move, 200, 0, 0)};
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    r.walkBackIdx = 1;
+    r.hold = {"Elia", "Quick"};
+    Facts f = Party(10);
+    MemberFact lead;
+    lead.name = "Nobble";
+    MemberFact elia;
+    elia.name = "Elia";
+    elia.yd = 320.0f;
+    MemberFact quick = elia;
+    quick.name = "Quick";
+    f.members = {lead, elia, quick};
+    f.maxMemberYd = 320.0f;
+    // The held bots do not hold up the walk back: no gather, the direct step goes out.
+    std::string const step = "move 14.0 0.0 0.0 direct";
+    CHECK(Tick(r, f) == step);
+    std::string const answer = "too-far: Elia is not with Nobble (no navmesh path of at most 40 yd to its spot)";
+    OrderRefused(r, step, answer);
+    CHECK(r.state == State::Running);
+    CHECK(Tick(r, f) == "summon Elia");
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Quick");
+    // Still 320 yd away on the next ticks (the summon takes 3 s): the step waits for her.
+    CHECK(Tick(r, f).empty());
+    CHECK(Tick(r, f).empty());
+    CHECK(r.note.find("waiting for Elia") != std::string::npos);
+    // She stands at the lead bot: the step goes out again; the other held bot is named and summoned the same way.
+    f.members[1].yd = 0.5f;
+    CHECK(Tick(r, f) == step);
+    OrderRefused(r, step, "too-far: Quick is not with Nobble (no navmesh path of at most 40 yd to its spot)");
+    CHECK(r.state == State::Running);
+    CHECK(Tick(r, f) == "summon Quick");
+    CHECK(r.hold.empty());
+    CHECK(Tick(r, f).empty());
+    f.members[2].yd = 0.5f;
+    f.maxMemberYd = 0.5f;
+    CHECK(Tick(r, f) == step);
+    CHECK(r.state == State::Running && r.walkBackRefusals == 0);
+}
+
 static void TestWalkBackAfterRegroup()
 {
     using namespace DungeonRun;
@@ -282,6 +335,7 @@ int main()
     TestFloorSnap();
     TestDirectOwnLine();
     TestDirectSummon();
+    TestDirectSummonHeldBot();
     TestWalkBackAfterRegroup();
     TestDoorLock();
     TestEventCount();

@@ -3601,9 +3601,15 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     }
 
     // A follower a direct step left behind (OrderRefused): summoned before the
-    // step goes out again.
+    // step goes out again. A held bot (Run::hold: alive where the lead bot fell
+    // while the lead bot walks back) leaves the hold: the module's direct check
+    // counts every bot, held or not, and the wait below reads the bot from the
+    // facts, which leave held bots out (HoldView). Kept held, the wait never saw
+    // it, the step went out before the 3 s summon landed and the walk back
+    // paused at Uldaman's scorpid pit (uldaman-events-4, 14:03 and 14:39).
     if (!r.summonDue.empty())
     {
+        r.hold.erase(std::remove(r.hold.begin(), r.hold.end(), r.summonDue), r.hold.end());
         order = "summon " + r.summonDue;
         r.summonWait = r.summonDue;
         r.summonWaitMs = 0;
