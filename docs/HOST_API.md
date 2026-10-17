@@ -630,7 +630,7 @@ to a real API, remove/disable it, or fail closed. Do not return fake success
 only to satisfy a donor interface.
 
 The completed audit removed or disabled several such compatibility surfaces;
-evidence is preserved in Git history and `PROVENANCE.md`.
+evidence is preserved in Git history.
 
 ## 16. LFT queue integration (optional, default-on)
 
@@ -945,4 +945,4 @@ core gameplay code, redesign it.
 
 ## 21. Historical closure
 
-F-03/F-27 closure and validation boundary are recorded in `PROVENANCE.md`; full historical audit evidence is preserved in Git history. This contract covers only the current host API.
+F-03/F-27 closure, validation boundary and full historical audit evidence are preserved in Git history. This contract covers only the current host API.
