@@ -1370,6 +1370,7 @@ struct MoveFacts
     float maxDistance = 0.0f;      // AiPlayerbot.ReactDistance (a farther stay spot is dropped)
     uint32_t pathType = 0;         // PathFinder::getPathType()
     float endOffset = 0.0f;        // the path's actual end to the point
+    float endFromLead = -1.0f;     // the lead bot to the path's actual end (< 0: not measured)
     bool leadSpotGather = false;   // the run leader's gather on the lead bot's own spot (never a player's order)
 };
 
@@ -1389,7 +1390,17 @@ enum class MoveVerdict : uint8_t
 // lead bot's own spot (leadSpotGather, within kMoveHereYd of it) is where the
 // lead bot already stands: it is Ok whatever the path finder answers, which can
 // be NoPath at 0 yd. Any order within kAtLeadDistance is "hold here" (IsAtLead).
+//
+// An incomplete path is only the length cap when the point is far: within
+// kIncompleteShortYd the path finder cannot hit its cap, so an incomplete path
+// that ends more than kMaxMoveEndOffset from the point means the point is on
+// another part of the mesh (a ledge, a sealed room), and one that ends where the
+// lead bot stands (kNoProgressYd) goes nowhere at any distance. Both used to be
+// acked as Ok and the lead bot then stood still (Ragefire, 2026-10-17: a point 6
+// yd away, acked three times, the lead bot never moved).
 constexpr float kMoveHereYd = 3.0f;
+constexpr float kIncompleteShortYd = 30.0f;
+constexpr float kNoProgressYd = 2.0f;
 
 inline bool IsAtLead(float distanceFromLead)
 {
@@ -1405,7 +1416,15 @@ inline MoveVerdict CheckMove(MoveFacts const& facts)
         return MoveVerdict::Ok;
     if (facts.pathType & kPathNoPath)
         return MoveVerdict::NoPath;
-    if (!(facts.pathType & kPathIncomplete) && facts.endOffset > kMaxMoveEndOffset)
+    if (facts.pathType & kPathIncomplete)
+    {
+        if (facts.endFromLead >= 0.0f && facts.endFromLead <= kNoProgressYd)
+            return MoveVerdict::NoPath;
+        if (facts.distanceFromLead <= kIncompleteShortYd && facts.endOffset > kMaxMoveEndOffset)
+            return MoveVerdict::NoPath;
+        return MoveVerdict::Ok;
+    }
+    if (facts.endOffset > kMaxMoveEndOffset)
         return MoveVerdict::OffMesh;
     return MoveVerdict::Ok;
 }

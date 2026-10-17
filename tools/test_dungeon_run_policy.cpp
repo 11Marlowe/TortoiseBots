@@ -2485,8 +2485,101 @@ static void TestLeadDeadAfterTheFightHolds()
     CHECK(q.hold.empty() && !q.holdDue);
 }
 
+// The run's own time limit and the stop note: the 3 h cap used to read as a plain stop.
+static void TestRunTimeLimitAndStopNote()
+{
+    CHECK(kRunMaxMinutesDefault == 180);
+    CHECK(!RunTimeLimitReached(0, 180));
+    CHECK(!RunTimeLimitReached(180ull * 60000ull - 1, 180));
+    CHECK(RunTimeLimitReached(180ull * 60000ull, 180));
+    CHECK(RunTimeLimitReached(4000ull * 3600000ull, 180));
+    CHECK(!RunTimeLimitReached(4000ull * 3600000ull, 0)); // 0 = no limit
+    CHECK(RunTimeLimitNote(180) == "time limit reached (3h)");
+    CHECK(RunTimeLimitNote(60) == "time limit reached (1h)");
+    CHECK(RunTimeLimitNote(90) == "time limit reached (90 min)");
+
+    CHECK(RunStopNote("") == "stopped by .bot run stop");
+    CHECK(RunStopNote("   ") == "stopped by .bot run stop");
+    CHECK(RunStopNote("time limit reached (3h)") == "stopped: time limit reached (3h)");
+    CHECK(RunStopNote("a|b  c") == "stopped: a b c"); // no protocol separator, spaces squeezed
+    CHECK(RunStopNote(std::string(300, 'x')).size() == std::string("stopped: ").size() + kRunStopReasonMax);
+}
+
+// `.bot run start [plan] [from ...]`.
+static DungeonPlan TwoLegPlan()
+{
+    DungeonPlan plan;
+    plan.name = "test";
+    plan.map = 70;
+    plan.legs.push_back(ai::PlanLeg{0, "entrance"});
+    plan.legs.push_back(ai::PlanLeg{3, "Trogg_West"});
+    for (std::uint8_t leg : {0, 0, 3, 3, 3})
+    {
+        PlanStep st = Step(PlanStepKind::Move, 1, 2, 3);
+        st.leg = leg;
+        plan.steps.push_back(st);
+    }
+    return plan;
+}
+
+static void TestStartFromParsing()
+{
+    StartArgs a = ParseStartArgs("");
+    CHECK(a.ok && a.plan.empty() && a.from == StartFrom::Beginning);
+    a = ParseStartArgs("uldaman");
+    CHECK(a.ok && a.plan == "uldaman" && a.from == StartFrom::Beginning);
+    a = ParseStartArgs("uldaman from 4");
+    CHECK(a.ok && a.plan == "uldaman" && a.from == StartFrom::Leg && a.value == "4");
+    a = ParseStartArgs("uldaman from leg trogg_west");
+    CHECK(a.ok && a.from == StartFrom::Leg && a.value == "trogg_west");
+    a = ParseStartArgs("uldaman from step 57");
+    CHECK(a.ok && a.from == StartFrom::Step && a.value == "57");
+    a = ParseStartArgs("from step 2"); // the lead bot's map names the plan
+    CHECK(a.ok && a.plan.empty() && a.from == StartFrom::Step && a.value == "2");
+    a = ParseStartArgs("  uldaman   from   leg   baelog ");
+    CHECK(a.ok && a.plan == "uldaman" && a.value == "baelog");
+    CHECK(!ParseStartArgs("uldaman from").ok);
+    CHECK(!ParseStartArgs("uldaman from step").ok);
+    CHECK(!ParseStartArgs("uldaman from 3 4").ok);
+    CHECK(!ParseStartArgs("uldaman two from 3").ok);
+    CHECK(!ParseStartArgs("uldaman fromm 3").ok);
+}
+
+static void TestStartFromResolve()
+{
+    DungeonPlan plan = TwoLegPlan();
+    std::size_t step = 99;
+    CHECK(ResolveStartStep(plan, StartFrom::Beginning, "", step) == FromResult::Ok && step == 0);
+    CHECK(ResolveStartStep(plan, StartFrom::Leg, "3", step) == FromResult::Ok && step == 2); // first step of leg 3
+    CHECK(ResolveStartStep(plan, StartFrom::Leg, "0", step) == FromResult::Ok && step == 0);
+    CHECK(ResolveStartStep(plan, StartFrom::Leg, "trogg_west", step) == FromResult::Ok && step == 2); // name, any case
+    CHECK(ResolveStartStep(plan, StartFrom::Leg, "7", step) == FromResult::NoSuchLeg);
+    CHECK(ResolveStartStep(plan, StartFrom::Leg, "nowhere", step) == FromResult::NoSuchLeg);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "1", step) == FromResult::Ok && step == 0);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "5", step) == FromResult::Ok && step == 4);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "6", step) == FromResult::NoSuchStep);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "0", step) == FromResult::NoSuchStep);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "x", step) == FromResult::NoSuchStep);
+
+    // The run begins on that step, running, with the usual first-step state.
+    Run r = Start(&plan, 2);
+    CHECK(r.step == 2 && r.state == State::Running);
+}
+
+static void TestPartialStartGuard()
+{
+    CHECK(CheckPartialStart(true, 5, 5) == PartialStartVerdict::Ok);
+    CHECK(CheckPartialStart(false, 5, 5) == PartialStartVerdict::NotInstance);
+    CHECK(CheckPartialStart(true, 5, 4) == PartialStartVerdict::PartyScattered);
+    CHECK(CheckPartialStart(true, 0, 0) == PartialStartVerdict::Ok);
+}
+
 int main()
 {
+    TestRunTimeLimitAndStopNote();
+    TestStartFromParsing();
+    TestStartFromResolve();
+    TestPartialStartGuard();
     TestMove();
     TestWalkStuckIsBounded();
     TestStalledNearPointCountsAsArrived();
