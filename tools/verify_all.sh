@@ -107,6 +107,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_dispel_target_policy
         test_dps_target_policy
         test_dual_wield_policy
+        test_dungeon_event_policy
         test_dungeon_follow_hold_policy
         test_dungeon_plan_policy
         test_dungeon_run_policy
@@ -178,6 +179,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_ooc_rebirth_policy
         test_ossirian_crystal_policy
         test_owned_bot_qol_policy
+        test_party_help_policy
         test_pet_revive_policy
         test_pet_spell_rank_policy
         test_pet_taunt_policy
@@ -219,6 +221,8 @@ if command -v g++ >/dev/null 2>&1; then
         test_rogue_weapon_policy
         test_rpg_mixer_policy
         test_rpg_relevance_weight_policy
+        test_run_leader_live_policy
+        test_run_loot_corpse_policy
         test_run_trace_records
         test_sapphiron_ice_policy
         test_seduction_policy
