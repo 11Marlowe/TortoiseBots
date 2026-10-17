@@ -57,17 +57,24 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("cx = f.approachX;", facts)
         self.assertIn("f.members.push_back(member);", facts)
 
-    def test_help_reads_cached_attackers_only(self):
-        # The help for a member fighting on its way back (DungeonRun::HelpReturning) reads the
-        # core's attacker set of each bot and resolves the remembered guids one by one: no scan.
+    def test_run_back_reads_cached_attackers_and_restores_the_ai(self):
+        # A member coming back with attackers (DungeonRun::RunBack): its attackers are counted from the
+        # core's attacker set (no scan); the glue makes a listed bot a passive follower of the lead bot,
+        # never undoes a passive stance it did not set, and gives the AI back once the run lets it go.
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("for (Unit* attacker : bot->GetAttackers())", facts)
-        self.assertIn("f.leadInCombat = member.inCombat;", facts)
-        self.assertIn("for (uint64 raw : slot.run.helpGuids)", facts)
-        self.assertIn("Unit* unit = lead->GetMap()->GetUnit(ObjectGuid(raw));", facts)
-        self.assertIn("f.helpPathCrossesPack = PathCrossesUnclearedPack(", facts)
-        help_block = facts[facts.index("for (uint64 raw : slot.run.helpGuids)"):]
-        self.assertNotIn("Cell::Visit", help_block[:1500])
+        self.assertIn("++member.attackers;", facts)
+        start = body(COMMANDS, "void StartRunBackPassive(", "\n}\n")
+        self.assertIn('ai->HasStrategy("passive", BotState::BOT_STATE_COMBAT)', start)
+        self.assertIn('ai->ChangeStrategy("+passive", BotState::BOT_STATE_COMBAT);', start)
+        self.assertIn("PointFollowerAtLead(commanderRaw, bot, lead);", start)
+        tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
+        self.assertIn("for (std::string const& name : slot.run.runBack)", tick)
+        sync = body(COMMANDS, "void SyncRunBackPassive()\n{", "\n}\n")
+        self.assertIn("run->second.run.state == TortoiseBots::DungeonRun::State::Running", sync)
+        self.assertIn("EndRunBackPassive(it->first);", sync)
+        update = body(COMMANDS, "static void UpdateDungeonRuns(", "\n}\n")
+        self.assertIn("SyncRunBackPassive();", update)
 
     def test_boss_down_needs_his_corpse(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")

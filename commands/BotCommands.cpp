@@ -4469,6 +4469,55 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
     return runs;
 }
 
+Player* FindCharacter(uint64 raw);
+void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead);
+
+// Bots a run made passive followers of their lead bot while they run back to
+// the party with attackers on them (DungeonRun::RunBack): bot -> commander.
+// Only bots that were not passive already are listed, so a player's own
+// `flee` is never undone here.
+std::unordered_map<uint64, uint64>& RunBackPassive()
+{
+    static std::unordered_map<uint64, uint64> bots;
+    return bots;
+}
+
+void EndRunBackPassive(uint64 botRaw)
+{
+    Player* bot = FindCharacter(botRaw);
+    PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
+    if (ai)
+    {
+        if (ai->HasStrategy("passive", BotState::BOT_STATE_NON_COMBAT))
+            ai->ChangeStrategy("-passive", BotState::BOT_STATE_NON_COMBAT);
+        if (ai->HasStrategy("passive", BotState::BOT_STATE_COMBAT))
+            ai->ChangeStrategy("-passive", BotState::BOT_STATE_COMBAT);
+    }
+}
+
+// A bot the run lists as running back: it stops hitting what it fights and
+// follows the lead bot passively (the `flee` stance: only follow and stay
+// actions run), so it keeps running to the party with its attackers behind it.
+void StartRunBackPassive(uint64 commanderRaw, Player* bot, Player* lead)
+{
+    uint64 const botRaw = bot->GetObjectGuid().GetRawValue();
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+    if (!ai || RunBackPassive().count(botRaw) || ai->HasStrategy("passive", BotState::BOT_STATE_COMBAT))
+        return;
+    RunBackPassive()[botRaw] = commanderRaw;
+    ai->ChangeStrategy("+passive", BotState::BOT_STATE_NON_COMBAT);
+    ai->ChangeStrategy("+passive", BotState::BOT_STATE_COMBAT);
+    PointFollowerAtLead(commanderRaw, bot, lead);
+    bot->AttackStop();
+    bot->InterruptNonMeleeSpells(false);
+    ai->Reset(false);
+    bot->GetMotionMaster()->Clear();
+}
+
+// Once a second, after the runs ticked: a listed bot that its run no longer
+// lists (arrived, let go, the run paused, stopped or gone) gets its own AI back.
+void SyncRunBackPassive();
+
 uint32 s_dungeonRunMs = 0;
 bool s_runIssuing = false;    // the run leader is sending an order now (it does not pause itself)
 bool s_runGather = false;     // ... and it is a gather on the lead bot's own spot (`cmd move` lets it through)
@@ -9023,17 +9072,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
         member.inCombat = bot->IsInCombat();
-        if (bot == lead)
-            f.leadInCombat = member.inCombat;
-        // Its own attackers: the core's attacker set of that bot (no scan),
-        // for a member fighting alone on its way back (DungeonRun::HelpReturning).
-        member.x = bot->GetPositionX();
-        member.y = bot->GetPositionY();
-        member.z = bot->GetPositionZ();
-        if (bot != lead && bot->GetMap() == lead->GetMap())
-            for (Unit* attacker : bot->GetAttackers())
-                if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
-                    member.attackers.push_back(attacker->GetObjectGuid().GetRawValue());
+        // Units attacking it: the core's attacker set of that bot (no scan),
+        // for a member coming back with attackers (DungeonRun::RunBack).
+        for (Unit* attacker : bot->GetAttackers())
+            if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
+                ++member.attackers;
         f.members.push_back(member);
         uint32 const health = bot->GetMaxHealth() ? bot->GetHealth() * 100 / bot->GetMaxHealth() : 100;
         f.minHealthPct = std::min(f.minHealthPct, health);
@@ -9072,40 +9115,6 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // already calculated), resolved by guid. No grid or world scan.
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
-
-    // A help in progress (DungeonRun::HelpReturning): the attackers it
-    // remembers, resolved by guid on the lead bot's map (no scan; a dead,
-    // despawned or far one is left out), and one navmesh query toward the
-    // point the policy asked for: its next hop and whether that path passes an
-    // uncleared pack.
-    if (!slot.run.helpBot.empty() && lead->IsAlive() && lead->IsInWorld() && slot.run.plan &&
-        lead->GetMapId() == slot.run.plan->map)
-    {
-        for (uint64 raw : slot.run.helpGuids)
-        {
-            Unit* unit = lead->GetMap()->GetUnit(ObjectGuid(raw));
-            if (!unit || !unit->IsInWorld() || !unit->IsAlive() || sServerFacade.IsFriendlyTo(unit, lead))
-                continue;
-            float const dist = lead->GetDistance(unit);
-            if (dist > kHelpMaxYd + kSeeYd)
-                continue;
-            UnitFact fact;
-            fact.guid = raw;
-            fact.entry = unit->GetEntry();
-            fact.distLead = dist;
-            fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
-            fact.x = unit->GetPositionX();
-            fact.y = unit->GetPositionY();
-            fact.z = unit->GetPositionZ();
-            f.helpUnits.push_back(fact);
-        }
-        std::vector<PathPoint> whole;
-        f.helpHopKnown = ApproachOnPath(lead, slot.run.helpX, slot.run.helpY, slot.run.helpZ, f.helpHopX, f.helpHopY,
-            f.helpHopZ, &whole);
-        if (f.helpHopKnown)
-            f.helpPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,
-                slot.run.notCleared);
-    }
 
     // The current step, or during a walk back after a regroup the move point
     // it replays (its hop pulls are read for that point).
@@ -9415,6 +9424,10 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
+    for (std::string const& name : slot.run.runBack)
+        for (Player* bot : bots)
+            if (bot != lead && bot->IsAlive() && name == bot->GetName())
+                StartRunBackPassive(commanderRaw, bot, lead);
     if (!order.empty())
     {
         if (order.compare(0, 5, "loot ") == 0 || order.compare(0, 5, "open ") == 0 || order.compare(0, 4, "use ") == 0 ||
@@ -9461,10 +9474,34 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), it->second.lastLine.c_str());
 }
 
+
+void SyncRunBackPassive()
+{
+    for (auto it = RunBackPassive().begin(); it != RunBackPassive().end();)
+    {
+        bool wanted = false;
+        auto run = DungeonRuns().find(it->second);
+        Player* bot = FindCharacter(it->first);
+        if (bot && bot->IsAlive() && run != DungeonRuns().end() &&
+            run->second.run.state == TortoiseBots::DungeonRun::State::Running)
+            for (std::string const& name : run->second.run.runBack)
+                wanted = wanted || name == bot->GetName();
+        if (wanted)
+        {
+            ++it;
+            continue;
+        }
+        EndRunBackPassive(it->first);
+        it = RunBackPassive().erase(it);
+    }
+}
+
 } // namespace
 
 static void UpdateDungeonRuns(uint32 diff)
 {
+    if (!RunBackPassive().empty())
+        SyncRunBackPassive();
     if (DungeonRuns().empty())
     {
         s_dungeonRunMs = 0;
@@ -9494,6 +9531,7 @@ static void UpdateDungeonRuns(uint32 diff)
         commanders.push_back(entry.first);
     for (uint64 commanderRaw : commanders)
         TickDungeonRun(commanderRaw, dt);
+    SyncRunBackPassive();
 }
 
 static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)
@@ -9503,6 +9541,11 @@ static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& ord
     auto it = DungeonRuns().find(commanderRaw);
     if (it == DungeonRuns().end() || !TortoiseBots::DungeonRun::PauseForPlayer(it->second.run, ProtocolSafe(order)))
         return;
+    // A player's own `flee` keeps the passive stance the run gave a bot
+    // running back; any other order gets it back its own AI (SyncRunBackPassive).
+    if (order.find("flee") != std::string::npos)
+        for (auto passive = RunBackPassive().begin(); passive != RunBackPassive().end();)
+            passive = passive->second == commanderRaw ? RunBackPassive().erase(passive) : std::next(passive);
     SendRunLine(FindCharacter(commanderRaw), it->second, false);
 }
 

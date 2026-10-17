@@ -6,7 +6,7 @@
 // AiPlayerbot.DungeonSelfClear (default 0).
 //
 // It gives the party ONLY the remote commander's own orders (`cmd move`,
-// `move ... direct`, `pullback`, `attack`, `rest`, `loot`, `open`, `use`, `ritual`), so every
+// `move ... direct`, `pullback`, `rest`, `loot`, `open`, `use`, `ritual`), so every
 // commander fix also fixes the run leader and the two cannot drift apart. The
 // fights themselves are the bots' own combat AI (with the boss tactics table).
 //
@@ -37,11 +37,12 @@
 //   - every wait has a ceiling (gather, walk, pull, fight, rest, task, object
 //     wait, and kStepIdleCapMs per step); a ceiling pauses the run with the
 //     reason, it never loops;
-//   - any order from a player to the party pauses the run until `resume`.
-//   - a party member fighting alone on its way back (more than kGatherYd, at
-//     most kHelpMaxYd away) is helped while the run waits for its party: the
-//     party goes to it and kills only its attackers, also when it dies again
-//     (HelpReturning); never during an event.
+//   - any order from a player to the party pauses the run until `resume`;
+//   - a party member coming back with attackers on it (more than kGatherYd,
+//     at most kRunBackMaxYd away) keeps running to the party past the mobs
+//     while the run waits for it (RunBack; the glue makes it a passive
+//     follower of the lead bot); the party stays where it is and fights them
+//     once it has arrived. Never during an event.
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
 
@@ -108,16 +109,15 @@ constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose dat
 constexpr std::uint32_t kRitualNoReplyMs = 5000;  // a ritual whose bots are free again with no answer this long: pause
 constexpr std::uint32_t kEventResetWaitMs = 60000; // before a ritual: an encounter still in progress or failed (a boss
                                                    // walking home) is waited for this long, then the ritual goes out
-// Help for a party member that fights alone on its way back (HelpReturning; the
+// A party member coming back with attackers runs on to the party (RunBack; the
 // owner's rule of 2026-10-17). Uldaman 2026-10-17 (tests/uldaman-events-2):
-// the revived priest and mage fought a scorpid at -174 311, 73-76 yd from the
-// tank (navmesh path 85 yd); the regroup gave up at 107.9 yd. The bots' own
-// group help reaches SightDistance (60 yd) and did step in once the mage fled
-// to 50 yd, so the run leader covers the stretch beyond it.
-constexpr float kHelpMaxYd = 120.0f;              // a member in a fight this far from the lead bot is helped
-constexpr float kHelpEngageYd = 30.0f;            // its attackers are attacked once this close to the lead bot
-constexpr std::uint32_t kHelpCapMs = 90000;       // one help ends after this long, the regroup goes on
-constexpr std::size_t kHelpMaxUnits = 8;          // attackers remembered for one help
+// the revived priest and mage stopped to fight a scorpid at -174 311, 73-76 yd
+// from the tank, and the regroup gave up with a bot 107.9 yd away; the rogues
+// at the tank joined in by themselves once the mage came within 50 yd (the
+// bots' own group help reaches SightDistance, 60 yd).
+constexpr float kRunBackMaxYd = 120.0f;           // a member with attackers this far from the lead bot runs back
+constexpr float kRunBackArriveYd = 12.0f;         // ... until it is this close: then it fights with the party
+constexpr std::uint32_t kRunBackCapMs = 90000;    // one run back ends after this long
 
 // Rest gate: it starts when someone is below a "start" line after a fight or
 // before a step, and ends when everybody is at the "end" line (or at kRestCapMs).
@@ -170,7 +170,6 @@ struct UnitFact
     bool engaged = false;
     std::uint64_t owner = 0;
     bool ownerEngaged = false;
-    float x = 0.0f, y = 0.0f, z = 0.0f; // where it stands (Facts::helpUnits only)
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -190,11 +189,7 @@ struct MemberFact
     bool polymorph = false; // a mage that knows Polymorph (kPolymorphSpells): the run's crowd control
     bool inCombat = false;
     float dz = 0.0f;        // height difference to the lead bot (another floor)
-    // Its own attackers (the core's attacker set of that bot, no scan) and
-    // where it stands: a member fighting alone on its way back is helped
-    // (HelpReturning).
-    std::vector<std::uint64_t> attackers{};
-    float x = 0.0f, y = 0.0f, z = 0.0f;
+    std::uint32_t attackers = 0; // units attacking it (the core's attacker set of that bot, no scan)
 };
 
 // What the glue reads once a tick for the run's current step.
@@ -204,7 +199,6 @@ struct Facts
     std::uint32_t total = 0, alive = 0, dead = 0;
     bool leadAlive = true;
     bool anyInCombat = false;
-    bool leadInCombat = false;          // the lead bot itself is in a fight
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
@@ -220,16 +214,6 @@ struct Facts
     // In a fight, when the plan has kill_first: its living, not friendly units
     // from the bots' own attacker lists (a summoned healing ward included).
     std::vector<UnitFact> killFirst;
-    // While the run helps a member (Run::helpBot): the remembered attackers
-    // (Run::helpGuids) that are still alive on the lead bot's map, resolved by
-    // guid (no scan), with their places; and the lead bot's navmesh path
-    // toward Run::helpX/Y/Z: its next hop (kApproachHopYd along it, short of
-    // the point) and whether the path passes an uncleared pack
-    // (PathCrossesUnclearedPack).
-    std::vector<UnitFact> helpUnits;
-    bool helpHopKnown = false;
-    float helpHopX = 0.0f, helpHopY = 0.0f, helpHopZ = 0.0f;
-    bool helpPathCrossesPack = false;
     std::uint32_t minHealthPct = 100;   // living bots
     std::uint32_t minHealerManaPct = 100;
     std::uint32_t minManaPct = 100;     // mana users that are not healers
@@ -370,21 +354,20 @@ struct Run
     std::uint32_t nearWipes = 0; // kWipeDead or more dead with someone alive, counted once each time
     bool nearWiped = false;
     bool eventRetry = false;     // an event failed this run: a ritual sent now is its retry
-    // Help for a member fighting alone on its way back (HelpReturning): the
-    // bot, the attackers it had (kept when it dies again), the point the glue
-    // reads the path toward, the last order and the walk's progress.
-    std::string helpBot;
-    std::vector<std::uint64_t> helpGuids;
-    float helpX = 0.0f, helpY = 0.0f, helpZ = 0.0f;
-    std::uint32_t helpMs = 0;
-    std::uint64_t helpTarget = 0;   // the attacker the last `attack` went out for
-    std::string helpOrder;          // the last order the help sent (a refusal ends the help)
-    float helpMoveX = 0.0f, helpMoveY = 0.0f, helpMoveZ = 0.0f;
-    bool helpMoving = false;
-    std::uint32_t helpStillMs = 0;
-    std::uint32_t helpTries = 0;
-    float helpBestYd = 0.0f;
-    std::uint32_t helps = 0;        // helps this run (the report)
+    // Members running back to the party with attackers on them (RunBack): the
+    // glue keeps each one a passive follower of the lead bot (it does not stop
+    // to fight) while its name is here. Per bot: how long it has run, and its
+    // stall sample.
+    struct RunBackState
+    {
+        std::uint32_t ms = 0;
+        std::uint32_t stillMs = 0;
+        float bestYd = 0.0f;
+    };
+    std::vector<std::string> runBack;
+    std::unordered_map<std::string, RunBackState> runBackState;
+    std::unordered_set<std::string> runBackDone; // stalled or out of time in this wait: not again until it ends
+    std::uint32_t runBacks = 0;  // run backs this run (the report)
 };
 
 inline const PlanStep* Current(const Run& r)
@@ -459,10 +442,18 @@ inline void EnterPhase(Run& r, Phase p)
     r.phaseMs = 0;
 }
 
+inline void ClearRunBack(Run& r)
+{
+    r.runBack.clear();
+    r.runBackState.clear();
+    r.runBackDone.clear();
+}
+
 inline void Pause(Run& r, const std::string& why)
 {
     r.state = State::Paused;
     r.note = why;
+    ClearRunBack(r); // a paused run leaves every bot to its own AI
 }
 
 // Clears what belongs to one step (also on resume, so a resumed step gets
@@ -660,31 +651,6 @@ inline void BeginRegroup(Run& r)
     r.regroupMs = 0;
 }
 
-// The help is over (its attackers dead, out of reach, refused, or its ceiling):
-// what it interrupted starts over, so the party gathers and walks on from where
-// the help left it (a regroup sends its gather again; a step's gather or walk,
-// or a walk back, begins its point again).
-inline void EndHelp(Run& r, const std::string& note)
-{
-    r.helpBot.clear();
-    r.helpGuids.clear();
-    r.helpMs = 0;
-    r.helpTarget = 0;
-    r.helpOrder.clear();
-    r.helpMoving = false;
-    r.helpStillMs = 0;
-    r.note = note;
-    if (r.regroup)
-    {
-        r.regroupGatherSent = false;
-        r.regroupMs = 0;
-        r.gatherWaived = false;
-        r.gatherRefusals = 0;
-    }
-    if (r.phase == Phase::Gather || r.phase == Phase::Walk)
-        EnterPhase(r, Phase::Begin);
-}
-
 inline void NextStep(Run& r, const std::string& note)
 {
     r.pendingMissing = 0;
@@ -788,13 +754,6 @@ inline std::string DirectStragglerName(const std::string& answer)
 
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
-    // An order of a help (a move toward the member, an attack on its
-    // attackers): the help ends, the regroup or the step goes on.
-    if (!r.helpBot.empty() && order == r.helpOrder)
-    {
-        EndHelp(r, "regroup: helping " + r.helpBot + " refused (" + answer + "): going on");
-        return;
-    }
     // The summon of a direct step's follower: `busy` (a summon of that bot is
     // pending already) keeps the wait; any other refusal ends it, so the step
     // goes out again at once (and pauses if that bot is named again).
@@ -2157,16 +2116,16 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 
 // The out-of-combat ceiling of a step: kStepIdleCapMs, or a wait's own
 // timeout plus a minute to get there when that is longer.
-// Help for a party member fighting alone on its way back. The owner's rule
-// (2026-10-17): "when party members die and running back to party, if they
-// come in contact with enemy rest of party should run to them and kill the
-// mobs. even if they die again of the mobs, then the path is clear."
+// A party member coming back with attackers on it. The owner's rule
+// (2026-10-17): "the party members running back to party should just run past
+// the mobs and try to run to the party, when its with the party and gets help
+// it can stop and fight with them."
 //
 // Only while the run waits for its party: a regroup (revive, gather), a
 // step's gather, or a walk back. Never during an event (a hold, or the steps
 // leading into one: the Keepers, Archaedas); a player's order pauses the run
-// anyway, so a commander's explicit order is never overridden.
-inline bool HelpAllowed(const Run& r)
+// (and ends every run back) anyway.
+inline bool RunBackAllowed(const Run& r)
 {
     const PlanStep* s = Current(r);
     if (!s || s->kind == PlanStepKind::Hold || r.eventOn || EventHoldAhead(r))
@@ -2174,197 +2133,87 @@ inline bool HelpAllowed(const Run& r)
     return r.regroup || r.phase == Phase::Gather || r.walkBack;
 }
 
-// The member to help: a living bot other than the lead bot, more than
-// kGatherYd and at most kHelpMaxYd from it, with attackers of its own; the one
-// with the most attackers, then the nearest. Null for none.
-inline const MemberFact* MemberToHelp(const Facts& f)
+// One second of the run backs. A living bot other than the lead bot, more
+// than kGatherYd and at most kRunBackMaxYd from it, with attackers, runs on to
+// the party (Run::runBack: the glue keeps it a passive follower of the lead
+// bot, so it does not turn on its attackers) until it is within
+// kRunBackArriveYd; there the party's own group help takes its attackers on
+// (SightDistance). The party sends no order meanwhile: it does not walk out to
+// meet it. A bot that stops gaining ground (kStragglerGainYd in kWalkRetryMs:
+// the Uldaman scorpid pit floor has no navmesh path out) or runs longer than
+// kRunBackCapMs is let go; the gather's summon of a stalled straggler takes it
+// from there. True while someone runs back: the run waits (the tick ends).
+inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
 {
-    const MemberFact* pick = nullptr;
-    for (const MemberFact& m : f.members)
+    bool const allowed = RunBackAllowed(r) && f.leadAlive && (r.regroup || (f.dead < kWipeDead && f.alive > 0));
+    if (!allowed)
     {
-        if (m.name.empty() || m.name == f.carrier || m.attackers.empty() || m.yd <= kGatherYd || m.yd > kHelpMaxYd)
-            continue;
-        if (!pick || m.attackers.size() > pick->attackers.size() ||
-            (m.attackers.size() == pick->attackers.size() && m.yd < pick->yd))
-            pick = &m;
+        ClearRunBack(r);
+        return false;
     }
-    return pick;
-}
-
-// The plan's own way toward a point: the move point before the current step
-// (ground the run walked and cleared) that is nearest the point, among those
-// within kSeeYd of the lead bot and at least kStragglerGainYd nearer the point
-// than the lead bot. False for none.
-inline bool PlanPointToward(const Run& r, const Facts& f, float tx, float ty, float tz, float& ox, float& oy,
-    float& oz)
-{
-    float const now = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, tx, ty, tz);
-    float best = 0.0f;
-    bool found = false;
-    for (std::size_t i = 0; i < r.step && i < r.plan->steps.size(); ++i)
+    if (r.regroup && !r.reviveSent && f.dead > 0)
+        return false; // the revive goes out first
+    auto member = [&](const std::string& name) -> const MemberFact*
     {
-        const PlanStep& p = r.plan->steps[i];
-        if (!IsMovePoint(p) || ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) > kSeeYd)
-            continue;
-        float const d = ai::PlanDistance(p.x, p.y, p.z, tx, ty, tz);
-        if (d > now - kStragglerGainYd || (found && d >= best))
-            continue;
-        best = d;
-        ox = p.x;
-        oy = p.y;
-        oz = p.z;
-        found = true;
-    }
-    return found;
-}
-
-// One second of a help. True while it acts (the tick ends there). The party
-// walks toward the member (its navmesh path when that passes no uncleared
-// pack, else the plan's own move points), attacks only the attackers the
-// member had (one `attack` each, nearest first) once they are within
-// kHelpEngageYd of the lead bot, and keeps on when the member dies again. Then
-// the regroup or the step goes on (EndHelp).
-inline bool HelpReturning(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
-{
-    if (r.helpBot.empty())
-    {
-        if (!HelpAllowed(r) || !f.leadAlive || f.leadInCombat)
-            return false;
-        if (!r.regroup && (f.dead >= kWipeDead || f.alive == 0))
-            return false; // the wipe's own regroup first
-        if (r.regroup && !r.reviveSent && f.dead > 0)
-            return false; // the revive goes out first
-        const MemberFact* m = MemberToHelp(f);
-        if (!m)
-            return false;
-        r.helpBot = m->name;
-        r.helpGuids.assign(m->attackers.begin(),
-            m->attackers.begin() + static_cast<std::ptrdiff_t>(std::min(m->attackers.size(), kHelpMaxUnits)));
-        r.helpX = m->x;
-        r.helpY = m->y;
-        r.helpZ = m->z;
-        r.helpMs = 0;
-        r.helpTarget = 0;
-        r.helpOrder.clear();
-        r.helpMoving = false;
-        ++r.helps;
-        r.note = "regroup: helping " + r.helpBot + " (" + std::to_string(r.helpGuids.size()) + " attackers)";
-        return true; // the next tick reads the attackers and the way there
-    }
-    r.helpMs += dt;
-    std::string const who = r.helpBot;
-    if (!f.leadAlive)
-    {
-        EndHelp(r, "regroup: the lead bot died helping " + who);
-        return true; // the tick ends on the note; the wait goes on next tick
-    }
-    if (r.helpMs > kHelpCapMs)
-    {
-        EndHelp(r, "regroup: helping " + who + " took more than " + std::to_string(kHelpCapMs / 1000) + " s: going on");
-        return true; // the tick ends on the note; the wait goes on next tick
-    }
-    // The member still alive and fighting: its new attackers join the help.
-    for (const MemberFact& m : f.members)
-        if (m.name == who)
-            for (std::uint64_t g : m.attackers)
-                if (r.helpGuids.size() < kHelpMaxUnits &&
-                    std::find(r.helpGuids.begin(), r.helpGuids.end(), g) == r.helpGuids.end())
-                    r.helpGuids.push_back(g);
-    // Only the remembered attackers, alive and not running home.
-    const UnitFact* target = nullptr;
-    std::uint32_t left = 0;
-    for (const UnitFact& u : f.helpUnits)
-    {
-        if (std::find(r.helpGuids.begin(), r.helpGuids.end(), u.guid) == r.helpGuids.end())
-            continue;
-        ++left;
-        if (u.evading)
-            continue;
-        if (!target || u.distLead < target->distLead)
-            target = &u;
-    }
-    if (!left)
-    {
-        EndHelp(r, "regroup: " + who + "'s attackers are down: going on");
-        return true; // the tick ends on the note; the wait goes on next tick
-    }
-    r.note = "regroup: helping " + who + " (" + std::to_string(left) + (left == 1 ? " attacker)" : " attackers)");
-    if (!target)
-        return true; // they run home: wait (the ceiling bounds it)
-    r.helpX = target->x;
-    r.helpY = target->y;
-    r.helpZ = target->z;
-    auto engage = [&]()
-    {
-        r.helpMoving = false;
-        if (target->guid != r.helpTarget)
-        {
-            r.helpTarget = target->guid;
-            order = "attack " + std::to_string(target->guid);
-            r.helpOrder = order;
-        }
-        return true;
+        for (const MemberFact& m : f.members)
+            if (m.name == name)
+                return &m;
+        return nullptr;
     };
-    if (target->distLead <= kHelpEngageYd)
-        return engage();
-    // A move out: wait for the lead bot to get there (resent after
-    // kWalkRetryMs without progress, kWalkTries times; stalled within
-    // kStalledArriveYd counts as there).
-    if (r.helpMoving)
+    // The running ones: arrived, dead, stalled or out of time end their run.
+    for (std::size_t i = 0; i < r.runBack.size();)
     {
-        float const toMove = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.helpMoveX, r.helpMoveY, r.helpMoveZ);
-        if (toMove > kArriveYd)
+        std::string const name = r.runBack[i];
+        const MemberFact* m = member(name);
+        Run::RunBackState& st = r.runBackState[name];
+        st.ms += dt;
+        st.stillMs += dt;
+        bool done = !m || m->yd <= kRunBackArriveYd;
+        if (!done)
         {
-            r.helpStillMs += dt;
-            if (toMove < r.helpBestYd - kWalkProgressYd)
+            if (m->yd < st.bestYd - kStragglerGainYd)
             {
-                r.helpBestYd = toMove;
-                r.helpStillMs = 0;
+                st.bestYd = m->yd;
+                st.stillMs = 0;
             }
-            if (r.helpStillMs < kWalkRetryMs)
-                return true;
-            if (toMove > kStalledArriveYd)
+            if (st.stillMs >= kWalkRetryMs || st.ms >= kRunBackCapMs)
             {
-                if (++r.helpTries > kWalkTries)
-                {
-                    EndHelp(r, "regroup: the party could not get closer to " + who + ": going on");
-                    return true; // the tick ends on the note; the wait goes on next tick
-                }
-                r.helpStillMs = 0;
-                order = MoveOrder(r.helpMoveX, r.helpMoveY, r.helpMoveZ, false);
-                r.helpOrder = order;
-                return true;
+                r.runBackDone.insert(name);
+                done = true;
             }
         }
-        r.helpMoving = false;
+        if (done)
+        {
+            r.runBackState.erase(name);
+            r.runBack.erase(r.runBack.begin() + static_cast<std::ptrdiff_t>(i));
+        }
+        else
+            ++i;
     }
-    // The next point: the navmesh hop when its path keeps off uncleared
-    // packs, else the plan's own points.
-    float wx = 0.0f, wy = 0.0f, wz = 0.0f;
-    if (f.helpHopKnown && !f.helpPathCrossesPack)
+    // New ones.
+    for (const MemberFact& m : f.members)
     {
-        wx = f.helpHopX;
-        wy = f.helpHopY;
-        wz = f.helpHopZ;
+        if (m.name.empty() || m.name == f.carrier || !m.attackers || m.yd <= kGatherYd || m.yd > kRunBackMaxYd ||
+            r.runBackDone.count(m.name) ||
+            std::find(r.runBack.begin(), r.runBack.end(), m.name) != r.runBack.end())
+            continue;
+        r.runBack.push_back(m.name);
+        Run::RunBackState st;
+        st.bestYd = m.yd;
+        r.runBackState[m.name] = st;
+        ++r.runBacks;
     }
-    else if (!PlanPointToward(r, f, target->x, target->y, target->z, wx, wy, wz))
+    if (r.runBack.empty())
+        return false;
+    std::string note;
+    for (const std::string& name : r.runBack)
     {
-        EndHelp(r, std::string("regroup: no way to ") + who +
-            (f.helpPathCrossesPack ? " that keeps off uncleared packs" : "") + ": going on");
-        return true; // the tick ends on the note; the wait goes on next tick
+        const MemberFact* m = member(name);
+        std::uint32_t const n = m ? m->attackers : 0;
+        note += (note.empty() ? "regroup: " : "; ") + name + " running back with " + std::to_string(n) +
+            (n == 1 ? " attacker" : " attackers");
     }
-    float const toPoint = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, wx, wy, wz);
-    if (toPoint <= kArriveYd)
-        return engage(); // as near as the way goes: the bots' own combat movement closes the rest
-    r.helpMoving = true;
-    r.helpMoveX = wx;
-    r.helpMoveY = wy;
-    r.helpMoveZ = wz;
-    r.helpStillMs = 0;
-    r.helpTries = 1;
-    r.helpBestYd = toPoint;
-    order = MoveOrder(wx, wy, wz, false);
-    r.helpOrder = order;
+    r.note = note;
     return true;
 }
 
@@ -2414,9 +2263,9 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     else if (f.dead < kWipeDead)
         r.nearWiped = false;
 
-    // A party member fighting alone on its way back is helped first (the
-    // owner's rule; HelpReturning), in a fight too.
-    if (HelpReturning(r, f, dt, order))
+    // A party member coming back with attackers runs on to the party; the run
+    // waits for it where it stands (RunBack), in a fight too.
+    if (RunBack(r, f, dt))
         return order;
 
     // After a resume or a skip from a pause: the dead get up, the living
