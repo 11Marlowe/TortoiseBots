@@ -30,10 +30,15 @@
 //     kSeeYd of it and no living, hostile unit of it is left;
 //   - kWipeDead dead (or all dead) regroups by itself once the fight is over:
 //     revive, gather, then walk back over the plan's own move points (at most
-//     kAutoRegroupsPerStep times a step, then it pauses); the lead bot dead
-//     alone pauses the run;
+//     kAutoRegroupsPerStep times a step, then it pauses);
+//   - the owner's rule (2026-10-17): a fallen member (the lead bot too) is
+//     waited for until it is alive and back with the party before the next
+//     pull, boss, task or move (WaitForFallen), fight first, never mid-event;
+//     a lead bot back at the entrance alone walks back while the living
+//     party holds where it is (LeadRevivedAway);
 //   - a refused gather is sent once more, then the run goes on without it;
-//     at a gather's ceiling a stalled straggler (kSummonYd) is summoned once;
+//     at a gather's ceiling (and an approach hop's) a far straggler that
+//     stands still or stalled (kSummonYd) is summoned once;
 //   - every wait has a ceiling (gather, walk, pull, fight, rest, task, object
 //     wait, and kStepIdleCapMs per step); a ceiling pauses the run with the
 //     reason, it never loops;
@@ -83,6 +88,8 @@ constexpr std::uint32_t kGatherCapMs = 30000;
 constexpr float kSummonYd = 40.0f;                // at a gather's ceiling a bot this far that ...
 constexpr float kStragglerDzYd = 8.0f;            // ... or this far up or down (another floor) ...
 constexpr float kStragglerGainYd = 5.0f;          // ... came less than this closer since the last sample is summoned
+constexpr float kStillYd = 2.0f;                   // a bot that moved less than this ...
+constexpr std::uint32_t kStillMs = 6000;          // ... in this long stands still (stuck: summoned at a ceiling)
 constexpr std::uint32_t kSummonWaitMs = 6000;     // a direct step's summoned follower is waited for this long (the summon takes 3 s)
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
@@ -192,6 +199,7 @@ struct MemberFact
     bool inCombat = false;
     float dz = 0.0f;        // height difference to the lead bot (another floor)
     std::uint32_t attackers = 0; // units attacking it (the core's attacker set of that bot, no scan)
+    float x = 0.0f, y = 0.0f, z = 0.0f; // where it stands (the stand-still watch: UpdateStill)
 };
 
 // What the glue reads once a tick for the run's current step.
@@ -205,6 +213,7 @@ struct Facts
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
+    std::vector<std::string> deadNames; // the dead bots (ghosts too), the lead bot too
     // The lead bot has a navmesh path back to the run's anchor (Run::anchor*).
     // Read lazily: only on a tick after the policy asked for it
     // (Run::anchorPathWanted, set when a gather needs the answer).
@@ -333,6 +342,33 @@ struct Run
     std::string summonWait; // ... the summon sent: the step waits for that bot at the lead bot (kSummonWaitMs at most)
     std::uint32_t summonWaitMs = 0;
     std::unordered_map<std::string, float> memberYd; // each bot's distance to the lead at the gather's last sample
+    // Each living bot's stand-still watch (UpdateStill, every tick): where it
+    // stood when it last moved kStillYd, and how long it has stayed there.
+    struct StillState
+    {
+        float x = 0.0f, y = 0.0f, z = 0.0f;
+        std::uint32_t ms = 0;
+    };
+    std::unordered_map<std::string, StillState> still;
+    // The lead bot dying alone in a fight and coming back to life far from
+    // where it fell (its own release and corpse run: the instance entrance)
+    // while the others won the fight deep inside (LeadRevivedAway).
+    bool leadSeen = false;
+    float leadLastX = 0.0f, leadLastY = 0.0f, leadLastZ = 0.0f; // the living lead bot's last spot
+    bool leadDied = false;
+    // The owner's rule of 2026-10-17, "Party should wait if a party member
+    // dies until it is back": every bot seen dead since the party was last
+    // together. The run starts nothing new until each is alive and within
+    // kGatherYd of the lead bot again (WaitForFallen).
+    std::unordered_set<std::string> waitFor;
+    // The living party held where it won the fight while the lead bot (and
+    // the bots revived with it at the entrance) walk the plan's way back to
+    // it (LeadRevivedAway): the glue keeps each named bot on stay at its spot,
+    // and the run leaves them out of its gathers and summons (HoldView). A bot
+    // drops out once the lead bot is within kGatherYd of it; the list ends with
+    // the walk back, on a pause and with the step.
+    std::vector<std::string> hold;
+    float leadDeathX = 0.0f, leadDeathY = 0.0f, leadDeathZ = 0.0f;
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
     std::uint64_t focusGuid = 0;              // the kill-first unit focused in this fight
@@ -472,6 +508,7 @@ inline void Pause(Run& r, const std::string& why)
     r.state = State::Paused;
     r.note = why;
     ClearRunBack(r); // a paused run leaves every bot to its own AI
+    r.hold.clear();
 }
 
 // Clears what belongs to one step (also on resume, so a resumed step gets
@@ -526,6 +563,7 @@ inline void ResetStep(Run& r)
     r.holdArrived = false;
     r.eventIdleMs = 0;
     r.eventUp = r.eventDown = r.eventTotal = 0;
+    r.hold.clear();
 }
 
 // "N wipe(s), M near wipe(s)", or "" for none.
@@ -553,31 +591,110 @@ inline void SampleMembers(Run& r, const Facts& f)
         r.memberYd[m.name] = m.yd;
 }
 
+// Each living bot's stand-still watch, fed every tick: a bot that moved
+// kStillYd from its watch spot starts a fresh clock there; one that did not
+// adds the tick. Bots not in the facts (dead, gone) are dropped, so a revived
+// bot starts afresh.
+inline void UpdateStill(Run& r, const Facts& f, std::uint32_t dt)
+{
+    for (auto it = r.still.begin(); it != r.still.end();)
+    {
+        bool present = false;
+        for (const MemberFact& m : f.members)
+            if (m.name == it->first)
+            {
+                present = true;
+                break;
+            }
+        it = present ? std::next(it) : r.still.erase(it);
+    }
+    for (const MemberFact& m : f.members)
+    {
+        if (m.name.empty())
+            continue;
+        auto it = r.still.find(m.name);
+        if (it == r.still.end() || ai::PlanDistance(m.x, m.y, m.z, it->second.x, it->second.y, it->second.z) >= kStillYd)
+        {
+            Run::StillState& st = r.still[m.name];
+            st.x = m.x;
+            st.y = m.y;
+            st.z = m.z;
+            st.ms = 0;
+            continue;
+        }
+        it->second.ms += dt;
+    }
+}
+
+// The bot has moved less than kStillYd for kStillMs.
+inline bool IsStill(const Run& r, const std::string& name)
+{
+    auto it = r.still.find(name);
+    return it != r.still.end() && it->second.ms >= kStillMs;
+}
+
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
-// the lead bot that came less than kStragglerGainYd closer since the last
-// sample (stuck behind, not on its way), is summoned to the lead bot (`cmd
-// summon`), once per bot and step, and the gather waits again. False when
-// there is none to summon: the caller pauses as before.
-inline bool SummonStraggler(Run& r, const Facts& f, std::string& order)
+// the lead bot (or kStragglerDzYd up or down) that stands still now
+// (IsStill) or came less than kStragglerGainYd closer since the last sample
+// (stuck behind, not on its way), is summoned to the lead bot (`cmd summon`),
+// once per bot and step (and per regroup), and the gather waits again. The
+// stand-still test is what catches a bot that walked part of the way and then
+// stuck: Uldaman 19z11, the revived priest gained more than 5 yd, then stood
+// at the scorpid pit's navmesh hole and the regroup paused. stillOnly: only
+// bots that stand still (an approach hop's ceiling: the walkers are on their
+// way). False when there is none to summon: the caller pauses as before.
+inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool stillOnly = false)
 {
     const MemberFact* pick = nullptr;
+    bool pickStill = false;
     for (const MemberFact& m : f.members)
     {
         if ((m.yd <= kSummonYd && m.dz <= kStragglerDzYd) || m.name.empty() || r.summoned.count(m.name))
             continue;
-        auto it = r.memberYd.find(m.name);
-        if (it == r.memberYd.end() || it->second - m.yd >= kStragglerGainYd)
-            continue;
+        bool const still = IsStill(r, m.name);
+        if (!still)
+        {
+            if (stillOnly)
+                continue;
+            auto it = r.memberYd.find(m.name);
+            if (it == r.memberYd.end() || it->second - m.yd >= kStragglerGainYd)
+                continue;
+        }
         if (!pick || m.yd > pick->yd)
+        {
             pick = &m;
+            pickStill = still;
+        }
     }
     SampleMembers(r, f);
     if (!pick)
         return false;
     r.summoned.insert(pick->name);
     order = "summon " + pick->name;
-    r.note = "gather: " + pick->name + " stands " + Num(pick->yd) + " yd from the lead bot and does not come closer: summoned";
+    r.note = "gather: " + pick->name + " stands " + Num(pick->yd) + " yd from the lead bot and " +
+        (pickStill ? "has not moved for " + std::to_string(kStillMs / 1000) + " s" : std::string("does not come closer")) +
+        ": summoned";
     return true;
+}
+
+// "waiting for Priest (dead), Mage (running back)": the bots the regroup waits
+// for, the dead by name and the living ones still out of reach.
+inline std::string WaitNote(const Run& r, const Facts& f)
+{
+    std::string out;
+    auto add = [&](const std::string& name, const char* why)
+    {
+        out += (out.empty() ? "" : ", ") + name + " (" + why + ")";
+    };
+    for (const std::string& name : f.deadNames)
+        add(name, "dead");
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && (m.yd > kGatherYd || m.dz > kStragglerDzYd) &&
+            (r.waitFor.count(m.name) || r.regroup))
+            add(m.name, "running back");
+    if (out.empty() && f.dead)
+        out = std::to_string(f.dead) + " dead";
+    return out.empty() ? std::string("waiting for the party") : "waiting for " + out;
 }
 
 // The step's walk points: what a walk back after a regroup replays.
@@ -670,6 +787,8 @@ inline void BeginRegroup(Run& r)
     r.regroupGatherSent = false;
     r.regroupMs = 0;
     r.regroupDead = -1;
+    r.summoned.clear(); // one summon per bot per regroup (SummonStraggler)
+    r.leadDied = false; // the regroup revives and gathers whoever died
 }
 
 inline void NextStep(Run& r, const std::string& note)
@@ -1143,6 +1262,16 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
 inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& order, const UnitFact* cc = nullptr,
     bool walkBack = false)
 {
+    // The owner's wait rule at the pull itself (Uldaman 19z11: 17 of 63 pulls
+    // went out with a member dead, 15 with the healer, two of them into
+    // wipes): no pull while a bot is dead, outside a scripted event. Tick's
+    // wait (WaitForFallen) regroups first; this holds if a death comes in
+    // between.
+    if (f.dead > 0 && !InEvent(r))
+    {
+        r.note = WaitNote(r, f) + ": no pull while a party member is dead";
+        return;
+    }
     AnchorState const anchor = r.gatherWaived ? AnchorState::On : CheckAnchor(r, f);
     if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
     {
@@ -1250,6 +1379,16 @@ inline void ApproachHop(Run& r, const Facts& f, const PlanStep& s, std::uint32_t
     }
     if (++r.approachHops > kMaxApproachHops)
     {
+        // Before the pause, a bot that stands still far behind is summoned
+        // to the lead bot (once each), so a resume starts with the party
+        // together. The lead bot's own way stays the reason for the pause.
+        // Uldaman 19z11 02:50: the priest stood on a navmesh pocket at 43 371
+        // while the lead bot hopped from the entrance.
+        if (SummonStraggler(r, f, order, true))
+        {
+            r.note = "approach: " + r.note.substr(std::string("gather: ").size()) + " before the pause";
+            return;
+        }
         Pause(r, std::to_string(kMaxApproachHops) + " approach hops did not bring the party within " +
             Num(kSeeYd) + " yd of the " + what);
         return;
@@ -2244,6 +2383,121 @@ inline bool RunBack(Run& r, const Facts& f, std::uint32_t dt)
 
 // The out-of-combat ceiling of a step: kStepIdleCapMs, or a wait's own
 // timeout plus a minute to get there when that is longer.
+// The lead bot's death, seen on any tick outside a regroup (a regroup
+// revives and gathers whoever died): where it fell is its last living spot.
+inline void NoteLeadDeath(Run& r, const Facts& f)
+{
+    for (const std::string& name : f.deadNames)
+        r.waitFor.insert(name);
+    // The lead bot dead during a regroup comes back at the entrance after a
+    // `revive party`: the regroup walks the plan's way back afterwards.
+    if (!f.leadAlive && r.regroup)
+        r.walkBackDue = true;
+    if (f.leadAlive)
+    {
+        r.leadSeen = true;
+        r.leadLastX = f.leadX;
+        r.leadLastY = f.leadY;
+        r.leadLastZ = f.leadZ;
+        return;
+    }
+    if (r.leadDied || r.regroup || !r.leadSeen)
+        return;
+    r.leadDied = true;
+    r.leadDeathX = r.leadLastX;
+    r.leadDeathY = r.leadLastY;
+    r.leadDeathZ = r.leadLastZ;
+}
+
+// The lead bot died alone in a fight (fewer than kWipeDead dead) and came
+// back to life by itself more than kSeeYd from where it fell: its own release
+// and corpse run put it at the instance entrance while the others won the
+// fight deep inside. Uldaman 19z11 02:48: no regroup followed, the step went
+// on approaching the pack from the entrance and paused after 8 hops at the
+// scorpid pit's navmesh hole. Handled as the wipe recovery (regroup: gather
+// on the lead bot, summon a stuck straggler at the ceiling; then the walk back
+// over the plan's own points and direct steps), which exists and is proven;
+// summoning the lead bot to the party would need a new summon target (`cmd
+// summon` brings a bot to the lead bot, not the lead bot to a bot). Counted
+// against kAutoRegroupsPerStep; past that it pauses. A lead bot raised where
+// it fell (a party resurrection) needs nothing.
+inline bool LeadRevivedAway(Run& r, const Facts& f)
+{
+    if (!r.leadDied || !f.leadAlive || f.anyInCombat)
+        return false;
+    r.leadDied = false;
+    if (r.regroup || InEvent(r) ||
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
+        return false;
+    if (r.autoRegroups >= kAutoRegroupsPerStep)
+    {
+        Pause(r, "the lead bot died and came back " + Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX,
+            r.leadDeathY, r.leadDeathZ)) + " yd from where it fell (" + std::to_string(kAutoRegroupsPerStep) +
+            " regroups by itself at this step did not hold): .bot run resume");
+        return true;
+    }
+    ++r.autoRegroups;
+    r.fighting = false;
+    ResetStep(r);
+    BeginRegroup(r);
+    r.walkBackDue = true;
+    // The living party stays where it won the fight: only the revived few
+    // walk back (19z11 03:24: the three alive deep in the hall were summoned
+    // to the entrance by hand and the whole party walked the way again).
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && m.yd > kGatherYd &&
+            ai::PlanDistance(m.x, m.y, m.z, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
+            r.hold.push_back(m.name);
+    r.note = "the lead bot died and came back to life away from the party: regrouping by itself (" +
+        std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)" +
+        (r.hold.empty() ? std::string() : ", the party holds while it walks back");
+    return true;
+}
+
+// The owner's wait rule: drops the fallen that are back (alive and within
+// kGatherYd of the lead bot), then starts the regroup when one is not. The
+// lead bot dead itself: the regroup's revive brings it back (at the entrance
+// after a release) and the walk back follows; counted against
+// kAutoRegroupsPerStep, past that it pauses. False when nobody is waited for.
+inline bool WaitForFallen(Run& r, const Facts& f)
+{
+    for (auto it = r.waitFor.begin(); it != r.waitFor.end();)
+    {
+        bool back = false;
+        for (const MemberFact& m : f.members)
+            if (m.name == *it)
+            {
+                back = m.yd <= kGatherYd && m.dz <= kStragglerDzYd;
+                break;
+            }
+        it = back ? r.waitFor.erase(it) : std::next(it);
+    }
+    if (r.waitFor.empty() && f.dead == 0 && f.leadAlive)
+        return false;
+    bool const lead = !f.leadAlive;
+    if (lead)
+    {
+        if (r.autoRegroups >= kAutoRegroupsPerStep)
+        {
+            Pause(r, "the lead bot is dead: revive it, then .bot run resume (" +
+                std::to_string(kAutoRegroupsPerStep) + " regroups by itself at this step did not hold)");
+            return true;
+        }
+        ++r.autoRegroups;
+    }
+    std::string const note = WaitNote(r, f);
+    // The regroup's gather overrides a walk under way: the step starts over
+    // from its beginning once the party is back (a fresh move, not a wait for
+    // the walk's retry clock).
+    EnterPhase(r, Phase::Begin);
+    BeginRegroup(r);
+    if (lead)
+        r.walkBackDue = true;
+    r.note = note + (lead ? ": the lead bot is dead, reviving and gathering before the step goes on"
+                          : ": reviving and gathering before the step goes on");
+    return true;
+}
+
 inline std::uint32_t StepIdleCapMs(const PlanStep& s)
 {
     bool const wait = s.kind == PlanStepKind::WaitObject || s.kind == PlanStepKind::WaitClear ||
@@ -2254,7 +2508,55 @@ inline std::uint32_t StepIdleCapMs(const PlanStep& s)
 
 // One second of the run. Returns the order to send now (the text after
 // `.bot cmd `), or "" for none.
+// The held party (Run::hold): a bot drops out once dead, gone or within
+// kGatherYd of the lead bot; the list ends once the walk back is over.
+inline void UpdateHold(Run& r, const Facts& f)
+{
+    if (!r.walkBack && !r.walkBackDue && !r.regroup)
+    {
+        r.hold.clear();
+        return;
+    }
+    r.hold.erase(std::remove_if(r.hold.begin(), r.hold.end(), [&](const std::string& name)
+        {
+            for (const MemberFact& m : f.members)
+                if (m.name == name)
+                    return m.yd <= kGatherYd;
+            return true;
+        }), r.hold.end());
+}
+
+// The facts without the held bots: gathers, the gather and regroup ceilings
+// and their summons look at the bots walking back only.
+inline Facts HoldView(const Run& r, const Facts& f)
+{
+    Facts g = f;
+    g.members.clear();
+    g.maxMemberYd = 0.0f;
+    for (const MemberFact& m : f.members)
+    {
+        if (std::find(r.hold.begin(), r.hold.end(), m.name) != r.hold.end())
+            continue;
+        g.members.push_back(m);
+        g.maxMemberYd = std::max(g.maxMemberYd, m.yd);
+    }
+    return g;
+}
+
+inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines);
+
 inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
+{
+    if (r.state == State::Running && !r.hold.empty())
+    {
+        UpdateHold(r, f);
+        if (!r.hold.empty())
+            return TickBody(r, HoldView(r, f), dt, lines);
+    }
+    return TickBody(r, f, dt, lines);
+}
+
+inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)
 {
     std::string order;
     if (r.state != State::Running)
@@ -2272,6 +2574,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     r.gatherOrder.clear(); // only this tick's gather can be refused next
     if (f.anchorPathRead)
         r.anchorPathWanted = false;
+    UpdateStill(r, f, dt);
+    NoteLeadDeath(r, f);
 
     // A wipe (the whole party dead) counts once, however long it lasts.
     bool const allDead = f.total > 0 && f.alive == 0;
@@ -2313,12 +2617,12 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         {
             // A living priest, paladin or shaman raises the dead where they
             // lie: `revive party` (a release and a corpse run) waits for it.
-            if (f.rezzer && f.leadAlive && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
+            if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
             {
-                r.note = "regroup: " + std::to_string(f.dead) + " dead, waiting for a resurrection in the party";
+                r.note = "regroup: " + WaitNote(r, f) + ", a resurrection in the party first";
                 return order;
             }
-            r.note = "regroup: " + std::to_string(f.dead) + " dead, reviving";
+            r.note = "regroup: " + WaitNote(r, f) + ", reviving";
             if (!r.reviveSent || r.regroupMs % 60000 < dt)
             {
                 r.reviveSent = true;
@@ -2331,7 +2635,7 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         }
         if (f.maxMemberYd > kGatherYd && !f.anyInCombat && !r.gatherWaived)
         {
-            r.note = "regroup: gathering on the lead bot";
+            r.note = "regroup: " + WaitNote(r, f) + ", gathering on the lead bot";
             if (!r.regroupGatherSent)
             {
                 r.regroupGatherSent = true;
@@ -2351,6 +2655,8 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         r.regroup = false;
         r.gatherWaived = false;
         r.gatherRefusals = 0;
+        r.waitFor.clear(); // everyone alive and gathered: the fallen are back
+        r.leadDied = false;
         r.note = "regrouped";
         if (r.walkBackDue)
         {
@@ -2382,25 +2688,24 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
             std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
         return order;
     }
-    // The lead bot dead with fewer than kWipeDead dead: the others fight on
-    // (more may fall: then it is a wipe and the run regroups by itself);
-    // once the fight is over it pauses.
-    if (!f.leadAlive && !autoRegroup && !f.anyInCombat)
-    {
-        Pause(r, "the lead bot is dead: revive it, then .bot run resume");
-        return order;
-    }
-    // Fewer than kWipeDead dead and the fight over: the dead get up and the
-    // party gathers before anything else is pulled, the regroup a resume does
-    // (revive, gather; no walk back). Pulling on with the healer dead was the
-    // Uldaman rerun's pull 58 (build 19z11): the pullback went out with the
-    // priest and the mage dead and walking back, and the step paused.
-    if (f.dead > 0 && f.leadAlive && !autoRegroup && !f.anyInCombat && !r.regroup && !InEvent(r) &&
+    // The owner's rule (2026-10-17): "Party should wait if a party member
+    // dies until it is back." Once the fight is over, any death (the lead bot
+    // too, one in a walk, one that released and runs back) holds the next
+    // pull, boss, task or move until the bot is alive and back with the party:
+    // the regroup (a resurrection in the party, `revive party`, the gather, a
+    // stuck straggler summoned at its ceiling, then a pause with the reason).
+    // Not inside a scripted event (it cannot be left mid-way: the wait comes
+    // after it), not during a commander task, and not while a member runs
+    // back with attackers (RunBack). The lead bot dead alone came back far
+    // from where it fell: the wipe recovery (LeadRevivedAway). In a fight the
+    // others fight on; more dead make it a wipe and the run regroups by itself.
+    if (!autoRegroup && !f.anyInCombat && !r.regroup && !runBackWait && !InEvent(r) &&
         r.phase != Phase::AwaitTask && r.phase != Phase::Wait)
     {
-        BeginRegroup(r);
-        r.note = std::to_string(f.dead) + " dead after the fight: reviving and gathering before the next pull";
-        return order;
+        if (LeadRevivedAway(r, f))
+            return order;
+        if (WaitForFallen(r, f))
+            return order;
     }
 
     // Fights are the bots' own; the run only bounds them.

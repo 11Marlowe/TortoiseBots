@@ -50,6 +50,18 @@ static Facts Party(float x = 0)
     return f;
 }
 
+// A living member `yd` from the lead bot, standing on the x axis at that
+// distance (the stand-still watch reads its position).
+static MemberFact Mem(const std::string& name, float yd, float dz = 0.0f)
+{
+    MemberFact m;
+    m.name = name;
+    m.yd = yd;
+    m.dz = dz;
+    m.x = yd;
+    return m;
+}
+
 static UnitFact Unit(std::uint64_t guid, std::uint32_t entry, float dist)
 {
     UnitFact u;
@@ -480,7 +492,7 @@ static void TestFewDeadReviveBeforePull()
     f.alive = 3;
     // No pull while two are dead: the regroup's revive goes out instead.
     CHECK(Tick(r, f).empty());
-    CHECK(r.regroup && r.note.find("2 dead after the fight") == 0);
+    CHECK(r.regroup && r.note.find("waiting for 2 dead: reviving and gathering") == 0);
     CHECK(Tick(r, f) == "revive party");
     CHECK(Tick(r, f).empty());
     // Up again and gathered: the pull follows.
@@ -575,7 +587,7 @@ static void TestRegroupWaitsForPartyRez()
         order = Tick(r, f);
         waited += kTickMs;
         if (order.empty())
-            CHECK(r.note.find("waiting for a resurrection") != std::string::npos);
+            CHECK(r.note.find("a resurrection in the party first") != std::string::npos);
     }
     CHECK(order == "revive party" && waited >= kPartyRezWaitMs && waited <= kPartyRezWaitMs + 2 * kTickMs);
     // Raised in time: no revive at all, the pull follows.
@@ -722,7 +734,16 @@ static void TestWipeAndLeadDeathPause()
     f.alive = 5;
     CHECK(Resume(r));
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    // The lead bot dead (the owner's wait rule): the party waits for it, a
+    // regroup the run counts; past kAutoRegroupsPerStep it pauses.
     f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.regroup && r.walkBackDue);
+    CHECK(r.note.find("waiting for 1 dead: the lead bot is dead") == 0);
+    r.regroup = false; // as if the regroup ended and the lead bot fell again
+    r.autoRegroups = kAutoRegroupsPerStep;
     Tick(r, f);
     CHECK(r.state == State::Paused && r.note.find("lead bot is dead") != std::string::npos);
 }
@@ -1046,37 +1067,46 @@ static void TestGatherSummonsAStalledStraggler()
     Run r = Start(&plan);
     Facts f = Party(0);
     f.maxMemberYd = 90;
-    f.members = {MemberFact{"Walky", 90}, MemberFact{"Healy", 82}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 50}};
+    f.members = {Mem("Walky", 90), Mem("Healy", 82), Mem("Nearby", 30), Mem("Stuck", 50)};
     f.units = {Unit(7, 1, 20)};
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the gather: first sample
     // By the ceiling Walky came 30 yd closer; Healy and Stuck did not.
-    f.members = {MemberFact{"Walky", 60}, MemberFact{"Healy", 81}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 50}};
+    f.members = {Mem("Walky", 60), Mem("Healy", 81), Mem("Nearby", 30), Mem("Stuck", 50)};
     f.maxMemberYd = 81;
     std::string order;
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
+    {
+        f.members[0].x += (i % 2 ? 3.0f : -3.0f); // Walky keeps walking (not standing still)
         order = Tick(r, f);
+    }
     CHECK(order == "summon Healy"); // the farthest stalled one
     CHECK(r.state == State::Running && r.phase == Phase::Gather && r.note.find("Healy") != std::string::npos);
     // A refused summon does not pause: the gather's ceiling does.
     OrderRefused(r, order, "lead-unavailable");
     CHECK(r.state == State::Running);
     // Next ceiling: Walky still comes (no summon), Stuck stalled since the last sample: summoned.
-    f.members = {MemberFact{"Walky", 50}, MemberFact{"Healy", 81}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 49}};
+    f.members = {Mem("Walky", 50), Mem("Healy", 81), Mem("Nearby", 30), Mem("Stuck", 49)};
     order.clear();
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
+    {
+        f.members[0].x += (i % 2 ? 3.0f : -3.0f); // Walky keeps walking (not standing still)
         order = Tick(r, f);
+    }
     CHECK(order == "summon Stuck");
     // Nobody left to summon (Walky still makes progress): the next ceiling pauses.
-    f.members = {MemberFact{"Walky", 44}, MemberFact{"Healy", 81}, MemberFact{"Nearby", 30}, MemberFact{"Stuck", 49}};
+    f.members = {Mem("Walky", 44), Mem("Healy", 81), Mem("Nearby", 30), Mem("Stuck", 49)};
     for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+    {
+        f.members[0].x += (i % 2 ? 3.0f : -3.0f);
         CHECK(Tick(r, f).find("summon") == std::string::npos);
+    }
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
 
     // The summoned bot arrives: the pull goes out.
     Run g = Start(&plan);
     Facts h = Party(0);
     h.maxMemberYd = 82;
-    h.members = {MemberFact{"Healy", 82}};
+    h.members = {Mem("Healy", 82)};
     h.units = {Unit(7, 1, 20)};
     Tick(g, h);
     std::string got;
@@ -1311,7 +1341,7 @@ static void TestLeadDiesFirstThenTheWipeRegroups()
     g.dead = 1;
     g.alive = 4;
     Tick(p, g);
-    CHECK(p.state == State::Paused && p.note.find("lead bot is dead") != std::string::npos);
+    CHECK(p.state == State::Running && p.regroup && p.note.find("the lead bot is dead") != std::string::npos);
 }
 
 // 19z5 step 80 (15:43): 4 dead and the tank alone past the fight ceiling
@@ -1868,7 +1898,9 @@ static void TestResumeWithLeadDead()
     f.alive = 4;
     f.leadAlive = false;
     Tick(r, f);
-    CHECK(r.state == State::Paused && r.note.find("lead bot is dead") != std::string::npos);
+    // The owner's wait rule: no pause, the regroup waits for the lead bot.
+    CHECK(r.state == State::Running && r.regroup);
+    Pause(r, "test: the old pause");
     CHECK(Resume(r));
     CHECK(r.regroup);
     CHECK(Tick(r, f) == "revive party");
@@ -1902,6 +1934,312 @@ static void TestEmptyPlan()
     CHECK(r.state == State::Done);
     Facts f = Party(0);
     CHECK(Tick(r, f).empty());
+}
+
+// (a) Uldaman 19z11 01:59-02:04: the revived priest walked part of the way
+// (more than kStragglerGainYd since the gather began), then stood at the
+// scorpid pit's navmesh hole (-163.5 298.7). The regroup's ceiling skipped
+// her and paused. A bot that stands still now is summoned, once per regroup;
+// then one more gather window, then the pause.
+static void TestStuckStragglerThatMovedIsSummoned()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    BeginRegroup(r);
+    Facts f = Party(0);
+    f.maxMemberYd = 110;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 110)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the regroup's gather: first sample at 110 yd
+    // She walks 30 yd, then stands at the hole, 80 yd out.
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 80)};
+    f.maxMemberYd = 80;
+    std::string order;
+    for (std::uint32_t i = 0; i < kRegroupGatherMs / kTickMs + 2 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Fyran");
+    CHECK(r.state == State::Running && r.regroup && r.note.find("has not moved") != std::string::npos);
+    // Bounded: one summon per bot per regroup; the next ceiling pauses.
+    order.clear();
+    for (std::uint32_t i = 0; i < kRegroupGatherMs / kTickMs + 2 && r.state == State::Running; ++i)
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+    // A bot still on its way (moving every tick) is not summoned.
+    Run w = Start(&plan);
+    BeginRegroup(w);
+    Facts g = Party(0);
+    g.maxMemberYd = 110;
+    g.members = {Mem("Tanky", 0), Mem("Walky", 110)};
+    Tick(w, g);
+    g.members[1].yd = 80;
+    for (std::uint32_t i = 0; i < kRegroupGatherMs / kTickMs + 2 && w.state == State::Running; ++i)
+    {
+        g.members[1].x += (i % 2 ? 3.0f : -3.0f);
+        CHECK(Tick(w, g).find("summon") == std::string::npos);
+    }
+    CHECK(w.state == State::Paused);
+}
+
+// (b) Uldaman 19z11 02:50: the approach paused after 8 hops while the priest
+// stood still on a navmesh pocket (43 371). Before the pause a far bot that
+// stands still is summoned, once; a walker is not; then the pause (the lead
+// bot's own way is the reason).
+static void TestApproachHopSummonsBeforePause()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(300, {1})};
+    Run r = Start(&plan);
+    r.restDue = false;
+    Facts f = Party(0);
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 40;
+    f.maxMemberYd = 15;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 150), Mem("Walky", 90)};
+    f.members[2].yd = 10; // close enough for the pull's gather
+    f.maxMemberYd = 150;
+    r.approachHops = kMaxApproachHops;
+    Run::StillState st;
+    st.x = 150;
+    st.ms = kStillMs;
+    r.still["Fyran"] = st;
+    std::string const order = Tick(r, f);
+    CHECK(order == "summon Fyran");
+    CHECK(r.state == State::Running && r.note.find("approach: Fyran") == 0);
+    CHECK(Tick(r, f).find("summon") == std::string::npos); // Walky moves: not summoned
+    CHECK(r.state == State::Paused && r.note.find("approach hops") != std::string::npos);
+}
+
+// (c) Uldaman 19z11 02:48: only the lead bot died in the fight; its own
+// release put it at the entrance 300 yd away while the others won. It is the
+// wipe recovery: regroup, then the walk back over the plan's points. Bounded
+// by kAutoRegroupsPerStep. A lead bot raised where it fell needs nothing.
+static void TestLeadOnlyDeathRecovers()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(210);
+    f.anyInCombat = true;
+    Tick(r, f); // fighting, the lead bot alive at 210
+    f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Tanky"};
+    Tick(r, f);
+    CHECK(r.leadDied && r.state == State::Running);
+    // Back on its feet at the entrance, the fight won.
+    f.leadAlive = true;
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.anyInCombat = false;
+    f.leadX = -90;
+    f.maxMemberYd = 300;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 305)};
+    f.members[1].x = 215; // where the party won the fight, 5 yd from where the lead bot fell
+    Tick(r, f);
+    CHECK(r.regroup && r.walkBackDue && r.autoRegroups == 1 && r.state == State::Running);
+    CHECK(r.note.find("the lead bot died and came back") == 0);
+    // The living party holds; the lead bot walks back to it, nobody is
+    // gathered on (or summoned to) the entrance.
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran");
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = -50;
+    std::string order;
+    for (int i = 0; i < 3; ++i)
+    {
+        order = Tick(r, f);
+        CHECK(order.find("summon") != 0 && order != "move -90.0 0.0 0.0");
+    }
+    CHECK(!r.regroup && r.walkBack && r.hold.size() == 1);
+    // Back with it: the hold ends.
+    f.leadX = 200;
+    f.members[1].yd = 15;
+    Tick(r, f);
+    CHECK(r.hold.empty());
+    // Bounded: past kAutoRegroupsPerStep it pauses.
+    Run p = Start(&plan, 2);
+    p.autoRegroups = kAutoRegroupsPerStep;
+    Facts g = Party(210);
+    g.anyInCombat = true;
+    Tick(p, g);
+    g.leadAlive = false;
+    g.dead = 1;
+    g.alive = 4;
+    Tick(p, g);
+    g.leadAlive = true;
+    g.dead = 0;
+    g.alive = 5;
+    g.anyInCombat = false;
+    g.leadX = -90;
+    Tick(p, g);
+    CHECK(p.state == State::Paused && p.note.find("came back") != std::string::npos);
+    // Raised where it fell (a resurrection in the party): no regroup of its own.
+    Run q = Start(&plan, 2);
+    Facts h = Party(210);
+    h.anyInCombat = true;
+    Tick(q, h);
+    h.leadAlive = false;
+    h.dead = 1;
+    h.alive = 4;
+    Tick(q, h);
+    h.leadAlive = true;
+    h.dead = 0;
+    h.alive = 5;
+    h.anyInCombat = false;
+    Tick(q, h);
+    CHECK(!q.regroup && q.autoRegroups == 0 && !q.leadDied);
+}
+
+// The owner's rule (2026-10-17): "Party should wait if a party member dies
+// until it is back." A death in a walk holds the walk; the bot alive again but
+// far is waited for (running back); within kGatherYd the step goes on.
+static void TestDeathWhileWalkingBlocksTheStep()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.seen = true;
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Fyran"};
+    CHECK(Tick(r, f).empty());
+    CHECK(r.regroup && r.note.find("waiting for Fyran (dead)") == 0);
+    // Released, ran back, alive at the entrance: still waited for.
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.maxMemberYd = 90;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 90)};
+    std::string order;
+    for (int i = 0; i < 20; ++i)
+    {
+        order = Tick(r, f);
+        CHECK(order.find("move 40") != 0);
+    }
+    CHECK(r.regroup && r.note.find("Fyran (running back)") != std::string::npos);
+    // Back with the party: the walk goes on.
+    f.maxMemberYd = 5;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 5)};
+    for (int i = 0; i < 5 && order.find("move 40") != 0; ++i)
+        order = Tick(r, f);
+    CHECK(order == "move 40.0 0.0 0.0" && !r.regroup && r.waitFor.empty());
+}
+
+// The lead bot dead out of a fight: the party waits for it (no pause).
+static void TestLeadDeathBlocks()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(7, 1, 10)};
+    f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Tanky"};
+    for (int i = 0; i < 30; ++i)
+        CHECK(Tick(r, f).find("pullback") != 0);
+    CHECK(r.state == State::Running && r.regroup && r.note.find("Tanky (dead)") != std::string::npos);
+}
+
+// Events cannot be left mid-way: the wait comes after the event.
+static void TestWaitRuleEventException()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80)};
+    Run r = Start(&plan);
+    r.eventOn = true;
+    Facts f = Party(0);
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Fyran"};
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(!r.regroup && r.waitFor.count("Fyran"));
+    r.eventOn = false; // the event is over
+    CHECK(Tick(r, f).empty());
+    CHECK(r.regroup && r.note.find("waiting for Fyran (dead)") == 0);
+}
+
+// N1 (Uldaman 19z11: 17 of 63 pulls with a member dead): the pull itself
+// holds while anyone is dead, outside an event.
+static void TestNoPullWithADeadMember()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(7, 1, 10)};
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Fyran"};
+    std::string order;
+    PullUnit(r, f, f.units[0], order);
+    CHECK(order.empty() && r.note.find("no pull while a party member is dead") != std::string::npos);
+    for (int i = 0; i < 40; ++i)
+        CHECK(Tick(r, f).find("pullback") != 0);
+    // Inside an event the pull goes out (it cannot wait).
+    Run e = Start(&plan);
+    e.eventOn = true;
+    order.clear();
+    PullUnit(e, f, f.units[0], order);
+    CHECK(order == "pullback 7");
+}
+
+// N3 (Uldaman 01:43, 02:31): three dead, the two rogues still fighting. The
+// regroup neither revives nor gathers nor walks while a living bot fights:
+// the fight first, then the regroup.
+static void TestRegroupWaitsForTheFight()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), PullStep(100, {1})};
+    Run r = Start(&plan, 1);
+    Facts f = Party(100);
+    f.dead = 3;
+    f.alive = 2;
+    f.deadNames = {"Tanky", "Fyran", "Iront"};
+    f.anyInCombat = true;
+    for (int i = 0; i < 30; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order.empty() || order.find("focus") == 0 || order.find("cc ") == 0);
+    }
+    CHECK(r.state == State::Running && r.note.find("fighting on") != std::string::npos);
+    // A regroup already going (a resume) holds in a fight too.
+    Run g = Start(&plan, 1);
+    BeginRegroup(g);
+    Facts h = Party(100);
+    h.dead = 1;
+    h.alive = 4;
+    h.anyInCombat = true;
+    for (int i = 0; i < 30; ++i)
+        CHECK(Tick(g, h).find("revive") != 0);
+    h.anyInCombat = false;
+    CHECK(Tick(g, h) == "revive party");
+}
+
+// A death during the regroup's gather: back to reviving.
+static void TestDeathDuringRegroup()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {1})};
+    Run r = Start(&plan);
+    BeginRegroup(r);
+    Facts f = Party(0);
+    f.maxMemberYd = 60;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 60)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Fyran"};
+    f.members = {Mem("Tanky", 0)};
+    f.maxMemberYd = 0;
+    CHECK(Tick(r, f) == "revive party");
+    CHECK(r.regroup && r.note.find("Fyran (dead)") != std::string::npos);
 }
 
 int main()
@@ -1965,6 +2303,15 @@ int main()
     TestKillFirstIsThisFightsOnly();
     TestCcWindowCountsTheMagesFightTime();
     TestEmptyPlan();
+    TestStuckStragglerThatMovedIsSummoned();
+    TestApproachHopSummonsBeforePause();
+    TestLeadOnlyDeathRecovers();
+    TestDeathWhileWalkingBlocksTheStep();
+    TestLeadDeathBlocks();
+    TestWaitRuleEventException();
+    TestNoPullWithADeadMember();
+    TestRegroupWaitsForTheFight();
+    TestDeathDuringRegroup();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

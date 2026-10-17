@@ -4487,6 +4487,7 @@ struct DungeonRunSlot
     uint64 carrierRaw = 0;    // the bot of the run's last loot/open/use order
     int taskReply = 0;        // its task's answer since then: 0 none, 1 ACK, 2 ERR
     std::string taskText;
+    std::unordered_set<uint64> heldRaw; // bots on stay for the run's hold (DungeonRun::Run::hold)
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -9097,6 +9098,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         if (!bot->IsAlive())
         {
             ++f.dead;
+            f.deadNames.push_back(bot->GetName()); // the owner's wait rule (DungeonRun::WaitForFallen)
             continue;
         }
         ++f.alive;
@@ -9111,6 +9113,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.yd = yd;
         member.dz = bot->GetMap() == lead->GetMap() ? std::fabs(bot->GetPositionZ() - lead->GetPositionZ()) : 0.0f;
         member.polymorph = bot->GetClass() == CLASS_MAGE && KnowsPolymorph(bot);
+        member.x = bot->GetPositionX(); // the stand-still watch (DungeonRun::UpdateStill)
+        member.y = bot->GetPositionY();
+        member.z = bot->GetPositionZ();
         member.inCombat = bot->IsInCombat();
         if (bot == lead)
             f.leadInCombat = member.inCombat;
@@ -9435,6 +9440,45 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     }
 }
 
+// The run's hold (DungeonRun::LeadRevivedAway): the living party stays where
+// it won the fight while the lead bot walks the plan's way back to it. A held
+// bot is put on stay at its own spot, again after each run order (a move or
+// gather forms every bot up on the lead bot), and follows the lead bot again
+// once the run lets it go. Only the bound bots, no scan.
+void SyncRunHold(Player* commander, Player* lead, std::vector<Player*> const& bots, DungeonRunSlot& slot,
+    bool orderSent)
+{
+    if (slot.run.hold.empty() && slot.heldRaw.empty())
+        return;
+    std::vector<Player*> released;
+    for (Player* bot : bots)
+    {
+        if (bot == lead || !bot->IsInWorld())
+            continue;
+        uint64 const raw = bot->GetObjectGuid().GetRawValue();
+        bool const wanted = bot->IsAlive() && slot.run.state == TortoiseBots::DungeonRun::State::Running &&
+            std::find(slot.run.hold.begin(), slot.run.hold.end(), std::string(bot->GetName())) != slot.run.hold.end();
+        bool const held = slot.heldRaw.count(raw) != 0;
+        if (wanted && (!held || orderSent))
+        {
+            if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+            {
+                ai->DropQueuedMovementOrders();
+                ExecuteQuietAction(ai, "stay chat shortcut", ai::Event("stay", "", commander));
+            }
+            slot.heldRaw.insert(raw);
+        }
+        else if (!wanted && held)
+        {
+            slot.heldRaw.erase(raw);
+            if (bot->IsAlive())
+                released.push_back(bot);
+        }
+    }
+    if (!released.empty())
+        FormUpOnLead(commander, lead, released, false);
+}
+
 void TickDungeonRun(uint64 commanderRaw, uint32 dt)
 {
     auto it = DungeonRuns().find(commanderRaw);
@@ -9516,6 +9560,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     it = DungeonRuns().find(commanderRaw);
     if (it == DungeonRuns().end())
         return;
+    SyncRunHold(commander, lead, bots, it->second, !order.empty());
     SendRunLine(commander, it->second, false);
     if (it->second.run.state != TortoiseBots::DungeonRun::State::Running)
         TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), it->second.lastLine.c_str());
@@ -9731,6 +9776,17 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         slot.run.state = State::Done;
         slot.run.note = "stopped by .bot run stop";
         SendRunLine(commander, slot, true);
+        // Bots the run held on stay (its hold) follow the lead bot again.
+        if (!slot.heldRaw.empty())
+            if (Player* lead = FindCharacter(binding->leadGuid))
+            {
+                std::vector<Player*> held;
+                for (uint64 raw : slot.heldRaw)
+                    if (Player* bot = FindCharacter(raw))
+                        if (bot->IsAlive())
+                            held.push_back(bot);
+                FormUpOnLead(commander, lead, held, false);
+            }
         DungeonRuns().erase(it);
         SendActionAck(handler, intent, "party", 0);
         return true;
