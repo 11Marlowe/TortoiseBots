@@ -9031,9 +9031,11 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
 }
 
 // In a fight: what the run's guard of the party needs (DungeonRun::GuardTarget).
-// Whether the lead bot is a tank on "stay" and hit, and the mobs that hit a
-// party bot within kGuardYd of it, read off each bot's own attacker set (the
-// units that have it as their victim): no grid or world scan.
+// Whether the lead bot is a tank on "stay" and holds a mob in melee reach, and
+// the mobs that have a party bot within kGuardYd of it as their victim, each
+// with whether it hits that bot now (in melee reach of it, or standing and
+// casting: a pullback's mobs running in do not count) and whether that bot is a
+// healer. Read off each bot's own attacker set: no grid or world scan.
 void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -9041,19 +9043,21 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
     if (!leadAi || !lead->IsAlive() || !lead->IsInWorld())
         return;
     f.leadIsTank = PlayerbotAI::IsTank(lead);
+    if (!f.leadIsTank)
+        return;
     f.leadStaying = leadAi->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
         leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
     for (Unit* attacker : lead->GetAttackers())
-        if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead)
+        if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead &&
+            attacker->CanReachWithMeleeAutoAttack(lead))
             f.leadHit = true;
-    if (!f.leadIsTank || !f.leadStaying || f.leadHit)
-        return;
     std::unordered_set<uint64> seen;
     for (Player* bot : bots)
     {
         if (bot == lead || !bot->IsAlive() || !bot->IsInWorld() || bot->GetMap() != lead->GetMap() ||
             bot->GetDistance(lead) > kGuardYd)
             continue;
+        bool const healer = PlayerbotAI::IsHeal(bot);
         for (Unit* attacker : bot->GetAttackers())
         {
             if (!attacker || !attacker->IsAlive() || attacker->GetVictim() != bot ||
@@ -9067,6 +9071,9 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
             fact.polymorphed = Polymorphed(attacker);
             fact.engaged = true;
+            fact.hitting = attacker->CanReachWithMeleeAutoAttack(bot) ||
+                (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
+            fact.victimHealer = healer;
             f.partyAttackers.push_back(fact);
         }
     }

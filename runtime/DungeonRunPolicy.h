@@ -112,9 +112,9 @@ constexpr std::uint32_t kEventResetWaitMs = 60000; // before a ritual: an encoun
 // walk back at -10 337: adds killed the healer and the DPS 13-37 yd away while
 // the tank stood 50 s at 53 % with nothing on it.
 constexpr float kGuardYd = 40.0f;                 // party bots this close to the tank, hit by a mob, are guarded
-constexpr std::uint32_t kGuardWaitMs = 4000;      // ... once they were hit and the tank was not for this long
-                                                  // (a pullback's mobs reach the stand in 2-3 s and hit the healer first)
-constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send
+constexpr std::uint32_t kGuardWaitMs = 4000;      // ... once mobs were hitting them (in melee reach, or standing and
+                                                  // casting: not while a pullback's mobs still run in) for this long
+constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send, each after a fresh wait
 
 // Rest gate: it starts when someone is below a "start" line after a fight or
 // before a step, and ends when everybody is at the "end" line (or at kRestCapMs).
@@ -167,6 +167,9 @@ struct UnitFact
     bool engaged = false;
     std::uint64_t owner = 0;
     bool ownerEngaged = false;
+    // Facts::partyAttackers only:
+    bool hitting = false;      // it hits its victim now: in melee reach of it, or standing and casting (not running in)
+    bool victimHealer = false; // its victim is a healer
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -245,9 +248,11 @@ struct Facts
     // Guarding the party (GuardTarget), read in fights only:
     bool leadIsTank = false;            // the lead bot is a tank
     bool leadStaying = false;           // the lead bot holds "stay" (the run's move to a stand or walk-back point)
-    bool leadHit = false;               // a living mob has the lead bot as its victim
+    bool leadHit = false;               // a living mob with the lead bot as its victim is in melee reach of it
+                                        // (a caster that turns on the tank from 30 yd is not the tank holding it)
     // Living, not friendly mobs whose victim is a party bot other than the lead
-    // bot within kGuardYd of it; distLead from the lead bot.
+    // bot within kGuardYd of it; distLead from the lead bot, `hitting` and
+    // `victimHealer` set.
     std::vector<UnitFact> partyAttackers;
 };
 
@@ -2098,15 +2103,21 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // Guarding the party from a stand point. The run leader's moves put the tank
 // (the lead bot) on "stay" at a pullback stand or a walk-back point, and a
 // staying bot does not go after a mob that hits someone else. In a fight, when
-// party bots within kGuardYd of the tank are hit and the tank is not, the mob
-// nearest the tank is the one it goes to pick up (`attack <guid> <tank>`, which
-// ends its stay); after the fight the run walks it back to the stand point.
-// Not in a scripted event (the Keepers' and Archaedas' holds fight in place),
-// never a polymorphed or evading mob. A player's own order to the party pauses
-// the run, so this never overrides the commander. Null for none.
+// mobs are hitting party bots within kGuardYd of the tank (in melee reach of
+// them, or standing and casting: a pullback's mobs still running in do not
+// count), the one nearest the tank is the one it goes to pick up
+// (`attack <guid> <tank>`, which ends its stay); after the fight the run walks
+// it back to the stand point. A tank that holds a mob of its own in melee
+// reach picks up only a mob hitting a healer (Uldaman pull 100: a Brawler on
+// the tank while a Geomancer and two Maulers killed the mage and the healer).
+// Once the guard took the tank off its stay this fight, it keeps watching:
+// the next pick-up needs no stay. Not in a scripted event (the Keepers' and
+// Archaedas' holds fight in place), never a polymorphed or evading mob. A
+// player's own order to the party pauses the run, so this never overrides the
+// commander. Null for none.
 inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
 {
-    if (!f.leadAlive || !f.leadIsTank || !f.leadStaying || f.leadHit || f.carrier.empty() || InEvent(r))
+    if (!f.leadAlive || !f.leadIsTank || !(f.leadStaying || r.guardOrders > 0) || f.carrier.empty() || InEvent(r))
         return nullptr;
     const PlanStep* s = Current(r);
     if (s && s->kind == PlanStepKind::Hold)
@@ -2114,7 +2125,9 @@ inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.partyAttackers)
     {
-        if (!u.hostile || u.evading || u.polymorphed || u.distLead > kGuardYd)
+        if (!u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
+            continue;
+        if (f.leadHit && !u.victimHealer)
             continue;
         if (!best || u.distLead < best->distLead)
             best = &u;
@@ -2122,9 +2135,9 @@ inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
     return best;
 }
 
-// One fight tick of the guard: the party hit with the tank idle for
-// kGuardWaitMs sends the pick-up, at most kGuardOrdersPerFight a fight (each
-// after a fresh wait). True when `order` holds it.
+// One fight tick of the guard: mobs hitting the party for kGuardWaitMs send
+// the pick-up, at most kGuardOrdersPerFight a fight, each after a fresh wait.
+// True when `order` holds it.
 inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
     const UnitFact* u = GuardTarget(r, f);
@@ -2138,8 +2151,9 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         return false;
     r.guardMs = 0;
     ++r.guardOrders;
-    r.guardReturn = r.anchorKnown;
-    r.note = "fighting: the tank picks up " + std::to_string(u->entry) + " off the party (" + Num(u->distLead) + " yd)";
+    r.guardReturn = r.guardReturn || r.anchorKnown;
+    r.note = "fighting: the tank picks up " + std::to_string(u->entry) + " off " +
+        (u->victimHealer ? "the healer" : "the party") + " (" + Num(u->distLead) + " yd)";
     order = "attack " + std::to_string(u->guid) + " " + f.carrier;
     return true;
 }
