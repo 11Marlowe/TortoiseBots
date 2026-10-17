@@ -261,6 +261,10 @@ struct Facts
     bool leadAlive = true;
     bool anyInCombat = false;
     bool leadInCombat = false;          // the lead bot itself is in a fight
+    // anyInCombat, yet no living hostile is engaged with a bot (or its pet): a
+    // combat flag left standing after the last kill, or a non-attackable add.
+    // The fight timer does not run on it (Uldaman run 4, archaedas wait_object).
+    bool staleCombat = false;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
@@ -1009,6 +1013,7 @@ inline void NextStep(Run& r, const std::string& note)
     ++r.step;
     r.autoRegroups = 0;
     ResetStep(r);
+    r.fightMs = 0; // a fight that goes on into the next step starts its ceiling over (the hold's 400 s were the wait step's)
     r.note = note;
     if (!Current(r))
     {
@@ -3409,8 +3414,15 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             return order;
     }
 
+    // A wait_object whose object already is in the wanted state is done, in a
+    // fight or not (a leftover combat flag must not hold it): Uldaman run 4,
+    // Archaedas down, the vault door 124369 active, "a fight lasted more than
+    // 180 s" at the wait step.
+    bool const objectDone = s->kind == PlanStepKind::WaitObject && f.objectState >= 0 &&
+        f.objectState == static_cast<int>(s->param);
+
     // Fights are the bots' own; the run only bounds them.
-    if (f.anyInCombat)
+    if (f.anyInCombat && !objectDone)
     {
         // The ritual answered and its event is fighting already (the first
         // Stone Keeper wakes with the cast): the fight is the hold's.
@@ -3428,7 +3440,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             r.fighting = true;
             r.fightMs = 0;
         }
-        r.fightMs += dt;
+        if (!f.staleCombat)
+            r.fightMs += dt;
         // A hold's fights are the event (one wave after the other, no pause
         // between): its own timeout bounds them when that is longer.
         // A start step's fight (or a move's) before its hold is the event's too.
@@ -3451,7 +3464,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
             return order;
         }
-        if (r.fightMs > cap)
+        if (r.fightMs > cap && !f.staleCombat)
         {
             Pause(r, "a fight lasted more than " + std::to_string(cap / 1000) + " s");
             return order;

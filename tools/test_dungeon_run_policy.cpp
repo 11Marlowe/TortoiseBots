@@ -408,6 +408,52 @@ static void TestUnseenPackIsApproachedNotCleared()
     CHECK(r3.state == State::Paused && r3.note.find("approach hops") != std::string::npos);
 }
 
+// Uldaman run 4, archaedas wait_object 135/135: Archaedas was dead and the
+// vault door 124369 active, yet "a fight lasted more than 180 s" paused the run.
+// The hold's long fight had left fightMs over the plain 180 s ceiling, and the
+// combat flag stood a few seconds after the last kill.
+static void TestWaitObjectDoneWinsOverAStaleFightTimer()
+{
+    DungeonPlan plan;
+    PlanStep wait = Step(PlanStepKind::WaitObject, 1, 2, 3);
+    wait.entry = 124369;
+    wait.param = 1;
+    plan.steps = {wait, Step(PlanStepKind::Move, 9)};
+    // The door is in the wanted state: done, in combat by the flag or not.
+    Run r = Start(&plan);
+    r.fighting = true;
+    r.fightMs = kFightCapMs + 5000;
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.objectState = 1;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    // A real fight with the door still shut keeps its ceiling.
+    Run q = Start(&plan);
+    q.fighting = true;
+    q.fightMs = kFightCapMs + 5000;
+    Facts g = Party(0);
+    g.anyInCombat = true;
+    g.objectState = 0;
+    Tick(q, g);
+    CHECK(q.state == State::Paused && q.note.find("a fight lasted more than 180 s") != std::string::npos);
+    // The same with nothing hostile engaged (a leftover flag): no pause, and
+    // the timer does not run.
+    Run p = Start(&plan);
+    p.fighting = true;
+    p.fightMs = kFightCapMs + 5000;
+    Facts h = g;
+    h.staleCombat = true;
+    Tick(p, h);
+    CHECK(p.state == State::Running && p.fightMs == kFightCapMs + 5000);
+    // A fight that goes on into the next step starts that step's ceiling over.
+    Run n = Start(&plan);
+    n.fighting = true;
+    n.fightMs = kFightCapMs + 5000;
+    NextStep(n, "hold done");
+    CHECK(n.fightMs == 0 && n.fighting);
+}
+
 static void TestPullThatStartsNoFightIsPassed()
 {
     DungeonPlan plan;
@@ -2812,6 +2858,7 @@ int main()
     TestUnreachableMoveDetours();
     TestPullGatherAndFight();
     TestUnseenPackIsApproachedNotCleared();
+    TestWaitObjectDoneWinsOverAStaleFightTimer();
     TestPullThatStartsNoFightIsPassed();
     TestAmbushWalksThrough();
     TestBossKillOrderAndTeamGate();
