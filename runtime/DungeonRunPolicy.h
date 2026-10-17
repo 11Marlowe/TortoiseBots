@@ -2167,6 +2167,17 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         Pause(r, "the lead bot is dead: revive it, then .bot run resume");
         return order;
     }
+    // Fewer than kWipeDead dead and the fight over: the dead get up and the
+    // party gathers before anything else is pulled, the regroup a resume does
+    // (revive, gather; no walk back). Pulling on with the healer dead was the
+    // Uldaman rerun's pull 58 (build 19z11): the pullback went out with the
+    // priest and the mage dead and walking back, and the step paused.
+    if (f.dead > 0 && f.leadAlive && !autoRegroup && !f.anyInCombat)
+    {
+        BeginRegroup(r);
+        r.note = std::to_string(f.dead) + " dead after the fight: reviving and gathering before the next pull";
+        return order;
+    }
 
     // Fights are the bots' own; the run only bounds them.
     if (f.anyInCombat)

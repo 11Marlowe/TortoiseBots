@@ -466,6 +466,39 @@ static void TestHopPullsNearUnitsFirst()
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
 }
 
+// Uldaman rerun pull 58 (build 19z11): the fight ended with the priest and the
+// mage dead (fewer than kWipeDead) and the next pullback went out at once. Now
+// the dead are revived and the party gathers before the pull.
+static void TestFewDeadReviveBeforePull()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(21, 7011, 30)};
+    f.dead = 2;
+    f.alive = 3;
+    // No pull while two are dead: the regroup's revive goes out instead.
+    CHECK(Tick(r, f).empty());
+    CHECK(r.regroup && r.note.find("2 dead after the fight") == 0);
+    CHECK(Tick(r, f) == "revive party");
+    CHECK(Tick(r, f).empty());
+    // Up again and gathered: the pull follows.
+    f.dead = 0;
+    f.alive = 5;
+    std::string order;
+    for (int i = 0; i < 5 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 21");
+    // In a fight with one dead nothing changes: the fight is the bots' own.
+    Run r2 = Start(&plan);
+    f.dead = 1;
+    f.alive = 4;
+    f.anyInCombat = true;
+    CHECK(Tick(r2, f).empty());
+    CHECK(!r2.regroup && r2.note.find("fighting") == 0);
+}
+
 static void TestWipeAndLeadDeathPause()
 {
     DungeonPlan plan;
@@ -1685,6 +1718,7 @@ int main()
     TestBossKillOrderAndTeamGate();
     TestHopPullsNearUnitsFirst();
     TestWipeAndLeadDeathPause();
+    TestFewDeadReviveBeforePull();
     TestFightCeiling();
     TestTaskSteps();
     TestOpenWithoutKeyAndTaskError();
