@@ -130,6 +130,13 @@ constexpr std::uint32_t kGuardHealerWaitMs = 0;   // ... a mob hitting a healer 
                                                   // took the healer from 73 % to dead in 4 s
 constexpr std::uint32_t kGuardRepeatMs = 2000;    // a further pick-up no sooner than this after the last one
 constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send
+// After the fight the tank walks back to the spot it stood on at the first
+// pick-up, not to the run's anchor (the last walk's end, the leg's start
+// point when the leg's pulls have no move step): Uldaman run 3 (19z12,
+// tests/uldaman-events-3) walked the tank 90 yd back to the baelog entrance
+// after every guarded pull. Farther than this from that spot once the fight
+// is over, it stays where the fight left it.
+constexpr float kGuardReturnMaxYd = kGuardYd;
 // A party member coming back with attackers runs on to the party (RunBack; the
 // owner's rule of 2026-10-17). Uldaman 2026-10-17 (tests/uldaman-events-2):
 // the revived priest and mage stopped to fight a scorpid at -174 311, 73-76 yd
@@ -433,6 +440,7 @@ struct Run
     std::uint32_t guardOrders = 0;
     std::uint32_t guardSinceOrderMs = 0; // fight time since the last pick-up
     bool guardReturn = false;
+    float guardX = 0.0f, guardY = 0.0f, guardZ = 0.0f; // the tank's spot at the fight's first pick-up
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -970,7 +978,7 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     }
     // The walk back to the stand point after a pick-up (GuardTarget): the
     // step goes on from where the lead bot stands.
-    if (r.guardReturn && r.anchorKnown && order == MoveOrder(r.anchorX, r.anchorY, r.anchorZ, false))
+    if (r.guardReturn && order == MoveOrder(r.guardX, r.guardY, r.guardZ, false))
     {
         r.guardReturn = false;
         EnterPhase(r, Phase::Begin);
@@ -2379,7 +2387,14 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     r.guardMs = 0;
     r.guardSinceOrderMs = 0;
     ++r.guardOrders;
-    r.guardReturn = r.guardReturn || r.anchorKnown;
+    if (!r.guardReturn)
+    {
+        // The first pick-up: the tank still stands on its stay spot.
+        r.guardReturn = true;
+        r.guardX = f.leadX;
+        r.guardY = f.leadY;
+        r.guardZ = f.leadZ;
+    }
     r.note = "fighting: the tank picks up " + std::to_string(u->entry) + " off " +
         (u->victimHealer ? "the healer" : "the party") + " (" + Num(u->distLead) + " yd)";
     order = "attack " + std::to_string(u->guid) + " " + f.carrier;
@@ -2939,16 +2954,24 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             EnterPhase(r, Phase::Begin);
     }
 
-    // After a pick-up (CheckGuard): the tank walks back to the stand point it
-    // left, with the party, before the step goes on.
+    // After a pick-up (CheckGuard): the tank walks back to the spot it stood
+    // on at the first pick-up, with the party, before the step goes on; one
+    // the fight took it far from is left (it stays near the fight). The
+    // arrival ends the tick: this tick's facts were read during the walk,
+    // without the navmesh query for an unseen step's approach (the glue skips
+    // it while the run walks), so going on at once paused on "no walkable
+    // path toward the pack" (Uldaman run 3, baelog pull 7).
     if (r.guardReturn)
     {
-        if (!r.anchorKnown || InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait)
+        if (InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait ||
+            (r.phase != Phase::Walk &&
+                ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.guardX, r.guardY, r.guardZ) > kGuardReturnMaxYd))
             r.guardReturn = false;
-        else if (WalkTo(r, f, r.anchorX, r.anchorY, r.anchorZ, false, dt, order))
+        else if (WalkTo(r, f, r.guardX, r.guardY, r.guardZ, false, dt, order))
         {
             r.guardReturn = false;
             EnterPhase(r, Phase::Begin);
+            return order;
         }
         else
         {
