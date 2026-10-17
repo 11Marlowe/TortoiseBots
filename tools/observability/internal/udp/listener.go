@@ -172,6 +172,11 @@ func (l *Listener) processPacket(data []byte) {
 
 		for i := range batch.Bots {
 			l.project(&batch.Bots[i])
+			// Issue #872: a pre-v11 module sends no kind; read it off the
+			// flags it does send so old and new servers render the same.
+			if batch.Bots[i].Kind == "" {
+				batch.Bots[i].Kind = model.KindFromFlags(batch.Bots[i].Player, batch.Bots[i].Alt)
+			}
 		}
 
 		if l.store.ApplyBatch(&batch) {

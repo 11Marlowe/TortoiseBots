@@ -14,22 +14,27 @@ const (
 	slotTabard = 18
 )
 
-// GearRollup returns every pool bot's equipped-gear summary in one query over
-// character_inventory: the average item level of the filled equipment slots
-// plus the quality census of those pieces. Empty slots are not averaged in, so
-// a bot in a half-finished outfit is not scored as if it wore ilvl-0 gear. It
-// is a diagnostic snapshot the daemon runs on a slow timer (minutes), never
-// per tick.
+// GearRollup returns every pool bot's equipped-gear summary plus every online
+// player character's (Issue #872: the roster and the level bands show gear
+// for players and alts too) in one query over character_inventory: the
+// average item level of the filled equipment slots plus the quality census
+// of those pieces. Empty slots are not averaged in, so a bot in a
+// half-finished outfit is not scored as if it wore ilvl-0 gear. It is a
+// diagnostic snapshot the daemon runs on a slow timer (minutes), never per
+// tick. Hired characters are pool-account rows like any pool bot; player
+// characters join by guid (players are few, characters.online is indexed).
 func (s *Service) GearRollup() (map[uint32]model.BotGear, error) {
 	query := fmt.Sprintf(`
-		SELECT c.guid, it.quality, it.item_level
+		SELECT ci.guid, it.quality, it.item_level
 		FROM character_inventory ci
-		JOIN characters c ON c.guid = ci.guid
-		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
 		JOIN %s.item_template it ON it.entry = ci.item_template
-		WHERE c.deleteDate IS NULL
-		  AND ci.bag = 0 AND ci.slot >= 0 AND ci.slot < %d
+		WHERE ci.bag = 0 AND ci.slot >= 0 AND ci.slot < %d
 		  AND ci.slot NOT IN (%d, %d)
+		  AND (EXISTS (SELECT 1 FROM characters c
+		               JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		               WHERE c.guid = ci.guid AND c.deleteDate IS NULL)
+		       OR EXISTS (SELECT 1 FROM characters c2
+		                  WHERE c2.guid = ci.guid AND c2.deleteDate IS NULL AND c2.online <> 0))
 	`, s.cfg.WorldDB, EquipmentSlotEnd, slotShirt, slotTabard)
 
 	rows, err := s.db.Query(query)

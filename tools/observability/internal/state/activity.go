@@ -249,9 +249,10 @@ func (s *Store) appendQuestFeed(item model.QuestFeedItem) {
 func (s *Store) observeLevelsLocked(bots []model.BotSnapshot, now time.Time) {
 	for i := range bots {
 		b := &bots[i]
-		if b.GUID == 0 || b.Level == 0 || b.Player {
-			// Players level outside the pool: their dings must not enter
-			// the pool timeline.
+		if b.GUID == 0 || b.Level == 0 || b.Player || b.Alt {
+			// Players level outside the pool - and autonomous alts play on
+			// their own (Issue #872): their dings must not enter the pool
+			// timeline.
 			continue
 		}
 		a := s.activity[b.GUID]
