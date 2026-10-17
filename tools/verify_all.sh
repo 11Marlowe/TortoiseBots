@@ -131,6 +131,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hire_intro_policy
         test_hire_level_policy
         test_hire_master_policy
+        test_hire_raid_policy
         test_hire_respec_policy
         test_hire_quest_policy
         test_hire_spec_policy
@@ -167,6 +168,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_ossirian_crystal_policy
         test_owned_bot_qol_policy
         test_pet_revive_policy
+        test_pet_spawn_policy
         test_pet_spell_rank_policy
         test_pet_taunt_policy
         test_pet_upkeep_policy
@@ -200,6 +202,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_remote_commander_enter
         test_remote_commander_policy
         test_remote_commander_tasks
+        test_runner_finish_policy
         test_remote_commander_view
         test_resist_aura_policy
         test_retaliation_policy

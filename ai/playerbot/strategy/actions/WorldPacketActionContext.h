@@ -50,6 +50,7 @@ namespace ai
             creators["accept all quests"] = [](PlayerbotAI* ai) { return new AcceptAllQuestsAction(ai); };
             creators["accept quest share"] = [](PlayerbotAI* ai) { return new AcceptQuestShareAction(ai); };
             creators["loot start roll"] = [](PlayerbotAI* ai) { return (QueryItemUsageAction*)new LootStartRollAction(ai); };
+            creators["loot vote"] = [](PlayerbotAI* ai) { return (QueryItemUsageAction*)new LootVoteAction(ai); };
             creators["loot roll"] = [](PlayerbotAI* ai) { return (QueryItemUsageAction*)new LootRollAction(ai); };
             creators["log roll won"] = [](PlayerbotAI* ai) { return new RollWonLogAction(ai); };
             creators["revive from corpse"] = [](PlayerbotAI* ai) { return new ReviveFromCorpseAction(ai); };

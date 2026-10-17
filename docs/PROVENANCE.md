@@ -3045,6 +3045,20 @@ could use, even after the player clicked Need.
 Validation: `tools/test_loot_roll_policy.cpp` (cases 5-6);
 `bash tools/verify_all.sh`; `git diff --check`; code review + build
 pending; in-game pending.
+
+Amendment 2026-10-16 (#967): the "anyone else competes when CanUseItem is
+OK" fallback demoted every upgrade NEED to GREED in LFT/pool groups —
+someone can always use a usable drop — even though no player had voted.
+Reworked per owner: pool bots and alts now WAIT instead of voting at once.
+They hold the vote while real players are in the roll and cast it ~15 s
+before the core's 60 s window ends (`LOOT_ROLL_TIMEOUT`, Group.cpp) — the
+margin clears the ~5 s "very often" re-check gap plus AI tick jitter under
+load — or as soon as every real roller voted, whichever comes first. Human NEEDs seen
+on the wire (`SMSG_LOOT_ROLL`, new `loot vote` action into "seen need
+rolls") step the bot's NEED down to GREED; otherwise it votes its computed
+vote. Only hired companions grouped with their master keep the old
+immediate yield-on-usable behaviour. No donor change: mod-playerbots votes
+at once; the wait is a Turtle-original on top of the ported gates.
 ## 2026-10-03 — pet upkeep + gather tools + medium-mana potion (r-donor E01/E02/E10/E11)
 
 Donor: `mod-playerbots` @ b6696bdbd3740e575598d167d69f39f68cc0b907.
@@ -9817,3 +9831,11 @@ with a Soul Shard in the bags.
 - Source: none. mod-playerbots (`79bd428`) has no such rule: its trigger is the plain range test. Kind: reimplemented (module-original), owner decision 2026-10-16 on issue #904.
 - Reason: Magmadar attempt 1 (m910q, build 19g, 2026-10-13/14): healers about 110 yd from the boss walked on `reach party member to heal` and died; 18 of 86 healer deaths in the Onyxia and MC fights ended on that action.
 - Validation: `tools/test_heal_reach_policy.cpp`, `bash tools/verify_all.sh`, `git diff --check`, `-fsyntax-only` of the touched translation units. Full build via CI; not tested in game.
+
+## Finish fleeing low-health mobs; stop before an object cast — 2026-10-17
+
+- Feature (runners): `DpsTargetValue::Calculate` (`ai/playerbot/strategy/values/DpsTargetValue.cpp`) picks a mob of the party's fight that flees below 30% health before the tank's victim, through the pure rules in `ai/playerbot/RunnerFinishPolicy.h`: ranged within spell range (+5 yd when free), melee only with Intercept castable now (stance, rage, cooldown) within 25 yd, never the CC target, others only in reach, under `stay` only ranged within spell range, healers and tanks never; the current runner wins ties. "Running" covers the fleeing state, the timed flee and the core's flee-for-assistance walk and pause (`ASSISTANCE_MOTION_TYPE`, `ASSISTANCE_DISTRACT_MOTION_TYPE`, which carry no fleeing state); `ThreatValues.cpp` and `SnareTargetValue.cpp` treat the assistance walk like a flee too.
+- Source: `mod-playerbots` @ 79bd4281 `src/Ai/Base/Value/SnareTargetValue.cpp:26-30` (a fleeing attacker in spell range is the first snare target) and `src/Ai/Base/Value/ThreatValues.cpp:70-77` (a fleeing mob counts as no threat, so DPS hit it freely); its lifetime-bucket DPS pick (already ported, LD-1) ranks a nearly dead mob in range first. Kind: ported (the flee motion rules) plus reimplemented (the explicit finish priority, leash, hold rule and role exclusions; mod-playerbots has no dedicated runner finisher).
+- Reason: ZF round 5 (`TortoiseBots-audit/tests/zf-r5`, 2026-10-16): at least six stair-wave mobs (7787) fled at 2-20% to (1881, 1260) and were never killed; waves 1-2 never ended and the event failed after 600 s.
+- Feature (object cast): `PlayerbotAI::StopForObjectCast`, used by `OpenLootAction::DoLoot` before the Opening/Mining/Herb cast (the stop is not counted as a failed open), the game-object `CastSpell` gate, and the commander act hold (`HoldForAct`, `RemoteCommander::ActWaitsForStop`), which now stops a bot still on a server spline and starts the cast on the next look. Source: none (module-original; the movement-flag-only gate came from the cmangos lineage). Reason: Uldaman rerun (`tests/uldaman-events-2`), loot step 13: "The opening cast was interrupted after 0.2 s (the bot moved 0.9 yd)".
+- Validation: `tools/test_runner_finish_policy.cpp`, `tools/test_remote_commander_tasks.cpp` (ActWaitsForStop), `bash tools/verify_all.sh`, `git diff --check`, `-fsyntax-only` of the touched translation units on the VM. Not tested in game.
