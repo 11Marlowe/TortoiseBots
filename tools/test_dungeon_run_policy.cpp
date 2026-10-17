@@ -2183,7 +2183,8 @@ static void TestTankGuardLimits()
         CHECK(r.state == State::Running);
     }
     {
-        // A scripted event fights in place (the Keepers' and Archaedas' holds).
+        // Inside a scripted event but not in its hold (a step leading into it):
+        // nothing (the hold's own guard: tools/test_dungeon_event_policy.cpp).
         DungeonPlan plan;
         Run r = guardRun(plan);
         r.eventOn = true;

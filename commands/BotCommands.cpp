@@ -9086,8 +9086,10 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
 // the mobs that have a party bot within kGuardYd of it as their victim, each
 // with whether it hits that bot now (in melee reach of it, or standing and
 // casting: a pullback's mobs running in do not count) and whether that bot is a
-// healer. Read off each bot's own attacker set: no grid or world scan.
-void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+// healer, and during a hold (`hold` not null) each one's distance from the
+// hold spot. Read off each bot's own attacker set: no grid or world scan.
+void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f,
+    ai::PlanStep const* hold)
 {
     using namespace TortoiseBots::DungeonRun;
     PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
@@ -9140,6 +9142,8 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.hitting = attacker->CanReachWithMeleeAutoAttack(bot) ||
                 (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
             fact.victimHealer = healer;
+            if (hold)
+                fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
             f.partyAttackers.push_back(fact);
         }
     }
@@ -9232,7 +9236,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
     if (f.anyInCombat)
-        ReadGuardFacts(lead, bots, f);
+    {
+        // In a hold: the attackers' distance from its spot (DungeonRun::HoldGuardTarget).
+        ai::PlanStep const* current = FactStep(slot.run);
+        ReadGuardFacts(lead, bots, f,
+            current && current->kind == ai::PlanStepKind::Hold ? current : nullptr);
+    }
 
     // The current step, or during a walk back after a regroup the move point
     // it replays (its hop pulls are read for that point).
@@ -9445,6 +9454,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = Polymorphed(creature);
+                    // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
+                    unit.engaged = unit.hostile && creature->IsInCombat() && creature->GetVictim();
                     f.units.push_back(unit);
                 }
             }

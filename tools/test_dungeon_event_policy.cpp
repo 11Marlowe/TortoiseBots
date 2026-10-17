@@ -466,6 +466,185 @@ static void TestSpentAltarAfterAFailure()
     CHECK(r.state == State::Paused && Has(r.note, "spent"));
 }
 
+// Uldaman run 3 (19z12, tests/uldaman-events-3), Keepers attempt 1: the tank
+// held "stay" on the hold spot at 102 270; a staying bot's attack actions are
+// not useful, so it never fought, and a Stone Keeper killed the priest at
+// 119 266, 17 yd away. In the hold the tank is now sent at the event's awake
+// unit, and a mob hitting the healer within the hold's radius is picked up at
+// once; out of the fight the tank goes back on the spot.
+static void TestTankGuardsTheHold()
+{
+    DungeonPlan plan;
+    plan.name = "uldaman";
+    plan.steps = {KeepersRitual(), KeepersHold()};
+    Run r = Start(&plan);
+    Facts f = Party();
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    f.eventData = 0;
+    CHECK(!Tick(r, f).empty()); // the ritual
+    // The first keeper wakes with the cast, the fight starts with the ACK.
+    f.eventData = 1;
+    f.taskReply = 1;
+    f.anyInCombat = true;
+    UnitFact awake = Keeper(1, true);
+    awake.engaged = true;
+    awake.distLead = 6.0f;
+    f.units = {awake, Keeper(2, false), Keeper(3, false), Keeper(4, false)};
+    CHECK(Tick(r, f) == "attack 1 Tanky"); // the tank takes the awake keeper where it stands
+    CHECK(r.step == 1 && r.holdUnstayed && Has(r.note, "the tank takes 4857"));
+    // The order ended its stay: its own AI fights now, nothing more goes out.
+    f.leadStaying = false;
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).empty());
+
+    // The replay: the next keeper on the priest 17 yd away inside the hold, the
+    // tank back on stay with nothing on it (as live: it never left the spot).
+    f.leadStaying = true;
+    f.eventDown = 1;
+    UnitFact second = Keeper(2, true);
+    second.engaged = true;
+    second.distLead = 17.0f;
+    f.units = {second, Keeper(3, false), Keeper(4, false)};
+    UnitFact onHealer = second;
+    onHealer.hitting = true;
+    onHealer.victimHealer = true;
+    onHealer.distSpot = 17.0f;
+    f.partyAttackers = {onHealer};
+    std::string order;
+    for (int i = 0; i < 3 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "attack 2 Tanky"); // at once (a healer), within kGuardRepeatMs of the last order
+    CHECK(Has(r.note, "the tank picks up 4857 off the healer (17.0 yd)"));
+
+    // The fight is over with the tank 2 yd off the spot: back on it (on stay).
+    f.anyInCombat = false;
+    f.partyAttackers.clear();
+    f.units = {Keeper(3, false), Keeper(4, false)};
+    f.eventDown = 2;
+    f.leadStaying = false;
+    f.leadX = 2.0f;
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    CHECK(!r.holdUnstayed && Has(r.note, "back on the hold spot"));
+    f.leadStaying = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.phase == Phase::Hold && Has(r.note, "holding the spot"));
+}
+
+// The hold's guard stays inside the hold: never a mob outside its radius of
+// the spot, a dormant statue, a tank outside the hold area, or before the
+// hold (the ritual); the order caps start over with each unit that dies.
+static void TestHoldGuardLimits()
+{
+    auto holdRun = [](DungeonPlan& plan)
+    {
+        plan.steps = {KeepersRitual(), KeepersHold()};
+        Run r = Start(&plan);
+        Facts f = Party();
+        f.eventData = 0;
+        Tick(r, f); // the ritual
+        f.eventData = 1;
+        f.taskReply = 1;
+        f.anyInCombat = true;
+        Tick(r, f); // ACK: the hold's fight
+        CHECK(r.step == 1 && r.eventOn);
+        return r;
+    };
+    auto fight = []()
+    {
+        Facts f = Party();
+        f.eventData = 1;
+        f.anyInCombat = true;
+        f.leadIsTank = true;
+        f.leadStaying = true;
+        return f;
+    };
+    auto ordersIn = [](Run& r, const Facts& f, int ticks)
+    {
+        int n = 0;
+        for (int i = 0; i < ticks; ++i)
+            if (Tick(r, f).compare(0, 7, "attack ") == 0)
+                ++n;
+        return n;
+    };
+    UnitFact far = Keeper(7, true);
+    far.distLead = 20.0f;
+    far.hitting = true;
+    far.victimHealer = true;
+    {
+        // Outside the hold's radius of the spot (30): left alone.
+        DungeonPlan plan;
+        Run r = holdRun(plan);
+        Facts f = fight();
+        UnitFact u = far;
+        u.distSpot = 31.0f;
+        f.partyAttackers = {u};
+        CHECK(ordersIn(r, f, 8) == 0);
+        u.distSpot = -1.0f; // not read: left alone too
+        f.partyAttackers = {u};
+        CHECK(ordersIn(r, f, 8) == 0);
+        u.distSpot = 25.0f;
+        f.partyAttackers = {u};
+        CHECK(ordersIn(r, f, 1) == 1);
+    }
+    {
+        // Dormant statues (friendly) and an awake keeper not yet in the fight: no engage.
+        DungeonPlan plan;
+        Run r = holdRun(plan);
+        Facts f = fight();
+        UnitFact idle = Keeper(2, true);
+        f.units = {Keeper(1, false), idle};
+        CHECK(ordersIn(r, f, 8) == 0);
+    }
+    {
+        // The tank outside the hold area: nothing.
+        DungeonPlan plan;
+        Run r = holdRun(plan);
+        Facts f = fight();
+        f.leadX = 31.0f;
+        UnitFact u = far;
+        u.distSpot = 10.0f;
+        f.partyAttackers = {u};
+        UnitFact awake = Keeper(1, true);
+        awake.engaged = true;
+        f.units = {awake};
+        CHECK(ordersIn(r, f, 8) == 0);
+    }
+    {
+        // Before the hold (the ritual's bots still busy): nothing.
+        DungeonPlan plan;
+        plan.steps = {KeepersRitual(), KeepersHold()};
+        Run r = Start(&plan);
+        Facts f = fight();
+        f.anyInCombat = false;
+        f.eventData = 0;
+        Tick(r, f);
+        f = fight();
+        f.carrierBusy = true;
+        UnitFact awake = Keeper(1, true);
+        awake.engaged = true;
+        f.units = {awake};
+        CHECK(ordersIn(r, f, 8) == 0 && r.step == 0);
+    }
+    {
+        // The caps: kGuardOrdersPerFight per unit of the event, then again
+        // once one dies (a refused attack keeps the tank on stay).
+        DungeonPlan plan;
+        Run r = holdRun(plan);
+        Facts f = fight();
+        UnitFact awake = Keeper(1, true);
+        awake.engaged = true;
+        f.units = {awake};
+        CHECK(ordersIn(r, f, 20) == static_cast<int>(kGuardOrdersPerFight));
+        OrderRefused(r, "attack 1 Tanky", "failed: That bot did not accept the attack.");
+        CHECK(r.state == State::Running);
+        f.eventDown = 1;
+        awake.guid = 2;
+        f.units = {awake};
+        CHECK(ordersIn(r, f, 2) == 1);
+    }
+}
+
 int main()
 {
     TestNormalizeEventSteps();
@@ -480,6 +659,8 @@ int main()
     TestFightAtTheRitualIsTheHolds();
     TestRetryWaitsForTheEncounterToReset();
     TestSpentAltarAfterAFailure();
+    TestTankGuardsTheHold();
+    TestHoldGuardLimits();
     std::cout << "test_dungeon_event_policy: ok\n";
     return 0;
 }

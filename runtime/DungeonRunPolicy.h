@@ -201,6 +201,7 @@ struct UnitFact
     // Facts::partyAttackers only:
     bool hitting = false;      // it hits its victim now: in melee reach of it, or standing and casting (not running in)
     bool victimHealer = false; // its victim is a healer
+    float distSpot = -1.0f;    // ... during a hold: its distance from the hold spot (-1: not read)
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -443,6 +444,12 @@ struct Run
     std::uint32_t guardSinceOrderMs = 0; // fight time since the last pick-up
     bool guardReturn = false;
     float guardX = 0.0f, guardY = 0.0f, guardZ = 0.0f; // the tank's spot at the fight's first pick-up
+    // In a hold (HoldGuardTarget, HoldEngageTarget): the event's dead count at
+    // the last reset of guardOrders (each unit of the event gets its own
+    // orders), and whether an order took the tank off its stay on the hold
+    // spot (out of the fight the hold puts it back on it).
+    std::uint32_t guardEventDown = 0;
+    bool holdUnstayed = false;
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -612,6 +619,8 @@ inline void ResetStep(Run& r)
     r.guardMs = 0;
     r.guardOrders = 0;
     r.guardReturn = false;
+    r.guardEventDown = 0;
+    r.holdUnstayed = false;
     r.hold.clear();
     r.holdDue = false;
 }
@@ -2310,8 +2319,21 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     // Hold the spot: walk there first, and back after a fight that took the
     // lead bot away (the bots chase in a fight; the run brings them back).
     float const fromSpot = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z);
-    if (!r.holdArrived || fromSpot > kHoldReturnYd)
+    // A guard order took the tank off its stay in the fight (CheckGuard): it
+    // goes back on the spot (the move puts it on "stay" there again), even
+    // when the fight left it on the spot (a walk sends no move there), or its
+    // own movement takes over between the event's units.
+    if (r.holdUnstayed && fromSpot <= kArriveYd)
     {
+        r.holdUnstayed = false;
+        r.holdArrived = true;
+        r.note = "event: the tank back on the hold spot" + tail;
+        order = MoveOrder(s.x, s.y, s.z, false);
+        return;
+    }
+    if (!r.holdArrived || fromSpot > kHoldReturnYd || r.holdUnstayed)
+    {
+        r.holdUnstayed = false;
         if (!WalkTo(r, f, s.x, s.y, s.z, false, dt, order))
         {
             if (r.state == State::Running)
@@ -2345,21 +2367,21 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // reach picks up only a mob hitting a healer (Uldaman pull 100: a Brawler on
 // the tank while a Geomancer and two Maulers killed the mage and the healer).
 // Once the guard took the tank off its stay this fight, it keeps watching:
-// the next pick-up needs no stay. Not in a scripted event (the Keepers' and
-// Archaedas' holds fight in place), never a polymorphed or evading mob. A
+// the next pick-up needs no stay. Never a polymorphed or evading mob. A
 // player's own order to the party pauses the run, so this never overrides the
 // commander. Null for none.
-inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
+//
+// Inside a scripted event only in its hold (InHoldArea), and only mobs within
+// the hold's radius of its spot (HoldGuardTarget): the moves and the start
+// step leading into a hold, and anything outside its radius, stay untouched.
+inline const UnitFact* GuardPick(const Facts& f, float holdRadius)
 {
-    if (!f.leadAlive || !f.leadIsTank || !(f.leadStaying || r.guardOrders > 0) || f.carrier.empty() || InEvent(r))
-        return nullptr;
-    const PlanStep* s = Current(r);
-    if (s && s->kind == PlanStepKind::Hold)
-        return nullptr;
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.partyAttackers)
     {
         if (!u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
+            continue;
+        if (holdRadius > 0.0f && (u.distSpot < 0.0f || u.distSpot > holdRadius))
             continue;
         if (f.leadHit && !u.victimHealer)
             continue;
@@ -2369,27 +2391,107 @@ inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
     return best;
 }
 
+// The current step is a hold whose event is on and the lead bot, a living
+// tank, stands within its radius of the spot: the hold step itself (not the
+// ritual or the moves before it). Null otherwise.
+inline const PlanStep* InHoldArea(const Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || s->kind != PlanStepKind::Hold || !r.eventOn || !f.leadAlive || !f.leadIsTank || f.carrier.empty())
+        return nullptr;
+    if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s->x, s->y, s->z) > s->radius)
+        return nullptr;
+    return s;
+}
+
+inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
+{
+    if (!f.leadAlive || !f.leadIsTank || !(f.leadStaying || r.guardOrders > 0) || f.carrier.empty() || InEvent(r))
+        return nullptr;
+    return GuardPick(f, 0.0f);
+}
+
+// The guard inside a hold (Uldaman Keepers, 19z12 attempt 1: the tank held
+// "stay" on the hold spot at 102 270 while a Stone Keeper killed the priest
+// at 119 266, 17 yd away, and the mage fled at 16 %). The same rules as
+// GuardTarget (melee reach or casting, a healer first, the tank's own mob in
+// melee reach), bounded to the hold: only mobs within the hold's radius of
+// its spot, so the tank never leaves the hold area for a pick-up and never
+// goes after a dormant statue (it hits nobody).
+inline const UnitFact* HoldGuardTarget(const Run& r, const Facts& f)
+{
+    const PlanStep* s = InHoldArea(r, f);
+    if (!s || !(f.leadStaying || r.guardOrders > 0))
+        return nullptr;
+    return GuardPick(f, s->radius);
+}
+
+// The tank on "stay" on the hold spot does not fight at all: an attack
+// action is a movement action, and a staying bot's movement actions are not
+// useful (19z12 attempt 1: Trian's "tank assist" was useless and "select new
+// target" failed 1871 times in 100 s; it never swung at the keepers, only
+// taunted). So once an awake unit of the event is in the fight (hostile, in
+// combat, within the radius: the hold's units), the tank is sent at the
+// nearest one (`attack`, which ends its stay) and fights it where it stands;
+// out of the fight the hold puts it back on the spot.
+inline const UnitFact* HoldEngageTarget(const Run& r, const Facts& f)
+{
+    if (!f.leadStaying || !InHoldArea(r, f))
+        return nullptr;
+    const UnitFact* best = nullptr;
+    for (const UnitFact& u : f.units)
+    {
+        if (!u.hostile || !u.engaged || u.evading || u.polymorphed || u.distLead > kGuardYd)
+            continue;
+        if (!best || u.distLead < best->distLead)
+            best = &u;
+    }
+    return best;
+}
+
 // One fight tick of the guard: mobs hitting the party for kGuardWaitMs (a
 // healer: at once) send the pick-up, at most kGuardOrdersPerFight a fight and
-// kGuardRepeatMs apart. True when `order` holds it.
+// kGuardRepeatMs apart. In a hold the tank on stay is sent at the event's
+// awake unit at once (HoldEngageTarget), and the order count starts over with
+// each unit of the event that dies (a hold is one long fight: the four
+// Keepers one after the other). True when `order` holds it.
 inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
     r.guardSinceOrderMs += dt;
-    const UnitFact* u = GuardTarget(r, f);
-    if (!u)
+    bool const hold = InHoldArea(r, f) != nullptr;
+    if (hold && r.eventDown != r.guardEventDown)
+    {
+        r.guardEventDown = r.eventDown;
+        r.guardOrders = 0;
+    }
+    const UnitFact* u = hold ? HoldGuardTarget(r, f) : GuardTarget(r, f);
+    const UnitFact* engage = hold && !u ? HoldEngageTarget(r, f) : nullptr;
+    if (!u && !engage)
     {
         r.guardMs = 0;
         return false;
     }
-    r.guardMs += dt;
-    std::uint32_t const wait = u->victimHealer ? kGuardHealerWaitMs : kGuardWaitMs;
-    if (r.guardMs < wait || r.guardOrders >= kGuardOrdersPerFight ||
+    if (u)
+        r.guardMs += dt;
+    std::uint32_t const wait = engage ? 0u : u->victimHealer ? kGuardHealerWaitMs : kGuardWaitMs;
+    if ((u && r.guardMs < wait) || r.guardOrders >= kGuardOrdersPerFight ||
         (r.guardOrders > 0 && r.guardSinceOrderMs < kGuardRepeatMs))
         return false;
     r.guardMs = 0;
     r.guardSinceOrderMs = 0;
     ++r.guardOrders;
-    if (!r.guardReturn)
+    if (hold)
+    {
+        // The hold walks it back to the spot (HoldStep), not the guard's return.
+        r.holdUnstayed = true;
+        if (engage)
+        {
+            r.note = "event: the tank takes " + std::to_string(engage->entry) + " (" + Num(engage->distLead) + " yd)";
+            order = "attack " + std::to_string(engage->guid) + " " + f.carrier;
+            return true;
+        }
+    }
+    else if (!r.guardReturn)
     {
         // The first pick-up: the tank's stay point (its stand), not where it
         // is now: a tank on stay may still be dragging a pullback in (Uldaman
@@ -2400,7 +2502,7 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.guardY = f.leadStayKnown ? f.leadStayY : f.leadY;
         r.guardZ = f.leadStayKnown ? f.leadStayZ : f.leadZ;
     }
-    r.note = "fighting: the tank picks up " + std::to_string(u->entry) + " off " +
+    r.note = std::string(hold ? "event" : "fighting") + ": the tank picks up " + std::to_string(u->entry) + " off " +
         (u->victimHealer ? "the healer" : "the party") + " (" + Num(u->distLead) + " yd)";
     order = "attack " + std::to_string(u->guid) + " " + f.carrier;
     return true;
