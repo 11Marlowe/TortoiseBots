@@ -3,6 +3,7 @@
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/HealerManaPolicy.h"
 #include "playerbot/MainTankPolicy.h"
+#include "playerbot/TankAddPickupPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/ReadyRebuffPolicy.h"
 #include "playerbot/SurvivePolicy.h"
@@ -1110,13 +1111,20 @@ bool TankAssistTrigger::IsActive()
     // still holds its current target. A loose add is picked up while the
     // current mob is held, and the tank can switch back to finish it later.
     // The old victim check forbade returning to a mob on the tank (one-way
-    // door). "has aggro" is HasAggroValue (values/AttackerCountValues.cpp).
-    bool holdsCurrent = AI_VALUE2(bool, "has aggro", "current target");
+    // door). Holding follows the donor multi-tank rule (HasAggro: victim is
+    // the bot, or — anyone but the explicit main tank — another tank), so
+    // an off-tank parked on the main tank's skull still counts as holding
+    // it and peels to loose adds; the pure rule is TankAddPickupPolicy.h.
+    Unit* victim = currentTarget->GetVictim();
+    Player* victimPlayer = victim ? dynamic_cast<Player*>(victim) : nullptr;
+    Group* group = bot->GetGroup();
+    ObjectGuid const mainTank = group ? group->GetMainTankGuid() : ObjectGuid();
+    bool const isExplicitMainTank = group && !mainTank.IsEmpty() && mainTank == bot->getObjectGuid();
+    bool holdsCurrent = TankHoldsCurrentTarget(victim == bot,
+        victimPlayer && ai->IsTank(victimPlayer), isExplicitMainTank);
     // Finish a held mob that is already low before peeling a loose add; the
     // add waits a few seconds, a half-dead mob left behind waits forever.
-    if (holdsCurrent && currentTarget->GetHealthPercent() <= sPlayerbotAIConfig.lowHealth)
-        return false;
-    return holdsCurrent;
+    return TankPeelsToLooseAdd(holdsCurrent, currentTarget->GetHealthPercent(), sPlayerbotAIConfig.lowHealth);
 }
 
 bool IsBehindTargetTrigger::IsActive()
