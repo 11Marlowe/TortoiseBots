@@ -247,7 +247,7 @@ struct Run
     std::uint32_t stepIdleMs = 0;
     bool restDue = true;     // check the rest lines before the step
     int regroupDead = -1;    // the dead when the regroup was first read (-1 not yet): more than that is a new wipe
-    bool eatChecked = false; // the meal wait was looked at since the last fight (a bot eating holds the next pull)
+    std::uint32_t eatWaitMs = 0; // meal wait used since the last fight (kRestCapMs per fight: it cannot loop)
     bool restForEating = false; // the rest phase is the meal wait: it also ends when nobody eats any more
     bool stepRested = false; // a `rest` step has had its gate
     bool orderSent = false;  // task steps: the order went out
@@ -422,7 +422,7 @@ inline void ResetStep(Run& r)
     EnterPhase(r, Phase::Begin);
     r.stepIdleMs = 0;
     r.restDue = true;
-    r.eatChecked = false;
+    r.eatWaitMs = 0;
     r.restForEating = false;
     r.stepRested = false;
     r.orderSent = false;
@@ -2290,7 +2290,7 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
         // Back to the step's start: it looks at what is left, and rests first.
         r.fighting = false;
         r.restDue = true;
-        r.eatChecked = false;
+        r.eatWaitMs = 0;
         r.pullGuid = 0;
         r.focusGuid = 0;
         if (r.phase != Phase::AwaitTask && r.phase != Phase::Wait)
@@ -2310,7 +2310,10 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     // Rest gate.
     if (r.phase == Phase::Rest)
     {
-        if (Rested(f, lines) || r.phaseMs >= kRestCapMs || (r.restForEating && f.eating == 0))
+        if (r.restForEating)
+            r.eatWaitMs += dt;
+        if (Rested(f, lines) || r.phaseMs >= kRestCapMs ||
+            (r.restForEating && (f.eating == 0 || r.eatWaitMs >= kRestCapMs)))
         {
             r.restForEating = false;
             EnterPhase(r, Phase::Begin);
@@ -2344,10 +2347,11 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     // A bot that sat down to eat or drink after the fight is resting even
     // above the start lines (the tank at 82 % ate before Uldaman pull 17 and
     // the pull order found it seated): the run waits until nobody eats or
-    // everyone is at the end lines, kRestCapMs at most, once per fight.
-    if (r.phase == Phase::Begin && !r.eatChecked)
+    // everyone is at the end lines. Looked at on every tick before the pull
+    // goes out (Begin, Gather: bots sit down a tick after the fight ends),
+    // kRestCapMs of waiting per fight.
+    if ((r.phase == Phase::Begin || r.phase == Phase::Gather) && r.eatWaitMs < kRestCapMs)
     {
-        r.eatChecked = true;
         if (f.eating > 0 && !Rested(f, lines) && !InEvent(r))
         {
             EnterPhase(r, Phase::Rest);

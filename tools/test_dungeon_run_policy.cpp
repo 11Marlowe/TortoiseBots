@@ -647,6 +647,53 @@ static void TestMealWaitBeforePull()
     for (; ms <= kRestCapMs + 5 * kTickMs && order.find("pullback") == std::string::npos; ms += kTickMs)
         order = Tick(c, f);
     CHECK(order == "pullback 31" && ms >= kRestCapMs);
+    // Eating starts a tick after the fight ends (bots sit on their next AI
+    // tick), as at pull 17: "pack cleared" on one tick, the next step's pull on
+    // the next. The wait still holds that pull.
+    DungeonPlan two;
+    two.steps = {PullStep(40, {4851}), PullStep(40, {4852})};
+    Run late = Start(&two);
+    f.eating = 0;
+    f.minHealthPct = 100;
+    f.units = {Unit(30, 4851, 20)};
+    CHECK(Tick(late, f) == "pullback 30");
+    f.anyInCombat = true;
+    Tick(late, f);
+    f.anyInCombat = false;
+    f.units.clear();
+    f.minHealthPct = 82;
+    std::string first;
+    for (int i = 0; i < 3 && late.step == 0; ++i)
+        first = Tick(late, f);
+    CHECK(late.step == 1 && first.find("pullback") == std::string::npos);
+    f.units = {Unit(31, 4852, 54.7f)};
+    f.eating = 1;
+    CHECK(Tick(late, f).empty());
+    CHECK(late.phase == Phase::Rest && late.restForEating);
+    // The same step: the fight ends with the party scattered (a gather goes
+    // out, nobody eats yet), and the tank sits down on the next tick.
+    Run same = Start(&plan);
+    f.eating = 0;
+    f.minHealthPct = 100;
+    f.units = {Unit(30, 4852, 20), Unit(31, 4852, 54.7f)};
+    CHECK(Tick(same, f) == "pullback 30");
+    f.anyInCombat = true;
+    Tick(same, f);
+    f.anyInCombat = false;
+    f.units = {Unit(31, 4852, 54.7f)};
+    f.minHealthPct = 82;
+    f.maxMemberYd = 35;
+    CHECK(Tick(same, f) == "move 0.0 0.0 0.0");
+    f.maxMemberYd = 5;
+    f.eating = 1;
+    CHECK(Tick(same, f).empty());
+    CHECK(same.phase == Phase::Rest && same.restForEating);
+    // One budget per fight: after kRestCapMs of meal wait the pull goes out
+    // even if the bot sits down again.
+    order.clear();
+    for (std::uint32_t t = 0; t <= kRestCapMs + 5 * kTickMs && order.find("pullback") == std::string::npos; t += kTickMs)
+        order = Tick(late, f);
+    CHECK(order == "pullback 31" && late.eatWaitMs >= kRestCapMs);
     // At the end lines already: no wait.
     Run e = Start(&plan);
     f.minHealthPct = 95;
