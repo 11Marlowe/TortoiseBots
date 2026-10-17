@@ -221,6 +221,17 @@ attack/pull commands, open-world grinding and solo bots are unchanged.
 | **Learn Spells** | `.bot learn` | Commands companion bots near matching trainers to learn affordable spells. Also available as `.bot action learn`. |
 | **Trade** | `.bot trade` | Opens a trade window with the targeted alive companion bot. Also available as `.bot action trade`. |
 
+### 2a. Alt-bots: your alts keep playing (issue #872)
+
+Off by default; the server enables it with `AiPlayerbot.AltBots = 1` (see the configuration guide).
+
+- **Start:** bring an alt of your own account in with `.bot add <Alt>`, then kick it from your party (`.bot uninvite <Alt>`, or the party breaking up). It answers `<Alt> now plays on its own, .bot remove <Alt> to log it out.` and from then on quests, grinds, travels (flight paths, boats, zeppelins), rests, gathers and fishes like a pool bot. Alone, it first goes to a zone that fits its level (level 10+); still in a group with someone else, it stays where it is. An alt left inside a dungeon, battleground or on a boat goes to the exit or the nearest graveyard.
+- **End:** `.bot remove <Alt>` logs it out; `.bot add <Alt>` takes it back as your companion without a relog; logging in on the alt yourself takes over at once, wherever it is (also mid-fight or as a ghost). Each end shows a short summary: levels, quests, deaths, gold. After you log out of the alt it stays offline. Alt-bots keep playing while you play another character and after you log out (unless `AiPlayerbot.AltBotsLogoutWithOwner = 1`), but never come back after a server restart; progress since the last character save can be lost in a crash.
+- **What it never does on its own:** spend talent points, use the auction house, mail, trade or the guild bank, sell soulbound, equipped or better-than-white items, buy mounts, bags or anything but trainer spells, repairs and flights, rebind its hearthstone, destroy items, abandon quests it did not take itself, fill the quest log past 10 free slots, pick targets whose kill lowers reputation, start duels, or roll Need (it rolls Greed or Pass). It equips upgrades only when the old piece fits in its bags; with full bags it stops equipping (you get a "clear the bags first" message when it starts). It levels at the server XP rate with no bot drop boost; the ammo/reagent refill applies as for pool bots.
+- **Other players** may invite it and give it combat orders (see "Who may use what" above); the instance or raid save of a dungeon it joins lands on your character. Only your account (or a GM) controls the rest or logs it out. It accepts guild invites only from your account and never leaves its guild on its own.
+- **Challenge modes:** Hardcore characters are refused with a message (a bot death would end the run). Every other Turtle challenge (Slow & Steady, War Mode, Vagrant, Boaring, Craftmaster, Lunatic, Brewmaster, Heroic) is allowed, but the bot does not respect that challenge's restrictions: it is your choice.
+- Each active alt-bot takes one pool bot's slot (a free, low-level pool bot logs out and comes back when the alt ends). The dashboard labels it `alt`; `bot_events.csv` logs `AltBotStart` / `AltBotEnd`.
+
 ---
 
 ## 3. Direct Party & Movement Commands
