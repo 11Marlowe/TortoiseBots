@@ -368,6 +368,10 @@ struct Run
     // drops out once the lead bot is within kGatherYd of it; the list ends with
     // the walk back, on a pause and with the step.
     std::vector<std::string> hold;
+    // A regroup for a dead lead bot (WaitForFallen): once the lead bot is up
+    // again more than kSeeYd from where it fell, the hold is filled before the
+    // regroup gathers (19z11 03:24: the fight ended with the lead bot a ghost).
+    bool holdDue = false;
     float leadDeathX = 0.0f, leadDeathY = 0.0f, leadDeathZ = 0.0f;
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
@@ -509,6 +513,7 @@ inline void Pause(Run& r, const std::string& why)
     r.note = why;
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
+    r.holdDue = false;
 }
 
 // Clears what belongs to one step (also on resume, so a resumed step gets
@@ -564,6 +569,7 @@ inline void ResetStep(Run& r)
     r.eventIdleMs = 0;
     r.eventUp = r.eventDown = r.eventTotal = 0;
     r.hold.clear();
+    r.holdDue = false;
 }
 
 // "N wipe(s), M near wipe(s)", or "" for none.
@@ -2421,6 +2427,20 @@ inline void NoteLeadDeath(Run& r, const Facts& f)
 // summon` brings a bot to the lead bot, not the lead bot to a bot). Counted
 // against kAutoRegroupsPerStep; past that it pauses. A lead bot raised where
 // it fell (a party resurrection) needs nothing.
+// The living party stays where it won the fight: only the revived few walk
+// back (19z11 03:24: the three alive deep in the hall were summoned to the
+// entrance by hand and the whole party walked the way again). Held: every
+// living bot more than kGatherYd from the lead bot and within kSeeYd of where
+// the lead bot fell.
+inline void FillHold(Run& r, const Facts& f)
+{
+    r.hold.clear();
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && m.yd > kGatherYd &&
+            ai::PlanDistance(m.x, m.y, m.z, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
+            r.hold.push_back(m.name);
+}
+
 inline bool LeadRevivedAway(Run& r, const Facts& f)
 {
     if (!r.leadDied || !f.leadAlive || f.anyInCombat)
@@ -2441,13 +2461,7 @@ inline bool LeadRevivedAway(Run& r, const Facts& f)
     ResetStep(r);
     BeginRegroup(r);
     r.walkBackDue = true;
-    // The living party stays where it won the fight: only the revived few
-    // walk back (19z11 03:24: the three alive deep in the hall were summoned
-    // to the entrance by hand and the whole party walked the way again).
-    for (const MemberFact& m : f.members)
-        if (!m.name.empty() && m.yd > kGatherYd &&
-            ai::PlanDistance(m.x, m.y, m.z, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
-            r.hold.push_back(m.name);
+    FillHold(r, f);
     r.note = "the lead bot died and came back to life away from the party: regrouping by itself (" +
         std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)" +
         (r.hold.empty() ? std::string() : ", the party holds while it walks back");
@@ -2486,13 +2500,17 @@ inline bool WaitForFallen(Run& r, const Facts& f)
         ++r.autoRegroups;
     }
     std::string const note = WaitNote(r, f);
+    bool const deathSpotKnown = r.leadDied;
     // The regroup's gather overrides a walk under way: the step starts over
     // from its beginning once the party is back (a fresh move, not a wait for
     // the walk's retry clock).
     EnterPhase(r, Phase::Begin);
     BeginRegroup(r);
     if (lead)
+    {
         r.walkBackDue = true;
+        r.holdDue = deathSpotKnown; // the hold waits for the lead bot to be up (regroup)
+    }
     r.note = note + (lead ? ": the lead bot is dead, reviving and gathering before the step goes on"
                           : ": reviving and gathering before the step goes on");
     return true;
@@ -2613,6 +2631,22 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     if (r.regroup && !runBackWait && !f.anyInCombat)
     {
         r.regroupMs += dt;
+        // A regroup for a dead lead bot: once it is up away from where it fell
+        // (a release: the entrance), the living party there holds, before any
+        // gather; from the next tick the regroup looks at the others only.
+        if (r.holdDue && f.leadAlive)
+        {
+            r.holdDue = false;
+            if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX, r.leadDeathY, r.leadDeathZ) > kSeeYd)
+            {
+                FillHold(r, f);
+                if (!r.hold.empty())
+                {
+                    r.note = "regroup: the lead bot is up away from the party: the party holds while it walks back";
+                    return order;
+                }
+            }
+        }
         if (f.dead > 0 || !f.leadAlive)
         {
             // A living priest, paladin or shaman raises the dead where they
@@ -2657,6 +2691,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.gatherRefusals = 0;
         r.waitFor.clear(); // everyone alive and gathered: the fallen are back
         r.leadDied = false;
+        r.holdDue = false;
         r.note = "regrouped";
         if (r.walkBackDue)
         {

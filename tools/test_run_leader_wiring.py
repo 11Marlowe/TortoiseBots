@@ -57,6 +57,21 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("cx = f.approachX;", facts)
         self.assertIn("f.members.push_back(member);", facts)
 
+    def test_run_hold_is_let_go_on_every_path(self):
+        # The hold (DungeonRun::Run::hold) is synced after every tick that runs, and let go on the
+        # paths that return before Tick: a paused run, the lead bot off the plan's map, `run stop`.
+        tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
+        self.assertIn("SyncRunHold(commander, lead, bots, it->second, !order.empty());", tick)
+        early = body(tick, "if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)", "return;")
+        self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
+        offmap = body(tick, "the lead bot is not on the plan's map", "return;")
+        self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
+        stop = body(COMMANDS, 'slot.run.note = "stopped by .bot run stop";', "DungeonRuns().erase(it);")
+        self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f.deadNames.push_back(bot->GetName());", facts)
+        self.assertIn("member.x = bot->GetPositionX();", facts)
+
     def test_run_back_reads_cached_attackers_and_restores_the_ai(self):
         # A member coming back with attackers (DungeonRun::RunBack): its attackers are counted from the
         # core's attacker set (no scan); the glue makes a listed bot a passive follower of the lead bot,

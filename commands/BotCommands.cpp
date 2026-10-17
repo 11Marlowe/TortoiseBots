@@ -9445,6 +9445,31 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
 // bot is put on stay at its own spot, again after each run order (a move or
 // gather forms every bot up on the lead bot), and follows the lead bot again
 // once the run lets it go. Only the bound bots, no scan.
+// Every bot the run holds follows the lead bot again: a run that is paused
+// (a player's order, the lead bot off the plan's map) or stopped never ticks
+// its hold sync, so these paths let the held bots go themselves. After a
+// player's order (DungeonRun::PauseForPlayer) the order owns the bots'
+// movement: they are only let go, not formed up over it.
+void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
+{
+    if (slot.heldRaw.empty())
+        return;
+    if (slot.run.note.compare(0, 13, "player order ") == 0)
+    {
+        slot.heldRaw.clear();
+        return;
+    }
+    std::vector<Player*> held;
+    for (uint64 raw : slot.heldRaw)
+        if (Player* bot = FindCharacter(raw))
+            if (bot->IsAlive() && bot->IsInWorld())
+                held.push_back(bot);
+    slot.heldRaw.clear();
+    Player* lead = FindCharacter(leadRaw);
+    if (commander && lead && !held.empty())
+        FormUpOnLead(commander, lead, held, false);
+}
+
 void SyncRunHold(Player* commander, Player* lead, std::vector<Player*> const& bots, DungeonRunSlot& slot,
     bool orderSent)
 {
@@ -9492,7 +9517,10 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     DungeonRunSlot& slot = it->second;
     Player* commander = FindCharacter(commanderRaw);
     if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)
+    {
+        ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)
         return;
+    }
     Player* lead = FindCharacter(binding->leadGuid);
     Group* group = lead ? lead->GetGroup() : nullptr;
     // Between maps: look again next second (the binding sweep bounds a lead that never comes back).
@@ -9508,6 +9536,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     {
         TortoiseBots::DungeonRun::Pause(slot.run, "the lead bot is not on the plan's map (" +
             std::to_string(slot.run.plan->map) + ")");
+        ReleaseRunHold(commander, binding->leadGuid, slot);
         SendRunLine(commander, slot, false);
         return;
     }
@@ -9776,17 +9805,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         slot.run.state = State::Done;
         slot.run.note = "stopped by .bot run stop";
         SendRunLine(commander, slot, true);
-        // Bots the run held on stay (its hold) follow the lead bot again.
-        if (!slot.heldRaw.empty())
-            if (Player* lead = FindCharacter(binding->leadGuid))
-            {
-                std::vector<Player*> held;
-                for (uint64 raw : slot.heldRaw)
-                    if (Player* bot = FindCharacter(raw))
-                        if (bot->IsAlive())
-                            held.push_back(bot);
-                FormUpOnLead(commander, lead, held, false);
-            }
+        ReleaseRunHold(commander, binding->leadGuid, slot); // held bots follow the lead bot again
         DungeonRuns().erase(it);
         SendActionAck(handler, intent, "party", 0);
         return true;

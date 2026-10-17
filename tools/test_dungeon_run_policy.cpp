@@ -2242,6 +2242,74 @@ static void TestDeathDuringRegroup()
     CHECK(r.regroup && r.note.find("Fyran (dead)") != std::string::npos);
 }
 
+// Review of #1060: the common case, the fight ends while the lead bot is
+// still a ghost. The regroup revives it; once it is up at the entrance the
+// living party deep inside holds (no gather to the entrance, no summon there).
+static void TestLeadDeadAfterTheFightHolds()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(210);
+    f.anyInCombat = true;
+    Tick(r, f); // fighting, the lead bot alive at 210
+    f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Tanky"};
+    Tick(r, f); // it falls in the fight
+    // The fight is over, the lead bot still dead: the regroup, its hold armed.
+    f.anyInCombat = false;
+    f.members = {Mem("Fyran", 5)};
+    f.members[0].x = 215;
+    f.maxMemberYd = 0;
+    Tick(r, f);
+    CHECK(r.regroup && r.holdDue && r.walkBackDue && r.autoRegroups == 1 && r.hold.empty());
+    CHECK(Tick(r, f) == "revive party");
+    // Up at the entrance, 300 yd from where it fell.
+    f.leadAlive = true;
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.leadX = -90;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 305)};
+    f.members[1].x = 215;
+    f.maxMemberYd = 305;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && !r.holdDue);
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = -50;
+    for (int i = 0; i < 20; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order.find("summon") != 0 && order != "move -90.0 0.0 0.0");
+    }
+    CHECK(r.state == State::Running && !r.regroup && r.walkBack && r.hold.size() == 1);
+    // A player's order pauses the run: the hold ends (the glue lets them go).
+    CHECK(PauseForPlayer(r, "follow"));
+    CHECK(r.hold.empty() && !r.holdDue);
+    // Raised where it fell (a resurrection in the party): no hold.
+    Run q = Start(&plan, 2);
+    Facts h = Party(210);
+    h.anyInCombat = true;
+    Tick(q, h);
+    h.leadAlive = false;
+    h.dead = 1;
+    h.alive = 4;
+    Tick(q, h);
+    h.anyInCombat = false;
+    h.members = {Mem("Fyran", 30)};
+    h.members[0].x = 240;
+    Tick(q, h);
+    CHECK(q.holdDue);
+    h.leadAlive = true;
+    h.dead = 0;
+    h.alive = 5;
+    Tick(q, h);
+    CHECK(q.hold.empty() && !q.holdDue);
+}
+
 int main()
 {
     TestMove();
@@ -2312,6 +2380,7 @@ int main()
     TestNoPullWithADeadMember();
     TestRegroupWaitsForTheFight();
     TestDeathDuringRegroup();
+    TestLeadDeadAfterTheFightHolds();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }
