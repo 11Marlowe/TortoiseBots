@@ -613,6 +613,25 @@ inline void SuspendRoute(Run& r)
     r.routeSpotZ = r.leadLastZ;
 }
 
+// Whether the route checkpoint tells where the lead bot is (Run::checkpoint):
+// a point reached, nothing since that could move it off that stretch, and
+// before the current step (an event that failed sends the run back to an
+// earlier step; a checkpoint past the step says nothing about the way to it).
+inline bool CheckpointKnown(const Run& r)
+{
+    return r.routeKnown && r.checkpoint != static_cast<std::size_t>(-1) && r.checkpoint < r.step;
+}
+
+// Whether plan step `idx` is a direct step the lead bot has not crossed (it is
+// after the checkpoint, or the checkpoint is not known): a walk back never
+// passes one on a failure (its hole would be skipped), it pauses instead.
+inline bool DirectStillToCross(const Run& r, std::size_t idx)
+{
+    if (!r.plan || idx >= r.plan->steps.size() || r.plan->steps[idx].kind != PlanStepKind::MoveDirect)
+        return false;
+    return !(CheckpointKnown(r) && idx <= r.checkpoint);
+}
+
 inline void Pause(Run& r, const std::string& why)
 {
     SuspendRoute(r); // a player may move the lead bot while the run is paused
@@ -1101,6 +1120,12 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         if (order == MoveOrder(p.x, p.y, p.z, p.kind == PlanStepKind::MoveDirect))
         {
             std::string const point = "walk back: the point of step " + std::to_string(r.walkBackIdx + 1);
+            if (IsPathRefusal(answer) && DirectStillToCross(r, r.walkBackIdx))
+            {
+                Pause(r, point + " refused (" + answer + "): a direct step over a navmesh hole is not passed; " +
+                    "gather the party at the point before it, then .bot run resume");
+                return;
+            }
             if (IsPathRefusal(answer))
             {
                 // The point itself cannot be walked to now: the next one.
@@ -1576,15 +1601,6 @@ inline bool PathCrossesUnclearedPack(const DungeonPlan& plan, std::size_t from, 
     return false;
 }
 
-// Whether the route checkpoint tells where the lead bot is (Run::checkpoint):
-// a point reached, nothing since that could move it off that stretch, and
-// before the current step (an event that failed sends the run back to an
-// earlier step; a checkpoint past the step says nothing about the way to it).
-inline bool CheckpointKnown(const Run& r)
-{
-    return r.routeKnown && r.checkpoint != static_cast<std::size_t>(-1) && r.checkpoint < r.step;
-}
-
 // The lowest plan index a walk back may start at: the checkpoint when it is
 // known (a point before it can lie behind a hole the lead bot crossed since),
 // else 0 (as at the entrance: before every hole).
@@ -1888,6 +1904,12 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
                 r.note = "walk back: " + why + ": replaying from the first point (step " + std::to_string(first + 1) + ")";
                 return true;
             }
+            if (DirectStillToCross(r, r.walkBackIdx))
+            {
+                Pause(r, "walk back: " + why + ": a direct step over a navmesh hole is not passed; " +
+                    "gather the party at the point before it, then .bot run resume");
+                return true;
+            }
             r.note = "walk back: " + why + ": on to the next";
             NextWalkBackPoint(r);
             return true;
@@ -2124,7 +2146,10 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         r.note = "walking around: the plan's point is off the walkable way";
         if (WalkTo(r, f, r.detourX, r.detourY, r.detourZ, false, dt, order))
         {
-            NoteCheckpoint(r, r.step);
+            // A navmesh walk to a stand-in point: for a direct step it proves
+            // no crossing of its hole, so the checkpoint stays where it was.
+            if (s.kind != PlanStepKind::MoveDirect)
+                NoteCheckpoint(r, r.step);
             NextStep(r, "arrived at the nearest reachable point, " +
                 Num(ai::PlanDistance(r.detourX, r.detourY, r.detourZ, s.x, s.y, s.z)) + " yd from the plan's");
         }

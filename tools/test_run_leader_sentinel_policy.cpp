@@ -259,6 +259,60 @@ static void TestFoldedRouteReplaysTheEarlierHole()
     CHECK(!w.regroup && w.walkBack && w.walkBackIdx == 1 && !w.routeKnown);
 }
 
+// Codex round 3 on #1079: no failure passes a direct step the lead bot has not crossed (its hole would be skipped), and
+// a detour that stands in for a direct step's point is no crossing.
+static void TestUncrossedDirectStepIsNeverPassed()
+{
+    DungeonPlan plan = FoldedPlan();
+    // No navmesh approach to the first hop (out of sight): the run pauses, it does not go on to the second hop.
+    Run r = Start(&plan, 7);
+    NoteCheckpoint(r, 1);
+    r.walkBack = true;
+    r.walkBackIdx = 2;
+    r.walkBackStart = 1;
+    EnterPhase(r, Phase::Begin);
+    Facts f = At(-100, 0);
+    f.approachKnown = false;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.walkBackIdx == 2 && r.note.find("not passed") != std::string::npos);
+    // A path refusal of the hop's own move: the same.
+    Run q = Start(&plan, 7);
+    NoteCheckpoint(q, 1);
+    q.walkBack = true;
+    q.walkBackIdx = 2;
+    EnterPhase(q, Phase::Begin);
+    OrderRefused(q, "move 50.0 10.0 0.0 direct", "no-los: no sight line");
+    CHECK(q.state == State::Paused && q.walkBackIdx == 2);
+    // A direct step the lead bot has crossed (at or before its checkpoint) is passed as any point.
+    Run c = Start(&plan, 7);
+    NoteCheckpoint(c, 3);
+    c.walkBack = true;
+    c.walkBackIdx = c.walkBackStart = 2;
+    c.walkBackRestarted = true;
+    EnterPhase(c, Phase::Begin);
+    Tick(c, f);
+    CHECK(c.state == State::Running && c.walkBackIdx == 3);
+    // A plain move point that cannot be approached is still passed.
+    Run m = Start(&plan, 7);
+    m.walkBack = true;
+    m.walkBackIdx = 4;
+    m.walkBackStart = 1;
+    EnterPhase(m, Phase::Begin);
+    Tick(m, f);
+    CHECK(m.state == State::Running && m.walkBackIdx == 5);
+
+    // A detour for the first hop (its point off the mesh): reaching the stand-in leaves the checkpoint before the
+    // hole, so a wipe after it still replays both hops.
+    Run d = Start(&plan, 2);
+    NoteCheckpoint(d, 1);
+    CHECK(UseDetour(d, 45, 8, 0));
+    Facts there = At(45, 8);
+    there.seen = true;
+    for (int i = 0; i < 3 && d.step == 2; ++i)
+        Tick(d, there);
+    CHECK(d.step == 3 && d.checkpoint == 1);
+}
+
 // A revive at the entrance (14:03 and 14:39: (-229, 46)): before every hole, the replay starts before the first.
 static void TestEntranceReviveReplaysEveryHole()
 {
@@ -382,6 +436,7 @@ int main()
     TestWalkBackStartsBeforeTheFirstDirectStep();
     TestFoldedRouteReplaysTheEarlierHole();
     TestEntranceReviveReplaysEveryHole();
+    TestUncrossedDirectStepIsNeverPassed();
     TestRevivePastAllHolesNeedsNoReplay();
     TestNoDirectStepKeepsTheOldWalkBack();
     TestDeadBotIsRevivedBeforeAWalkBackOrADirectStep();
