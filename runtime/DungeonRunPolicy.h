@@ -450,6 +450,7 @@ struct Run
     // spot (out of the fight the hold puts it back on it).
     std::uint32_t guardEventDown = 0;
     bool holdUnstayed = false;
+    std::uint64_t holdEngageGuid = 0; // the unit the last engage order sent the tank at
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -621,6 +622,7 @@ inline void ResetStep(Run& r)
     r.guardReturn = false;
     r.guardEventDown = 0;
     r.holdUnstayed = false;
+    r.holdEngageGuid = 0;
     r.hold.clear();
     r.holdDue = false;
 }
@@ -2420,8 +2422,10 @@ inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
 // goes after a dormant statue (it hits nobody).
 inline const UnitFact* HoldGuardTarget(const Run& r, const Facts& f)
 {
+    // Watching: on stay, or taken off it by a hold order (holdUnstayed) this
+    // fight; guardOrders starts over with each death, holdUnstayed does not.
     const PlanStep* s = InHoldArea(r, f);
-    if (!s || !(f.leadStaying || r.guardOrders > 0))
+    if (!s || !(f.leadStaying || r.guardOrders > 0 || r.holdUnstayed))
         return nullptr;
     return GuardPick(f, s->radius);
 }
@@ -2433,15 +2437,20 @@ inline const UnitFact* HoldGuardTarget(const Run& r, const Facts& f)
 // taunted). So once an awake unit of the event is in the fight (hostile, in
 // combat, within the radius: the hold's units), the tank is sent at the
 // nearest one (`attack`, which ends its stay) and fights it where it stands;
-// out of the fight the hold puts it back on the spot.
+// out of the fight the hold puts it back on the spot. Also once a hold order
+// took it off its stay this fight (holdUnstayed): the next unit of the event
+// that wakes is sent too (off its stay, not the unit it was sent at already:
+// it fights that one by itself).
 inline const UnitFact* HoldEngageTarget(const Run& r, const Facts& f)
 {
-    if (!f.leadStaying || !InHoldArea(r, f))
+    if (!(f.leadStaying || r.holdUnstayed) || !InHoldArea(r, f))
         return nullptr;
     const UnitFact* best = nullptr;
     for (const UnitFact& u : f.units)
     {
         if (!u.hostile || !u.engaged || u.evading || u.polymorphed || u.distLead > kGuardYd)
+            continue;
+        if (!f.leadStaying && u.guid == r.holdEngageGuid)
             continue;
         if (!best || u.distLead < best->distLead)
             best = &u;
@@ -2486,6 +2495,7 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.holdUnstayed = true;
         if (engage)
         {
+            r.holdEngageGuid = engage->guid;
             r.note = "event: the tank takes " + std::to_string(engage->entry) + " (" + Num(engage->distLead) + " yd)";
             order = "attack " + std::to_string(engage->guid) + " " + f.carrier;
             return true;

@@ -498,6 +498,39 @@ static void TestTankGuardsTheHold()
     for (int i = 0; i < 5; ++i)
         CHECK(Tick(r, f).empty());
 
+    // Review of #1072: the tank stays off its stay across a death (the order
+    // count starts over): the next keeper is still taken, and one on the
+    // healer is still picked up.
+    {
+        Run r2 = r;
+        Facts g = f;
+        g.eventDown = 1;
+        UnitFact next = Keeper(5, true);
+        next.engaged = true;
+        next.distLead = 8.0f;
+        g.units = {next, Keeper(3, false), Keeper(4, false)};
+        std::string o;
+        for (int i = 0; i < 3 && o.empty(); ++i)
+            o = Tick(r2, g);
+        CHECK(o == "attack 5 Tanky");
+        for (int i = 0; i < 4; ++i)
+            CHECK(Tick(r2, g).empty()); // that one it fights by itself now
+        g.eventDown = 2;
+        UnitFact third = Keeper(6, true);
+        third.engaged = true;
+        third.distLead = 17.0f;
+        g.units = {third, Keeper(4, false)};
+        UnitFact hits = third;
+        hits.hitting = true;
+        hits.victimHealer = true;
+        hits.distSpot = 17.0f;
+        g.partyAttackers = {hits};
+        o.clear();
+        for (int i = 0; i < 3 && o.empty(); ++i)
+            o = Tick(r2, g);
+        CHECK(o == "attack 6 Tanky" && Has(r2.note, "off the healer"));
+    }
+
     // The replay: the next keeper on the priest 17 yd away inside the hold, the
     // tank back on stay with nothing on it (as live: it never left the spot).
     f.leadStaying = true;
