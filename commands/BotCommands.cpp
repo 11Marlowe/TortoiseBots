@@ -9130,17 +9130,63 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
     }
 }
 
-// The bot a loot/open/use task goes to: the lead bot, or the one a loot refusal
-// moved the order to (DungeonRun::Run::taskBot).
-Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots)
+// The bot a loot/open/use task goes to: the lead bot, or for a loot the one a
+// refusal moved the order to (DungeonRun::Run::taskBot), or for an open /
+// use_item after a loot that another bot's bags answered (Run::itemHolder) the
+// bot that carries every item it needs. `split` (when given) names who holds
+// what if no bot carries them all.
+Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
+    ai::PlanStep const* step = nullptr, std::string* split = nullptr)
 {
-    if (!slot.run.taskBot.empty())
+    if (step && step->kind == ai::PlanStepKind::Loot && !slot.run.taskBot.empty())
+    {
         for (Player* bot : bots)
             if (bot->GetName() == slot.run.taskBot)
                 return bot;
+        return lead;
+    }
+    if (!step || slot.run.itemHolder.empty() ||
+        (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem))
+        return lead;
+    // What the step needs: its own item (the key, the item to use) and the loot
+    // items another bot carries, while some bot still has them.
+    std::vector<uint32> need;
+    need.push_back(step->kind == ai::PlanStepKind::Open ? step->item : step->entry);
+    for (auto const& held : slot.run.itemHolder)
+        for (Player* bot : bots)
+            if (bot->HasItemCount(held.first))
+            {
+                need.push_back(held.first);
+                break;
+            }
+    Player* best = nullptr;
+    for (Player* bot : bots)
+    {
+        bool all = true;
+        for (uint32 item : need)
+            all = all && item && bot->HasItemCount(item);
+        if (all && (!best || bot == lead))
+            best = bot;
+    }
+    if (best)
+        return best;
+    // Only when the step's own item is there: without it the step's own missing
+    // item rules apply.
+    bool primaryHeld = false;
+    for (Player* bot : bots)
+        primaryHeld = primaryHeld || (need[0] && bot->HasItemCount(need[0]));
+    if (split && primaryHeld)
+        for (Player* bot : bots)
+        {
+            std::string has;
+            for (uint32 item : need)
+                if (item && bot->HasItemCount(item))
+                    has += (has.empty() ? "" : ", ") + std::to_string(item);
+            if (!has.empty())
+                *split += std::string(split->empty() ? "" : "; ") + bot->GetName() + " holds " + has;
+        }
     return lead;
 }
-
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -9151,6 +9197,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
     f.carrier = lead->GetName();
+    f.leadName = lead->GetName();
     f.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
     for (Player* bot : bots)
     {
@@ -9491,7 +9538,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         {
             // The bot of the task: the lead bot, or the one a loot refusal moved
             // the order to (Run::taskBot).
-            Player* const carrier = RunTaskBot(slot, lead, bots);
+            Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);
             f.carrier = carrier->GetName();
             f.carrierHasItem = step->item && carrier->HasItemCount(step->item);
             f.carrierHasEntryItem = step->kind == ai::PlanStepKind::UseItem && carrier->HasItemCount(step->entry);
@@ -9652,7 +9699,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         if (order.compare(0, 5, "loot ") == 0 || order.compare(0, 5, "open ") == 0 || order.compare(0, 4, "use ") == 0 ||
             order.compare(0, 7, "ritual ") == 0)
         {
-            slot.carrierRaw = RunTaskBot(slot, lead, bots)->GetObjectGuid().GetRawValue();
+            slot.carrierRaw = RunTaskBot(slot, lead, bots, TortoiseBots::DungeonRun::Current(slot.run))
+                                  ->GetObjectGuid().GetRawValue();
             slot.taskReply = 0;
             slot.taskText.clear();
         }

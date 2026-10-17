@@ -590,6 +590,109 @@ static void TestLootRefusalTriesTheTurnBotThenEachBot()
     CHECK(n.state == State::Paused && n.note.find("not-found") != std::string::npos);
 }
 
+// A fight no pull of the run started (a self-aggro on the approach, a patrol)
+// may have chased the lead bot: the anchor stays, also over a resume.
+static void TestAnchorStaysAfterAFightWithoutAPull()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(-238.0f, {11318})};
+    plan.steps[0].y = -36.0f;
+    plan.steps[0].z = -56.4f;
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.anchorKnown = true;
+    r.anchorX = -169.1f; r.anchorY = -34.9f; r.anchorZ = -40.9f;
+    Facts f = Party(-169.1f);
+    f.leadY = -34.9f; f.leadZ = -40.9f;
+    f.anyInCombat = true;
+    f.leadInCombat = true;
+    f.units = {Unit(1, 11318, 38)};
+    Tick(r, f); // a patrol hits the party on the approach
+    CHECK(r.stepFought && r.pulls == 0);
+    // The tank is chased down the ramp, the fight over, the pack in sight.
+    f.anyInCombat = false;
+    f.leadInCombat = false;
+    f.leadX = -215; f.leadY = -34; f.leadZ = -55;
+    f.maxMemberYd = 30;
+    Tick(r, f);
+    CHECK(r.anchorX == -169.1f && r.anchorZ == -40.9f);
+    // The same after a pause and a resume (ResetStep zeroes the pulls).
+    Pause(r, "test");
+    CHECK(Resume(r));
+    CHECK(r.stepFought);
+    f.maxMemberYd = 0;
+    Tick(r, f);
+    Tick(r, f);
+    CHECK(r.anchorX == -169.1f && r.anchorZ == -40.9f);
+}
+
+// A walk of the step that is not an approach hop (the stealth walk through a
+// pack's centre) is not ended by the anchor refresh: no new move every tick.
+static void TestAnchorRefreshKeepsANonHopWalk()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {11318})};
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.anchorKnown = true;
+    r.anchorX = 0; r.anchorY = 0; r.anchorZ = 0;
+    EnterPhase(r, Phase::Walk);
+    r.walkX = 100; r.walkY = 0; r.walkZ = 0;
+    Facts f = Party(50);
+    RefreshAnchorBeforeFirstPull(r, f, plan.steps[0]);
+    CHECK(r.anchorX == 50.0f && r.phase == Phase::Walk);
+    // The approach hop it was walking is ended: the pack is in sight there.
+    r.hopWalk = true;
+    r.hopX = 100; r.hopY = 0; r.hopZ = 0;
+    f.leadX = 70;
+    RefreshAnchorBeforeFirstPull(r, f, plan.steps[0]);
+    CHECK(r.anchorX == 70.0f && r.phase == Phase::Begin);
+}
+
+// Uldaman: the loot step passed on another bot's bags; the use_item after it
+// needs that item, so it goes to that bot, or pauses saying who holds what.
+static void TestUseItemAfterALootOnAnotherBot()
+{
+    DungeonPlan plan;
+    PlanStep loot = Step(PlanStepKind::Loot, 1, 2, 3);
+    loot.entry = 6910;
+    loot.item = 7741;
+    PlanStep use = Step(PlanStepKind::UseItem);
+    use.entry = 7740;
+    use.item = 7733;
+    plan.steps = {loot, use};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadName = "Tanky";
+    f.members = {Mem("Tanky", 0), Mem("Healy", 5)};
+    f.partyHasItem = true;
+    f.itemHolder = "Healy";
+    Tick(r, f);
+    CHECK(r.step == 1 && r.itemHolder.count(7741) == 1 && r.itemHolder[7741] == "Healy");
+    // The glue gives the use_item to Healy, who holds every item it needs.
+    f.partyHasItem = false;
+    f.carrier = "Healy";
+    f.carrierHasEntryItem = true;
+    CHECK(Tick(r, f) == "use 7740 Healy");
+    // The items split between two bots: the pause says who holds what.
+    Run q = Start(&plan, 1);
+    q.itemHolder[7741] = "Healy";
+    Facts g = Party(0);
+    g.leadName = "Tanky";
+    g.carrierHasEntryItem = true;
+    g.itemsSplit = "Tanky holds 7740; Healy holds 7741";
+    Tick(q, g);
+    CHECK(q.state == State::Paused);
+    CHECK(q.note.find("no bot carries every item it needs: Tanky holds 7740; Healy holds 7741") != std::string::npos);
+    // The lead bot's own loot is not remembered.
+    Run p = Start(&plan);
+    Facts h = Party(0);
+    h.leadName = "Tanky";
+    h.carrierHasItem = true;
+    Tick(p, h);
+    CHECK(p.step == 1 && p.itemHolder.empty());
+}
+
 static void TestPullThatStartsNoFightIsPassed()
 {
     DungeonPlan plan;
@@ -2686,6 +2789,9 @@ int main()
     TestUnseenPackIsApproachedNotCleared();
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();
+    TestAnchorStaysAfterAFightWithoutAPull();
+    TestAnchorRefreshKeepsANonHopWalk();
+    TestUseItemAfterALootOnAnotherBot();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
     TestLootRefusalTriesTheTurnBotThenEachBot();
     TestPullThatStartsNoFightIsPassed();
