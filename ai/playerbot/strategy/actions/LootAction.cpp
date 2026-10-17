@@ -85,6 +85,7 @@ bool OpenLootAction::Execute(Event& event)
     if (ai::LootChainBlockedByCast(bot->IsNonMeleeSpellCasted(false, true, true)))
         return false;
 
+    LootObject lootObject = AI_VALUE(LootObject, "loot target");
     // DoLoot re-validates the object (Refresh), which empties lootObject.guid when it is
     // no longer lootable; keep the guid the attempt was made on.
     ObjectGuid const lootGuid = lootObject.guid;
