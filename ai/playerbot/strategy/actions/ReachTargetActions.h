@@ -478,8 +478,14 @@ namespace ai
                         return false;
                     }
 
-                    // Do not move while casting
-                    if (!bot->IsNonMeleeSpellCasted(true, false, true))
+                    // Do not move while casting (#903: a "reach spell"
+                    // re-issued mid-cast cancels the bar on its first step,
+                    // so casters never finish; the spell's own range check
+                    // runs the reach again on the next tick once the cast
+                    // is done).
+                    if (ai::MoveBlockedByCast(bot->IsNonMeleeSpellCasted(false, true, true), false))
+                        return false;
+
                     {
                         // Check if the spell for which the reach action is used for can be casted
                         if (!spellName.empty() && !ai->CanCastSpell(spellName, target, true, nullptr, true, true, true))
