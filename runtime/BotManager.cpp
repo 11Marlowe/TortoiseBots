@@ -12,6 +12,7 @@
 #include "StartZoneBalance.h"
 #include "GearSeedingGuard.h"
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/BotActionLog.h"
 #include "../ai/playerbot/strategy/actions/MovementActions.h"
 #include "../ai/playerbot/RandomBotFacade.h"
 #include "../ai/playerbot/PlayerbotFactory.h"
@@ -1820,6 +1821,11 @@ PlayerBotClassificationInputs ClassifyBot(BotEntry const& entry)
 
 void BotManager::UpdateBots(uint32_t diff)
 {
+    // Per-bot action log retention (AiPlayerbot.ActionLogMaxAgeDays/MaxTotalMB):
+    // one clock compare per world update; the folder is listed at startup, then
+    // hourly. Runs before the pass timer so BOTPERF stays the pass's own cost.
+    ai::botdiag::BotActionLog::Maintain();
+
     // Module-side pass cost. Left in permanently: with a large pool the
     // periodic BOTPERF line is the only direct measure of how much of the
     // world tick this pass owns.
