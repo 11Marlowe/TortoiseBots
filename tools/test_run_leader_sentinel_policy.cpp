@@ -301,6 +301,18 @@ static void TestUncrossedDirectStepIsNeverPassed()
     Tick(m, f);
     CHECK(m.state == State::Running && m.walkBackIdx == 5);
 
+    // A direct hop that stalls 5 yd short of its point ends its walk, but is no crossing: the checkpoint stays.
+    Run st = Start(&plan, 7);
+    NoteCheckpoint(st, 1);
+    st.walkBack = true;
+    st.walkBackIdx = st.walkBackStart = 2;
+    EnterPhase(st, Phase::Begin);
+    Facts shortOf = At(45, 8); // 5.4 yd from (50, 10)
+    shortOf.seen = true;
+    for (int i = 0; i < 20 && st.walkBackIdx == 2 && st.state == State::Running; ++i)
+        Tick(st, shortOf);
+    CHECK(st.walkBackIdx == 3 && st.checkpoint == 1);
+
     // A detour for the first hop (its point off the mesh): reaching the stand-in leaves the checkpoint before the
     // hole, so a wipe after it still replays both hops.
     Run d = Start(&plan, 2);

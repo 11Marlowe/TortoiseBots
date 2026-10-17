@@ -595,6 +595,18 @@ inline void NoteCheckpoint(Run& r, std::size_t idx)
     r.routeCheck = false;
 }
 
+// A walk to the point of plan step `idx` is done (WalkTo): its checkpoint,
+// except a direct step's walk that stopped short of its point (WalkTo also
+// ends a stalled walk within kStalledArriveYd, and a few yards short of a
+// direct point can still be the near side of its hole).
+inline void NoteReached(Run& r, const Facts& f, std::size_t idx)
+{
+    const PlanStep& p = r.plan->steps[idx];
+    if (p.kind == PlanStepKind::MoveDirect && ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) > kArriveYd)
+        return;
+    NoteCheckpoint(r, idx);
+}
+
 // The run can no longer vouch that the lead bot stays on its checkpoint's
 // stretch (it died, or the run paused): its last living spot is kept, and the
 // next living tick compares (CheckRoute).
@@ -1948,7 +1960,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         // on (the hole's direct steps, then the rest), each one a hop of its
         // own, not a straight walk with the straight walk's cap.
         bool const reachedStraightTarget = r.walkBackDirect && r.walkBackIdx == r.walkBackStart;
-        NoteCheckpoint(r, r.walkBackIdx);
+        NoteReached(r, f, r.walkBackIdx);
         NextWalkBackPoint(r);
         if (reachedStraightTarget)
             r.walkBackDirect = false;
@@ -2161,7 +2173,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     r.note = "walking";
     if (WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order))
     {
-        NoteCheckpoint(r, r.step);
+        NoteReached(r, f, r.step);
         NextStep(r, "arrived");
     }
 }
