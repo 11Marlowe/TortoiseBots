@@ -73,6 +73,7 @@
     // Bots tab
     botsPresence: 'all',
     botsKind: 'all',
+    botsKindFilter: 'all',
     botsView: 'live',
     botsState: 'all',
     botsClass: 'all',
@@ -516,6 +517,7 @@
     kindSeg: document.getElementById('bots-kind'),
     viewSeg: document.getElementById('bots-view'),
     stateChips: document.getElementById('state-chips'),
+    kindChips: document.getElementById('kind-chips'),
     classChips: document.getElementById('class-chips'),
     rosterHead: document.getElementById('roster-head'),
     rosterTable: document.getElementById('roster-table-body'),
@@ -2118,6 +2120,13 @@
     el.mapTooltip.style.left = `${Math.max(6, left)}px`;
     el.mapTooltip.style.top = `${Math.max(6, top)}px`;
   }
+  // Issue #872: map tooltip badge from live telemetry (kind field, flags as
+  // fallback for pre-v11 modules). kindBadge is a function declaration in the
+  // Bots section, hoisted, so calling it here is safe.
+  function liveKindBadge(b) {
+    const k = (b && b.kind) || (b && b.player ? 'player' : (b && b.alt ? 'alt' : 'pool'));
+    return kindBadge(k);
+  }
 
   function showMapTooltip(b, e) {
     if (!el.mapTooltip) return;
@@ -2126,7 +2135,7 @@
       ? `<br><span style="color: var(--accent-red);">Issue:</span> ${esc(ISSUE_LABELS[issue.type] || issue.type)} (${esc(fmtDuration(issue.duration_sec))})`
       : '';
     el.mapTooltip.innerHTML = `
-      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${b.player ? ' <span class="badge badge-success">player</span>' : (b.alt ? ' <span class="badge badge-info" title="Autonomous owned alt-bot">alt</span>' : '')}<br>
+      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${liveKindBadge(b)}<br>
       ${b.player
         ? `<span style="color: var(--text-muted);">Group:</span> ${b.group ? `#${esc(b.group)}` : 'solo'}<br>`
         : `<span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>`}
@@ -2251,10 +2260,23 @@
     return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '–';
   }
 
+  // Issue #872: every row carries one kind: pool, hired, claimed, alt,
+  // companion (owned alt following its player), player, or own (a
+  // player-account character offline or not yet seen live). Live telemetry
+  // wins; the DB list only knows pool/hired/claimed/own.
+  function rowKind(db, live) {
+    if (live && live.kind) return live.kind;
+    if (live && live.player) return 'player';
+    if (live && live.alt) return 'alt';
+    if (db && db.kind) return db.kind;
+    return 'pool';
+  }
+
   function makeBotRow(db, live) {
     return {
       guid: live ? live.guid : db.guid,
       name: live ? live.name : db.name,
+      kind: rowKind(db, live),
       cls: String((live && live.class) || (db ? classNameById(db.class) : '') || 'unknown').toLowerCase(),
       level: live ? live.level : db.level,
       spec: db ? (db.spec || '') : '',
@@ -2297,6 +2319,22 @@
     return `<span class="mono" title="${esc(title)}">${esc(g.item_level.toFixed(1))}</span>`;
   }
 
+  // Issue #872: one badge per kind. Offline player-account rows read "own";
+  // the roster join upgrades them to player/alt/companion when live.
+  const KIND_BADGE = {
+    pool: ['pool', 'badge', 'Wandering pool bot'],
+    hired: ['hired', 'badge badge-warn', 'Hired companion'],
+    claimed: ['claimed', 'badge badge-pvp', 'Claimed guild bot'],
+    alt: ['alt', 'badge badge-info', 'Autonomous owned alt-bot'],
+    companion: ['companion', 'badge badge-info', 'Owned alt following its player'],
+    player: ['player', 'badge badge-success', 'Real player, not a bot'],
+    own: ['own', 'badge', 'Player character (offline or unclassified)'],
+  };
+  function kindBadge(kind) {
+    const b = KIND_BADGE[kind || 'pool'];
+    return ` <span class="${b[1]}" title="${esc(b[2])}">${esc(b[0])}</span>`;
+  }
+
   // Counter cell for the Activity view (session counters; offline bots have none).
   const actNum = (key) => ({
     sort: r => (r.live && r.live.activity ? r.live.activity[key] || 0 : -1),
@@ -2313,7 +2351,7 @@
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
         const pvp = pvpBadge(r.live);
-        const kind = r.live && r.live.player ? ' <span class="badge badge-success" title="Real player, not a bot">player</span>' : (r.live && r.live.alt ? ' <span class="badge badge-info" title="Autonomous owned alt-bot">alt</span>' : '');
+        const kind = kindBadge(r.kind);
         return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
     },
@@ -2448,6 +2486,21 @@
         .map(([c, n]) => chip('class', c, capClass(c), n, classColor(c), state.botsClass === c)).join('');
   }
 
+  // Issue #872: kind chips filter like the state/class chips. The sentence
+  // form ("bots, of which N alts") stays in the header count below.
+  function renderKindChips(base) {
+    if (!el.kindChips) return;
+    const chip = (value, label, count, active) =>
+      `<button class="chip${active ? ' active' : ''}" data-kind="kind" data-v="${esc(value)}">${esc(label)} <b>${count}</b></button>`;
+    const counts = {};
+    base.forEach(r => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
+    const order = ['pool', 'hired', 'claimed', 'alt', 'companion', 'player', 'own'];
+    el.kindChips.innerHTML =
+      chip('all', 'Any kind', base.length, state.botsKindFilter === 'all') +
+      order.filter(k => counts[k] || state.botsKindFilter === k)
+        .map(k => chip(k, k[0].toUpperCase() + k.slice(1), counts[k] || 0, state.botsKindFilter === k)).join('');
+  }
+
   // Search-box fields: "lvl:50-60 ilvl:>40 zone:tanaris". Any column key works;
   // these aliases and scales make the common ones read the way they display.
   const QUERY_ALIASES = { lvl: 'level', ilvl: 'gear', spec: 'class' };
@@ -2493,21 +2546,24 @@
     const issues = issueSet();
     const query = (el.botSearch ? el.botSearch.value : '').toLowerCase().trim();
     const presenceOk = r => state.botsPresence === 'all' || (state.botsPresence === 'online') === r.online;
-    const kindOk = r => state.botsKind === 'all' || (state.botsKind === 'player') === !!(r.live && r.live.player);
+    // The Bots/Players segment is the coarse cut; the kind chips refine it.
+    const segOk = r => state.botsKind === 'all' || (state.botsKind === 'player') === (r.kind === 'player' || r.kind === 'own');
+    const kindOk = r => state.botsKindFilter === 'all' || r.kind === state.botsKindFilter;
     const words = query.split(/\s+/).filter(Boolean);
     const fields = words.map(queryField);
     const text = words.filter((w, i) => !fields[i]);
     const tests = fields.filter(Boolean);
     const queryOk = r => tests.every(t => t(r)) &&
-      text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w));
+      text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w) || r.kind.includes(w));
     const stateOk = r => state.botsState === 'all' || (r.live && (r.live.state || 'idle') === state.botsState);
     const classOk = r => state.botsClass === 'all' || r.cls === state.botsClass;
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
     const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
 
-    const base = rows.filter(r => presenceOk(r) && kindOk(r) && queryOk(r));
+    const base = rows.filter(r => presenceOk(r) && segOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
-    const list = base.filter(r => stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
+    renderKindChips(base);
+    const list = base.filter(r => kindOk(r) && stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
 
     const cols = BOT_VIEWS[state.botsView] || BOT_VIEWS.live;
     const sortKey = cols.includes(state.botsSort.key) ? state.botsSort.key : null;
@@ -2522,12 +2578,16 @@
     });
 
     const online = rows.filter(r => r.online).length;
-    const players = rows.filter(r => r.live && r.live.player).length;
+    const players = rows.filter(r => r.kind === 'player' || r.kind === 'own').length;
+    const alts = rows.filter(r => r.kind === 'alt').length;
+    const companions = rows.filter(r => r.kind === 'companion').length;
     const noun = state.botsKind === 'player' ? 'players' : (players ? 'bots + players' : 'bots');
     if (el.rosterCount) el.rosterCount.textContent = `${list.length === rows.length ? rows.length : `${list.length} of ${rows.length}`} ${noun}`;
     if (el.rosterNote) {
       el.rosterNote.textContent = `${online} online · ${rows.length - online} offline` +
-        (players ? ` · ${players} player${players === 1 ? '' : 's'} live` : '') +
+        (players ? ` · ${players} player${players === 1 ? '' : 's'}` : '') +
+        (alts ? ` · ${alts} alt${alts === 1 ? '' : 's'}` : '') +
+        (companions ? ` · ${companions} companion${companions === 1 ? '' : 's'}` : '') +
         (state.rosterError ? ' · offline bots unavailable (database list failed)' : '');
     }
 
@@ -2721,12 +2781,14 @@
       const v = btn.dataset.v;
       if (btn.dataset.kind === 'state') state.botsState = state.botsState === v ? 'all' : v;
       else if (btn.dataset.kind === 'class') state.botsClass = state.botsClass === v ? 'all' : v;
+      else if (btn.dataset.kind === 'kind') state.botsKindFilter = state.botsKindFilter === v ? 'all' : v;
       else if (btn.dataset.kind === 'pvp') state.botsPvpOnly = !state.botsPvpOnly;
       else state.botsIssueOnly = !state.botsIssueOnly;
       renderRoster();
     };
     el.stateChips.addEventListener('click', onChip);
     el.classChips.addEventListener('click', onChip);
+    if (el.kindChips) el.kindChips.addEventListener('click', onChip);
 
     const sortBy = (th) => {
       const key = th.dataset.sort;
@@ -3377,10 +3439,15 @@
       el.armoryOnline.className = `badge ${online ? 'badge-success' : 'badge-warn'}`;
     }
     if (el.armoryKind) {
-      el.armoryKind.textContent = isPlayer ? 'Player' : ((live && live.alt) ? 'Alt' : 'Bot');
-      el.armoryKind.className = `badge ${isPlayer ? 'badge-success' : 'badge-info'}`;
-      el.armoryKind.title = (!isPlayer && live && live.alt) ? 'Autonomous owned alt-bot' : '';
-      el.armoryKind.style.display = live ? '' : 'none';
+      // Live kind wins; the DB summary carries pool/hired/claimed/own for
+      // offline rows. Offline player-account rows read "Own".
+      const k = (live && (live.kind || (live.player ? 'player' : (live.alt ? 'alt' : '')))) || (s && s.kind) || 'pool';
+      const label = k[0].toUpperCase() + k.slice(1);
+      const titles = { pool: 'Wandering pool bot', hired: 'Hired companion', claimed: 'Claimed guild bot', alt: 'Autonomous owned alt-bot', companion: 'Owned alt following its player', player: 'Real player, not a bot', own: 'Player character (offline or unclassified)' };
+      el.armoryKind.textContent = label;
+      el.armoryKind.className = `badge ${k === 'player' ? 'badge-success' : (k === 'pool' || k === 'own' ? 'badge' : (k === 'hired' ? 'badge badge-warn' : (k === 'claimed' ? 'badge badge-pvp' : 'badge badge-info')))}`;
+      el.armoryKind.title = titles[k] || '';
+      el.armoryKind.style.display = (live || s) ? '' : 'none';
     }
     if (el.armoryMapBtn) el.armoryMapBtn.style.display = live ? '' : 'none';
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
@@ -3420,7 +3487,7 @@
         <div class="kv-card">
           <div class="section-label">Right now</div>
           ${kv('Status', stateTag(live.state))}
-          ${live.player ? kv('Group', live.group ? `<span class="mono">Group #${esc(live.group)}</span>` : '<span class="cell-muted">solo</span>') : ''}
+          ${live.kind || live.player || live.alt ? kv('Kind', kindBadge((live.kind || (live.player ? 'player' : (live.alt ? 'alt' : 'pool'))))) : ''}
           ${kv('Target', live.target ? `<strong class="target-cell">${esc(displayTarget(live))}</strong>${live.target_level ? ` <span class="cell-muted">L${esc(live.target_level)}</span>` : ''}` : DASH)}
           ${live.travel_purpose ? kv('Travel', `<strong>${esc(live.travel_purpose)}</strong><span class="cell-muted"> → ${esc(live.travel_to || '')}</span>`) : ''}
           ${live.player ? '' : kv('Last action', kvMono(live.last_action))}

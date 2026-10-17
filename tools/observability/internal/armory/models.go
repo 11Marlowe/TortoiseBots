@@ -32,6 +32,11 @@ type BotSummary struct {
 	TotalTime uint32 `json:"totaltime"`
 	Online    uint8  `json:"online"`
 	Spec      string `json:"spec,omitempty"`
+	// Kind is the dashboard kind label (Issue #872): pool, hired, claimed,
+	// player, or own (a player-account character offline or unclassified).
+	// Autonomous alts and companions are live roster state: the daemon joins
+	// them from telemetry by guid, the DB list cannot see them.
+	Kind string `json:"kind,omitempty"`
 }
 
 // ItemDetail carries the tooltip-relevant fields from world.item_template:

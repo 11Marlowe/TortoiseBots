@@ -24,6 +24,8 @@ struct BotTelemetrySnapshot
     uint32 guid = 0;
     bool isPlayer = false;  // true for a real online player, false for a bot
     bool isAlt = false;     // true for an autonomous owned alt-bot (Issue #872)
+    // Dashboard kind (Issue #872): pool/hired/claimed/alt/companion/player.
+    std::string kind;
     std::string className;
     std::string role;
     uint32 level = 0;
