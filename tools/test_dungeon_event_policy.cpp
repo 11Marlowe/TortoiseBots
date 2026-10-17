@@ -428,6 +428,30 @@ static void TestInterruptedReplyWhileEventRunsStillReachesTheHold()
     f.eventData = 0;
     Tick(r, f);
     CHECK(r.step == 0);
+
+    // Another error text while the event reads in progress is no recovery.
+    r = Start(&plan);
+    f = Party();
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 2;
+    f.taskText = "unavailable: A bot died, left the map or the party, or is teleporting.";
+    f.anyInCombat = true;
+    f.eventData = 1;
+    Tick(r, f);
+    CHECK(r.step == 0);
+
+    // The ritual went out while the data already read in progress (the reset wait ran out): not this order's event.
+    r = Start(&plan);
+    f = Party();
+    f.eventData = 1;
+    for (int i = 0; i < 200 && r.state == State::Running && !r.orderSent; ++i)
+        Tick(r, f);
+    CHECK(r.orderSent && r.dataAtOrder == 1);
+    f.taskReply = 2;
+    f.taskText = "interrupted: The ritual was cancelled (a participant stopped channeling)";
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(r.step == 0);
 }
 
 static void TestRetryWaitsForTheEncounterToReset()
