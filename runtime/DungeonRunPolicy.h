@@ -3172,15 +3172,22 @@ inline void UpdateHold(Run& r, const Facts& f)
     }
     r.hold.erase(std::remove_if(r.hold.begin(), r.hold.end(), [&](const std::string& name)
         {
+            // The bot a direct step summoned (summonWait) stays held until it
+            // arrives (kArriveYd), so a timed-out summon 3-20 yd off keeps it held.
+            float const near = name == r.summonWait ? kArriveYd : kGatherYd;
             for (const MemberFact& m : f.members)
                 if (m.name == name)
-                    return m.yd <= kGatherYd;
+                    return m.yd <= near;
             return true;
         }), r.hold.end());
 }
 
 // The facts without the held bots: gathers, the gather and regroup ceilings
-// and their summons look at the bots walking back only.
+// and their summons look at the bots walking back only. A held bot a direct
+// step summoned (Run::summonWait) is shown, so the summon's wait sees it
+// arrive (uldaman-events-4, 14:03 and 14:39: hidden, the wait ended at once,
+// the step went out before the 3 s summon landed and the walk back paused at
+// the scorpid pit); it stays in the hold until it stands at the lead bot.
 inline Facts HoldView(const Run& r, const Facts& f)
 {
     Facts g = f;
@@ -3188,7 +3195,7 @@ inline Facts HoldView(const Run& r, const Facts& f)
     g.maxMemberYd = 0.0f;
     for (const MemberFact& m : f.members)
     {
-        if (std::find(r.hold.begin(), r.hold.end(), m.name) != r.hold.end())
+        if (m.name != r.summonWait && std::find(r.hold.begin(), r.hold.end(), m.name) != r.hold.end())
             continue;
         g.members.push_back(m);
         g.maxMemberYd = std::max(g.maxMemberYd, m.yd);
@@ -3601,7 +3608,10 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     }
 
     // A follower a direct step left behind (OrderRefused): summoned before the
-    // step goes out again.
+    // step goes out again. The module's direct check counts every bot, a held
+    // one too (Run::hold); the wait below then sees it through HoldView, which
+    // shows the bot being waited for. It stays held until it arrives, so a
+    // refused or timed-out summon leaves it held where it was.
     if (!r.summonDue.empty())
     {
         order = "summon " + r.summonDue;
@@ -3625,9 +3635,14 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             r.note = "direct step: waiting for " + r.summonWait + " (summoned)";
             return order;
         }
+        bool const stillHeld = std::find(r.hold.begin(), r.hold.end(), r.summonWait) != r.hold.end();
         r.summonWait.clear();
         r.summonWaitMs = 0;
         EnterPhase(r, Phase::Begin);
+        // A held bot that did not come (timed out, gone): it stays held; these
+        // facts still show it, so the step goes out on the next tick, without it.
+        if (stillHeld)
+            return order;
     }
 
     if (WalkBack(r, f, dt, order))
