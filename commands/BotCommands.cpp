@@ -5659,6 +5659,11 @@ BotCommandContext CommanderContext(CommanderOrder const& order, Unit* target)
     if (s_runIssuing)
     {
         context.runLeader = true;
+        uint64 const commanderRaw = order.commander->GetObjectGuid().GetRawValue();
+        context.noteHealOnly = [commanderRaw](Player* healer)
+        {
+            RunHealOnlyBots()[healer->GetObjectGuid().GetRawValue()] = commanderRaw;
+        };
         Player* lead = order.lead;
         context.healerStand = [lead, target](Player* healer, float& x, float& y, float& z)
         {
@@ -9725,14 +9730,6 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         return;
     }
     std::vector<Player*> const bots = CommandedBots(group, lead);
-    // A healer heals while a run is going: no off-spec damage, no wand.
-    for (Player* bot : bots)
-        if (bot != lead && bot->IsAlive() && PlayerbotAI::IsHeal(bot))
-            if (PlayerbotAI* healerAi = PlayerbotAIStorage::Instance().GetAI(bot))
-            {
-                healerAi->SetRunHealOnly(true);
-                RunHealOnlyBots()[bot->GetObjectGuid().GetRawValue()] = commanderRaw;
-            }
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
@@ -9814,31 +9811,55 @@ void SyncRunBackPassive()
     }
 }
 
+// Once a second: the healers of every running run, worked out again from the
+// run's party (DungeonRun::HealerKeptToHeals). A bot that left the party, a
+// healer that is none any more (a role change), one whose run paused, stopped
+// or ended, or that is gone, gets its own AI back; every wanted healer is set
+// and listed (a hold may have set one already: PausePartyDpsForPull).
 void SyncRunHealOnly()
 {
+    std::unordered_map<uint64, uint64> wanted;
+    for (auto const& entry : DungeonRuns())
+    {
+        bool const running = entry.second.run.state == TortoiseBots::DungeonRun::State::Running;
+        RemoteCommander::Binding const* binding = running ? StandingBinding(entry.first) : nullptr;
+        Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+        Group* group = lead ? lead->GetGroup() : nullptr;
+        if (!group)
+            continue;
+        for (Player* bot : CommandedBots(group, lead))
+            if (bot && bot->IsInWorld() &&
+                TortoiseBots::DungeonRun::HealerKeptToHeals(running, true, bot == lead, PlayerbotAI::IsHeal(bot)))
+                wanted[bot->GetObjectGuid().GetRawValue()] = entry.first;
+    }
     auto& listed = RunHealOnlyBots();
     for (auto it = listed.begin(); it != listed.end();)
     {
-        auto run = DungeonRuns().find(it->second);
-        Player* bot = FindCharacter(it->first);
-        if (bot && run != DungeonRuns().end() && run->second.run.state == TortoiseBots::DungeonRun::State::Running)
+        if (wanted.count(it->first))
         {
             ++it;
             continue;
         }
-        if (bot)
+        if (Player* bot = FindCharacter(it->first))
             if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
                 ai->SetRunHealOnly(false);
         it = listed.erase(it);
     }
+    for (auto const& entry : wanted)
+        if (Player* bot = FindCharacter(entry.first))
+            if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+            {
+                ai->SetRunHealOnly(true);
+                listed[entry.first] = entry.second;
+            }
 }
 
 } // namespace
 
 static void UpdateDungeonRuns(uint32 diff)
 {
-    if (!RunHealOnlyBots().empty())
-        SyncRunHealOnly();
+    if (DungeonRuns().empty() && !RunHealOnlyBots().empty())
+        SyncRunHealOnly(); // the last run is gone: every listed healer is let go
     if (!RunBackPassive().empty())
         SyncRunBackPassive();
     if (DungeonRuns().empty())
@@ -9871,6 +9892,7 @@ static void UpdateDungeonRuns(uint32 diff)
     for (uint64 commanderRaw : commanders)
         TickDungeonRun(commanderRaw, dt);
     SyncRunBackPassive();
+    SyncRunHealOnly();
 }
 
 static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& order)

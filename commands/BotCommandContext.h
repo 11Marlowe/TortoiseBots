@@ -35,6 +35,9 @@ struct BotCommandContext
     // order.
     bool runLeader = false;
     std::function<bool(Player*, float&, float&, float&)> healerStand;
+    // Called for each healer a run-leader pull sets heal-only, so the run
+    // leader lists it (its sync lets it go again when it is not wanted).
+    std::function<void(Player*)> noteHealOnly;
 };
 
 // Every command path uses these checks. A BotRecord alone is not sufficient:

@@ -60,8 +60,21 @@ static void TestHealerStandsBehindTheTank()
     CHECK(!HealerBackPoint(5, 5, 5.2f, 5.1f, kHealerBackYd, x, y));
 }
 
+// A hire removed from the party mid-run, a role change (no longer a healer), the lead bot, and a run that is not
+// running (paused, stopped, ended) are all let go: the stance never outlives the run for that bot.
+static void TestHealOnlyEndsWithTheRunPartyAndRole()
+{
+    using TortoiseBots::DungeonRun::HealerKeptToHeals;
+    CHECK(HealerKeptToHeals(true, true, false, true));
+    CHECK(!HealerKeptToHeals(true, false, false, true)); // kicked from the party
+    CHECK(!HealerKeptToHeals(true, true, false, false)); // changed role
+    CHECK(!HealerKeptToHeals(true, true, true, true));   // the lead bot
+    CHECK(!HealerKeptToHeals(false, true, false, true)); // paused, stopped or done
+}
+
 int main()
 {
+    TestHealOnlyEndsWithTheRunPartyAndRole();
     TestHealOnlyHealerNeverWands();
     TestHealerStandsBehindTheTank();
     std::cout << "ok\n";

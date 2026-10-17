@@ -341,6 +341,8 @@ void PausePartyDpsForPull(BotCommandContext const& context, Player* executor, ui
             // Heals only, from behind the tank (PlayerbotAI::RunHealOnly; the
             // run leader's sync keeps it set for the run).
             ai->SetRunHealOnly(true);
+            if (context.noteHealOnly)
+                context.noteHealOnly(bot);
             float hx = 0.0f, hy = 0.0f, hz = 0.0f;
             if (context.healerStand && context.healerStand(bot, hx, hy, hz))
                 stand = WorldPosition(anchor.GetMapId(), hx, hy, hz);

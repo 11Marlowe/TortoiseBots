@@ -434,6 +434,8 @@ struct Run
     bool walkBackDue = false;    // walk back once the regroup is over
     bool walkBack = false;
     bool walkBackDirect = false; // straight to the last point in hops (before a replay of every point)
+    std::size_t walkBackStart = 0; // the plan step the walk back began at (the straight target, or the replay's start)
+    bool walkBackRestarted = false; // a replay that could not begin went back to the plan's first point, once
     std::size_t walkBackIdx = 0; // the plan step whose point is walked now
     std::uint32_t walkBackRefusals = 0; // passing refusals of that point
     // A scripted event's hold (Hold steps): its clock runs from the first look,
@@ -620,6 +622,8 @@ inline void ResetStep(Run& r)
     r.walkBack = false;
     r.walkBackDirect = false;
     r.walkBackIdx = 0;
+    r.walkBackStart = 0;
+    r.walkBackRestarted = false;
     r.walkBackRefusals = 0;
     r.eventOn = false;
     r.eventResetWaitMs = 0;
@@ -1556,6 +1560,7 @@ inline bool ReplayWalkBack(Run& r, const Facts& f)
     if (!found)
         return false;
     r.walkBack = true;
+    r.walkBackStart = r.walkBackIdx;
     EnterPhase(r, Phase::Begin);
     return true;
 }
@@ -1585,6 +1590,15 @@ inline std::size_t LastPointBeforeDirect(const Run& r, std::size_t from)
         if (IsMovePoint(r.plan->steps[i]))
             start = i;
     return start;
+}
+
+// The plan's first move point before the current step (npos for none).
+inline std::size_t FirstMovePoint(const Run& r)
+{
+    for (std::size_t i = 0; i < r.step && i < r.plan->steps.size(); ++i)
+        if (IsMovePoint(r.plan->steps[i]))
+            return i;
+    return static_cast<std::size_t>(-1);
 }
 
 // The plan's move point nearest the lead bot before the current step (npos
@@ -1635,7 +1649,17 @@ inline void StartWalkBack(Run& r, const Facts& f)
     float const toStep = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
     if (toLast <= kArriveYd || (toStep <= kApproachYd && toStep <= toLast))
         return; // back near the step already
-    std::size_t const nearest = NearestMovePoint(r, f);
+    // A lead bot back at the instance entrance (a revive after a wipe or its own
+    // death): it stands before every hole of the route, whatever point is
+    // nearest in a straight line (Uldaman doubles back: a point past the pit
+    // can lie nearer the entrance than the route's own first points). Else the
+    // nearest point by distance; a replay that cannot begin there goes back to
+    // the first point (WalkBack).
+    std::size_t const first = FirstMovePoint(r);
+    bool const atEntrance = first != static_cast<std::size_t>(-1) &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.plan->steps[first].x, r.plan->steps[first].y,
+            r.plan->steps[first].z) <= kSeeYd;
+    std::size_t const nearest = atEntrance ? first : NearestMovePoint(r, f);
     if (nearest != static_cast<std::size_t>(-1) && nearest < last && DirectStepOnWay(r, nearest))
     {
         // Only the navmesh hole needs the plan's own points: straight (in
@@ -1646,6 +1670,8 @@ inline void StartWalkBack(Run& r, const Facts& f)
         r.walkBack = true;
         r.walkBackDirect = true;
         r.walkBackIdx = LastPointBeforeDirect(r, nearest);
+        r.walkBackStart = r.walkBackIdx;
+        r.walkBackRestarted = false;
         r.approachHops = 0;
         r.note = "walk back: a direct step is on the way: straight to step " + std::to_string(r.walkBackIdx + 1) +
             ", then the plan's points";
@@ -1655,6 +1681,8 @@ inline void StartWalkBack(Run& r, const Facts& f)
     r.walkBack = true;
     r.walkBackDirect = true;
     r.walkBackIdx = last;
+    r.walkBackStart = last;
+    r.walkBackRestarted = false;
     r.approachHops = 0;
     EnterPhase(r, Phase::Begin);
 }
@@ -1761,6 +1789,19 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
                     r.note = "walk back: " + why;
                 return true;
             }
+            // A replay that cannot even begin (its first point has no walkable
+            // path from where the lead bot stands: it started on the wrong side
+            // of a hole) goes back to the plan's first point, once.
+            std::size_t const first = FirstMovePoint(r);
+            if (!r.walkBackRestarted && r.walkBackIdx == r.walkBackStart && first != static_cast<std::size_t>(-1) &&
+                first < r.walkBackIdx)
+            {
+                r.walkBackRestarted = true;
+                r.walkBackIdx = r.walkBackStart = first;
+                r.approachHops = 0;
+                r.note = "walk back: " + why + ": replaying from the plan's first point";
+                return true;
+            }
             r.note = "walk back: " + why + ": on to the next";
             NextWalkBackPoint(r);
             return true;
@@ -1791,7 +1832,15 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
     }
     r.note = "walk back: to the point of step " + std::to_string(r.walkBackIdx + 1);
     if (WalkTo(r, f, p.x, p.y, p.z, direct, dt, order))
+    {
+        // The straight target is reached: from here the plan's own points go
+        // on (the hole's direct steps, then the rest), each one a hop of its
+        // own, not a straight walk with the straight walk's cap.
+        bool const reachedStraightTarget = r.walkBackDirect && r.walkBackIdx == r.walkBackStart;
         NextWalkBackPoint(r);
+        if (reachedStraightTarget)
+            r.walkBackDirect = false;
+    }
     return true;
 }
 
@@ -2481,6 +2530,15 @@ inline bool CheckReach(Run& r, const Facts& f)
     r.note = "fighting: the pull stops, " + std::to_string(f.reachAggro) +
         (f.reachAggro == 1 ? " mob has" : " mobs have") + " aggro already";
     return true;
+}
+
+// Whether a bot is kept to heals (PlayerbotAI::RunHealOnly): only a healer
+// that is in the party of a running run and is not its lead bot. The glue asks
+// it of every bot of every running run once a second; whoever fails it gets
+// its own AI back (a hire removed mid-run, a role change, a pause, the end).
+inline bool HealerKeptToHeals(bool runRunning, bool inRunParty, bool isLead, bool isHealer)
+{
+    return runRunning && inRunParty && !isLead && isHealer;
 }
 
 // A party member coming back with attackers on it. The owner's rule

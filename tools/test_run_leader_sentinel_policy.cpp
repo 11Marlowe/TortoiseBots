@@ -182,6 +182,46 @@ static void TestWalkBackStartsBeforeTheFirstDirectStep()
     CHECK(t.walkBack && t.walkBackDirect && t.walkBackIdx == 1);
 }
 
+// Uldaman doubles back: a point past the pit can lie nearer the entrance than the route's own first points. The lead
+// bot at the entrance still starts before the hole (it stands before every hole of the route), not at the nearest point.
+static void TestFoldedRouteStartsFromTheEntrance()
+{
+    DungeonPlan plan;
+    // 0-1 west of the hole, 2-3 the direct hops over it, 4 a point past the hole that lies 11 yd from the entrance
+    // (the fold), 5 far east, 6 the pull.
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 80), Step(PlanStepKind::MoveDirect, 90),
+        Step(PlanStepKind::MoveDirect, 100), Step(PlanStepKind::Move, 11), Step(PlanStepKind::Move, 300),
+        PullStep(330, {1})};
+    Run r = Start(&plan, 6);
+    Facts f = Party(0); // the entrance
+    f.seen = false;
+    CHECK(NearestMovePoint(r, f) == 4); // by distance the fold point is the nearest
+    StartWalkBack(r, f);
+    CHECK(r.walkBack && r.walkBackDirect && r.walkBackIdx == 1 && r.walkBackStart == 1);
+    // At step 2 the straight walk is over: the plan's points go on one by one, the straight cap no longer applies.
+    f.seen = true;
+    f.leadX = 80;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.walkBackIdx == 2 && !r.walkBackDirect);
+    CHECK(Tick(r, f) == "move 90.0 0.0 0.0 direct");
+
+    // A replay that cannot begin (no walkable path to its first point: it began on the wrong side of a hole) goes
+    // back to the plan's first point, once.
+    Run q = Start(&plan, 6);
+    q.walkBack = true;
+    q.walkBackIdx = q.walkBackStart = 4;
+    EnterPhase(q, Phase::Begin);
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = false;
+    Tick(q, g);
+    CHECK(q.walkBack && q.walkBackRestarted && q.walkBackIdx == 0 && q.walkBackStart == 0);
+    CHECK(q.note.find("first point") != std::string::npos);
+    // Not again: the next failure passes the point as before.
+    Tick(q, g);
+    CHECK(q.walkBackIdx == 1 && q.note.find("on to the next") != std::string::npos);
+}
+
 // 14:03: a bot that died after the regroup was over (the rogue on his corpse run) held the walk back at the pit's
 // direct step until a player revived and summoned him. No walk back point and no direct step goes out with a dead bot.
 static void TestDeadBotIsRevivedBeforeAWalkBackOrADirectStep()
@@ -241,6 +281,7 @@ int main()
 {
     TestReachStopsOnAggro();
     TestWalkBackStartsBeforeTheFirstDirectStep();
+    TestFoldedRouteStartsFromTheEntrance();
     TestDeadBotIsRevivedBeforeAWalkBackOrADirectStep();
     std::cout << "ok\n";
     return 0;
