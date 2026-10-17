@@ -9030,6 +9030,48 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
     }
 }
 
+// In a fight: what the run's guard of the party needs (DungeonRun::GuardTarget).
+// Whether the lead bot is a tank on "stay" and hit, and the mobs that hit a
+// party bot within kGuardYd of it, read off each bot's own attacker set (the
+// units that have it as their victim): no grid or world scan.
+void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+{
+    using namespace TortoiseBots::DungeonRun;
+    PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
+    if (!leadAi || !lead->IsAlive() || !lead->IsInWorld())
+        return;
+    f.leadIsTank = PlayerbotAI::IsTank(lead);
+    f.leadStaying = leadAi->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
+        leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
+    for (Unit* attacker : lead->GetAttackers())
+        if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead)
+            f.leadHit = true;
+    if (!f.leadIsTank || !f.leadStaying || f.leadHit)
+        return;
+    std::unordered_set<uint64> seen;
+    for (Player* bot : bots)
+    {
+        if (bot == lead || !bot->IsAlive() || !bot->IsInWorld() || bot->GetMap() != lead->GetMap() ||
+            bot->GetDistance(lead) > kGuardYd)
+            continue;
+        for (Unit* attacker : bot->GetAttackers())
+        {
+            if (!attacker || !attacker->IsAlive() || attacker->GetVictim() != bot ||
+                !seen.insert(attacker->GetObjectGuid().GetRawValue()).second ||
+                sServerFacade.IsFriendlyTo(attacker, lead))
+                continue;
+            UnitFact fact;
+            fact.guid = attacker->GetObjectGuid().GetRawValue();
+            fact.entry = attacker->GetEntry();
+            fact.distLead = lead->GetDistance(attacker);
+            fact.evading = attacker->IsCreature() && static_cast<Creature*>(attacker)->IsInEvadeMode();
+            fact.polymorphed = Polymorphed(attacker);
+            fact.engaged = true;
+            f.partyAttackers.push_back(fact);
+        }
+    }
+}
+
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -9105,6 +9147,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // already calculated), resolved by guid. No grid or world scan.
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
+    if (f.anyInCombat)
+        ReadGuardFacts(lead, bots, f);
 
     // The current step, or during a walk back after a regroup the move point
     // it replays (its hop pulls are read for that point).

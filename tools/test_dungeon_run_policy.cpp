@@ -1895,6 +1895,137 @@ static void TestResumeWithLeadDead()
     CHECK(r2.state == State::Paused && r2.note.find("still dead") != std::string::npos);
 }
 
+// Uldaman rerun 2026-10-17, keepers door pull 100: the tank held "stay" at its
+// pullback stand while a Geomancer and two Maulers killed the healer and the
+// DPS 30-37 yd away. With the party hit and the tank idle for kGuardWaitMs the
+// tank picks the nearest attacker up (`attack <guid> <tank>`), and after the
+// fight the run walks it back to the stand point.
+static void TestTankGuardsThePartyFromItsStand()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {4855, 4853})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    Tick(r, f); // on the stand point: the anchor, next step
+    CHECK(r.step == 1 && r.anchorKnown);
+    f.units = {Unit(31, 4853, 40)};
+    CHECK(Tick(r, f) == "pullback 31");
+    // The fight: the tank's own mob is on it, the party is not hit.
+    f.anyInCombat = true;
+    f.leadHit = true;
+    for (int i = 0; i < 6; ++i)
+        CHECK(Tick(r, f).empty());
+    // The tank's mob is dead; a caster and an add hit the party 30 and 35 yd away.
+    f.leadHit = false;
+    UnitFact caster = Unit(31, 4853, 30);
+    UnitFact add = Unit(41, 7320, 35);
+    UnitFact far = Unit(51, 7320, 45);
+    f.partyAttackers = {add, far, caster};
+    // A pullback's mobs reach the stand in a few seconds: wait kGuardWaitMs first.
+    for (std::uint32_t ms = kTickMs; ms < kGuardWaitMs; ms += kTickMs)
+        CHECK(Tick(r, f).empty());
+    CHECK(Tick(r, f) == "attack 31 Tanky"); // the nearest one
+    CHECK(r.guardReturn);
+    // The order ended the stay: the tank fights; no second order.
+    f.leadStaying = false;
+    f.leadX = 28;
+    for (int i = 0; i < 10; ++i)
+        CHECK(Tick(r, f).empty());
+    // The fight is over: back to the stand point first, then the step goes on.
+    f.anyInCombat = false;
+    f.partyAttackers.clear();
+    f.units.clear();
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    f.leadX = 1;
+    f.leadStaying = true;
+    Tick(r, f);
+    CHECK(!r.guardReturn);
+    CHECK(r.state == State::Done);
+}
+
+// The guard stays out of the way: a tank that is hit, not a tank, not on stay,
+// a scripted event, a polymorphed, evading or too far mob; at most
+// kGuardOrdersPerFight orders a fight; a refused pick-up or walk back never
+// pauses the run.
+static void TestTankGuardLimits()
+{
+    auto guardRun = [](DungeonPlan& plan)
+    {
+        plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {4855})};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        Tick(r, f);
+        f.units = {Unit(31, 4855, 40)};
+        Tick(r, f); // pullback 31
+        return r;
+    };
+    auto fight = [](bool tank, bool staying, bool hit)
+    {
+        Facts f = Party(0);
+        f.anyInCombat = true;
+        f.leadIsTank = tank;
+        f.leadStaying = staying;
+        f.leadHit = hit;
+        f.partyAttackers = {Unit(31, 4855, 20)};
+        return f;
+    };
+    auto ordersIn = [](Run& r, const Facts& f, int ticks)
+    {
+        int n = 0;
+        for (int i = 0; i < ticks; ++i)
+            if (Tick(r, f).compare(0, 7, "attack ") == 0)
+                ++n;
+        return n;
+    };
+    {
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        CHECK(ordersIn(r, fight(true, true, true), 8) == 0);   // the tank is hit: it is tanking
+        CHECK(ordersIn(r, fight(false, true, false), 8) == 0); // the lead bot is no tank
+        CHECK(ordersIn(r, fight(true, false, false), 8) == 0); // not on stay: its own AI goes already
+        Facts f = fight(true, true, false);
+        f.partyAttackers[0].polymorphed = true;
+        CHECK(ordersIn(r, f, 8) == 0);
+        f.partyAttackers[0].polymorphed = false;
+        f.partyAttackers[0].evading = true;
+        CHECK(ordersIn(r, f, 8) == 0);
+        f.partyAttackers[0].evading = false;
+        f.partyAttackers[0].distLead = kGuardYd + 1;
+        CHECK(ordersIn(r, f, 8) == 0);
+        // Still on stay after an order (refused, or the tank came back): a
+        // fresh wait each time, kGuardOrdersPerFight in all.
+        f.partyAttackers[0].distLead = 20;
+        CHECK(ordersIn(r, f, 30) == static_cast<int>(kGuardOrdersPerFight));
+        OrderRefused(r, "attack 31 Tanky", "failed: That bot did not accept the attack.");
+        CHECK(r.state == State::Running);
+        // A new fight gets its own orders.
+        Facts quiet = Party(0);
+        quiet.units = {Unit(31, 4855, 40)};
+        Tick(r, quiet);
+        CHECK(ordersIn(r, f, 5) == 1);
+    }
+    {
+        // A scripted event fights in place (the Keepers' and Archaedas' holds).
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        r.eventOn = true;
+        CHECK(ordersIn(r, fight(true, true, false), 8) == 0);
+    }
+    {
+        // A refused walk back to the stand point goes on from where it stands.
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        Facts f = fight(true, true, false);
+        CHECK(ordersIn(r, f, 5) == 1);
+        Facts after = Party(25);
+        CHECK(Tick(r, after) == "move 0.0 0.0 0.0");
+        OrderRefused(r, "move 0.0 0.0 0.0", "unreachable: The lead bot has no walkable path to that point.");
+        CHECK(r.state == State::Running && !r.guardReturn);
+    }
+}
+
 static void TestEmptyPlan()
 {
     DungeonPlan plan;
@@ -1964,6 +2095,8 @@ int main()
     TestCrowdControlMustLand();
     TestKillFirstIsThisFightsOnly();
     TestCcWindowCountsTheMagesFightTime();
+    TestTankGuardsThePartyFromItsStand();
+    TestTankGuardLimits();
     TestEmptyPlan();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
