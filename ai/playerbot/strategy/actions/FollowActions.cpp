@@ -462,6 +462,24 @@ bool FleeToMasterAction::Execute(Event& event)
     return true;
 }
 
+bool FormationStationAction::Execute(Event& event)
+{
+    Formation* formation = AI_VALUE(Formation*, "formation");
+    if (!formation)
+        return false;
+    WorldLocation loc = formation->GetLocation();
+    if (Formation::IsNullLocation(loc) || bot->GetMapId() != loc.mapId)
+        return false;
+    return MoveTo(loc.mapId, loc.x, loc.y, loc.z, true);
+}
+
+bool FormationStationAction::isUseful()
+{
+    if (ai::FollowBlockedByCast(bot->IsNonMeleeSpellCasted(false, true, true)))
+        return false;
+    return ai->CanMove();
+}
+
 bool FleeToMasterAction::isUseful()
 {
     if (!ai->CanMove())

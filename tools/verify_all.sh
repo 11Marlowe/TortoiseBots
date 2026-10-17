@@ -106,6 +106,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_fishing_spot_policy
         test_flamestrike_window_policy
         test_flight_errand_policy
+        test_formation_station_policy
         test_force_rebuff_policy
         test_four_horsemen_rotation_policy
         test_gather_spot_policy
