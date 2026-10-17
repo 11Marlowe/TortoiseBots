@@ -5955,6 +5955,7 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
     facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);
     facts.maxDistance = sPlayerbotAIConfig.reactDistance;
     facts.leadSpotGather = s_runIssuing && s_runGather;
+    facts.fromRunLeader = s_runIssuing;
     // The lead bot already stands on the point ("hold here"): the path finder
     // answers NOPATH for a zero-length path, so skip it; CheckMove accepts it.
     if (!RemoteCommander::IsAtLead(facts.distanceFromLead))
@@ -9857,7 +9858,8 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
             return true;
         }
         std::size_t startStep = 0;
-        FromResult const resolved = ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep);
+        bool movedBack = false;
+        FromResult const resolved = ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep, &movedBack);
         if (resolved != FromResult::Ok)
         {
             SendActionError(handler, intent, resolved == FromResult::NoSuchLeg ? "no-leg" : "no-step",
@@ -9895,9 +9897,10 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         if (startStep > 0)
         {
             std::string const& legName = plan->LegName(plan->steps[startStep].leg);
-            handler->PSendSysMessage("The run starts at step %u of %u (leg %s): the party is in the instance; the steps before it are not done or checked.",
+            handler->PSendSysMessage("The run starts at step %u of %u (leg %s): the party is in the instance; the steps before it are not done or checked.%s",
                 static_cast<uint32>(startStep + 1), static_cast<uint32>(plan->steps.size()),
-                legName.empty() ? std::to_string(plan->steps[startStep].leg).c_str() : legName.c_str());
+                legName.empty() ? std::to_string(plan->steps[startStep].leg).c_str() : legName.c_str(),
+                movedBack ? " The start was moved back to the step that starts the event it fell in." : "");
         }
         SendActionAck(handler, intent, "party", static_cast<uint32>(plan->steps.size()), plan->name);
         SendRunLine(commander, stored, true);

@@ -1372,6 +1372,7 @@ struct MoveFacts
     float endOffset = 0.0f;        // the path's actual end to the point
     float endFromLead = -1.0f;     // the lead bot to the path's actual end (< 0: not measured)
     bool leadSpotGather = false;   // the run leader's gather on the lead bot's own spot (never a player's order)
+    bool fromRunLeader = false;    // the run leader sent it (its approach hops and gathers end short on purpose)
 };
 
 enum class MoveVerdict : uint8_t
@@ -1397,7 +1398,8 @@ enum class MoveVerdict : uint8_t
 // another part of the mesh (a ledge, a sealed room), and one that ends where the
 // lead bot stands (kNoProgressYd) goes nowhere at any distance. Both used to be
 // acked as Ok and the lead bot then stood still (Ragefire, 2026-10-17: a point 6
-// yd away, acked three times, the lead bot never moved).
+// yd away, acked three times, the lead bot never moved). The far-end rule is for a
+// player's order only (fromRunLeader); the no-progress rule is for every order.
 constexpr float kMoveHereYd = 3.0f;
 constexpr float kIncompleteShortYd = 30.0f;
 constexpr float kNoProgressYd = 2.0f;
@@ -1420,7 +1422,10 @@ inline MoveVerdict CheckMove(MoveFacts const& facts)
     {
         if (facts.endFromLead >= 0.0f && facts.endFromLead <= kNoProgressYd)
             return MoveVerdict::NoPath;
-        if (facts.distanceFromLead <= kIncompleteShortYd && facts.endOffset > kMaxMoveEndOffset)
+        // The run leader's own hops and gathers aim at points past a pack or a ledge and
+        // accept an incomplete path (a refusal would pause the run): only a player's
+        // order is refused for an end far from its point.
+        if (!facts.fromRunLeader && facts.distanceFromLead <= kIncompleteShortYd && facts.endOffset > kMaxMoveEndOffset)
             return MoveVerdict::NoPath;
         return MoveVerdict::Ok;
     }

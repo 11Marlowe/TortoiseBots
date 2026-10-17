@@ -606,6 +606,18 @@ static void TestMoveVerdict()
     // ... but a path that goes nowhere is refused at any distance.
     facts.endFromLead = kNoProgressYd;
     CHECK(CheckMove(facts) == MoveVerdict::NoPath);
+    // The run leader's own hops and gathers (fromRunLeader) are not refused for an end far from the
+    // point: that would pause the run on legs 0-3. A path that goes nowhere is refused for it too.
+    facts = Walkable();
+    facts.distanceFromLead = 12.0f;
+    facts.pathType = 0x0001 | kPathIncomplete;
+    facts.endOffset = 9.0f;
+    facts.endFromLead = 8.0f;
+    CHECK(CheckMove(facts) == MoveVerdict::NoPath); // a player's order
+    facts.fromRunLeader = true;
+    CHECK(CheckMove(facts) == MoveVerdict::Ok);     // the run leader's hop
+    facts.endFromLead = 0.5f;
+    CHECK(CheckMove(facts) == MoveVerdict::NoPath); // no progress at all
     // A short incomplete path that ends near the point is walkable.
     facts = Walkable();
     facts.distanceFromLead = 20.0f;

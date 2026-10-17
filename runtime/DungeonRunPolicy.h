@@ -986,11 +986,46 @@ inline bool AllDigits(const std::string& v)
     return !v.empty() && v.size() <= 5 && std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; });
 }
 
-// The index of the step the run starts at.
+// A scripted event starts at its ritual, open or use_item step and runs on in the
+// hold behind it (EventHoldAhead). A start that lands on the hold, or on a move
+// leading into one, would never send the ritual: it goes back to the step that
+// starts the event (the Uldaman Keepers' ritual ends leg 10, its hold opens
+// leg 11). Anything else, or a hold with no such step before it, stays put.
+inline std::size_t EventStartStep(const DungeonPlan& plan, std::size_t idx)
+{
+    auto const moveLike = [](PlanStepKind k) { return k == PlanStepKind::Move || k == PlanStepKind::MoveDirect; };
+    std::size_t const n = plan.steps.size();
+    if (idx >= n)
+        return idx;
+    PlanStepKind const kind = plan.steps[idx].kind;
+    if (kind != PlanStepKind::Hold && !moveLike(kind))
+        return idx;
+    std::size_t j = idx;
+    while (j < n && moveLike(plan.steps[j].kind))
+        ++j;
+    if (kind != PlanStepKind::Hold && !(j < n && plan.steps[j].kind == PlanStepKind::Hold))
+        return idx;
+    std::size_t k = idx;
+    while (k > 0)
+    {
+        --k;
+        PlanStepKind const back = plan.steps[k].kind;
+        if (back == PlanStepKind::Ritual || back == PlanStepKind::Open || back == PlanStepKind::UseItem)
+            return k;
+        if (!moveLike(back))
+            return idx;
+    }
+    return idx;
+}
+
+// The index of the step the run starts at. `movedBack` is set when a start
+// inside an event was moved back to the step that starts it.
 inline FromResult ResolveStartStep(const DungeonPlan& plan, StartFrom from, const std::string& value,
-    std::size_t& step)
+    std::size_t& step, bool* movedBack = nullptr)
 {
     step = 0;
+    if (movedBack)
+        *movedBack = false;
     if (from == StartFrom::Beginning)
         return FromResult::Ok;
     if (from == StartFrom::Step)
@@ -1000,7 +1035,9 @@ inline FromResult ResolveStartStep(const DungeonPlan& plan, StartFrom from, cons
         std::size_t const n = static_cast<std::size_t>(std::atoi(value.c_str()));
         if (n < 1 || n > plan.steps.size())
             return FromResult::NoSuchStep;
-        step = n - 1;
+        step = EventStartStep(plan, n - 1);
+        if (movedBack)
+            *movedBack = step != n - 1;
         return FromResult::Ok;
     }
     bool const numeric = AllDigits(value);
@@ -1010,7 +1047,9 @@ inline FromResult ResolveStartStep(const DungeonPlan& plan, StartFrom from, cons
         std::uint8_t const leg = plan.steps[i].leg;
         if (numeric ? static_cast<int>(leg) == number : LowerCopy(plan.LegName(leg)) == value)
         {
-            step = i;
+            step = EventStartStep(plan, i);
+            if (movedBack)
+                *movedBack = step != i;
             return FromResult::Ok;
         }
     }

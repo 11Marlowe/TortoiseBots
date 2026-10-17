@@ -201,6 +201,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # 1. `cmd move` hands the policy how far the path's end is from the lead bot (an incomplete path that goes nowhere).
         move = body(COMMANDS, "static bool CommanderMove(", "\n}\n")
         self.assertIn("facts.endFromLead = std::sqrt(lx * lx + ly * ly + lz * lz);", move)
+        self.assertIn("facts.fromRunLeader = s_runIssuing;", move)
         # 2. The run's time limit ends the run with its own note; `run stop` takes a reason.
         tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
         self.assertIn("RunTimeLimitReached(slot.elapsedMs, sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
@@ -215,7 +216,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ReactionPassForced(ai->HasRealPlayerMaster(), ai->QueuedChatCommandCount())", engine)
         # 4. `run start ... from ...` resolves the step and guards a start partway.
         start = body(COMMANDS, "static bool HandleDungeonRun(", "\nvoid UpdateRemoteCommanders(")
-        self.assertIn("ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep)", start)
+        self.assertIn("ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep, &movedBack)", start)
         self.assertIn("CheckPartialStart(OnInstanceMap(lead), members.size(), withLead)", start)
         self.assertIn("slot.run = Start(plan, startStep);", start)
 
