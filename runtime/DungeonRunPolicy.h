@@ -114,7 +114,10 @@ constexpr std::uint32_t kEventResetWaitMs = 60000; // before a ritual: an encoun
 constexpr float kGuardYd = 40.0f;                 // party bots this close to the tank, hit by a mob, are guarded
 constexpr std::uint32_t kGuardWaitMs = 4000;      // ... once mobs were hitting them (in melee reach, or standing and
                                                   // casting: not while a pullback's mobs still run in) for this long
-constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send, each after a fresh wait
+constexpr std::uint32_t kGuardHealerWaitMs = 0;   // ... a mob hitting a healer at once: at pull 100 two Maulers
+                                                  // took the healer from 73 % to dead in 4 s
+constexpr std::uint32_t kGuardRepeatMs = 2000;    // a further pick-up no sooner than this after the last one
+constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight may send
 
 // Rest gate: it starts when someone is below a "start" line after a fight or
 // before a step, and ends when everybody is at the "end" line (or at kRestCapMs).
@@ -359,6 +362,7 @@ struct Run
     // sent, and the walk back to the stand point after the fight.
     std::uint32_t guardMs = 0;
     std::uint32_t guardOrders = 0;
+    std::uint32_t guardSinceOrderMs = 0; // fight time since the last pick-up
     bool guardReturn = false;
 };
 
@@ -2135,11 +2139,12 @@ inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
     return best;
 }
 
-// One fight tick of the guard: mobs hitting the party for kGuardWaitMs send
-// the pick-up, at most kGuardOrdersPerFight a fight, each after a fresh wait.
-// True when `order` holds it.
+// One fight tick of the guard: mobs hitting the party for kGuardWaitMs (a
+// healer: at once) send the pick-up, at most kGuardOrdersPerFight a fight and
+// kGuardRepeatMs apart. True when `order` holds it.
 inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
+    r.guardSinceOrderMs += dt;
     const UnitFact* u = GuardTarget(r, f);
     if (!u)
     {
@@ -2147,9 +2152,12 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         return false;
     }
     r.guardMs += dt;
-    if (r.guardMs < kGuardWaitMs || r.guardOrders >= kGuardOrdersPerFight)
+    std::uint32_t const wait = u->victimHealer ? kGuardHealerWaitMs : kGuardWaitMs;
+    if (r.guardMs < wait || r.guardOrders >= kGuardOrdersPerFight ||
+        (r.guardOrders > 0 && r.guardSinceOrderMs < kGuardRepeatMs))
         return false;
     r.guardMs = 0;
+    r.guardSinceOrderMs = 0;
     ++r.guardOrders;
     r.guardReturn = r.guardReturn || r.anchorKnown;
     r.note = "fighting: the tank picks up " + std::to_string(u->entry) + " off " +

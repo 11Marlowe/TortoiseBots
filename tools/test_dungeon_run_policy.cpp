@@ -1975,16 +1975,19 @@ static void TestTankGuardPull100Replay()
     f.partyAttackers = {Hitter(98, 4853, 30)}; // the Geomancer on the mage
     for (int i = 0; i < 8; ++i)
         CHECK(Tick(r, f).empty());
-    // A Mauler reaches the healer.
+    // A Mauler reaches the healer at T (trace: 7478); she is dead at T+2-3 s
+    // (botwatch 73 % at 03:07:22, 0 % at 03:07:26): the order goes out on the
+    // first tick she is seen hit.
     f.partyAttackers = {Hitter(98, 4853, 30), Hitter(90, 7320, 14, true)};
-    std::string order;
-    for (int i = 0; i < 5 && order.empty(); ++i)
-        order = Tick(r, f);
-    CHECK(order == "attack 90 Tanky");
-    // Off its stay now; the second Mauler turns on the healer.
+    CHECK(Tick(r, f) == "attack 90 Tanky");
+    // Off its stay now; the second Mauler turns on the healer: picked up once
+    // kGuardRepeatMs have passed since the first, and the cap is reached in
+    // one fight.
     f.leadStaying = false;
     f.partyAttackers = {Hitter(98, 4853, 30), Hitter(91, 7320, 20, true)};
-    int orders = 1;
+    CHECK(Tick(r, f).empty());
+    CHECK(Tick(r, f) == "attack 91 Tanky");
+    int orders = 2;
     for (int i = 0; i < 20; ++i)
         if (Tick(r, f).compare(0, 7, "attack ") == 0)
             ++orders;
