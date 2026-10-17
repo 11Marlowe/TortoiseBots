@@ -1802,14 +1802,24 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
 // above, so the gather "went back" to it and the next hop came forward again:
 // eight times, then the hop cap). Arriving at the hop's point makes it the
 // anchor (WalkTo). Not when a unit of the step stands within kHopClearYd of the
-// lead bot: then the pull goes on from here with the anchor unchanged.
+// lead bot: then the hop is over and the pull goes out from here, with the gather
+// (and the gather back to the old anchor) left out for this pull.
 inline bool FinishHopInSight(Run& r, const Facts& f, std::uint32_t dt, std::string& order, const char* what)
 {
     if (r.phase != Phase::Walk || !r.hopWalk || r.walkX != r.hopX || r.walkY != r.hopY || r.walkZ != r.hopZ)
         return false;
     for (const UnitFact& u : f.units)
         if (u.hostile && u.distLead < kHopClearYd)
+        {
+            // The hop is over; the pull goes from where the lead bot stands. The
+            // party is neither gathered beside the pack nor sent back to the old
+            // anchor for this pull: the followers stay behind (PullUnit clears
+            // the waiver when the pull goes out).
+            EnterPhase(r, Phase::Begin);
+            r.hopWalk = false;
+            r.gatherWaived = true;
             return false;
+        }
     r.note = std::string("approaching the ") + what;
     if (!WalkTo(r, f, r.hopX, r.hopY, r.hopZ, false, dt, order))
         return true;

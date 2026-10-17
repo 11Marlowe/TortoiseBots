@@ -442,8 +442,9 @@ static void TestFarPackHopIsNotUndoneByTheGatherBack()
     CHECK(Tick(r, f) == "pullback 1");
     CHECK(r.anchorX == -205.0f && r.anchorZ == -52.0f);
     CHECK(r.note.find("gathering back") == std::string::npos);
-    // A unit of the pack within kHopClearYd: no walking on, the pull goes from
-    // here and the anchor stays (the party is not gathered next to the pack).
+    // A unit of the pack within kHopClearYd, the followers far behind: the hop
+    // is over and the pull goes out from here. Neither a gather beside the pack
+    // nor a walk back to the old anchor, however many ticks it takes.
     Run q = Start(&plan);
     q.restDue = false;
     q.anchorKnown = true;
@@ -458,9 +459,23 @@ static void TestFarPackHopIsNotUndoneByTheGatherBack()
     g.seen = true;
     g.maxMemberYd = 40;
     g.units = {Unit(1, 11318, 17)};
-    CHECK(Tick(q, g).compare(0, 5, "move ") == 0);
-    CHECK(q.note.find("gathering back at -169.1 -34.9 -40.9") == 0);
-    CHECK(q.anchorX == -169.1f);
+    bool pulled = false;
+    for (int i = 0; i < 40 && q.state == State::Running; ++i)
+    {
+        std::string const order = Tick(q, g);
+        CHECK(order.compare(0, 5, "move ") != 0);
+        CHECK(q.note.find("gathering") == std::string::npos);
+        if (order == "pullback 1")
+        {
+            pulled = true;
+            break;
+        }
+    }
+    CHECK(pulled && q.state == State::Running && q.pulls == 1 && q.anchorX == -169.1f);
+    // The fight starts and ends: the next pull is an ordinary one again.
+    g.anyInCombat = true;
+    Tick(q, g);
+    CHECK(q.state == State::Running && q.fighting);
     // A player's move next to the visible pack, the party behind: the anchor stays too.
     Run m = Start(&plan);
     m.restDue = false;
