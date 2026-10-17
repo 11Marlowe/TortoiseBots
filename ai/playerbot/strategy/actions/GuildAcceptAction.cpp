@@ -7,6 +7,8 @@
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
 #include "../../../runtime/HireLifecycle.h"
+#include "runtime/AltBotPolicy.h"
+#include "runtime/AltBotService.h"
 
 using namespace ai;
 
@@ -56,6 +58,29 @@ bool GuildAcceptAction::Execute(Event& event)
             bot->Say(BOT_TEXT2("I am a hired mercenary and cannot join a guild %name.", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
 
         accept = false;
+    }
+    // Issue #872 (F40): an autonomous alt accepts a guild invite only from
+    // the owner's account. A pool bot takes any invite its security level
+    // allows; an alt never does.
+    else if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+    {
+        WorldSession const* inviterSession = inviter->GetSession();
+        bool const isGm = inviterSession && inviterSession->GetSecurity() > SEC_PLAYER;
+        uint32_t const ownerAccount =
+            TortoiseBots::AltBotService::Instance().GetOwnerAccount(bot->GetGUIDLow());
+        bool const sameAccount = inviterSession && ownerAccount != 0 &&
+            inviterSession->GetAccountId() == ownerAccount;
+        if (!TortoiseBots::AltBotMayAcceptGuildInvite(sameAccount, isGm))
+            accept = false;
+        else if (!ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_GUILD, false, inviter, true))
+        {
+            ai->TellError(requester, "Sorry, I don't want to join your guild :(");
+
+            if (sServerFacade.getDistance2d(bot, inviter) < sPlayerbotAIConfig.spellDistance * 1.5 && PlayerbotAIStorage::Instance().GetAI(inviter))
+                bot->Say(BOT_TEXT2("Sorry, I don't want to join your guild %name :(.", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+
+            accept = false;
+        }
     }
     else if (!ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_GUILD, false, inviter, true))
     {

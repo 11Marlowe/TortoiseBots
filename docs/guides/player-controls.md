@@ -30,6 +30,8 @@ The remote commander (section 1a, off by default) adds one rule: a commander bou
 
 Refused commands answer with a short reason in chat; addon-originated requests additionally receive exactly one `TBM:ACTION_ERR|<command>|denied|<reason>` line so the `/tbm` UI can surface it.
 
+**Autonomous alt-bots (issue #872):** towards other players an alt playing on its own behaves like a random bot. Anyone may invite it and give it the combat orders above (`follow`, `stay`, `guard`, `free`, `wander`, combat orders, read-only info); only the owner's account (or a GM) may give it anything else — trade, selling, destroying, equipping, talents, quest abandon, logout, guild commands, hearth bind, `hire`, strategy edits, or any command not on the tactical list. Nobody except the owner (or a GM) can remove it from the world. It accepts a guild invite only from the owner's account and never leaves its guild on its own. `.bot cmd` orders never move it: a stranger's commanded group drops it from the order's bots (order it with whispers or party chat instead).
+
 **Pool-bot trading (issue #469):** a masterless pool bot refuses a real-player stranger's trade window (`AiPlayerbot.PoolBotTradeMode = 0`, the default) and ignores Trade-channel chatter unless the speaker addresses it directly. Owned and hired bots always trade with their master; `1` limits the pool to master/group/hire-master trades, `2`/`3` allow buy-only/sell-only, `4` restores unrestricted trading. Bot-to-bot trade life (RPG giveaways, enchants, `WTS`/`WTB`) is untouched.
 
 ---

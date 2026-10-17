@@ -7,6 +7,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
 #include "playerbot/ServerFacade.h"
+#include "runtime/AltBotService.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/PoolBotTradePolicy.h"
 #include "playerbot/strategy/values/CraftValues.h"
@@ -38,12 +39,30 @@ bool TradeStatusAction::Execute(Event& event)
         bot->GetSession()->HandleCancelTradeOpcode(p);
         return false;
     }
+    // Issue #872 (B8): an autonomous alt never trades with a stranger. The
+    // owner (or a GM) trades as before; a stranger's window is cancelled at
+    // the earliest point, like the pool gate above.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        isRealPlayer_Helper(trader) && !ai->IsBotOwnerOrGm(*trader))
+    {
+        ai->TellPlayer(trader, "I don't trade with strangers.", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
+        WorldPacket cancelTrade;
+        uint32 cancelStatus = 0;
+        cancelTrade << cancelStatus;
+        bot->GetSession()->HandleCancelTradeOpcode(cancelTrade);
+        return false;
+    }
 
     bool shouldTrade = true;
     if (!PlayerbotAIStorage::Instance().GetAI(trader))
     {
         shouldTrade = false;
-        if (trader == master || IsInGroup_Helper(bot, trader))
+        // Issue #872 (B8): an autonomous alt trades only with its owner (or
+        // a GM). Group membership must not open the window: a stranger's
+        // group is exactly how they reach the alt.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            shouldTrade = ai->IsBotOwnerOrGm(*trader);
+        else if (trader == master || IsInGroup_Helper(bot, trader))
         {
             shouldTrade = ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false, trader);
         }
