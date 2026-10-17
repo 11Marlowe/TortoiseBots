@@ -64,6 +64,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_action_log_policy
         test_adaptive_budget
         test_ah_buyer_policy
+        test_alt_bot_policy
         test_ah_seller_teleport_policy
         test_ammo_cache_policy
         test_ammo_cheat_policy

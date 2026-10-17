@@ -6,6 +6,7 @@
 #include "GearSeedingGuard.h"
 #include "HireLifecycle.h"
 #include "ClaimLifecycle.h"
+#include "AltBotService.h"
 #include "../host/BotSessionAdapter.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -1421,7 +1422,9 @@ void RandomBotService::MaintainOnlinePool()
         if (BotManager::Instance().IsRandomBot(candidate.characterGuid))
             ++online;
 
-    if (online >= m_targetCount || m_candidates.empty())
+    // Issue #872: each active alt-bot holds one pool slot.
+    uint32 const target = PoolTargetWithAlts(m_targetCount, AltBotService::Instance().ActiveCount());
+    if (online >= target || m_candidates.empty())
         return;
 
     uint32 perInterval = sPlayerbotAIConfig.randomBotsMaxLoginsPerInterval;
@@ -1435,7 +1438,7 @@ void RandomBotService::MaintainOnlinePool()
     {
         for (uint32 pinnedGuid : m_pinnedGuids)
         {
-            if (online >= m_targetCount || added >= perInterval)
+            if (online >= target || added >= perInterval)
                 break;
 
             Candidate const* pinnedCandidate = nullptr;
@@ -1501,7 +1504,7 @@ void RandomBotService::MaintainOnlinePool()
         for (auto const& bucket : buckets)
             eligible += static_cast<uint32_t>(bucket.size());
         size_t ladderAttempts = 0, maxAttempts = static_cast<size_t>(perInterval) * 4;
-        while (online < m_targetCount && added < perInterval && ladderAttempts < maxAttempts)
+        while (online < target && added < perInterval && ladderAttempts < maxAttempts)
         {
             ++ladderAttempts;
             int picked = LadderPickFromBuckets(buckets, onlinePerBand, onlineAlliance, onlineHorde);
@@ -1550,18 +1553,18 @@ void RandomBotService::MaintainOnlinePool()
             }
         }
         ++m_nextCandidate; // equals take turns across passes
-        if (online < m_targetCount && nowMs - m_ladderPassLogMs >= 60000)
+        if (online < target && nowMs - m_ladderPassLogMs >= 60000)
         {
             m_ladderPassLogMs = nowMs;
             TB_LOG_BASIC("TortoiseBots: level ladder pass: online %u/%u, added %u, offline eligible %u, skipped: session %u, lease %u, add refused %u, held %u, tracked %u, stale holds %u",
-                online, m_targetCount, added, eligible, sessionBusy, leaseBusy, addFailed,
+                online, target, added, eligible, sessionBusy, leaseBusy, addFailed,
                 skips.held, skips.tracked, skips.staleHold);
         }
         return;
     }
 
     size_t attempts = 0;
-    while (online < m_targetCount && added < perInterval && attempts < m_candidates.size())
+    while (online < target && added < perInterval && attempts < m_candidates.size())
     {
         size_t index = m_nextCandidate++ % m_candidates.size();
         ++attempts;

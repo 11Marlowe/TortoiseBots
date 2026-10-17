@@ -4,6 +4,7 @@
 #include "playerbot/strategy/values/ItemCountValue.h"
 #include "playerbot/QuestLogPolicy.h"
 #include "playerbot/strategy/values/MaintenanceValues.h"
+#include "../../../../runtime/AltBotService.h"
 
 using namespace ai;
 
@@ -98,6 +99,10 @@ bool SmartDestroyItemAction::DestroyUsages(Player* requester, std::vector<ItemUs
 
 bool SmartDestroyItemAction::Execute(Event& event)
 {
+    // Issue #872: an alt-bot never destroys the player's items.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        return false;
+
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     uint8 bagSpace = AI_VALUE(uint8, "bag space");
 

@@ -3,6 +3,7 @@
 #include "../host/BotSessionAdapter.h"
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../runtime/ClaimLifecycle.h"
+#include "../runtime/AltBotService.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/ServerFacade.h"
 #include "../ai/playerbot/strategy/Engine.h"
@@ -41,7 +42,10 @@ bool CanControlBot(Player* requester, BotRecord const* record)
     if (IsBotAdministrator(requester))
         return true;
 
-    if (record->masterGuid && record->masterGuid == requester->GetObjectGuid())
+    // Issue #872: an alt-bot in another player's group has that player as its
+    // master, but only the owner's account controls it.
+    if (record->masterGuid && record->masterGuid == requester->GetObjectGuid() &&
+        !AltBotService::Instance().IsAutonomous(record->characterGuid))
         return true;
 
     uint32_t ownerAccount = record->ownerAccountId ? record->ownerAccountId : record->accountId;

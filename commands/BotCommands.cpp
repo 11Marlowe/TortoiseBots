@@ -5,6 +5,7 @@
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/ClaimLifecycle.h"
+#include "../runtime/AltBotService.h"
 #include "../runtime/HireProvisionService.h"
 #include "../runtime/HireRaidPolicy.h"
 #include "../runtime/HireSpecPolicy.h"
@@ -1397,8 +1398,20 @@ static bool HandleAdd(ChatHandler* handler, char const* args)
     uint32_t accountId = data->uiAccount;
     ::ObjectGuid masterGuid = requester->GetObjectGuid();
 
-    if (sObjectAccessor.FindPlayer(guid))
+    if (::Player* online = sObjectAccessor.FindPlayer(guid))
     {
+        // Issue #872: `.bot add` on the requester's own alt-bot takes it back
+        // as a companion without a relog.
+        if (AltBotService::Instance().IsAutonomous(guid) && requester->GetSession() &&
+            (AltBotService::Instance().GetOwnerAccount(guid.GetCounter()) == requester->GetSession()->GetAccountId() ||
+             IsBotAdministrator(requester)))
+        {
+            if (AltBotService::Instance().TakeBack(requester, online))
+                handler->PSendSysMessage("%s is your companion again and follows you.", name.c_str());
+            else
+                handler->PSendSysMessage("Could not take %s back as a companion.", name.c_str());
+            return true;
+        }
         handler->PSendSysMessage("Character '%s' is already online and cannot be claimed as a Headless bot.", name.c_str());
         return true;
     }
