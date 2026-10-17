@@ -2313,6 +2313,16 @@ static bool HandleRoster(ChatHandler* handler)
             ProtocolSafe(RosterLocation(mapId, zoneId, areaId)).c_str());
     }
     handler->PSendSysMessage("TBM:ROSTER_END");
+    // Issue #872: rows that currently play on their own, in one extra line so
+    // the strict roster row stays unchanged for older addons (they ignore it).
+    std::string altBots;
+    for (OwnedCharacter const& row : rows)
+        if (AltBotService::Instance().IsAutonomous(row.characterGuid))
+        {
+            Player* alt = sObjectAccessor.FindPlayer(row.characterGuid);
+            altBots += (altBots.empty() ? "" : ",") + ProtocolSafe(alt ? alt->GetName() : row.name);
+        }
+    handler->PSendSysMessage("TBM:ALTBOTS|%s", altBots.c_str());
     // CC assignments and the BOTSTATE snapshot below describe the same set:
     // the controllable party bots (owned alts and hired companions). The
     // roster rows leave hires out on purpose, so they cannot feed CC_ASSIGN.

@@ -513,7 +513,9 @@ companion UI does not print request or reply lines into the chat frame.
 `.bot roster` reads the requester's undeleted account characters and any
 explicit cross-account ownership rows from the module-owned durable table. It
 emits the stable six-field `TBM:ROSTER_BEGIN`, `TBM:ROSTER`, and
-`TBM:ROSTER_END` system-message stream, followed by a separate
+`TBM:ROSTER_END` system-message stream, then one `TBM:ALTBOTS|<name,name>` line
+naming the roster characters that currently play on their own (issue #872; empty
+after the pipe when none; older addons ignore it), followed by a separate
 `TBM:CC_ASSIGN_BEGIN`, `TBM:CC_ASSIGN`, `TBM:CC_ASSIGN_END` stream for live
 CC assignments of the controllable party bots that have the `cc` strategy and a
 CC mark set (owned alts and hired companions;

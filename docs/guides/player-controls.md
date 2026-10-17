@@ -455,6 +455,7 @@ within one tick are ignored with one line `Too many bot commands at once: <n> ig
   `TBM:CLAIMED_END` claimed-guild-bot snapshot (issue #489) for the addon's Guild tab.
   The addon hides the matching controls when a capability is missing.
 - Remote commander view — `TBM:VIEW|v1|<seq>|<B|P|H|T|E>|...` frames, sent unprompted to a bound commander whose view is on; grammar in [section 1a](#perception-feed-tbmview-phase-2).
+- Alt-bots — `TBM:ALTBOTS|<name,name>` follows the roster rows on every roster response (issue #872): the owned characters currently playing on their own (empty after the pipe when none). The addon shows them as `Alt-bot · Playing alone`; its `Login` button takes one back as a companion (`.bot add`), `Logout` logs it out.
 - Version — `TBM:VERSION|<UTC date>-v<N>` trails every roster response, and
   answers `.bot version` and `.bot help` directly. The addon shows it as
   `server <version>` in the `/tbm` window (`server ?` on older servers).
