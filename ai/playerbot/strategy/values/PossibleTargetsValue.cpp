@@ -163,11 +163,13 @@ bool PossibleTriggersValue::AcceptUnit(Unit* unit)
     // Listed permanent-aura creature (opt-in keep-out), selectable or not.
     if (KeepoutFor(unit))
         return true;
-    // Invisible trigger NPCs cannot be selected.
-    if (!unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE))
-        return false;
-    // Periodic-trigger aura whose triggered spell deals school damage.
+    // Selectable bosses spin too (Herod's Whirlwind 8989), but a selectable
+    // mob with a permanent burning aura (Fire Shield II 184 on Scarlet
+    // Conjuror 4297) must stay fightable: school damage still lists
+    // invisible emitters only, weapon spins list anyone.
+    bool const selectable = !unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
     Unit::AuraList const& triggered = unit->GetAurasByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL);
+    bool spinning = false;
     for (Unit::AuraList::const_iterator it = triggered.begin(); it != triggered.end(); ++it)
     {
         Aura* aura = *it;
@@ -181,10 +183,11 @@ bool PossibleTriggersValue::AcceptUnit(Unit* unit)
         if (!triggerProto)
             continue;
         for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
-            if (triggerProto->Effect[i] == SPELL_EFFECT_SCHOOL_DAMAGE)
-                return true;
+            if (TriggerSpellMarksSpinHazard((int)triggerProto->Effect[i],
+                (int)triggerProto->EffectImplicitTargetA[i], (int)triggerProto->EffectImplicitTargetB[i], selectable))
+                spinning = true;
     }
-    return false;
+    return spinning;
 }
 
 CreatureAuraKeepout const* PossibleTriggersValue::KeepoutFor(Unit* unit)
