@@ -1860,6 +1860,39 @@ static UnitFact Ward(std::uint64_t guid, std::uint64_t owner, bool ownerEngaged)
     return u;
 }
 
+// The gather left out for a pull after a hop was abandoned for a close unit
+// holds for that pull only: combat that starts during the pre-pull crowd
+// control ends it, and the next pull gathers (and goes back to the anchor).
+static void TestHopWaiverEndsWhenCombatStartsDuringCrowdControl()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    r.restDue = false;
+    r.anchorKnown = true; // the stand before, 20 yd below the lead bot
+    r.anchorX = 0; r.anchorY = 0; r.anchorZ = -20;
+    EnterPhase(r, Phase::Walk); // an approach hop the pack came in sight during
+    r.hopWalk = true;
+    r.hopX = r.walkX = 5; r.hopY = r.walkY = 0; r.hopZ = r.walkZ = 0;
+    Facts f = Party(0);
+    f.members = {MemberFact{"Magey", 5, true, true}};
+    f.maxMemberYd = 40; // the followers are behind
+    f.units = {Unit(1, 5648, 10), Unit(2, 5650, 20), Unit(3, 7247, 25)};
+    // The hop is over, no gather: the crowd control goes first.
+    CHECK(Tick(r, f) == "cc moon 2 Magey");
+    CHECK(r.gatherWaived && !r.hopWaiveUnits.empty());
+    // Combat starts before the pullback.
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(!r.gatherWaived && r.hopWaiveUnits.empty());
+    // The fight is over; the next pull gathers first, back at the anchor.
+    f.anyInCombat = false;
+    std::string order;
+    for (int i = 0; i < 40 && order.empty() && r.state == State::Running; ++i)
+        order = Tick(r, f);
+    CHECK(order.compare(0, 5, "move ") == 0);
+    CHECK(r.note.find("gathering") == 0);
+}
+
 static void TestPullCrowdControlsTheHealer()
 {
     DungeonPlan plan = ZfPlan();
@@ -2829,6 +2862,7 @@ int main()
     TestGatherGoesBackToTheAnchorAfterARidgeChase();
     TestDirectWalkBackAvoidsUnclearedPacks();
     TestStalledAnchorAndSkippedPacks();
+    TestHopWaiverEndsWhenCombatStartsDuringCrowdControl();
     TestPullCrowdControlsTheHealer();
     TestNoCrowdControlWithoutAMageOrPlanList();
     TestCrowdControlMustLand();

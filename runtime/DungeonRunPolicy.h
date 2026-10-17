@@ -327,6 +327,7 @@ struct Run
     bool walkedThrough = false;
     // The target of the approach hop the walk goes to (hopWalk), to tell it from
     // another walk of the step (the stealth walk through a pack's centre).
+    std::unordered_set<std::uint64_t> hopWaiveUnits; // the gather is left out for a pull of these units only (the step's units when a hop was abandoned)
     bool hopWalk = false;
     float hopX = 0.0f, hopY = 0.0f, hopZ = 0.0f;
     std::uint32_t approachHops = 0;     // approach hops since the party last got nearer to the step's point
@@ -590,6 +591,7 @@ inline void ResetStep(Run& r)
     r.approachHops = 0;
     r.approachBestYd = 0.0f;
     r.hopWalk = false;
+    r.hopWaiveUnits.clear();
     r.detour = false;
     r.walkTries = 0;
     r.walkStillMs = 0;
@@ -849,8 +851,19 @@ inline bool IsPathRefusal(const std::string& answer)
     return false;
 }
 
+// The waiver of a hop abandoned for a close unit ends with anything that
+// changes the pull's situation (combat, a regroup, another target).
+inline void DropHopWaiver(Run& r)
+{
+    if (r.hopWaiveUnits.empty())
+        return;
+    r.hopWaiveUnits.clear();
+    r.gatherWaived = false;
+}
+
 inline void BeginRegroup(Run& r)
 {
+    DropHopWaiver(r);
     r.anchorKnown = false; // the party comes back to life elsewhere
     r.regroup = true;
     r.reviveSent = false;
@@ -1385,6 +1398,8 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.note = WaitNote(r, f) + ": no pull while a party member is dead";
         return;
     }
+    if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
+        DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
     AnchorState const anchor = r.gatherWaived ? AnchorState::On : CheckAnchor(r, f);
     if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
     {
@@ -1440,6 +1455,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     }
     // A gather left out holds for this pull only: the next one gathers again.
     r.gatherWaived = false;
+    r.hopWaiveUnits.clear();
     r.gatherRefusals = 0;
     std::uint32_t& tries = r.pullTries[u.guid];
     if (tries >= kMaxPullsPerTarget)
@@ -1818,6 +1834,8 @@ inline bool FinishHopInSight(Run& r, const Facts& f, std::uint32_t dt, std::stri
             EnterPhase(r, Phase::Begin);
             r.hopWalk = false;
             r.gatherWaived = true;
+            for (const UnitFact& each : f.units)
+                r.hopWaiveUnits.insert(each.guid);
             return false;
         }
     r.note = std::string("approaching the ") + what;
@@ -3093,6 +3111,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             r.fighting = true;
             r.fightMs = 0;
+            DropHopWaiver(r);
         }
         r.fightMs += dt;
         // A hold's fights are the event (one wave after the other, no pause
