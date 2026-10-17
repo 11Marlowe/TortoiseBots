@@ -235,6 +235,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_tank_add_pickup_policy
         test_taxi_path_policy
         test_thaddius_polarity_policy
         test_trade_lockbox_policy
