@@ -65,6 +65,11 @@ public:
     // In-memory summary counters.
     void OnQuestCompleted(Player* bot);
     void OnDeath(Player* bot);
+    // Footprint: quests the alt took itself while autonomous. Only these may
+    // be abandoned (DropQuestAction); cleared when the session ends.
+    void AddTakenQuest(Player* bot, uint32_t questId);
+    void AddTakenQuest(uint32_t guidLow, uint32_t questId);
+    bool IsTakenQuest(uint32_t guidLow, uint32_t questId) const;
 
 private:
     struct Session
@@ -74,6 +79,7 @@ private:
         AltBotSessionCounters counters;
         uint32_t displacedPoolGuidLow = 0;
         uint32_t displacedPoolAccountId = 0;
+        std::vector<uint32_t> takenQuests;
     };
 
     AltBotService() = default;

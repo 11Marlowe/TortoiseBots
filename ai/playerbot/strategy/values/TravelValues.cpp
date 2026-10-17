@@ -478,10 +478,16 @@ bool ShouldTravelNamedValue::Calculate()
     }
     else if (name == "reagent vendor")
     {
+        // Issue #872 (B11): autonomous alts never travel to buy reagents.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return false;
         return AI_VALUE(bool, "needs profession reagents");
     }
     else if (name == "mount")
     {
+        // Issue #872 (B11): autonomous alts never buy mounts.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return false;
         if (AI_VALUE(bool, "can buy mount"))
             return true;
 
@@ -489,6 +495,10 @@ bool ShouldTravelNamedValue::Calculate()
     }
     else if (name.find("trainer") == 0)
     {
+        // Issue #872 (B11): autonomous alts train class spells only.
+        if (name != "trainer class" &&
+            TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return false;
         // Park pre-gate (perf): a parked trainer need stays parked until the
         // purse covers the cheapest rank (money park) or a level-up clears it
         // (AutoLearnSpellAction). The full probe below walks the trainer map

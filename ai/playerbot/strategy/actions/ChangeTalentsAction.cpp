@@ -9,6 +9,8 @@
 #include "../../../../runtime/HireRespecPolicy.h"
 #include "../../../../runtime/HireTierRequestPolicy.h"
 #include "../../../../runtime/HireProvisionService.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 
 using namespace ai;
 
@@ -527,6 +529,10 @@ bool AutoSetTalentsAction::Execute(Event& event)
     // character has a human-configured build; only an explicit "talents ..."
     // command should be allowed to change it.
     if (ai->IsOwnedBot())
+        return false;
+    // Issue #872: autonomous alts never auto-spend talents (B12). Points
+    // stay unspent for the player; explicit owner orders still work.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
         return false;
 
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();

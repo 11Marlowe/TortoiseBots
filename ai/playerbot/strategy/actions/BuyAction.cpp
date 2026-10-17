@@ -13,12 +13,20 @@
 #include "runtime/HireLifecycle.h"
 #include "playerbot/strategy/values/MountValues.h"
 #include "playerbot/strategy/values/GuildValues.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 
 using namespace ai;
 
 bool BuyAction::Execute(Event& event)
 {
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
+    // Issue #872: autonomous alts spend gold on trainer spells, repair and
+    // flight paths only - never mount, bags, respec or other vendor buys
+    // (B11). Companion orders via explicit item links keep today's behaviour;
+    // the autonomous gate below only narrows the "buy useful" automation and
+    // the weapon-upgrade pass.
+    bool const isAltBot = TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
     bool buyUseful = false;
     ItemIds itemIds;
     std::string link = event.GetParam();
@@ -138,7 +146,7 @@ bool BuyAction::Execute(Event& event)
                 // the gold stays for the shield (sorted first above).
                 bool const vendorOffHandWeapon = proto->Class == ITEM_CLASS_WEAPON &&
                     ai::SpecUsesShieldOffHand(bot->GetClass(), sRandomItemMgr.GetSpecName(buySpecId));
-                if (!result && !boughtWeapon && !vendorOffHandWeapon && IsVendorWeaponUpgradeCandidate(proto->Class, proto->SubClass) &&
+                if (!result && !boughtWeapon && !vendorOffHandWeapon && !isAltBot && IsVendorWeaponUpgradeCandidate(proto->Class, proto->SubClass) &&
                     !ai->HasActivePlayerMaster() && !ai->HasRealPlayerMaster() &&
                     sRandomBotFacade.IsRandomBot(bot) &&
                     !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
@@ -191,6 +199,12 @@ bool BuyAction::Execute(Event& event)
                         default: usageAllowed = false; break;
                     }
                     if (!usageAllowed)
+                        break;
+                    // Issue #872 (B11): autonomous alts never buy gear, ammo,
+                    // consumables, tradeskill stock or AH flips from a vendor.
+                    // Trainer spells are taught by TrainerAction, not bought
+                    // here, so refusing every usage in this loop is exact.
+                    if (isAltBot && event.GetSource() == "rpg action")
                         break;
 
                     // Gold affordability
