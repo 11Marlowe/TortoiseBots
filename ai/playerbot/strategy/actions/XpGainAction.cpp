@@ -5,6 +5,7 @@
 #include "playerbot/TravelMgr.h"
 #include "playerbot/strategy/actions/LootAction.h"
 #include "runtime/ObservabilityEmitter.h"
+#include "../../../../runtime/AltBotService.h"
 #ifdef MANGOS
 #include "luaEngine.h"
 #endif
@@ -80,7 +81,10 @@ bool XpGainAction::Execute(Event& event)
         BroadcastHelper::BroadcastCreatureKill(ai, bot, creature);
     }
 
-    if (!sRandomBotFacade.IsFreeBot(bot) || sPlayerbotAIConfig.playerbotsXPrate == 1)
+    // Issue #872 E31: an autonomous alt levels at the server rate, not the
+    // pool's raised bot rate. It is IsFreeBot, so exclude it explicitly.
+    if (!sRandomBotFacade.IsFreeBot(bot) || sPlayerbotAIConfig.playerbotsXPrate == 1 ||
+        TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
         return false;
 
     if (!type)
@@ -109,7 +113,9 @@ bool XpGainAction::Execute(Event& event)
         // bot that levels past a tier boundary picks it up without waiting
         // for the next login. Idempotent; free pool bots only (never hired
         // companions or owned alts - their kit is the player's business).
-        if (sRandomBotFacade.IsFreeBot(bot))
+        // Issue #872: autonomous alts are IsFreeBot, so exclude them too.
+        if (sRandomBotFacade.IsFreeBot(bot) &&
+            !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
         {
             PlayerbotFactory kit(bot, bot->GetLevel());
             kit.EnsureStarterKit();

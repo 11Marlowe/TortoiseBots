@@ -308,8 +308,10 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why =
     if (GroupHasRealPlayer(bot))
         return no("in a group with a player");
     BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-    if (!record || !record->random || record->lifecycle != BotLifecycle::InWorld)
-        return no(!record ? "no bot record" : !record->random ? "not a random bot" : "record not in world");
+    // Issue #872: autonomous alts get stuck-recovery like the pool.
+    if (!record || (!record->random && !AltBotService::Instance().IsAutonomous(bot->GetObjectGuid())) ||
+        record->lifecycle != BotLifecycle::InWorld)
+        return no(!record ? "no bot record" : "not a random bot" : "record not in world");
     if (!record->masterGuid.IsEmpty())
         return no("has a master");
     if (sRandomBotFacade.IsPinnedBot(bot->GetGUIDLow()))
@@ -462,7 +464,8 @@ void BotManager::SweepDeadBots(uint32_t diff)
     for (auto& [key, entry] : m_bots)
     {
         BotRecord& rec = entry.record;
-        if (!rec.random)
+        // Issue #872: autonomous alts get the dead sweep like the pool.
+        if (!rec.random && !AltBotService::Instance().IsAutonomous(key))
         {
             ++skipNotRandom;
             m_deadSince.erase(key);
@@ -738,7 +741,9 @@ bool BotManager::SendStrandedLowbieHome(::Player* bot)
     if (GroupHasRealPlayer(bot))
         return false;
     BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-    if (!record || !record->random || record->lifecycle != BotLifecycle::InWorld)
+    // Issue #872: autonomous alts get stuck-recovery like the pool.
+    if (!record || (!record->random && !AltBotService::Instance().IsAutonomous(bot->GetObjectGuid())) ||
+        record->lifecycle != BotLifecycle::InWorld)
         return false;
     if (!record->masterGuid.IsEmpty())
         return false;
@@ -808,7 +813,8 @@ void BotManager::SweepStrandedBots(uint32_t diff)
     {
         BotRecord& rec = entry.record;
         ::Player* p = nullptr;
-        bool stranded = rec.random && rec.lifecycle == BotLifecycle::InWorld && rec.masterGuid.IsEmpty() &&
+        bool stranded = (rec.random || AltBotService::Instance().IsAutonomous(key)) &&
+            rec.lifecycle == BotLifecycle::InWorld && rec.masterGuid.IsEmpty() &&
             (p = sObjectAccessor.FindPlayer(rec.characterGuid)) != nullptr &&
             p->GetSession() && p->GetSession()->IsHeadless() && p->IsInWorld() &&
             !GroupHasRealPlayer(p) && !p->InBattleGround() && !p->IsBeingTeleported() &&

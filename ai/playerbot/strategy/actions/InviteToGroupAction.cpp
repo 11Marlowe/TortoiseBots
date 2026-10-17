@@ -339,8 +339,8 @@ namespace ai
             // RandomBotGroupNearby: skip pool-bot targets only when it is 0.
             // Inviting real players keeps working per RandomBotInvitePlayer.
             if (!sPlayerbotAIConfig.randomBotGroupNearby && botAi &&
-                sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
-                sRandomBotFacade.IsRandomBot(player) && !botAi->HasRealPlayerMaster())
+                sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
+                sRandomBotFacade.IsFreeBot(player) && !botAi->HasRealPlayerMaster())
                 continue;
 
             if (abs(int32(player->GetLevel() - bot->GetLevel())) > 2)
@@ -484,8 +484,8 @@ namespace ai
                 // Bot-to-bot pool grouping is governed only by
                 // RandomBotGroupNearby: skip pool-bot targets only when it is 0.
                 if (!sPlayerbotAIConfig.randomBotGroupNearby &&
-                    sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
-                    sRandomBotFacade.IsRandomBot(player) && !playerAi->HasRealPlayerMaster())
+                    sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
+                    sRandomBotFacade.IsFreeBot(player) && !playerAi->HasRealPlayerMaster())
                     continue;
 
                 if (player->GetLevel() > bot->GetLevel() + 5) //Invite higher levels that need money so they can grind money and help out.

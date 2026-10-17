@@ -343,7 +343,7 @@ bool NeedTravelPurposeValue::Calculate()
         // below level 5), so the last 15 minutes of each hour leave a level 1-4
         // pool bot with quests parked and no errand at all (issue #393). Let
         // them grind around the clock instead of idling at an NPC.
-        bool const beginner = bot->GetLevel() < 5 && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+        bool const beginner = bot->GetLevel() < 5 && sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
         if (!beginner)
         {
             uint32 rpgPhase = ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, 60, 1);
@@ -543,7 +543,7 @@ bool ShouldTravelNamedValue::Calculate()
             if (entries.empty())
                 return false;
 
-            bool const masterless = sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+            bool const masterless = sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
             // Same window the request searches (ChooseTravelTargetAction).
             float const window = name == "trainer class" ?
                 ClassTrainerRequestMaxDistance(masterless, bot->GetLevel(),
@@ -651,7 +651,7 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     if (!sPlayerbotAIConfig.leaveOutgrownZones)
         return false;
 
-    if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
+    if (!sRandomBotFacade.IsFreeBot(bot) || ai->HasRealPlayerMaster())
         return false;
 
     if (!bot->IsAlive())

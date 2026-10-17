@@ -1926,7 +1926,7 @@ static float const TRAVEL_WALK_LEG_REACH_YD = 5.0f;
 
 bool LeaveDeeprunTram(PlayerbotAI* ai, Player* bot, WorldPosition const& goal)
 {
-    if (bot->GetMapId() != MAP_DEEPRUN_TRAM || ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot) ||
+    if (bot->GetMapId() != MAP_DEEPRUN_TRAM || ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot) ||
         bot->IsInCombat() || !bot->IsAlive() || bot->IsBeingTeleported())
         return false;
 

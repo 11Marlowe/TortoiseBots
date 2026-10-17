@@ -27,7 +27,7 @@ bool TradeStatusAction::Execute(Event& event)
     // the earliest point, before listing inventory or sharing conjured
     // goods. Owned/hired bots (live master, owner, or hire record) and
     // bot-to-bot RPG trades pass through untouched.
-    if (!ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot) &&
+    if (!ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot) &&
         !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
         isRealPlayer_Helper(trader) && !PoolBotMayTradeWith(trader))
     {
@@ -51,7 +51,7 @@ bool TradeStatusAction::Execute(Event& event)
         // this trader (open mode 2/3/4, ungrouped owner, or hire master),
         // but the legacy block only knows master/group. Without this the
         // approval is dead: the window would be cancelled right here.
-        if (!shouldTrade && !ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot) &&
+        if (!shouldTrade && !ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot) &&
             !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
             isRealPlayer_Helper(trader) && PoolBotMayTradeWith(trader))
         {

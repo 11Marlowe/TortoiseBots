@@ -1784,7 +1784,7 @@ void PlayerbotAI::OnDeath()
             // before the cluster escape below, which may drop the target.
             // Pool bots without a real player master only; a forced target
             // (an explicit order) is never counted or parked.
-            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot))
+            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot))
             {
                 TravelTarget* errandTarget = AI_VALUE(TravelTarget*, "travel target");
                 TravelDestination* errandDest = errandTarget ? errandTarget->GetDestination() : nullptr;
@@ -2788,7 +2788,7 @@ void PlayerbotAI::PublishChatGate()
     // and every 30 s so a re-registered AI cannot keep the storage default.
     bool const ignoreAll = !AllowActivity();
     bool const ignoreTrade = !m_recordIncommingMessages && !HasRealPlayerMaster() &&
-        sRandomBotFacade.IsRandomBot(bot) &&
+        sRandomBotFacade.IsFreeBot(bot) &&
         !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
     time_t const now = time(nullptr);
     if (m_chatGatePublished && ignoreAll == m_chatGateIgnoreAll && ignoreTrade == m_chatGateIgnoreTrade &&
@@ -2966,7 +2966,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 // raw name): General/LFG/Defense/World keep prior behaviour.
                 // Owned/hired bots (live master, owner, hire record) pass.
                 if (msgtype == CHAT_MSG_CHANNEL && !HasRealPlayerMaster() &&
-                    sRandomBotFacade.IsRandomBot(bot) &&
+                    sRandomBotFacade.IsFreeBot(bot) &&
                     !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
                     GetChatChannelSource(bot, msgtype, chanName) == ChatChannelSource::SRC_TRADE &&
                     !TortoiseBots::PoolBotTradeChatAllowed(true, true, message.find(bot->GetName()) != std::string::npos))
