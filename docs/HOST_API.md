@@ -652,6 +652,10 @@ aliases; see `runtime/LftBotFillService.cpp:FindDungeonLevelRange`).
 Instance names are normalized through the small module alias table; unknown,
 corrupt, and absent (Tortoise-only/custom) ranges fail closed and are logged once. There is no average-human +/-5 approximation,
 role hook, private-map access, addon-string injection, or DB query per tick.
+When the picked bot's installed kit would not play its slot (feral druid
+queued tank with the default cat kit), the fill hands the queued role over
+(`SetForcedRole`, cleared on every pending exit path), so the strategy
+rebuild at group adoption builds the slot's kit (#966).
 Forced roles are cleared on pending exit paths, and reconciliation runs even
 when the fill budget is zero.
 
