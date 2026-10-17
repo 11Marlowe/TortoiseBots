@@ -275,6 +275,36 @@ static void TestDirectSummonHeldBot()
         CHECK(waited >= kSummonWaitMs);
         CHECK(Held(r, "Elia") && r.summonWait.empty());
     }
+    // 10 yd off (inside kGatherYd, outside kArriveYd): still held and still waited for through the whole wait. Once
+    // the wait times out she is under the hold's own rule: a held bot within kGatherYd of the lead bot is with it.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        f.members[1].yd = 10.0f;
+        std::uint32_t waited = 0;
+        std::string next;
+        while (next.empty() && waited <= kSummonWaitMs + 3 * kTickMs)
+        {
+            if (!r.summonWait.empty())
+                CHECK(Held(r, "Elia")); // never released while the summon is waited for
+            next = Tick(r, f);
+            waited += kTickMs;
+        }
+        CHECK(next == kStep && waited >= kSummonWaitMs);
+        CHECK(!Held(r, "Elia") && r.summonWait.empty());
+    }
+    // Arrival from 10 yd: within kArriveYd she leaves the hold and the step goes out.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        f.members[1].yd = 10.0f;
+        CHECK(Tick(r, f).empty() && Held(r, "Elia"));
+        f.members[1].yd = 1.0f;
+        CHECK(Tick(r, f) == kStep);
+        CHECK(!Held(r, "Elia"));
+    }
     // She vanishes from the facts (logged out, off the map): the wait ends; the hold drops her as gone.
     {
         Run r = Walking();

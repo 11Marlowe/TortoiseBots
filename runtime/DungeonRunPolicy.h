@@ -3172,9 +3172,12 @@ inline void UpdateHold(Run& r, const Facts& f)
     }
     r.hold.erase(std::remove_if(r.hold.begin(), r.hold.end(), [&](const std::string& name)
         {
+            // The bot a direct step summoned (summonWait) stays held until it
+            // arrives (kArriveYd), so a timed-out summon 3-20 yd off keeps it held.
+            float const near = name == r.summonWait ? kArriveYd : kGatherYd;
             for (const MemberFact& m : f.members)
                 if (m.name == name)
-                    return m.yd <= kGatherYd;
+                    return m.yd <= near;
             return true;
         }), r.hold.end());
 }
