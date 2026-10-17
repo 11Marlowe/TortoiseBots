@@ -175,6 +175,33 @@ int main()
         }
     }
 
+    // Deletion safety: only the files this log wrote are ever cleanup candidates.
+    {
+        CHECK(IsActionLogFileName("Thrall_acc12_20261017-031500.log"));
+        CHECK(IsActionLogFileName("Thrall_acc12_20261017-031500-3.log"));    // same-second rotation
+        CHECK(IsActionLogFileName("A_b_acc7_20261017-031500.log"));          // underscore in the name
+        CHECK(!IsActionLogFileName("server.log"));                           // a non-matching .log
+        CHECK(!IsActionLogFileName("Thrall_acc12_20261017.log"));
+        CHECK(!IsActionLogFileName("Thrall_acc12_20261017-031500.log.gz"));
+        CHECK(!IsActionLogFileName("Thrall_acc12_20261017-031500.log.bak"));
+        CHECK(!IsActionLogFileName("_acc12_20261017-031500.log"));           // no bot name
+        CHECK(!IsActionLogFileName("x.txt"));
+        CHECK(!IsActionLogFileName("../evil.log"));
+        CHECK(!IsActionLogFileName("../Thrall_acc12_20261017-031500.log"));
+        CHECK(!IsActionLogFileName("sub/Thrall_acc12_20261017-031500.log"));
+        CHECK(!IsActionLogFileName("sub\\Thrall_acc12_20261017-031500.log"));
+        CHECK(!IsActionLogFileName(""));
+
+        // A regular file with a matching name is the only deletable entry.
+        CHECK(ActionLogEntryDeletable("Thrall_acc12_20261017-031500.log", true, false));
+        CHECK(!ActionLogEntryDeletable("Thrall_acc12_20261017-031500.log", true, true));    // symlink
+        CHECK(!ActionLogEntryDeletable("Thrall_acc12_20261017-031500.log", false, false));  // subdirectory
+        CHECK(!ActionLogEntryDeletable("Thrall_acc12_20261017-031500.log", false, true));
+        CHECK(!ActionLogEntryDeletable("server.log", true, false));
+        CHECK(!ActionLogEntryDeletable("x.txt", true, false));
+        CHECK(!ActionLogEntryDeletable("../evil.log", true, false));
+    }
+
     // Cleanup schedule.
     {
         CHECK(ActionLogSweepDue(false, 0, 0, 2048));                    // startup

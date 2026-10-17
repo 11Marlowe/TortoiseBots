@@ -575,8 +575,11 @@ void BotActionLog::Sweep()
     for (fs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
     {
         std::error_code fileEc;
-        if (!it->is_regular_file(fileEc) || fileEc || it->path().extension() != ".log")
-            continue;
+        // symlink_status does not follow links: a symlink is never a regular file here.
+        fs::file_status const status = it->symlink_status(fileEc);
+        if (fileEc || !ActionLogEntryDeletable(it->path().filename().string(),
+                                               fs::is_regular_file(status), fs::is_symlink(status)))
+            continue;   // not a file this log wrote: never listed, never deleted
         uintmax_t const size = it->file_size(fileEc);
         if (fileEc) continue;
         auto const written = it->last_write_time(fileEc);

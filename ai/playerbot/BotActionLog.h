@@ -8,7 +8,7 @@
 // the runtime config flag; ~zero cost when disabled.
 //
 // Disk safeguards (ActionLogPolicy.h): AiPlayerbot.ActionLogScope picks which
-// bots write a file (default: only commander-bound, hired or traced ones, the
+// bots write a file (default: only commander-bound or hired ones, the
 // answer cached per bot and looked up again every 15 s on the world thread);
 // AiPlayerbot.ActionLogMaxFileMB rotates a file that grows past the cap;
 // AiPlayerbot.ActionLogMaxAgeDays / ActionLogMaxTotalMB delete the oldest
@@ -47,8 +47,9 @@ public:
     // the scope is all/none.
     static void RefreshScope(PlayerbotAI* ai);
 
-    // The group of a `.bot trace` run: marks one bot as traced, so scope
-    // commanded logs it, and clears it again when the trace ends. World thread.
+    // Hook for a bot-trace feature (nothing on dev calls it yet): marks one bot
+    // as traced, so scope commanded logs it, and clears it again when the trace
+    // ends. World thread.
     static void SetTraced(uint32 botGuidLow, bool traced);
 
     // World thread, once per world update: runs the retention cleanup at

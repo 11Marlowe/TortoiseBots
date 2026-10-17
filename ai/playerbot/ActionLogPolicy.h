@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <regex>
 #include <string>
 #include <vector>
 
@@ -20,7 +21,7 @@ namespace ai { namespace botdiag {
 enum class ActionLogScope : uint8_t
 {
     All,        // every bot, as before the scope existed
-    Commanded,  // commander-bound or hired bots, and bots of a traced group
+    Commanded,  // commander-bound or hired bots (and bots marked with BotActionLog::SetTraced)
     None,       // no per-bot files
 };
 
@@ -54,7 +55,8 @@ inline char const* ActionLogScopeName(ActionLogScope scope)
 }
 
 // Does this bot get a file? commanded: the bot is in a group a commander
-// bound, or is a hire, or its group is being traced (.bot trace).
+// bound, or is a hire, or was marked traced (BotActionLog::SetTraced; nothing on
+// dev calls it yet).
 inline bool ActionLogScopeAllows(ActionLogScope scope, bool inCommandedGroup, bool isHire, bool inTracedGroup)
 {
     switch (scope)
@@ -77,6 +79,21 @@ constexpr uint64_t kActionLogMB = 1024ull * 1024ull;
 inline bool ActionLogFileFull(uint64_t bytes, uint64_t addBytes, uint32_t maxFileMB)
 {
     return maxFileMB != 0 && bytes + addBytes > static_cast<uint64_t>(maxFileMB) * kActionLogMB;
+}
+
+// The cleanup only ever touches what BotActionLog::BuildPath writes:
+// <botname>_acc<id>_<YYYYMMDD-HHMMSS>[-<n>].log, directly inside logs/bots. Any
+// other name, a path, a symlink or a directory is left alone, so a server that
+// keeps its own files in that folder loses none of them.
+inline bool IsActionLogFileName(std::string const& name)
+{
+    static std::regex const pattern("^[^/\\\\]+_acc[0-9]+_[0-9]{8}-[0-9]{6}(-[0-9]+)?\\.log$");
+    return name.find("..") == std::string::npos && std::regex_match(name, pattern);
+}
+
+inline bool ActionLogEntryDeletable(std::string const& name, bool isRegularFile, bool isSymlink)
+{
+    return isRegularFile && !isSymlink && IsActionLogFileName(name);
 }
 
 struct ActionLogFile

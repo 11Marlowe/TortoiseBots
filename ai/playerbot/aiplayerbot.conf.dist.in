@@ -865,8 +865,8 @@ AiPlayerbot.InviteChat = 1
 #
 # Which bots get a file:
 #   all        every bot, pool bots included (100+ files on a busy realm)
-#   commanded  only bots in a group a commander bound (.bot commander bind),
-#              hired companions, and bots of a group a `.bot trace` records
+#   commanded  only bots in a group a commander bound (.bot commander bind)
+#              and hired companions
 #   none       no files
 # A bot's answer is cached and looked up again every 15 seconds, so a bot that
 # was just bound or hired starts logging within that time.
@@ -874,7 +874,9 @@ AiPlayerbot.ActionLogScope = commanded
 
 # Cleanup of logs/bots: at startup and then every hour (and early once the bots
 # wrote a quarter of the size limit since the last one) the oldest files are
-# deleted until both limits hold. A file a bot has open is never deleted. One
+# deleted until both limits hold. Only files named like the ones this log
+# writes (<bot>_acc<id>_<date>-<time>.log) are ever listed or deleted, never a
+# link, a folder or any other file. A file a bot has open is never deleted. One
 # summary line is written to the server log per cleanup. 0 turns a limit off.
 AiPlayerbot.ActionLogMaxAgeDays = 3
 AiPlayerbot.ActionLogMaxTotalMB = 2048
