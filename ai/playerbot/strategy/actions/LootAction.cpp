@@ -3,6 +3,7 @@
 #include "SkinningLootPolicy.h"
 #include "LootWindowPolicy.h"
 #include "LootAction.h"
+#include "playerbot/CastKeepsRunningPolicy.h"
 
 #include "playerbot/LootObjectStack.h"
 #include "playerbot/PlayerbotAIConfig.h"
@@ -22,6 +23,13 @@ using namespace ai;
 
 bool LootAction::Execute(Event& event)
 {
+    // The gather cast clears the loot target when it starts, so without this
+    // the chain re-selected the node mid-cast and "open loot" re-fired into
+    // the cast gate every tick, burning the three open attempts before the
+    // running cast finished (#1062).
+    if (ai::LootChainBlockedByCast(bot->IsNonMeleeSpellCasted(false, true, true)))
+        return false;
+
     if (!AI_VALUE(bool, "has available loot"))
         return false;
 
@@ -70,7 +78,13 @@ enum ProfessionSpells
 
 bool OpenLootAction::Execute(Event& event)
 {
-    LootObject lootObject = AI_VALUE(LootObject, "loot target");
+    // mod-playerbots parity (OpenLootAction::Execute): never re-issue the
+    // gather cast while one is running. The failure count below must not see
+    // this tick either, or the three-strike abandon wedged the node before
+    // the running cast finished (#1062).
+    if (ai::LootChainBlockedByCast(bot->IsNonMeleeSpellCasted(false, true, true)))
+        return false;
+
     // DoLoot re-validates the object (Refresh), which empties lootObject.guid when it is
     // no longer lootable; keep the guid the attempt was made on.
     ObjectGuid const lootGuid = lootObject.guid;
