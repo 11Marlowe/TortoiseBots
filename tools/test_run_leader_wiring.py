@@ -64,6 +64,11 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (bossEntry && lead->GetDistance(creature) <= kSeeYd)\n"
                       "                            f.bossDeadNearLead = true;", facts)
 
+    def test_boss_corpse_guid_is_read_for_the_loot_step(self):
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f.bossCorpseGuid = creature->GetObjectGuid().GetRawValue();", facts)
+        self.assertIn("(!f.bossCorpseGuid || fromPoint < bossCorpseFromSpot)", facts)
+
     def test_gather_anchor_path_is_read(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         # Read lazily: only after the policy asked for it.

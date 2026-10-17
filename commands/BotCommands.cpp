@@ -9091,6 +9091,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (step->entry)
                 entries.push_back(step->entry);
             float const range = std::min(toPoint + step->radius, 2.0f * kSeeYd);
+            float bossCorpseFromSpot = 0.0f;
             for (uint32 entry : entries)
             {
                 // The boss's own entry is looked for farther: his corpse may lie
@@ -9109,6 +9110,16 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                             f.bossDeadNearSpot = true;
                         if (bossEntry && lead->GetDistance(creature) <= kSeeYd)
                             f.bossDeadNearLead = true;
+                        // The corpse the run remembers for a later loot step: the one nearest to the spot.
+                        if (bossEntry && (fromPoint <= step->radius + kSeeYd || lead->GetDistance(creature) <= kSeeYd) &&
+                            (!f.bossCorpseGuid || fromPoint < bossCorpseFromSpot))
+                        {
+                            f.bossCorpseGuid = creature->GetObjectGuid().GetRawValue();
+                            f.bossCorpseX = creature->GetPositionX();
+                            f.bossCorpseY = creature->GetPositionY();
+                            f.bossCorpseZ = creature->GetPositionZ();
+                            bossCorpseFromSpot = fromPoint;
+                        }
                         continue;
                     }
                     if (fromPoint > step->radius)

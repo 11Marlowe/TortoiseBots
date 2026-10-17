@@ -217,6 +217,11 @@ struct Facts
     // within kSeeYd of the lead bot; bossAlive: he stands in the step's units.
     bool bossDeadNearSpot = false;
     bool bossDeadNearLead = false;
+    // ... and that corpse's guid and place (the nearest to the step's point when
+    // there are several; 0: none seen), so a later `loot` step finds it where it
+    // lies, not where the plan says he spawns (Revelosh dies 50-60 yd from his spot).
+    std::uint64_t bossCorpseGuid = 0;
+    float bossCorpseX = 0.0f, bossCorpseY = 0.0f, bossCorpseZ = 0.0f;
     int objectState = -1;               // wait_object, hold done by object: 0 ready, 1 active, 2 active_alt; -1 not found
     // hold (units: the living units of its `entries` within its radius, the
     // friendly, still dormant ones too):
@@ -229,6 +234,13 @@ struct Facts
     bool carrierBusy = false;           // a commander task (loot/open/use) runs for the carrier
     int taskReply = 0;                  // the carrier's task answer since the run's order: 0 none, 1 ACK, 2 ERR
     std::string taskText;
+};
+
+// Where a boss's corpse lay when the boss step saw him down.
+struct CorpseMark
+{
+    std::uint64_t guid = 0;
+    float x = 0.0f, y = 0.0f, z = 0.0f;
 };
 
 struct Run
@@ -280,6 +292,7 @@ struct Run
     // Run-wide (kept across steps).
     std::unordered_set<std::uint64_t> unreachable;   // units given up on: never pulled again this run
     std::unordered_set<std::uint32_t> missing;       // items the run did not get (a skipped loot or use)
+    std::unordered_map<std::uint32_t, CorpseMark> corpses; // boss entry -> the corpse seen when that boss step ended "boss down"
     std::uint32_t pendingMissing = 0;                 // the item a paused step failed to get (missing on skip)
     std::size_t skippedOpenStep = static_cast<std::size_t>(-1); // an `open` left out: the wait after it goes too
     // Regroup after a resume (revive the dead, gather), before the step.
@@ -379,6 +392,14 @@ inline std::string Num(float v)
 inline std::string MoveOrder(float x, float y, float z, bool direct)
 {
     return "move " + Num(x) + " " + Num(y) + " " + Num(z) + (direct ? " direct" : "");
+}
+
+// A raw object guid as an order token: "0x" + 16 hex digits (RemoteCommander::ParseGuid).
+inline std::string GuidArg(std::uint64_t guid)
+{
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "0x%016llx", static_cast<unsigned long long>(guid));
+    return buf;
 }
 
 inline std::string EntryArg(std::uint32_t entry, float x, float y, float z)
@@ -1576,7 +1597,13 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
     else if (s.kind != PlanStepKind::Boss)
         NextStep(r, "pack cleared");
     else if (f.bossDeadNearSpot || (r.bossSeenAlive && f.bossDeadNearLead))
+    {
+        // Remember where he fell: a later `loot` step for this entry goes to the
+        // corpse by its guid (TaskStep), not to the plan's spawn point.
+        if (f.bossCorpseGuid)
+            r.corpses[s.entry] = CorpseMark{f.bossCorpseGuid, f.bossCorpseX, f.bossCorpseY, f.bossCorpseZ};
         NextStep(r, "boss down");
+    }
     else
     {
         // Not seen alive and not seen dead: he is away (a patrol, Theka in
@@ -1711,7 +1738,17 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
         EnterPhase(r, Phase::AwaitTask);
         r.note = kind + " by " + f.carrier;
         if (s.kind == PlanStepKind::Loot)
-            order = "loot " + EntryArg(s.entry, s.x, s.y, s.z) + " " + f.carrier + (s.item ? " " + std::to_string(s.item) : "");
+        {
+            // The boss corpse remembered from his step: by guid (the loot task walks to it);
+            // otherwise the plan's entry@point search.
+            auto const corpse = r.corpses.find(s.entry);
+            std::string const target = corpse != r.corpses.end() && corpse->second.guid
+                ? GuidArg(corpse->second.guid) : EntryArg(s.entry, s.x, s.y, s.z);
+            if (corpse != r.corpses.end() && corpse->second.guid)
+                r.note = kind + " by " + f.carrier + ": the corpse of " + std::to_string(s.entry) + " at " +
+                    Num(corpse->second.x) + " " + Num(corpse->second.y) + " " + Num(corpse->second.z);
+            order = "loot " + target + " " + f.carrier + (s.item ? " " + std::to_string(s.item) : "");
+        }
         else if (s.kind == PlanStepKind::Open)
             order = "open " + EntryArg(s.entry, s.x, s.y, s.z) + " " + f.carrier;
         else
