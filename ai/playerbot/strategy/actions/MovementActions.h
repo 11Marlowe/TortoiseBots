@@ -186,6 +186,7 @@ namespace ai
         bool AvoidDamagingTrap(float& outRadius, WorldPosition& outCenter);
         bool AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter);
         bool StrafeToSafety(const WorldPosition& hazardCenter, float radius);
+        void RecallPetFromHazard(float radius, const WorldPosition& center);
 
         // Creature aura keep-out (AiPlayerbot.AvoidCreatureAuras): the listed
         // creature that caused the current step-out (empty otherwise), and a

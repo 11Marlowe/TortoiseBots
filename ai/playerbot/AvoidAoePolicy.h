@@ -31,6 +31,26 @@ namespace ai
         return radius > 0.0f && radius <= kMaxAoeAvoidRadiusYd;
     }
 
+    // A periodic-trigger aura whose triggered spell hurts around the caster
+    // (Herod's Whirlwind 8989 -> 15578: EFFECT_WEAPON_DAMAGE_NOSCHOOL at
+    // TgtA CASTER_SRC / TgtB ENEMY_AOE_AT_SRC_LOC, 8 yd) marks a spinning
+    // self-centred hazard, the same as the school-damage pulses the sensor
+    // already sees (sludge 22638 -> 22595). Effect-only test (no radius or
+    // target check): callers own the radius gate and the range test, and the
+    // unit test feeds bare effect/target triples. Weapon-damage triggers are
+    // accepted only around the caster (self-centred spin); school damage
+    // keeps the old unconditional shape.
+    inline bool TriggerSpellMarksSpinHazard(int effect, int targetA, int targetB)
+    {
+        if (effect == 2) // SPELL_EFFECT_SCHOOL_DAMAGE
+            return true;
+        if (targetA != 22 || targetB != 15) // CASTER_SRC + ENEMY_AOE_AT_SRC_LOC
+            return false;
+        return effect == 17 || // SPELL_EFFECT_WEAPON_DAMAGE_NOSCHOOL (Herod 15578)
+            effect == 58 ||    // SPELL_EFFECT_WEAPON_DAMAGE
+            effect == 31;      // SPELL_EFFECT_WEAPON_PERCENT_DAMAGE
+    }
+
     // Strafe-first candidate order. Returns the ordered heading offsets
     // (radians, relative to the angle bot->target) for the melee case:
     // left/right strafe, then straight away from the target.
