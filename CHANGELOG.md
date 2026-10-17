@@ -1,5 +1,31 @@
 # Changelog
 
+## v1.4.0 (2026-10-17)
+
+### Classes & Combat
+- Hunters no longer use Feign Death when the enemy on them has nobody else to attack, so scripted fights stop failing [#1075](https://github.com/Sagiroth/TortoiseBots/pull/1075)
+- Casters no longer start long casts while moving, so their spells land instead of being cancelled [#1082](https://github.com/Sagiroth/TortoiseBots/pull/1082)
+
+### Groups & Raids
+- Off-tanks now pick up loose adds while the main tank stays on the marked target, so healers stop getting chased [#1083](https://github.com/Sagiroth/TortoiseBots/pull/1083)
+
+### Commands & Pulling
+- A pull now keeps its target through a long walk across the room, so the fight actually starts [#1080](https://github.com/Sagiroth/TortoiseBots/pull/1080)
+- Pulling no longer refuses with "no-tank" because of an old combat flag, and the refusal now says why [#1081](https://github.com/Sagiroth/TortoiseBots/pull/1081)
+
+### Gathering & Opening
+- Bots now finish gathering herbs, mining, skinning and opening chests instead of losing the cast after a second [#1064](https://github.com/Sagiroth/TortoiseBots/pull/1064)
+
+### Following & Formations
+- Bots now follow you across the broken ground near the Thousand Needles instance portal instead of standing still [#1084](https://github.com/Sagiroth/TortoiseBots/pull/1084)
+- Setting a formation while the party stands still now makes bots walk to their spots [#1089](https://github.com/Sagiroth/TortoiseBots/pull/1089)
+
+### Behind the scenes
+- Issues fixed in development branches now close on their own when the change reaches a release [#1071](https://github.com/Sagiroth/TortoiseBots/pull/1071)
+- Removed a huge outdated licence-tracking document that caused conflicts in nearly every change [#1088](https://github.com/Sagiroth/TortoiseBots/pull/1088)
+
+---
+
 ## v1.3.0 (2026-10-17)
 
 ### Classes & Combat
