@@ -3630,7 +3630,9 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
     if (!executor)
     {
         bool const tankBusy = PullTankIsBusy(context);
-        SendActionError(handler, reportIntent, ai::PullNoExecutorCode(tankBusy), ai::PullNoExecutorText(tankBusy));
+        std::string const detail = PullBlockerDetail(context);
+        std::string const text = ai::PullNoExecutorText(tankBusy, detail);
+        SendActionError(handler, reportIntent, ai::PullNoExecutorCode(tankBusy), text.c_str());
         return true;
     }
 
