@@ -87,6 +87,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bwl_bundle1_policy
         test_caster_mana_policy
         test_cast_keeps_running_policy
+        test_cast_while_moving_policy
         test_claimed_bot_policy
         test_class_consumable_policy
         test_combat_spread_policy
