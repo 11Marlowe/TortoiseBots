@@ -3517,8 +3517,13 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     }
     if (runBackWait)
         return order;
-    r.staleMs = 0;
-    r.staleRunMs = 0;
+    // The stale clocks end with the combat, not with a step finished over its
+    // flag (objectDone falls through here with the flag still up).
+    if (!f.anyInCombat)
+    {
+        r.staleMs = 0;
+        r.staleRunMs = 0;
+    }
     if (r.fighting)
     {
         // Back to the step's start: it looks at what is left, and rests first.

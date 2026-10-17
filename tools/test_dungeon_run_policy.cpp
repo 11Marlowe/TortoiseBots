@@ -481,6 +481,21 @@ static void TestWaitObjectDoneWinsOverAStaleFightTimer()
         Tick(a, k);
     }
     CHECK(a.state == State::Paused && a.note.find("a fight lasted more than 180 s") != std::string::npos);
+    // Two satisfied wait_object steps over one uninterrupted stale flag: the
+    // second does not get a fresh grace.
+    DungeonPlan two;
+    two.steps = {plan.steps[0], plan.steps[0]};
+    Run w = Start(&two);
+    w.fighting = true;
+    Facts z = f;
+    for (int i = 0; i < 10 && w.step == 0; ++i)
+        Tick(w, z);
+    CHECK(w.step == 1 && w.staleMs >= kStaleConfirmMs);
+    // The flag has stood this long already; the next step's confirmation is
+    // unbroken too, so it finishes at once, the grace is not renewed.
+    std::uint32_t const spent = w.staleMs;
+    Tick(w, z);
+    CHECK(w.staleMs > spent);
     // The flag clearing resets the grace.
     Run c = Start(&plan);
     c.fighting = true;
