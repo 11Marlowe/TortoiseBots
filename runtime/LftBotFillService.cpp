@@ -1,5 +1,6 @@
 #include "LftBotFillService.h"
 #include "BotActivityLease.h"
+#include "LftRoleKitPolicy.h"
 
 #include "BotManager.h"
 #include "PlayerbotAIStorage.h"
@@ -359,6 +360,43 @@ bool LftBotFillService::EquipBestShieldFromBags(Player* bot) const
     }
 
     return false;
+}
+
+uint8 LftBotFillService::GetCombatKitRoleMask(Player const* bot) const
+{
+    if (!bot)
+        return 0;
+    PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(const_cast<Player*>(bot));
+    if (!ai)
+        return 0;
+
+    // Same named-spec tables as BotPlayerAdapter::GetBotRoles (ambient
+    // strategies such as "dps assist" ride along with every spec and must not
+    // produce a role bit).
+    bool kitTank = ai->HasStrategy("protection", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("tank feral", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("bear", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("tank", BotState::BOT_STATE_COMBAT);
+    bool kitHealer = ai->HasStrategy("holy", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("discipline", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("restoration", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("heal", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("resto", BotState::BOT_STATE_COMBAT);
+    static char const* const kitDpsSpecs[] = { "arms", "fury",
+        "retribution", "beast mastery", "marksmanship", "survival",
+        "combat", "assassination", "subtlety", "shadow",
+        "elemental", "enhancement", "frost", "fire", "arcane",
+        "affliction", "demonology", "destruction", "dps feral",
+        "balance", "cat" };
+    bool kitDps = false;
+    for (char const* spec : kitDpsSpecs)
+        if (ai->HasStrategy(spec, BotState::BOT_STATE_COMBAT))
+        {
+            kitDps = true;
+            break;
+        }
+
+    return (kitTank ? kLftRoleTank : 0) | (kitHealer ? kLftRoleHealer : 0) | (kitDps ? kLftRoleDamage : 0);
 }
 
 void LftBotFillService::ClearForcedRole(uint32 guidLow)
@@ -793,9 +831,22 @@ void LftBotFillService::Update(uint32_t diff)
                     continue;
                 std::vector<std::string> instVec;
                 instVec.push_back(instance);
-                // Forced role only when the operator opted into role borrowing.
-                bool borrowRole = sPlayerbotAIConfig.randomBotLftAllowRoleBorrow;
-                if (borrowRole)
+                // Forced role when the operator opted into role borrowing, or
+                // when the installed kit would not play the slot the spec was
+                // picked for (issue #966): a feral druid masks Tank|DPS but
+                // defaults to its Cat kit, so the queued tank slot must hand
+                // the role to the bot or the group leans on a cat. Single-role
+                // kits already match their slot and skip the handoff.
+                bool assignRole = sPlayerbotAIConfig.randomBotLftAllowRoleBorrow;
+                if (!assignRole)
+                {
+                    LftRoleKitInputs kitDecision;
+                    kitDecision.queuedRole = needRole;
+                    kitDecision.talentRoleMask = GetBotRoleMask(chosen);
+                    kitDecision.kitRoleMask = GetCombatKitRoleMask(chosen);
+                    assignRole = LftKitNeedsRoleAssignment(kitDecision);
+                }
+                if (assignRole)
                     if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(chosen))
                     {
                         // Same rebuild as `.bot role`: a stored strategy
@@ -809,7 +860,7 @@ void LftBotFillService::Update(uint32_t diff)
                 bool ok = sLFTMgr.QueuePlayer(chosen, instVec, needRole);
                 if (!ok)
                 {
-                    if (borrowRole)
+                    if (assignRole)
                         if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(chosen))
                         {
                             ai->SetForcedRole(0);

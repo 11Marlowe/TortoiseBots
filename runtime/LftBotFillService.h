@@ -57,6 +57,9 @@ private:
     // skip reason when the bot must not fill the role, empty when it may.
     std::string RoleMismatchReason(Player* bot, uint8 needRole) const;
     bool EquipBestShieldFromBags(Player* bot) const;
+    // Issue #966: role bits of the installed combat kit (named spec
+    // strategies only, like BotPlayerAdapter::GetBotRoles); 0 = bare kit.
+    uint8 GetCombatKitRoleMask(Player const* bot) const;
 
     bool m_initialized = false;
     uint32_t m_elapsedMs = 0;

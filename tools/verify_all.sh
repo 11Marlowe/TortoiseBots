@@ -151,6 +151,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_jump_policy
         test_kelthuzad_adds_policy
         test_ledge_step_down_policy
+        test_lft_role_kit_policy
         test_loatheb_spores_policy
         test_local_pick_policy
         test_long_stuck_rescue_policy
