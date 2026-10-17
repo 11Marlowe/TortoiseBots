@@ -419,33 +419,48 @@ static void TestWaitObjectDoneWinsOverAStaleFightTimer()
     wait.entry = 124369;
     wait.param = 1;
     plan.steps = {wait, Step(PlanStepKind::Move, 9)};
-    // The door is in the wanted state: done, in combat by the flag or not.
+    // The door is in the wanted state and only the combat flag stands: done.
     Run r = Start(&plan);
     r.fighting = true;
     r.fightMs = kFightCapMs + 5000;
     Facts f = Party(0);
     f.anyInCombat = true;
+    f.staleCombat = true;
     f.objectState = 1;
     Tick(r, f);
     CHECK(r.state == State::Running && r.step == 1);
-    // A real fight with the door still shut keeps its ceiling.
+    // A real fight (a hostile engaged) with the door open keeps its handling
+    // and its ceiling: the step does not advance.
     Run q = Start(&plan);
     q.fighting = true;
     q.fightMs = kFightCapMs + 5000;
     Facts g = Party(0);
     g.anyInCombat = true;
-    g.objectState = 0;
+    g.objectState = 1;
     Tick(q, g);
-    CHECK(q.state == State::Paused && q.note.find("a fight lasted more than 180 s") != std::string::npos);
-    // The same with nothing hostile engaged (a leftover flag): no pause, and
-    // the timer does not run.
+    CHECK(q.state == State::Paused && q.step == 0 &&
+        q.note.find("a fight lasted more than 180 s") != std::string::npos);
+    // A stale flag with the door shut is waited out for the grace period (the
+    // timer does not run), then the ceiling runs again: it ends in a pause.
     Run p = Start(&plan);
     p.fighting = true;
     p.fightMs = kFightCapMs + 5000;
     Facts h = g;
+    h.objectState = 0;
     h.staleCombat = true;
     Tick(p, h);
     CHECK(p.state == State::Running && p.fightMs == kFightCapMs + 5000);
+    for (std::uint32_t i = 0; i < kStaleCombatGraceMs / kTickMs + 2 && p.state == State::Running; ++i)
+        Tick(p, h);
+    CHECK(p.state == State::Paused && p.note.find("a fight lasted more than 180 s") != std::string::npos);
+    // The flag clearing resets the grace.
+    Run c = Start(&plan);
+    c.fighting = true;
+    Tick(c, h);
+    CHECK(c.staleMs > 0);
+    h.anyInCombat = false;
+    Tick(c, h);
+    CHECK(c.staleMs == 0);
     // A fight that goes on into the next step starts that step's ceiling over.
     Run n = Start(&plan);
     n.fighting = true;
