@@ -7,8 +7,10 @@ with its back to the mob (no swing, no ability, no turn) until the 15 s pull
 cap (Uldaman hire run, 2026-10-14: 8 s facing away, trace-score facing FAIL).
 Pins the "pull end" clause that ends such a pull, and its order: after the
 pullback return (a landed pullback still walks back) and the dead-target and
-time-cap exits. A pullback meet completes the pull action and takes the
-return leg home instead of ending at the meeting point (#973).
+approach-expiry exits (#910: the expiry slides while the tank closes in, so a
+progressing cross-room walk keeps its target; a wedged one still ends here).
+A pullback meet completes the pull action and takes the return leg home
+instead of ending at the meeting point (#973).
 
 Run: python3 -m unittest tools/test_pull_end_engaged.py
 """
@@ -38,7 +40,7 @@ class PullEndEngagedTest(unittest.TestCase):
 
     def test_clause_order(self):
         pullback = self.fn.index("if (pullback && strategy->HasPullActionCompleted())")
-        cap = self.fn.index("secondsSincePullStarted >= strategy->GetMaxPullTime()")
+        cap = self.fn.index("strategy->HasPullApproachExpired()")
         engaged = self.fn.index("target->GetVictim() == bot")
         final = self.fn.index("return strategy->HasPullActionCompleted();")
         self.assertLess(pullback, engaged)

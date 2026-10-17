@@ -186,7 +186,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_pull_firing_policy
         test_pull_opening_policy
         test_pull_start_policy
-        test_pull_join_window_policy
+        test_pull_reach_policy
         test_pull_refusal_policy
         test_pull_regen_policy
         test_quest_giver_stall_policy
