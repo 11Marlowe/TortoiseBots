@@ -420,7 +420,7 @@ Unit* GrindTargetValue::FindIdleFallbackTarget()
     // today's behaviour. Called only when the normal pick came back empty,
     // so normalPickEmpty is true by construction.
     TravelTarget* travelTarget = AI_VALUE(TravelTarget*, "travel target");
-    if (!ai::GrindIdleFallbackAllowed(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster(),
+    if (!ai::GrindIdleFallbackAllowed(sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster(),
         bot->GetLevel(), travelTarget && travelTarget->IsActive(),
         sServerFacade.IsInCombat(bot), bot->InBattleGround(),
         WorldPosition(bot).isOverworld(), AI_VALUE(bool, "can move around"), true))

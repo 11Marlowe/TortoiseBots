@@ -39,7 +39,7 @@ bool AcceptAllQuestsAction::WouldAcceptQuest(PlayerbotAI* ai, Player* bot, Quest
     // Donor mod-playerbots IsQuestCapableDoing (NewRpgBaseAction.cpp:573)
     // refuses +3 at any level; the pool uses +1 below 10.
     if (!ai::QuestTakerTripFits((int)quest->GetQuestLevel(), false, bot->GetLevel(),
-        sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster()))
+        sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster()))
         return false;
 
     // Solo-capability gate (RPG-A2): a masterless random bot refuses at
@@ -48,7 +48,7 @@ bool AcceptAllQuestsAction::WouldAcceptQuest(PlayerbotAI* ai, Player* bot, Quest
     // log pass deletes. Grouped-and-able bots (can fight boss) keep them;
     // owned/hired bots follow the player. Donor mod-playerbots
     // IsQuestCapableDoing, same +3 / type / suggested numbers.
-    if (sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
+    if (sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
         !ai::QuestAcceptSoloCapable((int)quest->GetQuestLevel(), bot->GetLevel(),
             quest->GetType(), quest->GetSuggestedPlayers(),
             AI_VALUE(bool, "can fight boss")))

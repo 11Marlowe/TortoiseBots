@@ -663,7 +663,7 @@ bool SpiritHealerAction::ShouldApplyResurrectionSickness()
 {
     if (ai->HasCheat(BotCheatMask::repair))
         return false;
-    return !(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster());
+    return !(sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster());
 }
 
 bool SpiritHealerAction::Execute(Event& event)
