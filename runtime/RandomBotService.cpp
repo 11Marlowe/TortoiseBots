@@ -1098,6 +1098,20 @@ void RandomBotService::OnHumanLogout()
         --m_humanSessions;
 }
 
+void RandomBotService::ForgetDeliberateLogout(ObjectGuid guid)
+{
+    for (size_t i = 0; i < m_candidates.size(); ++i)
+    {
+        if (m_candidates[i].characterGuid != guid)
+            continue;
+        // Counted as a full minute online, so the logout pass never reads it
+        // as a quick one, whichever pass sees the record go.
+        if (i < m_ageMs.size() && m_ageMs[i] < 60000)
+            m_ageMs[i] = 60000;
+        return;
+    }
+}
+
 void RandomBotService::RemoveExpiredBots(uint32_t diff)
 {
     for (size_t i = 0; i < m_candidates.size(); ++i)

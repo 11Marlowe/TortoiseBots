@@ -5,6 +5,7 @@
 #include "HireLifecycle.h"
 #include "PlayerbotAIStorage.h"
 #include "RandomBotAccountRegistry.h"
+#include "RandomBotService.h"
 #include "../host/ModuleLog.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
@@ -217,6 +218,7 @@ void AltBotService::DisplacePoolBot(Session& session, Player* alt)
             continue;
         session.displacedPoolGuidLow = pick;
         session.displacedPoolAccountId = bot->GetSession() ? bot->GetSession()->GetAccountId() : 0;
+        RandomBotService::Instance().ForgetDeliberateLogout(bot->GetObjectGuid());
         BotManager::Instance().RemoveBot(bot->GetObjectGuid(), true);
         return;
     }
