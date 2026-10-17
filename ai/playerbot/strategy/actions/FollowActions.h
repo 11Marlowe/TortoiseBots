@@ -2,6 +2,7 @@
 #include "playerbot/PlayerbotAI.h"
 
 #include "playerbot/strategy/Action.h"
+#include "MovementActions.h"
 #include "playerbot/OpenFollowStepPolicy.h"
 #include "playerbot/DungeonFollowStallPolicy.h"
 
