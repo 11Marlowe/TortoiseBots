@@ -71,7 +71,6 @@ bool PullEndTrigger::IsActive()
         return true;
     }
 
-    const time_t secondsSincePullStarted = time(0) - strategy->GetPullStartTime();
     // The return leg follows the intent recorded when the pull was requested
     // (command mode, or the tank's own "pull back" for an automatic pull).
     const bool pullback = strategy->IsPullBackIntent();
@@ -107,7 +106,11 @@ bool PullEndTrigger::IsActive()
     if (!target || !target->IsInWorld() || !target->IsAlive())
         return true;
 
-    if (secondsSincePullStarted >= strategy->GetMaxPullTime())
+    // The approach window slides while the tank closes in (PullReachPolicy.h):
+    // a progressing cross-room walk keeps its target past the flat window
+    // (issue #910). A wedged approach still ends exactly like before, and the
+    // total cap bounds even a shuffling one.
+    if (strategy->HasPullApproachExpired())
         return true;
 
     // The mob came to the puller before the pull action ran (a corner pull:

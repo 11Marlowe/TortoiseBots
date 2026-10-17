@@ -424,6 +424,10 @@ bool PullAction::Execute(Event& event)
             const float distanceToTarget = target->GetDistance(bot);
             if (distanceToTarget > strategy->GetRange())
             {
+                // The approach is still running: sample headway so a
+                // progressing cross-room walk (issue #910) keeps its target
+                // past the flat pull window instead of timing out mid-reach.
+                strategy->NotePullApproach(distanceToTarget, sServerFacade.isMoving(bot));
                 // Retry the reach pull action
                 strategy->RequestPull(target, false);
                 ai::Event reachEvent(event.GetSource(), "", event.GetOwner());
