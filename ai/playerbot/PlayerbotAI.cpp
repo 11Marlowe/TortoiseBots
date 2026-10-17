@@ -323,6 +323,7 @@ PacketHandlerSpec const kBotOutgoingPacketHandlers[] =
     { SMSG_TEXT_EMOTE, "receive text emote", false },
     { SMSG_EMOTE, "receive emote", false },
     { SMSG_LOOT_START_ROLL, "loot start roll", true },
+    { SMSG_LOOT_ROLL, "loot vote", true },
     { SMSG_LOOT_ROLL_WON, "loot roll won", true },
     { SMSG_SUMMON_REQUEST, "summon request", false },
     { MSG_RAID_READY_CHECK, "ready check", false },
@@ -7741,6 +7742,43 @@ void PlayerbotAI::EndPullWindow()
     // The anchor goes with the window; a no-op when it is already released
     // (combat end, death, a movement order) or when none was placed.
     ReleasePullHold();
+    // Member-owned pet stance: a pet the hold parked passive comes back even
+    // when the tank's pull-end loop can no longer reach this bot (left the
+    // group, logged out, died). Every path that outlives the window funnels
+    // through here (expiry, strategy reset, reload).
+    RestorePullHoldPet();
+}
+
+void PlayerbotAI::ParkPetForPullHold()
+{
+    if (!bot)
+        return;
+    Pet* pet = bot->GetPet();
+    if (!pet || pet->GetReactState() == REACT_PASSIVE)
+        return;
+    // Save once: a re-hold while already parked must not overwrite the
+    // pre-hold stance with REACT_PASSIVE.
+    if (pullHoldPetStance_ == kNoSavedStance)
+        pullHoldPetStance_ = static_cast<int>(pet->GetReactState());
+    pet->SetReactState(REACT_PASSIVE);
+}
+
+void PlayerbotAI::RestorePullHoldPet()
+{
+    if (pullHoldPetStance_ == kNoSavedStance)
+        return;
+    ReactStates stance = static_cast<ReactStates>(pullHoldPetStance_);
+    pullHoldPetStance_ = kNoSavedStance;
+    if (!bot)
+        return;
+    Pet* pet = bot->GetPet();
+    if (!pet)
+        return;
+    // Only undo our own park: a stance the player (or another order) set
+    // meanwhile is theirs, not the hold's.
+    if (pet->GetReactState() != REACT_PASSIVE)
+        return;
+    pet->SetReactState(stance);
 }
 
 size_t PlayerbotAI::DropQueuedMovementOrders()
