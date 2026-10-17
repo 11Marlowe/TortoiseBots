@@ -50,7 +50,8 @@ env:
 
 jobs:
   linux:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # A dev -> main release PR builds the same tree the push to dev already built: skip it.
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !(github.head_ref == 'dev' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
@@ -103,7 +104,8 @@ jobs:
         run: cmake --build build -j"$(nproc)"
 
   windows:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # A dev -> main release PR builds the same tree the push to dev already built: skip it.
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !(github.head_ref == 'dev' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: windows-2022
     timeout-minutes: 120
     env:
@@ -170,7 +172,8 @@ jobs:
         run: cmake --build build
 
   linux-eluna:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # A dev -> main release PR builds the same tree the push to dev already built: skip it.
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !(github.head_ref == 'dev' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     steps:
@@ -236,7 +239,8 @@ jobs:
         run: cmake --build build -j"$(nproc)"
 
   windows-eluna:
-    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
+    # A dev -> main release PR builds the same tree the push to dev already built: skip it.
+    if: github.event_name != 'pull_request' || (!github.event.pull_request.draft && !(github.head_ref == 'dev' && github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: windows-2022
     timeout-minutes: 120
     env:
