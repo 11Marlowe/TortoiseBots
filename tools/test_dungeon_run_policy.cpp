@@ -2054,6 +2054,34 @@ static void TestTankGuardReturnsToItsOwnSpot()
     std::string const next = Tick(r2, g);
     CHECK(next != "move 90.0 0.0 0.0" && next != "move 0.0 0.0 0.0");
     CHECK(!r2.guardReturn);
+    // That spot is the party's anchor now (a later gather does not walk back).
+    CHECK(r2.anchorKnown && r2.anchorX == g.leadX);
+
+    // Uldaman run 3, pull 2: the tank on stay was still dragging the pullback
+    // in (18 yd short of its stand) at the first pick-up. The walk back goes
+    // to its stay point, not to where the pick-up found it.
+    Run r3 = Start(&plan);
+    Facts h = Party(0);
+    h.leadIsTank = true;
+    h.leadStaying = true;
+    Tick(r3, h);
+    h.leadX = 90;
+    h.anchorPathRead = true;
+    h.units = {Unit(31, 4851, 60)};
+    CHECK(Tick(r3, h) == "pullback 31");
+    h.anyInCombat = true;
+    h.leadX = 108; // mid-drag
+    h.leadStayKnown = true;
+    h.leadStayX = 90;
+    h.partyAttackers = {Hitter(31, 4851, 12, true)};
+    CHECK(Tick(r3, h) == "attack 31 Tanky");
+    CHECK(r3.guardX == 90.0f);
+    h.leadStaying = false;
+    h.leadStayKnown = false;
+    h.anyInCombat = false;
+    h.partyAttackers.clear();
+    h.units = {Unit(32, 4851, 60)};
+    CHECK(Tick(r3, h) == "move 90.0 0.0 0.0");
 }
 
 // Replay of keepers door pull 100 (trace r-...9bbf): a Brawler on the tank in

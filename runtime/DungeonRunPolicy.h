@@ -288,6 +288,8 @@ struct Facts
     // Guarding the party (GuardTarget), read in fights only:
     bool leadIsTank = false;            // the lead bot is a tank
     bool leadStaying = false;           // the lead bot holds "stay" (the run's move to a stand or walk-back point)
+    bool leadStayKnown = false;         // ... and its stay point (set by the pullback or the run's move) on this map
+    float leadStayX = 0.0f, leadStayY = 0.0f, leadStayZ = 0.0f;
     bool leadHit = false;               // a living mob with the lead bot as its victim is in melee reach of it
                                         // (a caster that turns on the tank from 30 yd is not the tank holding it)
     // Living, not friendly mobs whose victim is a party bot other than the lead
@@ -2389,11 +2391,14 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     ++r.guardOrders;
     if (!r.guardReturn)
     {
-        // The first pick-up: the tank still stands on its stay spot.
+        // The first pick-up: the tank's stay point (its stand), not where it
+        // is now: a tank on stay may still be dragging a pullback in (Uldaman
+        // run 3: 18 yd short of the stand, in the corridor). Its own spot only
+        // when no stay point is known.
         r.guardReturn = true;
-        r.guardX = f.leadX;
-        r.guardY = f.leadY;
-        r.guardZ = f.leadZ;
+        r.guardX = f.leadStayKnown ? f.leadStayX : f.leadX;
+        r.guardY = f.leadStayKnown ? f.leadStayY : f.leadY;
+        r.guardZ = f.leadStayKnown ? f.leadStayZ : f.leadZ;
     }
     r.note = "fighting: the tank picks up " + std::to_string(u->entry) + " off " +
         (u->victimHealer ? "the healer" : "the party") + " (" + Num(u->distLead) + " yd)";
@@ -2963,10 +2968,19 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     // path toward the pack" (Uldaman run 3, baelog pull 7).
     if (r.guardReturn)
     {
-        if (InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait ||
-            (r.phase != Phase::Walk &&
-                ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.guardX, r.guardY, r.guardZ) > kGuardReturnMaxYd))
+        if (InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait)
             r.guardReturn = false;
+        else if (r.phase != Phase::Walk &&
+            ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.guardX, r.guardY, r.guardZ) > kGuardReturnMaxYd)
+        {
+            // It stays near the fight: that is the party's spot now, so a
+            // later gather does not walk back to an old anchor far behind.
+            r.guardReturn = false;
+            r.anchorKnown = true;
+            r.anchorX = f.leadX;
+            r.anchorY = f.leadY;
+            r.anchorZ = f.leadZ;
+        }
         else if (WalkTo(r, f, r.guardX, r.guardY, r.guardZ, false, dt, order))
         {
             r.guardReturn = false;

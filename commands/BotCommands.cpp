@@ -9098,6 +9098,21 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
         return;
     f.leadStaying = leadAi->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
         leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
+    if (f.leadStaying)
+    {
+        // The stand it holds (the pullback's or SetStayAnchor's "stay"
+        // point): the guard's walk back goes there, not to where a tank still
+        // dragging its pull in stands at the pick-up.
+        ai::PositionMap& posMap = leadAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        auto const stay = posMap.find("stay");
+        if (stay != posMap.end() && stay->second.isSet() && stay->second.mapId == lead->GetMapId())
+        {
+            f.leadStayKnown = true;
+            f.leadStayX = stay->second.x;
+            f.leadStayY = stay->second.y;
+            f.leadStayZ = stay->second.z;
+        }
+    }
     for (Unit* attacker : lead->GetAttackers())
         if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead &&
             attacker->CanReachWithMeleeAutoAttack(lead))
