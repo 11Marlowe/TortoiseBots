@@ -86,7 +86,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_bot_turn_scheduler
         test_bwl_bundle1_policy
         test_caster_mana_policy
-        test_chromaggus_sand_policy
+        test_cast_keeps_running_policy
         test_claimed_bot_policy
         test_class_consumable_policy
         test_combat_spread_policy
@@ -151,6 +151,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_jump_policy
         test_kelthuzad_adds_policy
         test_ledge_step_down_policy
+        test_lft_comp_policy
         test_loatheb_spores_policy
         test_local_pick_policy
         test_long_stuck_rescue_policy

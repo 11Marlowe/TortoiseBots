@@ -2715,10 +2715,40 @@ bool AvoidAoeAction::Execute(Event& event)
         !AvoidDamagingTrap(radius, center) &&
         !AvoidTriggerNpc(radius, center))
         return false;
+    // A pet left on the boss keeps biting inside the spin: pull it out with
+    // the bot when it stands inside the hazard. Packet only, no stance
+    // change (the CC-discipline passive gate in CanPetAttack is untouched).
+    RecallPetFromHazard(radius, center);
     bool const moved = StrafeToSafety(center, radius);
     if (!moved && !keepoutSource.IsEmpty() && keepoutRow)
         keepoutNoLandingUntilMs = CreatureAuraNoLandingUntilMs(*keepoutRow, WorldTimer::getMSTime());
     return moved;
+}
+
+void AvoidAoeAction::RecallPetFromHazard(float radius, const WorldPosition& center)
+{
+    Pet* pet = bot->GetPet();
+    if (!pet || !pet->IsInWorld() || !sServerFacade.IsAlive(pet))
+        return;
+    // Only when the pet itself stands inside the hazard: no packet spam
+    // when it already waits outside with the bot.
+    WorldPosition petPos(pet);
+    if (petPos.distance(center) > radius)
+        return;
+    // COMMAND_FOLLOW, the same packet ChooseTargetActions sends when the
+    // fight ends: the pet breaks off and trails the stepping-out bot.
+    // No stance change, so an explicitly passive pet stays passive and the
+    // autonomous stance pin re-sends the attack once the bot re-engages.
+    ObjectGuid const& petGuid = pet->GetObjectGuid();
+    ObjectGuid const targetGuid;
+    uint8 const flag = ACT_COMMAND;
+    uint32 const spellId = COMMAND_FOLLOW;
+    uint32 const command = (uint32(flag) << 24) | spellId;
+    WorldPacket data(CMSG_PET_ACTION);
+    data << petGuid;
+    data << command;
+    data << targetGuid;
+    bot->GetSession()->HandlePetAction(data);
 }
 
 bool AvoidAoeAction::AvoidAuraWithDynamicObj(float& outRadius, WorldPosition& outCenter)
@@ -2804,6 +2834,11 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
             outCenter = WorldPosition(unit->GetMapId(), unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ());
             return true;
         }
+        // Selectable spinning bosses (Herod 8989) count; a selectable mob
+        // with a permanent burning aura (Fire Shield II 184) does not — its
+        // school-damage pulse keeps the invisible-emitter-only rule, or
+        // melee would step out forever and never fight it.
+        bool const selectable = !unit->HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
         Unit::AuraList const& periodic = unit->GetAurasByType(SPELL_AURA_PERIODIC_TRIGGER_SPELL);
         for (Unit::AuraList::const_iterator it = periodic.begin(); it != periodic.end(); ++it)
         {
@@ -2819,7 +2854,12 @@ bool AvoidAoeAction::AvoidTriggerNpc(float& outRadius, WorldPosition& outCenter)
                 continue;
             for (int i = 0; i < MAX_EFFECT_INDEX; ++i)
             {
-                if (triggerProto->Effect[i] != SPELL_EFFECT_SCHOOL_DAMAGE)
+                // School damage lists invisible emitters only; self-centred
+                // weapon-damage spins (Herod's Whirlwind 8989 -> 15578) list
+                // anyone. The radius gate and the range test below are
+                // unchanged.
+                if (!TriggerSpellMarksSpinHazard((int)triggerProto->Effect[i],
+                    (int)triggerProto->EffectImplicitTargetA[i], (int)triggerProto->EffectImplicitTargetB[i], selectable))
                     continue;
                 SpellRadiusEntry const* radiusEntry = sSpellRadiusStore.LookupEntry(triggerProto->EffectRadiusIndex[i]);
                 float radius = radiusEntry ? radiusEntry->Radius : 0.0f;
