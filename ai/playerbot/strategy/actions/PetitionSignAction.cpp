@@ -1,6 +1,8 @@
 
 #include "playerbot/playerbot.h"
 #include "PetitionSignAction.h"
+#include "runtime/AltBotPolicy.h"
+#include "runtime/AltBotService.h"
 #include "../../../runtime/HireLifecycle.h"
 
 using namespace ai;
@@ -59,6 +61,19 @@ bool PetitionSignAction::Execute(Event& event)
 
     if (_inviter == bot)
         return false;
+    // Issue #872 (F40): an autonomous alt signs a charter only for the
+    // owner's account. Same gate as the guild invite (GuildAcceptAction).
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+    {
+        WorldSession const* inviterSession = _inviter->GetSession();
+        bool const isGm = inviterSession && inviterSession->GetSecurity() > SEC_PLAYER;
+        uint32_t const ownerAccount =
+            TortoiseBots::AltBotService::Instance().GetOwnerAccount(bot->GetGUIDLow());
+        bool const sameAccount = inviterSession && ownerAccount != 0 &&
+            inviterSession->GetAccountId() == ownerAccount;
+        if (!TortoiseBots::AltBotMayAcceptGuildInvite(sameAccount, isGm))
+            accept = false;
+    }
 
     if (!accept || !ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_GUILD, false, _inviter, true))
     {

@@ -203,6 +203,67 @@ static void TestProtections()
     assert(AltBotMayPickTarget(false) == true);
 }
 
+static void TestStrangerCommands()
+{
+    // Combat movement and orders: allowed for strangers.
+    assert(CheckAltBotStrangerCommand("follow") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("  Attack  skull") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("pull my target") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("tank attack") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("stay") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("guard") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("formation") == AltBotStrangerVerdict::Allowed);
+    // Read-only info: allowed.
+    assert(CheckAltBotStrangerCommand("stats") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("c") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerCommand("where") == AltBotStrangerVerdict::Allowed);
+    // Blocked for non-owners: trade, selling, destroying, equipping,
+    // talents, quest abandon, logout, guild kick, hearth bind, and any
+    // manipulation outside combat (Issue #872 B8).
+    assert(CheckAltBotStrangerCommand("trade") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("sell") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("destroy") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("equip") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("talents") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("drop") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("logout") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("gk") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("guild leave") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("home") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("grind") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("co +defensive") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("hire") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("invite") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("leave") == AltBotStrangerVerdict::OwnerOnly);
+    // Unknown commands fail closed.
+    assert(CheckAltBotStrangerCommand("") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerCommand("frobnicate") == AltBotStrangerVerdict::OwnerOnly);
+    // `.bot cmd` verbs mirror the chat list.
+    assert(CheckAltBotStrangerOrder("attack") == AltBotStrangerVerdict::Allowed);
+    assert(CheckAltBotStrangerOrder("loot") == AltBotStrangerVerdict::OwnerOnly);
+    assert(CheckAltBotStrangerOrder("revive") == AltBotStrangerVerdict::OwnerOnly);
+}
+
+static void TestGuildInvite()
+{
+    assert(AltBotMayAcceptGuildInvite(true, false));
+    assert(AltBotMayAcceptGuildInvite(false, true));
+    assert(!AltBotMayAcceptGuildInvite(false, false));
+    // Group invites need no gate: anyone may invite the alt like a pool bot.
+    assert(AltBotMayAcceptGroupInvite());
+}
+
+static void TestDeletionGuards()
+{
+    // G49: a character on a non-registered (player) account is excluded from
+    // the pool reset; a registered pool account is not an alt.
+    assert(AltBotExcludedFromPoolReset(false));
+    assert(!AltBotExcludedFromPoolReset(true));
+    // G50: a character with no hire ledger row never reaches hire deletion.
+    assert(AltBotExcludedFromHireDeletion(false));
+    assert(!AltBotExcludedFromHireDeletion(true));
+}
+
 int main()
 {
     TestStart();
@@ -213,6 +274,9 @@ int main()
     TestSweepDue();
     TestLeaveInstance();
     TestProtections();
+    TestStrangerCommands();
+    TestGuildInvite();
+    TestDeletionGuards();
     std::cout << "test_alt_bot_policy: OK" << std::endl;
     return 0;
 }

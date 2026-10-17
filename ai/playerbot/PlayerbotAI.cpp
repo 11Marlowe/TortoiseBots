@@ -11,6 +11,8 @@
 #include "playerbot/AiFactory.h"
 
 #include "../../runtime/ObservabilityEmitter.h"
+#include "../../runtime/AltBotPolicy.h"
+#include "../../runtime/AltBotService.h"
 #include "../../runtime/BotActivityLease.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/HireMasterPolicy.h"
@@ -2549,7 +2551,10 @@ bool PlayerbotAI::IsBotOwnerOrGm(Player const& fromPlayer) const
         uint32 ownerAccount = record->ownerAccountId ? record->ownerAccountId : record->accountId;
         if (ownerAccount != 0 && ownerAccount == senderAccount)
             return true;
-        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid())
+        // Issue #872: a stranger's group binds them as the alt-bot's master
+        // (AcceptInvitationAction), but only the owner's account owns it.
+        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid() &&
+            !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
             return true;
     }
     TortoiseBots::OwnedCharacter owned;
@@ -2575,6 +2580,14 @@ bool PlayerbotAI::CheckBotCommandAuth(Player& fromPlayer, std::string const& com
         return false;
     }
     if (IsBotOwnerOrGm(fromPlayer))
+        return true;
+    // Issue #872: an autonomous alt-bot in another player's group takes
+    // combat orders (follow, attack, ...) from strangers, but only the
+    // owner's account (or a GM) may touch anything outside combat. The
+    // master binding alone must not grant it: joining the stranger's group
+    // is what put the stranger's guid in the record.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        TortoiseBots::CheckAltBotStrangerCommand(command) == TortoiseBots::AltBotStrangerVerdict::Allowed)
         return true;
     if (!silentDeny)
         TellPlayer(&fromPlayer, "Only this bot's owner (or a GameMaster) may do that.");
