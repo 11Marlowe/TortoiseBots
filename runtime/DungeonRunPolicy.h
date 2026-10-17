@@ -1739,7 +1739,8 @@ inline std::size_t NearestMovePoint(const Run& r, const Facts& f)
 //     to that move point (Galgann pull 108, 2026-10-16: a straight line from
 //     the entrance is shorter to the pack than to its stand yet has no path),
 //     else straight to the last move point in navmesh hops.
-// Standing on the last move point is a position fact: the checkpoint is set.
+// With no direct step left to cross, standing on the last move point sets the
+// checkpoint there.
 inline void StartWalkBack(Run& r, const Facts& f)
 {
     r.walkBackDue = false;
@@ -1756,11 +1757,8 @@ inline void StartWalkBack(Run& r, const Facts& f)
         return;
     const PlanStep& p = r.plan->steps[last];
     float const toLast = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
-    if (toLast <= kArriveYd)
-    {
-        NoteCheckpoint(r, last);
-        return; // on the last point already
-    }
+    // The holes first: on a folded route the spot a lead bot comes back at can
+    // lie on a later point (the last one too) before the holes it has to cross.
     std::size_t const hole = FirstUncrossedDirect(r);
     if (hole != static_cast<std::size_t>(-1))
     {
@@ -1775,6 +1773,11 @@ inline void StartWalkBack(Run& r, const Facts& f)
                               : std::string("the plan's points from it"));
         EnterPhase(r, Phase::Begin);
         return;
+    }
+    if (toLast <= kArriveYd)
+    {
+        NoteCheckpoint(r, last);
+        return; // on the last point already
     }
     float const toStep = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, cur->x, cur->y, cur->z);
     if (toStep <= kApproachYd && toStep <= toLast)

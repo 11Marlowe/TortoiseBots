@@ -313,6 +313,16 @@ static void TestUncrossedDirectStepIsNeverPassed()
     CHECK(d.step == 3 && d.checkpoint == 1);
 }
 
+// Codex round 4 on #1079: the revive spot on the folded last point itself (index 6, (160, 0)) before the holes.
+static void TestReviveOnTheFoldedLastPointStillReplays()
+{
+    DungeonPlan plan = FoldedPlan();
+    Run r = DiesAndRevivesAt(plan, 161, 0);
+    CHECK(!r.routeKnown);
+    StartWalkBack(r, At(161, 0));
+    CHECK(r.walkBack && r.walkBackIdx == 1 && !r.routeKnown);
+}
+
 // A revive at the entrance (14:03 and 14:39: (-229, 46)): before every hole, the replay starts before the first.
 static void TestEntranceReviveReplaysEveryHole()
 {
@@ -436,6 +446,7 @@ int main()
     TestWalkBackStartsBeforeTheFirstDirectStep();
     TestFoldedRouteReplaysTheEarlierHole();
     TestEntranceReviveReplaysEveryHole();
+    TestReviveOnTheFoldedLastPointStillReplays();
     TestUncrossedDirectStepIsNeverPassed();
     TestRevivePastAllHolesNeedsNoReplay();
     TestNoDirectStepKeepsTheOldWalkBack();
