@@ -453,6 +453,9 @@ struct Run
     std::vector<HoldStand> holdStands;
     std::uint32_t holdStandsGen = 0;
     bool holdPlaced = false;
+    // The pause came from a player (an order to the party, `.bot run pause`),
+    // not from the run: it never resumes by itself (HoldDoneWhilePaused).
+    bool pausedByPlayer = false;
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
     // Run-wide counts for the report.
@@ -577,6 +580,7 @@ inline void Pause(Run& r, const std::string& why)
 {
     r.state = State::Paused;
     r.note = why;
+    r.pausedByPlayer = false; // PausePlayer sets it after
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
     r.holdDue = false;
@@ -942,10 +946,17 @@ inline bool Skip(Run& r)
     return true;
 }
 
-// The run was paused by a player's order (PauseForPlayer).
+// The run was paused by a player (PausePlayer: an order to the party, `.bot run pause`).
 inline bool PausedByPlayer(const Run& r)
 {
-    return r.state == State::Paused && r.note.compare(0, 13, "player order ") == 0;
+    return r.state == State::Paused && r.pausedByPlayer;
+}
+
+// A player's pause: only `.bot run resume` (or skip) goes on from it.
+inline void PausePlayer(Run& r, const std::string& why)
+{
+    Pause(r, why);
+    r.pausedByPlayer = true;
 }
 
 // Any order from a player to the party.
@@ -953,7 +964,7 @@ inline bool PauseForPlayer(Run& r, const std::string& order)
 {
     if (r.state != State::Running)
         return false;
-    Pause(r, "player order (" + order + "): .bot run resume to go on");
+    PausePlayer(r, "player order (" + order + "): .bot run resume to go on");
     return true;
 }
 
@@ -2328,11 +2339,13 @@ inline bool HoldDoneWhilePaused(Run& r, const Facts& f)
 // The places of the party on a hold spot (kHoldBehindYd): every living ranged
 // bot (a healer too) but the lead bot, in a row kHoldBehindYd behind the spot
 // on the side away from the event's mobs (the middle of its named mobs, the
-// hold's first entry, else of its awake ones; with none of them off the spot,
-// the side the party came from: the nearest earlier move point off the
-// spot), kHoldSpreadYd apart across that line, each at most kHoldGatherYd from
-// the spot and inside the hold's radius. The others follow the lead bot (the
-// tank) on the spot. Empty when no side can be told or no ranged bot lives.
+// hold's first entry, else of its awake ones), kHoldSpreadYd apart across that
+// line, each at most kHoldGatherYd from the spot and inside the hold's radius.
+// Units that ring the spot (no side from their middle): the side whose row is
+// nowhere nearer to a unit than the spot is, else the tank's own spot. No
+// units seen: the side the party came from (the nearest earlier move point).
+// The others follow the lead bot (the tank) on the spot. Empty when no side
+// can be told or no ranged bot lives.
 inline std::vector<HoldStand> HoldStands(const Run& r, const Facts& f, const PlanStep& s)
 {
     std::vector<HoldStand> out;
@@ -2368,7 +2381,60 @@ inline std::vector<HoldStand> HoldStands(const Run& r, const Facts& f, const Pla
             side = true;
         }
     }
-    for (std::size_t i = r.step; !side && r.plan && i-- > 0;)
+    float const reach = s.radius > 0.0f ? std::min(kHoldGatherYd, s.radius) : kHoldGatherYd;
+    // The row for a side: kHoldBehindYd behind the spot along (ux, uy).
+    auto row = [&](float ux, float uy)
+    {
+        std::vector<HoldStand> stands;
+        for (std::size_t i = 0; i < names.size(); ++i)
+        {
+            float const across = (static_cast<float>(i) - 0.5f * static_cast<float>(names.size() - 1)) * kHoldSpreadYd;
+            float dx = ux * kHoldBehindYd - uy * across, dy = uy * kHoldBehindYd + ux * across;
+            float const len = std::sqrt(dx * dx + dy * dy);
+            if (len > reach)
+            {
+                dx *= reach / len;
+                dy *= reach / len;
+            }
+            stands.push_back(HoldStand{names[i], s.x + dx, s.y + dy, s.z});
+        }
+        return stands;
+    };
+    if (side)
+        return row(bx, by);
+    if (!f.units.empty())
+    {
+        // The event's units ring the spot (the four Stone Keepers: their middle
+        // 3.4 yd off it), and the script wakes each onto the NEAREST player: a
+        // row toward any side the party came from may stand nearer to a statue
+        // than the tank does. Of 24 sides, the one whose row keeps every stand
+        // at least as far from every unit as the spot is, with the widest
+        // margin; none such: the ranged stand on the tank's own spot.
+        float bestMargin = -1.0f;
+        for (int k = 0; k < 24; ++k)
+        {
+            float const a = static_cast<float>(k) * 3.14159265f / 12.0f;
+            std::vector<HoldStand> stands = row(std::cos(a), std::sin(a));
+            float margin = 1e9f;
+            for (const HoldStand& st : stands)
+                for (const UnitFact& u : f.units)
+                {
+                    float const fromStand = std::sqrt((st.x - u.x) * (st.x - u.x) + (st.y - u.y) * (st.y - u.y));
+                    float const fromSpot = std::sqrt((s.x - u.x) * (s.x - u.x) + (s.y - u.y) * (s.y - u.y));
+                    margin = std::min(margin, fromStand - fromSpot);
+                }
+            if (margin >= 0.0f && margin > bestMargin)
+            {
+                bestMargin = margin;
+                out = std::move(stands);
+            }
+        }
+        if (out.empty())
+            for (const std::string& name : names)
+                out.push_back(HoldStand{name, s.x, s.y, s.z});
+        return out;
+    }
+    for (std::size_t i = r.step; r.plan && i-- > 0;)
     {
         const PlanStep& p = r.plan->steps[i];
         if (p.kind != PlanStepKind::Move && p.kind != PlanStepKind::MoveDirect)
@@ -2376,26 +2442,7 @@ inline std::vector<HoldStand> HoldStands(const Run& r, const Facts& f, const Pla
         float const dx = p.x - s.x, dy = p.y - s.y;
         float const len = std::sqrt(dx * dx + dy * dy);
         if (len >= kHoldMobSideYd)
-        {
-            bx = dx / len;
-            by = dy / len;
-            side = true;
-        }
-    }
-    if (!side)
-        return out;
-    float const reach = s.radius > 0.0f ? std::min(kHoldGatherYd, s.radius) : kHoldGatherYd;
-    for (std::size_t i = 0; i < names.size(); ++i)
-    {
-        float const across = (static_cast<float>(i) - 0.5f * static_cast<float>(names.size() - 1)) * kHoldSpreadYd;
-        float dx = bx * kHoldBehindYd - by * across, dy = by * kHoldBehindYd + bx * across;
-        float const len = std::sqrt(dx * dx + dy * dy);
-        if (len > reach)
-        {
-            dx *= reach / len;
-            dy *= reach / len;
-        }
-        out.push_back(HoldStand{names[i], s.x + dx, s.y + dy, s.z});
+            return row(dx / len, dy / len);
     }
     return out;
 }

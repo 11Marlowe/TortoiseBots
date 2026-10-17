@@ -209,6 +209,10 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("SyncHoldStands(commander, lead, bots, it->second, order);", tick)
         release = body(COMMANDS, "void ReleaseRunHold(", "\n}\n")
         self.assertIn("slot.placedRaw.clear();", release)
+        stands = body(COMMANDS, "void SyncHoldStands(", "\n}\n")
+        self.assertIn("if (stand && (!placed || newPlaces || drifted))", stands)
+        pause = body(COMMANDS, 'if (verb == "pause")', "else if")
+        self.assertIn('PausePlayer(slot.run, "paused by .bot run pause");', pause)
         self.assertIn("member.ranged = PlayerbotAI::IsHeal(bot)", facts)
         self.assertIn("unit.x = creature->GetPositionX();", facts)
 

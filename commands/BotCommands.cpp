@@ -4490,6 +4490,7 @@ struct DungeonRunSlot
     std::unordered_set<uint64> heldRaw; // bots on stay for the run's hold (DungeonRun::Run::hold)
     std::unordered_set<uint64> placedRaw; // bots on their stand points of an event's hold (DungeonRun::HoldStands)
     uint32 placedGen = 0;                 // the Run::holdStandsGen they were placed for
+    std::unordered_map<uint64, RemoteCommander::Point3> placedAt; // ... and the point each was sent to
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -9532,6 +9533,7 @@ void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
     {
         slot.heldRaw.clear();
         slot.placedRaw.clear();
+        slot.placedAt.clear();
         return;
     }
     std::vector<Player*> held;
@@ -9542,6 +9544,7 @@ void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
                     held.push_back(bot);
     slot.heldRaw.clear();
     slot.placedRaw.clear();
+    slot.placedAt.clear();
     Player* lead = FindCharacter(leadRaw);
     if (commander && lead && !held.empty())
         FormUpOnLead(commander, lead, held, false);
@@ -9584,18 +9587,24 @@ void SyncRunHold(Player* commander, Player* lead, std::vector<Player*> const& bo
 // The party's places on an event's hold spot (DungeonRun::HoldStands): each
 // named bot holds ("stay") at its stand point and walks there on its own path
 // finding, like a commander task's walk (StartTaskStayWalk); again whenever the
-// run sets new places (holdStandsGen) and after each run move (a move forms
-// every bot up on the lead bot). A stand point the bot cannot walk to, or off
+// run sets new places (holdStandsGen), and after a run move only the bots
+// that drifted more than kHoldStandDriftYd off their point. A stand point the bot cannot walk to, or off
 // the ground, is the lead bot's own spot instead. Bots no longer named follow
 // the lead bot again. Only the bound bots; the navmesh is asked only when the
 // places change, never per tick.
+constexpr float kHoldStandDriftYd = 2.0f; // a placed bot farther than this off its point is placed again on a run move
+
 void SyncHoldStands(Player* commander, Player* lead, std::vector<Player*> const& bots, DungeonRunSlot& slot,
     std::string const& order)
 {
     TortoiseBots::DungeonRun::Run const& run = slot.run;
     if (run.holdStands.empty() && slot.placedRaw.empty())
         return;
-    bool const again = slot.placedGen != run.holdStandsGen || order.compare(0, 5, "move ") == 0;
+    // New places: every named bot again. A run move (the hold walking the tank
+    // back, a guard order's return): only a bot that drifted off its point, so
+    // a tank going after each Stone Keeper does not reset the ranged mid-event.
+    bool const newPlaces = slot.placedGen != run.holdStandsGen;
+    bool const moved = order.compare(0, 5, "move ") == 0;
     slot.placedGen = run.holdStandsGen;
     std::vector<Player*> released;
     for (Player* bot : bots)
@@ -9609,7 +9618,15 @@ void SyncHoldStands(Player* commander, Player* lead, std::vector<Player*> const&
                 if (s.name == bot->GetName())
                     stand = &s;
         bool const placed = slot.placedRaw.count(raw) != 0;
-        if (stand && (!placed || again))
+        bool drifted = false;
+        if (placed && moved)
+        {
+            auto at = slot.placedAt.find(raw);
+            drifted = at == slot.placedAt.end() ||
+                ai::PlanDistance(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), at->second.x, at->second.y,
+                    at->second.z) > kHoldStandDriftYd;
+        }
+        if (stand && (!placed || newPlaces || drifted))
         {
             PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
             if (!ai)
@@ -9636,10 +9653,12 @@ void SyncHoldStands(Player* commander, Player* lead, std::vector<Player*> const&
             SetStayAnchor(ai, x, y, z, bot->GetMapId());
             ExecuteQuietAction(ai, "return to stay position", ai::Event("return to stay position", "stay", commander));
             slot.placedRaw.insert(raw);
+            slot.placedAt[raw] = RemoteCommander::Point3{ x, y, z };
         }
         else if (!stand && placed)
         {
             slot.placedRaw.erase(raw);
+            slot.placedAt.erase(raw);
             if (bot->IsAlive() && !slot.heldRaw.count(raw)) // a bot the run's hold keeps stays on its stay
                 released.push_back(bot);
         }
@@ -9983,7 +10002,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
     {
         done = slot.run.state == State::Running;
         if (done)
-            Pause(slot.run, "paused by .bot run pause");
+            PausePlayer(slot.run, "paused by .bot run pause"); // never resumed by the run itself
     }
     else if (verb == "resume")
         done = Resume(slot.run);

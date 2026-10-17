@@ -204,6 +204,15 @@ static void TestPausedHoldDoneResumes()
     CHECK(p.state == State::Paused && p.step == 2 && PausedByPlayer(p) && Has(p.note, "event done: data 2 reads 3") &&
         Has(p.note, ".bot run resume goes on with step 3"));
 
+    // `.bot run pause` is a player's pause too, whatever its note says.
+    Run q = Start(&plan, 1);
+    PausePlayer(q, "paused by .bot run pause");
+    CHECK(PausedByPlayer(q) && HoldDoneWhilePaused(q, f) && q.state == State::Paused && q.step == 2);
+    // A run's own pause after a resume is not the player's.
+    CHECK(Resume(q));
+    Pause(q, "a fight lasted more than 600 s");
+    CHECK(!PausedByPlayer(q));
+
     // The hold as the plan's last step: the run is done.
     DungeonPlan last;
     last.steps = {Move(-30), ArchaedasHold()};
@@ -306,18 +315,22 @@ static void TestHoldStandsPlaceRangedBehindTank()
     Tick(r, f);
     CHECK(r.step == 2 && r.holdStands.empty());
 
-    // No awake or named mob off the spot (the four keepers stand round it):
-    // the side the party came from, the step before (west here).
+    // Units that ring the spot (their middle on it): never a stand nearer to a
+    // unit than the tank's spot; two units east and west leave the north or
+    // south side open.
     Run k = Start(&plan, 1);
     Facts g = Party();
     g.units = {Unit(2748, 15, 0, false), Unit(2748, -15, 0, false)};
     Tick(k, g);
     CHECK(k.holdStands.size() == 3);
     for (const HoldStand& s : k.holdStands)
-        CHECK(s.x < -4.0f);
-    // The Keepers' hold as in the plan: the four keepers ring the spot (their
-    // middle 3.4 yd off it), the altar 3.5 yd away is no move: the side is the
-    // pull group 1 approach the party came by (82.3 252.4), south-west.
+        for (const UnitFact& unit : g.units)
+            CHECK(std::hypot(s.x - unit.x, s.y - unit.y) >= std::hypot(unit.x, unit.y) - 0.01f);
+    // The Keepers' hold as in the plan (cold review of #1076): the four statues
+    // ring the spot, their middle 3.4 yd off it, and the script wakes each onto
+    // the NEAREST player. The old fallback (the move the party came by, south-
+    // west) put the ranged 4.6-5.6 yd from the south statue that woke first.
+    // Every stand must be at least as far from every statue as the spot is.
     PlanStep keepers = ArchaedasHold(30.0f);
     keepers.entry = 1;
     keepers.entries = {4857};
@@ -341,8 +354,9 @@ static void TestHoldStandsPlaceRangedBehindTank()
     CHECK(u.phase == Phase::Hold && u.holdStands.size() == 3);
     for (const HoldStand& s : u.holdStands)
     {
-        float const dx = s.x - 101.5f, dy = s.y - 271.2f;
-        CHECK(dx < 0.0f && dy < 0.0f && std::sqrt(dx * dx + dy * dy) <= kHoldGatherYd + 0.01f);
+        CHECK(std::hypot(s.x - 101.5f, s.y - 271.2f) <= kHoldGatherYd + 0.01f);
+        for (const UnitFact& unit : kf.units)
+            CHECK(std::hypot(s.x - unit.x, s.y - unit.y) >= std::hypot(101.5f - unit.x, 271.2f - unit.y) - 0.01f);
     }
     // A small hold radius bounds the places too.
     DungeonPlan small;
