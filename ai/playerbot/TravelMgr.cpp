@@ -59,7 +59,7 @@ PlayerTravelInfo::PlayerTravelInfo(Player* player)
     // Same scope as ShouldLeaveOutgrownZoneValue: autonomous random bots only.
     // Snapshot here so destination filtering (async, off-tick) cannot block an
     // owned/hired bot from vendoring or repairing next to its player.
-    masterlessRandom = sRandomBotFacade.IsRandomBot(player) && !ai->HasRealPlayerMaster();
+    masterlessRandom = sRandomBotFacade.IsFreeBot(player) && !ai->HasRealPlayerMaster();
     focusList = AI_VALUE(focusQuestTravelList, "focus travel target");
 
     for (auto& [valueName, value] : boolValues)
@@ -1418,7 +1418,7 @@ void TravelTarget::CheckStatus()
             // as active and the request gate refuses every new pick meanwhile
             // (live 2026-10-09: 1-3 min idle after each hand-in). Expire it so
             // the next tick picks the next errand. Owned bots keep the cooldown.
-            if (destinationInactive && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
+            if (destinationInactive && sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
                 (tDestination->GetPurpose() == TravelDestinationPurpose::QuestGiver ||
                  tDestination->GetPurpose() == TravelDestinationPurpose::QuestTaker ||
                  static_cast<uint32>(tDestination->GetPurpose()) & static_cast<uint32>(TravelDestinationPurpose::QuestAllObjective)))
@@ -1438,7 +1438,7 @@ void TravelTarget::CheckStatus()
             // skipped (SetBestTarget requires IsActive). An arrived trip
             // (WORK) keeps today's behaviour. Owned bots keep the cooldown.
             if (destinationInactive && GetStatus() == TravelStatus::TRAVEL_STATUS_TRAVEL &&
-                sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
+                sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
                 (tDestination->GetPurpose() == TravelDestinationPurpose::GatherMining ||
                  tDestination->GetPurpose() == TravelDestinationPurpose::GatherHerbalism))
             {
@@ -1472,7 +1472,7 @@ void TravelTarget::CheckStatus()
             // Grind only: a quest/vendor trip also cools down when its errand
             // completes en route, and parking those would stall questing.
             if (tDestination->GetPurpose() == TravelDestinationPurpose::Grind &&
-                ai::TravelCooldownParksPurpose(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster(),
+                ai::TravelCooldownParksPurpose(sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster(),
                 GetStatus() == TravelStatus::TRAVEL_STATUS_TRAVEL))
             {
                 std::string const parkKey = std::to_string(static_cast<uint32>(tDestination->GetPurpose()));
@@ -1497,7 +1497,7 @@ void TravelTarget::CheckStatus()
     // owned/hired bots keep the full WORK clock.
     if (GetStatus() == TravelStatus::TRAVEL_STATUS_WORK &&
         !IsForced() && !IsGroupCopy() &&
-        sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster())
+        sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster())
     {
         AiObjectContext* workContext = ai->GetAiObjectContext();
         Unit* grindPrey = workContext->GetValue<Unit*>("grind target")->Get();

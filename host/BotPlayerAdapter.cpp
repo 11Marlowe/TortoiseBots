@@ -4,6 +4,7 @@
 #include "../commands/BotCommands.h"
 #include "../runtime/BotManager.h"
 #include "../runtime/HireLifecycle.h"
+#include "../runtime/AltBotService.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/PlayerbotAIStorage.h"
 #include "../runtime/PetSpawnPolicy.h"
@@ -203,6 +204,7 @@ void BotPlayerAdapter::OnPlayerCompleteQuest(Player* player, Quest const* quest)
         return;
 
     sPlayerbotAIConfig.logEvent(botAi, "QuestCompleted", quest->GetTitle(), std::to_string(quest->GetQuestId()));
+    AltBotService::Instance().OnQuestCompleted(player);
 }
 
 void BotPlayerAdapter::OnBeforeLogout(Player* player)
@@ -238,6 +240,7 @@ void BotUnitAdapter::OnUnitDeath(Unit* unit, Unit* killer)
         return;
 
     ai->SetLastKiller(killer);
+    AltBotService::Instance().OnDeath(player);
 }
 
 void BotUnitAdapter::OnDamage(Unit* attacker, Unit* victim, uint32& /*damage*/)

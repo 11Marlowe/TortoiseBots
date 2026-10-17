@@ -98,6 +98,8 @@ A common issue with bot realms is a whole pool stuck at level 1 while you level 
 * The same class gates a pool bot as a player: a hunter owns no pet below level 10 (*Tame Beast*, spell 1515). A level-1 hunter in a fresh pool is pet-less, gets a random level-appropriate pet when it reaches 10, and a pool hunter logging in below 10 gives up a pet an older pool seeded for it. Player-owned, hired and adopted hunters keep theirs.
 * New random bots are spread evenly across the six racial starting zones (`AiPlayerbot.RandomBotEvenStartZones = 1`): auto-create picks a valid race from the least-populated start zone (counted once per creation batch, pool characters below level 10, so bots that level during a big creation run still count). Goblins count toward Durotar and high elves toward Elwynn, and their relocation from the isolated custom starts always lands in Valley of Trials / Northshire, so each bot plays in the zone it was counted for. Set `0` for the old behaviour (uniform random race).
 
+**Alt-bots (issue #872, opt-in `AiPlayerbot.AltBots`):** a player's own alt kicked from their party plays with the same leisure mixer as the pool (quests, grinding, travel, rest, gathering, fishing) under player-protection rules, and holds one pool slot while it is out. It is never a pool character: pool resets, hire deletion and the pool's gear/talent provisioning never touch it. See `player-controls.md` section 2a.
+
 ---
 
 ## 4. Social Interaction: Groups & Guilds

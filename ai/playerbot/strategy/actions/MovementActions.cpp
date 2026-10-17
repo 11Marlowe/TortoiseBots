@@ -3521,7 +3521,7 @@ bool IdleWanderAction::isUseful()
     // No grind-target clause: a held-but-unattackable pick must not veto the
     // only motion that can break the standstill (see IdleWanderAllowed). The
     // attack row (5.0) outranks this drift (0.6), so a usable prey still wins.
-    if (!ai::IdleWanderAllowed(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster(),
+    if (!ai::IdleWanderAllowed(sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster(),
         AI_VALUE(bool, "travel target active"), sServerFacade.IsInCombat(bot),
         bot->InBattleGround(), WorldPosition(bot).isOverworld(),
         AI_VALUE(bool, "can move around")))

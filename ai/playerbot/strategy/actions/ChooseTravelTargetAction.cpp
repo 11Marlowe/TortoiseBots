@@ -81,7 +81,7 @@ inline void LogTravelSearchEmpty(PlayerbotAI* ai, Player* bot, std::string const
 static void WanderOnEmptyPick(PlayerbotAI* ai, Player* bot)
 {
     AiObjectContext* context = ai->GetAiObjectContext();
-    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot) || bot->InBattleGround() ||
+    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot) || bot->InBattleGround() ||
         bot->IsInCombat() || !bot->IsAlive() || bot->IsTaxiFlying() || bot->GetTransport() || bot->IsMoving() ||
         AI_VALUE2(time_t, "manual time", "empty pick wander at") + 20 > time(0))
         return;
@@ -137,7 +137,7 @@ namespace
     bool RpgMixerGrindPhaseOpen(PlayerbotAI* ai)
     {
         Player* bot = ai->GetBot();
-        if (bot->GetLevel() < 5 && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster())
+        if (bot->GetLevel() < 5 && sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster())
             return true;
         return RpgMixerRpgPhase(ai) <= 45;
     }
@@ -214,7 +214,7 @@ namespace
             purposeId != (unsigned long)TravelDestinationPurpose::Explore)
             return true;
         Player* bot = ai->GetBot();
-        if (!(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster()))
+        if (!(sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster()))
             return true;
         if (AI_VALUE(bool, "should leave outgrown zone"))
             return true;
@@ -457,7 +457,7 @@ bool ChooseTravelTargetAction::Execute(Event& event)
         // grind: re-searching that every minute would starve the very fallback
         // this shortens the park for.
         bool const beginnerRepark = questErrand && bot->GetLevel() < 5 &&
-            sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
+            sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
             !HasRewardableFinishedQuest(ai);
         SET_AI_VALUE2(bool, "no active travel destinations", purposeKey, true);
         SET_AI_VALUE2(time_t, "manual time", "no travel purpose until::" + purposeKey,
@@ -1202,7 +1202,7 @@ ai::TravelPickOutcome ChooseTravelTargetAction::SetBestTargetSliced(Player* requ
                     // bots obey their player. Grind purpose only: capital
                     // vendors/trainers/AH/bank run through other purposes.
                     if (destination->GetPurpose() == TravelDestinationPurpose::Grind &&
-                        !ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot) &&
+                        !ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot) &&
                         position->HasAreaFlag(AREA_FLAG_CAPITAL))
                     {
                         ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - capital grind spot", "debug travel");
@@ -1231,7 +1231,7 @@ ai::TravelPickOutcome ChooseTravelTargetAction::SetBestTargetSliced(Player* requ
                     // bots keep the ceiling.
                     bool const valleyExempted = destination->GetPurpose() == TravelDestinationPurpose::Grind &&
                         ai::GrindValleyExempted(bot->GetLevel(),
-                            sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster());
+                            sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster());
                     if (!valleyExempted && posAreaLevel > 0 && posAreaLevel > (int32)bot->GetLevel() + 5)
                     {
                         ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - area level too high", "debug travel");
@@ -1721,7 +1721,7 @@ bool ResetTargetAction::Execute(Event& event)
     // visit gaps) and reset cooldowns were half of all stalled bots (live
     // 2026-10-09 evening): 5 s, and the bot wanders meanwhile like an empty
     // pick - unless it reset to hand in at a nearby quest taker.
-    bool const poolBot = sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+    bool const poolBot = sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
     oldTarget->SetExpireIn(poolBot ? 5000 : 60000);
     if (poolBot && !AI_VALUE(bool, "has nearby quest taker"))
         WanderOnEmptyPick(ai, bot);
@@ -1811,7 +1811,7 @@ bool RequestTravelTargetAction::Execute(Event& event)
     // point danger (#418/#428), taker route (#434) still reject; an empty
     // search parks the purpose like any other empty search. One float down
     // the async lambda, no world scan, no per-tick cost.
-    bool const masterless = sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+    bool const masterless = sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
     float requestMaxDistance = 10000.0f;
     if (actionPurpose == TravelDestinationPurpose::Grind)
         requestMaxDistance = GrindRequestMaxDistance(leavingOutgrown, masterless, bot->GetLevel(), requestMaxDistance);
@@ -1960,9 +1960,9 @@ bool RequestTravelTargetAction::isAllowed() const
     // cached verdict blocked every other leisure purpose, so the bot reset and
     // stood until the verdict changed. Owned bots keep the skip chance.
     case TravelDestinationPurpose::Explore:
-        return (sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster()) || urand(1, 100) < 10;
+        return (sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster()) || urand(1, 100) < 10;
     case TravelDestinationPurpose::GenericRpg:
-        return (sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster()) || urand(1, 100) < 50;
+        return (sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster()) || urand(1, 100) < 50;
     case TravelDestinationPurpose::Grind:
         return true;
     default:
@@ -2387,7 +2387,7 @@ bool RequestNamedTravelTargetAction::Execute(Event& event)
         // search sent them on median 2.8 km walks: 21% died on the way and
         // under 1% learned anything. A trainer further out is still used by
         // the nearby-trainer service when the bot passes it.
-        bool const masterless = sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+        bool const masterless = sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
         float const trainerMaxDistance = type == TRAINER_TYPE_CLASS ?
             ClassTrainerRequestMaxDistance(masterless, bot->GetLevel(),
                 AI_VALUE2(std::vector<TrainerSpell const*>, "trainable spells", (uint32)TRAINER_TYPE_CLASS).size(), 10000.0f) :
@@ -2602,7 +2602,7 @@ bool RequestQuestTravelTargetAction::Execute(Event& event)
                 // destination IsPossible gate below re-checks the same rule
                 // with the taker's area once the search runs.
                 if (!ai::QuestTakerTripFits((int)questTemplate->GetQuestLevel(), false,
-                    bot->GetLevel(), sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster()))
+                    bot->GetLevel(), sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster()))
                     continue;
 
                 // A hand-in trip whose moves kept failing is parked per quest by the

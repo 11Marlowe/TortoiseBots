@@ -11,12 +11,15 @@
 #include "playerbot/AiFactory.h"
 
 #include "../../runtime/ObservabilityEmitter.h"
+#include "../../runtime/AltBotPolicy.h"
+#include "../../runtime/AltBotService.h"
 #include "../../runtime/BotActivityLease.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/HireMasterPolicy.h"
 #include "../../runtime/PoolBotTradePolicy.h"
 #include "../../runtime/QueuedOrderPolicy.h"
 #include "../../runtime/RemoteCommanderTasks.h"
+#include "../../runtime/AltBotService.h"
 #include "ByteBuffer.h"
 #include "ObjectAccessor.h"
 
@@ -437,7 +440,11 @@ PlayerbotAI::PlayerbotAI(Player* bot) :
     RegisterPacketHandlers(botOutgoingPacketHandlers, kBotOutgoingPacketHandlers, std::size(kBotOutgoingPacketHandlers));
     RegisterPacketHandlers(masterOutgoingPacketHandlers, kMasterOutgoingPacketHandlers, std::size(kMasterOutgoingPacketHandlers));
 
-    if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0)
+    // Issue #872: autonomous alts never auto-spend talents (B12). The
+    // IsOwnedBot guard already covers companions; this covers the
+    // masterless autonomous state (master was cleared at session start).
+    if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0 &&
+        !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
     {
         DoSpecificAction("auto talents");
     }
@@ -1784,7 +1791,7 @@ void PlayerbotAI::OnDeath()
             // before the cluster escape below, which may drop the target.
             // Pool bots without a real player master only; a forced target
             // (an explicit order) is never counted or parked.
-            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot))
+            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot))
             {
                 TravelTarget* errandTarget = AI_VALUE(TravelTarget*, "travel target");
                 TravelDestination* errandDest = errandTarget ? errandTarget->GetDestination() : nullptr;
@@ -2544,7 +2551,10 @@ bool PlayerbotAI::IsBotOwnerOrGm(Player const& fromPlayer) const
         uint32 ownerAccount = record->ownerAccountId ? record->ownerAccountId : record->accountId;
         if (ownerAccount != 0 && ownerAccount == senderAccount)
             return true;
-        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid())
+        // Issue #872: a stranger's group binds them as the alt-bot's master
+        // (AcceptInvitationAction), but only the owner's account owns it.
+        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid() &&
+            !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
             return true;
     }
     TortoiseBots::OwnedCharacter owned;
@@ -2570,6 +2580,14 @@ bool PlayerbotAI::CheckBotCommandAuth(Player& fromPlayer, std::string const& com
         return false;
     }
     if (IsBotOwnerOrGm(fromPlayer))
+        return true;
+    // Issue #872: an autonomous alt-bot in another player's group takes
+    // combat orders (follow, attack, ...) from strangers, but only the
+    // owner's account (or a GM) may touch anything outside combat. The
+    // master binding alone must not grant it: joining the stranger's group
+    // is what put the stranger's guid in the record.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        TortoiseBots::CheckAltBotStrangerCommand(command) == TortoiseBots::AltBotStrangerVerdict::Allowed)
         return true;
     if (!silentDeny)
         TellPlayer(&fromPlayer, "Only this bot's owner (or a GameMaster) may do that.");
@@ -2788,7 +2806,7 @@ void PlayerbotAI::PublishChatGate()
     // and every 30 s so a re-registered AI cannot keep the storage default.
     bool const ignoreAll = !AllowActivity();
     bool const ignoreTrade = !m_recordIncommingMessages && !HasRealPlayerMaster() &&
-        sRandomBotFacade.IsRandomBot(bot) &&
+        sRandomBotFacade.IsFreeBot(bot) &&
         !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
     time_t const now = time(nullptr);
     if (m_chatGatePublished && ignoreAll == m_chatGateIgnoreAll && ignoreTrade == m_chatGateIgnoreTrade &&
@@ -2966,7 +2984,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 // raw name): General/LFG/Defense/World keep prior behaviour.
                 // Owned/hired bots (live master, owner, hire record) pass.
                 if (msgtype == CHAT_MSG_CHANNEL && !HasRealPlayerMaster() &&
-                    sRandomBotFacade.IsRandomBot(bot) &&
+                    sRandomBotFacade.IsFreeBot(bot) &&
                     !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
                     GetChatChannelSource(bot, msgtype, chanName) == ChatChannelSource::SRC_TRADE &&
                     !TortoiseBots::PoolBotTradeChatAllowed(true, true, message.find(bot->GetName()) != std::string::npos))
@@ -7356,6 +7374,15 @@ bool PlayerbotAI::HasCheat(BotCheatMask mask) const
     else
     {
         if (((uint32)mask & sPlayerbotAIConfig.botCheatMask) != 0)
+            return true;
+        // Issue #872: the item cheat (ammo/reagents) applies to autonomous
+        // alts as for the pool (B15). The cheat mask is never set per-bot,
+        // so without this an alt would read the Bank list (BotCheats:
+        // repair,breath) and lose the refill/ration/kit paths the pool gets
+        // from the random list. Scoped to the item cheat only: gold/health/
+        // mana/cooldown cheats stay off, so repair stays paid (B10).
+        if (mask == BotCheatMask::item &&
+            TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
             return true;
     }
 

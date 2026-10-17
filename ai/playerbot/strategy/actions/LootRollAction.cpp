@@ -6,6 +6,8 @@
 #include "playerbot/RandomItemMgr.h"
 #include "playerbot/strategy/values/LootValues.h"
 #include "../../../runtime/HireLifecycle.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 #include "Group/Group.h"
 #include "Maps/Map.h"
 using namespace ai;
@@ -398,6 +400,11 @@ RollVote RollAction::CalculateRollVote(ItemQualifier& itemQualifier)
 
          ai->TellPlayerNoFacing(ai->GetMaster(), vote + " on " + ChatHelper::formatItem(itemQualifier) + " " + reason);
     }
+
+    // Issue #872: an autonomous alt rolls Greed or Pass, never Need (C).
+    if (needVote == ROLL_NEED &&
+        TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+        needVote = ROLL_GREED;
 
     return canLoot ? needVote : ROLL_PASS;
 }

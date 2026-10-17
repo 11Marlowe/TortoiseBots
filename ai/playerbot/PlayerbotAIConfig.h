@@ -468,6 +468,11 @@ public:
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
     // (panic / outnumbered / critical health no master) and fight on.
     bool poolMeleeHoldGround;
+    // Issue #872: an owned alt kicked from its owner's party keeps playing on
+    // its own (AltBotService). Off by default; the second key logs such alts
+    // out together with their owner instead of leaving them in the world.
+    bool altBots;
+    bool altBotsLogoutWithOwner;
     // Universal raid survival knobs (issue #201): bomb carriers run
     // BombRunoutDistance clear, spread/split steps use HazardEvasionDistance.
     float bombRunoutDistance = 30.0f, hazardEvasionDistance = 12.0f;
