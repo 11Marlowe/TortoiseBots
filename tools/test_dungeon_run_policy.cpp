@@ -2102,6 +2102,217 @@ static void TestTankGuardLimits()
     }
 }
 
+// Uldaman run 3 (19z12, 10:45-10:54): the priest and the mage revived at the
+// entrance and walked ~270 yd back through the Shrike Bats (4 extra deaths);
+// the regroup paused at 60 s with a bot 273.7 yd out. A revived bot far from
+// the lead bot is summoned to it on its first tick alive and out of combat,
+// before any gather walks it, once per revive.
+static Run DeathsInAWalk(const DungeonPlan& plan, Facts& f, std::vector<std::string> dead)
+{
+    Run r = Start(&plan);
+    f = Party(0);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    f.dead = static_cast<std::uint32_t>(dead.size());
+    f.alive = 5 - f.dead;
+    f.deadNames = dead;
+    f.members = {Mem("Tanky", 0)};
+    CHECK(Tick(r, f).empty()); // the wait rule starts the regroup
+    CHECK(r.regroup);
+    CHECK(Tick(r, f) == "revive party");
+    return r;
+}
+
+static void TestRevivedBotSummonedBeforeWalking()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+    Facts f;
+    Run r = DeathsInAWalk(plan, f, {"Quelinator", "Tobbert"});
+    // The priest is up at the entrance, the mage still a ghost: she is summoned now.
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Tobbert"};
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 270)};
+    f.maxMemberYd = 270;
+    CHECK(Tick(r, f) == "summon Quelinator");
+    CHECK(r.note.find("summoned to it instead of walking back") != std::string::npos);
+    // The mage up too: summoned on his first tick alive.
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 270), Mem("Tobbert", 268)};
+    CHECK(Tick(r, f) == "summon Tobbert");
+    // No gather walks them while their summons are on the way.
+    for (int i = 0; i < 3; ++i)
+        CHECK(Tick(r, f).empty());
+    // Both at the lead bot: the regroup ends, no walk back through the dungeon.
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 3), Mem("Tobbert", 4)};
+    f.maxMemberYd = 4;
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    CHECK(!r.regroup && r.waitFor.empty() && r.reviveSummons.empty());
+    // A bot revived near the lead bot (a resurrection in the party) needs none.
+    Run n = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 30)};
+    f.maxMemberYd = 30;
+    CHECK(Tick(n, f) == "move 0.0 0.0 0.0"); // the gather, no summon
+}
+
+static void TestNoReviveSummonInCombat()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+    Facts f;
+    Run r = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 200)};
+    f.maxMemberYd = 200;
+    // In combat on the way (the bats): never summoned (`cmd summon` refuses it).
+    f.members[1].inCombat = true;
+    f.anyInCombat = true;
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    // A member flagged in combat while the party reads out of combat: not either.
+    f.anyInCombat = false;
+    for (int i = 0; i < 3; ++i)
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    // With attackers it runs back to the party (RunBack, #1054), no summon.
+    f.members[1].inCombat = false;
+    f.members[1].attackers = 1;
+    f.members[1].yd = 100;
+    f.maxMemberYd = 100;
+    CHECK(Tick(r, f).find("summon") == std::string::npos);
+    CHECK(!r.runBack.empty());
+    // Its attackers gone, the run back goes on until it ends (here: it stalls);
+    // then, out of combat and far, it is summoned.
+    f.members[1].attackers = 0;
+    std::string order;
+    for (std::uint32_t ms = 0; ms < kWalkRetryMs + 3000 && order.empty(); ms += kTickMs)
+    {
+        bool const running = !r.runBack.empty();
+        order = Tick(r, f);
+        CHECK(!running || order.empty() || !r.runBack.empty() || order == "summon Quelinator");
+    }
+    CHECK(order == "summon Quelinator" && r.runBack.empty());
+}
+
+static void TestOneReviveSummonPerRevive()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+    Facts f;
+    Run r = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 270)};
+    f.maxMemberYd = 270;
+    int summons = 0;
+    for (int i = 0; i < 30; ++i)
+    {
+        f.members[1].x += (i % 2 ? 3.0f : -3.0f); // walking: no stand-still summon either
+        if (Tick(r, f) == "summon Quelinator")
+            ++summons;
+    }
+    CHECK(summons == 1);
+    // She dies again on the way and is revived: her new revive gets its summon.
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Quelinator"};
+    f.members = {Mem("Tanky", 0)};
+    f.maxMemberYd = 0;
+    std::string order;
+    for (int i = 0; i < 3 && order != "revive party"; ++i)
+        order = Tick(r, f);
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 270)};
+    f.maxMemberYd = 270;
+    order.clear();
+    for (int i = 0; i < 3 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Quelinator");
+}
+
+static void TestFailedReviveSummonWalks()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+    Facts f;
+    Run r = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 270)};
+    f.maxMemberYd = 270;
+    CHECK(Tick(r, f) == "summon Quelinator");
+    // Refused (in combat by the time it arrived): she walks with the gather.
+    OrderRefused(r, "summon Quelinator", "unavailable: That bot is dead, in combat, on a taxi or teleporting.");
+    CHECK(r.state == State::Running && r.reviveSummons.empty() && r.note.find("it walks back") != std::string::npos);
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    // Acknowledged but she never came: after kReviveSummonWaitMs she walks.
+    Run t = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 270)};
+    f.maxMemberYd = 270;
+    CHECK(Tick(t, f) == "summon Quelinator");
+    std::string order;
+    std::uint32_t ms = 0;
+    for (; ms <= kReviveSummonWaitMs + kTickMs && order.empty(); ms += kTickMs)
+        order = Tick(t, f);
+    CHECK(order == "move 0.0 0.0 0.0" && ms >= kReviveSummonWaitMs && t.reviveSummons.empty());
+}
+
+static void TestRegroupGatherCapScales()
+{
+    CHECK(RegroupGatherCap(Party(0)) == kRegroupGatherMs);
+    Facts far = Party(0);
+    far.maxMemberYd = 273.7f;
+    CHECK(RegroupGatherCap(far) > kRegroupGatherMs && RegroupGatherCap(far) == 91233u);
+    far.maxMemberYd = 2000.0f;
+    CHECK(RegroupGatherCap(far) == kRegroupGatherMaxMs);
+    // A walker 273.7 yd out (its summon failed) is not paused on at 60 s.
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), PullStep(60, {1})};
+    Facts f;
+    Run r = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 273.7f)};
+    f.maxMemberYd = 273.7f;
+    CHECK(Tick(r, f) == "summon Quelinator");
+    OrderRefused(r, "summon Quelinator", "unavailable: in combat");
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::uint32_t ms = 0;
+    for (; r.state == State::Running && ms < kRegroupGatherMaxMs; ms += kTickMs)
+    {
+        f.members[1].x += (ms / kTickMs % 2 ? 3.0f : -3.0f);
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    }
+    CHECK(r.state == State::Paused && ms > kRegroupGatherMs + 20000 && r.note.find("within 91 s") != std::string::npos);
+    // A bot whose summon is on its way does not count against the ceiling.
+    Run p = DeathsInAWalk(plan, f, {"Quelinator"});
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Quelinator", 50)};
+    f.maxMemberYd = 50;
+    p.regroupGatherSent = true;
+    p.regroupMs = kRegroupGatherMs + 1000;
+    CHECK(Tick(p, f) == "summon Quelinator");
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(p, f).empty());
+    CHECK(p.state == State::Running);
+}
+
 static void TestEmptyPlan()
 {
     DungeonPlan plan;
@@ -2559,6 +2770,11 @@ int main()
     TestRegroupWaitsForTheFight();
     TestDeathDuringRegroup();
     TestLeadDeadAfterTheFightHolds();
+    TestRevivedBotSummonedBeforeWalking();
+    TestNoReviveSummonInCombat();
+    TestOneReviveSummonPerRevive();
+    TestFailedReviveSummonWalks();
+    TestRegroupGatherCapScales();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }
