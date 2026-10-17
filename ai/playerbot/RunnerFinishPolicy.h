@@ -16,7 +16,7 @@
 // as no-threat so DPS may hit it freely; its lifetime-bucket DPS pick then ranks
 // a nearly dead mob in range first. mod-playerbots has no dedicated runner
 // finisher; the explicit "finish it" priority, the leash and the hold rule below
-// are reimplemented here for 1.12 groups (see docs/PROVENANCE.md).
+// are reimplemented here for 1.12 groups.
 //
 // Unit* glue lives in DpsTargetValue.cpp; everything here is plain data so it
 // is tested on its own (tools/test_runner_finish_policy.cpp).
