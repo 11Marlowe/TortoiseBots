@@ -1,4 +1,5 @@
 
+#include "playerbot/MountDismountPolicy.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/ForceRebuffPolicy.h"
@@ -687,16 +688,18 @@ bool BuffOnPartyAction::isUseful()
 
 bool CastBuffSpellAction::Execute(Event& event)
 {
-    // The retry stamp and the claim are written only once the cast actually
-    // starts: a whiffed attempt (target out of range or LOS at cast time,
-    // reagents just spent, master sprinting away) used to silence the spell
-    // party-wide for the whole retry window (3 s single, 60 s group) plus
-    // the 4 s claim, while the trigger only re-checks every 2-4 s on top.
-    // The issue-#359 loop this replaced (retrying a missing aura every tick)
-    // cannot come back: a failed Execute runs no cast, spends no mana and
-    // lands no aura, so the next tick re-evaluates from the same state and
-    // either casts or fails its gates. The claim still covers the cast plus
-    // the aura-in-flight delay for successful casts (issue #T7).
+    // Out-of-combat upkeep must not dismount a mounted travelling bot: the
+    // core strips the mount to cast (Spell::CheckCast), so starting the cast
+    // trades a mounted ride for a standing re-cast loop (issue #1097: a
+    // Blessing of Wisdom refresh every few seconds kept a paladin
+    // dismounting and re-mounting in place for 30+ min). The trigger stays
+    // active (the need is real); the cast runs at the next dismounted stop.
+    // In combat the combat engine owns the decision; a non-travelling bot
+    // keeps today's behavior.
+    if (bot->IsMounted() && !ai::BuffCastAllowedWhileMounted(bot->IsInCombat(),
+            AI_VALUE(bool, "travel target traveling")))
+        return false;
+
     Unit* const target = GetTarget();
 
     if (!CastSpellAction::Execute(event))
