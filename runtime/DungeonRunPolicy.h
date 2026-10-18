@@ -2564,6 +2564,7 @@ inline bool UseDetour(Run& r, float x, float y, float z)
 struct BagFact
 {
     std::string name;
+    std::uint64_t guid = 0;          // the bot's guid (OutstandingCarrier)
     std::vector<std::uint32_t> held; // the step's input items this bot carries
     std::string away;                // why it cannot take the task ("dead", "not in the instance"); "": it can
 };
@@ -2612,9 +2613,26 @@ inline std::string PickItemCarrier(const std::vector<BagFact>& bags, const std::
     return lead;
 }
 
+// open / use_item while its order is out (r.orderSent): the bot the order went
+// to (`carrierRaw`, the glue's slot) keeps the step, so its busy state, its
+// reply and the made item are read from that bot even after the use consumed
+// the inputs (Uldaman: the Medallion 7740 and the Shaft 7741 used by a bot
+// that is not the lead bot become the Staff 7733 in its bags; no bot carries
+// the inputs any more). "" when no order is out, or that bot left the party,
+// is dead or off the lead bot's map: PickItemCarrier picks again.
+inline std::string OutstandingCarrier(bool orderSent, std::uint64_t carrierRaw, const std::vector<BagFact>& bags)
+{
+    if (!orderSent || !carrierRaw)
+        return std::string();
+    for (const BagFact& b : bags)
+        if (b.guid == carrierRaw)
+            return b.away.empty() ? b.name : std::string();
+    return std::string();
+}
+
 // loot: the next bot to try after a refusal on the loot rules: the one whose
 // round-robin turn the corpse is (f.lootTurn), then each living party bot not
-// tried yet. "" for none.
+// tried yet. Never a bot off the lead bot's map (MemberFact::yd 1000). "" for none.
 inline std::string NextLootBot(const Run& r, const Facts& f)
 {
     auto tried = [&](const std::string& name)
@@ -2623,10 +2641,10 @@ inline std::string NextLootBot(const Run& r, const Facts& f)
     };
     if (!f.lootTurn.empty() && !tried(f.lootTurn))
         for (const MemberFact& m : f.members)
-            if (m.name == f.lootTurn)
+            if (m.name == f.lootTurn && m.yd < 1000.0f)
                 return f.lootTurn;
     for (const MemberFact& m : f.members)
-        if (!m.name.empty() && !tried(m.name))
+        if (!m.name.empty() && !tried(m.name) && m.yd < 1000.0f)
             return m.name;
     return std::string();
 }

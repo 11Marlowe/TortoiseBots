@@ -9161,7 +9161,9 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
 // The bot a loot/open/use task goes to: the lead bot, or for a loot the one a
 // refusal moved the order to (DungeonRun::Run::taskBot), or for an open /
 // use_item the bot that carries every input of the step (its item, the item to
-// use, the second item in `param`; DungeonRun::PickItemCarrier). `split` (when
+// use, the second item in `param`; DungeonRun::PickItemCarrier). While its order
+// is out, the bot it went to (slot.carrierRaw) stays the carrier, also once the
+// use consumed the inputs (DungeonRun::OutstandingCarrier). `split` (when
 // given) names who holds what if no bot carries them all.
 Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     ai::PlanStep const* step = nullptr, std::string* split = nullptr)
@@ -9187,6 +9189,7 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
     {
         TortoiseBots::DungeonRun::BagFact bag;
         bag.name = bot->GetName();
+        bag.guid = bot->GetObjectGuid().GetRawValue();
         // Never a dead bot, or one that is not in the world on the lead bot's map.
         if (!bot->IsAlive())
             bag.away = "dead";
@@ -9197,12 +9200,15 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
                 bag.held.push_back(item);
         bags.push_back(bag);
     }
-    std::string const name = TortoiseBots::DungeonRun::PickItemCarrier(bags, inputs, lead->GetName(), split);
+    std::string name = TortoiseBots::DungeonRun::OutstandingCarrier(slot.run.orderSent, slot.carrierRaw, bags);
+    if (name.empty())
+        name = TortoiseBots::DungeonRun::PickItemCarrier(bags, inputs, lead->GetName(), split);
     for (Player* bot : bots)
         if (bot->GetName() == name)
             return bot;
     return lead;
 }
+
 // A hold's done condition (DungeonRun::HoldDoneNote): the instance script's
 // own data (InstanceData::GetData, the value its encounter state is kept in;
 // map-wide, no world scan), or the state of its object when the object is
@@ -9600,8 +9606,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         case ai::PlanStepKind::Open:
         case ai::PlanStepKind::UseItem:
         {
-            // The bot of the task: the lead bot, or the one a loot refusal moved
-            // the order to (Run::taskBot).
+            // The bot of the task: the lead bot, the one a loot refusal moved
+            // the order to (Run::taskBot), or the carrier of an open / use_item
+            // (while its order is out, the bot it went to: slot.carrierRaw).
             Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);
             f.carrier = carrier->GetName();
             f.carrierHasItem = step->item && carrier->HasItemCount(step->item);
@@ -9884,6 +9891,9 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         if (order.compare(0, 5, "loot ") == 0 || order.compare(0, 5, "open ") == 0 || order.compare(0, 4, "use ") == 0 ||
             order.compare(0, 7, "ritual ") == 0)
         {
+            // A new order: the carrier is picked afresh (Tick has set orderSent
+            // already; the old carrierRaw is the previous order's bot).
+            slot.carrierRaw = 0;
             slot.carrierRaw = RunTaskBot(slot, lead, bots, TortoiseBots::DungeonRun::Current(slot.run))
                                   ->GetObjectGuid().GetRawValue();
             slot.taskReply = 0;

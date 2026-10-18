@@ -682,6 +682,17 @@ static void TestLootRefusalTriesTheTurnBotThenEachBot()
     order = Tick(n, f);
     OrderRefused(n, order, "not-found: No corpse of that entry is near the point");
     CHECK(n.state == State::Paused && n.note.find("not-found") != std::string::npos);
+    // A bot off the lead bot's map (yd 1000) is never tried, not even on its round-robin turn.
+    Run m = Start(&plan);
+    Facts k = f;
+    k.taskReply = 0;
+    k.partyHasItem = false;
+    k.members = {Mem("Tanky", 0), Mem("Healy", 5), Mem("Stabby", 1000)};
+    k.lootTurn = "Stabby";
+    order = Tick(m, k);
+    OrderRefused(m, order, rights);
+    order = Tick(m, k);
+    CHECK(order.find(" Healy 7741") != std::string::npos && m.taskBot == "Healy");
 }
 
 // open / use_item go to the bot that carries every input of the step: its item
@@ -737,6 +748,33 @@ static void TestItemCarrierIsPickedFromTheStepsOwnInputs()
     split.clear();
     bags[0].held.clear();
     CHECK(PickItemCarrier(bags, inputs, "Tanky", &split) == "Tanky" && split.empty());
+}
+
+// While an open / use_item order is out, its bot stays the carrier. Uldaman:
+// Healy (not the lead bot) used the Medallion 7740 with the Shaft 7741; both
+// are consumed and the Staff 7733 is in Healy's bags, so no bot carries the
+// inputs and PickItemCarrier alone would fall back to the lead bot.
+static void TestOutstandingCarrierKeepsTheOrdersBot()
+{
+    std::vector<BagFact> bags(3);
+    bags[0].name = "Tanky";
+    bags[0].guid = 11;
+    bags[1].name = "Healy";
+    bags[1].guid = 12;
+    bags[2].name = "Stabby";
+    bags[2].guid = 13;
+    std::vector<std::uint32_t> inputs = {7740, 7741};
+    CHECK(PickItemCarrier(bags, inputs, "Tanky") == "Tanky"); // what the bags alone say
+    CHECK(OutstandingCarrier(true, 12, bags) == "Healy");     // the order's bot keeps it
+    // No order out yet (or a retried step, ResetStep cleared orderSent): pick again.
+    CHECK(OutstandingCarrier(false, 12, bags).empty());
+    CHECK(OutstandingCarrier(true, 0, bags).empty());
+    // That bot left the party, died or went off the map: pick again.
+    CHECK(OutstandingCarrier(true, 14, bags).empty());
+    bags[1].away = "dead";
+    CHECK(OutstandingCarrier(true, 12, bags).empty());
+    bags[1].away = "not in the instance";
+    CHECK(OutstandingCarrier(true, 12, bags).empty());
 }
 
 // The use_item pauses, naming who holds what, when the inputs are split.
@@ -3625,6 +3663,7 @@ int main()
     TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
     TestLootRefusalTriesTheTurnBotThenEachBot();
+    TestOutstandingCarrierKeepsTheOrdersBot();
     TestWaitObjectDoneWinsOverAStaleFightTimer();
     TestPullThatStartsNoFightIsPassed();
     TestAmbushWalksThrough();

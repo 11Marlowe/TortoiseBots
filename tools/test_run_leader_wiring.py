@@ -174,7 +174,7 @@ class RunLeaderWiringTest(unittest.TestCase):
     def test_ritual_answer_reaches_the_run(self):
         # The run's `ritual` step waits for the ritual order's one answer (#984): the group's reply
         # notes it for the run whose carrier (the lead bot) is a member, and a run's `ritual` order
-        # makes the lead bot its carrier like loot/open/use.
+        # sets the run's carrier like loot/open/use (only the ritual's carrier is always the lead bot).
         reply = body(COMMANDS, "void RitualReply(RitualGroup const& group", "\n}\n")
         self.assertIn("run->second.taskReply = ok ? 1 : 2;", reply)
         self.assertIn('order.compare(0, 7, "ritual ") == 0)', COMMANDS)
@@ -182,6 +182,20 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("case ai::PlanStepKind::Ritual:", facts)
         self.assertIn("lead->GetMap()->GetInstanceData()", facts)
 
+
+    def test_open_use_carrier_is_pinned_while_its_order_is_out(self):
+        # An open / use_item order's bot stays the carrier until the step ends: the facts of the
+        # next ticks (busy, reply, the made item) are read from that bot, not re-picked from the
+        # bags (Uldaman: the use consumes 7740/7741 in a non-lead bot's bags, PR #1078 review).
+        task = body(COMMANDS, "Player* RunTaskBot(", "\n}\n")
+        self.assertIn("bag.guid = bot->GetObjectGuid().GetRawValue();", task)
+        self.assertIn("OutstandingCarrier(slot.run.orderSent, slot.carrierRaw, bags);", task)
+        self.assertLess(task.index("OutstandingCarrier("), task.index("PickItemCarrier("))
+        self.assertIn("if (name.empty())\n        name = TortoiseBots::DungeonRun::PickItemCarrier(", task)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);", facts)
+        # A new order picks afresh: the previous order's bot is cleared before the pick.
+        self.assertIn("slot.carrierRaw = 0;\n            slot.carrierRaw = RunTaskBot(slot, lead, bots,", COMMANDS)
 
     def test_live_fixes_2026_10_16_are_wired(self):
         # 1. `cmd move` takes the floor at or below the point before a surface above it (a low ceiling).
