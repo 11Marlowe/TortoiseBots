@@ -177,12 +177,13 @@ bool CheckMountStateAction::Decide(Player* requester)
     // can stop a few yards short of the node while its status still reads
     // TRAVEL, so the "working" rule below never dismounted it (live 2026-10-09:
     // bots mounted 3-14 yd from their node until the 5-min move-stuck reset).
-    if (IsMounted)
+    // No mount rule below may fire here either: "rpg target far away" re-mounted
+    // a bot standing at its node every tick (issue #1097).
     {
         TravelTarget* gatherTarget = AI_VALUE(TravelTarget*, "travel target");
         if (gatherTarget && dynamic_cast<GatherTravelDestination*>(gatherTarget->GetDestination()) &&
             AI_VALUE2(float, "distance", "travel target") < 20.0f)
-            return UnMount();
+            return IsMounted ? UnMount() : false;
     }
 
     //Doing stuff nearby.
