@@ -40,7 +40,7 @@ INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spel
 -- random attacker (src/scripts/dungeons/windhorn_canyon/windhorn_canyon.cpp:37-46), so the add is
 -- on the bots attacker list. The add EventAI event 6277101 casts Bloodguard Ritual 36732 at its
 -- own 50 percent health (creature_ai_events 6277101, creature_ai_scripts 6277101: CAST_SPELL on
--- self, castingTimeIndex 171, interruptFlags 15, 4 s duration).
+-- self, castingTimeIndex 171, interruptFlags 15, durationIndex 4).
 (820, 62782, 'interrupt', 62771, 36732, 0, 0, 'Chieftain Shalk Blackwind: Bloodguard Ritual 36732 of the summoned Bloodguard (EventAI 6277101)'),
 -- Ambassador Vortalus (62783, EventAI, spell list 62783): Gust of Wind 6982 (first at 4-5 s, then
 -- every 14-19 s, castingTimeIndex 5, interruptFlags 31) is an AoE stun (aura 12, radius index 8).
@@ -64,9 +64,10 @@ INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spel
 DELETE FROM `ai_boss_tactic` WHERE `map` = 815 AND `boss_entry` IN (61264, 61418, 61419, 61420, 61421, 61422, 61423);
 
 INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`, `comment`) VALUES
--- Genn Greymane (61418, script genn_greymane plus spell list 180166). The list casts Drain Life
+-- Genn Greymane (61418, script genn_greymane plus spell list 180166). The list holds Drain Life
 -- 17620 (a channel: castingTimeIndex 1 with channelInterruptFlags 31788), Mortal Strike 21551 and
--- Curse of Agony 11711 (both instant), so the scan never sees them. The script casts Fear 22678
+-- Curse of Agony 11711 (both instant); the script itself casts Drain Life, Mortal Strike and Curse of Agony
+-- (instance_gilneas_city.cpp:197, 206, 217) and never runs that list. The script casts Fear 22678
 -- once below 50 percent health (src/scripts/dungeons/gilneas_city/instance_gilneas_city.cpp:230,
 -- castingTimeIndex 16, interruptFlags 15, aura 7).
 (815, 61418, 'interrupt', 0, 22678, 0, 0, 'Genn Greymane: Fear below 50 percent health (script genn_greymane)'),
@@ -89,8 +90,8 @@ INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spel
 -- No row for Matthias Holtz (61419, EventAI, spell list 180167), Dustivan Blackcowl (61422,
 -- EventAI, spell list 180170) or Regent-Lord Mortimer Harlow (61264, script boss_lord_mortimer):
 -- every cast they have is instant (castingTimeIndex 1). Holtz casts Hooked Net 13608
--- (castingTimeIndex 3 but interruptFlags 9, no kick bit), Fire Blast 8413 and Multi-Shot 2643
--- from EventAI 2200030; Blackcowl casts Rupture 15583 and Rend 11574, plus Evasion 5277 and Gouge
+-- (castingTimeIndex 3 but interruptFlags 9, no kick bit) and Fire Blast 8413 (list 180167,
+-- interruptFlags 8, castingTimeIndex 1) and Multi-Shot 2643 (EventAI 2200030); Blackcowl casts Rupture 15583 and Rend 11574, plus Evasion 5277 and Gouge
 -- 12540 from EventAI 2200031 and 2200032; Harlow casts Holy Strike 2495, Consecration 20924 and
 -- Blast Wave 13021 (src/scripts/dungeons/gilneas_city/boss_lord_mortimer.cpp:41,53,63).
 
