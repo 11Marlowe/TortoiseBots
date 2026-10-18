@@ -1,5 +1,4 @@
 
-#include "playerbot/MountDismountPolicy.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/ForceRebuffPolicy.h"
@@ -376,27 +375,6 @@ bool CastSpellAction::isPossible()
 
 bool CastSpellAction::isUseful()
 {
-    // A mounted travelling bot must not start an out-of-combat cast the core
-    // would strip its mount for (issue #1097: a Blessing of Wisdom refresh
-    // every few seconds kept a paladin dismounting and re-mounting in place
-    // for 30+ min). This is the one central point covering every
-    // CastSpellAction line (paladin pve/pvp/raid blessings and blessing-on-
-    // party, shaman totems, druid/mage/priest self-buffs): the trigger stays
-    // active (the need is real) so the action is not queued each tick, and
-    // the cast runs at the next dismounted stop. Never blocks: the mount
-    // cast itself ("mount"), combat casts, non-travelling bots, or spells
-    // the core lets ride (CASTABLE_WHILE_MOUNTED). Gather/loot/quest flows
-    // dismount on purpose inside their own actions (LootAction) and never
-    // pass through here.
-    if (bot->IsMounted() && !bot->IsInCombat() && AI_VALUE(bool, "travel target traveling") &&
-        spellName != "mount")
-    {
-        SpellEntry const* castInfo = sServerFacade.LookupSpellInfo(spellId);
-        if (castInfo && !(castInfo->Attributes & SPELL_ATTR_CASTABLE_WHILE_MOUNTED) &&
-            !ai::MountedTravelCastAllowed(bot->IsInCombat(), true))
-            return false;
-    }
-
     if(!AI_VALUE2(bool, "spell cast useful", spellName))
         return false;
 

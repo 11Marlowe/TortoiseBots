@@ -37,6 +37,8 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
 #include "playerbot/InterruptCastingPolicy.h"
+#include "playerbot/strategy/values/MountValues.h"
+#include "playerbot/MountDismountPolicy.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/WandPolicy.h"
 #include "BotDiagnostics.h"
@@ -5397,6 +5399,39 @@ bool PlayerbotAI::CheckCanCastSpell(uint32 spellid, Unit* target, uint8 effectMa
         }
 
         return false;
+    }
+
+    // A mounted travelling bot must not start an out-of-combat cast the core
+    // would strip its mount for (issue #1097: a Blessing of Wisdom refresh
+    // every few seconds kept a paladin dismounting and re-mounting in place
+    // for 30+ min). This is the one point every bot spell cast funnels
+    // through (all CanCastSpell spell-id overloads delegate here, and
+    // CastSpell asks CanCastSpell first): mounted + out of combat +
+    // travelling + spell not ride-safe (SPELL_ATTR_CASTABLE_WHILE_MOUNTED)
+    // refuses, so the action is never queued each tick; the cast runs at the
+    // next dismounted stop. Never blocks: combat casts, non-travelling bots,
+    // unmounted bots (mount casts start unmounted), loot/gather/profession
+    // casts (bot already dismounted on purpose), or commanded casts
+    // (CastCustomSpellAction unmounts first). Travel state reads the
+    // 5 s-cached "travel target traveling" value (a status-enum compare, no
+    // scan), so the per-cast cost is one cached bool.
+    // Mount spells (and travel form / ghost wolf, which the bot uses as its
+    // mount before riding) are exempt: the gate fires only while mounted,
+    // and a re-cast while mounted means upgrading speed, which Mount()
+    // handles by dismounting on purpose. Loot/gather/profession casts and
+    // commanded casts run dismounted (their actions unmount first), so the
+    // mounted check already lets them through.
+    if (bot->IsMounted() && !bot->IsInCombat() && !MountValue::IsMountSpell(spellid))
+    {
+        bool const travelling = aiObjectContext ?
+            aiObjectContext->GetValue<bool>("travel target traveling")->Get() : false;
+        if (travelling && !(spellInfo->Attributes & SPELL_ATTR_CASTABLE_WHILE_MOUNTED) &&
+            !ai::MountedTravelCastAllowed(false, true))
+        {
+            if (checkResult)
+                *checkResult = SPELL_FAILED_AFFECTING_COMBAT;
+            return false;
+        }
     }
 
     // Spell::prepare() refuses a new cast while another non-melee spell is

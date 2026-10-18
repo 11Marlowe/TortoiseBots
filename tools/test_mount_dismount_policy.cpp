@@ -42,9 +42,11 @@ static void TestRealFightDismounts()
 }
 
 // (2) Out-of-combat casts wait while mounted and travelling; combat,
-// and non-travelling bots, keep today's behavior. Central gate in
-// CastSpellAction::isUseful covers every cast line (paladin blessings,
-// shaman totems, druid/mage/priest buffs).
+// and non-travelling bots, keep today's behavior. Gate lives in
+// CheckCanCastSpell (Unit spell-id overload), which every bot cast funnels
+// through on the resolved spell id - blessing actions override
+// isUseful/isPossible without calling the base and resolve their spell
+// dynamically, so an isUseful gate misses them.
 static void TestMountedTravelDefersCasts()
 {
     CHECK(!ai::MountedTravelCastAllowed(false, true));

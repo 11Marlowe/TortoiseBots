@@ -35,12 +35,14 @@
 //     rides past, like the donor (mod-playerbots dismounts only within
 //     dismount distance of the current target AND while in combat with
 //     attackers, or for an enemy/dps pick it is engaging).
-//  2. Out-of-combat buff upkeep must not dismount a mounted travelling bot.
-//     Donor parity: buff triggers stay active while mounted (a mounted bot
-//     still wants its blessings), but the cast itself must wait - the
-//     donor's buff path never strips a mount for upkeep; the traveller
-//     re-buffs at the next stop (dismounted for combat, arrival, or loot).
-//     Core Spell::CheckCast dismount stays untouched.
+//  2. Out-of-combat casts must not dismount a mounted travelling bot. The
+//     gate lives in PlayerbotAI::CheckCanCastSpell (the spell-id Unit
+//     overload every bot cast funnels through: all CanCastSpell overloads
+//     delegate here and CastSpell asks first): mounted + out of combat +
+//     travelling + spell not ride-safe refuses, so the action is never
+//     queued each tick and the cast runs at the next dismounted stop.
+//     Mount spells (IsMountSpell incl. travel form / ghost wolf) are exempt
+//     at the call site; core Spell::CheckCast dismount stays untouched.
 //
 // No core includes; tested in tools/test_mount_dismount_policy.cpp.
 
@@ -59,18 +61,17 @@ namespace ai
     }
 
     // (2) May an out-of-combat cast start while mounted and travelling?
-    // Central gate in CastSpellAction::isUseful, covering every cast line
-    // (paladin pve/pvp/raid blessings and blessing-on-party, shaman totems,
-    // druid/mage/priest self-buffs): never while mounted and travelling out
-    // of combat unless the core lets the spell ride
-    // (SPELL_ATTR_CASTABLE_WHILE_MOUNTED, checked at the call site where the
-    // SpellEntry is at hand). The trigger stays active (the need is real) so
-    // the action is not queued each tick, and the cast runs at the next
-    // dismounted stop. In combat the combat engine owns the decision
-    // (unchanged); a bot that is not travelling keeps today's behavior
-    // (unchanged). The mount cast itself ("mount") is exempt at the call
-    // site; gather/loot/quest flows dismount on purpose inside their own
-    // actions and never pass through here.
+    // Gate lives in CheckCanCastSpell (Unit spell-id overload): never while
+    // mounted and travelling out of combat unless the core lets the spell
+    // ride (SPELL_ATTR_CASTABLE_WHILE_MOUNTED, checked at the call site
+    // where the SpellEntry is at hand). Covers every line - blessing
+    // actions override isUseful/isPossible without calling the base, and
+    // resolve their spell id dynamically (0 at isUseful time) - because the
+    // check runs on the resolved spell id at cast time. In combat the
+    // combat engine owns the decision (unchanged); a bot that is not
+    // travelling keeps today's behavior (unchanged). Mount spells are
+    // exempt at the call site; gather/loot/quest flows run dismounted
+    // (their actions unmount first) and commanded casts unmount first.
     inline bool MountedTravelCastAllowed(bool inCombat, bool travelling)
     {
         if (inCombat)
