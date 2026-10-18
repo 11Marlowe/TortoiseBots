@@ -34,6 +34,20 @@ static PlanStep Move(float x)
     return s;
 }
 
+// A wait_object step: the object `entry` near a point, in state `param`.
+static PlanStep ObjectWait(std::uint32_t entry, std::uint32_t param)
+{
+    PlanStep s;
+    s.kind = PlanStepKind::WaitObject;
+    s.entry = entry;
+    s.param = param;
+    s.x = 10.0f;
+    s.y = 20.0f;
+    s.z = -30.0f;
+    CHECK(ai::NormalizePlanStep(s) == PlanStepRefusal::None);
+    return s;
+}
+
 // The Altar of the Keepers (gameobject 130511, three participants).
 static PlanStep KeepersRitual()
 {
@@ -840,6 +854,185 @@ static void TestHoldEngageKeepsItsTarget()
     }
 }
 
+static Facts WipedParty()
+{
+    Facts f = Party();
+    f.total = 5;
+    f.alive = 2;
+    f.dead = 3;
+    f.deadNames = {"Rogue", "Heals", "Mage"};
+    return f;
+}
+
+// Live (events-5, wipe 01:38:23 -> pause 01:45:12): after a wipe inside the
+// keepers hold the run regrouped, walked back to the HOLD step (never to the
+// ritual) and held 30 s for data 2 to leave 0, then paused "event failed (data
+// 2 did not leave 0)": 6.8 min, and unattended that pause hits the module's
+// 10 minute pause cap and the run ends FAILED. The regroup now goes back to the
+// event's start step and starts it again, once per event per run.
+static void TestWipeInTheHoldStartsTheEventAgain()
+{
+    DungeonPlan plan;
+    plan.name = "uldaman";
+    plan.steps = {KeepersRitual(), Move(0), KeepersHold()};
+    Run r = Start(&plan, 2);
+    Facts f = Party();
+    f.eventData = 1;
+    f.units = {Keeper(1, true)};
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2);
+    // The party wiped in the hold; the script set FAIL and stoned the keepers.
+    f.eventData = 2;
+    f.units = {Keeper(1, false)};
+    f.total = 5;
+    f.alive = 2;
+    f.dead = 3;
+    f.deadNames = {"Rogue", "Heals", "Mage"};
+    f.anyInCombat = false;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 0 && r.regroup && r.walkBackDue);
+    CHECK(Has(r.note, "3 dead") && Has(r.note, "starts again at step 1 (ritual)"));
+    CHECK(r.eventRetry && r.eventRearmed.count(0) == 1);
+
+    // A second wipe in the same event: the start step is re-armed once, so this
+    // regroups and pauses as it does today (no loop). The first regroup has to
+    // be over, or the tick takes the regroup path and never reaches the re-arm
+    // at all.
+    NextStep(r, "walked back to the hold");
+    NextStep(r, "walked back to the hold");
+    CHECK(r.step == 2 && r.autoRegroups == 0);
+    r.regroup = false;
+    r.reviveSummons.clear();
+    r.waitFor.clear();
+    r.hold.clear();
+    r.regroupGatherSent = false;
+    f = Party();
+    f.total = 5;
+    f.alive = 2;
+    f.dead = 3;
+    f.deadNames = {"Rogue", "Heals", "Mage"};
+    f.eventData = 2;
+    f.units = {Keeper(1, false)};
+    Tick(r, f);
+    // No second rewind: the re-arm is per event (Run::eventRearmed), so the run
+    // regroups at the hold step.
+    CHECK(r.state == State::Running && r.step == 2 && r.regroup && !Has(r.note, "starts again"));
+    CHECK(r.eventRearmed.count(0) == 1);
+    // The party is back together: the hold fails as it did before (data 2), and
+    // the pause still names the start step for `.bot run resume`.
+    r.regroup = false;
+    r.reviveSummons.clear();
+    r.waitFor.clear();
+    r.hold.clear();
+    f = Party();
+    f.eventData = 2;
+    f.units = {Keeper(1, false)};
+    Tick(r, f);
+    CHECK(r.state == State::Paused && Has(r.note, "event failed") && Has(r.note, "step 1 (ritual)"));
+
+    // The event done (data 3): the hold ends the step first, nothing re-armed.
+    Run done = Start(&plan, 2);
+    Facts g = Party();
+    g.total = 5;
+    g.alive = 2;
+    g.dead = 3;
+    g.deadNames = {"Rogue", "Heals", "Mage"};
+    g.eventData = 3;
+    Tick(done, g);
+    CHECK(done.state == State::Done && done.step == 3 && done.eventRearmed.empty());
+
+    // A hold done by an object (no encounter): a wipe there is not re-armed.
+    PlanStep door;
+    door.kind = PlanStepKind::Hold;
+    door.entry = 124367;
+    door.param = 1;
+    door.flags = ai::kPlanFlagDoneObject;
+    door.timeoutS = 600;
+    CHECK(ai::NormalizePlanStep(door) == PlanStepRefusal::None);
+    DungeonPlan doors;
+    doors.steps = {KeepersRitual(), Move(0), door};
+    Run obj = Start(&doors, 2);
+    Facts h = Party();
+    h.total = 5;
+    h.alive = 2;
+    h.dead = 3;
+    h.deadNames = {"Rogue", "Heals", "Mage"};
+    h.objectState = 0;
+    Tick(obj, h);
+    CHECK(obj.state == State::Running && obj.step == 2 && obj.eventRearmed.empty() && !Has(obj.note, "starts again"));
+}
+
+// Codex on the round of review: the re-arm must not drop a LIVE event. An
+// IN_PROGRESS encounter (a wipe with the fight still on, the boss walking home
+// between waves) is not a reset: the run holds on the spot as it does today,
+// and only NOT_STARTED (0) or FAIL (2) sends it back to the start step.
+static void TestWipeInTheHoldOnlyRearmsAResetEvent()
+{
+    DungeonPlan plan;
+    plan.name = "uldaman";
+    plan.steps = {KeepersRitual(), Move(0), KeepersHold()};
+    Run running = Start(&plan, 2);
+    Facts f = WipedParty();
+    f.eventData = 1; // IN_PROGRESS
+    Tick(running, f);
+    CHECK(running.state == State::Running && running.step == 2 && running.regroup);
+    CHECK(!Has(running.note, "starts again") && !running.eventRetry && running.eventRearmed.empty());
+
+    Run reset = Start(&plan, 2);
+    Facts g = WipedParty();
+    g.eventData = 0; // NOT_STARTED: the encounter reset
+    Tick(reset, g);
+    CHECK(reset.state == State::Running && reset.step == 0 && reset.regroup);
+    CHECK(Has(reset.note, "starts again at step 1 (ritual)") && reset.eventRetry &&
+        reset.eventRearmed.count(0) == 1);
+
+    Run failed = Start(&plan, 2);
+    Facts h = WipedParty();
+    h.eventData = 2; // FAIL: the Archaedas reset (the other test covers it)
+    Tick(failed, h);
+    CHECK(failed.state == State::Running && failed.step == 0 && Has(failed.note, "starts again"));
+}
+
+// The plan's last step is a wait_object after a hold whose event is done by
+// instance data -- Uldaman's vault door 124369 after Archaedas. The hold's data
+// says nothing about THIS object and the plan carries no link between the
+// hold's data entry and the object's entry, so the wait is always waited out
+// (a shortcut on the shape alone ended the run at closed or unrelated objects:
+// see B1-follow-up.txt in the audit tree). This guards that rule.
+static void TestFinalWaitObjectIsWaitedOut()
+{
+    // (a) The object is not in the wanted state (found closed, in the lead
+    // bot's reach): the run waits for it.
+    DungeonPlan plan;
+    plan.name = "uldaman";
+    plan.steps = {KeepersRitual(), Move(0), KeepersHold(), ObjectWait(124369, 1)};
+    Run r = Start(&plan, 3);
+    Facts f = Party();
+    f.eventData = 3;    // the keepers event is DONE
+    f.objectState = 0;  // the door stands closed (ready), not the waited state 1
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 3);
+    CHECK(Has(r.note, "waiting for object 124369"));
+    // ... and the wanted state ends it, as any wait_object does (the plan ends
+    // there, so the done note replaces the step's own words).
+    f.objectState = 1;
+    Tick(r, f);
+    CHECK(r.state == State::Done && r.step == 4 && Has(r.note, "plan done"));
+
+    // (b) An object with its own requirement: the last step waits for the
+    // Keystone door 124371, which the Keepers event does not open.
+    DungeonPlan indep;
+    indep.name = "uldaman";
+    indep.steps = {KeepersRitual(), Move(0), KeepersHold(), ObjectWait(124371, 1)};
+    Run other = Start(&indep, 3);
+    Facts g = Party();
+    g.eventData = 3;
+    g.objectState = 0;
+    Tick(other, g);
+    CHECK(other.state == State::Running && other.step == 3);
+    CHECK(Has(other.note, "waiting for object 124371"));
+}
+
 int main()
 {
     TestNormalizeEventSteps();
@@ -858,6 +1051,9 @@ int main()
     TestTankGuardsTheHold();
     TestHoldGuardLimits();
     TestHoldEngageKeepsItsTarget();
+    TestWipeInTheHoldStartsTheEventAgain();
+    TestWipeInTheHoldOnlyRearmsAResetEvent();
+    TestFinalWaitObjectIsWaitedOut();
     std::cout << "test_dungeon_event_policy: ok\n";
     return 0;
 }
