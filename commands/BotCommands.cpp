@@ -9158,6 +9158,90 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
     }
 }
 
+// The bags of the party for an open / use_item step: the step's inputs each
+// bot carries (its item, the item to use, the second item in `param`) and why
+// it cannot take the task (DungeonRun::BagFact).
+std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(Player* lead, std::vector<Player*> const& bots,
+    ai::PlanStep const& step, std::vector<uint32>& inputs)
+{
+    inputs.push_back(step.kind == ai::PlanStepKind::Open ? step.item : step.entry);
+    if (step.param)
+        inputs.push_back(step.param);
+    std::vector<TortoiseBots::DungeonRun::BagFact> bags;
+    for (Player* bot : bots)
+    {
+        TortoiseBots::DungeonRun::BagFact bag;
+        bag.name = bot->GetName();
+        bag.guid = bot->GetObjectGuid().GetRawValue();
+        // Never a dead bot, or one that is not in the world on the lead bot's map.
+        if (!bot->IsAlive())
+            bag.away = "dead";
+        else if (!bot->IsInWorld() || bot->GetMap() != lead->GetMap())
+            bag.away = "not in the instance";
+        for (uint32 item : inputs)
+            if (item && bot->HasItemCount(item))
+                bag.held.push_back(item);
+        bags.push_back(bag);
+    }
+    return bags;
+}
+
+// The bot a loot/open/use task goes to: the lead bot, or for a loot the one a
+// refusal moved the order to (DungeonRun::Run::taskBot), or for an open /
+// use_item the bot that carries every input of the step (its item, the item to
+// use, the second item in `param`; DungeonRun::PickItemCarrier). While its order
+// is out, the bot it went to (slot.carrierRaw) stays the carrier, also once the
+// use consumed the inputs; it is never picked again then: an order whose bot is
+// gone is retired before the facts are read (RetireLostCarrier). `split` (when
+// given) names who holds what if no bot carries them all.
+Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
+    ai::PlanStep const* step = nullptr, std::string* split = nullptr)
+{
+    if (!step)
+        return lead;
+    if (step->kind == ai::PlanStepKind::Loot)
+    {
+        if (!slot.run.taskBot.empty())
+            for (Player* bot : bots)
+                if (bot->GetName() == slot.run.taskBot)
+                    return bot;
+        return lead;
+    }
+    if (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem)
+        return lead;
+    std::vector<uint32> inputs;
+    std::vector<TortoiseBots::DungeonRun::BagFact> const bags = RunTaskBags(lead, bots, *step, inputs);
+    std::string name;
+    TortoiseBots::DungeonRun::CarrierVerdict const verdict =
+        TortoiseBots::DungeonRun::OutstandingCarrierVerdict(slot.run.orderSent, slot.carrierRaw, bags, &name);
+    // Retire does not reach here (TickDungeonRun retires the order first); no re-pick under an order.
+    if (verdict == TortoiseBots::DungeonRun::CarrierVerdict::NoOrder)
+        name = TortoiseBots::DungeonRun::PickItemCarrier(bags, inputs, lead->GetName(), split);
+    for (Player* bot : bots)
+        if (bot->GetName() == name)
+            return bot;
+    return lead;
+}
+
+// An open / use_item order whose bot left the party, died or went off the map
+// (DungeonRun::CarrierVerdict::Retire) is retired before the tick's facts are
+// read: the step goes out again to a fresh pick, and no busy state, bag or
+// answer of that tick is read from a bot the order did not go to.
+void RetireLostCarrier(DungeonRunSlot& slot, Player* lead, std::vector<Player*> const& bots)
+{
+    ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
+    if (!step || (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem))
+        return;
+    std::vector<uint32> inputs;
+    if (TortoiseBots::DungeonRun::OutstandingCarrierVerdict(slot.run.orderSent, slot.carrierRaw,
+            RunTaskBags(lead, bots, *step, inputs)) != TortoiseBots::DungeonRun::CarrierVerdict::Retire)
+        return;
+    TortoiseBots::DungeonRun::RetireOrder(slot.run);
+    slot.carrierRaw = 0;
+    slot.taskReply = 0;
+    slot.taskText.clear();
+}
+
 // A hold's done condition (DungeonRun::HoldDoneNote): the instance script's
 // own data (InstanceData::GetData, the value its encounter state is kept in;
 // map-wide, no world scan), or the state of its object when the object is
@@ -9554,15 +9638,53 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         case ai::PlanStepKind::Loot:
         case ai::PlanStepKind::Open:
         case ai::PlanStepKind::UseItem:
-            f.carrierHasItem = step->item && lead->HasItemCount(step->item);
-            f.carrierHasEntryItem = step->kind == ai::PlanStepKind::UseItem && lead->HasItemCount(step->entry);
-            f.carrierBusy = CommanderTasks().count(lead->GetObjectGuid().GetRawValue()) != 0;
-            if (slot.carrierRaw == lead->GetObjectGuid().GetRawValue())
+        {
+            // The bot of the task: the lead bot, the one a loot refusal moved
+            // the order to (Run::taskBot), or the carrier of an open / use_item
+            // (while its order is out, the bot it went to: slot.carrierRaw).
+            Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);
+            f.carrier = carrier->GetName();
+            f.carrierHasItem = step->item && carrier->HasItemCount(step->item);
+            f.carrierHasEntryItem = step->kind == ai::PlanStepKind::UseItem && carrier->HasItemCount(step->entry);
+            f.carrierBusy = CommanderTasks().count(carrier->GetObjectGuid().GetRawValue()) != 0;
+            if (slot.carrierRaw == carrier->GetObjectGuid().GetRawValue())
             {
                 f.taskReply = slot.taskReply;
                 f.taskText = slot.taskText;
             }
+            if (step->kind == ai::PlanStepKind::Loot && step->item)
+            {
+                // Any bot with the item counts for a loot step (a quest item is
+                // personal loot: its member took it, or the lead bot never can).
+                for (Player* bot : bots)
+                    if (f.itemHolder.empty() && bot->HasItemCount(step->item))
+                    {
+                        f.partyHasItem = true;
+                        f.itemHolder = bot->GetName();
+                    }
+                // After a refusal, from the remembered corpse: whose round-robin
+                // turn it is and whether the item is still on it. No scan.
+                auto const corpse = slot.run.corpses.find(step->entry);
+                if (!slot.run.lootRefusal.empty() && corpse != slot.run.corpses.end() && corpse->second.guid &&
+                    lead->GetMap())
+                {
+                    f.corpseChecked = true;
+                    Creature const* body = lead->GetMap()->GetCreature(ObjectGuid(corpse->second.guid));
+                    if (body)
+                    {
+                        Loot const& loot = body->loot;
+                        for (Player* bot : bots)
+                            if (loot.roundRobinPlayer && bot->GetObjectGuid().GetRawValue() == loot.roundRobinPlayer)
+                                f.lootTurn = bot->GetName();
+                        for (LootItem const& item : loot.items)
+                            f.corpseHasItem = f.corpseHasItem || (item.itemid == step->item && !item.is_looted);
+                        for (LootItem const& item : loot.m_questItems)
+                            f.corpseHasItem = f.corpseHasItem || (item.itemid == step->item && !item.is_looted);
+                    }
+                }
+            }
             break;
+        }
         default:
             break;
     }
@@ -9790,6 +9912,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         return;
     }
     std::vector<Player*> const bots = CommandedBots(group, lead);
+    RetireLostCarrier(slot, lead, bots);
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
@@ -9802,7 +9925,11 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         if (order.compare(0, 5, "loot ") == 0 || order.compare(0, 5, "open ") == 0 || order.compare(0, 4, "use ") == 0 ||
             order.compare(0, 7, "ritual ") == 0)
         {
-            slot.carrierRaw = lead->GetObjectGuid().GetRawValue();
+            // A new order: the carrier is picked afresh (Tick has set orderSent
+            // already; the old carrierRaw is the previous order's bot).
+            slot.carrierRaw = 0;
+            slot.carrierRaw = RunTaskBot(slot, lead, bots, TortoiseBots::DungeonRun::Current(slot.run))
+                                  ->GetObjectGuid().GetRawValue();
             slot.taskReply = 0;
             slot.taskText.clear();
         }
