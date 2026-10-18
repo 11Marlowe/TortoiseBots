@@ -1,5 +1,67 @@
 # Changelog
 
+## v1.4.0 (2026-10-17)
+
+### Classes & Combat
+- Hunters no longer use Feign Death when the enemy on them has nobody else to attack, so scripted fights stop failing [#1075](https://github.com/Sagiroth/TortoiseBots/pull/1075)
+- Casters no longer start long casts while moving, so their spells land instead of being cancelled [#1082](https://github.com/Sagiroth/TortoiseBots/pull/1082)
+
+### Groups & Raids
+- Off-tanks now pick up loose adds while the main tank stays on the marked target, so healers stop getting chased [#1083](https://github.com/Sagiroth/TortoiseBots/pull/1083)
+
+### Commands & Pulling
+- A pull now keeps its target through a long walk across the room, so the fight actually starts [#1080](https://github.com/Sagiroth/TortoiseBots/pull/1080)
+- Pulling no longer refuses with "no-tank" because of an old combat flag, and the refusal now says why [#1081](https://github.com/Sagiroth/TortoiseBots/pull/1081)
+
+### Gathering & Opening
+- Bots now finish gathering herbs, mining, skinning and opening chests instead of losing the cast after a second [#1064](https://github.com/Sagiroth/TortoiseBots/pull/1064)
+
+### Following & Formations
+- Bots now follow you across the broken ground near the Thousand Needles instance portal instead of standing still [#1084](https://github.com/Sagiroth/TortoiseBots/pull/1084)
+- Setting a formation while the party stands still now makes bots walk to their spots [#1089](https://github.com/Sagiroth/TortoiseBots/pull/1089)
+
+### Behind the scenes
+- Issues fixed in development branches now close on their own when the change reaches a release [#1071](https://github.com/Sagiroth/TortoiseBots/pull/1071)
+- Removed a huge outdated licence-tracking document that caused conflicts in nearly every change [#1088](https://github.com/Sagiroth/TortoiseBots/pull/1088)
+
+---
+
+## v1.3.0 (2026-10-17)
+
+### Classes & Combat
+- Bots now steer around Naxxramas' drifting green poison instead of standing in the Explode blast. [#1038](https://github.com/Sagiroth/TortoiseBots/pull/1038)
+- Melee bots only slip behind a target once they are in reach, and give up after six seconds. [#1035](https://github.com/Sagiroth/TortoiseBots/pull/1035)
+- Healers stay where they are when another healer already has that ally covered and in sight. [#1037](https://github.com/Sagiroth/TortoiseBots/pull/1037)
+- Bots now chase down a party mob that runs away below 30% health, so runners no longer escape. [#1051](https://github.com/Sagiroth/TortoiseBots/pull/1051)
+- Bots, pets and healers step out of a boss's spinning Whirlwind and come back when it ends. [#1066](https://github.com/Sagiroth/TortoiseBots/pull/1066)
+- Fire and frost mages now value their own spell damage on gear far more than arcane damage. [#1046](https://github.com/Sagiroth/TortoiseBots/pull/1046)
+- A strictly better item no longer loses out just because another item had more Stamina. [#1046](https://github.com/Sagiroth/TortoiseBots/pull/1046)
+- Before a pull, the tank's food break is interrupted, and a ranged pull that did not start is retried once. [#1058](https://github.com/Sagiroth/TortoiseBots/pull/1058)
+
+### Groups & Dungeons
+- Bots in your guild, or grouped with a real player, are no longer logged out in the middle of a dungeon. [#1046](https://github.com/Sagiroth/TortoiseBots/pull/1046)
+- Three more community bug reports are fixed in the same batch. [#1046](https://github.com/Sagiroth/TortoiseBots/pull/1046)
+- Bots that mine or pick herbs finish the job instead of stepping away, so the ore or herb lands in their bags. [#1066](https://github.com/Sagiroth/TortoiseBots/pull/1066)
+
+### Pets & Companions
+- A bot's new pet that appears far away or out of sight is pulled onto the bot, so hunters keep their pets. [#1045](https://github.com/Sagiroth/TortoiseBots/pull/1045)
+
+### Commands
+- `.bot hire raid` hires a whole raid in one go, from a preset or your own class list, with one total fee quoted up front. [#1039](https://github.com/Sagiroth/TortoiseBots/pull/1039)
+
+### Dashboard
+- A refresh picker in the top bar and Commanders tab sets how often the live views update, or pauses them. [#1047](https://github.com/Sagiroth/TortoiseBots/pull/1047)
+- The map no longer draws straight lines across a teleport, death, release or summon. [#1047](https://github.com/Sagiroth/TortoiseBots/pull/1047)
+
+### Behind the scenes
+- Removed a leftover bot action that never actually ran; nothing changes in game. [#1036](https://github.com/Sagiroth/TortoiseBots/pull/1036)
+- Builds with Eluna turned on compile again, and bots earn experience correctly there; Eluna stays off by default. [#1040](https://github.com/Sagiroth/TortoiseBots/pull/1040)
+- Bot action logs are now limited to commanded and hired bots, and old log files are cleaned up automatically. [#1059](https://github.com/Sagiroth/TortoiseBots/pull/1059)
+- Eluna builds now run only after merges into main or dev, and CI changes get an automatic owner review. [#1068](https://github.com/Sagiroth/TortoiseBots/pull/1068)
+- Release pull requests from dev to main no longer build the same code twice. [#1069](https://github.com/Sagiroth/TortoiseBots/pull/1069)
+
+---
+
 ## v1.2.1 (2026-10-16)
 
 ### Classes & Combat
