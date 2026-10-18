@@ -235,7 +235,8 @@ AiPlayerbot.LevelUpMounts = 1
 # Random pool bots ride only mounts that fit their race and class, i.e. the
 # racial/vendor mounts a player of that race would buy. Shop mounts that any
 # race can use are left out. 1 = any mount, including shop mounts (old
-# behaviour). Player alts are never gated. Default 0.
+# behaviour). Mounts that drop from loot (raid/dungeon bosses) are never used
+# by pool bots either way. Player alts are never gated. Default 0.
 AiPlayerbot.RandomBotShopMounts = 0
 # Safety factor on the mount break-even distance: bots mount for travel/RPG
 # trips only when the remaining distance exceeds

@@ -12,6 +12,7 @@
 #include "../../../runtime/PlayerbotAIStorage.h"
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 using namespace ai;
 
@@ -213,6 +214,31 @@ namespace
         return itemBySpell;
     }
 
+    // Collection mounts that drop from loot (raid and dungeon bosses, rare
+    // drops), read once. Pool bots never raid, so a Naxxramas spider on a
+    // level 45 pool bot looks wrong whatever RandomBotShopMounts says.
+    std::unordered_set<uint32> const& LootMountItems()
+    {
+        static std::unordered_set<uint32> items;
+        static bool built = false;
+        if (!built)
+        {
+            built = true;
+            std::unique_ptr<QueryResult> result(WorldDatabase.Query(
+                "SELECT DISTINCT c.itemId FROM collection_mount c WHERE "
+                "EXISTS (SELECT 1 FROM creature_loot_template l WHERE l.item = c.itemId) OR "
+                "EXISTS (SELECT 1 FROM gameobject_loot_template l WHERE l.item = c.itemId) OR "
+                "EXISTS (SELECT 1 FROM reference_loot_template l WHERE l.item = c.itemId)"));
+            if (result)
+            {
+                do
+                    items.insert(result->Fetch()[0].GetUInt32());
+                while (result->NextRow());
+            }
+        }
+        return items;
+    }
+
     // Same random-bot definition as the factory's grant gate: a pool bot
     // with no real player master and no real guild.
     bool IsRandomPoolBot(Player* bot)
@@ -225,7 +251,7 @@ namespace
 bool MountValue::IsAllowedFor(Player* bot) const
 {
     // Player alts and non-pool bots keep every mount.
-    if (!IsRandomPoolBot(bot) || sPlayerbotAIConfig.randomBotShopMounts)
+    if (!IsRandomPoolBot(bot))
         return true;
 
     ItemPrototype const* itemProto = proto;
@@ -238,6 +264,12 @@ bool MountValue::IsAllowedFor(Player* bot) const
 
     // Spell-only mounts (class mounts, forms, donor spells) have no item to classify.
     if (!itemProto)
+        return true;
+
+    if (LootMountItems().count(itemProto->ItemId))
+        return false;
+
+    if (sPlayerbotAIConfig.randomBotShopMounts)
         return true;
 
     bool shop = MountShopPolicy::IsShopMount(spellId, itemProto->AllowableRace, itemProto->AllowableClass,
