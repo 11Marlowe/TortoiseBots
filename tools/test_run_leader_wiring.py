@@ -188,10 +188,25 @@ class RunLeaderWiringTest(unittest.TestCase):
         # next ticks (busy, reply, the made item) are read from that bot, not re-picked from the
         # bags (Uldaman: the use consumes 7740/7741 in a non-lead bot's bags, PR #1078 review).
         task = body(COMMANDS, "Player* RunTaskBot(", "\n}\n")
-        self.assertIn("bag.guid = bot->GetObjectGuid().GetRawValue();", task)
-        self.assertIn("OutstandingCarrier(slot.run.orderSent, slot.carrierRaw, bags);", task)
-        self.assertLess(task.index("OutstandingCarrier("), task.index("PickItemCarrier("))
-        self.assertIn("if (name.empty())\n        name = TortoiseBots::DungeonRun::PickItemCarrier(", task)
+        bags = body(COMMANDS, "std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(", "\n}\n")
+        self.assertIn("bag.guid = bot->GetObjectGuid().GetRawValue();", bags)
+        self.assertIn("OutstandingCarrierVerdict(slot.run.orderSent, slot.carrierRaw, bags, &name);", task)
+        self.assertLess(task.index("OutstandingCarrierVerdict("), task.index("PickItemCarrier("))
+        # Only with no order out is the carrier picked from the bags.
+        self.assertIn("if (verdict == TortoiseBots::DungeonRun::CarrierVerdict::NoOrder)\n"
+                      "        name = TortoiseBots::DungeonRun::PickItemCarrier(", task)
+        # An order whose bot is gone is retired (orderSent and carrierRaw cleared) before the facts are read.
+        retire = body(COMMANDS, "void RetireLostCarrier(", "\n}\n")
+        self.assertIn("!= TortoiseBots::DungeonRun::CarrierVerdict::Retire)\n        return;", retire)
+        self.assertIn("TortoiseBots::DungeonRun::RetireOrder(slot.run);", retire)
+        self.assertIn("slot.carrierRaw = 0;", retire)
+        self.assertIn("slot.taskReply = 0;", retire)
+        tick = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("RetireLostCarrier(slot, lead, bots);\n    TortoiseBots::DungeonRun::Facts facts;\n"
+                      "    ReadRunFacts(slot, lead, bots, facts);", tick)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        retire_order = body(policy, "inline void RetireOrder(Run& r)", "\n}\n")
+        self.assertIn("r.orderSent = false;", retire_order)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);", facts)
         # A new order picks afresh: the previous order's bot is cleared before the pick.

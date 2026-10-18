@@ -765,16 +765,49 @@ static void TestOutstandingCarrierKeepsTheOrdersBot()
     bags[2].guid = 13;
     std::vector<std::uint32_t> inputs = {7740, 7741};
     CHECK(PickItemCarrier(bags, inputs, "Tanky") == "Tanky"); // what the bags alone say
-    CHECK(OutstandingCarrier(true, 12, bags) == "Healy");     // the order's bot keeps it
-    // No order out yet (or a retried step, ResetStep cleared orderSent): pick again.
-    CHECK(OutstandingCarrier(false, 12, bags).empty());
-    CHECK(OutstandingCarrier(true, 0, bags).empty());
-    // That bot left the party, died or went off the map: pick again.
-    CHECK(OutstandingCarrier(true, 14, bags).empty());
+    // Still present: pinned, the order's bot keeps it.
+    std::string name;
+    CHECK(OutstandingCarrierVerdict(true, 12, bags, &name) == CarrierVerdict::Pinned && name == "Healy");
+    // No order out yet (or a retried step: ResetStep cleared orderSent), or a new order (carrierRaw 0).
+    CHECK(OutstandingCarrierVerdict(false, 12, bags) == CarrierVerdict::NoOrder);
+    CHECK(OutstandingCarrierVerdict(true, 0, bags) == CarrierVerdict::NoOrder);
+    // That bot left the party, died or went off the map: the order is retired, never re-picked.
+    CHECK(OutstandingCarrierVerdict(true, 14, bags) == CarrierVerdict::Retire);
     bags[1].away = "dead";
-    CHECK(OutstandingCarrier(true, 12, bags).empty());
+    CHECK(OutstandingCarrierVerdict(true, 12, bags) == CarrierVerdict::Retire);
     bags[1].away = "not in the instance";
-    CHECK(OutstandingCarrier(true, 12, bags).empty());
+    CHECK(OutstandingCarrierVerdict(true, 12, bags) == CarrierVerdict::Retire);
+}
+
+// A retired order (its bot gone) goes out again to the fresh pick; the old
+// task is not read as finished from the replacement's bags.
+static void TestRetiredUseItemOrderGoesOutAgain()
+{
+    DungeonPlan plan;
+    PlanStep use = Step(PlanStepKind::UseItem);
+    use.entry = 7740;
+    use.item = 7733;
+    use.param = 7741;
+    plan.steps = {use, Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.carrier = "Healy";
+    f.carrierHasEntryItem = true;
+    CHECK(Tick(r, f) == "use 7740 Healy");
+    CHECK(r.orderSent && r.phase == Phase::AwaitTask);
+    // Healy died with the order out; Tanky now carries both inputs.
+    RetireOrder(r);
+    CHECK(!r.orderSent && r.phase == Phase::Begin && r.state == State::Running);
+    Facts g = Party(0);
+    g.carrierHasEntryItem = true;
+    CHECK(Tick(r, g) == "use 7740 Tanky");
+    CHECK(r.state == State::Running && r.step == 0);
+    // Without the retire the replacement's bags would end the task: the pause the fix prevents.
+    Run q = Start(&plan);
+    CHECK(Tick(q, f) == "use 7740 Healy");
+    Facts h = Party(0);
+    CHECK(Tick(q, h).empty());
+    CHECK(q.state == State::Paused && q.note.find("is not in Tanky's bags") != std::string::npos);
 }
 
 // The use_item pauses, naming who holds what, when the inputs are split.
@@ -3664,6 +3697,7 @@ int main()
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
     TestLootRefusalTriesTheTurnBotThenEachBot();
     TestOutstandingCarrierKeepsTheOrdersBot();
+    TestRetiredUseItemOrderGoesOutAgain();
     TestWaitObjectDoneWinsOverAStaleFightTimer();
     TestPullThatStartsNoFightIsPassed();
     TestAmbushWalksThrough();

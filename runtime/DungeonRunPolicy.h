@@ -2564,7 +2564,7 @@ inline bool UseDetour(Run& r, float x, float y, float z)
 struct BagFact
 {
     std::string name;
-    std::uint64_t guid = 0;          // the bot's guid (OutstandingCarrier)
+    std::uint64_t guid = 0;          // the bot's guid (OutstandingCarrierVerdict)
     std::vector<std::uint32_t> held; // the step's input items this bot carries
     std::string away;                // why it cannot take the task ("dead", "not in the instance"); "": it can
 };
@@ -2618,16 +2618,41 @@ inline std::string PickItemCarrier(const std::vector<BagFact>& bags, const std::
 // reply and the made item are read from that bot even after the use consumed
 // the inputs (Uldaman: the Medallion 7740 and the Shaft 7741 used by a bot
 // that is not the lead bot become the Staff 7733 in its bags; no bot carries
-// the inputs any more). "" when no order is out, or that bot left the party,
-// is dead or off the lead bot's map: PickItemCarrier picks again.
-inline std::string OutstandingCarrier(bool orderSent, std::uint64_t carrierRaw, const std::vector<BagFact>& bags)
+// the inputs any more). The carrier is never picked again while the order is
+// out: when that bot left the party, is dead or off the lead bot's map, the
+// order is retired (RetireOrder) before the facts are read.
+enum class CarrierVerdict : std::uint8_t
+{
+    NoOrder, // no order out (or a new one, carrierRaw 0): PickItemCarrier picks
+    Pinned,  // the order's bot is there: it is the carrier (`name`)
+    Retire,  // the order's bot left, died or is off the map: RetireOrder
+};
+
+inline CarrierVerdict OutstandingCarrierVerdict(bool orderSent, std::uint64_t carrierRaw,
+    const std::vector<BagFact>& bags, std::string* name = nullptr)
 {
     if (!orderSent || !carrierRaw)
-        return std::string();
+        return CarrierVerdict::NoOrder;
     for (const BagFact& b : bags)
-        if (b.guid == carrierRaw)
-            return b.away.empty() ? b.name : std::string();
-    return std::string();
+        if (b.guid == carrierRaw && b.away.empty())
+        {
+            if (name)
+                *name = b.name;
+            return CarrierVerdict::Pinned;
+        }
+    return CarrierVerdict::Retire;
+}
+
+// An outstanding open / use_item whose bot is gone (CarrierVerdict::Retire):
+// the order is dropped like a refused loot (LootRefused), with no answer read
+// from it, and the step goes out again from Begin to a fresh pick, where the
+// usual checks apply (a dead bot holding the inputs: the split note; the
+// fallen-member rules of a step not awaiting a task).
+inline void RetireOrder(Run& r)
+{
+    r.orderSent = false;
+    EnterPhase(r, Phase::Begin);
+    r.note = "the bot of the order left the party, died or is off the map: the order goes out again";
 }
 
 // loot: the next bot to try after a refusal on the loot rules: the one whose
