@@ -216,7 +216,7 @@ namespace
 
     // Collection mounts that drop from loot (raid and dungeon bosses, rare
     // drops), read once. Pool bots never raid, so a Naxxramas spider on a
-    // level 45 pool bot looks wrong whatever RandomBotShopMounts says.
+    // level 45 pool bot looks wrong (RandomBotShopMounts = 1 allows them).
     std::unordered_set<uint32> const& LootMountItems()
     {
         static std::unordered_set<uint32> items;
@@ -251,7 +251,7 @@ namespace
 bool MountValue::IsAllowedFor(Player* bot) const
 {
     // Player alts and non-pool bots keep every mount.
-    if (!IsRandomPoolBot(bot))
+    if (!IsRandomPoolBot(bot) || sPlayerbotAIConfig.randomBotShopMounts)
         return true;
 
     ItemPrototype const* itemProto = proto;
@@ -268,9 +268,6 @@ bool MountValue::IsAllowedFor(Player* bot) const
 
     if (LootMountItems().count(itemProto->ItemId))
         return false;
-
-    if (sPlayerbotAIConfig.randomBotShopMounts)
-        return true;
 
     bool shop = MountShopPolicy::IsShopMount(spellId, itemProto->AllowableRace, itemProto->AllowableClass,
         RACEMASK_ALL_PLAYABLE, CLASSMASK_ALL_PLAYABLE);
