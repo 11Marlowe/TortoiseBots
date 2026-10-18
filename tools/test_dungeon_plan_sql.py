@@ -117,6 +117,45 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertRegex(text, r"\('deadmines', 9, \d+, 'open', 16398, [^)]*, 0, 5397, 0, 0, 0,")
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
+    def step_rows(self, text):
+        # Each ai_dungeon_step row of a migration as a dict of its columns, in file order.
+        for block in re.findall(r"INSERT INTO `ai_dungeon_step` \(([^)]*)\) VALUES(.*?);\n", text, re.S):
+            cols = [c.strip(" `") for c in block[0].split(",")]
+            for row in re.findall(r"^\((.*)\)[,]?$", block[1], re.M):
+                values = [v.strip() for v in re.findall(r"'(?:[^']|'')*'|[^,]+", row)]
+                yield dict(zip(cols, [v.strip("'") for v in values]))
+
+    def test_exact_flag_only_on_a_move_before_its_direct_step(self):
+        # flags 64 (kPlanFlagExact, DungeonPlanPolicy.h): the loader refuses it on any kind but move, and it marks the launch
+        # point of the move_direct right after it in the same leg (the run leader sends that hop only after the exact proof).
+        for name, text in migrations():
+            rows = list(self.step_rows(text))
+            for i, row in enumerate(rows):
+                if int(row["flags"]) & 64 == 0:
+                    continue
+                self.assertEqual(row["kind"], "move", "%s: the exact flag on a %s row" % (name, row["kind"]))
+                self.assertLess(i + 1, len(rows), "%s: an exact move is the last row" % name)
+                after = rows[i + 1]
+                self.assertEqual((after["plan"], after["leg"], after["kind"]), (row["plan"], row["leg"], "move_direct"),
+                                 "%s: the exact move %s/%s/%s is not followed by its move_direct" % (name, row["plan"], row["leg"], row["seq"]))
+
+    def test_wailing_caverns_serpentis_foot_is_exact(self):
+        # The newest migration that inserts the wailing_caverns steps carries the live-proven hop (tests/wc-hop-probe-2): the foot
+        # -293.3 0.5 -58 as an exact move (flags 64), then the move_direct to the landing -287.5 5 -63.6 (pjerra/TortoiseBots
+        # feat/exact-waypoint). A re-export from an exporter that writes no exact flag would launch the hop from 3-6 yd short.
+        newest = None
+        for name, text in migrations():
+            if re.search(r"INSERT INTO `ai_dungeon_step`.*?\('wailing_caverns',", text, re.S):
+                newest = (name, text)
+        self.assertIsNotNone(newest)
+        name, text = newest
+        rows = [r for r in self.step_rows(text) if r["plan"] == "wailing_caverns"]
+        exact = [i for i, r in enumerate(rows) if int(r["flags"]) & 64]
+        self.assertEqual(len(exact), 1, "%s: the wailing_caverns rows need exactly one exact move" % name)
+        foot, hop = rows[exact[0]], rows[exact[0] + 1]
+        self.assertEqual((foot["kind"], foot["x"], foot["y"], foot["z"]), ("move", "-293.3", "0.5", "-58"), name)
+        self.assertEqual((hop["kind"], hop["x"], hop["y"], hop["z"]), ("move_direct", "-287.5", "5", "-63.6"), name)
+
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():
             for block in re.findall(r"INSERT INTO `ai_dungeon_step` \(([^)]*)\) VALUES(.*?);", text, re.S):
