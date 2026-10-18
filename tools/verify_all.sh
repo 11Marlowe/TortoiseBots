@@ -109,6 +109,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_dual_wield_policy
         test_dungeon_event_policy
         test_dungeon_follow_hold_policy
+        test_dungeon_hold_policy
         test_dungeon_plan_policy
         test_dungeon_run_policy
         test_dungeon_follow_stall_policy
@@ -209,6 +210,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_raid_tank_role_policy
         test_ranged_approach_policy
         test_razorgore_policy
+        test_reaction_work_policy
         test_ready_rebuff_policy
         test_rear_flank_policy
         test_remote_commander_enter

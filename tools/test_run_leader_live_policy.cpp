@@ -12,6 +12,7 @@
 #include "../runtime/RemoteCommanderPolicy.h"
 #include "../ai/playerbot/DoorLockPolicy.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 
@@ -153,6 +154,168 @@ static void TestDirectSummon()
     CHECK(m.state == State::Paused);
 }
 
+// uldaman-events-4 (2026-10-17, 14:03 and 14:39): the lead bot died and came back at the entrance; the two
+// still alive where it fell were held there (Run::hold) while it walked back. At the scorpid pit's direct step the
+// module named a held bot (its check counts every bot), the run summoned it, but the wait read the bot from the
+// facts without the held bots, saw nobody to wait for and sent the step again 2 s later, before the 3 s summon
+// landed: refused again, then the second held bot the same, and the walk back paused with the whole party
+// standing on the lip a second later. The bot being waited for is shown to the wait; it stays held until it
+// arrives, so a refused, timed-out or vanished summon leaves it held.
+namespace HeldSummon
+{
+using namespace DungeonRun;
+static DungeonPlan const& Plan()
+{
+    static DungeonPlan plan;
+    if (plan.steps.empty())
+    {
+        plan.name = "t";
+        plan.steps = {Step(PlanStepKind::Move, 10, 0, 0), Step(PlanStepKind::MoveDirect, 14, 0, 0),
+            Step(PlanStepKind::Move, 200, 0, 0)};
+    }
+    return plan;
+}
+static std::string const kStep = "move 14.0 0.0 0.0 direct";
+static std::string Named(std::string const& bot)
+{
+    return "too-far: " + bot + " is not with Nobble (no navmesh path of at most 40 yd to its spot)";
+}
+static Run Walking()
+{
+    Run r = Start(&Plan(), 2);
+    r.walkBack = true;
+    r.walkBackIdx = 1;
+    r.hold = {"Elia", "Quick"};
+    return r;
+}
+static Facts Scene()
+{
+    Facts f = Party(10);
+    MemberFact lead;
+    lead.name = "Nobble";
+    MemberFact elia;
+    elia.name = "Elia";
+    elia.yd = 320.0f;
+    MemberFact quick = elia;
+    quick.name = "Quick";
+    f.members = {lead, elia, quick};
+    f.maxMemberYd = 320.0f;
+    return f;
+}
+static bool Held(Run const& r, std::string const& bot)
+{
+    return std::find(r.hold.begin(), r.hold.end(), bot) != r.hold.end();
+}
+// Up to the summon of Elia, the first one named.
+static void ToSummon(Run& r, Facts const& f)
+{
+    CHECK(Tick(r, f) == kStep); // the held bots do not hold up the walk back: no gather
+    OrderRefused(r, kStep, Named("Elia"));
+    CHECK(r.state == State::Running);
+    CHECK(Tick(r, f) == "summon Elia");
+    CHECK(Held(r, "Elia")); // held until she arrives
+}
+}
+
+static void TestDirectSummonHeldBot()
+{
+    using namespace DungeonRun;
+    using namespace HeldSummon;
+    // The 14:39 case: both held bots named in turn, each summoned and waited for.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f).empty());
+        CHECK(r.note.find("waiting for Elia") != std::string::npos);
+        f.members[1].yd = 0.5f; // she stands at the lead bot: out of the hold, the step goes out again
+        CHECK(Tick(r, f) == kStep);
+        CHECK(!Held(r, "Elia") && Held(r, "Quick"));
+        OrderRefused(r, kStep, Named("Quick"));
+        CHECK(Tick(r, f) == "summon Quick");
+        CHECK(Tick(r, f).empty());
+        f.members[2].yd = 0.5f;
+        f.maxMemberYd = 0.5f;
+        CHECK(Tick(r, f) == kStep);
+        CHECK(r.hold.empty() && r.state == State::Running && r.walkBackRefusals == 0);
+    }
+    // `busy` (her summon pending) keeps the wait; she stays held.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        OrderRefused(r, "summon Elia", "busy: That bot already has a summon pending.");
+        CHECK(Tick(r, f).empty());
+        CHECK(r.summonWait == "Elia" && Held(r, "Elia"));
+    }
+    // Any other refusal ends the wait: she stays held where she is, and the step goes out without a gather of her.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        OrderRefused(r, "summon Elia", "unavailable: That bot is dead, in combat, on a taxi or teleporting.");
+        CHECK(Held(r, "Elia") && r.summonWait.empty());
+        CHECK(Tick(r, f) == kStep);
+        CHECK(Held(r, "Elia"));
+    }
+    // The summon never lands: after kSummonWaitMs she stays held, and the step goes out again without a gather.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        std::uint32_t waited = 0;
+        std::string next;
+        while (next.empty() && waited <= kSummonWaitMs + 3 * kTickMs)
+        {
+            next = Tick(r, f);
+            waited += kTickMs;
+        }
+        CHECK(next == kStep);
+        CHECK(waited >= kSummonWaitMs);
+        CHECK(Held(r, "Elia") && r.summonWait.empty());
+    }
+    // 10 yd off (inside kGatherYd, outside kArriveYd): still held and still waited for through the whole wait. Once
+    // the wait times out she is under the hold's own rule: a held bot within kGatherYd of the lead bot is with it.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        f.members[1].yd = 10.0f;
+        std::uint32_t waited = 0;
+        std::string next;
+        while (next.empty() && waited <= kSummonWaitMs + 3 * kTickMs)
+        {
+            if (!r.summonWait.empty())
+                CHECK(Held(r, "Elia")); // never released while the summon is waited for
+            next = Tick(r, f);
+            waited += kTickMs;
+        }
+        CHECK(next == kStep && waited >= kSummonWaitMs);
+        CHECK(!Held(r, "Elia") && r.summonWait.empty());
+    }
+    // Arrival from 10 yd: within kArriveYd she leaves the hold and the step goes out.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        f.members[1].yd = 10.0f;
+        CHECK(Tick(r, f).empty() && Held(r, "Elia"));
+        f.members[1].yd = 1.0f;
+        CHECK(Tick(r, f) == kStep);
+        CHECK(!Held(r, "Elia"));
+    }
+    // She vanishes from the facts (logged out, off the map): the wait ends; the hold drops her as gone.
+    {
+        Run r = Walking();
+        Facts f = Scene();
+        ToSummon(r, f);
+        f.members.erase(f.members.begin() + 1);
+        CHECK(Tick(r, f) == kStep);
+        CHECK(!Held(r, "Elia") && Held(r, "Quick") && r.summonWait.empty());
+    }
+}
+
 static void TestWalkBackAfterRegroup()
 {
     using namespace DungeonRun;
@@ -283,6 +446,7 @@ int main()
     TestFloorSnap();
     TestDirectOwnLine();
     TestDirectSummon();
+    TestDirectSummonHeldBot();
     TestWalkBackAfterRegroup();
     TestDoorLock();
     TestEventCount();

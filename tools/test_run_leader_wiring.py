@@ -66,7 +66,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", early)
         offmap = body(tick, "the lead bot is not on the plan's map", "return;")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", offmap)
-        stop = body(COMMANDS, 'slot.run.note = "stopped by .bot run stop";', "DungeonRuns().erase(it);")
+        stop = body(COMMANDS, 'slot.run.note = RunStopNote(rawArg);', "DungeonRuns().erase(it);")
         self.assertIn("ReleaseRunHold(commander, binding->leadGuid, slot);", stop)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("f.deadNames.push_back(bot->GetName());", facts)
@@ -174,7 +174,7 @@ class RunLeaderWiringTest(unittest.TestCase):
     def test_ritual_answer_reaches_the_run(self):
         # The run's `ritual` step waits for the ritual order's one answer (#984): the group's reply
         # notes it for the run whose carrier (the lead bot) is a member, and a run's `ritual` order
-        # makes the lead bot its carrier like loot/open/use.
+        # sets the run's carrier like loot/open/use (only the ritual's carrier is always the lead bot).
         reply = body(COMMANDS, "void RitualReply(RitualGroup const& group", "\n}\n")
         self.assertIn("run->second.taskReply = ok ? 1 : 2;", reply)
         self.assertIn('order.compare(0, 7, "ritual ") == 0)', COMMANDS)
@@ -182,6 +182,35 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("case ai::PlanStepKind::Ritual:", facts)
         self.assertIn("lead->GetMap()->GetInstanceData()", facts)
 
+
+    def test_open_use_carrier_is_pinned_while_its_order_is_out(self):
+        # An open / use_item order's bot stays the carrier until the step ends: the facts of the
+        # next ticks (busy, reply, the made item) are read from that bot, not re-picked from the
+        # bags (Uldaman: the use consumes 7740/7741 in a non-lead bot's bags, PR #1078 review).
+        task = body(COMMANDS, "Player* RunTaskBot(", "\n}\n")
+        bags = body(COMMANDS, "std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(", "\n}\n")
+        self.assertIn("bag.guid = bot->GetObjectGuid().GetRawValue();", bags)
+        self.assertIn("OutstandingCarrierVerdict(slot.run.orderSent, slot.carrierRaw, bags, &name);", task)
+        self.assertLess(task.index("OutstandingCarrierVerdict("), task.index("PickItemCarrier("))
+        # Only with no order out is the carrier picked from the bags.
+        self.assertIn("if (verdict == TortoiseBots::DungeonRun::CarrierVerdict::NoOrder)\n"
+                      "        name = TortoiseBots::DungeonRun::PickItemCarrier(", task)
+        # An order whose bot is gone is retired (orderSent and carrierRaw cleared) before the facts are read.
+        retire = body(COMMANDS, "void RetireLostCarrier(", "\n}\n")
+        self.assertIn("!= TortoiseBots::DungeonRun::CarrierVerdict::Retire)\n        return;", retire)
+        self.assertIn("TortoiseBots::DungeonRun::RetireOrder(slot.run);", retire)
+        self.assertIn("slot.carrierRaw = 0;", retire)
+        self.assertIn("slot.taskReply = 0;", retire)
+        tick = body(COMMANDS, "void TickDungeonRun(uint64 commanderRaw, uint32 dt)", "\n}\n")
+        self.assertIn("RetireLostCarrier(slot, lead, bots);\n    TortoiseBots::DungeonRun::Facts facts;\n"
+                      "    ReadRunFacts(slot, lead, bots, facts);", tick)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        retire_order = body(policy, "inline void RetireOrder(Run& r)", "\n}\n")
+        self.assertIn("r.orderSent = false;", retire_order)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("Player* const carrier = RunTaskBot(slot, lead, bots, step, &f.itemsSplit);", facts)
+        # A new order picks afresh: the previous order's bot is cleared before the pick.
+        self.assertIn("slot.carrierRaw = 0;\n            slot.carrierRaw = RunTaskBot(slot, lead, bots,", COMMANDS)
 
     def test_live_fixes_2026_10_16_are_wired(self):
         # 1. `cmd move` takes the floor at or below the point before a surface above it (a low ceiling).
@@ -196,6 +225,49 @@ class RunLeaderWiringTest(unittest.TestCase):
         # 4. A door whose lock needs no key and no skill opens on a plain use.
         use = (ROOT / "ai/playerbot/strategy/actions/UseItemAction.cpp").read_text()
         self.assertIn("TortoiseBots::DoorLock::OpensOnPlainUse(lockTypes, lockIndex)", use)
+    def test_uldaman_run3_hold_fixes_are_wired(self):
+        # A hold's done condition is read on every tick, before the facts' own step (in a walk back too) ...
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertLess(facts.index("ReadHoldDone(slot.run.plan->steps[slot.run.step], lead, f);"),
+                        facts.index("ai::PlanStep const* step = FactStep(slot.run);"))
+        # ... and while the run is paused, before the paused early return.
+        tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
+        self.assertLess(tick.index("TortoiseBots::DungeonRun::HoldDoneWhilePaused(slot.run, doneFacts)"),
+                        tick.index("if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)"))
+        # The party's places on a hold spot follow every tick and are let go with the run's hold.
+        self.assertIn("SyncHoldStands(commander, lead, bots, it->second, order);", tick)
+        release = body(COMMANDS, "void ReleaseRunHold(", "\n}\n")
+        self.assertIn("slot.placedRaw.clear();", release)
+        stands = body(COMMANDS, "void SyncHoldStands(", "\n}\n")
+        self.assertIn("if (stand && (!placed || newPlaces || drifted))", stands)
+        pause = body(COMMANDS, 'if (verb == "pause")', "else if")
+        self.assertIn('PausePlayer(slot.run, "paused by .bot run pause");', pause)
+        self.assertIn("member.ranged = PlayerbotAI::IsHeal(bot)", facts)
+        self.assertIn("unit.x = creature->GetPositionX();", facts)
+
+
+    def test_small_batch_2026_10_17_is_wired(self):
+        # 1. `cmd move` hands the policy how far the path's end is from the lead bot (an incomplete path that goes nowhere).
+        move = body(COMMANDS, "static bool CommanderMove(", "\n}\n")
+        self.assertIn("facts.endFromLead = std::sqrt(lx * lx + ly * ly + lz * lz);", move)
+        self.assertIn("facts.fromRunLeader = s_runIssuing;", move)
+        # 2. The run's time limit ends the run with its own note; `run stop` takes a reason.
+        tick = body(COMMANDS, "void TickDungeonRun(", "\n}\n")
+        self.assertIn("RunTimeLimitReached(slot.elapsedMs, sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
+        self.assertIn("RunTimeLimitNote(sPlayerbotAIConfig.dungeonRunMaxMinutes)", tick)
+        self.assertIn("slot.run.note = RunStopNote(rawArg);", COMMANDS)
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        self.assertIn('"AiPlayerbot.DungeonRunMaxMinutes", 180', config)
+        self.assertIn("AiPlayerbot.DungeonRunMaxMinutes = 180", template)
+        # 3. The reaction pass reads a queued chat command for a masterless bot (talents / spells answers).
+        engine = (ROOT / "ai/playerbot/strategy/ReactionEngine.cpp").read_text()
+        self.assertIn("ReactionPassForced(ai->HasRealPlayerMaster(), ai->QueuedChatCommandCount())", engine)
+        # 4. `run start ... from ...` resolves the step and guards a start partway.
+        start = body(COMMANDS, "static bool HandleDungeonRun(", "\nvoid UpdateRemoteCommanders(")
+        self.assertIn("ResolveStartStep(*plan, startArgs.from, startArgs.value, startStep, &movedBack)", start)
+        self.assertIn("CheckPartialStart(OnInstanceMap(lead), members.size(), withLead)", start)
+        self.assertIn("slot.run = Start(plan, startStep);", start)
 
     def test_uldaman_run4_fixes_are_wired(self):
         # The tank's reach for a pull stops once a mob has aggro: the facts are read in fights, the policy asks, the
