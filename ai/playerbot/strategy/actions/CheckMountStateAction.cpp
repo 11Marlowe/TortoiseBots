@@ -522,18 +522,20 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
     // the skill map on every comparison.
     uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
     Player* sortBot = bot;
-    // Stable choice at equal speed: keep the list order for ties instead of
-    // shuffling first, so consecutive casts use the same mount (issue #1097:
-    // Warhorse vs Stag alternation in the log was pure reshuffle noise).
-    // std::sort is not stable; break ties by spell id for a deterministic
-    // order that does not depend on the value's refresh order.
-    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed](MountValue i, MountValue j)
+    // Stable per-bot choice at equal speed: no reshuffle (issue #1097:
+    // Warhorse vs Stag alternation was pure shuffle noise), and ties break
+    // by a hash of bot guid + spell id - one bot always rides the same
+    // mount while bots differ from each other (a global spell-id order
+    // would put every bot on the same mount). std::sort is not stable, so
+    // the tie-break is explicit and deterministic.
+    uint32 const sortGuid = bot->GetGUIDLow();
+    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed, sortGuid](MountValue i, MountValue j)
         {
             uint32 const si = i.GetSpeedFor(sortBot, riderSpeed);
             uint32 const sj = j.GetSpeedFor(sortBot, riderSpeed);
             if (si != sj)
                 return si > sj;
-            return i.GetSpellId() < j.GetSpellId();
+            return ai::StableMountTieBreak(sortGuid, i.GetSpellId()) < ai::StableMountTieBreak(sortGuid, j.GetSpellId());
         });
     for (auto& mount : mountList)
     {

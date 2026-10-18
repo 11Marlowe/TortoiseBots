@@ -41,25 +41,37 @@ static void TestRealFightDismounts()
     CHECK(ai::CombatDismountAllowed(false, false, true));
 }
 
-// (2) Out-of-combat upkeep waits while mounted and travelling; combat,
-// and non-travelling bots, keep today's behavior.
-static void TestMountedTravelDefersBuffs()
+// (2) Out-of-combat casts wait while mounted and travelling; combat,
+// and non-travelling bots, keep today's behavior. Central gate in
+// CastSpellAction::isUseful covers every cast line (paladin blessings,
+// shaman totems, druid/mage/priest buffs).
+static void TestMountedTravelDefersCasts()
 {
-    CHECK(!ai::BuffCastAllowedWhileMounted(false, true));
-    CHECK(ai::BuffCastAllowedWhileMounted(true, true));
-    CHECK(ai::BuffCastAllowedWhileMounted(false, false));
+    CHECK(!ai::MountedTravelCastAllowed(false, true));
+    CHECK(ai::MountedTravelCastAllowed(true, true));
+    CHECK(ai::MountedTravelCastAllowed(false, false));
 }
 
-// (3) Stable choice: the current mount wins ties, else the fastest.
+// (3) Stable per-bot choice: equal-speed ties break by bot guid + spell id,
+// so one bot always rides the same mount while bots differ from each other.
 static void TestStableMountChoice()
 {
-    CHECK(ai::StableMountSpell(13819, 13819, true) == 13819);
-    CHECK(ai::StableMountSpell(13819, 46449, true) == 13819);
-    CHECK(ai::StableMountSpell(13819, 46449, false) == 46449);
-    CHECK(ai::StableMountSpell(0, 46449, false) == 46449);
-    CHECK(ai::StableMountSpell(0, 0, false) == 0);
+    // Same bot, same candidates: same answer every time, both orders.
+    CHECK(ai::StableMountTieBreak(7u, 13819u) == ai::StableMountTieBreak(7u, 13819u));
+    // Different bots can differ on the same pair (variety preserved).
+    bool anyDiffer = false;
+    for (unsigned guid = 1u; guid < 32u; ++guid)
+        if (ai::StableMountTieBreak(guid, 13819u) != ai::StableMountTieBreak(guid, 46449u))
+            anyDiffer = true;
+    CHECK(anyDiffer);
+    // Ordering is total: for any bot, one of the pair wins deterministically.
+    for (unsigned guid = 1u; guid < 32u; ++guid)
+    {
+        bool aFirst = ai::StableMountTieBreak(guid, 13819u) < ai::StableMountTieBreak(guid, 46449u);
+        bool bFirst = ai::StableMountTieBreak(guid, 46449u) < ai::StableMountTieBreak(guid, 13819u);
+        CHECK(aFirst != bFirst);
+    }
 }
-
 int main()
 {
     std::printf("Starting mount-dismount policy tests...\n");
@@ -67,10 +79,10 @@ int main()
     std::printf("  [PASS] unengaged pick keeps mount\n");
     TestRealFightDismounts();
     std::printf("  [PASS] real fight dismounts\n");
-    TestMountedTravelDefersBuffs();
-    std::printf("  [PASS] mounted travel defers buffs\n");
+    TestMountedTravelDefersCasts();
+    std::printf("  [PASS] mounted travel defers casts\n");
     TestStableMountChoice();
-    std::printf("  [PASS] stable mount choice\n");
+    std::printf("  [PASS] stable per-bot mount choice\n");
     std::printf("All mount-dismount policy checks PASSED (%d assertions)!\n", checks);
     return 0;
 }

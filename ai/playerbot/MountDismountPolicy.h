@@ -58,33 +58,38 @@ namespace ai
         return inCombat || targetFightsBot || botOrderedToAttack;
     }
 
-    // (2) May an out-of-combat buff cast start while mounted and travelling?
-    // Never: the core strips the mount to cast it, so starting it trades a
-    // mounted ride for a standing re-cast loop. The trigger stays active
-    // (the need is real) and the cast runs at the next dismounted stop.
-    // In combat the combat engine owns the decision (unchanged); a bot that
-    // is not travelling keeps today's behavior (unchanged).
-    inline bool BuffCastAllowedWhileMounted(bool inCombat, bool travelling)
+    // (2) May an out-of-combat cast start while mounted and travelling?
+    // Central gate in CastSpellAction::isUseful, covering every cast line
+    // (paladin pve/pvp/raid blessings and blessing-on-party, shaman totems,
+    // druid/mage/priest self-buffs): never while mounted and travelling out
+    // of combat unless the core lets the spell ride
+    // (SPELL_ATTR_CASTABLE_WHILE_MOUNTED, checked at the call site where the
+    // SpellEntry is at hand). The trigger stays active (the need is real) so
+    // the action is not queued each tick, and the cast runs at the next
+    // dismounted stop. In combat the combat engine owns the decision
+    // (unchanged); a bot that is not travelling keeps today's behavior
+    // (unchanged). The mount cast itself ("mount") is exempt at the call
+    // site; gather/loot/quest flows dismount on purpose inside their own
+    // actions and never pass through here.
+    inline bool MountedTravelCastAllowed(bool inCombat, bool travelling)
     {
         if (inCombat)
             return true;
         return !travelling;
     }
 
-    // (3) Stable mount choice. Mount() shuffles equal-speed mounts before
-    // every cast, so consecutive casts alternate names in the log (Warhorse
-    // vs Stag) even when nothing changed. Prefer the currently-used mount
-    // spell when it is still among the fastest usable candidates: same
-    // speed, no new cast shape, one less red herring in the next report.
-    // Returns the spell id to cast: `currentSpellId` when it is still a
-    // fastest candidate, else `bestSpellId` (0 = none usable).
-    inline unsigned StableMountSpell(unsigned currentSpellId, unsigned bestSpellId,
-        bool currentStillFastest)
+    // (3) Stable per-bot mount choice. Mount() sorted equal-speed mounts by
+    // spell id, so EVERY bot rode the same mount (Warhorse everywhere) -
+    // variety died. Tie-break by a hash of bot guid + spell id instead: one
+    // bot always rides the same mount (deterministic per pair), while bots
+    // differ from each other. Pure integer mix (splitmix64 finalizer),
+    // no state, no RNG.
+    inline unsigned StableMountTieBreak(unsigned botGuidLow, unsigned spellId)
     {
-        if (currentSpellId != 0 && currentSpellId == bestSpellId)
-            return currentSpellId;
-        if (currentSpellId != 0 && currentStillFastest)
-            return currentSpellId;
-        return bestSpellId;
+        unsigned long long z = (unsigned long long)botGuidLow * 0x9E3779B97F4A7C15ULL + spellId;
+        z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ULL;
+        z = (z ^ (z >> 27)) * 0x94D049BB133111EBULL;
+        z = z ^ (z >> 31);
+        return (unsigned)(z & 0xFFFFFFFFu);
     }
 }
