@@ -94,8 +94,10 @@ constexpr float kStragglerDzYd = 8.0f;            // ... or this far up or down 
 constexpr float kStragglerGainYd = 5.0f;          // ... came less than this closer since the last sample is summoned
 constexpr float kStillYd = 2.0f;                   // a bot that moved less than this ...
 constexpr std::uint32_t kStillMs = 6000;          // ... in this long stands still (stuck: summoned at a ceiling)
+constexpr std::uint32_t kStuckSummonMs = 15000;   // in a regroup's gather: a far bot still this long is summoned at once
 constexpr std::uint32_t kSummonWaitMs = 6000;     // a direct step's summoned follower is waited for this long (the summon takes 3 s)
 constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: send the move again
+constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalledArriveYd that gains nothing this long arrived
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
 constexpr float kWalkProgressYd = 2.0f;
 constexpr std::uint32_t kPullNoFightMs = 25000;   // a pull that started no fight in this time failed
@@ -504,6 +506,7 @@ struct Run
     std::uint32_t nearWipes = 0; // kWipeDead or more dead with someone alive, counted once each time
     bool nearWiped = false;
     bool eventRetry = false;     // an event failed this run: a ritual sent now is its retry
+    std::unordered_set<std::size_t> eventRearmed; // start steps re-armed by a wipe regroup (once each)
     // Guarding the party from a stand point (GuardTarget): the time the party
     // has been hit with the tank idle on stay, the pick-up orders this fight
     // sent, and the walk back to the stand point after the fight.
@@ -769,7 +772,8 @@ inline bool IsStill(const Run& r, const std::string& name)
 }
 
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
-// the lead bot (or kStragglerDzYd up or down) that stands still now
+// the lead bot (or kStragglerDzYd up or down), or one that stands still more
+// than kGatherYd away, that stands still now
 // (IsStill) or came less than kStragglerGainYd closer since the last sample
 // (stuck behind, not on its way), is summoned to the lead bot (`cmd summon`),
 // once per bot and step (and per regroup), and the gather waits again. The
@@ -784,12 +788,26 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
     bool pickStill = false;
     for (const MemberFact& m : f.members)
     {
-        if ((m.yd <= kSummonYd && m.dz <= kStragglerDzYd) || m.name.empty() || r.summoned.count(m.name))
+        if (m.name.empty() || r.summoned.count(m.name))
             continue;
+        // Far: past kSummonYd, or on another floor. Not far, a bot past the
+        // gather radius that stands still is stuck too: the gather (kGatherYd
+        // 20 yd) waits for it while the summon skips it (kSummonYd 40), so a
+        // bot that sticks 20-40 yd out is never summoned and the run pauses
+        // (events-5 00:55:59, grimlok pull 93: Stoutster stood 34.9 yd away,
+        // still, "the party did not gather within 30 s", twice).
+        bool const far = m.yd > kSummonYd || m.dz > kStragglerDzYd;
         bool const still = IsStill(r, m.name);
+        // A bot past the gather radius that stands still is stuck -- unless it
+        // is in a fight or has something on it: then it is not stuck, it is
+        // busy (`cmd summon` refuses a bot in combat anyway), exactly as in a
+        // regroup (SummonStuckInRegroup). The far rule below keeps its own
+        // tests.
+        if (!far && (!(still && m.yd > kGatherYd) || m.inCombat || m.attackers))
+            continue;
         if (!still)
         {
-            if (stillOnly)
+            if (!far || stillOnly)
                 continue;
             auto it = r.memberYd.find(m.name);
             if (it == r.memberYd.end() || it->second - m.yd >= kStragglerGainYd)
@@ -809,6 +827,48 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
     r.note = "gather: " + pick->name + " stands " + Num(pick->yd) + " yd from the lead bot and " +
         (pickStill ? "has not moved for " + std::to_string(kStillMs / 1000) + " s" : std::string("does not come closer")) +
         ": summoned";
+    return true;
+}
+
+// A regroup's gather: a living bot far from the lead bot (kSummonYd, or
+// kStragglerDzYd up or down) that has not moved for kStuckSummonMs stood still
+// where it is stuck (a navmesh pocket), so it is summoned at once instead of
+// the gather's whole ceiling being waited out for it (events-5 01:48:43 ->
+// 01:50:42: Stoutster stood 363 yd away, still, until the ceiling; the pit at
+// 43,377 / -164,299 is a repeat spot). Once per bot per regroup (Run::summoned,
+// the same set SummonStraggler uses), the farthest first, one a tick. The
+// gather's clock starts over; the caller sends the order. False: none.
+inline bool SummonStuckInRegroup(Run& r, const Facts& f, std::string& order)
+{
+    if (!f.leadAlive)
+        return false;
+    // The stand-still watch is older than the gather: it runs while the dead
+    // are revived. The 15 s have to be the gather's own clock (regroupMs starts
+    // over when the gather goes out and on every summon), or a bot that stood
+    // still 120 yd away during the revives is summoned one tick after the
+    // gather, before anyone could have seen it walk.
+    if (r.regroupMs < kStuckSummonMs)
+        return false;
+    const MemberFact* pick = nullptr;
+    for (const MemberFact& m : f.members)
+    {
+        if (m.name.empty() || m.name == f.carrier || r.summoned.count(m.name) || m.inCombat || m.attackers)
+            continue;
+        if (m.yd <= kSummonYd && m.dz <= kStragglerDzYd)
+            continue;
+        auto it = r.still.find(m.name);
+        if (it == r.still.end() || it->second.ms < kStuckSummonMs)
+            continue;
+        if (!pick || m.yd > pick->yd)
+            pick = &m;
+    }
+    if (!pick)
+        return false;
+    r.summoned.insert(pick->name);
+    order = "summon " + pick->name;
+    r.regroupMs = 0;
+    r.note = "regroup: " + pick->name + " has not moved for " + std::to_string(kStuckSummonMs / 1000) + " s " +
+        Num(pick->yd) + " yd away: summoned";
     return true;
 }
 
@@ -1311,6 +1371,14 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
         r.walkBestYd = dist;
         r.walkStillMs = 0;
     }
+    // A plain walk to a point close by (kStalledArriveYd) that gains nothing at
+    // all is done after 3 s: a `cmd move` to a point 3-6 yd away does not move
+    // the lead bot, and the 12 s rule made every such plan row idle 13 s (WC
+    // run B: 20 rows of 12-15 s, 275 s of a 101 min run; rows 28-31 were 3-6 yd
+    // hops). A direct step (over a navmesh hole) keeps the 12 s rule and its
+    // checkpoint.
+    if (!direct && r.walkStillMs >= kShortStallMs && dist <= kStalledArriveYd)
+        return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs && dist <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs)
@@ -2426,6 +2494,40 @@ inline void EventFailed(Run& r, const std::string& why)
     Pause(r, "event failed (" + why + ")" + again);
 }
 
+// A wipe regroup inside a hold whose encounter has reset: the encounter is not
+// done, so waiting on the spot would wait for an event nobody restarted
+// (events-5: the wipe at 01:38:23 was followed by a regroup and a walk back to
+// the hold step, the hold then held 30 s for data 2 to leave 0 and paused
+// "event failed (data 2 did not leave 0)" at 01:45:12 -- 6.8 min, and
+// unattended that pause hits the 10 min cap and the run fails). The run goes
+// back to the step that starts the event instead, once per event per run
+// (Run::eventRearmed): a second wipe in the same event regroups and pauses as
+// it does today. r.eventRetry is set as EventFailed does, so a `busy` altar is
+// reported as spent. False: nothing re-armed.
+inline bool RearmEventOnWipe(Run& r, const Facts& f)
+{
+    const PlanStep* s = Current(r);
+    if (!s || s->kind != PlanStepKind::Hold)
+        return false;
+    if (!(s->flags & ai::kPlanFlagDoneData) || !(s->flags & ai::kPlanFlagEncounter))
+        return false;
+    // Only a RESET encounter: NOT_STARTED (0) or FAIL (2). IN_PROGRESS (1) is a
+    // live event (a wipe with the fight still on, a boss walking home between
+    // waves): dropping it and sending the ritual into a running event breaks
+    // the event, so the run holds on the spot as it does today. DONE (the
+    // hold's param) ends the step before this; -1 is no instance data at all.
+    if (f.eventData != static_cast<long long>(ai::kPlanEncounterNotStarted) &&
+        f.eventData != static_cast<long long>(ai::kPlanEncounterFail))
+        return false;
+    std::size_t const start = EventStartStep(r);
+    if (start == static_cast<std::size_t>(-1) || r.eventRearmed.count(start))
+        return false;
+    r.eventRearmed.insert(start);
+    r.step = start;
+    r.eventRetry = true;
+    return true;
+}
+
 // The hold's done condition from what the glue reads on every tick, with the
 // spot in sight or not, in a fight, a regroup or a pause too (instance data is
 // map-wide; the object counts when it is within the lead bot's reach). Uldaman
@@ -3377,14 +3479,22 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 SendGather(r, f, order);
             }
             // A bot being summoned does not count against the ceiling.
-            else if (r.reviveSummons.empty() && r.regroupMs > r.regroupGatherCapMs)
+            else if (r.reviveSummons.empty())
             {
-                if (SummonStraggler(r, f, order))
-                    r.regroupMs = 0;
-                else
-                    Pause(r, "regroup: the party did not gather within " +
-                        std::to_string(r.regroupGatherCapMs / 1000) + " s (a bot is " + Num(f.maxMemberYd) +
-                        " yd from the lead bot)");
+                // A far bot that has not moved at all is stuck (a navmesh
+                // pocket), not walking: it is summoned at once, before the
+                // ceiling is waited out for it (SummonStuckInRegroup).
+                if (SummonStuckInRegroup(r, f, order))
+                    return order;
+                if (r.regroupMs > r.regroupGatherCapMs)
+                {
+                    if (SummonStraggler(r, f, order))
+                        r.regroupMs = 0;
+                    else
+                        Pause(r, "regroup: the party did not gather within " +
+                            std::to_string(r.regroupGatherCapMs / 1000) + " s (a bot is " + Num(f.maxMemberYd) +
+                            " yd from the lead bot)");
+                }
             }
             return order;
         }
@@ -3419,11 +3529,17 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     {
         ++r.autoRegroups;
         r.fighting = false;
+        // A wipe inside a hold whose event is not done: the event reset, so the
+        // regroup goes back to its start step (RearmEventOnWipe).
+        std::size_t const rearmed = RearmEventOnWipe(r, f) ? r.step : static_cast<std::size_t>(-1);
         ResetStep(r);
         BeginRegroup(r);
         r.walkBackDue = true;
         r.note = std::to_string(f.dead) + " dead (" + WipeCounts(r) + " this run): regrouping by itself (" +
-            std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)";
+            std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)" +
+            (rearmed == static_cast<std::size_t>(-1) ? std::string()
+                                                     : "; the event starts again at step " +
+                    std::to_string(rearmed + 1) + " (" + ai::PlanStepKindName(r.plan->steps[rearmed].kind) + ")");
         return order;
     }
     // The owner's rule (2026-10-17): "Party should wait if a party member
