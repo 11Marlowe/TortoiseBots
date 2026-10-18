@@ -6,6 +6,7 @@
 #include "GearSeedingGuard.h"
 #include "HireLifecycle.h"
 #include "ClaimLifecycle.h"
+#include "AltBotService.h"
 #include "../host/BotSessionAdapter.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -20,6 +21,7 @@
 #include "RandomBotPoolReset.h"
 #include "StartZoneBalance.h"
 #include "BotNameService.h"
+#include "BotAppearancePolicy.h"
 #include "AccountMgr.h"
 #include "SharedDefines.h"
 #include "Database/DBCStores.h"
@@ -602,6 +604,10 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
         uint8 cls = pr.second;
         // Gender before the name: issue #1003 names follow race and gender.
         uint8 gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
+        BotAppearanceCounts look{};
+        if (!BotAppearanceCountsFor(race, gender, look))
+            continue;
+
         std::string norm = PickBotCharacterName(race, cls, gender);
         if (norm.empty())
             continue;
@@ -611,11 +617,11 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
         info.race = race;
         info.class_ = cls;
         info.gender = gender;
-        info.skin = uint8(urand(0, 7));
-        info.face = uint8(urand(0, 7));
-        info.hairStyle = uint8(urand(0, 7));
-        info.hairColor = uint8(urand(0, 7));
-        info.facialHair = uint8(urand(0, 7));
+        info.skin = uint8(urand(0, look.skin - 1));
+        info.face = uint8(urand(0, look.face - 1));
+        info.hairStyle = uint8(urand(0, look.hairStyle - 1));
+        info.hairColor = uint8(urand(0, look.hairColor - 1));
+        info.facialHair = uint8(urand(0, look.facialHair - 1));
         info.outfitId = 0;
         info.challengeMask = 0;
 
@@ -1097,6 +1103,20 @@ void RandomBotService::OnHumanLogout()
         --m_humanSessions;
 }
 
+void RandomBotService::ForgetDeliberateLogout(ObjectGuid guid)
+{
+    for (size_t i = 0; i < m_candidates.size(); ++i)
+    {
+        if (m_candidates[i].characterGuid != guid)
+            continue;
+        // Counted as a full minute online, so the logout pass never reads it
+        // as a quick one, whichever pass sees the record go.
+        if (i < m_ageMs.size() && m_ageMs[i] < 60000)
+            m_ageMs[i] = 60000;
+        return;
+    }
+}
+
 void RandomBotService::RemoveExpiredBots(uint32_t diff)
 {
     for (size_t i = 0; i < m_candidates.size(); ++i)
@@ -1421,7 +1441,9 @@ void RandomBotService::MaintainOnlinePool()
         if (BotManager::Instance().IsRandomBot(candidate.characterGuid))
             ++online;
 
-    if (online >= m_targetCount || m_candidates.empty())
+    // Issue #872: each active alt-bot holds one pool slot.
+    uint32 const target = PoolTargetWithAlts(m_targetCount, AltBotService::Instance().ActiveCount());
+    if (online >= target || m_candidates.empty())
         return;
 
     uint32 perInterval = sPlayerbotAIConfig.randomBotsMaxLoginsPerInterval;
@@ -1435,7 +1457,7 @@ void RandomBotService::MaintainOnlinePool()
     {
         for (uint32 pinnedGuid : m_pinnedGuids)
         {
-            if (online >= m_targetCount || added >= perInterval)
+            if (online >= target || added >= perInterval)
                 break;
 
             Candidate const* pinnedCandidate = nullptr;
@@ -1501,7 +1523,7 @@ void RandomBotService::MaintainOnlinePool()
         for (auto const& bucket : buckets)
             eligible += static_cast<uint32_t>(bucket.size());
         size_t ladderAttempts = 0, maxAttempts = static_cast<size_t>(perInterval) * 4;
-        while (online < m_targetCount && added < perInterval && ladderAttempts < maxAttempts)
+        while (online < target && added < perInterval && ladderAttempts < maxAttempts)
         {
             ++ladderAttempts;
             int picked = LadderPickFromBuckets(buckets, onlinePerBand, onlineAlliance, onlineHorde);
@@ -1550,18 +1572,18 @@ void RandomBotService::MaintainOnlinePool()
             }
         }
         ++m_nextCandidate; // equals take turns across passes
-        if (online < m_targetCount && nowMs - m_ladderPassLogMs >= 60000)
+        if (online < target && nowMs - m_ladderPassLogMs >= 60000)
         {
             m_ladderPassLogMs = nowMs;
             TB_LOG_BASIC("TortoiseBots: level ladder pass: online %u/%u, added %u, offline eligible %u, skipped: session %u, lease %u, add refused %u, held %u, tracked %u, stale holds %u",
-                online, m_targetCount, added, eligible, sessionBusy, leaseBusy, addFailed,
+                online, target, added, eligible, sessionBusy, leaseBusy, addFailed,
                 skips.held, skips.tracked, skips.staleHold);
         }
         return;
     }
 
     size_t attempts = 0;
-    while (online < m_targetCount && added < perInterval && attempts < m_candidates.size())
+    while (online < target && added < perInterval && attempts < m_candidates.size())
     {
         size_t index = m_nextCandidate++ % m_candidates.size();
         ++attempts;

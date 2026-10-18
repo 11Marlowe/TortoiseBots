@@ -30,6 +30,8 @@ The remote commander (section 1a, off by default) adds one rule: a commander bou
 
 Refused commands answer with a short reason in chat; addon-originated requests additionally receive exactly one `TBM:ACTION_ERR|<command>|denied|<reason>` line so the `/tbm` UI can surface it.
 
+**Autonomous alt-bots (issue #872):** towards other players an alt playing on its own behaves like a random bot. Anyone may invite it and give it the combat orders above (`follow`, `stay`, `guard`, `free`, `wander`, combat orders, read-only info); only the owner's account (or a GM) may give it anything else — trade, selling, destroying, equipping, talents, quest abandon, logout, guild commands, hearth bind, `hire`, strategy edits, or any command not on the tactical list. Nobody except the owner (or a GM) can remove it from the world. It accepts a guild invite only from the owner's account and never leaves its guild on its own. `.bot cmd` orders never move it: a stranger's commanded group drops it from the order's bots (order it with whispers or party chat instead).
+
 **Pool-bot trading (issue #469):** a masterless pool bot refuses a real-player stranger's trade window (`AiPlayerbot.PoolBotTradeMode = 0`, the default) and ignores Trade-channel chatter unless the speaker addresses it directly. Owned and hired bots always trade with their master; `1` limits the pool to master/group/hire-master trades, `2`/`3` allow buy-only/sell-only, `4` restores unrestricted trading. Bot-to-bot trade life (RPG giveaways, enchants, `WTS`/`WTB`) is untouched.
 
 ---
@@ -218,6 +220,17 @@ attack/pull commands, open-world grinding and solo bots are unchanged.
 | **Corpse Run** | `.bot corpse run` | Commands spirit bots to run back to their corpse or instance entrance. Also available as `.bot action corpse run`. |
 | **Learn Spells** | `.bot learn` | Commands companion bots near matching trainers to learn affordable spells. Also available as `.bot action learn`. |
 | **Trade** | `.bot trade` | Opens a trade window with the targeted alive companion bot. Also available as `.bot action trade`. |
+
+### 2a. Alt-bots: your alts keep playing (issue #872)
+
+Off by default; the server enables it with `AiPlayerbot.AltBots = 1` (see the configuration guide).
+
+- **Start:** bring an alt of your own account in with `.bot add <Alt>`, then kick it from your party (`.bot uninvite <Alt>`, or the party breaking up). It answers `<Alt> now plays on its own, .bot remove <Alt> to log it out.` and from then on quests, grinds, travels (flight paths, boats, zeppelins), rests, gathers and fishes like a pool bot. Alone, it first goes to a zone that fits its level (level 10+); still in a group with someone else, it stays where it is. An alt left inside a dungeon, battleground or on a boat goes to the exit or the nearest graveyard.
+- **End:** `.bot remove <Alt>` logs it out; `.bot add <Alt>` takes it back as your companion without a relog; logging in on the alt yourself takes over at once, wherever it is (also mid-fight or as a ghost). Each end shows a short summary: levels, quests, deaths, gold. After you log out of the alt it stays offline. Alt-bots keep playing while you play another character and after you log out (unless `AiPlayerbot.AltBotsLogoutWithOwner = 1`), but never come back after a server restart; progress since the last character save can be lost in a crash.
+- **What it never does on its own:** spend talent points, use the auction house, mail, trade or the guild bank, sell soulbound, equipped or better-than-white items, buy mounts, bags or anything but trainer spells, repairs and flights, rebind its hearthstone, destroy items, abandon quests it did not take itself, fill the quest log past 10 free slots, pick targets whose kill lowers reputation, start duels, or roll Need (it rolls Greed or Pass). It equips upgrades only when the old piece fits in its bags; with full bags it stops equipping (you get a "clear the bags first" message when it starts). It levels at the server XP rate with no bot drop boost; the ammo/reagent refill applies as for pool bots.
+- **Other players** may invite it and give it combat orders (see "Who may use what" above); the instance or raid save of a dungeon it joins lands on your character. Only your account (or a GM) controls the rest or logs it out. It accepts guild invites only from your account and never leaves its guild on its own.
+- **Challenge modes:** Hardcore characters are refused with a message (a bot death would end the run). Every other Turtle challenge (Slow & Steady, War Mode, Vagrant, Boaring, Craftmaster, Lunatic, Brewmaster, Heroic) is allowed, but the bot does not respect that challenge's restrictions: it is your choice.
+- Each active alt-bot takes one pool bot's slot (a free, low-level pool bot logs out and comes back when the alt ends). The dashboard labels it `alt`; `bot_events.csv` logs `AltBotStart` / `AltBotEnd`.
 
 ---
 
@@ -442,6 +455,7 @@ within one tick are ignored with one line `Too many bot commands at once: <n> ig
   `TBM:CLAIMED_END` claimed-guild-bot snapshot (issue #489) for the addon's Guild tab.
   The addon hides the matching controls when a capability is missing.
 - Remote commander view — `TBM:VIEW|v1|<seq>|<B|P|H|T|E>|...` frames, sent unprompted to a bound commander whose view is on; grammar in [section 1a](#perception-feed-tbmview-phase-2).
+- Alt-bots — `TBM:ALTBOTS|<name,name>` follows the roster rows on every roster response (issue #872): the owned characters currently playing on their own (empty after the pipe when none). The addon shows them as `Alt-bot · Playing alone`; its `Login` button takes one back as a companion (`.bot add`), `Logout` logs it out.
 - Version — `TBM:VERSION|<UTC date>-v<N>` trails every roster response, and
   answers `.bot version` and `.bot help` directly. The addon shows it as
   `server <version>` in the `/tbm` window (`server ?` on older servers).

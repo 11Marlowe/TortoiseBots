@@ -4,7 +4,7 @@ import "time"
 
 // ProtocolVersion is bumped whenever the C++ -> Go datagram layout changes in
 // a way the daemon must understand. It is carried in every datagram.
-const ProtocolVersion = 9
+const ProtocolVersion = 11
 
 // Anomaly types accepted from the game server. Anything else is rejected so
 // that Prometheus label cardinality stays bounded. STUCK is counter-only
@@ -27,8 +27,15 @@ type BotSnapshot struct {
 	Name     string  `json:"name"`
 	GUID     uint32  `json:"guid"`
 	Player   bool    `json:"player,omitempty"`
-	GroupID  uint32  `json:"group,omitempty"`
+	// Alt marks an autonomous owned alt-bot (Issue #872). Additive since
+	// protocol v10; an older module omits it and it reads false.
+	Alt      bool    `json:"alt,omitempty"`
+	// Kind is the dashboard kind label (Issue #872): pool, hired, claimed,
+	// alt, companion or player. Additive since protocol v11; an older module
+	// omits it and readers fall back to player/alt/pool from the flags.
+	Kind     string  `json:"kind,omitempty"`
 	Class    string  `json:"class"`
+	GroupID  uint32  `json:"group,omitempty"`
 	Role     string  `json:"role"`
 	Level    uint32  `json:"level"`
 	XP       uint32  `json:"xp,omitempty"`      // PLAYER_XP: progress into the current level
@@ -92,6 +99,27 @@ type BotSnapshot struct {
 	// the character DB every few minutes (never per tick). Nil until the first
 	// gear sweep completes.
 	Gear *BotGear `json:"gear,omitempty"`
+}
+// Kind constants for BotSnapshot.Kind (Issue #872).
+const (
+	KindPool      = "pool"
+	KindHired     = "hired"
+	KindClaimed   = "claimed"
+	KindAlt       = "alt"
+	KindCompanion = "companion"
+	KindPlayer    = "player"
+)
+
+// KindFromFlags reads the kind off the pre-v11 player/alt flags: player,
+// then alt, else pool (hired/claimed/companion need the v11 kind field).
+func KindFromFlags(player, alt bool) string {
+	if player {
+		return KindPlayer
+	}
+	if alt {
+		return KindAlt
+	}
+	return KindPool
 }
 
 // BotGear is one bot's equipped-gear summary: the average item level of the

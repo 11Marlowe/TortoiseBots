@@ -287,6 +287,10 @@ public:
     // off, so a bot levelling from 1 only gets a 40/60 mount when re-seeded.
     // Default true.
     bool levelUpMounts = true;
+    // Random bots ride racial mounts only by default: item-backed shop mounts
+    // (any race can use them, except the Swift Riding Turtle) are granted and
+    // chosen only when this is on. Player-owned alts are never gated. Default false.
+    bool randomBotShopMounts = false;
     // Safety factor on the mount break-even distance: bots mount for travel
     // only when the remaining trip exceeds
     // 7 y/s * castTime / (mountSpeed/100) * this. 0 disables the threshold
@@ -468,6 +472,11 @@ public:
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
     // (panic / outnumbered / critical health no master) and fight on.
     bool poolMeleeHoldGround;
+    // Issue #872: an owned alt kicked from its owner's party keeps playing on
+    // its own (AltBotService). Off by default; the second key logs such alts
+    // out together with their owner instead of leaving them in the world.
+    bool altBots;
+    bool altBotsLogoutWithOwner;
     // Universal raid survival knobs (issue #201): bomb carriers run
     // BombRunoutDistance clear, spread/split steps use HazardEvasionDistance.
     float bombRunoutDistance = 30.0f, hazardEvasionDistance = 12.0f;

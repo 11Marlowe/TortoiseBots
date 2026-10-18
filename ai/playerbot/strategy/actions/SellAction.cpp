@@ -6,6 +6,8 @@
 #include "playerbot/strategy/values/MaintenanceValues.h"
 #include "../../../runtime/ClaimLifecycle.h"
 #include "../../../runtime/ClaimedBotPolicy.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 
 using namespace ai;
 
@@ -58,6 +60,9 @@ bool SellAction::Execute(Event& event)
     bool const allOrNothing = event.GetSource() == "rpg action" && ShouldSellValue::CantAffordNextSpell(ai);
 
     bool const isClaimed = TortoiseBots::ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow());
+    // Issue #872: an autonomous alt vendors only greys and unneeded whites
+    // (B10), never soulbound or equipped items.
+    bool const isAltBot = TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
 
     for (std::list<Item*>::iterator i = items.begin(); i != items.end(); ++i)
     {
@@ -67,6 +72,24 @@ bool SellAction::Execute(Event& event)
             ItemPrototype const* proto = (*i)->GetProto();
             uint32 quality = proto ? proto->Quality : 0;
             if (!TortoiseBots::MayClaimedBotAutoVendor(bot->GetLevel(), quality, true))
+                continue;
+        }
+        // Issue #872: an autonomous alt sells only greys and unneeded
+        // whites, never soulbound or equipped items (B10). Non-autonomous
+        // alts keep today's behaviour.
+        if (isAltBot && event.GetSource() == "rpg action")
+        {
+            Item* item = *i;
+            ItemPrototype const* proto = item ? item->GetProto() : nullptr;
+            uint32 quality = proto ? proto->Quality : 0;
+            bool equipped = false;
+            for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+                if (bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot) == item)
+                {
+                    equipped = true;
+                    break;
+                }
+            if (!TortoiseBots::AltBotMayVendorItem(quality, item && item->IsSoulBound(), equipped))
                 continue;
         }
 

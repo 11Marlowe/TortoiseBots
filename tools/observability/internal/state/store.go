@@ -558,13 +558,13 @@ func xpRateLocked(samples []xpSample, now time.Time) float64 {
 // grindingLocked builds the pool-wide "are they grinding" rollup. Kills come
 // from BOT_DEATH anomalies in the ring buffer (no new emitter counter), XP
 // from the derived per-bot rates, combat/travel from the roster itself.
-// Player rows are excluded: pool KPIs describe the bot pool, not whoever
-// happens to be logged in.
+// Player and autonomous-alt rows are excluded: pool KPIs describe the pool,
+// not whoever happens to be logged in or playing on their own (Issue #872).
 func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.GrindingSummary {
 	out := model.GrindingSummary{}
 	pool := bots[:0:0]
 	for _, b := range bots {
-		if !b.Player {
+		if !b.Player && !b.Alt {
 			pool = append(pool, b)
 		}
 	}

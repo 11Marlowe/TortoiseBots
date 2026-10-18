@@ -5,6 +5,8 @@
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/ClaimLifecycle.h"
+#include "../runtime/AltBotPolicy.h"
+#include "../runtime/AltBotService.h"
 #include "../runtime/HireProvisionService.h"
 #include "../runtime/HireRaidPolicy.h"
 #include "../runtime/HireSpecPolicy.h"
@@ -1397,8 +1399,20 @@ static bool HandleAdd(ChatHandler* handler, char const* args)
     uint32_t accountId = data->uiAccount;
     ::ObjectGuid masterGuid = requester->GetObjectGuid();
 
-    if (sObjectAccessor.FindPlayer(guid))
+    if (::Player* online = sObjectAccessor.FindPlayer(guid))
     {
+        // Issue #872: `.bot add` on the requester's own alt-bot takes it back
+        // as a companion without a relog.
+        if (AltBotService::Instance().IsAutonomous(guid) && requester->GetSession() &&
+            (AltBotService::Instance().GetOwnerAccount(guid.GetCounter()) == requester->GetSession()->GetAccountId() ||
+             IsBotAdministrator(requester)))
+        {
+            if (AltBotService::Instance().TakeBack(requester, online))
+                handler->PSendSysMessage("%s is your companion again and follows you.", name.c_str());
+            else
+                handler->PSendSysMessage("Could not take %s back as a companion.", name.c_str());
+            return true;
+        }
         handler->PSendSysMessage("Character '%s' is already online and cannot be claimed as a Headless bot.", name.c_str());
         return true;
     }
@@ -2299,6 +2313,16 @@ static bool HandleRoster(ChatHandler* handler)
             ProtocolSafe(RosterLocation(mapId, zoneId, areaId)).c_str());
     }
     handler->PSendSysMessage("TBM:ROSTER_END");
+    // Issue #872: rows that currently play on their own, in one extra line so
+    // the strict roster row stays unchanged for older addons (they ignore it).
+    std::string altBots;
+    for (OwnedCharacter const& row : rows)
+        if (AltBotService::Instance().IsAutonomous(row.characterGuid))
+        {
+            Player* alt = sObjectAccessor.FindPlayer(row.characterGuid);
+            altBots += (altBots.empty() ? "" : ",") + ProtocolSafe(alt ? alt->GetName() : row.name);
+        }
+    handler->PSendSysMessage("TBM:ALTBOTS|%s", altBots.c_str());
     // CC assignments and the BOTSTATE snapshot below describe the same set:
     // the controllable party bots (owned alts and hired companions). The
     // roster rows leave hires out on purpose, so they cannot feed CC_ASSIGN.
@@ -8368,12 +8392,26 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     }
 
     // Tactical orders: the bound commander counts as a member of its group.
+    // Issue #872: an autonomous alt answers a stranger's combat orders only
+    // through whispers/party chat, never through a commanded group it never
+    // joined. Drop autonomous alts from the order's bot list (a stranger
+    // bound the group while the alt roamed in it): an order with no bots
+    // left is refused, and a party-wide order never moves the alt.
+    order.bots.erase(std::remove_if(order.bots.begin(), order.bots.end(),
+        [](Player* bot)
+        {
+            return bot && AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
+        }), order.bots.end());
     if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier, false))
     {
         SendActionError(handler, intent, "denied", "Order refused.");
         return true;
     }
-
+    if (order.bots.empty())
+    {
+        SendActionError(handler, intent, "denied", "That group holds only autonomous alt-bots; order them with whispers or party chat.");
+        return true;
+    }
     if (verb == "state")
     {
         RemoteCommander::StateOrder stateRequest;
@@ -8418,6 +8456,14 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             if (!attackBot)
             {
                 SendActionError(handler, intent, "no-bot", "That bot is not in your commanded group.");
+                return true;
+            }
+            // Issue #872: the filter above already dropped autonomous alts
+            // from the order; a name that resolves to one is refused, not
+            // silently run party-wide.
+            if (AltBotService::Instance().IsAutonomous(attackBot->GetObjectGuid()))
+            {
+                SendActionError(handler, intent, "denied", "That bot is an autonomous alt-bot; order it with whispers or party chat.");
                 return true;
             }
         }
@@ -8469,6 +8515,12 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         if (!named)
         {
             SendActionError(handler, intent, "no-bot", "That bot is not in your commanded group.");
+            return true;
+        }
+        // Issue #872: same as `attack <guid> <bot>` above.
+        if (AltBotService::Instance().IsAutonomous(named->GetObjectGuid()))
+        {
+            SendActionError(handler, intent, "denied", "That bot is an autonomous alt-bot; order it with whispers or party chat.");
             return true;
         }
         ccIntent += " " + std::string(named->GetName());

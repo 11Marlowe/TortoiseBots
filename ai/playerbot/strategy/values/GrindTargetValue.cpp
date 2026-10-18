@@ -14,6 +14,8 @@
 #include "playerbot/PullRegenPolicy.h"
 #include "playerbot/PointDangerPolicy.h"
 #include "playerbot/GrindSpotPolicy.h"
+#include "../../../../runtime/AltBotService.h"
+#include "../../../../runtime/AltBotPolicy.h"
 #include "Maps/GridNotifiers.h"
 #include "Maps/GridNotifiersImpl.h"
 #include "Maps/CellImpl.h"
@@ -271,6 +273,23 @@ Unit* GrindTargetValue::FindTargetForGrinding(int assistCount)
             logGrind(unit, "ignored (is pet or evading/unkillable).");
             continue;
         }
+        // Issue #872: an autonomous alt never PICKS a target whose kill
+        // lowers a reputation on its own. Self-defence (the attackers loop
+        // above) still answers anything that attacks it, and rep lost in a
+        // group fight is accepted. The core's ReputationOnKill table says
+        // whose kill moves which standing and by how much.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+            unit->IsCreature())
+        {
+            Creature const* creature = static_cast<Creature const*>(unit);
+            ReputationOnKillEntry const* rep = sObjectMgr.GetReputationOnKillEntry(creature->GetEntry());
+            bool killLowersRep = rep && (rep->repvalue1 < 0 || rep->repvalue2 < 0);
+            if (!TortoiseBots::AltBotMayPickTarget(killLowersRep))
+            {
+                logGrind(unit, "ignored (kill lowers reputation).");
+                continue;
+            }
+        }
 
         if (!PossibleAttackTargetsValue::IsPossibleTarget(unit, bot, sPlayerbotAIConfig.sightDistance, false))
         {
@@ -420,7 +439,7 @@ Unit* GrindTargetValue::FindIdleFallbackTarget()
     // today's behaviour. Called only when the normal pick came back empty,
     // so normalPickEmpty is true by construction.
     TravelTarget* travelTarget = AI_VALUE(TravelTarget*, "travel target");
-    if (!ai::GrindIdleFallbackAllowed(sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster(),
+    if (!ai::GrindIdleFallbackAllowed(sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster(),
         bot->GetLevel(), travelTarget && travelTarget->IsActive(),
         sServerFacade.IsInCombat(bot), bot->InBattleGround(),
         WorldPosition(bot).isOverworld(), AI_VALUE(bool, "can move around"), true))

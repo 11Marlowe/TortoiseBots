@@ -3,6 +3,7 @@
 #include "GuildManagementActions.h"
 #include "playerbot/ServerFacade.h"
 #include "runtime/BotActivityLease.h"
+#include "../../../runtime/AltBotService.h"
 
 using namespace ai;
 
@@ -248,6 +249,16 @@ bool GuildLeaveAction::Execute(Event& event)
     Player* requester = event.GetOwner() ? event.GetOwner() : GetMaster();
     Player* owner = event.GetOwner();
     if (owner && !ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_GUILD, false, owner, true))
+    {
+        ai->TellError(requester, "Sorry, I am happy in my guild :)");
+        return false;
+    }
+    // Issue #872 (F40): an autonomous alt stays in its guild; it never
+    // leaves on its own. The owner still may (their "guild leave" passes the
+    // chat gate); anyone else is refused here as well, so automation and
+    // trigger paths can never take it out either.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        owner && !ai->IsBotOwnerOrGm(*owner))
     {
         ai->TellError(requester, "Sorry, I am happy in my guild :)");
         return false;

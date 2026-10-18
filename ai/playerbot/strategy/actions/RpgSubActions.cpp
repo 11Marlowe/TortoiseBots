@@ -111,7 +111,7 @@ void RpgHelper::setDelay(bool waitForGroup)
     // next tick, not ten seconds of gossip per step (issue #393). Only a pool bot
     // parked at an NPC it actually needs - a rewardable hand-in, an acceptable
     // quest, a needed vendor or trainer sale/learn - keeps the full roleplay pause.
-    bool const poolSolo = !ai->HasRealPlayerMaster() && !bot->GetGroup() && sRandomBotFacade.IsRandomBot(bot);
+    bool const poolSolo = !ai->HasRealPlayerMaster() && !bot->GetGroup() && sRandomBotFacade.IsFreeBot(bot);
     if (poolSolo && !NearbyServiceTarget(ai))
     {
         ai->SetActionDuration(sPlayerbotAIConfig.rpgDelay / 5);

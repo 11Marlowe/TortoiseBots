@@ -29,6 +29,10 @@ public:
 
     void OnHumanLogin();
     void OnHumanLogout();
+    // A deliberate logout the module asks for (an alt-bot taking this bot's
+    // slot, issue #872) is not a quick logout: the level ladder must not set
+    // the character aside for an hour.
+    void ForgetDeliberateLogout(ObjectGuid guid);
 
     // False while the startup pool reset is draining, deleting, verifying or
     // has failed. Every pool consumer (autologin, auto-create, pinned

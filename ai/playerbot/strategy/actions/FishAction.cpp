@@ -367,7 +367,7 @@ bool MoveToFishAction::Execute(Event& event)
     int fishCasts = AI_VALUE2(int, "manual int", "fish session casts");
     int fishStart = AI_VALUE2(int, "manual int", "fish session start");
     int fishEnd = AI_VALUE2(int, "manual int", "fish session end");
-    if (!fishSpot && ai::FishingSpotApplies(sRandomBotFacade.IsRandomBot(bot), ai->HasRealPlayerMaster()) && !noFishWater &&
+    if (!fishSpot && ai::FishingSpotApplies(sRandomBotFacade.IsFreeBot(bot), ai->HasRealPlayerMaster()) && !noFishWater &&
         ai::FishingSearchAllowed(uint32(AI_VALUE2(int, "manual int", "fish search at")), nowFish) &&
         ai::FishingSessionAllowsSearch(uint32(fishStart), uint32(fishEnd), fishCasts, nowFish) && !FishLevellingStandsDown(ai))
     {
@@ -428,7 +428,7 @@ bool FishAction::isUseful()
     int const casts = AI_VALUE2(int, "manual int", "fish session casts");
     int const start = AI_VALUE2(int, "manual int", "fish session start");
     int const ended = AI_VALUE2(int, "manual int", "fish session end");
-    bool const poolPath = ai::FishingSpotApplies(sRandomBotFacade.IsRandomBot(bot), ai->HasRealPlayerMaster());
+    bool const poolPath = ai::FishingSpotApplies(sRandomBotFacade.IsFreeBot(bot), ai->HasRealPlayerMaster());
     if (poolPath && uint32(start) != 0 && ai::FishingSessionExpired(uint32(start), casts, nowUseful))
     {
         EndFishingSession(ai, "budget spent");

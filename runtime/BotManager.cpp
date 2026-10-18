@@ -7,6 +7,7 @@
 #include "ProfessionGrantPolicy.h"
 #include "HireLifecycle.h"
 #include "ClaimLifecycle.h"
+#include "AltBotService.h"
 #include "PlayerbotAIAdapter.h"
 #include "PlayerbotAIStorage.h"
 #include "RandomBotAccountRegistry.h"
@@ -260,6 +261,19 @@ bool TryRandomTeleport(::Player* bot, BotRecord const& record)
 }
 } // namespace
 
+bool BotManager::TeleportToLevelFittingZone(::Player* bot)
+{
+    if (!bot || !bot->IsInWorld() || bot->IsBeingTeleported() || !bot->IsAlive() || bot->GetLevel() < 10)
+        return false;
+    ai::WorldPosition const* chosen = PickLevelFittingPoint(bot);
+    if (!chosen)
+        return false;
+    bool ok = bot->TeleportTo(chosen->getMapId(), chosen->getX(), chosen->getY(), chosen->getZ(), bot->GetOrientation(), 0);
+    TB_LOG_DETAIL("TortoiseBots: level-zone teleport bot %s level %u to map %u %.1f %.1f %.1f: %s", bot->GetName(),
+        bot->GetLevel(), chosen->getMapId(), chosen->getX(), chosen->getY(), chosen->getZ(), ok ? "ok" : "failed");
+    return ok;
+}
+
 namespace {
 // Fail-closed eligibility shared by death-driven and time-driven rescue: a
 // random masterless ungrouped headless bot standing in a zone its level
@@ -294,8 +308,11 @@ bool MisplacedBotEligible(::Player* bot, int32& areaLevelOut, std::string* why =
     if (GroupHasRealPlayer(bot))
         return no("in a group with a player");
     BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-    if (!record || !record->random || record->lifecycle != BotLifecycle::InWorld)
-        return no(!record ? "no bot record" : !record->random ? "not a random bot" : "record not in world");
+    // Issue #872: autonomous alts get stuck-recovery like the pool.
+    if (!record || (!record->random && !AltBotService::Instance().IsAutonomous(bot->GetObjectGuid())) ||
+        record->lifecycle != BotLifecycle::InWorld)
+        return no(!record ? "no bot record" :
+            record->lifecycle != BotLifecycle::InWorld ? "record not in world" : "not a random bot");
     if (!record->masterGuid.IsEmpty())
         return no("has a master");
     if (sRandomBotFacade.IsPinnedBot(bot->GetGUIDLow()))
@@ -448,7 +465,8 @@ void BotManager::SweepDeadBots(uint32_t diff)
     for (auto& [key, entry] : m_bots)
     {
         BotRecord& rec = entry.record;
-        if (!rec.random)
+        // Issue #872: autonomous alts get the dead sweep like the pool.
+        if (!rec.random && !AltBotService::Instance().IsAutonomous(key))
         {
             ++skipNotRandom;
             m_deadSince.erase(key);
@@ -724,7 +742,9 @@ bool BotManager::SendStrandedLowbieHome(::Player* bot)
     if (GroupHasRealPlayer(bot))
         return false;
     BotRecord* record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-    if (!record || !record->random || record->lifecycle != BotLifecycle::InWorld)
+    // Issue #872: autonomous alts get stuck-recovery like the pool.
+    if (!record || (!record->random && !AltBotService::Instance().IsAutonomous(bot->GetObjectGuid())) ||
+        record->lifecycle != BotLifecycle::InWorld)
         return false;
     if (!record->masterGuid.IsEmpty())
         return false;
@@ -794,7 +814,8 @@ void BotManager::SweepStrandedBots(uint32_t diff)
     {
         BotRecord& rec = entry.record;
         ::Player* p = nullptr;
-        bool stranded = rec.random && rec.lifecycle == BotLifecycle::InWorld && rec.masterGuid.IsEmpty() &&
+        bool stranded = (rec.random || AltBotService::Instance().IsAutonomous(key)) &&
+            rec.lifecycle == BotLifecycle::InWorld && rec.masterGuid.IsEmpty() &&
             (p = sObjectAccessor.FindPlayer(rec.characterGuid)) != nullptr &&
             p->GetSession() && p->GetSession()->IsHeadless() && p->IsInWorld() &&
             !GroupHasRealPlayer(p) && !p->InBattleGround() && !p->IsBeingTeleported() &&
@@ -1174,7 +1195,12 @@ void BotManager::OnPlayerBeforeLogout(::Player* player)
 
     ::WorldSession* session = player->GetSession();
     if (!session || !session->IsHeadless())
+    {
+        AltBotService::Instance().OnOwnerLogout(player);
         DetachOwnedBots(player);
+    }
+    else
+        AltBotService::Instance().OnBotLogout(player);
 
     auto it = m_bots.find(player->GetObjectGuid().GetCounter());
     if (it == m_bots.end())
@@ -1257,6 +1283,10 @@ void BotManager::RebindOwnedBots(::Player* master)
         uint32 botOwner = entry.record.ownerAccountId ? entry.record.ownerAccountId : entry.record.accountId;
         bool isOwner = (botOwner == masterAccountId || master->GetSession()->GetSecurity() >= SEC_GAMEMASTER);
 
+        // An alt-bot keeps playing on its own; `.bot add` takes it back.
+        if (AltBotService::Instance().IsAutonomous(entry.record.characterGuid))
+            continue;
+
         bool shouldRebind = (entry.record.masterGuid == masterGuid);
         if (!shouldRebind && isOwner)
         {
@@ -1309,6 +1339,7 @@ void BotManager::ReleaseToClient(::Player* player)
         it->second.aiAdapter->Shutdown();
 
     TB_LOG_DETAIL("TortoiseBots: releasing module control of %s to a network client", player->GetName());
+    AltBotService::Instance().OnReclaimed(player);
     uint32_t guidLow = player->GetObjectGuid().GetCounter();
     m_bots.erase(it);
     sRandomBotFacade.MarkNativePlayersDirty();
@@ -1681,6 +1712,7 @@ bool BotManager::BindBotMaster(::ObjectGuid botGuid, ::ObjectGuid masterGuid)
     it->second.record.masterGuid = masterGuid;
     if (ai)
         it->second.aiAdapter->RebindMaster(master);
+    AltBotService::Instance().OnMasterBound(bot, master);
     // Human claim wins (issue #89): evict any background lease with active
     // cleanup, then lock to PlayerMaster. Non-binding whispers never reach
     // here; only master-binding paths (.bot add, invite, follow) do.
@@ -2181,6 +2213,7 @@ void BotManager::UpdateBots(uint32_t diff)
 
 void BotManager::OnWorldUpdate(uint32_t diff)
 {
+    AltBotService::Instance().Update();
     // Core owns Headless session lifecycle (queue, LoginPlayer dispatch, reclaim).
     // Module only tracks BotRecord and polls adapter state. No pending promotion.
     for (auto it = m_bots.begin(); it != m_bots.end(); )

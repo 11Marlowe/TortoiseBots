@@ -5,6 +5,7 @@
 
 #include "playerbot/strategy/Action.h"
 #include "runtime/HireLifecycle.h"
+#include "../../../../runtime/AltBotService.h"
 #include "behavior/PlayerConvenience.h"
 
 namespace ai
@@ -36,9 +37,11 @@ namespace ai
             // owner-account bots pass through: their AI carries a
             // real-player master (or they are not random pool records).
             if (!sPlayerbotAIConfig.randomBotGroupNearby &&
-                TortoiseBots::BotManager::Instance().IsRandomBot(bot->GetObjectGuid()) &&
+                (TortoiseBots::BotManager::Instance().IsRandomBot(bot->GetObjectGuid()) ||
+                    TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid())) &&
                 !ai->HasRealPlayerMaster() &&
-                TortoiseBots::BotManager::Instance().IsRandomBot(inviter->GetObjectGuid()))
+                (TortoiseBots::BotManager::Instance().IsRandomBot(inviter->GetObjectGuid()) ||
+                    TortoiseBots::AltBotService::Instance().IsAutonomous(inviter->GetObjectGuid())))
             {
                 PlayerbotAI* inviterAi = PlayerbotAIStorage::Instance().GetAI(inviter);
                 if (!inviterAi || !inviterAi->HasRealPlayerMaster())

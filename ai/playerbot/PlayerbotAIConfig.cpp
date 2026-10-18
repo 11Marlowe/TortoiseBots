@@ -21,6 +21,7 @@
 // Issue #265: the managed-account registry is the authority for random-pool
 // account identity (prefix matching never authorizes ownership).
 #include "../../runtime/RandomBotAccountRegistry.h"
+#include "../../runtime/AltBotService.h"
 // logEvent forwards the activity whitelist to the telemetry daemon.
 #include "../../runtime/ObservabilityEmitter.h"
 // Faction-ratio / start-zone-weight parsing lives in the core-free
@@ -415,6 +416,8 @@ bool PlayerbotAIConfig::Initialize()
     logValuesPerTick = config.GetBoolDefault("AiPlayerbot.LogValuesPerTick", false);
     fleeingEnabled = config.GetBoolDefault("AiPlayerbot.FleeingEnabled", true);
     poolMeleeHoldGround = config.GetBoolDefault("AiPlayerbot.PoolMeleeHoldGround", false);
+    altBots = config.GetBoolDefault("AiPlayerbot.AltBots", false);
+    altBotsLogoutWithOwner = config.GetBoolDefault("AiPlayerbot.AltBotsLogoutWithOwner", false);
     bombRunoutDistance = config.GetFloatDefault("AiPlayerbot.BombRunoutDistance", 30.0f);
     hazardEvasionDistance = config.GetFloatDefault("AiPlayerbot.HazardEvasionDistance", 12.0f);
     enableCustomRaidTactics = config.GetBoolDefault("AiPlayerbot.EnableCustomRaidTactics", true);
@@ -452,6 +455,7 @@ bool PlayerbotAIConfig::Initialize()
     repopAtGraveyard = config.GetBoolDefault("AiPlayerbot.RepopAtGraveyard", true);
     turtleMountAtLevel = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.TurtleMountAtLevel", 18));
     levelUpMounts = config.GetBoolDefault("AiPlayerbot.LevelUpMounts", true);
+    randomBotShopMounts = config.GetBoolDefault("AiPlayerbot.RandomBotShopMounts", false);
     mountBreakEvenFactor = config.GetFloatDefault("AiPlayerbot.MountBreakEvenFactor", 1.5f);
     avoidHostileTowns = config.GetBoolDefault("AiPlayerbot.AvoidHostileTowns", true);
     unstuckHearthLevelFit = config.GetBoolDefault("AiPlayerbot.UnstuckHearthLevelFit", true);
@@ -1184,6 +1188,10 @@ bool PlayerbotAIConfig::IsInRandomAccountList(uint32 id)
 
 bool PlayerbotAIConfig::IsFreeAltBot(uint32 guid)
 {
+    // Issue #872: an autonomous alt-bot plays with the free-bot strategy set.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(guid))
+        return true;
+
     for (auto bot : freeAltBots)
         if (bot.second == guid)
             return true;

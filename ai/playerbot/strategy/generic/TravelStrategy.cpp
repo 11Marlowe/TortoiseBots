@@ -63,7 +63,7 @@ float TravelActionMultiplier::GetValue(Action* action)
     {
         if (ai->ContainsStrategy(STRATEGY_TYPE_HEAL) && !ai->HasStrategy("offdps", BotState::BOT_STATE_COMBAT))
             return 1.0f;
-        if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
+        if (!sRandomBotFacade.IsFreeBot(bot) || ai->HasRealPlayerMaster())
             return 1.0f;
         if (AI_VALUE(Unit*, "grind target"))
         {

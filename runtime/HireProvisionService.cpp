@@ -12,6 +12,7 @@
 #include "HireFeePolicy.h"
 #include "HireTierRequestPolicy.h"
 #include "HireUnlockPolicy.h"
+#include "BotAppearancePolicy.h"
 #include "BotManager.h"
 #include "BotActivityLease.h"
 #include "PlayerbotAIStorage.h"
@@ -902,6 +903,10 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
 
     for (int attempt = 0; attempt < 8; ++attempt)
     {
+        BotAppearanceCounts look{};
+        if (!BotAppearanceCountsFor(sel.race, sel.gender, look))
+            continue;
+
         std::string norm = PickBotCharacterName(sel.race, sel.classId, sel.gender);
         if (norm.empty())
             continue;
@@ -911,11 +916,11 @@ bool HireProvisionService::CreateCandidate(HireSelection const& sel, uint32_t re
         info.race = sel.race;
         info.class_ = sel.classId;
         info.gender = sel.gender;
-        info.skin = uint8(urand(0, 7));
-        info.face = uint8(urand(0, 7));
-        info.hairStyle = uint8(urand(0, 7));
-        info.hairColor = uint8(urand(0, 7));
-        info.facialHair = uint8(urand(0, 7));
+        info.skin = uint8(urand(0, look.skin - 1));
+        info.face = uint8(urand(0, look.face - 1));
+        info.hairStyle = uint8(urand(0, look.hairStyle - 1));
+        info.hairColor = uint8(urand(0, look.hairColor - 1));
+        info.facialHair = uint8(urand(0, look.facialHair - 1));
         info.outfitId = 0;
         info.challengeMask = 0;
 

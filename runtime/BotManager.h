@@ -151,6 +151,9 @@ public:
     // RelocateHopelessBot). Same eligibility, +5 rule and destinations;
     // relocates after a grace period of continuous stranding.
     bool RelocateStrandedBot(::Player* bot);
+    // Teleport to a validated point in a zone that fits the bot's level (the
+    // pool's login scatter picker), for any bot. Level 10+, alive, fail-closed.
+    bool TeleportToLevelFittingZone(::Player* bot);
 
     // Durable manual ownership is separate from the transient Headless record.
     // GetOwnedCharacters includes every undeleted same-account character plus
