@@ -51,26 +51,6 @@ TortoiseBots::RangedAmmoKind RangedAmmoKindOf(ItemPrototype const* proto)
     return TortoiseBots::RangedAmmoKind::NoAmmo;
 }
 
-std::vector<std::pair<uint32, uint32>> const& CollectionMounts()
-{
-    static std::vector<std::pair<uint32, uint32>> mounts;
-    static bool loaded = false;
-    if (loaded)
-        return mounts;
-
-    loaded = true;
-    std::unique_ptr<QueryResult> result(WorldDatabase.Query("SELECT itemId, spellId FROM collection_mount"));
-    if (!result)
-        return mounts;
-
-    do
-    {
-        Field* fields = result->Fetch();
-        mounts.emplace_back(fields[0].GetUInt32(), fields[1].GetUInt32());
-    } while (result->NextRow());
-
-    return mounts;
-}
 }
 
 
@@ -3462,6 +3442,8 @@ void PlayerbotFactory::InitMounts()
         if (!proto || !spellInfo || MountValue::GetSpeed(spellId) == 0)
             continue;
         if (proto->RequiredLevel > bot->GetLevel())
+            continue;
+        if (!MountValue(proto).IsAllowedFor(bot))
             continue;
         if (proto->AllowableClass && (proto->AllowableClass & bot->GetClassMask()) == 0)
             continue;

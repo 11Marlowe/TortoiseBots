@@ -393,7 +393,6 @@ bool CastSpellAction::isUseful()
 
     return true;
 }
-
 NextAction** CastSpellAction::getPrerequisites()
 {
     // Set the reach action as the cast spell prerequisite when needed
@@ -687,16 +686,6 @@ bool BuffOnPartyAction::isUseful()
 
 bool CastBuffSpellAction::Execute(Event& event)
 {
-    // The retry stamp and the claim are written only once the cast actually
-    // starts: a whiffed attempt (target out of range or LOS at cast time,
-    // reagents just spent, master sprinting away) used to silence the spell
-    // party-wide for the whole retry window (3 s single, 60 s group) plus
-    // the 4 s claim, while the trigger only re-checks every 2-4 s on top.
-    // The issue-#359 loop this replaced (retrying a missing aura every tick)
-    // cannot come back: a failed Execute runs no cast, spends no mana and
-    // lands no aura, so the next tick re-evaluates from the same state and
-    // either casts or fails its gates. The claim still covers the cast plus
-    // the aura-in-flight delay for successful casts (issue #T7).
     Unit* const target = GetTarget();
 
     if (!CastSpellAction::Execute(event))
