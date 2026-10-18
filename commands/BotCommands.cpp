@@ -4489,6 +4489,9 @@ struct DungeonRunSlot
     std::string taskText;
     std::unordered_set<uint64> heldRaw; // bots on stay for the run's hold (DungeonRun::Run::hold)
     uint64 elapsedMs = 0;     // since `run start`, a pause counts (AiPlayerbot.DungeonRunMaxMinutes)
+    std::unordered_set<uint64> placedRaw; // bots on their stand points of an event's hold (DungeonRun::HoldStands)
+    uint32 placedGen = 0;                 // the Run::holdStandsGen they were placed for
+    std::unordered_map<uint64, RemoteCommander::Point3> placedAt; // ... and the point each was sent to
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -9092,8 +9095,10 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
 // the mobs that have a party bot within kGuardYd of it as their victim, each
 // with whether it hits that bot now (in melee reach of it, or standing and
 // casting: a pullback's mobs running in do not count) and whether that bot is a
-// healer. Read off each bot's own attacker set: no grid or world scan.
-void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+// healer, and during a hold (`hold` not null) each one's distance from the
+// hold spot. Read off each bot's own attacker set: no grid or world scan.
+void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f,
+    ai::PlanStep const* hold)
 {
     using namespace TortoiseBots::DungeonRun;
     PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
@@ -9104,6 +9109,21 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
         return;
     f.leadStaying = leadAi->HasStrategy("stay", BotState::BOT_STATE_COMBAT) ||
         leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
+    if (f.leadStaying)
+    {
+        // The stand it holds (the pullback's or SetStayAnchor's "stay"
+        // point): the guard's walk back goes there, not to where a tank still
+        // dragging its pull in stands at the pick-up.
+        ai::PositionMap& posMap = leadAi->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
+        auto const stay = posMap.find("stay");
+        if (stay != posMap.end() && stay->second.isSet() && stay->second.mapId == lead->GetMapId())
+        {
+            f.leadStayKnown = true;
+            f.leadStayX = stay->second.x;
+            f.leadStayY = stay->second.y;
+            f.leadStayZ = stay->second.z;
+        }
+    }
     for (Unit* attacker : lead->GetAttackers())
         if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead &&
             attacker->CanReachWithMeleeAutoAttack(lead))
@@ -9131,8 +9151,38 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             fact.hitting = attacker->CanReachWithMeleeAutoAttack(bot) ||
                 (!attacker->IsMoving() && attacker->IsNonMeleeSpellCasted(false));
             fact.victimHealer = healer;
+            if (hold)
+                fact.distSpot = DistanceTo(attacker, hold->x, hold->y, hold->z);
             f.partyAttackers.push_back(fact);
         }
+    }
+}
+
+// A hold's done condition (DungeonRun::HoldDoneNote): the instance script's
+// own data (InstanceData::GetData, the value its encounter state is kept in;
+// map-wide, no world scan), or the state of its object when the object is
+// within the lead bot's reach (one bounded grid search). Read on every tick,
+// and while the run is paused (TickDungeonRun).
+void ReadHoldDone(ai::PlanStep const& step, Player* lead, TortoiseBots::DungeonRun::Facts& f)
+{
+    if (step.flags & ai::kPlanFlagDoneData)
+    {
+        InstanceData* data = lead->GetMap() ? lead->GetMap()->GetInstanceData() : nullptr;
+        f.eventData = data ? static_cast<long long>(data->GetData(step.entry)) : -1;
+    }
+    else if (step.flags & ai::kPlanFlagDoneObject)
+    {
+        RemoteCommander::TargetSpec spec;
+        spec.entry = step.entry;
+        spec.hasPoint = true;
+        spec.point.x = step.x;
+        spec.point.y = step.y;
+        spec.point.z = step.z;
+        uint64 const guid = FindEntryTarget(lead, spec, false);
+        ObjectGuid const objectGuid(guid);
+        GameObject* go = guid && objectGuid.IsGameObject() ? lead->GetMap()->GetGameObject(objectGuid) : nullptr;
+        if (go)
+            f.objectState = go->GetGoState() == GO_STATE_READY ? 0 : go->GetGoState() == GO_STATE_ACTIVE ? 1 : 2;
     }
 }
 
@@ -9172,6 +9222,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         member.y = bot->GetPositionY();
         member.z = bot->GetPositionZ();
         member.inCombat = bot->IsInCombat();
+        // A healer or a ranged bot stands behind the tank in a hold (DungeonRun::HoldStands).
+        PlayerbotAI* const memberAi = PlayerbotAIStorage::Instance().GetAI(bot);
+        member.ranged = PlayerbotAI::IsHeal(bot) || (memberAi && !PlayerbotAI::IsTank(bot) && memberAi->IsRanged(bot));
         if (bot == lead)
             f.leadInCombat = member.inCombat;
         // Units attacking it: the core's attacker set of that bot (no scan),
@@ -9220,10 +9273,39 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // already hold, their own cached "attackers" lists (which carry the
     // attackers' totems and guardians, a healing ward too; read only when
     // already calculated), resolved by guid. No grid or world scan.
+    // In combat by the flag, yet nothing hostile is engaged with any bot or its
+    // pet: stale (DungeonRun::Facts::staleCombat).
+    if (f.anyInCombat)
+    {
+        bool engaged = false;
+        auto hostileEngaged = [&](Unit* unit)
+        {
+            for (Unit* attacker : unit->GetAttackers())
+                if (attacker && attacker->IsAlive() && !sServerFacade.IsFriendlyTo(attacker, lead))
+                    return true;
+            Unit* victim = unit->GetVictim();
+            return victim && victim->IsAlive() && !sServerFacade.IsFriendlyTo(victim, lead);
+        };
+        for (Player* bot : bots)
+            if (!engaged && bot->IsAlive() && bot->IsInWorld())
+                engaged = hostileEngaged(bot) || (bot->GetPet() && hostileEngaged(bot->GetPet()));
+        f.staleCombat = !engaged;
+    }
     if (f.anyInCombat && slot.run.plan && !slot.run.plan->killFirst.empty())
         ReadKillFirst(*slot.run.plan, lead, bots, f);
     if (f.anyInCombat)
-        ReadGuardFacts(lead, bots, f);
+    {
+        // In a hold: the attackers' distance from its spot (DungeonRun::HoldGuardTarget).
+        ai::PlanStep const* current = FactStep(slot.run);
+        ReadGuardFacts(lead, bots, f,
+            current && current->kind == ai::PlanStepKind::Hold ? current : nullptr);
+    }
+
+    // A hold's done condition on every tick, its spot in sight or not
+    // (DungeonRun::HoldDoneNote): the run's own step, also during a walk back.
+    if (slot.run.plan && slot.run.step < slot.run.plan->steps.size() && lead->IsInWorld() &&
+        slot.run.plan->steps[slot.run.step].kind == ai::PlanStepKind::Hold)
+        ReadHoldDone(slot.run.plan->steps[slot.run.step], lead, f);
 
     // The current step, or during a walk back after a regroup the move point
     // it replays (its hop pulls are read for that point).
@@ -9238,6 +9320,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     // (a walk back approaches a far point of its own this way too), and never off the plan's map.
     bool const wantsApproach = !f.seen && slot.run.phase != Phase::Walk && !slot.run.regroup &&
         lead->GetMapId() == slot.run.plan->map;
+    f.approachRead = f.seen || wantsApproach; // not read this tick is not "no path" (DungeonRun::ApproachHop)
 
     switch (step->kind)
     {
@@ -9406,8 +9489,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         {
             // A scripted event: its units within the radius of the hold spot,
             // living (the dormant, friendly ones too: the event wakes them) and
-            // dead; its done condition. One grid search per entry around the
-            // lead bot, only while the spot is in sight.
+            // dead (its done condition is read above, on every tick). One grid
+            // search per entry around the lead bot, only while the spot is in sight.
             if (!f.seen)
             {
                 if (wantsApproach)
@@ -9432,33 +9515,21 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.guid = creature->GetObjectGuid().GetRawValue();
                     unit.entry = creature->GetEntry();
                     unit.distLead = lead->GetDistance(creature);
+                    unit.x = creature->GetPositionX(); // the side the event comes from (DungeonRun::HoldStands)
+                    unit.y = creature->GetPositionY();
                     unit.hostile = !sServerFacade.IsFriendlyTo(creature, lead);
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = Polymorphed(creature);
+                    // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
+                    Unit* const victim = creature->GetVictim();
+                    unit.engaged = unit.hostile && creature->IsInCombat() && victim;
+                    // Whom it is on: the tank keeps what it holds, the healer's attacker first.
+                    unit.victimLead = victim == lead;
+                    unit.victimHealer = victim && victim->IsPlayer() &&
+                        PlayerbotAI::IsHeal(static_cast<Player*>(victim));
                     f.units.push_back(unit);
                 }
-            }
-            if (step->flags & ai::kPlanFlagDoneData)
-            {
-                // The instance script's own data (InstanceData::GetData), the
-                // value its encounter state is kept in: no world scan.
-                InstanceData* data = lead->GetMap() ? lead->GetMap()->GetInstanceData() : nullptr;
-                f.eventData = data ? static_cast<long long>(data->GetData(step->entry)) : -1;
-            }
-            else if (step->flags & ai::kPlanFlagDoneObject)
-            {
-                RemoteCommander::TargetSpec spec;
-                spec.entry = step->entry;
-                spec.hasPoint = true;
-                spec.point.x = step->x;
-                spec.point.y = step->y;
-                spec.point.z = step->z;
-                uint64 const guid = FindEntryTarget(lead, spec, false);
-                ObjectGuid const objectGuid(guid);
-                GameObject* go = guid && objectGuid.IsGameObject() ? lead->GetMap()->GetGameObject(objectGuid) : nullptr;
-                if (go)
-                    f.objectState = go->GetGoState() == GO_STATE_READY ? 0 : go->GetGoState() == GO_STATE_ACTIVE ? 1 : 2;
             }
             break;
         }
@@ -9507,21 +9578,28 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
 // its hold sync, so these paths let the held bots go themselves. After a
 // player's order (DungeonRun::PauseForPlayer) the order owns the bots'
 // movement: they are only let go, not formed up over it.
+// The bots placed on an event's hold spot (DungeonRun::HoldStands) are let
+// go the same way.
 void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
 {
-    if (slot.heldRaw.empty())
+    if (slot.heldRaw.empty() && slot.placedRaw.empty())
         return;
     if (slot.run.note.compare(0, 13, "player order ") == 0)
     {
         slot.heldRaw.clear();
+        slot.placedRaw.clear();
+        slot.placedAt.clear();
         return;
     }
     std::vector<Player*> held;
-    for (uint64 raw : slot.heldRaw)
-        if (Player* bot = FindCharacter(raw))
-            if (bot->IsAlive() && bot->IsInWorld())
-                held.push_back(bot);
+    for (std::unordered_set<uint64> const* set : { &slot.heldRaw, &slot.placedRaw })
+        for (uint64 raw : *set)
+            if (Player* bot = FindCharacter(raw))
+                if (bot->IsAlive() && bot->IsInWorld() && std::find(held.begin(), held.end(), bot) == held.end())
+                    held.push_back(bot);
     slot.heldRaw.clear();
+    slot.placedRaw.clear();
+    slot.placedAt.clear();
     Player* lead = FindCharacter(leadRaw);
     if (commander && lead && !held.empty())
         FormUpOnLead(commander, lead, held, false);
@@ -9561,6 +9639,89 @@ void SyncRunHold(Player* commander, Player* lead, std::vector<Player*> const& bo
         FormUpOnLead(commander, lead, released, false);
 }
 
+// The party's places on an event's hold spot (DungeonRun::HoldStands): each
+// named bot holds ("stay") at its stand point and walks there on its own path
+// finding, like a commander task's walk (StartTaskStayWalk); again whenever the
+// run sets new places (holdStandsGen), and after a run move only the bots
+// that drifted more than kHoldStandDriftYd off their point. A stand point the bot cannot walk to, or off
+// the ground, is the lead bot's own spot instead. Bots no longer named follow
+// the lead bot again. Only the bound bots; the navmesh is asked only when the
+// places change, never per tick.
+constexpr float kHoldStandDriftYd = 2.0f; // a placed bot farther than this off its point is placed again on a run move
+
+void SyncHoldStands(Player* commander, Player* lead, std::vector<Player*> const& bots, DungeonRunSlot& slot,
+    std::string const& order)
+{
+    TortoiseBots::DungeonRun::Run const& run = slot.run;
+    if (run.holdStands.empty() && slot.placedRaw.empty())
+        return;
+    // New places: every named bot again. A run move (the hold walking the tank
+    // back, a guard order's return): only a bot that drifted off its point, so
+    // a tank going after each Stone Keeper does not reset the ranged mid-event.
+    bool const newPlaces = slot.placedGen != run.holdStandsGen;
+    bool const moved = order.compare(0, 5, "move ") == 0;
+    slot.placedGen = run.holdStandsGen;
+    std::vector<Player*> released;
+    for (Player* bot : bots)
+    {
+        if (bot == lead || !bot->IsInWorld())
+            continue;
+        uint64 const raw = bot->GetObjectGuid().GetRawValue();
+        TortoiseBots::DungeonRun::HoldStand const* stand = nullptr;
+        if (bot->IsAlive() && run.state == TortoiseBots::DungeonRun::State::Running)
+            for (TortoiseBots::DungeonRun::HoldStand const& s : run.holdStands)
+                if (s.name == bot->GetName())
+                    stand = &s;
+        bool const placed = slot.placedRaw.count(raw) != 0;
+        bool drifted = false;
+        if (placed && moved)
+        {
+            auto at = slot.placedAt.find(raw);
+            drifted = at == slot.placedAt.end() ||
+                ai::PlanDistance(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), at->second.x, at->second.y,
+                    at->second.z) > kHoldStandDriftYd;
+        }
+        if (stand && (!placed || newPlaces || drifted))
+        {
+            PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+            if (!ai)
+                continue;
+            float x = lead->GetPositionX(), y = lead->GetPositionY(), z = lead->GetPositionZ();
+            float const ground = lead->GetMap()->GetHeight(stand->x, stand->y, stand->z + 5.0f);
+            if (ground > INVALID_HEIGHT && std::fabs(ground - stand->z) <= 5.0f)
+            {
+                PathFinder path(lead);
+                path.calculate(stand->x, stand->y, ground, false);
+                Vector3 const end = path.getActualEndPosition();
+                if (!(path.getPathType() & PATHFIND_NOPATH) &&
+                    ai::PlanDistance(end.x, end.y, end.z, stand->x, stand->y, ground) <= 2.0f)
+                {
+                    x = stand->x;
+                    y = stand->y;
+                    z = ground;
+                }
+            }
+            ai->DropQueuedMovementOrders();
+            PlayerConvenience::Instance().NoteHoldOrder(bot->GetObjectGuid());
+            ai->Reset();
+            ai->SetMovementStrategy("stay");
+            SetStayAnchor(ai, x, y, z, bot->GetMapId());
+            ExecuteQuietAction(ai, "return to stay position", ai::Event("return to stay position", "stay", commander));
+            slot.placedRaw.insert(raw);
+            slot.placedAt[raw] = RemoteCommander::Point3{ x, y, z };
+        }
+        else if (!stand && placed)
+        {
+            slot.placedRaw.erase(raw);
+            slot.placedAt.erase(raw);
+            if (bot->IsAlive() && !slot.heldRaw.count(raw)) // a bot the run's hold keeps stays on its stay
+                released.push_back(bot);
+        }
+    }
+    if (!released.empty())
+        FormUpOnLead(commander, lead, released, false);
+}
+
 void TickDungeonRun(uint64 commanderRaw, uint32 dt)
 {
     auto it = DungeonRuns().find(commanderRaw);
@@ -9587,6 +9748,23 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
         DungeonRuns().erase(it);
         return;
     }
+    // A paused run whose hold is done (DungeonRun::HoldDoneWhilePaused): the
+    // step ends and the run resumes by itself (a player's pause stays paused).
+    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && commander)
+        if (ai::PlanStep const* current = TortoiseBots::DungeonRun::Current(slot.run))
+            if (current->kind == ai::PlanStepKind::Hold)
+                if (Player* lead = FindCharacter(binding->leadGuid))
+                    if (lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
+                    {
+                        TortoiseBots::DungeonRun::Facts doneFacts;
+                        ReadHoldDone(*current, lead, doneFacts);
+                        if (TortoiseBots::DungeonRun::HoldDoneWhilePaused(slot.run, doneFacts))
+                        {
+                            TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(),
+                                slot.run.note.c_str());
+                            SendRunLine(commander, slot, false);
+                        }
+                    }
     if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)
     {
         ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)
@@ -9661,6 +9839,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     if (it == DungeonRuns().end())
         return;
     SyncRunHold(commander, lead, bots, it->second, !order.empty());
+    SyncHoldStands(commander, lead, bots, it->second, order);
     SendRunLine(commander, it->second, false);
     if (it->second.run.state != TortoiseBots::DungeonRun::State::Running)
         TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(), it->second.lastLine.c_str());
@@ -9940,7 +10119,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
     {
         done = slot.run.state == State::Running;
         if (done)
-            Pause(slot.run, "paused by .bot run pause");
+            PausePlayer(slot.run, "paused by .bot run pause"); // never resumed by the run itself
     }
     else if (verb == "resume")
         done = Resume(slot.run);
