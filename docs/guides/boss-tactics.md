@@ -68,6 +68,39 @@ Every creature and spell was read from Turtle's own data (`tortoise-wow`: `creat
 
 What needs a live check (not verified in game): the Lost Dwarves order and whether the three can be pulled apart, that 10 yd is right for the Arcing Smash cone, that the interrupt fires in time on Chain Lightning.
 
+## Deadmines rows (map 36)
+
+Every creature and spell was read from Turtle's own data (`tortoise-wow`: `creature_template`, `creature_spells`, `creature_ai_events`/`creature_ai_scripts`, `spell_template`), not from another core's tables.
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Jared Voss (61961) | `interrupt` Poison Cloud 3815 | Spell list 180300 casts Poison Cloud 3815 (7-7 s first, every 16-26 s), a cast (castingTimeIndex 4) that leaves a periodic-damage cloud centred on the caster (target type 22, self); the other three list spells (Poison 13298, Withering Poison 13884, Poisonous Stab 7357) are instant (castingTimeIndex 1), so they are not listed. EventAI is say-on-aggro/death only (2200058/2200059). |
+| Masterpiece Harvester (61963) | no row | No spell list, no C++ script; EventAI is only say-on-aggro/death (2200054/2200055). Unimplemented in the core. |
+
+What needs a live check (not verified in game): that the Poison Cloud cast is actually interruptible in time at its cadence.
+
+## Wailing Caverns rows (map 43)
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Zandara Windhoof (61968) | `interrupt` Chain Lightning 15659 and Gust of Wind 6982 | Spell list 180306 casts Chain Lightning 15659 (every 10 s, castingTimeIndex 14) and Gust of Wind 6982 (4-4 s first, every 11-14 s, castingTimeIndex 5), an AoE stun (effectApplyAura 12). EventAI is say-on-aggro/death only (2200062/2200063). |
+| Vangros (61965) | no row | Spell list 180303 casts Crush Armor 21055 and Knock Away 18670, both instant (castingTimeIndex 1, interruptFlags 0); Knock Away is a single-target threat-drop, not a frontal cone. No ai_name or script. |
+
+What needs a live check (not verified in game): that the interrupts fire in time on the 11-14 s Gust of Wind window.
+
+## Frostmane Hollow rows (map 822)
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Kan'za the Seer (63129) | `interrupt` Frostbolt 837 | Spell list 63129 casts Blizzard 6141 (a channel) and Frostbolt 837 (5-10 s first, every 6-10 s), a real cast (castingTimeIndex 24, cast time table not in the repo; treated as a real cast because interruptFlags 15, damage + slow). Blizzard 6141 has no row: the interrupt scan reads CURRENT_GENERIC_SPELL only, so channels are never seen. EventAI is aggro-line only (6312901). |
+| Tan'sha the Sleek (63133) | `interrupt` Glacial Roar 3143 | Spell list 63133 casts Glacial Roar 3143 (20-21 s first, every 17-24 s, castingTimeIndex 4), an AoE damage + stun (effectApplyAura 12, radius index 8). Her EventAI Intimidating Shout 19134 at 50% health is instant. |
+| Hailar the Frigid (63130) | `interrupt` Frostbolt 8406 | The script (`boss_hailar_the_frigid`) only says lines and drives the ritualists; his casts come from spell list 63130 (Frostbolt 8406, 1-3 s first, every 15-20 s, castingTimeIndex 14, and Flash Freeze 16803 every 24-28 s, an instant AoE stun, so no row). |
+| Battlemaster Ubukaz (63131) | no row | EventAI, no spell list; only an aggro line (6313102) and Enrage 28131 at 25% health (6313101, self-buff, instant). |
+
+Hailar has no `kill_first` row for the Frostmane Ritualists: the ritualists (entry 36519, `npc_frostmane_ritualist`) heal Hailar with Frostmane Ritual 41592 (`boss_hailar_the_frigid.cpp:118`) but are `REACT_PASSIVE`, ignore attacks (`boss_hailar_the_frigid.cpp:75,87-97`) and never enter the bots' attacker list, so the scan almost never sees them. This needs a code change to the scan (a source of nearby creatures of `target_entry` not in combat) before a `kill_first` row can work.
+
+What needs a live check (not verified in game): that interrupting Hailar's Frostbolt is worth the global, and that Poison Cloud and the two Frostmane stuns are interruptible in time at their cadences.
+
 ## Adding a boss
 
 1. Read the boss from the core: `creature_template` (`spell_list_id`, `ai_name`), `creature_spells`, the `creature_ai_events`/`creature_ai_scripts` rows or the `src/scripts` boss file, and `spell_template` for each spell. Do not use another core's ids.
