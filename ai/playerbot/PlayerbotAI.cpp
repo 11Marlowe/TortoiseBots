@@ -842,7 +842,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     }
 
     // cheat options
-    if (bot->IsAlive() && ((uint32)GetCheat() > 0 || (uint32)sPlayerbotAIConfig.botCheatMask > 0))
+    if (bot->IsAlive() && ((uint32)GetCheat() > 0 || (uint32)sPlayerbotAIConfig.botCheatMask > 0 || (uint32)sPlayerbotAIConfig.rndBotCheatMask > 0))
     {
         if (HasCheat(BotCheatMask::health))
             bot->SetHealthPercent(100);
