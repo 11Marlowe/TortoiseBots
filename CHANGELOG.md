@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.5.0 (2026-10-18)
+
+### Your Alts as Bots
+- Your own characters can now keep playing as bots while you are logged off. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- Turn this on with the AltBots option in the bot settings; it is off by default. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- With the option off, your alts behave exactly as they do now and stay your companions. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- Kick an alt from your group and, with the option on, it carries on playing on its own. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- If a group you are in breaks up, your alt counts as kicked and keeps going by itself. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+- You can make your alt bots log out whenever you do, with the AltBotsLogoutWithOwner option. [#1092](https://github.com/Sagiroth/TortoiseBots/pull/1092)
+
+### Bots in the World
+- Random bots now follow your bot cheats setting, so they no longer drown or go without repairs. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+- Bots no longer get stuck swapping mounts over and over. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+- Bots look normal again instead of showing broken or missing appearances. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+- Bots now ride mounts that suit their race, just like real players. [#1096](https://github.com/Sagiroth/TortoiseBots/pull/1096)
+
+---
+
 ## v1.4.0 (2026-10-17)
 
 ### Classes & Combat
