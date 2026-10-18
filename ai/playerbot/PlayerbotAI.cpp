@@ -37,6 +37,8 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotAI.h"
 #include "playerbot/InterruptCastingPolicy.h"
+#include "playerbot/strategy/values/MountValues.h"
+#include "playerbot/MountDismountPolicy.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/WandPolicy.h"
 #include "BotDiagnostics.h"
@@ -5396,6 +5398,25 @@ bool PlayerbotAI::CheckCanCastSpell(uint32 spellid, Unit* target, uint8 effectMa
             *checkResult = SPELL_FAILED_NOT_KNOWN;
         }
 
+        return false;
+    }
+
+    // A mounted travelling bot must not start an out-of-combat cast the core
+    // would strip its mount for (issue #1097: a Blessing of Wisdom refresh
+    // every few seconds kept a paladin dismounting and re-mounting in place
+    // for 30+ min). Every bot spell cast on a unit passes here, so the buff
+    // waits for the next dismounted stop. Combat casts, mount spells (incl.
+    // travel form / ghost wolf), ride-safe spells and callers that pass
+    // ignoreMount (reach probes) are not affected; loot/gather and commanded
+    // casts dismount first, so the mounted check lets them through.
+    if (!ignoreMount && bot->IsMounted() &&
+        !(spellInfo->Attributes & SPELL_ATTR_CASTABLE_WHILE_MOUNTED) &&
+        !MountValue::IsMountSpell(spellid) && aiObjectContext &&
+        !ai::MountedTravelCastAllowed(bot->IsInCombat(),
+            aiObjectContext->GetValue<bool>("travel target traveling")->Get()))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_NOT_MOUNTED;
         return false;
     }
 

@@ -1,4 +1,5 @@
 
+#include "playerbot/MountDismountPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/playerbot.h"
 #include "CheckMountStateAction.h"
@@ -48,6 +49,11 @@ bool CheckMountStateAction::Decide(Player* requester)
     bool canAttackTarget = false;
     bool shouldChaseTarget = false;
     bool farFromTarget = false;
+    // The target the combat decision below can dismount for (a dps pick the
+    // engine holds, or an enemy player pick). Null when there is no enemy.
+    Unit* fightTarget = AI_VALUE(Unit*, "dps target");
+    if (!fightTarget)
+        fightTarget = AI_VALUE(Unit*, "enemy player target");
 
     if (hasEnemy)
     {
@@ -81,7 +87,26 @@ bool CheckMountStateAction::Decide(Player* requester)
         }
     }
 
-    //Unmounted when able to attack target
+    //Unmounted when able to attack a target the bot is actually fighting or
+    // pulling - not for a dps pick the travelling engine merely holds. A
+    // masterless bot riding past a nearby hostile (dps target set, nobody
+    // fighting anybody) kept dismounting every tick and re-mounting on the
+    // next one (issue #1097: same-spot mount rows for 10+ min). The donor
+    // (mod-playerbots) only dismounts within reach while in combat with
+    // attackers or for an engaged enemy/dps pick.
+    if (canAttackTarget && fightTarget)
+    {
+        bool const targetFightsBot = fightTarget->GetVictim() == bot ||
+            fightTarget->GetThreatManager().getThreat(bot) > 0.0f;
+        ObjectGuid const orderedAttack = AI_VALUE(ObjectGuid, "attack target");
+        ObjectGuid const orderedExplicit = AI_VALUE(ObjectGuid, "explicit attack target");
+        Unit* const orderedPull = AI_VALUE(Unit*, "pull target");
+        bool const botOrderedToAttack = (!orderedAttack.IsEmpty() && orderedAttack == fightTarget->getObjectGuid()) ||
+            (!orderedExplicit.IsEmpty() && orderedExplicit == fightTarget->getObjectGuid()) ||
+            (orderedPull && orderedPull == fightTarget);
+        if (!ai::CombatDismountAllowed(bot->IsInCombat(), targetFightsBot, botOrderedToAttack))
+            canAttackTarget = false;
+    }
     if (canAttackTarget)
     {
         if (DebugMount() && IsMounted)
@@ -493,13 +518,25 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
 
     std::vector<MountValue> mountList = AI_VALUE(std::vector<MountValue>, "mount list");
 
-    std::shuffle(mountList.begin(), mountList.end(), *GetRandomGenerator());
     // One SKILL_RIDING lookup per mount attempt; the sort must not probe
     // the skill map on every comparison.
     uint32 riderSpeed = MountValue::GetRiderMountSpeed(bot);
     Player* sortBot = bot;
-    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed](MountValue i, MountValue j) { return i.GetSpeedFor(sortBot, riderSpeed) > j.GetSpeedFor(sortBot, riderSpeed); });
-
+    // Stable per-bot choice at equal speed: no reshuffle (issue #1097:
+    // Warhorse vs Stag alternation was pure shuffle noise), and ties break
+    // by a hash of bot guid + spell id - one bot always rides the same
+    // mount while bots differ from each other (a global spell-id order
+    // would put every bot on the same mount). std::sort is not stable, so
+    // the tie-break is explicit and deterministic.
+    uint32 const sortGuid = bot->GetGUIDLow();
+    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed, sortGuid](MountValue i, MountValue j)
+        {
+            uint32 const si = i.GetSpeedFor(sortBot, riderSpeed);
+            uint32 const sj = j.GetSpeedFor(sortBot, riderSpeed);
+            if (si != sj)
+                return si > sj;
+            return ai::StableMountTieBreak(sortGuid, i.GetSpellId()) < ai::StableMountTieBreak(sortGuid, j.GetSpellId());
+        });
     for (auto& mount : mountList)
     {
         uint32 mountSpeed = mount.GetSpeedFor(bot, riderSpeed);
