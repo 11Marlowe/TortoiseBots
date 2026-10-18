@@ -335,6 +335,10 @@ ItemUsage ItemUsageValue::Calculate()
         return ItemUsage::ITEM_USAGE_KEEP;
     }
 
+    // A mount the random-bot shop gate disallows: keep it if owned (never sell it), never buy it.
+    if (MountValue::GetMountSpell(itemId) && !MountValue(proto).IsAllowedFor(bot))
+        return bot->GetItemCount(itemId) ? ItemUsage::ITEM_USAGE_KEEP : ItemUsage::ITEM_USAGE_NONE;
+
     //EQUIP (bot-aware speed: dynamic mounts such as the 0-static-speed
     // turtle 30174 score at the rider's real speed).
     if (MountValue::GetMountSpell(itemId) && bot->CanUseItem(proto) == EQUIP_ERR_OK)

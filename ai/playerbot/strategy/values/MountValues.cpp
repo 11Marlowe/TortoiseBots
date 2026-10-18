@@ -4,6 +4,15 @@
 #include "playerbot/strategy/AiObjectContext.h"
 #include "BudgetValues.h"
 #include "SharedValueContext.h"
+#include "playerbot/MountShopPolicy.h"
+#include "playerbot/PlayerbotAIConfig.h"
+#include "Database/SQLStorages.h"
+#include "SharedDefines.h"
+#include "playerbot/RandomBotFacade.h"
+#include "../../../runtime/PlayerbotAIStorage.h"
+#include <memory>
+#include <unordered_map>
+#include <unordered_set>
 
 using namespace ai;
 
@@ -167,6 +176,109 @@ uint32 MountValue::GetMountSpell(uint32 itemId)
     return 0;
 }
 
+std::vector<std::pair<uint32, uint32>> const& ai::CollectionMounts()
+{
+    static std::vector<std::pair<uint32, uint32>> mounts;
+    static bool loaded = false;
+    if (loaded)
+        return mounts;
+
+    loaded = true;
+    std::unique_ptr<QueryResult> result(WorldDatabase.Query("SELECT itemId, spellId FROM collection_mount"));
+    if (!result)
+        return mounts;
+
+    do
+    {
+        Field* fields = result->Fetch();
+        mounts.emplace_back(fields[0].GetUInt32(), fields[1].GetUInt32());
+    } while (result->NextRow());
+
+    return mounts;
+}
+
+namespace
+{
+    // spellId -> itemId for the collection mounts, built once. A learned
+    // shop mount is only a spell, so this is how it is recognised.
+    std::unordered_map<uint32, uint32> const& CollectionItemBySpell()
+    {
+        static std::unordered_map<uint32, uint32> itemBySpell;
+        static bool built = false;
+        if (!built)
+        {
+            built = true;
+            for (auto const& [itemId, spellId] : CollectionMounts())
+                itemBySpell.emplace(spellId, itemId);
+        }
+        return itemBySpell;
+    }
+
+    // Collection mounts that drop from loot (raid and dungeon bosses, rare
+    // drops), read once. Pool bots never raid, so a Naxxramas spider on a
+    // level 45 pool bot looks wrong whatever RandomBotShopMounts says.
+    std::unordered_set<uint32> const& LootMountItems()
+    {
+        static std::unordered_set<uint32> items;
+        static bool built = false;
+        if (!built)
+        {
+            built = true;
+            std::unique_ptr<QueryResult> result(WorldDatabase.Query(
+                "SELECT DISTINCT c.itemId FROM collection_mount c WHERE "
+                "EXISTS (SELECT 1 FROM creature_loot_template l WHERE l.item = c.itemId) OR "
+                "EXISTS (SELECT 1 FROM gameobject_loot_template l WHERE l.item = c.itemId) OR "
+                "EXISTS (SELECT 1 FROM reference_loot_template l WHERE l.item = c.itemId)"));
+            if (result)
+            {
+                do
+                    items.insert(result->Fetch()[0].GetUInt32());
+                while (result->NextRow());
+            }
+        }
+        return items;
+    }
+
+    // Same random-bot definition as the factory's grant gate: a pool bot
+    // with no real player master and no real guild.
+    bool IsRandomPoolBot(Player* bot)
+    {
+        PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
+        return ai && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() && !ai->IsInRealGuild();
+    }
+}
+
+bool MountValue::IsAllowedFor(Player* bot) const
+{
+    // Player alts and non-pool bots keep every mount.
+    if (!IsRandomPoolBot(bot))
+        return true;
+
+    ItemPrototype const* itemProto = proto;
+    if (!itemProto)
+    {
+        auto itr = CollectionItemBySpell().find(spellId);
+        if (itr != CollectionItemBySpell().end())
+            itemProto = sObjectMgr.GetItemPrototype(itr->second);
+    }
+
+    // Spell-only mounts (class mounts, forms, donor spells) have no item to classify.
+    if (!itemProto)
+        return true;
+
+    if (LootMountItems().count(itemProto->ItemId))
+        return false;
+
+    if (sPlayerbotAIConfig.randomBotShopMounts)
+        return true;
+
+    bool shop = MountShopPolicy::IsShopMount(spellId, itemProto->AllowableRace, itemProto->AllowableClass,
+        RACEMASK_ALL_PLAYABLE, CLASSMASK_ALL_PLAYABLE);
+    bool fits = MountShopPolicy::FitsBot(itemProto->AllowableRace, itemProto->AllowableClass,
+        bot->GetRaceMask(), bot->GetClassMask());
+    return MountShopPolicy::IsMountAllowed(false, shop, fits);
+}
+
 bool MountValue::IsValidLocation(Player* bot)
 {
     const SpellEntry* const spellInfo = sSpellTemplate.LookupEntry<SpellEntry>(spellId);
@@ -299,13 +411,21 @@ std::vector<MountValue> MountListValue::Calculate()
 {
     std::vector<MountValue> mounts;
 
-	for (auto& mount : AI_VALUE2(std::list<Item*>, "inventory items", "mount"))
-		mounts.push_back(MountValue(mount));
+    for (auto& mount : AI_VALUE2(std::list<Item*>, "inventory items", "mount"))
+    {
+        MountValue value(mount);
+        if (value.IsAllowedFor(bot))
+            mounts.push_back(value);
+    }
 
     for (PlayerSpellMap::iterator itr = bot->GetSpellMap().begin(); itr != bot->GetSpellMap().end(); ++itr)
         if (itr->second.state != PLAYERSPELL_REMOVED && !itr->second.disabled && !IsPassiveSpell(itr->first))
             if (MountValue::IsMountSpell(itr->first))
-                mounts.push_back(MountValue(itr->first));
+            {
+                MountValue value(itr->first);
+                if (value.IsAllowedFor(bot))
+                    mounts.push_back(value);
+            }
 
     return mounts;
 }

@@ -168,6 +168,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_mc_garr_shazzrah_policy
         test_mimic_consumable_policy
         test_mount_dismount_policy
+        test_mount_shop_policy
         test_movement_mode_policy
         test_named_location_index
         test_nearby_service_policy
