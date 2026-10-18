@@ -38,7 +38,7 @@ inline bool BotAppearanceCountsFor(uint8_t race, uint8_t gender, BotAppearanceCo
     // Index = race - 1: Human, Orc, Dwarf, NightElf, Undead, Tauren, Gnome, Troll, Goblin, HighElf.
     static constexpr Row kRows[] = {
         {{10, 12, 17, 10, 9},  {10, 15, 26, 10, 7}},   // Human
-        {{11, 10, 13, 8, 11},  {9, 9, 14, 8, 7}},      // Orc
+        {{9, 10, 13, 8, 11},   {9, 9, 14, 8, 7}},      // Orc (skins 9-10 have no face textures)
         {{14, 10, 17, 10, 21}, {14, 10, 19, 10, 6}},   // Dwarf
         {{11, 10, 12, 10, 14}, {11, 9, 12, 10, 10}},   // NightElf
         {{6, 10, 16, 11, 17},  {6, 10, 17, 11, 8}},    // Undead

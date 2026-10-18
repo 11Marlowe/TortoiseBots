@@ -19,7 +19,7 @@ JOIN `tortoise_bots_pool_account` p ON p.account_id = c.account
 JOIN (
   SELECT 1 AS race, 0 AS gender, 10 AS skin, 12 AS face, 17 AS hair, 10 AS hcol, 9 AS facial
   UNION ALL SELECT 1, 1, 10, 15, 26, 10, 7
-  UNION ALL SELECT 2, 0, 11, 10, 13, 8, 11
+  UNION ALL SELECT 2, 0, 9, 10, 13, 8, 11
   UNION ALL SELECT 2, 1, 9, 9, 14, 8, 7
   UNION ALL SELECT 3, 0, 14, 10, 17, 10, 21
   UNION ALL SELECT 3, 1, 14, 10, 19, 10, 6
