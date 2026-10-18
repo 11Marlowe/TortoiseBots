@@ -101,6 +101,67 @@ Hailar has no `kill_first` row for the Frostmane Ritualists: the ritualists (ent
 
 What needs a live check (not verified in game): that interrupting Hailar's Frostbolt is worth the global, and that Poison Cloud and the two Frostmane stuns are interruptible in time at their cadences.
 
+## Windhorn Canyon rows (map 820)
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Prophet Stormhoof (62781) | `interrupt` Corruption 11672 | Spell list 62781 casts Corruption 11672 (2-3 s first, every 17-22 s, castingTimeIndex 16, interruptFlags 15, periodic-damage aura 3). Curse of Agony 11712 and Wail of Souls 57748 are instant. EventAI is aggro/50 %/death lines only. |
+| Chieftain Shalk Blackwind (62782) | `interrupt` Flame of Shalk 41121, and `interrupt` Bloodguard Ritual 36732 on the add (target 62771) | Spell list 62782 casts Flame of Shalk 41121 (11-13 s first, every 32-47 s, castingTimeIndex 5, interruptFlags 15, periodic fire damage plus a healing debuff, radius index 22); Berserker Charge 19471 is instant. At 50 % health the script summons one Blackwind Bloodguard (62771) and attack-starts it on a random attacker (`src/scripts/dungeons/windhorn_canyon/windhorn_canyon.cpp:37-46`), so the add is on the bots' attacker list; the add's EventAI event 6277101 casts Bloodguard Ritual 36732 at its own 50 % health (castingTimeIndex 171, interruptFlags 15, cast on self). |
+| Ambassador Vortalus (62783) | `interrupt` Gust of Wind 6982 | Spell list 62783 casts Gust of Wind 6982 (4-5 s first, every 14-19 s, castingTimeIndex 5, interruptFlags 31), an AoE stun (aura 12, radius index 8); Chain Lightning 22355 is instant, and the EventAI cast Engulfing Vortex 36578 at 50 % health (6278301) is instant too. |
+| Ahgk'tos the Pure (62778) | no row | Spell list 62778 is all instant: Lightning Cloud 23105 (ground area), Lightning Shield 945 (self) and Wing Flap 12882 (a frontal cone knock back, implicit target 24, radius index 13 — no `behind` row because the client SpellRadius table is not in the repo, so no yard value can be given). The creature has EventAI assigned but no EventAI rows and no C++ script. |
+| Pathun Duskhide (62779) | no row | Spell list 62779: Kodo Stomp 6266 and Demoralizing Shout 11554 are instant; the only cast is Hooked Net 14030 (castingTimeIndex 3) with interruptFlags 9, without the kick bit. EventAI is an aggro/50 %/death line plus a threat reset at 50 % health (6277901, `MODIFY_THREAT`). |
+| Bonespeaker Narlgom (62780) | no row | No spell list at all (`spell_list_id` 0 and no `creature_spells` row for the entry). The script (`boss_bonespeaker_narlgom.cpp`) casts Bone Armor 11445 (instant), Rain of Fire 57747 (a channel: channelInterruptFlags 31788) and Summon Rotag 42004 (castingTimeIndex 6 but interruptFlags 9, no kick bit). |
+| Walgan Bloodcaller (62784) | no row | Spell list 62784: Cleave 16044 (instant, radius index 0, so no `behind` row) and War Stomp 16727 (instant, self-centred stun). EventAI Enrage 28131 at 15 % health (6278401) is instant. |
+
+Two things about the data shape are worth knowing when these rows are revisited. First, six of the seven lists are attached by a separate migration, not by the row that creates the creature: `UPDATE creature_template SET spell_list_id = entry ...` in `sql/database_updates/world/20260608174707_world.sql`, and Narlgom (62780) has no list at all — reading only the `creature_template` REPLACE from the May file would suggest every Windhorn boss casts nothing. Second, no `behind` row exists for this instance: the cleaves (Walgan 16044, plus Raxxieth and Marrowspike in other instances) have radius index 0, and the only cone (Ahgk'tos Wing Flap 12882, radius index 13) has no yard value in the repo.
+
+Champion Rotag (62785) gets no `kill_first` row although Bonespeaker Narlgom summons him at 50 % health: his script (`npc_champion_rotag`) is `REACT_PASSIVE`, overrides `AttackStart` to do nothing, stops combat on every update and the template is `UNIT_FLAG_IMMUNE_TO_PLAYER` (unit_flags 33024), so he never enters the bots' attacker list and can never be targeted. The summon itself is not a kill-first case either: the bloodguard is targetable (faction 16, no blocking flag, attack-started by the script) but it is a single 2.8 k health add whose only special mechanic is the ritual covered by the row above, and generic assist already kills it.
+
+What needs a live check (not verified in game): whether Shalk's Flame of Shalk lands on players at all (the script polls for that aura to strip it when a player goes underwater, `windhorn_canyon.cpp:62`) and whether kicking the Bloodguard's ritual is worth the global.
+
+## Gilneas City rows (map 815)
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Genn Greymane (61418) | `interrupt` Fear 22678 | Spell list 180166 has only Drain Life 17620 (a channel: castingTimeIndex 1 with channelInterruptFlags 31788), Mortal Strike 21551 and Curse of Agony 11711, both instant. The script casts Fear 22678 once below 50 % health (`instance_gilneas_city.cpp:230`, castingTimeIndex 16, interruptFlags 15). |
+| Packmaster Ragetooth (61420) | `interrupt` Howl of Terror 5484 and Shadow Bolt 11660 | Spell list 180168: Howl of Terror 5484 (first at 0 s, every 30 s, castingTimeIndex 5, interruptFlags 15) is an AoE fear (aura 7, radius index 13); Shadow Bolt 11660 (2-2 s first, every 12 s, castingTimeIndex 14, interruptFlags 15). |
+| Judge Sutherland (61421) | `interrupt` Smite 6060, Mind Blast 10945, Fireball 8402 | Spell list 180169: castingTimeIndex 19, 16 and 22, all with interruptFlags 15; every 6, 10 and 8 s. Blast Wave 13019 is instant. |
+| Marshal Magnus Greystone (61423) | `interrupt` Holy Fire 17142 | Spell list 180171: Holy Fire 17142 (every 25 s, castingTimeIndex 6, interruptFlags 15) damages and applies a periodic-damage aura (aura 3). Slam 11605 is a cast (castingTimeIndex 20) but its interruptFlags is 8, without the kick bit; Sunder Armor 8380 is instant. |
+| Matthias Holtz (61419) | no row | Spell list 180167 and EventAI: Hooked Net 13608 is a cast (castingTimeIndex 3) but with interruptFlags 9, without the kick bit; Fire Blast 8413 and Multi-Shot 2643 (EventAI 2200030) are instant. |
+| Dustivan Blackcowl (61422) | no row | Spell list 180170 is Rupture 15583 and Rend 11574, both instant; EventAI casts Evasion 5277 and Gouge 12540 (2200031/2200032), both instant. |
+| Regent-Lord Mortimer Harlow (61264) | no row | The script (`boss_lord_mortimer.cpp:41,53,63`) casts Holy Strike 2495, Consecration 20924 and Blast Wave 13021, all instant (castingTimeIndex 1). No spell list. |
+
+Mortimer and Celia Harlow (61263) come as a pair (`docs/guides/dungeon-tactics.md`), but Celia is not in the phase 0 survey and gets no row here.
+
+What needs a live check (not verified in game): that the interrupts fire in time on Sutherland's 6 s Smite and Greystone's 25 s Holy Fire, and whether the Fear at 50 % is worth a kick a bot may have spent earlier.
+
+## Karazhan Crypt rows (map 800)
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Archlich Enkhraz (91916) | `interrupt` Fear 12096 and Freeze 18763 | Spell list 201002: Fear 12096 (first at 12-17 s, every 15-16 s, castingTimeIndex 16, interruptFlags 15) and Freeze 18763 (first at 4-9 s, every 8-14 s, castingTimeIndex 22, interruptFlags 15). Chill Nova 18099 is instant; Consuming Shadows 17715 is a channel (channelInterruptFlags 31788). |
+| Corpsemuncher (91917) | `interrupt` Acid Spit 25052 | Spell list 201051: Acid Spit 25052 (first at 1 s, every 4 s, castingTimeIndex 14, interruptFlags 15). Sweep 26103 (castingTimeIndex 16, interruptFlags 31) is a knock back around the caster (effectImplicitTargetA 22, effect 98), not a frontal cone, so it gets no `behind` row. |
+| Commander Andreon (91919) | `interrupt` Mind Blast 26048 | Spell list 180104: Mind Blast 26048 (first at 3-4 s, every 45 s, castingTimeIndex 16, interruptFlags 15). Banshee Curse 16867 (cast on self, instant) and Mortal Strike 15708 (instant) get no row, and the template's inline spell_id2 5884 is not cast. |
+| Marrowspike (91920) | no row | Spell list 201052 is all instant: Cleave 15579 (castingTimeIndex 1 and no radius index, so no `behind` row), War Stomp 16727 (self-centred 8 yd stun) and Knock Away 10101. |
+| Hivaxxis (91929) | no row | Spell list 201053 is all instant: Web Spray 12252, Paralyzing Poison 3609 and Poison Mind 19469 (castingTimeIndex 1). |
+| Guard Captain Gort (92935) | no row | Spell list 111210 has one spell, Banshee Curse 16867, instant. No C++ script, and the inline spell_id2 5884 is not cast. |
+
+Alarus (91928, summoned by the rune event, listed as the crypt's end boss in `docs/guides/dungeon-tactics.md`) is not in the phase 0 survey and gets no row in this migration.
+
+What needs a live check (not verified in game): the cast cadence of Fear and Freeze (the list delays are 4-17 s) and whether the 4 s Acid Spit is worth interrupting at all.
+
+## Crescent Grove rows (map 802)
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| High Priestess A'lathea (92108) | `interrupt` Starfire 25298 | Spell list 201059: Starfire 25298 (first at 1 s, every 5 s, castingTimeIndex 22, interruptFlags 15). Moonfire 23380 is instant; the inline spell_id4 9613 is not cast. |
+| Keeper Ranathos (92109) | `interrupt` Wrath 6780, Entangling Roots 11922, Regrowth 8941 | Spell list 201060: Wrath 6780 (first at 1 s, every 2 s, castingTimeIndex 5, interruptFlags 15), Entangling Roots 11922 (every 15-20 s, castingTimeIndex 16, interruptFlags 15, aura 26) and Regrowth 8941 (every 28 s, castingTimeIndex 5, interruptFlags 15), a self-heal (cast target 0, aura 8). |
+| Master Raxxieth (92110) | `interrupt` Shadow Bolt 12471 and Flamestrike 12468 | Spell list 201061: both every 12 s, castingTimeIndex 14, interruptFlags 15; Flamestrike is aimed at a random attacker other than the top one (cast target 5). Cleave 15579 is instant and has no radius index, so no `behind` row. |
+| Grovetender Engryss (92107) | no row | Spell list 201058 is all instant: Strike 12057, Knock Away 10101 and Rejuvenation 9839 (a friendly heal, cast target 15). EventAI is a say line only (2200008). |
+| Fenektis the Deceiver (92111) | no row | Spell list 201062 is all instant: Poisonous Stab 7357, Sinister Strike 15667 and Blade Flurry 13877. |
+
+What needs a live check (not verified in game): whether interrupting Ranathos' 2 s Wrath spam starves the kick for Entangling Roots and Regrowth, and whether the 5 s Starfire is interruptible in time.
+
 ## Adding a boss
 
 1. Read the boss from the core: `creature_template` (`spell_list_id`, `ai_name`), `creature_spells`, the `creature_ai_events`/`creature_ai_scripts` rows or the `src/scripts` boss file, and `spell_template` for each spell. Do not use another core's ids.
