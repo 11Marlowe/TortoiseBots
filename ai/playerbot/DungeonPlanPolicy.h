@@ -90,6 +90,14 @@ namespace ai
     // 4 special). The event has failed when it reads 2, or 0 again after it was
     // seen started, and when it does not start soon after the hold begins.
     constexpr std::uint32_t kPlanFlagEncounter = 32;
+    // move only: an EXACT waypoint (plan v1's Waypoint.exact, the point a direct
+    // step after it is launched from). The run leader counts the step done only
+    // once the lead bot stands within kExactArriveYd of the point and has stood
+    // still there for 2 s (runtime/DungeonRunPolicy.h ExactWalkTo); never by the
+    // plain move's 3 yd arrival or its stalled 6 yd arrival, and no stand-in
+    // point (detour) is taken for it. Any other kind with this flag is refused
+    // (BadParam).
+    constexpr std::uint32_t kPlanFlagExact = 64;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -221,7 +229,8 @@ namespace ai
         BadRadius,        // negative, over kPlanMaxRadius, or a wait_clear without one
         BadTimeout,       // over kPlanMaxTimeoutS
         BadParam,         // wait_object state other than 0-2; hold with both done flags, an encounter
-                          // flag without the data flag or a state above 4, an object state above 2
+                          // flag without the data flag or a state above 4, an object state above 2;
+                          // the exact flag on a step that is not a move
         BadPoint,         // not a finite point
         BadEntries,       // `entries` is not a comma list of non-zero creature entries
     };
@@ -257,6 +266,8 @@ namespace ai
             return PlanStepRefusal::BadRadius;
         if (step.timeoutS > kPlanMaxTimeoutS)
             return PlanStepRefusal::BadTimeout;
+        if ((step.flags & kPlanFlagExact) && step.kind != PlanStepKind::Move)
+            return PlanStepRefusal::BadParam;
         switch (step.kind)
         {
             case PlanStepKind::Pull:

@@ -96,6 +96,19 @@ static void TestNormalize()
     CHECK(NormalizePlanStep(none) == PlanStepRefusal::UnknownKind);
     PlanStep item = Step(0, 7, PlanStepKind::UseItem);
     CHECK(NormalizePlanStep(item) == PlanStepRefusal::MissingEntry);
+
+    // The exact flag (an exact waypoint) belongs to a plain move only: on a
+    // move_direct, a pull or anything else it is a row the exporter got wrong.
+    PlanStep foot = Step(0, 8, PlanStepKind::Move, -293.3f, 0.5f, -58.0f);
+    foot.flags = kPlanFlagExact;
+    CHECK(NormalizePlanStep(foot) == PlanStepRefusal::None && (foot.flags & kPlanFlagExact));
+    PlanStep hop = Step(0, 9, PlanStepKind::MoveDirect, -287.5f, 5.0f, -63.6f);
+    hop.flags = kPlanFlagExact;
+    CHECK(NormalizePlanStep(hop) == PlanStepRefusal::BadParam);
+    PlanStep exactPull = Step(0, 10, PlanStepKind::Pull);
+    exactPull.entries = {4851};
+    exactPull.flags = kPlanFlagExact;
+    CHECK(NormalizePlanStep(exactPull) == PlanStepRefusal::BadParam);
 }
 
 static void TestTable()
