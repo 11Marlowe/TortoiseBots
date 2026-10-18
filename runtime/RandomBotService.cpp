@@ -21,6 +21,7 @@
 #include "RandomBotPoolReset.h"
 #include "StartZoneBalance.h"
 #include "BotNameService.h"
+#include "BotAppearancePolicy.h"
 #include "AccountMgr.h"
 #include "SharedDefines.h"
 #include "Database/DBCStores.h"
@@ -603,6 +604,10 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
         uint8 cls = pr.second;
         // Gender before the name: issue #1003 names follow race and gender.
         uint8 gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
+        BotAppearanceCounts look{};
+        if (!BotAppearanceCountsFor(race, gender, look))
+            continue;
+
         std::string norm = PickBotCharacterName(race, cls, gender);
         if (norm.empty())
             continue;
@@ -612,11 +617,11 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
         info.race = race;
         info.class_ = cls;
         info.gender = gender;
-        info.skin = uint8(urand(0, 7));
-        info.face = uint8(urand(0, 7));
-        info.hairStyle = uint8(urand(0, 7));
-        info.hairColor = uint8(urand(0, 7));
-        info.facialHair = uint8(urand(0, 7));
+        info.skin = uint8(urand(0, look.skin - 1));
+        info.face = uint8(urand(0, look.face - 1));
+        info.hairStyle = uint8(urand(0, look.hairStyle - 1));
+        info.hairColor = uint8(urand(0, look.hairColor - 1));
+        info.facialHair = uint8(urand(0, look.facialHair - 1));
         info.outfitId = 0;
         info.challengeMask = 0;
 
