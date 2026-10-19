@@ -433,6 +433,13 @@ func main() {
 		}{store.Commanders(), commanderURL, mapPics != nil})
 	}))
 
+	// The live dungeon runs (issue #895): one entry per instance copy (map +
+	// instance id) of a dungeon or raid that has bots in it, members (bots and
+	// real players) included. Read-only: the tab draws, it never orders.
+	mux.HandleFunc("/api/v1/dungeons", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, store.Dungeons())
+	}))
+
 	// The bound bots' recent paths (a short bounded history kept in memory), so a page opened mid-run starts with the trails drawn:
 	// {"<commander>": {"<bot guid>": {"map": 209, "pts": [[x, y, unix seconds], ...]}}}, oldest point first. A point where something
 	// happened carries a fourth element: "d" the bot died here, "t" it teleported (a jump no walking explains), "r" the same while dead

@@ -68,3 +68,16 @@ func TestRefreshJS(t *testing.T) {
 func TestRefreshWiringJS(t *testing.T) {
 	runCheck(t, "refresh_wiring_check.js", "../../web/static/js/app.js")
 }
+
+// TestDungeonsJS runs dungeons_check.js: the Dungeons tab's run states, copy labels, party rows and raid subgroup blocks.
+func TestDungeonsJS(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	out, err := exec.Command(node, "dungeons_check.js",
+		"../../web/static/js/commanders.js", "../../web/static/js/dungeons.js").CombinedOutput()
+	if err != nil {
+		t.Fatalf("dungeons_check.js failed: %v\n%s", err, out)
+	}
+}
