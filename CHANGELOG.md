@@ -1,5 +1,21 @@
 # Changelog
 
+## v1.6.0 (2026-10-19)
+
+### Bots & Mounts
+- Bots now ride mounts from their own race, so goblins finally show up on Rocket Cars and Shredders. [#1100](https://github.com/Sagiroth/TortoiseBots/pull/1100)
+- Fancy epic mounts are now limited to level 60 bots, so low-level bots no longer look overpowered. [#1100](https://github.com/Sagiroth/TortoiseBots/pull/1100)
+
+### Bots & Gear
+- Bots no longer turn up wearing raid quest rewards such as the Onyxia Tooth Pendant. [#1104](https://github.com/Sagiroth/TortoiseBots/pull/1104)
+- Bots now fill empty gear slots when a fitting item exists, including class-only trinkets. [#1104](https://github.com/Sagiroth/TortoiseBots/pull/1104)
+
+### Dashboard
+- A new Dungeons tab shows a live view of every dungeon run, including groups you hire yourself. [#1103](https://github.com/Sagiroth/TortoiseBots/pull/1103)
+- Groups in different copies of the same dungeon now show up separately, so you can tell them apart. [#1103](https://github.com/Sagiroth/TortoiseBots/pull/1103)
+
+---
+
 ## v1.5.0 (2026-10-18)
 
 ### Your Alts as Bots
