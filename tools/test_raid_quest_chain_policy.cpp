@@ -23,7 +23,7 @@ struct TestWorld
 {
     QuestPredecessors predecessors;
     std::set<uint32_t> direct;      // direct raid quests (type 62, raid-scale, raid map, raid-exclusive start)
-    std::set<uint32_t> chainSource; // taints successors: raid map, raid-exclusive start, or raid-type off a non-raid instance
+    std::set<uint32_t> chainSource; // taints successors: raid map, raid-exclusive start, or raid-type under a quest sort
 
     bool Reaches(uint32_t questId) const
     {
@@ -65,7 +65,7 @@ void TestOpenWorldRaidTypePredecessorTaints()
     assert(w.Reaches(4736));
 }
 
-// Raid-type (62) predecessor on a non-raid instance is raid but does not taint its follow-up.
+// Raid-type (62) predecessor that is no chain source (filed under a zone) is raid but does not taint its follow-up.
 void TestNonRaidInstanceRaidTypePredecessorDoesNotTaint()
 {
     TestWorld w;
@@ -130,8 +130,22 @@ void TestChainLinkDirections()
 }
 }
 
+// Which quests taint their chain: raid map, raid-exclusive start item, or a
+// raid-type quest under a quest sort (Thunderfury -344); a raid-type quest under
+// an ordinary zone (UBRS 1583, Blackrock Mountain 25) does not.
+void TestTaintsChainRule()
+{
+    assert(TaintsChain(true, false, false, 2677));
+    assert(TaintsChain(false, true, false, 1519));
+    assert(TaintsChain(false, false, true, -344));
+    assert(!TaintsChain(false, false, true, 1583));
+    assert(!TaintsChain(false, false, true, 25));
+    assert(!TaintsChain(false, false, false, -344));
+}
+
 int main()
 {
+    TestTaintsChainRule();
     TestChainSourceTaintsFollowUp();
     TestRaidMapPredecessorTaintsFollowUp();
     TestOpenWorldRaidTypePredecessorTaints();

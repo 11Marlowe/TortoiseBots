@@ -2678,13 +2678,6 @@ static bool CompletesOnRaidMap(Quest const* quest)
     return mapEntry && mapEntry->IsRaid();
 }
 
-// Non-raid instance (5-man dungeon) completion: a raid-type quest here does not taint its successors.
-static bool CompletesOnNonRaidInstance(Quest const* quest)
-{
-    MapEntry const* mapEntry = CompletionMap(quest);
-    return mapEntry && mapEntry->IsNonRaidDungeon();
-}
-
 bool RandomItemMgr::IsDirectRaidQuest(Quest const* quest)
 {
     if (!quest)
@@ -2706,16 +2699,13 @@ bool RandomItemMgr::IsDirectRaidQuest(Quest const* quest)
 
 // Chain source: a quest whose raid status spreads to the quests after it.
 // Raid-scale quests are raid but never taint their successors; raid-type quests
-// taint unless they complete on a non-raid instance.
+// taint only when filed under a quest sort.
 bool RandomItemMgr::IsRaidChainSource(Quest const* quest)
 {
     if (!quest)
         return false;
-    if (CompletesOnRaidMap(quest))
-        return true;
-    if (IsRaidExclusiveItem(quest->GetSrcItemId()))
-        return true;
-    return quest->GetType() == QUEST_TYPE_RAID && !CompletesOnNonRaidInstance(quest);
+    return TortoiseBots::TaintsChain(CompletesOnRaidMap(quest), IsRaidExclusiveItem(quest->GetSrcItemId()),
+        quest->GetType() == QUEST_TYPE_RAID, quest->GetZoneOrSort());
 }
 
 // Quest-chain raid rule: a quest is raid when it is a direct raid quest, or

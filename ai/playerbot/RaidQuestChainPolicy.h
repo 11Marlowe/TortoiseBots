@@ -4,7 +4,7 @@
 // (raid type, raid-scale group, raid map, or a raid-exclusive start item), or
 // when an earlier quest in its chain is a chain source. Chain sources are
 // quests on a raid map, quests started by a raid-exclusive item, and raid-type
-// quests that do not complete on a non-raid instance (5-man dungeon). Raid-scale
+// quests filed under a quest sort (negative ZoneOrSort, e.g. Legendary). Raid-scale
 // quests are raid but never taint their successors. The predicates are supplied
 // by the caller, so this header stays free of core and database types. Exercised
 // standalone in tools/test_raid_quest_chain_policy.cpp.
@@ -16,6 +16,16 @@
 
 namespace TortoiseBots
 {
+
+// Whether a quest's raid status spreads to the quests after it. A raid-type
+// quest taints only when filed under a quest sort (zoneOrSort < 0, e.g. the
+// Legendary chains of Thunderfury and Atiesh); one filed under an ordinary zone
+// (the UBRS and Tier 0.5 chains under Blackrock Spire / Blackrock Mountain)
+// does not, its follow-ups being 5-man dungeon rewards.
+inline bool TaintsChain(bool onRaidMap, bool raidExclusiveStart, bool raidType, int32_t zoneOrSort)
+{
+    return onRaidMap || raidExclusiveStart || (raidType && zoneOrSort < 0);
+}
 
 // quest id -> ids of the quests that come before it in a chain.
 using QuestPredecessors = std::map<uint32_t, std::vector<uint32_t>>;
