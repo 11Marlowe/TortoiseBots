@@ -1351,7 +1351,7 @@ void RandomItemMgr::BuildItemInfoCache()
                 if (cacheInfo->slot == EQUIPMENT_SLOT_TRINKET1 ||
                     cacheInfo->slot == EQUIPMENT_SLOT_TRINKET2)
                 {
-                    if (statW == 0 && proto->AllowableClass == uint32(clazz) && proto->Spells[0].SpellId)
+                    if (statW == 0 && proto->AllowableClass == (1u << (clazz - 1)) && proto->Spells[0].SpellId)
                     {
                         statW = (uint32)(proto->Quality + proto->ItemLevel);
                     }

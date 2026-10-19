@@ -25,6 +25,7 @@
 
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/MountValues.h"
+#include "strategy/values/EmptySlotFillPolicy.h"
 #include "playerbot/MountShopPolicy.h"
 
 using namespace ai;
@@ -1900,53 +1901,69 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             // The seed's quality band is level-derived, so quality degradation
             // cannot widen it — one round is the whole search on that path.
         } while (!found && !seedSpread && attempts < 3 && quality != ITEM_QUALITY_POOR);
-        if (!found && seedSpread && level < 30 &&
-            (slot == EQUIPMENT_SLOT_HEAD || slot == EQUIPMENT_SLOT_SHOULDERS ||
-             slot == EQUIPMENT_SLOT_NECK || slot == EQUIPMENT_SLOT_FINGER1 ||
-             slot == EQUIPMENT_SLOT_FINGER2 || slot == EQUIPMENT_SLOT_TRINKET1 ||
-             slot == EQUIPMENT_SLOT_TRINKET2 || slot == EQUIPMENT_SLOT_RANGED) &&
-            !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+        if (!found && !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot) &&
+            slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD)
         {
-            // Low-level coverage (§9): the scored pools for these slots are
-            // thin at 10-29, so a usable item of the right slot/level beats
-            // an empty slot. Sweep every cached quality for the slot and
-            // take the first wearable, tier-passing candidate — no stat
-            // gate beyond wearable, no junk force-fill above 30. Empty
-            // slots only: never destroys anything.
-            for (uint32 q = ITEM_QUALITY_POOR; q <= ITEM_QUALITY_RARE && !found; ++q)
+            // Empty-slot backstop: a slot the normal pass left empty takes the
+            // best candidate that passes the same hard gates (required level,
+            // item-level cap, quality band, fresh-seed provenance, paired
+            // duplicate, game equip check). Stat weight is relaxed. Shirt and
+            // tabard are cosmetic and stay as they are. The slot is empty by the
+            // guard above, so nothing is destroyed.
+            EmptySlotGates gates;
+            gates.botLevel = bot->GetLevel();
+            gates.maxItemLevel = maxItemLevel;
+            gates.minQuality = level < 10 ? ITEM_QUALITY_POOR
+                : level < 20 ? ITEM_QUALITY_NORMAL
+                : ITEM_QUALITY_UNCOMMON;
+            gates.maxQuality = seedSpread ? ITEM_QUALITY_RARE : ITEM_QUALITY_ARTIFACT;
+            uint32 pairSlot = PairedSlot(slot);
+            std::vector<EmptySlotCandidate> cands;
+            for (uint32 q = gates.minQuality; q <= gates.maxQuality; ++q)
             {
-                std::vector<uint32> fallback = sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q);
-                Shuffle(fallback);
-                for (uint32 fallbackId : fallback)
+                for (uint32 fallbackId : sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q))
                 {
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(fallbackId);
                     if (!proto)
                         continue;
-                    if (sRandomItemMgr.GetMinLevelFromCache(fallbackId) > (uint32)bot->GetLevel())
+                    // Caster off-hand on a melee class (Issue #219), as in the normal pass.
+                    if (slot == EQUIPMENT_SLOT_OFFHAND && proto->InventoryType == INVTYPE_HOLDABLE &&
+                        (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_HUNTER))
                         continue;
-                    if (!PassesSeedProvenance(bot, fallbackId))
+                    EmptySlotCandidate c;
+                    c.itemId = fallbackId;
+                    c.itemLevel = proto->ItemLevel;
+                    c.requiredLevel = sRandomItemMgr.GetMinLevelFromCache(fallbackId);
+                    c.quality = proto->Quality;
+                    c.passesProvenance = !seedSpread || PassesSeedProvenance(bot, fallbackId);
+                    Item* pairItem = pairSlot != EQUIPMENT_SLOT_END ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot) : nullptr;
+                    c.pairedDuplicate = pairItem && pairItem->GetEntry() == fallbackId;
+                    // Cheap gates first; the equip check only runs on candidates that pass them.
+                    c.equippable = true;
+                    if (!EmptySlotAccepts(gates, c))
                         continue;
-                    uint32 pairSlot = PairedSlot(slot);
-                    if (pairSlot != EQUIPMENT_SLOT_END)
-                    {
-                        Item* pairItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot);
-                        if (pairItem && pairItem->GetEntry() == fallbackId)
-                            continue;
-                    }
-                    uint16 eDest;
-                    if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) != EQUIP_ERR_OK)
-                        continue;
-                    // Guarded empty above: equip directly, destroy nothing.
-                    if (Item* pItem = bot->EquipNewItem(eDest, fallbackId, true))
-                    {
-                        // Issue #960: same suffix-blind create as the main loop above.
-                        if (proto->RandomProperty)
-                            pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(fallbackId));
-                        sLog.outDetail("Bot #%d <%s>: slot %u low-level fallback equipped %u",
-                            bot->GetGUIDLow(), bot->GetName(), slot, fallbackId);
-                        found = true;
-                        break;
-                    }
+                    uint16 eDest = 0;
+                    c.equippable = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) == EQUIP_ERR_OK;
+                    if (c.equippable)
+                        cands.push_back(c);
+                }
+            }
+            for (size_t idx : RankEmptySlotCandidates(gates, cands))
+            {
+                uint32 const itemId = cands[idx].itemId;
+                ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+                uint16 eDest = 0;
+                if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, itemId) != EQUIP_ERR_OK)
+                    continue;
+                if (Item* pItem = bot->EquipNewItem(eDest, itemId, true))
+                {
+                    // Issue #960: same suffix-blind create as the main loop above.
+                    if (proto->RandomProperty)
+                        pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(itemId));
+                    sLog.outDetail("Bot #%d <%s>: slot %u empty-slot backstop equipped %u (ilvl %u)",
+                        bot->GetGUIDLow(), bot->GetName(), slot, itemId, proto->ItemLevel);
+                    found = true;
+                    break;
                 }
             }
         }
