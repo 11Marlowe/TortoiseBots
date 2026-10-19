@@ -24,7 +24,8 @@ namespace ai
         uint32_t quality = 0;
         bool passesProvenance = true;       // fresh-seed provenance (true off the seed path)
         bool pairedDuplicate = false;       // same entry already worn in the paired ring/trinket slot
-        bool equippable = false;            // RandomBotFacade::CanEquipUnseenItem == EQUIP_ERR_OK
+        bool equippable = false;
+        bool hasEffect = true;              // any stat, armor, resistance, weapon damage or item spell; novelty items have none            // RandomBotFacade::CanEquipUnseenItem == EQUIP_ERR_OK
     };
 
     constexpr uint32_t kItemLevelWindow = 10;
@@ -50,7 +51,8 @@ namespace ai
             && c.quality <= g.maxQuality
             && c.passesProvenance
             && !c.pairedDuplicate
-            && c.equippable;
+            && c.equippable
+            && c.hasEffect;
     }
 
     // Indices of the accepted candidates, best first: highest item level, then

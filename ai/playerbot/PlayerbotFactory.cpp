@@ -1938,6 +1938,15 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     c.itemLevel = proto->ItemLevel;
                     c.requiredLevel = sRandomItemMgr.GetMinLevelFromCache(fallbackId);
                     c.quality = proto->Quality;
+                    // Novelty, toy and keepsake items (Mood Ring, Forever-Lovely Rose,
+                    // Steamwheedle Wormhole) do nothing when worn: skip them.
+                    c.hasEffect = proto->Armor > 0 || proto->Block > 0 || proto->Damage[0].DamageMax > 0 ||
+                        proto->HolyRes > 0 || proto->FireRes > 0 || proto->NatureRes > 0 ||
+                        proto->FrostRes > 0 || proto->ShadowRes > 0 || proto->ArcaneRes > 0;
+                    for (uint32 i = 0; i < MAX_ITEM_PROTO_STATS && !c.hasEffect; ++i)
+                        c.hasEffect = proto->ItemStat[i].ItemStatValue > 0;
+                    for (uint32 i = 0; i < MAX_ITEM_PROTO_SPELLS && !c.hasEffect; ++i)
+                        c.hasEffect = proto->Spells[i].SpellId != 0;
                     Item* pairItem = pairSlot != EQUIPMENT_SLOT_END ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot) : nullptr;
                     c.pairedDuplicate = pairItem && pairItem->GetEntry() == fallbackId;
                     c.equippable = true;
