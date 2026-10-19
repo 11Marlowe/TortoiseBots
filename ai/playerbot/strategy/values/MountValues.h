@@ -43,6 +43,8 @@ namespace ai
         static bool IsMountSpell(uint32 spellId);
         static uint32 GetSpeed(uint32 spellId);
         static uint32 GetMountSpell(uint32 itemId);
+        static uint32 GetMountItem(uint32 spellId);
+        uint32 GetItemId() const;
         bool IsValidLocation(Player* bot);
         bool IsAllowedFor(Player* bot) const;
 
