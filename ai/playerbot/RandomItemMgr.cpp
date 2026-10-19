@@ -827,6 +827,7 @@ void RandomItemMgr::BuildItemInfoCache()
         if (itemInfo)
             delete itemInfo;
 
+    slotItemIds.clear();
     uint32 maxLevel = sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL);
 
     for (uint32 i = 0; i <= MAX_STAT_SCALES; ++i)
@@ -1412,6 +1413,13 @@ void RandomItemMgr::BuildItemInfoCache()
         stmt.Execute();
 
         itemInfoCache[cacheInfo->itemId] = cacheInfo;
+        // Rings and trinkets occupy two slots; cacheInfo->slot keeps only one, so index every viable slot.
+        for (uint8 s = 0; s < EQUIPMENT_SLOT_END; ++s)
+        {
+            std::set<InventoryType> const& slots = viableSlots[(EquipmentSlots)s];
+            if (slots.find((InventoryType)proto->InventoryType) != slots.end())
+                slotItemIds[s].push_back(cacheInfo->itemId);
+        }
     }
 
     CharacterDatabase.CommitTransaction();
@@ -3820,6 +3828,13 @@ RandomItemList RandomItemMgr::Query(uint32 level, uint8 clazz, uint8 spec, uint8
 {
     BotEquipKey key(level, clazz, spec, slot, quality);
     return equipCache[key];
+}
+
+RandomItemList const& RandomItemMgr::GetSlotItemIds(uint32 slot)
+{
+    static RandomItemList const none;
+    auto found = slotItemIds.find(slot);
+    return found == slotItemIds.end() ? none : found->second;
 }
 
 void RandomItemMgr::BuildAmmoCache()

@@ -1907,7 +1907,9 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             // Empty-slot backstop: a slot the normal pass left empty takes the
             // best candidate that passes the same hard gates (required level,
             // item-level cap, quality band, fresh-seed provenance, paired
-            // duplicate, game equip check). Stat weight is relaxed. Shirt and
+            // duplicate, game equip check). Stat weight is a preference, not a
+            // filter: weighted candidates for the spec are tried first, then
+            // every item the item info cache holds for the slot. Shirt and
             // tabard are cosmetic and stay as they are. The slot is empty by the
             // guard above, so nothing is destroyed.
             EmptySlotGates gates;
@@ -1918,10 +1920,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 : ITEM_QUALITY_UNCOMMON;
             gates.maxQuality = seedSpread ? ITEM_QUALITY_RARE : ITEM_QUALITY_ARTIFACT;
             uint32 pairSlot = PairedSlot(slot);
-            std::vector<EmptySlotCandidate> cands;
-            for (uint32 q = gates.minQuality; q <= gates.maxQuality; ++q)
+            // Cheap gates first: provenance and the equip check only run on
+            // candidates that already pass them.
+            auto collect = [&](RandomItemList const& ids, std::vector<EmptySlotCandidate>& out)
             {
-                for (uint32 fallbackId : sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q))
+                for (uint32 fallbackId : ids)
                 {
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(fallbackId);
                     if (!proto)
@@ -1935,36 +1938,50 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     c.itemLevel = proto->ItemLevel;
                     c.requiredLevel = sRandomItemMgr.GetMinLevelFromCache(fallbackId);
                     c.quality = proto->Quality;
-                    c.passesProvenance = !seedSpread || PassesSeedProvenance(bot, fallbackId);
                     Item* pairItem = pairSlot != EQUIPMENT_SLOT_END ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot) : nullptr;
                     c.pairedDuplicate = pairItem && pairItem->GetEntry() == fallbackId;
-                    // Cheap gates first; the equip check only runs on candidates that pass them.
                     c.equippable = true;
                     if (!EmptySlotAccepts(gates, c))
+                        continue;
+                    c.passesProvenance = !seedSpread || PassesSeedProvenance(bot, fallbackId);
+                    if (!c.passesProvenance)
                         continue;
                     uint16 eDest = 0;
                     c.equippable = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) == EQUIP_ERR_OK;
                     if (c.equippable)
-                        cands.push_back(c);
+                        out.push_back(c);
                 }
-            }
-            for (size_t idx : RankEmptySlotCandidates(gates, cands))
+            };
+            auto equipBest = [&](std::vector<EmptySlotCandidate> const& cands) -> bool
             {
-                uint32 const itemId = cands[idx].itemId;
-                ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-                uint16 eDest = 0;
-                if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, itemId) != EQUIP_ERR_OK)
-                    continue;
-                if (Item* pItem = bot->EquipNewItem(eDest, itemId, true))
+                for (size_t idx : RankEmptySlotCandidates(gates, cands))
                 {
-                    // Issue #960: same suffix-blind create as the main loop above.
-                    if (proto->RandomProperty)
-                        pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(itemId));
-                    sLog.outDetail("Bot #%d <%s>: slot %u empty-slot backstop equipped %u (ilvl %u)",
-                        bot->GetGUIDLow(), bot->GetName(), slot, itemId, proto->ItemLevel);
-                    found = true;
-                    break;
+                    uint32 const itemId = cands[idx].itemId;
+                    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+                    uint16 eDest = 0;
+                    if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, itemId) != EQUIP_ERR_OK)
+                        continue;
+                    if (Item* pItem = bot->EquipNewItem(eDest, itemId, true))
+                    {
+                        // Issue #960: same suffix-blind create as the main loop above.
+                        if (proto->RandomProperty)
+                            pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(itemId));
+                        sLog.outDetail("Bot #%d <%s>: slot %u empty-slot backstop equipped %u (ilvl %u)",
+                            bot->GetGUIDLow(), bot->GetName(), slot, itemId, proto->ItemLevel);
+                        return true;
+                    }
                 }
+                return false;
+            };
+            std::vector<EmptySlotCandidate> weighted;
+            for (uint32 q = gates.minQuality; q <= gates.maxQuality; ++q)
+                collect(sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q), weighted);
+            found = equipBest(weighted);
+            if (!found)
+            {
+                std::vector<EmptySlotCandidate> unweighted;
+                collect(sRandomItemMgr.GetSlotItemIds(slot), unweighted);
+                found = equipBest(unweighted);
             }
         }
         if (!found)

@@ -174,6 +174,9 @@ class RandomItemMgr
         static bool HandleConsoleCommand(ChatHandler* handler, char const* args);
         RandomItemList Query(uint32 level, RandomItemType type, RandomItemPredicate* predicate);
         RandomItemList Query(uint32 level, uint8 clazz, uint8 specId, uint8 slot, uint32 quality);
+        // Every item in the item info cache for an equipment slot, stat weight
+        // ignored (empty-slot backstop). Built once in BuildItemInfoCache, ids ascending.
+        RandomItemList const& GetSlotItemIds(uint32 slot);
         uint32 GetUpgrade(Player* player, std::string spec, uint8 slot, uint32 quality, uint32 itemId);
         std::vector<uint32> GetUpgradeList(Player* player, uint32 specId, uint8 slot, uint32 quality, uint32 itemId, uint32 amount = 1);
         bool HasStatWeight(uint32 itemId);
@@ -304,6 +307,8 @@ class RandomItemMgr
         std::map<uint32, std::string > ItemStatLink;
         std::map<std::string, uint32 > weightRatingLink;
         std::map<uint32, ItemInfoEntry*> itemInfoCache;
+        // slot -> ids of every itemInfoCache entry in that slot (see GetSlotItemIds).
+        std::map<uint32, RandomItemList> slotItemIds;
         std::map<uint32, std::vector<uint32> > randomEnchantsCache;
         // Permanent-enchant candidate pool (ai_playerbot_enchant_candidates).
         // Loaded once from the world DB; rows never change without a restart.
