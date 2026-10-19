@@ -466,6 +466,33 @@ public:
     bool Yell(std::string msg, bool likePlayer = false);
     bool Say(std::string msg, bool likePlayer = false);
     bool Whisper(std::string msg, std::string receiverName, bool likePlayer = false);
+    // Issue #1108: chat that answers a player who commanded the bot (".bot
+    // speak", a reply to the bot's own master) is functional, not a
+    // broadcast, so it must survive AiPlayerbot.EnableBroadcasts = 0. The
+    // scope marks every chat line produced inside it as commanded; an
+    // unarmed scope changes nothing.
+    class CommandedChatScope
+    {
+    public:
+        CommandedChatScope(PlayerbotAI* ai, bool armed) : ai_(ai), armed_(armed)
+        {
+            if (armed_ && ai_)
+                ai_->commandedChatDepth++;
+        }
+        ~CommandedChatScope()
+        {
+            if (armed_ && ai_)
+                ai_->commandedChatDepth--;
+        }
+    private:
+        PlayerbotAI* ai_;
+        bool armed_;
+    };
+    // True while a commanded chat scope is active.
+    bool IsCommandedChat() const { return commandedChatDepth > 0; }
+    // True when a chat line may be sent: broadcasts are configurable, but a
+    // commanded answer always goes out.
+    bool IsChatAllowed() const;
     bool TellPlayer(Player* player, std::ostringstream &stream, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool ignoreSilent = false) { return TellPlayer(player, stream.str(), securityLevel, isPrivate, ignoreSilent); }
     bool TellPlayer(Player* player, std::string text, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool ignoreSilent = false);
     bool TellPlayerNoFacing(Player* player, std::ostringstream& stream, PlayerbotSecurityLevel securityLevel = PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, bool isPrivate = true, bool noRepeat = true, bool ignoreSilent = false) { return TellPlayerNoFacing(player, stream.str(), securityLevel, isPrivate, noRepeat, ignoreSilent); }
@@ -1022,6 +1049,10 @@ protected:
     CompositeChatFilter chatFilter;
     PlayerbotSecurity security;
     std::map<std::string, time_t> whispers;
+    // Issue #1108: depth of the active CommandedChatScope. While it is above
+    // zero the chat is an answer to a player who commanded the bot and is
+    // sent even with AiPlayerbot.EnableBroadcasts = 0.
+    uint32 commandedChatDepth = 0;
     std::pair<ChatMsg, time_t> currentChat;
     static std::set<std::string> unsecuredCommands;
     bool allowActive[MAX_ACTIVITY_TYPE];

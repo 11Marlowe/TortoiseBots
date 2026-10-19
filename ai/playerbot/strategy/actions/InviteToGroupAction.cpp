@@ -377,10 +377,13 @@ namespace ai
                     std::map<std::string, std::string> placeholders;
                     placeholders["%player"] = player->GetName();
 
-                    if (group && group->IsRaidGroup())
-                        bot->Say(BOT_TEXT2("join_raid", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
-                    else
-                        bot->Say(BOT_TEXT2("join_group", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                    if (sPlayerbotAIConfig.enableBroadcasts)
+                    {
+                        if (group && group->IsRaidGroup())
+                            bot->Say(BOT_TEXT2("join_raid", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        else
+                            bot->Say(BOT_TEXT2("join_group", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                    }
                 }
             }
 
