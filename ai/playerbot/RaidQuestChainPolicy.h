@@ -2,10 +2,11 @@
 
 // Pure raid quest chain rule. A quest is raid when it is a direct raid quest
 // (raid type, raid-scale group, raid map, or a raid-exclusive start item), or
-// when an earlier quest in its chain is a chain source (raid map or started by
-// a raid-exclusive item). Raid type and raid-scale quests are raid themselves
-// but do not taint their successors. The predicates are supplied by the
-// caller, so this header stays free of core and database types. Exercised
+// when an earlier quest in its chain is a chain source. Chain sources are
+// quests on a raid map, quests started by a raid-exclusive item, and raid-type
+// quests that do not complete on a non-raid instance (5-man dungeon). Raid-scale
+// quests are raid but never taint their successors. The predicates are supplied
+// by the caller, so this header stays free of core and database types. Exercised
 // standalone in tools/test_raid_quest_chain_policy.cpp.
 
 #include <cstdint>

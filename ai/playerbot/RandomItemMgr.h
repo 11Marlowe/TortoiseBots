@@ -370,8 +370,8 @@ class RandomItemMgr
         // Chain-aware raid-quest predicate: the quest is a direct raid quest,
         // or an earlier quest in its chain is a chain source. Shared by
         // IsRaidQuestItem and the tier walk.
-        // Chain source: raid map or raid-exclusive start item. Taints successors;
-        // raid-type and raid-scale quests do not.
+        // Chain source: raid map, raid-exclusive start item, or raid-type quest
+        // not on a non-raid instance. Taints successors; raid-scale quests do not.
         bool IsRaidChainSource(Quest const* quest);
         bool IsRaidQuest(Quest const* quest);
         // Direct raid rules: raid quest type, raid map, raid-scale group, or a

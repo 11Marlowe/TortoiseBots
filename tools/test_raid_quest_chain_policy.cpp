@@ -1,9 +1,8 @@
 // Standalone test for the raid quest chain rule (ai/playerbot/RaidQuestChainPolicy.h).
 // A quest is raid when it is a direct raid quest, or when an earlier quest in
-// its chain is a chain source (raid map or raid-exclusive start). Raid-type and
-// raid-scale quests never taint successors. Cyclic chain data terminates. The
-// direct and chain-source verdicts live in RandomItemMgr; here each quest
-// carries its verdict.
+// its chain is a chain source. Raid-scale quests never taint successors. Cyclic
+// chain data terminates. The direct and chain-source verdicts live in
+// RandomItemMgr; here each quest carries its verdict.
 //
 // Build and run (from the repo root):
 // g++ -std=c++17 -Wall -Wextra tools/test_raid_quest_chain_policy.cpp -o /tmp/test_raid_quest_chain
@@ -24,7 +23,7 @@ struct TestWorld
 {
     QuestPredecessors predecessors;
     std::set<uint32_t> direct;      // direct raid quests (type 62, raid-scale, raid map, raid-exclusive start)
-    std::set<uint32_t> chainSource; // raid map or raid-exclusive start: taints successors
+    std::set<uint32_t> chainSource; // taints successors: raid map, raid-exclusive start, or raid-type off a non-raid instance
 
     bool Reaches(uint32_t questId) const
     {
@@ -56,8 +55,18 @@ void TestRaidMapPredecessorTaintsFollowUp()
     assert(w.Reaches(8586));
 }
 
-// Raid-type (62) predecessor is raid itself but does not taint its follow-up.
-void TestRaidTypePredecessorDoesNotTaint()
+// Open-world raid-type (62) predecessor is raid and taints its follow-up.
+void TestOpenWorldRaidTypePredecessorTaints()
+{
+    TestWorld w;
+    w.direct = {4735};
+    w.chainSource = {4735};
+    RecordQuestChainLinks(w.predecessors, 4736, 4735, 0, 0);
+    assert(w.Reaches(4736));
+}
+
+// Raid-type (62) predecessor on a non-raid instance is raid but does not taint its follow-up.
+void TestNonRaidInstanceRaidTypePredecessorDoesNotTaint()
 {
     TestWorld w;
     w.direct = {4735};
@@ -125,7 +134,8 @@ int main()
 {
     TestChainSourceTaintsFollowUp();
     TestRaidMapPredecessorTaintsFollowUp();
-    TestRaidTypePredecessorDoesNotTaint();
+    TestOpenWorldRaidTypePredecessorTaints();
+    TestNonRaidInstanceRaidTypePredecessorDoesNotTaint();
     TestRaidScalePredecessorDoesNotTaint();
     TestOrdinaryChainIsNotRaid();
     TestCycleTerminates();

@@ -2658,18 +2658,31 @@ bool RandomItemMgr::IsRaidExclusiveItem(uint32 itemId)
     return exclusive;
 }
 
-// Raid map completion: ZoneOrSort > 0 is an area id whose map is the
-// raid; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
-static bool CompletesOnRaidMap(Quest const* quest)
+// Map a quest's explicit zone to its map: ZoneOrSort > 0 is an area id whose
+// map is the quest's map; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
+static MapEntry const* CompletionMap(Quest const* quest)
 {
     int32 zoneOrSort = quest->GetZoneOrSort();
     if (zoneOrSort <= 0)
-        return false;
+        return nullptr;
     AreaEntry const* area = AreaEntry::GetById((uint32)zoneOrSort);
     if (!area)
-        return false;
-    MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(area->MapId);
+        return nullptr;
+    return sMapStorage.LookupEntry<MapEntry>(area->MapId);
+}
+
+// Raid map completion (see CompletionMap).
+static bool CompletesOnRaidMap(Quest const* quest)
+{
+    MapEntry const* mapEntry = CompletionMap(quest);
     return mapEntry && mapEntry->IsRaid();
+}
+
+// Non-raid instance (5-man dungeon) completion: a raid-type quest here does not taint its successors.
+static bool CompletesOnNonRaidInstance(Quest const* quest)
+{
+    MapEntry const* mapEntry = CompletionMap(quest);
+    return mapEntry && mapEntry->IsNonRaidDungeon();
 }
 
 bool RandomItemMgr::IsDirectRaidQuest(Quest const* quest)
@@ -2692,14 +2705,17 @@ bool RandomItemMgr::IsDirectRaidQuest(Quest const* quest)
 }
 
 // Chain source: a quest whose raid status spreads to the quests after it.
-// Raid type and raid-scale quests are raid but never taint their successors.
+// Raid-scale quests are raid but never taint their successors; raid-type quests
+// taint unless they complete on a non-raid instance.
 bool RandomItemMgr::IsRaidChainSource(Quest const* quest)
 {
     if (!quest)
         return false;
     if (CompletesOnRaidMap(quest))
         return true;
-    return IsRaidExclusiveItem(quest->GetSrcItemId());
+    if (IsRaidExclusiveItem(quest->GetSrcItemId()))
+        return true;
+    return quest->GetType() == QUEST_TYPE_RAID && !CompletesOnNonRaidInstance(quest);
 }
 
 // Quest-chain raid rule: a quest is raid when it is a direct raid quest, or
