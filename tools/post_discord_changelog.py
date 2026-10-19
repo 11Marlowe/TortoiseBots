@@ -77,6 +77,7 @@ def main():
     parser.add_argument("--thread-id", default="", help="Target Discord thread ID.")
     parser.add_argument("--username", default="TortoiseBots Releases", help="Webhook bot display name.")
     parser.add_argument("--avatar-url", default="", help="Optional bot avatar image URL.")
+    parser.add_argument("--changelog-thread-id", default="", help="With --short: link to this Discord changelog thread.")
     parser.add_argument("--short", action="store_true", help="Post a concise release announcement with link instead of full changelog dump.")
     args = parser.parse_args()
 
@@ -115,6 +116,9 @@ def main():
             f"**Download:** {release_url}",
             f"**Full changelog:** {changelog_url}",
         ]
+        if args.changelog_thread_id:
+            # A thread is a channel: <#id> renders as a link to it.
+            desc_parts.append(f"**What changed:** <#{args.changelog_thread_id}>")
         embed_desc = "\n".join(desc_parts)
 
         embed = {

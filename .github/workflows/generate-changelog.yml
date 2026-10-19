@@ -210,4 +210,5 @@ jobs:
             --tag "${{ steps.version.outputs.release_tag }}" \
             --thread-id "${{ vars.DISCORD_RELEASE_THREAD_ID || secrets.DISCORD_RELEASE_THREAD_ID || '1560007927828586586' }}" \
             --username "TortoiseBots Releases" \
+            --changelog-thread-id "${{ vars.DISCORD_CHANGELOG_THREAD_ID || secrets.DISCORD_CHANGELOG_THREAD_ID || '1559276000293158953' }}" \
             --short
