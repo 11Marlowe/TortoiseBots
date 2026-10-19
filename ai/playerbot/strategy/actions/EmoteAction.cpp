@@ -629,7 +629,9 @@ bool EmoteActionBase::ReceiveEmote(Player* requester, Player* source, uint32 emo
     if (source && !sServerFacade.isMoving(bot) && !sServerFacade.isInFront(bot, source, sPlayerbotAIConfig.farDistance, M_PI_F))
         sServerFacade.SetFacingTo(bot, source);
 
-    if (verbal)
+    // Issue #1108: the emote itself stays, the line the bot adds to it is
+    // flavour text in chat and follows AiPlayerbot.EnableBroadcasts.
+    if (verbal && sPlayerbotAIConfig.enableBroadcasts)
     {
         if (emoteText.size())
             bot->Say(emoteText, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));

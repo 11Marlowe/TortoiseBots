@@ -353,7 +353,7 @@ Volume is controlled by these knobs (all need a restart):
 
 | Setting | Default | What It Does |
 | :--- | :---: | :--- |
-| `AiPlayerbot.EnableBroadcasts` | `1` | Master switch. `0` disables all quest/loot/kill/level-up/suggest broadcasts. |
+| `AiPlayerbot.EnableBroadcasts` | `1` | Master switch for automated chat. `0` silences the quest/loot/kill/level-up/suggest broadcasts and every line a bot says on its own: `/say` and `/yell` chatter, guild and world channel messages, recruitment and invite lines, the flavour text of an emote, the scripted battleground callouts. Whispers, party and raid chat, the answer to a player who ordered the bot (`speak`, a reply to the bot's own master) and the TortoiseBotsManager addon protocol are not broadcasts and stay. |
 | `AiPlayerbot.BroadcastToWorldGlobalChance` / `BroadcastToGeneralGlobalChance` | `3000` | Main throttle on what reaches world/general chat (range `0`-`30000`). `0` re-routes most broadcasts away from that channel. |
 | `AiPlayerbot.BroadcastChance*` | varies | Per-event chance, e.g. `BroadcastChanceQuestAccepted`. `0` disables that one class. The toxic lines (`*Toxic*`) and the trade spam (`BroadcastChanceSuggestSell`, the "WTS"/"I am selling" lines pool bots hawk in say/yell/trade/general) default to `0`; the Thunderfury joke defaults to `1` — set `AiPlayerbot.BroadcastChanceSuggestThunderfury = 0` to silence it. |
 

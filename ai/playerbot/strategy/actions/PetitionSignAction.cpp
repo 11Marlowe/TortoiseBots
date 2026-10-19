@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "PetitionSignAction.h"
+#include "playerbot/PlayerbotAIConfig.h"
 #include "runtime/AltBotPolicy.h"
 #include "runtime/AltBotService.h"
 #include "../../../runtime/HireLifecycle.h"
@@ -88,7 +89,10 @@ bool PetitionSignAction::Execute(Event& event)
         WorldPacket data(CMSG_PETITION_SIGN, 20);
         data << petitionGuid << unk;
         bot->GetSession()->HandlePetitionSignOpcode(data);
-        bot->Say("Thanks for the invite!", LANG_UNIVERSAL);
+        // Issue #1108: the sign itself is functional, the "thanks" in /say is
+        // ambient chatter and follows AiPlayerbot.EnableBroadcasts.
+        if (sPlayerbotAIConfig.enableBroadcasts)
+            bot->Say("Thanks for the invite!", LANG_UNIVERSAL);
         sLog.outDetail("Bot #%d <%s> accepts guild invite", bot->GetGUIDLow(), bot->GetName());
         return true;
     }
