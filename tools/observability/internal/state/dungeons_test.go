@@ -143,3 +143,23 @@ func TestDungeonFirstSeenAndStaleModule(t *testing.T) {
 		t.Fatalf("stale module not reported: %+v", view)
 	}
 }
+
+// Each run is listed once in the served view, however many members it has
+// (two copies of one dungeon, a player and a bot in each).
+func TestDungeonsViewListsEachRunOnce(t *testing.T) {
+	s := newTestStore(newClock())
+	if ok := s.ApplyBatch(batch(1, 0, 1,
+		du(1, "PlayerA", true, 36, 102), du(2, "BotA", false, 36, 102),
+		du(3, "PlayerB", true, 36, 103), du(4, "BotB", false, 36, 103))); !ok {
+		t.Fatal("batch not published")
+	}
+	view := s.Dungeons()
+	if len(view.Runs) != 2 || view.Runs[0].Key != "36:102" || view.Runs[1].Key != "36:103" {
+		t.Fatalf("want runs 36:102 and 36:103 once each, got %+v", view.Runs)
+	}
+	for _, run := range view.Runs {
+		if run.Players != 1 || run.Bots != 1 || len(run.Members) != 2 {
+			t.Fatalf("run %s: players %d bots %d members %d", run.Key, run.Players, run.Bots, len(run.Members))
+		}
+	}
+}

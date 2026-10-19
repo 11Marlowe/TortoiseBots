@@ -165,7 +165,9 @@ func (s *Store) Dungeons() model.DungeonsView {
 		if entry.snap.Instance == nil {
 			staleModule = true
 		}
-		keys = append(keys, key)
+		if _, seen := grouped[key]; !seen {
+			keys = append(keys, key)
+		}
 		grouped[key] = append(grouped[key], entry.snap)
 	}
 	sort.Strings(keys)
