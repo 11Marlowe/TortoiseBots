@@ -83,6 +83,16 @@ int main()
         CHECK(cands[ranked[0]].itemId == 7011);
     }
 
+    // 4c. A novelty item that does nothing when worn is never taken.
+    {
+        EmptySlotCandidate toy = Item(7020, 10, 0, 1);
+        toy.hasEffect = false;
+        std::vector<EmptySlotCandidate> cands = { toy, Item(7021, 8, 5, 1) };
+        auto ranked = RankEmptySlotCandidates(Gates(10, 60), cands);
+        CHECK(ranked.size() == 1);
+        CHECK(cands[ranked[0]].itemId == 7021);
+    }
+
     // 5. A unique-equipped ring (game equip check refuses) is never taken.
     {
         EmptySlotCandidate ring = Item(7006, 20, 5, 2);
