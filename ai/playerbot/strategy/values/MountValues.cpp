@@ -9,7 +9,6 @@
 #include "Database/SQLStorages.h"
 #include "SharedDefines.h"
 #include "playerbot/RandomBotFacade.h"
-#include "playerbot/PlayerbotFactory.h"
 #include "../../../runtime/PlayerbotAIStorage.h"
 #include <memory>
 #include <unordered_map>
@@ -440,22 +439,6 @@ std::vector<MountValue> MountListValue::Calculate()
                 if (value.IsAllowedFor(bot))
                     mounts.push_back(value);
             }
-
-    // Existing pool bots that own only wrong mounts (or none) get their fitting
-    // racial mount on the first mount attempt.
-    if (mounts.empty() && sRandomBotFacade.IsRandomBot(bot) && bot->GetLevel() >= 18)
-    {
-        PlayerbotFactory factory(bot, bot->GetLevel());
-        factory.InitMounts();
-        for (PlayerSpellMap::iterator itr = bot->GetSpellMap().begin(); itr != bot->GetSpellMap().end(); ++itr)
-            if (itr->second.state != PLAYERSPELL_REMOVED && !itr->second.disabled && !IsPassiveSpell(itr->first))
-                if (MountValue::IsMountSpell(itr->first))
-                {
-                    MountValue value(itr->first);
-                    if (value.IsAllowedFor(bot))
-                        mounts.push_back(value);
-                }
-    }
 
     return mounts;
 }
