@@ -374,6 +374,10 @@ bool PartyMemberToHeal::Check(Unit* player)
     if (player->GetMapId() != bot->GetMapId())
         return false;
 
+    // A hidden GM is never a spell target (see PartyMemberValue::Check).
+    if (player->IsPlayer() && player->GetVisibility() == VISIBILITY_OFF)
+        return false;
+
     if (!player->IsInWorld())
         return false;
 
