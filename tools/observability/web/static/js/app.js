@@ -50,6 +50,10 @@
     serverInfo: null,
     // Remote-commander bindings reported by the module (COMMANDERS datagrams).
     commanders: { list: [], fresh: false, updatedAt: 0, freshAt: 0, reportedAt: 0, lost: false, externalUrl: '' },
+    // Live dungeon runs (issue #895) from /api/v1/dungeons: one per instance copy
+    // of a dungeon or raid with bots in it. byMember maps guid -> the run it is in
+    // (profile links); binds are the run cards in the shape the Commanders map draws.
+    dungeons: { runs: [], binds: [], byMember: new Map(), staleModule: false, at: 0, openKey: null },
     server: {
       online: false,
       stale: true,
@@ -752,6 +756,7 @@
     overview: { hash: 'overview', title: 'Overview' },
     roster: { hash: 'bots', title: 'Bots' },
     map: { hash: 'map', title: 'Map' },
+    dungeons: { hash: 'dungeons', title: 'Dungeons' },
     commanders: { hash: 'commanders', title: 'Commanders' },
     progress: { hash: 'progress', title: 'Progress' },
     activity: { hash: 'activity', title: 'Activity' },
@@ -780,7 +785,7 @@
     const [path, query] = window.location.hash.replace(/^#\/?/, '').split('?');
     const q = new URLSearchParams(query || '');
     const bot = parseInt(q.get('bot'), 10);
-    return { tab: HASH_TO_TAB[path] || null, bot: Number.isFinite(bot) ? bot : null, ptab: q.get('p'), demo: q.get('demo') === '1' };
+    return { tab: HASH_TO_TAB[path] || null, bot: Number.isFinite(bot) ? bot : null, ptab: q.get('p'), demo: q.get('demo') === '1', run: q.get('run') };
   }
 
   function routeHash(r) {
@@ -789,6 +794,7 @@
       q.set('bot', r.bot);
       if (r.ptab && r.ptab !== 'overview') q.set('p', r.ptab);
     }
+    if (r.run) q.set('run', r.run);
     const qs = q.toString();
     return `#/${TABS[r.tab].hash}${qs ? `?${qs}` : ''}`;
   }
@@ -796,8 +802,9 @@
   // Change the route: switching tab closes the profile unless a bot is given;
   // switching only the profile tab replaces the history entry.
   function go(partial, opts) {
-    const next = Object.assign({ tab: state.activeTab, bot: state.profileGuid, ptab: state.profileTab }, partial);
+    const next = Object.assign({ tab: state.activeTab, bot: state.profileGuid, ptab: state.profileTab, run: state.dungeons.openKey }, partial);
     if (partial.tab && !('bot' in partial)) next.bot = null;
+    if (partial.tab && !('run' in partial)) next.run = null;
     const hash = routeHash(next);
     if (opts && opts.replace) {
       history.replaceState(null, '', hash);
@@ -813,7 +820,10 @@
   function applyRoute() {
     const r = parseRoute();
     const tab = r.tab || state.activeTab;
+    const prevRunKey = state.dungeons.openKey;
+    state.dungeons.openKey = tab === 'dungeons' && r.run ? r.run : null;
     if (tab !== state.activeTab || !routeApplied) showTab(tab);
+    else if (tab === 'dungeons' && state.dungeons.openKey !== prevRunKey) renderDungeons();
     routeApplied = true;
     if (r.demo && tab === 'commanders') setCmdDemo(true, true); // #/commanders?demo=1
     if (r.bot !== null) {
@@ -838,6 +848,7 @@
     if (tab === 'overview') { renderOverviewCharts(); renderStates(); renderAttention(); }
     else if (tab === 'map') renderMap();
     else if (tab === 'commanders') renderCommanders();
+    else if (tab === 'dungeons') renderDungeons();
     else if (tab === 'roster') renderBotsTab();
     else if (tab === 'progress') renderProgress();
     else if (tab === 'activity') renderActivityTab();
@@ -869,6 +880,7 @@
     if (tab === 'auctions') fetchAuctions();
     if (tab === 'issues') fetchAnomalyTotals();
     if (tab === 'commanders') fetchCommanders();
+    if (tab === 'dungeons') fetchDungeons();
   }
 
   el.menuItems.forEach(item => item.addEventListener('click', closeNavDrawer));
@@ -1347,9 +1359,10 @@
     const bots = renderWorldPanel(mapId);
     const off = state.bots.filter(b => b.map !== 0 && b.map !== 1);
     if (el.worldOffmap) {
-      el.worldOffmap.textContent = off.length
-        ? `${off.length} in instances or other maps (see the Bots list).`
+      el.worldOffmap.innerHTML = off.length
+        ? `${off.length} in instances or other maps — the live ones on the <a href="#/dungeons">Dungeons</a> tab, the rest in the <a href="#/bots">Bots</a> list.`
         : '';
+      el.worldOffmap.classList.toggle('offmap-note', off.length > 0);
     }
     renderMapLegend(bots);
   }
@@ -3472,6 +3485,15 @@
   const kv = (label, value) => `<div class="kv-row"><span>${esc(label)}</span><span>${value}</span></div>`;
   const kvMono = (value) => `<span class="mono">${esc(value || '-')}</span>`;
 
+  // The character's dungeon run, when it is in one: a link to the run's live view on the Dungeons tab (issue #895).
+  function dgnRunLink(guid) {
+    const run = state.dungeons.byMember.get(guid);
+    if (!run) return '';
+    const labels = DgnView.copyLabels(state.dungeons.runs);
+    const label = dgnRunName(run) + (labels[run.key] ? ` · copy ${labels[run.key]}` : '');
+    return kv('Run', `<a class="card-link" href="#/dungeons?run=${encodeURIComponent(run.key)}" title="Open the run's live view">${esc(label)}</a>`);
+  }
+
   function renderProfileOverview() {
     const host = document.getElementById('armory-content-overview');
     if (!host || state.profileTab !== 'overview' || state.profileGuid === null) return;
@@ -3494,6 +3516,7 @@
           ${live.player ? '' : kv('Trigger', kvMono(live.last_trigger))}
           ${live.player ? '' : kv('Strategy', kvMono(live.strategy || 'default'))}
           ${live.pvp ? kv('PvP', pvpBadge(live)) : ''}
+          ${dgnRunLink(guid)}
           ${live.player ? '' : kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
         </div>
         <div class="kv-card">
@@ -4622,6 +4645,10 @@
 
         renderLive();
 
+        // The Dungeons view is a rollup of the roster; refresh it with each
+        // snapshot (the profile's run link and the world map's link read it too).
+        fetchDungeons();
+
         if (state.bots.length !== prevCount) {
           appendConsoleLog(time, 'roster', `Snapshot #${esc(state.snapshotSeq)}: ${state.bots.length} bots active.`);
         }
@@ -4714,7 +4741,13 @@
   const cmdDemo = { on: false, timer: null, start: 0, bind: null };
   const CMD_DEMO_MS = 2000; // the demo is stepped at the refresh rate when that is slower (see cmdDemoMs)
   const cmdDemoMs = () => Math.max(CMD_DEMO_MS, refreshGate.interval() * 1000);
-  const cmdAllBinds = () => (cmdDemo.on && cmdDemo.bind ? state.commanders.list.concat([cmdDemo.bind]) : state.commanders.list);
+  // A binding the page remembers: commanders (and the demo) plus, for the Dungeons tab (issue #895), one pseudo-binding per live
+  // dungeon run — the same card DOM and the same map renderer draw it (drawCmdMap reads cmdFindBind), only the header and the party
+  // rows are the Dungeons tab's own.
+  const cmdAllBinds = () => {
+    const commanders = cmdDemo.on && cmdDemo.bind ? state.commanders.list.concat([cmdDemo.bind]) : state.commanders.list;
+    return commanders.concat(state.dungeons.binds);
+  };
   const cmdFindBind = key => cmdAllBinds().find(b => b.commander === key);
   const cmdNowFor = bind => (bind && bind.demo ? Date.now() / 1000 : cmdServerNow());
 
@@ -5337,7 +5370,7 @@
     onMap.slice().sort((a, b) => (a.alive === false ? 0 : 1) - (b.alive === false ? 0 : 1)).forEach(b => {
       const p = CmdView.project(b.x, b.y), role = CmdView.roleKey(b), isLead = b === lead && on.lead, uid = 'b:' + (b.guid || b.name);
       units[uid] = { kind: 'b', obj: b };
-      g += `<g class="bot ${role}" data-u="${esc(uid)}"${CmdView.botHref(b.guid) ? ` data-guid="${esc(b.guid)}"` : ''}><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(12 * k)}"/>`
+      g += `<g class="bot ${role}${b.player ? ' player' : ''}" data-u="${esc(uid)}"${CmdView.botHref(b.guid) ? ` data-guid="${esc(b.guid)}"` : ''}><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(12 * k)}"/>`
         + (isLead ? `<circle class="leadring" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(11 * k)}"/>` : '')
         + (on.bots ? `<circle class="dot" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(6 * k)}"/>` : '')
         + (on.bots ? overlay(b, 'bot', p, (isLead ? 11 : 6) * k) : '')
@@ -5593,7 +5626,8 @@
         : 'The game server has not reported any commander yet (it sends them only while a binding stands).';
     }
 
-    const all = cmdAllBinds(), keys = all.map(b => b.commander);
+    // Only the commanders' cards live in #cmd-list; the Dungeons tab draws its own (the shared cmdCards map holds both).
+    const all = cmdAllBinds().filter(b => !b.dungeon), keys = all.map(b => b.commander);
     cmdCards.forEach((card, key) => { if (!keys.includes(key)) { card.remove(); cmdCards.delete(key); delete cmdMaps[key]; delete cmdAvail[key]; } });
     all.forEach((bind, i) => {
       const key = bind.commander, demo = !!bind.demo, nowSec = cmdNowFor(bind);
@@ -5625,6 +5659,163 @@
     });
     paintCmdLayers();
     showCommanderLink();
+  }
+
+  // ---- Dungeons (issue #895) -----------------------------------------------
+  // A read-only live view of every instance copy (dungeon or raid) that has bots in it, one run per copy (map + instance id), so two
+  // copies of the same dungeon are two runs. The daemon does the grouping (/api/v1/dungeons, internal/state/dungeons.go); the tab shows
+  // the list of runs, and a run's live view reuses the Commanders card and map renderer. No orders, no buttons that act on bots.
+
+  // A run as the card/map machinery expects it: a pseudo-binding whose bots are the run's members (bots and the real player, alive
+  // from the dead flag). `dungeon` marks it so the Commanders render never picks it up.
+  function dgnBind(run) {
+    return {
+      commander: 'dgn:' + run.key,
+      dungeon: true,
+      dgn: run,
+      online: true, group: 0, lead: '',
+      bots: (run.members || []).map(m => ({
+        name: m.name, guid: m.guid, player: m.player, class: m.class, role: m.role, level: m.level,
+        hp: m.hp, max_hp: m.max_hp, power: m.power, max_power: m.max_power, power_type: m.power_type,
+        map: m.map, zone: m.zone, x: m.x, y: m.y, z: m.z, o: m.o,
+        alive: !m.dead, state: m.state,
+      })),
+    };
+  }
+
+  // The run's name: the zone name of the members' zone if the client knows one for it (a dungeon is its own
+  // zone there), else any zone name recorded for the map, else "Map <id>".
+  function dgnRunName(run) {
+    const first = (run.members || [])[0];
+    const byZone = first ? ZONE_CONFIG[first.zone] : null;
+    if (byZone && byZone.name) return displayZoneName(byZone.name);
+    for (const key in ZONE_BOUNDS) {
+      const zb = ZONE_BOUNDS[key];
+      if (zb && Number(zb.map_id) === run.map && zb.name) return displayZoneName(zb.name);
+    }
+    return 'Map ' + run.map;
+  }
+
+  // The party list of a run: the real player(s) first and marked apart, bots with role colours and bars —
+  // a raid as compact subgroup blocks (5 per group), a party as one list. Same row look as a commander's party.
+  function dgnPartyHtml(run) {
+    const rows = DgnView.memberRows(run);
+    if (!rows.length) return '<div class="empty-hint">Nobody in this run.</div>';
+    const row = r => {
+      const bars = r.dead
+        ? '<span class="cmd-meter cmd-deadtxt">Dead</span><span class="cmd-meter"></span>'
+        : `<span class="cmd-meter">${cmdBarHtml(r.hp, r.hp < CmdView.LOW_HP_PCT && !r.dead ? 'low' : 'hp', 'Health ' + r.hpText)}</span>
+           <span class="cmd-meter">${r.hasPower ? cmdBarHtml(r.power, r.powerKind, r.powerKind + ' ' + r.powerText) : '<span class="muted">–</span>'}</span>`;
+      return `<div class="cmd-row ${r.dead ? 'dead' : ''}">
+        ${cmdIcon(r.role, r.roleLabel + (r.dead ? ' (dead)' : ''))}
+        <span class="cmd-who"><b>${cmdBotLink(r.guid, r.name)}</b>${r.player ? ' <span class="badge badge-info" title="A real player online in this run">player</span>' : ''} <span class="muted">${esc(r.cls)}${r.level ? ' · ' + esc(r.level) : ''}</span></span>
+        ${bars}<span class="cmd-dist">${esc(r.state)}</span></div>`;
+    };
+    return DgnView.memberGroups(rows).map(g =>
+      (g.label ? `<h4 class="dgn-subgroup">${esc(g.label)}</h4>` : '') + g.rows.map(row).join('')
+    ).join('');
+  }
+
+  function fetchDungeons() {
+    if (dungeonsInflight) return;
+    dungeonsInflight = true;
+    fetch('/api/v1/dungeons')
+      .then(jsonOrThrow)
+      .then(view => { if (view && Array.isArray(view.runs)) applyDungeons(view); })
+      .catch(() => {})
+      .finally(() => { dungeonsInflight = false; });
+  }
+  let dungeonsInflight = false;
+
+  function applyDungeons(view) {
+    // The same refresh-rate gate as every other live view: frozen while paused.
+    refreshGate.submit('dungeons', () => {
+      state.dungeons.runs = view.runs;
+      state.dungeons.staleModule = !!view.stale_module;
+      state.dungeons.at = Date.now();
+      state.dungeons.binds = view.runs.map(dgnBind);
+      state.dungeons.byMember = new Map();
+      view.runs.forEach(r => (r.members || []).forEach(m => {
+        if (!state.dungeons.byMember.has(m.guid)) state.dungeons.byMember.set(m.guid, r);
+      }));
+      cmdPruneAll();
+      if (state.activeTab === 'dungeons') renderDungeons();
+    });
+  }
+
+  // The tab: a run opened (#/dungeons?run=<key>) shows its card (map + party), otherwise the list of runs.
+  function renderDungeons() {
+    const listEl = document.getElementById('dgn-list'), viewEl = document.getElementById('dgn-view');
+    if (!listEl || !viewEl) return;
+    const runs = state.dungeons.runs;
+    const open = state.dungeons.openKey != null ? runs.find(r => r.key === state.dungeons.openKey) : null;
+    listEl.style.display = open ? 'none' : '';
+    viewEl.style.display = open ? '' : 'none';
+
+    const emptyEl = document.getElementById('dgn-empty');
+    if (emptyEl) emptyEl.style.display = runs.length || open ? 'none' : '';
+    const staleEl = document.getElementById('dgn-stale');
+    if (staleEl) staleEl.style.display = state.dungeons.staleModule ? '' : 'none';
+
+    // Back link of the open run; drawn before the card so the header is never empty.
+    const back = document.getElementById('dgn-back');
+    if (back) back.onclick = () => go({ tab: 'dungeons', run: null });
+
+    if (open) {
+      const labels = DgnView.copyLabels(runs);
+      const name = dgnRunName(open);
+      const stateWord = DgnView.runState(open);
+      document.getElementById('dgn-run-title').innerHTML =
+        `${esc(name)}${labels[open.key] ? ` &middot; <span class="cell-muted">copy ${labels[open.key]}</span>` : ''} &middot; <span class="cmd-state s-${esc(stateWord.replace(/\s+/g, '-'))}">${esc(stateWord)}</span>`;
+      setHtml(document.getElementById('dgn-run-sub'),
+        `${open.bots ? open.bots + ' bot' + (open.bots === 1 ? '' : 's') : ''}`
+        + `${open.players ? (open.bots ? ' · ' : '') + open.players + ' player' + (open.players === 1 ? '' : 's') : open.bots ? '' : 'no player'}`
+        + ` · seen ${esc(DgnView.seenText(open.seen_sec))}${state.dungeons.staleModule ? ' · <span title="The game server runs an older module that reports no instance id, so copies of one dungeon cannot be told apart">one run per map</span>' : ''}`);
+
+    // One shared card per run, rebuilt and drawn like a commander's; the cards of runs that are no longer open go away.
+    const key = 'dgn:' + open.key;
+    cmdCards.forEach((cardEl, k) => {
+      if (k.indexOf('dgn:') !== 0 || k === key) return;
+      cardEl.remove(); cmdCards.delete(k); delete cmdMaps[k]; delete cmdAvail[k];
+    });
+    let card = cmdCards.get(key);
+    if (!card) { card = newCmdCard(key); cmdCards.set(key, card); }
+    const host = document.getElementById('dgn-card');
+    if (!host.contains(card)) host.appendChild(card);
+    setHtml(card.querySelector('.cmd-title'), esc(name) + (labels[open.key] ? ` &middot; copy ${labels[open.key]}` : ''));
+    setHtml(card.querySelector('.cmd-badges'), `<span class="badge badge-info" title="Instance copy ${esc(String(open.instance))} of map ${esc(String(open.map))}">instance ${esc(String(open.instance))}</span>`);
+    setHtml(card.querySelector('.cmd-sub'), `Party of <b>${open.bots + open.players}</b>${open.dead ? ` &middot; ${open.dead} down` : ''}`);
+    card.querySelector('.cmd-orders').parentElement.querySelector('.cmd-h').style.display = 'none';
+    setHtml(card.querySelector('.cmd-orders'), '');
+    setHtml(card.querySelector('.cmd-party'), dgnPartyHtml(open));
+    drawCmdMap(key);
+    return;
+  }
+
+    // The list of runs.
+    const host = document.getElementById('dgn-list');
+    host.innerHTML = runs.length
+      ? '<table class="dgn-table"><thead><tr><th>Dungeon</th><th>Player</th><th>Bots</th><th>Down</th><th>State</th><th>Seen</th></tr></thead><tbody>'
+        + runs.map((r, i) => {
+          const labels = DgnView.copyLabels(runs);
+          const players = (r.members || []).filter(m => m.player).map(m => m.name);
+          return `<tr class="dgn-run-row" data-run="${esc(r.key)}" data-i="${i}" title="Open the live view of this run">
+            <td>${esc(dgnRunName(r))}${labels[r.key] ? ` <span class="cell-muted">copy ${labels[r.key]}</span>` : ''}</td>
+            <td>${players.length ? esc(players.join(', ')) : '<span class="cell-muted">no player</span>'}</td>
+            <td>${r.bots}</td>
+            <td>${r.dead || '–'}</td>
+            <td><span class="cmd-state s-${esc(DgnView.runState(r).replace(/\s+/g, '-'))}">${esc(DgnView.runState(r))}</span></td>
+            <td>${esc(DgnView.seenText(r.seen_sec))}</td>
+          </tr>`;
+        }).join('') + '</tbody></table>'
+      : '';
+    if (!host._wired) {
+      host._wired = true;
+      host.addEventListener('click', e => {
+        const row = e.target.closest && e.target.closest('.dgn-run-row');
+        if (row) go({ tab: 'dungeons', run: row.dataset.run });
+      });
+    }
   }
 
   // ---- the layers panel: one choice for all maps ----

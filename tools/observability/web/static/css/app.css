@@ -2836,6 +2836,9 @@ select.input {
 .cmd-map .bot.healer .dot { fill: var(--role-healer); }
 .cmd-map .bot.dps .dot { fill: var(--role-dps); }
 .cmd-map .bot.other .dot { fill: var(--role-other); }
+/* The real player in a dungeon run: same dot, gold ring, so it reads apart from the bots. */
+.cmd-map .bot.player .dot { stroke: #e2b719; stroke-width: 3; }
+.cmd-map .bot.player text { fill: #ffe9a8; }
 .cmd-map .bot.dead .dot { fill: var(--role-dead); stroke: rgba(255, 255, 255, 0.4); }
 .cmd-map .bot.dead text { fill: var(--text-dim); }
 .cmd-map .leadring { fill: none; stroke: #fff; stroke-width: 2; vector-effect: non-scaling-stroke; }
@@ -2854,6 +2857,17 @@ select.input {
 .cmd-empty { text-align: left; }
 .cmd-empty-title { font-size: 1rem; margin: 0 0 6px; }
 .cmd-empty .empty-hint { margin: 4px 0; }
+
+/* Dungeons tab (issue #895) */
+.dgn-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; margin-bottom: 16px; }
+.dgn-head h2 { margin: 0; font-size: 1.05rem; }
+#dgn-run-sub { width: 100%; }
+.dgn-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.dgn-table th { text-align: left; color: var(--text-dim); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; padding: 0 10px 6px 0; border-bottom: 1px solid var(--border-color); }
+.dgn-run-row { cursor: pointer; }
+.dgn-run-row td { padding: 7px 10px 7px 0; border-bottom: 1px solid var(--border-color); }
+.dgn-run-row:hover td { background: var(--bg-card-subtle); }
+.dgn-subgroup { margin: 10px 0 2px; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-dim); }
 .cmd-external summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
 .cmd-frame { width: 100%; height: 78vh; min-height: 480px; border: 1px solid var(--border-color); border-radius: var(--radius-sm); background: var(--bg-card-subtle); display: block; margin-top: 8px; }
 /* Commanders maps: the real game-map picture, the layers panel and the layers' own marks */

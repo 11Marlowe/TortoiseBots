@@ -1,0 +1,107 @@
+"use strict";
+// Dungeons tab: the pure logic of the live dungeon runs (issue #895), free of the page so a test can run it under node
+// (internal/commandersjs). A run is one instance copy (map + instance id) of a dungeon or raid with at least one bot in it; the daemon
+// does the grouping (internal/state/dungeons.go) and serves it at /api/v1/dungeons. app.js draws the list and the cards; this file
+// holds the wording and the party layout. Depends on commanders.js (CmdView) being loaded first.
+(function (root) {
+  // A run with more members than a party (a raid of 10+) is drawn as a compact subgroup list, not 40 full rows.
+  const RAID_MIN_MEMBERS = 11;
+  // Rows per subgroup block in a raid.
+  const RAID_GROUP_SIZE = 5;
+  const pct = (a, b) => (b > 0 ? Math.max(0, Math.min(100, (a / b) * 100)) : 0);
+  const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : "");
+  const pretty = (s) => cap(String(s || "").replace(/[_\-]+/g, " ").trim());
+
+  // tank | healer | dps | other, and dead for a unit that is down (the colour then is grey).
+  function roleKey(m) {
+    if (!m || m.dead || m.state === "dead") return "dead";
+    return m.role === "tank" || m.role === "healer" || m.role === "dps" ? m.role : "other";
+  }
+  function roleLabel(m) {
+    if (m && m.player) return "Player";
+    const r = m && m.role;
+    return r === "dps" ? "DPS" : r ? cap(r) : "Bot";
+  }
+
+  // The copy labels of a page of runs: two groups in one dungeon read "Ragefire Chasm · copy 1 / copy 2"
+  // (ordered by instance id, the order the daemon reports them in), a lone group reads by name alone.
+  // Returns run key -> copy number (1-based), or null when there is nothing to mark apart.
+  function copyLabels(runs) {
+    const byMap = new Map();
+    (runs || []).forEach((r) => {
+      const list = byMap.get(r.map) || [];
+      list.push(r);
+      byMap.set(r.map, list);
+    });
+    const out = {};
+    byMap.forEach((list) => {
+      if (list.length < 2) return;
+      list.slice()
+        .sort((a, b) => (a.instance || 0) - (b.instance || 0))
+        .forEach((r, i) => { out[r.key] = i + 1; });
+    });
+    return out;
+  }
+
+  // The short state of a run, worst first: someone dead > fighting > moving > busy > resting > idle.
+  function runState(run) {
+    const members = (run && run.members) || [];
+    const has = (s) => members.some((m) => m.state === s);
+    if (members.some((m) => m.dead || m.state === "dead")) return "someone dead";
+    if (has("combat")) return "fighting";
+    if (has("moving")) return "moving";
+    if (has("busy") || has("stalled")) return "busy";
+    if (has("resting")) return "resting";
+    return members.length ? "idle" : "";
+  }
+
+  // How long a run has been seen ("2 min", "1 h"): the same words as every other age on the page.
+  function seenText(sec) {
+    if (typeof CmdView === "undefined" || !CmdView.ageText) return sec == null ? "" : Math.round(sec) + " s";
+    return CmdView.ageText(sec);
+  }
+
+  // The party as rows: the real player(s) first (marked player), then by raid subgroup, then by name —
+  // the order the daemon reports and this tab repeats.
+  function memberRows(run) {
+    const rows = ((run && run.members) || []).map((m) => ({
+      name: m.name, guid: m.guid || 0, player: !!m.player, dead: !!m.dead,
+      role: roleKey(m), roleLabel: roleLabel(m), cls: pretty(m.class), level: m.level || 0,
+      hp: Math.round(pct(m.hp, m.max_hp)), hpText: m.hp + " / " + m.max_hp,
+      hasPower: m.max_power > 0, power: Math.round(pct(m.power, m.max_power)),
+      powerKind: m.power_type === "rage" || m.power_type === "energy" ? m.power_type : "mana",
+      powerText: m.power + " / " + m.max_power,
+      subgroup: m.subgroup || 0, state: m.state || "",
+    }));
+    rows.sort((a, b) => (a.player ? -1 : 0) - (b.player ? -1 : 0) || a.subgroup - b.subgroup || (a.name < b.name ? -1 : 1));
+    return rows;
+  }
+
+  // A raid (10+ members) reads as compact subgroup blocks (5 rows each, grouped by subgroup when the
+  // module reports it, else chunks of 5 in the order above); a party is one unlabelled group.
+  function memberGroups(rows) {
+    if (!rows || rows.length < RAID_MIN_MEMBERS) return [{ label: "", rows }];
+    const bySub = rows.some((r) => r.subgroup > 0);
+    const groups = [];
+    if (bySub) {
+      rows.forEach((r) => {
+        let g = groups.find((x) => x.subgroup === r.subgroup);
+        if (!g) { g = { label: "Group " + r.subgroup, subgroup: r.subgroup, rows: [] }; groups.push(g); }
+        g.rows.push(r);
+      });
+      groups.sort((a, b) => a.subgroup - b.subgroup);
+      return groups;
+    }
+    for (let i = 0; i < rows.length; i += RAID_GROUP_SIZE)
+      groups.push({ label: "Group " + (groups.length + 1), subgroup: 0, rows: rows.slice(i, i + RAID_GROUP_SIZE) });
+    return groups;
+  }
+
+  const DgnView = {
+    RAID_MIN_MEMBERS, RAID_GROUP_SIZE,
+    roleKey, roleLabel, copyLabels, runState, seenText, memberRows, memberGroups,
+  };
+
+  if (typeof module !== "undefined" && module.exports) module.exports = DgnView;
+  else root.DgnView = DgnView;
+})(this);

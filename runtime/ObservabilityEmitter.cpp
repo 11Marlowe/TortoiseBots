@@ -56,7 +56,7 @@ namespace {
 
 // Datagram schema version. The Go daemon ignores datagrams it cannot parse;
 // this is bumped when the wire format changes incompatibly.
-constexpr int kProtocolVersion = 11;
+constexpr int kProtocolVersion = 12;
 
 // Snapshot cadence and batching. Datagrams are kept well under the loopback
 // MTU so a large roster arrives as several unpredictable chunks; the receiver
@@ -448,6 +448,8 @@ void FillLiveUnitSnapshot(Player* unit, BotTelemetrySnapshot& snap)
         snap.targetLevel = static_cast<uint32>(target->GetLevel());
     Group* group = unit->GetGroup();
     snap.groupId = group ? group->GetId() : 0;
+    snap.subgroupId = unit->GetSubGroup();
+    snap.instanceId = unit->GetMap() ? unit->GetMap()->GetInstanceId() : 0;
     if (unit->InBattleGround())
     {
         snap.pvp = "bg";
@@ -1437,6 +1439,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"power_type\":\"" << EscapeJson(b.powerType) << "\""
                 << ",\"map\":" << b.mapId
                 << ",\"zone\":" << b.zoneId
+                << ",\"instance\":" << b.instanceId
+                << ",\"subgroup\":" << b.subgroupId
                 << ",\"x\":" << std::fixed << std::setprecision(1) << b.x
                 << ",\"y\":" << b.y
                 << ",\"z\":" << b.z
