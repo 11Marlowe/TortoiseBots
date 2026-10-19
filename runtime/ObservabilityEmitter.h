@@ -39,6 +39,13 @@ struct BotTelemetrySnapshot
     std::string powerType; // "mana", "rage", "energy", "focus", "happiness"
     uint32 mapId = 0;
     uint32 zoneId = 0;
+    // Instance copy the unit is in (Map::GetInstanceId(), issue #895): 0 in
+    // the open world, non-zero inside a dungeon, raid or battleground copy,
+    // so the dashboard can tell two copies of the same dungeon apart. The
+    // unit's raid subgroup (Player::GetSubGroup()) rides along for the
+    // Dungeons tab.
+    uint32 instanceId = 0;
+    uint32 subgroupId = 0;
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;

@@ -129,6 +129,12 @@ type Store struct {
 	// standing remote-commander bindings behind the Commanders tab.
 	commanders commandersState
 
+	// dungeonSeen is when the daemon first saw each dungeon run (dungeons.go,
+	// issue #895) in this game-server session: "how long the run has been
+	// seen". Pruned to the runs of the fresh roster on each publish and
+	// cleared on a session change, like the roster it derives from.
+	dungeonSeen map[string]time.Time
+
 	// Activity rollup fed by the BOT_EVENTS datagrams: per-bot counters plus
 	// the pool-wide loot/quest/level feeds. Cleared with the roster.
 	activity  map[uint32]*botActivityState
@@ -738,6 +744,7 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 		}
 	}
 	s.issues.Observe(bots, now)
+	s.noteDungeonsLocked(bots, now)
 }
 
 // trailJump reports whether a bot moved farther between two snapshots than walking or riding explains (a summon, a teleport, a spirit
@@ -862,6 +869,7 @@ func (s *Store) beginSessionLocked(session uint64) {
 	s.issues.Reset()
 	s.issues.NoteSessionChange(s.now())
 	s.history = nil
+	s.dungeonSeen = make(map[string]time.Time)
 }
 
 // BackfillActivityFromDB merges authoritative lifetime quest completions,
