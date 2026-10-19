@@ -27,6 +27,8 @@ namespace ai
         bool equippable = false;            // RandomBotFacade::CanEquipUnseenItem == EQUIP_ERR_OK
     };
 
+    constexpr uint32_t kItemLevelWindow = 10;
+
     struct EmptySlotGates
     {
         uint32_t botLevel = 0;
@@ -38,8 +40,12 @@ namespace ai
     // True when the candidate passes every hard gate for an empty slot.
     inline bool EmptySlotAccepts(EmptySlotGates const& g, EmptySlotCandidate const& c)
     {
+        // Item level may sit at most kItemLevelWindow above the bot's level:
+        // many rings/necks/trinkets require level 1-5 yet carry item level 30+,
+        // and the ranking below would otherwise hand them to a fresh bot.
         return c.requiredLevel <= g.botLevel
             && c.itemLevel <= g.maxItemLevel
+            && c.itemLevel <= g.botLevel + kItemLevelWindow
             && c.quality >= g.minQuality
             && c.quality <= g.maxQuality
             && c.passesProvenance

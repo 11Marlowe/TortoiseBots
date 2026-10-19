@@ -74,6 +74,15 @@ int main()
         CHECK(RankEmptySlotCandidates(Gates(10, 60), cands).empty());
     }
 
+    // 4b. A level-1 bot never gets a low-requirement but high item-level ring
+    // (required level 1, item level 35); one inside the window is taken.
+    {
+        std::vector<EmptySlotCandidate> cands = { Item(7010, 35, 1, 2), Item(7011, 11, 1, 1) };
+        auto ranked = RankEmptySlotCandidates(Gates(1, 300), cands);
+        CHECK(ranked.size() == 1);
+        CHECK(cands[ranked[0]].itemId == 7011);
+    }
+
     // 5. A unique-equipped ring (game equip check refuses) is never taken.
     {
         EmptySlotCandidate ring = Item(7006, 20, 5, 2);
@@ -107,14 +116,14 @@ int main()
             Item(7011, 30, 5, 3),   // same ilvl, higher quality: wins
             Item(7012, 25, 5, 3),
         };
-        auto ranked = RankEmptySlotCandidates(Gates(10, 60), cands);
+        auto ranked = RankEmptySlotCandidates(Gates(25, 60), cands);
         CHECK(ranked.size() == 3);
         CHECK(cands[ranked[0]].itemId == 7011);
         CHECK(cands[ranked[1]].itemId == 7010);
         CHECK(cands[ranked[2]].itemId == 7012);
 
         std::vector<EmptySlotCandidate> reversed(cands.rbegin(), cands.rend());
-        auto rankedRev = RankEmptySlotCandidates(Gates(10, 60), reversed);
+        auto rankedRev = RankEmptySlotCandidates(Gates(25, 60), reversed);
         CHECK(rankedRev.size() == 3);
         CHECK(reversed[rankedRev[0]].itemId == 7011);
     }
