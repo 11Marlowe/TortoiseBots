@@ -2621,7 +2621,58 @@ ItemSourceTier RandomItemMgr::RecipeLootTier(uint32 recipeItemId)
 }
 
 
-bool RandomItemMgr::IsRaidQuest(Quest const* quest)
+// Raid-exclusive item: raid-sourced, with raid loot as its only source. A
+// shared drop (materials, or a raid item also sold, crafted or rewarded by a
+// non-raid quest) is not exclusive, so it never taints a quest chain.
+bool RandomItemMgr::IsRaidExclusiveItem(uint32 itemId)
+{
+    if (!itemId || !IsRaidSourcedItem(itemId))
+        return false;
+    auto memo = raidExclusiveMemo.find(itemId);
+    if (memo != raidExclusiveMemo.end())
+        return memo->second;
+    // Cycle guard: a reward quest's own start item re-enters this function.
+    raidExclusiveMemo[itemId] = false;
+    if (!sourceTierIndexed)
+        BuildSourceTierIndex();
+    bool exclusive = true;
+    auto loot = itemLootTier.find(itemId);
+    if (loot == itemLootTier.end() || loot->second != ITEM_SOURCE_TIER_RAID)
+        exclusive = false;
+    else if (recipeTier.find(itemId) != recipeTier.end())
+        exclusive = false;
+    else if (!GAI_VALUE2(std::list<int32>, "item vendor list", itemId).empty())
+        exclusive = false;
+    else
+    {
+        for (uint32 questId : GetQuestIdsForItem(itemId))
+        {
+            if (!IsDirectRaidQuest(sObjectMgr.GetQuestTemplate(questId)))
+            {
+                exclusive = false;
+                break;
+            }
+        }
+    }
+    raidExclusiveMemo[itemId] = exclusive;
+    return exclusive;
+}
+
+// Raid map completion: ZoneOrSort > 0 is an area id whose map is the
+// raid; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
+static bool CompletesOnRaidMap(Quest const* quest)
+{
+    int32 zoneOrSort = quest->GetZoneOrSort();
+    if (zoneOrSort <= 0)
+        return false;
+    AreaEntry const* area = AreaEntry::GetById((uint32)zoneOrSort);
+    if (!area)
+        return false;
+    MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(area->MapId);
+    return mapEntry && mapEntry->IsRaid();
+}
+
+bool RandomItemMgr::IsDirectRaidQuest(Quest const* quest)
 {
     if (!quest)
         return false;
@@ -2631,22 +2682,52 @@ bool RandomItemMgr::IsRaidQuest(Quest const* quest)
     // Raid-scale group content.
     if (quest->GetSuggestedPlayers() > 5)
         return true;
-    // Raid map completion: ZoneOrSort > 0 is an area id whose map is the
-    // raid; negative ZoneOrSort is a QuestSort.dbc sort id, not a map.
-    int32 zoneOrSort = quest->GetZoneOrSort();
-    if (zoneOrSort > 0)
+    // Raid map completion (see CompletesOnRaidMap).
+    if (CompletesOnRaidMap(quest))
+        return true;
+    // Quest started by a raid-exclusive item (item_template.start_quest).
+    if (IsRaidExclusiveItem(quest->GetSrcItemId()))
+        return true;
+    return false;
+}
+
+// Chain source: a quest whose raid status spreads to the quests after it.
+// Raid type and raid-scale quests are raid but never taint their successors.
+bool RandomItemMgr::IsRaidChainSource(Quest const* quest)
+{
+    if (!quest)
+        return false;
+    if (CompletesOnRaidMap(quest))
+        return true;
+    return IsRaidExclusiveItem(quest->GetSrcItemId());
+}
+
+// Quest-chain raid rule: a quest is raid when it is a direct raid quest, or
+// when an earlier quest in its chain is a chain source. Chain links are indexed once.
+bool RandomItemMgr::IsRaidQuest(Quest const* quest)
+{
+    if (!quest)
+        return false;
+    return TortoiseBots::ReachesRaidQuest(quest->GetQuestId(),
+        [this](uint32 questId) { return IsDirectRaidQuest(sObjectMgr.GetQuestTemplate(questId)); },
+        [this](uint32 questId) { return IsRaidChainSource(sObjectMgr.GetQuestTemplate(questId)); },
+        GetQuestPredecessors());
+}
+
+TortoiseBots::QuestPredecessors const& RandomItemMgr::GetQuestPredecessors()
+{
+    // Quest templates never change after load, so the chain links are indexed once.
+    if (!questPredecessorsIndexed)
     {
-        AreaEntry const* area = AreaEntry::GetById((uint32)zoneOrSort);
-        if (area)
+        questPredecessorsIndexed = true;
+        for (auto const& entry : sObjectMgr.GetQuestTemplates())
         {
-            if (MapEntry const* mapEntry = sMapStorage.LookupEntry<MapEntry>(area->MapId))
-            {
-                if (mapEntry->IsRaid())
-                    return true;
-            }
+            Quest const* quest = entry.second.get();
+            TortoiseBots::RecordQuestChainLinks(questPredecessorsMemo, quest->GetQuestId(),
+                quest->GetPrevQuestId(), quest->GetNextQuestId(), quest->GetNextQuestInChain());
         }
     }
-    return false;
+    return questPredecessorsMemo;
 }
 
 bool RandomItemMgr::IsRaidQuestItem(uint32 itemId)

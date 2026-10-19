@@ -11,6 +11,7 @@
 #include "Objects/Player.h"
 #endif
 #include "strategy/values/ItemUsageValue.h"
+#include "RaidQuestChainPolicy.h"
 
 enum RandomItemType
 {
@@ -249,10 +250,9 @@ class RandomItemMgr
         // (BuildRaidSourceIndex), never a per-item scan: the seed gate calls it
         // once per candidate.
         bool IsRaidSourcedItem(uint32 itemId);
-        // IsRaidQuestItem: true when any quest rewarding the item is a raid
-        // quest (Type 62) or gated behind a raid map / raid-scale group
-        // (SuggestedPlayers > 5). ZoneOrSort sign convention: positive =
-        // area id, negative = QuestSort.dbc sort id.
+        // IsRaidQuestItem: true when any quest rewarding the item is raid
+        // (see IsRaidQuest). ZoneOrSort sign convention: positive = area id,
+        // negative = QuestSort.dbc sort id.
         bool IsRaidQuestItem(uint32 itemId);
         std::vector<uint32> GetQuestIdsForItem(uint32 itemId);
         uint32 GetQuestIdForItem(uint32 itemId);
@@ -320,13 +320,17 @@ class RandomItemMgr
         bool botEnchantsLoaded = false;
         std::vector<BotEnchantCandidate> botEnchantCandidates;
         // Fresh-seed gate state: one-time raid provenance index (see
-        // IsRaidSourcedItem) and the memoized quest reverse-lookup
-        // (GetQuestIdsForItem). Both filled lazily, valid for the process
+        // IsRaidSourcedItem), the memoized quest reverse-lookup
+        // (GetQuestIdsForItem) and the quest chain predecessor index
+        // (GetQuestPredecessors). All filled lazily, valid for the process
         // lifetime — quest and loot data never change after load.
         void BuildRaidSourceIndex();
         bool raidSourceIndexed = false;
         std::set<uint32> raidSourceItems;
         std::map<uint32, std::vector<uint32> > questIdsMemo;
+        TortoiseBots::QuestPredecessors const& GetQuestPredecessors();
+        TortoiseBots::QuestPredecessors questPredecessorsMemo;
+        bool questPredecessorsIndexed = false;
         // Source-tier index (owner gear rules): loot→spawn→map minima.
         // Built once per process inside BuildItemInfoCache; valid for the
         // process lifetime like the raid index above.
@@ -363,8 +367,20 @@ class RandomItemMgr
         ItemSourceTier RecipeLootTier(uint32 recipeItemId);
         // Per-item owner-rule classification into the caller's ItemInfoEntry.
         void ClassifySourceTier(ItemPrototype const* proto, ItemInfoEntry* cacheInfo);
-        // Raid-quest predicate shared by IsRaidQuestItem and the tier walk.
+        // Chain-aware raid-quest predicate: the quest is a direct raid quest,
+        // or an earlier quest in its chain is a chain source. Shared by
+        // IsRaidQuestItem and the tier walk.
+        // Chain source: raid map or raid-exclusive start item. Taints successors;
+        // raid-type and raid-scale quests do not.
+        bool IsRaidChainSource(Quest const* quest);
         bool IsRaidQuest(Quest const* quest);
+        // Direct raid rules: raid quest type, raid map, raid-scale group, or a
+        // raid-exclusive start item.
+        bool IsDirectRaidQuest(Quest const* quest);
+        // Raid-exclusive item (quest start items): raid-sourced with raid loot
+        // as its only source. Memoized in raidExclusiveMemo.
+        bool IsRaidExclusiveItem(uint32 itemId);
+        std::map<uint32, bool> raidExclusiveMemo;
         // True when the epic has a direct world-map (0/1) creature-loot row.
         bool IsWorldDropEpic(uint32 itemId);
 };

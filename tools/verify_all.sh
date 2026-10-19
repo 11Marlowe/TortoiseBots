@@ -205,6 +205,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_quest_taker_level_policy
         test_queued_order_policy
         test_raid_framework_policy
+        test_raid_quest_chain_policy
         test_raid_tank_role_policy
         test_ranged_approach_policy
         test_razorgore_policy
