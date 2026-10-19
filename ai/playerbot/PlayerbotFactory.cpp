@@ -25,6 +25,7 @@
 
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/MountValues.h"
+#include "playerbot/MountShopPolicy.h"
 
 using namespace ai;
 
@@ -3381,79 +3382,48 @@ void PlayerbotFactory::InitMounts()
     if (bot->GetLevel() < firstmount)
         return;
 
+    // Ensure riding skill if missing: riding 75 at 40, riding 150 at 60.
+    if (bot->GetLevel() >= secondmount && bot->GetSkillValue(SKILL_RIDING) < 150)
+        bot->SetSkill(SKILL_RIDING, 150, 150);
+    else if (bot->GetLevel() >= firstmount && bot->GetSkillValue(SKILL_RIDING) < 75)
+        bot->SetSkill(SKILL_RIDING, 75, 75);
+
     std::map<uint8, std::map<uint32, std::vector<uint32> > > mounts;
     std::vector<uint32> slow, fast;
-    switch (bot->GetRace())
+
+    // Strict own-race racial vendor mounts (100%, no cross-race chance)
+    for (uint32 itemId : MountShopPolicy::GetRacialMounts(bot->GetRace(), MountShopPolicy::MountTier::Normal))
     {
-    case RACE_HUMAN:
-        slow = { 470, 6648, 458, 472 };
-        fast = { 23228, 23227, 23229 };
-        break;
-    case RACE_ORC:
-        slow = { 6654, 6653, 580 };
-        fast = { 23250, 23252, 23251 };
-        break;
-    case RACE_DWARF:
-        slow = { 6899, 6777, 6898 };
-        fast = { 23238, 23239, 23240 };
-        break;
-    case RACE_NIGHTELF:
-        slow = { 10789, 8394, 10793 };
-        fast = { 23221, 23219, 23338 };
-        break;
-    case RACE_UNDEAD:
-        slow = { 17463, 17464, 17462 };
-        fast = { 17465, 23246 };
-        break;
-    case RACE_TAUREN:
-        slow = { 18990, 18989 };
-        fast = { 23249, 23248, 23247 };
-        break;
-    case RACE_GNOME:
-        slow = { 10969, 17453, 10873, 17454 };
-        fast = { 23225, 23223, 23222 };
-        break;
-    case RACE_TROLL:
-        slow = { 8395, 10796, 10799 };
-        fast = { 23241, 23242, 23243 };
-        break;
-    default:
-        // Tortoise/custom races do not have a safe racial spell list in this
-        // donor-era switch. Leave the lists empty and rely only on the
-        // authoritative collection_mount rows below, whose item class/race
-        // masks are checked against the actual core character data.
-        sLog.outDetail("Bot %d (%u) has no donor racial mount list; using core collection mounts only.",
-            bot->GetGUIDLow(), bot->GetRace());
-        break;
+        if (uint32 spellId = MountValue::GetMountSpell(itemId))
+            slow.push_back(spellId);
+    }
+    for (uint32 itemId : MountShopPolicy::GetRacialMounts(bot->GetRace(), MountShopPolicy::MountTier::Epic))
+    {
+        if (uint32 spellId = MountValue::GetMountSpell(itemId))
+            fast.push_back(spellId);
     }
 
-    // Tortoise collection mounts are represented by a generic item spell and a
-    // core-owned collection_mount mapping. Include eligible mapped spells in
-    // the factory pool so randomized characters do not lose custom mounts
-    // merely because their item has no classic per-item mount spell. Factory
-    // initialization intentionally teaches the mapped spell, matching the
-    // existing classic factory mount path; real item use remains owned by the
-    // core collection spell script.
-    for (auto const& [itemId, spellId] : CollectionMounts())
+    if (sPlayerbotAIConfig.randomBotShopMounts)
     {
-        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-        SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
+        for (auto const& [itemId, spellId] : CollectionMounts())
+        {
+            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+            SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
 
-        if (!proto || !spellInfo || MountValue::GetSpeed(spellId) == 0)
-            continue;
-        if (proto->RequiredLevel > bot->GetLevel())
-            continue;
-        if (!MountValue(proto).IsAllowedFor(bot))
-            continue;
-        if (proto->AllowableClass && (proto->AllowableClass & bot->GetClassMask()) == 0)
-            continue;
-        if (proto->AllowableRace && (proto->AllowableRace & bot->GetRaceMask()) == 0)
-            continue;
+            if (!proto || !spellInfo || MountValue::GetSpeed(spellId) == 0)
+                continue;
+            if (proto->RequiredLevel > bot->GetLevel())
+                continue;
+            if (proto->AllowableClass && (proto->AllowableClass & bot->GetClassMask()) == 0)
+                continue;
+            if (proto->AllowableRace && (proto->AllowableRace & bot->GetRaceMask()) == 0)
+                continue;
 
-        if (MountValue::GetSpeed(spellId) >= 100)
-            fast.push_back(spellId);
-        else
-            slow.push_back(spellId);
+            if (MountValue::GetSpeed(spellId) >= 100)
+                fast.push_back(spellId);
+            else
+                slow.push_back(spellId);
+        }
     }
 
     mounts[bot->GetRace()][0] = slow;

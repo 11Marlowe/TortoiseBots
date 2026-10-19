@@ -239,19 +239,38 @@ namespace
         return items;
     }
 
-    // Same random-bot definition as the factory's grant gate: a pool bot
-    // with no real player master and no real guild.
-    bool IsRandomPoolBot(Player* bot)
+    // Random pool bots and hired companions are gated. Player alts
+    // (record.random = false) are never gated.
+    bool IsRacialMountGated(Player* bot)
     {
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
-        return ai && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() && !ai->IsInRealGuild();
+        return ai && sRandomBotFacade.IsRandomBot(bot);
     }
+}
+
+uint32 MountValue::GetMountItem(uint32 spellId)
+{
+    auto itr = CollectionItemBySpell().find(spellId);
+    if (itr != CollectionItemBySpell().end())
+        return itr->second;
+    return 0;
+}
+
+uint32 MountValue::GetItemId() const
+{
+    if (proto)
+        return proto->ItemId;
+    return GetMountItem(spellId);
 }
 
 bool MountValue::IsAllowedFor(Player* bot) const
 {
-    // Player alts and non-pool bots keep every mount.
-    if (!IsRandomPoolBot(bot) || sPlayerbotAIConfig.randomBotShopMounts)
+    // Player alts and non-gated bots keep every mount.
+    if (!IsRacialMountGated(bot) || sPlayerbotAIConfig.randomBotShopMounts)
+        return true;
+
+    // Swift Riding Turtle (spell 30174) stays for 18-39 and as fallback.
+    if (spellId == MountShopPolicy::TurtleMountSpell)
         return true;
 
     ItemPrototype const* itemProto = proto;
@@ -269,11 +288,8 @@ bool MountValue::IsAllowedFor(Player* bot) const
     if (LootMountItems().count(itemProto->ItemId))
         return false;
 
-    bool shop = MountShopPolicy::IsShopMount(spellId, itemProto->AllowableRace, itemProto->AllowableClass,
-        RACEMASK_ALL_PLAYABLE, CLASSMASK_ALL_PLAYABLE);
-    bool fits = MountShopPolicy::FitsBot(itemProto->AllowableRace, itemProto->AllowableClass,
-        bot->GetRaceMask(), bot->GetClassMask());
-    return MountShopPolicy::IsMountAllowed(false, shop, fits);
+    // Strict own-race racial vendor mount check
+    return MountShopPolicy::IsRacialMountAllowed(bot->GetRace(), bot->GetLevel(), itemProto->ItemId);
 }
 
 bool MountValue::IsValidLocation(Player* bot)

@@ -1170,6 +1170,8 @@ void BotManager::OnPlayerLogin(::Player* player)
     {
         PlayerbotFactory tools(player, player->GetLevel());
         tools.AddTools();
+        if (player->GetLevel() >= 18)
+            tools.InitMounts();
         // Issue #401 backstop for the live pool: free bots created before the
         // starter set get it on login, not only at creation. Hired companions
         // and owned alts are never touched: their kit is the player's business

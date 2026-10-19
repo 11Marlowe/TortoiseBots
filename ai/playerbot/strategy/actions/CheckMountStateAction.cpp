@@ -1,5 +1,6 @@
 
 #include "playerbot/MountDismountPolicy.h"
+#include "playerbot/MountShopPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/playerbot.h"
 #include "CheckMountStateAction.h"
@@ -450,6 +451,7 @@ float CheckMountStateAction::MountBreakEvenDistance() const
     std::vector<MountValue> mounts = AI_VALUE(std::vector<MountValue>, "mount list");
     uint32 bestSpeed = 0;
     uint32 bestSpell = 0;
+    int bestPreference = -1;
     for (auto& mount : mounts)
     {
         if (!mount.IsValidLocation(bot))
@@ -459,10 +461,12 @@ float CheckMountStateAction::MountBreakEvenDistance() const
         if (!mount.IsItem() && !ai->HasSpell(mount.GetSpellId()))
             continue;
         uint32 speed = mount.GetSpeedFor(bot, riderSpeed);
-        if (speed > bestSpeed)
+        int pref = MountShopPolicy::GetMountPreference(bot->GetRace(), bot->GetLevel(), mount.GetItemId(), mount.GetSpellId());
+        if (speed > bestSpeed || (speed == bestSpeed && pref > bestPreference))
         {
             bestSpeed = speed;
             bestSpell = mount.GetSpellId();
+            bestPreference = pref;
         }
     }
     if (!bestSpeed)
@@ -530,12 +534,18 @@ bool CheckMountStateAction::Mount(Player* requester, bool limitSpeedToGroup)
     // would put every bot on the same mount). std::sort is not stable, so
     // the tie-break is explicit and deterministic.
     uint32 const sortGuid = bot->GetGUIDLow();
-    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed, sortGuid](MountValue i, MountValue j)
+    uint8 const botRace = bot->GetRace();
+    uint8 const botLevel = bot->GetLevel();
+    std::sort(mountList.begin(), mountList.end(), [sortBot, riderSpeed, sortGuid, botRace, botLevel](MountValue const& i, MountValue const& j)
         {
             uint32 const si = i.GetSpeedFor(sortBot, riderSpeed);
             uint32 const sj = j.GetSpeedFor(sortBot, riderSpeed);
             if (si != sj)
                 return si > sj;
+            int const pi = MountShopPolicy::GetMountPreference(botRace, botLevel, i.GetItemId(), i.GetSpellId());
+            int const pj = MountShopPolicy::GetMountPreference(botRace, botLevel, j.GetItemId(), j.GetSpellId());
+            if (pi != pj)
+                return pi > pj;
             return ai::StableMountTieBreak(sortGuid, i.GetSpellId()) < ai::StableMountTieBreak(sortGuid, j.GetSpellId());
         });
     for (auto& mount : mountList)
