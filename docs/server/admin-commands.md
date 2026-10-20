@@ -38,7 +38,7 @@ Commands in this section require GameMaster privileges or direct execution throu
 
 These commands manage the autonomous world population and account registration. For complete pool lifecycle procedures, see [Resetting the Managed Bot Pool](bot-pool.md).
 
-Pool population refill is automatic via `RandomBotService` up to the minimum configured in [World Population Settings](settings/world-population.md#aiplayerbotminrandombots--maxrandombots). Pool reset modes are configured at startup via `AiPlayerbot.RandomBotPoolReset` (see [World Population Settings](settings/world-population.md#aiplayerbotrandombotpoolreset)); there is no live `.bot pool clean`, `.bot pool init`, or `.bot pool reset` command.
+Pool population refill is automatic via `RandomBotService` (bounded auto-create toward the configured target, gated by `RandomBotAutoCreate`) up to the minimum configured in [World Population Settings](settings/world-population.md#aiplayerbotminrandombots--maxrandombots). Pool reset modes are configured at startup via `AiPlayerbot.RandomBotPoolReset` (see [World Population Settings](settings/world-population.md#aiplayerbotrandombotpoolreset)); there is no live `.bot pool` reset subcommand.
 
 ### `.bot pool status`
 
@@ -48,7 +48,7 @@ Displays the health, account counts, and reset state of the managed bot pool.
 .bot pool status
 ```
 
-Reports configured reset mode, requested generation token (when configured for a one-time reset), applied generation, managed account total (and whether validated), managed character total, current reset phase, reset progress (auctions settled or characters deleted), pool availability, and the last failure reason if a reset halted.
+Reports configured reset mode, requested generation token (when configured for a one-time reset), applied generation, managed account total (and whether validated), managed character total, current reset phase, reset progress (settled auctions or deleted characters), pool availability, and the last failure reason if a reset halted.
 
 ### `.bot pool accounts`
 
@@ -58,7 +58,7 @@ Lists every managed pool account registered in the bot manager.
 .bot pool accounts
 ```
 
-**Server console only.** Outputs each managed account ID, account name, registration source, and the number of characters currently residing on that account.
+**Server console only.** Outputs each managed pool account ID, account name, registration source, and the number of characters currently residing on that account.
 
 ### `.bot pool adopt preview`
 
@@ -68,7 +68,7 @@ Scans the character database for pre-existing accounts matching the configured b
 .bot pool adopt preview
 ```
 
-**Server console only.** Read-only. Displays matching unmanaged accounts and character counts, then generates a confirmation token challenge for adoption valid for 5 minutes.
+**Server console only.** Read-only. Displays matching unmanaged accounts and character counts, then generates a confirmation token challenge (valid for 5 minutes).
 
 ### `.bot pool adopt confirm`
 
@@ -86,7 +86,7 @@ Enrolls previewed unmanaged bot accounts into the managed pool registry.
 
 These commands monitor and control the synthetic auction house buyer and seller engines. All `.bot ah` commands are also accessible through the `.ahbot` alias.
 
-Buyer participation and synthetic supply generation are configured in [Economy Settings](settings/economy.md#aiplayerbotahmarketbuyer) (`AiPlayerbot.AhMarketBuyer` and `AiPlayerbot.AhMarketSyntheticSupply`); there are no live `.bot ah buyer`, `.bot ah synthetic`, or `.bot ah reset` toggle commands.
+Buyer participation and synthetic supply generation are configured in [Economy Settings](settings/economy.md#aiplayerbotahmarketbuyer) (`AiPlayerbot.AhMarketBuyer` and `AiPlayerbot.AhMarketSyntheticSupply`); there is no live `.bot ah buyer`, `.bot ah synthetic`, or `.bot ah reset` toggle subcommand.
 
 ### `.bot ah status`
 
@@ -96,7 +96,7 @@ Displays real-time operational metrics for the synthetic auction house.
 .bot ah status
 ```
 
-Shows active listing totals, seller inventory size, market price evaluations, buyer bidding activity, and transaction telemetry.
+Shows the engine status line: phase, synthetic auction counts, stock size, override count, slice timings, and cumulative listed/bought/expired/protected-bid telemetry.
 
 ### `.bot ah reload`
 
@@ -116,7 +116,7 @@ Forces an immediate market evaluation and restocking pass.
 .bot ah rebuild [all]
 ```
 
-Without arguments, evaluates current market deficits and posts missing supply. Passing `all` expires all active unbid synthetic listings to completely refresh the auction house stock.
+Without arguments, marks a market rebuild pass pending. Passing `all` expires all active unbid synthetic listings to completely refresh the auction house stock.
 
 ### `.bot ah item`
 
@@ -129,9 +129,9 @@ Inspects, resets, or overrides custom pricing and posting rules for a specific i
 ```
 
 - `<id>`: Reports blacklist status only for that item ID.
-- `<id> reset`: Removes custom overrides and restores formula pricing.
+- `<id> reset`: Removes the custom override row for that item ID (restores baseline pricing and posting eligibility).
 - `<id> <value> [chance] [min] [max]`: Sets custom price in copper, posting chance percentage, and stack size bounds.
-- **Blacklisting:** Setting `<value>` to `0` or `[chance]` to `0` (e.g. `.bot ah item 1234 0 0`) blacklists the item, preventing it from ever being posted by the synthetic seller.
+- **Blacklisting:** An override row with `<value>` `0` or `[chance]` `0` (for example `.bot ah item 1234 0 0`) marks the item blacklisted, preventing it from being posted by the synthetic seller.
 
 ### `.ahbot`
 
@@ -163,11 +163,11 @@ Available to GameMasters and the server console. Core `.reload config` reloads c
 
 GameMasters can inspect bot internals, alter combat state, and adjust debug logging using whisper commands (`/w <BotName> <command>`) or the console command proxy (`.bot command <BotName> <command>`). These commands are strictly restricted to GameMaster accounts:
 
-- `cheat`: Toggles bot cheats such as immunity, mana bypass, or cooldown overrides.
-- `debug` / `cdebug` / `cs`: Displays combat engine state, active strategies, and action priority evaluations.
-- `log`: Adjusts live logging verbosity for an individual bot session.
-- `set value <variable> <value>`: Modifies runtime AI memory blackboard variables.
-- `teleport`: Teleports a bot directly to specified map coordinates.
-- `load ai <profile>` / `save ai <profile>`: Loads or saves strategy presets to and from the `ai_playerbot_db_store` database table.
-- `list ai`: Lists all known strategy trees and action nodes.
-- `reset ai` / `reset strats` / `reset values`: Resets internal AI trees, clearing blackboard memories and restoring default behaviors.
+- `cheat`: Toggles bot cheat flags used for testing.
+- `debug` / `cdebug` / `cs`: Combat engine diagnostics (strategies, action priorities, activity evaluations).
+- `log`: Reports or changes the bot's own log verbosity level.
+- `set value <variable> <value>`: Modifies runtime AI memory values (supports `group size`, `guild size`, and `rpg style`).
+- `teleport`: Uses a nearby spellcaster game object portal, or replays the bot's last area trigger.
+- `load ai <profile>` / `save ai <profile>`: Loads or saves strategy presets to and from the `ai_playerbot_db_store` database table (empty profile means the default preset).
+- `list ai`: Lists the presets stored for that bot in `ai_playerbot_db_store`.
+- `reset ai` / `reset strats` / `reset values`: Resets internal AI trees and values (`reset ai` also clears stored values; `reset strats` and `reset values` reset strategies or values respectively).

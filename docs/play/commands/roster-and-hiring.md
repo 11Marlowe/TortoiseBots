@@ -217,7 +217,7 @@ When [`AiPlayerbot.AltBots`](../../server/settings/party.md#aiplayerbotaltbots) 
 - **Relocation Rules:** Upon startup, if an alt-bot was left in a dungeon, battleground, or boat, it is relocated to the instance exit or nearest graveyard to avoid broken pathing.
 - **Autonomous Restrictions:** Autonomous alts sell only gray junk and unneeded white items (never soulbound, equipped, or better-than-white gear); never abandon quests they did not take themselves; keep 10 quest-log slots free; never buy mounts, bags, or talent respecs; never use auction houses, mail, direct trade, or guild banks; and never destroy items. On loot rolls, they roll Greed or Pass.
 - **Stranger & Guild Rules:** Strangers can invite your alt-bot and issue tactical orders, but cannot trade with it or log it out. An alt-bot accepts guild invitations only from its owner's account (or GM), and never leaves its guild autonomously. Grouping with an alt-bot binds it to existing instance locks.
-- **Challenge Modes:** Hardcore characters are refused from becoming autonomous alt-bots to prevent character loss. Other challenge modes (Slow & Steady, War Mode, Vagrant, Boaring, Craftmaster, Lunatic, Brewmaster, Heroic) are permitted, but their gameplay restrictions are ignored by the bot AI.
+- **Challenge Modes:** Hardcore characters are refused from becoming autonomous alt-bots to prevent character loss.
 
 ---
 
@@ -246,7 +246,7 @@ Level-60 players can purchase world buffs for themselves and nearby group member
 When [`AiPlayerbot.HireGearTiersEnabled`](../../server/settings/hiring.md#aiplayerbothiregeartiersenabled) is enabled (1), capital recruiters offer the **Mercenary Contracts** dialogue. This tracks seven progressive unlock quests (quest IDs `90100` through `90106` for Tiers 1 through 7) that grant access to high-tier mercenary equipment sets:
 
 - Contracts must be open in your quest log to earn credit.
-- Credit is granted only when you or human group members defeat an eligible raid boss (companion bot kills do not grant unlock credit).
+- Bots never earn unlock credit for themselves; humans in reward distance are still credited even if a bot lands the killing blow.
 - Contracts unlock once per character ever. The Four Horsemen in Naxxramas counts as a single encounter kill when all four horsemen are defeated.
 - Abandoning and retaking a contract restores previously recorded boss kill progress.
 - Detailed tier equipment lists are documented in the [Hire Gear Reference](../../reference/hire-gear.md).

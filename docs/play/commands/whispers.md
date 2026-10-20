@@ -16,7 +16,7 @@ In addition to group-wide party actions, you can issue commands directly to indi
 
 ## Command Delegation Proxy & Permissions
 
-Any whisper command can be sent through the `.bot command` proxy:
+Any whisper command can be sent through the `.bot command` proxy for a bot you control (owner account, master, claim, or GameMaster):
 
 ```text
 .bot command <BotName> <command>
