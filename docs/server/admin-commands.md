@@ -128,7 +128,7 @@ Inspects, resets, or overrides custom pricing and posting rules for a specific i
 .bot ah item <id> <value> [chance] [min] [max]
 ```
 
-- `<id>`: Checks current blacklist status, formula market price, and active overrides for that item ID.
+- `<id>`: Reports blacklist status only for that item ID.
 - `<id> reset`: Removes custom overrides and restores formula pricing.
 - `<id> <value> [chance] [min] [max]`: Sets custom price in copper, posting chance percentage, and stack size bounds.
 - **Blacklisting:** Setting `<value>` to `0` or `[chance]` to `0` (e.g. `.bot ah item 1234 0 0`) blacklists the item, preventing it from ever being posted by the synthetic seller.

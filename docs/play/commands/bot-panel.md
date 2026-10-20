@@ -24,10 +24,10 @@ TortoiseBots includes a structured command interface for inspecting companion vi
 | [`.bot version`](#bot-version) | None | Displays module version, protocol string, and author credits. |
 | [`.bot help`](#bot-help) | None | Prints the current bot system version header. |
 | [`.bot inv`](#bot-inv) | `<Name>` | Emits detailed inventory, equipped gear, and coin count. |
-| [`.bot item trade`](#bot-item-trade) | `<Name>` | Prompts the bot to open a direct trade window with you. |
-| [`.bot item equip`](#bot-item-equip) | `<Name> <bag> <slot>` | Equips an item from the bot's bags into gear slots. |
-| [`.bot item unequip`](#bot-item-unequip) | `<Name> <bag> <slot>` | Moves an equipped item into the bot's inventory bags. |
-| [`.bot item give`](#bot-item-give) | `<Name> <bag> <slot>` | Places an inventory item into an active trade window. |
+| [`.bot item <Name> trade`](#bot-item-trade) | None | Prompts the bot to open a direct trade window with you. |
+| [`.bot item <Name> equip`](#bot-item-equip) | `<bag> <slot>` | Equips an item from the bot's bags into gear slots. |
+| [`.bot item <Name> unequip`](#bot-item-unequip) | `<bag> <slot>` | Moves an equipped item into the bot's inventory bags. |
+| [`.bot item <Name> give`](#bot-item-give) | `<bag> <slot>` | Places an inventory item into an active trade window. |
 | [`.bot behavior`](#bot-behavior) | `<Name\|scope> <key> <on\|off>` | Sets persistent bot behaviors (loot, AoE, mimic...). |
 | [`.bot totem`](#bot-totem) | `<scope> <slot\|mode\|drop> [...]` | Configures and drops shaman totem loadouts. |
 
@@ -200,7 +200,7 @@ Alias: `.bot behaviour`. Settings are persisted per bot across sessions.
 - `threat`: Lowers threat output when approaching the tank's aggro ceiling.
 - `potions`: Automatic consumption of healing and mana potions.
 - `spread`: Opt-in tactical spacing to avoid stacking in combat.
-- `mimic`: Mimics consumable usage out of combat (food, drink, elixirs, flasks, and scrolls). The bot picks a class-, spec-, and level-appropriate equivalent item from its bags or conjures one, capped within the master's item level-band. When more than 4 bots mimic at once, individual chat confirmations are suppressed in favor of a single `[Raid Mimic]` summary. Supports party-wide toggles: `.bot behavior party mimic on`.
+- `mimic`: Mimics consumable usage out of combat (food, drink, elixirs, flasks, and scrolls). The bot picks a class-, spec-, and level-appropriate equivalent item from its bags or conjures one. When more than 4 bots mimic at once, individual chat confirmations are suppressed in favor of a single `[Raid Mimic]` summary. Supports party-wide toggles: `.bot behavior party mimic on`.
 
 </details>
 
@@ -218,7 +218,7 @@ Configures and manages shaman totem loadouts and casting policies.
 <details>
 <summary>Totem parameters and modes</summary>
 
-- **Slot Pinning:** Assign a specific totem to an element slot (`earth`, `fire`, `water`, `air`). Passing `auto` restores group-aware automatic selection for earth, water, and air (e.g. *Windfury* for melee groups, *Mana Spring* for casters); fire has no auto pick and `auto` leaves fire empty. Passing `none` disables that element.
+- **Slot Pinning:** Assign a specific totem to an element slot (`earth`, `fire`, `water`, `air`). Passing `auto` restores automatic selection (subgroup-aware for earth, water, and air; falls back to spec-row behavior for fire). Passing `none` disables that element (empties the slot).
 - **Casting Modes:**
   - `auto`: Bot drops totems as needed based on combat conditions (default).
   - `prepull` (or `pre-pull`): Drops totems out of combat when combat is imminent (ready check / rebuff window) and refreshes them in combat.

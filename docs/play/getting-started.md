@@ -85,7 +85,7 @@ See [Roster and Hiring Commands](commands/roster-and-hiring.md) for full command
 
 ### Progression and Training Tips
 
-- **Level Synchronization:** When [`AiPlayerbot.SyncAltLevelToMaster`](../server/settings/party.md#aiplayerbotsyncaltleveltomaster) is enabled, owned bots in your group gain one level per update until they match your leader level.
+- **Level Synchronization:** When [`AiPlayerbot.SyncAltLevelToMaster`](../server/settings/party.md#aiplayerbotsyncaltleveltomaster) is enabled, only non-random grouped bots whose master is party leader gain +1 level per update while below master level.
 - **Spell Training:** Escort your bots to class trainers in major cities and whisper `trainer` to each bot (or use `.bot command <Name> trainer`). The bot automatically learns all available spell ranks and class abilities in a single pass. See [Whisper Commands](commands/whispers.md#w--trainer).
 - **Hiring Mercenaries:** If you lack alts of a specific class, visit a recruiter NPC in any capital city and hire a temporary companion at your level. See [Roster and Hiring Commands](commands/roster-and-hiring.md#bot-hire) and [Hiring Settings](../server/settings/hiring.md).
 
@@ -107,9 +107,9 @@ Use these essential actions to direct your bots during dungeon runs and combat:
 | Intent / Action | Addon Button | Chat Command | Bot Behavior |
 | :--- | :--- | :--- | :--- |
 | **Regroup / Unstuck** | **Summon** | [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) | Teleports an out-of-combat bot directly to your coordinates. |
-| **Focus Target** | **Focus Skull** | [`.bot action focus skull`](commands/party-actions.md#bot-action-focus-skull) | Orders all DPS bots to prioritize the Skull-marked target. |
+| **Focus Target** | **Focus Skull** | [`.bot action focus skull`](commands/party-actions.md#bot-action-focus-skull) | Orders all party bots in scope including healers to prioritize the Skull-marked target. |
 | **Pullback Maneuver** | **Pullback** | [`.bot action pullback`](commands/party-actions.md#bot-action-pullback) | Orders the tank to pull from range and retreat behind a corner. |
-| **Hold Position** | **Stay** | [`.bot action stay`](commands/party-actions.md#bot-action-stay) | Halts bot movement and pauses casting to prevent adds. |
+| **Hold Position** | **Stay** | [`.bot action stay`](commands/party-actions.md#bot-action-stay) | Halts bot movement to prevent adds. |
 | **Resume Follow** | **Follow** | [`.bot action follow`](commands/party-actions.md#bot-action-follow) | Resumes normal follow formation behind the party leader. |
 | **Crowd Control** | **CC Mark** | [`.bot action cc <mark>`](commands/party-actions.md#bot-action-cc) | Assigns a bot with matching CC spells to disable a marked target. |
 | **Disable AoE** | **AoE Off** | [`.bot action aoe off`](commands/party-actions.md#bot-action-aoe) | Disables area spells to protect active crowd control. |

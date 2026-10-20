@@ -13,7 +13,7 @@ relates_to:
 
 # Roster & Hiring Commands
 
-TortoiseBots provides tools to manage owned alternate characters (alts) as bots, hire temporary mercenary companions, and customize group compositions. Inside dungeons and raids, companion bots sharing a group with a connected player do not initiate unprovoked pulls on their own; their defense scope is restricted so they engage only when attacked, when protecting an ally under direct attack, or when given an explicit pull or attack order (attack marks like Skull are exempt and engage immediately). In the open world or when solo, normal aggro and defense behavior applies.
+TortoiseBots provides tools to manage owned alternate characters (alts) as bots, hire temporary mercenary companions, and customize group compositions.
 
 ## Summary
 
@@ -99,7 +99,7 @@ Recruits up to 39 mercenary companions for a raid in a single operation.
 .bot hire raid <preset|composition> [tier]
 ```
 
-Requires Mercenary Recruiter access or `AiPlayerbot.HireAnywhere = 1`. The command requires party leader permissions when the party must be converted to a raid (a party that would overflow 5); otherwise no leadership needed. It converts your group to a raid if needed, and checks available raid capacity and seats.
+Requires [`AiPlayerbot.HireAnywhere = 1`](../../server/settings/hiring.md#aiplayerbothireanywhere) even at a recruiter (proximity alone does not enable it). The command requires party leader permissions when the party must be converted to a raid (a party that would overflow 5); otherwise no leadership needed. It converts your group to a raid if needed, and checks available raid capacity and seats.
 
 <details>
 <summary>Raid compositions, batching, and quotes</summary>

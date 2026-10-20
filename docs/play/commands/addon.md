@@ -32,7 +32,7 @@ The interface is divided into functional tabs designed for different stages of g
 
 ### Roster Tab
 
-- **Character List:** Lists all characters on your account, displaying level, class, and offline/online/starting/removing, plus an in-party indicator.
+- **Character List:** Lists all characters on your account, displaying class, offline/online/starting/removing, plus an in-party indicator.
 - **Login & Logout:** Click **Login** to spawn an owned alt as a headless companion bot; click **Logout** to log it out cleanly.
 - **Invite & Summon:** Group with online alts or summon them directly to your location with one click.
 - **Alt-Bot Indicators:** Highlights alts playing autonomously in the world, allowing you to reclaim them or log them out remotely.
@@ -64,7 +64,7 @@ The addon communicates with the server over private addon communication channels
 - **Silent Operation:** Commands sent by clicking addon buttons do not print `.bot` text into your chat frame, and server responses do not clutter your chat log.
 - **Chat Fallback:** If the private addon channel becomes unavailable (for example, while ungrouped or on an older server build), the addon automatically falls back to sending standard `.bot` chat commands.
 - **Execution Order & Queueing:** Commands sent via addon-channel commands and chat share a single FIFO queue on the player's session. Because packet delivery and chat dispatch can resolve asynchronously, send order does not guarantee receive order across different channels. Addon commands execute on the server's next world tick, immediately before bots take their actions.
-- **Movement Conflict Resolution:** A newer movement order always cancels earlier pending movement orders (`follow`, `stay`, `guard`, `free`, `flee`, `wander`) in the queue.
+- **Movement Conflict Resolution:** A newer `.bot` movement order drops older chat-queued movement orders (`follow`, `stay`, `guard`, `free`, `flee`, `wander`) at the bot AI; it does not cancel pending `.bot` queue entries.
 - **Exemptions & Teardown:** Inline action packets are processed directly and exempt from command queuing. Logging out drops all pending queued commands for that player/requester. Even if the module is globally disabled (`AiPlayerbot.Enabled=0`), orders are still accepted and queued.
 - **Rate Limiting:** To prevent server desynchronization, the server accepts up to 128 bot commands per player per world tick. Any excess commands within that tick are dropped with the exact message: `Too many bot commands at once: <n> ignored.`
 
@@ -99,8 +99,8 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
   ```text
   TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=<on|off>,aoe=<on|off>,autocc=<on|off>,savemana=<on|off>,boost=<on|off>,threat=<on|off>,potions=<on|off>,mimic=<on|off>,spread=<on|off>
   ```
-- **CC Assignments (`TBM:CC_ASSIGN`):** Broadcasts assigned raid marks for controllable party bots (owned alts and hires). A bot is included only if it is in your party, has the `cc` combat strategy active, and has a non-default CC mark assigned (ungrouped alts are excluded).
-- **Message Length Cap:** Each emitted protocol line is strictly limited to 250 bytes (within the WoW client addon message buffer limit of 255 bytes).
+- **CC Assignments (`TBM:CC_ASSIGN`):** Broadcasts assigned raid marks for controllable party bots (owned alts and hires). A bot is included only if it is in your party and has the `cc` combat strategy active with an assigned raid mark (including Moon; a mark assigned without the `cc` strategy active is excluded). Ungrouped alts are excluded.
+- **Message Length Cap:** Only `TBM:VIEW` perception lines are packed to 250 bytes (within the WoW client addon message buffer limit of 255 bytes); other protocol lines send without truncation.
 - **Delivery Guarantees:** Addon commands execute sequentially in receipt order during the world tick immediately preceding bot AI turn execution.
 
 Hand-typed `.bot` commands in chat continue to work identically alongside the addon.

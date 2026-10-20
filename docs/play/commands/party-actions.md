@@ -85,7 +85,7 @@ Orders scoped tanks and DPS bots (selected bot if targeted, else party) to engag
 .bot action attack
 ```
 
-Bots accept targets out to 150 yards and path directly toward them. Dedicated healers continue healing allies rather than dealing damage.
+Bots accept targets out to `AiPlayerbot.ReactDistance` (150 yards by default, follows config) and path directly toward them. Dedicated healers continue healing allies rather than dealing damage.
 
 <details>
 <summary>How it works in detail</summary>
@@ -115,7 +115,7 @@ Clears active combat queues and stops ongoing attacks across all companion bots.
 .bot action stop
 ```
 
-Bots stop attacking and moving, but keep normal follow movement. Spell casts are interrupted only on full stops.
+Bots stop attacking and moving, but keep normal follow movement. Spell casts are interrupted.
 
 ### `.bot action flee`
 
@@ -143,7 +143,7 @@ Parameters `[seconds]` (0 to 60, default 10) and `[ranged]` can be passed in eit
 - **Melee and Ranged Pulling:** The tank walks into melee range unless it has an equipped ranged weapon and ammo (or a ranged spell). If the target is unreachable on foot or farther than the approach distance configured in [AiPlayerbot.RangedPullMeleeApproach](../../server/settings/combat.md#aiplayerbotrangedpullmeleeapproach) (default 20 yards), the tank pulls from range.
 - **Forced Ranged:** Adding `ranged` always requests a ranged opening — the tank walks to a firing position (the `RangedPull`/sight/range preconditions apply only to the automatic opening). If the tank cannot shoot, the blockers below apply and it body-pulls instead. Blockers are `no-ranged-weapon`, `weapon-untrained`, `shoot-spell-missing`, `no-ammo`, and `too-close` (whispered only if ordered ranged and blocker is not `NoWeapon` or `TooClose`). Line of sight alone triggers a quiet body-pull.
 - **Early Release:** The pull hold ends early if you issue `.bot action attack` or `.bot action flee` (issuing `stop` does not release the DPS join window).
-- **Refusal Codes:** Refused if target is dead (`dead-target`), friendly (`friendly`), beyond `ReactDistance * 3` (450 yards at default settings, returning `too-far` or `unreachable`), or invalid (`invalid-target`). If no tank is available, returns `no-tank`, or `tank-busy` if the tank is already in combat.
+- **Refusal Codes:** Refused if target is dead (`dead-target`), friendly (`friendly`), beyond `ReactDistance * 3` (450 yards at default settings, returning `too-far`), unable to start walking to a firing position (`unreachable`), or invalid (`invalid-target`). If no tank is available, returns `no-tank`, or `tank-busy` if the tank is already in combat.
 
 </details>
 
@@ -381,7 +381,7 @@ Initiates a party-wide readiness check across all companion bots.
 .bot action ready
 ```
 
-Bots evaluate health (above 90%), mana (above 70%), distance (within `AiPlayerbot.SightDistance`, 60 yards by default), hunter ammo, pet happiness, and consumable counts. Each bot whispers its readiness status directly to the requester. Buff topping off occurs only on full raid checks.
+Bots evaluate health (above 90%), mana (above 70%), distance (within `AiPlayerbot.SightDistance`, 60 yards by default), hunter ammo, pet happiness, and consumable counts. Each bot whispers its readiness status directly to the requester. Buff topping off occurs only on real raid checks when [`AiPlayerbot.ForceRebuffOnReadyCheck`](../../server/settings/world-population.md#aiplayerbotforcerebuffonreadycheck) is enabled (default 0, disabled).
 
 ### `.bot action raid status`
 
