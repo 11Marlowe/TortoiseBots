@@ -22,7 +22,17 @@ public:
 private:
     ACTION_NODE_A(stormstrike, "stormstrike", "melee");
 
-    ACTION_NODE_A(strength_of_earth_totem, "strength of earth totem", "stoneskin totem");
+    // Slot-safe earth node (live fix): when the Strength of Earth cast
+    // fails (slot race, GCD), fall back to melee — never to Stoneskin, so
+    // the fight pick never flaps. Stoneskin stays available only as the
+    // low-level manual pick before Strength of Earth is trained.
+    static ActionNode* strength_of_earth_totem(PlayerbotAI* ai)
+    {
+        return new ActionNode("strength of earth totem",
+            /*P*/ NULL,
+            /*A*/ NextAction::array(0, new NextAction("melee"), NULL),
+            /*C*/ NULL);
+    }
 
     // Trash earth: the totem pulses flat threat the spec holds with
     // Totemic Alignment. Falls back to melee (no other earth pick here —
@@ -33,9 +43,18 @@ private:
 
     ACTION_NODE_A(windfury_totem, "windfury totem", "grace of air totem");
 
-    // Taunt: no positional alternative (5 yd melee spell, off-GCD). Falls
-    // back to melee so the bot keeps swinging while the taunt cools down.
-    ACTION_NODE_A(earthshaker_slam, "earthshaker slam", "melee");
+    // Taunt (live fix): 5 yd melee spell, off-GCD. A taunt attempt past
+    // 5 yards fails instead of closing, so the prerequisite walks into
+    // melee first — a kiting or chased mob no longer eats taunt attempts
+    // for half the fight. Falls back to melee so the bot keeps swinging
+    // while the taunt cools down.
+    static ActionNode* earthshaker_slam(PlayerbotAI* ai)
+    {
+        return new ActionNode("earthshaker slam",
+            /*P*/ NextAction::array(0, new NextAction("reach melee", ACTION_MOVE), NULL),
+            /*A*/ NextAction::array(0, new NextAction("melee"), NULL),
+            /*C*/ NULL);
+    }
 
     // Tauren racial: damage plus slow, melee range. Same melee fallback.
     ACTION_NODE_A(totemic_slam, "totemic slam", "melee");
@@ -77,8 +96,15 @@ void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("earthshaker slam", ACTION_INTERRUPT + 1),
                              new NextAction("earth shock", ACTION_INTERRUPT), NULL)));
 
-    // Stormstrike first: the nature-vulnerability debuff amplifies everything
-    // after it (same order as enhancement). Lightning Strike follows, then
+    // Earth Shock on fights that need it (boss/elite/raid):
+    // about 40% of single-target threat, top of the rotation on cooldown
+    // (KB guide: Earth Shock > Stormstrike > Lightning Strike).
+    triggers.push_back(new TriggerNode(
+        "tank earth shock fight",
+        NextAction::array(0, new NextAction("earth shock", ACTION_NORMAL + 2), NULL)));
+
+    // Stormstrike first of the weapon strikes: the nature-vulnerability
+    // debuff amplifies everything after it. Lightning Strike follows, then
     // the Tauren slam while both strikes cool down.
     triggers.push_back(new TriggerNode(
         "stormstrike",
@@ -86,7 +112,7 @@ void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 
     triggers.push_back(new TriggerNode(
         "lightning strike",
-        NextAction::array(0, new NextAction("lightning strike", ACTION_NORMAL + 1), NULL)));
+        NextAction::array(0, new NextAction("lightning strike", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
         "totemic slam",
@@ -98,12 +124,6 @@ void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "tank chain lightning",
         NextAction::array(0, new NextAction("chain lightning", ACTION_NORMAL + 1), NULL)));
-
-    // Earth Shock on fights that need it (boss/elite/raid-in-instance):
-    // about 40% of single-target threat, on cooldown next to the strikes.
-    triggers.push_back(new TriggerNode(
-        "tank earth shock fight",
-        NextAction::array(0, new NextAction("earth shock", ACTION_NORMAL + 1), NULL)));
 
     // Economical trash mode: Earth Shock only when the threat lead says
     // someone is catching up or a mob is loose.
@@ -319,12 +339,14 @@ void TankShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
         "earthbind totem reactive",
         NextAction::array(0, new NextAction("earthbind totem", ACTION_HIGH), NULL)));
 
-    // Earth (REVISION: no Stoneskin on bosses): Strength of Earth on
-    // fights (boss/elite/raid) via the fight trigger shape, Stoneclaw on
-    // trash via the threat-gated tank trigger. Both queue on the shared
-    // "earth totem" slot trigger; the phases never overlap.
+    // Earth (REVISION + live fix: one pick per fight, never Stoneskin
+    // on bosses/elites): Strength of Earth on fight targets via the
+    // slot-gated fight trigger, Stoneclaw on trash via the threat-gated
+    // tank trigger. Both check that no earth totem is already standing,
+    // so the slot never flaps; the slot-safe node in the factory keeps a
+    // failed Strength cast from falling back to Stoneskin.
     triggers.push_back(new TriggerNode(
-        "tank earth shock fight",
+        "tank strength of earth",
         NextAction::array(0, new NextAction("strength of earth totem", ACTION_HIGH), NULL)));
 
     triggers.push_back(new TriggerNode(

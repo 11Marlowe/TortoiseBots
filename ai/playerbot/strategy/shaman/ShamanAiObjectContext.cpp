@@ -324,6 +324,8 @@ namespace ai
                 creators["earth shield on party tank"] = [](PlayerbotAI* ai) { return new PartyTankEarthShieldTrigger(ai); };
                 creators["chain lightning"] = [](PlayerbotAI* ai) { return new ChainLightningTrigger(ai); };
                 creators["tank chain lightning"] = [](PlayerbotAI* ai) { return new TankChainLightningTrigger(ai); };
+                creators["tank fight target"] = [](PlayerbotAI* ai) { return new TankFightTargetTrigger(ai); };
+                creators["tank strength of earth"] = [](PlayerbotAI* ai) { return new TankStrengthOfEarthTrigger(ai); };
                 creators["tank earth shock fight"] = [](PlayerbotAI* ai) { return new TankEarthShockFightTrigger(ai); };
                 creators["tank threat lead"] = [](PlayerbotAI* ai) { return new TankThreatLeadTrigger(ai); };
                 creators["tank stoneclaw"] = [](PlayerbotAI* ai) { return new TankStoneclawTrigger(ai); };

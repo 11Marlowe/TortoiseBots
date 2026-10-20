@@ -54,9 +54,29 @@ bool ShockTrigger::IsActive()
     return SpellTrigger::IsActive() && !ai->HasAnyAuraOf(GetTarget(), "frost shock", "earth shock", NULL) && !HasMaxDebuffs();
 }
 
+bool TankFightTargetTrigger::IsActive()
+{
+    Unit* target = AI_VALUE(Unit*, "current target");
+    bool bossOrElite = false;
+    if (Creature* creature = dynamic_cast<Creature*>(target))
+    {
+        if (CreatureInfo const* info = creature->GetCreatureInfo())
+            bossOrElite = TankShamanTargetIsElite(info->rank, CREATURE_ELITE_NORMAL);
+    }
+    Group* group = bot->GetGroup();
+    bool inRaid = group && group->isRaidGroup();
+    Map* map = bot->GetMap();
+    bool inInstance = map && map->IsDungeon();
+    return TankShamanEarthShockFreeFire(bossOrElite, inInstance, inRaid);
+}
+
 bool TankEarthShockFightTrigger::IsActive()
 {
-    if (!ai->HasSpell("earth shock"))
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !sServerFacade.IsAlive(target))
+        return false;
+
+    if (!ai->CanCastSpell("earth shock", target, true, nullptr, true))
         return false;
 
     // Reuse the shared shock gate (any shock known, no shock debuff on the
@@ -66,25 +86,59 @@ bool TankEarthShockFightTrigger::IsActive()
     if (!shock.IsActive())
         return false;
 
-    Unit* target = AI_VALUE(Unit*, "current target");
-    bool bossOrElite = false;
-    if (Creature* creature = dynamic_cast<Creature*>(target))
+    TankFightTargetTrigger fight(ai);
+    return fight.IsActive();
+}
+
+bool TankStrengthOfEarthTrigger::IsActive()
+{
+    if (!ai->HasSpell("strength of earth totem"))
+        return false;
+
+    if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+        return false;
+
+    // Manual .bot totem orders win
+    if (ai->HasStrategy("totem earth strength", BotState::BOT_STATE_COMBAT))
+        return !AI_VALUE2(bool, "has totem", "strength of earth totem");
+    if (ai->HasStrategy("totem earth stoneclaw", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("totem earth stoneskin", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("totem earth earthbind", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("totem earth tremor", BotState::BOT_STATE_COMBAT))
+        return false;
+
+    std::string stored = AI_VALUE2(std::string, "manual saved string", TotemOrderKey(0));
+    std::string ordered = OrderedTotemForSlot(stored);
+    if (!ordered.empty())
     {
-        if (CreatureInfo const* info = creature->GetCreatureInfo())
-            bossOrElite = info->rank == CREATURE_ELITE_ELITE || info->rank == CREATURE_ELITE_RAREELITE ||
-                info->rank == CREATURE_ELITE_WORLDBOSS;
+        if (ordered != "strength of earth totem")
+            return false;
     }
-    Map* map = bot->GetMap();
-    bool inInstance = map && map->IsDungeon();
-    Group* group = bot->GetGroup();
-    bool inRaid = group && group->isRaidGroup();
-    return TankShamanEarthShockFreeFire(bossOrElite, inInstance, inRaid);
+    else if (!stored.empty() && stored != "auto")
+        return false;
+
+    TankFightTargetTrigger fight(ai);
+    if (!TankEarthTotemIsStrength(fight.IsActive()))
+        return false;
+
+    bool hasEarth = AI_VALUE2(bool, "has totem", "stoneclaw totem") ||
+        AI_VALUE2(bool, "has totem", "stoneskin totem") ||
+        AI_VALUE2(bool, "has totem", "earthbind totem") ||
+        AI_VALUE2(bool, "has totem", "strength of earth totem") ||
+        AI_VALUE2(bool, "has totem", "tremor totem");
+    if (hasEarth)
+        return false;
+
+    return ai->CanCastSpell("strength of earth totem", bot, true, nullptr, true);
 }
 
 bool TankThreatLeadTrigger::IsActive()
 {
     Unit* target = AI_VALUE(Unit*, "current target");
     if (!target || !sServerFacade.IsAlive(target))
+        return false;
+
+    if (!ai->CanCastSpell("earth shock", target, true, nullptr, true))
         return false;
 
     float ownThreat = ThreatValue::GetThreat(bot, target);
@@ -152,10 +206,12 @@ bool TankStoneclawTrigger::IsActive()
         AI_VALUE2(bool, "has totem", "earthbind totem") ||
         AI_VALUE2(bool, "has totem", "strength of earth totem") ||
         AI_VALUE2(bool, "has totem", "tremor totem");
+    TankFightTargetTrigger fight(ai);
+    bool isFight = fight.IsActive();
     TankThreatLeadTrigger lead(ai);
     bool threatNeeded = lead.IsActive();
     uint8 attackers = AI_VALUE(uint8, "attackers count");
-    if (!TankStoneclawShouldDrop(inGroup, manual, other, hasEarth, threatNeeded, attackers))
+    if (!TankStoneclawShouldDrop(inGroup, manual, other, hasEarth, threatNeeded, attackers, isFight))
         return false;
     return ai->CanCastSpell("stoneclaw totem", bot, true, nullptr, true);
 }

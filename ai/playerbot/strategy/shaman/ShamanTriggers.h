@@ -995,6 +995,28 @@ namespace ai
        }
     };
 
+    // Tank fight-target read (live fix): elite anywhere (rank above
+    // normal, open world included) or any raid-instance fight. Shared
+    // predicate for the fight Earth Shock and Strength of Earth rows.
+    class TankFightTargetTrigger : public Trigger
+    {
+    public:
+        TankFightTargetTrigger(PlayerbotAI* ai) : Trigger(ai, "tank fight target") {}
+
+        virtual bool IsActive() override;
+    };
+
+    // Stable earth totem on fights (live fix): drops Strength of Earth
+    // on boss/elite/raid fights while the earth slot is empty, never
+    // flapping with Stoneskin.
+    class TankStrengthOfEarthTrigger : public Trigger
+    {
+    public:
+        TankStrengthOfEarthTrigger(PlayerbotAI* ai) : Trigger(ai, "tank strength of earth") {}
+
+        virtual bool IsActive() override;
+    };
+
     // Tank Earth Shock fight gate (REVISION): bosses / elites / raid
     // instances burn Earth Shock on cooldown; normal 5-man trash spends it
     // only when threat is needed (see TankThreatLeadTrigger below). No

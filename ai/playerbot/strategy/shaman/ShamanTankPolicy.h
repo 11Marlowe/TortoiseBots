@@ -44,12 +44,26 @@ namespace ai
         return possibleTargets >= 2;
     }
 
-    // Earth Shock fight gate (REVISION): bosses/elites/raid instances burn
-    // Earth Shock on cooldown (~40% of threat); normal 5-man trash spends
-    // it only when threat is needed (someone catching up or a mob loose).
+    // Earth Shock fight gate (REVISION + live fix): any elite (creature
+    // rank above normal — elite, rare-elite, world boss and rare, anywhere)
+    // or any raid-instance fight burns Earth Shock on cooldown (~40% of
+    // threat); normal 5-man/open-world trash spends it only when threat is
+    // needed (someone catching up or a mob loose).
     inline bool TankShamanEarthShockFreeFire(bool bossOrElite, bool inInstance, bool inRaid)
     {
-        return bossOrElite || (inInstance && inRaid);
+        // inInstance stays in the signature (dungeon trash vs open-world
+        // trash both stay economical), but only the raid leg matters now
+        // that every elite counts anywhere.
+        (void)inInstance;
+        return bossOrElite || inRaid;
+    }
+
+    // Elite-anywhere rank read: creature ranks above normal count, wherever
+    // the fight happens (open-world elites included). Mirrors the
+    // GrindTargetValue `rank > CREATURE_ELITE_NORMAL` idiom.
+    inline bool TankShamanTargetIsElite(int creatureRank, int normalRank)
+    {
+        return creatureRank > normalRank;
     }
 
     // Threat-lead decision for economical trash mode: shock when another
@@ -66,21 +80,34 @@ namespace ai
         return memberThreat >= ownThreat * catchUpPct / 100.0f;
     }
 
+    // Tank earth pick (live fix): exactly one earth totem per fight, so
+    // the slot never flaps. Fights (elite/boss/raid) hold Strength of
+    // Earth; trash holds Stoneclaw (threat-needed or wide pack). Stoneskin
+    // is never the tank pick on a fight — it only survives as the low-level
+    // node fallback before Strength of Earth is trained.
+    inline bool TankEarthTotemIsStrength(bool fightTarget)
+    {
+        return fightTarget;
+    }
+
     // Tank Stoneclaw: grouped threat-gated drop (opposite of the solo-only
     // panic rule in ShamanStoneclawPolicy.h). Manual earth orders keep
-    // precedence; any explicit non-stoneclaw earth order wins. Fire on
-    // arrival while the earth slot is empty and threat is needed (another
-    // member catching up or a loose mob), or whenever the pack is wide
-    // enough that the totem earns its GCD (3+ attackers).
+    // precedence; any explicit non-stoneclaw earth order wins. Fights
+    // (boss/elite/raid) hold Strength of Earth instead of Stoneclaw; trash
+    // fires on arrival while the earth slot is empty and threat is needed
+    // (another member catching up or a loose mob), or whenever the pack is
+    // wide enough that the totem earns its GCD (3+ attackers).
     inline bool TankStoneclawShouldDrop(bool inGroup, bool manualStoneclaw, bool otherManualEarthOrder,
-        bool hasEarthTotem, bool threatNeeded, std::uint8_t attackerCount)
+        bool hasEarthTotem, bool threatNeeded, std::uint8_t attackerCount, bool fightTarget = false)
     {
-        if (!inGroup)
-            return false;
         if (otherManualEarthOrder)
             return false;
         if (manualStoneclaw)
             return !hasEarthTotem;
+        if (fightTarget)
+            return false;
+        if (!inGroup)
+            return false;
         if (hasEarthTotem)
             return false;
         if (threatNeeded)
