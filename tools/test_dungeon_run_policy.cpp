@@ -4249,6 +4249,49 @@ static void TestJoinerRestsAreBudgetedAndNotIdleTime()
     CHECK(r.stepIdleMs < kStepIdleCapMs / 2);
 }
 
+// A loud pick the party is already rested for spends no rest slot: the three
+// slots go to the rests that really happen later in the step.
+static void TestJoinerRestSlotsAreSpentByRealRestsOnly()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    std::vector<UnitFact> alive;
+    for (std::uint64_t g = 31; g <= 36; ++g)
+        alive.push_back(Joiners(g, 4852, 40.0f + static_cast<float>(g), 9));
+    int rests = 0;
+    std::vector<std::string> notes;
+    for (std::size_t unit = 0; unit < 6; ++unit)
+    {
+        // The first two picks find the party full, the rest find it at 85 %.
+        f.minHealthPct = unit < 2 ? 100 : 85;
+        f.units = std::vector<UnitFact>(alive.begin() + static_cast<long>(unit), alive.end());
+        f.anyInCombat = false;
+        std::string order;
+        Phase prev = r.phase;
+        for (int i = 0; i < 400 && order.compare(0, 9, "pullback ") != 0; ++i)
+        {
+            order = Tick(r, f);
+            if (r.phase == Phase::Rest && prev != Phase::Rest)
+                ++rests;
+            prev = r.phase;
+            CHECK(r.state == State::Running);
+        }
+        CHECK(order == "pullback " + std::to_string(31 + unit));
+        notes.push_back(r.note);
+        if (unit == 1)
+            CHECK(r.joinerRests == 0 && rests == 0);
+        f.anyInCombat = true;
+        for (int i = 0; i < 3; ++i)
+            Tick(r, f);
+    }
+    CHECK(rests == 3 && r.joinerRests == 3);
+    CHECK(notes[5] == "9 joiners expected, rest budget used");
+    CHECK(notes[4] != notes[5]);
+}
+
 int main()
 {
     TestHopRechecksTheLeadOnTheFoot();
@@ -4366,6 +4409,7 @@ int main()
     TestAggroEstimateOffChangesNothing();
     TestAggroEstimateHoldsOnceForARest();
     TestJoinerRestsAreBudgetedAndNotIdleTime();
+    TestJoinerRestSlotsAreSpentByRealRestsOnly();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

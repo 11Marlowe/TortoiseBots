@@ -330,7 +330,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("ai::JoinersOverCeiling(estimate, ceiling);", joiners)
         self.assertIn("sCreatureLinkingMgr.GetLinkedTriggerInformation(", joiners)
         self.assertIn("group->HasGroupFlag(OPTION_AGGRO_TOGETHER)", joiners)
-        self.assertIn("creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ)", joiners)
+        self.assertIn("creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ + 1.0f, true, 0.0f)", joiners)
         self.assertIn("held.count(unit.guid)", joiners)
         self.assertIn("&& !toMaster", joiners)
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()

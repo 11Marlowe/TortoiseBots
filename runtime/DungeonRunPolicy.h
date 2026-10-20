@@ -2942,7 +2942,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         // The aggro estimate (off at joinerCeiling 0): more joiners than the
         // ceiling and the party not rested yet waits once per unit, on the
         // rest wait that already exists (TickBody), no movement. At most
-        // kMaxJoinerRests such waits a step; after that the pull goes out.
+        // kMaxJoinerRests such waits a step (counted when a rest really starts);
+        // after that the pull goes out.
         std::string budgetNote;
         if (f.joinerCeiling > 0 && pick->joiners > f.joinerCeiling && !r.joinerHeld.count(pick->guid))
         {
@@ -2950,7 +2951,6 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                 budgetNote = std::to_string(pick->joiners) + " joiners expected, rest budget used";
             else
             {
-                ++r.joinerRests;
                 r.joinerHeld.insert(pick->guid);
                 r.joinerRest = true;
                 r.joinerNote = std::to_string(pick->joiners) + " joiners expected" +
@@ -4924,6 +4924,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             EnterPhase(r, Phase::Rest);
             r.restForEating = false;
             r.restForJoiners = true;
+            ++r.joinerRests; // a slot is spent by a rest that really starts, not by a pick the party was rested for
             r.restRepeatMs = 0;
             r.note = "resting: " + r.joinerNote;
             order = "rest";

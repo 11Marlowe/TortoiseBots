@@ -9600,7 +9600,8 @@ void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanSte
         params.engageY = target->GetPositionY() + (lead->GetPositionY() - target->GetPositionY()) * k;
         params.engageZ = target->GetPositionZ() + (lead->GetPositionZ() - target->GetPositionZ()) * k;
         // Sight, only where it can change the answer (a raycast each): a creature wakes by itself when it sees the
-        // engage point inside its aggro radius, so that is read from the creature (the core's MoveInLineOfSight);
+        // engage point inside its aggro radius, so that is read from the creature (the core's MoveInLineOfSight, which
+        // aims at the player's position + 1 yd with target height 0);
         // assist needs the caller to see the assisted one, for which the pulled creature's sight of it, within the
         // assist range of it, stands in.
         for (std::size_t i = 0; i < creatures.size(); ++i)
@@ -9609,7 +9610,7 @@ void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanSte
             float const dx = m.x - params.engageX, dy = m.y - params.engageY, dz = m.z - params.engageZ;
             float const reach = ai::AggroRadius(m, params.lowestPartyLevel, params.aggroRate) + params.spreadYd;
             m.partySees = i == it->second || dx * dx + dy * dy + dz * dz > reach * reach ||
-                creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ);
+                creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ + 1.0f, true, 0.0f);
             m.seen = i == it->second || target->GetDistance(creatures[i]) > params.familyAssistYd ||
                 target->IsWithinLOSInMap(creatures[i]);
         }
