@@ -552,6 +552,9 @@ public:
     uint32 dungeonRunAggroCeiling;
     // The run leader's regroup holds for a living resurrector to raise the fallen (RezHoldPolicy.h; default off).
     bool dungeonRunRezHold;
+    // The run leader orders `pullback` only when the tank can shoot from where it stands, else it walks the
+    // party to a firing stand first (DungeonRunPolicy.h HoldForShot; default off).
+    bool dungeonRunPullStand;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

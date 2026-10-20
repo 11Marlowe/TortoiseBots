@@ -9695,6 +9695,68 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
     }
 }
 
+// The pull stand (AiPlayerbot.DungeonRunPullStand, DungeonRun::HoldForShot), key on only: the lead bot's
+// ranged pull range from its own pull strategy (PullStrategy::GetRange, the range its pull action fires at;
+// 0 for a body pull, "reach pull"), and on the tick after the policy asked for one (Run::shotStandFor) the
+// firing stand on its navmesh path to that unit (DungeonRun::ShotStandOnPath: the path walked back from the
+// unit end to the first point within range less kShotMarginYd that sees it, at the core's sight heights).
+// One path and a few sight rays, for that one unit, on that one tick.
+void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::DungeonRun::Facts& f)
+{
+    using namespace TortoiseBots::DungeonRun;
+    if (!f.pullStand || !lead->IsAlive() || !lead->IsInWorld())
+        return;
+    PlayerbotAI* const leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
+    PullStrategy* const pull = leadAi ? PullStrategy::Get(leadAi) : nullptr;
+    if (pull && pull->GetPullActionName() != "reach pull")
+        f.leadShotYd = pull->GetRange();
+    uint64 const guid = slot.run.shotStandFor;
+    if (!guid || f.leadShotYd <= kShotMarginYd)
+        return;
+    f.shotStandGuid = guid; // read: known or not, the policy goes on
+    Map* const map = lead->GetMap();
+    Creature* const unit = map ? map->GetCreature(ObjectGuid(guid)) : nullptr;
+    if (!unit || !unit->IsAlive() || !unit->IsInWorld() || lead->GetTransport())
+        return;
+    PathFinder path(lead);
+    path.calculate(unit->GetPositionX(), unit->GetPositionY(), unit->GetPositionZ(), false);
+    // As the ranged reach's own path (WorldPosition::getPathStepFrom): a complete or a partial path only.
+    if (path.getPathType() != PATHFIND_NORMAL && path.getPathType() != PATHFIND_INCOMPLETE)
+        return;
+    std::vector<ai::ApproachPoint> points;
+    ai::ApproachPoint front;
+    front.x = lead->GetPositionX();
+    front.y = lead->GetPositionY();
+    front.z = lead->GetPositionZ();
+    points.push_back(front);
+    for (Vector3 const& p : path.getPath())
+    {
+        ai::ApproachPoint point;
+        point.x = p.x;
+        point.y = p.y;
+        point.z = p.z;
+        points.push_back(point);
+    }
+    ai::ApproachPoint goal;
+    goal.x = unit->GetPositionX();
+    goal.y = unit->GetPositionY();
+    goal.z = unit->GetPositionZ();
+    float const leadHeight = lead->GetCollisionHeight();
+    float const unitHeight = unit->GetCollisionHeight();
+    auto const sees = [map, &goal, leadHeight, unitHeight](ai::ApproachPoint const& point)
+    {
+        return map->isInLineOfSight(point.x, point.y, point.z + leadHeight, goal.x, goal.y, goal.z + unitHeight, true);
+    };
+    ShotStand const stand = ShotStandOnPath(points, goal, f.leadShotYd - kShotMarginYd, sees);
+    if (!stand.known)
+        return;
+    f.shotStandKnown = true;
+    f.shotStandX = stand.x;
+    f.shotStandY = stand.y;
+    f.shotStandZ = stand.z;
+    f.shotStandYd = ai::PlanDistance(stand.x, stand.y, stand.z, goal.x, goal.y, goal.z);
+}
+
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -9702,6 +9764,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f = Facts();
     // The pull aggro estimate (PullAggroEstimatePolicy.h): off at 0, nothing is read and no pull waits for it.
     f.joinerCeiling = sPlayerbotAIConfig.dungeonRunAggroEstimate ? sPlayerbotAIConfig.dungeonRunAggroCeiling : 0;
+    // The pull stand (DungeonRun::HoldForShot): off, no sight ray, range or stand is read.
+    f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;
     f.leadAlive = lead->IsAlive();
     f.leadX = lead->GetPositionX();
     f.leadY = lead->GetPositionY();
@@ -9899,6 +9963,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.stealthed = IsStealthed(creature);
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = Polymorphed(creature);
+                    // The pull stand: can the tank shoot it from where it stands (one ray, key on only).
+                    if (f.pullStand)
+                        unit.losLead = lead->IsWithinLOSInMap(creature);
                     f.units.push_back(unit);
                 }
             }
@@ -9960,6 +10027,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 fact.distLead = lead->GetDistance(unit);
                 fact.stealthed = IsStealthed(unit);
                 fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
+                if (f.pullStand)
+                    fact.losLead = lead->IsWithinLOSInMap(unit);
                 f.hopUnits.push_back(fact);
             }
             break;
@@ -10121,6 +10190,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         default:
             break;
     }
+    ReadPullStand(slot, lead, f);
 }
 
 // The run's hold (DungeonRun::LeadRevivedAway): the living party stays where

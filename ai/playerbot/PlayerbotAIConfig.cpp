@@ -988,6 +988,7 @@ bool PlayerbotAIConfig::Initialize()
     dungeonRunAggroEstimate = config.GetBoolDefault("AiPlayerbot.DungeonRunAggroEstimate", false);
     dungeonRunAggroCeiling = static_cast<uint32>(std::max(1, config.GetIntDefault("AiPlayerbot.DungeonRunAggroCeiling", 6)));
     dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);
+    dungeonRunPullStand = config.GetBoolDefault("AiPlayerbot.DungeonRunPullStand", false);
     avoidCreatureAuras = config.GetBoolDefault("AiPlayerbot.AvoidCreatureAuras", true);
     allowRepairedTaxiPaths = config.GetBoolDefault("AiPlayerbot.AllowRepairedTaxiPaths", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);

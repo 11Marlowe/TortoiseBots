@@ -369,6 +369,57 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("@ da0bdfbc (AGPL-3.0-or-later;", header)
         self.assertIn("Copyright (C) 2026+ Jared Wright and", header)
 
+    def test_pull_stand_is_wired_behind_its_key(self):
+        # AiPlayerbot.DungeonRunPullStand (default 0): the glue reads sight, the shot range and the stand only with
+        # the key on; the policy holds the pullback for them only when the facts say the key is on.
+        read = body(COMMANDS, "void ReadRunFacts(DungeonRunSlot const& slot,", "\n}\n")
+        self.assertIn("f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;", read)
+        # The step units (pull/boss) and the hop units carry losLead, from the lead bot's own sight test.
+        self.assertIn("if (f.pullStand)\n                        unit.losLead = lead->IsWithinLOSInMap(creature);\n"
+                      "                    f.units.push_back(unit);", read)
+        self.assertIn("if (f.pullStand)\n                    fact.losLead = lead->IsWithinLOSInMap(unit);\n"
+                      "                f.hopUnits.push_back(fact);", read)
+        self.assertTrue(read.rstrip().endswith("ReadPullStand(slot, lead, f);"))
+        stand = body(COMMANDS, "void ReadPullStand(DungeonRunSlot const& slot,", "\n}\n")
+        self.assertIn("if (!f.pullStand || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
+        # leadShotYd is the module's PullStrategy::GetRange(), 0 (unset) on a body pull.
+        self.assertIn('if (pull && pull->GetPullActionName() != "reach pull")\n        f.leadShotYd = pull->GetRange();',
+                      stand)
+        self.assertNotIn("f.leadShotYd = ", stand.replace("f.leadShotYd = pull->GetRange();", ""))
+        # The stand: only for Run::shotStandFor, and the path search comes after that check.
+        guard = stand.index("uint64 const guid = slot.run.shotStandFor;\n    if (!guid || f.leadShotYd <= kShotMarginYd)\n"
+                            "        return;")
+        self.assertGreater(stand.index("PathFinder path(lead);"), guard)
+        self.assertIn("map->GetCreature(ObjectGuid(guid))", stand)
+        self.assertIn("map->isInLineOfSight(point.x, point.y, point.z + leadHeight, goal.x, goal.y, goal.z + unitHeight, true)",
+                      stand)
+        self.assertIn("ShotStandOnPath(points, goal, f.leadShotYd - kShotMarginYd, sees);", stand)
+        self.assertIn("f.shotStandGuid = guid;", stand)
+        # The policy: PullUnit's pullback passes through the gate first; HoldForShot is off without the key or a range.
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        pull = body(policy, "inline void PullUnit(", "\n}\n")
+        gate = pull.index("HoldForShot(r, f, u, dt, order))\n            return;")
+        self.assertLess(pull.index("if (f.pullStand)\n"), gate)
+        self.assertLess(gate, pull.index('order = "pullback " + std::to_string(u.guid);'))
+        self.assertLess(gate, pull.index("++tries;"))
+        on = body(policy, "inline bool PullStandOn(", "\n}\n")
+        self.assertIn("return f.pullStand && f.leadShotYd > 0.0f && !InEvent(r);", on)
+        hold = body(policy, "inline bool HoldForShot(", "\n}\n")
+        self.assertIn("if (!PullStandOn(r, f))", hold)
+        self.assertIn("r.shotStandFor = u.guid;", hold)
+        # Every pull caller hands its tick length to the stand walk.
+        self.assertIn("PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);", policy)
+        self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt);", policy)
+        self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, true, dt);", policy)
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        self.assertIn('dungeonRunPullStand = config.GetBoolDefault("AiPlayerbot.DungeonRunPullStand", false);', config)
+        self.assertIn("bool dungeonRunPullStand;", header)
+        self.assertIn("AiPlayerbot.DungeonRunPullStand = 0", template)
+        for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
+            self.assertIn("AiPlayerbot.DungeonRunPullStand", (ROOT / doc).read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

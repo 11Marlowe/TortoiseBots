@@ -829,6 +829,18 @@ AiPlayerbot.DungeonRunAggroCeiling = 6
 # Only read while AiPlayerbot.DungeonSelfClear = 1.
 AiPlayerbot.DungeonRunRezHold = 0
 
+# The run leader's pull stand. A `pullback` goes out only when the tank can shoot
+# from where it stands: the target in its sight, within its ranged pull's range
+# less 5 yd, and the tank standing still (it is waited for up to 3 s). Otherwise
+# the party walks to a firing stand on the tank's navmesh path to the target
+# first (at most 2 stands per target and step), then the order goes out. A tank
+# with no ranged pull (no bow, gun, thrown weapon, skill or ammo) pulls as before.
+# The status note of each order names the target's guid and how its shot stood.
+# 0 - off, the run leader pulls as before (Default)
+# 1 - on
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunPullStand = 0
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
