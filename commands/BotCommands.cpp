@@ -9504,6 +9504,58 @@ void ReadHoldDone(ai::PlanStep const& step, Player* lead, TortoiseBots::DungeonR
     }
 }
 
+// The rez hold's roster (RezHoldPolicy.h, AiPlayerbot.DungeonRunRezHold): each bot of the party with the
+// resurrection it could cast now (its highest known rank of Resurrection, Redemption, Ancestral Spirit or
+// Rebirth, off cooldown), its mana against that spell's cost, and for the dead how far the body lies from
+// the lead bot. Read only with the key on, and only for the facts of a regroup with someone dead.
+void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
+{
+    using TortoiseBots::RezHold::RezClass;
+    static uint32 const priest[] = {20770, 10881, 10880, 2010, 2006};
+    static uint32 const paladin[] = {20773, 20772, 10324, 10322, 7328};
+    static uint32 const shaman[] = {20777, 20776, 20610, 20609, 2008};
+    static uint32 const druid[] = {20748, 20747, 20742, 20739, 20484};
+    f.rezHold = true;
+    for (Player* bot : bots)
+    {
+        TortoiseBots::RezHold::Member m;
+        m.healer = PlayerbotAI::IsHeal(bot);
+        m.tank = PlayerbotAI::IsTank(bot);
+        if (!bot->IsAlive())
+        {
+            m.dead = true;
+            Corpse* corpse = bot->GetCorpse();
+            WorldObject* body = corpse ? static_cast<WorldObject*>(corpse) : static_cast<WorldObject*>(bot);
+            m.corpseYd = body->GetMapId() == lead->GetMapId() ? body->GetDistance(lead) : 1000.0f;
+            f.rezMembers.push_back(m);
+            continue;
+        }
+        m.inCombat = bot->IsInCombat();
+        uint32 const* list = nullptr;
+        switch (bot->GetClass())
+        {
+            case CLASS_PRIEST: list = priest; m.rez = RezClass::Priest; break;
+            case CLASS_PALADIN: list = paladin; m.rez = RezClass::Paladin; break;
+            case CLASS_SHAMAN: list = shaman; m.rez = RezClass::Shaman; break;
+            case CLASS_DRUID: list = druid; m.rez = RezClass::Druid; break;
+            default: break;
+        }
+        uint32 spellId = 0;
+        for (size_t i = 0; list && i < 5 && !spellId; ++i)
+            if (bot->HasSpell(list[i]))
+                spellId = list[i];
+        if (!spellId || bot->HasSpellCooldown(spellId))
+            m.rez = RezClass::None;
+        else if (SpellEntry const* spell = sSpellTemplate.LookupEntry<SpellEntry>(spellId))
+        {
+            m.mana = bot->GetPower(POWER_MANA);
+            m.rezCost = spell->manaCost ? spell->manaCost
+                                        : uint32(spell->ManaCostPercentage) * bot->GetCreateMana() / 100;
+        }
+        f.rezMembers.push_back(m);
+    }
+}
+
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -9568,6 +9620,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 f.minManaPct = std::min(f.minManaPct, mana);
         }
     }
+
+    if (sPlayerbotAIConfig.dungeonRunRezHold && f.dead > 0)
+        ReadRezRoster(lead, bots, f);
 
     // The lead bot's way back to the run's anchor (DungeonRun::CheckAnchor):
     // one navmesh query, only on a tick after a gather asked for it.

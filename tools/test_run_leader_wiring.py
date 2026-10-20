@@ -277,6 +277,25 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("CheckPartialStart(OnInstanceMap(lead), members.size(), withLead)", start)
         self.assertIn("slot.run = Start(plan, startStep);", start)
 
+    def test_rez_hold_is_wired_behind_its_key(self):
+        # AiPlayerbot.DungeonRunRezHold (default 0): the glue reads the rez roster only with the key on and someone
+        # dead; the policy asks RezHoldPolicy.h only when the facts carry it, else the old fixed wait runs.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        self.assertIn('dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);', config)
+        self.assertIn("bool dungeonRunRezHold;", header)
+        self.assertIn("AiPlayerbot.DungeonRunRezHold = 0", template)
+        self.assertIn("if (sPlayerbotAIConfig.dungeonRunRezHold && f.dead > 0)\n        ReadRezRoster(lead, bots, f);", COMMANDS)
+        roster = body(COMMANDS, "void ReadRezRoster(", "\n}\n")
+        self.assertIn("f.rezHold = true;", roster)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("if (f.rezHold)", policy)
+        self.assertIn("else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)", policy)
+        self.assertIn("TortoiseBots::RezHold::Decide(hold, f.rezMembers)", policy)
+        for doc in ("docs/server/settings/dungeons-raids.md",):
+            self.assertIn("AiPlayerbot.DungeonRunRezHold", (ROOT / doc).read_text())
+
     def test_uldaman_run4_fixes_are_wired(self):
         # The tank's reach for a pull stops once a mob has aggro: the facts are read in fights, the policy asks, the
         # glue ends the lead bot's pull.

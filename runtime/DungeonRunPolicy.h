@@ -53,6 +53,7 @@
 //     once it has arrived. Never during an event.
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
+#include "RezHoldPolicy.h"
 
 #include <algorithm>
 #include <cctype>
@@ -328,6 +329,12 @@ struct Facts
     std::uint32_t minManaPct = 100;     // mana users that are not healers
     std::uint32_t eating = 0;           // living bots with a food or drink aura up (seated: standing ends it)
     bool rezzer = false;                // a living bot out of combat that can resurrect (priest, paladin, shaman)
+    // AiPlayerbot.DungeonRunRezHold: the glue read the roster for the rez hold
+    // (RezHoldPolicy.h) and the regroup asks it instead of the fixed kPartyRezWaitMs
+    // wait on `rezzer`. Off (the default): rezHold false, rezMembers empty, the
+    // old rule runs byte for byte.
+    bool rezHold = false;
+    std::vector<TortoiseBots::RezHold::Member> rezMembers; // every bot of the party, dead ones too
     // The step.
     std::uint32_t team = 0;             // the party's team: ai::kPlanFlagAlliance or kPlanFlagHorde (0 unknown)
     bool seen = false;                  // the lead bot stands within kSeeYd of the step's point
@@ -4558,7 +4565,28 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             // A living priest, paladin or shaman raises the dead where they
             // lie: `revive party` (a release and a corpse run) waits for it.
-            if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
+            if (f.rezHold)
+            {
+                // The rez hold decides (RezHoldPolicy.h): hold for a resurrection,
+                // wait for the resurrector's mana, or fall through to the revive.
+                TortoiseBots::RezHold::Inputs hold;
+                hold.holdMs = r.regroupMs;
+                hold.partyEngaged = f.anyInCombat;
+                hold.reviveSent = r.reviveSent;
+                TortoiseBots::RezHold::Result const verdict = TortoiseBots::RezHold::Decide(hold, f.rezMembers);
+                if (verdict.verdict == TortoiseBots::RezHold::Verdict::Hold ||
+                    verdict.verdict == TortoiseBots::RezHold::Verdict::WaitMana)
+                {
+                    r.note = "regroup: " + WaitNote(r, f) + ", " +
+                        (verdict.verdict == TortoiseBots::RezHold::Verdict::Hold
+                             ? std::string("a resurrection in the party first")
+                             : std::string("the resurrector drinks first")) +
+                        " (" + TortoiseBots::RezHold::ReasonName(verdict.reason) + ")";
+                    SummonRevived(r, f, order);
+                    return order;
+                }
+            }
+            else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
             {
                 r.note = "regroup: " + WaitNote(r, f) + ", a resurrection in the party first";
                 SummonRevived(r, f, order);
