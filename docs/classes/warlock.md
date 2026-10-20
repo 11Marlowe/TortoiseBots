@@ -17,7 +17,7 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
 | Spec | Role | Primary Focus |
 | :--- | :--- | :--- |
 | **Affliction** | Ranged DPS | Multi-target DoT spreading, Drain Life sustain, and Dark Harvest burst. |
-| **Demonology** | Ranged DPS / Tanky | Heavy demon empowerment, Soul Link damage sharing, and high durability. |
+| **Demonology** | Ranged DPS / Tanky | Heavy demon empowerment, Soul Link damage sharing, Demonic Sacrifice, and high durability. |
 | **Destruction** | Ranged DPS | Fire burst damage, Shadow Bolt nukes, and instant Conflagrate explosions. |
 
 ---
@@ -32,7 +32,7 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
 - Channels *Drain Life* for self-sustain and *Drain Soul* on dying enemies (<20%) to harvest shards.
 
 ### Demonology
-- Summons resilient demons and links damage via *Soul Link*.
+- Summons resilient demons, links damage via *Soul Link*, and utilizes *Demonic Sacrifice* in raids.
 - Maintains *Immolate* and *Corruption* while casting *Shadow Bolt* fillers.
 - Commands the demon to cast *Power Overwhelming* during burst windows.
 - Channels *Health Funnel* when the active demon falls below 50% health, provided personal health exceeds 60%.
@@ -70,8 +70,8 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
   - *Felhunter:* Utility pet casting *Spell Lock* for ranged interrupts and *Devour Magic* for offensive and defensive dispels.
   - *Succubus:* CC demon casting *Seduction* on humanoids.
 - **Healthstones & Soulstones:** Creates and uses *Healthstones* in combat. Stores one Soulstone out of combat, prioritizing the party healer, then the tank.
-- **Weapon Stones & Buffs:** Conjours and carries *Spellstones* (Affliction/Demonology) or *Firestones* (Destruction) in bags. Maintains *Demon Skin* / *Demon Armor* on self and casts *Unending Breath* when swimming underwater.
-- **Curse Overrides:** Defaults to spec-appropriate curses (*Curse of Agony*, *Curse of the Elements*, or *Curse of Shadow*); players can manually override curse assignments using `.bot strategy +curse <shadow|weakness|elements|agony|doom|tongues|exhaustion>`.
+- **Weapon Stones & Buffs:** Conjours and carries *Spellstones* (Affliction/Demonology) or *Firestones* (Destruction) in bags. Maintains *Demon Armor* (*Demon Skin* fallback) and *Unending Breath* on self and party while swimming.
+- **Curse Overrides:** Defaults to spec-appropriate curses (*Curse of Agony*, *Curse of the Elements*, or *Curse of Shadow*); players can manually override curse assignments using [`.bot strategy +curse <shadow|weakness|elements|agony|doom|tongues|exhaustion>`](../play/commands/party-actions.md#bot-strategy). Exhaustion snares runners; further warlocks cover Recklessness in raids; curse claims prevent duplicate picks (shared registry).
 - **Fel Domination:** Burns the 5-minute cooldown to instantly summon a replacement demon during combat if the active pet dies.
 - **Crowd Control:** Casts *Fear* on assigned CC marks (skipping undead, mechanical, or already controlled targets) and *Banish* on Demons and Elementals. Area spells avoid targets near CC marks.
 

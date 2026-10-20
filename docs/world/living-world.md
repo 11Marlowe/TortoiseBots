@@ -19,7 +19,7 @@ This page explains how autonomous bots inhabit the realm, progress through level
 
 TortoiseBots populates the game world with autonomous characters on managed pool accounts. These bots travel through zones, complete quests, grind hostile creatures, gather crafting materials, trade on the Auction House, and form guilds. The world feels active and populated without requiring human players to fill every zone.
 
-A managed pool account is an account recorded in the character-database table `tortoise_bots_pool_account` ([Resetting the managed bot pool](../server/bot-pool.md#the-managed-pool-registry)). The module creates these accounts automatically during auto-creation or hiring, or an administrator can register them manually at the server console. An account whose username begins with the configured account prefix is not a pool account unless it is registered in that table.
+Managed pool accounts are tracked in the character-database registry ([The Managed Pool Registry](../server/bot-pool.md#the-managed-pool-registry)).
 
 Hired mercenary companions are temporary guests created on managed pool accounts. Each hire creates its own character; when dismissed, released, or expired after player logout, the character is permanently deleted and never returns to the roaming pool. The freed account slot is refilled by the auto-create target without altering configured bot counts ([`AiPlayerbot.MinRandomBots`](../server/settings/world-population.md#aiplayerbotminrandombots--maxrandombots)). Roaming alt-bots, by contrast, stay active in the world under owner protection ([Alt-bots](../play/commands/roster-and-hiring.md#alt-bots-autonomous-alts)).
 
@@ -80,7 +80,7 @@ Flight paths are selected from known taxi nodes to the node nearest the destinat
 <details>
 <summary>Grinding & combat rules in detail</summary>
 
-A bot picks grind targets within its sight distance, configured by [`AiPlayerbot.SightDistance`](../server/settings/combat.md#aiplayerbotsightdistance) (default 60 yards). Melee bots close into melee range, while ranged bots position at spell distance.
+A bot picks grind targets within its sight distance, configured by [`AiPlayerbot.SightDistance`](../server/settings/combat.md#aiplayerbotsightdistance). Melee bots close into melee range, while ranged bots position at spell distance.
 
 Autonomous bots never initiate combat against grey (zero-XP) creatures. If attacked by a grey creature, the bot defends itself, and ordered or quest kills remain permitted. If a bot cannot reach its selected target within 15 seconds due to terrain obstruction, the target is abandoned and blacklisted for five minutes. If a second give-up occurs within three minutes, the bot leaves the area and selects a different camp.
 
@@ -165,7 +165,7 @@ A vendor trip requires a valid reason: items that vendors buy (grey items or sur
 On realms where bots progress organically, new pool bots are initialized with sensible starting attributes:
 
 ### Level seed & distribution
-A newly created pool bot receives an initial level randomly selected between [`AiPlayerbot.RandomBotStartLevelMin`](../server/settings/world-population.md#aiplayerbotrandombotstartlevelmin--randombotstartlevelmax) and `Max` (default 1 to 60). This distributes characters across all level bands rather than bunching the entire population at level 1. With [`AiPlayerbot.LevelLadder`](../server/settings/world-population.md#aiplayerbotlevelladder) enabled, the online population is distributed proportionally across level brackets.
+A newly created pool bot receives an initial level randomly selected between [`AiPlayerbot.RandomBotStartLevelMin`](../server/settings/world-population.md#aiplayerbotrandombotstartlevelmin--randombotstartlevelmax) and `Max`. This distributes characters across all level bands rather than bunching the entire population at level 1. With [`AiPlayerbot.LevelLadder`](../server/settings/world-population.md#aiplayerbotlevelladder) enabled, the online population is distributed proportionally across level brackets.
 
 New bots are distributed evenly across the starting zones via [`AiPlayerbot.RandomBotEvenStartZones`](../server/settings/world-population.md#aiplayerbotrandombotevenstartzones). Auto-creation monitors starting zone populations and assigns newly created bots to less populated regions. Custom race starting areas relocate naturally to core racial hubs (such as Goblins to Valley of Trials and High Elves to Northshire).
 
@@ -197,13 +197,11 @@ Every seeded pool bot and newly hired companion receives a complete starting fie
 Hired mercenary companions receive an hourly restock of class reagents, rations, potions, and bandages.
 
 ### Mount rules
-Random pool bots and hired companions strictly ride vendor mounts matching their own character race, governed by [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts). Fast epic mounts are strictly gated to level 60 characters. When [`AiPlayerbot.LevelUpMounts`](../server/settings/world-population.md#aiplayerbotlevelupmounts) is enabled, bots earn level 40 and 60 mounts upon reaching the required level with riding-skill gating; otherwise mounts are granted only on initial seeding. By default, pool bots never ride rare dungeon or raid loot-drop mounts. Player-owned alts are not subject to these mount restrictions.
+Random pool bots and hired companions strictly ride vendor mounts matching their own character race, governed by [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts). Fast epic mounts are strictly gated to level 60 characters. When [`AiPlayerbot.LevelUpMounts`](../server/settings/world-population.md#aiplayerbotlevelupmounts) is enabled, bots earn level 40 and 60 mounts upon reaching the required level with riding-skill gating; otherwise mounts come only from seeding/hiring (no level-up award). By default, pool bots never ride rare dungeon or raid loot-drop mounts. Player-owned alts are not subject to these mount restrictions.
 
 ### Gear evaluation & upgrades
 When [`AiPlayerbot.RandomGearUpgradeEnabled = 1`](../server/settings/world-population.md#aiplayerbotrandomgearupgradeenabled), bots evaluate looted and vendor gear using class and spec stat weight scales:
 - **Stat weighting:** Equipment is scored by primary spec stats (Strength and Agility for melee; Spell Power and Intellect for casters).
-- **Empty slot backstop:** After equipment generation, any remaining unequipped armor or trinket slot takes the highest-rated fitting item within 10 levels, including class-restricted trinkets.
-- **Raid quest reward filtering:** Bots are barred from rolling or equipping end-game raid quest chain items during organic gearing passes.
 - **Equipment enchanting:** Bots at level 10 or higher receive enchantments matching their level bracket ([`AiPlayerbot.minEnchantingBotLevel`](../server/settings/world-population.md#aiplayerbotminenchantingbotlevel)).
 - **Weapon rules:** Spec-forbidden weapons are replaced when an upgrade drops (such as an Assassination rogue replacing a mace with a dagger).
 - **Fury warriors below level 20:** Fury warriors can equip two-handed weapons until *Dual Wield* is trained, at which point one-handed weapons take priority if they out-score the two-hander.

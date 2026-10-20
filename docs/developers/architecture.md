@@ -95,7 +95,7 @@ LLM-based chat interactions are purely asynchronous and decoupled. If an LLM bac
 
 ---
 
-## Architectural Boundaries
+## Related Player-Facing Boundaries
 
 Player-facing boundaries, gameplay quirks, and project non-goals are cataloged in [Known Limitations & Quirks](../play/known-limitations.md). Key architectural invariants include:
 - **Summon Sequencing:** Re-binding the master occurs before follow movement is resumed to guarantee ownership cannot be hijacked during a teleport transition.

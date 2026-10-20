@@ -58,7 +58,7 @@ The bot determines its combat strategy dynamically by inspecting spent talent po
 - **Battlegrounds:** Healing specs retain healing priorities in battlegrounds, layering battleground objectives and PvP strategies on top.
 - **Dynamic Role Assignment:** In parties, players can set bot roles to adjust aggro generation, healing urgency, and positioning.
 
-Players can use [`.bot role`](../play/commands/roster-and-hiring.md#bot-role) to override runtime role inference. Without an override, role detection uses party composition, stance or form, and tanking equipment. If another tank already occupies the role, temporary stance or form changes do not promote a second tank.
+Players can use [`.bot role <Name|self>`](../play/commands/roster-and-hiring.md#bot-role) to override runtime role inference. Without an override, role detection uses party composition, stance or form, and tanking equipment. If another tank already occupies the role, temporary stance or form changes do not promote a second tank.
 
 ---
 
@@ -71,7 +71,7 @@ Players can use [`.bot role`](../play/commands/roster-and-hiring.md#bot-role) to
 | **Targeting & Assist** | Tank or party leader engages hostile enemies. | Assists leader focus target and respects crowd control marks. | See [Focus skull](../play/commands/party-actions.md#bot-action-focus-skull). |
 | **Finishing Runners** | Enemy mob flees below 30% health. | Ranged DPS finish within spell range; eligible melee close distance. | See detailed runner policy below. |
 | **Threat Back-Off** | Threat reaches 50% or more of tank's threat. | Pauses high-threat single-target or AoE spells. | Controlled by `threat` strategy. |
-| **Healer Off-DPS** | Party stable (no member <70% HP) and mana >85% (90% high cost). | Contributes offensive spells and debuffs. | Controlled by `offdps` strategy. |
+| **Healer Off-DPS** | Party stable (no member <90% in standard/raid maintenance, otherwise 70%) and mana >70–85% (95% in raids). | Contributes offensive spells and debuffs. | Controlled by `offdps` strategy. |
 | **Spell Downranking** | Friendly target wounded but not in critical danger. | Casts lower-rank heals matching missing health. | Automatic triage optimization. |
 | **Healer Positioning** | Party member out of heal range or line of sight. | Closes distance toward the tank or injured party member. | Automatic positioning routine. |
 | **Looting & Gathering** | Corpse or nearby gathering node available. | Approaches corpse, loots quest items, and rolls on items. | See [Party actions](../play/commands/party-actions.md). |
@@ -89,11 +89,11 @@ When an enemy mob flees below 30% health (either flee state or flee-for-assistan
 - The active runner is never dropped for a fresh mob, and crowd-controlled targets are never chased.
 
 ### Party Threat Back-Off
-In groups with the `threat` strategy active, damage dealers (such as Druids, Mages, Shamans, and Warlocks) monitor relative threat against the tank. When holding 50% or more of the tank's threat on any engaged mob, they pause high-threat single-target nukes or area-of-effect spells (*Volley*, *Multi-Shot*, *Blizzard*, *Flamestrike*, *Rain of Fire*, *Chain Lightning*, *Earthquake*) until threat stabilizes.
+In groups with the `threat` strategy active, damage dealers (including Druids, Hunters, Mages, Shamans, and Warlocks) monitor relative threat against the tank. When holding 50% or more of the tank's threat on any engaged mob, they pause high-threat single-target nukes or area-of-effect spells (*Volley*, *Multi-Shot*, *Blizzard*, *Flamestrike*, *Rain of Fire*, *Chain Lightning*, *Earthquake*) until threat stabilizes.
 
 ### Healer Off-DPS (`offdps`)
 When the `offdps` strategy is enabled, healing bots contribute damage spells only when the group is safe:
-- No party member is below 70% health (90% in standard maintenance).
+- No member below 90% in standard/raid maintenance, otherwise 70%.
 - The healer's own mana exceeds 85% (or 90% for expensive spells, 70% in light encounters).
 - Casting immediately yields to incoming damage when an ally needs healing.
 

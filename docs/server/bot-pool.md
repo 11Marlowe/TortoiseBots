@@ -26,7 +26,7 @@ To guarantee player safety, TortoiseBots uses a strict account registry to ident
 
 ## Adopting Legacy Bot Accounts
 
-If you are upgrading an older server installation where bot accounts were created by earlier systems, those accounts must be explicitly enrolled into the registry before they can be managed or reset.
+If you are upgrading an older server installation where bot accounts were created by earlier systems, those accounts must be explicitly enrolled into the registry before they can be managed or reset. At startup, the server logs an error warning if accounts match the random-bot prefix but are not registered in the managed pool registry, noting they are ignored by the pool until enrolled via `bot pool adopt preview`.
 
 Adoption is available **only at the server console**:
 

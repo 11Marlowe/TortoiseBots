@@ -46,15 +46,15 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 
 ### Dead-Zone & Melee Weaving
 - If enemies close within the ranged dead zone (under 8 yards), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*.
-- When space opens or the mob is pulled off the hunter by the tank or pet, the bot immediately switches back to ranged attacks.
+- When space opens or the mob is pulled off the hunter by the tank or pet (or is rooted), the bot immediately switches back to ranged attacks.
 
 <details>
 <summary>Pet management and lifecycle details</summary>
 
-- **Lifecycle:** Hunters obtain their pet at level 10; pool hunters logging in below level 10 give up any previously seeded pet, while player-owned or hired hunters retain theirs.
+- **Lifecycle:** Hunters obtain their pet at level 10; pool hunters logging in below level 10 give up any previously seeded pet, while player-owned, hired, or adopted hunters retain theirs.
 - Automatically summons, feeds, and revives pets out of combat.
 - Sends pets to attack the primary target.
-- Casts *Mend Pet* when pet health drops below 70% (channeled) or in emergency below 40%.
+- Casts *Mend Pet* below 40% in combat (channeled, when no rotation shot is ready) and below 70% out of combat.
 - Controls pets in Defensive stance. Solo hunters keep *Growl* on autocast; when grouped with a tank, *Growl* is automatically disabled and the pet uses *Cower* on threat spikes.
 - When an enemy is crowd-controlled, pets are strictly prevented from attacking the controlled target.
 
@@ -74,6 +74,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 
 ## Utility & interrupts
 
+- **Enrage Dispel:** Dispels enrage with *Tranquilizing Shot* via the dispel-enrage trigger.
 - **Crowd Control:**
   - Deploys *Freezing Trap* on assigned crowd control marks.
   - Casts *Scare Beast* on hostile beasts, withholding area attacks until the target is controlled.

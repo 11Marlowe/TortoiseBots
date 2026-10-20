@@ -70,7 +70,7 @@ Every bot starts with **Moon** as its default CC mark. The table below represent
 | **Moon** | **Mage** (*Polymorph*) / **Rogue** (*Sap*) | Beasts, Humanoids | Rogues stealth and Sap out of combat before the pull. |
 | **Star** | **Priest** (*Shackle Undead*) / **Paladin** (*Turn Undead*) | Undead only | Essential in Stratholme, Scholomance, and Shadowfang Keep. |
 | **Diamond** | **Warlock** (*Banish* / *Fear*) | Demons, Elementals (Banish) | Banish immunizes target; Fear only on assigned mark. |
-| **Triangle** | **Hunter** (*Freezing Trap*) / **Druid** (*Hibernate* / *Roots*) | Beasts, Dragonkin | Hunter Freezing Trap; Druid Hibernate (beasts, dragonkin) or Roots (outdoors only). |
+| **Triangle** | **Hunter** (*Freezing Trap* or *Scare Beast*) / **Druid** (*Hibernate* / *Roots*) | Beasts, Dragonkin | Hunter Freezing Trap or Scare Beast; Druid Hibernate (beasts, dragonkin) or Roots (outdoors only). |
 
 ### Issuing CC In-Game
 
@@ -114,11 +114,11 @@ If your group wipes, follow this recovery checklist:
 
 ### Healers and Casters Closing Range
 
-Inside an instance, a healer or caster that has line of sight to its target but stands out of range walks the navmesh path forward and stops at the first point within casting distance. Out of combat, a healer only walks to a party member who is injured (below [`AiPlayerbot.AlmostFullHealth`](../server/settings/combat.md#aiplayerbotalmostfullhealth)). In combat, healers stay close to the tank.
+Inside an instance, a healer or caster that has line of sight to its target but stands out of range walks the navmesh path forward and stops at the first point within casting distance. Out of combat, a healer only walks to a party member who is injured (below [`AiPlayerbot.AlmostFullHealth`](../server/settings/combat.md#aiplayerbotalmostfullhealth)). In combat, healers stay close to the tank ([shared positioning rules](../classes/overview.md#shared-bot-behaviors)).
 
-### Stepping Down Off Dais Platforms and Ledges
+### Stepping Down Off Dais and Ledges
 
-Dungeon navmeshes sometimes contain raised platforms or daises (such as in Uldaman's Hall of the Keepers) that are not linked by stairs to the surrounding floor. Inside dungeons and raids, a bot that lands on an isolated dais steps off the edge: it searches for walkable floor 2–8 yards lower within 8 yards forward. The bot runs over the edge and drops down safely. It will not drop while actively taking melee hits. If no safe landing floor exists, use [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) out of combat.
+Dungeon navmeshes sometimes contain raised platforms or dais platforms (such as in Uldaman's Hall of the Keepers) that are not linked by stairs to the surrounding floor. Inside dungeons and raids, a bot that lands on an isolated dais steps off the edge: it searches for walkable floor 2–8 yards lower within 8 yards forward. The bot runs over the edge and drops down safely. It will not drop while actively taking melee hits. If no safe landing floor exists, use [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) out of combat.
 
 ### Followers That Stand Still
 
@@ -128,7 +128,7 @@ When following out of combat inside instances, navmesh paths can occasionally st
 
 Bots that are far behind follow the navmesh route to you. If your party skipped a pack in a narrow hallway, trailing bots can aggro it. When [`AiPlayerbot.DungeonFollowHoldBeforePacks`](../server/settings/party.md#aiplayerbotdungeonfollowholdbeforepacks) is enabled, any follower more than 30 yards behind stops outside the aggro range of unpulled packs and whispers `Pack in the way: <name>`. You can then clear the pack or walk back within 25 yards to resume follow.
 
-### Elevators, Boats, and Ledges
+### Elevators and Ledges
 
 Bots do not jump autonomously inside dungeons or raids (the chase jump, follow jump, and RPG jump actions are disabled to prevent bots from landing on unpathable ledges). Wait for bots at the bottom of elevators or after ledge drops, then click **Summon** in `/tbm` or run [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) to regroup before engaging the next pack.
 
@@ -167,19 +167,19 @@ Entering a raid map automatically activates the dungeon transition engine, enabl
 
 - **Molten Core:**
   - Douse runes using [`.bot action raid douse`](commands/party-actions.md#bot-action-raid-douse). During Baron Geddon, bots run out during *Inferno*.
-  - *Garr & Shazzrah:* Warlocks banish and tanks separate Garr adds; bots keep distance from Shazzrah's Arcane Explosion and counter blink.
-  - *Golemagg:* Ranged and healers stay clear of Earthquake; assist tanks separate Core Ragers.
+  - *Garr & Shazzrah:* Garr holds DPS AoE off (Firesworn die single-target); Shazzrah pushes ranged out to 26 yd.
+  - *Golemagg:* Melee back off at 20 Magma Splash stacks; assist tanks hold Core Ragers at fixed camps (30 yd Trust separation); DPS leave ragers alone while Golemagg lives (burn below 10%).
 - **Onyxia:** In Phase 2, bots switch to ranged attacks and spread out. Bots take cover in safe zones during *Deep Breath*. With [`AiPlayerbot.OnyxiaWhelpsAndEggs`](../server/settings/dungeons-raids.md#aiplayerbotonyxiawhelpsandeggs) enabled, ranged DPS clear hatched whelps while avoiding unbroken egg clusters.
 - **Blackwing Lair:**
-  - *Razorgore:* Bots assist the orb controller and intercept add waves without attacking the controller.
-  - *Vaelastrasz:* Tanks face away, DPS dumps all resources before burning out, and mages use *Ice Block* to survive *Burning Adrenaline*.
-  - *Broodlord & Nefarian:* Tanks face away; rogues disarm suppression devices in both combat and non-combat states. Bots whisper a warning if they lack the Onyxia Scale Cloak for Shadow Flame.
+  - *Razorgore:* Bots assist the orb controller and intercept add waves without attacking the controller. Non-victims clear the frontal cone; assist tank holds the boss while eggs live.
+  - *Vaelastrasz:* Tanks face away; Burning Adrenaline carriers flee from clean bots (tank holds).
+  - *Broodlord & Nefarian:* Tanks face away; rogues disarm suppression devices in both combat and non-combat states. Mages use *Ice Block* to survive Nefarian Wild Magic. Bots whisper a warning if they lack the Onyxia Scale Cloak for Shadow Flame.
   - *Chromaggus:* Bots carrying Hourglass Sand (item 19183) use it to cleanse Bronze Affliction; bots step out of breath cones.
 - **Naxxramas:**
-  - *Anub'Rekhan:* Tanks kite Anub'Rekhan during Locust Swarm while melee run out.
-  - *Gluth:* Tanks rotate taunts on Mortal Wound stacks; off-tanks and DPS kite or slow zombie chow.
-  - *Thaddius:* Bots match Polarity Shift directions, shifting positive charges left and negative charges right.
-  - *Loatheb:* Groups rotate to pop spores for the Fungal Bloom critical buff; healers stagger heals during 1-minute Necrotic Aura windows.
+  - *Anub'Rekhan:* Non-tanks collapse to the room center during Locust Swarm; tank kite ring needs live waypoints (no bot kite tactic).
+  - *Gluth:* Tanks rotate taunts at 5 Mortal Wound stacks; off-tanks and DPS kite or slow zombie chow, executing chow below 10%.
+  - *Thaddius:* Bots match Polarity Shift directions, shifting negative charges left and positive charges right.
+  - *Loatheb:* Bots kill the spore underfoot for the Fungal Bloom buff and otherwise stay on Loatheb; no Necrotic Aura heal-timing exists in vanilla.
   - *Four Horsemen:* Mark carriers with 3+ stacks rotate clockwise to the next corner.
   - *Sapphiron:* Bots hide behind iceblocked players during the air phase and step out of blizzards.
   - *Heigan:* The group dances floor sections 0-1-2-3-2-1 during Plague Cloud.
@@ -193,4 +193,4 @@ When [`AiPlayerbot.EnableCustomRaidTactics`](../server/settings/dungeons-raids.m
 
 - **Emerald Sanctum (Solnius):** Tanks keep the dragon facing away to avoid Acid Breath. Emerald Rot carriers run out via the shared bomb runout action. When Call of Nightmare triggers, DPS bots focus down incoming add waves.
 - **Lower Karazhan (Araxxna & Moroes):** Araxxna's spiderling swarms trigger AoE cleave. Moroes' smoke bomb forces tanks and DPS to re-acquire their targets.
-- **Karazhan Crypt:** Set a tight follow formation before entering narrow tunnels to keep bots from clipping through walls. Levers and puzzle doors must be operated manually by the player.
+- **Karazhan Crypt:** Set `.bot formation near` before entering narrow tunnels to keep bots from clipping through walls. Levers and puzzle doors must be operated manually by the player.

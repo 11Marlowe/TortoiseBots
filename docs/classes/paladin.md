@@ -52,7 +52,7 @@ When enabled, paladin bots coordinate to maintain *Judgement of Wisdom* and *Jud
 - **Assignment:** Retribution paladins maintain *Judgement of Wisdom*; Holy paladins maintain *Judgement of Light*. A second non-tank paladin takes the unassigned debuff.
 - **Protection Exemption:** Protection tanks never upkeep group judgements, keeping *Seal of Righteousness* for threat.
 - **Timing:** Debuffs are refreshed when 4 seconds or fewer remain.
-- **Mana Gates:** Paladins must hold medium mana (50% for healers per [Combat settings](../server/settings/combat.md)). Healers only judge while party health is above medium levels.
+- **Mana Gates:** Everyone needs at least medium mana; a healing paladin needs 50% mana and judges only while nobody is below the medium-health line (see [Combat settings](../server/settings/combat.md)).
 - **Player Paladins:** Active judgements placed by human players are respected and never overwritten.
 
 </details>
