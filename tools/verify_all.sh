@@ -105,6 +105,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_dual_wield_policy
         test_dungeon_follow_hold_policy
         test_dungeon_follow_stall_policy
+        test_dungeon_mob_telemetry
         test_empty_slot_fill_policy
         test_equip_threshold_policy
         test_fishing_spot_policy
