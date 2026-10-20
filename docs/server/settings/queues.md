@@ -61,7 +61,7 @@ Setting this to `1` allows the matcher to select a bot and reconfigure (respec) 
 
 ### `AiPlayerbot.RandomBotLftUpdateInterval`
 Interval in milliseconds between LFT queue evaluation passes.
-**Default:** `15000` · **Values:** milliseconds (clamped 5000..60000) · **Restart:** needed
+**Default:** `15000` · **Values:** milliseconds · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -122,7 +122,7 @@ Caps the number of simultaneous bot-only matches running per level bracket. The 
 
 ### `AiPlayerbot.RandomBotBgQueueInterval`
 Interval in milliseconds between queue checks for the autonomous battleground seeder.
-**Default:** `30000` · **Values:** milliseconds (clamped 5000..600000) · **Restart:** needed
+**Default:** `30000` · **Values:** milliseconds · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -135,7 +135,7 @@ Human demand is checked every 5 s (up to 10 bots per check); the interval and bu
 
 ### `AiPlayerbot.RandomBotBgMaxQueuePerInterval`
 Number of bots queued per interval check by the autonomous battleground seeder.
-**Default:** `1` · **Values:** integer count (0..10; 0 disables both autonomous and human demand queues) · **Restart:** needed
+**Default:** `1` · **Values:** integer count (0 disables both autonomous and human demand queues) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>

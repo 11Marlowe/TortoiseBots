@@ -22,7 +22,7 @@ For player trading permissions with open-world bots, see [`AiPlayerbot.PoolBotTr
 | :--- | :---: | :--- |
 | [`AiPlayerbot.AhMarketEnabled`](#aiplayerbotahmarketenabled) | `0` | Enables bots posting surplus items and bidding on the Auction House. |
 | [`AiPlayerbot.AhMarketInterval`](#aiplayerbotahmarketinterval) | `120` | Interval in seconds between market appraisal and posting passes. |
-| [`AiPlayerbot.AhMarketBatchSize`](#aiplayerbotahmarketbatchsize) | `1` | Maximum bots (one listing each) attempted per seller tick (1..5). |
+| [`AiPlayerbot.AhMarketBatchSize`](#aiplayerbotahmarketbatchsize) | `1` | Maximum bots (one listing each) attempted per seller tick (0..5). |
 | [`AiPlayerbot.AhMarketSyntheticSupply`](#aiplayerbotahmarketsyntheticsupply) | `0` | Injects synthetic profession materials and gear to stock empty auction houses. |
 | [`AiPlayerbot.AhMarketBuyer`](#aiplayerbotahmarketbuyer) | `0` | Enables synthetic bot buyer orders to purchase player auctions. |
 | [`AiPlayerbot.AhMarketBudgetUs`](#aiplayerbotahmarketbudgetus) | `2000` | Microsecond time budget ceiling per world tick for auction processing. |
@@ -73,12 +73,12 @@ Defines how frequently an eligible bot checks its inventory for auctionable surp
 
 ### `AiPlayerbot.AhMarketBatchSize`
 Maximum bots (one listing each) attempted per seller tick.
-**Default:** `1` · **Values:** integers (1..5) · **Restart:** needed
+**Default:** `1` · **Values:** integers (0..5) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Caps the number of eligible seller bots attempted per seller tick (clamped between 1 and 5), with each chosen bot posting one item listing, spreading auction load across server ticks.
+Caps the number of eligible seller bots attempted per seller tick (clamped between 0 and 5), with each chosen bot posting one item listing, spreading auction load across server ticks.
 
 </details>
 

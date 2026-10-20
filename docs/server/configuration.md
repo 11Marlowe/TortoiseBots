@@ -105,7 +105,6 @@ These keys are read into configuration so older configuration files continue loa
 - `AllowMultiAccountAltBots`
 - `BotAutologin`
 - `BotsSilent`
-- `ClassRace.UseFixedClassRaceCounts`
 - `DiffEmpty`
 - `DiffWithPlayer`
 - [`DisableBotOptimizations`](settings/performance.md#aiplayerbotdisablebotoptimizations)

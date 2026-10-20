@@ -24,7 +24,7 @@ TortoiseBots brings companion and open-world bots to Tortoise WoW, from party du
 | TortoiseBotsManager addon interface (after install) | Always on | None | [TBM addon](commands/addon.md) |
 | Geometric follow and combat formations | Always on | None | [Formations](commands/party-actions.md#bot-formation) |
 | Direct delegation via chat whispers | Always on | None | [Whisper commands](commands/whispers.md) |
-| Recruit full raid rosters with one command | Yes | [`AiPlayerbot.HireEnabled`](../server/settings/hiring.md#aiplayerbothireenabled) | [Raid hires](commands/roster-and-hiring.md#bot-hire-raid) |
+| Recruit full raid rosters with one command (requires raising HireMaxBotsPerPlayer) | No | [`AiPlayerbot.HireMaxBotsPerPlayer`](../server/settings/hiring.md#aiplayerbothiremaxbotsperplayer) | [Raid hires](commands/roster-and-hiring.md#bot-hire-raid) |
 | Level grouped owned alts with master | No | [`AiPlayerbot.SyncAltLevelToMaster`](../server/settings/party.md#aiplayerbotsyncaltleveltomaster) | [Owned alts](commands/roster-and-hiring.md#bot-add) |
 | Trailing followers mount to catch up | No | [`AiPlayerbot.BoostFollow`](../server/settings/party.md#aiplayerbotboostfollow) | [Follow behavior](commands/party-actions.md#bot-action-follow) |
 | Followers hold outside unpulled packs | No | [`AiPlayerbot.DungeonFollowHoldBeforePacks`](../server/settings/party.md#aiplayerbotdungeonfollowholdbeforepacks) | [Dungeon tactics](dungeons-and-raids.md#running-ahead-past-packs) |
@@ -40,8 +40,8 @@ TortoiseBots brings companion and open-world bots to Tortoise WoW, from party du
 | Bots roll Need on empty gear slots | No | [`AiPlayerbot.RollBadItemsWithPlayer`](../server/settings/party.md#aiplayerbotrollbaditemswithplayer) | [Loot rules](dungeons-and-raids.md#loot-rolling-rules) |
 | Dismissed alts roam autonomously | No | [`AiPlayerbot.AltBots`](../server/settings/party.md#aiplayerbotaltbots) | [Alt-bots](commands/roster-and-hiring.md#alt-bots-autonomous-alts) |
 | Alt-bots log out when owner logs out | No | [`AiPlayerbot.AltBotsLogoutWithOwner`](../server/settings/party.md#aiplayerbotaltbotslogoutwithowner) | [Alt-bots](commands/roster-and-hiring.md#alt-bots-autonomous-alts) |
-| Summon owned bots near innkeepers | Yes | [`AiPlayerbot.SummonAtInnkeepersEnabled`](../server/settings/party.md#aiplayerbotsummonatinnkeepersenabled) | [Innkeeper summoning](commands/roster-and-hiring.md#bot-summon) |
-| Synchronize leader quest progress to party | No | [`AiPlayerbot.SyncQuestForPlayer`](../server/settings/party.md#aiplayerbotsyncquestforplayer) | [Quest syncing](commands/roster-and-hiring.md#roster-and-lifecycle-commands) |
+| Summon owned bots near innkeepers | Yes | [`AiPlayerbot.SummonAtInnkeepersEnabled`](../server/settings/party.md#aiplayerbotsummonatinnkeepersenabled) | [Innkeeper summoning](../server/settings/party.md#aiplayerbotsummonatinnkeepersenabled) |
+| Synchronize leader quest progress to party | No | [`AiPlayerbot.SyncQuestForPlayer`](../server/settings/party.md#aiplayerbotsyncquestforplayer) | [Quest syncing](../server/settings/party.md#aiplayerbotsyncquestforplayer) |
 | Ready check waits for buffs to refresh | No | [`AiPlayerbot.ForceRebuffOnReadyCheck`](../server/settings/world-population.md#aiplayerbotforcerebuffonreadycheck) | [Ready checks](commands/party-actions.md#bot-action-ready) |
 | Remote commander mode for bot parties | No | [`AiPlayerbot.RemoteCommander`](../server/settings/performance.md#aiplayerbotremotecommander) | [Remote commander](commands/commander.md) |
 | Mercenary companion hiring at recruiters | Yes | [`AiPlayerbot.HireEnabled`](../server/settings/hiring.md#aiplayerbothireenabled) | [Hiring mercenaries](commands/roster-and-hiring.md#bot-hire) |
@@ -61,13 +61,13 @@ For hiring fees, summon cooldowns, and follow distances, see [Party settings](..
 | Dedicated rotations for all nine classes | Always on | None | [Class overview](../classes/overview.md) |
 | Automatic spec and role detection | Always on | None | [Roles and specs](../classes/overview.md#supported-roles--classes) |
 | Coordinated party interrupt casting | Always on | None | [Interrupts](commands/party-actions.md#bot-action-interrupt) |
-| Automated dispelling and decursing | Always on | None | [Shared utility](../classes/overview.md#shared-bot-behaviors) |
+| Automated dispelling and decursing | Always on | None | None |
 | Shared attacker lists among nearby party bots | Yes | [`AiPlayerbot.ShareTargets`](../server/settings/combat.md#aiplayerbotsharetargets) | [Target sharing](../classes/overview.md#shared-bot-behaviors) |
 | Ranged weapon pull before melee close | Yes | [`AiPlayerbot.RangedPull`](../server/settings/combat.md#aiplayerbotrangedpull) | [Tank pulling](commands/party-actions.md#bot-action-pull) |
 | Hunter Aspect of the Viper on low mana | Yes | [`AiPlayerbot.HunterViperOnLowMana`](../server/settings/class-behaviour.md#aiplayerbothunterviperonlowmana) | [Hunter AI](../classes/hunter.md#turtle-wow-custom-spells) |
 | Paladin Judgement coordination on bosses | Yes | [`AiPlayerbot.PaladinJudgementUpkeep`](../server/settings/class-behaviour.md#aiplayerbotpaladinjudgementupkeep) | [Paladin AI](../classes/paladin.md#utility--interrupts) |
 | Rogue Feint and Vanish threat drops | Yes | [`AiPlayerbot.RogueDungeonThreatDrops`](../server/settings/class-behaviour.md#aiplayerbotroguedungeonthreatdrops) | [Rogue AI](../classes/rogue.md#utility--interrupts) |
-| Warlock demon summons tailored to spec | Yes | [`AiPlayerbot.WarlockPetBySpec`](../server/settings/class-behaviour.md#aiplayerbotwarlockpetbyspec) | [Warlock AI](../classes/warlock.md#what-the-bot-does-in-combat) |
+| Warlock demon summons tailored to spec | Yes | [`AiPlayerbot.WarlockPetBySpec`](../server/settings/class-behaviour.md#aiplayerbotwarlockpetbyspec) | [Warlock AI](../classes/warlock.md#utility--interrupts) |
 
 For health and mana thresholds, engagement distances, and casting pacing, see [Combat settings](../server/settings/combat.md) and [Class behaviour settings](../server/settings/class-behaviour.md).
 
@@ -99,10 +99,9 @@ For bomb dispersal ranges and hazard evasion distances, see [Dungeon & raid sett
 | Automated pool bot login on startup | Yes | [`AiPlayerbot.RandomBotAutologin`](../server/settings/world-population.md#aiplayerbotrandombotautologin) | [Bot pool](../server/bot-pool.md) |
 | Mass immediate login at startup | No | [`AiPlayerbot.RandomBotLoginAtStartup`](../server/settings/world-population.md#aiplayerbotrandombotloginatstartup) | [Bot pool](../server/bot-pool.md) |
 | Auto-create bot accounts if below minimum | Yes | [`AiPlayerbot.RandomBotAutoCreate`](../server/settings/world-population.md#aiplayerbotrandombotautocreate) | [Bot pool](../server/bot-pool.md) |
-| Force all newly seeded bots to level 1 | No | [`AiPlayerbot.DisableRandomLevels`](../server/settings/world-population.md#aiplayerbotdisablerandomlevels) | [Level seed](../world/living-world.md#level-seeding--starter-progression) |
 | Level ladder rotation across level bands | Yes | [`AiPlayerbot.LevelLadder`](../server/settings/world-population.md#aiplayerbotlevelladder) | [Level ladder](../world/living-world.md#level-seed--distribution) |
 | Learn racial mounts at levels 40 and 60 | Yes | [`AiPlayerbot.LevelUpMounts`](../server/settings/world-population.md#aiplayerbotlevelupmounts) | [Mounts](../world/living-world.md#mount-rules) |
-| Restrict bots to racial mounts only | Yes | [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts) | [Mounts](../world/living-world.md#mount-rules) |
+| Bots may also use shop, cross-race and raid-drop mounts | No | [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts) | [Mounts](../world/living-world.md#mount-rules) |
 | Release to nearest graveyard on death | Yes | [`AiPlayerbot.RepopAtGraveyard`](../server/settings/world-population.md#aiplayerbotrepopatgraveyard) | [Graveyard release](../world/living-world.md#autonomous-bot-lifecycle) |
 | Avoid pathing near hostile town guards | Yes | [`AiPlayerbot.AvoidHostileTowns`](../server/settings/world-population.md#aiplayerbotavoidhostiletowns) | [Guard avoidance](../world/living-world.md#open-world-activities) |
 | Relocate bots caught in hopeless deaths | Yes | [`AiPlayerbot.RelocateHopelessDeaths`](../server/settings/world-population.md#aiplayerbotrelocatehopelessdeaths) | [Death recovery](../world/living-world.md#autonomous-bot-lifecycle) |
@@ -110,10 +109,10 @@ For bomb dispersal ranges and hazard evasion distances, see [Dungeon & raid sett
 | Teleport stuck bots to travel destination | Yes | [`AiPlayerbot.StuckTravelTeleport`](../server/settings/world-population.md#aiplayerbotstucktravelteleport) | [Stuck recovery](../world/living-world.md#open-world-activities) |
 | Autonomous quest log pruning and cleanup | Yes | [`AiPlayerbot.BotQuestLogUpkeep`](../server/settings/world-population.md#aiplayerbotbotquestlogupkeep) | [Quest upkeep](../world/living-world.md#open-world-activities) |
 | Migrate bots away from outgrown zones | Yes | [`AiPlayerbot.LeaveOutgrownZones`](../server/settings/world-population.md#aiplayerbotleaveoutgrownzones) | [Zone migration](../world/living-world.md#open-world-activities) |
-| Normalize bots from custom starter islands | Yes | [`AiPlayerbot.AllowIsolatedCustomStartingZones`](../server/settings/world-population.md#aiplayerbotallowisolatedcustomstartingzones) | [Starting zones](../world/living-world.md#level-seeding--starter-progression) |
+| Allow bots to spawn in custom isolated starting zones | No | [`AiPlayerbot.AllowIsolatedCustomStartingZones`](../server/settings/world-population.md#aiplayerbotallowisolatedcustomstartingzones) | [Starting zones](../world/living-world.md#level-seeding--starter-progression) |
 | Scatter newly seeded bots across world | Yes | [`AiPlayerbot.EnableRandomTeleports`](../server/settings/world-population.md#aiplayerbotenablerandomteleports) | [Level seeding](../world/living-world.md#level-seeding--starter-progression) |
 | Distribute creations evenly across zones | Yes | [`AiPlayerbot.RandomBotEvenStartZones`](../server/settings/world-population.md#aiplayerbotrandombotevenstartzones) | [Starter zones](../world/living-world.md#level-seeding--starter-progression) |
-| Disable broken client flight paths | Yes | [`AiPlayerbot.AllowRepairedTaxiPaths`](../server/settings/world-population.md#aiplayerbotallowrepairedtaxipaths) | [Flight paths](../world/living-world.md#open-world-activities) |
+| Allow flight paths with repaired client data | No | [`AiPlayerbot.AllowRepairedTaxiPaths`](../server/settings/world-population.md#aiplayerbotallowrepairedtaxipaths) | [Flight paths](../world/living-world.md#open-world-activities) |
 | Default masterless bots to wander strategy | Yes | [`AiPlayerbot.UseWanderAsDefaultFollowStrategy`](../server/settings/world-population.md#aiplayerbotusewanderasdefaultfollowstrategy) | [Wandering](../world/living-world.md#open-world-activities) |
 | Auto-learn completed class quest spells | Yes | [`AiPlayerbot.AutoLearnQuestSpells`](../server/settings/world-population.md#aiplayerbotautolearnquestspells) | [Class spells](../world/living-world.md#level-seeding--starter-progression) |
 | Free trainer spell sweeps on level-up | No | [`AiPlayerbot.AutoLearnTrainerSpells`](../server/settings/world-population.md#aiplayerbotautolearntrainerspells) | [Trainer spells](../world/living-world.md#level-seeding--starter-progression) |
@@ -123,9 +122,8 @@ For bomb dispersal ranges and hazard evasion distances, see [Dungeon & raid sett
 | Automatically equip upgrade drop loot | Yes | [`AiPlayerbot.AutoEquipUpgradeLoot`](../server/settings/world-population.md#aiplayerbotautoequipupgradeloot) | [Loot upgrades](../world/living-world.md#gear-evaluation--upgrades) |
 | Allow reputation items on seeded bots | No | [`AiPlayerbot.RandomGearAllowReputation`](../server/settings/world-population.md#aiplayerbotrandomgearallowreputation) | [Gear sources](../world/living-world.md#gear-evaluation--upgrades) |
 | Allow PvP honor items on seeded bots | No | [`AiPlayerbot.RandomGearAllowPvP`](../server/settings/world-population.md#aiplayerbotrandomgearallowpvp) | [Gear sources](../world/living-world.md#gear-evaluation--upgrades) |
-| Render equipped helmets and cloaks (dead knob; use `.bot flag`) | No | [`AiPlayerbot.RandomBotShowHelmet` / `RandomBotShowCloak`](../server/settings/world-population.md#aiplayerbotrandombotshowhelmet--randombotshowcloak) | [Visual display](../world/living-world.md#field-kits--equipment-upkeep) |
-| Keep all bots active without throttling | Yes | [`AiPlayerbot.DisableActivityPriorities`](../server/settings/performance.md#aiplayerbotdisableactivitypriorities) | [Activity](../world/living-world.md#overview) |
-| Force full reaction rate near players | No | [`AiPlayerbot.ForceActiveWhenNearPlayer`](../server/settings/performance.md#aiplayerbotforceactivewhennearplayer) | [Proximity](../world/living-world.md#overview) |
+| Keep all bots active without throttling | Yes | [`AiPlayerbot.DisableActivityPriorities`](../server/settings/performance.md#aiplayerbotdisableactivitypriorities) | [Activity](../server/settings/performance.md#aiplayerbotdisableactivitypriorities) |
+| Force full reaction rate near players | No | [`AiPlayerbot.ForceActiveWhenNearPlayer`](../server/settings/performance.md#aiplayerbotforceactivewhennearplayer) | [Proximity](../server/settings/performance.md#aiplayerbotforceactivewhennearplayer) |
 | Prevent melee pool bots fleeing in combat | No | [`AiPlayerbot.PoolMeleeHoldGround`](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) | [Combat behavior](../classes/overview.md#shared-bot-behaviors) |
 
 For population counts, XP multipliers, stall timers, and gear quality caps, see [World population settings](../server/settings/world-population.md) and [Performance settings](../server/settings/performance.md).
