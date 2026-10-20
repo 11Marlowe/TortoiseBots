@@ -33,13 +33,13 @@ const mk = () => ({ f, k: 0.5, units: {} });
 const EVIL = '<img src=x onerror=alert(1)>"&';
 
 // ---- line style: thickness and opacity from the panel
-vm.runInContext('cmdLayers = MapLayers.setStyle(MapLayers.setStyle(cmdLayers, "trail", "th", 200), "trail", "op", 50);', ctx);
-assert.strictEqual(vm.runInContext('cmdLineStyle("trail", 3, 0.8)', ctx), "stroke-width:6.00px;opacity:0.40");
+vm.runInContext('cmdLayers = MapLayers.setStyle(MapLayers.setStyle(cmdLayers, "leadpath", "th", 200), "leadpath", "op", 50);', ctx);
+assert.strictEqual(vm.runInContext('cmdLineStyle("leadpath", 3, 0.8)', ctx), "stroke-width:6.00px;opacity:0.40");
 assert.strictEqual(vm.runInContext('cmdLineStyle("grid", 3)', ctx), "stroke-width:3.00px;opacity:1.00", "a layer without a style is drawn as normal");
 
 // ---- trails
 ctx.pts = []; for (let i = 0; i < 30; i++) ctx.pts.push([i * 5, 0, 100 + i]);
-const lead = vm.runInContext('(function(){ var c = ' + JSON.stringify({}) + '; return cmdTrailSvg(' + 'ctx0' + ', "trail", "trail", pts, 1, 3); })', Object.assign(ctx, { ctx0: mk() }));
+const lead = vm.runInContext('(function(){ var c = ' + JSON.stringify({}) + '; return cmdTrailSvg(' + 'ctx0' + ', "leadpath", "trail", pts, 1, 3); })', Object.assign(ctx, { ctx0: mk() }));
 const svg1 = lead();
 assert.ok(/<polyline class="trail" style="stroke-width:6\.00px;opacity:[0-9.]+"/.test(svg1), svg1.slice(0, 200));
 assert.ok((svg1.match(/<polyline/g) || []).length >= 2, "fading chunks");
@@ -105,8 +105,8 @@ assert.strictEqual(Object.keys(ctx.dc.units).length, 5);
 
 // ---- combat lines
 ctx.dc = mk();
-vm.runInContext('cmdLayers = MapLayers.setStyle(MapLayers.defaults(), "healline", "th", 300);', ctx);
-const ln = vm.runInContext('cmdLineSvg(dc, "healline", "healline", {x: 1, y: 2}, {x: 3, y: 4}, 0.9)', ctx);
+vm.runInContext('cmdLayers = MapLayers.setStyle(MapLayers.defaults(), "actionlines", "th", 300);', ctx);
+const ln = vm.runInContext('cmdLineSvg(dc, "actionlines", "healline", {x: 1, y: 2}, {x: 3, y: 4}, 0.9)', ctx);
 assert.ok(/<line class="healline" style="stroke-width:4\.80px;opacity:0\.90" x1="-2\.00" y1="-1\.00" x2="-4\.00" y2="-3\.00"\/>/.test(ln), ln);
 
 // ---- a path with a teleport is drawn in pieces, with a swirl where it broke and a skull where the bot died
@@ -114,7 +114,7 @@ assert.ok(/<line class="healline" style="stroke-width:4\.80px;opacity:0\.90" x1=
   vm.runInContext('cmdLayers = MapLayers.defaults();', ctx);
   ctx.tpts = [[0, 0, 100], [10, 0, 102], [20, 0, 104], [800, 0, 106, "t"], [810, 0, 108], [820, 0, 110, "d"], [830, 0, 112]];
   ctx.dc = mk();
-  const svg = vm.runInContext('cmdTrailSvg(dc, "trail", "trail", tpts, 1, 3)', ctx);
+  const svg = vm.runInContext('cmdTrailSvg(dc, "leadpath", "trail", tpts, 1, 3)', ctx);
   const lines = (svg.match(/points="[^"]+"/g) || []).map((m) => m.slice(8, -1).split(" ").map((p) => Number(p.split(",")[1]) * -1)); // game x of each vertex
   assert.ok(lines.length >= 2, "pieces");
   lines.forEach((xs) => assert.ok(!(Math.min(...xs) <= 20 && Math.max(...xs) >= 800), "one polyline runs from before the teleport to after it: " + xs));
@@ -123,7 +123,7 @@ assert.ok(/<line class="healline" style="stroke-width:4\.80px;opacity:0\.90" x1=
   assert.strictEqual((svg.match(/ic-skull/g) || []).length, 1, "one skull where it died");
   assert.ok(/Teleported or summoned here/.test(svg) && /Died here/.test(svg), "with a hover text");
   ctx.tpts = [[0, 0, 1], [10, 0, 2], [20, 0, 3]];
-  const plain = vm.runInContext('cmdTrailSvg(dc, "trail", "trail", tpts, 1, 3)', ctx);
+  const plain = vm.runInContext('cmdTrailSvg(dc, "leadpath", "trail", tpts, 1, 3)', ctx);
   assert.ok(!/ic-swirl|ic-skull/.test(plain), "no marks on a plain walk");
 }
 console.log("drawing ok");

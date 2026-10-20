@@ -115,15 +115,14 @@ function facts(b) {
   return { mobs: reported, mobTargets: reported, botTargets: reported && b.bots.some((x) => !!x.id) };
 }
 const avail = M.availability(facts(bind));
-assert.ok(avail.mobhostile.ok && avail.mobneutral.ok && avail.mobcritter.ok && avail.bossmark.ok);
-assert.ok(avail.threatcolors.ok && avail.threat.ok && avail.bottarget.ok);
+assert.ok(avail.enemies.ok && avail.critters.ok && avail.enemynames.ok && avail.threat.ok && avail.actionlines.ok);
 const missing = M.availability(facts(oldBind));
-assert.ok(!missing.mobhostile.ok && !missing.bossmark.ok && !missing.threat.ok && !missing.bottarget.ok);
-assert.match(missing.mobhostile.why, /newer module/);
+assert.ok(!missing.enemies.ok && !missing.enemynames.ok && !missing.threat.ok && !missing.actionlines.ok);
+assert.match(missing.enemies.why, /newer module/);
 
 // A reported-empty list keeps the layers available (old mobs vanish, the choice stands).
 const emptyBind = D.bindOf({ key: "409:14", map: 409, instance: 14, mobs_map: 409, mobs_total: 0, mobs: [], members: [{ name: "B", guid: 6, role: "dps", map: 409, id: "6" }] });
-assert.ok(M.availability(facts(emptyBind)).mobhostile.ok);
+assert.ok(M.availability(facts(emptyBind)).enemies.ok);
 
 // The drawing helpers accept bindOf's output directly: a mob's victim names a bot, a bot's target names a mob.
 const threats = CmdView.threatLines(bind.mobs, bind.bots);

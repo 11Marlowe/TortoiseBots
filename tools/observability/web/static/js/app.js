@@ -5071,10 +5071,17 @@
     const heading = lead && lead.map === (first && first.map) ? CmdView.heading(trail, cmdNowFor(bind)) : null;
     const zr = cmdZoneRect(first);
     const zonesAround = !!(first && ZONE_BOUNDS && Object.keys(ZONE_BOUNDS).some(k => ZONE_BOUNDS[k] && ZONE_BOUNDS[k].map_id === first.map && ZONE_BOUNDS[k].area_id !== first.zone));
-    // What the module reports for the map the party is on (a mob list that is empty still counts: the layers stay selectable).
+    // What the module reports for the map the party is on (a mob list that is empty still counts: the layers stay selectable). The
+    // commander feed caps its list at 24; when this card's party is a dungeon run the tab already knows (same map, a shared bot), its
+    // DUNGEON_MOBS list is drawn too: the union by guid shows every enemy the run knows, the feed winning on the fields it carries.
     const mapId = first ? first.map : null;
-    const mobs = first ? CmdView.mobsOf(bind, mapId) : [];
-    const reported = !!first && Array.isArray(bind.mobs) && bind.mobs_map === mapId;
+    const feedMobs = first ? CmdView.mobsOf(bind, mapId) : [];
+    const feedReported = !!first && Array.isArray(bind.mobs) && bind.mobs_map === mapId;
+    const run = first ? MapLayers.findRun(bind, state.dungeons.runs, mapId) : null;
+    const runMobs = run && Array.isArray(run.mobs) ? run.mobs : null;
+    const mobs = runMobs ? MapLayers.mobUnion(feedMobs, runMobs) : feedMobs;
+    const mobsTotal = runMobs ? (run.mobs_total || 0) : 0;
+    const reported = feedReported || !!runMobs;
     const commanderAt = first ? CmdView.commanderPlace(bind, mapId) : null;
     // What the drawing layers have: the other bots' paths, the plan steps of the run, stall spots, the objects the bots have seen.
     const steps = CmdPaths.runSteps(bind.run);
@@ -5090,7 +5097,7 @@
       activity: onMap.some(b => b.st != null) || mobs.some(m => m.cast || m.cc),
       events: UnitInfo.eventsOf(cmdEvents, bind.commander).length > 0,
     };
-    return { lead, first, onMap, pics, trail, heading, zr, ctx, mobs, commanderAt, steps, stalls, objs };
+    return { lead, first, onMap, pics, trail, heading, zr, ctx, mobs, mobsTotal, commanderAt, steps, stalls, objs };
   }
 
   // A clock time for a label on the path: the game server's seconds in the browser's locale.
@@ -5135,7 +5142,7 @@
   function cmdMemberTrailsSvg(c, bind, mapId) {
     let g = '';
     CmdPaths.memberTrails(cmdTrails, bind, mapId, cmdLayers.trailLen).forEach(m => {
-      g += cmdTrailSvg(c, 'membertrails', `mtrail ${CmdView.roleKey(m.bot)}`, m.pts, 0.75, 2);
+      g += cmdTrailSvg(c, 'memberpaths', `mtrail ${CmdView.roleKey(m.bot)}`, m.pts, 0.75, 2);
     });
     return g;
   }
@@ -5223,7 +5230,7 @@
     if (!pw || !ph) return; // the tab is hidden
     const ms = cmdMaps[key] || (cmdMaps[key] = { follow: true, view: null, userScale: null, pic: '' });
     const facts = cmdMapFacts(bind);
-    const { lead, first, onMap, pics, trail, heading, zr, mobs, commanderAt, steps, stalls, objs } = facts;
+    const { lead, first, onMap, pics, trail, heading, zr, mobs, mobsTotal, commanderAt, steps, stalls, objs } = facts;
     const avail = MapLayers.availability(facts.ctx);
     cmdAvail[key] = avail;
     const on = MapLayers.active(cmdLayers, avail);
@@ -5277,7 +5284,7 @@
     const dc = { f, k, units };
     if (on.runsteps) g += cmdRunStepsSvg(dc, steps, lead && first && lead.map === first.map ? lead : null);
     if (on.membertrails && first) g += cmdMemberTrailsSvg(dc, bind, first.map);
-    if (on.trail && trail.length >= 2) g += cmdTrailSvg(dc, 'trail', 'trail', trail.slice(-cmdLayers.trailLen), 1, 3);
+    if (on.trail && trail.length >= 2) g += cmdTrailSvg(dc, 'leadpath', 'trail', trail.slice(-cmdLayers.trailLen), 1, 3);
     if (on.trailtime) {
       CmdView.trailStamps(trail, v.scale, 70, 8).forEach(s => {
         g += `<g class="stamp"><circle cx="${f(s.x)}" cy="${f(s.y)}" r="${f(3 * k)}"/>`
@@ -5309,11 +5316,11 @@
     if (on.bottarget) {
       CmdView.botTargetLines(onMap, mobs).forEach(l => {
         const a = CmdView.project(l.bot.x, l.bot.y), b = CmdView.project(l.mob.x, l.mob.y);
-        g += `<line class="bottarget" style="${cmdLineStyle('bottarget', 1.5, 0.9)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
+        g += `<line class="bottarget" style="${cmdLineStyle('actionlines', 1.5, 0.9)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
       });
     }
-    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(dc, 'healline', 'healline', l.from, l.to, 0.9); });
-    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(dc, 'ccline', 'ccline', l.from, l.to, 0.9); });
+    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(dc, 'actionlines', 'healline', l.from, l.to, 0.9); });
+    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(dc, 'actionlines', 'ccline', l.from, l.to, 0.9); });
     if (on.objects) g += cmdObjectsSvg(dc, objs);
     // the health bar and status icons over a unit at plane point p, radius r (drawing units)
     const overlay = (u, kind, p, r) => {
@@ -5379,8 +5386,11 @@
     });
     svg.setAttribute('viewBox', box.map(f).join(' '));
     svg.querySelector('g.dyn').innerHTML = g;
-    const note = away > 0 ? `${away} bot${away === 1 ? ' is' : 's are'} on another map` : '';
-    card.querySelector('.cmd-mapnote').textContent = note;
+    const awayNote = away > 0 ? `${away} bot${away === 1 ? ' is' : 's are'} on another map` : '';
+    const enemiesNote = MapLayers.enemiesText(mobs.length, mobsTotal);
+    const noteEl = card.querySelector('.cmd-mapnote');
+    noteEl.textContent = [awayNote, enemiesNote].filter(Boolean).join(' · ');
+    noteEl.title = enemiesNote ? 'The module caps the mob list per run (24 in a party, 48 in a raid)' : '';
     card.querySelector('.cmd-grid-size').textContent = on.grid ? `grid ${step} yd` : '';
     const sc = card.querySelector('.cmd-scale');
     sc.hidden = !on.scale;
@@ -5913,7 +5923,7 @@
       cmdDimRow.row.title = avail.bg.ok ? '' : 'Greyed out: ' + avail.bg.why;
     }
     if (cmdTrailRow) {
-      const any = avail.trail.ok || avail.membertrails.ok;
+      const any = avail.leadpath.ok || avail.memberpaths.ok;
       cmdTrailRow.box.value = String(cmdLayers.trailLen);
       cmdTrailRow.val.textContent = String(cmdLayers.trailLen);
       cmdTrailRow.box.disabled = !any;
@@ -5935,7 +5945,7 @@
       r.box.disabled = !a.ok;
       r.row.classList.toggle('off', !a.ok);
       r.why.textContent = a.ok ? '' : a.why;
-      r.row.title = a.ok ? '' : 'Greyed out: ' + a.why;
+      r.row.title = [d.tip, a.ok ? '' : 'Greyed out: ' + a.why].filter(Boolean).join(' — ');
     });
   }
 

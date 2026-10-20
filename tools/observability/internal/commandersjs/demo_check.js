@@ -59,7 +59,7 @@ for (let sec = 1000; sec <= 1000 + 2 * D.LOOP; sec += 2) {
   const steps = P.runSteps(bind.run), stalls = P.stallsOf(ctx.cmdStalls, bind.commander, mapId);
   mark("bg", 1); mark("grid", 1); mark("scale", 1);
   mark("bots", onMap.length); mark("botnames", onMap.length); mark("lead", lead ? 1 : 0);
-  mark("trail", trail.length >= 2 ? run("cmdTrailSvg({f: " + f.toString() + ", k: 0.5, units: {}}, 'trail', 'trail', trail, 1, 3).length") : 0);
+  mark("trail", trail.length >= 2 ? run("cmdTrailSvg({f: " + f.toString() + ", k: 0.5, units: {}}, 'leadpath', 'trail', trail, 1, 3).length") : 0);
   ctx.dcx = dc();
   mark("membertrails", run("cmdMemberTrailsSvg(dcx, bind, 70)").length);
   mark("trailtime", V.trailStamps(trail, 1, 70, 8).length);
@@ -99,7 +99,10 @@ for (let sec = 1000; sec <= 1000 + 2 * D.LOOP; sec += 2) {
 
 // the layers that need the daemon (the real picture, the zone outlines) are the only ones the demo cannot feed itself
 const EXTERNAL = new Set(["zone", "zonelabels"]);
-L.DEFS.forEach((d) => { if (!EXTERNAL.has(d.key)) assert.ok(seen[d.key] > 0, `layer "${d.key}" has nothing to show in the demo`); });
+L.DEFS.forEach((d) => {
+  if (d.parts.every((p) => EXTERNAL.has(p))) return;
+  assert.ok(d.parts.some((p) => seen[p] > 0), `layer "${d.key}" has nothing to show in the demo`);
+});
 assert.ok(seen.bg, "the map picture comes from the daemon's map folder for map 70");
 
 // and the pieces the story promises
