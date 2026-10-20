@@ -20,7 +20,6 @@ TortoiseBots strives to make companion bots behave like human players. However, 
 - **Synthetic Auction Market:** While bots list and purchase items from their actual inventories, fully synthetic auction supply and synthetic buyers are optional features disabled by default ([`AiPlayerbot.AhMarketSyntheticSupply`](../server/settings/economy.md#aiplayerbotahmarketsyntheticsupply) and [`AiPlayerbot.AhMarketBuyer`](../server/settings/economy.md#aiplayerbotahmarketbuyer)). When enabled, synthetic items remain isolated from real player inventories.
 - **Pre-Movement Loot Admission:** Bots check who may loot a corpse before walking to it. However, the server engine currently lacks an upfront query for game object loot rights; a bot may occasionally walk toward a gathered herb or mined vein before determining that another player is currently opening it or that it is empty.
 
-<a id="unstarted-roadmap-ideas"></a>
 ## Explicit Non-Goals
 
 TortoiseBots deliberately excludes certain features to maintain immersion, stability, and vanilla fidelity:

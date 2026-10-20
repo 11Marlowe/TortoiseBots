@@ -70,7 +70,7 @@ When you queue for LFT with owned alts or hired companions in your party:
 The battleground service populates PvP matches so players can experience active battlegrounds:
 
 - **Supported battlegrounds:** Warsong Gulch (WSG), Arathi Basin (AB), and Alterac Valley (AV).
-- **Demand-driven backfill:** When human players enter a battleground queue, the service scans every 5 seconds, queueing up to 10 bots per check (5 per faction) toward match minimums. Setting [`AiPlayerbot.RandomBotBgQueueInterval = 0`](../server/settings/queues.md#aiplayerbotrandombotbgqueueinterval) disables both interval scans and bot backfills.
+- **Demand-driven backfill:** When human players enter a battleground queue, the service scans every 5 seconds, queueing up to 10 bots per check (5 per faction) toward match minimums. Setting [`AiPlayerbot.RandomBotBgMaxQueuePerInterval = 0`](../server/settings/queues.md#aiplayerbotrandombotbgmaxqueueperinterval) disables both interval scans and bot backfills.
 - **Match launch threshold:** The system fills each faction to the match minimum plus one. This launches matches promptly without accumulating surplus bots that could trigger a separate, unwanted bot-only match.
 - **Prompt exit:** When a battleground match concludes, bots leave the instance promptly rather than waiting for the server instance shutdown timer.
 - **Enabled by default:** Controlled by [`AiPlayerbot.RandomBotBgEnabled`](../server/settings/queues.md#aiplayerbotrandombotbgenabled).
@@ -92,8 +92,8 @@ To keep battlegrounds lively when no human players are queued, pool bots can org
 
 - **Autonomous seeding:** When queue demand from real players is zero, pool bots seed their own Warsong Gulch matches in the most populated level bracket.
 - **Player priority:** Human queue demand takes absolute priority. Autonomous seeding pauses instantly whenever a real player queues for any battleground (players already invited or inside a match don't count).
-- **Instance concurrency:** Autonomous matches are restricted to solo pool bots, accumulating in single-bot batches until 10v10 is reached. Concurrency is capped by default to one active match per bracket.
-- **Settings:** Governed by [`AiPlayerbot.RandomBotBgAutonomous`](../server/settings/queues.md#aiplayerbotrandombotbgautonomous) and [`AiPlayerbot.RandomBotBgAutonomousMaxInstances`](../server/settings/queues.md#aiplayerbotrandombotbgautonomousmaxinstances). Requires `RandomBotBgEnabled = 1`.
+- **Instance concurrency:** Autonomous matches are restricted to solo pool bots, accumulating in single-bot batches until 10v10 is reached. Concurrency is capped to a single active match per bracket.
+- **Settings:** Governed by [`AiPlayerbot.RandomBotBgAutonomous`](../server/settings/queues.md#aiplayerbotrandombotbgautonomous) and [`AiPlayerbot.RandomBotBgAutonomousMaxInstances`](../server/settings/queues.md#aiplayerbotrandombotbgautonomousmaxinstances). Requires [`AiPlayerbot.RandomBotBgEnabled`](../server/settings/queues.md#aiplayerbotrandombotbgenabled).
 
 ## Battlegrounds with your own party bots
 

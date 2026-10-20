@@ -87,9 +87,9 @@ You can confirm which version is active using four methods:
 
 | Verification Method | Where to Look | Expected Output |
 | :--- | :--- | :--- |
-| **Server Startup Log** | Server console or `Server.log` | Displays `TortoiseBots <version> (AI <author>)`. |
+| **Server Startup Log** | Server console or `Server.log` | Displays `TortoiseBots <version>` (AI enabled\|disabled), followed by the author/source attribution line. |
 | **In-Game Chat Command** | In-game chat via `.bot version` | Prints `TortoiseBots <version>`, `TBM:VERSION|...`, and author attribution. |
-| **Addon Window Header** | Header bar of `/tbm` in-game | Shows server version (falling back to `server ?` if disconnected). |
+| **Addon Window Header** | Header bar of `/tbm` in-game | Shows server version from `TBM:VERSION|` (shows `server ?` when the connected module never sends it). |
 | **Git Release Tags** | Git repository tags | Semver release tags (e.g. `v1.4.0`), with older daily `vYYYY-MM-DD` tags. |
 
 If the log shows `dev`, the build had no readable root `VERSION` file.

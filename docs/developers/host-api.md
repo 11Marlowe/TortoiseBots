@@ -44,7 +44,7 @@ Core: tortoise-wow/tortoise-wow main @ 5fafe43b
       ("Merging headless session and module API expansion")
 ```
 
-Every generic seam in this contract is merged upstream. The #411 and #416
+Every generic seam in this contract is merged upstream. The [#411](https://github.com/tortoise-wow/tortoise-wow/pull/411) and [#416](https://github.com/tortoise-wow/tortoise-wow/pull/416)
 candidates were superseded and closed; their combined surface landed through the
 merged PRs below.
 
@@ -196,7 +196,7 @@ Bot AI runs on the normal world/game thread. The core exposes a generic world
 update listener mechanism, and `BotHostAdapter` drives `BotManager` / AI,
 module-owned `PlayerConvenience`, `AhMarketService`, and
 `BattlegroundQueueService` updates from that tick. The remote commander's
-binding sweep [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), `BotCommands::UpdateRemoteCommanders`) runs there
+binding sweep [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), `BotCommands::UpdateRemoteCommanders` runs there
 too: nothing while no commander is bound, otherwise a once-a-second check of
 each binding by guid (commander logout, disband, lead change), plus the
 bound commanders' `TBM:VIEW` perception feed (phase 2: one frame per
@@ -290,7 +290,7 @@ This is module-internal scheduling and needs no core seam.
 | Durable master GUID | `BotRecord.masterGuid` |
 | Live master pointer | `PlayerbotAI` |
 | Durable hire ledger | `HireLifecycle` (`tortoise_bots_hire`) |
-| Durable claimed-guild-bot ledger | `ClaimLifecycle` (`tortoise_bots_claimed`, [#489](https://github.com/Sagiroth/TortoiseBots/issues/489) |
+| Durable claimed-guild-bot ledger | `ClaimLifecycle` (`tortoise_bots_claimed`, [#489](https://github.com/Sagiroth/TortoiseBots/issues/489)) |
 
 A second owner for session lifetime, AI state, movement or master identity is an
 architecture warning.
@@ -320,7 +320,7 @@ Network master incoming
 
 No bot-specific opcode branches belong in core packet handlers.
 
-Threading [#839](https://github.com/Sagiroth/TortoiseBots/issues/839), #844): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
+Threading ([#839](https://github.com/Sagiroth/TortoiseBots/issues/839), [#844](https://github.com/Sagiroth/TortoiseBots/issues/844)): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
 calls `WorldSession::SendPacket` and `SERVERHOOK_CAN_PACKET_RECEIVE` on the thread
 that processes the packet (`WorldSession::ProcessPackets`): the world thread, a
 map thread, the AsyncPackets thread (party / raid / guild / whisper chat, name
@@ -346,7 +346,7 @@ the same table the AI registers its handlers from).
 
 | Entry | Threads | What it does now |
 | --- | --- | --- |
-| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped. Not copied [#846](https://github.com/Sagiroth/TortoiseBots/issues/846), `runtime/BotChatGate.h`): any line for a bot whose `AllowActivity()` is false (activity throttling only), and Trade-channel lines that do not name a masterless, unhired, non-recording pool bot (#469) — the gates the AI applies first, published by each AI's update on change |
+| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped. Not copied [#846](https://github.com/Sagiroth/TortoiseBots/issues/846), `runtime/BotChatGate.h`: any line for a bot whose `AllowActivity()` is false (activity throttling only), and Trade-channel lines that do not name a masterless, unhired, non-recording pool bot ([#469](https://github.com/tortoise-wow/tortoise-wow/pull/469)) — the gates the AI applies first, published by each AI's update on change |
 | `CanPacketSend`, headless session, other handled opcodes (invites, loot, quest updates, cast results, spell failure / delay, knockback, ...) | any; the spell / knockback cases come from the bot's map thread or the world thread | world thread: `HandleBotOutgoingPacket` at once. Otherwise: the bot guid from `PlayerbotAIStorage::GetBotGuid` (pointer comparison, no `Player` dereference), a copy into the per-bot packet FIFO, `HandleBotOutgoingPacket` in the drain; over 256 per bot per tick are dropped. A map-thread packet is handled before any further map update, so the AI sees the same game state |
 | `CanPacketSend`, network master session | any | bot guids from `BotManager::GetBotGuidsForMasterAnyThread` (a master -> bot view published under a lock at the end of every `OnWorldUpdate`, at most one tick stale); world thread: `HandleMasterOutgoingPacket` at once; otherwise one shared copy queued for every bot, handed over in the drain |
 | `CanPacketReceive` / `DispatchMasterIncoming` | world, map or AsyncPackets | same view and the same world-thread-inline / queue-elsewhere split, `HandleMasterIncomingPacket` |
@@ -362,7 +362,7 @@ on the world thread is O(pool bots in the channel x lines).
 
 Synthesized client packets (gameobject use, open/use item, chat) use the
 core receive queues: headless sessions drain them via `CanProcessPackets:IsHeadless`
-(core #475). This runs the canonical `ProcessPackets` wrapper (script receive
+([#475](https://github.com/tortoise-wow/tortoise-wow/pull/475)). This runs the canonical `ProcessPackets` wrapper (script receive
 hooks, flood accounting, per-update cap, `ExecuteOpcode` teleport boundary).
 Note: core stamps `packetTime` only for perflog profiling — it does not
 `FillPacketTime`, so movement opcodes with `m_recvdTime == 0` remain subject to
@@ -373,14 +373,14 @@ outgoing delivery and the existing group-invite Trigger -> Action acceptance
 path. Real-client incoming delivery remains a separate manual-client acceptance
 boundary.
 
-### Chat and addon-message seams (core #476)
+### Chat and addon-message seams ([#476](https://github.com/tortoise-wow/tortoise-wow/pull/476))
 
 A non-addon chat message that carries a body runs
 `ProcessChatMessageAfterSecurityCheck` before its destination case:
 `CheckChatMessageValidity`, `PLAYERHOOK_ON_BEFORE_SEND_CHAT_MESSAGE`, then
 `ChatHandler::ParseCommands`. Synthesized bot speech (`SAY`, `YELL`, `PARTY`,
 `GUILD`, …) that begins with `.` or `!` is therefore still parsed as a server
-command; #476 removed addon payloads from that path only.
+command; [#476](https://github.com/tortoise-wow/tortoise-wow/pull/476) removed addon payloads from that path only.
 `PlayerbotAI::SanitizeCommandLikeChat` prepends one space to bot speech starting
 with `.` or `!` (literal `..` / `!!` are left alone) and remains required by
 design.
@@ -433,7 +433,7 @@ owns the generic `AllCommandScript` entry for `.bot`, and `BotPlayerAdapter`
 registers `PLAYERHOOK_ON_LOGIN`, `PLAYERHOOK_ON_MAP_CHANGED`,
 `PLAYERHOOK_ON_UPDATE`, `PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST`,
 `PLAYERHOOK_ON_BEFORE_LOGOUT` and `PLAYERHOOK_ON_LOGOUT`. No module code
-registers `OnChatChannel`; do not add it until #498 is merged.
+registers `OnChatChannel`; do not add it until [#498](https://github.com/tortoise-wow/tortoise-wow/pull/498) is merged.
 
 #### Addon command transport
 
@@ -482,7 +482,7 @@ action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/sk
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
-commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), AiPlayerbot.RemoteCommander, default off)
+commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), AiPlayerbot.RemoteCommander, default off
 cmd attack|pull|pullback <guid> [seconds] | cc <mark> <guid> [bot] | focus <guid> | move <x> <y> <z> | stay | follow | rest | revive <bot> | summon <bot>  # orders to the bound group; ACK/ERR intent "cmd <verb>"
 inv <bot>  # TBM:INV_BEGIN/INV_EQ/INV_ITEM/INV_END inventory snapshot
 item <bot> trade | equip|unequip|give <bag> <slot>  # item order by server bag/slot; ACK/ERR intent "item <op>"
@@ -657,7 +657,7 @@ role hook, private-map access, addon-string injection, or DB query per tick.
 When the picked bot's installed kit would not play its slot (feral druid
 queued tank with the default cat kit), the fill hands the queued role over
 (`SetForcedRole`, cleared on every pending exit path), so the strategy
-rebuild at group adoption builds the slot's kit (#966).
+rebuild at group adoption builds the slot's kit ([#966](https://github.com/Sagiroth/TortoiseBots/issues/966)).
 Forced roles are cleared on pending exit paths, and reconciliation runs even
 when the fill budget is zero.
 
@@ -698,7 +698,7 @@ cooldown bound world-thread work. Failed attempts are also rate-limited.
 Fail-closed eligibility (world-thread read-only, no `m_queue` mutation): bots
 with an active `PlayerbotAI` player master (`HasActivePlayerMaster`), any
 grouped/manual-use bot (`Player::GetGroup`), LFT queued/in-offer
-(`sLFTMgr.IsQueued`/`IsInOffer`, hard-requires the merged `LFT/LFTMgr.h` (#438) — build fails with `#error` if absent, no silent fallback),
+(`sLFTMgr.IsQueued`/`IsInOffer`, hard-requires the merged `LFT/LFTMgr.h` ([#438](https://github.com/tortoise-wow/tortoise-wow/pull/438)) — build fails with `#error` if absent, no silent fallback),
 or inside a battleground/instance (`InBattleGround`/`InBattleGroundQueue`/
 `Map::IsDungeon`/`IsBattleGround`) are never selected, posted, or teleported;
 per-bot AH action stays independent and never pulls owned/party bots from players.
@@ -716,10 +716,10 @@ accounts** (character-database table `tortoise_bots_pool_account`, seeded by
 `RandomBotUpdateInterval`, world-thread) it creates the bounded deficit toward
 `MinRandomBots`/`MaxRandomBots` through `AccountMgr::CreateAccount` (random
 12-character alphanumeric password, hashed and never logged) and the generic
-synchronous `CharacterCreation::CreateCharacter` seam (merged #438). Core owns account/character persistence and validation; the module
+synchronous `CharacterCreation::CreateCharacter` seam (merged [#438](https://github.com/tortoise-wow/tortoise-wow/pull/438)). Core owns account/character persistence and validation; the module
 never writes `account`/`characters` rows directly, uses no DB worker or donor
 creation loop, and does no per-tick `LIKE` scan. Because `LoginDatabase` queues
-account creation asynchronously after `AllowAsyncTransactions` (independent of #438),
+account creation asynchronously after `AllowAsyncTransactions` (independent of [#438](https://github.com/tortoise-wow/tortoise-wow/pull/438)),
 the service remembers exactly one successful account name whose id is not
 immediately visible, retries that same name with bounded/log-throttled cadence
 while continuing the existing-account selection path and without allocating
@@ -905,7 +905,7 @@ for live Headless random bots through the existing native
 native `WorldSession::HandleBattleFieldPortOpcode` action 0 (`CMSG_BATTLEFIELD_PORT`
 mapId+0, fail-closed `GetBattleGroundTemplate`/`GetMapId` validation) for
 master-reclaim leave. Demand is read from the copy-only generic
-`BattleGroundMgr::GetQueuedParticipants` snapshot (merged #438): no human
+`BattleGroundMgr::GetQueuedParticipants` snapshot (merged [#438](https://github.com/tortoise-wow/tortoise-wow/pull/438)): no human
 waiting participant means no bot is queued, and a non-empty bucket selects its
 queue type/bracket and fills both sides up to the core's match minimum plus a
 small margin (clamped below the minimum, so leftovers cannot start a second
@@ -925,7 +925,7 @@ service and never holding its `BgQueued` lease — are left alone. AV is always
 queued solo and success is verified after the native handler; WSG/AB group joins
 require every member to be a service-owned Headless bot. Cadence and per-interval
 budget are clamped and the setting defaults on (`RandomBotBgEnabled=1`; set `0`
-to opt out). Requires the merged session and participant primitives (#438).
+to opt out). Requires the merged session and participant primitives ([#438](https://github.com/tortoise-wow/tortoise-wow/pull/438)).
 
 A human queuing at the battlemaster with **Join as Group** alongside their own
 managed bots needs no service involvement: the core group-join path accepts

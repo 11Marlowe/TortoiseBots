@@ -33,7 +33,7 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 
 ### Feral (Cat Melee DPS)
 - Enters Cat Form and opens from stealth using *Pounce* or *Ravage*.
-- Builds combo points using *Claw*, *Rake*, *Shred*, and *Tiger's Fury*, spending points on *Rip* and *Ferocious Bite*.
+- Builds combo points using *Claw*, *Rake*, and *Shred*, spending points on *Rip* and *Ferocious Bite*; fires *Tiger's Fury* as a damage buff.
 - Drops threat with *Cower* at medium threat in party and raid encounters.
 - Fires *Ferocious Bite* early on targets below 25% health with 1 or more combo points (against targets under ~4000 health; bosses keep Rip), avoiding clipping active *Rip* bleeds.
 - Out of combat or in battlegrounds, prowling cats maintain normal objective movement and routines.

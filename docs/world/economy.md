@@ -87,7 +87,7 @@ flowchart TD
 
 The organic Auction House buyer operates without artificial teleportation:
 - Only masterless pool bots of level 10 or higher with at least 5 gold in unreserved purse are selected.
-- Eligible bots travel on foot or by flight path to the nearest auction house on the bot's own map/continent (at most one trip per bot per 10 minutes, no teleporting).
+- Eligible bots travel on foot or by flight path to the nearest auction house on the bot's own map/continent (no teleporting).
 - Upon arrival, the bot evaluates current listings matching its class and spec, placing bids using native funds.
 - Rotating background scans examine eight bots per listing pass to prevent server latency spikes. Grouped bots, dungeon parties, and battleground participants are excluded from market errands.
 

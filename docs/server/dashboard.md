@@ -95,9 +95,6 @@ Clicking any bot name or map marker opens a slide-over profile panel that inspec
 - **Professions & Skills:** Current skill ranks and associated trade abilities.
 - **Bags & Containers:** Inventory slots and bag contents.
 - **Activity History:** Recent kills, quest completions, and loot transactions.
-- **Spells:** Distinguishes runtime learned spells from default starting spells granted by race/class.
-- **Talents:** Visual 7-tier talent trees with DBC layout.
-- **Professions & Skills:** Current skill ranks and associated trade abilities.
 
 ### Dungeons Tab
 
@@ -127,20 +124,21 @@ The daemon exports Prometheus metrics at `http://localhost:8095/metrics` for scr
 - `tortoisebots_active_count{class,role}`: Number of active bots grouped by class and role.
 - `tortoisebots_state_ratio{state}`: Ratio of time spent in each operational state over rolling windows.
 - `tortoisebots_grinding_xp_per_hour_total`: Collective XP gain rate across the bot pool.
-- `tortoisebots_grinding_kills_total`: Total creature kills recorded.
-- `tortoisebots_issues_active{type}`: Current count of active stuck episodes.
+- `tortoisebots_issues_active{type}`: Current count of active issue episodes by type.
 - `tortoisebots_anomalies_total{type}`: Cumulative anomalies and loop triggers encountered.
-- `tortoisebots_player_lag_seconds{player}`: Measured network lag for connected human players.
 - `tortoisebots_snapshots_total`: Number of telemetry roster snapshots ingested.
 
 ### Selected JSON REST Endpoints
 
-The daemon provides comprehensive HTTP REST endpoints under `/api/v1`:
+The daemon provides selected admin-relevant HTTP REST endpoints under `/api/v1`:
 
 - `GET /api/v1/status`: Daemon health, connected game server status, and pool population summary.
 - `GET /api/v1/bots`: Complete bot fleet state, coordinates, active strategies, and inventory summary.
+- `GET /api/v1/armory/bots`: Searchable roster summary for the bot armory inspector.
+- `GET /api/v1/armory/bot/{guid}`: Detailed character profile, paperdoll gear, talents, and inventory.
 - `GET /api/v1/issues`: Active and historical navigation and combat stall episodes.
 - `GET /api/v1/commanders`: Active remote commander bindings, party member positions, and recent orders.
+- `GET /api/v1/commanders/trails`: Historic movement trails and paths for active commanders.
 - `GET /api/v1/dungeons`: Live view of active instance copies with member states and player indicators.
 - `GET /api/v1/activity`, `/activity/loot`, `/activity/quests`: Real-time feed of bot actions, items, and quests.
 - `GET /api/v1/grinding`: Detailed grinding analytics, XP rates, and kill distributions.

@@ -48,9 +48,9 @@ If you prefer to play solo without interruptions, set your chat status to `/dnd`
 <details>
 <summary>Bot-to-bot grouping & follow dynamics in detail</summary>
 
-By default, [`AiPlayerbot.RandomBotGroupNearby`](../server/settings/world-population.md#aiplayerbotrandombotgroupnearby) is set to `0`. When disabled, pool bots decline invitations from other bots and quest independently. This prevents bot leaders from leashing followers into unproductive travel loops.
+Controlled by [`AiPlayerbot.RandomBotGroupNearby`](../server/settings/world-population.md#aiplayerbotrandombotgroupnearby). When disabled, pool bots decline invitations from other bots and quest independently. This prevents bot leaders from leashing followers into unproductive travel loops.
 
-Setting `RandomBotGroupNearby = 1` enables organic grouping among bots. Bots will band together to take on difficult elite quests, group objectives, and dungeon entrances.
+Enabling the setting allows organic grouping among bots, where they band together to take on difficult elite quests, group objectives, and dungeon entrances.
 
 </details>
 
