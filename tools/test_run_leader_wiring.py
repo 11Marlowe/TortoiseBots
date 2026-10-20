@@ -289,6 +289,12 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (sPlayerbotAIConfig.dungeonRunRezHold && f.dead > 0)\n        ReadRezRoster(lead, bots, f);", COMMANDS)
         roster = body(COMMANDS, "void ReadRezRoster(", "\n}\n")
         self.assertIn("f.rezHold = true;", roster)
+        # Rebirth's cooldown is a category cooldown and its seed a reagent; a cast under way holds the budget.
+        self.assertIn("bot->HasSpellCategoryCooldown(spell->Category)", roster)
+        self.assertIn("spell->Reagent[k] > 0 && !bot->HasItemCount(", roster)
+        self.assertIn("f.rezInProgress = true;", roster)
+        self.assertIn("bot->IsRessurectRequested()", roster)
+        self.assertIn("m.blocksDruid =", roster)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         self.assertIn("if (f.rezHold)", policy)
         self.assertIn("else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)", policy)

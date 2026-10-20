@@ -9506,8 +9506,9 @@ void ReadHoldDone(ai::PlanStep const& step, Player* lead, TortoiseBots::DungeonR
 
 // The rez hold's roster (RezHoldPolicy.h, AiPlayerbot.DungeonRunRezHold): each bot of the party with the
 // resurrection it could cast now (its highest known rank of Resurrection, Redemption, Ancestral Spirit or
-// Rebirth, off cooldown), its mana against that spell's cost, and for the dead how far the body lies from
-// the lead bot. Read only with the key on, and only for the facts of a regroup with someone dead.
+// Rebirth, off cooldown, reagent in the bags), its mana against that spell's cost, and for the dead how far
+// the body lies from the lead bot. Also whether a resurrection is under way (a cast, or a request its target
+// has not accepted yet). Read only with the key on, and only for the facts of a regroup with someone dead.
 void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots::DungeonRun::Facts& f)
 {
     using TortoiseBots::RezHold::RezClass;
@@ -9519,6 +9520,7 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
     for (Player* bot : bots)
     {
         TortoiseBots::RezHold::Member m;
+        m.name = bot->GetName();
         m.healer = PlayerbotAI::IsHeal(bot);
         m.tank = PlayerbotAI::IsTank(bot);
         if (!bot->IsAlive())
@@ -9527,12 +9529,15 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
             Corpse* corpse = bot->GetCorpse();
             WorldObject* body = corpse ? static_cast<WorldObject*>(corpse) : static_cast<WorldObject*>(bot);
             m.corpseYd = body->GetMapId() == lead->GetMapId() ? body->GetDistance(lead) : 1000.0f;
+            if (bot->IsRessurectRequested())
+                f.rezInProgress = true; // raised: the request waits for the bot to accept it
             f.rezMembers.push_back(m);
             continue;
         }
         m.inCombat = bot->IsInCombat();
         uint32 const* list = nullptr;
-        switch (bot->GetClass())
+        uint8 const cls = bot->GetClass();
+        switch (cls)
         {
             case CLASS_PRIEST: list = priest; m.rez = RezClass::Priest; break;
             case CLASS_PALADIN: list = paladin; m.rez = RezClass::Paladin; break;
@@ -9540,18 +9545,35 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
             case CLASS_DRUID: list = druid; m.rez = RezClass::Druid; break;
             default: break;
         }
+        // The bots' Rebirth trigger stands aside for a living priest, paladin or shaman on the map within
+        // sight of the body, by class (DruidTriggers.cpp OocRebirthTrigger); the lead bot stands for the body.
+        m.blocksDruid = (cls == CLASS_PRIEST || cls == CLASS_PALADIN || cls == CLASS_SHAMAN) &&
+            bot->GetMapId() == lead->GetMapId() && bot->GetDistance(lead) <= sPlayerbotAIConfig.sightDistance;
         uint32 spellId = 0;
         for (size_t i = 0; list && i < 5 && !spellId; ++i)
             if (bot->HasSpell(list[i]))
                 spellId = list[i];
-        if (!spellId || bot->HasSpellCooldown(spellId))
+        SpellEntry const* spell = spellId ? sSpellTemplate.LookupEntry<SpellEntry>(spellId) : nullptr;
+        // Rebirth's 30 minute cooldown is a category cooldown, stored under the id that was cast, so the
+        // category is asked, not only the rank's own id; the reagent (Rebirth's seed) must be in the bags.
+        bool ready = spell && !bot->HasSpellCooldown(spellId) &&
+            !(spell->Category && bot->HasSpellCategoryCooldown(spell->Category));
+        for (uint32 k = 0; ready && k < MAX_SPELL_REAGENTS; ++k)
+            if (spell->Reagent[k] > 0 && !bot->HasItemCount(uint32(spell->Reagent[k]), spell->ReagentCount[k]))
+                ready = false;
+        if (!ready)
             m.rez = RezClass::None;
-        else if (SpellEntry const* spell = sSpellTemplate.LookupEntry<SpellEntry>(spellId))
+        else
         {
             m.mana = bot->GetPower(POWER_MANA);
             m.rezCost = spell->manaCost ? spell->manaCost
                                         : uint32(spell->ManaCostPercentage) * bot->GetCreateMana() / 100;
         }
+        if (list)
+            if (Spell* casting = bot->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+                for (size_t k = 0; casting->m_spellInfo && k < 5; ++k)
+                    if (casting->m_spellInfo->Id == list[k])
+                        f.rezInProgress = true;
         f.rezMembers.push_back(m);
     }
 }

@@ -78,15 +78,15 @@ int main()
     {
         std::vector<Member> p = Party();
         p[2] = Dead();
-        in.holdMs = kHoldMs - 1;
+        in.ableMs = kHoldMs - 1;
         CHECK(Decide(in, p).verdict == Verdict::Hold);
-        in.holdMs = kHoldMs;
+        in.ableMs = kHoldMs;
         Result r = Decide(in, p);
         CHECK(r.verdict == Verdict::SendRevive && r.reason == Reason::TimedOut);
         CHECK(r.rezzerIdx == 1 && r.targetIdx == 2);
         // A fight freezes the clock: no timeout, whatever the clock reads.
         in.partyEngaged = true;
-        in.holdMs = kHoldMs * 10;
+        in.ableMs = kHoldMs * 10;
         r = Decide(in, p);
         CHECK(r.verdict == Verdict::Hold && r.reason == Reason::Fighting);
         in = Inputs();
@@ -98,15 +98,15 @@ int main()
         p[2] = Dead();
         p[3] = Dead();
         p[4] = Dead();
-        in.holdMs = kHoldMs + 2 * kPerExtraCorpseMs - 1; // 3 bodies, 1 rezzer: 2 extra
+        in.ableMs = kHoldMs + 2 * kPerExtraCorpseMs - 1; // 3 bodies, 1 rezzer: 2 extra
         CHECK(Decide(in, p).verdict == Verdict::Hold);
-        in.holdMs = kHoldMs + 2 * kPerExtraCorpseMs;
+        in.ableMs = kHoldMs + 2 * kPerExtraCorpseMs;
         CHECK(Decide(in, p).reason == Reason::TimedOut);
         // Two rezzers share the bodies: only one extra.
         p[0] = Alive(RezClass::Paladin, false, true);
-        in.holdMs = kHoldMs + kPerExtraCorpseMs - 1;
+        in.ableMs = kHoldMs + kPerExtraCorpseMs - 1;
         CHECK(Decide(in, p).verdict == Verdict::Hold);
-        in.holdMs = kHoldMs + kPerExtraCorpseMs;
+        in.ableMs = kHoldMs + kPerExtraCorpseMs;
         CHECK(Decide(in, p).reason == Reason::TimedOut);
         // The cap.
         CHECK(HoldBudgetMs(100, 1) == kHoldMaxMs);
@@ -231,9 +231,74 @@ int main()
         p[2] = Dead();
         p[3] = Dead(false, false, kCorpseMaxYd + 50.0f);
         p[4] = Dead(false, false, kCorpseMaxYd + 50.0f);
-        in.holdMs = kHoldMs;
+        in.ableMs = kHoldMs;
         CHECK(Decide(in, p).reason == Reason::TimedOut);
         in = Inputs();
+    }
+
+    // The shared clock (review of b228d8e8): a rezzer that was waited for its mana has the hold budget
+    // from the moment it could act. The glue restarts ableMs while it drinks, so holdMs (70 s) past the
+    // plain budget does not release it; the budget then runs on ableMs alone.
+    {
+        std::vector<Member> p = Party();
+        p[2] = Dead();
+        p[1].mana = 100;
+        p[1].rezCost = 160;
+        in.holdMs = 70000;
+        CHECK(Decide(in, p).verdict == Verdict::WaitMana);
+        p[1].mana = 600; // it has drunk
+        Result r = Decide(in, p);
+        CHECK(r.verdict == Verdict::Hold && r.reason == Reason::Recovering && r.rezzerIdx == 1);
+        in.holdMs = 89000;
+        CHECK(Decide(in, p).verdict == Verdict::Hold);
+        in.holdMs = 70000 + kHoldMs; // still not on ableMs
+        CHECK(Decide(in, p).verdict == Verdict::Hold);
+        in.ableMs = kHoldMs - 1;
+        CHECK(Decide(in, p).verdict == Verdict::Hold);
+        in.ableMs = kHoldMs;
+        CHECK(Decide(in, p).reason == Reason::TimedOut);
+        in = Inputs();
+    }
+
+    // A resurrection under way finishes: kCastGraceMs past the budget, once.
+    {
+        std::vector<Member> p = Party();
+        p[2] = Dead();
+        in.rezInProgress = true;
+        in.ableMs = kHoldMs - 1;
+        CHECK(Decide(in, p).reason == Reason::Recovering);
+        in.ableMs = kHoldMs;
+        Result r = Decide(in, p);
+        CHECK(r.verdict == Verdict::Hold && r.reason == Reason::Casting && r.rezzerIdx == 1);
+        in.ableMs = kHoldMs + kCastGraceMs - 1;
+        CHECK(Decide(in, p).reason == Reason::Casting);
+        in.ableMs = kHoldMs + kCastGraceMs;
+        CHECK(Decide(in, p).reason == Reason::TimedOut);
+        // Nothing under way: no grace.
+        in.rezInProgress = false;
+        in.ableMs = kHoldMs;
+        CHECK(Decide(in, p).reason == Reason::TimedOut);
+        in = Inputs();
+    }
+
+    // The Druid stands aside for any living priest, paladin or shaman near (blocksDruid), whatever it can
+    // cast now: the bots' own Rebirth trigger counts it by class.
+    {
+        std::vector<Member> p = {Alive(RezClass::Druid), Alive(), Dead()};
+        p[1].blocksDruid = true; // a priest who has not learnt Resurrection yet (rez None)
+        Result r = Decide(in, p);
+        CHECK(r.verdict == Verdict::SendRevive && r.reason == Reason::NoRezzer);
+        p[1].blocksDruid = false; // ... or one that is far away
+        CHECK(Decide(in, p).verdict == Verdict::Hold);
+        // A blocking priest that can cast is the rezzer, as before.
+        p[1] = Alive(RezClass::Priest, true);
+        p[1].blocksDruid = true;
+        CHECK(Decide(in, p).rezzerIdx == 1);
+        // A dead blocking priest blocks nothing.
+        p[1] = Dead(true);
+        p[1].blocksDruid = true;
+        p.push_back(Dead());
+        CHECK(Decide(in, p).rezzerIdx == 0);
     }
 
     // The Druid: Rebirth is used only when no Priest, Paladin or Shaman lives.

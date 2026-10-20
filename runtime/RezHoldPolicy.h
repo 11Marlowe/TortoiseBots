@@ -4,24 +4,31 @@
 // the run leader HOLD for the resurrection, WAIT for the rezzer's mana, SEND
 // the revive order (`cmd revive party`: release and corpse run), or GIVE UP?
 //
+// The run only HOLDS. It sends no order to the resurrector: the bots' own AI
+// (PartyMemberToResurrect and the rez actions) decides who raises whom, and a
+// resurrector drinks by itself when it is out of mana. The elected rezzer and
+// target in the Result name who the run expects to act, for the status note
+// and the trace; nothing else reads them.
+//
 // Derived from jrad7/mod-dungeon-clear
 // src/Ai/Dungeon/DungeonClear/Util/DcRezDecision.h:Decide @ da0bdfbc
 // (AGPL-3.0-or-later), rewritten for the TortoiseBots run leader and vanilla
 // 1.12. What was kept: the verdict is a pure function of a plain roster
-// snapshot; the rezzer is elected deterministically so every tick (and every
-// reader of a trace) gets the same answer and a rezzer who died simply drops
-// out of the next evaluation; healers rez before non-healers; the dead healer
-// is raised first, then the dead tank, then group order; a fight freezes the
+// snapshot; the expected rezzer is elected deterministically so every tick
+// (and every reader of a trace) gets the same answer and a rezzer who died
+// simply drops out of the next evaluation; healers before non-healers; the
+// dead healer, then the dead tank, then group order; a fight freezes the
 // recovery clock; a full wipe, no living resurrector and a clock that ran out
 // all end the hold. What was dropped: the AzerothCore pieces (instance
 // "encounter in progress" refusal, raid wipe fractions and entrance regroup,
 // parallel rezzer/corpse pairs, the no-rezzer in-fight grace, death knights).
 // What was added: vanilla classes only (Priest Resurrection, Paladin
-// Redemption, Shaman Ancestral Spirit; a Druid's Rebirth only when none of the
-// three is alive, as OocRebirthPolicy.h does), a mana gate (a rezzer short of
-// the spell's mana drinks first: WaitMana), a corpse too far to walk to, and
-// the budget growing with the corpses a rezzer has to raise one after the
-// other (a resurrection takes a 10 s cast).
+// Redemption, Shaman Ancestral Spirit; a Druid's Rebirth only when no living
+// priest, paladin or shaman is near, as the bots' own Rebirth trigger has it),
+// a mana gate (a rezzer short of the spell's mana drinks first: WaitMana), a
+// corpse too far to walk to, a budget growing with the corpses a rezzer has to
+// raise one after the other (a resurrection takes a 10 s cast), and a cast
+// that is under way finishing before the hold gives up.
 //
 // Nothing here touches a core type: runtime/DungeonRunPolicy.h feeds it from
 // the facts the glue read this tick (behind AiPlayerbot.DungeonRunRezHold).
@@ -29,6 +36,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace TortoiseBots {
@@ -39,6 +47,8 @@ constexpr std::uint32_t kHoldMs = 60000;          // a rezzer that can act gets 
 constexpr std::uint32_t kPerExtraCorpseMs = 12000; // ... plus this for each corpse beyond the rezzers (a 10 s cast and the walk)
 constexpr std::uint32_t kHoldMaxMs = 120000;      // ... at most this
 constexpr std::uint32_t kManaWaitMs = 90000;      // a rezzer short of mana is waited for this long in all, then the revive goes out
+constexpr std::uint32_t kCastGraceMs = 12000;     // a resurrection under way (a cast, or a request not yet accepted) may finish this long
+                                                  // after the budget, once: the cast is not thrown away for the clock
 constexpr float kCorpseMaxYd = 80.0f;             // a corpse farther than this from the party is not walked to
 
 enum class RezClass : std::uint8_t
@@ -54,7 +64,10 @@ enum class RezClass : std::uint8_t
 struct Member
 {
     bool dead = false;
+    std::string name;               // for the status note only
     RezClass rez = RezClass::None;  // living members: the spell they could raise the dead with now
+    bool blocksDruid = false;       // living priest, paladin or shaman on the map near the party, whatever it can cast
+                                    // now: the bots' Rebirth trigger counts it, so the Druid stands aside for it
     bool healer = false;            // a healer rezzes first, and a dead healer is raised first
     bool tank = false;              // a dead tank is raised after the healer
     bool inCombat = false;          // living: carries the combat flag
@@ -66,6 +79,9 @@ struct Member
 struct Inputs
 {
     std::uint32_t holdMs = 0;       // out-of-combat time since the hold began (the regroup's clock)
+    std::uint32_t ableMs = 0;       // ... of which the time a rezzer could act (the glue restarts it while one drinks):
+                                    // the hold budget runs on this, so a rezzer that was waited for mana gets its own
+    bool rezInProgress = false;     // a party rezzer is casting a resurrection, or one waits for its target to accept
     bool partyEngaged = false;      // a fight is on: the clock stands still
     bool reviveSent = false;        // `revive party` already went out: the hold is over for good
 };
@@ -83,8 +99,10 @@ enum class Reason : std::uint8_t
 {
     NoDeaths,
     Recovering,      // Hold: a rezzer with mana is elected
-    RezzerBusy,      // Hold: every rezzer is in a fight and cannot cast yet
-    Fighting,        // Hold: the clock stands still during a fight
+    RezzerBusy,      // Hold: every rezzer is in a fight and cannot cast yet (the run regroups only out of combat,
+                     //   so the run never sees it; kept so the policy is complete on its own)
+    Fighting,        // Hold: the clock stands still during a fight (likewise never seen in the run)
+    Casting,         // Hold: the budget is spent but a resurrection is under way; it may finish
     LowMana,         // WaitMana
     Wipe,            // GiveUp: everyone is dead
     NoRezzer,        // SendRevive: no living member has a resurrection
@@ -98,8 +116,8 @@ struct Result
 {
     Verdict verdict = Verdict::None;
     Reason reason = Reason::NoDeaths;
-    int rezzerIdx = -1;  // the elected rezzer (the one to drink in WaitMana)
-    int targetIdx = -1;  // the dead member to raise first
+    int rezzerIdx = -1;  // the rezzer the run expects to act (or to drink in WaitMana); status note only
+    int targetIdx = -1;  // the dead member it expects to be raised first; status note only
 };
 
 inline const char* VerdictName(Verdict v)
@@ -122,6 +140,7 @@ inline const char* ReasonName(Reason r)
         case Reason::Recovering: return "a resurrection is under way";
         case Reason::RezzerBusy: return "the resurrectors are in a fight";
         case Reason::Fighting: return "a fight is on";
+        case Reason::Casting: return "a resurrection is being cast";
         case Reason::LowMana: return "the resurrector is short of mana";
         case Reason::Wipe: return "everyone is dead";
         case Reason::NoRezzer: return "no living resurrector";
@@ -187,19 +206,24 @@ inline Result Decide(const Inputs& in, const std::vector<Member>& members)
     }
 
     // Who could raise anyone: a living Priest, Paladin or Shaman; a Druid only
-    // when none of those three is alive (his Rebirth is a 30 minute cooldown
-    // and a reagent, the others' spells are free of both).
-    bool anyNormal = false, anyDruid = false;
+    // when none of those three lives near (blocksDruid: counted by class, as the
+    // Rebirth trigger does, not by what the bot can cast this second). His
+    // Rebirth is a 30 minute cooldown and a reagent, the others' spells are
+    // free of both.
+    bool anyNormal = false, anyDruid = false, druidBlocked = false;
     for (const Member& m : members)
     {
         if (m.dead)
             continue;
+        if (m.blocksDruid)
+            druidBlocked = true;
         if (m.rez == RezClass::Priest || m.rez == RezClass::Paladin || m.rez == RezClass::Shaman)
             anyNormal = true;
         else if (m.rez == RezClass::Druid)
             anyDruid = true;
     }
-    if (!anyNormal && !anyDruid)
+    bool const useDruid = !anyNormal && !druidBlocked;
+    if (!anyNormal && !(anyDruid && useDruid))
     {
         r.verdict = Verdict::SendRevive;
         r.reason = Reason::NoRezzer;
@@ -226,7 +250,7 @@ inline Result Decide(const Inputs& in, const std::vector<Member>& members)
         if (m.dead || m.rez == RezClass::None)
             continue;
         bool const normal = m.rez != RezClass::Druid;
-        if (normal != anyNormal) // the Druid is passed over while a normal class lives
+        if (normal != anyNormal) // the Druid is passed over while a normal class can cast
             continue;
         ++rezzers;
         int const idx = static_cast<int>(i);
@@ -263,10 +287,12 @@ inline Result Decide(const Inputs& in, const std::vector<Member>& members)
             r.verdict = Verdict::Hold;
             r.reason = Reason::Fighting;
         }
-        else if (in.holdMs >= budget)
+        else if (in.ableMs >= budget)
         {
-            r.verdict = Verdict::SendRevive;
-            r.reason = Reason::TimedOut;
+            // Spent, but a cast under way finishes first (once: kCastGraceMs).
+            bool const finishing = in.rezInProgress && in.ableMs < budget + kCastGraceMs;
+            r.verdict = finishing ? Verdict::Hold : Verdict::SendRevive;
+            r.reason = finishing ? Reason::Casting : Reason::TimedOut;
         }
         else
         {
