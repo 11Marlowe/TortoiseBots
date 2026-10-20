@@ -26,22 +26,22 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 
 ### Restoration (Healer)
 - Casts *Chain Heal* when 3 or more nearby allies (scaling up to 15 in raids) are injured.
-- Casts *Healing Wave* and *Lesser Healing Wave*, downranking direct heals to match incoming wounds.
+- Casts *Healing Wave* and *Lesser Healing Wave*, downranking direct heals to match incoming wounds per [shared downranking rules](overview.md#shared-bot-behaviors).
 - Employs *Ancestral Swiftness* to instantly land emergency *Healing Wave* casts on dying targets.
-- Deals off-spec damage (*Flame Shock*, *Lightning Bolt*) only when all group members exceed 90% health and mana exceeds 70% (85% on hard encounters).
+- Deals off-spec damage (*Flame Shock*, *Lightning Bolt*) per [healer off-DPS rules](overview.md#shared-bot-behaviors).
 
 ### Enhancement (Melee DPS)
 - Fights in melee using dual-wield or two-handed weapons, keeping weapon imbues active.
 - Casts *Stormstrike* before *Lightning Strike* to amplify nature burst.
 - Cycles *Flame Shock* for periodic damage and *Earth Shock* for burst and interrupts.
-- Triggers *Bloodlust* (custom Turtle ability) to boost attack speed across the group.
+- Triggers *Bloodlust* (custom Turtle ability): self frenzy; party melee crits spread the haste across the group.
 
 ### Elemental (Ranged DPS)
 - Attacks from range with *Lightning Bolt* and casts *Chain Lightning* against enemy packs.
 - Keeps *Water Shield* active for mana regeneration (*Lightning Shield* before training).
 - Activates *Elemental Mastery* for guaranteed critical strikes.
 - Saves *Earth Shock* as a finishing execute below 25% health while reserving interrupts for casting targets.
-- Respects party threat back-off on *Chain Lightning* and *Earthquake* when holding ≥50% tank threat.
+- Respects [party threat back-off](overview.md#shared-bot-behaviors) on *Chain Lightning* and *Earthquake* when holding ≥50% tank threat.
 
 <details>
 <summary>Totem orchestration details</summary>
@@ -74,8 +74,8 @@ Shamans maintain 4-element totem sets tailored to group composition:
 - **Dispels:** Strips enemy buffs with *Purge* and cleanses allies using *Cure Poison* and *Cure Disease*.
 - **Earth Shield:** Maintains *Earth Shield* on the group tank for reactive healing and pushback protection.
 - **Resurrection:** Revives dead allies out of combat with *Ancestral Spirit*.
-- **Ghost Wolf:** Shifts to *Ghost Wolf* when carrying flags or traveling long distances outdoors.
-- **Player Totem Controls:** Players can customize totem sets via `.bot totem <slot> <totem|auto|none>` or change modes with `.bot totem mode <auto|prepull|manual>`.
+- **Ghost Wolf:** Shifts to *Ghost Wolf* when carrying a flag in PvP.
+- **Player Totem Controls:** Players can customize totem sets via [`.bot totem <bot|party|raid> <slot> <name|auto|none>`](../play/commands/bot-panel.md#bot-totem) or manage them with `drop` and `status`.
 
 ---
 

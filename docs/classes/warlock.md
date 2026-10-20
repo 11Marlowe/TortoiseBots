@@ -58,7 +58,7 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
 
 - **Dark Harvest (Spell ID 52550):** Affliction finisher requiring 2 or more active DoTs on the target, dealing rapid Shadow damage. Cooldown refunds if the target dies while afflicted.
 - **Power Overwhelming (Spell ID 51714):** Demonology pet burst breaking crowd control and increasing pet damage at the cost of base demon health.
-- **Rain of Fire Safety:** Channels pause during party threat back-off if the warlock holds ≥50% tank threat.
+- **Rain of Fire Safety:** Channels pause during [party threat back-off](overview.md#shared-bot-behaviors) if the warlock holds ≥50% tank threat.
 
 ---
 
@@ -70,9 +70,10 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
   - *Felhunter:* Utility pet casting *Spell Lock* for ranged interrupts and *Devour Magic* for offensive and defensive dispels.
   - *Succubus:* CC demon casting *Seduction* on humanoids.
 - **Healthstones & Soulstones:** Creates and uses *Healthstones* in combat. Stores one Soulstone out of combat, prioritizing the party healer, then the tank.
-- **Weapon Stones:** Conjours and carries *Spellstones* (Affliction/Demonology) or *Firestones* (Destruction) in bags.
+- **Weapon Stones & Buffs:** Conjours and carries *Spellstones* (Affliction/Demonology) or *Firestones* (Destruction) in bags. Maintains *Demon Skin* / *Demon Armor* on self and casts *Unending Breath* when swimming underwater.
+- **Curse Overrides:** Defaults to spec-appropriate curses (*Curse of Agony*, *Curse of the Elements*, or *Curse of Shadow*); players can manually override curse assignments using `.bot strategy +curse <shadow|weakness|elements|agony|doom|tongues|exhaustion>`.
 - **Fel Domination:** Burns the 5-minute cooldown to instantly summon a replacement demon during combat if the active pet dies.
-- **Crowd Control:** Casts *Fear* on assigned CC marks (skipping already controlled targets) and *Banish* on Demons and Elementals. Area spells avoid targets near CC marks.
+- **Crowd Control:** Casts *Fear* on assigned CC marks (skipping undead, mechanical, or already controlled targets) and *Banish* on Demons and Elementals. Area spells avoid targets near CC marks.
 
 ---
 

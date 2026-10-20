@@ -40,10 +40,14 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | Handle wipe recovery and run back to the instance | [Wipe recovery](play/dungeons-and-raids.md#wipe-recovery--instance-navigation) |
 | Level my companion alts automatically with my character | [Sync alt level](server/settings/party.md#aiplayerbotsyncaltleveltomaster) |
 | Fill missing tank or healer roles in dungeon finder queues | [LFT autofill](world/queues.md#looking-for-trouble-lft-dungeon-autofill) |
-| Enable bot trading and purchasing on the Auction House | [Living AH](world/economy.md#living-auction-house-ahmarketservice) |
+| Enable bot trading and purchasing on the Auction House | [Living AH](world/economy.md#living-auction-house) |
+| Blacklist or override an item price on the Auction House | [Admin commands](server/admin-commands.md#autonomous-auction-house-administration-bot-ah--ahbot) |
+| Summon lost or stuck companion bots | [Summon alts](play/commands/roster-and-hiring.md#bot-summon) |
+| Understand Turtle WoW custom spells and abilities | [Class AI](classes/overview.md) |
 | Watch the bot fleet and stuck bots on a live web map | [Observability dashboard](server/dashboard.md) |
 | Reset the random bot pool and re-seed character levels | [Bot pool reset](server/bot-pool.md) |
 | Build and compile the module from source | [Server install](server/install.md) |
+| Port a feature or contribute a bugfix | [Developer index](developers/README.md) |
 
 ## Players
 
@@ -68,7 +72,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Rogue](classes/rogue.md) | Stealth openers, combo finishers, poisons, and Feint/Vanish threat drops. |
 | [Priest](classes/priest.md) | Holy/Discipline healing ladder, Power Word Shield rules, and Shadow DPS. |
 | [Shaman](classes/shaman.md) | Four-element totem sets, Chain Heal triage, melee Enh, and shocks. |
-| [Mage](classes/mage.md) | Frost, Fire, and Arcane rotations, Polymorph CC, and Counterspell. |
+| [Mage](classes/mage.md) | Frost, Fire, and Arcane rotations, Polymorph crowd control (CC), and Counterspell. |
 | [Warlock](classes/warlock.md) | DoT spreading, demon pet selection by spec, Soul Shards, and Life Tap. |
 | [Druid](classes/druid.md) | Bear tanking, Cat DPS, Restoration healing, and Tree of Life. |
 
@@ -94,7 +98,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Hiring settings](server/settings/hiring.md) | Mercenary hiring fees, recruiter quests, gear tiers, and world buffs. |
 | [Class behavior settings](server/settings/class-behaviour.md) | AI flags for Aspect of the Viper, Judgements, Feint, and demon choices. |
 | [Dungeon and raid settings](server/settings/dungeons-raids.md) | Boss encounter flags, bomb runout ranges, and creature aura avoidance. |
-| [Combat settings](server/settings/combat.md) | Health and mana percentage thresholds, ranges, GCD delays, and pull pacing. |
+| [Combat settings](server/settings/combat.md) | Health and mana percentage thresholds, ranges, global cooldown (GCD) delays, and pull pacing. |
 | [World population settings](server/settings/world-population.md) | Bot population limits, level ladder rotation, wandering, and chatter. |
 | [Economy settings](server/settings/economy.md) | Auction house market pacing, synthetic supply, and vendor batch sizes. |
 | [Queue settings](server/settings/queues.md) | Dungeon finder backfill intervals and battleground queue parameters. |
