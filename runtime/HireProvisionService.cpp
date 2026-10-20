@@ -1363,6 +1363,10 @@ uint32_t HireProvisionService::IntroWishlist(uint8_t classId, size_t rank)
     // Shaman: Healing Wave 331, Lesser Healing Wave 8004, Chain Heal 1064,
     // Lightning Bolt 403, Earth Shock 8042, Rockbiter Weapon 8017.
     static uint32_t const shaman[] = { 331, 8004, 1064, 403, 8042, 8017 };
+    // Shaman tank (issue #1125): its own kit list lives in the role-aware
+    // IntroWishlist overload below (taunt, shocks, Stormstrike, Lightning
+    // Strike, Rockbiter, Stoneclaw, shields); the class list stays the
+    // healer/DPS list.
     // Mage: Frost Armor 168, Fireball 133, Frostbolt 116, Polymorph 118,
     // Conjure Water 5504, Arcane Intellect 1459.
     static uint32_t const mage[] = { 168, 133, 116, 118, 5504, 1459 };
@@ -1393,6 +1397,18 @@ uint32_t HireProvisionService::IntroWishlist(uint8_t classId, size_t rank)
         if (row.cls == classId && rank < row.count)
             return row.ids[rank];
     return 0;
+}
+
+uint32_t HireProvisionService::IntroWishlist(uint8_t classId, uint8_t role, size_t rank)
+{
+    if (HireIntroUseTankWishlist(classId, role))
+    {
+        static uint32_t const ids[] = { 51365, 8042, 17364, 51387, 8017, 5730, 324, 403 };
+        if (rank < sizeof(ids) / sizeof(ids[0]))
+            return ids[rank];
+        return 0;
+    }
+    return IntroWishlist(classId, rank);
 }
 
 // Highest known spell of a chain: the spell map holds every rank the bot
@@ -1618,7 +1634,7 @@ void HireProvisionService::AnnounceIntro(Player* bot, Player* master, PendingPro
     std::vector<std::string> names;
     for (size_t rank = 0;; ++rank)
     {
-        uint32_t chainHead = IntroWishlist(bot->GetClass(), rank);
+        uint32_t chainHead = IntroWishlist(bot->GetClass(), forcedRole, rank);
         if (!chainHead)
             break;
         uint32_t spellId = HighestKnownRankInChain(bot, chainHead);
