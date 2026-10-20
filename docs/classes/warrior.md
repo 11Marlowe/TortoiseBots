@@ -32,7 +32,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
   - Casts *Shield Slam* on cooldown (or procced by Improved Shield Slam).
   - Uses *Thunder Clap* (usable in Defensive Stance on Turtle) against 2 or more melee attackers.
 - **Mitigation & Taunts:**
-  - Activates *Shield Wall* early at low health (<50%) and holds *Last Stand* for critical health emergencies (<20%).
+  - Activates *Shield Wall* early at low health (20-50%) and holds *Last Stand* for critical health emergencies (<20%).
   - Taunts with *Taunt* immediately if any attacker peels onto non-tank party members.
   - Intervenes to intercept physical attacks aimed at focused group members.
 
@@ -40,18 +40,18 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
 - **Arms:**
   - Fights in Battle Stance, maintaining *Rend*, casting *Mortal Strike* on cooldown and *Overpower* on dodges.
   - Cleaves packs with *Sweeping Strikes* and *Whirlwind* (dancing to Berserker Stance for Whirlwind).
-  - Dumps rage with *Master Strike* and uses *Heroic Strike* when rage exceeds 40.
+  - Dumps rage with *Master Strike* and uses *Heroic Strike* once rage reaches 40.
 - **Fury:**
   - Fights dual-wielding in Berserker Stance, centering rage spend on *Bloodthirst* and *Whirlwind*.
   - Activates *Death Wish*, *Recklessness*, and *Retaliation* during encounter burn phases.
 - **Execute Phase:** When targets drop below 20% health, *Execute* becomes top priority, consuming all available rage.
-- **Finishing Runners:** Warriors in Berserker Stance with *Intercept* off cooldown immediately charge after fleeing enemies within 25 yards per [shared runner rules](overview.md#shared-bot-behaviors).
+- **Finishing Runners:** Warriors in Berserker Stance with *Intercept* off cooldown charge after fleeing enemies within 25 yards per [shared runner rules](overview.md#finishing-runners).
 
 ---
 
 ## Turtle WoW custom spells
 
-- **Master Strike (Spell ID 54023):** Weapon-dispatched burst strike (30s cooldown, 20 rage) wired into Arms and Fury rotations as a high-damage physical nuke.
+- **Master Strike (Spell ID 54023):** Weapon-dispatched burst strike (30s cooldown, 20 rage, per game data) wired into Arms and Fury rotations as a high-damage physical nuke.
 - **Defensive Tactics (Spell ID 51606):** Passive Protection talent granting threat aura benefits while wielding a shield in Battle or Berserker Stance.
 
 ---

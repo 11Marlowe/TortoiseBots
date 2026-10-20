@@ -70,7 +70,7 @@ Players can use [`.bot role <Name|self>`](../play/commands/roster-and-hiring.md#
 | **Buffs & Imbues** | Buff missing on self or party member. | Recasts class buffs, seals, auras, and weapon poisons. | Automatic out-of-combat maintenance. |
 | **Targeting & Assist** | Tank or party leader engages hostile enemies. | Assists leader focus target and respects crowd control marks. | See [Focus skull](../play/commands/party-actions.md#bot-action-focus-skull). |
 | **Finishing Runners** | Enemy mob flees below 30% health. | Ranged DPS finish within spell range; eligible melee close distance. | See detailed runner policy below. |
-| **Threat Back-Off** | Threat reaches 50% or more of tank's threat. | Pauses high-threat single-target or AoE spells. | Controlled by `threat` strategy. |
+| **Threat Back-Off** | AoE threat at 50% of tank's threat, single-target threat at 80%. | Pauses high-threat single-target or AoE spells. | Controlled by `threat` strategy. |
 | **Healer Off-DPS** | Party stable (no member below 90%) and mana >70–85% (95% in raids). | Contributes offensive spells and debuffs. | Controlled by `offdps` strategy. |
 | **Spell Downranking** | Friendly target wounded but not in critical danger. | Casts lower-rank heals matching missing health. | Automatic triage optimization. |
 | **Healer Positioning** | Party member out of heal range or line of sight. | Closes distance toward the tank or injured party member. | Automatic positioning routine. |
@@ -89,12 +89,12 @@ When an enemy mob flees below 30% health (either flee state or flee-for-assistan
 - The active runner is never dropped for a fresh mob, and crowd-controlled targets are never chased.
 
 ### Party Threat Back-Off
-In groups with the `threat` strategy active, damage dealers (including Druids, Hunters, Mages, Shamans, and Warlocks) monitor relative threat against the tank. When holding 50% or more of the tank's threat on any engaged mob, they pause high-threat single-target nukes or area-of-effect spells (*Volley*, *Multi-Shot*, *Blizzard*, *Flamestrike*, *Rain of Fire*, *Chain Lightning*, *Earthquake*) until threat stabilizes.
+In groups with the `threat` strategy active, damage dealers (including Druids, Hunters, Mages, Shamans, and Warlocks) monitor relative threat against the tank. When AoE threat reaches 50% of the tank's, or single-target threat reaches 80% (high threat), they pause high-threat single-target nukes or area-of-effect spells (*Volley*, *Multi-Shot*, *Blizzard*, *Flamestrike*, *Rain of Fire*, *Chain Lightning*, *Earthquake*) until threat stabilizes.
 
 ### Healer Off-DPS (`offdps`)
 When the `offdps` strategy is enabled, healing bots contribute damage spells only when the group is safe:
 - No member below 90%.
-- The healer's own mana exceeds 85% (or 90% for expensive spells, 70% in light encounters).
+- The healer's own mana exceeds 85% in hard fights, or 70% in even or easy fights.
 - Casting immediately yields to incoming damage when an ally needs healing.
 
 ### Spell Downranking

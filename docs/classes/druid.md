@@ -26,35 +26,34 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 ## What the bot does in combat
 
 ### Feral (Bear Tank)
-- Holds Dire Bear Form throughout combat, generating threat using *Maul*, *Swipe*, and *Demoralizing Roar*.
+- Fights in Dire Bear Form throughout combat, generating threat using *Swipe* and *Demoralizing Roar*.
 - Taunts loose mobs using *Growl* and *Challenging Roar*.
 - Uses *Mangle (Bear)*, *Faerie Fire (Feral)*, and *Enrage* on cooldown.
-- Activates *Frenzied Regeneration* when health drops into the emergency threshold.
+- Activates *Frenzied Regeneration* when health drops low.
 
 ### Feral (Cat Melee DPS)
 - Enters Cat Form and opens from stealth using *Pounce* or *Ravage*.
 - Builds combo points using *Claw*, *Rake*, and *Shred*, spending points on *Rip* and *Ferocious Bite*; fires *Tiger's Fury* as a damage buff.
 - Drops threat with *Cower* at medium threat in party and raid encounters.
-- Fires *Ferocious Bite* early on targets below 25% health with 1 or more combo points (against targets under ~4000 health; bosses keep Rip), avoiding clipping active *Rip* bleeds.
+- Fires *Ferocious Bite* early on targets below 25% health with 1 or more combo points (against targets under 4000 health; bosses keep Rip), avoiding clipping active *Rip* bleeds.
 - Out of combat or in battlegrounds, prowling cats maintain normal objective movement and routines.
 
 ### Restoration (Healer)
 - Maintains *Rejuvenation* and *Regrowth* HoTs (Heal-over-Time spells) on injured allies.
-- Casts direct heals (*Healing Touch*) downranked to match target wounds per [shared downranking rules](overview.md#shared-bot-behaviors).
+- Casts direct heals (*Healing Touch*) downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking).
 - Chains *Nature's Swiftness* into an instant *Healing Touch* when allies suffer critical damage.
-- Channels *Tranquility* when 3 or more nearby party members in a 5-man (up to 15 in a raid) are heavily wounded.
+- Channels *Tranquility* when 3 or more nearby party members are heavily wounded.
 - Spends *Omen of Clarity* procs on free *Rejuvenation* casts.
-- Supports party damage via the `+offdps` strategy per [healer off-DPS rules](overview.md#shared-bot-behaviors), shifting out of Tree of Life Form to cast *Moonfire* and *Wrath*.
+- Supports party damage via the `+offdps` strategy per [healer off-DPS rules](overview.md#healer-off-dps-offdps), shifting out of Tree of Life Form to cast *Moonfire* and *Wrath*.
 
 ### Balance (Ranged DPS)
 - Maintains *Moonkin Form* and attacks from range with *Moonfire*, *Wrath*, *Starfire*, and *Insect Swarm*.
 - Casts *Hurricane* against packs of 3 or more clustered enemies.
-- Honors [party threat back-off](overview.md#shared-bot-behaviors), pausing AoE spells if holding 50% or more of tank threat.
+- Honors [party threat back-off](overview.md#party-threat-back-off), pausing AoE spells if holding 50% or more of tank threat.
 
 ### Leveling (Below Level 10)
-- Fights in melee using auto-attacks, keeping *Moonfire* active and healing self with *Healing Touch* and *Rejuvenation*.
+- Fights in melee using auto-attacks, keeping *Moonfire* applied and healing self with *Healing Touch* and *Rejuvenation*.
 - Closes distance to enemies, using *Wrath* when immobilized.
-- Casts *Rejuvenation* only below 50% health to conserve mana.
 
 <details>
 <summary>Shapeshifting and form maintenance details</summary>
@@ -74,21 +73,21 @@ Movement impairs like daze or chill do not break form. Physical roots break form
 ## Turtle WoW custom spells
 
 - **Tree of Life Form (Spell ID 45705):** Restoration form providing spirit-scaling healing power and polymorph immunity at reduced movement speed.
-- **Berserk (Spell ID 45708):** Feral boost cooldown granting +20% maximum health in Bear Form and energy bonuses in Cat Form.
+- **Berserk (Spell ID 45708):** Feral boost cooldown granting +20% maximum health in Bear Form.
 - **Swiftmend HoT-Gating (Spell ID 18562):** Consumes an active *Rejuvenation* or *Regrowth* HoT for instantaneous healing, verifying HoT existence before casting.
 
 ---
 
 ## Utility & interrupts
 
-- **Crowd Control:** Casts *Entangling Roots* outdoors to peel melee attackers. Casts *Hibernate* on beasts and dragonkin when assigned CC marks.
+- **Crowd Control:** Casts *Entangling Roots* outdoors to peel melee attackers. Casts *Hibernate* when assigned CC marks (no creature-type filter in the bot; the game validates the target).
 - **Interrupts & Stuns:** Casts *Bash* in Bear Form to interrupt spells and stun dangerous casters. Uses *Feral Charge* to gap-close on distant targets.
 - **Combat Resurrection:** Casts *Rebirth* on dead party members during combat.
 - **Out-of-Combat Resurrection:** Uses *Rebirth* out of combat only when no priest, paladin, or shaman is available to cast a standard resurrection.
-- **Innervate:** Casts *Innervate* on the lowest-mana party healer below 15% mana (or assigned boost target), shifting to caster form first. Feral cats will shift out to feed an empty healer.
-- **Barkskin:** Casts *Barkskin* during heavy incoming damage in Balance and Restoration specs; disabled in Feral forms to avoid losing form benefits.
+- **Innervate:** Casts *Innervate* on the lowest-mana party healer below the low-mana line (or assigned boost target), shifting to caster form first. Feral cats will shift out to feed an empty healer.
+- **Barkskin:** Casts *Barkskin* during heavy incoming damage in Balance and Restoration specs; Feral cats and bears skip it to keep their form bonuses.
 - **Party Buffs:** Maintains *Mark of the Wild* (and *Gift of the Wild*) and *Thorns* on allies, prioritizing tanks for *Thorns*. Multiple druids coordinate buff claims to prevent duplicate casts.
-- **Solo Survival:** Solo druids level 10+ with comfortable mana stand their ground and self-heal rather than fleeing when outnumbered.
+- **Solo Survival:** Solo druids level 10+ with mana at or above the low-mana line stand their ground and self-heal rather than fleeing when outnumbered.
 
 ---
 

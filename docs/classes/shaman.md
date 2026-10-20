@@ -25,15 +25,15 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 ## What the bot does in combat
 
 ### Restoration (Healer)
-- Casts *Chain Heal* when 3 or more nearby allies (scaling up to 15 in raids) are injured.
-- Casts *Healing Wave* and *Lesser Healing Wave*, downranking direct heals to match incoming wounds per [shared downranking rules](overview.md#shared-bot-behaviors).
+- Casts *Chain Heal* when several nearby allies are injured.
+- Casts *Healing Wave* and *Lesser Healing Wave*, downranking direct heals to match incoming wounds per [shared downranking rules](overview.md#spell-downranking).
 - Employs *Ancestral Swiftness* to instantly land emergency *Healing Wave* casts on dying targets.
-- Deals off-spec damage (*Flame Shock*, *Lightning Bolt*) per [healer off-DPS rules](overview.md#shared-bot-behaviors).
+- Deals off-spec damage (*Flame Shock*, *Lightning Bolt*, *Chain Lightning* into packs) per [healer off-DPS rules](overview.md#healer-off-dps-offdps).
 
 ### Enhancement (Melee DPS)
 - Fights in melee using dual-wield or two-handed weapons, keeping weapon imbues active.
 - Casts *Stormstrike* before *Lightning Strike* to amplify nature burst.
-- Cycles *Flame Shock* for periodic damage and *Earth Shock* for burst and interrupts.
+- Cycles *Flame Shock* for periodic damage and *Earth Shock* for burst damage.
 - Triggers *Bloodlust* (custom Turtle ability): self frenzy; party melee crits spread the haste across the group.
 
 ### Elemental (Ranged DPS)
@@ -41,13 +41,13 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 - Keeps *Water Shield* active for mana regeneration (*Lightning Shield* before training).
 - Activates *Elemental Mastery* for guaranteed critical strikes.
 - Saves *Earth Shock* as a finishing execute below 25% health and below 1500 absolute HP while reserving interrupts for casting targets.
-- Respects [party threat back-off](overview.md#shared-bot-behaviors) on *Chain Lightning* and *Earthquake* when holding ≥50% tank threat.
+- Respects [party threat back-off](overview.md#party-threat-back-off) on *Chain Lightning* and *Earthquake* when holding ≥50% tank threat.
 
 <details>
 <summary>Totem orchestration details</summary>
 
 Shamans maintain 4-element totem sets tailored to group composition:
-- **Earth Totem:** Drops *Strength of Earth Totem* if physical melee allies are present; otherwise leaves the slot open or drops *Stoneskin Totem*. Reacts to fears with *Tremor Totem* and to runners with *Earthbind Totem*.
+- **Earth Totem:** Drops *Strength of Earth Totem* if melee allies are present; otherwise leaves the slot open (*Stoneskin Totem* is the fallback when Strength is unknown). Reacts to fears with *Tremor Totem* and to runners with *Earthbind Totem*.
 - **Fire Totem:** Drops *Searing Totem* on single targets; drops *Magma Totem* or *Fire Nova Totem* on packs (only when in detonation range).
 - **Water Totem:** Drops *Mana Spring Totem* if mana users are present; drops *Healing Stream Totem* otherwise. Reacts to poison and disease with cleansing totems.
 - **Air Totem:** Drops *Windfury Totem* for melee groups; drops *Tranquil Air Totem* or *Grace of Air Totem* for casters. Reacts to incoming enemy spells with *Grounding Totem*.
@@ -70,12 +70,12 @@ Shamans maintain 4-element totem sets tailored to group composition:
 ## Utility & interrupts
 
 - **Interrupts:** Casts *Earth Shock* to interrupt dangerous enemy spellcasters and healing mobs.
-- **Weapon Imbues:** Maintains *Windfury Weapon* and *Flametongue Weapon* (Enhancement) or *Flametongue Weapon* (Elemental/Resto), falling back to *Rockbiter* or *Frostbrand*.
+- **Weapon Imbues:** Maintains *Windfury Weapon* and *Flametongue Weapon* (Enhancement) or *Flametongue Weapon* (Elemental/Resto), falling back to *Rockbiter Weapon* or *Frostbrand Weapon* when those are not known.
 - **Dispels:** Strips enemy buffs with *Purge* and cleanses allies using *Cure Poison* and *Cure Disease*.
-- **Earth Shield:** Maintains *Earth Shield* on the group tank for reactive healing and pushback protection.
+- **Earth Shield:** Maintains *Earth Shield* on the group tank for reactive healing.
 - **Resurrection:** Revives dead allies out of combat with *Ancestral Spirit*.
 - **Ghost Wolf:** Shifts to *Ghost Wolf* when carrying a flag in PvP.
-- **Player Totem Controls:** Players can customize totem sets via [`.bot totem <bot|party|raid> <slot> <name|auto|none>`](../play/commands/bot-panel.md#bot-totem) or manage them with `drop` and `status`.
+- **Player Totem Controls:** Players can customize totem sets via [`.bot totem`](../play/commands/bot-panel.md#bot-totem) or manage them with `drop` and `status`.
 
 ---
 
