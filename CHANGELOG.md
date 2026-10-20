@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.6.1 (2026-10-20)
+
+### Classes & Combat
+- Warlocks no longer recast Soulstone endlessly on players they cannot see, such as an invisible GM. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+- Bots now land their heals and group buffs on invisible GMs instead of wasting the cast. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+- On servers with bot broadcasts switched off, groups still get their heals and buffs. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+
+### Stability
+- Swapping bags no longer crashes the world server. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+
+### Bug Reports
+- The bug report form works again. [#1109](https://github.com/Sagiroth/TortoiseBots/pull/1109)
+
+### Behind the scenes
+- The full changelog is posted to the Discord changelog thread again, with only a short announcement in the release thread. [#1106](https://github.com/Sagiroth/TortoiseBots/pull/1106)
+
+---
+
 ## v1.6.0 (2026-10-19)
 
 ### Bots & Mounts
