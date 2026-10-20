@@ -33,9 +33,9 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | Order my party to pull a pack and retreat around a corner | [Pullback tactics](play/commands/party-actions.md#bot-action-pullback) |
 | Stop bots from breaking crowd control like Polymorph | [Crowd control discipline](play/commands/party-actions.md#bot-action-cc) |
 | Direct my party to interrupt enemy spellcasters | [Interrupt command](play/commands/party-actions.md#bot-action-interrupt) |
-| Hire a mercenary companion or full raid roster at an inn | [Hiring mercenaries](play/commands/roster-and-hiring.md#capital-recruiter-services) |
+| Hire a mercenary companion or full raid roster at an inn or capital recruiter | [Hiring mercenaries](play/commands/roster-and-hiring.md#capital-recruiter-services) |
 | Learn spells automatically at a class trainer | [Trainer whisper](play/commands/whispers.md#w--trainer) |
-| Inspect bot equipment, talents, bags, or combat stats | [Bot panel](play/commands/bot-panel.md#bot-panel-commands) |
+| Inspect bot equipment, bags, trade windows, or combat stats | [Bot panel](play/commands/bot-panel.md#bot-panel-commands) |
 | Check tactics, kill orders, and mechanics for 5-man dungeons | [Dungeon reference](play/dungeon-reference.md) |
 | Handle wipe recovery and run back to the instance | [Wipe recovery](play/dungeons-and-raids.md#wipe-recovery--instance-navigation) |
 | Level my companion alts automatically with my character | [Sync alt level](server/settings/party.md#aiplayerbotsyncaltleveltomaster) |
@@ -57,11 +57,11 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [What bots can do](play/features.md) | Complete feature catalog, default states, and setting toggles per area. |
 | [Command directory](play/commands/README.md) | Overview of all bot commands, permission levels, and channel syntax. |
 | [Tactical party actions](play/commands/party-actions.md) | Direct combat intents (`attack`, `pullback`, `interrupt`, `cc`, formations). |
-| [Remote commander](play/commands/commander.md) | Directing bot-only parties and background runs from anywhere in the world. |
+| [Remote commander](play/commands/commander.md) | Directing bot-only parties from anywhere in the world. |
 | [Roster and hiring](play/commands/roster-and-hiring.md) | Adding alts, hiring mercenaries, recruiter buffs, and gear progression. |
-| [Bot panel and inspection](play/commands/bot-panel.md) | Equipment management, bag cleanup, trade windows, and diagnostic views. |
+| [Bot panel and inspection](play/commands/bot-panel.md) | Equipment and inventory management, behavior toggles, and diagnostic views. |
 | [Whisper commands](play/commands/whispers.md) | Quick one-to-one bot orders grouped by combat, rest, trade, and town. |
-| [Addon (TortoiseBotsManager)](play/commands/addon.md) | In-game UI guide, keybindings, and silent addon communication protocol. |
+| [Addon (TortoiseBotsManager)](play/commands/addon.md) | In-game UI guide and silent addon communication protocol. |
 | [Dungeon and raid tactics](play/dungeons-and-raids.md) | Pull mechanics, boss tactics, hazard evasion, wipe runs, and loot rules. |
 | [Dungeon reference](play/dungeon-reference.md) | Kill orders, creature IDs, pooled rares, and events for 18 dungeons. |
 | [Known limitations](play/known-limitations.md) | Engine limits, deliberate non-goals, targeting rules, and known quirks. |
@@ -96,16 +96,16 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Observability dashboard](server/dashboard.md) | Real-time web dashboard, 2D live map, Prometheus metrics, and issue tracker. |
 | [Party settings](server/settings/party.md) | Follow distances, summon rules, alt-bot persistence, and loot rolling. |
 | [Hiring settings](server/settings/hiring.md) | Mercenary hiring fees, recruiter quests, gear tiers, and world buffs. |
-| [Class behavior settings](server/settings/class-behaviour.md) | AI flags for Aspect of the Viper, Judgements, Feint, and demon choices. |
+| [Class behavior settings](server/settings/class-behaviour.md) | AI flags for Aspect of the Viper, Judgements, threat drops, and demon choices. |
 | [Dungeon and raid settings](server/settings/dungeons-raids.md) | Boss encounter flags, bomb runout ranges, and creature aura avoidance. |
 | [Combat settings](server/settings/combat.md) | Health and mana percentage thresholds, ranges, global cooldown (GCD) delays, and pull pacing. |
-| [World population settings](server/settings/world-population.md) | Bot population limits, level ladder rotation, wandering, and chatter. |
+| [World population settings](server/settings/world-population.md) | Bot population limits, level ladder rotation, wandering, greetings, and trading. |
 | [Economy settings](server/settings/economy.md) | Auction house market pacing, synthetic supply, and vendor batch sizes. |
 | [Queue settings](server/settings/queues.md) | Dungeon finder backfill intervals and battleground queue parameters. |
 | [Performance settings](server/settings/performance.md) | AI tick time budgets, activity throttling, and core server optimizations. |
-| [Chat settings](server/settings/chat.md) | Automated public broadcasts, frequency throttles, and say channel chatter. |
+| [Chat settings](server/settings/chat.md) | Automated public broadcasts, frequency throttles, and masterless say chat. |
 | [Logging settings](server/settings/logging.md) | Module verbosity, structured CSV logs, action traces, and UDP telemetry. |
-| [Hire gear sets](reference/hire-gear.md) | Generated static level-60 hire equipment sets per class and tier. |
+| [Hire gear sets](reference/hire-gear.md) | Static level-60 hire equipment sets per class and tier. |
 
 ## Developers
 
@@ -114,12 +114,12 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Developer index](developers/README.md) | Contributor workflows, coding standards, tools, and testing commands. |
 | [Architecture invariants](developers/architecture.md) | Decoupled C++ modularity, headless session lifecycle, and zero core coupling. |
 | [Strategy engine](developers/strategy-engine.md) | AI update loop, action baskets, triggers, multipliers, and failure backoffs. |
-| [Bot mechanics and quirks](developers/bot-mechanics.md) | Target selection algorithms, threat math, movement physics, and interrupts. |
+| [Bot mechanics and quirks](developers/bot-mechanics.md) | Targeting and interrupt logic, movement physics, gear evaluation, and technical quirks. |
 | [Donor hierarchy](developers/donor-hierarchy.md) | Provenance precedence across shyalya, mod-playerbots, and upstream core. |
 | [Host API contract](developers/host-api.md) | C++ generic seam interfaces, session hooks, and packet bridge contracts. |
 | [Licensing audit](developers/licensing-audit.md) | AGPL and GPL lineage compatibility, donor tracking, and release gates. |
 | [Data reference tables](developers/data/README.md) | Overview of TSV reference tables for bot data and donor mapping. |
 | [Capabilities census](developers/data/capabilities.tsv) | Tab-separated inventory of donor features vs TortoiseBots implementation. |
 | [Donor map](developers/data/donor-map.tsv) | Tab-separated file-by-file mapping of donor lineages and sources. |
-| [Spell coverage](developers/data/spell-coverage.tsv) | Tab-separated census of custom Turtle WoW spells mapped to AI strategies. |
+| [Spell coverage](developers/data/spell-coverage.tsv) | Tab-separated census of game spells mapped to bot actions and strategies. |
 | [Talent builds](developers/data/talent-builds.tsv) | Tab-separated reference of preset leveling talent allocations. |

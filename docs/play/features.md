@@ -28,7 +28,7 @@ TortoiseBots brings companion and open-world bots to Tortoise WoW, from party du
 | Level grouped owned alts with master | No | [`AiPlayerbot.SyncAltLevelToMaster`](../server/settings/party.md#aiplayerbotsyncaltleveltomaster) | [Owned alts](commands/roster-and-hiring.md#bot-add) |
 | Trailing followers mount to catch up | No | [`AiPlayerbot.BoostFollow`](../server/settings/party.md#aiplayerbotboostfollow) | [Follow behavior](commands/party-actions.md#bot-action-follow) |
 | Followers hold outside unpulled packs | No | [`AiPlayerbot.DungeonFollowHoldBeforePacks`](../server/settings/party.md#aiplayerbotdungeonfollowholdbeforepacks) | [Dungeon tactics](dungeons-and-raids.md#running-ahead-past-packs) |
-| Free instant teleport summon action | No | [`AiPlayerbot.NonGmFreeSummon`](../server/settings/party.md#aiplayerbotnongmfreesummon) | [Summoning](commands/roster-and-hiring.md#bot-summon) |
+| Free instant-teleport in-chat summon action (not `.bot summon`) | No | [`AiPlayerbot.NonGmFreeSummon`](../server/settings/party.md#aiplayerbotnongmfreesummon) | [Summon action](../server/settings/party.md#aiplayerbotnongmfreesummon) |
 | Equipment repair and restock maintenance | No | [`AiPlayerbot.OwnedBotMaintenanceEnabled`](../server/settings/party.md#aiplayerbotownedbotmaintenanceenabled) | [Maintenance](commands/roster-and-hiring.md#bot-maintenance) |
 | Automatic re-gearing for owned bots | No | [`AiPlayerbot.OwnedBotAutogearEnabled`](../server/settings/party.md#aiplayerbotownedbotautogearenabled) | [Autogear](commands/roster-and-hiring.md#bot-autogear) |
 | Teleport owned bots upon group invite | No | [`AiPlayerbot.OwnedBotSummonWhenGroup`](../server/settings/party.md#aiplayerbotownedbotsummonwhengroup) | [Summon on invite](commands/roster-and-hiring.md#automatic-summon-on-group-accept) |
@@ -41,7 +41,7 @@ TortoiseBots brings companion and open-world bots to Tortoise WoW, from party du
 | Dismissed alts roam autonomously | No | [`AiPlayerbot.AltBots`](../server/settings/party.md#aiplayerbotaltbots) | [Alt-bots](commands/roster-and-hiring.md#alt-bots-autonomous-alts) |
 | Alt-bots log out when owner logs out | No | [`AiPlayerbot.AltBotsLogoutWithOwner`](../server/settings/party.md#aiplayerbotaltbotslogoutwithowner) | [Alt-bots](commands/roster-and-hiring.md#alt-bots-autonomous-alts) |
 | Summon owned bots near innkeepers | Yes | [`AiPlayerbot.SummonAtInnkeepersEnabled`](../server/settings/party.md#aiplayerbotsummonatinnkeepersenabled) | [Innkeeper summoning](../server/settings/party.md#aiplayerbotsummonatinnkeepersenabled) |
-| Synchronize leader quest progress to party | No | [`AiPlayerbot.SyncQuestForPlayer`](../server/settings/party.md#aiplayerbotsyncquestforplayer) | [Quest syncing](../server/settings/party.md#aiplayerbotsyncquestforplayer) |
+| Complete the leader's quests when a companion bot turns them in | No | [`AiPlayerbot.SyncQuestForPlayer`](../server/settings/party.md#aiplayerbotsyncquestforplayer) | [Quest syncing](../server/settings/party.md#aiplayerbotsyncquestforplayer) |
 | Ready check waits for buffs to refresh | No | [`AiPlayerbot.ForceRebuffOnReadyCheck`](../server/settings/world-population.md#aiplayerbotforcerebuffonreadycheck) | [Ready checks](commands/party-actions.md#bot-action-ready) |
 | Remote commander mode for bot parties | No | [`AiPlayerbot.RemoteCommander`](../server/settings/performance.md#aiplayerbotremotecommander) | [Remote commander](commands/commander.md) |
 | Mercenary companion hiring at recruiters | Yes | [`AiPlayerbot.HireEnabled`](../server/settings/hiring.md#aiplayerbothireenabled) | [Hiring mercenaries](commands/roster-and-hiring.md#bot-hire) |
@@ -196,7 +196,7 @@ For log verbosity, retention limits, CSV streams, and tick budgets, see [Logging
 
 - [Self-botting](known-limitations.md#blocked--incomplete-features): you cannot convert your currently logged-in character into an automated bot.
 - [Autonomous dungeon clearing](known-limitations.md#explicit-non-goals): bots cannot clear dungeons or raids on their own without a human player directing them.
-- [No dedicated 1v1-duel mode](known-limitations.md#blocked--incomplete-features): bots lack dedicated 1v1 duel mode or competitive player versus player skirmish logic.
+- [No dedicated 1v1-duel mode](known-limitations.md#blocked--incomplete-features): bots accept duels and fight duel opponents, but lack dedicated competitive player versus player skirmish logic.
 - [Expansion features](known-limitations.md#explicit-non-goals): no Death Knights, glyphs, vehicles, Outland zones, or multi-tab guild banks.
 - [Pre-movement node queries](known-limitations.md#blocked--incomplete-features): bots cannot check loot rights before walking toward a herb or ore vein.
 - [Stair pathfinding desync](known-limitations.md#known-quirks-and-workarounds): pathfinding can desync on steep multi-tiered stairs; use `.bot summon` to snap bots to your location.
