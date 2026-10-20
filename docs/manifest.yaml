@@ -72,6 +72,10 @@ nodes:
     summary: Complete guide to Druid bot AI, shapeshifting forms, tanking, healing, DPS rotations, and Turtle WoW custom abilities.
 
   # Play
+  - id: play-glossary
+    path: play/glossary.md
+    category: play
+    summary: Short explanations of abbreviations and TortoiseBots terms.
   - id: play-getting-started
     path: play/getting-started.md
     category: play

@@ -22,6 +22,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 - [What bots can do](play/features.md) — complete catalog of bot capabilities, defaults, and feature flags.
 - [Commands](play/commands/README.md) — full command directory for party actions, whispers, and roster management.
 - [Known limitations](play/known-limitations.md) — engine boundaries, deliberate non-goals, and known quirks.
+- [Glossary](play/glossary.md) — what the abbreviations and bot terms mean.
 - [Install (for admins)](server/install.md) — build, compile, and configure TortoiseBots with the core server.
 
 ## I Want To...
@@ -65,6 +66,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | [Dungeon and raid tactics](play/dungeons-and-raids.md) | Pull mechanics, boss tactics, hazard evasion, wipe runs, and loot rules. |
 | [Dungeon reference](play/dungeon-reference.md) | Kill orders, creature IDs, pooled rares, and events for 18 dungeons. |
 | [Known limitations](play/known-limitations.md) | Engine limits, deliberate non-goals, targeting rules, and known quirks. |
+| [Glossary](play/glossary.md) | Abbreviations and TortoiseBots terms in plain words. |
 | [Classes overview](classes/overview.md) | Shared class AI, spec detection, combat roles, and interrupt logic. |
 | [Warrior](classes/warrior.md) | Stance dancing, Protection tanking, Arms/Fury DPS, and shouts. |
 | [Paladin](classes/paladin.md) | Holy healing, Protection tanking, Retribution DPS, and judgements. |

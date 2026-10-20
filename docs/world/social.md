@@ -85,4 +85,4 @@ Players can interact with unmanaged pool bots through the trade window:
   - `2`: BuyOnly. Strangers may open the window, but only player-gives trades complete (the bot never gives items or gold).
   - `3`: SellOnly. Strangers may open the window, but only bot-gives trades complete (the bot never takes items or gold).
   - `4`: On. Unrestricted trading with players.
-- **Addon prefix suppression:** Trade-channel addon chatter (Questie, DBM, and `RPLL_H_`-style prefixes) never opens a trade window; the excluded prefixes are configured through [`AiPlayerbot.TradeActionExcludedPrefixes`](../server/settings/world-population.md#aiplayerbottradeactionexcludedprefixes) (default `RPLL_H_,DBMv4`).
+- **Addon prefix suppression:** Trade-channel addon chatter (by default the `DBMv4` and `RPLL_H_` prefixes) never opens a trade window; the excluded prefixes are configured through [`AiPlayerbot.TradeActionExcludedPrefixes`](../server/settings/world-population.md#aiplayerbottradeactionexcludedprefixes) (default `RPLL_H_,DBMv4`).

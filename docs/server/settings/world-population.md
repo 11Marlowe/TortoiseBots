@@ -528,7 +528,7 @@ Defines chat prefixes that bots ignore so addon communications do not trigger tr
 <details>
 <summary>How it works in detail</summary>
 
-Specifies message prefixes from popular addons (such as Questie, DBM, or RPLL) that bots must ignore during chat parsing. This prevents automated addon broadcast lines from accidentally opening trade interactions with nearby bots.
+Specifies message prefixes from addons (by default `DBMv4` and `RPLL_H_`) that bots must ignore during chat parsing. This prevents automated addon broadcast lines from accidentally opening trade interactions with nearby bots.
 
 In the Trade channel, bots only respond when explicitly addressed by name.
 
