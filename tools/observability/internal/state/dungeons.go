@@ -150,6 +150,10 @@ func sortRunMembers(members []model.DungeonMember) {
 // Dungeons builds the view behind GET /api/v1/dungeons: the current runs
 // with their members and first-seen ages.
 func (s *Store) Dungeons() model.DungeonsView {
+	// Copy the fresh mob entries first: the mobs mutex is never taken while
+	// the roster lock is held.
+	mobs := s.freshDungeonMobs()
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -202,6 +206,9 @@ func (s *Store) Dungeons() model.DungeonsView {
 			run.SeenSec = now.Sub(first).Seconds()
 		}
 		sortRunMembers(run.Members)
+		if e, ok := mobs[key]; ok {
+			joinDungeonMobs(&run, e)
+		}
 		runs = append(runs, run)
 	}
 

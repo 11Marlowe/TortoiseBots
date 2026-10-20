@@ -5666,22 +5666,8 @@
   // copies of the same dungeon are two runs. The daemon does the grouping (/api/v1/dungeons, internal/state/dungeons.go); the tab shows
   // the list of runs, and a run's live view reuses the Commanders card and map renderer. No orders, no buttons that act on bots.
 
-  // A run as the card/map machinery expects it: a pseudo-binding whose bots are the run's members (bots and the real player, alive
-  // from the dead flag). `dungeon` marks it so the Commanders render never picks it up.
-  function dgnBind(run) {
-    return {
-      commander: 'dgn:' + run.key,
-      dungeon: true,
-      dgn: run,
-      online: true, group: 0, lead: '',
-      bots: (run.members || []).map(m => ({
-        name: m.name, guid: m.guid, player: m.player, class: m.class, role: m.role, level: m.level,
-        hp: m.hp, max_hp: m.max_hp, power: m.power, max_power: m.max_power, power_type: m.power_type,
-        map: m.map, zone: m.zone, x: m.x, y: m.y, z: m.z, o: m.o,
-        alive: !m.dead, state: m.state,
-      })),
-    };
-  }
+  // A run as the card/map machinery expects it: DgnView.bindOf (dungeons.js) builds it — a pseudo-binding whose bots are the run's
+  // members, with their ids, targets and mobs — and `dungeon` marks it so the Commanders render never picks it up.
 
   // The run's name: the zone name of the members' zone if the client knows one for it (a dungeon is its own
   // zone there), else any zone name recorded for the map, else "Map <id>".
@@ -5733,7 +5719,7 @@
       state.dungeons.runs = view.runs;
       state.dungeons.staleModule = !!view.stale_module;
       state.dungeons.at = Date.now();
-      state.dungeons.binds = view.runs.map(dgnBind);
+      state.dungeons.binds = view.runs.map(r => DgnView.bindOf(r));
       state.dungeons.byMember = new Map();
       view.runs.forEach(r => (r.members || []).forEach(m => {
         if (!state.dungeons.byMember.has(m.guid)) state.dungeons.byMember.set(m.guid, r);
@@ -5767,10 +5753,15 @@
       const stateWord = DgnView.runState(open);
       document.getElementById('dgn-run-title').innerHTML =
         `${esc(name)}${labels[open.key] ? ` &middot; <span class="cell-muted">copy ${labels[open.key]}</span>` : ''} &middot; <span class="cmd-state s-${esc(stateWord.replace(/\s+/g, '-'))}">${esc(stateWord)}</span>`;
+      // The module caps the mob list per run (24 in a party, 48 in a raid): say how many of what it saw are shown.
+      const mobsShown = Array.isArray(open.mobs) ? open.mobs.length : 0;
+      const mobsNote = open.mobs_total > mobsShown
+        ? ` &middot; <span class="cell-muted" title="The module caps the mob list per run (24 in a party, 48 in a raid)">${mobsShown} of ${open.mobs_total} mobs shown</span>`
+        : '';
       setHtml(document.getElementById('dgn-run-sub'),
         `${open.bots ? open.bots + ' bot' + (open.bots === 1 ? '' : 's') : ''}`
         + `${open.players ? (open.bots ? ' · ' : '') + open.players + ' player' + (open.players === 1 ? '' : 's') : open.bots ? '' : 'no player'}`
-        + ` · seen ${esc(DgnView.seenText(open.seen_sec))}${state.dungeons.staleModule ? ' · <span title="The game server runs an older module that reports no instance id, so copies of one dungeon cannot be told apart">one run per map</span>' : ''}`);
+        + ` · seen ${esc(DgnView.seenText(open.seen_sec))}${state.dungeons.staleModule ? ' · <span title="The game server runs an older module that reports no instance id, so copies of one dungeon cannot be told apart">one run per map</span>' : ''}${mobsNote}`);
 
     // One shared card per run, rebuilt and drawn like a commander's; the cards of runs that are no longer open go away.
     const key = 'dgn:' + open.key;

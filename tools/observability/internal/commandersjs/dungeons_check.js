@@ -4,6 +4,7 @@ const assert = require("assert");
 const path = require("path");
 const CmdView = require(path.resolve(process.argv[2]));
 const D = require(path.resolve(process.argv[3]));
+const M = require(path.resolve(process.argv[4]));
 
 // ---- copy labels: two copies of one dungeon read apart, a lone group has no copy number
 const runs = [
@@ -68,3 +69,59 @@ assert.deepStrictEqual(chunks[0].rows.map((r) => r.name), ["Bot1-1", "Bot1-2", "
 
 // ---- seen-for wording rides on the page's age text
 assert.strictEqual(D.seenText(45), CmdView.ageText(45));
+
+// ---- a run as a pseudo-binding for the card and map: ids, targets, mobs, and a living-tank lead
+const liveRun = {
+  key: "409:13", map: 409, instance: 13, mobs_map: 409, mobs_total: 30,
+  mobs: [{ id: "900", entry: 1, name: "Rockchewer", hp: 85, x: 1230, y: 850, victim: "10844", reaction: "h" }],
+  members: [
+    { name: "Healer", guid: 2, player: false, role: "healer", class: "priest", level: 60, hp: 1, max_hp: 2, dead: false, state: "combat", map: 409, x: 1, y: 1, id: "200" },
+    { name: "Tank", guid: 1, player: false, role: "tank", class: "warrior", level: 60, hp: 1, max_hp: 2, dead: false, state: "combat", map: 409, x: 2, y: 2, id: "10844", target: "900" },
+    { name: "DeadTank", guid: 3, player: false, role: "tank", class: "warrior", level: 60, hp: 0, max_hp: 2, dead: true, state: "dead", map: 409, x: 3, y: 3, id: "300" },
+  ],
+};
+const bind = D.bindOf(liveRun);
+assert.strictEqual(bind.commander, "dgn:409:13");
+assert.strictEqual(bind.dungeon, true);
+assert.strictEqual(bind.lead, "Tank"); // the first living tank, not the dead one
+const tank = bind.bots.find((b) => b.guid === 1);
+assert.strictEqual(tank.id, "10844");
+assert.strictEqual(tank.target, "900");
+assert.strictEqual(tank.alive, true);
+assert.strictEqual(bind.bots.find((b) => b.guid === 3).alive, false);
+assert.deepStrictEqual(bind.mobs, liveRun.mobs); // the array the layers read, untouched
+assert.strictEqual(bind.mobs_map, 409);
+assert.strictEqual(bind.mobs_total, 30);
+
+// An older module reports no ids, targets or mobs: no keys invented, and no lead.
+const oldBind = D.bindOf({ key: "70:1", map: 70, instance: 1, members: [{ name: "B", guid: 5, role: "dps", map: 70 }] });
+assert.ok(!("id" in oldBind.bots[0]) && !("target" in oldBind.bots[0]));
+assert.strictEqual(oldBind.lead, "");
+assert.strictEqual(oldBind.mobs, undefined);
+
+// The layer availability app.js computes (cmdMapFacts) from the same fields: the mob and combat layers are
+// available on a run that reported a list, greyed on one that did not.
+function facts(b) {
+  const first = b.bots[0];
+  const mapId = first ? first.map : null;
+  const reported = !!first && Array.isArray(b.mobs) && b.mobs_map === mapId;
+  return { mobs: reported, mobTargets: reported, botTargets: reported && b.bots.some((x) => !!x.id) };
+}
+const avail = M.availability(facts(bind));
+assert.ok(avail.mobhostile.ok && avail.mobneutral.ok && avail.mobcritter.ok && avail.bossmark.ok);
+assert.ok(avail.threatcolors.ok && avail.threat.ok && avail.bottarget.ok);
+const missing = M.availability(facts(oldBind));
+assert.ok(!missing.mobhostile.ok && !missing.bossmark.ok && !missing.threat.ok && !missing.bottarget.ok);
+assert.match(missing.mobhostile.why, /newer module/);
+
+// A reported-empty list keeps the layers available (old mobs vanish, the choice stands).
+const emptyBind = D.bindOf({ key: "409:14", map: 409, instance: 14, mobs_map: 409, mobs_total: 0, mobs: [], members: [{ name: "B", guid: 6, role: "dps", map: 409, id: "6" }] });
+assert.ok(M.availability(facts(emptyBind)).mobhostile.ok);
+
+// The drawing helpers accept bindOf's output directly: a mob's victim names a bot, a bot's target names a mob.
+const threats = CmdView.threatLines(bind.mobs, bind.bots);
+assert.strictEqual(threats.length, 1);
+assert.strictEqual(threats[0].bot.name, "Tank");
+const targets = CmdView.botTargetLines(bind.bots, bind.mobs);
+assert.strictEqual(targets.length, 1);
+assert.strictEqual(targets[0].mob.id, "900");
