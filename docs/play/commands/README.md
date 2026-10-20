@@ -28,13 +28,14 @@ Players interact with bots through three distinct interfaces:
 
 ### Command Chaining via `\\`
 
-Multiple sequential `.bot` or whisper commands can be chained together in a single chat line separated by `\\`:
+Multiple sequential whisper commands (or commands sent via the `.bot command` proxy) can be chained together in a single chat line separated by `\\`:
 
 ```text
-.bot follow\\co +focus
+/w Tanky follow\\co +focus
+.bot command Tanky follow\\co +focus
 ```
 
-The server splits the message along the delimiter and executes each command in sequence on the same world tick.
+The mature whisper processor splits the message along the `\\` delimiter and executes each command in sequence on the same world tick. (Note: native `.bot` CLI commands do not support `\\` chaining).
 
 ## Security & Ownership
 
@@ -42,19 +43,19 @@ Every bot command evaluates permission gates before executing:
 
 | Tier | Who Can Use | Permitted Operations |
 | :--- | :--- | :--- |
-| **GM Only** | GameMasters with session security above player level | Diagnostics, AI internals, engine cheats, `.bot pool`, `.bot ah`, `.reload config`. |
-| **Owner or GM** | Account owner of the bot, or any GM | Trading, inventory, gear equipping, talent points, trainer learning, recruitment, and lifecycle commands. |
-| **Group Member** | Anyone currently grouped with the bot | Tactical combat actions, movement orders, ready checks, and read-only inspection queries. |
+| **GM Only** | GameMasters with session security above player level | Diagnostics, engine cheats, AI profiles (`save/load/list/reset ai`), `.bot pool`, `.bot ah`, `.reload config`. |
+| **Owner or GM** | Account owner of the bot, or any GM | Trading, inventory, gear equipping, talent points, trainer learning, recruitment (`.bot hire`), and lifecycle commands. |
+| **Group Member** | Anyone currently grouped with the bot | Tactical combat actions, movement orders, ready checks, whisper `hire` (random bots only), and inspection queries. |
 
 ### Alt-Bots and Pool Bots
 
-- **Autonomous Alt-Bots:** When an owned alt plays autonomously in the world, other players may invite it and issue tactical combat orders. Only the account owner (or a GM) may trade with it, equip gear, spend talents, manage quests, or log it out.
+- **Autonomous Alt-Bots:** When an owned alt plays autonomously in the world, other players may invite it and issue tactical combat orders. Only the account owner (or a GM) may trade with it, equip gear, spend talents, manage quests, or log it out. Note that [`.bot cmd`](commander.md) orders never move autonomous alt-bots; order them with whispers or party chat instead.
 - **Pool-Bot Trading:** By default, masterless random-pool bots refuse trade requests from players. Owned alts and hired companions always trade freely with their master.
 - **Fail-Closed Security:** Unrecognized commands default to requiring Owner or GM permissions. Refused commands respond with a short explanation in chat and emit structured error codes to the addon.
 
 ## Master Command Index
 
-The table below lists every command and links to its authoritative documentation page:
+The table below lists all primary commands and links to their authoritative documentation pages; for detailed whisper variations, see [Whisper Commands](whispers.md).
 
 | Command | Category | Description |
 | :--- | :--- | :--- |
@@ -88,11 +89,11 @@ The table below lists every command and links to its authoritative documentation
 | [`.bot action raid custom status`](party-actions.md#bot-action-raid-custom-status) | Tactical Action | Reports custom Turtle raid strategy state. |
 | [`.bot action raid custom on`](party-actions.md#bot-action-raid-custom-on) | Tactical Action | Enables custom Turtle raid transition strategies. |
 | [`.bot action raid custom off`](party-actions.md#bot-action-raid-custom-off) | Tactical Action | Disables custom Turtle raid transition strategies. |
-| [`.bot follow`](party-actions.md#bot-follow) | Direct Movement | Orders a specific bot or party to follow. |
-| [`.bot stay`](party-actions.md#bot-stay) | Direct Movement | Orders a specific bot or party to stay in place. |
+| [`.bot follow`](party-actions.md#bot-follow) | Direct Movement | Orders a specific bot to follow you. |
+| [`.bot stay`](party-actions.md#bot-stay) | Direct Movement | Orders a specific bot to stay in place. |
 | [`.bot guard`](party-actions.md#bot-guard) | Direct Movement | Orders a bot to guard its current position. |
 | [`.bot free`](party-actions.md#bot-free) | Direct Movement | Releases a bot from stay/guard to free movement. |
-| [`.bot ready`](party-actions.md#bot-ready) | Direct Party | Runs a readiness check on a single bot or party. |
+| [`.bot ready`](party-actions.md#bot-ready) | Direct Party | Runs a readiness check on a single bot. |
 | [`.bot attack`](party-actions.md#bot-attack) | Direct Combat | Directs a specific bot to attack your target. |
 | [`.bot interrupt`](party-actions.md#bot-interrupt) | Direct Combat | Directs a specific bot to interrupt its target. |
 | [`.bot pullback`](party-actions.md#bot-pullback) | Direct Combat | Triggers a pullback maneuver on a designated tank. |
@@ -128,18 +129,22 @@ The table below lists every command and links to its authoritative documentation
 | [`.bot add`](roster-and-hiring.md#bot-add) | Roster & Hiring | Logs in an owned alt character as a bot. |
 | [`.bot remove`](roster-and-hiring.md#bot-remove) | Roster & Hiring | Logs out an owned bot or dismisses a hired companion. |
 | [`.bot hire`](roster-and-hiring.md#bot-hire) | Roster & Hiring | Recruits a mercenary companion at recruiters. |
-| [`.bot hire raid`](roster-and-hiring.md#bot-hire-raid) | Roster & Hiring | Recruits an entire raid party in one command. |
+| [`.bot hire raid`](roster-and-hiring.md#bot-hire-raid) | Roster & Hiring | Recruits up to 39 companions in one command. |
 | [`.bot role`](roster-and-hiring.md#bot-role) | Roster & Hiring | Configures party role overrides for bots or self. |
 | [`.bot invite`](roster-and-hiring.md#bot-invite) | Roster & Hiring | Invites an online owned bot to your party. |
 | [`.bot uninvite`](roster-and-hiring.md#bot-uninvite) | Roster & Hiring | Removes an owned bot or dismisses a hire from group. |
 | [`.bot summon`](roster-and-hiring.md#bot-summon) | Roster & Hiring | Teleports an owned bot or hire to your location. |
 | [`.bot maintenance`](roster-and-hiring.md#bot-maintenance) | Roster & Hiring | Refreshes kit items, reagents, ammo, and repairs. |
 | [`.bot autogear`](roster-and-hiring.md#bot-autogear) | Roster & Hiring | Equips level-appropriate gear up to quality caps. |
-| [`.bot list`](bot-panel.md#bot-list) | Inspection | Lists online bots owned by your account. |
-| [`.bot status`](bot-panel.md#bot-status) | Inspection | Displays lifecycle and AI state of an owned bot. |
-| [`.bot stats`](bot-panel.md#bot-stats) | Inspection | Summarizes owned bot fleet statistics. |
+| [`.bot release`](roster-and-hiring.md#bot-release) | Roster & Hiring | Commands dead bots to release spirit to graveyard. |
+| [`.bot corpse run`](roster-and-hiring.md#bot-corpse-run) | Roster & Hiring | Commands ghost bots to run back to their corpse. |
+| [`.bot learn`](roster-and-hiring.md#bot-learn) | Roster & Hiring | Commands bots to train spells at nearby trainers. |
+| [`.bot trade`](roster-and-hiring.md#bot-trade) | Roster & Hiring | Opens a trade window with the targeted companion. |
+| [`.bot list`](bot-panel.md#bot-list) | Inspection | Lists online bots you control. |
+| [`.bot status`](bot-panel.md#bot-status) | Inspection | Displays lifecycle and AI state of a controlled bot. |
+| [`.bot stats`](bot-panel.md#bot-stats) | Inspection | Summarizes controlled bot fleet statistics. |
 | [`.bot lease`](bot-panel.md#bot-lease) | Inspection | Reports active autonomous activity leases. |
-| [`.bot version`](bot-panel.md#bot-version) | Inspection | Displays module version, build date, and credits. |
+| [`.bot version`](bot-panel.md#bot-version) | Inspection | Displays module version, protocol line, and credits. |
 | [`.bot help`](bot-panel.md#bot-help) | Inspection | Prints bot system version header. |
 | [`.bot inv`](bot-panel.md#bot-inv) | Bot Panel | Emits inventory, equipped gear, and money details. |
 | [`.bot item trade`](bot-panel.md#bot-item-trade) | Bot Panel | Opens direct trade window with a bot. |
@@ -157,17 +162,9 @@ The table below lists every command and links to its authoritative documentation
 | [`.bot pool accounts`](../../server/admin-commands.md#bot-pool-accounts) | Admin & GM | Lists managed bot accounts (console only). |
 | [`.bot pool adopt preview`](../../server/admin-commands.md#bot-pool-adopt-preview) | Admin & GM | Previews unmanaged bot accounts for adoption (console). |
 | [`.bot pool adopt confirm`](../../server/admin-commands.md#bot-pool-adopt-confirm) | Admin & GM | Enrolls unmanaged bot accounts into pool (console). |
-| [`.bot pool clean`](../../server/admin-commands.md#bot-pool-clean) | Admin & GM | Clears offline disposable bots from pool registry. |
-| [`.bot pool init`](../../server/admin-commands.md#bot-pool-init) | Admin & GM | Seeds initial random bot pool up to minimum cap. |
-| [`.bot pool reset`](../../server/admin-commands.md#bot-pool-reset) | Admin & GM | Sets pool reset token or schedule. |
 | [`.bot ah status`](../../server/admin-commands.md#bot-ah-status) | Admin & GM | Reports synthetic auction house telemetry and counts. |
 | [`.bot ah reload`](../../server/admin-commands.md#bot-ah-reload) | Admin & GM | Reloads auction house item pricing rules from DB. |
 | [`.bot ah rebuild`](../../server/admin-commands.md#bot-ah-rebuild) | Admin & GM | Forces evaluation and refreshing of market listings. |
 | [`.bot ah item`](../../server/admin-commands.md#bot-ah-item) | Admin & GM | Inspects, resets, or overrides item auction prices. |
-| [`.bot ah buyer`](../../server/admin-commands.md#bot-ah-buyer) | Admin & GM | Enables or disables synthetic AH buyer participation. |
-| [`.bot ah synthetic`](../../server/admin-commands.md#bot-ah-synthetic) | Admin & GM | Enables or disables synthetic AH seller item creation. |
-| [`.bot ah reset`](../../server/admin-commands.md#bot-ah-reset) | Admin & GM | Flushes active synthetic auctions posted by bots. |
-| [`.ahbot`](../../server/admin-commands.md#ahbot) | Admin & GM | Alias for synthetic auction house commands. |
-| [`.reload config`](../../server/admin-commands.md#reload-config) | Admin & GM | Reloads configuration files without rebooting. |
-| [`.bot about`](../../server/admin-commands.md#bot-about) | System | Displays version, commit SHA, and build timestamp. |
-| [`.bot debug`](../../server/admin-commands.md#bot-debug) | Admin & GM | Prints developer diagnostics and AI state trees. |
+| [`.ahbot`](../../server/admin-commands.md#ahbot) | Admin & GM | Shorthand alias for `.bot ah` commands. |
+| [`.reload config`](../../server/admin-commands.md#reload-config) | Admin & GM | Reloads core configuration files. |

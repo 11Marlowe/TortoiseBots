@@ -14,133 +14,197 @@ relates_to:
 
 In addition to group-wide party actions, you can issue commands directly to individual companion bots using in-game whispers (`/w <BotName> <command>`) or the command-line proxy `.bot command <BotName> <command>`. Whispers allow precise control over inventory, vendor transactions, quest handling, and talent allocation.
 
-## Command Delegation Proxy
+## Command Delegation Proxy & Permissions
 
-Any whisper command can be sent through the `.bot command` proxy, making it easy to create macros without opening whisper channels:
+Any whisper command can be sent through the `.bot command` proxy:
 
 ```text
 .bot command <BotName> <command>
 # Example: .bot command Tanky trainer
 ```
 
-Permission checks apply to whispers the same as chat commands: commands that modify gear, spend gold, or change talents require the sender to be the bot's account owner or a GameMaster.
+### Access Tiers
+
+Whisper commands fall into distinct permission tiers:
+- **Tactical / Info (Group Members):** Combat movement, target targeting, and read-only status queries. Any group member may issue these.
+- **Owner or GM:** Economy, inventory, equipment, talents, trades, guild actions, and durable configuration changes. Permitted only to the bot's owner account or a GameMaster. Denials to non-owners fail silently.
+- **GM Only:** Diagnostic and cheat commands (`debug`, `cdebug`, `cs`, `cheat`, `teleport`, `log`, `set value`, `save ai`, `load ai`, `list ai`, `reset ai`). GameMaster privilege is required.
+
+Multiple whisper commands can be chained in a single line using `\\` as a delimiter (e.g. `/w Tanky follow\\co +focus`).
 
 ---
 
-## Situational Cheat-Sheet
+<a id="inventory--items"></a>
+## Inventory, Items & Banking
 
-### Inventory, Items & Banking
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `c` / `items` / `inv` | None | Tactical | Lists equipped and carried items with counts in chat. |
+| `e` / `equip` | `<item link\|name>` | Owner or GM | Equips the specified item from bags into matching slot. |
+| `ue` | `<slot>` | Owner or GM | Unequips gear from the specified equipment slot. |
+| `u` | `<item link\|name>` | Owner or GM | Uses an item from inventory (potions, food, bandages). |
+| `destroy` | `<item link\|name>` | Owner or GM | Destroys an inventory item (all bots; strangers refused). |
+| `drop` | `<quest link\|name>` | Owner or GM | Abandons the specified quest (all bots; strangers refused). |
+| `loot` | `[object link]` | Owner or GM | Loots nearby corpses, chests, and nodes immediately. |
+| `ll` | None | Owner or GM | Links or lists current loot items in chat. |
+| `bank` | None | Owner or GM | Interacts with a nearby banker NPC. |
+| `gbank` / `gb` | None | Owner or GM | Interacts with a nearby guild banker NPC. |
+| `mail` / `sendmail` | `<recipient> [<item\|money>]` | Owner or GM | Sends mail with optional attached item link or money. |
+| `craft` | `<item link>` | Owner or GM | Crafts an item using learned trade skills. |
+| `outfit <name>` | `<name>` | Owner or GM | Equips a previously saved equipment outfit set. |
+| `outfit save <name>` | `<name>` | Owner or GM | Saves currently equipped items under a profile name. |
+| `keep` | `<item link\|name>` | Owner or GM | Designates an item to keep and not sell. |
+| `keep need` | None | Owner or GM | Automatically keeps items rolled Need on. |
+| `roll need` / `greed` / `pass` | None | Owner or GM | Sets default loot roll choice on group drops. |
+| `roll feedback` | `[on\|off]` | Owner or GM | Toggles chat feedback on loot roll decisions. |
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `c` / `items` / `inv` | None | Lists equipped gear and inventory items with counts in chat. |
-| `e` / `equip` | `<item link\|name>` | Equips the specified item from bags into matching gear slot. |
-| `ue` | `<slot>` | Unequips gear from the specified equipment slot into bags. |
-| `u` | `<item link\|name>` | Uses an item from inventory (potions, food, bandages). |
-| `destroy` | `<item link\|name>` | Destroys an inventory item (owner-only on alt-bots). |
-| `drop` | `<quest link\|name>` | Abandons the specified quest (owner-only on alt-bots). |
-| `loot` | `[object link]` | Loots nearby corpses and containers immediately. |
-| `bank` | None | Interacts with a nearby banker NPC to manage personal storage. |
-| `gbank` / `gb` | None | Interacts with a nearby guild banker NPC. |
-| `mail` / `sendmail` | `[recipient] [subject]` | Interacts with a nearby mailbox to check or send mail. |
-| `craft` | `<item link>` | Crafts an item using the bot's learned trade skills. |
-| `outfit <name>` | `<name>` | Equips a previously saved equipment outfit set. |
-| `outfit save <name>` | `<name>` | Saves the bot's currently equipped items under a profile name. |
+---
 
-### Vendors, Repairs & Economy
+## Vendors, Repairs & Economy
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `s` | `[gray\|all\|<item>]` | Sells junk items or specific items when vendor is open. |
-| `b` | `<item link\|name>` | Buys the specified item from the active vendor window. |
-| `bb` | `<item link\|name>` | Buys back an accidentally sold item from the vendor. |
-| `repair` | None | Repairs damaged equipment at an armorer NPC. |
-| `t` | None | Initiates or accepts a direct trade window with the master. |
-| `wts` | None | Advertises items for sale or checks trade availability. |
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `s` | `[gray\|all\|<item>]` | Owner or GM | Sells junk items or specific items at an open vendor. |
+| `b` | `<item link\|name>` | Owner or GM | Buys the specified item from the active vendor window. |
+| `bb` | `<item link\|name>` | Owner or GM | Buys back an accidentally sold item from the vendor. |
+| `repair` | None | Owner or GM | Repairs damaged equipment at a repair merchant. |
+| `t` / `nt` | None | Owner or GM | Initiates or accepts a direct trade window. |
+| `wts` | None | Tactical | Advertises items for sale or checks trade availability. |
+| `ah` | None | Owner or GM | Interacts with an open auction house window. |
+| `ah bid` | `<auctionId> <bid>` | Owner or GM | Places a bid on an auction house listing. |
+| `ah cancel` | `<auctionId>` | Owner or GM | Cancels an active player auction listing. |
 
-### Quests & NPC Interaction
+---
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `q` / `quests` | None | Lists active quests and objective progress in chat. |
-| `accept` | None | Accepts an offered quest from a targeted NPC. |
-| `talk` | None | Interacts and gossips with the targeted NPC. |
-| `r` | `[reward index]` | Selects quest reward and turns in completed quest. |
-| `share` | None | Shares eligible quests with other party members. |
+## Quests & NPC Interaction
 
-### Training, Spells & Strategy Profiles
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `q` / `quests` | None | Owner or GM | Lists active quests and objective progress in chat. |
+| `accept` | None | Owner or GM | Accepts an offered quest from a targeted NPC. |
+| `talk` | None | Owner or GM | Interacts and gossips with the targeted NPC. |
+| `r` / `reward` | `[reward index]` | Owner or GM | Selects quest reward and turns in completed quest. |
+| `share` | None | Owner or GM | Shares eligible quests with other party members. |
+| `doquest` / `do` / `d` | `[quest]` | Owner or GM | Directs the bot to focus on a specific quest objective. |
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `trainer` | None | Trains all available class spells and ability ranks. |
-| `talents` | None | Prints spent talent points and tree distribution. |
-| `talents shift` | `<talent link>` | Allocates remaining talent points toward linked build. |
-| `spells` | None | Lists known spells and highest learned spell ranks. |
-| `cast <spell>` | `<spell link\|name>` | Commands the bot to cast a known spell in combat. |
-| `castnc <spell>` | `<spell link\|name>` | Commands the bot to cast a known spell out of combat. |
-| `save ai <name>` | `<name>` | Saves current strategy configuration to DB as a profile. |
-| `load ai <name>` | `<name>` | Loads a previously saved strategy profile from DB. |
-| `list ai` | None | Lists all saved strategy configuration profiles for this bot. |
-| `reset ai` | None | Resets the bot's strategy configuration to default AI. |
+---
 
-### Travel, Rest & Recovery
+## Training, Spells & Strategy Profiles
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `home` | None | Binds the bot's Hearthstone at the current innkeeper. |
-| `taxi` | `<destination>` | Purchases a flight path to the specified destination. |
-| `release` | None | Releases spirit to the graveyard after dying. |
-| `corpse run` | None | Paths back to corpse location in spirit form. |
-| `revive` | None | Resurrects at Spirit Healer with resurrection sickness. |
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `trainer` | None | Owner or GM | Trains all available, affordable class spells and ranks. |
+| `talents` | None | Owner or GM | Prints spent talent points and tree distribution. |
+| `talents shift` | `<talent link>` | Owner or GM | Allocates remaining talent points toward linked build. |
+| `spells` | None | Tactical | Lists known spells and highest learned spell ranks. |
+| `spell` | `<spell link\|name>` | Owner or GM | Queries information about a specific spell. |
+| `cast <spell>` | `<spell link\|name>` | Owner or GM | Commands the bot to cast a known spell in combat. |
+| `castnc <spell>` | `<spell link\|name>` | Owner or GM | Commands the bot to cast a known spell out of combat. |
+| `ss` | `<spell link\|name>` | Owner or GM | Skips or toggles automatic usage of a specific spell. |
+| `save ai <name>` | `<name>` | GM Only | Saves current strategy configuration to DB table. |
+| `load ai <name>` | `<name>` | GM Only | Loads a previously saved strategy profile from DB table. |
+| `list ai` | None | GM Only | Lists all saved strategy configuration profiles. |
+| `reset ai` | None | GM Only | Resets strategy configuration to default AI. |
+| `reset` | None | Owner or GM | Flushes AI action queues and resets combat strategies. |
 
-### Tactical & Combat Overrides
+---
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `attack` | None | Attacks your current target and breaks active stay. |
-| `tank attack` | None | Orders the party tank to taunt and engage your target. |
-| `flee` / `runaway` | None | Retreats toward master in passive mode. |
-| `end pull` | None | Aborts an active pull maneuver; tank returns to follow. |
-| `rebuff` | None | Refreshes expiring party buffs out of combat. |
-| `buff` | None | Re-casts missing class buffs on party members. |
-| `pet` | `[follow\|stay\|attack]` | Directs pet movement and combat behavior. |
-| `rti <mark>` | `<mark>` | Assigns raid target icon focus or CC mark. |
-| `attack rti <mark>` | `<mark>` | Orders bot to attack enemy marked with raid target icon. |
-| `pull rti <mark>` | `<mark>` | Orders tank bot to pull enemy marked with raid icon. |
-| `stance` | `[stance name]` | Queries or sets warrior/druid combat stance or form. |
-| `save mana` | `[on\|off]` | Toggles conservative mana-saving ability rotations. |
-| `max dps` | None | Temporarily prioritizes maximum damage output. |
-| `possible attack targets`| None | Queries list of hostile targets in sensory range. |
-| `attackers` | None | Prints count and names of enemies currently attacking. |
-| `position` | None | Reports the bot's current coordinates and orientation. |
-| `who` | None | Prints character summary, spec, and status in chat. |
-| `where` | None | Reports current map, zone, and location coordinates. |
-| `los` | None | Reports line-of-sight status to current target. |
-| `wait for attack time` | None | Holds attacks until main-hand swing timer synchronizes. |
-| `jump` | None | Triggers an immediate jump action. |
-| `warning` | None | Prints active combat or environmental warnings. |
-| `grind` | None | Toggles solo autonomous grinding mode for the bot. |
-| `reset` | None | Flushes AI action queues and resets combat strategies. |
+## Travel, Group & Recovery
 
-### Guild Management
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `home` | None | Owner or GM | Binds the bot's Hearthstone at the current innkeeper. |
+| `taxi ?` | None | Owner or GM | Lists numbered flight taxi routes available. |
+| `taxi <number>` | `<number>` | Owner or GM | Selects a numbered flight taxi destination. |
+| `release` | None | Owner or GM | Releases spirit to the graveyard after dying. |
+| `corpse run` | None | Owner or GM | Paths back to corpse location in spirit form. |
+| `revive` | None | Owner or GM | Resurrects at Spirit Healer with resurrection sickness. |
+| `invite` | `<player>` | Owner or GM | Sends a party invitation to a player. |
+| `join` | None | Owner or GM | Accepts a pending group invitation. |
+| `leave` | None | Owner or GM | Leaves the current group. |
+| `lfg` | None | Owner or GM | Queues or toggles Looking For Group. |
+| `summon` | `<player>` | Owner or GM | Casts ritual or summoning spell on player. |
+| `logout` | None | Owner or GM | Initiates clean logout for the bot session. |
+| `bg free` | None | Owner or GM | Leaves the active battleground. |
+| `give leader` | `<player>` | Owner or GM | Promotes named player to party leader. |
 
-| Command / Whisper | Parameters | What It Does |
-| :--- | :--- | :--- |
-| `guild invite` | `<player>` | Invites the named character to the bot's guild. |
-| `guild join` | None | Directs the bot to accept an outstanding guild invite. |
-| `guild leave` | None | Orders the bot to leave its current guild. |
-| `guild promote` | `<player>` | Promotes a guild member to the next higher rank. |
-| `guild demote` | `<player>` | Demotes a guild member to the next lower rank. |
-| `guild leader` | `<player>` | Transfers guild leadership to the named member. |
-| `guild remove` | `<player>` | Kicks the named member from the guild. |
+---
+
+## Target Assignments
+
+Bots support explicit target-assignment lists using the `+name` / `-name` parameter grammar:
+
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `focus heal` | `<+name\|-name>` | Owner or GM | Adds or removes prioritized healing targets. |
+| `buff target` | `<+name\|-name>` | Owner or GM | Adds or removes specific targets for class buffs. |
+| `revive target` | `<+name\|-name>` | Owner or GM | Adds or removes targets for resurrect spells. |
+| `boost target` | `<+name\|-name>` | Owner or GM | Sets prioritized targets for offensive boosts. |
+| `follow target` | `<+name\|-name>` | Tactical | Sets or resets a custom follow target. |
+
+---
+
+## Tactical & Combat Overrides
+
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `attack` | None | Tactical | Attacks your current target and breaks active stay. |
+| `tank attack` | None | Tactical | Orders the party tank to taunt and engage target. |
+| `flee` / `runaway` | None | Tactical | Retreats toward master in passive mode. |
+| `end pull` | None | Owner or GM | Aborts an active pull maneuver; tank returns. |
+| `rebuff` | None | Tactical | Refreshes expiring party buffs out of combat. |
+| `buff` | None | Owner or GM | Re-casts missing class buffs on party members. |
+| `pet` | `[aggressive\|defensive\|passive]` | Owner or GM | Sets pet stance (aggressive, defensive, passive). |
+| `pet autocast` | `<spell name>` | Owner or GM | Toggles autocast on a specific pet ability. |
+| `rti <mark>` | `<mark>` | Tactical | Assigns raid target icon focus or CC mark. |
+| `attack rti <mark>` | `<mark>` | Tactical | Orders bot to attack enemy marked with raid icon. |
+| `pull rti <mark>` | `<mark>` | Tactical | Orders tank bot to pull enemy marked with raid icon. |
+| `stance` | `[stance name]` | Tactical | Queries or sets warrior/druid combat stance or form. |
+| `save mana` | `[on\|off]` | Tactical | Toggles conservative mana-saving ability rotations. |
+| `max dps` | None | Tactical | Temporarily prioritizes maximum damage output. |
+| `possible attack targets`| None | Tactical | Queries list of hostile targets in sensory range. |
+| `attackers` | None | Tactical | Prints count and names of enemies attacking bot. |
+| `position` | None | Tactical | Reports the bot's current coordinates and orientation. |
+| `who` | None | Tactical | Prints character summary, spec, and status in chat. |
+| `where` | None | Tactical | Reports current map, zone, and location coordinates. |
+| `los` | None | Tactical | Reports line-of-sight status to current target. |
+| `wait <seconds>` | `<seconds>` | Tactical | Pauses AI internal updates (max 20 seconds). |
+| `wait for attack time` | None | Tactical | Holds attacks until main-hand swing timer synchronizes. |
+| `jump` | None | Tactical | Triggers an immediate jump action. |
+| `warning` | None | Tactical | Prints active combat or environmental warnings. |
+| `grind` | None | Tactical | Toggles solo autonomous grinding mode for the bot. |
+| `skill` / `faction` / `rep` | None | Owner or GM | Reports skill proficiencies and reputation standing. |
+| `range` | `[distance]` | Owner or GM | Adjusts or reports combat engagement range. |
+| `flag` / `speak` / `chat` | `[args]` | Owner or GM | Configures chat broadcast and speech parameters. |
+| `move style` | `[style]` | Owner or GM | Sets bot movement pathing preference. |
+
+---
+
+<a id="guild-management"></a>
+## Guild Management Whispers
+
+Commands for managing bot guilds through chat whispers. Only the bot's owner account (or a GM) may issue these commands; the bot must itself hold the matching guild privilege in its guild rank:
+
+| Command / Whisper | Parameters | Tier | What It Does |
+| :--- | :--- | :--- | :--- |
+| `guild invite` | `<player>` | Owner or GM | Invites the named character to the bot's guild. |
+| `guild join` | None | Owner or GM | Directs the bot to accept an outstanding guild invite. |
+| `guild leave` | None | Owner or GM | Orders the bot to leave its current guild. |
+| `guild promote` | `<player>` | Owner or GM | Promotes a guild member to the next higher rank. |
+| `guild demote` | `<player>` | Owner or GM | Demotes a guild member to the next lower rank. |
+| `guild leader` | `<player>` | Owner or GM | Transfers guild leadership to the named member. |
+| `guild remove` | `<player>` | Owner or GM | Kicks the named member from the guild. |
+
+Note: Autonomous alt-bots accept guild invitations only from their owner's account (or a GM) and never leave their guild on their own.
 
 ---
 
 ## Detailed Whisper Reference
 
+<a id="w--trainer"></a>
 ### `/w <BotName> trainer`
 
-Directs the bot to interact with a currently open class trainer NPC and learn all affordable spells, abilities, and ranks in one click.
+Directs the bot to interact with a currently open class trainer NPC and learn all available, affordable spells, abilities, and ranks in one pass.
 
 ```text
 /w <BotName> trainer
@@ -148,6 +212,7 @@ Directs the bot to interact with a currently open class trainer NPC and learn al
 
 Requires the bot to stand near a trainer of its matching class.
 
+<a id="w--talents"></a>
 ### `/w <BotName> talents`
 
 Prints the bot's current talent tree distribution and unspent talent points to chat.
@@ -157,8 +222,9 @@ Prints the bot's current talent tree distribution and unspent talent points to c
 /w <BotName> talents shift <talent link>
 ```
 
-Passing `shift <link>` allocates available talent points toward the talent build encoded in the link.
+Passing `shift <link>` allocates available talent points toward the talent build encoded in the link. Talent links support at most three trees separated by `-`; extra trees are rejected before parsing.
 
+<a id="w--rebuff"></a>
 ### `/w <BotName> rebuff`
 
 Prompts the bot to refresh all expiring party buffs out of combat.
@@ -167,8 +233,9 @@ Prompts the bot to refresh all expiring party buffs out of combat.
 /w <BotName> rebuff
 ```
 
-Performs a 2-minute expiration check and applies missing buffs. Healing actions temporarily yield while rebuffing runs.
+Performs a 2-minute expiration check and applies missing buffs. Healing actions temporarily yield while rebuffing runs. (Note: there is no direct `.bot rebuff` command).
 
+<a id="w--end-pull"></a>
 ### `/w <BotName> end pull`
 
 Aborts a pull maneuver currently underway.
@@ -207,7 +274,7 @@ Orders the bot to loot nearby corpses, mineral nodes, herbs, or chests immediate
 /w <BotName> loot [object link]
 ```
 
-Passing an object link instructs the bot to interact specifically with that linked object.
+Passing an object link instructs the bot to interact specifically with that linked object. An explicit player loot order (`NotePlayerOrder`) bypasses prior give-up timers, and an empty window resulting from an explicit player order does not record a failure.
 
 ### `/w <BotName> s`
 
@@ -217,53 +284,7 @@ Sells gray junk items or specific bag items when standing near an open merchant 
 /w <BotName> s [gray|all|<item link>]
 ```
 
-`s gray` sells poor-quality vendor trash; `s all` sells all non-essential items; linking an item sells only that item.
-
-### `/w <BotName> repair`
-
-Instructs the bot to repair all damaged equipment at a nearby repair merchant NPC.
-
-```text
-/w <BotName> repair
-```
-
-### `/w <BotName> c`
-
-Prints a summary of equipped gear and inventory items carried by the bot in chat.
-
-```text
-/w <BotName> c
-```
-
-Aliases include `items` and `inv`.
-
-### `/w <BotName> e`
-
-Equips the specified item link or item name from the bot's inventory bags into its appropriate equipment slot.
-
-```text
-/w <BotName> e <item link|name>
-```
-
-Alias: `equip`.
-
-### `/w <BotName> ue`
-
-Unequips gear from the specified equipment slot into the bot's inventory bags.
-
-```text
-/w <BotName> ue <slot>
-```
-
-Fails if the bot has no free bag space.
-
-### `/w <BotName> u`
-
-Commands the bot to use an item from its inventory bags (e.g. potions, bandages, quest items).
-
-```text
-/w <BotName> u <item link|name>
-```
+`s gray` sells poor-quality vendor trash; `s all` sells all sellable bag items (including useful items); linking an item sells only that specific item.
 
 ### `/w <BotName> destroy`
 
@@ -273,7 +294,7 @@ Permanently destroys the specified item from the bot's bags to free up inventory
 /w <BotName> destroy <item link|name>
 ```
 
-On autonomous alt-bots, this command is strictly restricted to the alt's owner account; orders from other players are refused.
+Restricted to the bot's owner account or a GM across all bot types. Strangers are always refused.
 
 ### `/w <BotName> drop`
 
@@ -283,170 +304,31 @@ Abandons the specified quest from the bot's quest log.
 /w <BotName> drop <quest link|name>
 ```
 
-On autonomous alt-bots, quest abandonment is strictly restricted to the character's owner account.
-
-### `/w <BotName> bank` / `gbank`
-
-Interacts with a nearby banker or guild banker NPC.
-
-```text
-/w <BotName> bank
-/w <BotName> gbank
-/w <BotName> gb
-```
-
-Requires the bot to stand within interaction range of a bank or guild bank NPC.
+Restricted to the bot's owner account or a GM across all bot types.
 
 ### `/w <BotName> mail` / `sendmail`
 
-Interacts with a nearby mailbox to check received mail or compose outgoing mail.
+Interacts with a nearby mailbox to check received mail or send mail with attached items or money.
 
 ```text
 /w <BotName> mail
-/w <BotName> sendmail [recipient] [subject]
+/w <BotName> sendmail <recipient> [<item link>|<money>]
 ```
 
 Requires the bot to stand within interaction range of a mailbox.
 
-### `/w <BotName> craft`
-
-Orders the bot to craft an item using its learned trade skills.
-
-```text
-/w <BotName> craft <item link>
-```
-
-The bot checks whether it possesses the required profession skill, tools, and reagents before crafting.
-
-### `/w <BotName> outfit`
-
-Saves or equips complete gear sets.
-
-```text
-/w <BotName> outfit save <name>
-/w <BotName> outfit <name>
-```
-
-`outfit save` records all currently equipped items under the specified profile name. Whispering `outfit <name>` equips the saved outfit from the bot's bags.
-
-### `/w <BotName> cast` / `castnc`
-
-Commands the bot to cast a specific known spell.
-
-```text
-/w <BotName> cast <spell link|name>
-/w <BotName> castnc <spell link|name>
-```
-
-`cast` executes the spell in combat; `castnc` executes the spell out of combat.
-
-### `/w <BotName> save ai` / `load ai`
-
-Saves and loads strategy configurations from the database under named profiles.
-
-```text
-/w <BotName> save ai <name>
-/w <BotName> load ai <name>
-/w <BotName> list ai
-/w <BotName> reset ai
-```
-
-- `save ai <name>`: Persists the bot's active combat and non-combat strategies to the database.
-- `load ai <name>`: Restores a previously saved profile.
-- `list ai`: Lists all saved profiles belonging to this bot.
-- `reset ai`: Resets strategies and action values to defaults.
-
-### `/w <BotName> rti`
-
-Assigns or orders attacks using Raid Target Icons.
-
-```text
-/w <BotName> rti <mark>
-/w <BotName> attack rti <mark>
-/w <BotName> pull rti <mark>
-```
-
-Supported marks include `skull`, `cross`, `square`, `moon`, `triangle`, `diamond`, `circle`, and `star`.
-
-### Tactical & Informational Whispers
-
-Informational and tactical status queries for group members:
-
-```text
-/w <BotName> stance [stance name]
-/w <BotName> save mana [on|off]
-/w <BotName> max dps
-/w <BotName> possible attack targets
-/w <BotName> attackers
-/w <BotName> position
-/w <BotName> who
-/w <BotName> where
-/w <BotName> wts
-/w <BotName> los
-/w <BotName> wait for attack time
-/w <BotName> jump
-/w <BotName> warning
-```
-
-- `stance`: Queries or sets warrior/druid stance or form.
-- `save mana`: Toggles mana conservation rotation (`on` / `off`).
-- `max dps`: Pushes offensive rotations without conservation.
-- `possible attack targets`: Lists perceived hostile creatures in sensory range.
-- `attackers`: Lists enemies currently targeting or damaging the bot.
-- `position`: Reports map coordinates and heading.
-- `who`: Outputs level, race, class, and active spec.
-- `where`: Reports current zone and area name.
-- `wts`: Advertises trade items or checks merchant status.
-- `los`: Reports line-of-sight status to current combat target.
-- `wait for attack time`: Pauses auto-attack until swing timer synchronizes.
-- `jump`: Makes the bot jump immediately.
-- `warning`: Reports active environment or combat warnings.
-
-<a id="guild-management"></a>
-### Guild Management Whispers
-
-Commands for managing bot guilds through chat whispers:
-
-```text
-/w <BotName> guild invite <player>
-/w <BotName> guild join
-/w <BotName> guild leave
-/w <BotName> guild promote <player>
-/w <BotName> guild demote <player>
-/w <BotName> guild leader <player>
-/w <BotName> guild remove <player>
-```
-
-Allows human guild members with proper permissions to direct bot guild officers and leaders to manage guild rosters, invite recruits, promote members, or transfer guild leadership.
-
-### `/w <BotName> q`
-
-Prints the bot's active quest list and current objective completion status in chat.
-
-```text
-/w <BotName> q
-```
-
-Alias: `quests`.
-
-### `/w <BotName> home`
-
-Binds the bot's Hearthstone to the local innkeeper.
-
-```text
-/w <BotName> home
-```
-
-Requires the bot to stand within interaction range of an innkeeper NPC.
-
 ### `/w <BotName> taxi`
 
-Purchases flight taxi transport to the specified destination from a flight master NPC.
+Queries or purchases flight taxi transport from a flight master NPC.
 
 ```text
-/w <BotName> taxi <destination>
+/w <BotName> taxi ?
+/w <BotName> taxi <number>
 ```
 
+Whispering `taxi ?` lists available flight routes and numbers; whispering `taxi <number>` purchases the flight.
+
+<a id="w--release"></a>
 ### `/w <BotName> release`
 
 Orders a dead companion bot to release spirit to the graveyard.
@@ -471,15 +353,16 @@ Orders a companion bot in ghost form to resurrect immediately at the Spirit Heal
 /w <BotName> revive
 ```
 
-Applies resurrection sickness as normal.
+### `/w <BotName> co` / `nc` / `de` / `react` / `all`
 
-### `/w <BotName> co` / `nc` / `strategy`
-
-Inspects or modifies combat (`co`), non-combat (`nc`), or dead (`de`) strategies for that bot.
+Inspects or modifies strategy trees across different execution states: combat (`co`), non-combat (`nc`), dead (`de`), reaction (`react`), or all engines (`all`).
 
 ```text
 /w <BotName> co <+|-|~strategy>
 /w <BotName> nc <+|-|~strategy>
+/w <BotName> de <+|-|~strategy>
+/w <BotName> react <+|-|~strategy>
+/w <BotName> all <+|-|~strategy>
 /w <BotName> co ?
 ```
 
