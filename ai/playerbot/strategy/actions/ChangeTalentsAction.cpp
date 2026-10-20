@@ -204,7 +204,11 @@ std::vector<TalentPath*> ChangeTalentsAction::getPremadePaths(uint8 cls, std::st
         if (!findName.empty() && path.name.find(findName) == std::string::npos)
             continue;
 
-        if (role != BotRoles::BOT_ROLE_NONE && (AiFactory::GetPlayerRoles(cls, path.talentSpec.back().highestTree()) & role) == 0)
+        // A named request pins the build, so no role filter: the 7.3 tank
+        // build's highest tree is 1 (Enhancement = DPS), and a TANK filter
+        // would drop it and silently fall back to a random spec (issue #1125).
+        if (findName.empty() && role != BotRoles::BOT_ROLE_NONE &&
+            (AiFactory::GetPlayerRoles(cls, path.talentSpec.back().highestTree()) & role) == 0)
             continue;
 
         ret.push_back(&path);
@@ -266,12 +270,16 @@ void ChangeTalentsAction::RespecHireGearKit(Player* bot, std::ostringstream& out
         return;
     // New build's role first: the premade filter in getPremadePaths and the
     // strategy rebuild below must agree. Druid feral reports both roles, so
-    // keep the tank bit only when the hire already tanked.
+    // keep the tank bit only when the hire already tanked. The shaman tank
+    // build (7.3) reads tab 1 = DPS, so keep the tank bit whenever the bot
+    // was already tanking (forced role TANK from factory/hire/role order).
     ai::BotRoles buildRole = AiFactory::GetPlayerRoles(cls,
         static_cast<uint8>(AiFactory::GetPlayerSpecTab(bot)));
     uint8_t role = static_cast<uint8_t>(buildRole);
     if (cls == CLASS_DRUID && (buildRole & (ai::BOT_ROLE_TANK | ai::BOT_ROLE_DPS)))
         role = (ai->GetForcedRole() & ai::BOT_ROLE_TANK) ? ai::BOT_ROLE_TANK : ai::BOT_ROLE_DPS;
+    if (cls == CLASS_SHAMAN && (ai->GetForcedRole() & ai::BOT_ROLE_TANK))
+        role = ai::BOT_ROLE_TANK;
     if (role != ai::BOT_ROLE_NONE && TortoiseBots::HireProvisionService::ClassCanRole(cls, role))
         ai->SetForcedRole(role);
     else

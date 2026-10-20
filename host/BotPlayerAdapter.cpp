@@ -67,9 +67,10 @@ uint8 BotPlayerAdapter::GetBotRoles(Player* who)
             botAi->GetForcedRole() == 0)
         {
             // TANK: installed only by a tank click (`+protection`,
-            // `+tank feral`) or install-time prot/feral defaults.
+            // `+tank feral`, `+tank shaman`) or install-time prot/feral/tank defaults.
             if (botAi->HasStrategy("protection", BotState::BOT_STATE_COMBAT) ||
                 botAi->HasStrategy("tank feral", BotState::BOT_STATE_COMBAT) ||
+                botAi->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT) ||
                 botAi->HasStrategy("bear", BotState::BOT_STATE_COMBAT) ||
                 botAi->HasStrategy("tank", BotState::BOT_STATE_COMBAT))
                 return static_cast<uint8>(ai::BOT_ROLE_TANK);

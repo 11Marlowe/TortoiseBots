@@ -950,9 +950,21 @@ static bool HandleRole(ChatHandler* handler, char const* args)
     ai->ResetStrategies();
     if (role == static_cast<uint8>(ai::BOT_ROLE_TANK))
     {
-        ai->ChangeStrategy("+protection,+tank feral,+tank assist", BotState::BOT_STATE_NON_COMBAT);
-        ai->ChangeStrategy("+protection,+tank feral,+tank assist,+pull,+pull back,+close",
-            BotState::BOT_STATE_COMBAT);
+        if (bot->GetClass() == CLASS_SHAMAN)
+        {
+            // Shaman tanks have their own spec strategy (issue #1125):
+            // +protection/+tank feral have no shaman creators and would be
+            // silently ignored, leaving the enhancement DPS kit installed.
+            ai->ChangeStrategy("+tank shaman,+tank assist", BotState::BOT_STATE_NON_COMBAT);
+            ai->ChangeStrategy("+tank shaman,+tank assist,+pull,+pull back,+close,+tank face",
+                BotState::BOT_STATE_COMBAT);
+        }
+        else
+        {
+            ai->ChangeStrategy("+protection,+tank feral,+tank assist", BotState::BOT_STATE_NON_COMBAT);
+            ai->ChangeStrategy("+protection,+tank feral,+tank assist,+pull,+pull back,+close",
+                BotState::BOT_STATE_COMBAT);
+        }
     }
     else if (role == static_cast<uint8>(ai::BOT_ROLE_DPS) && bot->GetClass() == CLASS_DRUID)
     {
@@ -983,6 +995,20 @@ static bool HandleRole(ChatHandler* handler, char const* args)
         {
             if (!bot->HasSpell(5487) && !bot->HasSpell(9634))
                 handler->PSendSysMessage("Warning: %s has no bear form — cannot tank effectively.", name.c_str());
+        }
+        else if (cls == CLASS_SHAMAN)
+        {
+            // A shaman tank with shield + Rockbiter + a key tank talent
+            // (Totemic Alignment / Spirit Armor) backs the role (issue #1125);
+            // only ungeared/undetectable shamans get the squishy warning.
+            Item const* shamanOffhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+            ItemPrototype const* shamanOffProto = shamanOffhand ? shamanOffhand->GetProto() : nullptr;
+            bool shamanShield = shamanOffProto && shamanOffProto->Class == ITEM_CLASS_ARMOR &&
+                shamanOffProto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD;
+            bool shamanTalented = bot->HasSpell(51382) || bot->HasSpell(51381) ||
+                bot->HasSpell(45952) || bot->HasSpell(45951);
+            if (!shamanShield || !shamanTalented)
+                handler->PSendSysMessage("Warning: %s has no shaman tank gear/talents (shield + Rockbiter + Totemic Alignment/Spirit Armor) — will be squishy as tank.", name.c_str());
         }
         else
         {

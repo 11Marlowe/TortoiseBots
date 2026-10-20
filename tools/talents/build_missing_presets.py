@@ -124,6 +124,17 @@ def main():
             (0, 12, 2), (0, 13, 1), (0, 14, 2), (0, 15, 5), (0, 16, 1),
             (2, 0, 5), (2, 1, 4),
         ],
+        # Shaman tank (spec 3): KB enhancement-tank leveling order (issue #1125).
+        # 15/36/0 at 60: Ele Convection 5, Warding 3, Devastation 3, Focus 1,
+        # Reverberation 3; Enh AK 5, Align 2, TS 5, Stable 3, LS 1, AG 3,
+        # Flurry 5, Spirit Armor 2, EW 3, Stormstrike 1, Grace 5, Bloodlust 1.
+        (7, 3, 'tank'): [
+            (1, 0, 5), (1, 4, 3), (1, 3, 2), (1, 7, 1), (1, 8, 3),
+            (1, 3, 1), (1, 10, 2), (1, 3, 2), (1, 2, 1), (1, 12, 1),
+            (1, 13, 1), (1, 12, 2), (0, 0, 5), (0, 3, 2), (0, 4, 3),
+            (0, 5, 1), (1, 2, 1), (1, 14, 5), (1, 9, 5), (1, 15, 1),
+            (0, 6, 3), (0, 3, 1),
+        ],
     }
 
     for (cls, specno, name), order in specs.items():
