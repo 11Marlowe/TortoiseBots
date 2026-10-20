@@ -109,7 +109,7 @@ When enabled, the server streams structured perception frames (`TBM:VIEW`) detai
 
 ## Tactical Remote Orders (`.bot cmd`)
 
-Tactical orders use the prefix `.bot cmd`. Tactical targets are identified strictly by their 64-bit object GUID (in hex `0x...` or decimal). Object entry IDs (`entry:<id>`) are accepted only by `loot`, `open`, `use`, `ritual`, and `state`.
+Tactical orders use the prefix `.bot cmd`. Tactical targets are identified strictly by their 64-bit object GUID (in hex `0x...` or decimal). Object entry IDs (`entry:<id>`) are accepted by `loot`, `open`, `use`, `ritual`, and `state`.
 
 ### `.bot cmd attack`
 
@@ -269,7 +269,7 @@ Commands a bot to walk to a game object (chest, door, lever, altar) and interact
 .bot cmd open <guid|entry:<id>[@x,y,z]> <bot>
 ```
 
-Opening chests uses the bot's Opening spell (lockpicking or key, 5-second cast); reports `spell:<id>` in acknowledgment.
+Opening chests uses the bot's Opening spell (lockpicking or key, 5-second cast). A chest answers with its contents like `loot`; anything else answers `opened` once the object changes state.
 
 ### `.bot cmd use`
 
@@ -306,7 +306,7 @@ Reports three fields:
 
 ## Target by Entry and Timing
 
-Objects can be targeted by entry ID: `entry:<id>` (nearest within `ReactDistance`, default 150 yd) or `entry:<id>@<x>,<y>,<z>` (nearest within 30 yd of coordinates). Format: decimal integer $\le$ 16777215, coordinates comma- or semicolon-separated without spaces. Emits a preceding `TBM:ACTION_TARGET` line.
+Objects can be targeted by entry ID: `entry:<id>` (nearest within `ReactDistance`, default 150 yd) or `entry:<id>@<x>,<y>,<z>` (nearest within 30 yd of coordinates). Format: decimal integer $\le$ 16777215, coordinates comma- or semicolon-separated without spaces. Emits a preceding `TBM:ACTION_TARGET` line (except `state`, which answers at once).
 
 ### Asynchronous Execution Protocol
 

@@ -32,41 +32,41 @@ The interface is divided into functional tabs designed for different stages of g
 
 ### Roster Tab
 
-- **Character List:** Lists all characters on your account, displaying class, offline/online/starting/removing, plus an in-party indicator.
+- **Character List:** Lists all characters on your account, displaying class, offline/online/starting/removing, plus an in-party indicator. States come from the headless session plus lifecycle: `online` (live bot with an active session), `starting` (pending load or login), `removing`, otherwise `offline`.
 - **Login & Logout:** Click **Login** to spawn an owned alt as a headless companion bot; click **Logout** to log it out cleanly.
 - **Invite & Summon:** Group with online alts or summon them directly to your location with one click.
 - **Alt-Bot Indicators:** Highlights alts playing autonomously in the world, allowing you to reclaim them or log them out remotely.
 
 ### Party Tab
 
-- **Movement Controls:** Quick buttons for `.bot action follow`, `.bot action stay`, `.bot action come`, and `.bot action flee`.
-- **Combat Orders:** Direct buttons to issue `attack`, `pull`, and `pullback` maneuvers with configurable pull delay sliders.
+- **Movement Controls:** Quick buttons for movement orders such as follow, stay, come, and flee.
+- **Combat Orders:** Direct buttons to issue attack, pull, and pullback maneuvers with configurable pull delay sliders.
 - **Crowd Control:** Assign crowd control raid marks (Moon, Star, Diamond, etc.) to capable party bots.
 - **Live Toggles:** Quick switches for party-wide AoE, corpse looting, consumable mimicry, and smart auto CC.
 
 ### Bot Panel Tab
 
-- **Gear Inspector:** View equipped items and durability across all paperdoll slots on owned alts and hired companions.
+- **Gear Inspector:** View equipped items and durability across paperdoll slots on owned alts and hired companions.
 - **Bag Management:** Browse carried inventory items, identify equippable upgrades, and equip or unequip items remotely.
-- **Behavior Toggles:** Configure individual sliders for threat backoff, mana conservation, offensive cooldowns, and potion usage.
-- **Totem Manager:** For shaman companions, pin specific totem choices per element and trigger immediate totem drops.
+- **Behavior Toggles:** Configure individual toggles for threat backoff, mana conservation, offensive cooldowns, and potion usage.
+- **Totem Manager:** For shaman companions, pin totem choices per element and trigger immediate totem drops.
 
 ### Guild Tab
 
-- Displays claimed guild bots when the guild bot feature is enabled on the server, detailing bot locations, levels, and grouping state.
+- Displays claimed guild bots for your account, detailing bot levels and grouping state.
 
 ---
 
 ## Addon Command Transport (Player View)
 
-The addon communicates with the server over private addon communication channels rather than standard chat channels.
+The addon talks to the server over private addon messages rather than standard chat channels.
 
-- **Silent Operation:** Commands sent by clicking addon buttons do not print `.bot` text into your chat frame, and server responses do not clutter your chat log.
-- **Chat Fallback:** If the private addon channel becomes unavailable (for example, while ungrouped or on an older server build), the addon automatically falls back to sending standard `.bot` chat commands.
-- **Execution Order & Queueing:** Commands sent via addon-channel commands and chat share a single FIFO queue on the player's session. Because packet delivery and chat dispatch can resolve asynchronously, send order does not guarantee receive order across different channels. Addon commands execute on the server's next world tick, immediately before bots take their actions.
-- **Movement Conflict Resolution:** A newer `.bot` movement order drops older chat-queued movement orders (`follow`, `stay`, `guard`, `free`, `flee`, `wander`) at the bot AI; it does not cancel pending `.bot` queue entries.
-- **Exemptions & Teardown:** Inline action packets are processed directly and exempt from command queuing. Logging out drops all pending queued commands for that player/requester. Even if the module is globally disabled (`AiPlayerbot.Enabled=0`), orders are still accepted and queued.
-- **Rate Limiting:** To prevent server desynchronization, the server accepts up to 128 bot commands per player per world tick. Any excess commands within that tick are dropped with the exact message: `Too many bot commands at once: <n> ignored.`
+- **Silent Operation:** Commands sent by clicking addon buttons travel as addon messages instead of `.bot` chat text, and server replies return as addon messages; the module consumes its own prefixed payloads so they never reach group chat.
+- **Chat Fallback:** If the private addon channel reports `none` (for example, while ungrouped, in a battleground group with no pre-battleground group, or on an older server build that never sends the trailer), the addon falls back to sending standard `.bot` chat commands.
+- **Execution Order & Queueing:** Commands sent via addon-channel messages and typed `.bot` chat share a single per-requester FIFO queue drained on the world thread. Because packet delivery and chat dispatch can resolve asynchronously, send order does not guarantee receive order across different channels. Addon commands execute on the server's next world tick, before bots update.
+- **Movement Conflict Resolution:** A newer `.bot` movement order drops older chat-queued movement orders (`follow`, `stay`, `guard`, `free`, `flee`, `wander`) queued inside the bot AI; it does not cancel pending `.bot` queue entries.
+- **Exemptions & Teardown:** Action packets the AI handles inline on the world thread (its own casts, hire provisioning) are processed directly and exempt from command queuing. Queued bot chat and packets run in arrival order ahead of each `.bot` command drained on the world tick. Even when the module is globally disabled (`AiPlayerbot.Enabled=0`), the drain still runs and queued orders execute on the world thread before the bot update.
+- **Rate Limiting:** The server queues up to 128 bot commands per player; commands beyond the cap are dropped and reported once per tick with the exact message: `Too many bot commands at once: <n> ignored.`
 
 ---
 
@@ -76,10 +76,10 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
 
 | Protocol Stream | Description |
 | :--- | :--- |
-| `TBM:TRANSPORT\|<channel>` | Reports active transport channel (`party` or `none`). |
+| `TBM:TRANSPORT\|<channel>` | Reports the addon command channel (`party` or `none`). |
 | `TBM:ROSTER_BEGIN\|<n>` / `TBM:ROSTER_END` | Delimits the account character roster stream. |
 | `TBM:ROSTER\|<guid>\|<name>\|<class>\|<state>\|<grouped>\|<loc>` | Emits one owned character row. |
-| `TBM:CLAIMED_BEGIN\|<n>` / `TBM:CLAIMED_END` | Delimits claimed guild/account bots stream. |
+| `TBM:CLAIMED_BEGIN\|<n>` / `TBM:CLAIMED_END` | Delimits the claimed guild bots snapshot. |
 | `TBM:CLAIMED\|<guid>\|<name>\|<class>\|<level>\|<state>\|<grouped>\|<loc>\|<locked>` | Emits one claimed bot row. |
 | `TBM:BOTSTATE_BEGIN\|<n>` / `TBM:BOTSTATE_END` | Delimits live movement and toggle states for controllable party bots. |
 | `TBM:BOTSTATE\|<bot>\|<fields>` | Emits bot movement mode and 9 behavior toggles. |
@@ -101,6 +101,6 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
   ```
 - **CC Assignments (`TBM:CC_ASSIGN`):** Broadcasts assigned raid marks for controllable party bots (owned alts and hires). A bot is included only if it is in your party and has the `cc` combat strategy active with an assigned raid mark (including Moon; a mark assigned without the `cc` strategy active is excluded). Ungrouped alts are excluded.
 - **Message Length Cap:** Only `TBM:VIEW` perception lines are packed to 250 bytes (within the WoW client addon message buffer limit of 255 bytes); other protocol lines send without truncation.
-- **Delivery Guarantees:** Addon commands execute sequentially in receipt order during the world tick immediately preceding bot AI turn execution.
+- **Delivery Guarantees:** Drained commands run in arrival order on the world tick before the bot update; deferred bot chat and packets queued ahead of each command run first.
 
 Hand-typed `.bot` commands in chat continue to work identically alongside the addon.
