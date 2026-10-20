@@ -2,8 +2,8 @@
 id: classes-shaman
 title: Shaman Bot Guide
 category: classes
-summary: Complete guide to Shaman bot AI, totem sets, weapon imbues, chain heals, shocks, and Turtle WoW custom abilities.
-tags: [classes, shaman, healer, dps, totems, melee]
+summary: Complete guide to Shaman bot AI, totem sets, weapon imbues, chain heals, shocks, the experimental shaman tank, and Turtle WoW custom abilities.
+tags: [classes, shaman, healer, dps, tank, totems, melee]
 relates_to:
   - classes-overview
 ---
@@ -19,6 +19,7 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 | **Restoration** | Healer | Chain Heal throughput, single-target wave downranking, and totem support. |
 | **Enhancement** | Melee DPS | Front-line melee damage, Windfury burst, Stormstrike, and totem utility. |
 | **Elemental** | Ranged DPS | High-damage Lightning Bolt and Chain Lightning spells with instant crits. |
+| **Tank (experimental)** | Tank | Shield and Rockbiter Weapon, Earth Shock threat, Earthshaker Slam taunt, Stoneclaw on packs. A Turtle WoW meme spec, offered for players who want to try it ([#1125](https://github.com/Sagiroth/TortoiseBots/issues/1125)). |
 
 ---
 
@@ -42,6 +43,15 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 - Activates *Elemental Mastery* for guaranteed critical strikes.
 - Saves *Earth Shock* as a finishing execute below 25% health and below 1500 absolute HP while reserving interrupts for casting targets.
 - Respects [party threat back-off](overview.md#party-threat-back-off) on *Chain Lightning* and *Earthquake* when holding ≥50% tank threat.
+
+### Tank (experimental)
+- **Setup:** slow one-handed axe, mace or fist weapon with *Rockbiter Weapon* (the shaman tank's threat stance: +35% threat), a shield, and *Lightning Shield* for the pull. Switches to *Water Shield* at about two thirds mana.
+- **Pull:** *Chain Lightning* when the pull has 2 or more mobs, *Lightning Bolt* on a single mob. A tank shaman does not start a pull below 80% mana; it drinks first.
+- **Threat:** on bosses and elites, *Earth Shock* goes out on cooldown, followed by *Stormstrike* and *Lightning Strike*. On normal trash the bot saves mana: the strikes and auto-attack always run, and *Earth Shock* goes out only when another member catches up on threat or a mob is loose. Auto-attack never stops, because *Earthen Bulwark* builds from white hits.
+- **Taunt:** *Earthshaker Slam* (Turtle taunt, trained at 10) when a mob attacks someone else, with *Earth Shock* behind it. Tauren also use *Totemic Slam*.
+- **Packs:** *Stoneclaw Totem* on trash packs (with *Totemic Alignment* most of its threat goes to the shaman), *Fire Nova Totem* on packs of 2 or more, and *Magma Totem* only while *Fire Nova* is on cooldown and 3 or more mobs are still up, because it drains mana.
+- **Earth totem:** *Strength of Earth* on bosses and elites, *Stoneclaw* on trash. Never *Stoneskin* on bosses.
+- **Does not:** spend the shock cooldown on *Flame Shock*, keep *Earth Shield* on itself, or leave its target to place a totem.
 
 <details>
 <summary>Totem orchestration details</summary>
@@ -70,7 +80,7 @@ Shamans maintain 4-element totem sets tailored to group composition:
 ## Utility & interrupts
 
 - **Interrupts:** Casts *Earth Shock* to interrupt dangerous enemy spellcasters and healing mobs.
-- **Weapon Imbues:** Maintains *Windfury Weapon* and *Flametongue Weapon* (Enhancement) or *Flametongue Weapon* (Elemental/Resto), falling back to *Rockbiter Weapon* or *Frostbrand Weapon* when those are not known.
+- **Weapon Imbues:** Maintains *Windfury Weapon* and *Flametongue Weapon* (Enhancement) or *Flametongue Weapon* (Elemental/Resto), falling back to *Rockbiter Weapon* or *Frostbrand Weapon* when those are not known. A tank shaman always keeps *Rockbiter Weapon*.
 - **Dispels:** Strips enemy buffs with *Purge* and cleanses allies using *Cure Poison* and *Cure Disease*.
 - **Earth Shield:** Maintains *Earth Shield* on the group tank for reactive healing.
 - **Resurrection:** Revives dead allies out of combat with *Ancestral Spirit*.
@@ -88,6 +98,7 @@ TortoiseBots provides pre-configured talent progressions at 5-level checkpoints 
 | **Restoration** | `7.0` | Healer | `13 / 0 / 38` | Ancestral Swiftness, Spirit Link, Improved Chain Heal, Water Shield, Elemental Focus dip. |
 | **Enhancement** | `7.1` | Melee DPS | `17 / 34 / 0` | Stormstrike, Bloodlust, Elemental Weapons (+40% Windfury AP), Flurry, Elemental Devastation. |
 | **Elemental** | `7.2` | Ranged DPS | `42 / 0 / 9` | Elemental Mastery, Earthquake, Call of Thunder, Lightning Mastery, Resto efficiency dip. |
+| **Tank** (experimental) | `7.3` | Tank | `15 / 36 / 0` | Spirit Armor, Totemic Alignment, Ancestral Guardian, Elemental Weapons (Earthen Bulwark), Stormstrike, Bloodlust, Elemental Warding. No Shield Specialization. |
 
 <details>
 <summary>Leveling milestones and progression rationale</summary>
@@ -104,6 +115,11 @@ TortoiseBots provides pre-configured talent progressions at 5-level checkpoints 
   - *Levels 10–40:* Takes *Convection* (5/5), *Concussion* (5/5), *Elemental Focus* (1/1), *Call of Thunder* (5/5), *Call of Flame* (3/3), *Storm Reach* (2/2), and *Elemental Mastery* (40).
   - *Levels 40–50:* Takes *Lightning Mastery* (5/5) and *Earthquake* (45).
   - *Levels 50–60:* Dips into Restoration for *Improved Healing Wave* (5/5) and *Tidal Focus* (4/5).
+- **Tank (`7.3`)**, the community shaman tank levelling order:
+  - *Levels 10–24:* *Ancestral Knowledge* (5/5), *Stable Shields* (3/3), *Thundering Strikes* (2/5), *Lightning Strike* (20), *Ancestral Guardian* (3/3), *Thundering Strikes* (3/5).
+  - *Levels 25–33:* *Spirit Armor* (2/2), *Thundering Strikes* (5/5), *Totemic Alignment* (1/2), *Elemental Weapons* (3/3), *Stormstrike* (31).
+  - *Levels 34–45:* Elemental *Convection* (5/5), *Elemental Warding* (2/3), *Elemental Devastation* (3/3), *Elemental Focus* (1/1), then *Totemic Alignment* (2/2).
+  - *Levels 46–60:* *Element's Grace* (5/5), *Flurry* (5/5), *Bloodlust* (56), *Reverberation* (3/3), *Elemental Warding* (3/3).
 
 </details>
 
@@ -112,3 +128,7 @@ TortoiseBots provides pre-configured talent progressions at 5-level checkpoints 
 ## Class settings
 
 There are no class-specific configuration flags for Shamans. General combat and resting settings are configured in [Combat settings](../server/settings/combat.md).
+
+**How often random bots roll the tank spec:** `AiPlayerbot.PremadeSpecProb.7.3` is the tank's weight in the shaman spec draw (the other three specs ship at 100, the tank at 16, so about 5% of pool shamans). `0` turns the tank spec off for random bots; hiring it is unaffected.
+
+**When a shaman counts as a tank:** a bot with the tank spec or tank role always does. A player shaman counts as a tank when wearing a shield, with *Rockbiter Weapon* on the main hand and *Totemic Alignment* or *Spirit Armor* learned (from about level 25 with the tank levelling order), or after [`.bot role self tank`](../play/commands/roster-and-hiring.md#bot-role). A shaman tank also counts as a tank next to a warrior, paladin or druid tank. Hunter and warlock pets then stop taunting, healers treat the shaman as the tank, and the other bots keep their threat below it.
