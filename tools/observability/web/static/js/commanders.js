@@ -584,6 +584,17 @@
     return { slot, missing: want && !want.available ? want : null };
   }
 
+  // How long a map's picture slots may stay as they are before the daemon is asked again: 30 s when there is no picture at all (the
+  // operator may have run minimap-extract since), 5 min while some are missing, never while all are there. A null (or missing) answer
+  // is asked again after 30 s too.
+  const PIC_RETRY_MS = 30000, PIC_MISSING_MS = 5 * 60 * 1000;
+  function pictureRefreshAfter(slots) {
+    if (!Array.isArray(slots) || !slots.length) return PIC_RETRY_MS;
+    const have = slots.filter((s) => s && s.available).length;
+    if (!have) return PIC_RETRY_MS;
+    return have < slots.length ? PIC_MISSING_MS : null;
+  }
+
   // The picture picker of a card: hidden when no slot has a picture; else one option per slot, a missing one disabled with "(none)" and
   // its reason as the tooltip. `reason` is the missing stored choice's reason, for the line under the picker ("" when the picker is hidden).
   function pictureSelect(slots, stored) {
@@ -606,7 +617,7 @@
   const api = {
     HEAL_RANGE_YD, FAR_YD, LOW_HP_PCT, STALE_WARN_SEC, pretty, plural, ageText, roleKey, roleLabel, distance, leadBot, partyRows, orderText, stateWord,
     headerText, headerParts, botHref, warnings, newTracker, note, context, prune, project, fitView, viewBox, zoomAt, panBy, pinch, gridStep, gridLines,
-    trailSegments, markGap, trailSegmentsBroken, trailRuns, trailMarks, trailEvent, jumpLimitYd, TRAVEL_MAX_YD_PER_SEC, TRAVEL_SLACK_YD, TRAVEL_MAX_GAP_SEC, clampScale, prependTrail, heading, trailStamps, scaleBar, zonesIn, pictureSlots, pictureChoice, pictureSelect,
+    trailSegments, markGap, trailSegmentsBroken, trailRuns, trailMarks, trailEvent, jumpLimitYd, TRAVEL_MAX_YD_PER_SEC, TRAVEL_SLACK_YD, TRAVEL_MAX_GAP_SEC, clampScale, prependTrail, heading, trailStamps, scaleBar, zonesIn, pictureSlots, pictureChoice, pictureSelect, pictureRefreshAfter, PIC_RETRY_MS, PIC_MISSING_MS,
     AGGRO_RANGE_YD, followView, zoomFollow, pinchFollow, mobsOf, mobClass, threatLines, botTargetLines, aggroMobs, commanderPlace,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.CmdView = api;

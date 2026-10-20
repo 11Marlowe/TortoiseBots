@@ -238,8 +238,10 @@ assert.strictEqual(slots[1].url, undefined);
 // the order is the ZF one whatever order the answer came in, and a floor sits right after its main picture
 const floor3f = Object.assign({}, okLayer, { floor: "3f", label: "World map 3f", name: "worldmap 3f", url: "/api/v1/mapfiles/189.worldmap-3f.png" });
 const floor2f = Object.assign({}, okLayer, { floor: "2f", label: "World map 2f", name: "worldmap 2f", url: "/api/v1/mapfiles/189.worldmap-2f.png" });
-assert.deepStrictEqual(C.pictureSlots([navLayer, floor3f, missingMinimap, okLayer, floor2f]).map((s) => s.key),
-  ["worldmap", "worldmap 2f", "worldmap 3f", "minimap", "navmesh"]);
+const floor10f = Object.assign({}, okLayer, { floor: "10f", label: "World map 10f", name: "worldmap 10f", url: "/api/v1/mapfiles/189.worldmap-10f.png" });
+// floors sort by number: 10f comes after 3f, not between 1f and 2f
+assert.deepStrictEqual(C.pictureSlots([navLayer, floor10f, floor3f, missingMinimap, okLayer, floor2f]).map((s) => s.key),
+  ["worldmap", "worldmap 2f", "worldmap 3f", "worldmap 10f", "minimap", "navmesh"]);
 // duplicates keep the first; a kind that is not one of the three is dropped
 assert.strictEqual(C.pictureSlots([okLayer, Object.assign({}, okLayer, { label: "second" })]).length, 1);
 assert.deepStrictEqual(C.pictureSlots([Object.assign({}, okLayer, { kind: "zone" })]), []);
@@ -271,6 +273,12 @@ assert.strictEqual(threeAvail.options[1].title, "No minimap picture: indoor dung
 assert.strictEqual(threeAvail.reason, "", "no stored choice, so no reason line");
 assert.strictEqual(C.pictureSelect(slots, "minimap").reason, "No minimap picture: indoor dungeon");
 assert.strictEqual(C.pictureSelect(slots, "minimap").value, "worldmap");
+// how long a picture list may be kept: no picture at all 30 s (the extractor may have run since), some missing 5 min, complete never
+assert.strictEqual(C.pictureRefreshAfter([]), C.PIC_RETRY_MS);
+assert.strictEqual(C.pictureRefreshAfter(null), C.PIC_RETRY_MS);
+assert.strictEqual(C.pictureRefreshAfter([missingMinimap]), C.PIC_RETRY_MS, "no available picture: look again soon");
+assert.strictEqual(C.pictureRefreshAfter(slots), C.PIC_MISSING_MS, "one missing picture: look again now and then");
+assert.strictEqual(C.pictureRefreshAfter([okLayer]), null, "a complete list is never asked for again");
 
 // ---- zooming while following: the party stays in the middle, only the scale changes
 {

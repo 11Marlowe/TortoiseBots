@@ -16,6 +16,7 @@ package mapdir
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,6 +24,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // maxJSON bounds a metadata file; real ones are a few hundred bytes.
@@ -196,11 +198,23 @@ func (d *Dir) reasons(base string) map[string]string {
 	if full == "" {
 		return nil
 	}
-	if st, err := os.Stat(full); err != nil || st.Size() > maxStatus {
+	f, err := os.Open(full)
+	if err != nil {
 		return nil
 	}
-	b, err := os.ReadFile(full)
-	if err != nil {
+	defer f.Close()
+	// the name was checked with Lstat, but the file may have been replaced in between: the opened file must still be that regular file
+	// (a symlink or another file swapped in is refused), and the read is bounded whatever Stat says.
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() || st.Size() > maxStatus {
+		return nil
+	}
+	lst, err := os.Lstat(full)
+	if err != nil || !lst.Mode().IsRegular() || !os.SameFile(st, lst) {
+		return nil
+	}
+	b, err := io.ReadAll(io.LimitReader(f, maxStatus+1))
+	if err != nil || len(b) > maxStatus {
 		return nil
 	}
 	var raw map[string]struct {
@@ -218,9 +232,19 @@ func (d *Dir) reasons(base string) map[string]string {
 	return out
 }
 
-// oneLine collapses whitespace (a reason is a tooltip line) and caps it at maxReason characters.
+// oneLine makes a status reason safe for a tooltip and a line of text: control characters (NUL, escape, DEL, ...) and format
+// characters (the bidi overrides U+202A-U+202E and U+2066-U+2069, zero-width joiners) become spaces, whitespace is collapsed and the
+// result is capped at maxReason characters (not bytes).
 func oneLine(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+			b.WriteByte(' ')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	s = strings.Join(strings.Fields(b.String()), " ")
 	if r := []rune(s); len(r) > maxReason {
 		s = string(r[:maxReason])
 	}

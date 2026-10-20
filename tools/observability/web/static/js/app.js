@@ -4719,8 +4719,8 @@
   let cmdLayers = MapLayers.load(cmdLayerStore);
   const cmdAvail = {};        // commander -> availability of each layer on its map
   const cmdEvents = UnitInfo.newEvents(); // deaths, wipes, boss kills, objects opened (derived from the reports as they come)
-  const cmdPics = new Map();  // map id -> [picture slot] | 'loading' | null (the daemon gave no list; asked again after a while)
-  const cmdPicMiss = new Map();
+  const cmdPics = new Map(); // map id -> [picture slot] | 'loading' (the first answer is coming) | null (the daemon gave no list)
+  const cmdPicAsk = new Map(); // map id -> when the daemon was last asked for its picture slots (unix ms)
   const cmdTrails = CmdPaths.newTrails(); // every bot's path (the lead's is in cmdTracker.trail), kept from the 2 s reports
   const cmdStalls = CmdPaths.newStalls(); // where the run paused or an order was refused, fixed when first seen
   let cmdTrailsLoading = false;
@@ -5044,30 +5044,35 @@
     return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y), name: displayZoneName(zb.name) };
   }
 
-  // The picture slots of a map id, from the daemon's folder (TBDASH_MAP_DIR): undefined = no folder or not asked yet, 'loading', null =
-  // the daemon has no folder answer for this map (asked again after 30 s), else the slots of CmdView.pictureSlots (the World map and its
-  // floors, the Minimap and the Navmesh; a missing one says why).
+  // The picture slots of a map id, from the daemon's folder (TBDASH_MAP_DIR): undefined = no folder, 'loading' = the first answer is on
+  // its way, null = the daemon gave no list, else the slots of CmdView.pictureSlots (the World map and its floors, the Minimap and the
+  // Navmesh; a missing one says why). A stale list is asked for again in the background (30 s with no picture at all, 5 min with one
+  // missing) while the list already on screen stays there: a redraw never flashes an empty map.
   function ensureCmdPics(mapId) {
     if (!state.commanders.realMaps || mapId == null) return undefined;
     const have = cmdPics.get(mapId);
-    if (cmdPics.has(mapId) && !(have === null && Date.now() - (cmdPicMiss.get(mapId) || 0) > 30000)) return have;
-    cmdPics.set(mapId, 'loading');
+    if (have === 'loading') return have;
+    if (cmdPics.has(mapId)) {
+      const wait = CmdView.pictureRefreshAfter(have);
+      if (wait === null || Date.now() - (cmdPicAsk.get(mapId) || 0) < wait) return have;
+    }
+    if (!cmdPics.has(mapId)) cmdPics.set(mapId, 'loading');
+    cmdPicAsk.set(mapId, Date.now());
     fetch('/api/v1/maps/' + encodeURIComponent(mapId)).then(r => (r.ok ? r.json() : null)).then(ls => {
       const l = CmdView.pictureSlots(ls);
       cmdPics.set(mapId, l.length ? l : null);
-      cmdPicMiss.set(mapId, Date.now());
       if (state.activeTab === 'commanders') renderCommanders();
-    }).catch(() => { cmdPics.set(mapId, null); cmdPicMiss.set(mapId, Date.now()); });
-    return 'loading';
+    }).catch(() => { if (!Array.isArray(cmdPics.get(mapId))) cmdPics.set(mapId, null); });
+    return cmdPics.get(mapId);
   }
 
   // What one card's map has data for, from the report and the browser's own memory.
   function cmdMapFacts(bind) {
     const lead = CmdView.leadBot(bind), first = lead || (bind.bots || [])[0] || null;
     const onMap = first ? (bind.bots || []).filter(b => b.map === first.map) : [];
-    // the demo card draws made-up picture slots (the reference Zul'Farrak layout and Uldaman's, without a minimap), so the three-entry
-    // picker can be tried without TBDASH_MAP_DIR
-    const pl = first ? (bind.demo ? CmdView.pictureSlots(CmdDemo.pictures(first.map)) : ensureCmdPics(first.map)) : undefined;
+    // the demo card draws made-up picture slots (the reference Zul'Farrak layout and Uldaman's, without a minimap), but only when the
+    // daemon has a map folder to serve their files
+    const pl = first ? (bind.demo ? (state.commanders.realMaps ? CmdView.pictureSlots(CmdDemo.pictures(first.map)) : []) : ensureCmdPics(first.map)) : undefined;
     const slots = Array.isArray(pl) ? pl : [];
     const tr = cmdTracker.trail[bind.commander];
     const trail = tr && first && tr.map === first.map ? tr.pts : [];
@@ -5094,7 +5099,8 @@
     const ctx = {
       memberTrails: !!first && CmdPaths.memberTrails(cmdTrails, bind, mapId, CmdPaths.TRAIL_MAX).length > 0,
       runSteps: steps.length > 0, stalls: stalls.length > 0, objects: objsReported,
-      picture: slots.some(s => s.available), pictureWhy: (slots.find(s => s.kind === 'minimap') || {}).reason || '',
+      picture: slots.some(s => s.available),
+      pictureWhy: slots.some(s => s.available) ? '' : 'No picture of this map in the map folder',
       zone: !!zr, zonesAround, bots: onMap.length > 0, lead: !!lead && onMap.indexOf(lead) >= 0,
       trail: trail.length >= 2, heading: !!heading, healer: onMap.some(b => b.role === 'healer' && b.alive !== false),
       commanderPos: !!commanderAt, mobs: reported, mobTargets: reported, botTargets: reported && onMap.some(b => !!b.id),

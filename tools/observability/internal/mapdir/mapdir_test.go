@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // zf is turtle-agent's minimap-extract JSON for Zul'Farrak (map 209), as written.
@@ -161,12 +162,13 @@ func TestSlotsUldamanMissingMinimap(t *testing.T) {
 	}
 }
 
-// Scarlet Monastery: the world map has floors; the main picture still answers when the folder has no plain world map file.
+// Scarlet Monastery: the world map has floors; the main picture still answers when the folder has no plain world map file. Floors sort
+// by their number (10f after 3f), not by their name.
 func TestSlotsWithFloors(t *testing.T) {
 	dir := t.TempDir()
 	pic(t, dir, "189", zf)
-	for _, f := range []string{"-2f", "-3f", "-4f"} {
-		pic(t, dir, "189.worldmap"+f, strings.Replace(sm2f, `"map":189`, `"map":189`, 1))
+	for _, f := range []string{"-2f", "-10f", "-3f"} {
+		pic(t, dir, "189.worldmap"+f, sm2f)
 	}
 	pic(t, dir, "189.navmesh", src(zf, "navmesh"))
 	d, err := New(dir)
@@ -178,14 +180,14 @@ func TestSlotsWithFloors(t *testing.T) {
 	for _, l := range ls {
 		names = append(names, l.Name)
 	}
-	want := "worldmap|worldmap 2f|worldmap 3f|worldmap 4f|minimap|navmesh"
+	want := "worldmap|worldmap 2f|worldmap 3f|worldmap 10f|minimap|navmesh"
 	if strings.Join(names, "|") != want {
 		t.Fatalf("slots = %v, want %s", names, want)
 	}
 	if !ls[0].Available || ls[0].URL != FilePrefix+"189.png" {
 		t.Fatalf("the main picture must stand in for the world map: %+v", ls[0])
 	}
-	if ls[1].Label != "World map 2f" || ls[3].Label != "World map 4f" || !ls[3].Available {
+	if ls[1].Label != "World map 2f" || ls[3].Label != "World map 10f" || !ls[3].Available {
 		t.Fatalf("floor labels: %+v", ls[1:4])
 	}
 	if ls[4].Available || ls[4].Reason != defaultReason["minimap"] {
@@ -232,10 +234,19 @@ func TestSlotsStatusReasons(t *testing.T) {
 	if ls[2].Reason != "" {
 		t.Fatalf("available navmesh reason = %q", ls[2].Reason)
 	}
-	// a reason is capped at 160 characters
+	// a reason is capped at 160 characters (runes, not bytes)
 	write(t, dir, "70.status.json", `{"minimap":{"reason":"`+strings.Repeat("a", 200)+`"}}`)
-	if got := d.Slots(70)[1].Reason; len(got) != maxReason {
-		t.Fatalf("capped reason has %d characters, want %d", len(got), maxReason)
+	if got := d.Slots(70)[1].Reason; utf8.RuneCountInString(got) != maxReason {
+		t.Fatalf("capped reason has %d characters, want %d", utf8.RuneCountInString(got), maxReason)
+	}
+	write(t, dir, "70.status.json", `{"minimap":{"reason":"`+strings.Repeat("é", 200)+`"}}`)
+	if got := d.Slots(70)[1].Reason; utf8.RuneCountInString(got) != maxReason || len(got) != 2*maxReason {
+		t.Fatalf("capped non-ASCII reason has %d runes / %d bytes, want %d / %d", utf8.RuneCountInString(got), len(got), maxReason, 2*maxReason)
+	}
+	// control and format characters (NUL, ESC, DEL, the bidi overrides, BEL) become spaces instead of reaching the tooltip
+	write(t, dir, "70.status.json", `{"minimap":{"reason":"a\u0000b\u001bc\u007fd\u202ee\u2066f\u0007g"}}`)
+	if got := d.Slots(70)[1].Reason; got != "a b c d e f g" {
+		t.Fatalf("control characters survived: %q", got)
 	}
 	// empty reasons fall back per kind
 	write(t, dir, "70.status.json", `{"minimap":{"reason":"   "}}`)

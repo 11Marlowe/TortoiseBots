@@ -22,7 +22,7 @@ function grabConst(name) {
 }
 const ctx = { console };
 vm.createContext(ctx);
-["commanders.js", "maplayers.js", "unitinfo.js", "paths.js"].forEach((f) => vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx, { filename: f }));
+["commanders.js", "maplayers.js", "unitinfo.js", "paths.js", "demo.js"].forEach((f) => vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx, { filename: f }));
 vm.runInContext(
   [grab("esc"), grabConst("CMD_MAP_ICONS"), grabConst("CMD_OBJECT_ICON"), grab("cmdMapIcon"), grab("cmdLineStyle"), grabConst("cmdPt"), grabConst("CMD_TRAIL_MARKS"), grab("cmdTrailSvg"),
     grab("cmdMemberTrailsSvg"), grab("cmdRunStepsSvg"), grab("cmdStallsSvg"), grab("cmdObjectsSvg"), grab("cmdLineSvg"), grab("cmdCombatLinesSvg"), grab("cmdMapFacts")].join("\n") +
@@ -144,6 +144,32 @@ assert.strictEqual(noRun.mobs.map((m) => m.id).join(","), "9", "no shared bot, n
 assert.strictEqual(noRun.mobsTotal, 0);
 assert.strictEqual(vm.runInContext("MapLayers.enemiesText(cmdMapFacts(umOther).mobs.length, cmdMapFacts(umOther).mobsTotal)", ctx), "",
   "without a run there is no total to compare: no N of M note");
+// ---- the picture slots: the Map picture layer is about a PICTURE, not a list (an all-missing answer must grey it)
+ctx.noPic = [{ kind: "worldmap", floor: "", label: "World map", available: false, reason: "no world map" },
+  { kind: "minimap", floor: "", label: "Minimap", available: false, reason: "no minimap" },
+  { kind: "navmesh", floor: "", label: "Navmesh", available: false, reason: "no navmesh" }];
+ctx.onePic = [Object.assign({}, ctx.noPic[0], { available: true, url: "/api/v1/mapfiles/70.png", x: 0, y: 0, w: 10, h: 10 }),
+  ctx.noPic[1], ctx.noPic[2]];
+vm.runInContext("state.commanders = { realMaps: true }; ensureCmdPics = () => CmdView.pictureSlots(noPic);", ctx);
+const noPic = vm.runInContext("cmdMapFacts(umOther)", ctx);
+assert.strictEqual(noPic.ctx.picture, false, "three missing slots are no picture (a slots.length check would be wrong)");
+assert.strictEqual(noPic.ctx.pictureWhy, "No picture of this map in the map folder");
+vm.runInContext("ensureCmdPics = () => CmdView.pictureSlots(onePic);", ctx);
+assert.strictEqual(vm.runInContext("cmdMapFacts(umOther).ctx.picture", ctx), true, "one available slot is a picture");
+assert.strictEqual(vm.runInContext("cmdMapFacts(umOther).ctx.pictureWhy", ctx), "", "and needs no reason");
+// the demo card gets its made-up slots only while the daemon has a map folder (its URLs are the daemon's files)
+ctx.demoBind = { commander: "DEMO", demo: true, lead: "Simtank", bots: [{ name: "Simtank", guid: 9001, map: 70, x: 0, y: 0, role: "tank", alive: true }], orders: [] };
+vm.runInContext("state.commanders = { realMaps: false };", ctx);
+assert.strictEqual(vm.runInContext("cmdMapFacts(demoBind).ctx.picture", ctx), false, "no map folder, no demo picture");
+vm.runInContext("state.commanders = { realMaps: true };", ctx);
+assert.strictEqual(vm.runInContext("cmdMapFacts(demoBind).ctx.picture", ctx), true, "with a map folder the demo draws its own slots");
+// ---- asking again: a stale list is refreshed behind what is on screen (no loading state over an existing list) and only an empty
+// answer replaces it; a failed refresh never throws away a list
+const picsFn = (() => { const i = src.indexOf("  function ensureCmdPics("); assert.ok(i > 0, "ensureCmdPics"); return src.slice(i, src.indexOf("\n  }\n", i)); })();
+assert.ok(/CmdView\.pictureRefreshAfter\(have\)/.test(picsFn), "the retry interval comes from the slots (30 s none, 5 min partial, never complete)");
+assert.ok(/if \(!cmdPics\.has\(mapId\)\) cmdPics\.set\(mapId, 'loading'\);/.test(picsFn), "only the first ask sets the loading state");
+assert.ok(/if \(have === 'loading'\) return have;/.test(picsFn), "an answer in flight is not asked for again");
+assert.ok(/if \(!Array\.isArray\(cmdPics\.get\(mapId\)\)\) cmdPics\.set\(mapId, null\);/.test(picsFn), "a failed refresh keeps a list on screen");
 
 // ---- a path with a teleport is drawn in pieces, with a swirl where it broke and a skull where the bot died
 {
