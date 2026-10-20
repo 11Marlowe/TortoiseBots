@@ -171,6 +171,10 @@ public:
     // Rank-CHAIN heads for the intro's "key spells" line, per class (see the
     // .cpp for the provenance of every id). Returns 0 past the end.
     static uint32_t IntroWishlist(uint8_t classId, size_t rank);
+    // Role-aware pick: the shaman tank uses its own kit list; every other
+    // class/role falls through to the class list. role uses the ai::BOT_ROLE
+    // bits (HireIntroUseTankWishlist decides).
+    static uint32_t IntroWishlist(uint8_t classId, uint8_t role, size_t rank);
 
     struct PendingProvision
     {

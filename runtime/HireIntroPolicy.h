@@ -20,9 +20,10 @@
 #include <string>
 #include <vector>
 
+#include "HireSpecPolicy.h"
+
 namespace TortoiseBots
 {
-
 // "My spec is frost mage (dps), talents 0/7/0." Role is omitted when empty
 // (unknown), never invented.
 inline std::string ComposeHireSpecLine(std::string const& specName, std::string const& className,
@@ -74,6 +75,16 @@ inline std::string FormatHireSpellList(std::vector<std::string> const& names, si
 inline bool ShouldAnnounceHireIntro(bool introSent, bool botReady, bool masterReady)
 {
     return !introSent && botReady && masterReady;
+}
+
+// Shaman tank is the one hire whose key spells differ from its class list:
+// a shaman forcing the tank role must see the tank kit (taunt, shocks,
+// Stormstrike, Rockbiter, Stoneclaw), not the healer chain heads. Pure, so
+// the standalone intro test guards it; the id table lives with the other
+// wishlists in HireProvisionService.cpp.
+inline bool HireIntroUseTankWishlist(uint8_t classId, uint8_t role)
+{
+    return classId == kHireClassShaman && role == kHireRoleTank;
 }
 
 } // namespace TortoiseBots

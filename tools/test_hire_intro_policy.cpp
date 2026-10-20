@@ -81,6 +81,19 @@ static void TestOnceGuard()
     CHECK(ShouldAnnounceHireIntro(false, false, false) == false);
 }
 
+static void TestTankWishlist()
+{
+    // Only the shaman tank diverges: forced tank role on a shaman picks the
+    // tank kit list, everything else keeps its class list.
+    CHECK(HireIntroUseTankWishlist(kHireClassShaman, kHireRoleTank) == true);
+    CHECK(HireIntroUseTankWishlist(kHireClassShaman, kHireRoleHealer) == false);
+    CHECK(HireIntroUseTankWishlist(kHireClassShaman, kHireRoleDps) == false);
+    CHECK(HireIntroUseTankWishlist(kHireClassShaman, 0) == false);
+    CHECK(HireIntroUseTankWishlist(kHireClassWarrior, kHireRoleTank) == false);
+    CHECK(HireIntroUseTankWishlist(kHireClassDruid, kHireRoleTank) == false);
+    CHECK(HireIntroUseTankWishlist(kHireClassPaladin, kHireRoleTank) == false);
+}
+
 int main()
 {
     TestSpecLine();
@@ -89,6 +102,7 @@ int main()
     TestSpellListChars();
     TestSpellListEmpty();
     TestOnceGuard();
+    TestTankWishlist();
     std::printf("hire intro policy: %d checks passed\n", checks);
     return 0;
 }
