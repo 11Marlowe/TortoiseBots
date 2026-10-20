@@ -7,6 +7,7 @@ description: >-
 
 entrypoints:
   human_quickstart: play/getting-started.md
+  features: play/features.md
   player_controls: play/commands/README.md
   class_catalog: classes/overview.md
   configuration: server/configuration.md
@@ -75,6 +76,10 @@ nodes:
     path: play/getting-started.md
     category: play
     summary: How to set up your client, spawn companion bots from your own account, hire mercenaries, and adventure together.
+  - id: play-features
+    path: play/features.md
+    category: play
+    summary: Comprehensive catalog of bot features, default states, configuration toggles, and engine limits.
   - id: play-commands
     path: play/commands/README.md
     category: play
@@ -235,6 +240,10 @@ nodes:
     summary: Tab-separated reference tables for bot capabilities, donor tracking, spell coverage, and talent builds.
 
   # Reference
+  - id: docs-index
+    path: README.md
+    category: reference
+    summary: Documentation start page, role-based navigation, task finder, and audience directory.
   - id: reference-hire-gear
     path: reference/hire-gear.md
     category: reference
