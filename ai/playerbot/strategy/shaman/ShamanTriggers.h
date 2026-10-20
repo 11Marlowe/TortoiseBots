@@ -5,6 +5,7 @@
 #include "ShamanEarthShockPolicy.h"
 #include "ShamanRecallPolicy.h"
 #include "ShamanTotemGroupPolicy.h"
+#include "ShamanTankPolicy.h"
 #include "ShamanTotemCommandPolicy.h"
 #include "playerbot/ReadyRebuffPolicy.h"
 #include "playerbot/ForceRebuffPolicy.h"
@@ -973,6 +974,95 @@ namespace ai
     };
 
     CAN_CAST_TRIGGER(ChainLightningTrigger, "chain lightning");
+
+    // Tank pack filler (REVISION: 2+ mobs, not 4+): Chain Lightning only
+    // into a real pack so it never burns mana single-target. Attacker
+    // count means mobs on the bot; pull-time pack sizing uses the
+    // possible-targets count in the pull strategy instead.
+    class TankChainLightningTrigger : public Trigger
+    {
+    public:
+       TankChainLightningTrigger(PlayerbotAI* ai) : Trigger(ai, "tank chain lightning") {}
+
+       virtual bool IsActive() override
+       {
+           if (!ai->HasSpell("chain lightning"))
+               return false;
+           Unit* target = AI_VALUE(Unit*, "current target");
+           if (!target || !ai->CanCastSpell("chain lightning", target, true, nullptr, true))
+               return false;
+           return ChainLightningPackShouldFire(AI_VALUE(uint8, "attackers count"));
+       }
+    };
+
+    // Tank Earth Shock fight gate (REVISION): bosses / elites / raid
+    // instances burn Earth Shock on cooldown; normal 5-man trash spends it
+    // only when threat is needed (see TankThreatLeadTrigger below). No
+    // dungeon-boss flag exists on this core, so boss/elite reads the
+    // creature rank like the paladin judgement upkeep (PaladinTriggers.cpp)
+    // and the raid leg reads the map id plus group type.
+    class TankEarthShockFightTrigger : public Trigger
+    {
+    public:
+       TankEarthShockFightTrigger(PlayerbotAI* ai) : Trigger(ai, "tank earth shock fight") {}
+
+       virtual bool IsActive() override;
+    };
+
+    // Threat lead for economical trash mode (r4 item 6): true when another
+    // member is catching up on the current target (their threat at 70%+ of
+    // ours) or when a pack mob is loose (on a non-tank while we still hold
+    // our target). Earth Shock and the grouped Stoneclaw row queue behind
+    // this signal on non-fight trash.
+    class TankThreatLeadTrigger : public Trigger
+    {
+    public:
+       TankThreatLeadTrigger(PlayerbotAI* ai) : Trigger(ai, "tank threat lead", 2) {}
+
+       virtual bool IsActive() override;
+    };
+
+    // Tank Stoneclaw (trash earth totem): drop on arrival while the earth
+    // slot is empty and threat is needed, or into a wide pack (3+) where
+    // the totem earns its GCD. Manual earth orders keep precedence: any
+    // explicit non-stoneclaw order wins, an explicit stoneclaw order drops
+    // regardless of threat.
+    class TankStoneclawTrigger : public Trigger
+    {
+    public:
+       TankStoneclawTrigger(PlayerbotAI* ai) : Trigger(ai, "tank stoneclaw", 5) {}
+
+       virtual bool IsActive() override;
+    };
+
+    // Tank shield swap: Lightning Shield for the pull, Water Shield once
+    // mana falls to about two thirds. The two buff rows stay queued like
+    // the elemental pair; each trigger picks its phase so the shields never
+    // recast over each other mid-fight.
+    class TankLightningShieldTrigger : public BuffTrigger
+    {
+    public:
+       TankLightningShieldTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "lightning shield") {}
+       bool IsActive() override;
+    };
+
+    class TankWaterShieldTrigger : public BuffTrigger
+    {
+    public:
+       TankWaterShieldTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "water shield") {}
+       bool IsActive() override;
+    };
+
+    // Tauren Totemic Slam: damage plus slow (NOT a taunt), fired in melee
+    // when both strikes are cooling down. Tauren-gated like war stomp;
+    // the cast action's own ready-gate keeps the row quiet on cooldown.
+    class TotemicSlamTrigger : public Trigger
+    {
+    public:
+       TotemicSlamTrigger(PlayerbotAI* ai) : Trigger(ai, "totemic slam") {}
+
+       virtual bool IsActive() override;
+    };
 
     CAN_CAST_TRIGGER(StormstrikeTrigger, "stormstrike");
     BUFF_TRIGGER(ElementalMasteryTrigger, "elemental mastery");
