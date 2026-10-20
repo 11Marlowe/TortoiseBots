@@ -1,4 +1,5 @@
 #include "../../runtime/PlayerbotAIStorage.h"
+#include "../../runtime/ShamanTankDetectionPolicy.h"
 #include "../../runtime/BotManager.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/AltBotService.h"
@@ -361,6 +362,27 @@ static bool HasRockbiterWeapon(const Player* player)
     return false;
 }
 
+// Shared gear+talent read behind GetRoleFromStanceOrGear and HasOtherTank:
+// shield equipped, Rockbiter on the main hand, and one key tank talent
+// (Totemic Alignment or Spirit Armor, either rank). Cheap Player::HasSpell
+// map lookups (top rank first); never GetPlayerSpecTabs here — it rewalks
+// the whole talent store per call and this runs per group member.
+// Forced roles are handled by the callers (player storage / bot AI) before
+// this is reached, so this is the pure detection signal only.
+static bool IsDetectedShamanTank(const Player* player)
+{
+    TortoiseBots::ShamanTankDetectionInputs inputs;
+    inputs.shieldEquipped = HasShieldEquipped(player);
+    inputs.rockbiterOnMainHand = HasRockbiterWeapon(player);
+    inputs.totemicAlignment = player->HasSpell(
+        TortoiseBots::kShamanTankTalentTotemicAlignmentR2) ||
+        player->HasSpell(TortoiseBots::kShamanTankTalentTotemicAlignmentR1);
+    inputs.spiritArmor = player->HasSpell(
+        TortoiseBots::kShamanTankTalentSpiritArmorR2) ||
+        player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR1);
+    return TortoiseBots::IsShamanTank(inputs);
+}
+
 static BotRoles GetRoleFromStanceOrGear(const Player* player)
 {
     switch (player->GetClass())
@@ -381,7 +403,7 @@ static BotRoles GetRoleFromStanceOrGear(const Player* player)
                 return BOT_ROLE_TANK;
             break;
         case CLASS_SHAMAN:
-            if (HasShieldEquipped(player) && HasRockbiterWeapon(player))
+            if (IsDetectedShamanTank(player))
                 return BOT_ROLE_TANK;
             break;
     }
@@ -433,6 +455,12 @@ static bool HasOtherTank(const Player* player)
             (GetTalentRoles(member) & BOT_ROLE_TANK) != 0)
             return true;
 
+        // A detected shaman tank is a real tank for the members scanned
+        // after it: gear+talent is as explicit as a talent tab here, and
+        // the shaman co-tanks instead of being suppressed.
+        if (memberClass == CLASS_SHAMAN && IsDetectedShamanTank(member))
+            return true;
+
         // If no explicit or talent tank exists, the first group-slot member
         // with a tank stance/form/gear signal owns the automatic tank role.
         // Counting later candidates would make two stance-shifters suppress
@@ -463,6 +491,10 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     BotRoles stateRole = GetRoleFromStanceOrGear(player);
     if (stateRole != BOT_ROLE_NONE)
     {
+        // A detected shaman tank co-tanks: another tank in the group never
+        // demotes it to its talent role (Enhancement DPS).
+        if (player->GetClass() == CLASS_SHAMAN && stateRole == BOT_ROLE_TANK)
+            return stateRole;
         if (HasOtherTank(player))
             return GetTalentRoles(player);
         return stateRole;

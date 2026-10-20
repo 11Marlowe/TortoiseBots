@@ -231,6 +231,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_shaman_fire_gate_policy
         test_shaman_healer_dps_policy
         test_shaman_imbue_policy
+        test_shaman_tank_detection_policy
         test_shaman_mana_loop_policy
         test_shaman_recall_policy
         test_shaman_situational_totem_policy
