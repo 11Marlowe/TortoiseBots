@@ -66,9 +66,10 @@ SOURCE_BY_CLASS = {(2, "holy"): (2, 1), (5, "holy"): (5, 1),
                    (7, "tank"): (7, 2)}
 
 # hire spec -> weight-scale name (ai_playerbot_weightscales). shamantank is
-# the new shaman-tank scale (issue #1125); the DB row ships with B3's weight
+# the new shaman-tank scale (issue #1125); the DB row ships with its weight
 # migration. The shaman tank shares the Enhancement melee BiS list (no
-# tank list exists); the KB tank pins (HAND_OVERRIDES) carry the shields,
+# tank list exists); the tank pins from the Turtle
+# knowledge base (github.com/stevemcqueenz/turtle-knowledge-base-, KB) (HAND_OVERRIDES) carry the shields,
 # weapons, relics and helm.
 SCALES = {"protection": "prot", "arms": "arms", "fury": "fury",
           "holy": "holy", "retribution": "retrib",
@@ -213,8 +214,7 @@ HAND_OVERRIDES = {
     # gate rejects untagged ids, so the untagged KB picks (Vault's Defender
     # 40003, Sulfuron Aegis 58242, Earthen Guard 20688, Blackthorn's Blackjack
     # 84600, Blackstone Crown 83565, Stonebreaker 61204, Earthfury 47122)
-    # need classifier tier tags first — flagged for the lead in the B4
-    # report; the Enhance list + weight fallback covers those slots meanwhile.
+    # need classifier tier tags first; the Enhance list + weight fallback covers those slots meanwhile.
     # shields: Aegis of the Blood God 19862 (t2, tagged) -> Blessed Qiraji
     # Bulwark 21269 (t5, tagged) -> Bulwark of Enduring Earth 55121 (t7,
     # tagged; t3/t4/t6 carry). Immovable Object 19321 skipped: pvp-flagged,

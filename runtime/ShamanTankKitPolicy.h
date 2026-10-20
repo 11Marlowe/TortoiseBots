@@ -1,7 +1,7 @@
 #pragma once
 
-// Issue #1125 (B1 spec plumbing): which combat/noncombat kit pieces a shaman
-// tank bot installs. The tank strategy itself is B2's work ("tank shaman");
+// Issue #1125: which combat/noncombat kit pieces a shaman
+// tank bot installs. The tank strategy itself is "tank shaman";
 // this policy only decides the kit lists so AiFactory, the `.bot role`
 // handler, and the tests share one definition instead of drifting.
 //

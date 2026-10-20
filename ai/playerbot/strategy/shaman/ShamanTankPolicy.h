@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Pure policy for the tank shaman combat loop (issue #1125, Part B2).
+// Pure policy for the tank shaman combat loop (issue #1125).
 // Every function takes plain scalars so tools/test_shaman_tank_policy.cpp
 // pins the exact logic without a server: triggers compose these gates with
 // HasSpell / aura / attacker-count reads only.
@@ -21,14 +21,14 @@ namespace ai
     }
 
     // Water Shield swap: Lightning Shield for the pull, Water Shield once
-    // mana falls to about two thirds (KB guide + decisions REVISION). Both
+    // mana falls to about two thirds (community shaman tank guide). Both
     // rows stay queued like the elemental pair; the trigger picks the phase.
     inline bool TankShamanWantsWaterShield(bool knowsWaterShield, std::uint8_t manaPct)
     {
         return knowsWaterShield && manaPct <= 66;
     }
 
-    // Chain Lightning pack gate: 2+ mobs (REVISION overrides the old 4+).
+    // Chain Lightning pack gate: 2+ mobs.
     // Attacker count here means mobs on the bot; the pull path uses the
     // possible-targets count instead (see TankShamanPullWantsChainLightning).
     inline bool ChainLightningPackShouldFire(std::uint8_t attackerCount)
@@ -44,7 +44,7 @@ namespace ai
         return possibleTargets >= 2;
     }
 
-    // Earth Shock fight gate (REVISION): bosses/elites/raid instances burn
+    // Earth Shock fight gate: bosses/elites/raid instances burn
     // Earth Shock on cooldown (~40% of threat); normal 5-man trash spends
     // it only when threat is needed (someone catching up or a mob loose).
     inline bool TankShamanEarthShockFreeFire(bool bossOrElite, bool inInstance, bool inRaid)

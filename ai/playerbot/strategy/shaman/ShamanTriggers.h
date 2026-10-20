@@ -975,7 +975,7 @@ namespace ai
 
     CAN_CAST_TRIGGER(ChainLightningTrigger, "chain lightning");
 
-    // Tank pack filler (REVISION: 2+ mobs, not 4+): Chain Lightning only
+    // Tank pack filler (2+ mobs): Chain Lightning only
     // into a real pack so it never burns mana single-target. Attacker
     // count means mobs on the bot; pull-time pack sizing uses the
     // possible-targets count in the pull strategy instead.
@@ -995,7 +995,7 @@ namespace ai
        }
     };
 
-    // Tank Earth Shock fight gate (REVISION): bosses / elites / raid
+    // Tank Earth Shock fight gate: bosses / elites / raid
     // instances burn Earth Shock on cooldown; normal 5-man trash spends it
     // only when threat is needed (see TankThreatLeadTrigger below). No
     // dungeon-boss flag exists on this core, so boss/elite reads the
@@ -1009,7 +1009,7 @@ namespace ai
        virtual bool IsActive() override;
     };
 
-    // Threat lead for economical trash mode (r4 item 6): true when another
+    // Threat lead for economical trash mode: true when another
     // member is catching up on the current target (their threat at 70%+ of
     // ours) or when a pack mob is loose (on a non-tank while we still hold
     // our target). Earth Shock and the grouped Stoneclaw row queue behind

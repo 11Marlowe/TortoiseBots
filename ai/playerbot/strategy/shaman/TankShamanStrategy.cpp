@@ -50,7 +50,7 @@ TankShamanStrategy::TankShamanStrategy(PlayerbotAI* ai) : ShamanStrategy(ai)
 NextAction** TankShamanStrategy::GetDefaultCombatActions()
 {
     // Auto-attack never stops: Earthen Bulwark builds from white hits
-    // (KB guide), and the same default keeps the other three tanks swinging.
+    // (community shaman tank guide), and the same default keeps the other three tanks swinging.
     return NextAction::array(0, new NextAction("melee", ACTION_IDLE), NULL);
 }
 
@@ -218,7 +218,7 @@ void TankShamanAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
 {
     ShamanAoeStrategy::InitCombatTriggers(triggers);
 
-    // Pack order (KB AoE hierarchy): Stoneclaw first (cheap threat on every
+    // Pack order (community shaman tank guide): Stoneclaw first (cheap threat on every
     // mob), then Fire Nova when the party AoEs, Magma only as the last
     // resort after Nova. Medium-aoe (3+) fires above the 2+ light line so
     // the pack tool wins on a real pack.
@@ -319,7 +319,7 @@ void TankShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
         "earthbind totem reactive",
         NextAction::array(0, new NextAction("earthbind totem", ACTION_HIGH), NULL)));
 
-    // Earth (REVISION: no Stoneskin on bosses): Strength of Earth on
+    // Earth (no Stoneskin on bosses): Strength of Earth on
     // fights (boss/elite/raid) via the fight trigger shape, Stoneclaw on
     // trash via the threat-gated tank trigger. Both queue on the shared
     // "earth totem" slot trigger; the phases never overlap.
@@ -476,7 +476,7 @@ void TankShamanBoostStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigge
 {
     BoostStrategy::InitCombatTriggers(triggers);
 
-    // Bloodlust on the pull for the opening threat lead (KB cooldowns).
+    // Bloodlust on the pull for the opening threat lead (community shaman tank guide).
     triggers.push_back(new TriggerNode(
         "bloodlust",
         NextAction::array(0, new NextAction("bloodlust", ACTION_HIGH + 2), NULL)));

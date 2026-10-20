@@ -2,9 +2,9 @@
 
 #include "PullStrategy.h"
 
-// Shaman pull spell selection (issue #1125, Part B2): tank shamans open
-// 2+ pulls with Chain Lightning and single pulls with Lightning Bolt
-// (owner REVISION). Every other shaman spec keeps the base Lightning Bolt
+// Shaman pull spell selection (issue #1125): tank shamans open
+// 2+ pulls with Chain Lightning and single pulls with Lightning Bolt.
+// Every other shaman spec keeps the base Lightning Bolt
 // pull: the Chain Lightning branch is gated on the tank strategy, the spell
 // being known and castable, and a 2+ pack count — never a blind AoE opener
 // (the possible-targets count strips CC'd marks; the attackers count covers

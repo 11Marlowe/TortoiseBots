@@ -1,7 +1,6 @@
 -- Issue #1125 (shaman tank, experimental): `shamantank` weight scale.
 --
--- New id 16 (class 7): first-version weights from the shaman-tank gear
--- research (r3 section 2.4, revised per the 2026-10-20 owner REVISION):
+-- New id 16 (class 7): first-version weights for the shaman tank:
 -- Stamina = Armor > Agility, hit to 8% valued, some Strength, low Defense,
 -- zero spell power. Id 16 is the first DK-gap id: the seed migration
 -- (20260916090001_world.sql) documents 16-19 as deliberately unused (the

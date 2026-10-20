@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// Shaman tank detection (Part A of the shaman-tank experiment): a shaman
+// Shaman tank detection (issue #1125): a shaman
 // (player or bot — the gear and spell reads are identical for both) counts
 // as a tank when all three hold: a shield is equipped, the main hand carries
 // a Rockbiter imbue, and a key tank talent is known (Totemic Alignment or
@@ -16,7 +16,7 @@
 // in AiFactory.cpp (IsDetectedShamanTank). Unit-tested on its own
 // (tools/test_shaman_tank_detection_policy.cpp).
 //
-// Key-talent spell ids verified against the core DBCs (r2 §Talent ids):
+// Key-talent spell ids verified against the core DBCs:
 // Totemic Alignment R1/R2 = 51381/51382, Spirit Armor R1/R2 = 45951/45952.
 // Read the top rank first; rank 2 in the spell map does not imply rank 1,
 // so both ranks are checked.

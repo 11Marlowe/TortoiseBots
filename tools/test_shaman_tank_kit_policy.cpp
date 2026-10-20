@@ -1,5 +1,5 @@
 // Standalone regression test for the shaman tank kit policy
-// (runtime/ShamanTankKitPolicy.h, issue #1125 B1): a shaman with the tank
+// (runtime/ShamanTankKitPolicy.h, issue #1125): a shaman with the tank
 // role installs "tank shaman" plus the shared tank-framework pieces and the
 // shaman pieces that still apply — never "dps assist", "behind", or threat
 // backoff. The bare "tank" alias (LFT handoff) counts as covering the slot.
@@ -35,7 +35,7 @@ static bool Contains(std::vector<std::string> const& kit, char const* name)
 static void TestCombatKit()
 {
     std::vector<std::string> kit = ShamanTankCombatKit();
-    // B1 contract: spec + tank framework pieces...
+    // Spec + tank framework pieces...
     CHECK(Contains(kit, "tank shaman"));
     CHECK(Contains(kit, "tank assist"));
     CHECK(Contains(kit, "pull"));

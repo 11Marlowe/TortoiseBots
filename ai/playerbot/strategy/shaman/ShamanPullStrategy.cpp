@@ -8,7 +8,7 @@ std::string ShamanPullStrategy::GetPullActionName() const
     PlayerbotAI* botAI = ai;
 
     // Tank branch only: a shaman tank opens a 2+ pull with Chain Lightning
-    // (REVISION), single pulls stay Lightning Bolt. The count prefers the
+    // and single pulls stay Lightning Bolt. The count prefers the
     // possible-targets value (CC-stripped pack ahead) and falls back to live
     // attackers (linked aggro by the time the pull cast runs). Both are
     // cached value reads — no world scan on the pull tick.
