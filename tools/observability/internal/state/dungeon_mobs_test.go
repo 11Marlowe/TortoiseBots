@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -279,5 +280,134 @@ func TestDungeonMobsWireShape(t *testing.T) {
 	}
 	if string(out) != wire {
 		t.Fatalf("round trip changed the shape:\n got %s\nwant %s", out, wire)
+	}
+}
+
+// The live game server base (feat/dungeon-self-clear, what m910q runs) sends
+// instance ids in DUNGEON_MOBS but not in BOT_BATCH, so the roster run is
+// "43:0" while the mob entry is "43:102". Shortened from
+// ~/TortoiseBots-audit/tests/live-check-1101/udp-capture2.log.
+const liveMobsDatagram = `{"v":9,"session":1792493937,"seq":456,"ts":1792494861,"type":"DUNGEON_MOBS","part":0,"parts":1,"runs":[
+ {"map":43,"instance":102,"raid":false,"members":[
+   {"guid":713,"id":"713"},{"guid":712,"id":"712"},{"guid":710,"id":"710"},
+   {"guid":711,"id":"711"},{"guid":709,"id":"709"},{"guid":643,"id":"643"}],
+  "mobs_map":43,"mobs_total":24,"mobs":[
+   {"id":"17379391058575656092","entry":5755,"name":"Deviate Viper","hp":100,"x":10.3,"y":457.6,"reaction":"h","lvl":19,"rank":"e"},
+   {"id":"17379391026447287442","entry":3840,"name":"Druid of the Fang","hp":100,"x":-27.0,"y":420.6,"reaction":"h","lvl":19,"rank":"e"}]}]}`
+
+func applyLiveMobs(t *testing.T, s *Store) {
+	t.Helper()
+	var p model.DungeonMobsPayload
+	if err := json.Unmarshal([]byte(liveMobsDatagram), &p); err != nil {
+		t.Fatal(err)
+	}
+	s.ApplyDungeonMobs(&p)
+}
+
+// duNoInstance is a roster row from a module base without #895: no instance
+// field at all, so the run key falls back to "<map>:0".
+func duNoInstance(guid uint32, name string, mapID uint32) model.BotSnapshot {
+	return model.BotSnapshot{GUID: guid, Name: name, Kind: "pool", MapID: mapID, HP: 100, MaxHP: 100, State: "idle"}
+}
+
+// A roster that reports the instance joins by (map, instance), as before.
+func TestDungeonMobsJoinByInstance(t *testing.T) {
+	s := newTestStore(newClock())
+	if ok := s.ApplyBatch(batch(1, 0, 1,
+		du(712, "A", false, 43, 102), du(709, "B", false, 43, 102),
+		du(710, "C", false, 43, 102), du(711, "D", false, 43, 102))); !ok {
+		t.Fatal("batch not published")
+	}
+	applyLiveMobs(t, s)
+
+	run := s.Dungeons().Runs[0]
+	if run.Key != "43:102" || run.Mobs == nil || len(*run.Mobs) != 2 || run.MobsTotal != 24 || run.MobsMap == nil || *run.MobsMap != 43 {
+		t.Fatalf("instance join: %+v", run)
+	}
+	for _, m := range run.Members {
+		if m.ID != fmt.Sprint(m.GUID) {
+			t.Fatalf("member id not joined: %+v", m)
+		}
+	}
+}
+
+// The live base reports no roster instance (run "43:0"): the entry joins by map
+// and a shared member guid, and the stale limit still applies.
+func TestDungeonMobsJoinWithoutRosterInstance(t *testing.T) {
+	c := newClock()
+	s := newTestStore(c)
+	if ok := s.ApplyBatch(batch(1, 0, 1,
+		duNoInstance(712, "A", 43), duNoInstance(709, "B", 43),
+		duNoInstance(710, "C", 43), duNoInstance(711, "D", 43))); !ok {
+		t.Fatal("batch not published")
+	}
+	applyLiveMobs(t, s)
+
+	view := s.Dungeons()
+	if !view.StaleModule || len(view.Runs) != 1 || view.Runs[0].Key != "43:0" {
+		t.Fatalf("roster: %+v", view)
+	}
+	run := view.Runs[0]
+	if run.Mobs == nil || len(*run.Mobs) != 2 || run.MobsTotal != 24 || run.MobsMap == nil || *run.MobsMap != 43 {
+		t.Fatalf("shared-guid join: %+v", run)
+	}
+	for _, m := range run.Members {
+		if m.ID != fmt.Sprint(m.GUID) {
+			t.Fatalf("member id not joined: %+v", m)
+		}
+	}
+
+	// Three cycles and more: the entry is stale and the roster run stays.
+	c.Advance(9 * time.Second)
+	run = s.Dungeons().Runs[0]
+	if run.Mobs != nil || run.MobsMap != nil || run.Members[0].ID != "" {
+		t.Fatalf("stale entry still joined: %+v", run)
+	}
+}
+
+// The fallback matcher: by shared member guid only, on exactly one run, with
+// the instance match taking precedence.
+func TestMatchDungeonMobsBySharedMember(t *testing.T) {
+	e := dungeonMobsEntry{run: model.DungeonMobsRun{Map: 43, Instance: 102,
+		Members: []model.DungeonMobsMember{{GUID: 713}, {GUID: 712}, {GUID: 710}}}}
+	entries := map[string]dungeonMobsEntry{"43:102": e}
+	member := func(guid uint32) []model.DungeonMember { return []model.DungeonMember{{GUID: guid}} }
+
+	// Two runs on the map, only one shares a member: the right one joins.
+	runs := []model.DungeonRun{
+		{Key: "43:0", MapID: 43, Instance: 0, Members: append(member(712), member(709)...)},
+		{Key: "43:9", MapID: 43, Instance: 0, Members: member(999)},
+	}
+	got := matchDungeonMobs(runs, entries)
+	if _, ok := got[0]; !ok || len(got) != 1 {
+		t.Fatalf("shared-guid match: %+v", got)
+	}
+
+	// No shared member (one run on the map, so ambiguity cannot mask a
+	// map-only match): never join by map alone.
+	runs = []model.DungeonRun{
+		{Key: "43:0", MapID: 43, Instance: 0, Members: member(999)},
+	}
+	if got = matchDungeonMobs(runs, entries); len(got) != 0 {
+		t.Fatalf("map-only join: %+v", got)
+	}
+
+	// Two roster runs share a member with the entry: ambiguous, no join.
+	runs = []model.DungeonRun{
+		{Key: "43:0", MapID: 43, Instance: 0, Members: member(712)},
+		{Key: "43:9", MapID: 43, Instance: 0, Members: member(713)},
+	}
+	if got = matchDungeonMobs(runs, entries); len(got) != 0 {
+		t.Fatalf("ambiguous join: %+v", got)
+	}
+
+	// A known instance wins; the fallback run is not also joined.
+	runs = []model.DungeonRun{
+		{Key: "43:0", MapID: 43, Instance: 0, Members: member(712)},
+		{Key: "43:102", MapID: 43, Instance: 102, Members: member(712)},
+	}
+	got = matchDungeonMobs(runs, entries)
+	if _, ok := got[1]; !ok || len(got) != 1 {
+		t.Fatalf("instance precedence: %+v", got)
 	}
 }
