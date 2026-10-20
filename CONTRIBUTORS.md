@@ -2,7 +2,7 @@
 
 Everyone marked **agreed** below agrees that **all of their past and future
 contributions** to Sagiroth/TortoiseBots are licensed under
-**AGPL-3.0-or-later** (see [`LICENSE`](LICENSE) and [`LICENCE.md`](LICENCE.md)).
+**AGPL-3.0-or-later** (see [`LICENSE`](LICENSE) and [`NOTICE.md`](NOTICE.md)).
 
 ## How to confirm
 

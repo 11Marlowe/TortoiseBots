@@ -47,6 +47,34 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: gm-mode
+    attributes:
+      label: Were you playing on a GM account?
+      description: A GM in GM mode or hidden (.gm on / .gm visible off) cannot receive buffs or heals, so bots behave differently around them.
+      options:
+        - "No"
+        - Yes, GM mode on (.gm on)
+        - Yes, hidden (.gm visible off)
+        - GM account, GM mode off
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: Anything that helps us reproduce it.
+      placeholder: |
+        Your character: level, class, race
+        Bots involved: class, level, and type (hired, my own alt, random pool bot)
+        Solo, party or raid; zone or dungeon
+        Settings you changed in aiplayerbot.conf; number of random bots
+        How often it happens (always, sometimes, once)
+    validations:
+      required: true
+
   - type: input
     id: version
     attributes:

@@ -7,6 +7,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomBotFacade.h"
 #include "playerbot/ServerFacade.h"
+#include "runtime/AltBotService.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/PoolBotTradePolicy.h"
 #include "playerbot/strategy/values/CraftValues.h"
@@ -27,7 +28,7 @@ bool TradeStatusAction::Execute(Event& event)
     // the earliest point, before listing inventory or sharing conjured
     // goods. Owned/hired bots (live master, owner, or hire record) and
     // bot-to-bot RPG trades pass through untouched.
-    if (!ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot) &&
+    if (!ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot) &&
         !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
         isRealPlayer_Helper(trader) && !PoolBotMayTradeWith(trader))
     {
@@ -38,12 +39,30 @@ bool TradeStatusAction::Execute(Event& event)
         bot->GetSession()->HandleCancelTradeOpcode(p);
         return false;
     }
+    // Issue #872 (B8): an autonomous alt never trades with a stranger. The
+    // owner (or a GM) trades as before; a stranger's window is cancelled at
+    // the earliest point, like the pool gate above.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        isRealPlayer_Helper(trader) && !ai->IsBotOwnerOrGm(*trader))
+    {
+        ai->TellPlayer(trader, "I don't trade with strangers.", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
+        WorldPacket cancelTrade;
+        uint32 cancelStatus = 0;
+        cancelTrade << cancelStatus;
+        bot->GetSession()->HandleCancelTradeOpcode(cancelTrade);
+        return false;
+    }
 
     bool shouldTrade = true;
     if (!PlayerbotAIStorage::Instance().GetAI(trader))
     {
         shouldTrade = false;
-        if (trader == master || IsInGroup_Helper(bot, trader))
+        // Issue #872 (B8): an autonomous alt trades only with its owner (or
+        // a GM). Group membership must not open the window: a stranger's
+        // group is exactly how they reach the alt.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            shouldTrade = ai->IsBotOwnerOrGm(*trader);
+        else if (trader == master || IsInGroup_Helper(bot, trader))
         {
             shouldTrade = ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false, trader);
         }
@@ -51,7 +70,7 @@ bool TradeStatusAction::Execute(Event& event)
         // this trader (open mode 2/3/4, ungrouped owner, or hire master),
         // but the legacy block only knows master/group. Without this the
         // approval is dead: the window would be cancelled right here.
-        if (!shouldTrade && !ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot) &&
+        if (!shouldTrade && !ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot) &&
             !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
             isRealPlayer_Helper(trader) && PoolBotMayTradeWith(trader))
         {
@@ -276,7 +295,11 @@ bool TradeStatusAction::CheckTrade()
             }
             else
             {
-                bot->Say("Thank you " + name + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                // Issue #1108: the whisper to the trader stays, the line in
+                // /say for everybody around follows
+                // AiPlayerbot.EnableBroadcasts.
+                if (sPlayerbotAIConfig.enableBroadcasts)
+                    bot->Say("Thank you " + name + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
             }
         }
         return isGettingItem;

@@ -19,7 +19,11 @@
 #include "ObservabilityEmitter.h"
 
 #include "BotManager.h"
-#include "PlayerbotAIStorage.h"
+#include "AltBotService.h"
+// Issue #872: kind labels (pool/hired/claimed/alt/companion/player).
+#include "BotKindPolicy.h"
+#include "HireLifecycle.h"
+#include "ClaimLifecycle.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
 #include "../ai/playerbot/TravelMgr.h"
@@ -52,7 +56,7 @@ namespace {
 
 // Datagram schema version. The Go daemon ignores datagrams it cannot parse;
 // this is bumped when the wire format changes incompatibly.
-constexpr int kProtocolVersion = 9;
+constexpr int kProtocolVersion = 12;
 
 // Snapshot cadence and batching. Datagrams are kept well under the loopback
 // MTU so a large roster arrives as several unpredictable chunks; the receiver
@@ -367,6 +371,24 @@ void FillTravelInfo(PlayerbotAI* ai, std::string& purpose, std::string& to, std:
     status = st < 7 ? statusNames[st] : "unknown";
     dist = static_cast<int32>(target->Distance(ai->GetBot()));
 }
+// Issue #872: kind label for the dashboard. Reads only the lifecycles the
+// snapshot already queries (AltBotService, HireLifecycle, ClaimLifecycle)
+// plus the record's random flag: no DB, no world scans.
+static BotKind ResolveBotKind(Player* bot)
+{
+    ObjectGuid guid = bot->GetObjectGuid();
+    if (AltBotService::Instance().IsAutonomous(guid))
+        return BotKind::Alt;
+    if (HireLifecycle::Instance().IsHired(guid))
+        return BotKind::Hired;
+    if (ClaimLifecycle::Instance().IsClaimed(bot->GetGUIDLow()))
+        return BotKind::Claimed;
+    BotRecord* record = BotManager::Instance().FindBot(guid);
+    if (record && !record->random)
+        return BotKind::Companion;
+    return BotKind::Pool;
+}
+
 
 // Online real players, collected from the world's network sessions at
 // snapshot cadence (every 2 s, not per tick): headless bot sessions never
@@ -426,6 +448,8 @@ void FillLiveUnitSnapshot(Player* unit, BotTelemetrySnapshot& snap)
         snap.targetLevel = static_cast<uint32>(target->GetLevel());
     Group* group = unit->GetGroup();
     snap.groupId = group ? group->GetId() : 0;
+    snap.subgroupId = unit->GetSubGroup();
+    snap.instanceId = unit->GetMap() ? unit->GetMap()->GetInstanceId() : 0;
     if (unit->InBattleGround())
     {
         snap.pvp = "bg";
@@ -1166,11 +1190,25 @@ void ObservabilityEmitter::Update(uint32 diff)
     EmitSnapshotCycle(activeBots, diff);
     EmitCommanders();
 
+    // Issue #872: real players' online characters get their exact-stats row
+    // too (same round-robin rate limit as bots, a few per snapshot, never per
+    // tick). CollectOnlinePlayers is the same session walk the snapshot just
+    // ran: member reads only, no DB. One extra row at most, so a crowded
+    // server cannot turn the sweep into a burst.
     for (size_t i = 0; i < kArmoryBotsPerSnapshot && i < activeBots.size(); ++i)
     {
         Player* bot = activeBots[m_armoryOffset++ % activeBots.size()];
         if (bot && bot->IsInWorld())
             WriteArmoryStats(bot);
+    }
+    std::vector<Player*> onlinePlayers;
+    CollectOnlinePlayers(onlinePlayers);
+    if (!onlinePlayers.empty())
+    {
+        Player* player = onlinePlayers[m_armoryOffset % onlinePlayers.size()];
+        if (player && player->IsInWorld())
+            WriteArmoryStats(player);
+        ++m_armoryOffset;
     }
 }
 
@@ -1241,6 +1279,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
 
         BotTelemetrySnapshot snap;
         FillLiveUnitSnapshot(bot, snap);
+        snap.isAlt = AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
+        snap.kind = BotKindName(ResolveBotKind(bot));
         snap.role = GetBotRole(bot, ai);
         snap.strategy = FormatStrategies(ai);
         if (!bot->IsAlive())
@@ -1281,6 +1321,7 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
             BotTelemetrySnapshot snap;
             FillLiveUnitSnapshot(player, snap);
             snap.isPlayer = true;
+            snap.kind = BotKindName(BotKind::Player);
             snap.state = MacroStateName(BaseMacroState(player, nullptr));
             botSnapshots.push_back(snap);
         }
@@ -1383,6 +1424,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
             bss << "{\"name\":\"" << EscapeJson(b.name) << "\""
                 << ",\"guid\":" << b.guid
                 << ",\"player\":" << (b.isPlayer ? "true" : "false")
+                << ",\"alt\":" << (b.isAlt ? "true" : "false")
+                << ",\"kind\":\"" << EscapeJson(b.kind) << "\""
                 << ",\"group\":" << b.groupId
                 << ",\"class\":\"" << EscapeJson(b.className) << "\""
                 << ",\"role\":\"" << EscapeJson(b.role) << "\""
@@ -1396,6 +1439,8 @@ void ObservabilityEmitter::EmitSnapshotCycle(std::vector<Player*> const& activeB
                 << ",\"power_type\":\"" << EscapeJson(b.powerType) << "\""
                 << ",\"map\":" << b.mapId
                 << ",\"zone\":" << b.zoneId
+                << ",\"instance\":" << b.instanceId
+                << ",\"subgroup\":" << b.subgroupId
                 << ",\"x\":" << std::fixed << std::setprecision(1) << b.x
                 << ",\"y\":" << b.y
                 << ",\"z\":" << b.z

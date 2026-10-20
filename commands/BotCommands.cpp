@@ -5,7 +5,10 @@
 #include "../runtime/BotActivityLease.h"
 #include "../runtime/HireLifecycle.h"
 #include "../runtime/ClaimLifecycle.h"
+#include "../runtime/AltBotPolicy.h"
+#include "../runtime/AltBotService.h"
 #include "../runtime/HireProvisionService.h"
+#include "../runtime/HireRaidPolicy.h"
 #include "../runtime/HireSpecPolicy.h"
 #include "../runtime/HireLevelPolicy.h"
 #include "../runtime/HireTierRequestPolicy.h"
@@ -1033,11 +1036,62 @@ static bool HandleMatureCommand(ChatHandler* handler, char const* args)
     return true;
 }
 
+static std::string ProtocolSafe(std::string value);
+
+// Issue #900: `.bot hire raid <preset|composition> [tier]`. The grammar and
+// the roster live in runtime/HireRaidPolicy.h, the cap, quote, raid conversion
+// and the job queue in HireProvisionService::HireRaid / StepRaidJobs. This
+// command answers refusals and a "started" line at once; the service sends the
+// closing summary and the structured line for the TBM addon when the job ends:
+//   TBM:HIRE_RAID|<ok|partial|refused>|<hired>|<planned>|<tank>|<healer>|<dps>|<tier>|<feeCopper>|<reason>
+static bool HandleHireRaid(ChatHandler* handler, Player* requester, std::vector<std::string> tokens)
+{
+    // tokens[0] is "raid"; the rest is the preset or composition.
+    tokens.erase(tokens.begin());
+    std::vector<HireRaidPreset> presets;
+    if (!ParseHireRaidPresets(sPlayerbotAIConfig.hireRaidPresets, presets))
+        ParseHireRaidPresets(kHireRaidPresetsDefault, presets);
+    ExpandHireRaidPreset(presets, tokens);
+
+    HireRaidRequest request;
+    std::string error;
+    if (!ParseHireRaidSpec(tokens, request, error))
+    {
+        handler->PSendSysMessage("%s", error.c_str());
+        handler->PSendSysMessage("Usage: .bot hire raid <preset|composition> [tier], for example .bot hire raid 3t 12h 24d t6");
+        handler->PSendSysMessage("TBM:HIRE_RAID|refused|0|0|0|0|0|0|0|%s", ProtocolSafe(error).c_str());
+        return true;
+    }
+
+    HireRaidOutcome outcome = HireProvisionService::Instance().HireRaid(requester, request);
+    if (outcome.refused)
+    {
+        handler->PSendSysMessage("%s", outcome.message.c_str());
+        handler->PSendSysMessage("TBM:HIRE_RAID|refused|0|%u|0|0|0|%u|0|%s", outcome.planned,
+            static_cast<uint32>(outcome.tier), ProtocolSafe(outcome.message).c_str());
+        return true;
+    }
+
+    // Accepted: the hires run over the next seconds (HireProvisionService::
+    // StepRaidJobs) and the service sends the "Hired N: ..." summary and the
+    // TBM:HIRE_RAID line when the job ends.
+    uint32 const quote = static_cast<uint32>(std::min<uint64_t>(outcome.quote, 0xFFFFFFFFull));
+    char const* tierName = HireTierName(outcome.tier);
+    handler->PSendSysMessage("Hiring %u companions: %u tank / %u healer / %u dps, tier %u (%s), total fee %s.%s%s "
+        "They arrive over the next few seconds; a summary follows.",
+        outcome.planned, outcome.planTanks, outcome.planHealers, outcome.planDps,
+        static_cast<uint32>(outcome.tier), tierName ? tierName : "?", ai::ChatHelper::formatMoney(quote).c_str(),
+        outcome.capped ? " Capped by AiPlayerbot.HireMaxBotsPerPlayer or the free raid seats." : "",
+        outcome.convertedToRaid ? " Your party became a raid." : "");
+    return true;
+}
+
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
 // Issue #192: fast-path companion hire. Same service, costs, and caps as the
 // <Mercenary Hire> gossip wizard, but only available when the server sets
 // AiPlayerbot.HireAnywhere; otherwise it points players to a recruiter. Usage:
 //   .bot hire <class> [dps|tank|healer] [race] [male|female] [tier] [level]
+//   .bot hire raid <preset|composition> [tier]   (issue #900, see HandleHireRaid)
 // Tokens after the class may come in any order: "warrior tauren male tank",
 // "mage female frost", and "paladin protection" all parse. Bare spec words
 // (protection/arms/fury/holy/retribution/...) imply their role. The optional
@@ -1058,7 +1112,7 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (input.empty())
     {
-        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier] [level=<1-60>]");
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier] [level=<1-60>], or .bot hire raid <preset|3t 12h 24d> [tier]");
         return true;
     }
     // Split on whitespace; class/race/gender/role/spec/tier tokens in any order.
@@ -1068,6 +1122,18 @@ static bool HandleHire(ChatHandler* handler, char const* args)
         std::string token;
         while (stream >> token)
             tokens.push_back(token);
+    }
+    {
+        std::string first = tokens.front();
+        for (char& c : first)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (first == "raid")
+        {
+            for (std::string& t : tokens)
+                for (char& c : t)
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return HandleHireRaid(handler, requester, tokens);
+        }
     }
     HireSelection sel;
     // Issue #936: requested hire level (0 = none). Bad level words refuse.
@@ -1227,7 +1293,7 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     }
     if (!sel.classId)
     {
-        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier] [level=<1-60>]");
+        handler->PSendSysMessage("Usage: .bot hire <class> [dps/tank/healer] [race] [male/female] [tier] [level=<1-60>], or .bot hire raid <preset|3t 12h 24d> [tier]");
         return true;
     }
     // Issue #936: the level is clamped against the hirer in Hire() (the one
@@ -1272,28 +1338,11 @@ static bool HandleHire(ChatHandler* handler, char const* args)
         }
     }
     // Defaults: requester's faction race pool, random gender, class role.
-    if (!sel.race)
+    if (!HireProvisionService::FillDefaultRaceGender(requester, sel))
     {
-        Team team = requester->GetTeam();
-        std::vector<uint8> pool;
-        for (uint32 race = RACE_HUMAN; race <= RACE_HIGH_ELF; ++race)
-        {
-            if (Player::TeamForRace(race) != team)
-                continue;
-            // GetPlayerInfo is the authoritative class/race contract.
-            if (!sObjectMgr.GetPlayerInfo(race, sel.classId))
-                continue;
-            pool.push_back(static_cast<uint8>(race));
-        }
-        if (pool.empty())
-        {
-            handler->PSendSysMessage("No race of your faction can be that class.");
-            return true;
-        }
-        sel.race = pool[urand(0, uint32(pool.size() - 1))];
+        handler->PSendSysMessage("No race of your faction can be that class.");
+        return true;
     }
-    if (!sel.gender)
-        sel.gender = urand(0, 1) ? GENDER_FEMALE : GENDER_MALE;
     if (!sel.role)
         sel.role = HireProvisionService::DefaultRoleForClass(sel.classId);
     if (sel.classId == CLASS_DRUID && sel.specIndex < 0 && sel.role == static_cast<uint8>(ai::BOT_ROLE_DPS))
@@ -1356,8 +1405,20 @@ static bool HandleAdd(ChatHandler* handler, char const* args)
     uint32_t accountId = data->uiAccount;
     ::ObjectGuid masterGuid = requester->GetObjectGuid();
 
-    if (sObjectAccessor.FindPlayer(guid))
+    if (::Player* online = sObjectAccessor.FindPlayer(guid))
     {
+        // Issue #872: `.bot add` on the requester's own alt-bot takes it back
+        // as a companion without a relog.
+        if (AltBotService::Instance().IsAutonomous(guid) && requester->GetSession() &&
+            (AltBotService::Instance().GetOwnerAccount(guid.GetCounter()) == requester->GetSession()->GetAccountId() ||
+             IsBotAdministrator(requester)))
+        {
+            if (AltBotService::Instance().TakeBack(requester, online))
+                handler->PSendSysMessage("%s is your companion again and follows you.", name.c_str());
+            else
+                handler->PSendSysMessage("Could not take %s back as a companion.", name.c_str());
+            return true;
+        }
         handler->PSendSysMessage("Character '%s' is already online and cannot be claimed as a Headless bot.", name.c_str());
         return true;
     }
@@ -2284,6 +2345,16 @@ static bool HandleRoster(ChatHandler* handler)
             ProtocolSafe(RosterLocation(mapId, zoneId, areaId)).c_str());
     }
     handler->PSendSysMessage("TBM:ROSTER_END");
+    // Issue #872: rows that currently play on their own, in one extra line so
+    // the strict roster row stays unchanged for older addons (they ignore it).
+    std::string altBots;
+    for (OwnedCharacter const& row : rows)
+        if (AltBotService::Instance().IsAutonomous(row.characterGuid))
+        {
+            Player* alt = sObjectAccessor.FindPlayer(row.characterGuid);
+            altBots += (altBots.empty() ? "" : ",") + ProtocolSafe(alt ? alt->GetName() : row.name);
+        }
+    handler->PSendSysMessage("TBM:ALTBOTS|%s", altBots.c_str());
     // CC assignments and the BOTSTATE snapshot below describe the same set:
     // the controllable party bots (owned alts and hired companions). The
     // roster rows leave hires out on purpose, so they cannot feed CC_ASSIGN.
@@ -3615,7 +3686,9 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
     if (!executor)
     {
         bool const tankBusy = PullTankIsBusy(context);
-        SendActionError(handler, reportIntent, ai::PullNoExecutorCode(tankBusy), ai::PullNoExecutorText(tankBusy));
+        std::string const detail = PullBlockerDetail(context);
+        std::string const text = ai::PullNoExecutorText(tankBusy, detail);
+        SendActionError(handler, reportIntent, ai::PullNoExecutorCode(tankBusy), text.c_str());
         return true;
     }
 
@@ -3730,9 +3803,9 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
     // stands still for seconds, then starts pulling".
     ai->ClearActionClock();
     // The same for a meal or any cast: "reach pull" does not move a casting
-    // bot (ai/playerbot/PullStartPolicy.h, ReadyTankForPull). The run leader
-    // waits out a meal before it pulls (DungeonRunPolicy.h, the meal wait);
-    // this is the fallback for an explicit or commander order.
+    // bot (ai/playerbot/PullStartPolicy.h, ReadyTankForPull): an explicit or
+    // commander order beats the meal. The run leader waits out a meal before
+    // it pulls (DungeonRunPolicy.h, the meal wait); this is the fallback.
     ai::PullReadyFacts readyFacts;
     readyFacts.casting = executor->IsNonMeleeSpellCasted(true, false, true);
     readyFacts.seated = executor->GetStandState() != UNIT_STAND_STATE_STAND;
@@ -7054,10 +7127,12 @@ void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)
 // Its stay moves to the spot it stands on, its movement generator is dropped
 // and a spell of its own is interrupted (the order beats the automation). The
 // stance comes back with the task's end (EndTaskWalk: finish, cancel, timeout).
-void HoldForAct(CommanderTask& task, PlayerbotAI* ai, Player* bot)
+// Returns true when the bot was still moving (RemoteCommander::ActWaitsForStop):
+// it is stopped now, and the caller starts the cast on a later look.
+bool HoldForAct(CommanderTask& task, PlayerbotAI* ai, Player* bot)
 {
     if (!RemoteCommander::HoldsForAct(task.targetRaw != 0, task.noWalk))
-        return;
+        return false;
     if (!task.walking && !task.superseded)
     {
         task.wasStaying = ai->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT);
@@ -7070,13 +7145,17 @@ void HoldForAct(CommanderTask& task, PlayerbotAI* ai, Player* bot)
     // Feared, confused, charmed or stunned: the core owns its movement; leave it
     // (the start is refused and retried, or the task ends).
     if (bot->HasUnitState(UNIT_STAT_CAN_NOT_REACT_OR_LOST_CONTROL))
-        return;
+        return false;
     if (bot->IsNonMeleeSpellCasted(false))
         bot->InterruptNonMeleeSpells(false);
+    // Read before the clear: the spline keeps running after it either way.
+    bool const moving = RemoteCommander::ActWaitsForStop(sServerFacade.isMoving(bot),
+        !bot->movespline->Finalized());
     bot->GetMotionMaster()->Clear();
     bot->GetMotionMaster()->MoveIdle();
-    if (sServerFacade.isMoving(bot))
+    if (moving)
         ai->StopMoving();
+    return moving;
 }
 
 // While the started cast runs: a movement generator something queued since
@@ -7301,9 +7380,13 @@ ActStart BeginTaskAct(CommanderTask& task, Player* commander, Player* bot, Playe
 {
     task.actStarted = false;
     ++task.actTries;
-    HoldForAct(task, ai, bot);
     ActStart start;
-    if (task.lootLike)
+    // Never start the cast on a bot that is still moving: the hold stopped it,
+    // the retry on the next look starts the cast.
+    if (HoldForAct(task, ai, bot))
+        start = RefuseAct(task, ActStart::Retry, RemoteCommander::CastReasonCode("moving"),
+            RemoteCommander::OpenRefusalText("moving", 0));
+    else if (task.lootLike)
         start = BeginLootAct(task, commander, bot, ai, target);
     else if (task.state.kind == RemoteCommander::TaskKind::Gossip)
         start = BeginGossipAct(task, bot, target);
@@ -8815,12 +8898,26 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     }
 
     // Tactical orders: the bound commander counts as a member of its group.
+    // Issue #872: an autonomous alt answers a stranger's combat orders only
+    // through whispers/party chat, never through a commanded group it never
+    // joined. Drop autonomous alts from the order's bot list (a stranger
+    // bound the group while the alt roamed in it): an order with no bots
+    // left is refused, and a party-wide order never moves the alt.
+    order.bots.erase(std::remove_if(order.bots.begin(), order.bots.end(),
+        [](Player* bot)
+        {
+            return bot && AltBotService::Instance().IsAutonomous(bot->GetObjectGuid());
+        }), order.bots.end());
     if (!RemoteCommander::MayIssueOrder(sPlayerbotAIConfig.remoteCommander, true, tier, false))
     {
         SendActionError(handler, intent, "denied", "Order refused.");
         return true;
     }
-
+    if (order.bots.empty())
+    {
+        SendActionError(handler, intent, "denied", "That group holds only autonomous alt-bots; order them with whispers or party chat.");
+        return true;
+    }
     if (verb == "state")
     {
         RemoteCommander::StateOrder stateRequest;
@@ -8865,6 +8962,14 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             if (!attackBot)
             {
                 SendActionError(handler, intent, "no-bot", "That bot is not in your commanded group.");
+                return true;
+            }
+            // Issue #872: the filter above already dropped autonomous alts
+            // from the order; a name that resolves to one is refused, not
+            // silently run party-wide.
+            if (AltBotService::Instance().IsAutonomous(attackBot->GetObjectGuid()))
+            {
+                SendActionError(handler, intent, "denied", "That bot is an autonomous alt-bot; order it with whispers or party chat.");
                 return true;
             }
         }
@@ -8918,6 +9023,12 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
             SendActionError(handler, intent, "no-bot", "That bot is not in your commanded group.");
             return true;
         }
+        // Issue #872: same as `attack <guid> <bot>` above.
+        if (AltBotService::Instance().IsAutonomous(named->GetObjectGuid()))
+        {
+            SendActionError(handler, intent, "denied", "That bot is an autonomous alt-bot; order it with whispers or party chat.");
+            return true;
+        }
         ccIntent += " " + std::string(named->GetName());
     }
     Unit* target = ResolveOrderTarget(handler, intent, order, parts[1]);
@@ -8930,7 +9041,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
 }
 
 // ---------------------------------------------------------------------------
-// Run leader (`.bot run`, docs/guides/dungeon-run-leader.md)
+// Run leader (`.bot run`, docs/play/dungeon-run-leader.md)
 //
 // Behind AiPlayerbot.DungeonSelfClear (default 0) and a remote commander
 // binding. A commander starts a run of a dungeon plan (ai/playerbot/

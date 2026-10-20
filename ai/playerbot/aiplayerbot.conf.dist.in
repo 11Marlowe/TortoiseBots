@@ -91,7 +91,7 @@ AiPlayerbot.RandomBotAccountPrefix = RNDBOT
 # reset command. Existing installations must first enroll their hand-made
 # accounts at the server console with `bot pool adopt preview` and
 # `bot pool adopt confirm <challenge>`; until then those accounts are not
-# managed and are never touched. See docs/guides/living-world.md.
+# managed and are never touched. See docs/server/bot-pool.md.
 AiPlayerbot.RandomBotPoolReset = off
 
 # Bounded idempotent RNDBOT population (feature 01). Default OFF.
@@ -232,6 +232,13 @@ AiPlayerbot.TurtleMountAtLevel = 18
 # the riding skill already level-gated). 1 = on; 0 = off, so a bot levelled
 # from 1 keeps only the turtle until it is re-seeded. Default 1.
 AiPlayerbot.LevelUpMounts = 1
+# Random pool bots and hired companions ride only mounts that fit their own
+# race, i.e. the strict own-race vendor mounts a player of that race would buy
+# (normal from 40, epic from 60). Cross-race mounts, shop mounts that any race
+# can use, and mounts that drop from loot (raid/dungeon bosses), are left out.
+# 1 = any mount, including shop and raid-drop mounts (old behaviour).
+# Player alts are never gated. Default 0.
+AiPlayerbot.RandomBotShopMounts = 0
 # Safety factor on the mount break-even distance: bots mount for travel/RPG
 # trips only when the remaining distance exceeds
 # 7 y/s * mount cast time / (best mount speed % / 100) * this. 0 disables
@@ -373,6 +380,17 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 #AiPlayerbot.HirePartyMult4 = 4.66
 #AiPlayerbot.HireRaidFlatCostCopper = 10000
 #AiPlayerbot.HireDisconnectGracePeriod = 300
+# Issue #900: `.bot hire raid <preset|composition> [tier]` hires a whole raid
+# through the single-hire path (up to HireMaxBotsPerPlayer minus the
+# companions you already have). A role count like `3t 12h 24d` picks its
+# classes from HireRaidSpread: per role (tank, healer, dps) a comma list of
+# classes handed out round-robin; repeat a class to weight it. Classes your
+# faction cannot field are skipped. HireRaidPresets: `name=composition`
+# entries separated by `;`, run as `.bot hire raid <name> [tier]`; the
+# composition may end in a tier word (a tier typed after the name wins).
+# The values below are the values that actually run.
+#AiPlayerbot.HireRaidSpread = tank=warrior,druid,paladin;healer=priest,priest,paladin,shaman,druid;dps=mage,warlock,rogue,hunter,warrior,mage,warlock,rogue,hunter,shaman
+#AiPlayerbot.HireRaidPresets = zg=2t 4h 13d t2;aq20=2t 4h 13d t5;onyxia=3t 10h 26d t1;mc=3t 10h 26d t3;bwl=3t 10h 26d t4;aq40=3t 10h 26d t5;naxx=3t 10h 26d t6
 # Issue #490: static best-in-slot sets for level-60 hires (tiers 1-7 from
 # the tortoise_bots_hire_gear table). 0 = today's random hire gear only.
 # HireGearStartTier (0..7) is the tier every player has. Higher tiers are
@@ -467,7 +485,7 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # who they hold, every action with its result (OK / FAILED / IMPOSSIBLE / USELESS /
 # PREREQ / VETOED / BACKOFF), deaths, combat enter/leave, loot, facing and movement - as one JSONL
 # file (<run_id>.jsonl) plus <run_id>.summary.json, until `.bot trace stop`.
-# tools/trace_score.py scores the file offline. Schema: docs/guides/run-trace.md.
+# tools/trace_score.py scores the file offline. Schema: docs/server/run-trace.md.
 # Costs nothing while no run is active; a run reads only what the bots already
 # track (no world scan, no database), builds its lines on the world thread and
 # writes them on a separate thread through a bounded queue (lines are dropped and
@@ -763,7 +781,7 @@ AiPlayerbot.OnyxiaWhelpsAndEggs = 1
 # apply while they fight that boss: interrupt a listed spell, kill a listed add
 # before anything else (in a listed order), stay out of the boss's front during a
 # listed frontal attack. Built from Turtle's own core data; Uldaman up to
-# Ironaya and the Obsidian Sentinel so far (docs/guides/boss-tactics.md).
+# Ironaya and the Obsidian Sentinel so far (docs/play/boss-tactics.md).
 # This changes how bots play in dungeons, so it is off for everybody by default.
 # Bots in a group that a remote commander has bound get the tactics regardless of
 # this key. An explicit target order from a player always wins.
@@ -778,7 +796,7 @@ AiPlayerbot.DungeonTactics = 0
 # orders, and pauses on 3 dead, on any player order and at every wait's ceiling.
 # Needs AiPlayerbot.RemoteCommander = 1 and a binding (.bot commander bind).
 # Bots then clear without a player giving each order, so it is off by default
-# (docs/guides/dungeon-run-leader.md).
+# (docs/play/dungeon-run-leader.md).
 # 0 - `.bot run` is refused (Default)
 # 1 - a bound commander may start a run
 AiPlayerbot.DungeonSelfClear = 0
@@ -804,7 +822,7 @@ AiPlayerbot.DungeonRunMaxMinutes = 180
 # Not every trigger script is safe to start from a bot (at_ring_of_law starts
 # the Blackrock Depths arena, the UBRS stadium trigger starts that event,
 # at_shadowforge_bridge spawns guards), so read and document a trigger's script
-# in docs/guides/configuration-tuning.md before adding its id here.
+# in docs/server/settings/dungeons-raids.md before adding its id here.
 # Audited ids (set the key to these to opt in):
 #   962 - Zul'Farrak, at_zumrah: if Witch Doctor Zum'rah is alive within 30 yd,
 #         he turns hostile, yells, and his encounter is marked in progress
@@ -817,14 +835,18 @@ AiPlayerbot.BotAreaTriggers =
 # Keep out of creature auras.
 # Some creatures carry a permanent damaging aura that pulses around them even
 # while they are idle. With this on, every bot steps out when it is within 8 yd
-# of a listed creature (from its centre), its chase and other moves keep 9 yd
-# away, and a follower stops just outside that circle while its leader stands
+# (10 yd for Living Poison) of a listed creature (from its centre), its chase
+# and other moves keep 9 yd (11 yd) away, and a follower stops just outside that circle while its leader stands
 # in it; the ranged kill it. A melee DPS bot holding outside the circle on its
 # target switches target after 3 s and leaves that target alone for 30 s,
 # also when the tank fights it or it carries the bot's raid mark. Tanks are
-# exempt in combat (they may hold mobs inside). The creature the player
+# exempt in combat from the sludge (they may hold mobs inside), not from
+# Living Poison. The creature the player
 # ordered the bot to attack is never avoided by that bot. Listed today:
-# Maraudon's Creeping Sludge (12222, aura 22638 Poison Shock, 5 yd every 2 s).
+# Maraudon's Creeping Sludge (12222, aura 22638 Poison Shock, 5 yd every 2 s)
+# and Naxxramas' Living Poison (16027, no aura, not selectable, Explode 28433
+# within 5 yd, about 30k: tanks get no pass; bots keep out to 10 yd, paths to
+# 11 yd).
 # With it on, a non-tank bot without an attack order also does not Charge,
 # Intercept or Feral Charge onto a listed creature or onto a mob within 9 yd
 # of one, and its flank, set-behind and unstack moves never end in the ring.
@@ -952,6 +974,32 @@ AiPlayerbot.InviteChat = 1
 # reads a thread-local "last phase" tag set by SC_PHASE when this is on.
 # AiPlayerbot.EnableActionLog = 0
 
+# Safeguards for the per-bot action log files (they once filled a disk: about
+# 8 GB a day, up to 176 MB for one bot). They apply only while EnableActionLog
+# is 1, except the cleanup, which also trims files an earlier run left behind.
+#
+# Which bots get a file:
+#   all        every bot, pool bots included (100+ files on a busy realm)
+#   commanded  only bots in a group a commander bound (.bot commander bind)
+#              and hired companions
+#   none       no files
+# A bot's answer is cached and looked up again every 15 seconds, so a bot that
+# was just bound or hired starts logging within that time.
+AiPlayerbot.ActionLogScope = commanded
+
+# Cleanup of logs/bots: at startup and then every hour (and early once the bots
+# wrote a quarter of the size limit since the last one) the oldest files are
+# deleted until both limits hold. Only files named like the ones this log
+# writes (<bot>_acc<id>_<date>-<time>.log) are ever listed or deleted, never a
+# link, a folder or any other file. A file a bot has open is never deleted. One
+# summary line is written to the server log per cleanup. 0 turns a limit off.
+AiPlayerbot.ActionLogMaxAgeDays = 3
+AiPlayerbot.ActionLogMaxTotalMB = 2048
+
+# One bot's file is closed with a note when it would pass this size, and the log
+# goes on in a new file (the cleanup above removes the old ones). 0 = no cap.
+AiPlayerbot.ActionLogMaxFileMB = 100
+
 # Aggregate counter of executed bot actions for live measurement on large
 # realms: every 5 minutes a cumulative snapshot (utc_time,class,action,
 # ok_count,fail_count) is appended to logs/action_counts.csv. Off in
@@ -995,6 +1043,15 @@ AiPlayerbot.BotLogFile =
 # Broadcast rates
 #
 # 1 - to enable broadcasts globally, 0 - to disable (default 1)
+#
+# 0 silences what the bots say on their own: the quest/loot/kill/level-up/suggest
+# broadcasts, the /say and /yell chatter, guild and world channel messages, the
+# recruitment and invite lines, the flavour text of an emote and the scripted
+# battleground callouts.
+#
+# Whispers, party and raid chat, the answer to a player who ordered the bot
+# (speak, a reply to the bot's own master) and the TortoiseBotsManager addon
+# protocol are not broadcasts and stay.
 AiPlayerbot.EnableBroadcasts = 1
 #
 # all broadcast chances should be in range 0-30000
@@ -1909,6 +1966,18 @@ AiPlayerbot.FleeingEnabled = 1
 # master never get this flee anyway. Takes effect after a server restart.
 #AiPlayerbot.PoolMeleeHoldGround = 0
 
+# Alt-bots (issue #872, opt-in). 1 = an alt you brought in with `.bot add`
+# keeps playing on its own when you kick it from your party (or the party
+# breaks up): it quests, grinds and travels like a pool bot, with protections
+# for your gear, gold and talents, and takes one pool bot's slot while it is
+# out. `.bot remove`, `.bot add` again or logging in on the alt ends it.
+# Hardcore characters are refused. 0 = a kicked alt stays your companion.
+#AiPlayerbot.AltBots = 0
+
+# 1 = alt-bots log out when their owner logs out. 0 = they keep playing until
+# `.bot remove` (or a server restart; they do not come back after one).
+#AiPlayerbot.AltBotsLogoutWithOwner = 0
+
 # Universal raid survival (issue #201): bomb carriers run away from the
 # raid's centre until no group member is within BombRunoutDistance, then
 # stop; spread/flank steps use HazardEvasionDistance.
@@ -2072,6 +2141,9 @@ AiPlayerbot.UseKnockback = 1
 
 # Debug switches
 #AiPlayerbot.SpellDump = 0
+# Unrelated to ActionLogScope: this keeps the engine's per-action detail lines
+# (server log at detail level, and their copy in the action log) to bots that
+# are in a group. Its value 1 is what runs when the line is left out.
 #AiPlayerbot.LogInGroupOnly = 1
 #AiPlayerbot.LogValuesPerTick = 0
 #AiPlayerbot.RandomChangeMultiplier = 1

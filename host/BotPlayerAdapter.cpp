@@ -4,8 +4,10 @@
 #include "../commands/BotCommands.h"
 #include "../runtime/BotManager.h"
 #include "../runtime/HireLifecycle.h"
+#include "../runtime/AltBotService.h"
 #include "../runtime/RandomBotService.h"
 #include "../runtime/PlayerbotAIStorage.h"
+#include "../runtime/PetSpawnPolicy.h"
 #include "../ai/playerbot/AiFactory.h"
 #include "../ai/playerbot/PlayerbotAI.h"
 #include "../ai/playerbot/PlayerbotAIConfig.h"
@@ -17,6 +19,7 @@
 #include "../runtime/ObservabilityEmitter.h"
 #include "ModuleLog.h"
 #include "ModuleVersion.h"
+#include "Pet.h"
 
 namespace TortoiseBots {
 
@@ -24,6 +27,7 @@ BotPlayerAdapter::BotPlayerAdapter()
     : PlayerScript("tortoisebots_players", {
         PLAYERHOOK_ON_LOGIN,
         PLAYERHOOK_ON_MAP_CHANGED,
+        PLAYERHOOK_ON_UPDATE,
         PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST,
         PLAYERHOOK_ON_BEFORE_LOGOUT,
         PLAYERHOOK_ON_LOGOUT,
@@ -152,6 +156,38 @@ void BotPlayerAdapter::OnMapChanged(Player* player)
     }
 }
 
+void BotPlayerAdapter::OnUpdate(Player* player, uint32 /*diff*/)
+{
+    // Issue #1043, second call site. The main check runs on the world thread
+    // right after each bot's AI turn (BotManager::UpdateBots), which covers the
+    // resummon after a teleport. A Call Pet or demon summon whose cast
+    // completes inside Player::Update creates its pet during the map update,
+    // and the pet's first Pet::Update follows in the same tick. This hook runs
+    // at the end of the owner's update, before the map updates its creatures.
+    //
+    // Fast path, no lock: a real player, a petless bot or a pet within 100
+    // yards returns on field reads and one map-local lookup. Only a pet about
+    // to be unsummoned for range reaches the AI lookup and the full check.
+    if (!player || !player->GetSession() || player->GetSession()->HasNetworkTransport())
+        return;
+    ObjectGuid const petGuid = player->GetPetGuid();
+    if (petGuid.IsEmpty() || !player->IsInWorld())
+        return;
+    Pet* pet = player->GetMap()->GetPet(petGuid);
+    if (!pet || !pet->IsInWorld())
+        return;
+    PetSpawnCheckInputs inputs;
+    inputs.dx = pet->GetPositionX() - player->GetPositionX();
+    inputs.dy = pet->GetPositionY() - player->GetPositionY();
+    inputs.dz = pet->GetPositionZ() - player->GetPositionZ();
+    // Only the case the pet's own update is about to unsummon (beyond 100 of
+    // the core's 120 yards): a pet at range or chasing returns here, lock-free.
+    if (!IsPetAboutToBeUnsummoned(inputs))
+        return;
+    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(player))
+        BotManager::CheckNewPetSpawn(player, ai);
+}
+
 void BotPlayerAdapter::OnPlayerCompleteQuest(Player* player, Quest const* quest)
 {
     if (!player || !quest)
@@ -168,6 +204,7 @@ void BotPlayerAdapter::OnPlayerCompleteQuest(Player* player, Quest const* quest)
         return;
 
     sPlayerbotAIConfig.logEvent(botAi, "QuestCompleted", quest->GetTitle(), std::to_string(quest->GetQuestId()));
+    AltBotService::Instance().OnQuestCompleted(player);
 }
 
 void BotPlayerAdapter::OnBeforeLogout(Player* player)
@@ -203,6 +240,7 @@ void BotUnitAdapter::OnUnitDeath(Unit* unit, Unit* killer)
         return;
 
     ai->SetLastKiller(killer);
+    AltBotService::Instance().OnDeath(player);
 }
 
 void BotUnitAdapter::OnDamage(Unit* attacker, Unit* victim, uint32& /*damage*/)

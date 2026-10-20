@@ -3,12 +3,14 @@
 # databases from mangosd.conf, enable module telemetry, and start it.
 #
 # Usage:
-#   .\run-dashboard.ps1 [-MangosdConf C:\path\to\mangosd.conf] [-Tag v2026-10-07]
+#   .\run-dashboard.ps1 [-MangosdConf C:\path\to\mangosd.conf] [-Tag v2026-10-07] [-AgentMapsDir C:\path\to\maps]
 param(
   [string]$MangosdConf = $env:MANGOSD_CONF,
   [string]$Tag = "",
   [int]$HttpPort = 8095,
-  [int]$UdpPort = 9195
+  [int]$UdpPort = 9195,
+  # Optional: the folder `turtle-agent map` writes its run maps into; enables the read-only Agent maps tab.
+  [string]$AgentMapsDir = $env:TBDASH_AGENT_MAPS_DIR
 )
 $ErrorActionPreference = "Stop"
 $Repo = "Sagiroth/TortoiseBots"
@@ -141,6 +143,7 @@ if ($DbcDir) { $env:DBC_DIR = $DbcDir }
 $iconDir = if ($env:ICON_CACHE_DIR) { $env:ICON_CACHE_DIR } else { Join-Path $Here ".icon-cache" }
 New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
 $env:ICON_CACHE_DIR = $iconDir
+if ($AgentMapsDir) { $env:TBDASH_AGENT_MAPS_DIR = $AgentMapsDir }
 
 if (-not (Test-Path (Join-Path $Here "maps\*.webp"))) {
   Write-Host "note: no zone maps in $(Join-Path $Here 'maps'); generate them from your client: python $(Join-Path $Here 'scripts\gen_zone_maps.py') --data `"<WoW>\Data`""

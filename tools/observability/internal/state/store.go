@@ -9,6 +9,7 @@
 package state
 
 import (
+	"math"
 	"sort"
 	"sync"
 	"time"
@@ -127,6 +128,12 @@ type Store struct {
 	// commanders is the latest COMMANDERS payload (commanders.go): the
 	// standing remote-commander bindings behind the Commanders tab.
 	commanders commandersState
+
+	// dungeonSeen is when the daemon first saw each dungeon run (dungeons.go,
+	// issue #895) in this game-server session: "how long the run has been
+	// seen". Pruned to the runs of the fresh roster on each publish and
+	// cleared on a session change, like the roster it derives from.
+	dungeonSeen map[string]time.Time
 
 	// Activity rollup fed by the BOT_EVENTS datagrams: per-bot counters plus
 	// the pool-wide loot/quest/level feeds. Cleared with the roster.
@@ -557,13 +564,13 @@ func xpRateLocked(samples []xpSample, now time.Time) float64 {
 // grindingLocked builds the pool-wide "are they grinding" rollup. Kills come
 // from BOT_DEATH anomalies in the ring buffer (no new emitter counter), XP
 // from the derived per-bot rates, combat/travel from the roster itself.
-// Player rows are excluded: pool KPIs describe the bot pool, not whoever
-// happens to be logged in.
+// Player and autonomous-alt rows are excluded: pool KPIs describe the pool,
+// not whoever happens to be logged in or playing on their own (Issue #872).
 func (s *Store) grindingLocked(bots []model.BotSnapshot, now time.Time) model.GrindingSummary {
 	out := model.GrindingSummary{}
 	pool := bots[:0:0]
 	for _, b := range bots {
-		if !b.Player {
+		if !b.Player && !b.Alt {
 			pool = append(pool, b)
 		}
 	}
@@ -709,7 +716,8 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 		var trail []model.Coordinate
 		if !snap.Player {
 			if prev, ok := s.bots[snap.GUID]; ok &&
-				prev.snap.MapID == snap.MapID && prev.snap.ZoneID == snap.ZoneID {
+				prev.snap.MapID == snap.MapID && prev.snap.ZoneID == snap.ZoneID &&
+				!trailJump(prev.snap, snap, now.Sub(s.lastSnapshotAt)) {
 				trail = prev.trail
 			}
 			trail = appendTrail(trail, snap, s.cfg.TrailPoints)
@@ -736,6 +744,17 @@ func (s *Store) publishLocked(seq uint64, bots []model.BotSnapshot, now time.Tim
 		}
 	}
 	s.issues.Observe(bots, now)
+	s.noteDungeonsLocked(bots, now)
+}
+
+// trailJump reports whether a bot moved farther between two snapshots than walking or riding explains (a summon, a teleport, a spirit
+// release): its breadcrumb trail then starts over instead of drawing a straight line, through walls, to the new place. Same rule and
+// numbers as the Commanders trails (JumpLimitYd). gap is the time between the snapshots; unknown (the first cycle) counts as the cap.
+func trailJump(prev, cur model.BotSnapshot, gap time.Duration) bool {
+	if gap <= 0 || gap > time.Duration(TravelMaxGapSec)*time.Second {
+		gap = time.Duration(TravelMaxGapSec) * time.Second
+	}
+	return math.Hypot(prev.X-cur.X, prev.Y-cur.Y) > JumpLimitYd(gap.Seconds())
 }
 
 func appendTrail(trail []model.Coordinate, snap model.BotSnapshot, limit int) []model.Coordinate {
@@ -850,6 +869,7 @@ func (s *Store) beginSessionLocked(session uint64) {
 	s.issues.Reset()
 	s.issues.NoteSessionChange(s.now())
 	s.history = nil
+	s.dungeonSeen = make(map[string]time.Time)
 }
 
 // BackfillActivityFromDB merges authoritative lifetime quest completions,

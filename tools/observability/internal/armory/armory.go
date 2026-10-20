@@ -58,10 +58,21 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 	// Bot identity is the module's managed-account registry
 	// (tortoise_bots_pool_account), never a username prefix: a personal account
 	// whose name merely looks like a bot account is not a bot.
+	// Issue #872: the dashboard shows players and their alts too. Player
+	// characters are accounts NOT in the registry and NOT hired characters:
+	// two small indexed queries (players are few), never a scan. Hired
+	// characters live on pool accounts, so the registry half already
+	// separates them; the owned/personal half excludes the hire ledger so a
+	// hired character on a personal account never reads as a player.
 	sqlQuery := `
-		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online
+		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online,
+			CASE WHEN h.character_guid IS NOT NULL THEN 'hired'
+			     WHEN cl.bot_guid IS NOT NULL THEN 'claimed'
+			     ELSE 'pool' END
 		FROM characters c
 		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		LEFT JOIN tortoise_bots_hire h ON h.character_guid = c.guid
+		LEFT JOIN tortoise_bots_claimed cl ON cl.bot_guid = c.guid
 		WHERE c.deleteDate IS NULL
 	`
 
@@ -81,12 +92,49 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 	bots := []BotSummary{}
 	for rows.Next() {
 		var b BotSummary
-		if err := rows.Scan(&b.GUID, &b.Name, &b.Race, &b.Class, &b.Gender, &b.Level, &b.Money, &b.TotalTime, &b.Online); err != nil {
+		if err := rows.Scan(&b.GUID, &b.Name, &b.Race, &b.Class, &b.Gender, &b.Level, &b.Money, &b.TotalTime, &b.Online, &b.Kind); err != nil {
 			return nil, err
 		}
 		bots = append(bots, b)
 	}
 	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+
+	// Player characters: personal accounts outside the pool registry and
+	// outside the hire ledger. No item joins, one small query.
+	playerQuery := `
+		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online
+		FROM characters c
+		LEFT JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		LEFT JOIN tortoise_bots_hire h ON h.character_guid = c.guid
+		WHERE c.deleteDate IS NULL AND p.account_id IS NULL AND h.character_guid IS NULL
+	`
+	var pargs []interface{}
+	if query != "" {
+		playerQuery += " AND c.name LIKE ? ESCAPE '\\\\'"
+		pargs = append(pargs, "%"+likeEscape(query)+"%")
+	}
+	playerQuery += " ORDER BY c.name LIMIT 1000"
+
+	prows, err := s.db.Query(playerQuery, pargs...)
+	if err != nil {
+		return nil, err
+	}
+	defer prows.Close()
+	for prows.Next() {
+		var b BotSummary
+		if err := prows.Scan(&b.GUID, &b.Name, &b.Race, &b.Class, &b.Gender, &b.Level, &b.Money, &b.TotalTime, &b.Online); err != nil {
+			return nil, err
+		}
+		// Offline (or not yet seen live) player-account character: the
+		// roster join by guid upgrades this to player/alt/companion when
+		// live telemetry carries the row.
+		b.Kind = "own"
+		bots = append(bots, b)
+	}
+	if err := prows.Err(); err != nil {
 		return nil, err
 	}
 	s.resolveBotSpecs(bots)
@@ -96,18 +144,28 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 func (s *Service) GetBotProfile(guid uint32) (*BotProfile, error) {
 	var profile BotProfile
 
-	// 1. Identity: same columns the login query holder already loads; a bot is a
-	// character on a managed pool account (registry), not a name prefix.
+	// 1. Identity: same columns the login query holder already loads. Pool
+	// characters join the managed-account registry; player characters are any
+	// other undeleted character that is not a hire (Issue #872: the same
+	// profile view for players and alts, only the identity filter differs).
 	summaryQuery := `
-		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online
+		SELECT c.guid, c.name, c.race, c.class, c.gender, c.level, c.money, c.totaltime, c.online,
+			CASE WHEN p.account_id IS NOT NULL THEN
+				CASE WHEN h.character_guid IS NOT NULL THEN 'hired'
+				     WHEN cl.bot_guid IS NOT NULL THEN 'claimed'
+				     ELSE 'pool' END
+			ELSE 'own' END
 		FROM characters c
-		JOIN tortoise_bots_pool_account p ON p.account_id = c.account
-		WHERE c.guid = ? AND c.deleteDate IS NULL
+		LEFT JOIN tortoise_bots_pool_account p ON p.account_id = c.account
+		LEFT JOIN tortoise_bots_hire h ON h.character_guid = c.guid
+		LEFT JOIN tortoise_bots_claimed cl ON cl.bot_guid = c.guid
+		WHERE c.guid = ? AND c.deleteDate IS NULL AND (p.account_id IS NOT NULL OR h.character_guid IS NULL)
 	`
 	err := s.db.QueryRow(summaryQuery, guid).Scan(
 		&profile.Summary.GUID, &profile.Summary.Name, &profile.Summary.Race,
 		&profile.Summary.Class, &profile.Summary.Gender, &profile.Summary.Level,
-		&profile.Summary.Money, &profile.Summary.TotalTime, &profile.Summary.Online)
+		&profile.Summary.Money, &profile.Summary.TotalTime, &profile.Summary.Online,
+		&profile.Summary.Kind)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("bot %d not found", guid)

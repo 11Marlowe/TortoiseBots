@@ -11,7 +11,7 @@
 // (a bot's death edge in the frame sample, a boss corpse found by guid, the run
 // leader's plan); nothing here reads the database or scans the world, and the
 // JSON is rendered once, when the summary is written. Field meanings:
-// docs/guides/run-trace.md, "Summary fields for the dashboard".
+// docs/server/run-trace.md, "Summary fields for the dashboard".
 //
 // Every field is additive: the dashboard reads a summary tolerantly, and an
 // older summary without them still parses.

@@ -189,7 +189,7 @@ bool ShouldSpiritHealerValue::Calculate()
     //The corpse run stays the default; the stall and long-dead-time gates
     //below still rescue a genuinely stuck ghost.
     if (deathCount > DEATH_COUNT_BEFORE_REVIVING_AT_SPIRIT_HEALER &&
-        !ShouldSkipDeathCountSpiritHeal(bot->GetLevel(), sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster()))
+        !ShouldSkipDeathCountSpiritHeal(bot->GetLevel(), sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster()))
         return true;
 
     Corpse* corpse = bot->GetCorpse();

@@ -1,7 +1,7 @@
 #pragma once
 
 // Per-boss tactics table and its pure decision rules (opt-in, see
-// docs/guides/boss-tactics.md).
+// docs/play/boss-tactics.md).
 //
 // The rows live in the world table `ai_boss_tactic`, keyed by map + boss
 // creature entry, and are read ONCE at startup into BossTacticTable (loader:
@@ -10,7 +10,7 @@
 // side; the strategy "boss tactics" then applies it.
 //
 // Pattern: mod-playerbots' per-map raid strategies (trigger -> action per
-// boss mechanic) reimplemented as data rows; see docs/PROVENANCE.md.
+// boss mechanic) reimplemented as data rows; provenance in its PR.
 //
 // No core includes: callers translate game state into plain inputs so the
 // rules stay testable in tools/test_boss_tactics_policy.cpp. The table has

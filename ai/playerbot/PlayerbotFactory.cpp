@@ -25,6 +25,8 @@
 
 #include "strategy/ItemVisitors.h"
 #include "strategy/values/MountValues.h"
+#include "strategy/values/EmptySlotFillPolicy.h"
+#include "playerbot/MountShopPolicy.h"
 
 using namespace ai;
 
@@ -51,26 +53,6 @@ TortoiseBots::RangedAmmoKind RangedAmmoKindOf(ItemPrototype const* proto)
     return TortoiseBots::RangedAmmoKind::NoAmmo;
 }
 
-std::vector<std::pair<uint32, uint32>> const& CollectionMounts()
-{
-    static std::vector<std::pair<uint32, uint32>> mounts;
-    static bool loaded = false;
-    if (loaded)
-        return mounts;
-
-    loaded = true;
-    std::unique_ptr<QueryResult> result(WorldDatabase.Query("SELECT itemId, spellId FROM collection_mount"));
-    if (!result)
-        return mounts;
-
-    do
-    {
-        Field* fields = result->Fetch();
-        mounts.emplace_back(fields[0].GetUInt32(), fields[1].GetUInt32());
-    } while (result->NextRow());
-
-    return mounts;
-}
 }
 
 
@@ -256,7 +238,11 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     if ((bot->GetClass() == CLASS_HUNTER && bot->GetLevel() >= TortoiseBots::HUNTER_PET_MIN_LEVEL) ||
         bot->GetClass() == CLASS_WARLOCK)
     {
-        InitPet();
+        // Issue #1043: no pet save here. Each SavePetToDB is its own async
+        // transaction, and back-to-back saves of one pet ran in parallel on
+        // the character DB workers and hit "Duplicate entry" on character_pet.
+        // The hire provisioner saves the bot (and so the pet) once at the end.
+        InitPet(false);
         InitPetSpells();
     }
     // Issue #381: a hire at a level below the character's own (or a stale
@@ -265,7 +251,8 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     // rank the level still allows.
     PruneOverLevelSpellRanks();
     EnchantEquipment();
-    bot->SaveToDB();
+    // No SaveToDB here: the only caller (HireProvisionService::ProvisionHeavy)
+    // saves the bot once after its own gear step (issue #1043).
 }
 
 
@@ -490,7 +477,7 @@ void PlayerbotFactory::AddConsumables()
    }
 }
 
-void PlayerbotFactory::InitPet()
+void PlayerbotFactory::InitPet(bool saveToDb)
 {
     // Randomize a new pet (only for hunters)
     if (bot->GetClass() != CLASS_HUNTER)
@@ -574,7 +561,8 @@ void PlayerbotFactory::InitPet()
             bot->SetPetGuid(pet->getObjectGuid());
 
             sLog.outDebug(  "Bot %s: assign pet %d (%d level)", bot->GetName(), co->entry, bot->GetLevel());
-            pet->SavePetToDB(PET_SAVE_AS_CURRENT);
+            if (saveToDb)
+                pet->SavePetToDB(PET_SAVE_AS_CURRENT);
             bot->PetSpellInitialize();
             break;
         }
@@ -595,7 +583,8 @@ void PlayerbotFactory::InitPet()
         if (!petName.empty())
         {
             pet->SetName(petName);
-            pet->SavePetToDB(PET_SAVE_AS_CURRENT);
+            if (saveToDb)
+                pet->SavePetToDB(PET_SAVE_AS_CURRENT);
         }
     }
     else
@@ -1859,6 +1848,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                             Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
                             if (pItem)
                             {
+                                // Issue #960: EquipNewItem never rolls a suffix; when no suffix
+                                // scores for this spec (e.g. resistance-only jewelry groups),
+                                // roll one like loot instead of wearing it stat-less.
+                                if (!randomEnchBestId && proto->RandomProperty)
+                                    randomEnchBestId = Item::GenerateItemRandomPropertyId(newItemId);
                                 if (randomEnchBestId)
                                 {
                                     pItem->SetItemRandomProperties(randomEnchBestId);
@@ -1907,51 +1901,96 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             // The seed's quality band is level-derived, so quality degradation
             // cannot widen it — one round is the whole search on that path.
         } while (!found && !seedSpread && attempts < 3 && quality != ITEM_QUALITY_POOR);
-        if (!found && seedSpread && level < 30 &&
-            (slot == EQUIPMENT_SLOT_HEAD || slot == EQUIPMENT_SLOT_SHOULDERS ||
-             slot == EQUIPMENT_SLOT_NECK || slot == EQUIPMENT_SLOT_FINGER1 ||
-             slot == EQUIPMENT_SLOT_FINGER2 || slot == EQUIPMENT_SLOT_TRINKET1 ||
-             slot == EQUIPMENT_SLOT_TRINKET2 || slot == EQUIPMENT_SLOT_RANGED) &&
-            !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+        if (!found && !bot->GetItemByPos(INVENTORY_SLOT_BAG_0, slot) &&
+            slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD)
         {
-            // Low-level coverage (§9): the scored pools for these slots are
-            // thin at 10-29, so a usable item of the right slot/level beats
-            // an empty slot. Sweep every cached quality for the slot and
-            // take the first wearable, tier-passing candidate — no stat
-            // gate beyond wearable, no junk force-fill above 30. Empty
-            // slots only: never destroys anything.
-            for (uint32 q = ITEM_QUALITY_POOR; q <= ITEM_QUALITY_RARE && !found; ++q)
+            // Empty-slot backstop: a slot the normal pass left empty takes the
+            // best candidate that passes the same hard gates (required level,
+            // item-level cap, quality band, fresh-seed provenance, paired
+            // duplicate, game equip check). Stat weight is a preference, not a
+            // filter: weighted candidates for the spec are tried first, then
+            // every item the item info cache holds for the slot. Shirt and
+            // tabard are cosmetic and stay as they are. The slot is empty by the
+            // guard above, so nothing is destroyed.
+            EmptySlotGates gates;
+            gates.botLevel = bot->GetLevel();
+            gates.maxItemLevel = maxItemLevel;
+            gates.minQuality = level < 10 ? ITEM_QUALITY_POOR
+                : level < 20 ? ITEM_QUALITY_NORMAL
+                : ITEM_QUALITY_UNCOMMON;
+            gates.maxQuality = seedSpread ? ITEM_QUALITY_RARE : ITEM_QUALITY_ARTIFACT;
+            uint32 pairSlot = PairedSlot(slot);
+            // Cheap gates first: provenance and the equip check only run on
+            // candidates that already pass them.
+            auto collect = [&](RandomItemList const& ids, std::vector<EmptySlotCandidate>& out)
             {
-                std::vector<uint32> fallback = sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q);
-                Shuffle(fallback);
-                for (uint32 fallbackId : fallback)
+                for (uint32 fallbackId : ids)
                 {
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(fallbackId);
                     if (!proto)
                         continue;
-                    if (sRandomItemMgr.GetMinLevelFromCache(fallbackId) > (uint32)bot->GetLevel())
+                    // Caster off-hand on a melee class (Issue #219), as in the normal pass.
+                    if (slot == EQUIPMENT_SLOT_OFFHAND && proto->InventoryType == INVTYPE_HOLDABLE &&
+                        (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_HUNTER))
                         continue;
-                    if (!PassesSeedProvenance(bot, fallbackId))
+                    EmptySlotCandidate c;
+                    c.itemId = fallbackId;
+                    c.itemLevel = proto->ItemLevel;
+                    c.requiredLevel = sRandomItemMgr.GetMinLevelFromCache(fallbackId);
+                    c.quality = proto->Quality;
+                    // Novelty, toy and keepsake items (Mood Ring, Forever-Lovely Rose,
+                    // Steamwheedle Wormhole) do nothing when worn: skip them.
+                    c.hasEffect = proto->Armor > 0 || proto->Block > 0 || proto->Damage[0].DamageMax > 0 ||
+                        proto->HolyRes > 0 || proto->FireRes > 0 || proto->NatureRes > 0 ||
+                        proto->FrostRes > 0 || proto->ShadowRes > 0 || proto->ArcaneRes > 0;
+                    for (uint32 i = 0; i < MAX_ITEM_PROTO_STATS && !c.hasEffect; ++i)
+                        c.hasEffect = proto->ItemStat[i].ItemStatValue > 0;
+                    for (uint32 i = 0; i < MAX_ITEM_PROTO_SPELLS && !c.hasEffect; ++i)
+                        c.hasEffect = proto->Spells[i].SpellId != 0;
+                    Item* pairItem = pairSlot != EQUIPMENT_SLOT_END ? bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot) : nullptr;
+                    c.pairedDuplicate = pairItem && pairItem->GetEntry() == fallbackId;
+                    c.equippable = true;
+                    if (!EmptySlotAccepts(gates, c))
                         continue;
-                    uint32 pairSlot = PairedSlot(slot);
-                    if (pairSlot != EQUIPMENT_SLOT_END)
+                    c.passesProvenance = !seedSpread || PassesSeedProvenance(bot, fallbackId);
+                    if (!c.passesProvenance)
+                        continue;
+                    uint16 eDest = 0;
+                    c.equippable = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) == EQUIP_ERR_OK;
+                    if (c.equippable)
+                        out.push_back(c);
+                }
+            };
+            auto equipBest = [&](std::vector<EmptySlotCandidate> const& cands) -> bool
+            {
+                for (size_t idx : RankEmptySlotCandidates(gates, cands))
+                {
+                    uint32 const itemId = cands[idx].itemId;
+                    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+                    uint16 eDest = 0;
+                    if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, itemId) != EQUIP_ERR_OK)
+                        continue;
+                    if (Item* pItem = bot->EquipNewItem(eDest, itemId, true))
                     {
-                        Item* pairItem = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, pairSlot);
-                        if (pairItem && pairItem->GetEntry() == fallbackId)
-                            continue;
-                    }
-                    uint16 eDest;
-                    if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, fallbackId) != EQUIP_ERR_OK)
-                        continue;
-                    // Guarded empty above: equip directly, destroy nothing.
-                    if (bot->EquipNewItem(eDest, fallbackId, true))
-                    {
-                        sLog.outDetail("Bot #%d <%s>: slot %u low-level fallback equipped %u",
-                            bot->GetGUIDLow(), bot->GetName(), slot, fallbackId);
-                        found = true;
-                        break;
+                        // Issue #960: same suffix-blind create as the main loop above.
+                        if (proto->RandomProperty)
+                            pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(itemId));
+                        sLog.outDetail("Bot #%d <%s>: slot %u empty-slot backstop equipped %u (ilvl %u)",
+                            bot->GetGUIDLow(), bot->GetName(), slot, itemId, proto->ItemLevel);
+                        return true;
                     }
                 }
+                return false;
+            };
+            std::vector<EmptySlotCandidate> weighted;
+            for (uint32 q = gates.minQuality; q <= gates.maxQuality; ++q)
+                collect(sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), slot, q), weighted);
+            found = equipBest(weighted);
+            if (!found)
+            {
+                std::vector<EmptySlotCandidate> unweighted;
+                collect(sRandomItemMgr.GetSlotItemIds(slot), unweighted);
+                found = equipBest(unweighted);
             }
         }
         if (!found)
@@ -3386,77 +3425,48 @@ void PlayerbotFactory::InitMounts()
     if (bot->GetLevel() < firstmount)
         return;
 
+    // Ensure riding skill if missing: riding 75 at 40, riding 150 at 60.
+    if (bot->GetLevel() >= secondmount && bot->GetSkillValue(SKILL_RIDING) < 150)
+        bot->SetSkill(SKILL_RIDING, 150, 150);
+    else if (bot->GetLevel() >= firstmount && bot->GetSkillValue(SKILL_RIDING) < 75)
+        bot->SetSkill(SKILL_RIDING, 75, 75);
+
     std::map<uint8, std::map<uint32, std::vector<uint32> > > mounts;
     std::vector<uint32> slow, fast;
-    switch (bot->GetRace())
+
+    // Strict own-race racial vendor mounts (100%, no cross-race chance)
+    for (uint32 itemId : MountShopPolicy::GetRacialMounts(bot->GetRace(), MountShopPolicy::MountTier::Normal))
     {
-    case RACE_HUMAN:
-        slow = { 470, 6648, 458, 472 };
-        fast = { 23228, 23227, 23229 };
-        break;
-    case RACE_ORC:
-        slow = { 6654, 6653, 580 };
-        fast = { 23250, 23252, 23251 };
-        break;
-    case RACE_DWARF:
-        slow = { 6899, 6777, 6898 };
-        fast = { 23238, 23239, 23240 };
-        break;
-    case RACE_NIGHTELF:
-        slow = { 10789, 8394, 10793 };
-        fast = { 23221, 23219, 23338 };
-        break;
-    case RACE_UNDEAD:
-        slow = { 17463, 17464, 17462 };
-        fast = { 17465, 23246 };
-        break;
-    case RACE_TAUREN:
-        slow = { 18990, 18989 };
-        fast = { 23249, 23248, 23247 };
-        break;
-    case RACE_GNOME:
-        slow = { 10969, 17453, 10873, 17454 };
-        fast = { 23225, 23223, 23222 };
-        break;
-    case RACE_TROLL:
-        slow = { 8395, 10796, 10799 };
-        fast = { 23241, 23242, 23243 };
-        break;
-    default:
-        // Tortoise/custom races do not have a safe racial spell list in this
-        // donor-era switch. Leave the lists empty and rely only on the
-        // authoritative collection_mount rows below, whose item class/race
-        // masks are checked against the actual core character data.
-        sLog.outDetail("Bot %d (%u) has no donor racial mount list; using core collection mounts only.",
-            bot->GetGUIDLow(), bot->GetRace());
-        break;
+        if (uint32 spellId = MountValue::GetMountSpell(itemId))
+            slow.push_back(spellId);
+    }
+    for (uint32 itemId : MountShopPolicy::GetRacialMounts(bot->GetRace(), MountShopPolicy::MountTier::Epic))
+    {
+        if (uint32 spellId = MountValue::GetMountSpell(itemId))
+            fast.push_back(spellId);
     }
 
-    // Tortoise collection mounts are represented by a generic item spell and a
-    // core-owned collection_mount mapping. Include eligible mapped spells in
-    // the factory pool so randomized characters do not lose custom mounts
-    // merely because their item has no classic per-item mount spell. Factory
-    // initialization intentionally teaches the mapped spell, matching the
-    // existing classic factory mount path; real item use remains owned by the
-    // core collection spell script.
-    for (auto const& [itemId, spellId] : CollectionMounts())
+    if (sPlayerbotAIConfig.randomBotShopMounts)
     {
-        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
-        SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
+        for (auto const& [itemId, spellId] : CollectionMounts())
+        {
+            ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+            SpellEntry const* spellInfo = sServerFacade.LookupSpellInfo(spellId);
 
-        if (!proto || !spellInfo || MountValue::GetSpeed(spellId) == 0)
-            continue;
-        if (proto->RequiredLevel > bot->GetLevel())
-            continue;
-        if (proto->AllowableClass && (proto->AllowableClass & bot->GetClassMask()) == 0)
-            continue;
-        if (proto->AllowableRace && (proto->AllowableRace & bot->GetRaceMask()) == 0)
-            continue;
+            if (!proto || !spellInfo || MountValue::GetSpeed(spellId) == 0)
+                continue;
+            if (proto->RequiredLevel > bot->GetLevel())
+                continue;
+            if (proto->AllowableClass && (proto->AllowableClass & bot->GetClassMask()) == 0)
+                continue;
+            if (proto->AllowableRace && (proto->AllowableRace & bot->GetRaceMask()) == 0)
+                continue;
 
-        if (MountValue::GetSpeed(spellId) >= 100)
-            fast.push_back(spellId);
-        else
-            slow.push_back(spellId);
+            if (MountValue::GetSpeed(spellId) >= 100)
+                fast.push_back(spellId);
+            else
+                slow.push_back(spellId);
+        }
     }
 
     mounts[bot->GetRace()][0] = slow;

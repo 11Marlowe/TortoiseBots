@@ -14,6 +14,7 @@ echo ""
 echo "=== 2. Verifying Tortoise Core Module Surface ==="
 bash tools/verify_tortoise_surface.sh
 echo "✓ Module surface verified."
+python3 tools/check_eluna_guards.py
 
 echo ""
 echo "=== 3. Verifying Action & Trigger Wiring ==="
@@ -67,8 +68,10 @@ if command -v g++ >/dev/null 2>&1; then
     g++ -std=c++17 -Wall -Wextra -pedantic tools/test_log_file_rotation.cpp -o "${TMPDIR:-/tmp}/test_log_file_rotation"
     "${TMPDIR:-/tmp}/test_log_file_rotation" "${TMPDIR:-/tmp}"
     POLICY_TESTS=(
+        test_action_log_policy
         test_adaptive_budget
         test_ah_buyer_policy
+        test_alt_bot_policy
         test_ah_seller_teleport_policy
         test_ammo_cache_policy
         test_ammo_cheat_policy
@@ -89,12 +92,15 @@ if command -v g++ >/dev/null 2>&1; then
         test_boss_tactics_policy
         test_bot_area_trigger_policy
         test_bot_chat_gate
+        test_bot_appearance_policy
+        test_bot_kind_policy
         test_bot_command_queue
         test_bot_names_policy
         test_bot_turn_scheduler
         test_bwl_bundle1_policy
         test_caster_mana_policy
-        test_chromaggus_sand_policy
+        test_cast_keeps_running_policy
+        test_cast_while_moving_policy
         test_claimed_bot_policy
         test_class_consumable_policy
         test_combat_spread_policy
@@ -113,10 +119,12 @@ if command -v g++ >/dev/null 2>&1; then
         test_dungeon_plan_policy
         test_dungeon_run_policy
         test_dungeon_follow_stall_policy
+        test_empty_slot_fill_policy
         test_equip_threshold_policy
         test_fishing_spot_policy
         test_flamestrike_window_policy
         test_flight_errand_policy
+        test_formation_station_policy
         test_force_rebuff_policy
         test_four_horsemen_rotation_policy
         test_gather_spot_policy
@@ -145,6 +153,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hire_intro_policy
         test_hire_level_policy
         test_hire_master_policy
+        test_hire_raid_policy
         test_hire_respec_policy
         test_hire_quest_policy
         test_hire_spec_policy
@@ -154,6 +163,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_hire_unlock_sync
         test_hot_streak_policy
         test_human_bg_demand_policy
+        test_hunter_feign_death_policy
         test_hunter_pet_policy
         test_hunter_switch_policy
         test_hunter_viper_policy
@@ -163,6 +173,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_jump_policy
         test_kelthuzad_adds_policy
         test_ledge_step_down_policy
+        test_lft_comp_policy
         test_loatheb_spores_policy
         test_local_pick_policy
         test_long_stuck_rescue_policy
@@ -172,16 +183,19 @@ if command -v g++ >/dev/null 2>&1; then
         test_main_tank_policy
         test_mc_garr_shazzrah_policy
         test_mimic_consumable_policy
+        test_mount_dismount_policy
+        test_mount_shop_policy
         test_movement_mode_policy
         test_named_location_index
         test_nearby_service_policy
         test_onyxia_breath_policy
         test_onyxia_whelp_egg_policy
         test_ooc_rebirth_policy
-        test_ossirian_crystal_policy
+        test_open_follow_step_policy
         test_owned_bot_qol_policy
         test_party_help_policy
         test_pet_revive_policy
+        test_pet_spawn_policy
         test_pet_spell_rank_policy
         test_pet_taunt_policy
         test_pet_upkeep_policy
@@ -194,9 +208,10 @@ if command -v g++ >/dev/null 2>&1; then
         test_profession_grant_policy
         test_protection_potion_policy
         test_pull_firing_policy
+        test_pull_executor_policy
         test_pull_opening_policy
         test_pull_start_policy
-        test_pull_join_window_policy
+        test_pull_reach_policy
         test_pull_refusal_policy
         test_pull_regen_policy
         test_quest_giver_stall_policy
@@ -207,6 +222,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_quest_taker_level_policy
         test_queued_order_policy
         test_raid_framework_policy
+        test_raid_quest_chain_policy
         test_raid_tank_role_policy
         test_ranged_approach_policy
         test_razorgore_policy
@@ -216,6 +232,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_remote_commander_enter
         test_remote_commander_policy
         test_remote_commander_tasks
+        test_runner_finish_policy
         test_remote_commander_view
         test_resist_aura_policy
         test_retaliation_policy
@@ -232,6 +249,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_sapphiron_ice_policy
         test_seduction_policy
         test_service_trip_policy
+        test_set_behind_policy
         test_shaman_earth_shock_policy
         test_shaman_fire_gate_policy
         test_shaman_healer_dps_policy
@@ -250,6 +268,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_tank_add_pickup_policy
         test_taxi_path_policy
         test_thaddius_polarity_policy
         test_trade_lockbox_policy

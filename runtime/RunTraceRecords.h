@@ -7,14 +7,14 @@
 // Plain data and the standard library only, so tools/test_run_trace_records.cpp
 // builds it without a single game header. The world glue that fills the structs
 // is runtime/RunTrace.cpp; the file writer is runtime/RunTraceWriter.h. The
-// schema is documented in docs/guides/run-trace.md and scored offline by
+// schema is documented in docs/server/run-trace.md and scored offline by
 // tools/trace_score.py.
 //
 // Provenance: the record kinds, the flat one-object-per-line layout, the
 // "every record carries the run id" rule and the idea of scoring a run from its
 // trace come from mod-dungeon-clear's Pull Lab (jrad7/mod-dungeon-clear @
 // da0bdfbc, src/Lab/DcLabTrace.*, AGPL-3.0-or-later). This code is a
-// reimplementation for the 1.12 module, see docs/PROVENANCE.md.
+// reimplementation for the 1.12 module, provenance in its PR.
 //
 // File layout, one flat JSON object per line, `k` names the kind:
 //   header   once: run id, scope, interval, map, build

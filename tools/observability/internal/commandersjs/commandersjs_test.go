@@ -57,8 +57,39 @@ func TestDemoJS(t *testing.T) {
 	runCheck(t, "demo_check.js", "../../web/static/js/demo.js")
 }
 
-// TestDungeonsJS runs dungeons_check.js: the Dungeons tab and glance panel (formatting, empty states, boss table, wipe map), fed with the
-// daemon's real answers for the Go fixtures.
+// TestDungeonRunsJS runs dungeon_runs_check.js: the Dungeon runs tab and glance panel (formatting, empty states, boss table, wipe map), fed
+// with the daemon's real answers for the Go fixtures.
+func TestDungeonRunsJS(t *testing.T) {
+	runCheck(t, "dungeon_runs_check.js", "../../web/static/js/dungeon-runs.js")
+}
+
+// TestRefreshJS runs refresh_check.js: the refresh-rate picker's options, the choice saved per browser (also with a storage that throws)
+// and the gate that holds live updates to the chosen rate or freezes them while paused.
+func TestRefreshJS(t *testing.T) {
+	runCheck(t, "refresh_check.js", "../../web/static/js/refresh.js")
+}
+
+// TestRefreshWiringJS runs refresh_wiring_check.js: app.js sends the roster and Commanders updates through the gate, no timer polls while
+// paused, and the page loads refresh.js and offers the picker.
+func TestRefreshWiringJS(t *testing.T) {
+	runCheck(t, "refresh_wiring_check.js", "../../web/static/js/app.js")
+}
+
+// TestAgentMapsJS runs agentmaps_check.js: the Agent maps list (sizes, URL encoding, the viewer's sandbox and escaping a file name
+// that looks like markup).
+func TestAgentMapsJS(t *testing.T) {
+	runCheck(t, "agentmaps_check.js", "../../web/static/js/agentmaps.js")
+}
+
+// TestDungeonsJS runs dungeons_check.js: the Dungeons tab's run states, copy labels, party rows and raid subgroup blocks.
 func TestDungeonsJS(t *testing.T) {
-	runCheck(t, "dungeons_check.js", "../../web/static/js/dungeons.js")
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node is not installed")
+	}
+	out, err := exec.Command(node, "dungeons_check.js",
+		"../../web/static/js/commanders.js", "../../web/static/js/dungeons.js").CombinedOutput()
+	if err != nil {
+		t.Fatalf("dungeons_check.js failed: %v\n%s", err, out)
+	}
 }

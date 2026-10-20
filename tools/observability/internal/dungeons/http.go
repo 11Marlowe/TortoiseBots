@@ -9,7 +9,7 @@ import (
 // TraceHint is what the page tells an operator whose folder is empty.
 const TraceHint = "Set AiPlayerbot.RunTrace.Enabled = 1, then a GM starts a run with `.bot trace start <run_id>` and ends it with `.bot trace stop`."
 
-// ListView is the answer of GET /api/v1/dungeons.
+// ListView is the answer of GET /api/v1/dungeon-runs.
 type ListView struct {
 	Meta     Meta             `json:"meta"`
 	Hint     string           `json:"hint"`
@@ -17,7 +17,7 @@ type ListView struct {
 	Dungeons []DungeonSummary `json:"dungeons"`
 }
 
-// RunsView is the answer of GET /api/v1/dungeons/{map}/runs.
+// RunsView is the answer of GET /api/v1/dungeon-runs/{map}/runs.
 type RunsView struct {
 	Map    uint32    `json:"map"`
 	Name   string    `json:"name"`
@@ -39,10 +39,10 @@ func writeJSON(w http.ResponseWriter, v any) {
 
 // Register adds the two GET routes to mux. wrap is the dashboard's login check.
 func (ix *Index) Register(mux *http.ServeMux, wrap func(http.HandlerFunc) http.HandlerFunc) {
-	mux.HandleFunc("GET /api/v1/dungeons", wrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/dungeon-runs", wrap(func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, ListView{Meta: ix.Meta(), Hint: TraceHint, Facets: ix.Facets(), Dungeons: ix.Dungeons(filterOf(r))})
 	}))
-	mux.HandleFunc("GET /api/v1/dungeons/{map}/runs", wrap(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/v1/dungeon-runs/{map}/runs", wrap(func(w http.ResponseWriter, r *http.Request) {
 		id, err := strconv.ParseUint(r.PathValue("map"), 10, 32)
 		if err != nil || id == 0 {
 			http.Error(w, "Invalid map id", http.StatusBadRequest)

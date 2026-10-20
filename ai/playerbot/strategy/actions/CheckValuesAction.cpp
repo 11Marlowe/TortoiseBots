@@ -20,7 +20,7 @@ bool CheckValuesAction::isUseful()
     // (~26 s at 2000 bots), far past the 1 s list TTLs - pre-warming only
     // burns six grid scans per idle visit. Bots with a real player master,
     // group play and combat ticks re-read within the TTL, so they keep it.
-    if (sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster())
+    if (sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster())
         return false;
 
     return true;

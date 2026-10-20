@@ -1,5 +1,5 @@
 // Package dungeons indexes the run summaries the module's run trace recorder writes (`.bot trace`, runtime/RunTrace*,
-// docs/guides/run-trace.md) and answers the Dungeons tab: success rate, clear times, boss kill times, wipe spots.
+// docs/server/run-trace.md) and answers the Dungeon runs tab (GET /api/v1/dungeon-runs): success rate, clear times, boss kill times, wipe spots.
 //
 // It only reads files. It never touches a database and never writes. The summaries are read tolerantly: the recorder on
 // feat/dungeon-self-clear writes the run, status, map, duration and counters; the fields tracked in issue #986 (outcome, bosses,

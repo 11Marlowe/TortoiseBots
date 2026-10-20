@@ -4,6 +4,7 @@
 #include <unordered_set>
 #include "Config/Config.h"
 #include "Talentspec.h"
+#include "ActionLogPolicy.h"
 #include "LogFileRotation.h"
 #include "SharedDefines.h"
 #include "SystemConfig.h"
@@ -286,6 +287,10 @@ public:
     // off, so a bot levelling from 1 only gets a 40/60 mount when re-seeded.
     // Default true.
     bool levelUpMounts = true;
+    // Random bots ride racial mounts only by default: item-backed shop mounts
+    // (any race can use them, except the Swift Riding Turtle) are granted and
+    // chosen only when this is on. Player-owned alts are never gated. Default false.
+    bool randomBotShopMounts = false;
     // Safety factor on the mount break-even distance: bots mount for travel
     // only when the remaining trip exceeds
     // 7 y/s * castTime / (mountSpeed/100) * this. 0 disables the threshold
@@ -390,6 +395,11 @@ public:
     // Seconds a hired companion waits on guard after its master disconnects
     // before dismissing (default 300 = 5 minutes).
     uint32 hireDisconnectGracePeriod = 300;
+    // Issue #900: `.bot hire raid`. Class spread per role (round-robin) and
+    // the named presets; both are parsed at use, the defaults live in
+    // runtime/HireRaidPolicy.h and equal the shipped template.
+    std::string hireRaidSpread;
+    std::string hireRaidPresets;
     // Issue #490: static best-in-slot sets for level-60 hires (tiers 1-7).
     // The master switch gates the static pass; tier 0 always keeps today's
     // random hire gear. A player may hire at any tier from 0 up to the
@@ -457,7 +467,7 @@ public:
     // commander whose feed is on (`.bot commander view on|off`). Clamped to
     // 250..60000; default 1000.
     uint32 remoteCommanderViewMs = 1000;
-    // Run trace (docs/guides/run-trace.md): `.bot trace start <run_id>` records
+    // Run trace (docs/server/run-trace.md): `.bot trace start <run_id>` records
     // the party's bots as bt-trace v1 JSONL. Off by default; with 0 the command
     // answers that the feature is off.
     bool runTrace = false;
@@ -478,6 +488,11 @@ public:
     // Opt-in: pool warriors and rogues get no generic "flee" combat strategy
     // (panic / outnumbered / critical health no master) and fight on.
     bool poolMeleeHoldGround;
+    // Issue #872: an owned alt kicked from its owner's party keeps playing on
+    // its own (AltBotService). Off by default; the second key logs such alts
+    // out together with their owner instead of leaving them in the world.
+    bool altBots;
+    bool altBotsLogoutWithOwner;
     // Universal raid survival knobs (issue #201): bomb carriers run
     // BombRunoutDistance clear, spread/split steps use HazardEvasionDistance.
     float bombRunoutDistance = 30.0f, hazardEvasionDistance = 12.0f;
@@ -601,6 +616,13 @@ public:
     // log files (logs/bots/<name>_acc<id>_<timestamp>.log) are emitted. Default
     // off so production servers don't pay disk I/O / branch overhead.
     bool enableActionLog;
+    // Which bots get a per-bot file while enableActionLog is on (all |
+    // commanded | none), and how much the files may hold. Cleanup runs at
+    // startup and hourly; see ActionLogPolicy.h. 0 switches a limit off.
+    ai::botdiag::ActionLogScope actionLogScope;
+    uint32 actionLogMaxAgeDays;
+    uint32 actionLogMaxTotalMB;
+    uint32 actionLogMaxFileMB;
     // Opt-in aggregate counter of executed bot actions (Engine OK/FAILED/
     // IMPOSSIBLE outcomes keyed by bot class + action name), dumped every 5
     // minutes to logs/action_counts.csv. Default off so production servers

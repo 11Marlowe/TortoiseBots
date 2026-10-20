@@ -153,6 +153,7 @@ namespace ai
             creators["release loot"] = [](PlayerbotAI* ai) { return new ReleaseLootAction(ai); };
             creators["auto loot roll"] = [](PlayerbotAI* ai) { return new AutoLootRollAction(ai); };
             creators["follow"] = [](PlayerbotAI* ai) { return new FollowAction(ai); };
+            creators["formation station"] = [](PlayerbotAI* ai) { return new FormationStationAction(ai); };
             creators["stop follow"] = [](PlayerbotAI* ai) { return new StopFollowAction(ai); };
             creators["flee to master"] = [](PlayerbotAI* ai) { return new FleeToMasterAction(ai); };
             creators["runaway"] = [](PlayerbotAI* ai) { return new RunAwayAction(ai); };
@@ -162,6 +163,7 @@ namespace ai
             creators["attack least hp target"] = [](PlayerbotAI* ai) { return new AttackLeastHpTargetAction(ai); };
             creators["attack enemy player"] = [](PlayerbotAI* ai) { return new AttackEnemyPlayerAction(ai); };
             creators["pull my target"] = [](PlayerbotAI* ai) { return new PullMyTargetAction(ai); };
+            creators["pullback my target"] = [](PlayerbotAI* ai) { return new PullbackMyTargetAction(ai); };
             creators["pull rti target"] = [](PlayerbotAI* ai) { return new PullRTITargetAction(ai); };
             creators["pull nearest target"] = [](PlayerbotAI* ai) { return new PullNearestTargetAction(ai); };
             creators["pull start"] = [](PlayerbotAI* ai) { return new PullStartAction(ai); };

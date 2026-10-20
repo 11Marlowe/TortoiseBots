@@ -3,6 +3,7 @@
 #include "GuildManagementActions.h"
 #include "playerbot/ServerFacade.h"
 #include "runtime/BotActivityLease.h"
+#include "../../../runtime/AltBotService.h"
 
 using namespace ai;
 
@@ -212,7 +213,7 @@ bool GuildManageNearbyAction::Execute(Event& event)
                     ChatHandler::BuildChatPacket(data, bot->GetGroup()->IsRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY, line.c_str(), LANG_UNIVERSAL, CHAT_TAG_NONE, bot->getObjectGuid(), bot->GetName());
                     bot->GetGroup()->BroadcastPacket(&data, true);
                 }
-                else
+                else if (sPlayerbotAIConfig.enableBroadcasts)
                     bot->Say(line, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
         }
 
@@ -252,10 +253,22 @@ bool GuildLeaveAction::Execute(Event& event)
         ai->TellError(requester, "Sorry, I am happy in my guild :)");
         return false;
     }
+    // Issue #872 (F40): an autonomous alt stays in its guild; it never
+    // leaves on its own. The owner still may (their "guild leave" passes the
+    // chat gate); anyone else is refused here as well, so automation and
+    // trigger paths can never take it out either.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        owner && !ai->IsBotOwnerOrGm(*owner))
+    {
+        ai->TellError(requester, "Sorry, I am happy in my guild :)");
+        return false;
+    }
 
     Guild* guild = sGuildMgr.GetGuildById(bot->GetGuildId());
 
-    if (guild->GetMemberSize() > sPlayerbotAIConfig.guildMaxBotLimit)
+    // Issue #1108: the announcement is guild chat, the bot still leaves the
+    // guild either way.
+    if (sPlayerbotAIConfig.enableBroadcasts && guild->GetMemberSize() > sPlayerbotAIConfig.guildMaxBotLimit)
     {
         std::map<std::string, std::string> placeholders;
         placeholders["%guild_bot_limit"] = std::to_string(sPlayerbotAIConfig.guildMaxBotLimit);
