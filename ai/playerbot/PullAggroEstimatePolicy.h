@@ -2,19 +2,20 @@
 
 // Derived from jrad7/mod-dungeon-clear
 // src/Ai/Dungeon/DungeonClear/Util/DungeonClearMath.cpp:EstimateAggroCount
-// @ da0bdfbc (AGPL-3.0-or-later), rewritten for the vanilla 1.12 core and
-// TortoiseBots' plain-struct style. Not a verbatim copy: the donor's pack
-// identity, floor tolerance, elite weights and lone-patroller pass are replaced
-// by what this core really does (see the rules below).
+// @ da0bdfbc (AGPL-3.0-or-later; Copyright (C) 2026+ Jared Wright and
+// contributors), rewritten for the vanilla 1.12 core and TortoiseBots'
+// plain-struct style. Not a verbatim copy: the donor's pack identity, floor
+// tolerance, elite weights and lone-patroller pass are replaced by what this
+// core really does (see the rules below).
 //
 // Pure policy: how many hostile units would come if the tank pulls this one?
 //
 // The run leader pulls a pack with `pullback <guid>` and finds out only
-// afterwards that a neighbouring pack came too (turtle-agent#265, "the tank
-// does not hold threat": a second pack joins while the first is still being
-// picked up). This estimates it BEFORE the pull from the same rules the core
-// uses to wake a creature (src/game/Objects/Creature.cpp, CreatureGroups.cpp,
-// Group/CreatureLinkingMgr.cpp):
+// afterwards that a neighbouring pack came too (related to turtle-agent#265,
+// "the tank does not hold threat": a second pack joins while the first is
+// still being picked up; this does not fix the threat order itself). This
+// estimates it BEFORE the pull from the rules the core uses to wake a creature
+// (src/game/Objects/Creature.cpp, CreatureGroups.cpp, Group/CreatureLinkingMgr.cpp):
 //
 //   1. The target itself comes, and with it its whole pack: creature_groups
 //      members flagged "aggro together" share a groupId, and creature_linking
@@ -28,23 +29,27 @@
 //      times Rate.Creature.Aggro. The LOWEST party level gives the widest
 //      radius, so that is the one used. The distance is the plain 3D distance
 //      to where the party stands when the pull starts (the engage point),
-//      widened by `spreadYd` for players drifting during the fight. Creatures
-//      with no line of sight from the target, or flagged "no aggro", do not
-//      wake this way.
+//      widened by `spreadYd` for players drifting during the fight. A creature
+//      with no line of sight between it and the engage point (`partySees`), or
+//      flagged "no aggro", does not wake this way.
 //   3. One family-assistance hop (Creature::CallAssistance): each creature that
 //      woke by being attacked (the target and the proximity wakers, NOT the
-//      pack members dragged in by 1) calls creatures of the SAME faction template
-//      within CreatureFamilyAssistanceRadius (10 yd by default; the larger of
-//      that and the caller's own call-for-help range) that are not in a fight,
-//      not "no assist" and not "no aggro". The assisted do not call in turn.
+//      pack members dragged in by rule 1) calls creatures of the SAME faction
+//      template within CreatureFamilyAssistanceRadius (10 yd by default) that
+//      are not in a fight, not "no assist" and not "no aggro". The assisted do
+//      not call in turn.
 //   4. Pack closure once more: an assisted creature that belongs to a pack
 //      drags its pack in (it does not start another assist hop).
 //
-// Not modelled (documented limits, they make the estimate low, never high):
-// the call-for-help chain a dragged creature makes along the walk back, a
-// patroller that is somewhere else when the pull starts, auras that change the
-// aggro radius, and friendly-but-different faction templates (only an equal
-// template assists).
+// APPROXIMATE: the estimate can be high or low.
+//   It can be HIGH because: the 3 yd of drift widens every radius, and assist
+//   needs the caller to see the assisted creature but only the pulled
+//   creature's sight of it (`seen`) is read, not each caller's.
+//   It can be LOW because: the call-for-help chain a dragged creature makes
+//   along the walk back, a patroller that is somewhere else when the pull
+//   starts, auras that change the aggro radius, friendly-but-different faction
+//   templates (only an equal template assists) and pack members outside the
+//   glue's scan are not modelled.
 //
 // A lone patroller is the one thing a human waits out: `bodiesIfPatrolsPass`
 // is the estimate with every patroller that is in no pack (and not the target)
@@ -77,10 +82,11 @@ namespace ai
         float detectionYd = kAggroDetectionYd; // Creature::GetDetectionRange (0 = never wakes by proximity)
         std::uint32_t faction = 0;             // faction template id (family assistance needs an equal one)
         std::uint32_t groupId = 0;             // creature_groups "aggro together": equal non-zero ids pull as one
-        float callForHelpYd = 0.0f;            // its own call-for-help range (0: none)
         bool noAggro = false;                  // never wakes by proximity or assist (CREATURE_FLAG_EXTRA_NO_AGGRO)
         bool noAssist = false;                 // never joins by assist (CREATURE_FLAG_EXTRA_NO_ASSIST)
-        bool seen = true;                      // line of sight from the target (proximity and assist need it)
+        bool partySees = true;                 // line of sight between it and the engage point (proximity needs it)
+        bool seen = true;                      // line of sight between it and the pulled creature (stands in for the
+                                               // caller's sight of it, which assist needs)
         bool patroller = false;                // a waypoint mover
     };
 
@@ -186,7 +192,7 @@ namespace ai
             caller[target] = 1;
             for (std::size_t i = 0; i < n; ++i)
             {
-                if (absent(i) || !mobs[i].seen)
+                if (absent(i) || !mobs[i].partySees)
                     continue;
                 float const reach = AggroRadius(mobs[i], p.lowestPartyLevel, p.aggroRate);
                 if (reach > 0.0f &&
@@ -205,7 +211,7 @@ namespace ai
                 {
                     if (!caller[i] || mobs[i].faction != mobs[j].faction)
                         continue;
-                    float const radius = std::max(p.familyAssistYd, mobs[i].callForHelpYd);
+                    float const radius = p.familyAssistYd;
                     if (Dist3(mobs[i].x, mobs[i].y, mobs[i].z, mobs[j].x, mobs[j].y, mobs[j].z) <= radius)
                     {
                         in[j] = 1;

@@ -4155,12 +4155,44 @@ static void TestAggroEstimateHoldsOnceForARest()
     CHECK(Tick(fight, f).empty());
     CHECK(!fight.joinerRest && fight.phase != Phase::Rest && fight.fighting);
 
+    // A normal rest after a joiner rest counts as idle time again.
+    {
+        f.anyInCombat = false;
+        f.units = {Joiners(31, 4852, 54.7f, 7)};
+        f.minHealthPct = 85;
+        Run x = Start(&plan);
+        Tick(x, f);
+        CHECK(Tick(x, f) == "rest" && x.restForJoiners);
+        f.minHealthPct = 100;
+        for (int i = 0; i < 3 && x.phase == Phase::Rest; ++i)
+            Tick(x, f);
+        CHECK(x.phase != Phase::Rest);
+        f.minHealthPct = 60;
+        x.restDue = true;
+        x.phase = Phase::Begin;
+        CHECK(Tick(x, f) == "rest" && x.phase == Phase::Rest && !x.restForJoiners);
+        f.minHealthPct = 85;
+        // ... and so does a meal wait.
+        Run y = Start(&plan);
+        Tick(y, f);
+        Tick(y, f);
+        CHECK(y.restForJoiners && y.phase == Phase::Rest);
+        y.phase = Phase::Begin;
+        f.eating = 1;
+        Tick(y, f);
+        CHECK(y.phase == Phase::Rest && y.restForEating && !y.restForJoiners);
+        f.eating = 0;
+    }
+
     // A step's reset (also a resume) forgets the hold.
     Run reset = Start(&plan);
     f.anyInCombat = false;
     CHECK(Tick(reset, f).empty() && reset.joinerRest && !reset.joinerHeld.empty());
     ResetStep(reset);
+    reset.joinerRests = 2;
+    ResetStep(reset);
     CHECK(!reset.joinerRest && reset.joinerHeld.empty() && reset.joinerNote.empty());
+    CHECK(reset.joinerRests == 0 && !reset.restForJoiners);
 
     // The nearest unit is the one judged: a quiet pick goes out, and the
     // loud one is held when it is picked.
@@ -4170,6 +4202,52 @@ static void TestAggroEstimateHoldsOnceForARest()
     CHECK(Tick(two, f) == "pullback 32");
 }
 
+
+// Six loud packs in one pull step: the joiner rests (60 s each when the party
+// stays under the end lines) are not step idle time and are three a step, so
+// the run neither pauses on the 300 s idle ceiling nor rests a fourth time.
+static void TestJoinerRestsAreBudgetedAndNotIdleTime()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    f.minHealthPct = 85; // above the start lines, under the end lines: it never gets rested
+    std::vector<UnitFact> alive;
+    for (std::uint64_t g = 31; g <= 36; ++g)
+        alive.push_back(Joiners(g, 4852, 40.0f + static_cast<float>(g), 9));
+    int rests = 0;
+    std::vector<std::string> notes;
+    for (std::size_t unit = 0; unit < 6; ++unit)
+    {
+        f.units = std::vector<UnitFact>(alive.begin() + static_cast<long>(unit), alive.end());
+        f.anyInCombat = false;
+        std::string order;
+        Phase prev = r.phase;
+        for (int i = 0; i < 400 && order.compare(0, 9, "pullback ") != 0; ++i)
+        {
+            order = Tick(r, f);
+            if (r.phase == Phase::Rest && prev != Phase::Rest)
+                ++rests;
+            prev = r.phase;
+            CHECK(r.state == State::Running);
+        }
+        CHECK(order == "pullback " + std::to_string(31 + unit));
+        notes.push_back(r.note);
+        f.anyInCombat = true;
+        for (int i = 0; i < 3; ++i)
+            Tick(r, f);
+        CHECK(r.state == State::Running);
+    }
+    CHECK(rests == 3);
+    CHECK(r.joinerRests == 3);
+    CHECK(notes[3] == "9 joiners expected, rest budget used");
+    CHECK(notes[5] == "9 joiners expected, rest budget used");
+    CHECK(notes[0] != notes[3]);
+    // 180 s of joiner rest are not idle time.
+    CHECK(r.stepIdleMs < kStepIdleCapMs / 2);
+}
 
 int main()
 {
@@ -4287,6 +4365,7 @@ int main()
     TestRegroupGatherCapScales();
     TestAggroEstimateOffChangesNothing();
     TestAggroEstimateHoldsOnceForARest();
+    TestJoinerRestsAreBudgetedAndNotIdleTime();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

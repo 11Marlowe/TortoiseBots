@@ -193,8 +193,11 @@ int main()
         // No line of sight, no aggro flag, no detection: stays asleep.
         mobs[1] = Mob(5.0f, 0.0f);
         CHECK(Bodies(mobs) == 2);
-        mobs[1].seen = false;
+        mobs[1].partySees = false; // no sight between it and the engage point
         CHECK(Bodies(mobs) == 1);
+        mobs[1].partySees = true;
+        mobs[1].seen = false; // the pulled creature not seeing it does not keep it asleep
+        CHECK(Bodies(mobs) == 2);
         mobs[1].seen = true;
         mobs[1].noAggro = true;
         CHECK(Bodies(mobs) == 1);
@@ -224,20 +227,19 @@ int main()
         mobs[1].noAggro = true;
         CHECK(Bodies(mobs) == 1);
         mobs[1].noAggro = false;
-        // Out of sight of the target.
+        // Out of sight of the pulled creature.
         mobs[1].seen = false;
         CHECK(Bodies(mobs) == 1);
         mobs[1].seen = true;
+        // The party's sight of it does not matter for an assist.
+        mobs[1].partySees = false;
+        CHECK(Bodies(mobs) == 2);
+        mobs[1].partySees = true;
         // The configured radius is read: 10 yd by default.
         mobs[1].x = 112.0f;
         AggroEstimateParams wide = Params();
         wide.familyAssistYd = 13.0f;
         CHECK(Bodies(mobs, wide) == 2);
-        // A caller's own, longer call-for-help range counts (the larger of the two) ...
-        mobs[0].callForHelpYd = 14.0f;
-        CHECK(Bodies(mobs) == 2);
-        // ... a shorter one does not shrink the family radius.
-        mobs[0].callForHelpYd = 5.0f;
         mobs[1].x = 108.0f;
         CHECK(Bodies(mobs) == 2);
     }

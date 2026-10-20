@@ -323,13 +323,16 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("f.joinerCeiling = sPlayerbotAIConfig.dungeonRunAggroEstimate ? "
                       "sPlayerbotAIConfig.dungeonRunAggroCeiling : 0;", read)
         self.assertIn("if (step->kind == ai::PlanStepKind::Pull)\n"
-                      "                ReadPullJoiners(lead, bots, *step, toPoint, f.joinerCeiling, f);", read)
+                      "                ReadPullJoiners(lead, bots, *step, toPoint, f.joinerCeiling, slot.run.joinerHeld, f);", read)
         joiners = body(COMMANDS, "void ReadPullJoiners(", "\n}\n")
         self.assertIn("if (!ceiling || f.units.empty())\n        return;", joiners)
         self.assertIn("ai::EstimateAggro(mobs, it->second, params)", joiners)
         self.assertIn("ai::JoinersOverCeiling(estimate, ceiling);", joiners)
         self.assertIn("sCreatureLinkingMgr.GetLinkedTriggerInformation(", joiners)
         self.assertIn("group->HasGroupFlag(OPTION_AGGRO_TOGETHER)", joiners)
+        self.assertIn("creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ)", joiners)
+        self.assertIn("held.count(unit.guid)", joiners)
+        self.assertIn("&& !toMaster", joiners)
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
         self.assertIn('"AiPlayerbot.DungeonRunAggroEstimate", false', config)
@@ -338,7 +341,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("AiPlayerbot.DungeonRunAggroCeiling = 6", template)
         header = (ROOT / "ai/playerbot/PullAggroEstimatePolicy.h").read_text()
         self.assertIn("jrad7/mod-dungeon-clear", header)
-        self.assertIn("@ da0bdfbc (AGPL-3.0-or-later)", header)
+        self.assertIn("@ da0bdfbc (AGPL-3.0-or-later;", header)
+        self.assertIn("Copyright (C) 2026+ Jared Wright and", header)
 
 
 if __name__ == "__main__":

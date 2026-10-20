@@ -9516,7 +9516,7 @@ constexpr float kAggroEngageYd = 30.0f;  // how close to the pulled creature the
 constexpr float kAggroScanYd = 40.0f;    // hostiles read beyond the step's radius (the widest aggro radius is ~45 yd)
 
 void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanStep const& step, float toPoint,
-    uint32 ceiling, TortoiseBots::DungeonRun::Facts& f)
+    uint32 ceiling, std::unordered_set<std::uint64_t> const& held, TortoiseBots::DungeonRun::Facts& f)
 {
     if (!ceiling || f.units.empty())
         return;
@@ -9568,22 +9568,29 @@ void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanSte
         CreatureLinkingInfo const* info = sCreatureLinkingMgr.GetLinkedTriggerInformation(creatures[i]);
         if (!info)
             continue;
+        bool toMaster = false;
         for (std::size_t j = 0; j < creatures.size(); ++j)
         {
             bool const isMaster = j != i && (info->masterDBGuid ? creatures[j]->GetGUIDLow() == info->masterDBGuid
                                                                  : creatures[j]->GetEntry() == info->masterId);
             if (!isMaster || (info->searchRange && creatures[i]->GetDistance(creatures[j]) > info->searchRange))
                 continue;
+            // Every master in range wakes the slave; a slave wakes only the FIRST master in range (the core's
+            // LINKING_EVENT_AGGRO reverse case breaks on the first).
             if (info->linkingFlag & FLAG_AGGRO_ON_AGGRO)
                 params.links.push_back(ai::AggroLink{j, i});
-            if (info->linkingFlag & FLAG_TO_AGGRO_ON_AGGRO)
+            if ((info->linkingFlag & FLAG_TO_AGGRO_ON_AGGRO) && !toMaster)
+            {
                 params.links.push_back(ai::AggroLink{i, j});
+                toMaster = true;
+            }
         }
     }
     for (TortoiseBots::DungeonRun::UnitFact& unit : f.units)
     {
+        // A unit that already had its rest this step is not judged again (its raycasts are saved).
         auto const it = index.find(unit.guid);
-        if (it == index.end())
+        if (it == index.end() || held.count(unit.guid))
             continue;
         Creature* target = creatures[it->second];
         // Where the tank stands as it pulls back: here, or kAggroEngageYd short of the creature.
@@ -9592,11 +9599,19 @@ void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanSte
         params.engageX = target->GetPositionX() + (lead->GetPositionX() - target->GetPositionX()) * k;
         params.engageY = target->GetPositionY() + (lead->GetPositionY() - target->GetPositionY()) * k;
         params.engageZ = target->GetPositionZ() + (lead->GetPositionZ() - target->GetPositionZ()) * k;
-        // Sight is read from the pulled creature, only for those near enough to matter.
+        // Sight, only where it can change the answer (a raycast each): a creature wakes by itself when it sees the
+        // engage point inside its aggro radius, so that is read from the creature (the core's MoveInLineOfSight);
+        // assist needs the caller to see the assisted one, for which the pulled creature's sight of it, within the
+        // assist range of it, stands in.
         for (std::size_t i = 0; i < creatures.size(); ++i)
         {
             ai::AggroMob& m = mobs[i];
-            m.seen = i == it->second || target->GetDistance(creatures[i]) > 60.0f || target->IsWithinLOSInMap(creatures[i]);
+            float const dx = m.x - params.engageX, dy = m.y - params.engageY, dz = m.z - params.engageZ;
+            float const reach = ai::AggroRadius(m, params.lowestPartyLevel, params.aggroRate) + params.spreadYd;
+            m.partySees = i == it->second || dx * dx + dy * dy + dz * dz > reach * reach ||
+                creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ);
+            m.seen = i == it->second || target->GetDistance(creatures[i]) > params.familyAssistYd ||
+                target->IsWithinLOSInMap(creatures[i]);
         }
         ai::AggroEstimate estimate = ai::EstimateAggro(mobs, it->second, params);
         ai::JoinersOverCeiling(estimate, ceiling);
@@ -9810,7 +9825,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 }
             }
             if (step->kind == ai::PlanStepKind::Pull)
-                ReadPullJoiners(lead, bots, *step, toPoint, f.joinerCeiling, f);
+                ReadPullJoiners(lead, bots, *step, toPoint, f.joinerCeiling, slot.run.joinerHeld, f);
             break;
         }
         case ai::PlanStepKind::Move:
