@@ -153,6 +153,88 @@ func (s *Store) freshDungeonMobs() map[string]dungeonMobsEntry {
 	return out
 }
 
+// matchDungeonMobs pairs fresh DUNGEON_MOBS entries with the roster runs they
+// describe, returning run index -> entry.
+//
+// A run whose roster reports a non-zero instance is matched by (map, instance)
+// only. A run whose roster reports no instance (the pre-#895 module base: the
+// live game server sends instance ids in DUNGEON_MOBS but not in BOT_BATCH) is
+// matched by map AND at least one shared member guid — never by map alone — and
+// only when exactly one roster run on that map matches; two candidates are
+// ambiguous and nothing is joined. Each datagram run joins at most one roster
+// run, and each roster run takes at most one datagram run.
+func matchDungeonMobs(runs []model.DungeonRun, entries map[string]dungeonMobsEntry) map[int]dungeonMobsEntry {
+	out := make(map[int]dungeonMobsEntry)
+	if len(runs) == 0 || len(entries) == 0 {
+		return out
+	}
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	usedRun := make([]bool, len(runs))
+	usedEntry := make(map[string]bool, len(entries))
+
+	// The roster knows the copy: its (map, instance) key is authoritative.
+	for _, key := range keys {
+		e := entries[key]
+		for i := range runs {
+			if usedRun[i] || runs[i].Instance == 0 || runs[i].MapID != e.run.Map || runs[i].Instance != e.run.Instance {
+				continue
+			}
+			out[i] = e
+			usedRun[i] = true
+			usedEntry[key] = true
+			break
+		}
+	}
+
+	// The roster reports no instance: map plus a shared member guid, and only
+	// an unambiguous match.
+	for _, key := range keys {
+		if usedEntry[key] {
+			continue
+		}
+		e := entries[key]
+		candidates := make([]int, 0, 1)
+		for i := range runs {
+			if usedRun[i] || runs[i].Instance != 0 || runs[i].MapID != e.run.Map {
+				continue
+			}
+			if sharesDungeonMember(runs[i].Members, e.run.Members) {
+				candidates = append(candidates, i)
+			}
+		}
+		if len(candidates) != 1 {
+			continue // none, or ambiguous: two roster runs share a member with it
+		}
+		out[candidates[0]] = e
+		usedRun[candidates[0]] = true
+		usedEntry[key] = true
+	}
+	return out
+}
+
+// sharesDungeonMember reports whether a roster run and a DUNGEON_MOBS run have
+// at least one member guid in common (both are low guids of the same unit).
+func sharesDungeonMember(members []model.DungeonMember, mobMembers []model.DungeonMobsMember) bool {
+	if len(members) == 0 || len(mobMembers) == 0 {
+		return false
+	}
+	have := make(map[uint32]bool, len(mobMembers))
+	for _, m := range mobMembers {
+		have[m.GUID] = true
+	}
+	for _, m := range members {
+		if have[m.GUID] {
+			return true
+		}
+	}
+	return false
+}
+
 // joinDungeonMobs adds a fresh DUNGEON_MOBS entry to one run view: the
 // members' ids and targets by guid, and the mob list (a reported-empty list
 // stays a non-nil empty slice, so the page knows the layers have data).

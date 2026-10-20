@@ -206,10 +206,14 @@ func (s *Store) Dungeons() model.DungeonsView {
 			run.SeenSec = now.Sub(first).Seconds()
 		}
 		sortRunMembers(run.Members)
-		if e, ok := mobs[key]; ok {
-			joinDungeonMobs(&run, e)
-		}
 		runs = append(runs, run)
+	}
+
+	// Match the mob entries onto the runs only now that every run is known:
+	// the roster may report no instance (a module base without #895), where
+	// the match needs the members, and ambiguity is judged per entry.
+	for i, e := range matchDungeonMobs(runs, mobs) {
+		joinDungeonMobs(&runs[i], e)
 	}
 
 	return model.DungeonsView{Runs: runs, GeneratedAt: now.Unix(), StaleModule: staleModule}
