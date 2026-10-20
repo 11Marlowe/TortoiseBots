@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -341,5 +343,149 @@ func TestHandleFileSizeCap(t *testing.T) {
 	}
 	if rec := get(d.HandleFile, FilePrefix+"big.svg"); rec.Code != 200 {
 		t.Fatalf("map at the cap -> %d", rec.Code)
+	}
+}
+
+// The pre-open Lstat is authoritative: a symbolic link swapped in after it must not be followed, even though the link resolves
+// to a file outside the folder.
+func TestHandleFileRefusesSymlinkSwappedAfterCheck(t *testing.T) {
+	dir, d := fixture(t)
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.svg")
+	write(t, outside, "secret.svg", "<svg>SECRET</svg>")
+	target := filepath.Join(dir, "run-f2.svg")
+	var once sync.Once
+	testHookBeforeOpen = func(path string) {
+		if path != target {
+			return
+		}
+		once.Do(func() {
+			if err := os.Remove(target); err != nil {
+				t.Errorf("remove: %v", err)
+				return
+			}
+			if err := os.Symlink(secret, target); err != nil {
+				t.Errorf("symlink: %v", err)
+			}
+		})
+	}
+	t.Cleanup(func() { testHookBeforeOpen = nil })
+	rec := get(d.HandleFile, FilePrefix+"run-f2.svg")
+	if rec.Code != 404 {
+		t.Fatalf("swapped symlink -> %d %q", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "SECRET") {
+		t.Fatalf("swapped symlink leaked a file: %q", rec.Body)
+	}
+}
+
+// ServeContent measures a file by seeking, so a file that grows after the check would stream past MaxFileSize. The response must
+// stay at the checked size.
+func TestHandleFileServesAtMostTheCheckedSize(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "grow.svg", "ORIGINAL")
+	d, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testHookAfterStat = func(path string) {
+		if filepath.Base(path) != "grow.svg" {
+			return
+		}
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Errorf("open for append: %v", err)
+			return
+		}
+		if _, err := f.WriteString("LIAR-LIAR"); err != nil {
+			t.Errorf("append: %v", err)
+		}
+		_ = f.Close()
+	}
+	t.Cleanup(func() { testHookAfterStat = nil })
+	rec := get(d.HandleFile, FilePrefix+"grow.svg")
+	if rec.Code != 200 {
+		t.Fatalf("grow -> %d", rec.Code)
+	}
+	if rec.Body.String() != "ORIGINAL" || rec.Header().Get("Content-Length") != "8" {
+		t.Fatalf("served %q with length %q, want the checked bytes", rec.Body, rec.Header().Get("Content-Length"))
+	}
+}
+
+// The stored root path is not proof: a folder renamed away and replaced by a symlink to another directory must stop both
+// endpoints, instead of serving the replacement's files.
+func TestRefusesWhenTheFolderPathIsReplaced(t *testing.T) {
+	parent := t.TempDir()
+	dir := filepath.Join(parent, "maps")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "run.svg", "<svg>inside</svg>")
+	d, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	write(t, outside, "run.svg", "<svg>SECRET</svg>")
+	moved := dir + "-moved"
+	if err := os.Rename(dir, moved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, dir); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	if rec := get(d.HandleList, ListPrefix); rec.Code != 404 {
+		t.Fatalf("list after root replacement -> %d %q", rec.Code, rec.Body)
+	}
+	rec := get(d.HandleFile, FilePrefix+"run.svg")
+	if rec.Code != 404 || strings.Contains(rec.Body.String(), "SECRET") {
+		t.Fatalf("file after root replacement -> %d %q", rec.Code, rec.Body)
+	}
+	if entries := d.List(); len(entries) != 0 {
+		t.Fatalf("List after root replacement = %+v", entries)
+	}
+}
+
+// The probe's race loop: alternate the served name between a regular file and a symlink to an outside secret and require that no
+// request ever returns the secret.
+func TestHandleFileNeverServesAnOutsideSymlinkUnderRaces(t *testing.T) {
+	dir := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.svg")
+	write(t, outside, "secret.svg", "SECRET-OUTSIDE")
+	write(t, dir, "reg", "<svg>inside</svg>")
+	target := filepath.Join(dir, "a.svg")
+	reg := filepath.Join(dir, "reg")
+	if err := os.Link(reg, target); err != nil {
+		t.Skipf("no hard links here: %v", err)
+	}
+	d, err := New(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stop atomic.Bool
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for !stop.Load() {
+			_ = os.Link(reg, filepath.Join(dir, "tmp1"))
+			_ = os.Rename(filepath.Join(dir, "tmp1"), target)
+			_ = os.Symlink(secret, filepath.Join(dir, "tmp2"))
+			_ = os.Rename(filepath.Join(dir, "tmp2"), target)
+		}
+	}()
+	deadline := time.Now().Add(time.Second)
+	leaks, n := 0, 0
+	for time.Now().Before(deadline) {
+		n++
+		rec := get(d.HandleFile, FilePrefix+"a.svg")
+		if strings.Contains(rec.Body.String(), "SECRET-OUTSIDE") {
+			leaks++
+		}
+	}
+	stop.Store(true)
+	<-done
+	if leaks != 0 {
+		t.Fatalf("%d of %d requests served the outside file", leaks, n)
 	}
 }

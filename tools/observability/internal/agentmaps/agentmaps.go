@@ -14,6 +14,8 @@ package agentmaps
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -117,8 +119,40 @@ func (d *Dir) inside(path string) bool {
 	return filepath.Dir(path) == d.root
 }
 
+// Test hooks, set only by tests: called after the pre-open Lstat (so a test can replace the validated path before it is opened)
+// and after the opened file is measured (so a test can grow it before it is served).
+var (
+	testHookBeforeOpen func(string)
+	testHookAfterStat  func(string)
+)
+
+// rootOK re-resolves the configured folder and requires it to still be the canonical directory New found at startup. The stored
+// path alone is not proof: if the folder is renamed away and its path replaced by a symlink to another directory, every child
+// path would follow that link. Refusing here keeps listing and serving to the folder the operator started the daemon with.
+func (d *Dir) rootOK() bool {
+	if d == nil {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(d.root)
+	if err != nil {
+		log.Printf("[AgentMaps] refusing %s: cannot re-resolve the folder: %v", d.root, err)
+		return false
+	}
+	if resolved != d.root {
+		log.Printf("[AgentMaps] refusing %s: the folder now resolves to %s, not the %s it was at startup", d.root, resolved, d.root)
+		return false
+	}
+	st, err := os.Stat(resolved)
+	if err != nil || !st.IsDir() {
+		log.Printf("[AgentMaps] refusing %s: it is no longer a directory", d.root)
+		return false
+	}
+	return true
+}
+
 // path is the regular file of a served name, or "" for a name that is not one. A symbolic link is followed only when it resolves to
-// a regular file directly inside the folder, so nothing outside it can be reached through one.
+// a regular file directly inside the folder, so nothing outside it can be reached through one; the target (never the link) is
+// what the caller opens, and it starts life under the same checks.
 func (d *Dir) path(name string) string {
 	if d == nil || !validName(name) {
 		return ""
@@ -136,7 +170,7 @@ func (d *Dir) path(name string) string {
 		if err != nil || !d.inside(resolved) {
 			return ""
 		}
-		st, err = os.Stat(resolved)
+		st, err = os.Lstat(resolved)
 		if err != nil || !st.Mode().IsRegular() {
 			return ""
 		}
@@ -152,7 +186,7 @@ func (d *Dir) path(name string) string {
 // hidden, a link out of the folder) is left out, never an error.
 func (d *Dir) List() []Entry {
 	files := make([]Entry, 0)
-	if d == nil {
+	if d == nil || !d.rootOK() {
 		return files
 	}
 	ents, err := os.ReadDir(d.root)
@@ -168,7 +202,7 @@ func (d *Dir) List() []Entry {
 		if full == "" {
 			continue
 		}
-		st, err := os.Stat(full)
+		st, err := os.Lstat(full)
 		if err != nil || !st.Mode().IsRegular() {
 			continue
 		}
@@ -197,7 +231,7 @@ func (d *Dir) HandleList(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if r.URL.Path != ListPrefix || d == nil {
+	if r.URL.Path != ListPrefix || d == nil || !d.rootOK() {
 		http.NotFound(w, r)
 		return
 	}
@@ -240,7 +274,7 @@ func (d *Dir) HandleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	if d == nil || !strings.HasPrefix(r.URL.Path, FilePrefix) {
+	if d == nil || !strings.HasPrefix(r.URL.Path, FilePrefix) || !d.rootOK() {
 		http.NotFound(w, r)
 		return
 	}
@@ -250,14 +284,19 @@ func (d *Dir) HandleFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	// Validate the file, then open it and check that the opened descriptor is that same file: if the folder changed under us
-	// (the path replaced between the check and the open, for example by a symbolic link out of the folder), the open is refused.
-	checked, err := os.Stat(full)
+	// The authoritative check is the Lstat immediately before the open: the path must be a regular file, not a symbolic link.
+	// The open itself then refuses a link swapped in after this check (O_NOFOLLOW; the descriptor is compared with this Lstat
+	// as well), and it is non-blocking so a FIFO swapped in cannot hang the request. The opened descriptor must be that same
+	// regular file.
+	checked, err := os.Lstat(full)
 	if err != nil || !checked.Mode().IsRegular() {
 		http.NotFound(w, r)
 		return
 	}
-	f, err := os.Open(full)
+	if testHookBeforeOpen != nil {
+		testHookBeforeOpen(full)
+	}
+	f, err := openNoFollow(full)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -272,6 +311,9 @@ func (d *Dir) HandleFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "map too large", http.StatusRequestEntityTooLarge)
 		return
 	}
+	if testHookAfterStat != nil {
+		testHookAfterStat(full)
+	}
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
@@ -282,5 +324,7 @@ func (d *Dir) HandleFile(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/svg+xml")
 		w.Header().Set("Content-Security-Policy", cspSVG)
 	}
-	http.ServeContent(w, r, name, st.ModTime().UTC(), f)
+	// Serve exactly the bytes measured above. ServeContent finds the size by seeking, so a file that grows after the check
+	// would stream past MaxFileSize; a section reader keeps the response at the checked length.
+	http.ServeContent(w, r, name, st.ModTime().UTC(), io.NewSectionReader(f, 0, st.Size()))
 }
