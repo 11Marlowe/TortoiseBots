@@ -207,6 +207,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_pool_reset_policy
         test_profession_grant_policy
         test_protection_potion_policy
+        test_pull_aggro_estimate_policy
         test_pull_firing_policy
         test_pull_executor_policy
         test_pull_opening_policy

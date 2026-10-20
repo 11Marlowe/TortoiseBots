@@ -271,6 +271,10 @@ struct UnitFact
     // Facts::partyAttackers only:
     bool hitting = false;      // it hits its victim now: in melee reach of it, or standing and casting (not running in)
     float distSpot = -1.0f;    // ... during a hold: its distance from the hold spot (-1: not read)
+    // Pull step units only, when Facts::joinerCeiling is set: how many other
+    // creatures an estimate (ai::EstimateAggro) says come if this one is pulled.
+    std::uint32_t joiners = 0;
+    bool joinersPatrol = false; // ... and a lone patrol alone puts that over the ceiling
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -281,6 +285,8 @@ constexpr std::uint32_t kPolymorphSpells[] = {118, 12824, 12825, 12826, 28270, 2
 // and casts 1.5 s; Polymorphs landed 7-8 s into its fight), else once more,
 // then noted.
 constexpr std::uint32_t kCcLandMs = 8000;
+// The aggro estimate's rest waits (Facts::joinerCeiling) a step: after that a pull goes out without one.
+constexpr std::uint32_t kMaxJoinerRests = 3;
 
 // A living bot of the party other than the lead bot.
 struct MemberFact
@@ -402,6 +408,10 @@ struct Facts
     // a party bot as their victim (any of them, the lead bot too).
     bool leadReaching = false;
     std::uint32_t reachAggro = 0;
+    // AiPlayerbot.DungeonRunAggroEstimate: the ceiling of expected joiners
+    // (AiPlayerbot.DungeonRunAggroCeiling) while the estimate is on, 0 = off.
+    // Off, the units carry no estimate and no pull ever waits for it.
+    std::uint32_t joinerCeiling = 0;
 };
 
 // A bot's own stand point in a hold (HoldStands): the glue walks it there and
@@ -572,6 +582,13 @@ struct Run
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
     std::uint64_t focusGuid = 0;              // the kill-first unit focused in this fight
+    // Aggro estimate (Facts::joinerCeiling): a pull expected to bring more
+    // joiners than the ceiling waits once for the party to be rested.
+    std::unordered_set<std::uint64_t> joinerHeld; // units already held once this step
+    bool joinerRest = false;                  // the rest check is due before the pull
+    bool restForJoiners = false;              // the rest phase is the joiner rest: its time is not step idle time
+    std::uint32_t joinerRests = 0;            // joiner rests used this step (kMaxJoinerRests)
+    std::string joinerNote;                   // "N joiners expected ..."
     std::uint64_t ccPending = 0;              // the `cc moon` sent, its Polymorph not seen yet
     bool ccResent = false;                    // ... sent a second time
     std::uint32_t ccWaitMs = 0;               // fight time since the mark (or its second sending)
@@ -914,6 +931,11 @@ inline void ResetStep(Run& r)
     r.summonWaitMs = 0;
     r.memberYd.clear();
     r.ccSent.clear();
+    r.joinerHeld.clear();
+    r.joinerRest = false;
+    r.restForJoiners = false;
+    r.joinerRests = 0;
+    r.joinerNote.clear();
     r.focusGuid = 0;
     r.ccPending = 0;
     r.ccResent = false;
@@ -2936,6 +2958,26 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
             return;
         }
+        // The aggro estimate (off at joinerCeiling 0): more joiners than the
+        // ceiling and the party not rested yet waits once per unit, on the
+        // rest wait that already exists (TickBody), no movement. At most
+        // kMaxJoinerRests such waits a step (counted when a rest really starts);
+        // after that the pull goes out.
+        std::string budgetNote;
+        if (f.joinerCeiling > 0 && pick->joiners > f.joinerCeiling && !r.joinerHeld.count(pick->guid))
+        {
+            if (r.joinerRests >= kMaxJoinerRests)
+                budgetNote = std::to_string(pick->joiners) + " joiners expected, rest budget used";
+            else
+            {
+                r.joinerHeld.insert(pick->guid);
+                r.joinerRest = true;
+                r.joinerNote = std::to_string(pick->joiners) + " joiners expected" +
+                    (pick->joinersPatrol ? " (a patrol is the cause)" : "");
+                r.note = r.joinerNote;
+                return;
+            }
+        }
         // Pulls that kill nothing, three in a row: the rest of the pack is
         // out of reach (a pit, a ledge). It is left, not counted cleared.
         std::size_t const open = OpenUnits(r, f.units);
@@ -2959,6 +3001,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
             return;
         }
         PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid));
+        if (!budgetNote.empty() && r.phase == Phase::AwaitPull)
+            r.note = budgetNote;
         return;
     }
     if (OpenUnits(r, f.units) > 0)
@@ -4772,6 +4816,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         if (!r.fighting)
         {
             r.fighting = true;
+            r.joinerRest = false; // a fight is on: the aggro estimate's rest wait is moot
             r.fightMs = 0;
             DropHopWaiver(r);
         }
@@ -4894,7 +4939,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     }
 
     // A walk back is bounded point by point (WalkTo), not by the step's ceiling.
-    if (!r.walkBack)
+    // The joiner rest (aggro estimate) is bounded by kRestCapMs and kMaxJoinerRests a step, and does not count
+    // toward the step's idle ceiling: several loud packs in one pull step must not pause the run.
+    if (!r.walkBack && !(r.phase == Phase::Rest && r.restForJoiners))
         r.stepIdleMs += dt;
     if (r.stepIdleMs > StepIdleCapMs(*s))
     {
@@ -4925,6 +4972,23 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             return order;
         }
     }
+    // A pull that brings many joiners (FightStep): the party is rested to the
+    // end lines first, never inside an event.
+    if (r.joinerRest)
+    {
+        r.joinerRest = false;
+        if (!Rested(f, lines) && !InEvent(r))
+        {
+            EnterPhase(r, Phase::Rest);
+            r.restForEating = false;
+            r.restForJoiners = true;
+            ++r.joinerRests; // a slot is spent by a rest that really starts, not by a pick the party was rested for
+            r.restRepeatMs = 0;
+            r.note = "resting: " + r.joinerNote;
+            order = "rest";
+            return order;
+        }
+    }
     if (r.phase == Phase::Begin && (r.restDue || (s->kind == PlanStepKind::Rest && !r.stepRested)))
     {
         bool const forced = s->kind == PlanStepKind::Rest && !r.stepRested;
@@ -4934,6 +4998,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             EnterPhase(r, Phase::Rest);
             r.restForEating = false;
+            r.restForJoiners = false;
             r.restRepeatMs = 0;
             r.note = "resting";
             order = "rest";
@@ -4951,6 +5016,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         if (f.eating > 0 && !Rested(f, lines) && !InEvent(r))
         {
             EnterPhase(r, Phase::Rest);
+            r.restForJoiners = false;
             r.restForEating = true;
             r.restRepeatMs = 0;
             r.note = "resting: " + std::to_string(f.eating) + " eating or drinking";

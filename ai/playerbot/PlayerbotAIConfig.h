@@ -546,6 +546,10 @@ public:
     bool dungeonSelfClear;
     // The run leader's time limit from `run start`, in minutes (0 = none; default 180 = 3 h).
     uint32 dungeonRunMaxMinutes;
+    // The run leader estimates how many creatures a pull brings (PullAggroEstimatePolicy.h) and rests the party
+    // once before a pull that brings more than the ceiling (opt-in; ceiling default 6 joiners).
+    bool dungeonRunAggroEstimate;
+    uint32 dungeonRunAggroCeiling;
     // The run leader's regroup holds for a living resurrector to raise the fallen (RezHoldPolicy.h; default off).
     bool dungeonRunRezHold;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).

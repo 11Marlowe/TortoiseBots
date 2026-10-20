@@ -56,6 +56,9 @@
 #include "../runtime/CommanderTelemetry.h"
 #include "../runtime/DungeonRunPolicy.h"
 #include "../ai/playerbot/DungeonPlanMgr.h"
+#include "../ai/playerbot/PullAggroEstimatePolicy.h"
+#include "CreatureGroups.h"
+#include "Group/CreatureLinkingMgr.h"
 #include "../ai/playerbot/LootObjectStack.h"
 #include "../runtime/RunTrace.h"
 #include "../ai/playerbot/strategy/Engine.h"
@@ -9504,6 +9507,120 @@ void ReadHoldDone(ai::PlanStep const& step, Player* lead, TortoiseBots::DungeonR
     }
 }
 
+// The pull aggro estimate (AiPlayerbot.DungeonRunAggroEstimate, ai::EstimateAggro): for every unit of a pull
+// step, how many other creatures come if the tank pulls it. The hostiles near the step are read once (their level,
+// detection range, faction, creature_groups pack, creature_linking edges, assist flags); the tank is taken to fire
+// from the lead bot's spot, or kAggroEngageYd short of the unit when it stands farther. A unit the scan did not
+// find keeps joiners 0 (not read).
+constexpr float kAggroEngageYd = 30.0f;  // how close to the pulled creature the tank gets before it pulls back
+constexpr float kAggroScanYd = 40.0f;    // hostiles read beyond the step's radius (the widest aggro radius is ~45 yd)
+
+void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanStep const& step, float toPoint,
+    uint32 ceiling, std::unordered_set<std::uint64_t> const& held, TortoiseBots::DungeonRun::Facts& f)
+{
+    if (!ceiling || f.units.empty())
+        return;
+    std::list<Unit*> found;
+    HostileCreaturesAround(lead, std::min(toPoint + step.radius + kAggroScanYd, 2.0f * TortoiseBots::DungeonRun::kSeeYd), found);
+    std::vector<Creature*> creatures;
+    std::vector<ai::AggroMob> mobs;
+    std::unordered_map<uint64, std::size_t> index;
+    for (Unit* unit : found)
+    {
+        Creature* c = unit->ToCreature();
+        if (!c || !c->IsAlive())
+            continue;
+        bool pulled = false;
+        for (TortoiseBots::DungeonRun::UnitFact const& u : f.units)
+            pulled = pulled || u.guid == c->GetObjectGuid().GetRawValue();
+        if (c->IsInCombat() && !pulled)
+            continue; // already fighting: not a joiner
+        ai::AggroMob m;
+        m.x = c->GetPositionX();
+        m.y = c->GetPositionY();
+        m.z = c->GetPositionZ();
+        m.level = c->GetLevel();
+        m.detectionYd = c->GetDetectionRange();
+        m.faction = c->GetFactionTemplateId();
+        m.noAggro = c->HasExtraFlag(CREATURE_FLAG_EXTRA_NO_AGGRO);
+        m.noAssist = c->HasExtraFlag(CREATURE_FLAG_EXTRA_NO_ASSIST);
+        m.patroller = c->GetDefaultMovementType() == WAYPOINT_MOTION_TYPE;
+        if (CreatureGroup* group = c->GetCreatureGroup())
+            if (group->HasGroupFlag(OPTION_AGGRO_TOGETHER))
+                m.groupId = static_cast<uint32>(group->GetOriginalLeaderGuid().GetCounter());
+        index[c->GetObjectGuid().GetRawValue()] = mobs.size();
+        creatures.push_back(c);
+        mobs.push_back(m);
+    }
+    ai::AggroEstimateParams params;
+    params.lowestPartyLevel = 255;
+    for (Player* bot : bots)
+        if (bot->IsAlive())
+            params.lowestPartyLevel = std::min<uint32>(params.lowestPartyLevel, bot->GetLevel());
+    if (params.lowestPartyLevel == 255)
+        params.lowestPartyLevel = lead->GetLevel();
+    params.aggroRate = sWorld.getConfig(CONFIG_FLOAT_RATE_CREATURE_AGGRO);
+    params.familyAssistYd = sWorld.getConfig(CONFIG_FLOAT_CREATURE_FAMILY_ASSISTANCE_RADIUS);
+    // creature_linking: a master's aggro wakes its slave (FLAG_AGGRO_ON_AGGRO), and with FLAG_TO_AGGRO_ON_AGGRO a
+    // slave's aggro wakes its master. The master is the row's guid when it has one, else any creature of its entry in range.
+    for (std::size_t i = 0; i < creatures.size(); ++i)
+    {
+        CreatureLinkingInfo const* info = sCreatureLinkingMgr.GetLinkedTriggerInformation(creatures[i]);
+        if (!info)
+            continue;
+        bool toMaster = false;
+        for (std::size_t j = 0; j < creatures.size(); ++j)
+        {
+            bool const isMaster = j != i && (info->masterDBGuid ? creatures[j]->GetGUIDLow() == info->masterDBGuid
+                                                                 : creatures[j]->GetEntry() == info->masterId);
+            if (!isMaster || (info->searchRange && creatures[i]->GetDistance(creatures[j]) > info->searchRange))
+                continue;
+            // Every master in range wakes the slave; a slave wakes only the FIRST master in range (the core's
+            // LINKING_EVENT_AGGRO reverse case breaks on the first).
+            if (info->linkingFlag & FLAG_AGGRO_ON_AGGRO)
+                params.links.push_back(ai::AggroLink{j, i});
+            if ((info->linkingFlag & FLAG_TO_AGGRO_ON_AGGRO) && !toMaster)
+            {
+                params.links.push_back(ai::AggroLink{i, j});
+                toMaster = true;
+            }
+        }
+    }
+    for (TortoiseBots::DungeonRun::UnitFact& unit : f.units)
+    {
+        // A unit that already had its rest this step is not judged again (its raycasts are saved).
+        auto const it = index.find(unit.guid);
+        if (it == index.end() || held.count(unit.guid))
+            continue;
+        Creature* target = creatures[it->second];
+        // Where the tank stands as it pulls back: here, or kAggroEngageYd short of the creature.
+        float const away = lead->GetDistance(target);
+        float const k = away > kAggroEngageYd ? kAggroEngageYd / away : 1.0f; // along the line creature -> lead bot
+        params.engageX = target->GetPositionX() + (lead->GetPositionX() - target->GetPositionX()) * k;
+        params.engageY = target->GetPositionY() + (lead->GetPositionY() - target->GetPositionY()) * k;
+        params.engageZ = target->GetPositionZ() + (lead->GetPositionZ() - target->GetPositionZ()) * k;
+        // Sight, only where it can change the answer (a raycast each): a creature wakes by itself when it sees the
+        // engage point inside its aggro radius, so that is read from the creature (the core's MoveInLineOfSight, which
+        // aims at the player's position + 1 yd with target height 0);
+        // assist needs the caller to see the assisted one, for which the pulled creature's sight of it, within the
+        // assist range of it, stands in.
+        for (std::size_t i = 0; i < creatures.size(); ++i)
+        {
+            ai::AggroMob& m = mobs[i];
+            float const dx = m.x - params.engageX, dy = m.y - params.engageY, dz = m.z - params.engageZ;
+            float const reach = ai::AggroRadius(m, params.lowestPartyLevel, params.aggroRate) + params.spreadYd;
+            m.partySees = i == it->second || dx * dx + dy * dy + dz * dz > reach * reach ||
+                creatures[i]->IsWithinLOS(params.engageX, params.engageY, params.engageZ + 1.0f, true, 0.0f);
+            m.seen = i == it->second || target->GetDistance(creatures[i]) > params.familyAssistYd ||
+                target->IsWithinLOSInMap(creatures[i]);
+        }
+        ai::AggroEstimate estimate = ai::EstimateAggro(mobs, it->second, params);
+        ai::JoinersOverCeiling(estimate, ceiling);
+        unit.joiners = estimate.joiners;
+        unit.joinersPatrol = estimate.patrolIsTheCause;
+    }
+}
+
 // The rez hold's roster (RezHoldPolicy.h, AiPlayerbot.DungeonRunRezHold): each bot of the party with the
 // resurrection it could cast now (its highest known rank of Resurrection, Redemption, Ancestral Spirit or
 // Rebirth, off cooldown, reagent in the bags), its mana against that spell's cost, and for the dead how far
@@ -9583,6 +9700,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
 {
     using namespace TortoiseBots::DungeonRun;
     f = Facts();
+    // The pull aggro estimate (PullAggroEstimatePolicy.h): off at 0, nothing is read and no pull waits for it.
+    f.joinerCeiling = sPlayerbotAIConfig.dungeonRunAggroEstimate ? sPlayerbotAIConfig.dungeonRunAggroCeiling : 0;
     f.leadAlive = lead->IsAlive();
     f.leadX = lead->GetPositionX();
     f.leadY = lead->GetPositionY();
@@ -9783,6 +9902,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     f.units.push_back(unit);
                 }
             }
+            if (step->kind == ai::PlanStepKind::Pull)
+                ReadPullJoiners(lead, bots, *step, toPoint, f.joinerCeiling, slot.run.joinerHeld, f);
             break;
         }
         case ai::PlanStepKind::Move:

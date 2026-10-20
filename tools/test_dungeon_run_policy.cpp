@@ -4366,6 +4366,388 @@ static void TestBrokenHopPausesAndSkippedHopRowHasNoDirectOrder()
         CHECK(!IsDirectOrder(Tick(o, g)));
 }
 
+// AiPlayerbot.DungeonRunAggroEstimate: a pull expected to bring more joiners
+// than the ceiling waits once, on the rest wait, for the party to be rested.
+static UnitFact Joiners(std::uint64_t guid, std::uint32_t entry, float dist, std::uint32_t joiners, bool patrol = false)
+{
+    UnitFact u = Unit(guid, entry, dist);
+    u.joiners = joiners;
+    u.joinersPatrol = patrol;
+    return u;
+}
+
+static void TestAggroEstimateOffChangesNothing()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852}), PullStep(40, {4851})};
+    Run plain = Start(&plan);
+    Run off = Start(&plan);
+    Facts a = Party(0);
+    a.units = {Unit(31, 4852, 54.7f)};
+    a.minHealthPct = 85;
+    Facts b = a;
+    b.units = {Joiners(31, 4852, 54.7f, 40, true)}; // the estimate is read, the ceiling is off
+    CHECK(b.joinerCeiling == 0);
+    for (int i = 0; i < 40; ++i)
+    {
+        std::string const oa = Tick(plain, a);
+        std::string const ob = Tick(off, b);
+        CHECK(oa == ob);
+        CHECK(plain.note == off.note && plain.phase == off.phase && plain.step == off.step);
+        CHECK(StatusLine(plain) == StatusLine(off));
+        CHECK(!off.joinerRest && off.joinerHeld.empty());
+        if (i == 3)
+        {
+            a.anyInCombat = b.anyInCombat = true;
+            a.units.clear();
+            b.units.clear();
+        }
+        if (i == 5)
+            a.anyInCombat = b.anyInCombat = false;
+    }
+}
+
+static void TestAggroEstimateHoldsOnceForARest()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    f.units = {Joiners(31, 4852, 54.7f, 7)};
+    f.minHealthPct = 85; // above the start lines, under the end lines
+    // Over the ceiling: a note, no order; then the rest wait; then the pull.
+    Run r = Start(&plan);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.note == "7 joiners expected" && r.joinerHeld.count(31));
+    CHECK(r.phase != Phase::AwaitPull && r.pulls == 0);
+    CHECK(Tick(r, f) == "rest");
+    CHECK(r.phase == Phase::Rest && r.note == "resting: 7 joiners expected");
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).find("pullback") == std::string::npos);
+    f.minHealthPct = 100;
+    std::string order;
+    for (int i = 0; i < 5 && order.find("pullback") == std::string::npos; ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 31");
+    // Only once per unit: after a fruitless pull the same unit goes out again at once.
+    CHECK(r.joinerHeld.size() == 1 && !r.joinerRest);
+
+    // Already rested: the note, then the pull, no rest order.
+    Run e = Start(&plan);
+    CHECK(Tick(e, f).empty());
+    CHECK(e.note == "7 joiners expected");
+    CHECK(Tick(e, f) == "pullback 31");
+    CHECK(e.phase == Phase::AwaitPull);
+
+    // At the ceiling is not over it, and 0 expected joiners never waits.
+    f.minHealthPct = 85;
+    f.units = {Joiners(31, 4852, 54.7f, 6)};
+    Run at = Start(&plan);
+    CHECK(Tick(at, f) == "pullback 31");
+    f.units = {Joiners(31, 4852, 54.7f, 0)};
+    Run none = Start(&plan);
+    CHECK(Tick(none, f) == "pullback 31");
+
+    // A patrol being the whole reason is said.
+    f.units = {Joiners(31, 4852, 54.7f, 8, true)};
+    Run patrol = Start(&plan);
+    CHECK(Tick(patrol, f).empty());
+    CHECK(patrol.note == "8 joiners expected (a patrol is the cause)");
+
+    // Inside a scripted event the rest wait is not entered.
+    f.units = {Joiners(31, 4852, 54.7f, 8)};
+    Run ev = Start(&plan);
+    ev.eventOn = true;
+    CHECK(Tick(ev, f).empty());
+    CHECK(Tick(ev, f) == "pullback 31");
+    CHECK(ev.phase != Phase::Rest);
+
+    // A fight that begins before the rest is due does not start one.
+    Run fight = Start(&plan);
+    CHECK(Tick(fight, f).empty());
+    CHECK(fight.joinerRest);
+    f.anyInCombat = true;
+    CHECK(Tick(fight, f).empty());
+    CHECK(!fight.joinerRest && fight.phase != Phase::Rest && fight.fighting);
+
+    // A normal rest after a joiner rest counts as idle time again.
+    {
+        f.anyInCombat = false;
+        f.units = {Joiners(31, 4852, 54.7f, 7)};
+        f.minHealthPct = 85;
+        Run x = Start(&plan);
+        Tick(x, f);
+        CHECK(Tick(x, f) == "rest" && x.restForJoiners);
+        f.minHealthPct = 100;
+        for (int i = 0; i < 3 && x.phase == Phase::Rest; ++i)
+            Tick(x, f);
+        CHECK(x.phase != Phase::Rest);
+        f.minHealthPct = 60;
+        x.restDue = true;
+        x.phase = Phase::Begin;
+        CHECK(Tick(x, f) == "rest" && x.phase == Phase::Rest && !x.restForJoiners);
+        f.minHealthPct = 85;
+        // ... and so does a meal wait.
+        Run y = Start(&plan);
+        Tick(y, f);
+        Tick(y, f);
+        CHECK(y.restForJoiners && y.phase == Phase::Rest);
+        y.phase = Phase::Begin;
+        f.eating = 1;
+        Tick(y, f);
+        CHECK(y.phase == Phase::Rest && y.restForEating && !y.restForJoiners);
+        f.eating = 0;
+    }
+
+    // A step's reset (also a resume) forgets the hold.
+    Run reset = Start(&plan);
+    f.anyInCombat = false;
+    CHECK(Tick(reset, f).empty() && reset.joinerRest && !reset.joinerHeld.empty());
+    ResetStep(reset);
+    reset.joinerRests = 2;
+    ResetStep(reset);
+    CHECK(!reset.joinerRest && reset.joinerHeld.empty() && reset.joinerNote.empty());
+    CHECK(reset.joinerRests == 0 && !reset.restForJoiners);
+
+    // The nearest unit is the one judged: a quiet pick goes out, and the
+    // loud one is held when it is picked.
+    f.anyInCombat = false;
+    f.units = {Joiners(31, 4852, 54.7f, 9), Joiners(32, 4852, 30.0f, 1)};
+    Run two = Start(&plan);
+    CHECK(Tick(two, f) == "pullback 32");
+}
+
+
+// Six loud packs in one pull step: the joiner rests (60 s each when the party
+// stays under the end lines) are not step idle time and are three a step, so
+// the run neither pauses on the 300 s idle ceiling nor rests a fourth time.
+static void TestJoinerRestsAreBudgetedAndNotIdleTime()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    f.minHealthPct = 85; // above the start lines, under the end lines: it never gets rested
+    std::vector<UnitFact> alive;
+    for (std::uint64_t g = 31; g <= 36; ++g)
+        alive.push_back(Joiners(g, 4852, 40.0f + static_cast<float>(g), 9));
+    int rests = 0;
+    std::vector<std::string> notes;
+    for (std::size_t unit = 0; unit < 6; ++unit)
+    {
+        f.units = std::vector<UnitFact>(alive.begin() + static_cast<long>(unit), alive.end());
+        f.anyInCombat = false;
+        std::string order;
+        Phase prev = r.phase;
+        for (int i = 0; i < 400 && order.compare(0, 9, "pullback ") != 0; ++i)
+        {
+            order = Tick(r, f);
+            if (r.phase == Phase::Rest && prev != Phase::Rest)
+                ++rests;
+            prev = r.phase;
+            CHECK(r.state == State::Running);
+        }
+        CHECK(order == "pullback " + std::to_string(31 + unit));
+        notes.push_back(r.note);
+        f.anyInCombat = true;
+        for (int i = 0; i < 3; ++i)
+            Tick(r, f);
+        CHECK(r.state == State::Running);
+    }
+    CHECK(rests == 3);
+    CHECK(r.joinerRests == 3);
+    CHECK(notes[3] == "9 joiners expected, rest budget used");
+    CHECK(notes[5] == "9 joiners expected, rest budget used");
+    CHECK(notes[0] != notes[3]);
+    // 180 s of joiner rest are not idle time.
+    CHECK(r.stepIdleMs < kStepIdleCapMs / 2);
+}
+
+// A loud pick the party is already rested for spends no rest slot: the three
+// slots go to the rests that really happen later in the step.
+static void TestJoinerRestSlotsAreSpentByRealRestsOnly()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    std::vector<UnitFact> alive;
+    for (std::uint64_t g = 31; g <= 36; ++g)
+        alive.push_back(Joiners(g, 4852, 40.0f + static_cast<float>(g), 9));
+    int rests = 0;
+    std::vector<std::string> notes;
+    for (std::size_t unit = 0; unit < 6; ++unit)
+    {
+        // The first two picks find the party full, the rest find it at 85 %.
+        f.minHealthPct = unit < 2 ? 100 : 85;
+        f.units = std::vector<UnitFact>(alive.begin() + static_cast<long>(unit), alive.end());
+        f.anyInCombat = false;
+        std::string order;
+        Phase prev = r.phase;
+        for (int i = 0; i < 400 && order.compare(0, 9, "pullback ") != 0; ++i)
+        {
+            order = Tick(r, f);
+            if (r.phase == Phase::Rest && prev != Phase::Rest)
+                ++rests;
+            prev = r.phase;
+            CHECK(r.state == State::Running);
+        }
+        CHECK(order == "pullback " + std::to_string(31 + unit));
+        notes.push_back(r.note);
+        if (unit == 1)
+            CHECK(r.joinerRests == 0 && rests == 0);
+        f.anyInCombat = true;
+        for (int i = 0; i < 3; ++i)
+            Tick(r, f);
+    }
+    CHECK(rests == 3 && r.joinerRests == 3);
+    CHECK(notes[5] == "9 joiners expected, rest budget used");
+    CHECK(notes[4] != notes[5]);
+}
+
+// Both keys on (AiPlayerbot.DungeonRunAggroEstimate and DungeonRunRezHold): a loud pull, a death in its
+// fight, then the regroup, then the next loud pick. The joiner rest is a pull-step thing (cleared by
+// ResetStep, kept by BeginRegroup, which a single death reaches without a ResetStep); the rez hold's clocks
+// are a regroup thing (restarted by BeginRegroup, never by a step reset). Neither may reset the other.
+static void TestAggroEstimateAndRezHoldDoNotCrossTheirResets()
+{
+    using namespace TortoiseBots::RezHold;
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    f.rezHold = true;
+    f.minHealthPct = 85; // under the end lines: the joiner rest really starts
+    f.units = {Joiners(21, 4852, 40.0f, 9), Joiners(22, 4852, 45.0f, 9)};
+    // 1. Loud pick 21: the joiner rest starts (not idle time), then the pull goes out.
+    for (int i = 0; i < 4 && r.phase != Phase::Rest; ++i)
+        Tick(r, f);
+    CHECK(r.phase == Phase::Rest && r.restForJoiners && r.joinerRests == 1 && r.joinerHeld.count(21));
+    f.minHealthPct = 100;
+    std::string order;
+    for (int i = 0; i < 20 && order.compare(0, 9, "pullback ") != 0; ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 21");
+    // 2. The fight: the mage (index 2) falls, 21 dies; 22 is still up. Out of combat the single death
+    // starts the regroup with no ResetStep.
+    f.anyInCombat = true;
+    for (int i = 0; i < 3; ++i)
+        Tick(r, f);
+    f.dead = 1;
+    f.alive = 4;
+    f.units = {Joiners(22, 4852, 45.0f, 9)};
+    f.rezMembers = RezRoster(true, 500);
+    Tick(r, f);
+    f.anyInCombat = false;
+    for (int i = 0; i < 4 && !r.regroup; ++i)
+        Tick(r, f);
+    CHECK(r.regroup && r.regroupMs < 3 * kTickMs && r.rezAbleMs == 0 && r.reviveBaseMs == 0);
+    // The regroup's restart left the step's joiner state alone: 21 was rested for, one slot is spent.
+    CHECK(r.joinerRests == 1 && r.joinerHeld.count(21) == 1);
+    // 3. The rez hold decides the regroup (well past the old 15 s) and the joiner rest does not move.
+    std::uint32_t revivedAt = 0;
+    std::uint32_t const idleBefore = r.stepIdleMs;
+    for (std::uint32_t ms = kTickMs; ms <= 200000 && !revivedAt; ms += kTickMs)
+    {
+        if (Tick(r, f) == "revive party")
+            revivedAt = ms;
+        CHECK(r.joinerRests == 1 && r.joinerHeld.count(21) == 1 && !r.joinerRest);
+    }
+    CHECK(revivedAt >= kHoldMs && revivedAt <= kHoldMs + 4 * kTickMs);
+    CHECK(r.stepIdleMs == idleBefore); // a regroup is not step idle time
+    // The invariant in both directions: a step reset leaves the regroup clocks, a regroup start leaves
+    // the joiner state.
+    {
+        Run c = r;
+        c.rezAbleMs = 7000;
+        c.reviveBaseMs = 9000;
+        c.regroupMs = 11000;
+        ResetStep(c);
+        CHECK(c.rezAbleMs == 7000 && c.reviveBaseMs == 9000 && c.regroupMs == 11000);
+        CHECK(c.joinerRests == 0 && c.joinerHeld.empty() && !c.restForJoiners);
+        Run d = r;
+        d.restForJoiners = true;
+        BeginRegroup(d);
+        CHECK(d.joinerRests == 1 && d.joinerHeld.count(21) == 1 && d.restForJoiners);
+    }
+    // 4. The party is raised: the regroup ends, the step goes on with 22. It is rested for (a second
+    // slot, 21's kept), the pull goes out, and the whole of it was no step idle time.
+    f.dead = 0;
+    f.alive = 5;
+    f.rezMembers = RezRoster(false, 500);
+    f.minHealthPct = 85;
+    for (int i = 0; i < 12 && r.regroup; ++i)
+        Tick(r, f);
+    CHECK(!r.regroup);
+    for (int i = 0; i < 6 && r.phase != Phase::Rest; ++i)
+        Tick(r, f);
+    CHECK(r.phase == Phase::Rest && r.restForJoiners && r.joinerRests == 2);
+    CHECK(r.joinerHeld.count(21) == 1 && r.joinerHeld.count(22) == 1);
+    CHECK(r.note.find("9 joiners expected") != std::string::npos);
+    f.minHealthPct = 100;
+    order.clear();
+    for (int i = 0; i < 20 && order.compare(0, 9, "pullback ") != 0; ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 22");
+    CHECK(r.state == State::Running && r.stepIdleMs < kStepIdleCapMs / 2);
+    // 5. A wipe in a later step reset (ResetStep, then BeginRegroup): fresh joiner budget and fresh clocks.
+    ResetStep(r);
+    BeginRegroup(r);
+    CHECK(r.joinerRests == 0 && r.joinerHeld.empty() && r.regroupMs == 0 && r.rezAbleMs == 0);
+}
+
+// Both keys off: a run fed the estimate's joiners and the rez roster (the glue reads neither with the keys
+// off, but a stray value must change nothing) ticks exactly like one fed neither, through a loud pull, a
+// death in its fight and the regroup, tick by tick.
+static void TestBothKeysOffChangeNothing()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Run plain = Start(&plan);
+    Run noisy = Start(&plan);
+    Facts a = Party(0);
+    a.minHealthPct = 85;
+    a.units = {Unit(21, 4852, 40.0f), Unit(22, 4852, 45.0f)};
+    a.rezzer = true;
+    Facts b = a;
+    b.units = {Joiners(21, 4852, 40.0f, 9, true), Joiners(22, 4852, 45.0f, 9)};
+    b.rezMembers = RezRoster(true, 0, 500.0f);
+    CHECK(b.joinerCeiling == 0 && !b.rezHold);
+    for (int i = 0; i < 300; ++i)
+    {
+        if (i == 20)
+        {
+            a.minHealthPct = b.minHealthPct = 100;
+        }
+        if (i == 30)
+            a.anyInCombat = b.anyInCombat = true;
+        if (i == 40)
+        {
+            a.anyInCombat = b.anyInCombat = false;
+            a.dead = b.dead = 1;
+            a.alive = b.alive = 4;
+            a.units = {Unit(22, 4852, 45.0f)};
+            b.units = {Joiners(22, 4852, 45.0f, 9)};
+        }
+        if (i == 150)
+        {
+            a.dead = b.dead = 0;
+            a.alive = b.alive = 5;
+        }
+        std::string const oa = Tick(plain, a);
+        std::string const ob = Tick(noisy, b);
+        CHECK(oa == ob);
+        CHECK(plain.note == noisy.note && plain.phase == noisy.phase && plain.regroup == noisy.regroup);
+        CHECK(plain.regroupMs == noisy.regroupMs && plain.reviveSent == noisy.reviveSent);
+        CHECK(StatusLine(plain) == StatusLine(noisy));
+        CHECK(!noisy.joinerRest && noisy.joinerHeld.empty() && noisy.joinerRests == 0 && noisy.rezAbleMs == 0 &&
+              noisy.reviveBaseMs == 0);
+    }
+}
+
 int main()
 {
     TestHopRechecksTheLeadOnTheFoot();
@@ -4480,9 +4862,15 @@ int main()
     TestOneReviveSummonPerRevive();
     TestFailedReviveSummonWalks();
     TestRegroupGatherCapScales();
+    TestAggroEstimateOffChangesNothing();
+    TestAggroEstimateHoldsOnceForARest();
+    TestJoinerRestsAreBudgetedAndNotIdleTime();
+    TestJoinerRestSlotsAreSpentByRealRestsOnly();
     TestRezHoldOffIsUnchanged();
     TestRezHoldOn();
     TestRezHoldClocks();
+    TestAggroEstimateAndRezHoldDoNotCrossTheirResets();
+    TestBothKeysOffChangeNothing();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }
