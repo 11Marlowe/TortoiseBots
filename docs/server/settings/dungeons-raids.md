@@ -24,6 +24,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
+| [`AiPlayerbot.DungeonRunRezHold`](#aiplayerbotdungeonrunrezhold) | `0` | The run leader's regroup waits for a living resurrector to raise the fallen (and for its mana) before it revives the party at the spirit healer. |
 | [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) | `0` | Lets a bound remote commander start the opt-in run leader (`.bot run`). |
 | [`AiPlayerbot.DungeonTactics`](#aiplayerbotdungeontactics) | `0` | Applies the per-boss tactics table (`ai_boss_tactic`) to every bot, not only commanded parties. |
 | [`AiPlayerbot.EnableCustomRaidTactics`](#aiplayerbotenablecustomraidtactics) | `1` | Gates scripted encounter tactics and transition strategies for custom raids. |
@@ -117,6 +118,17 @@ How long a run leader run (`.bot run`) may last before it ends by itself.
 
 </details>
 
+### `AiPlayerbot.DungeonRunRezHold`
+Makes the run leader's regroup wait for a living priest, paladin or shaman to resurrect the fallen where they lie, instead of a fixed 15 s.
+**Default:** `0` · **Values:** `0` the old fixed wait, `1` the rez hold · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Rez hold:** only read while `AiPlayerbot.DungeonSelfClear = 1`. With `0` the regroup behaves as before: when a priest, paladin or shaman is out of combat it waits 15 s for a resurrection, then sends `cmd revive party`. With `1` the run asks the rez hold (`runtime/RezHoldPolicy.h`) every second while someone is dead. It only **holds**: it sends the resurrector no order (the bots' own AI decides who raises whom, and a resurrector short of mana drinks by itself). It **holds** up to 60 s from the moment a resurrector could act (plus 12 s for each body beyond the resurrectors, at most 120 s, and a resurrection being cast may finish: 12 s more, once), **waits for mana** while the only resurrectors are short of their spell's cost (90 s in all), and sends `cmd revive party` at once when no living bot can resurrect, when every body lies more than 80 yd from the party, or when the time is up. The 240 s the dead get to be up after `revive party` starts when the hold gives up. A druid's Rebirth counts only when no priest, paladin or shaman is alive on the map within sight, and only off cooldown with its seed in the bags. Everyone dead is a wipe: the old wipe recovery takes it. See [Dungeon Run Leader](../../play/dungeon-run-leader.md). Derived from jrad7/mod-dungeon-clear (AGPL-3.0-or-later).
+
+</details>
+
 ### `AiPlayerbot.DungeonSelfClear`
 Allows the opt-in run leader: a bound remote commander's party clears a stored dungeon plan by itself.
 **Default:** `0` · **Values:** `0` off (every `.bot run` refused), `1` on (needs `AiPlayerbot.RemoteCommander = 1`) · **Restart:** needed
@@ -124,7 +136,7 @@ Allows the opt-in run leader: a bound remote commander's party clears a stored d
 <details>
 <summary>How it works in detail</summary>
 
-**Dungeon self-clear (run leader):** with `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. It pauses on 3 dead, on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+**Dungeon self-clear (run leader):** with `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. With 3 or more dead it regroups by itself once the fight is over (the safety rules are in the run leader page); it pauses on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 

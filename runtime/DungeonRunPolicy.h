@@ -53,6 +53,7 @@
 //     once it has arrived. Never during an event.
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
+#include "RezHoldPolicy.h"
 
 #include <algorithm>
 #include <cctype>
@@ -334,6 +335,13 @@ struct Facts
     std::uint32_t minManaPct = 100;     // mana users that are not healers
     std::uint32_t eating = 0;           // living bots with a food or drink aura up (seated: standing ends it)
     bool rezzer = false;                // a living bot out of combat that can resurrect (priest, paladin, shaman)
+    // AiPlayerbot.DungeonRunRezHold: the glue read the roster for the rez hold
+    // (RezHoldPolicy.h) and the regroup asks it instead of the fixed kPartyRezWaitMs
+    // wait on `rezzer`. Off (the default): rezHold false, rezMembers empty, the
+    // old rule runs byte for byte.
+    bool rezHold = false;
+    std::vector<TortoiseBots::RezHold::Member> rezMembers; // every bot of the party, dead ones too
+    bool rezInProgress = false;         // ... a party rezzer is casting a resurrection, or one waits to be accepted
     // The step.
     std::uint32_t team = 0;             // the party's team: ai::kPlanFlagAlliance or kPlanFlagHorde (0 unknown)
     bool seen = false;                  // the lead bot stands within kSeeYd of the step's point
@@ -514,6 +522,16 @@ struct Run
     bool reviveSent = false;
     bool regroupGatherSent = false;
     std::uint32_t regroupMs = 0;
+    // The rez hold (AiPlayerbot.DungeonRunRezHold, RezHoldPolicy.h): the time a resurrector could act
+    // (restarted while one drinks), and the regroup clock's reading when the hold gave up and the revive
+    // went out (the 240 s revive budget runs from there). Both stay 0 with the key off.
+    std::uint32_t rezAbleMs = 0;
+    std::uint32_t reviveBaseMs = 0;
+    void RestartRegroupClock()
+    {
+        regroupMs = 0;
+        reviveBaseMs = 0;
+    }
     // Gathers (a move to the lead bot's own spot): the one sent this tick, so a
     // refusal of it is known; refused kGatherTries times, it is left out.
     std::string gatherOrder;
@@ -1112,7 +1130,7 @@ inline bool SummonStuckInRegroup(Run& r, const Facts& f, std::string& order)
         return false;
     r.summoned.insert(pick->name);
     order = "summon " + pick->name;
-    r.regroupMs = 0;
+    r.RestartRegroupClock();
     r.note = "regroup: " + pick->name + " has not moved for " + std::to_string(kStuckSummonMs / 1000) + " s " +
         Num(pick->yd) + " yd away: summoned";
     return true;
@@ -1157,7 +1175,7 @@ inline void ReviveSummonFailed(Run& r, const std::string& name, const std::strin
 {
     r.reviveSummons.erase(name);
     if (r.regroupGatherSent)
-        r.regroupMs = 0;
+        r.RestartRegroupClock();
     r.note = "regroup: the summon of " + name + " " + why + ": it walks back";
 }
 
@@ -1322,7 +1340,8 @@ inline void BeginRegroup(Run& r)
     r.regroup = true;
     r.reviveSent = false;
     r.regroupGatherSent = false;
-    r.regroupMs = 0;
+    r.RestartRegroupClock();
+    r.rezAbleMs = 0;
     r.regroupDead = -1;
     r.summoned.clear(); // one summon per bot per regroup (SummonStraggler)
     r.reviveSummons.clear();
@@ -4602,7 +4621,44 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             // A living priest, paladin or shaman raises the dead where they
             // lie: `revive party` (a release and a corpse run) waits for it.
-            if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
+            if (f.rezHold)
+            {
+                // The rez hold decides (RezHoldPolicy.h): hold for a resurrection,
+                // wait for the resurrector's mana, or fall through to the revive.
+                TortoiseBots::RezHold::Inputs hold;
+                hold.holdMs = r.regroupMs;
+                hold.ableMs = r.rezAbleMs;
+                hold.rezInProgress = f.rezInProgress;
+                hold.partyEngaged = f.anyInCombat;
+                hold.reviveSent = r.reviveSent;
+                TortoiseBots::RezHold::Result const verdict = TortoiseBots::RezHold::Decide(hold, f.rezMembers);
+                using TortoiseBots::RezHold::Verdict;
+                using TortoiseBots::RezHold::Reason;
+                // The budget of a rezzer that could act runs while it could; a drink restarts it.
+                if (verdict.verdict == Verdict::WaitMana)
+                    r.rezAbleMs = 0;
+                else if (verdict.reason == Reason::Recovering || verdict.reason == Reason::Casting)
+                    r.rezAbleMs += dt;
+                if (verdict.verdict == Verdict::Hold || verdict.verdict == Verdict::WaitMana)
+                {
+                    auto nameOf = [&](int idx) -> std::string
+                    {
+                        return idx >= 0 && static_cast<std::size_t>(idx) < f.rezMembers.size()
+                            ? f.rezMembers[static_cast<std::size_t>(idx)].name : std::string();
+                    };
+                    std::string who = nameOf(verdict.rezzerIdx);
+                    if (!who.empty() && verdict.targetIdx >= 0)
+                        who += " for " + nameOf(verdict.targetIdx);
+                    r.note = "regroup: " + WaitNote(r, f) + ", " +
+                        (verdict.verdict == Verdict::Hold ? std::string("a resurrection in the party first")
+                                                          : std::string("the resurrector drinks first")) +
+                        " (" + TortoiseBots::RezHold::ReasonName(verdict.reason) +
+                        (who.empty() ? std::string() : ": " + who) + ")";
+                    SummonRevived(r, f, order);
+                    return order;
+                }
+            }
+            else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
             {
                 r.note = "regroup: " + WaitNote(r, f) + ", a resurrection in the party first";
                 SummonRevived(r, f, order);
@@ -4611,12 +4667,14 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             r.note = "regroup: " + WaitNote(r, f) + ", reviving";
             if (!r.reviveSent || r.regroupMs % 60000 < dt)
             {
+                if (!r.reviveSent && f.rezHold)
+                    r.reviveBaseMs = r.regroupMs; // the hold's time is not taken from the corpse run
                 r.reviveSent = true;
                 order = "revive party";
             }
             else
                 SummonRevived(r, f, order); // one already up far away: before its corpse run
-            if (r.regroupMs > kRegroupReviveMs)
+            if (r.regroupMs > kRegroupReviveMs + r.reviveBaseMs)
                 Pause(r, "regroup: " + std::to_string(f.dead) + " still dead after " +
                     std::to_string(kRegroupReviveMs / 1000) + " s (cmd revive <bot>, then .bot run resume)");
             return order;
@@ -4633,7 +4691,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             if (!r.regroupGatherSent)
             {
                 r.regroupGatherSent = true;
-                r.regroupMs = 0;
+                r.RestartRegroupClock();
                 r.regroupGatherCapMs = RegroupGatherCap(f);
                 SendGather(r, f, order);
             }
@@ -4648,7 +4706,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 if (r.regroupMs > r.regroupGatherCapMs)
                 {
                     if (SummonStraggler(r, f, order))
-                        r.regroupMs = 0;
+                        r.RestartRegroupClock();
                     else
                         Pause(r, "regroup: the party did not gather within " +
                             std::to_string(r.regroupGatherCapMs / 1000) + " s (a bot is " + Num(f.maxMemberYd) +

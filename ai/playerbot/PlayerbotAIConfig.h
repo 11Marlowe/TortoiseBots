@@ -550,6 +550,8 @@ public:
     // once before a pull that brings more than the ceiling (opt-in; ceiling default 6 joiners).
     bool dungeonRunAggroEstimate;
     uint32 dungeonRunAggroCeiling;
+    // The run leader's regroup holds for a living resurrector to raise the fallen (RezHoldPolicy.h; default off).
+    bool dungeonRunRezHold;
     // Bots stay out of listed creatures' permanent damaging auras, e.g. Maraudon's Creeping Sludge (opt-in).
     bool avoidCreatureAuras;
     // Bots may fly the taxi paths a core repair fixes (TaxiPathPolicy.h).

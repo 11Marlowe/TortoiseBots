@@ -236,6 +236,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_runner_finish_policy
         test_remote_commander_view
         test_resist_aura_policy
+        test_rez_hold_policy
         test_retaliation_policy
         test_rogue_threat_policy
         test_rogue_weapon_policy
