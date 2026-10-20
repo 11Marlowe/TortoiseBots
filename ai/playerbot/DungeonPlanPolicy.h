@@ -57,6 +57,24 @@ namespace ai
         return PlanStepKind::None;
     }
 
+    // The kind text of a direct step launched from an exact waypoint (the move
+    // with kPlanFlagExact right before it). It is a move_direct in every way
+    // (PlanStepKind::MoveDirect, PlanStep::exactLaunch set), under a kind name
+    // of its own: a module without exact waypoints does not know the kind and
+    // skips the row (UnknownKind), so it sends no direct order for the hop. The
+    // rows and this module are deployed and rolled back together; what such an
+    // old module does with the row after the hop is not guarded here
+    // (docs/guides/dungeon-run-leader.md "Exact waypoints").
+    constexpr const char* kPlanKindMoveHopExact = "move_hop_exact";
+
+    // A row's kind text into the step: its kind, and exactLaunch for
+    // "move_hop_exact". An unknown text leaves the kind None.
+    inline void ParsePlanStepRowKind(const std::string& text, PlanStepKind& kind, bool& exactLaunch)
+    {
+        exactLaunch = text == kPlanKindMoveHopExact;
+        kind = exactLaunch ? PlanStepKind::MoveDirect : ParsePlanStepKind(text);
+    }
+
     inline const char* PlanStepKindName(PlanStepKind kind)
     {
         switch (kind)
@@ -90,6 +108,14 @@ namespace ai
     // 4 special). The event has failed when it reads 2, or 0 again after it was
     // seen started, and when it does not start soon after the hold begins.
     constexpr std::uint32_t kPlanFlagEncounter = 32;
+    // move only: an EXACT waypoint (plan v1's Waypoint.exact, the point a direct
+    // step after it is launched from). The run leader counts the step done only
+    // once the lead bot stands within kExactArriveYd of the point and has stood
+    // still there for 2 s (runtime/DungeonRunPolicy.h ExactWalkTo); never by the
+    // plain move's 3 yd arrival or its stalled 6 yd arrival, and no stand-in
+    // point (detour) is taken for it. Any other kind with this flag is refused
+    // (BadParam).
+    constexpr std::uint32_t kPlanFlagExact = 64;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -117,7 +143,18 @@ namespace ai
         std::uint32_t flags = 0;
         std::uint32_t timeoutS = 0;
         std::vector<std::uint32_t> entries;
+        // The row's kind was "move_hop_exact" (kPlanKindMoveHopExact):
+        // a MoveDirect whose launch point is the exact move right before it.
+        bool exactLaunch = false;
     };
+
+    // The kind text of a step's row: "move_hop_exact" for an exact launch,
+    // else PlanStepKindName.
+    inline const char* PlanStepRowKindName(const PlanStep& step)
+    {
+        return step.exactLaunch && step.kind == PlanStepKind::MoveDirect ? kPlanKindMoveHopExact
+                                                                         : PlanStepKindName(step.kind);
+    }
 
     struct PlanLeg
     {
@@ -221,7 +258,8 @@ namespace ai
         BadRadius,        // negative, over kPlanMaxRadius, or a wait_clear without one
         BadTimeout,       // over kPlanMaxTimeoutS
         BadParam,         // wait_object state other than 0-2; hold with both done flags, an encounter
-                          // flag without the data flag or a state above 4, an object state above 2
+                          // flag without the data flag or a state above 4, an object state above 2;
+                          // the exact flag on a step that is not a move
         BadPoint,         // not a finite point
         BadEntries,       // `entries` is not a comma list of non-zero creature entries
     };
@@ -257,6 +295,10 @@ namespace ai
             return PlanStepRefusal::BadRadius;
         if (step.timeoutS > kPlanMaxTimeoutS)
             return PlanStepRefusal::BadTimeout;
+        if ((step.flags & kPlanFlagExact) && step.kind != PlanStepKind::Move)
+            return PlanStepRefusal::BadParam;
+        if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
+            return PlanStepRefusal::BadParam;
         switch (step.kind)
         {
             case PlanStepKind::Pull:

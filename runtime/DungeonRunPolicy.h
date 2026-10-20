@@ -105,6 +105,20 @@ constexpr std::uint32_t kWalkRetryMs = 12000;     // no progress for this long: 
 constexpr std::uint32_t kShortStallMs = 3000;     // a plain walk within kStalledArriveYd that gains nothing this long arrived
 constexpr std::uint32_t kWalkTries = 3;           // ... at most this often, then pause
 constexpr float kWalkProgressYd = 2.0f;
+// An exact waypoint (ai::kPlanFlagExact on a move row: the point a direct step
+// after it is launched from; ExactWalkTo). The Wailing Caverns hop to Lord
+// Serpentis works only from its foot (tests/wc-hop-probe-2, 2026-10-18): a
+// direct step sent from a few yards short is refused no-los or lands short of
+// the gap, over a 47 yd drop. Same numbers as turtle-agent's remote driver
+// (internal/dungeon/remote.go tightenTo: directArrive, tightenStillYd,
+// tightenProofHold, tightenBack).
+constexpr float kExactArriveYd = 1.5f;            // the lead bot stands this close to the point ...
+constexpr float kExactStillYd = 0.5f;             // ... and moved less than this from one spot ...
+constexpr std::uint32_t kExactProofMs = 2000;     // ... for this long (2 s of looks, the lead not moving): proved
+constexpr float kExactBackYd = 6.5f;              // a `cmd move` shorter than ~6 yd on the ground plane is not
+                                                  // carried out (turtle-agent MinMove, ZF-1 run 4): a lead bot
+                                                  // nearer than this is walked back along the plan's own points first
+constexpr std::uint32_t kExactCapMs = kWalkRetryMs * kWalkTries; // the tighten's ceiling out of combat (36 s): then pause
 constexpr std::uint32_t kPullNoFightMs = 25000;   // a pull that started no fight in this time failed
 constexpr std::uint32_t kPullTriesPerUnit = 2;    // a unit two pulls could not start a fight with is passed
 constexpr std::uint32_t kMaxPullsPerTarget = 3;  // a unit three fought pulls did not kill is out of reach
@@ -293,6 +307,7 @@ struct Facts
     // The fight timer does not run on it (Uldaman run 4, archaedas wait_object).
     bool staleCombat = false;
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
+    bool leadMoving = false;            // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
     std::vector<std::string> deadNames; // the dead bots (ghosts too), the lead bot too
@@ -444,6 +459,23 @@ struct Run
     std::uint32_t walkTries = 0;
     std::uint32_t walkStillMs = 0;
     float walkBestYd = 0.0f;
+    // An exact waypoint's tighten (ExactWalkTo): on once the walk to the point
+    // ended (3 yd, or a stall within 6 yd); it brings the lead bot onto the
+    // point and wants the stand-still proof before the step is done.
+    bool exactOn = false;
+    std::uint32_t exactMs = 0;          // the tighten's time (out of combat: the fight code runs instead)
+    std::uint32_t exactRounds = 0;      // moves onto the point it sent
+    std::uint32_t exactWaitMs = 0;      // the lead bot standing (not on the point) since the last order
+    std::uint8_t exactStage = 0;        // 0 judging, 1 walking back to exactBack*, 2 walking onto the point
+    float exactBackX = 0.0f, exactBackY = 0.0f, exactBackZ = 0.0f;
+    bool exactLastSet = false;          // the lead bot's spot on the tighten's last tick (moving between looks)
+    float exactLastX = 0.0f, exactLastY = 0.0f, exactLastZ = 0.0f;
+    bool exactAnchorSet = false;        // the proof: one spot within kExactArriveYd of the point ...
+    float exactAnchorX = 0.0f, exactAnchorY = 0.0f, exactAnchorZ = 0.0f;
+    std::uint32_t exactStillMs = 0;     // ... stood on this long
+    // The exact step whose proof stands (kept across NextStep: the direct step
+    // after it reads it; cleared by a pause). npos: none.
+    std::size_t exactProved = static_cast<std::size_t>(-1);
     // Pulls.
     std::uint64_t pullGuid = 0;
     std::uint32_t pulls = 0;
@@ -761,6 +793,7 @@ inline bool DirectStillToCross(const Run& r, std::size_t idx)
 inline void Pause(Run& r, const std::string& why)
 {
     SuspendRoute(r); // a player may move the lead bot while the run is paused
+    r.exactProved = static_cast<std::size_t>(-1); // ... so an exact point is proved again after a resume
     r.state = State::Paused;
     r.note = why;
     r.pausedByPlayer = false; // PausePlayer sets it after
@@ -769,6 +802,53 @@ inline void Pause(Run& r, const std::string& why)
     r.holdDue = false;
     r.holdStands.clear();
     r.holdPlaced = false;
+}
+
+// Clears an exact waypoint's tighten (not its standing proof, exactProved).
+inline void ResetExact(Run& r)
+{
+    r.exactOn = false;
+    r.exactMs = 0;
+    r.exactRounds = 0;
+    r.exactWaitMs = 0;
+    r.exactStage = 0;
+    r.exactLastSet = false;
+    r.exactAnchorSet = false;
+    r.exactStillMs = 0;
+}
+
+// Plan step `idx` is an exact waypoint (a move with ai::kPlanFlagExact).
+inline bool IsExactPoint(const DungeonPlan* plan, std::size_t idx)
+{
+    return plan && idx < plan->steps.size() && plan->steps[idx].kind == PlanStepKind::Move &&
+        (plan->steps[idx].flags & ai::kPlanFlagExact) != 0;
+}
+
+// The exact waypoint a direct step at `idx` is launched from: the step right
+// before it when that is one, else npos.
+inline std::size_t ExactLaunch(const DungeonPlan* plan, std::size_t idx)
+{
+    if (!plan || idx == 0 || idx >= plan->steps.size() || plan->steps[idx].kind != PlanStepKind::MoveDirect)
+        return static_cast<std::size_t>(-1);
+    return IsExactPoint(plan, idx - 1) ? idx - 1 : static_cast<std::size_t>(-1);
+}
+
+// A move_hop_exact (PlanStep::exactLaunch) with no exact move right before
+// it in its leg: rows the exporter would never write. Its hop is not sent (the
+// run pauses), as it would not be on a module that does not know the kind.
+inline bool ExactLaunchBroken(const DungeonPlan* plan, std::size_t idx)
+{
+    if (!plan || idx >= plan->steps.size() || !plan->steps[idx].exactLaunch)
+        return false;
+    if (idx == 0)
+        return true;
+    return !IsExactPoint(plan, idx - 1) || plan->steps[idx - 1].leg != plan->steps[idx].leg;
+}
+
+inline std::string ExactLaunchBrokenNote(std::size_t idx)
+{
+    return "step " + std::to_string(idx + 1) + " is a move_hop_exact with no exact move (flags 64) right before it in " +
+        "its leg: the hop is not sent; export the plan again (.bot run skip passes it)";
 }
 
 // Clears what belongs to one step (also on resume, so a resumed step gets
@@ -797,6 +877,7 @@ inline void ResetStep(Run& r)
     r.walkStillMs = 0;
     r.walkBestYd = 0.0f;
     r.walkX = r.walkY = r.walkZ = 0.0f;
+    ResetExact(r);
     r.pullGuid = 0;
     r.pulls = 0;
     r.pullTries.clear();
@@ -1800,6 +1881,162 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     return false;
 }
 
+inline float GroundDistance(float ax, float ay, float bx, float by)
+{
+    return std::sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by));
+}
+
+// Where a lead bot standing too near exact waypoint `idx` to be moved onto it
+// (kExactBackYd on the ground plane: the module carries out no shorter move)
+// walks back to first: the latest plan point before it on the run's own route
+// that is a plain move, at least kExactBackYd from the lead bot and from the
+// waypoint on the ground plane and within kSeeYd of the waypoint. Never past a
+// direct step (back over a hole). False: none.
+inline bool ExactBackPoint(const Run& r, const Facts& f, std::size_t idx, float& x, float& y, float& z)
+{
+    const PlanStep& p = r.plan->steps[idx];
+    for (std::size_t i = idx; i-- > 0;)
+    {
+        const PlanStep& q = r.plan->steps[i];
+        if (q.kind == PlanStepKind::MoveDirect)
+            return false;
+        if (q.kind != PlanStepKind::Move)
+            continue;
+        if (GroundDistance(q.x, q.y, f.leadX, f.leadY) < kExactBackYd || GroundDistance(q.x, q.y, p.x, p.y) < kExactBackYd)
+            continue;
+        if (ai::PlanDistance(q.x, q.y, q.z, p.x, p.y, p.z) > kSeeYd)
+            continue;
+        x = q.x;
+        y = q.y;
+        z = q.z;
+        return true;
+    }
+    return false;
+}
+
+// Walks the party to exact waypoint `idx` (ai::kPlanFlagExact) and proves the
+// lead bot stands on it. True once proved: within kExactArriveYd of the point,
+// not moving, and on one spot (kExactStillYd) for kExactProofMs; the step is
+// then done and Run::exactProved names it. The rules of the plain walk do not
+// end it: its 3 yd arrival and its stalled arrival (6 yd) only start the
+// tighten. The tighten orders only while the lead bot stands (never over the
+// move that carries it), after kShortStallMs of standing: a lead bot farther
+// than kExactBackYd on the ground plane is sent onto the point again; a nearer
+// one walks back to ExactBackPoint, then onto the point (a `cmd move` that
+// short is not carried out). At most kWalkTries moves onto the point, and no
+// proof within kExactCapMs out of combat pauses the run: the step after it (a
+// direct step) is never sent from short of the point.
+inline bool ExactWalkTo(Run& r, const Facts& f, std::size_t idx, std::uint32_t dt, std::string& order)
+{
+    const PlanStep& p = r.plan->steps[idx];
+    std::string const what = "the exact point of step " + std::to_string(idx + 1) + " (" + Num(p.x) + " " +
+        Num(p.y) + " " + Num(p.z) + ")";
+    if (!r.exactOn)
+    {
+        if (!WalkTo(r, f, p.x, p.y, p.z, false, dt, order))
+            return false;
+        ResetExact(r);
+        r.exactOn = true;
+        EnterPhase(r, Phase::Walk);
+        r.walkX = p.x;
+        r.walkY = p.y;
+        r.walkZ = p.z;
+    }
+    r.exactMs += dt;
+    float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z);
+    bool const moved = r.exactLastSet &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.exactLastX, r.exactLastY, r.exactLastZ) > kExactStillYd;
+    bool const moving = f.leadMoving || moved;
+    r.exactLastSet = true;
+    r.exactLastX = f.leadX;
+    r.exactLastY = f.leadY;
+    r.exactLastZ = f.leadZ;
+    // The proof: looks on one spot within kExactArriveYd, the lead bot not moving.
+    if (dist <= kExactArriveYd && !moving)
+    {
+        if (!r.exactAnchorSet ||
+            ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.exactAnchorX, r.exactAnchorY, r.exactAnchorZ) > kExactStillYd)
+        {
+            r.exactAnchorSet = true;
+            r.exactAnchorX = f.leadX;
+            r.exactAnchorY = f.leadY;
+            r.exactAnchorZ = f.leadZ;
+            r.exactStillMs = 0;
+        }
+        else
+            r.exactStillMs += dt;
+        if (r.exactStillMs >= kExactProofMs)
+        {
+            ResetExact(r);
+            r.exactProved = idx;
+            r.anchorKnown = true;
+            r.anchorX = p.x;
+            r.anchorY = p.y;
+            r.anchorZ = p.z;
+            return true;
+        }
+        r.note = "on " + what + ": proving the lead bot stands still on it";
+        return false;
+    }
+    r.exactAnchorSet = false;
+    r.exactStillMs = 0;
+    if (r.exactMs >= kExactCapMs)
+    {
+        Pause(r, what + ": the lead bot was not proved to stand on it within " + std::to_string(kExactCapMs / 1000) +
+            " s (" + Num(dist) + " yd away, " + (moving ? "still moving" : "not on the point") + "); the next step " +
+            "is not sent from short of it: put the lead bot on the point (within " + Num(kExactArriveYd) +
+            " yd), then .bot run resume");
+        return false;
+    }
+    if (moving)
+    {
+        r.exactWaitMs = 0;
+        r.note = "walking onto " + what;
+        return false;
+    }
+    r.exactWaitMs += dt;
+    if (r.exactWaitMs < kShortStallMs)
+    {
+        r.note = "walking onto " + what + " (" + Num(dist) + " yd away)";
+        return false;
+    }
+    // Walked back to the back point (or stopped on the way): onto the point.
+    if (r.exactStage == 1 &&
+        GroundDistance(f.leadX, f.leadY, p.x, p.y) >= kExactBackYd - kExactArriveYd && r.exactRounds < kWalkTries)
+    {
+        ++r.exactRounds;
+        r.exactStage = 2;
+        r.exactWaitMs = 0;
+        order = MoveOrder(p.x, p.y, p.z, false);
+        r.note = "walking onto " + what + " from the point behind it";
+        return false;
+    }
+    if (r.exactRounds >= kWalkTries)
+    {
+        r.note = "waiting on " + what + " (" + Num(dist) + " yd away)";
+        return false;
+    }
+    float bx = 0.0f, by = 0.0f, bz = 0.0f;
+    if (GroundDistance(f.leadX, f.leadY, p.x, p.y) < kExactBackYd && ExactBackPoint(r, f, idx, bx, by, bz))
+    {
+        r.exactStage = 1;
+        r.exactBackX = bx;
+        r.exactBackY = by;
+        r.exactBackZ = bz;
+        r.exactWaitMs = 0;
+        order = MoveOrder(bx, by, bz, false);
+        r.note = what + ": the lead bot stands " + Num(dist) + " yd off it, too near for a move onto it: back to " +
+            Num(bx) + " " + Num(by) + " " + Num(bz) + " on the plan's way first";
+        return false;
+    }
+    ++r.exactRounds;
+    r.exactStage = 2;
+    r.exactWaitMs = 0;
+    order = MoveOrder(p.x, p.y, p.z, false);
+    r.note = "walking onto " + what + " again (" + Num(dist) + " yd away)";
+    return false;
+}
+
 // The unit to pull now: hostile, not evading, not passed, not stealthed;
 // nearest to the lead bot. When `entry` is not 0 only that entry. Null for none.
 inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units, std::uint32_t entry)
@@ -2520,6 +2757,42 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         return true;
     }
     bool const direct = p.kind == PlanStepKind::MoveDirect;
+    // An exact waypoint on the way back is replayed as its step is (ExactWalkTo),
+    // and a direct step launched from one waits for its proof (MoveStep).
+    bool const reachedStraightTarget = r.walkBackDirect && r.walkBackIdx == r.walkBackStart;
+    if (IsExactPoint(r.plan, r.walkBackIdx))
+    {
+        r.note = "walk back: to the exact point of step " + std::to_string(r.walkBackIdx + 1);
+        if (ExactWalkTo(r, f, r.walkBackIdx, dt, order))
+        {
+            NoteCheckpoint(r, r.walkBackIdx);
+            NextWalkBackPoint(r);
+            if (reachedStraightTarget)
+                r.walkBackDirect = false;
+        }
+        return true;
+    }
+    if (ExactLaunchBroken(r.plan, r.walkBackIdx))
+    {
+        Pause(r, "walk back: " + ExactLaunchBrokenNote(r.walkBackIdx));
+        return true;
+    }
+    std::size_t const launch = ExactLaunch(r.plan, r.walkBackIdx);
+    if (launch != static_cast<std::size_t>(-1) &&
+        !(r.phase == Phase::Walk && r.walkX == p.x && r.walkY == p.y && r.walkZ == p.z) &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) > kArriveYd)
+    {
+        const PlanStep& l = r.plan->steps[launch];
+        if (r.exactProved != launch ||
+            ai::PlanDistance(f.leadX, f.leadY, f.leadZ, l.x, l.y, l.z) > kExactArriveYd)
+        {
+            r.exactProved = static_cast<std::size_t>(-1);
+            r.note = "walk back: to the exact point of step " + std::to_string(launch + 1) + " before its direct step";
+            if (ExactWalkTo(r, f, launch, dt, order))
+                EnterPhase(r, Phase::Begin);
+            return true;
+        }
+    }
     if (direct && r.phase != Phase::Walk && f.maxMemberYd > kGatherYd && !r.gatherWaived)
     {
         if (r.phase != Phase::Gather)
@@ -2544,7 +2817,6 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         // The straight target is reached: from here the plan's own points go
         // on (the hole's direct steps, then the rest), each one a hop of its
         // own, not a straight walk with the straight walk's cap.
-        bool const reachedStraightTarget = r.walkBackDirect && r.walkBackIdx == r.walkBackStart;
         NoteReached(r, f, r.walkBackIdx);
         NextWalkBackPoint(r);
         if (reachedStraightTarget)
@@ -2754,6 +3026,31 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         ApproachHop(r, f, s, dt, order, "next point");
         return;
     }
+    // A direct step launched from an exact waypoint goes out only while the
+    // proof of that waypoint stands: the lead bot proved on it (that step, or
+    // this one after a resume or a fight) and still within kExactArriveYd.
+    // Otherwise the tighten runs again here first (ExactWalkTo); the direct
+    // walk under way (its own point in walkX) is not interrupted.
+    if (ExactLaunchBroken(r.plan, r.step))
+    {
+        Pause(r, ExactLaunchBrokenNote(r.step));
+        return;
+    }
+    std::size_t const launch = ExactLaunch(r.plan, r.step);
+    bool const directUnderWay = r.phase == Phase::Walk && r.walkX == s.x && r.walkY == s.y && r.walkZ == s.z;
+    bool const crossed = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z) <= kArriveYd;
+    if (launch != static_cast<std::size_t>(-1) && !directUnderWay && !crossed)
+    {
+        const PlanStep& l = r.plan->steps[launch];
+        if (r.exactProved != launch ||
+            ai::PlanDistance(f.leadX, f.leadY, f.leadZ, l.x, l.y, l.z) > kExactArriveYd)
+        {
+            r.exactProved = static_cast<std::size_t>(-1);
+            if (ExactWalkTo(r, f, launch, dt, order))
+                EnterPhase(r, Phase::Begin); // proved: the next tick gathers and sends the direct step
+            return;
+        }
+    }
     if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && FallenFirst(r, f))
         return;
     // A direct step takes the lead bot's line: the party gathers on it first
@@ -2790,6 +3087,16 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         }
         return;
     }
+    if (IsExactPoint(r.plan, r.step))
+    {
+        r.note = "walking to an exact point";
+        if (ExactWalkTo(r, f, r.step, dt, order))
+        {
+            NoteCheckpoint(r, r.step);
+            NextStep(r, "arrived: the lead bot stands on the exact point");
+        }
+        return;
+    }
     r.note = "walking";
     if (WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order))
     {
@@ -2808,6 +3115,10 @@ inline bool UseDetour(Run& r, float x, float y, float z)
     const PlanStep* s = Current(r);
     if (!s || r.state != State::Running || r.detour ||
         (s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
+        return false;
+    // An exact waypoint has no stand-in: a direct step launched from beside it
+    // is the very thing the flag forbids. The refusal pauses the run.
+    if (IsExactPoint(r.plan, r.step) || ExactLaunch(r.plan, r.step) != static_cast<std::size_t>(-1))
         return false;
     if (ai::PlanDistance(x, y, z, s->x, s->y, s->z) > kDetourMaxYd)
         return false;
@@ -4480,6 +4791,10 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.guardMs = 0;
         r.guardOrders = 0;
         r.reachStopped = false;
+        // A fight may have moved the lead bot: an exact point's tighten starts
+        // over and its proof is taken again before a direct step goes out.
+        ResetExact(r);
+        r.exactProved = static_cast<std::size_t>(-1);
         if (r.phase != Phase::AwaitTask && r.phase != Phase::Wait)
             EnterPhase(r, Phase::Begin);
     }

@@ -17,6 +17,9 @@ A boss fight has a few mechanics that generic combat AI cannot know: which spell
 
 It is **off by default**. A normal player's bots play exactly as before.
 
+
+> **Interrupt rule (corrected 2026-10-20):** the core stops a cast only when the spell has preventionType silence (1) AND, for a generic cast, interruptFlags with the damage bit 0x02 (SpellEffects.cpp, Spell::EffectInterruptCast), plus castingTimeIndex > 1. Earlier phases checked castingTimeIndex and flag bits only; the audit in pjerra/turtle-agent#246 removed the two rows that failed (Tan'sha 3143, Shalk's add 36732).
+
 ## When it is active
 
 The `boss tactics` strategy is added to a bot by the `enter boss tactics` trigger of the `dungeon` strategy (re-checked every 5 ticks, like the per-dungeon strategies) when all of these hold:
@@ -93,7 +96,7 @@ What needs a live check (not verified in game): that the interrupts fire in time
 | Boss (entry) | Row | Data behind it |
 | :--- | :--- | :--- |
 | Kan'za the Seer (63129) | `interrupt` Frostbolt 837 | Spell list 63129 casts Blizzard 6141 (a channel) and Frostbolt 837 (5-10 s first, every 6-10 s), a real cast (castingTimeIndex 24, cast time table not in the repo; treated as a real cast because interruptFlags 15, damage + slow). Blizzard 6141 has no row: the interrupt scan reads CURRENT_GENERIC_SPELL only, so channels are never seen. EventAI is aggro-line only (6312901). |
-| Tan'sha the Sleek (63133) | `interrupt` Glacial Roar 3143 | Spell list 63133 casts Glacial Roar 3143 (20-21 s first, every 17-24 s, castingTimeIndex 4), an AoE damage + stun (effectApplyAura 12, radius index 8). Her EventAI Intimidating Shout 19134 at 50% health is instant. |
+| Tan'sha the Sleek (63133) | no row (was `interrupt` Glacial Roar 3143, removed 2026-10-20: preventionType 0, a kick cannot stop it) | Spell list 63133 casts Glacial Roar 3143 (20-21 s first, every 17-24 s, castingTimeIndex 4, preventionType 0), an AoE damage + stun (effectApplyAura 12, radius index 8). Her EventAI Intimidating Shout 19134 at 50% health is instant. |
 | Hailar the Frigid (63130) | `interrupt` Frostbolt 8406 | The script (`boss_hailar_the_frigid`) only says lines and drives the ritualists; his casts come from spell list 63130 (Frostbolt 8406, 1-3 s first, every 15-20 s, castingTimeIndex 14, and Flash Freeze 16803 every 24-28 s, an instant AoE stun, so no row). |
 | Battlemaster Ubukaz (63131) | no row | EventAI, no spell list; only an aggro line (6313102) and Enrage 28131 at 25% health (6313101, self-buff, instant). |
 
@@ -106,7 +109,7 @@ What needs a live check (not verified in game): that interrupting Hailar's Frost
 | Boss (entry) | Row | Data behind it |
 | :--- | :--- | :--- |
 | Prophet Stormhoof (62781) | `interrupt` Corruption 11672 | Spell list 62781 casts Corruption 11672 (2-3 s first, every 17-22 s, castingTimeIndex 16, interruptFlags 15, periodic-damage aura 3). Curse of Agony 11712 and Wail of Souls 57748 are instant. EventAI is aggro/50 %/death lines only. |
-| Chieftain Shalk Blackwind (62782) | `interrupt` Flame of Shalk 41121, and `interrupt` Bloodguard Ritual 36732 on the add (target 62771) | Spell list 62782 casts Flame of Shalk 41121 (11-13 s first, every 32-47 s, castingTimeIndex 5, interruptFlags 15, periodic fire damage plus a healing debuff, radius index 22); Berserker Charge 19471 is instant. At 50 % health the script summons one Blackwind Bloodguard (62771) and attack-starts it on a random attacker (`src/scripts/dungeons/windhorn_canyon/windhorn_canyon.cpp:37-46`), so the add is on the bots' attacker list; the add's EventAI event 6277101 casts Bloodguard Ritual 36732 at its own 50 % health (castingTimeIndex 171, interruptFlags 15, cast on self). |
+| Chieftain Shalk Blackwind (62782) | `interrupt` Flame of Shalk 41121 (the `interrupt` Bloodguard Ritual 36732 row on the add 62771 was removed 2026-10-20: preventionType 0, a kick cannot stop it) | Spell list 62782 casts Flame of Shalk 41121 (11-13 s first, every 32-47 s, castingTimeIndex 5, interruptFlags 15, periodic fire damage plus a healing debuff, radius index 22); Berserker Charge 19471 is instant. At 50 % health the script summons one Blackwind Bloodguard (62771) and attack-starts it on a random attacker (`src/scripts/dungeons/windhorn_canyon/windhorn_canyon.cpp:37-46`), so the add is on the bots' attacker list; the add's EventAI event 6277101 casts Bloodguard Ritual 36732 at its own 50 % health (castingTimeIndex 171, interruptFlags 15, preventionType 0, cast on self). |
 | Ambassador Vortalus (62783) | `interrupt` Gust of Wind 6982 | Spell list 62783 casts Gust of Wind 6982 (4-5 s first, every 14-19 s, castingTimeIndex 5, interruptFlags 31), an AoE stun (aura 12, radius index 8); Chain Lightning 22355 is instant, and the EventAI cast Engulfing Vortex 36578 at 50 % health (6278301) is instant too. |
 | Ahgk'tos the Pure (62778) | no row | Spell list 62778 is all instant: Lightning Cloud 23105 (ground area), Lightning Shield 945 (self) and Wing Flap 12882 (a frontal cone knock back, implicit target 24, radius index 13 — no `behind` row because the client SpellRadius table is not in the repo, so no yard value can be given). The creature has EventAI assigned but no EventAI rows and no C++ script. |
 | Pathun Duskhide (62779) | no row | Spell list 62779: Kodo Stomp 6266 and Demoralizing Shout 11554 are instant; the only cast is Hooked Net 14030 (castingTimeIndex 3) with interruptFlags 9, without the kick bit. EventAI is an aggro/50 %/death line plus a threat reset at 50 % health (6277901, `MODIFY_THREAT`). |

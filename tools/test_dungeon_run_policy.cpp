@@ -3666,8 +3666,403 @@ static void TestPartialStartGuard()
     CHECK(CheckPartialStart(true, 0, 0) == PartialStartVerdict::Ok);
 }
 
+
+// ---- Exact waypoints (ai::kPlanFlagExact, ExactWalkTo) ----
+
+static PlanStep ExactStep(float x, float y, float z)
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Move;
+    s.x = x;
+    s.y = y;
+    s.z = z;
+    s.flags = ai::kPlanFlagExact;
+    CHECK(ai::NormalizePlanStep(s) == ai::PlanStepRefusal::None);
+    return s;
+}
+
+// The hop after an exact point: a move_hop_exact row (exactLaunch).
+static PlanStep DirectExact(float x, float y, float z)
+{
+    PlanStep s = Step(PlanStepKind::MoveDirect, x, y, z);
+    s.exactLaunch = true;
+    return s;
+}
+
+// The Wailing Caverns leg 10 rows (export of 2026-10-18): three path rows, the
+// exact foot 2.25 yd from the row before it, the direct hop down to the
+// Serpentis ramp (47 yd drop under it), then a rest.
+static DungeonPlan SerpentisPlan()
+{
+    DungeonPlan plan;
+    plan.name = "wailing_caverns";
+    plan.steps = {Step(PlanStepKind::Move, -308.6239f, -32.13346f, -60.944225f),
+        Step(PlanStepKind::Move, -292.80005f, -3.4667964f, -58.160522f),
+        Step(PlanStepKind::Move, -292.00006f, -1.3334637f, -57.860523f),
+        ExactStep(-293.3f, 0.5f, -58.0f),
+        DirectExact(-287.5f, 5.0f, -63.6f),
+        Step(PlanStepKind::Rest)};
+    return plan;
+}
+
+static bool IsDirectOrder(const std::string& order)
+{
+    return order.find("direct") != std::string::npos;
+}
+
+// The Serpentis case: the lead bot stands 2.3 yd from the foot (within the plain
+// move's 3 yd). Before the exact rule the foot counted as reached at once and the
+// direct hop went out from there. Now: no direct order until the proof; the lead
+// bot (too near for a move onto the point) walks back to the first plan point at
+// least 6.5 yd behind, comes onto the foot, stands 2 s, and only then the hop.
+static void TestExactSerpentisFootIsNotSkipped()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Run r = Start(&plan, 3);
+    Facts f = Party(0);
+    f.leadX = -293.3f;
+    f.leadY = 0.5f - 2.3f;
+    f.leadZ = -58.0f;
+    std::string back;
+    for (int i = 0; i < 6 && back.empty(); ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(!IsDirectOrder(order));
+        CHECK(r.step == 3 && r.state == State::Running);
+        back = order;
+    }
+    // The rows 1 and 2 are within 6.5 yd of the foot on the ground plane: row 0.
+    CHECK(back == "move -308.6 -32.1 -60.9");
+    // Walking there: no order over the move.
+    f.leadMoving = true;
+    f.leadX = -300.0f;
+    f.leadY = -15.0f;
+    CHECK(Tick(r, f).empty());
+    // Arrived and standing: after 3 s, onto the foot.
+    f.leadMoving = false;
+    f.leadX = -308.6f;
+    f.leadY = -32.1f;
+    f.leadZ = -60.9f;
+    std::string onto;
+    for (int i = 0; i < 5 && onto.empty(); ++i)
+    {
+        onto = Tick(r, f);
+        CHECK(!IsDirectOrder(onto) && r.step == 3);
+    }
+    CHECK(onto == "move -293.3 0.5 -58.0");
+    // On the foot but still moving: no proof.
+    f.leadX = -293.2f;
+    f.leadY = 0.4f;
+    f.leadZ = -58.4f;
+    f.leadMoving = true;
+    for (int i = 0; i < 4; ++i)
+    {
+        CHECK(Tick(r, f).empty());
+        CHECK(r.step == 3);
+    }
+    // Standing: three looks on one spot (2 s), then the step is done ...
+    f.leadMoving = false;
+    CHECK(Tick(r, f).empty() && r.step == 3);
+    CHECK(Tick(r, f).empty() && r.step == 3);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.step == 4 && r.exactProved == 3 && r.note.find("exact point") != std::string::npos);
+    // ... and the direct hop goes out from the foot.
+    CHECK(Tick(r, f) == "move -287.5 5.0 -63.6 direct");
+}
+
+// A lead bot that never comes onto the point: bounded, and a pause with a clear
+// note; the direct step never goes out.
+static void TestExactNeverProvedPauses()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Run r = Start(&plan, 3);
+    Facts f = Party(0);
+    f.leadX = -293.3f;
+    f.leadY = 0.5f - 2.3f;
+    f.leadZ = -58.0f;
+    int ticks = 0;
+    for (; ticks < 200 && r.state == State::Running; ++ticks)
+        CHECK(!IsDirectOrder(Tick(r, f)));
+    CHECK(r.state == State::Paused && r.step == 3);
+    CHECK(ticks <= static_cast<int>(kExactCapMs / kTickMs) + 2);
+    CHECK(r.note.find("exact point of step 4") != std::string::npos);
+    CHECK(r.note.find("not proved") != std::string::npos);
+    CHECK(r.note.find(".bot run resume") != std::string::npos);
+}
+
+// 1.5-3 yd away with no plan point behind it to walk back to: the lead bot is
+// sent onto the point again (a re-issued move), never counted as arrived by the
+// 3 yd rule, nor by the stalled arrival within 6 yd.
+static void TestExactReissuesTheMoveAndIgnoresTheStallRule()
+{
+    DungeonPlan plan;
+    plan.steps = {ExactStep(10, 0, 0), Step(PlanStepKind::MoveDirect, 15, 0, 0)};
+    Run r = Start(&plan);
+    Facts f = Party(12.3f);
+    std::vector<std::string> orders;
+    for (int i = 0; i < 8; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(!IsDirectOrder(order) && r.step == 0);
+        if (!order.empty())
+            orders.push_back(order);
+    }
+    CHECK(!orders.empty() && orders[0] == "move 10.0 0.0 0.0");
+    // A stall 4.5 yd short (the plain walk's 3 s / 6 yd arrival): not done either.
+    Run r2 = Start(&plan);
+    Facts g = Party(0);
+    CHECK(Tick(r2, g) == "move 10.0 0.0 0.0");
+    g.leadX = 5.5f;
+    for (int i = 0; i < 10; ++i)
+    {
+        CHECK(!IsDirectOrder(Tick(r2, g)));
+        CHECK(r2.step == 0);
+    }
+}
+
+// A direct step launched from an exact point checks the proof itself: started
+// (or resumed) at the direct step with the lead bot 2.3 yd off the foot, the hop
+// waits for the tighten; on the foot and still, it goes out.
+static void TestDirectFromExactPointWaitsForTheProof()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Run r = Start(&plan, 4);
+    Facts f = Party(0);
+    f.leadX = -293.3f;
+    f.leadY = 0.5f - 2.3f;
+    f.leadZ = -58.0f;
+    for (int i = 0; i < 6; ++i)
+        CHECK(!IsDirectOrder(Tick(r, f)));
+    Run r2 = Start(&plan, 4);
+    f.leadY = 0.4f;
+    std::string order;
+    for (int i = 0; i < 6 && order.empty(); ++i)
+        order = Tick(r2, f);
+    CHECK(order == "move -287.5 5.0 -63.6 direct");
+    // A stand-in point (detour) is never taken for the exact point nor its hop.
+    Run r3 = Start(&plan, 3);
+    f.leadX = -320.0f;
+    f.leadY = -40.0f;
+    Tick(r3, f);
+    CHECK(!UseDetour(r3, -295.0f, 0.5f, -58.0f));
+}
+
+// A walk back after a regroup replays the exact point as its step does: the
+// foot is not passed by the 3 yd rule, and the hop waits for its proof.
+static void TestWalkBackReplaysTheExactPoint()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 3;
+    Facts f = Party(0);
+    f.leadX = -293.3f;
+    f.leadY = 0.5f - 2.3f;
+    f.leadZ = -58.0f;
+    std::string back;
+    for (int i = 0; i < 7 && (back.empty() || back == "rest"); ++i) // the rest step's gate asks for a rest first
+    {
+        back = Tick(r, f);
+        CHECK(!IsDirectOrder(back) && r.walkBackIdx == 3 && r.walkBack);
+    }
+    CHECK(back == "move -308.6 -32.1 -60.9");
+    // Skipping the foot's replay is caught by the hop's own check.
+    Run r2 = Start(&plan, 5);
+    r2.walkBack = true;
+    r2.walkBackIdx = r2.walkBackStart = 4;
+    for (int i = 0; i < 7; ++i)
+        CHECK(!IsDirectOrder(Tick(r2, f)));
+    // On the foot and still: the hop is replayed.
+    f.leadY = 0.4f;
+    Run r3 = Start(&plan, 5);
+    r3.walkBack = true;
+    r3.walkBackIdx = r3.walkBackStart = 3;
+    std::string order;
+    for (int i = 0; i < 8 && !IsDirectOrder(order); ++i)
+        order = Tick(r3, f);
+    CHECK(order == "move -287.5 5.0 -63.6 direct" && r3.walkBackIdx == 4);
+}
+
+// Brings a Serpentis run to the hop (step 4) with the foot proved; the lead
+// bot stands on the foot.
+static Run ProvedAtTheFoot(const DungeonPlan& plan, Facts& f)
+{
+    Run r = Start(&plan, 3);
+    f = Party(0);
+    f.leadX = -293.2f;
+    f.leadY = 0.4f;
+    f.leadZ = -58.4f;
+    for (int i = 0; i < 6 && r.step == 3; ++i)
+        CHECK(Tick(r, f).empty());
+    CHECK(r.step == 4 && r.exactProved == 3);
+    return r;
+}
+
+// Proved, then the lead bot is 3 yd off the foot before the hop goes out (a
+// knock, a player's move): no direct order; the tighten runs again.
+static void TestHopRechecksTheLeadOnTheFoot()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Facts f;
+    Run r = ProvedAtTheFoot(plan, f);
+    f.leadY = 0.5f - 3.0f;
+    f.leadX = -293.3f;
+    f.leadZ = -58.0f;
+    for (int i = 0; i < 4; ++i)
+        CHECK(!IsDirectOrder(Tick(r, f)));
+    CHECK(r.step == 4 && r.exactProved != 3);
+}
+
+// A lead bot that drifts 1 yd a tick while staying within 1.5 yd of the point,
+// with the moving fact false, is never proved.
+static void TestDriftWithinTheRadiusIsNoProof()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Run r = Start(&plan, 3);
+    Facts f = Party(0);
+    f.leadX = -293.3f;
+    f.leadZ = -58.0f;
+    for (int i = 0; i < 10; ++i)
+    {
+        f.leadY = (i % 2 == 0) ? 0.0f : 1.0f; // 0.5 yd either side of the foot, 1 yd per tick
+        CHECK(!IsDirectOrder(Tick(r, f)));
+        CHECK(r.step == 3);
+    }
+    // ... nor one that swings 0.9 yd a tick about one spot (each look within
+    // 0.5 yd of it: only the tick-to-tick move shows it) ...
+    Run r2 = Start(&plan, 3);
+    for (int i = 0; i < 10; ++i)
+    {
+        f.leadY = 0.5f + ((i == 0) ? 0.0f : (i % 2 ? 0.45f : -0.45f));
+        CHECK(!IsDirectOrder(Tick(r2, f)));
+        CHECK(r2.step == 3);
+    }
+    // ... nor one that creeps 0.4 yd a tick across the point (each tick under
+    // 0.5 yd: only the distance from the first spot shows it).
+    Run r3 = Start(&plan, 3);
+    for (int i = 0; i < 7; ++i)
+    {
+        f.leadY = 0.5f - 1.2f + 0.4f * static_cast<float>(i);
+        CHECK(!IsDirectOrder(Tick(r3, f)));
+        CHECK(r3.step == 3);
+    }
+}
+
+// After a fight, and after a pause and resume, the lead bot still on the foot:
+// the proof is taken again (three looks) before the hop goes out.
+static void TestProofIsRetakenAfterAFightAndAResume()
+{
+    DungeonPlan plan = SerpentisPlan();
+    Facts f;
+    Run r = ProvedAtTheFoot(plan, f);
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.anyInCombat = false;
+    int quiet = 0;
+    std::string order;
+    for (int i = 0; i < 8 && !IsDirectOrder(order); ++i)
+    {
+        order = Tick(r, f);
+        if (!IsDirectOrder(order))
+            ++quiet;
+    }
+    CHECK(order == "move -287.5 5.0 -63.6 direct");
+    CHECK(quiet >= 3);
+
+    Run r2 = ProvedAtTheFoot(plan, f);
+    Pause(r2, "by hand");
+    CHECK(Resume(r2));
+    quiet = 0;
+    order.clear();
+    for (int i = 0; i < 12 && !IsDirectOrder(order); ++i)
+    {
+        order = Tick(r2, f);
+        if (!IsDirectOrder(order))
+            ++quiet;
+    }
+    CHECK(order == "move -287.5 5.0 -63.6 direct");
+    CHECK(quiet >= 3);
+}
+
+// The walk back to a point behind an exact point never goes back over a direct
+// step: with a hole behind, the lead bot is sent onto the point instead.
+static void TestBackPointStopsAtADirectStep()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, -30, 0, 0), Step(PlanStepKind::MoveDirect, -8, 0, 0),
+        Step(PlanStepKind::Move, -2, 0, 0), ExactStep(0, 0, 0), DirectExact(5, 5, -5)};
+    for (int which = 0; which < 2; ++which)
+    {
+        plan.steps[1].exactLaunch = false;
+        if (which == 1)
+        {
+            // ... a move_hop_exact behind too (with its own exact point before it).
+            plan.steps[0].flags = ai::kPlanFlagExact;
+            plan.steps[1].exactLaunch = true;
+        }
+        Run r = Start(&plan, 3);
+        Facts f = Party(0);
+        f.leadX = 2.3f;
+        std::string first;
+        for (int i = 0; i < 6 && first.empty(); ++i)
+            first = Tick(r, f);
+        CHECK(first == "move 0.0 0.0 0.0");
+    }
+}
+
+// A move_hop_exact with no exact move right before it is not sent: the run
+// pauses (at the step and on a walk back). Then a narrow check of the rows an
+// older module would load: with the hop's row skipped (the parser test in
+// test_dungeon_plan_policy.cpp shows the old kind parser returns None for it)
+// and the flag ignored, the plan holds no direct step, and THIS runtime run on
+// those rows emits no direct order. It does not model the old runtime, and it
+// says nothing about where its plain move to seq 5 ends: that deploy state is
+// unsupported (the migration and the module ship together).
+static void TestBrokenHopPausesAndSkippedHopRowHasNoDirectOrder()
+{
+    DungeonPlan plan = SerpentisPlan();
+    plan.steps[3].flags = 0; // the foot without its flag
+    Run r = Start(&plan, 4);
+    Facts f = Party(0);
+    f.leadX = -293.2f;
+    f.leadY = 0.4f;
+    f.leadZ = -58.4f;
+    CHECK(!IsDirectOrder(Tick(r, f)));
+    CHECK(r.state == State::Paused && r.note.find("move_hop_exact") != std::string::npos);
+    // ... on a walk back too.
+    Run w = Start(&plan, 5);
+    w.walkBack = true;
+    w.walkBackIdx = w.walkBackStart = 4;
+    for (int i = 0; i < 4 && w.state == State::Running; ++i)
+        CHECK(!IsDirectOrder(Tick(w, f)));
+    CHECK(w.state == State::Paused && w.note.find("walk back") != std::string::npos &&
+        w.note.find("move_hop_exact") != std::string::npos);
+
+    DungeonPlan old = SerpentisPlan();
+    old.steps[3].flags = 0;                  // the flag dropped, as an older module ignores it
+    old.steps.erase(old.steps.begin() + 4);  // the hop's row skipped, as an older loader does (UnknownKind)
+    old.steps.insert(old.steps.begin() + 4, Step(PlanStepKind::Move, -270.9f, 24.3f, -60.0f)); // seq 5, on the ramp
+    Run o = Start(&old, 0);
+    Facts g = Party(0);
+    g.leadX = -320.0f;
+    g.leadY = -40.0f;
+    g.leadZ = -61.0f;
+    for (int i = 0; i < 120 && o.state == State::Running; ++i)
+        CHECK(!IsDirectOrder(Tick(o, g)));
+}
+
 int main()
 {
+    TestHopRechecksTheLeadOnTheFoot();
+    TestDriftWithinTheRadiusIsNoProof();
+    TestProofIsRetakenAfterAFightAndAResume();
+    TestBackPointStopsAtADirectStep();
+    TestBrokenHopPausesAndSkippedHopRowHasNoDirectOrder();
+    TestWalkBackReplaysTheExactPoint();
+    TestExactSerpentisFootIsNotSkipped();
+    TestExactNeverProvedPauses();
+    TestExactReissuesTheMoveAndIgnoresTheStallRule();
+    TestDirectFromExactPointWaitsForTheProof();
     TestRunTimeLimitAndStopNote();
     TestStartFromParsing();
     TestStartFromResolve();
