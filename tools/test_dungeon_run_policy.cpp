@@ -1151,6 +1151,321 @@ static void TestRegroupWaitsForPartyRez()
     CHECK(Tick(n, f) == "revive party");
 }
 
+// The rez hold (AiPlayerbot.DungeonRunRezHold, RezHoldPolicy.h). The roster: a tank, a priest
+// healer and three more; the mage (index 2) is dead when `dead` is set.
+static std::vector<TortoiseBots::RezHold::Member> RezRoster(bool mageDead, std::uint32_t priestMana, float corpseYd = -1.0f)
+{
+    using namespace TortoiseBots::RezHold;
+    std::vector<Member> m(5);
+    m[0].tank = true;
+    m[1].rez = RezClass::Priest;
+    m[1].healer = true;
+    m[1].mana = priestMana;
+    m[1].rezCost = 160;
+    if (mageDead)
+    {
+        m[2].dead = true;
+        m[2].corpseYd = corpseYd;
+    }
+    return m;
+}
+
+// Ticks a regroup with one dead until a revive goes out; the seconds it took (0: none in 200 s).
+static std::uint32_t SecondsToRevive(const Facts& f, std::string* note = nullptr)
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Run r = Start(&plan);
+    BeginRegroup(r);
+    for (std::uint32_t ms = kTickMs; ms <= 200000; ms += kTickMs)
+    {
+        std::string const order = Tick(r, f);
+        if (note)
+            *note = r.note;
+        if (order == "revive party")
+            return ms / 1000;
+    }
+    return 0;
+}
+
+// Key off (the default): the rez hold's facts are never looked at. A run fed a roster that would
+// change the verdict (rezHold false) ticks exactly as one fed none, order and note, tick by tick,
+// and the old fixed wait is still the one that decides.
+static void TestRezHoldOffIsUnchanged()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Facts plain = Party(0);
+    plain.units = {Unit(21, 7011, 30)};
+    plain.dead = 1;
+    plain.alive = 4;
+    plain.rezzer = true;
+    Facts withRoster = plain;
+    withRoster.rezHold = false;
+    withRoster.rezMembers = RezRoster(true, 0, 500.0f); // a priest with no mana and a far body: would send at once
+    Run a = Start(&plan);
+    Run b = Start(&plan);
+    std::uint32_t firstOrder = 0;
+    for (std::uint32_t ms = kTickMs; ms <= 300000; ms += kTickMs)
+    {
+        std::string const oa = Tick(a, plain);
+        std::string const ob = Tick(b, withRoster);
+        CHECK(oa == ob);
+        CHECK(a.note == b.note);
+        CHECK(a.regroupMs == b.regroupMs && a.reviveSent == b.reviveSent && a.state == b.state);
+        if (!firstOrder && oa == "revive party")
+            firstOrder = ms;
+    }
+    CHECK(firstOrder >= kPartyRezWaitMs && firstOrder <= kPartyRezWaitMs + 3 * kTickMs);
+    // No rezzer in the plain facts: the old rule revives at once, with or without the roster.
+    plain.rezzer = false;
+    withRoster.rezzer = false;
+    CHECK(SecondsToRevive(plain) == SecondsToRevive(withRoster));
+    CHECK(SecondsToRevive(plain) <= 3);
+}
+
+// Key on: the hold waits for the priest well past the old 15 s, waits for its mana, and sends the
+// revive when a rezzer is missing, the body is far or the budget is spent.
+static void TestRezHoldOn()
+{
+    using namespace TortoiseBots::RezHold;
+    Facts f = Party(0);
+    f.dead = 1;
+    f.alive = 4;
+    f.rezHold = true;
+    f.rezzer = true; // the old flag is not what decides any more
+    std::string note;
+    // A priest with mana: held for kHoldMs (not 15 s), then the revive.
+    f.rezMembers = RezRoster(true, 500);
+    std::uint32_t s = SecondsToRevive(f, &note);
+    CHECK(s >= kHoldMs / 1000 && s <= kHoldMs / 1000 + 3);
+    f.rezMembers = RezRoster(true, 500);
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(40, {7011})};
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        for (int i = 0; i < 30; ++i)
+            CHECK(Tick(r, f).empty());
+        CHECK(r.note.find("a resurrection in the party first") != std::string::npos);
+        CHECK(r.note.find("under way") != std::string::npos);
+    }
+    // The priest is short of mana: waited for up to kManaWaitMs.
+    f.rezMembers = RezRoster(true, 20);
+    s = SecondsToRevive(f, &note);
+    CHECK(s >= kManaWaitMs / 1000 && s <= kManaWaitMs / 1000 + 3);
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(40, {7011})};
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        for (int i = 0; i < 20; ++i)
+            CHECK(Tick(r, f).empty());
+        CHECK(r.note.find("the resurrector drinks first") != std::string::npos);
+    }
+    // No resurrector at all: the revive goes out on the first ticks.
+    f.rezMembers = RezRoster(true, 500);
+    f.rezMembers[1].rez = RezClass::None;
+    CHECK(SecondsToRevive(f) <= 3);
+    // The body lies too far: no wait either.
+    f.rezMembers = RezRoster(true, 500, kCorpseMaxYd + 10.0f);
+    CHECK(SecondsToRevive(f) <= 3);
+    // Raised in time: no revive, the pull follows.
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(40, {7011})};
+        Run q = Start(&plan);
+        f.units = {Unit(21, 7011, 30)};
+        f.rezMembers = RezRoster(true, 500);
+        BeginRegroup(q);
+        for (int i = 0; i < 20; ++i)
+            CHECK(Tick(q, f).empty());
+        f.dead = 0;
+        f.alive = 5;
+        f.rezMembers = RezRoster(false, 500);
+        std::string order;
+        for (int i = 0; i < 6 && order.empty(); ++i)
+            order = Tick(q, f);
+        CHECK(order == "pullback 21");
+    }
+    // A revive that went out is not taken back by a resurrector turning up after it (the priest
+    // revived at the spirit healer is one): the regroup goes on reviving, it does not hold again.
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(40, {7011})};
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.units.clear();
+        f.dead = 2;
+        f.alive = 3;
+        f.rezMembers = RezRoster(true, 500);
+        f.rezMembers[1].rez = RezClass::None;
+        f.rezMembers[3].dead = true;
+        CHECK(Tick(r, f) == "revive party");
+        f.rezMembers[1].rez = RezClass::Priest;
+        Tick(r, f);
+        CHECK(r.reviveSent && r.note.find("reviving") != std::string::npos);
+        CHECK(r.note.find("a resurrection in the party first") == std::string::npos);
+        f.dead = 1;
+        f.alive = 4;
+    }
+    // Once the revive went out it is not held back again: the old resend every 60 s still runs.
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(40, {7011})};
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.units.clear();
+        f.dead = 1;
+        f.alive = 4;
+        f.rezMembers = RezRoster(true, 500);
+        int revives = 0;
+        for (std::uint32_t ms = 0; ms < 200000; ms += kTickMs)
+            if (Tick(r, f) == "revive party")
+                ++revives;
+        CHECK(revives == 3); // at ~60 s, then every 60 s: ~120 s, ~180 s
+    }
+}
+
+// The rez hold's clocks (review of b228d8e8). A priest short of mana for 70 s and then back up keeps
+// the whole hold budget from there (before, one shared clock released it the same tick); a cast under
+// way finishes past the budget; the 240 s corpse-run budget starts when the hold gave up; the status
+// note names who is waited for.
+static void TestRezHoldClocks()
+{
+    using namespace TortoiseBots::RezHold;
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Facts f = Party(0);
+    f.dead = 1;
+    f.alive = 4;
+    f.rezHold = true;
+    // Mana back at 70 s: held until 70 s + kHoldMs, then the revive.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        std::uint32_t revivedAt = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 300000 && !revivedAt; ms += kTickMs)
+        {
+            f.rezMembers = RezRoster(true, ms < 70000 ? 20 : 500);
+            if (Tick(r, f) == "revive party")
+                revivedAt = ms;
+        }
+        CHECK(revivedAt >= 70000 + kHoldMs && revivedAt <= 70000 + kHoldMs + 3 * kTickMs);
+    }
+    // A cast under way when the budget is spent: kCastGraceMs more, once.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = RezRoster(true, 500);
+        std::uint32_t revivedAt = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 200000 && !revivedAt; ms += kTickMs)
+        {
+            f.rezInProgress = ms >= 50000;
+            if (Tick(r, f) == "revive party")
+                revivedAt = ms;
+        }
+        CHECK(revivedAt >= kHoldMs + kCastGraceMs && revivedAt <= kHoldMs + kCastGraceMs + 3 * kTickMs);
+        f.rezInProgress = false;
+    }
+    // The corpse run keeps its 240 s: the pause comes kRegroupReviveMs after the revive, not after the regroup began.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = RezRoster(true, 500);
+        std::uint32_t revivedAt = 0, pausedAt = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 400000 && !pausedAt; ms += kTickMs)
+        {
+            if (Tick(r, f) == "revive party" && !revivedAt)
+                revivedAt = ms;
+            if (r.state == State::Paused)
+                pausedAt = ms;
+        }
+        CHECK(revivedAt >= kHoldMs && pausedAt >= revivedAt + kRegroupReviveMs &&
+              pausedAt <= revivedAt + kRegroupReviveMs + 3 * kTickMs);
+        // With the key off the pause stays at kRegroupReviveMs from the regroup's start.
+        Run o = Start(&plan);
+        BeginRegroup(o);
+        Facts off = f;
+        off.rezHold = false;
+        off.rezMembers.clear();
+        off.rezzer = true; // the old 15 s wait first: the budget still runs from the regroup's start
+        std::uint32_t offPaused = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 400000 && !offPaused; ms += kTickMs)
+        {
+            Tick(o, off);
+            if (o.state == State::Paused)
+                offPaused = ms;
+        }
+        CHECK(offPaused >= kRegroupReviveMs && offPaused <= kRegroupReviveMs + 3 * kTickMs);
+    }
+    // A rezzer that drinks again after it acted gets the budget again (the clock restarts while it drinks).
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        std::uint32_t revivedAt = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 300000 && !revivedAt; ms += kTickMs)
+        {
+            // able 0-40 s, drinking 40-60 s, able again from 60 s
+            f.rezMembers = RezRoster(true, ms >= 40000 && ms < 60000 ? 20 : 500);
+            if (Tick(r, f) == "revive party")
+                revivedAt = ms;
+        }
+        CHECK(revivedAt >= 60000 + kHoldMs && revivedAt <= 60000 + kHoldMs + 3 * kTickMs);
+    }
+    // A new regroup starts the budget over.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = RezRoster(true, 500);
+        for (int i = 0; i < 40; ++i)
+            CHECK(Tick(r, f).empty());
+        BeginRegroup(r);
+        std::uint32_t revivedAt = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 200000 && !revivedAt; ms += kTickMs)
+            if (Tick(r, f) == "revive party")
+                revivedAt = ms;
+        CHECK(revivedAt >= kHoldMs && revivedAt <= kHoldMs + 3 * kTickMs);
+    }
+    // The gather's restart of the regroup clock takes the hold's share of the revive budget with it: the
+    // dead gone and one dead again while the gather waits, the pause is kRegroupReviveMs from the gather.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = RezRoster(true, 500);
+        for (int i = 0; i < 70; ++i)
+            Tick(r, f); // the hold gives up at ~60 s, the revive is out
+        CHECK(r.reviveSent && r.reviveBaseMs > 0);
+        Facts g = f;
+        g.dead = 0;
+        g.alive = 5;
+        g.rezMembers = RezRoster(false, 500);
+        g.maxMemberYd = 50.0f;
+        g.members = {Mem("Far", 50.0f)};
+        Tick(r, g); // the gather goes out and restarts the clock
+        CHECK(r.regroupGatherSent && r.reviveBaseMs == 0);
+        std::uint32_t pausedAt = 0;
+        for (std::uint32_t ms = kTickMs; ms <= 400000 && !pausedAt; ms += kTickMs)
+        {
+            Tick(r, f); // dead again
+            if (r.state == State::Paused)
+                pausedAt = ms;
+        }
+        CHECK(pausedAt >= kRegroupReviveMs && pausedAt <= kRegroupReviveMs + 3 * kTickMs);
+    }
+    // The note names who is waited for and whom.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = RezRoster(true, 500);
+        f.rezMembers[1].name = "Holysis";
+        f.rezMembers[2].name = "Magnus";
+        Tick(r, f);
+        Tick(r, f);
+        CHECK(r.note.find("Holysis for Magnus") != std::string::npos);
+    }
+}
+
 // The regroup's revive is bounded: still dead after kRegroupReviveMs pauses.
 static void TestRegroupRevivePauses()
 {
@@ -4165,6 +4480,9 @@ int main()
     TestOneReviveSummonPerRevive();
     TestFailedReviveSummonWalks();
     TestRegroupGatherCapScales();
+    TestRezHoldOffIsUnchanged();
+    TestRezHoldOn();
+    TestRezHoldClocks();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

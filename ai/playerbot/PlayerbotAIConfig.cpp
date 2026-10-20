@@ -985,6 +985,7 @@ bool PlayerbotAIConfig::Initialize()
     dungeonTactics = config.GetBoolDefault("AiPlayerbot.DungeonTactics", false);
     dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);
     dungeonRunMaxMinutes = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.DungeonRunMaxMinutes", 180)));
+    dungeonRunRezHold = config.GetBoolDefault("AiPlayerbot.DungeonRunRezHold", false);
     avoidCreatureAuras = config.GetBoolDefault("AiPlayerbot.AvoidCreatureAuras", true);
     allowRepairedTaxiPaths = config.GetBoolDefault("AiPlayerbot.AllowRepairedTaxiPaths", false);
     turnInRpg = config.GetBoolDefault("AiPlayerbot.TurnInRpg", false);

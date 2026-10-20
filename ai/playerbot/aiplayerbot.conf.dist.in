@@ -807,6 +807,15 @@ AiPlayerbot.DungeonSelfClear = 0
 # 180 - three hours (Default)
 AiPlayerbot.DungeonRunMaxMinutes = 180
 
+# The run leader's regroup after a death: how long it waits for a living priest,
+# paladin or shaman (a druid's Rebirth only when none of those lives) to raise the
+# fallen where they lie before `cmd revive party` sends them to the spirit healer.
+# 0 - a fixed 15 s wait when a priest, paladin or shaman is out of combat (Default)
+# 1 - the rez hold: up to 60 s (more for each extra body), a resurrector short of
+#     mana is waited for up to 90 s, bodies over 80 yd away are not waited for
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunRezHold = 0
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
