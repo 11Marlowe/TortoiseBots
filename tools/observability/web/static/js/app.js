@@ -5216,9 +5216,18 @@
   }
 
   // Lines between two game points: from (a) to (b), classed and styled as one of the combat layers.
-  function cmdLineSvg(c, key, cls, a, b, baseAlpha) {
+  function cmdLineSvg(c, key, cls, a, b, baseAlpha, basePx) {
     const p = CmdView.project(a.x, a.y), q = CmdView.project(b.x, b.y);
-    return `<line class="${cls}" style="${cmdLineStyle(key, 1.6, baseAlpha)}" x1="${c.f(p.x)}" y1="${c.f(p.y)}" x2="${c.f(q.x)}" y2="${c.f(q.y)}"/>`;
+    return `<line class="${cls}" style="${cmdLineStyle(key, basePx == null ? 1.6 : basePx, baseAlpha)}" x1="${c.f(p.x)}" y1="${c.f(p.y)}" x2="${c.f(q.x)}" y2="${c.f(q.y)}"/>`;
+  }
+
+  // The target, heal and crowd-control lines of a card, one style key for all three (the action-lines layer).
+  function cmdCombatLinesSvg(c, on, onMap, mobs) {
+    let g = '';
+    if (on.bottarget) CmdView.botTargetLines(onMap, mobs).forEach(l => { g += cmdLineSvg(c, 'actionlines', 'bottarget', l.bot, l.mob, 0.9, 1.5); });
+    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(c, 'actionlines', 'healline', l.from, l.to, 0.9); });
+    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(c, 'actionlines', 'ccline', l.from, l.to, 0.9); });
+    return g;
   }
 
   function drawCmdMap(key) {
@@ -5233,7 +5242,7 @@
     const { lead, first, onMap, pics, trail, heading, zr, mobs, mobsTotal, commanderAt, steps, stalls, objs } = facts;
     const avail = MapLayers.availability(facts.ctx);
     cmdAvail[key] = avail;
-    const on = MapLayers.active(cmdLayers, avail);
+    const on = MapLayers.active(cmdLayers, avail, facts.ctx);
     const away = (bind.bots || []).length - onMap.length;
     const pts = onMap.map(b => CmdView.project(b.x, b.y));
     if (ms.follow || !ms.view) ms.view = CmdView.followView(pts, pw, ph, 44, 60, ms.userScale);
@@ -5313,14 +5322,7 @@
         g += `<line class="threat" style="${cmdLineStyle('threat', 1.5, 0.85)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
       });
     }
-    if (on.bottarget) {
-      CmdView.botTargetLines(onMap, mobs).forEach(l => {
-        const a = CmdView.project(l.bot.x, l.bot.y), b = CmdView.project(l.mob.x, l.mob.y);
-        g += `<line class="bottarget" style="${cmdLineStyle('actionlines', 1.5, 0.9)}" x1="${f(a.x)}" y1="${f(a.y)}" x2="${f(b.x)}" y2="${f(b.y)}"/>`;
-      });
-    }
-    if (on.healline) CmdPaths.healLines(onMap).forEach(l => { g += cmdLineSvg(dc, 'actionlines', 'healline', l.from, l.to, 0.9); });
-    if (on.ccline) CmdPaths.ccLines(onMap, mobs).forEach(l => { g += cmdLineSvg(dc, 'actionlines', 'ccline', l.from, l.to, 0.9); });
+    g += cmdCombatLinesSvg(dc, on, onMap, mobs);
     if (on.objects) g += cmdObjectsSvg(dc, objs);
     // the health bar and status icons over a unit at plane point p, radius r (drawing units)
     const overlay = (u, kind, p, r) => {

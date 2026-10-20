@@ -162,10 +162,15 @@
     return out;
   }
 
-  // v1/v2 -> v3: a merged layer is on when any of its old layers was on; a merged line layer takes its first old line key's style.
+  // v1/v2 -> v3: a merged layer whose old switches are all still at their v2 defaults was never touched, so it takes the NEW default
+  // (that is how existing users get enemies, threat, events and the run line on); otherwise it is on when any of its old switches was.
+  // A merged line layer takes its first old line key's style.
   function fromOld(raw) {
     const old = normalizeOld(raw), out = defaults();
-    DEFS.forEach((d) => { out[d.key] = d.parts.some((p) => old[p] === true); });
+    DEFS.forEach((d) => {
+      const untouched = d.parts.every((p) => old[p] === OLD_LAYERS[p].def);
+      out[d.key] = untouched ? d.def : d.parts.some((p) => old[p] === true);
+    });
     out.dim = old.dim;
     out.trailLen = old.trailLen;
     DEFS.forEach((d) => {
@@ -260,7 +265,8 @@
     return out;
   }
 
-  // The old keys' on/off choices, computed from the new ones: what the drawing code reads.
+  // The old keys' on/off choices, computed from the new ones alone: the reference mapping of the merge (tests read it). The page does
+  // NOT call this: it calls active(), which also checks each old key's own data so a part of an on layer without data is not switched on.
   function effective(state) {
     const st = normalize(state), out = {};
     OLD_KEYS.forEach((k) => { out[k] = !!st[OWNER[k]]; });
@@ -268,10 +274,16 @@
     return out;
   }
 
-  // Which old keys get drawn: chosen and with data.
-  function active(state, avail) {
+  // Which old keys get drawn: chosen, their merged layer available, and their OWN data there (a layer can be available through one part
+  // while another part's data is missing: no status icons without activity data, no commander mark when only a healer is there, no
+  // heading arrow without a heading). ctx is what availability() got; without it only the merged layer is checked.
+  function active(state, avail, ctx) {
     const st = normalize(state), out = {};
-    OLD_KEYS.forEach((k) => { out[k] = !!st[OWNER[k]] && !!(avail && avail[OWNER[k]] && avail[OWNER[k]].ok); });
+    OLD_KEYS.forEach((k) => {
+      const need = OLD_LAYERS[k].needs;
+      const has = !ctx || !need || !!ctx[need];
+      out[k] = !!st[OWNER[k]] && has && !!(avail && avail[OWNER[k]] && avail[OWNER[k]].ok);
+    });
     DEAD_OLD_KEYS.forEach((k) => { out[k] = false; });
     return out;
   }
@@ -298,17 +310,19 @@
   }
 
   // The dungeon run a commander binding's card is showing, when there is exactly one copy of its map with a bot of the party in it:
-  // the card has no instance id, so map + a shared bot guid (or, without guids, name) is the match. Anything ambiguous or a
-  // Dungeons-tab binding (it already carries its own run) is no match.
+  // the card has no instance id, so map + a shared bot is the match. A bot matches by guid whenever BOTH sides have one (different
+  // guids never match, however the names read, so two copies of one dungeon stay apart); the name is only used for a member one side
+  // genuinely reports without a guid. The demo card and a Dungeons-tab binding (it already carries its own run) never match.
   function findRun(bind, runs, mapId) {
-    if (!bind || bind.dungeon || !Array.isArray(runs)) return null;
+    if (!bind || bind.dungeon || bind.demo || !Array.isArray(runs)) return null;
     const bots = Array.isArray(bind.bots) ? bind.bots : [];
     if (!bots.length) return null;
     const map = mapId == null ? bots[0].map : mapId;
     const matches = runs.filter((r) => {
       if (!r || r.map !== map) return false;
-      return (Array.isArray(r.members) ? r.members : []).some((m) => m && bots.some((b) => b &&
-        ((b.guid != null && m.guid != null && b.guid === m.guid) || (!!b.name && !!m.name && b.name === m.name))));
+      return (Array.isArray(r.members) ? r.members : []).some((m) => m && bots.some((b) => b && (b.guid != null && m.guid != null
+        ? b.guid === m.guid
+        : !!b.name && !!m.name && b.name === m.name)));
     });
     return matches.length === 1 ? matches[0] : null;
   }

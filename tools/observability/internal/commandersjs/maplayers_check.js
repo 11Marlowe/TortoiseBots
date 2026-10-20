@@ -8,6 +8,7 @@ const L = require(require("path").resolve(process.argv[2]));
 // a Storage stand-in
 const mem = () => { const d = {}; return { d, getItem: (k) => (k in d ? d[k] : null), setItem: (k, v) => { d[k] = String(v); } }; };
 const oldAll = (v) => { const o = {}; L.OLD_KEYS.forEach((k) => { o[k] = v; }); return o; };
+const oldDefaults = () => { const o = {}; L.OLD_KEYS.forEach((k) => { o[k] = L.OLD_LAYERS[k].def; }); return o; };
 
 // ---- the 18 layers, 5 groups, and the defaults the brief asks for
 const def = L.defaults();
@@ -67,13 +68,26 @@ assert.strictEqual(L.availability({ commanderPos: true }).partyextras.ok, true);
 const m = L.mergeAvailability([L.availability({}), L.availability({ mobs: true })]);
 assert.strictEqual(m.enemies.ok, true); assert.strictEqual(m.grid.ok, true); assert.strictEqual(m.threat.ok, false);
 assert.strictEqual(L.mergeAvailability([]).grid.ok, false);
-// drawn = chosen by the new key and available
-const act = L.active(L.set(def, "enemies", false), L.availability({ mobs: true }));
+// drawn = chosen by the new key, its merged layer available, and its OWN data there
+const act = L.active(L.set(def, "enemies", false), L.availability({ mobs: true }), { mobs: true });
 assert.strictEqual(act.mobhostile, false); assert.strictEqual(act.hostilenames, true); assert.strictEqual(act.mobcritter, false);
 assert.strictEqual(act.grid, true); assert.strictEqual(act.runsteps, false);
 const act2 = L.active(def, L.availability({}));
 assert.strictEqual(act2.mobhostile, false, "chosen but no data");
 assert.strictEqual(act2.grid, true); assert.strictEqual(act2.hpbars, true);
+// one part's data does not switch another part of the same layer on
+let part = L.active(def, L.availability({ mobs: true }), { mobs: true });
+assert.strictEqual(part.hpbars, true); assert.strictEqual(part.statusicons, false, "no activity data: no status icons");
+assert.strictEqual(part.hostilenames, true); assert.strictEqual(part.bossmark, true);
+part = L.active(def, L.availability({ lead: true }), { lead: true });
+assert.strictEqual(part.lead, true); assert.strictEqual(part.bots, false); assert.strictEqual(part.botnames, false, "no bot on this map");
+part = L.active(L.set(def, "partyextras", true), L.availability({ healer: true }), { healer: true });
+assert.strictEqual(part.healring, true); assert.strictEqual(part.commander, false, "only a healer: no commander mark");
+part = L.active(def, L.availability({ trail: true }), { trail: true });
+assert.strictEqual(part.trail, true); assert.strictEqual(part.trailtime, true); assert.strictEqual(part.heading, false, "no heading");
+part = L.active(L.set(def, "enemies", true), L.availability({ mobs: true }), {});
+assert.strictEqual(part.mobhostile, false, "the merged layer is available but this part's data is missing");
+assert.strictEqual(part.grid, true, "a part that needs nothing is drawn");
 
 // ---- one global choice, kept once
 const st = mem();
@@ -107,24 +121,31 @@ assert.deepStrictEqual(L.load(junk), def);
 
 // ---- v2 -> v3: a merged layer is on when ANY of its old layers was; dim, path length and line styles carry over
 const v2 = mem();
-v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(oldAll(false));
+v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(oldDefaults());
 let mig = L.load(v2);
-assert.deepStrictEqual(L.keys().map((k) => mig[k]), L.keys().map(() => false), "all-off v2: every new layer off");
+L.keys().forEach((k) => assert.strictEqual(mig[k], def[k], "untouched v2 defaults: the new default of " + k));
+assert.strictEqual(mig.enemies, true, "a v2 that never touched the mob switches gets the new enemies default");
+assert.strictEqual(mig.threat, true); assert.strictEqual(mig.events, true); assert.strictEqual(mig.runinfo, true);
 assert.strictEqual(mig.dim, 30); assert.strictEqual(mig.trailLen, 120);
 assert.deepStrictEqual(mig.style.leadpath, { op: 100, th: 100 }, "no old style: the normal look");
 
+v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(oldAll(false));
+mig = L.load(v2);
+// the layers whose old switches were all off by default cannot tell "untouched" from "all off": they take the new default
+["enemies", "threat", "events", "runinfo"].forEach((k) => assert.strictEqual(mig[k], true, k + " takes the new default"));
+L.keys().filter((k) => ["enemies", "threat", "events", "runinfo"].indexOf(k) < 0).forEach((k) => assert.strictEqual(mig[k], false, k + " stays off"));
+
 v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(oldAll(true));
 mig = L.load(v2);
-L.keys().forEach((k) => assert.strictEqual(mig[k], true, k + " on: one of its old layers was"));
+L.keys().forEach((k) => assert.strictEqual(mig[k], true, k + " on: an old switch was on or its source default was on"));
 
-const mixed = oldAll(false);
-Object.assign(mixed, { bg: true, grid: false, scale: false, zone: true, zonelabels: false, bots: true, botnames: false, lead: false,
-  trail: true, trailtime: false, heading: false, mobhostile: true, mobneutral: false, hostilenames: true, bossmark: false,
-  threatcolors: true, threat: false, hpbars: true, statusicons: false, events: true, feed: false, runinfo: true, membertrails: true });
+const mixed = oldDefaults();
+Object.assign(mixed, { grid: false, botnames: false, lead: false, mobhostile: true, hostilenames: true, bossmark: false,
+  threatcolors: true, events: true, runinfo: true, membertrails: true });
 mixed.dim = 55; mixed.trailLen = 60; mixed.style = { trail: { op: 40, th: 250 }, membertrails: { op: 70, th: 150 }, threat: { op: 60, th: 300 }, bottarget: { op: 20, th: 90 } };
 v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(mixed);
 mig = L.load(v2);
-assert.deepStrictEqual(["bg", "zone", "bots", "leadpath", "enemies", "enemynames", "threat", "hpbars", "events", "runinfo", "memberpaths"].map((k) => mig[k]),
+assert.deepStrictEqual(["bg", "zone", "bots", "leadpath", "hpbars", "memberpaths", "enemies", "enemynames", "threat", "events", "runinfo"].map((k) => mig[k]),
   [true, true, true, true, true, true, true, true, true, true, true], "the mixed fixture's on bits carry");
 ["grid", "partyextras", "critters", "aggro", "actionlines", "stalls", "objects"].forEach((k) => assert.strictEqual(mig[k], false, k));
 assert.strictEqual(mig.dim, 55); assert.strictEqual(mig.trailLen, 60);
@@ -133,18 +154,28 @@ assert.deepStrictEqual(mig.style.memberpaths, { op: 70, th: 150 });
 assert.deepStrictEqual(mig.style.threat, { op: 60, th: 300 }, "threat colours have no style; the threat-line style carries");
 assert.deepStrictEqual(mig.style.actionlines, { op: 20, th: 90 }, "actionlines takes the bot-target style");
 assert.deepStrictEqual(mig.style.aggro, { op: 100, th: 100 });
+
+// a user's real choices survive: a default-on old switch turned OFF keeps its merged layer off, a default-off one turned ON turns it on
+const chosen = oldDefaults();
+chosen.trail = false; chosen.bots = false; chosen.botnames = false; chosen.lead = false; chosen.mobcritter = true;
+v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(chosen);
+mig = L.load(v2);
+assert.strictEqual(mig.leadpath, false, "trail off in v2 survives (trailtime/heading were default off)");
+assert.strictEqual(mig.bots, false, "all three bots switches off in v2 survive (the merged layer stays off)");
+assert.strictEqual(mig.critters, true, "a critter switch the user turned on survives");
+assert.strictEqual(mig.enemies, true, "the untouched mob switches still get the new default");
 // the next save writes v3 and v3 then wins
 assert.strictEqual(L.save(v2, L.setDim(mig, 10)), true);
 assert.ok(L.STORAGE_KEY in v2.d);
 assert.strictEqual(L.load(v2).dim, 10);
 v2.d[L.PREV_STORAGE_KEY] = JSON.stringify(oldAll(true));
-assert.strictEqual(L.load(v2).grid, false, "v3 wins once it exists");
+assert.strictEqual(L.load(v2).bots, false, "v3 wins once it exists");
 // a v2 without a layer added later uses that old layer's default
 const older = mem(); older.d[L.PREV_STORAGE_KEY] = JSON.stringify({ grid: false });
 mig = L.load(older);
 assert.strictEqual(mig.grid, false); assert.strictEqual(mig.zone, true); assert.strictEqual(mig.bossmark, undefined);
-assert.strictEqual(mig.enemynames, true, "bossmark was on by default in v2, so the merged layer is on");
-assert.strictEqual(mig.hpbars, true); assert.strictEqual(mig.threat, false);
+assert.strictEqual(mig.enemynames, true, "bossmark was on by default in v2, so the merged layer keeps its new default");
+assert.strictEqual(mig.hpbars, true); assert.strictEqual(mig.threat, true, "the untouched threat switches get the new default");
 
 // ---- v1 still migrates, v2 wins over v1, and a broken one gives the defaults
 const v1 = mem();
@@ -246,14 +277,25 @@ assert.strictEqual(L.enemiesText(capped.length, 57), "48 of 57 enemies shown");
 const filled = L.mobUnion([{ id: "7", name: "", hp: 5 }], [{ id: "7", name: "Seven", hp: 99 }])[0];
 assert.strictEqual(filled.name, "Seven"); assert.strictEqual(filled.hp, 5);
 
-// ---- the card's run: same map and one shared bot (guid, or name without guids); ambiguous is no match
+// ---- the card's run: same map and one shared bot; guids decide whenever both sides have them, names only when one side does not
 const bind = { commander: "C", bots: [{ name: "A", guid: 1, map: 70 }, { name: "B", guid: 2, map: 70 }] };
-const r1 = { key: "70:1", map: 70, members: [{ name: "A", guid: 1 }, { name: "P", guid: 9 }] };
+const r1 = { key: "70:1", map: 70, instance: 1, members: [{ name: "A", guid: 1 }, { name: "P", guid: 9 }] };
+const r2 = { key: "70:2", map: 70, instance: 2, members: [{ name: "B", guid: 2 }] };
 assert.strictEqual(L.findRun(bind, [r1], 70), r1);
 assert.strictEqual(L.findRun(bind, [r1], 71), null, "another map is no match");
 assert.strictEqual(L.findRun({ bots: [{ name: "B", guid: 2, map: 70 }] }, [r1], 70), null, "no shared bot");
-assert.strictEqual(L.findRun({ bots: [{ name: "A", map: 70 }] }, [r1], 70), r1, "names match when a guid is missing");
-assert.strictEqual(L.findRun({ bots: [{ name: "A", guid: 1, map: 70 }] }, [{ ...r1 }, { ...r1, key: "70:2" }], 70), null, "two copies is no clean match");
+assert.strictEqual(L.findRun({ bots: [{ name: "A", guid: 1, map: 70 }] }, [r1, r2], 70), r1, "one shared bot picks its copy");
+assert.strictEqual(L.findRun({ bots: [{ name: "B", guid: 2, map: 70 }] }, [r1, r2], 70), r2, "the other copy stays isolated");
+assert.strictEqual(L.findRun(bind, [r1, r2], 70), null, "a party cannot be in two copies: no clean match");
+// guids win over names: same name, different guid is another unit
+assert.strictEqual(L.findRun({ bots: [{ name: "A", guid: 1, map: 70 }] }, [{ key: "70:1", map: 70, members: [{ name: "A", guid: 99 }] }], 70), null,
+  "equal names with different guids do not match");
+assert.strictEqual(L.findRun({ bots: [{ name: "A", guid: 1, map: 70 }] }, [{ key: "70:1", map: 70, members: [{ name: "Other", guid: 1 }] }], 70).key, "70:1",
+  "equal guids match however the names read");
+assert.strictEqual(L.findRun({ bots: [{ name: "A", map: 70 }] }, [r1], 70), r1, "the name is used when the binding has no guid");
+assert.strictEqual(L.findRun({ bots: [{ name: "A", guid: 1, map: 70 }] }, [{ key: "70:1", map: 70, members: [{ name: "A" }] }], 70).key, "70:1",
+  "the name is used when the run has no guid");
+assert.strictEqual(L.findRun({ ...bind, demo: true }, [r1], 70), null, "the demo never matches a real run (its guids can collide)");
 assert.strictEqual(L.findRun({ ...bind, dungeon: true }, [r1], 70), null, "a Dungeons-tab binding already carries its run");
 assert.strictEqual(L.findRun(bind, null, 70), null);
 assert.strictEqual(L.findRun({ bots: [] }, [r1], 70), null);

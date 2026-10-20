@@ -25,8 +25,11 @@ vm.createContext(ctx);
 ["commanders.js", "maplayers.js", "unitinfo.js", "paths.js"].forEach((f) => vm.runInContext(fs.readFileSync(path.join(dir, f), "utf8"), ctx, { filename: f }));
 vm.runInContext(
   [grab("esc"), grabConst("CMD_MAP_ICONS"), grabConst("CMD_OBJECT_ICON"), grab("cmdMapIcon"), grab("cmdLineStyle"), grabConst("cmdPt"), grabConst("CMD_TRAIL_MARKS"), grab("cmdTrailSvg"),
-    grab("cmdMemberTrailsSvg"), grab("cmdRunStepsSvg"), grab("cmdStallsSvg"), grab("cmdObjectsSvg"), grab("cmdLineSvg")].join("\n") +
-  "\nvar cmdLayers = MapLayers.defaults(); var cmdTrails = CmdPaths.newTrails();", ctx);
+    grab("cmdMemberTrailsSvg"), grab("cmdRunStepsSvg"), grab("cmdStallsSvg"), grab("cmdObjectsSvg"), grab("cmdLineSvg"), grab("cmdCombatLinesSvg"), grab("cmdMapFacts")].join("\n") +
+  "\nvar cmdLayers = MapLayers.defaults(); var cmdTrails = CmdPaths.newTrails();" +
+  "\nvar cmdTracker = CmdView.newTracker(); var cmdEvents = UnitInfo.newEvents(); var cmdStalls = CmdPaths.newStalls();" +
+  "\nvar state = { dungeons: { runs: [] } }; var ZONE_BOUNDS = null;" +
+  "\nfunction ensureCmdPics() { return undefined; } function cmdZoneRect() { return null; } function cmdNowFor() { return 1000; }", ctx);
 
 const f = (n) => n.toFixed(2);
 const mk = () => ({ f, k: 0.5, units: {} });
@@ -103,11 +106,44 @@ assert.ok(/ic-chest/.test(os) && /ic-door/.test(os) && /ic-gong/.test(os) && /ic
 assert.ok(/class="obj st-u"/.test(os) && /class="obj st-a"/.test(os) && /class="obj st-r"/.test(os), "state classes");
 assert.strictEqual(Object.keys(ctx.dc.units).length, 5);
 
-// ---- combat lines
+// ---- combat lines: the three action-line drawings share one style key, actionlines
 ctx.dc = mk();
-vm.runInContext('cmdLayers = MapLayers.setStyle(MapLayers.defaults(), "actionlines", "th", 300);', ctx);
+vm.runInContext('cmdLayers = MapLayers.setStyle(MapLayers.setStyle(MapLayers.defaults(), "actionlines", "th", 200), "actionlines", "op", 50);', ctx);
 const ln = vm.runInContext('cmdLineSvg(dc, "actionlines", "healline", {x: 1, y: 2}, {x: 3, y: 4}, 0.9)', ctx);
-assert.ok(/<line class="healline" style="stroke-width:4\.80px;opacity:0\.90" x1="-2\.00" y1="-1\.00" x2="-4\.00" y2="-3\.00"\/>/.test(ln), ln);
+assert.ok(/<line class="healline" style="stroke-width:3\.20px;opacity:0\.45" x1="-2\.00" y1="-1\.00" x2="-4\.00" y2="-3\.00"\/>/.test(ln), ln);
+ctx.clBots = [
+  { name: "T", id: "1", alive: true, role: "tank", x: 0, y: 0, target: "9" },
+  { name: "H", id: "2", alive: true, role: "healer", x: 1, y: 1, cast: "Heal", ctgt: "1" },
+  { name: "M", id: "3", alive: true, x: 2, y: 2, cast: "Polymorph", ctgt: "9" },
+];
+ctx.clMobs = [{ id: "9", name: "Mob", x: 3, y: 3, reaction: "h", cc: "c" }];
+ctx.dc = mk();
+const cl = vm.runInContext("cmdCombatLinesSvg(dc, { bottarget: true, healline: true, ccline: true }, clBots, clMobs)", ctx);
+assert.ok(/class="bottarget"/.test(cl) && /class="healline"/.test(cl) && /class="ccline"/.test(cl), cl);
+assert.strictEqual((cl.match(/stroke-width:3\.00px;opacity:0\.45/g) || []).length, 1, "the bot-target line uses the actionlines style");
+assert.strictEqual((cl.match(/stroke-width:3\.20px;opacity:0\.45/g) || []).length, 2, "heal and crowd-control lines too");
+assert.strictEqual(vm.runInContext("cmdCombatLinesSvg(dc, {}, clBots, clMobs)", ctx), "", "no layer on, no lines");
+
+// ---- cmdMapFacts: a Commanders card unions its run's DUNGEON_MOBS list (map + shared bot) with the feed
+ctx.umRuns = [{ key: "70:1", map: 70, instance: 1, members: [{ name: "A", guid: 1 }], mobs_map: 70, mobs_total: 30,
+  mobs: [{ id: "1", name: "Run Name", reaction: "h", x: 5, y: 5 }, { id: "2", name: "Extra", reaction: "h", x: 6, y: 6 },
+    { id: "3", name: "Neutral", reaction: "n", x: 7, y: 7 }] }];
+ctx.umBind = { commander: "C", lead: "A", bots: [{ name: "A", guid: 1, map: 70, x: 0, y: 0, role: "tank", id: "1", alive: true }],
+  mobs_map: 70, mobs: [{ id: "1", name: "Feed Name", reaction: "h", x: 1, y: 1, victim: "1" }] };
+vm.runInContext("state.dungeons.runs = umRuns;", ctx);
+const um = vm.runInContext("cmdMapFacts(umBind)", ctx);
+assert.strictEqual(um.mobs.map((m) => m.id).join(","), "1,2,3", "the union by guid");
+assert.strictEqual(um.mobs[0].name, "Feed Name", "the commander feed wins the conflict");
+assert.strictEqual(um.mobsTotal, 30);
+assert.strictEqual(vm.runInContext("MapLayers.enemiesText(cmdMapFacts(umBind).mobs.length, cmdMapFacts(umBind).mobsTotal)", ctx), "3 of 30 enemies shown");
+// no matching run: the feed only, no cap note
+ctx.umOther = { commander: "C2", lead: "Z", bots: [{ name: "Z", guid: 50, map: 70, x: 0, y: 0, role: "tank", id: "50", alive: true }],
+  mobs_map: 70, mobs: [{ id: "9", name: "Feed only", reaction: "h", x: 1, y: 1 }] };
+const noRun = vm.runInContext("cmdMapFacts(umOther)", ctx);
+assert.strictEqual(noRun.mobs.map((m) => m.id).join(","), "9", "no shared bot, no union");
+assert.strictEqual(noRun.mobsTotal, 0);
+assert.strictEqual(vm.runInContext("MapLayers.enemiesText(cmdMapFacts(umOther).mobs.length, cmdMapFacts(umOther).mobsTotal)", ctx), "",
+  "without a run there is no total to compare: no N of M note");
 
 // ---- a path with a teleport is drawn in pieces, with a swirl where it broke and a skull where the bot died
 {
