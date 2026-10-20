@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Select static hire-gear sets (issue #490, 28 specs x tiers 1..7).
+"""Select static hire-gear sets (issue #490, 29 specs x tiers 1..7).
 
 Reads: data/bisclassic.json.gz, data/wowisclassic.json, data/turtle_sheets.json,
   data/item_tiers.csv (+ data/enchants_by_tier.json when a second worker
@@ -42,7 +42,7 @@ SPECS = [(1, "protection"), (1, "arms"), (1, "fury"),
          (3, "beastmastery"), (3, "marksmanship"), (3, "survival"),
          (4, "assassination"), (4, "combat"), (4, "subtlety"),
          (5, "holy"), (5, "discipline"), (5, "shadow"),
-         (7, "restoration"), (7, "elemental"), (7, "enhancement"),
+         (7, "restoration"), (7, "elemental"), (7, "enhancement"), (7, "tank"),
          (8, "frost"), (8, "fire"), (8, "arcane"),
          (9, "affliction"), (9, "demonology"), (9, "destruction"),
          (11, "bear"), (11, "restoration"), (11, "balance"), (11, "cat")]
@@ -54,6 +54,7 @@ SOURCE = {"protection": (1, 2), "arms": (1, 1), "fury": (1, 1),
           "assassination": (4, 2), "combat": (4, 1), "subtlety": (4, 2),
           "discipline": (5, 1), "shadow": (5, 2),
           "restoration": (7, 1), "elemental": (7, 1), "enhancement": (7, 2),
+          "tank": (7, 2),
           "frost": (8, 1), "fire": (8, 1), "arcane": (8, 1),
           "affliction": (9, 1), "demonology": (9, 1), "destruction": (9, 1),
           "bear": (11, 1), "balance": (11, 6), "cat": (11, 4)}
@@ -61,15 +62,21 @@ SOURCE = {"protection": (1, 2), "arms": (1, 1), "fury": (1, 1),
 # protection uses the Mitigation list (spec 3), not Threat (spec 2).
 SOURCE_BY_CLASS = {(2, "holy"): (2, 1), (5, "holy"): (5, 1),
                    (5, "discipline"): (5, 1), (1, "protection"): (1, 3),
-                   (11, "restoration"): (11, 5), (7, "restoration"): (7, 1)}
+                   (11, "restoration"): (11, 5), (7, "restoration"): (7, 1),
+                   (7, "tank"): (7, 2)}
 
-# hire spec -> weight-scale name (ai_playerbot_weightscales).
+# hire spec -> weight-scale name (ai_playerbot_weightscales). shamantank is
+# the new shaman-tank scale (issue #1125); the DB row ships with B3's weight
+# migration. The shaman tank shares the Enhancement melee BiS list (no
+# tank list exists); the KB tank pins (HAND_OVERRIDES) carry the shields,
+# weapons, relics and helm.
 SCALES = {"protection": "prot", "arms": "arms", "fury": "fury",
           "holy": "holy", "retribution": "retrib",
           "beastmastery": "beast", "marksmanship": "marks", "survival": "surv",
           "assassination": "assas", "combat": "combat", "subtlety": "subtle",
           "discipline": "disc", "shadow": "shadow",
           "restoration": "resto", "elemental": "elem", "enhancement": "enhance",
+          "tank": "shamantank",
           "frost": "frost", "fire": "fire", "arcane": "arcane",
           "affliction": "afflic", "demonology": "demo", "destruction": "destro",
           "bear": "feraltank", "balance": "balance", "cat": "feraldps"}
@@ -98,6 +105,9 @@ TURTLE_TABS = {(1, "protection"): ("FProt Threat BIS", "FProt Mit BIS"),
                (7, "restoration"): ("Resto BIS",),
                (7, "elemental"): ("Elemental Lightning BIS", "Elemental BIS"),
                (7, "enhancement"): ("Enhance BIS",),
+               # Shaman tank has no Turtle tank tab: the Enhance tab fills the
+               # melee slots, HAND_OVERRIDES pin the tank pieces.
+               (7, "tank"): ("Enhance BIS",),
                (8, "frost"): ("Frost BIS",),
                (8, "fire"): ("Fire BIS",),
                (8, "arcane"): ("Arcane BIS",),
@@ -111,10 +121,12 @@ TURTLE_TABS = {(1, "protection"): ("FProt Threat BIS", "FProt Mit BIS"),
                (11, "cat"): ("Cat BIS",)}
 
 # weapon plan per spec: (mh kinds, oh kind). Kinds: 1H, 2H, DW (mh+oh pair),
-# SHIELD, none (caster MH+OH from rankings, hunter keeps ranged).
+# SHIELD, none (caster MH+OH from rankings, hunter keeps ranged). Shaman tank
+# is 1H + shield (KB guide: 2H tanking is not viable; the shield is ~50% of
+# the armor and 10% bonus threat).
 WEAPONS = {"protection": ("1H", "SHIELD"), "arms": ("2H", None),
             "fury": ("DW", "DW"), "retribution": ("2H", None),
-            "enhancement": ("2H", None)}
+            "enhancement": ("2H", None), "tank": ("1H", "SHIELD")}
 
 # equip slot -> Turtle sheet slot label.
 TURTLE_SLOT = {0: "Head", 1: "Neck", 2: "Shoulders", 14: "Back", 4: "Chest",
@@ -195,6 +207,42 @@ HAND_OVERRIDES = {
     (11, "bear", 2, 17): 61293,
     (11, "bear", 3, 17): 61293,
     (11, "bear", 4, 17): 61293,
+    # shaman tank (issue #1125): KB tank ladder pins (guide/classes/shaman/
+    # tank.md; every id verified in world SQL 20260505222630_world.sql).
+    # Only item_tiers.csv-TAGGED ids are pinned: the generator's tier_of()
+    # gate rejects untagged ids, so the untagged KB picks (Vault's Defender
+    # 40003, Sulfuron Aegis 58242, Earthen Guard 20688, Blackthorn's Blackjack
+    # 84600, Blackstone Crown 83565, Stonebreaker 61204, Earthfury 47122)
+    # need classifier tier tags first — flagged for the lead in the B4
+    # report; the Enhance list + weight fallback covers those slots meanwhile.
+    # shields: Aegis of the Blood God 19862 (t2, tagged) -> Blessed Qiraji
+    # Bulwark 21269 (t5, tagged) -> Bulwark of Enduring Earth 55121 (t7,
+    # tagged; t3/t4/t6 carry). Immovable Object 19321 skipped: pvp-flagged,
+    # excluded() drops it.
+    (7, "tank", 2, 16): 19862,
+    (7, "tank", 5, 16): 21269,
+    (7, "tank", 7, 16): 55121,
+    # MH: Deathbringer 17068 (t3, tagged) -> Spineshatter 19335 (t4, tagged)
+    # -> Remnants of an Old God 60003 (t5, tagged; carries t6/t7).
+    (7, "tank", 3, 15): 17068,
+    (7, "tank", 4, 15): 19335,
+    (7, "tank", 5, 15): 60003,
+    # relic: Rage 22395 (t1, tagged) -> Calming River 61698 (t2, tagged, KB
+    # rank 1). Tides 58146 stays unenforced (KB AoE niche).
+    (7, "tank", 1, 17): 22395,
+    (7, "tank", 2, 17): 61698,
+    # ring: Naglering 11669 (t1, tagged). Cryptstalker 23067 NOT pinned:
+    # allow_class=4 (hunter-only) per world SQL, unwearable by shamans.
+    (7, "tank", 1, 10): 11669,
+    # trinkets: Hatereaver Cog 60559 (t1, tagged) + Araxxna's Husk 61816
+    # (t2, tagged; carries t4). Onyxia Blood Talisman 18406 (t3, tagged,
+    # carries t5/t6) + Sigil of Ancient Accord 58244 (t3, tagged, Tides-build
+    # threat).
+    (7, "tank", 1, 13): 60559,
+    (7, "tank", 1, 12): 18537,
+    (7, "tank", 2, 13): 61816,
+    (7, "tank", 3, 13): 18406,
+    (7, "tank", 3, 12): 58244,
 }
 
 UNIQUENESS_FLAG = 0  # item_template Flags bit for Unique-equip (0x20000?)
@@ -259,6 +307,7 @@ def main():
                 (7, "restoration"): ("shaman", "resto"),
                 (7, "elemental"): ("shaman", "elem"),
                 (7, "enhancement"): ("shaman", "enhan"),
+                (7, "tank"): ("shaman", "enhan"),
                 (8, "frost"): ("mage", "mage"),
                 (8, "fire"): ("mage", "mage"),
                 (8, "arcane"): ("mage", "mage"),
@@ -498,7 +547,7 @@ def main():
     DUAL = {(1, "fury"), (4, "assassination"), (4, "combat"),
             (4, "subtlety")}
     TWOH = {(1, "arms"), (2, "retribution"), (7, "enhancement")}
-    SHIELD = {(1, "protection"), (2, "protection")}
+    SHIELD = {(1, "protection"), (2, "protection"), (7, "tank")}
 
     def comp_ok(cls, spec, slot, item):
         s = stats.get(item)
@@ -534,7 +583,7 @@ def main():
                   (2, "retribution"), (2, "protection"),
                   (3, "beastmastery"), (3, "marksmanship"), (3, "survival"),
                   (4, "assassination"), (4, "combat"), (4, "subtlety"),
-                  (7, "enhancement"), (11, "bear"), (11, "cat")}
+                  (7, "enhancement"), (7, "tank"), (11, "bear"), (11, "cat")}
     CAST_SPECS = {(2, "holy"), (5, "holy"), (5, "discipline"), (5, "shadow"),
                   (7, "restoration"), (7, "elemental"), (8, "frost"),
                   (8, "fire"), (8, "arcane"), (9, "affliction"),
@@ -547,7 +596,7 @@ def main():
     # tank specs (protection, bear) also accept stamina and defensive
     # procs (Sanctuary, defense, dodge, parry, block): a Quel'Serrar with
     # no str/agi is a tank weapon, not a stat stick.
-    TANK_SPECS_W = {(1, "protection"), (2, "protection"), (11, "bear")}
+    TANK_SPECS_W = {(1, "protection"), (2, "protection"), (7, "tank"), (11, "bear")}
     TANK_WORDS_W = ("stamina", "sanctuary", "defense", "dodge", "parry",
                     "block", "armor")
     CAST_WORDS = ("healing", "spell", "mana regen", "spell damage", "frost",
@@ -607,7 +656,8 @@ def main():
         # shields (inv 14): shield enchant for tank specs, else none —
         # never a weapon enchant.
         if slot == 16 and inv == 14:
-            if (cls, spec) in {(1, "protection"), (2, "protection")}:
+            if (cls, spec) in {(1, "protection"), (2, "protection"),
+                    (7, "tank")}:
                 return 20017
             return 0
         hit = ench_map.get((f"{CLASS_NAME[cls]}_{spec}", tier, slot))

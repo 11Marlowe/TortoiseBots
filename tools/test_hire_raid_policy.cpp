@@ -31,7 +31,8 @@ static int checks = 0;
 static bool CanRole(uint8_t c, uint8_t role)
 {
     if (role == kHireRoleTank)
-        return c == kHireClassWarrior || c == kHireClassPaladin || c == kHireClassDruid;
+        return c == kHireClassWarrior || c == kHireClassPaladin || c == kHireClassDruid ||
+            c == kHireClassShaman;
     if (role == kHireRoleHealer)
         return c == kHireClassPriest || c == kHireClassPaladin || c == kHireClassShaman || c == kHireClassDruid;
     return role == kHireRoleDps && c != 0;
