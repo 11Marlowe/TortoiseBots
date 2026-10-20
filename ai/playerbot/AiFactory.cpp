@@ -2,6 +2,7 @@
 #include "../../runtime/BotManager.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/AltBotService.h"
+#include "../../runtime/ShamanTankKitPolicy.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/AiContextAugment.h"
@@ -589,6 +590,19 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 
         case CLASS_SHAMAN:
         {
+            // A shaman with a tank role plays the tank kit (issue #1125):
+            // the "tank shaman" spec strategy plus the shared tank-framework
+            // pieces (warrior `:575` / bear `:667` pattern), then the shared
+            // shaman pieces that still apply. Deliberately no "dps assist"
+            // (threat race), no "behind" (tanks face the mob).
+            uint8 const shamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+            if (tab == 1 && shamanRole && (shamanRole & BOT_ROLE_TANK))
+            {
+                for (std::string const& name : TortoiseBots::ShamanTankCombatKit())
+                    combatEngine->addStrategy(name);
+                break;
+            }
+
             if (tab == 0)
             {
                 combatEngine->addStrategies("elemental", "aoe", "cc", "flee", "ranged", NULL);
@@ -1095,6 +1109,17 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
         case CLASS_SHAMAN:
         {
+            // Tank-role shaman keeps the tank kit outside combat too (druid
+            // `:1180-1192` pattern): spec strategy + "tank assist" on top of
+            // the shared shaman noncombat pieces, never "dps assist".
+            uint8 const ncShamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+            if (tab == 1 && ncShamanRole && (ncShamanRole & BOT_ROLE_TANK))
+            {
+                for (std::string const& name : TortoiseBots::ShamanTankNonCombatKit())
+                    nonCombatEngine->addStrategy(name);
+                break;
+            }
+
             if (tab == 0)
             {
                 nonCombatEngine->addStrategies("elemental", "aoe", "cc", NULL);
@@ -1545,6 +1570,12 @@ void AiFactory::AddDefaultDeadStrategies(Player* player, PlayerbotAI* const faca
     {
         case CLASS_SHAMAN:
         {
+            uint8 const deadShamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+            if (tab == 1 && deadShamanRole && (deadShamanRole & BOT_ROLE_TANK))
+            {
+                deadEngine->addStrategy("tank shaman");
+                break;
+            }
             if (tab == 0)
             {
                 deadEngine->addStrategy("elemental");
@@ -1747,6 +1778,12 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
     {
         case CLASS_SHAMAN:
         {
+            uint8 const reactShamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+            if (tab == 1 && reactShamanRole && (reactShamanRole & BOT_ROLE_TANK))
+            {
+                reactionEngine->addStrategy("tank shaman");
+                break;
+            }
             if (tab == 0)
             {
                 reactionEngine->addStrategy("elemental");

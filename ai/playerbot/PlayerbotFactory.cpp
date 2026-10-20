@@ -11,6 +11,7 @@
 #include "../../runtime/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
 #include "../../runtime/OwnedBotQolPolicy.h"
+#include "../../runtime/ShamanTankKitPolicy.h"
 
 #include "Database/SQLStorages.h"
 #include "Objects/ItemPrototype.h"
@@ -706,6 +707,12 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
         chosen->name.c_str(), uint32(cls), uint32(paths.size()), totalProbability);
 
     sRandomBotFacade.SetValue(bot, "specNo", chosen->id + 1);
+    // A pool bot that rolls the 7.3 tank build is a tank from birth
+    // (issue #1125): persist the forced role so IsTank, the kit branches,
+    // and the talent respec guard all agree. Other specs keep whatever the
+    // bot already had (a re-seed must not clear an operator designation).
+    if (cls == TortoiseBots::kShamanTankPremadeClass && chosen->id == TortoiseBots::kShamanTankPremadeSpec && ai)
+        ai->SetForcedRole(BOT_ROLE_TANK);
     return true;
 }
 

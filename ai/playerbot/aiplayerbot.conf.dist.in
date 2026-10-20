@@ -1523,6 +1523,19 @@ AiPlayerbot.PremadeSpecLink.7.2.45 = 551331350203212
 AiPlayerbot.PremadeSpecLink.7.2.50 = 5513313502032125
 AiPlayerbot.PremadeSpecLink.7.2.55 = 55133135020321251--4
 AiPlayerbot.PremadeSpecLink.7.2.60 = 55133135020321251--54
+AiPlayerbot.PremadeSpecName.7.3 = tank
+AiPlayerbot.PremadeSpecProb.7.3 = 16
+AiPlayerbot.PremadeSpecLink.7.3.10 = -1
+AiPlayerbot.PremadeSpecLink.7.3.15 = -50001
+AiPlayerbot.PremadeSpecLink.7.3.20 = -50023001
+AiPlayerbot.PremadeSpecLink.7.3.25 = -50033001301
+AiPlayerbot.PremadeSpecLink.7.3.30 = -5015300130201
+AiPlayerbot.PremadeSpecLink.7.3.35 = 2-50153001302031
+AiPlayerbot.PremadeSpecLink.7.3.40 = 5002-50153001302031
+AiPlayerbot.PremadeSpecLink.7.3.45 = 500231-50253001302031
+AiPlayerbot.PremadeSpecLink.7.3.50 = 500231-502530013020315
+AiPlayerbot.PremadeSpecLink.7.3.55 = 500231-502530013520315
+AiPlayerbot.PremadeSpecLink.7.3.60 = 5003313-5025300135203151
 
 
 # --- class 8 ---

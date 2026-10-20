@@ -229,6 +229,13 @@ namespace ai
                 creators["heal"] = [](PlayerbotAI* ai) { return new RestorationShamanPlaceholderStrategy(ai); };
                 creators["enhancement"] = [](PlayerbotAI* ai) { return new EnhancementShamanPlaceholderStrategy(ai); };
                 creators["elemental"] = [](PlayerbotAI* ai) { return new ElementalShamanPlaceholderStrategy(ai); };
+                // LFT forced-role handoff installs "tank" by role name
+                // (PlayerbotAI::ResetStrategies); B2 replaces this alias with
+                // the real tank strategy. Until then it reports the slot but
+                // fights as enhancement — the borrow path re-specs via
+                // premade 7.3 and installs the full kit anyway.
+                creators["tank shaman"] = [](PlayerbotAI* ai) { return new EnhancementShamanPlaceholderStrategy(ai); };
+                creators["tank"] = [](PlayerbotAI* ai) { return new EnhancementShamanPlaceholderStrategy(ai); };
             }
         };
 

@@ -207,7 +207,7 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
     if (needRole == LFT_ROLE_TANK)
     {
         uint8 cls = bot->GetClass();
-        if (cls == CLASS_WARRIOR || cls == CLASS_PALADIN)
+        if (cls == CLASS_WARRIOR || cls == CLASS_PALADIN || cls == CLASS_SHAMAN)
         {
             Item const* offhand = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
             ItemPrototype const* proto = offhand ? offhand->GetProto() : nullptr;
@@ -221,6 +221,16 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
         }
         if (cls == CLASS_DRUID && !bot->HasSpell(5487) && !bot->HasSpell(9634))
             return "druid tank without bear form";
+        // A shaman without shield-legal tank credentials (shield + Rockbiter
+        // + Totemic Alignment / Spirit Armor) reads tank only via this
+        // branch's owner ("borrow" aside); keep it out of the tank slot.
+        if (cls == CLASS_SHAMAN)
+        {
+            bool keyTalent = bot->HasSpell(51382) || bot->HasSpell(51381) ||
+                bot->HasSpell(45952) || bot->HasSpell(45951);
+            if (!keyTalent)
+                return "shaman tank without tank talents";
+        }
     }
     if (needRole == LFT_ROLE_HEALER)
     {
@@ -368,6 +378,7 @@ uint8 LftBotFillService::GetCombatKitRoleMask(Player const* bot) const
     // produce a role bit).
     bool kitTank = ai->HasStrategy("protection", BotState::BOT_STATE_COMBAT) ||
         ai->HasStrategy("tank feral", BotState::BOT_STATE_COMBAT) ||
+        ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT) ||
         ai->HasStrategy("bear", BotState::BOT_STATE_COMBAT) ||
         ai->HasStrategy("tank", BotState::BOT_STATE_COMBAT);
     bool kitHealer = ai->HasStrategy("holy", BotState::BOT_STATE_COMBAT) ||
@@ -845,7 +856,8 @@ void LftBotFillService::Update(uint32_t diff)
                     if (!mismatch.empty())
                     {
                         if (needRole == LFT_ROLE_TANK &&
-                            (cand->GetClass() == CLASS_WARRIOR || cand->GetClass() == CLASS_PALADIN) &&
+                            (cand->GetClass() == CLASS_WARRIOR || cand->GetClass() == CLASS_PALADIN ||
+                                cand->GetClass() == CLASS_SHAMAN) &&
                             mismatch == "tank-spec without shield equipped" &&
                             EquipBestShieldFromBags(cand) &&
                             RoleMismatchReason(cand, needRole).empty())
