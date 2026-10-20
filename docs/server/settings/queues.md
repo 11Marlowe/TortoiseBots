@@ -22,7 +22,7 @@ For general matchmaking behavior, dungeon portal pathing, and battleground mecha
 | [`AiPlayerbot.RandomBotLftEnabled`](#aiplayerbotrandombotlftenabled) | `1` | Enables random bots filling vacant slots in human LFT dungeon queues. |
 | [`AiPlayerbot.RandomBotLftAllowRoleBorrow`](#aiplayerbotrandombotlftallowroleborrow) | `0` | Allows LFT to borrow and respec bots into roles they do not naturally fit. |
 | [`AiPlayerbot.RandomBotLftUpdateInterval`](#aiplayerbotrandombotlftupdateinterval) | `15000` | Milliseconds between evaluation passes of the LFT autofill service. |
-| [`AiPlayerbot.RandomBotLftMaxFillsPerInterval`](#aiplayerbotrandombotlftmaxfillsperinterval) | `1` | Maximum dungeon group formations processed per autofill interval pass. |
+| [`AiPlayerbot.RandomBotLftMaxFillsPerInterval`](#aiplayerbotrandombotlftmaxfillsperinterval) | `1` | Maximum bots queued into dungeon groups per autofill service tick. |
 | [`AiPlayerbot.RandomBotBgEnabled`](#aiplayerbotrandombotbgenabled) | `1` | Injects bots into Warsong Gulch, Arathi Basin, and Alterac Valley when players queue. |
 | [`AiPlayerbot.RandomBotBgAutonomous`](#aiplayerbotrandombotbgautonomous) | `1` | Seeds bot-only Warsong Gulch matches when no human players are in queue. |
 | [`AiPlayerbot.RandomBotBgAutonomousMaxInstances`](#aiplayerbotrandombotbgautonomousmaxinstances) | `1` | Maximum concurrent bot-only battleground instances allowed per level bracket. |
@@ -61,7 +61,7 @@ Setting this to `1` allows the matcher to select a bot and reconfigure (respec) 
 
 ### `AiPlayerbot.RandomBotLftUpdateInterval`
 Interval in milliseconds between LFT queue evaluation passes.
-**Default:** `15000` · **Values:** milliseconds · **Restart:** needed
+**Default:** `15000` · **Values:** milliseconds, clamped 5000..60000 in service · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -71,13 +71,13 @@ Defines how often the LFT autofill service scans the matchmaking queue for waiti
 </details>
 
 ### `AiPlayerbot.RandomBotLftMaxFillsPerInterval`
-Maximum number of dungeon groups formed per autofill service tick.
-**Default:** `1` · **Values:** integer count · **Restart:** needed
+Maximum number of bots queued into dungeon groups per autofill service tick.
+**Default:** `1` · **Values:** integer count (0 disables; above 5 capped at 5 in service) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Limits how many group proposals are processed within a single update interval, spreading character logins and strategy reconfigurations smoothly across time.
+Limits how many bots are queued into dungeon groups within a single update interval, spreading strategy reconfigurations smoothly across time.
 
 </details>
 
@@ -90,7 +90,7 @@ Enables automatic bot matchmaking for battleground PvP queues when players queue
 
 Monitors PvP queues for Warsong Gulch (WSG), Arathi Basin (AB), and Alterac Valley (AV). When real human players queue, random bots of the matching level bracket queue on both factions to meet the core's minimum player requirement plus one.
 
-This launches battleground matches within seconds even on low-population private servers. When a match concludes, bots leave within approximately 10 seconds rather than waiting for instance shutdown timers.
+This launches battleground matches within seconds even on low-population private servers. When a match concludes, bots leave within about 10 seconds rather than waiting for instance shutdown timers.
 
 Your own party bots can queue alongside you via "Join as Group" at battlemasters (supported for WSG and AB; AV requires solo queues in the core) and will auto-accept match invites regardless of this toggle.
 
@@ -122,7 +122,7 @@ Caps the number of simultaneous bot-only matches running per level bracket. The 
 
 ### `AiPlayerbot.RandomBotBgQueueInterval`
 Interval in milliseconds between queue checks for the autonomous battleground seeder.
-**Default:** `30000` · **Values:** milliseconds · **Restart:** needed
+**Default:** `30000` · **Values:** milliseconds, clamped 5000..600000 in service · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -135,12 +135,11 @@ Human demand is checked every 5 s (up to 10 bots per check); the interval and bu
 
 ### `AiPlayerbot.RandomBotBgMaxQueuePerInterval`
 Number of bots queued per interval check by the autonomous battleground seeder.
-**Default:** `1` · **Values:** integer count (0 disables both autonomous and human demand queues) · **Restart:** needed
+**Default:** `1` · **Values:** integer count 0..10 (0 disables both autonomous and human demand queues; above 10 capped at 10 in service) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
-
-Controls the pace at which bots are queued into forming autonomous battlegrounds, preventing sudden server-tick spikes from batch character transfers.
+Controls the pace at which bots are queued into forming autonomous battlegrounds.
 
 Setting this to `0` disables both autonomous seeding and human demand backfill.
 

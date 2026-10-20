@@ -80,7 +80,7 @@ Number of days historical compressed CSV log files are retained on disk.
 
 Active CSV logs are automatically compressed into `<filename>_<date>_<time>.csv.gz` archives every hour and at server startup. Packing occurs in the background; a packing operation stopped mid-pack finishes on the next server start.
 
-Compressed archives older than `LogRetentionDays` are automatically purged during background cleanup passes. At 500 bots, 3 days of retained logs require approximately 65–130 MB of disk storage; at 1,000 bots, expect roughly 130–260 MB.
+Compressed archives older than `LogRetentionDays` are automatically purged during background cleanup passes. Three days take roughly 65-130 MB at 500 bots and 130-260 MB at 1000 bots.
 
 Setting this to `0` disables automated deletion, preserving all archives permanently.
 
@@ -198,7 +198,7 @@ Because UDP emission is non-blocking, disabling or losing connection to the daem
 
 ### `AiPlayerbot.ObservabilityHost`
 Destination hostname or IP address for the UDP observability telemetry collector.
-**Default:** `127.0.0.1` · **Values:** IP address or hostname · **Restart:** needed
+**Default:** `127.0.0.1` (built in; the key is not in `aiplayerbot.conf.dist.in` — add it to `aiplayerbot.conf` to change it) · **Values:** IP address or hostname · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -224,12 +224,12 @@ Configures the destination UDP port for telemetry packet dispatch. Must match th
 
 ## Log Rotation & Previous-Run Logs
 
-### Previous-Run Log Retention (`.1` Rotation)
+### Previous-Run Log Retention (packed archives)
 
-Enabled logs opened in write mode (including `bot_events.csv` and initial pathfinding dumps) automatically preserve the previous server run's file as `<filename>.1`.
+Enabled logs opened in write mode (including `bot_events.csv` and startup travel and pathfinding dumps) pack the previous run's file at server start into `<name>_<date>_<time>.csv.gz` next to the live file, then start fresh.
 
-- Rotation occurs once per filename per process start. Subsequent dump refreshes during the same runtime session leave the backup untouched.
-- Append-only log streams retain their existing behavior and append across sessions.
+- Packing of the previous run happens once per filename per process. Later opens in the same run truncate the live file and leave existing packs alone.
+- Append-only log streams (such as `deaths.csv`) keep appending instead of truncating.
 - No CSV headers or column structures are altered.
-- If rotation fails (for example, due to filesystem permissions), the truncating open is refused, an error is logged, and subsequent writes safely append to the existing file rather than overwriting it.
-- Disabled logs are left untouched. Administrators should copy files elsewhere if more than one previous run needs to be preserved.
+- If packing or rotation fails (for example, due to filesystem permissions), an error is logged, the existing file is preserved, and writes to that log are skipped for 5 minutes before the next retry.
+- Disabled logs are left untouched.

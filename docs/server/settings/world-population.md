@@ -48,7 +48,7 @@ These settings configure autonomous random bots roaming the open world, includin
 | [`AiPlayerbot.EnableGreet`](#aiplayerbotenablegreet) | `1` | Enables text emote greetings when a bot encounters a human player. |
 | [`AiPlayerbot.GreetCooldown`](#aiplayerbotgreetcooldown) | `600` | Cooldown in seconds before a bot may greet the same player again. |
 | [`AiPlayerbot.RandomBotGreet`](#aiplayerbotrandombotgreet) | `0` | Allows masterless pool bots to greet players in addition to owned bots. |
-| [`AiPlayerbot.RandomBotShowHelmet` / `RandomBotShowCloak`](#aiplayerbotrandombotshowhelmet--randombotshowcloak) | `1` / `1` | Dead knobs (read but unused); managed via `.bot` flag commands. |
+| [`AiPlayerbot.RandomBotShowHelmet` / `RandomBotShowCloak`](#aiplayerbotrandombotshowhelmet--randombotshowcloak) | `1` / `1` | Dead knobs (read but unused); managed per bot with the `flag` chat command. |
 | [`AiPlayerbot.PoolBotTradeMode`](#aiplayerbotpoolbottrademode) | `0` | Governs whether masterless pool bots accept trade requests from players. |
 | [`AiPlayerbot.TradeActionExcludedPrefixes`](#aiplayerbottradeactionexcludedprefixes) | `RPLL_H_,DBMv4` | Chat prefixes ignored by bots so addons do not trigger trade windows. |
 | [`AiPlayerbot.TurtleMountAtLevel`](#aiplayerbotturtlemountatlevel) | `18` | Level where bots learn the custom Swift Riding Turtle slow mount. |
@@ -108,7 +108,7 @@ Sets the target minimum and maximum population of active random bots roaming the
 <details>
 <summary>How it works in detail</summary>
 
-These settings govern the size of the active random bot pool. The default setting of 500 bots is balanced for modest hosts and handheld devices.
+These settings govern the size of the active random bot pool. The default setting of 500 bots is balanced for modest hosts.
 
 If the number of active pool bots falls below `MinRandomBots`, the bot manager logs in or creates additional characters to restore population. Above target, no new logins occur; the pool shrinks through timed logout and rotation.
 
@@ -248,7 +248,7 @@ Related tuning settings:
 - `AiPlayerbot.LevelLadderMaxLevelShare` (default `10`): Percentage ceiling for level 60 bots in the online pool.
 - `AiPlayerbot.LevelLadderLogMinutes` (default `5`): Frequency in minutes for logging ladder distribution summaries.
 
-Setting `LevelLadder = 0` reverts to flat round-robin rotation over the entire character database.
+Setting `LevelLadder = 0` reverts to ring rotation over the whole managed pool.
 
 </details>
 
@@ -280,14 +280,14 @@ A ceiling of 10% ensures end-game bots do not crowd out leveling bots in open-wo
 
 ### `AiPlayerbot.LevelLadderLogMinutes`
 Interval in minutes between log messages reporting active bot population distribution by level band.
-**Default:** `5` · **Values:** minutes (0 = disabled) · **Restart:** needed
+**Default:** `5` · **Values:** minutes (minimum effective 1) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
 Emits a periodic summary table in the server log showing how many bots are currently online in each level band and how closely the ladder matches target quotas.
 
-Set to `0` to disable periodic ladder census logging.
+Values below 1 are clamped to a 1-minute cadence, so logging cannot be disabled entirely.
 
 </details>
 
@@ -363,7 +363,7 @@ Sets the minimum character level at which bots automatically receive permanent g
 
 Bots at or above this level automatically receive permanent item enchantments from `ai_playerbot_enchant_candidates` based on class, specialization, and stat weighting. Only tier-0 non-reputation enchant sources are selected.
 
-Hunter weapon scopes use this same threshold. Below this level, gear remains unenchanted. Setting this to `61` completely disables autonomous bot enchanting.
+Below this level, gear remains unenchanted. Setting this to `61` completely disables autonomous bot enchanting.
 
 </details>
 
@@ -387,9 +387,9 @@ Allows masterless pool bots to spontaneously form questing parties and dungeon g
 <details>
 <summary>How it works in detail</summary>
 
-By default, random bots do not form autonomous bot-only groups in the open world. In bot-only groups, members follow a designated bot leader, which often causes followers to idle while waiting for the leader.
+By default, random bots do not form autonomous bot-only groups in the open world. In bot-only groups, members follow a designated bot leader, which often causes followers to idle while waiting for the leader. Grouping invitations within autonomous guilds and raids are additionally supported via `RandomBotGuildNearby` (default `1`) and `RandomBotRaidNearby` (default `1`).
 
-Setting this to `1` enables organic bot-to-bot grouping. Grouping invitations within autonomous guilds and raids are additionally supported via `RandomBotGuildNearby` (default `1`) and `RandomBotRaidNearby` (default `1`). Note that this switch does not affect player invitations, which are handled separately by `RandomBotInvitePlayer`.
+Setting this to `1` enables organic bot-to-bot grouping. Note that this switch does not affect player invitations, which are handled separately by `RandomBotInvitePlayer`.
 
 </details>
 
@@ -437,7 +437,7 @@ Allows autonomous random bots to buy guild charters, collect signatures from oth
 
 When enabled, eligible random bots purchase guild charters from guild masters, seek out signatures from fellow bots, and establish autonomous bot guilds.
 
-Once founded, bot guilds feature procedurally generated guild names, invite additional bots or human players, and display guild tags above members' heads.
+Once founded, bot guilds invite additional bots or human players, and display guild tags above members' heads.
 
 </details>
 
@@ -498,7 +498,7 @@ Historical switches intended to toggle visual display of helmets and cloaks.
 <details>
 <summary>How it works in detail</summary>
 
-Currently has no effect in the bot engine (read but unused; see [Settings with no effect](../configuration.md#settings-with-no-effect)). Bot character display flags for head and cloak are managed only via direct player `.bot` flag commands.
+Currently has no effect in the bot engine (read but unused; see [Settings with no effect](../configuration.md#settings-with-no-effect)). Bot character display flags for head and cloak are managed per bot with the `flag helm|cloak on|off|toggle` chat command.
 
 </details>
 
@@ -692,13 +692,13 @@ Set to `1` to permit random bots to spawn directly into custom island zones.
 </details>
 
 ### `AiPlayerbot.EnableRandomTeleports`
-Scatters newly seeded random bots across starting zones and level-appropriate overworld destinations on first login.
+Scatters newly seeded random bots at level 10 and above to validated level-fitting overworld destinations on first login.
 **Default:** `1` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-When enabled, random bots seeded above level 10 scatter to a validated level-fitting overworld spot upon initial login instead of lingering in their racial starting zone.
+When enabled, random bots at level 10 and above scatter to a validated level-fitting overworld spot upon initial login instead of lingering in their racial starting zone.
 
 Level appropriateness is validated via zone level tables and area data. Pinned bots and dead bots stay with their corpse and are skipped.
 
@@ -857,13 +857,13 @@ When disabled (`0`), bots do not receive free sweeps, but instead visit class tr
 </details>
 
 ### `AiPlayerbot.AutoLearnDroppedSpells`
-Teaches dungeon and raid dropped ability books to level 60 random pool bots for free.
+Teaches dungeon and raid dropped ability books to high-level random pool bots for free.
 **Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-When set to `1`, random pool bots reaching level 60 automatically learn dungeon and raid spell book ranks for free. When `0`, these spells must be acquired through normal item drops.
+When set to `1`, random pool bots automatically learn dungeon and raid spell book ranks for free once they reach the required level (entries at levels 48, 50, 56, and 60 depending on class). When `0`, these spells must be acquired through normal item drops.
 
 </details>
 
@@ -1070,7 +1070,7 @@ Delay in milliseconds between autonomous roleplay interactions.
 <details>
 <summary>How it works in detail</summary>
 
-Controls the delay cadence between autonomous roleplay (RPG) interactions, such as visiting town NPCs, examining trade goods, or speaking with quest givers.
+Controls the delay cadence between autonomous roleplay (RPG) interactions.
 
 </details>
 
