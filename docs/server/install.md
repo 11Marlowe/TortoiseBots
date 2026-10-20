@@ -81,16 +81,16 @@ Module database updates live in `data/sql/world/` and `data/sql/character/`. The
 
 ## Verifying Your Build Version
 
-The active version identifier comes from the repository root `VERSION` file (following semantic versioning, such as `1.4.0`). If the file is unreadable or absent, the build falls back to `dev`.
+The active version identifier comes from the repository root `VERSION` file, written by the release workflow on every release (currently a semantic version such as `1.4.0`). If the file is unreadable or absent, the build falls back to `dev`.
 
 You can confirm which version is active using four methods:
 
 | Verification Method | Where to Look | Expected Output |
 | :--- | :--- | :--- |
-| **Server Startup Log** | Server console or `Server.log` | Displays `TortoiseBots <version>` (AI enabled\|disabled), followed by the author/source attribution line. |
-| **In-Game Chat Command** | In-game chat via `.bot version` | Prints `TortoiseBots <version>`, `TBM:VERSION|...`, and author attribution. |
-| **Addon Window Header** | Header bar of `/tbm` in-game | Shows server version from `TBM:VERSION|` (shows `server ?` when the connected module never sends it). |
-| **Git Release Tags** | Git repository tags | Semver release tags (e.g. `v1.4.0`), with older daily `vYYYY-MM-DD` tags. |
+| **Server Startup Log** | Server console or `Server.log` | Displays `TortoiseBots <version> (AI enabled\|disabled)`, followed by the author/source attribution line. |
+| **In-Game Chat Command** | In-game chat via `.bot version` (aliases `.bot v`, `.bot about`, `.bot credits`) | Prints `TortoiseBots <version>`, `TBM:VERSION|<version>`, and the author attribution line. |
+| **Addon Roster Reply** | Addon roster responses carrying `TBM:VERSION|<version>` | The addon shows the server version from this line (shows `server ?` when the connected module never sends it). |
+| **Git Release Tags** | Git repository tags | Semver release tags (e.g. `v1.4.0`), alongside older per-merge `<UTC date>-v<N>` build tags. |
 
 If the log shows `dev`, the build had no readable root `VERSION` file.
 

@@ -92,7 +92,8 @@ Clicking any bot name or map marker opens a slide-over profile panel that inspec
 - **Gear & Stats:** Paperdoll equipment view, average item level (`iLvl`), and item quality distribution.
 - **Talents:** Visual 7-tier talent trees with DBC layout.
 - **Spells:** Distinguishes runtime learned spells from default starting spells granted by race/class.
-- **Professions & Skills:** Current skill ranks and associated trade abilities.
+- **Professions:** Profession skill ranks with their trade spells.
+- **Skills:** Weapon, armor, language, and other skill ranks.
 - **Bags & Containers:** Inventory slots and bag contents.
 - **Activity History:** Recent kills, quest completions, and loot transactions.
 
@@ -103,7 +104,7 @@ The **Dungeons** tab provides a dedicated live overview of all active dungeon an
 - **Instance Isolation:** Groups bots by active instance copy (`(map, instance)` pair), distinctly separating multiple concurrent runs of the same dungeon.
 - **Player Highlighting:** Real players in bot parties are visually distinguished with a distinct badge and gold ring indicator.
 - **Raid Subgroups:** Raid encounters display members formatted into compact 5-player subgroup tiles.
-- **Live Run View:** Selecting an active run presents an interactive instance map rendering bot positions, encounter targets, and vital health/mana meters.
+- **Live Run View:** Selecting an active run presents an interactive instance map rendering bot positions and vital health/power bars.
 
 ## Issue Tracking & Stalls
 
@@ -111,7 +112,7 @@ The service monitors persistent problems and groups them into episodes on the **
 
 - **Stuck Navigation (`STUCK`):** A bot remains in a moving state but its physical coordinates stay frozen for 60+ seconds.
 - **Prolonged Death (`DEAD_LONG`):** A dead bot remains a ghost without releasing or reviving for more than 2 minutes.
-- **Unreachable Target (`UNREACHABLE_TARGET`):** A bot attempts to engage a hostile target that is >45 yards away or out of line of sight for 10 seconds, unreachable on the navmesh.
+- **Unreachable Target (`UNREACHABLE_TARGET`):** A bot attempts to engage a hostile target that is >45 yards away or out of line of sight for 10 seconds.
 - **Anti-Flapping Filter:** Episodes must persist past an age gate (default 5 minutes; `UNREACHABLE_TARGET` surfaces after 2 minutes) before alerting, preventing transient pathing pauses from cluttering alerts.
 - **Restart Blackout:** `DEAD_LONG` alerts are suppressed for the first 5 minutes following a game server restart.
 
@@ -133,7 +134,7 @@ The daemon exports Prometheus metrics at `http://localhost:8095/metrics` for scr
 The daemon provides selected admin-relevant HTTP REST endpoints under `/api/v1`:
 
 - `GET /api/v1/status`: Daemon health, connected game server status, and pool population summary.
-- `GET /api/v1/bots`: Complete bot fleet state, coordinates, active strategies, and inventory summary.
+- `GET /api/v1/bots`: Complete bot fleet state, coordinates, active strategies, and gear summaries.
 - `GET /api/v1/armory/bots`: Searchable roster summary for the bot armory inspector.
 - `GET /api/v1/armory/bot/{guid}`: Detailed character profile, paperdoll gear, talents, and inventory.
 - `GET /api/v1/issues`: Active and historical navigation and combat stall episodes.
@@ -145,7 +146,7 @@ The daemon provides selected admin-relevant HTTP REST endpoints under `/api/v1`:
 - `GET /api/v1/history`: Timeline snapshots of historical bot counts and states.
 - `GET /api/v1/server-info`: Server version metadata, active rates, and configuration status.
 - `GET /api/v1/anomalies/totals`: Cumulative session totals for anomalies and action loops.
-- `GET /api/v1/auctions`: Searchable listings currently posted on the living auction house.
+- `GET /api/v1/auctions`: Searchable listings currently posted on the auction house by bots and players.
 - `WS /api/v1/stream`: Real-time WebSocket event feed streaming live bot updates to connected clients.
 
 Activity counters are periodically saved to `activity-state.json` so statistics persist across daemon restarts.
@@ -158,15 +159,15 @@ For offline analysis of bot fleet health over extended runs, use the Python KPI 
 python3 tools/pool_kpi_report.py \
   --bots-json path/to/bots.json \
   --logs /path/to/logs \
-  --reset fresh-build-01 \
+  --reset "2026-10-02 12:54" \
   --baseline tools/pool_kpi_baseline_2026-10-02.json
 ```
 
-Additional flags include `--db-cmd` (database query command), `--save-baseline` / `--out` (saving output baseline files), and `--anomaly-totals-json` for recording anomaly counters.
+Additional flags include `--db-cmd` (database query command), `--save-baseline` (saving output baseline files), `--out` (writing the Markdown report), and `--anomaly-totals-json` for recording anomaly counters.
 
 The script generates a Markdown summary evaluating:
 - Bot level progression and median XP gain rates.
-- Death rates per 1,000 kills.
+- Deaths per minute and prolonged-ghost counts.
 - Zone migration fit: whether bots advance to level-appropriate zones as they outgrow starter areas.
 
 ## Map Artwork Generation
