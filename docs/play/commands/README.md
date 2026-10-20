@@ -51,7 +51,7 @@ Every bot command evaluates permission gates before executing:
 
 - **Autonomous Alt-Bots:** When an owned alt plays autonomously in the world, other players may invite it and issue tactical combat orders. Only the account owner (or a GM) may trade with it, equip gear, spend talents, manage quests, or log it out. Note that [`.bot cmd`](commander.md) orders never move autonomous alt-bots; order them with whispers or party chat instead.
 - **Pool-Bot Trading:** By default, masterless random-pool bots refuse trade requests from players. Owned alts and hired companions always trade freely with their master.
-- **Fail-Closed Security:** Unrecognized commands default to requiring Owner or GM permissions. Refused commands respond with a short explanation in chat and emit structured error codes to the addon.
+- **Fail-Closed Security:** Unrecognized commands default to requiring Owner or GM permissions. Refused whisper commands answer in chat (plus one addon error line); refused `.bot`/party commands fail silently.
 
 ## Master Command Index
 

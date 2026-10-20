@@ -14,7 +14,7 @@ relates_to:
 
 TortoiseBots uses an intent-driven control model for combat and movement. Instead of micromanaging individual abilities, you issue high-level tactical orders; the server evaluates party roles and dispatches actions to the most capable bots.
 
-Tactical party actions require you to be alive and in the world, and you must control the bots (as owner, group master, claimed bot, or GameMaster). The first word of an intent is parsed up to 32 bytes (UTF-8 safe; vertical bars and line breaks are converted to spaces; unknown intents fail with `unknown`).
+Tactical party actions require you to be alive and in the world, and you must control the bots (as owner, group master, claimed bot, or GameMaster). If an action cannot be parsed, the error names the first word typed (up to 32 bytes, UTF-8 safe, `|`/line-breaks → spaces, `unknown` if empty) with code `invalid`.
 
 ## Dungeon Movement Mechanics
 
@@ -79,7 +79,7 @@ Companion bots follow special navigation rules inside dungeons and raids to avoi
 
 ### `.bot action attack`
 
-Orders scoped bots (selected bot if targeted, else party) tanks and DPS bots to engage your current hostile target.
+Orders scoped tanks and DPS bots (selected bot if targeted, else party) to engage your current hostile target.
 
 ```text
 .bot action attack
@@ -141,7 +141,7 @@ Parameters `[seconds]` (0 to 60, default 10) and `[ranged]` can be passed in eit
 <summary>How it works in detail</summary>
 
 - **Melee and Ranged Pulling:** The tank walks into melee range unless it has an equipped ranged weapon and ammo (or a ranged spell). If the target is unreachable on foot or farther than the approach distance configured in [AiPlayerbot.RangedPullMeleeApproach](../../server/settings/combat.md#aiplayerbotrangedpullmeleeapproach) (default 20 yards), the tank pulls from range.
-- **Forced Ranged:** Adding `ranged` forces a ranged pull only when `RangedPull=1`, the target is in sight, and within shooting range. Blockers are `no-ranged-weapon`, `weapon-untrained`, `shoot-spell-missing`, `no-ammo`, and `too-close` (whispered only if ordered ranged and blocker is not `NoWeapon` or `TooClose`). Line of sight alone triggers a quiet body-pull.
+- **Forced Ranged:** Adding `ranged` always requests a ranged opening — the tank walks to a firing position (the `RangedPull`/sight/range preconditions apply only to the automatic opening). If the tank cannot shoot, the blockers below apply and it body-pulls instead. Blockers are `no-ranged-weapon`, `weapon-untrained`, `shoot-spell-missing`, `no-ammo`, and `too-close` (whispered only if ordered ranged and blocker is not `NoWeapon` or `TooClose`). Line of sight alone triggers a quiet body-pull.
 - **Early Release:** The pull hold ends early if you issue `.bot action attack` or `.bot action flee` (issuing `stop` does not release the DPS join window).
 - **Refusal Codes:** Refused if target is dead (`dead-target`), friendly (`friendly`), beyond `ReactDistance * 3` (450 yards at default settings, returning `too-far` or `unreachable`), or invalid (`invalid-target`). If no tank is available, returns `no-tank`, or `tank-busy` if the tank is already in combat.
 
@@ -324,7 +324,7 @@ Orders companion bots to sit, eat food, and drink water until their health and m
 .bot action rest
 ```
 
-Aliases include `.bot action drink` and `.bot action eat`. Conjured water and food are consumed before purchased supplies. If bots cannot rest, the system responds with grouped reasons (`No bot rested: <reason>: <bots>...`, capped at 240 bytes with `+K more`):
+Aliases include `.bot action drink` and `.bot action eat` (mages in the party trade conjured water and food to resting bots; item-cheat bots conjure instead of consuming). If bots cannot rest, the system responds with grouped reasons (`No bot rested: <reason>: <bots>...`, capped at 240 bytes with `+K more`):
 - `dead`
 - `in combat`
 - `party still fighting`
@@ -381,7 +381,7 @@ Initiates a party-wide readiness check across all companion bots.
 .bot action ready
 ```
 
-Bots evaluate health (above 90%), mana (above 70%), distance (within 40 yards), hunter ammo, pet happiness, and consumable counts. Each bot whispers its readiness status directly to the requester. Buff topping off occurs only on full raid checks.
+Bots evaluate health (above 90%), mana (above 70%), distance (within `AiPlayerbot.SightDistance`, 60 yards by default), hunter ammo, pet happiness, and consumable counts. Each bot whispers its readiness status directly to the requester. Buff topping off occurs only on full raid checks.
 
 ### `.bot action raid status`
 
