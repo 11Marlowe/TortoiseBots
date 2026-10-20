@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.6.2 (2026-10-20)
+
+### Dashboard
+- A new read-only Agent maps tab shows saved run maps when you set the new --agent-maps-dir option; otherwise it stays hidden. [#1119](https://github.com/Sagiroth/TortoiseBots/pull/1119)
+- The tab only displays map files from that folder, with no upload or delete. [#1119](https://github.com/Sagiroth/TortoiseBots/pull/1119)
+
+### Behind the scenes
+- The README now has optional Ko-fi, build status and Discord badges plus a single licence tab. [#1113](https://github.com/Sagiroth/TortoiseBots/pull/1113) [#1114](https://github.com/Sagiroth/TortoiseBots/pull/1114) [#1116](https://github.com/Sagiroth/TortoiseBots/pull/1116)
+- The documentation was rebuilt with a start page, feature list and guides for players and server owners. [#1121](https://github.com/Sagiroth/TortoiseBots/pull/1121)
+- Branches for closed or merged pull requests are now cleaned up automatically, except protected and fork branches. [#1120](https://github.com/Sagiroth/TortoiseBots/pull/1120)
+
+---
+
 ## v1.6.1 (2026-10-20)
 
 ### Classes & Combat
