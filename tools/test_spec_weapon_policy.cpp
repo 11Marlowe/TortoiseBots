@@ -17,12 +17,14 @@ static uint32_t const WEAPON = 2, ARMOR = 4, MISC = 0, SHIELD = 6, LIBRAM = 7, T
 static uint32_t const WAR = 1, PAL = 2, ROGUE = 4, SHAMAN = 7;
 static uint32_t const MH = 15, OH = 16, RH = 17;
 
+using ai::SpecScoresAsNonCaster;
 using ai::SpecUsesShieldOffHand;
 using ai::SpecWeaponAllowed;
 using ai::VendorShieldRank;
 
 int main()
 {
+
     std::cout << "Starting TortoiseBots spec weapon policy tests...\n";
 
     // Owner weapon matrix: protection (warrior + paladin) is 1H main hand,
@@ -87,6 +89,18 @@ int main()
     CHECK(SpecWeaponAllowed(SHAMAN, "enhance", WEAPON, WAXE2, MH, true) == true);
     CHECK(SpecWeaponAllowed(SHAMAN, "resto", ARMOR, SHIELD, OH, true) == true);
     std::cout << "  [PASS] shaman tank takes slow 1H + shield + totem\n";
+
+    // Scoring class: melee specs on mana classes score physical gear like a
+    // non-caster (the hire-kit root cause: spec 16 missing here zeroed every
+    // pure-physical item in CalculateStatWeight, emptying the spec pools).
+    CHECK(SpecScoresAsNonCaster(16) == true);
+    CHECK(SpecScoresAsNonCaster(21) == true);
+    CHECK(SpecScoresAsNonCaster(6) == true);
+    CHECK(SpecScoresAsNonCaster(30) == true);
+    CHECK(SpecScoresAsNonCaster(32) == true);
+    CHECK(SpecScoresAsNonCaster(20) == false);
+    CHECK(SpecScoresAsNonCaster(3) == false);
+    std::cout << "  [PASS] shaman tank scores physical gear like a non-caster\n";
 
     // Shield-off-hand detection feeds the audit and the vendor pass.
     CHECK(SpecUsesShieldOffHand(WAR, "prot") == true);

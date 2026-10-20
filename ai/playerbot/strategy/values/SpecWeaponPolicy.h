@@ -187,4 +187,16 @@ namespace ai
             return 0;
         return 1;
     }
+
+    // Melee specs on mana classes score gear like a non-caster
+    // (RandomItemMgr::CalculateStatWeight noCaster): pure physical items
+    // (no intellect, no spell power) keep their weight instead of zeroing.
+    // Ids mirror the weight scales: 6 retribution, 21 enhancement, 30 feral
+    // tank, 32 feral dps, 16 shaman tank (`shamantank` scale: a mana class
+    // played as a melee tank - white-hit threat, Water Shield regen, zero
+    // spell power). Caster specs of the same classes (e.g. 20 elem) stay out.
+    inline bool SpecScoresAsNonCaster(uint32_t specId)
+    {
+        return specId == 6 || specId == 21 || specId == 30 || specId == 32 || specId == 16;
+    }
 }
