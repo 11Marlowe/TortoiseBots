@@ -1,0 +1,189 @@
+---
+id: server-settings-logging
+title: Logging & telemetry settings
+category: server
+summary: Configuration settings for module diagnostic log levels, CSV event logs, per-bot action logs, action counts, and retention.
+tags: [config, logging, telemetry, diagnostics]
+relates_to:
+  - server-dashboard
+  - server-settings-performance
+---
+
+# Logging & Telemetry Settings
+
+These settings configure server diagnostic logging, event CSV files, per-bot action traces, and action performance analytics. Settings go in `aiplayerbot.conf` and `modules/tortoise_bots.conf`; see [How configuration works](../configuration.md).
+
+The native module has its own independent logging system. This allows administrators to trace bot behavior in detail without enabling heavy core server engine debugging, and vice versa.
+
+## Summary
+
+| Setting | Default | What it does |
+| :--- | :---: | :--- |
+| [`TortoiseBots.LogLevel`](#tortoisebotsloglevel) | `2` (Detail) | Sets module logging verbosity independently of the core server log level. |
+| [`AiPlayerbot.AllowedLogFiles`](#aiplayerbotallowedlogfiles) | `bot_events.csv,deaths.csv` | Comma-separated list of structured diagnostic CSV files enabled for writing. |
+| [`AiPlayerbot.LogRetentionDays`](#aiplayerbotlogretentiondays) | `3` | Days to keep compressed historical CSV logs before automatic deletion. |
+| [`AiPlayerbot.EnableActionLog`](#aiplayerbotenableactionlog) | `0` | Writes dedicated per-bot execution logs under `logs/bots/`. |
+| [`AiPlayerbot.ActionLogScope`](#aiplayerbotactionlogscope) | `commanded` | Filters which bots generate action log files (`commanded`, `all`, `none`). |
+| [`AiPlayerbot.ActionLogMaxAgeDays`](#aiplayerbotactionlogmaxagedays) | `3` | Maximum age in days for per-bot action log files before cleanup. |
+| [`AiPlayerbot.ActionLogMaxTotalMB`](#aiplayerbotactionlogmaxtotalmb) | `2048` | Maximum cumulative disk space in megabytes for the `logs/bots/` folder. |
+| [`AiPlayerbot.ActionLogMaxFileMB`](#aiplayerbotactionlogmaxfilemb) | `100` | Maximum size in megabytes of a single bot log file before rotating. |
+| [`AiPlayerbot.ActionCountsLog`](#aiplayerbotactioncountslog) | `0` | Records cumulative action execution counts and failure rates to CSV. |
+
+## Settings
+
+### `TortoiseBots.LogLevel`
+Controls module logging verbosity in `modules/tortoise_bots.conf`.
+**Default:** `2` (Detail) · **Values:** `0` Minimal, `1` Basic, `2` Detail, `3` Debug · **Restart:** not needed (`.reload config` applies live)
+
+<details>
+<summary>How it works in detail</summary>
+
+This setting lives in `modules/tortoise_bots.conf` and governs logging output for all bot lifecycle systems, the Auction House service, battleground queues, and Looking-For-Trouble backfill:
+
+- `0` (Minimal): Logs fatal errors and critical issues only.
+- `1` (Basic): Logs startup and shutdown events, diagnostic test results, and periodic `BOTPERF` performance lines.
+- `2` (Detail): Default level. Logs per-bot state transitions, logins, logouts, party joins, auction postings, and battleground queue movements.
+- `3` (Debug): Logs high-volume per-tick evaluations and network packet traces. Intended for short diagnostic sessions.
+
+Errors are always logged regardless of this level. This setting is re-read dynamically when running `.reload config` in the server console, allowing log levels to be adjusted without restarting the world server.
+
+</details>
+
+### `AiPlayerbot.AllowedLogFiles`
+Specifies which structured CSV event log files are written to the server's logs directory.
+**Default:** `bot_events.csv,deaths.csv` · **Values:** comma-separated filenames · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Defines the active CSV log streams:
+
+- `bot_events.csv`: Records high-level bot behavioral events, travel destination changes, vendor trips, and unstuck interventions.
+- `deaths.csv`: Records character deaths, killer identities, and graveyard release coordinates.
+- Additional diagnostic logs (such as `travel_route_gate.csv` and `ghost_moves.csv`) can be added to the list as needed.
+
+Setting this key to an empty string (`""`) disables all CSV event logging. Note that if this key is omitted from configuration entirely, the internal fallback defaults to disabled; ensure the key is present to record events.
+
+If a file cannot be written (for example, if the directory is missing or permissions are denied), the server logs an error, backs off for 5 minutes, and retries.
+
+</details>
+
+### `AiPlayerbot.LogRetentionDays`
+Number of days historical compressed CSV log files are retained on disk.
+**Default:** `3` · **Values:** days (0 = keep indefinitely) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Active CSV logs are automatically compressed into `<filename>_<date>_<time>.csv.gz` archives every hour and at server startup.
+
+Compressed archives older than `LogRetentionDays` are automatically purged during background cleanup passes. At 500 bots, 3 days of retained logs require approximately 65–130 MB of disk storage; at 1,000 bots, expect roughly 130–260 MB.
+
+Setting this to `0` disables automated deletion, preserving all archives permanently.
+
+</details>
+
+### `AiPlayerbot.EnableActionLog`
+Enables verbose per-bot execution logs written to the `logs/bots/` directory.
+**Default:** `0` · **Values:** `0` disabled, `1` enabled · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When enabled, the server generates detailed execution logs for individual bots at `logs/bots/<botname>_acc<id>_<timestamp>.log`. These logs track decision-making, target evaluations, and ability priority evaluations.
+
+Because logging all bots simultaneously can produce gigabytes of data daily, file creation is filtered by `ActionLogScope` and capped by the retention limits below.
+
+Strategy AI action traces can also be enabled on an individual bot in-game via `.bot strategy +debug`.
+
+</details>
+
+### `AiPlayerbot.ActionLogScope`
+Filters which categories of bots generate per-bot action log files.
+**Default:** `commanded` · **Values:** `commanded`, `all`, `none` · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Controls the scope of active action logs:
+
+- `commanded`: Generates log files only for bots in parties bound to a remote commander (`.bot commander bind`) or hired companions. Masterless pool bots are ignored.
+- `all`: Logs every bot on the server, including roaming pool bots. Use caution, as this generates significant disk I/O.
+- `none`: Completely disables per-bot log generation.
+
+Eligibility is re-evaluated every 15 seconds. If a bot is hired or bound, logging begins within 15 seconds; when dismissed, its log file closes cleanly.
+
+Detailed per-action lines are further filtered by [`AiPlayerbot.LogInGroupOnly`](performance.md#aiplayerbotlogingrouponly), which restricts action detail messages to grouped bots.
+
+</details>
+
+### `AiPlayerbot.ActionLogMaxAgeDays`
+Maximum age in days for per-bot action log files before automatic deletion.
+**Default:** `3` · **Values:** days (0 = no age limit) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Files in `logs/bots/` whose last modification exceeds this age in days are automatically deleted during periodic cleanup cycles.
+
+</details>
+
+### `AiPlayerbot.ActionLogMaxTotalMB`
+Total disk storage limit in megabytes for the `logs/bots/` directory.
+**Default:** `2048` · **Values:** megabytes (0 = unlimited) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Places a hard ceiling on cumulative storage for the `logs/bots/` folder (default 2 GB). When folder size exceeds this limit, the oldest closed log files are pruned first until disk usage falls below the threshold. Open files currently in use by active bots are never deleted.
+
+Cleanup executes at server startup, every hour on the world thread, or whenever bots write 25% of the total size limit.
+
+</details>
+
+### `AiPlayerbot.ActionLogMaxFileMB`
+Maximum size in megabytes of a single bot action log file before rotating to a new file.
+**Default:** `100` · **Values:** megabytes (0 = unlimited) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When an individual bot log file reaches this size, the file is closed cleanly and logging continues in a new numbered file for that character.
+
+</details>
+
+### `AiPlayerbot.ActionCountsLog`
+Records cumulative action execution counts and success/failure rates to CSV.
+**Default:** `0` · **Values:** `0` disabled, `1` enabled · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When enabled, every executed bot action is tracked by class and action name, tallying successful versus failed executions. Every 5 minutes, a cumulative snapshot (`utc_time,class,action,ok_count,fail_count`) is appended to `logs/action_counts.csv`.
+
+When disabled (`0`), the tracking branch costs negligible CPU time.
+
+Administrators can analyze rotation efficiency and identify failing actions by taking snapshots over a measurement window and comparing them with the analysis script:
+
+```bash
+cp logs/action_counts.csv /tmp/actions_early.csv
+# Wait 30+ minutes during active server gameplay...
+cp logs/action_counts.csv /tmp/actions_late.csv
+python3 tools/action_counts_report.py /tmp/actions_early.csv /tmp/actions_late.csv --top 10
+```
+
+</details>
+
+---
+
+## Log Rotation & Previous-Run Logs
+
+### Previous-Run Log Retention (`.1` Rotation)
+
+Enabled logs opened in write mode (including `bot_events.csv` and initial pathfinding dumps) automatically preserve the previous server run's file as `<filename>.1`.
+
+- Rotation occurs once per filename per process start. Subsequent dump refreshes during the same runtime session leave the backup untouched.
+- Append-only log streams retain their existing behavior and append across sessions.
+- No CSV headers or column structures are altered.
+- If rotation fails (for example, due to filesystem permissions), the truncating open is refused, an error is logged, and subsequent writes safely append to the existing file rather than overwriting it.
+- Disabled logs are left untouched. Administrators should copy files elsewhere if more than one previous run needs to be preserved.
