@@ -132,4 +132,4 @@ one-command setup (`run-dashboard.sh` / `run-dashboard.ps1`) downloads the
 binary, wires DB env from `mangosd.conf`, enables telemetry in
 `aiplayerbot.conf`, and starts the daemon — see the operator guide above.
 
-Player/operator guide: [`docs/guides/observability-dashboard.md`](../../docs/guides/observability-dashboard.md).
+Player/operator guide: [`docs/server/dashboard.md`](../../docs/server/dashboard.md).

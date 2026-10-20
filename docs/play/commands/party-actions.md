@@ -134,7 +134,7 @@ By default, other bots hold for 10 seconds (configurable from 0 to 60 seconds) a
 <details>
 <summary>How it works in detail</summary>
 
-- **Melee and Ranged Pulling:** The tank walks into melee range unless it has an equipped ranged weapon and ammo (or a ranged spell). If the target is unreachable on foot or farther than the approach distance configured in [AiPlayerbot.RangedPullMeleeApproach](../../server/settings/party.md#aiplayerbotrangedpullmeleeapproach) (default 20 yards), the tank pulls from range.
+- **Melee and Ranged Pulling:** The tank walks into melee range unless it has an equipped ranged weapon and ammo (or a ranged spell). If the target is unreachable on foot or farther than the approach distance configured in [AiPlayerbot.RangedPullMeleeApproach](../../server/settings/combat.md#aiplayerbotrangedpullmeleeapproach) (default 20 yards), the tank pulls from range.
 - **Forced Ranged:** Adding the `ranged` argument (e.g. `.bot action pull 10 ranged`) forces a ranged pull if the tank can shoot. If the tank lacks ammo or line of sight, it falls back to a melee pull and whispers the reason.
 - **Early Release:** The hold ends early if you issue `.bot action attack` or `.bot action stop`.
 - **Refusal Codes:** Refused if target is dead (`dead-target`), friendly (`friendly`), beyond 450 yards (`too-far`), or invalid (`invalid-target`). If no tank is available, returns `no-tank`, or `tank-busy` if the tank is already in combat.

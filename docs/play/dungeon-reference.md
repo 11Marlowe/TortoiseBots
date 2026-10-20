@@ -89,9 +89,11 @@ Never halt your group waiting for these creatures to spawn. They share spawn poo
 | Field | Detail |
 | :--- | :--- |
 | **Status** | Map 816, confirmed |
-| **Kill Order** | Bogpaw Truthsay (62056) → Gowlfang (62057) → Web Master Torkon (62067) → Cavernweb Broodmother (62066) → Garlok Flamekeeper (62071) → Slagfist Destroyer (62068) → Halgan Redbrand (62069) → Overlord Blackheart (62070) → Elder Hollowblood (62038) → Searistrasz (62072) → Zuluhed the Whacked (62037) |
+| **Kill Order** | 11 bosses in sequence from Bogpaw Truthsay to Zuluhed the Whacked (details below). |
 | **Do Not Wait For** | None listed. |
 | **Quirks** | Bogpaw Truthsay and Gowlfang share one room. Reaching Web Master Torkon requires a gap jump; reaching Cavernweb Broodmother requires a drop. Entering from the far entrance reverses this route. |
+
+**Full kill order:** Bogpaw Truthsay (62056) → Gowlfang (62057) → Web Master Torkon (62067) → Cavernweb Broodmother (62066) → Garlok Flamekeeper (62071) → Slagfist Destroyer (62068) → Halgan Redbrand (62069) → Overlord Blackheart (62070) → Elder Hollowblood (62038) → Searistrasz (62072) → Zuluhed the Whacked (62037)
 
 ### Stormwind Vault (Map 35)
 
@@ -163,18 +165,22 @@ Each wing is treated as a separate dungeon run:
 | Field | Detail |
 | :--- | :--- |
 | **Status** | Map 209, confirmed |
-| **Kill Order** | Theka the Martyr (7272) → Antu'sul (8127) → Witch Doctor Zum'rah (7271) → [Temple Summit Event] → Chief Ukorz Sandscalp (7267) → Hydromancer Velratha (7795) → [Sacred Pool, Gahz'rilla] → Zel'jeb the Ancient (62495, *Turtle*) → [Farraki Arena] → Champion Razjal the Quick (62498, *Turtle*, end boss) |
+| **Kill Order** | 7 bosses and events leading to Champion Razjal the Quick (details below). |
 | **Do Not Wait For** | Sergeant Bly (7604), who fights during the pyramid event. |
 | **Quirks** | Champion Razjal is invulnerable until gossip dialog starts the Farraki Arena event. The arena spawns Kath'zen the Brutal (62496), then Juthza the Cunning (62497), then Razjal. A party wipe resets the event. |
+
+**Full kill order:** Theka the Martyr (7272) → Antu'sul (8127) → Witch Doctor Zum'rah (7271) → [Temple Summit Event] → Chief Ukorz Sandscalp (7267) → Hydromancer Velratha (7795) → [Sacred Pool, Gahz'rilla] → Zel'jeb the Ancient (62495, *Turtle*) → [Farraki Arena] → Champion Razjal the Quick (62498, *Turtle*, end boss)
 
 ### Maraudon (Map 349)
 
 | Field | Detail |
 | :--- | :--- |
 | **Status** | Map 349, confirmed |
-| **Kill Order** | Noxxion (13282, Foulspore Cavern) → Razorlash (12258, Poison Falls) → Lord Vyletongue (12236, Wicked Grotto) → Celebras the Cursed (12225, Earth Song Falls) → Landslide (12203) → Tinkerer Gizlock (13601) → Princess Theradras (12201) → Rotgrip (13596, end boss) |
+| **Kill Order** | 8 bosses from Noxxion through Princess Theradras to Rotgrip (details below). |
 | **Do Not Wait For** | Meshlok the Harvester (12237, 30% rare). |
 | **Quirks** | Creeping Sludge (12222) aura mechanics (see below). |
+
+**Full kill order:** Noxxion (13282, Foulspore Cavern) → Razorlash (12258, Poison Falls) → Lord Vyletongue (12236, Wicked Grotto) → Celebras the Cursed (12225, Earth Song Falls) → Landslide (12203) → Tinkerer Gizlock (13601) → Princess Theradras (12201) → Rotgrip (13596, end boss)
 
 <details>
 <summary>Creeping Sludge aura avoidance mechanics</summary>
@@ -204,9 +210,11 @@ With [`AiPlayerbot.AvoidCreatureAuras`](../server/settings/dungeons-raids.md#aip
 | Field | Detail |
 | :--- | :--- |
 | **Status** | Map 230, provisional |
-| **Kill Order** | High Interrogator Gerstahn (9018) → Houndmaster Grebmar (9319) → [Ring of Law] → General Angerforge (9033) → Bael'Gar (9016) → [Shadowforge lock lever] → Golem Lord Argelmach (8983) → Fineous Darkvire (9056) → Lord Incendius (9017) → Ambassador Flamelash (9156) → [The Seven & Lyceum braziers] → Magmus (9938) → Princess Moira Bronzebeard (8929) → Emperor Dagran Thaurissan (9019, end boss) |
+| **Kill Order** | 12 encounters from Gerstahn to Emperor Dagran Thaurissan (details below). |
 | **Do Not Wait For** | Pyromancer Loregrain (9024), Lord Roccor (9025), Warder Stilgiss (9041), Solakar Flamewreath (10264), and Panzor the Invincible (8923). |
 | **Quirks** | The Grim Guzzler bar patrons are non-hostile initially. |
+
+**Full kill order:** High Interrogator Gerstahn (9018) → Houndmaster Grebmar (9319) → [Ring of Law] → General Angerforge (9033) → Bael'Gar (9016) → [Shadowforge lock lever] → Golem Lord Argelmach (8983) → Fineous Darkvire (9056) → Lord Incendius (9017) → Ambassador Flamelash (9156) → [The Seven & Lyceum braziers] → Magmus (9938) → Princess Moira Bronzebeard (8929) → Emperor Dagran Thaurissan (9019, end boss)
 
 ### Razorfen Downs (Map 129)
 

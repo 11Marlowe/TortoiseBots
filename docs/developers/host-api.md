@@ -57,7 +57,7 @@ merged PRs below.
 | Chat hooks hardened behind delivery checks; addon payloads no longer parsed as commands | [#476](https://github.com/tortoise-wow/tortoise-wow/pull/476) |
 | `PlayerScript::OnChatYell` | [#493](https://github.com/tortoise-wow/tortoise-wow/pull/493) |
 
-The pre-build gate is `tools/verify_penqle_host_contract.sh --core <core>`: a
+The pre-build gate is the host contract verification check (`--core <core>`): a
 read-only source check that the merged core still exposes the generic interfaces
 this module calls, that legacy bot-object coupling has not returned to normal
 gameplay code, and that prints the core revision it verified. It passes against
@@ -267,7 +267,7 @@ situation (`runtime/BotTurnScheduler.h`); the pool's per-tick time budget engage
 while the previous world tick ran longer than
 `AiPlayerbot.PoolBudgetWhenTickOverMs` (0 = every tick, the default — the
 self-tuning `AiPlayerbot.TargetWorldTickMs` controller then reclaims the
-full ceilings on healthy ticks; see [docs/guides/configuration-tuning.md](guides/configuration-tuning.md)).
+full ceilings on healthy ticks; see [Configuration](../server/configuration.md)).
 "Under a real player" means a live master with a network session, or a
 character on an account the pool does not own (`runtime/PlayerBotClassification.h`);
 the `random` flag and the `PlayerMaster` lease are not ownership signals.
@@ -468,7 +468,7 @@ whenever the verdict is missing, stale, or `none`.
 ## 11. Command contract
 
 TortoiseBots owns the native `.bot` surface. Current commands include
-(see [Available Bot Commands & Addon Controls](guides/player-controls.md) for
+(see [Available Bot Commands & Addon Controls](../play/commands/README.md) for
 the complete player-facing list):
 
 ```text
@@ -816,7 +816,7 @@ A hired companion is a **temporary character**, not a pool bot with extra
 steps: it lives while its master is online plus
 `AiPlayerbot.HireDisconnectGracePeriod` seconds after a disconnect, and when the
 hire ends its character is deleted (`.bot hire`, `<Mercenary Hire>`, and the
-`Hire*` knobs are described in [Player Controls](guides/player-controls.md)).
+`Hire*` knobs are described in [Roster and Hiring](../play/commands/roster-and-hiring.md)).
 `HireLifecycle` (runtime/) owns that lifecycle end to end:
 
 - **Ledger.** `HireLifecycle::Claim` writes one `tortoise_bots_hire` row per

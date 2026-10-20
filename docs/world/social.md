@@ -69,7 +69,7 @@ Bots establish player-like social organizations across the realm:
 - **Guild founding:** Once required signatures are collected, the bot registers the charter, generates an organic guild name, and displays the guild tag.
 - **Member recruitment:** Founded guilds actively invite both unguilded bots and interested human players to join.
 - **Configuration:** Guild creation is controlled by [`AiPlayerbot.RandomBotFormGuild`](../server/settings/world-population.md#aiplayerbotrandombotformguild) (default 1).
-- **Reset protection:** Guilds containing human players are protected against automated pool resets. If a bot-led guild includes a real player, server pool resets abort safely to prevent orphaned players. For details, see [Pool reset safety guarantees](../server/bot-pool.md#safety-guarantees).
+- **Reset protection:** Guilds containing human players are protected against automated pool resets. If a bot-led guild includes a real player, server pool resets abort safely to prevent orphaned players. For details, see [Pool reset safety guarantees](../server/bot-pool.md#safety-guarantees--multi-phase-execution).
 
 ## Trading with pool bots
 
@@ -79,4 +79,4 @@ Players can interact with unmanaged pool bots through the trade window:
   - `0` (Default): Trading is disabled. Pool bots decline incoming trade requests from players.
   - `1`: Gift mode. Bots accept items and gold freely from players without providing return compensation.
   - `2`: Barter mode. Bots evaluate trade items by quality and value, accepting trades only when fair compensation is offered.
-- **Addon prefix suppression:** Addon communication prefixes (such as damage meter synchronization) are filtered through [`AiPlayerbot.TradeActionExcludedPrefixes`](../server/settings/economy.md#aiplayerbottradeactionexcludedprefixes) to prevent unintended trade rejections.
+- **Addon prefix suppression:** Addon communication prefixes (such as damage meter synchronization) are filtered through [`AiPlayerbot.TradeActionExcludedPrefixes`](../server/settings/world-population.md#aiplayerbottradeactionexcludedprefixes) to prevent unintended trade rejections.

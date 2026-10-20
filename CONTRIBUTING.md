@@ -95,7 +95,7 @@ submitting a contribution, you agree that:
 - code copied or ported from another project (porting is welcome) keeps its original copyright and licence notice, is
   compatible with AGPL-3.0, and its source repository and commit are named in
   the pull request (a new donor project also goes in
-  [`docs/LICENSING_AUDIT.md`](docs/LICENSING_AUDIT.md)).
+  [`docs/developers/licensing-audit.md`](docs/developers/licensing-audit.md)).
 
 Do not submit code whose licence forbids this (proprietary, "non-commercial
 only", GPL-2.0-only without an "or later" grant, or no licence at all).
