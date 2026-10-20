@@ -39,7 +39,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | Check tactics, kill orders, and mechanics for 5-man dungeons | [Dungeon reference](play/dungeon-reference.md) |
 | Handle wipe recovery and run back to the instance | [Wipe recovery](play/dungeons-and-raids.md#wipe-recovery--instance-navigation) |
 | Level my companion alts automatically with my character | [Sync alt level](server/settings/party.md#aiplayerbotsyncaltleveltomaster) |
-| Fill missing tank or healer roles in dungeon finder queues | [LFT autofill](world/queues.md#looking-for-trouble-lft-dungeon-autofill) |
+| Fill missing tank or healer roles in dungeon finder queues | [LFT autofill](world/queues.md#looking-for-turtles-lft-dungeon-autofill) |
 | Enable bot trading and purchasing on the Auction House | [Living AH](world/economy.md#living-auction-house) |
 | Blacklist or override an item price on the Auction House | [Admin commands](server/admin-commands.md#autonomous-auction-house-administration-bot-ah--ahbot) |
 | Summon lost or stuck companion bots | [Summon alts](play/commands/roster-and-hiring.md#bot-summon) |
@@ -82,7 +82,7 @@ Welcome to the TortoiseBots documentation catalog for Tortoise WoW 1.18.1. This 
 | :--- | :--- |
 | [Living world](world/living-world.md) | Autonomous questing, grinding, level seeding, gear upkeep, and travel. |
 | [Social](world/social.md) | Solo player invites, autonomous guilds, greetings, and player trading. |
-| [Queues and matchmaking](world/queues.md) | Looking-For-Trouble dungeon autofill and PvP battleground matchmaking. |
+| [Queues and matchmaking](world/queues.md) | Looking for Turtles dungeon autofill and PvP battleground matchmaking. |
 | [Economy](world/economy.md) | Autonomous auction house market, vendor trips, repairs, and gold flow. |
 
 ## Server Admins

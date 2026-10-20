@@ -41,7 +41,7 @@ Controls module logging verbosity in `modules/tortoise_bots.conf`.
 <details>
 <summary>How it works in detail</summary>
 
-This setting lives in `modules/tortoise_bots.conf` and governs logging output for all bot lifecycle systems, the Auction House service, battleground queues, and Looking-For-Trouble backfill:
+This setting lives in `modules/tortoise_bots.conf` and governs logging output for all bot lifecycle systems, the Auction House service, battleground queues, and Looking for Turtles backfill:
 
 - `0` (Minimal): Logs fatal errors and critical issues only.
 - `1` (Basic): Logs startup and shutdown events, diagnostic test results, and periodic `BOTPERF` performance lines.

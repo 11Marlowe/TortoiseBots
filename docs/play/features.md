@@ -167,9 +167,9 @@ For market intervals, price variances, vendor batch sizes, and loot rate boosts,
 | :--- | :---: | :--- | :--- |
 | Party joins battlegrounds via group queue | Always on | None | [Party BG queues](../world/queues.md#battlegrounds-with-your-own-party-bots) |
 | Objective tactics in WSG, AB, and AV | Always on | None | [Battleground AI](../world/queues.md#battleground-auto-queue-human-demand) |
-| LFT party walks to instance portal | Always on | None | [LFT matchmaking](../world/queues.md#looking-for-trouble-lft-dungeon-autofill) |
-| Random bots fill vacant human LFT queues | Yes | [`AiPlayerbot.RandomBotLftEnabled`](../server/settings/queues.md#aiplayerbotrandombotlftenabled) | [LFT autofill](../world/queues.md#looking-for-trouble-lft-dungeon-autofill) |
-| Borrow and respec bots into missing roles | No | [`AiPlayerbot.RandomBotLftAllowRoleBorrow`](../server/settings/queues.md#aiplayerbotrandombotlftallowroleborrow) | [Role borrowing](../world/queues.md#looking-for-trouble-lft-dungeon-autofill) |
+| LFT party walks to instance portal | Always on | None | [LFT matchmaking](../world/queues.md#looking-for-turtles-lft-dungeon-autofill) |
+| Random bots fill vacant human LFT queues | Yes | [`AiPlayerbot.RandomBotLftEnabled`](../server/settings/queues.md#aiplayerbotrandombotlftenabled) | [LFT autofill](../world/queues.md#looking-for-turtles-lft-dungeon-autofill) |
+| Borrow and respec bots into missing roles | No | [`AiPlayerbot.RandomBotLftAllowRoleBorrow`](../server/settings/queues.md#aiplayerbotrandombotlftallowroleborrow) | [Role borrowing](../world/queues.md#looking-for-turtles-lft-dungeon-autofill) |
 | Inject bots into battleground queues | Yes | [`AiPlayerbot.RandomBotBgEnabled`](../server/settings/queues.md#aiplayerbotrandombotbgenabled) | [Battlegrounds](../world/queues.md#battleground-auto-queue-human-demand) |
 | Autonomous bot-only Warsong Gulch matches | Yes | [`AiPlayerbot.RandomBotBgAutonomous`](../server/settings/queues.md#aiplayerbotrandombotbgautonomous) | [Bot matches](../world/queues.md#autonomous-bot-only-matches) |
 
@@ -200,4 +200,4 @@ For log verbosity, retention limits, CSV streams, and tick budgets, see [Logging
 - [Expansion features](known-limitations.md#explicit-non-goals): no Death Knights, glyphs, vehicles, Outland zones, or multi-tab guild banks.
 - [Pre-movement node queries](known-limitations.md#blocked--incomplete-features): bots cannot check loot rights before walking toward a herb or ore vein.
 - [Stair pathfinding desync](known-limitations.md#known-quirks-and-workarounds): pathfinding can desync on steep multi-tiered stairs; use `.bot summon` to snap bots to your location.
-- [Dungeon queue teleportation](../world/queues.md#looking-for-trouble-lft-dungeon-autofill): Looking-For-Trouble forms groups without teleports; bots walk to the instance portal.
+- [Dungeon queue teleportation](../world/queues.md#looking-for-turtles-lft-dungeon-autofill): Looking for Turtles forms groups without teleports; bots walk to the instance portal.

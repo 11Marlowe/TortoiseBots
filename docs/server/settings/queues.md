@@ -2,7 +2,7 @@
 id: server-settings-queues
 title: Queue settings (LFT & battlegrounds)
 category: server
-summary: Configuration settings for Looking-For-Trouble (LFT) dungeon autofill and battleground auto-queue systems.
+summary: Configuration settings for Looking for Turtles (LFT) dungeon autofill and battleground auto-queue systems.
 tags: [config, queues, lft, dungeon-finder, battlegrounds, pvp]
 relates_to:
   - world-queues
@@ -11,7 +11,7 @@ relates_to:
 
 # Queue Settings (LFT & Battlegrounds)
 
-These settings configure automated Looking-For-Trouble (LFT) dungeon finder autofill and player-versus-player (PvP) battleground queue services. Settings go in `aiplayerbot.conf`; see [How configuration works](../configuration.md).
+These settings configure automated Looking for Turtles (LFT) dungeon finder autofill and player-versus-player (PvP) battleground queue services. Settings go in `aiplayerbot.conf`; see [How configuration works](../configuration.md).
 
 For general matchmaking behavior, dungeon portal pathing, and battleground mechanics, see [Queues & Matchmaking](../../world/queues.md).
 
@@ -32,7 +32,7 @@ For general matchmaking behavior, dungeon portal pathing, and battleground mecha
 ## Settings
 
 ### `AiPlayerbot.RandomBotLftEnabled`
-Enables automatic bot backfill for players queued in the Looking-For-Trouble (LFT) tool.
+Enables automatic bot backfill for players queued in the Looking for Turtles (LFT) tool.
 **Default:** `1` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>

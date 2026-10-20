@@ -91,7 +91,7 @@ Every configuration setting is documented across specialized settings pages:
 | [Combat & reaction thresholds](settings/combat.md) | `aiplayerbot.conf` | Health and mana lines, follow distances, casting pacing, and commanded pulls. |
 | [World population & immersion](settings/world-population.md) | `aiplayerbot.conf` | Pool sizing, level ladders, wander limits, greetings, guilds, and gear upkeep. |
 | [Economy & auction house](settings/economy.md) | `aiplayerbot.conf` | Synthetic auction house market supply, bidding, buyouts, and trade limits. |
-| [Dungeon finder & battlegrounds](settings/queues.md) | `aiplayerbot.conf` | Looking-for-trouble (LFT) autofill and autonomous battleground queues. |
+| [Dungeon finder & battlegrounds](settings/queues.md) | `aiplayerbot.conf` | Looking for Turtles (LFT) autofill and autonomous battleground queues. |
 | [Performance & tick budget](settings/performance.md) | `aiplayerbot.conf` + `mangosd.conf` | Per-tick AI turn limits, self-tuning tick controllers, and core map caching. |
 | [Bot chatter & broadcasts](settings/chat.md) | `aiplayerbot.conf` | Channel chat rates, emote lines, say-without-master, and broadcast chances. |
 | [Diagnostic logging](settings/logging.md) | `aiplayerbot.conf` + `tortoise_bots.conf` | Module log levels, telemetry streams, CSV logs, and per-bot action log rotation. |

@@ -2,7 +2,7 @@
 id: world-queues
 title: Dungeon & battleground queues
 category: world
-summary: How bots participate in Looking-For-Trouble dungeon matchmaking and PvP battlegrounds.
+summary: How bots participate in Looking for Turtles dungeon matchmaking and PvP battlegrounds.
 tags: [world, queues, lft, battlegrounds, pvp, dungeons]
 relates_to:
   - world-living-world
@@ -12,11 +12,11 @@ relates_to:
 
 # Dungeon & battleground queues
 
-This page explains how bots fill dungeon parties through Looking-For-Trouble (LFT) and participate in player-versus-player battlegrounds. Queue settings and intervals are configured in `aiplayerbot.conf`; see [Queue & matchmaking settings](../server/settings/queues.md).
+This page explains how bots fill dungeon parties through Looking for Turtles (LFT) and participate in player-versus-player battlegrounds. Queue settings and intervals are configured in `aiplayerbot.conf`; see [Queue & matchmaking settings](../server/settings/queues.md).
 
-## Looking-For-Trouble (LFT) dungeon autofill
+## Looking for Turtles (LFT) dungeon autofill
 
-The Looking-For-Trouble autofill service monitors dungeon queue requests and backfills missing roles with eligible open-world bots:
+The Looking for Turtles autofill service monitors dungeon queue requests and backfills missing roles with eligible open-world bots:
 
 | Feature | Behavior |
 | :--- | :--- |
