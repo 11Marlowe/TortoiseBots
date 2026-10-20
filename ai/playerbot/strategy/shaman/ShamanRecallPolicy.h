@@ -8,13 +8,15 @@
 namespace ai
 {
     inline bool TotemicRecallShouldFire(bool hasSpell, bool anyTotemDown, bool manaTideDown,
-        bool botInCombat, bool anyMemberInCombat)
+        bool botInCombat, bool anyMemberInCombat, bool prepullWanted = false)
     {
         if (!hasSpell || !anyTotemDown)
             return false;
         if (manaTideDown)
             return false;
         if (botInCombat || anyMemberInCombat)
+            return false;
+        if (prepullWanted)
             return false;
         return true;
     }

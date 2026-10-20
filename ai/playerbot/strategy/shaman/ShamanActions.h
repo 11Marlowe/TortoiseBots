@@ -31,6 +31,12 @@ namespace ai
     public:
         CastLesserHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "lesser healing wave", 25, HealManaEfficiency::LOW) {}
         ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override
+        {
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return false;
+            return CastSelfDownrankHealingAction::isUseful();
+        }
     };
 
     class CastLesserHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -44,6 +50,12 @@ namespace ai
     public:
         CastHealingWaveAction(PlayerbotAI* ai) : CastSelfDownrankHealingAction(ai, "healing wave", 50, HealManaEfficiency::MEDIUM) {}
         ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+        bool isUseful() override
+        {
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return false;
+            return CastSelfDownrankHealingAction::isUseful();
+        }
     };
 
     class CastHealingWaveOnPartyAction : public HealPartyMemberAction
@@ -134,8 +146,25 @@ namespace ai
     public:
         CastTotemAction(PlayerbotAI* ai, std::string spell) : CastBuffSpellAction(ai, spell) {}
 
+        bool Execute(Event& event) override
+        {
+            bool ok = CastBuffSpellAction::Execute(event);
+            if (ok)
+            {
+                time_t now = time(0);
+                SET_AI_VALUE2(time_t, "manual time", "last totem cast time", now);
+                if (IsAirTotem(name))
+                    SET_AI_VALUE2(time_t, "manual time", "last air totem cast time", now);
+            }
+            return ok;
+        }
+
         bool isUseful() override
         {
+            time_t lastCast = AI_VALUE2(time_t, "manual time", "last totem cast time");
+            if (lastCast && time(0) - lastCast < 4)
+                return false;
+
             if (sServerFacade.isMoving(bot))
             {
                 // No totems on the run: they would be left behind and burn
@@ -148,9 +177,21 @@ namespace ai
             if (!CastBuffSpellAction::isUseful())
                 return false;
 
+            if (AI_VALUE2(bool, "has totem", name))
+                return false;
+
+            if (IsAirTotem(name))
+            {
+                time_t lastAir = AI_VALUE2(time_t, "manual time", "last air totem cast time");
+                if (lastAir && time(0) - lastAir < 4)
+                    return false;
+                if (HasAnyAirTotem())
+                    return false;
+            }
+
             Group* group = bot->GetGroup();
             if (!group)
-                return !AI_VALUE2(bool, "has totem", name);
+                return true;
 
             for (Player* member : LiveGroupMembers(group))
             {
@@ -190,10 +231,37 @@ namespace ai
             if (!bot->GetGroup())
                 return CastBuffSpellAction::getPrerequisites();
 
+            // A tank shaman in combat must never leave its target to place a totem;
+            // drop totems where it stands without walking away from the mob.
+            if (bot->IsInCombat() && (ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)))
+                return CastBuffSpellAction::getPrerequisites();
+
             const std::string qualifiersStr = Qualified::MultiQualify({ GetSpellName(), "party member for totem" }, "::");
             return NextAction::merge(
                 NextAction::array(0, new NextAction("reach party member for totem::" + qualifiersStr), nullptr),
                 CastBuffSpellAction::getPrerequisites());
+        }
+
+        static bool IsAirTotem(std::string const& totemName)
+        {
+            return totemName == "windfury totem" ||
+                   totemName == "tranquil air totem" ||
+                   totemName == "grace of air totem" ||
+                   totemName == "grounding totem" ||
+                   totemName == "nature resistance totem" ||
+                   totemName == "windwall totem" ||
+                   totemName == "sentry totem";
+        }
+
+        bool HasAnyAirTotem()
+        {
+            return AI_VALUE2(bool, "has totem", "windfury totem") ||
+                   AI_VALUE2(bool, "has totem", "tranquil air totem") ||
+                   AI_VALUE2(bool, "has totem", "grace of air totem") ||
+                   AI_VALUE2(bool, "has totem", "grounding totem") ||
+                   AI_VALUE2(bool, "has totem", "nature resistance totem") ||
+                   AI_VALUE2(bool, "has totem", "windwall totem") ||
+                   AI_VALUE2(bool, "has totem", "sentry totem");
         }
 
         // True when the member carries any rank's aura of this totem
@@ -582,6 +650,16 @@ namespace ai
     {
     public:
         CastTotemicRecall(PlayerbotAI* ai) : CastBuffSpellAction(ai, "totemic recall") {}
+
+        bool Execute(Event& event) override
+        {
+            bool ok = CastBuffSpellAction::Execute(event);
+            if (ok)
+            {
+                SET_AI_VALUE2(time_t, "manual time", "totemic recall time", time(0));
+            }
+            return ok;
+        }
     };
 
     class SetTotemBars : public Action
