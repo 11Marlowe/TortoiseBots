@@ -76,6 +76,7 @@ inline HireSpecOption const* HireSpecOptions(uint8_t classId, uint32_t& count)
         { "Restoration (Healer)", kHireRoleHealer, "restoration" },
         { "Elemental (DPS)", kHireRoleDps, "elemental" },
         { "Enhancement (DPS)", kHireRoleDps, "enhancement" },
+        { "Enhancement (Tank) (experimental)", kHireRoleTank, "tank" },
     };
     static HireSpecOption const mage[] = {
         { "Frost (DPS)", kHireRoleDps, "frost" },
@@ -103,7 +104,8 @@ inline HireSpecOption const* HireSpecOptions(uint8_t classId, uint32_t& count)
         case kHireClassHunter: count = 3; return hunter;
         case kHireClassRogue: count = 3; return rogue;
         case kHireClassPriest: count = 3; return priest;
-        case kHireClassShaman: count = 3; return shaman;
+        // Shaman has the 4th Enhancement (Tank) row; druid keeps Bear.
+        case kHireClassShaman: count = 4; return shaman;
         case kHireClassMage: count = 3; return mage;
         case kHireClassWarlock: count = 3; return warlock;
         case kHireClassDruid: count = 4; return druid;
@@ -150,6 +152,17 @@ inline int HireSpecIndexForWord(uint8_t classId, std::string const& word)
     }
     return -1;
 }
+
+// Shaman Enhancement (Tank) needs the level-10 taunt (Earthshaker Slam): the
+// gossip spec menu hides the row below that level instead of hiring a tank
+// that cannot taunt (issue #1125). Pure: the caller passes the hirer's level
+// (the hire arrives at it). Every other option is always offered.
+inline bool HireSpecOffered(uint8_t classId, int specIndex, uint32_t hirerLevel)
+{
+    if (classId == kHireClassShaman && specIndex == 3)
+        return hirerLevel >= 10;
+    return true;
+ }
 
 // Post-provision check: does the build that was applied honour the request?
 // A role-only request (empty/null name) is honoured by any role-matching

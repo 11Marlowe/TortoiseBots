@@ -25,7 +25,7 @@ constexpr uint8_t kHireGearTierMax = 7;
 constexpr uint8_t kHireGearHireLevel = 60;
 
 // Canonical spec keys for the hire-gear table. One per recruiter spec-menu
-// option (28 total), in HireSpecOptions order: every HireSpecPolicy pathName
+// option (29 total), in HireSpecOptions order: every HireSpecPolicy pathName
 // except druid, where Bear and Cat share the "feral" premade path but need
 // distinct sets ("bear"/"cat"). The generator must emit exactly these keys.
 inline char const* HireGearSpecKey(uint8_t classId, int specIndex)

@@ -1282,6 +1282,10 @@ static bool HandleHire(ChatHandler* handler, char const* args)
                 sel.role = static_cast<uint8>(ai::BOT_ROLE_TANK);
                 if (sel.classId == CLASS_DRUID)
                     sel.specIndex = 0;
+                // A bare "tank" word on a shaman means the tank row (the only
+                // shaman tank option); the level-10 gate applies to it too.
+                if (sel.classId == CLASS_SHAMAN)
+                    sel.specIndex = 3;
                 continue;
             }
             if (healWord)
@@ -1356,6 +1360,19 @@ static bool HandleHire(ChatHandler* handler, char const* args)
                 break;
             }
         }
+    }
+    // Shaman tank needs the hirer's level 10 (taunt): a role-only request
+    // ("tank" word above, spec word match, or a tank-role fill) resolves to
+    // the tank row, so refuse it here as one gate instead of per word.
+    if (sel.classId == CLASS_SHAMAN && sel.role == static_cast<uint8>(ai::BOT_ROLE_TANK))
+    {
+        if (!HireSpecOffered(CLASS_SHAMAN, 3, requester->GetLevel()))
+        {
+            handler->PSendSysMessage("Enhancement (Tank) needs level 10 (Earthshaker Slam taunt). Level up and hire again.");
+            return true;
+        }
+        if (sel.specIndex < 0)
+            sel.specIndex = 3;
     }
     // Defaults: requester's faction race pool, random gender, class role.
     if (!HireProvisionService::FillDefaultRaceGender(requester, sel))

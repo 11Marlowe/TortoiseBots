@@ -46,7 +46,7 @@ static void TestTableShape()
         uint32_t count = 0;
         HireSpecOption const* options = HireSpecOptions(cls, count);
         CHECK(options != nullptr);
-        CHECK(count == (cls == kHireClassDruid ? 4u : 3u));
+        CHECK(count == (cls == kHireClassDruid || cls == kHireClassShaman ? 4u : 3u));
         for (uint32_t i = 0; i < count; ++i)
         {
             CHECK(options[i].label != nullptr && options[i].label[0] != '\0');
@@ -68,7 +68,7 @@ static void TestUnknownClass()
     CHECK(HireSpecPathName(6, 0) == nullptr);
     CHECK(HireSpecPathName(kHireClassWarrior, -1) == nullptr);
     CHECK(HireSpecPathName(kHireClassWarrior, 3) == nullptr);
-    CHECK(HireSpecPathName(kHireClassDruid, 4) == nullptr);
+    CHECK(HireSpecPathName(kHireClassShaman, 4) == nullptr);
 }
 
 // The reported bug: an "Arms" warrior and a "Fury" warrior are both DPS, so
@@ -79,12 +79,13 @@ static void TestWarriorSpecsPinned()
     CHECK(std::string(HireSpecPathName(kHireClassWarrior, 1)) == "arms");
     CHECK(std::string(HireSpecPathName(kHireClassWarrior, 2)) == "fury");
     CHECK(std::string(HireSpecPathName(kHireClassWarrior, 0)) == "protection");
+    CHECK(std::string(HireSpecPathName(kHireClassShaman, 3)) == "tank");
     // Every class resolves each of its menu options to a non-empty name.
     for (uint8_t cls : kClasses)
         for (int i = 0; i < 4; ++i)
         {
             char const* name = HireSpecPathName(cls, i);
-            if (i < 3 || cls == kHireClassDruid)
+            if (i < 3 || cls == kHireClassDruid || cls == kHireClassShaman)
                 CHECK(name != nullptr && name[0] != '\0');
         }
 }
@@ -100,6 +101,8 @@ static void TestHonoured()
     CHECK(HireSpecHonoured("arms", "fury") == false);    // the reported arms->fury mix-up
     CHECK(HireSpecHonoured("fury", "arms") == false);
     CHECK(HireSpecHonoured("arms", nullptr) == false);
+    CHECK(HireSpecHonoured("tank", "enhancement-tank") == true);
+    CHECK(HireSpecHonoured("tank", "enhancement") == false);
 }
 
 // `.bot hire` spec words pick the recruiter option for every class: the
@@ -122,6 +125,7 @@ static void TestChatSpecWords()
     CHECK(HireSpecIndexForWord(kHireClassShaman, "resto") == 0);
     CHECK(HireSpecIndexForWord(kHireClassShaman, "elemental") == 1);
     CHECK(HireSpecIndexForWord(kHireClassShaman, "enh") == 2);
+    CHECK(HireSpecIndexForWord(kHireClassShaman, "tank") == 3);
     CHECK(HireSpecIndexForWord(kHireClassWarlock, "destro") == 2);
     CHECK(HireSpecIndexForWord(kHireClassWarlock, "demo") == 1);
     CHECK(HireSpecIndexForWord(kHireClassWarlock, "afflic") == 0);
@@ -235,6 +239,18 @@ static void TestConfiguredNames()
     }
 }
 
+// Shaman tank needs the hirer's level 10 (taunt): the row is hidden below it,
+// everything else is always offered.
+static void TestTankLevelGate()
+{
+    CHECK(HireSpecOffered(kHireClassShaman, 3, 9) == false);
+    CHECK(HireSpecOffered(kHireClassShaman, 3, 10) == true);
+    CHECK(HireSpecOffered(kHireClassShaman, 3, 60) == true);
+    CHECK(HireSpecOffered(kHireClassShaman, 2, 1) == true);
+    CHECK(HireSpecOffered(kHireClassWarrior, 0, 1) == true);
+    CHECK(HireSpecPathName(kHireClassShaman, 3) != nullptr);
+}
+
 int main()
 {
     TestTableShape();
@@ -242,6 +258,7 @@ int main()
     TestWarriorSpecsPinned();
     TestHonoured();
     TestChatSpecWords();
+    TestTankLevelGate();
     TestConfiguredNames();
     std::printf("hire spec policy: %d checks passed\n", checks);
     return 0;

@@ -111,7 +111,8 @@ uint8 HireProvisionService::DefaultRoleForClass(uint8 classId)
 bool HireProvisionService::ClassCanRole(uint8 classId, uint8 role)
 {
     if (role == ai::BOT_ROLE_TANK)
-        return classId == CLASS_WARRIOR || classId == CLASS_PALADIN || classId == CLASS_DRUID;
+        return classId == CLASS_WARRIOR || classId == CLASS_PALADIN || classId == CLASS_DRUID ||
+            classId == CLASS_SHAMAN;
     if (role == ai::BOT_ROLE_HEALER)
         return classId == CLASS_PRIEST || classId == CLASS_PALADIN ||
             classId == CLASS_SHAMAN || classId == CLASS_DRUID;
