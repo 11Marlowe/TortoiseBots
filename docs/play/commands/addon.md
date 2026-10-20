@@ -82,5 +82,14 @@ The module transmits structured protocol lines (prefixed with `TBM:`) to keep th
 | `TBM:ALTBOTS` | Lists owned characters currently active as autonomous alt-bots. |
 | `TBM:VERSION` | Handshakes the server module version and build date with the client addon. |
 | `TBM:VIEW` | Streams real-time tactical perception frames when Remote Commander view is active. |
+| `TBM:ACTION_ACK` | Confirms execution of party or bot actions (`TBM:ACTION_ACK\|<intent>\|<scope>\|<count>\|<detail>`). |
+| `TBM:ACTION_ERR` | Notifies action failures (`TBM:ACTION_ERR\|<intent>\|<code>\|<message>`). |
+
+### Protocol Format & Delivery Rules
+
+- **Message Length Cap:** Each emitted protocol line is strictly limited to 250 bytes (within the WoW client addon message buffer limit of 255 bytes).
+- **Acknowledgment Format:** `TBM:ACTION_ACK|<intent>|<scope>|<count>|<detail>`, where `<scope>` is either `party` or `bot:<Name>`.
+- **Error Notification Format:** `TBM:ACTION_ERR|<intent>|<code>|<message>`, providing structured error codes (such as `no-trade`, `unknown-target`, `out-of-range`) so the interface can display contextual error banners.
+- **Delivery Guarantees:** Addon commands execute sequentially in receipt order during the world tick immediately preceding bot AI turn execution.
 
 Hand-typed `.bot` commands in chat continue to work identically alongside the addon.

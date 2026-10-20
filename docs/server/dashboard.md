@@ -82,6 +82,7 @@ The web interface provides real-time operational visibility into your realm's bo
 | **Commanders** | Who is leading bot groups? | Party health bars, tactical warnings, commander orders, and fight status. |
 | **Progress** | Are bots levelling up smoothly? | XP per hour KPIs, level-up timelines, and average gear item level by level band. |
 | **Activity** | What events have occurred? | Real-time feed of completed quests, rare loot drops, gathered nodes, and kills. |
+| **Dungeons** | What dungeon and raid runs are active? | Live view of active instance copies with bots, member health, and player badges. |
 | **Auction House** | What is currently on the market? | Searchable catalog of all active auction listings posted by bots and players. |
 | **Issues** | Which bots are stuck or in trouble? | Tracked navigation stalls, long deaths, and unreachable combat targets. |
 | **Server** | What settings are active? | Live server rates, active configuration flags, and one-click diagnostic reports. |
@@ -100,6 +101,15 @@ Clicking any bot name or map marker opens a slide-over profile panel that inspec
 - **Spells:** Distinguishes runtime learned spells from default starting spells granted by race/class.
 - **Talents:** Visual 7-tier talent trees with DBC layout.
 - **Professions & Skills:** Current skill ranks and associated trade abilities.
+
+### Dungeons Tab
+
+The **Dungeons** tab provides a dedicated live overview of all active dungeon and raid runs containing bots:
+
+- **Instance Isolation:** Groups bots by active instance copy (`(map, instance)` pair), distinctly separating multiple concurrent runs of the same dungeon.
+- **Player Highlighting:** Real players in bot parties are visually distinguished with a distinct badge and gold ring indicator.
+- **Raid Subgroups:** Raid encounters display members formatted into compact 5-player subgroup tiles.
+- **Live Run View:** Selecting an active run presents an interactive instance map rendering bot positions, encounter targets, and vital health/mana meters.
 
 ## Issue Tracking & Stalls
 

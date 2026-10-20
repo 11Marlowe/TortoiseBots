@@ -92,25 +92,26 @@ Every configuration setting is documented across specialized settings pages:
 
 ## Settings with no effect
 
-The following settings are parsed by the configuration loader for backwards compatibility with legacy configurations, but have no effect on gameplay or server operation:
+These keys are read into the configuration object so older configuration files continue loading, but nothing consumes them. They are marked in `aiplayerbot.conf.dist.in` with "Currently has no effect (read but unused)" and listed here so administrators do not tune a dead knob:
 
-- `AhMarketValueVendor`: vendor price multiplier stub from legacy auction code.
-- `AllowGuildBots`: legacy toggle for guild bots, read but unused.
-- `AllowMultiAccountAltBots`: placeholder for multi-account alt bot summoning.
-- `BotAutologin`: superseded by `AiPlayerbot.RandomBotAutologin`.
-- `DiffEmpty`: unused difficulty calculation knob.
-- `DiffWithPlayer`: unused player difficulty scaling knob.
-- `DisableBotOptimizations`: unused performance flag.
-- `FreeMoveDelay`: legacy delay timer for free movement.
-- `GroupMemberLootDistanceWithActiveMaster`: superseded by general loot distance logic.
-- `InstantRandomize`: unused instant randomization trigger.
-- `LLMApiKey`: unused external language model integration key.
-- `MaxFreeMoveDistance`: superseded by strategy-specific free movement leashes.
-- `MinRandomBotInWorldTime`: legacy timer for world presence.
-- `MinRandomBotsPriceChangeInterval`: legacy price update interval.
-- `RandomBotRandomPassword`: unused account password generator flag.
-- `RandomBotTimedOffline`: unused offline scheduling timer.
-- `RandomGearTabardsUnobtainable`: unused tabard filter flag.
-- `RandombotsWalkingRPG.InDoors`: unused indoor pathing flag.
-- `RespawnModNeutral`, `RespawnModHostile`, `RespawnModThreshold`, `RespawnModMax`, `RespawnModForPlayerBots`, `RespawnModForInstances`: legacy respawn modifiers replaced by core engine dynamic respawn.
-- `TweakValue`: placeholder development variable.
+- `AhMarketValueVendor`
+- `AllowGuildBots`
+- `AllowMultiAccountAltBots`
+- `BotAutologin`
+- `BotsSilent`
+- `DiffEmpty`
+- `DiffWithPlayer`
+- `DisableBotOptimizations`
+- `FreeMoveDelay`
+- `GroupMemberLootDistanceWithActiveMaster`
+- `InstantRandomize`
+- `LLMApiKey`
+- `MaxFreeMoveDistance`
+- `MinRandomBotInWorldTime`
+- `MinRandomBotsPriceChangeInterval`
+- `RandomBotRandomPassword`
+- `RandomBotTimedOffline`
+- `RandomGearTabardsUnobtainable`
+- `RandombotsWalkingRPG.InDoors`
+- `RespawnModNeutral`, `RespawnModHostile`, `RespawnModThreshold`, `RespawnModMax`, `RespawnModForPlayerBots`, `RespawnModForInstances`
+- `TweakValue`

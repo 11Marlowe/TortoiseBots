@@ -36,6 +36,9 @@ These settings configure player-owned bots, alt-bots, formation positioning, and
 | [`AiPlayerbot.RollBadItemsWithPlayer`](#aiplayerbotrollbaditemswithplayer) | `0` | Forces bots to roll Need on dungeon drops for empty gear slots. |
 | [`AiPlayerbot.AltBots`](#aiplayerbotaltbots) | `0` | Allows dismissed owned alts to continue roaming and playing independently. |
 | [`AiPlayerbot.AltBotsLogoutWithOwner`](#aiplayerbotaltbotslogoutwithowner) | `0` | Forces active alt-bots to log out when their account owner logs out. |
+| [`AiPlayerbot.SummonAtInnkeepersEnabled`](#aiplayerbotsummonatinnkeepersenabled) | `1` (built in) | Enables summoning owned bots while the master is near an innkeeper NPC. |
+| [`AiPlayerbot.SyncQuestForPlayer`](#aiplayerbotsyncquestforplayer) | `0` (built in) | Synchronizes player master quest progression directly to party bots. |
+| [`AiPlayerbot.BotCheats`](#aiplayerbotbotcheats) | `repair,breath` | Convenience and sustenance cheats granted to owned companion bots and alts. |
 
 ## Settings
 
@@ -292,5 +295,56 @@ Controls whether active autonomous alt-bots log out when their account owner dis
 When alt-bots are enabled, setting this to `1` causes all active alt-bots belonging to a player to log out automatically when that player logs out.
 
 When set to `0`, alt-bots remain active in the world until manually removed or until the server restarts. Alt-bots do not persist across server restarts.
+
+</details>
+
+### `AiPlayerbot.SummonAtInnkeepersEnabled`
+Enables summoning owned companion bots while the player master is near an innkeeper NPC.
+**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Allows players to summon their owned companion bots when standing within interaction radius of any innkeeper NPC, in addition to standard meeting stone summon locations.
+
+Set to `0` if you want companion bot summoning restricted solely to dungeon meeting stones and explicit summon commands.
+
+</details>
+
+### `AiPlayerbot.SyncQuestForPlayer`
+Synchronizes the player master's quest progression directly to companion party bots.
+**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When enabled, quest progress, objectives, and completions achieved by the player leader are mirrored to grouped companion bots.
+
+When disabled (`0`), bots track and advance their quest objectives independently.
+
+</details>
+
+### `AiPlayerbot.BotCheats`
+Convenience and survival cheats active on player-owned companion bots and alts.
+**Default:** `repair,breath` · **Values:** comma-separated cheat flags · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Configures the cheat mask applied to player-owned bots and alts. Available cheat keywords include:
+
+- `repair`: Prevents gear from breaking completely when bots run out of repair funds.
+- `breath`: Grants underwater breathing to prevent drowning while navigating water.
+- `item`: Grants unlimited conjured sustenance items and spell reagents.
+- `gold`: Free repairs and vendor purchases.
+- `health`: Rapid health regeneration.
+- `mana` / `power`: Rapid mana/resource regeneration.
+- `cooldown`: Eliminates ability cooldowns.
+- `movespeed`: Greatly increases movement speed.
+- `attackspeed`: Greatly increases attack speed.
+- `taxi`: Unlocks all flight paths.
+- `quest`: Quests complete immediately.
+
+Masterless random pool bots use [`AiPlayerbot.RndBotCheats`](world-population.md#aiplayerbotrndbotcheats) instead.
 
 </details>

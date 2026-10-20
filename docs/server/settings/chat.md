@@ -23,6 +23,7 @@ Bot speech lines and flavor texts are stored in the `ai_playerbot_texts` databas
 | [`AiPlayerbot.BroadcastToWorldGlobalChance`](#aiplayerbotbroadcasttoworldglobalchance) | `3000` | Global frequency throttle for broadcasts routed to the server World channel. |
 | [`AiPlayerbot.BroadcastToGeneralGlobalChance`](#aiplayerbotbroadcasttogeneralglobalchance) | `3000` | Global frequency throttle for broadcasts routed to zone General channels. |
 | [`AiPlayerbot.BroadcastChance*`](#aiplayerbotbroadcastchance) | varies | Per-event broadcast chance multipliers for specific quest, kill, or joke lines. |
+| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` | 1-in-N chance for bots to broadcast looting a normal white item in chat. |
 | [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` | Probability of bots advertising items for sale in trade and public channels. |
 | [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` | Controls whether bots participate in the classic Thunderfury chat joke. |
 | [`AiPlayerbot.RandomBotSayWithoutMaster`](#aiplayerbotrandombotsaywithoutmaster) | `0` | Causes masterless bots to speak travel goals and cast errors in say chat. |
@@ -39,7 +40,7 @@ Master switch for all autonomous bot speech, channel announcements, and roleplay
 Controls all automated public broadcasts from bots:
 
 - `1`: Bots post milestone announcements (quest completions, boss kills, level-ups), trade suggestions, guild recruiting messages, and scripted battleground callouts.
-- `0`: Completely silences automated public chat. Bots will not speak in `/say`, `/yell`, guild channels, or global channels.
+- `0`: Completely silences automated public chat. Bots will not speak in `/say`, `/yell`, guild channels, or global channels. Groups still receive all heals and buffs normally while chat is silenced.
 
 Direct communications are not broadcasts and remain active even when set to `0`:
 - Private whispers to players.
@@ -83,6 +84,17 @@ Allows fine-grained tuning of specific announcement types (such as `BroadcastCha
 Aggressive or toxic flavor lines default to `0` in shipped templates.
 
 Travel destination narration ("Traveling 120y to...") and vendor transaction confirmations are permanently silent for masterless bots, preventing spam in busy cities.
+
+</details>
+
+### `AiPlayerbot.BroadcastChanceLootingItemNormal`
+Controls the 1-in-N probability for bots to announce looting a normal (white) quality item in chat.
+**Default:** `300` · **Values:** integer weight (0 = disabled) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Defines the probability roll when a bot loots a standard common (white) item. Setting this to `0` silences announcements for common item loots while leaving uncommon, rare, and epic loot announcements intact.
 
 </details>
 

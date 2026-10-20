@@ -26,6 +26,16 @@ Players interact with bots through three distinct interfaces:
 - **Whispers (`/w <BotName> <command>`):** Direct commands sent via in-game whisper, or proxied through `.bot command <BotName> <command>`.
 - **Addon Interface (`/tbm`):** The [TortoiseBotsManager](addon.md) graphical interface, which transmits commands over a silent communication channel without cluttering chat frames.
 
+### Command Chaining via `\\`
+
+Multiple sequential `.bot` or whisper commands can be chained together in a single chat line separated by `\\`:
+
+```text
+.bot follow\\co +focus
+```
+
+The server splits the message along the delimiter and executes each command in sequence on the same world tick.
+
 ## Security & Ownership
 
 Every bot command evaluates permission gates before executing:
@@ -88,6 +98,10 @@ The table below lists every command and links to its authoritative documentation
 | [`.bot pullback`](party-actions.md#bot-pullback) | Direct Combat | Triggers a pullback maneuver on a designated tank. |
 | [`.bot formation`](party-actions.md#bot-formation) | Direct Movement | Sets party follow formation geometry. |
 | [`.bot strategy`](party-actions.md#bot-strategy) | Direct Strategy | Adjusts combat and non-combat strategies. |
+| [`.bot loot`](party-actions.md#bot-loot) | Direct Party | Toggles corpse looting on targeted bot or party. |
+| [`.bot repair`](party-actions.md#bot-repair) | Direct Party | Orders targeted bot or party to repair gear. |
+| [`.bot sell`](party-actions.md#bot-sell) | Direct Party | Orders targeted bot or party to sell gray junk. |
+| [`.bot rest`](party-actions.md#bot-rest) | Direct Party | Orders bots to sit and consume food and drink. |
 | [`.bot commander bind`](commander.md#bot-commander-bind) | Remote Commander | Binds a bot-only party to remote leadership. |
 | [`.bot commander unbind`](commander.md#bot-commander-unbind) | Remote Commander | Releases your current remote commander binding. |
 | [`.bot commander status`](commander.md#bot-commander-status) | Remote Commander | Displays commanded party status and roster. |

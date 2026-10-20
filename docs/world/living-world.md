@@ -177,6 +177,7 @@ When persistent leveling is enabled ([`AiPlayerbot.DisableRandomLevels = 1`](../
 - **Dual Wield:** Class level thresholds gate dual wielding: warrior level 10, rogue level 10, and hunter level 20. Bots below these thresholds cannot learn Dual Wield, and any premature grant is removed on login. Shamans cannot dual wield.
 - **Defensive passives:** Passives such as *Block* and *Parry* are restored on login.
 - **Professions:** Bots receive First Aid, Cooking, and Fishing at level 1. At level 5, bots roll two class-matched primary professions. Each roll pairs one gathering skill with its corresponding craft (Mining with Blacksmithing or Engineering; Skinning with Leatherworking; Herbalism with Alchemy) or pairs two gathering skills. One in three cloth casters rolls Tailoring with Enchanting. Primary profession tools are provided automatically.
+- **Starting zone scatter:** Newly seeded bots above level 10 scatter to level-appropriate overworld destinations upon creation rather than remaining in racial starter zones ([`AiPlayerbot.EnableRandomTeleports`](../server/settings/world-population.md#aiplayerbotenablerandomteleports)).
 
 ## Field kits & equipment upkeep
 
@@ -189,14 +190,20 @@ Every seeded pool bot and newly hired companion receives a complete starting fie
 | **Ammo containers** | Hunters receive a quiver or ammo pouch matching their equipped ranged weapon, updated by level. |
 | **Ranged weapons** | Warriors and rogues carry a level-appropriate thrown weapon for pulling. |
 | **Profession tools** | Mining picks, skinning knives, blacksmith hammers, arclight spanners, and fishing poles matching professions. |
-| **Mounts** | Swift Riding Turtle at level 18 ([`AiPlayerbot.TurtleMountAtLevel`](../server/settings/world-population.md#aiplayerbotturtlemountatlevel)), racial mounts at level 40 (60% speed) and level 60 (100% speed). |
+| **Mounts** | Swift Riding Turtle at level 18 ([`AiPlayerbot.TurtleMountAtLevel`](../server/settings/world-population.md#aiplayerbotturtlemountatlevel)), racial vendor mounts at level 40 (60% speed) and level 60 (100% speed). |
 | **Currencies & consumables** | Starting coin scaled to initial level, and a stack of First Aid bandages. |
 
 Hired mercenary companions receive an hourly restock of class reagents, rations, potions, and bandages.
 
+### Mount rules
+Random pool bots and hired companions strictly ride vendor mounts matching their own character race (for example, Goblins ride Rocket Cars and Shredders), governed by [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts). Fast epic mounts are strictly gated to level 60 characters. By default, pool bots never ride rare dungeon or raid loot-drop mounts. Player-owned alts are not subject to these mount restrictions.
+
 ### Gear evaluation & upgrades
 When [`AiPlayerbot.RandomGearUpgradeEnabled = 1`](../server/settings/world-population.md#aiplayerbotrandomgearupgradeenabled), bots evaluate looted and vendor gear using class and spec stat weight scales:
 - **Stat weighting:** Equipment is scored by primary spec stats (Strength and Agility for melee; Spell Power and Intellect for casters).
+- **Empty slot backstop:** After equipment generation, any remaining unequipped armor or trinket slot takes the highest-rated fitting item within 10 levels, including class-restricted trinkets.
+- **Raid quest reward filtering:** Bots are barred from rolling or equipping end-game raid quest chain items (such as the *Onyxia Tooth Pendant*) during organic gearing passes.
+- **Equipment enchanting:** Bots at level 10 or higher receive enchantments matching their level bracket ([`AiPlayerbot.minEnchantingBotLevel`](../server/settings/world-population.md#aiplayerbotminenchantingbotlevel)).
 - **Weapon rules:** Spec-forbidden weapons are replaced when an upgrade drops (such as an Assassination rogue replacing a mace with a dagger).
 - **Fury warriors below level 20:** Fury warriors can equip two-handed weapons until *Dual Wield* is trained, at which point one-handed weapons take priority if they out-score the two-hander.
 - **Protection shields:** Tanking specs retain their highest-scoring shield in bags even while holding a two-handed weapon, swapping the shield into the off-hand immediately if a one-handed weapon is equipped.

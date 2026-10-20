@@ -37,6 +37,9 @@ The total bot population is the primary factor influencing server CPU and memory
 | [`AiPlayerbot.FailedActionRetryBase`](#aiplayerbotfailedactionretrybase) | `250` | Base exponential backoff delay in milliseconds for repeated failed actions. |
 | [`AiPlayerbot.FailedActionRetryMax`](#aiplayerbotfailedactionretrymax) | `2000` | Maximum exponential backoff cap in milliseconds for repeated failed actions. |
 | [`AiPlayerbot.FailedActionCacheTtl`](#aiplayerbotfailedactioncachettl) | `30000` | Time-to-live in milliseconds for cached failed action backoff records. |
+| [`AiPlayerbot.FailedActionCacheMaxEntries`](#aiplayerbotfailedactioncachemaxentries) | `64` (built in) | Maximum number of entries stored in the failed action cache. |
+| [`AiPlayerbot.IterationsPerTick`](#aiplayerbotiterationspertick) | `100` | Maximum action evaluation iterations allowed per bot per world tick. |
+| [`AiPlayerbot.MaxWaitForMove`](#aiplayerbotmaxwaitformove) | `3000` | Timeout in milliseconds to wait for a movement arrival before expiring. |
 | [`AiPlayerbot.RemoteCommander`](#aiplayerbotremotecommander) | `0` | Enables remote commander commands for leading bot-only parties from afar. |
 | [`AiPlayerbot.RemoteCommanderViewMs`](#aiplayerbotremotecommanderviewms) | `1000` | Milliseconds between visual perception updates sent to remote commanders. |
 
@@ -273,6 +276,45 @@ Time-to-live in milliseconds for cached failed action backoff entries.
 <summary>How it works in detail</summary>
 
 Defines how long a failed action state remains cached before being purged from memory.
+
+</details>
+
+### `AiPlayerbot.FailedActionCacheMaxEntries`
+Maximum number of entries stored in the failed action cache per bot.
+**Default:** `64` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `256` · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Limits memory footprint of the failed action backoff cache by capping the maximum number of unique tracked failing actions per bot.
+
+Clamped internally between 1 and 256 entries.
+
+</details>
+
+### `AiPlayerbot.IterationsPerTick`
+Maximum action engine evaluation iterations allowed per bot per world tick.
+**Default:** `100` · **Values:** integer count (1..N) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Sets an upper limit on how many sequential candidate actions the bot strategy engine evaluates during a single world tick.
+
+Prevents infinite evaluation loops when complex trigger conditions or multiple falling-through action priorities occur.
+
+</details>
+
+### `AiPlayerbot.MaxWaitForMove`
+Timeout in milliseconds to wait for a movement arrival before expiring the move action.
+**Default:** `3000` · **Values:** milliseconds (100..N) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Specifies how long the bot waits for movement execution before declaring a movement action timed out.
+
+If pathing fails to arrive at the destination within this duration, the move action expires so the bot can reconsider targets or recalculate paths.
 
 </details>
 

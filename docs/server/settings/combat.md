@@ -29,6 +29,8 @@ These settings configure health and mana trigger percentages, engagement ranges,
 | [`AiPlayerbot.SpellDistance`](#aiplayerbotspelldistance) | `26.0` | Maximum range in yards used for initiating ranged spell attacks. |
 | [`AiPlayerbot.ReactDistance`](#aiplayerbotreactdistance) | `150.0` | Maximum distance in yards bots remain responsive to combat and leader calls. |
 | [`AiPlayerbot.LootDistance`](#aiplayerbotlootdistance) | `25.0` | Maximum distance in yards bots roam from their anchor to loot corpses. |
+| [`AiPlayerbot.AoeRadius`](#aiplayerbotaoeradius) | `5.0` | Default yard radius for area-of-effect spells and cluster targeting. |
+| [`AiPlayerbot.ShareTargets`](#aiplayerbotsharetargets) | `1` (built in) | Synchronizes target acquisition and threat awareness among party bots. |
 | [`AiPlayerbot.GlobalCooldown`](#aiplayerbotglobalcooldown) | `1500` | Pacing delay in milliseconds enforced between rapid spell casts. |
 | [`AiPlayerbot.RangedPull`](#aiplayerbotrangedpull) | `1` | Enables automatic ranged openings for commanded tank pulls. |
 | [`AiPlayerbot.RangedPullMeleeApproach`](#aiplayerbotrangedpullmeleeapproach) | `20` | Walk-in approach threshold in yards before tank pulls open from range. |
@@ -257,5 +259,31 @@ Maximum duration in seconds a pool bot retains its active strategy configuration
 Sets the upper bound for periodic pool bot strategy updates.
 
 Together with the minimum timer, bots choose a randomized refresh time between these two bounds.
+
+</details>
+
+### `AiPlayerbot.AoeRadius`
+Default radius in yards used for calculating area-of-effect spells and hostile cluster density.
+**Default:** `5.0` · **Values:** distance in yards · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Defines the default evaluation radius for area attacks, ground-targeted spells (such as Blizzard or Rain of Fire), and multi-target ability decisions.
+
+When bot casters calculate whether enough hostiles are grouped to warrant an AoE ability, enemies within this yard radius are counted.
+
+</details>
+
+### `AiPlayerbot.ShareTargets`
+Synchronizes hostile target lists and threat awareness across grouped companion bots.
+**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When enabled, bots in the same party share their list of active hostile attackers, enabling coordinated target acquisition and group defense.
+
+Set to `0` to force each companion bot to detect and track attacking enemies independently.
 
 </details>

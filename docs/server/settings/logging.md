@@ -28,6 +28,9 @@ The native module has its own independent logging system. This allows administra
 | [`AiPlayerbot.ActionLogMaxTotalMB`](#aiplayerbotactionlogmaxtotalmb) | `2048` | Maximum cumulative disk space in megabytes for the `logs/bots/` folder. |
 | [`AiPlayerbot.ActionLogMaxFileMB`](#aiplayerbotactionlogmaxfilemb) | `100` | Maximum size in megabytes of a single bot log file before rotating. |
 | [`AiPlayerbot.ActionCountsLog`](#aiplayerbotactioncountslog) | `0` | Records cumulative action execution counts and failure rates to CSV. |
+| [`AiPlayerbot.Observability`](#aiplayerbotobservability) | `0` | Enables non-blocking UDP telemetry stream to the observability daemon. |
+| [`AiPlayerbot.ObservabilityHost`](#aiplayerbotobservabilityhost) | `127.0.0.1` | Destination host IP address or service name for UDP observability telemetry. |
+| [`AiPlayerbot.ObservabilityPort`](#aiplayerbotobservabilityport) | `9195` | Destination UDP port for the observability telemetry daemon. |
 
 ## Settings
 
@@ -171,6 +174,45 @@ cp logs/action_counts.csv /tmp/actions_early.csv
 cp logs/action_counts.csv /tmp/actions_late.csv
 python3 tools/action_counts_report.py /tmp/actions_early.csv /tmp/actions_late.csv --top 10
 ```
+
+</details>
+
+### `AiPlayerbot.Observability`
+Enables the non-blocking UDP telemetry emitter streaming bot lifecycle events to the observability daemon.
+**Default:** `0` · **Values:** `0` disabled, `1` enabled · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When enabled in `modules/tortoise_bots.conf` or `aiplayerbot.conf`, the server emits structured telemetry packets over UDP to the external observability collector.
+
+Telemetry feeds the live [Observability Dashboard](../dashboard.md), including real-time bot locations, combat engagements, level-up milestones, deaths, and dungeon runs without writing excessive logs to disk.
+
+Because UDP emission is non-blocking, disabling or losing connection to the daemon never blocks the game server tick.
+
+</details>
+
+### `AiPlayerbot.ObservabilityHost` <a id="observabilityhost"></a>
+Destination hostname or IP address for the UDP observability telemetry collector.
+**Default:** `127.0.0.1` · **Values:** IP address or hostname · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Specifies the network destination where UDP telemetry packets are routed.
+
+Defaults to loopback (`127.0.0.1`) when running locally. In containerized environments, set this to the service name of the observability container (e.g. `observability`) or specify it via the `OBSERVABILITY_HOST` environment variable.
+
+</details>
+
+### `AiPlayerbot.ObservabilityPort` <a id="observabilityport"></a>
+Destination UDP port listened to by the observability daemon.
+**Default:** `9195` · **Values:** UDP port (1..65535) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Configures the destination UDP port for telemetry packet dispatch. Must match the listening port configured in the observability daemon service.
 
 </details>
 

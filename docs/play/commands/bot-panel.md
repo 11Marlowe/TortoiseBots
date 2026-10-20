@@ -109,7 +109,7 @@ Generates an authoritative snapshot of a bot's equipped equipment, carried inven
 .bot inv <CharacterName>
 ```
 
-Alias: `.bot inventory`.
+Alias: `.bot inventory <CharacterName>`.
 
 <details>
 <summary>Protocol format</summary>
@@ -117,12 +117,16 @@ Alias: `.bot inventory`.
 Emits structured protocol records:
 - `TBM:INV_BEGIN|<bot>|<copper>`: Starts inventory stream with total carried coin.
 - `TBM:INV_EQ|<slot>|<itemId>|<durability>|<max>`: One record per equipped gear slot.
-- `TBM:INV_ITEM|<bag>|<slot>|<itemId>|<count>|<flags>`: One record per carried bag item. Flags include `e` (equippable), `u` (rated an upgrade), and `b` (bound/untradeable).
+- `TBM:INV_ITEM|<bag>|<slot>|<itemId>|<count>|<flags>`: One record per carried bag item. Flags:
+  - `e`: The bot can equip the item.
+  - `u`: The item-usage value rates the item as an upgrade.
+  - `b`: The item cannot be traded to you right now (soulbound or quest item).
+  - `-`: None / standard item.
 - `TBM:INV_END|<bot>|<freeSlots>|<totalSlots>`: Concludes stream with bag capacity.
 
 </details>
 
-### `.bot item trade`
+### `.bot item <Name> trade` <a id="bot-item-trade"></a>
 
 Commands the bot to initiate a direct trade session with you.
 
@@ -130,9 +134,9 @@ Commands the bot to initiate a direct trade session with you.
 .bot item <CharacterName> trade
 ```
 
-Place items or gold into the trade window and click accept; the companion bot accepts the trade automatically.
+Place items or gold into the trade window and click accept; the companion bot accepts the trade automatically on its own.
 
-### `.bot item equip`
+### `.bot item <Name> equip` <a id="bot-item-equip"></a>
 
 Instructs the bot to equip an item from its inventory bags into the appropriate equipment slot.
 
@@ -140,9 +144,9 @@ Instructs the bot to equip an item from its inventory bags into the appropriate 
 .bot item <CharacterName> equip <bag> <slot>
 ```
 
-Specify the bag index and slot number as reported by `.bot inv`. The server returns an acknowledgment and a refreshed inventory snapshot.
+Specify the bag index and slot number as reported by `.bot inv`. The server returns an acknowledgment (`TBM:ACTION_ACK|item equip|...`) and a refreshed inventory snapshot.
 
-### `.bot item unequip`
+### `.bot item <Name> unequip` <a id="bot-item-unequip"></a>
 
 Instructs the bot to remove an equipped item and place it into its inventory bags.
 
@@ -152,7 +156,7 @@ Instructs the bot to remove an equipped item and place it into its inventory bag
 
 Equipped items use bag index `255` and slot indices `0` through `18`. Fails with `failed` if the bot's inventory bags are full.
 
-### `.bot item give`
+### `.bot item <Name> give` <a id="bot-item-give"></a>
 
 Places an item from the bot's inventory into an active trade window with the player.
 
@@ -160,7 +164,20 @@ Places an item from the bot's inventory into an active trade window with the pla
 .bot item <CharacterName> give <bag> <slot>
 ```
 
-If no trade window is currently open, the bot opens one and returns a `pending` status. Soulbound and quest items cannot be traded.
+If no trade window is currently open, the bot opens one and returns a `pending` status; repeat the command once the window shows (the addon does this automatically). Soulbound and quest items are refused upfront (`no-trade`) because the core would cancel the entire trade.
+
+<details>
+<summary>Action Protocol Replies</summary>
+
+Replies use the structured action protocol:
+- `TBM:ACTION_ACK|item <op>|bot:<Name>|1|<itemId>[ pending]`
+- `TBM:ACTION_ACK|behavior <key>|bot:<Name>|1|<on|off>`
+- `TBM:ACTION_ACK|behavior <key>|party|<N>|<on|off>`
+- `TBM:ACTION_ERR|<intent>|<code>|<message>`
+
+The ACK scope is always `party` or `bot:<Name>`, the detail never contains `|`, and the ERR intent is never empty.
+
+</details>
 
 ### `.bot behavior`
 

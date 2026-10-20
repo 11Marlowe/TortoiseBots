@@ -66,6 +66,10 @@ Companion bots follow special navigation rules inside dungeons and raids to avoi
 | [`.bot pullback`](#bot-pullback) | Bot / None | Dispatches pullback maneuver on designated tank. |
 | [`.bot formation`](#bot-formation) | None / Name | Sets party follow formation spacing and pattern. |
 | [`.bot strategy`](#bot-strategy) | Strategy Name | Adds or removes combat and non-combat strategies. |
+| [`.bot loot`](#bot-loot) | None / on / off | Toggles corpse looting on targeted bot or party. |
+| [`.bot repair`](#bot-repair) | Bot / None | Orders targeted bot or party to repair gear. |
+| [`.bot sell`](#bot-sell) | Bot / None | Orders targeted bot or party to sell gray junk. |
+| [`.bot rest`](#bot-rest) | Bot / None | Orders bots to sit and consume food and drink. |
 
 ---
 
@@ -524,3 +528,43 @@ Applies or removes specific combat (`co`), non-combat (`nc`), or dead (`de`) str
 Useful strategy toggles:
 - **Single-Target Burn (`co +focus` / `co -focus`):** Off by default. While active, bots suppress area attacks, shouts, fears, and multi-dotting so crowd control is not broken.
 - **AoE Fear Toggle (`co +aoe fear` / `co -aoe fear`):** Suppresses Priest *Psychic Scream*, Warlock *Howl of Terror*, and Warrior *Intimidating Shout* inside instances to avoid accidental pack pulls.
+
+### `.bot loot`
+
+Toggles corpse looting on your targeted bot or all companion bots in the party.
+
+```text
+.bot loot [on|off]
+```
+
+Corpse looting is on by default. With multiple bots in scope, the server confirms with `Loot strategy toggled for N bot(s).` without naming the new state; check the new state via `TBM:BOTSTATE` or use `.bot action loot`, whose acknowledgment includes the resulting state.
+
+### `.bot repair`
+
+Orders your targeted companion bot or all party bots to repair damaged equipment at a nearby vendor NPC.
+
+```text
+.bot repair
+```
+
+Also available as `.bot action repair`.
+
+### `.bot sell`
+
+Orders your targeted companion bot or all party bots to sell gray vendor junk items to a nearby merchant.
+
+```text
+.bot sell
+```
+
+Also available as `.bot action sell`.
+
+### `.bot rest` <a id="bot-rest"></a>
+
+Orders scoped companion bots to sit and consume food and drink until health and mana reach full.
+
+```text
+.bot rest
+```
+
+Aliases: `.bot drink`, `.bot eat`. Hostile combat or master movement breaks rest immediately. Also available as `.bot action rest`.

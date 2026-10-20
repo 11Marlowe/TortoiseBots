@@ -65,9 +65,11 @@ Inside dungeons or raids, bots never leave the instance to visit a vendor. Party
 
 Bots establish player-like social organizations across the realm:
 
-- **Guild charters:** Unguilded bots periodically travel to capital city guild masters, purchase a Guild Charter, and solicit signatures from nearby unguilded bots.
-- **Guild founding:** Once required signatures are collected, the bot registers the charter, generates an organic guild name, and displays the guild tag.
-- **Member recruitment:** Founded guilds actively invite both unguilded bots and interested human players to join.
+- **Guild charters & petition signing:** Unguilded bots periodically travel to capital city guild masters, purchase a Guild Charter, and solicit signatures from nearby unguilded bots. Bots approached for a signature automatically inspect the petition and sign it if unguilded.
+- **Guild founding:** Once required signatures are collected, the bot registers the charter, generates an organic guild name, and displays the guild tag above members' heads.
+- **Member recruitment & caps:** Founded guilds actively invite both unguilded bots and interested human players to join. Total guild membership is capped by [`AiPlayerbot.GuildMaxBotLimit`](../server/settings/world-population.md#aiplayerbotguildmaxbotlimit) (default 1000); if membership exceeds this cap, bots leave autonomously.
+- **Guild chat & socialization:** Bots share achievements, quest milestones, and chatter in guild chat when automated broadcasts are enabled ([`AiPlayerbot.EnableBroadcasts`](../server/settings/chat.md#aiplayerbotenablebroadcasts)).
+- **Whisper guild management:** Human players in bot guilds can issue direct roster commands by whispering bot officers and guild leaders (`guild invite`, `guild join`, `guild leave`, `guild promote`, `guild demote`, `guild leader`, `guild remove`; see [Whisper Commands](../play/commands/whispers.md#guild-management)).
 - **Configuration:** Guild creation is controlled by [`AiPlayerbot.RandomBotFormGuild`](../server/settings/world-population.md#aiplayerbotrandombotformguild) (default 1).
 - **Reset protection:** Guilds containing human players are protected against automated pool resets. If a bot-led guild includes a real player, server pool resets abort safely to prevent orphaned players. For details, see [Pool reset safety guarantees](../server/bot-pool.md#safety-guarantees).
 
