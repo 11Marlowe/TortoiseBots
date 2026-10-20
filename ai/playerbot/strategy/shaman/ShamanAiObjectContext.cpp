@@ -351,6 +351,7 @@ namespace ai
                 creators["earth shield"] = [](PlayerbotAI* ai) { return new CastEarthShieldAction(ai); };
                 creators["earth shield on party"] = [](PlayerbotAI* ai) { return new CastEarthShieldOnPartyAction(ai); };
                 creators["chain heal"] = [](PlayerbotAI* ai) { return new CastChainHealAction(ai); };
+                creators["stormstrike"] = [](PlayerbotAI* ai) { return new CastStormstrikeAction(ai); };
                 creators["elemental mastery"] = [](PlayerbotAI* ai) { return new CastElementalMasteryAction(ai); };
                 creators["lightning strike"] = [](PlayerbotAI* ai) { return new CastLightningStrikeAction(ai); };
                 creators["earthquake"] = [](PlayerbotAI* ai) { return new CastEarthquakeAction(ai); };
