@@ -205,7 +205,7 @@ Destination hostname or IP address for the UDP observability telemetry collector
 
 Specifies the network destination where UDP telemetry packets are routed. An empty string defaults to loopback (`127.0.0.1`).
 
-Defaults to loopback (`127.0.0.1`) when running locally. In containerized environments, set this to the service name of the observability container (e.g. `observability`) or specify it via the `OBSERVABILITY_HOST` environment variable.
+In containerized environments, set this to the service name of the observability container (e.g. `observability`) or specify it via the `OBSERVABILITY_HOST` environment variable.
 
 </details>
 

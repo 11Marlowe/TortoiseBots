@@ -18,9 +18,9 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | Setting | Default | What it does |
 | :--- | :---: | :--- |
 | [`AiPlayerbot.AvoidCreatureAuras`](#aiplayerbotavoidcreatureauras) | `1` | Steers bots away from permanent damaging creature auras and hazardous monsters. |
-| [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` (built in) | Distance in yards bomb debuff carriers run away from the raid center. |
+| [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` | Distance in yards bomb debuff carriers run away from the raid center. |
 | [`AiPlayerbot.EnableCustomRaidTactics`](#aiplayerbotenablecustomraidtactics) | `1` | Gates scripted encounter tactics and transition strategies for custom raids. |
-| [`AiPlayerbot.HazardEvasionDistance`](#aiplayerbothazardevasiondistance) | `12.0` (built in) | Lateral evasion distance in yards used to step clear of ground hazards. |
+| [`AiPlayerbot.HazardEvasionDistance`](#aiplayerbothazardevasiondistance) | `12.0` | Lateral evasion distance in yards used to step clear of ground hazards. |
 | [`AiPlayerbot.OnyxiaWhelpsAndEggs`](#aiplayerbotonyxiawhelpsandeggs) | `1` | Prioritizes whelp clearing and egg avoidance during Onyxia phase two. |
 
 ## Settings
@@ -44,7 +44,7 @@ When set to `0`, bots treat hazardous creatures like standard mobs, chasing into
 
 ### `AiPlayerbot.BombRunoutDistance`
 Specifies how far players carrying bomb debuffs must run away from the raid center before stopping.
-**Default:** `30.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `30.0` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -70,7 +70,7 @@ When enabled, bots recognize boss phase transitions, target priorities, and cust
 
 ### `AiPlayerbot.HazardEvasionDistance`
 Distance in yards bots move laterally to step out of stationary or ground-targeted environmental hazards.
-**Default:** `12.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `12.0` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>

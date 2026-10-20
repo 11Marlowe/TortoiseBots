@@ -94,8 +94,8 @@ Sets the default idle spatial arrangement party bots form around the leader. Cha
 Idle party bots arrange themselves in the chosen geometric formation relative to the group leader orientation:
 - `chaos`: loose cluster around the leader with slight randomized offsets to avoid unnatural stacking.
 - `near`: tight following radius within melee interaction range.
-- `melee`: positions melee bots close to target and ranged bots behind.
-- `far`: loose formation maintaining wide distance behind the leader.
+- `melee`: follow formation keyed to the master's target at follow range.
+- `far`: follow formation holding the follow angle at follow range.
 - `circle`: evenly spaced ring surrounding the leader.
 - `line`: horizontal line abreast with the leader.
 - `shield`: defensive wedge positioned slightly forward.

@@ -20,26 +20,26 @@ The total bot population is the primary factor influencing server CPU and memory
 | Setting | Default | What it does |
 | :--- | :---: | :--- |
 | [`AiPlayerbot.DisableActivityPriorities`](#aiplayerbotdisableactivitypriorities) | `1` | Disables bot activity throttling so all bots remain fully reactive. |
-| [`AiPlayerbot.botActiveAlone`](#aiplayerbotbotactivealone) | `10` (built in) | Percentage of isolated bots kept active when throttling is enabled. |
-| [`AiPlayerbot.ForceActiveWhenNearPlayer`](#aiplayerbotforceactivewhennearplayer) | `0` (built in) | Forces bots within human visibility range to remain fully active. |
-| [`AiPlayerbot.DisableBotOptimizations`](#aiplayerbotdisablebotoptimizations) | `0` (built in) | Dead knob (read but unused; see [Settings with no effect](../configuration.md#settings-with-no-effect)). |
+| [`AiPlayerbot.botActiveAlone`](#aiplayerbotbotactivealone) | `10` | Percentage of isolated bots kept active when throttling is enabled. |
+| [`AiPlayerbot.ForceActiveWhenNearPlayer`](#aiplayerbotforceactivewhennearplayer) | `0` | Forces bots within human visibility range to remain fully active. |
+| [`AiPlayerbot.DisableBotOptimizations`](#aiplayerbotdisablebotoptimizations) | `0` | Dead knob (read but unused; see [Settings with no effect](../configuration.md#settings-with-no-effect)). |
 | [`AiPlayerbot.PoolTickBudgetUs`](#aiplayerbotpooltickbudgetus) | `10000` | Microsecond time budget per world tick for processing idle pool bots. |
 | [`AiPlayerbot.CombatTickBudgetUs`](#aiplayerbotcombattickbudgetus) | `15000` | Microsecond time budget per world tick for processing combat turns. |
 | [`AiPlayerbot.PoolBudgetWhenTickOverMs`](#aiplayerbotpoolbudgetwhentickoverms) | `0` | World tick latency threshold in milliseconds where budgets engage. |
 | [`AiPlayerbot.TargetWorldTickMs`](#aiplayerbottargetworldtickms) | `100` | Target world tick duration used by the self-tuning budget controller. |
 | [`AiPlayerbot.ValueRefreshAtInterval`](#aiplayerbotvaluerefreshatinterval) | `0` | Refreshes cached AI sensory values at full intervals to reduce CPU usage. |
 | [`AiPlayerbot.TravelPickBudgetUs`](#aiplayerbottravelpickbudgetus) | `4000` | Microsecond budget limit per bot visit for travel destination calculations. |
-| [`AiPlayerbot.AsyncTravelPartitions`](#aiplayerbotasynctravelpartitions) | `0` (built in) | Enables asynchronous partitioning of world travel destination lookups. |
+| [`AiPlayerbot.AsyncTravelPartitions`](#aiplayerbotasynctravelpartitions) | `0` | Enables asynchronous partitioning of world travel destination lookups. |
 | [`AiPlayerbot.GenerateItemCaches`](#aiplayerbotgenerateitemcaches) | `1` | Builds equipment and item candidate database tables on first boot. |
-| [`AiPlayerbot.LogInGroupOnly`](#aiplayerbotlogingrouponly) | `1` (built in) | Restricts detailed per-action logging output to bots currently in groups. |
+| [`AiPlayerbot.LogInGroupOnly`](#aiplayerbotlogingrouponly) | `1` | Restricts detailed per-action logging output to bots currently in groups. |
 | [`AiPlayerbot.Enabled`](#aiplayerbotenabled) | `0` | Master kill-switch enabling or disabling bot artificial intelligence updates. |
-| [`AiPlayerbot.PoolMeleeHoldGround`](#aiplayerbotpoolmeleeholdground) | `0` (built in) | Disables generic fleeing behaviors on pool melee classes during combat. |
-| [`AiPlayerbot.FailedActionRetryBase`](#aiplayerbotfailedactionretrybase) | `250` (built in) | Base exponential backoff delay in milliseconds for repeated failed actions. |
-| [`AiPlayerbot.FailedActionRetryMax`](#aiplayerbotfailedactionretrymax) | `2000` (built in) | Maximum exponential backoff cap in milliseconds for repeated failed actions. |
-| [`AiPlayerbot.FailedActionCacheTtl`](#aiplayerbotfailedactioncachettl) | `30000` (built in) | Time-to-live in milliseconds for cached failed action backoff records. |
+| [`AiPlayerbot.PoolMeleeHoldGround`](#aiplayerbotpoolmeleeholdground) | `0` | Disables generic fleeing behaviors on pool melee classes during combat. |
+| [`AiPlayerbot.FailedActionRetryBase`](#aiplayerbotfailedactionretrybase) | `250` | Base exponential backoff delay in milliseconds for repeated failed actions. |
+| [`AiPlayerbot.FailedActionRetryMax`](#aiplayerbotfailedactionretrymax) | `2000` | Maximum exponential backoff cap in milliseconds for repeated failed actions. |
+| [`AiPlayerbot.FailedActionCacheTtl`](#aiplayerbotfailedactioncachettl) | `30000` | Time-to-live in milliseconds for cached failed action backoff records. |
 | [`AiPlayerbot.FailedActionCacheMaxEntries`](#aiplayerbotfailedactioncachemaxentries) | `64` (built in) | Maximum number of entries stored in the failed action cache. |
-| [`AiPlayerbot.IterationsPerTick`](#aiplayerbotiterationspertick) | `100` (built in) | Maximum action evaluation iterations allowed per bot per world tick. |
-| [`AiPlayerbot.MaxWaitForMove`](#aiplayerbotmaxwaitformove) | `3000` (built in) | Timeout in milliseconds to wait for a movement arrival before expiring. |
+| [`AiPlayerbot.IterationsPerTick`](#aiplayerbotiterationspertick) | `100` | Maximum action evaluation iterations allowed per bot per world tick. |
+| [`AiPlayerbot.MaxWaitForMove`](#aiplayerbotmaxwaitformove) | `3000` | Timeout in milliseconds to wait for a movement arrival before expiring. |
 | [`AiPlayerbot.RemoteCommander`](#aiplayerbotremotecommander) | `0` | Enables remote commander commands for leading bot-only parties from afar. |
 | [`AiPlayerbot.RemoteCommanderViewMs`](#aiplayerbotremotecommanderviewms) | `1000` | Milliseconds between visual perception updates sent to remote commanders. |
 
@@ -72,7 +72,7 @@ All bots remain logged into the world in either mode; only their AI decision fre
 
 ### `AiPlayerbot.botActiveAlone`
 Percentage of isolated bots kept fully active when activity throttling is enabled.
-**Default:** `10` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** percentage (0..100) · **Restart:** needed
+**Default:** `10` · **Values:** percentage (0..100) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -85,7 +85,7 @@ For example, with 20 bots in an empty world, approximately 2 bots will be active
 
 ### `AiPlayerbot.ForceActiveWhenNearPlayer`
 Forces bots visible to human players to always run at maximum reaction rates.
-**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -96,7 +96,7 @@ When throttling is enabled, setting this to `1` ensures any bot within human vis
 
 ### `AiPlayerbot.DisableBotOptimizations`
 Legacy optimization switch retained for configuration file backward compatibility.
-**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -116,7 +116,7 @@ Defines the time budget allocated for updating non-combat random pool bots durin
 
 Player-owned bots and companions hired by online players always update first, on every tick, and are completely exempt from this budget. The random pool runs afterward as one turn queue, most-overdue-first; bots it does not reach run first on the next tick. The budget is checked between bots so a single pass can overshoot by one bot. Setting this to `0` removes the budget ceiling entirely.
 
-If pool bots feel sluggish or unresponsive, raise `PoolTickBudgetUs` to `25000`–`50000` (25–50 ms). In benchmarks on 2,000 bots, raising budget from 50 ms to 100 ms showed a trade-off: 50 ms gave world tick p95 latency of 66 ms with 14.5% stalled turns, while 100 ms gave 107 ms p95 with 7.4% stalled turns.
+If pool bots feel sluggish or unresponsive, raise `PoolTickBudgetUs` to `25000`–`50000` (25–50 ms).
 
 </details>
 
@@ -161,6 +161,8 @@ Enables the self-tuning dynamic budget controller. On every tick, the controller
 
 The controller only trims bot processing time if doing so will successfully bring the tick below the target line; if the core engine itself is overloaded, bot budgets are preserved to prevent starving bot logic. Setting this to `0` disables dynamic adjustment and locks budgets to static ceilings.
 
+The target trades player lag for bot speed: measured on 2,000 bots, target 50 gave player-lag p95 66 ms with 14.5% stalled turns, while target 100 gave 107 ms with 7.4% stalled turns.
+
 </details>
 
 ### `AiPlayerbot.ValueRefreshAtInterval`
@@ -193,7 +195,7 @@ This bounds worst-case single-bot latency, preventing expensive path evaluations
 
 ### `AiPlayerbot.AsyncTravelPartitions`
 Enables asynchronous partitioning for world travel destination evaluations.
-**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -219,7 +221,7 @@ Once generated, the tables are loaded directly from SQL on subsequent restarts. 
 
 ### `AiPlayerbot.LogInGroupOnly`
 Restricts detailed per-action debug logging output to bots currently in a party.
-**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` all bots, `1` grouped bots only · **Restart:** needed
+**Default:** `1` · **Values:** `0` all bots, `1` grouped bots only · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -241,7 +243,7 @@ Global enable switch for the playerbot AI subsystem. When enabled, periodic AI p
 
 ### `AiPlayerbot.PoolMeleeHoldGround`
 Disables generic out-of-combat fleeing behaviors for masterless warrior and rogue pool bots.
-**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` flee enabled, `1` hold ground · **Restart:** needed
+**Default:** `0` · **Values:** `0` flee enabled, `1` hold ground · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -254,7 +256,7 @@ Player-owned bots and party companions are not affected by this toggle.
 
 ### `AiPlayerbot.FailedActionRetryBase`
 Base exponential backoff delay in milliseconds when an autonomous action repeatedly fails.
-**Default:** `250` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** milliseconds (`0..2000`; `0` disables failure backoff) · **Restart:** needed
+**Default:** `250` · **Values:** milliseconds (`0..2000`; `0` disables failure backoff) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -267,7 +269,7 @@ Combat, reactions, owner commands, and player-owned bots are never throttled. Se
 
 ### `AiPlayerbot.FailedActionRetryMax`
 Maximum exponential backoff delay ceiling in milliseconds for failed actions.
-**Default:** `2000` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** milliseconds (`0..10000`; clamped >= RetryBase) · **Restart:** needed
+**Default:** `2000` · **Values:** milliseconds (`0..10000`; clamped >= RetryBase) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -278,7 +280,7 @@ Caps the exponential backoff delay for persistently failing actions, preventing 
 
 ### `AiPlayerbot.FailedActionCacheTtl`
 Time-to-live in milliseconds for cached failed action backoff entries.
-**Default:** `30000` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** milliseconds (`1000..300000`) · **Restart:** needed
+**Default:** `30000` · **Values:** milliseconds (`1000..300000`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -302,7 +304,7 @@ Clamped internally between 1 and 256 entries.
 
 ### `AiPlayerbot.IterationsPerTick`
 Maximum action engine evaluation iterations allowed per bot per world tick.
-**Default:** `100` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer count (1..N) · **Restart:** needed
+**Default:** `100` · **Values:** integer count (1..N) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -315,7 +317,7 @@ Prevents infinite evaluation loops when complex trigger conditions or multiple f
 
 ### `AiPlayerbot.MaxWaitForMove`
 Timeout in milliseconds to wait for a movement arrival before expiring the move action.
-**Default:** `3000` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** milliseconds · **Restart:** needed
+**Default:** `3000` · **Values:** milliseconds · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>

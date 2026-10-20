@@ -68,7 +68,7 @@ When set to `0`, all hiring interactions and recruiter menus are disabled.
 
 ### `AiPlayerbot.HireMinAccountSecurity`
 Minimum account security level required to hire mercenary companions. Raise this to restrict hiring to server staff or privileged accounts.
-**Default:** `0` · **Values:** `0` player, `1` observer, `2` moderator, `3` gamemaster, `4` bugtracker, `5` administrator, `6` root/console (values `0` to `6`) · **Restart:** needed
+**Default:** `0` · **Values:** `0` player, `1` observer, `2` moderator, `3` developer, `4` administrator (values `0` to `6`; no separate GM rank) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -81,7 +81,7 @@ The default value of `0` permits all standard players to hire companions. Settin
 
 ### `AiPlayerbot.HireFreeMinSecurity`
 Enables free companion hiring for staff accounts meeting or exceeding this security level.
-**Default:** `0` · **Values:** `0` off (everyone pays), `1` observer, `2` moderator, `3` gamemaster, `4` bugtracker, `5` administrator, `6` root/console (values `0` to `6`) · **Restart:** needed
+**Default:** `0` · **Values:** `0` off (everyone pays), `1` observer, `2` moderator, `3` developer, `4` administrator (values `0` to `6`; no separate GM rank) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>

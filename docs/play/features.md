@@ -24,7 +24,7 @@ TortoiseBots brings companion and open-world bots to Tortoise WoW, from party du
 | TortoiseBotsManager addon interface (after install) | Always on | None | [TBM addon](commands/addon.md) |
 | Geometric follow and combat formations | Always on | None | [Formations](commands/party-actions.md#bot-formation) |
 | Direct delegation via chat whispers | Always on | None | [Whisper commands](commands/whispers.md) |
-| Recruit full raid rosters with one command | Always on | None | [Raid hires](commands/roster-and-hiring.md#bot-hire-raid) |
+| Recruit full raid rosters with one command | Yes | [`AiPlayerbot.HireEnabled`](../server/settings/hiring.md#aiplayerbothireenabled) | [Raid hires](commands/roster-and-hiring.md#bot-hire-raid) |
 | Level grouped owned alts with master | No | [`AiPlayerbot.SyncAltLevelToMaster`](../server/settings/party.md#aiplayerbotsyncaltleveltomaster) | [Owned alts](commands/roster-and-hiring.md#bot-add) |
 | Trailing followers mount to catch up | No | [`AiPlayerbot.BoostFollow`](../server/settings/party.md#aiplayerbotboostfollow) | [Follow behavior](commands/party-actions.md#bot-action-follow) |
 | Followers hold outside unpulled packs | No | [`AiPlayerbot.DungeonFollowHoldBeforePacks`](../server/settings/party.md#aiplayerbotdungeonfollowholdbeforepacks) | [Dungeon tactics](dungeons-and-raids.md#running-ahead-past-packs) |
@@ -85,7 +85,7 @@ For health and mana thresholds, engagement distances, and casting pacing, see [C
 | Turtle WoW custom raid encounter tactics | Yes | [`AiPlayerbot.EnableCustomRaidTactics`](../server/settings/dungeons-raids.md#aiplayerbotenablecustomraidtactics) | [Custom raids](dungeons-and-raids.md#custom-turtle-raids) |
 | Onyxia whelp priority and egg avoidance | Yes | [`AiPlayerbot.OnyxiaWhelpsAndEggs`](../server/settings/dungeons-raids.md#aiplayerbotonyxiawhelpsandeggs) | [Onyxia tactics](dungeons-and-raids.md#specific-encounter-tactics) |
 
-For bomb dispersal ranges, hazard evasion distances, and pull delays, see [Dungeon & raid settings](../server/settings/dungeons-raids.md).
+For bomb dispersal ranges and hazard evasion distances, see [Dungeon & raid settings](../server/settings/dungeons-raids.md); for pull delays, see [Combat settings](../server/settings/combat.md#aiplayerbotpulldpsjoindelay).
 
 ## The Living World (Pool Bots Leveling, Questing, Wandering)
 
@@ -95,8 +95,7 @@ For bomb dispersal ranges, hazard evasion distances, and pull delays, see [Dunge
 | Gathering and crafting professions | Always on | None | [Professions](../world/living-world.md#initial-skills--professions) |
 | Physical travel by foot, flight, and boat | Always on | None | [Travel](../world/living-world.md#open-world-activities) |
 | Rebuild the pool and re-seed bot levels | No | [`AiPlayerbot.RandomBotPoolReset`](../server/settings/world-population.md#aiplayerbotrandombotpoolreset) | [Bot pool](../server/bot-pool.md) |
-| Swift Turtle mount at level 18 | Yes | [`AiPlayerbot.TurtleMountAtLevel`](../server/settings/world-population.md#aiplayerbotturtlemountatlevel) | [Living world](../world/living-world.md#open-world-activities) |
-| Fresh-bot starter gear kits | Yes | [`AiPlayerbot.RandomGearUpgradeEnabled`](../server/settings/world-population.md#aiplayerbotrandomgearupgradeenabled) | [Living world](../world/living-world.md#field-kits--equipment-upkeep) |
+| Swift Turtle mount at level 18 | Yes | [`AiPlayerbot.TurtleMountAtLevel`](../server/settings/world-population.md#aiplayerbotturtlemountatlevel) | [Living world](../world/living-world.md#mount-rules) |
 | Automated pool bot login on startup | Yes | [`AiPlayerbot.RandomBotAutologin`](../server/settings/world-population.md#aiplayerbotrandombotautologin) | [Bot pool](../server/bot-pool.md) |
 | Mass immediate login at startup | No | [`AiPlayerbot.RandomBotLoginAtStartup`](../server/settings/world-population.md#aiplayerbotrandombotloginatstartup) | [Bot pool](../server/bot-pool.md) |
 | Auto-create bot accounts if below minimum | Yes | [`AiPlayerbot.RandomBotAutoCreate`](../server/settings/world-population.md#aiplayerbotrandombotautocreate) | [Bot pool](../server/bot-pool.md) |
@@ -124,7 +123,7 @@ For bomb dispersal ranges, hazard evasion distances, and pull delays, see [Dunge
 | Automatically equip upgrade drop loot | Yes | [`AiPlayerbot.AutoEquipUpgradeLoot`](../server/settings/world-population.md#aiplayerbotautoequipupgradeloot) | [Loot upgrades](../world/living-world.md#gear-evaluation--upgrades) |
 | Allow reputation items on seeded bots | No | [`AiPlayerbot.RandomGearAllowReputation`](../server/settings/world-population.md#aiplayerbotrandomgearallowreputation) | [Gear sources](../world/living-world.md#gear-evaluation--upgrades) |
 | Allow PvP honor items on seeded bots | No | [`AiPlayerbot.RandomGearAllowPvP`](../server/settings/world-population.md#aiplayerbotrandomgearallowpvp) | [Gear sources](../world/living-world.md#gear-evaluation--upgrades) |
-| Render equipped helmets and cloaks | Yes | [`AiPlayerbot.RandomBotShowHelmet` / `RandomBotShowCloak`](../server/settings/world-population.md#aiplayerbotrandombotshowhelmet--randombotshowcloak) | [Visual display](../world/living-world.md#field-kits--equipment-upkeep) |
+| Render equipped helmets and cloaks (dead knob; use `.bot flag`) | No | [`AiPlayerbot.RandomBotShowHelmet` / `RandomBotShowCloak`](../server/settings/world-population.md#aiplayerbotrandombotshowhelmet--randombotshowcloak) | [Visual display](../world/living-world.md#field-kits--equipment-upkeep) |
 | Keep all bots active without throttling | Yes | [`AiPlayerbot.DisableActivityPriorities`](../server/settings/performance.md#aiplayerbotdisableactivitypriorities) | [Activity](../world/living-world.md#overview) |
 | Force full reaction rate near players | No | [`AiPlayerbot.ForceActiveWhenNearPlayer`](../server/settings/performance.md#aiplayerbotforceactivewhennearplayer) | [Proximity](../world/living-world.md#overview) |
 | Prevent melee pool bots fleeing in combat | No | [`AiPlayerbot.PoolMeleeHoldGround`](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) | [Combat behavior](../classes/overview.md#shared-bot-behaviors) |
@@ -157,7 +156,7 @@ For broadcast chances, greeting cooldowns, and guild membership limits, see [Cha
 | Vendor trips to sell junk and restock | Always on | None | [Vendor trips](../world/economy.md#vendor-liquidation--repairs) |
 | Equipment repairs funded by earned gold | Always on | None | [Repairs](../world/economy.md#vendor-liquidation--repairs) |
 | Natural gold income from kills and quests | Always on | None | [Gold economy](../world/economy.md#economic-philosophy) |
-| Bots post surplus loot and buy on AH | No | [`AiPlayerbot.AhMarketEnabled`](../server/settings/economy.md#aiplayerbotahmarketenabled) | [Living AH](../world/economy.md#living-auction-house-ahmarketservice) |
+| Bots post surplus loot and buy on AH | No | [`AiPlayerbot.AhMarketEnabled`](../server/settings/economy.md#aiplayerbotahmarketenabled) | [Living AH](../world/economy.md#living-auction-house) |
 | Synthetic supply for empty auction houses | No | [`AiPlayerbot.AhMarketSyntheticSupply`](../server/settings/economy.md#aiplayerbotahmarketsyntheticsupply) | [Synthetic AH](../world/economy.md#market-administration--drop-tuning) |
 | Synthetic buyer orders for player auctions | No | [`AiPlayerbot.AhMarketBuyer`](../server/settings/economy.md#aiplayerbotahmarketbuyer) | [Synthetic buyer](../world/economy.md#market-administration--drop-tuning) |
 | Dynamic auction level matching players | No | [`AiPlayerbot.AhMarketDynamicLevel`](../server/settings/economy.md#aiplayerbotahmarketdynamiclevel) | [Dynamic stock](../world/economy.md#market-administration--drop-tuning) |
@@ -199,7 +198,7 @@ For log verbosity, retention limits, CSV streams, and tick budgets, see [Logging
 
 - [Self-botting](known-limitations.md#blocked--incomplete-features): you cannot convert your currently logged-in character into an automated bot.
 - [Autonomous dungeon clearing](known-limitations.md#explicit-non-goals): bots cannot clear dungeons or raids on their own without a human player directing them.
-- [Dedicated 1v1 duel AI](known-limitations.md#unstarted-roadmap-ideas): bots lack specialized logic for 1v1 duels or competitive player versus player skirmishes.
+- [No dedicated 1v1-duel mode](known-limitations.md#blocked--incomplete-features): bots lack dedicated 1v1 duel mode or competitive player versus player skirmish logic.
 - [Expansion features](known-limitations.md#explicit-non-goals): no Death Knights, glyphs, vehicles, Outland zones, or multi-tab guild banks.
 - [Pre-movement node queries](known-limitations.md#blocked--incomplete-features): bots cannot check loot rights before walking toward a herb or ore vein.
 - [Stair pathfinding desync](known-limitations.md#known-quirks-and-workarounds): pathfinding can desync on steep multi-tiered stairs; use `.bot summon` to snap bots to your location.

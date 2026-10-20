@@ -17,26 +17,26 @@ These settings configure health and mana trigger percentages, engagement ranges,
 
 | Setting | Default | What it does |
 | :--- | :---: | :--- |
-| [`AiPlayerbot.AlmostFullHealth`](#aiplayerbotalmostfullhealth) | `90` (built in) | Health percentage ceiling above which bots stop casting heals to conserve mana. |
-| [`AiPlayerbot.CriticalHealth`](#aiplayerbotcriticalhealth) | `20` (built in) | Health percentage considered an emergency, triggering survival cooldowns. |
-| [`AiPlayerbot.LowHealth`](#aiplayerbotlowhealth) | `50` (built in) | Health percentage triggering prioritized heavy healing spells. |
-| [`AiPlayerbot.MediumHealth`](#aiplayerbotmediumhealth) | `70` (built in) | Health percentage triggering maintenance heals. |
-| [`AiPlayerbot.LowMana`](#aiplayerbotlowmana) | `15` (built in) | Mana floor percentage where casters conserve mana or switch to wanding. |
-| [`AiPlayerbot.MediumMana`](#aiplayerbotmediummana) | `40` (built in) | Mana percentage where bots transition toward conservative ability rotations. |
-| [`AiPlayerbot.FollowDistance`](#aiplayerbotfollowdistance) | `1.5` (built in) | Standard following distance in yards between a follower bot and leader on foot. |
-| [`AiPlayerbot.RaidFollowDistance`](#aiplayerbotraidfollowdistance) | `5.0` (built in) | Expanded following distance in yards used inside dungeons and raids. |
+| [`AiPlayerbot.AlmostFullHealth`](#aiplayerbotalmostfullhealth) | `90` | Health percentage ceiling above which bots stop casting heals to conserve mana. |
+| [`AiPlayerbot.CriticalHealth`](#aiplayerbotcriticalhealth) | `20` | Health percentage considered an emergency, triggering survival cooldowns. |
+| [`AiPlayerbot.LowHealth`](#aiplayerbotlowhealth) | `50` | Health percentage triggering prioritized heavy healing spells. |
+| [`AiPlayerbot.MediumHealth`](#aiplayerbotmediumhealth) | `70` | Health percentage triggering maintenance heals. |
+| [`AiPlayerbot.LowMana`](#aiplayerbotlowmana) | `15` | Mana floor percentage where casters conserve mana or switch to wanding. |
+| [`AiPlayerbot.MediumMana`](#aiplayerbotmediummana) | `40` | Mana percentage where bots transition toward conservative ability rotations. |
+| [`AiPlayerbot.FollowDistance`](#aiplayerbotfollowdistance) | `1.5` | Standard following distance in yards between a follower bot and leader on foot. |
+| [`AiPlayerbot.RaidFollowDistance`](#aiplayerbotraidfollowdistance) | `5.0` | Expanded following distance in yards used inside dungeons and raids. |
 | [`AiPlayerbot.SightDistance`](#aiplayerbotsightdistance) | `60.0` | Perception distance in yards used to detect monsters and define guard leashes. |
 | [`AiPlayerbot.SpellDistance`](#aiplayerbotspelldistance) | `26.0` | Maximum range in yards used for initiating ranged spell attacks. |
-| [`AiPlayerbot.ReactDistance`](#aiplayerbotreactdistance) | `150.0` (built in) | Maximum distance in yards bots remain responsive to combat and leader calls. |
-| [`AiPlayerbot.LootDistance`](#aiplayerbotlootdistance) | `25.0` (built in) | Maximum distance in yards bots roam from their anchor to loot corpses. |
-| [`AiPlayerbot.AoeRadius`](#aiplayerbotaoeradius) | `5.0` (built in) | Default yard radius for area-of-effect spells and cluster targeting. |
+| [`AiPlayerbot.ReactDistance`](#aiplayerbotreactdistance) | `150.0` | Maximum distance in yards bots remain responsive to combat and leader calls. |
+| [`AiPlayerbot.LootDistance`](#aiplayerbotlootdistance) | `25.0` | Maximum distance in yards bots roam from their anchor to loot corpses. |
+| [`AiPlayerbot.AoeRadius`](#aiplayerbotaoeradius) | `5.0` | Default yard radius for area-of-effect spells and cluster targeting. |
 | [`AiPlayerbot.ShareTargets`](#aiplayerbotsharetargets) | `1` (built in) | Synchronizes target acquisition among nearby friendly bots. |
 | [`AiPlayerbot.GlobalCooldown`](#aiplayerbotglobalcooldown) | `1500` | Pacing delay in milliseconds enforced between rapid spell casts. |
-| [`AiPlayerbot.RangedPull`](#aiplayerbotrangedpull) | `1` (built in) | Enables automatic ranged openings for commanded tank pulls. |
-| [`AiPlayerbot.RangedPullMeleeApproach`](#aiplayerbotrangedpullmeleeapproach) | `20` (built in) | Walk-in approach threshold in yards before tank pulls open from range. |
-| [`AiPlayerbot.PullDpsJoinDelay`](#aiplayerbotpulldpsjoindelay) | `10` (built in) | Seconds party DPS wait after a tank pull before joining combat. |
-| [`AiPlayerbot.PullBackDpsJoinDelay`](#aiplayerbotpullbackdpsjoindelay) | `5` (built in) | Seconds party DPS wait after a tank pullback before engaging. |
-| [`AiPlayerbot.PullBackMaxReturnTime`](#aiplayerbotpullbackmaxreturntime) | `15` (built in) | Maximum seconds a tank has to return to group before pullback aborts. |
+| [`AiPlayerbot.RangedPull`](#aiplayerbotrangedpull) | `1` | Enables automatic ranged openings for commanded tank pulls. |
+| [`AiPlayerbot.RangedPullMeleeApproach`](#aiplayerbotrangedpullmeleeapproach) | `20` | Walk-in approach threshold in yards before tank pulls open from range. |
+| [`AiPlayerbot.PullDpsJoinDelay`](#aiplayerbotpulldpsjoindelay) | `10` | Seconds party DPS wait after a tank pull before joining combat. |
+| [`AiPlayerbot.PullBackDpsJoinDelay`](#aiplayerbotpullbackdpsjoindelay) | `5` | Seconds party DPS wait after a tank pullback before engaging. |
+| [`AiPlayerbot.PullBackMaxReturnTime`](#aiplayerbotpullbackmaxreturntime) | `15` | Maximum seconds a tank has to return to group before pullback aborts. |
 | [`AiPlayerbot.MinRandomBotChangeStrategyTime`](#aiplayerbotminrandombotchangestrategytime) | `1800` (built in) | Minimum seconds a pool bot retains its strategy set before periodic refresh. |
 | [`AiPlayerbot.MaxRandomBotChangeStrategyTime`](#aiplayerbotmaxrandombotchangestrategytime) | `7200` (built in) | Maximum seconds a pool bot retains its strategy set before periodic refresh. |
 
@@ -44,7 +44,7 @@ These settings configure health and mana trigger percentages, engagement ranges,
 
 ### `AiPlayerbot.AlmostFullHealth`
 Health percentage ceiling above which healer bots stop casting heals to conserve party mana.
-**Default:** `90` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `100` percent · **Restart:** needed
+**Default:** `90` · **Values:** `1` to `100` percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -57,7 +57,7 @@ Damage-over-time maintenance heals (such as Renew or Rejuvenation) are not appli
 
 ### `AiPlayerbot.CriticalHealth`
 Health percentage considered an extreme emergency, triggering high-impact defensive cooldowns.
-**Default:** `20` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `100` percent · **Restart:** needed
+**Default:** `20` · **Values:** `1` to `100` percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -73,7 +73,7 @@ Random pool bots without player masters also evaluate fleeing mechanics when rea
 
 ### `AiPlayerbot.LowHealth`
 Health percentage triggering prioritized heavy healing spells.
-**Default:** `50` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `100` percent · **Restart:** needed
+**Default:** `50` · **Values:** `1` to `100` percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -86,7 +86,7 @@ For safer dungeon runs or high-damage raid encounters, raising this value to `65
 
 ### `AiPlayerbot.MediumHealth`
 Health percentage triggering routine maintenance healing and small direct heals.
-**Default:** `70` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `100` percent · **Restart:** needed
+**Default:** `70` · **Values:** `1` to `100` percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -99,7 +99,7 @@ Utility actions such as Paladin Judgement upkeep are suspended while any group m
 
 ### `AiPlayerbot.LowMana`
 Mana floor percentage where casters conserve mana or switch to wanding.
-**Default:** `15` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `100` percent · **Restart:** needed
+**Default:** `15` · **Values:** `1` to `100` percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -111,7 +111,7 @@ When caster mana falls below this percentage, bots enter mana conservation mode:
 
 ### `AiPlayerbot.MediumMana`
 Threshold percentage where bots begin balancing damage output against mana longevity.
-**Default:** `40` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `1` to `100` percent · **Restart:** needed
+**Default:** `40` · **Values:** `1` to `100` percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -124,7 +124,7 @@ Paladins require at least this mana percentage to maintain offensive seals and j
 
 ### `AiPlayerbot.FollowDistance`
 Standard following distance in yards between a follower bot and the leader on foot.
-**Default:** `1.5` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `1.5` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -137,7 +137,7 @@ When mounted out of combat and outside instances, bots automatically add 3 yards
 
 ### `AiPlayerbot.RaidFollowDistance`
 Expanded following distance in yards used inside dungeons and raids.
-**Default:** `5.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `5.0` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -176,7 +176,7 @@ Bots path toward targets until within this distance before beginning cast sequen
 
 ### `AiPlayerbot.ReactDistance`
 Maximum distance in yards at which bots remain responsive to combat and leader calls.
-**Default:** `150.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `150.0` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -189,7 +189,7 @@ If a follower falls farther behind than this distance, it triggers [`AiPlayerbot
 
 ### `AiPlayerbot.LootDistance`
 Maximum distance in yards bots will roam from their anchor point to loot corpses.
-**Default:** `25.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `25.0` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -200,7 +200,7 @@ When combat concludes and dead monsters drop loot, bots widen their movement lea
 
 ### `AiPlayerbot.AoeRadius`
 Default radius in yards used for calculating area-of-effect spells and hostile cluster density.
-**Default:** `5.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** distance in yards · **Restart:** needed
+**Default:** `5.0` · **Values:** distance in yards · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -212,7 +212,7 @@ When bot casters calculate whether enough hostiles are grouped to warrant an AoE
 </details>
 
 ### `AiPlayerbot.ShareTargets`
-Synchronizes hostile target lists and threat awareness across grouped companion bots.
+Synchronizes hostile target lists and threat awareness across nearby friendly bots.
 **Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
@@ -239,7 +239,7 @@ Prevents bot AI from queuing multiple instant abilities in the same engine tick.
 
 ### `AiPlayerbot.RangedPull`
 Enables automatic ranged weapon or spell opening for commanded tank pulls.
-**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
+**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -252,7 +252,7 @@ Setting this to `0` disables automatic ranged pulls for plain pull commands (the
 
 ### `AiPlayerbot.RangedPullMeleeApproach`
 Walk-in approach threshold in yards before commanded pulls open from range.
-**Default:** `20` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** positive float · **Restart:** needed
+**Default:** `20` · **Values:** positive float · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -265,12 +265,12 @@ Requires `AiPlayerbot.RangedPull = 1`. Lower this distance to trigger ranged pul
 
 ### `AiPlayerbot.PullDpsJoinDelay`
 Seconds party DPS bots wait after a tank initiates a pull before joining combat.
-**Default:** `10` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** seconds (0..60) · **Restart:** needed
+**Default:** `10` · **Values:** seconds · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-During commanded party pulls, DPS bots pause their attack routines for this duration while the tank establishes initial threat.
+During commanded party pulls, DPS bots pause their attack routines for this duration while the tank establishes initial threat; a per-command `[seconds]` (0–60) overrides the default.
 
 Gives the tank time to build rage, land initial strikes, or pull mobs around corners before damage dealers rip aggro.
 
@@ -278,12 +278,12 @@ Gives the tank time to build rage, land initial strikes, or pull mobs around cor
 
 ### `AiPlayerbot.PullBackDpsJoinDelay`
 Seconds party DPS bots wait during a pullback maneuver before engaging.
-**Default:** `5` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** seconds (0..60) · **Restart:** needed
+**Default:** `5` · **Values:** seconds · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Controls the engagement pause enforced during `.bot action pullback` line-of-sight maneuvers.
+Controls the engagement pause enforced during `.bot action pullback` line-of-sight maneuvers; a per-command `[seconds]` (0–60) overrides the default.
 
 Party bots hold their fire while the tank retreats around obstacles, preventing premature monster stops.
 
@@ -291,7 +291,7 @@ Party bots hold their fire while the tank retreats around obstacles, preventing 
 
 ### `AiPlayerbot.PullBackMaxReturnTime`
 Maximum seconds a tank has to return to the group anchor during a pullback maneuver.
-**Default:** `15` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** seconds · **Restart:** needed
+**Default:** `15` · **Values:** seconds · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>

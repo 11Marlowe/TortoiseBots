@@ -36,13 +36,13 @@ For player trading permissions with open-world bots, see [`AiPlayerbot.PoolBotTr
 | [`AiPlayerbot.AhMarketDynamicLevel`](#aiplayerbotahmarketdynamiclevel) | `0` | Dynamically adjusts synthetic auction item levels to match online players. |
 | [`AiPlayerbot.AhMarketLevelRefresh`](#aiplayerbotahmarketlevelrefresh) | `600` | Seconds between recalculations of dynamic auction stock levels. |
 | [`AiPlayerbot.AhMarketVariance`](#aiplayerbotahmarketvariance) | `10` | Percentage price variance applied to baseline market valuations. |
-| [`AiPlayerbot.AhMarketBidMin` / `AhMarketBidMax`](#aiplayerbotahmarketbidmin--ahmarketbidmax) | `75` / `90` (built in) | Percentage range of buyout price used for opening auction bids. |
-| [`AiPlayerbot.AhMarketTimeMin` / `AhMarketTimeMax`](#aiplayerbotahmarkettimemin--ahmarkettimemax) | `8` / `24` (built in) | Duration range in hours for posted synthetic auction listings. |
+| [`AiPlayerbot.AhMarketBidMin` / `AhMarketBidMax`](#aiplayerbotahmarketbidmin--ahmarketbidmax) | `75` / `90` (BidMax built in) | Percentage range of buyout price used for opening auction bids. |
+| [`AiPlayerbot.AhMarketTimeMin` / `AhMarketTimeMax`](#aiplayerbotahmarkettimemin--ahmarkettimemax) | `8` / `24` (TimeMin built in) | Duration range in hours for posted synthetic auction listings. |
 | [`AiPlayerbot.AuctionPriceRefreshInterval`](#aiplayerbotauctionpricerefreshinterval) | `60` | Seconds between market price evaluation sweeps. |
 | [`AiPlayerbot.VendorBatchMinCount` / `VendorBatchMinBagSpace`](#aiplayerbotvendorbatchmincount--vendorbatchminbagspace) | `8` / `60` | Inventory thresholds that trigger vendor selling trips for level 5+ bots. |
 | [`AiPlayerbot.LowLevelVendorBatchMinCount` / `LowLevelVendorBatchMinBagSpace`](#aiplayerbotlowlevelvendorbatchmincount--lowlevelvendorbatchminbagspace) | `3` / `25` | Inventory thresholds that trigger vendor selling trips for sub-level 5 bots. |
 | [`AiPlayerbot.LowLevelVendorMaxDistance`](#aiplayerbotlowlevelvendormaxdistance) | `600` | Maximum yard radius sub-level 5 bots travel to reach camp vendors. |
-| [`AiPlayerbot.BotLootRateUncommon` / `BotLootRateRare`](#aiplayerbotbotlootrateuncommon--botlootraterare) | `1.0` / `1.0` (built in) | Multipliers boosting green and blue item drop rates for pool bots. |
+| [`AiPlayerbot.BotLootRateUncommon` / `BotLootRateRare`](#aiplayerbotbotlootrateuncommon--botlootraterare) | `1.0` / `1.0` | Multipliers boosting green and blue item drop rates for pool bots. |
 | [`AiPlayerbot.MountBreakEvenFactor`](#aiplayerbotmountbreakevenfactor) | `1.5` | Safety factor applied to distance calculations before bots mount up. |
 
 ## Settings
@@ -231,7 +231,7 @@ Introduces randomized price fluctuations above and below standard item values, c
 
 ### `AiPlayerbot.AhMarketBidMin` / `AhMarketBidMax`
 Percentage range of the buyout price used when calculating an auction's opening bid.
-**Default:** `75` / `90` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** percentage (1..100) · **Restart:** needed
+**Default:** `75` / `90` (AhMarketBidMax is built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** percentage (1..100) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -242,7 +242,7 @@ When a bot posts an auction with a buyout price, its opening starting bid is rol
 
 ### `AiPlayerbot.AhMarketTimeMin` / `AhMarketTimeMax`
 Duration range in hours for posted synthetic auction listings.
-**Default:** `8` / `24` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** hours (1..72) · **Restart:** needed
+**Default:** `8` / `24` (AhMarketTimeMin is built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** hours (1..72) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -303,14 +303,14 @@ This exception allows low-level bots to navigate to local vendors within their i
 
 ### `AiPlayerbot.BotLootRateUncommon` / `BotLootRateRare`
 Drop rate multipliers for green (uncommon) and blue (rare) items dropped for pool bots.
-**Default:** `1.0` / `1.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** float multiplier (1.0..N) · **Restart:** needed
+**Default:** `1.0` / `1.0` · **Values:** float multiplier (1.0..N) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
 Provides an optional loot boost exclusively for masterless random pool bots to stimulate their equipment progression and supply the Auction House.
 
-When a pool bot kills a creature, uncommon and rare loot table entries roll an additional check scaled by this factor. Quest items, quest starters, and unique items at `max_count` are skipped. Other quality entries remain untouched. Boost events are logged to `bot_events.csv` as `BotLootBonus`. Real players, player-owned bots, and mixed player parties always use standard core drop rates.
+When a pool bot kills a creature, uncommon and rare loot table entries roll an additional check scaled by this factor. Quest items, quest starters, and unique items the bot already holds at `max_count` are skipped. Other quality entries remain untouched. Boost events are logged to `bot_events.csv` as `BotLootBonus`. Real players, player-owned bots, and mixed player parties always use standard core drop rates.
 
 A value of `1.0` disables the boost.
 

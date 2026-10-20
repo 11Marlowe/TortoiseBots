@@ -23,9 +23,9 @@ Bot speech lines and flavor texts are stored in the `ai_playerbot_texts` databas
 | [`AiPlayerbot.BroadcastToWorldGlobalChance`](#aiplayerbotbroadcasttoworldglobalchance) | `3000` | Global frequency throttle for broadcasts routed to the server World channel. |
 | [`AiPlayerbot.BroadcastToGeneralGlobalChance`](#aiplayerbotbroadcasttogeneralglobalchance) | `3000` | Global frequency throttle for broadcasts routed to zone General channels. |
 | [`AiPlayerbot.BroadcastChance*`](#aiplayerbotbroadcastchance) | varies | Per-event broadcast chance weights for specific quest, kill, or joke lines. |
-| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` (built in) | 1-in-N chance for bots to broadcast looting a normal white item in chat. |
-| [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` (built in) | Probability of bots advertising items for sale in trade and public channels. |
-| [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` (built in) | Weight for bots participating in the classic Thunderfury chat joke. |
+| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` | 1-in-N chance for bots to broadcast looting a normal white item in chat. |
+| [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` | Probability of bots advertising items for sale in trade and public channels. |
+| [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` | Weight for bots participating in the classic Thunderfury chat joke. |
 | [`AiPlayerbot.RandomBotSayWithoutMaster`](#aiplayerbotrandombotsaywithoutmaster) | `0` | Causes masterless bots to speak travel plans and cast failures in say chat. |
 
 ## Settings
@@ -89,7 +89,7 @@ Travel destination narration ("Traveling 120y to...") and vendor transaction con
 
 ### `AiPlayerbot.BroadcastChanceLootingItemNormal`
 Controls the 1-in-N probability for bots to announce looting a normal (white) quality item in chat.
-**Default:** `300` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (0 = disabled) · **Restart:** needed
+**Default:** `300` · **Values:** integer weight (0 = disabled) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -100,7 +100,7 @@ Defines the probability roll when a bot loots a standard common (white) item. Se
 
 ### `AiPlayerbot.BroadcastChanceSuggestSell`
 Frequency at which pool bots advertise goods for sale in trade and city chat.
-**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (0 = disabled) · **Restart:** needed
+**Default:** `0` · **Values:** integer weight (0 = disabled) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -113,7 +113,7 @@ Direct player inquiries and native Auction House sales operate independently of 
 
 ### `AiPlayerbot.BroadcastChanceSuggestThunderfury`
 Controls bot participation in the classic Thunderfury channel chat joke.
-**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight `0` = disabled (default `1`, very rare; higher = more frequent) · **Restart:** needed
+**Default:** `1` · **Values:** integer weight `0` = disabled (default `1`, very rare; higher = more frequent) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
