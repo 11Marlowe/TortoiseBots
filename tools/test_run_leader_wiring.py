@@ -36,6 +36,14 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("bool const deadLeadAway = !lead->IsAlive();", COMMANDS)
         self.assertIn("if (lead->GetMapId() != slot.run.plan->map && !deadLeadAway)", COMMANDS)
 
+    def test_exact_waypoint_facts_and_kind(self):
+        # The exact waypoint's stand-still proof reads the lead bot's moving state (DungeonRunPolicy.h ExactWalkTo), and the
+        # loader reads a move_hop_exact row as a MoveDirect with exactLaunch (DungeonPlanPolicy.h ParsePlanStepRowKind).
+        self.assertIn("f.leadMoving = lead->IsMoving();", body(COMMANDS, "void ReadRunFacts(", "\n}\n"))
+        loader = (ROOT / "ai/playerbot/DungeonPlanMgr.cpp").read_text()
+        self.assertIn("ParsePlanStepRowKind(fields[3].GetCppString(), step.kind, step.exactLaunch);", loader)
+        self.assertNotIn("step.kind = ParsePlanStepKind(", loader)
+
     def test_cmd_move_checks_the_lead_distance(self):
         self.assertIn("facts.distanceFromLead = std::sqrt(dx * dx + dy * dy + dz * dz);", COMMANDS)
         self.assertIn("RemoteCommander::MoveVerdict verdict = RemoteCommander::CheckMove(facts);", COMMANDS)
