@@ -1143,7 +1143,7 @@ def main():
     for (spec_key, tstr, sstr), (spell, nm) in ench_map.items():
         ename[str(spell)] = nm
     L = ["---",
-         "id: ref-hire-gear",
+         "id: reference-hire-gear",
          "title: Hire Gear Sets (Generated)",
          "category: reference",
          "summary: Static level-60 hire sets per class/spec/tier from the offline generator.",

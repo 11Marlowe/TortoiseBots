@@ -64,7 +64,6 @@ Bots budget gold carefully before spending on optional upgrades:
 
 </details>
 
-<a id="living-auction-house-ahmarketservice"></a>
 ## Living Auction House
 
 TortoiseBots provides an active, simulated player economy that maintains steady Auction House supply and demand. Autonomous random bots must be logged in for the market service to process listings and bids ([`AiPlayerbot.RandomBotAutologin`](../server/settings/world-population.md#aiplayerbotrandombotautologin)):
@@ -86,8 +85,8 @@ flowchart TD
 <summary>Organic buyer mechanics in detail</summary>
 
 The organic Auction House buyer operates without artificial teleportation:
-- Only masterless pool bots of level 10 or higher with at least 5 gold in unreserved purse are selected.
-- Eligible bots travel on foot or by flight path to the nearest auction house on the bot's own map/continent (no teleporting).
+- Only masterless pool bots of level 10 or higher with spare purse funds above the trainer reserve (5 gold per `runtime/AhBuyerPolicy.h`) are selected.
+- Eligible bots travel on foot or by flight path to the nearest auction house on the bot's own map/continent (at most one buyer trip per bot per 10 minutes, no teleporting).
 - Upon arrival, the bot evaluates current listings matching its class and spec, placing bids using native funds.
 - Rotating background scans examine eight bots per listing pass to prevent server latency spikes. Grouped bots, dungeon parties, and battleground participants are excluded from market errands.
 

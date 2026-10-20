@@ -168,7 +168,7 @@ Entering a raid map automatically activates the dungeon transition engine, enabl
 - **Molten Core:**
   - Douse runes using [`.bot action raid douse`](commands/party-actions.md#bot-action-raid-douse). During Baron Geddon, bots run out during *Inferno*.
   - *Garr & Shazzrah:* Garr holds DPS AoE off (Firesworn die single-target); Shazzrah pushes ranged out to 26 yd.
-  - *Golemagg:* Melee back off at 20 Magma Splash stacks; assist tanks hold Core Ragers at fixed camps (30 yd Trust separation); DPS leave ragers alone while Golemagg lives (burn below 10%).
+  - *Golemagg:* Melee back off at 20 Magma Splash stacks; assist tanks hold Core Ragers at fixed camps (30 yd Trust separation); healers work the camp midpoint; DPS leave ragers alone while Golemagg lives (burn below 10%).
 - **Onyxia:** In Phase 2, bots switch to ranged attacks and spread out. Bots take cover in safe zones during *Deep Breath*. With [`AiPlayerbot.OnyxiaWhelpsAndEggs`](../server/settings/dungeons-raids.md#aiplayerbotonyxiawhelpsandeggs) enabled, ranged DPS clear hatched whelps while avoiding unbroken egg clusters.
 - **Blackwing Lair:**
   - *Razorgore:* Bots assist the orb controller and intercept add waves without attacking the controller. Non-victims clear the frontal cone; assist tank holds the boss while eggs live.
@@ -176,8 +176,8 @@ Entering a raid map automatically activates the dungeon transition engine, enabl
   - *Broodlord & Nefarian:* Tanks face away; rogues disarm suppression devices in both combat and non-combat states. Mages use *Ice Block* to survive Nefarian Wild Magic. Bots whisper a warning if they lack the Onyxia Scale Cloak for Shadow Flame.
   - *Chromaggus:* Bots carrying Hourglass Sand (item 19183) use it to cleanse Bronze Affliction; bots step out of breath cones.
 - **Naxxramas:**
-  - *Anub'Rekhan:* Non-tanks collapse to the room center during Locust Swarm; tank kite ring needs live waypoints (no bot kite tactic).
-  - *Gluth:* Tanks rotate taunts at 5 Mortal Wound stacks; off-tanks and DPS kite or slow zombie chow, executing chow below 10%.
+  - *Anub'Rekhan:* Non-tanks collapse to the room center during Locust Swarm; non-tanks burn Crypt Guards first when no swarm is up; tank kite ring needs live waypoints (no bot kite tactic).
+  - *Gluth:* Tanks rotate taunts at 5 Mortal Wound stacks; off-tanks and DPS execute sub-10% chow (kiting/slowing is the player's job; no bot kite ring).
   - *Thaddius:* Bots match Polarity Shift directions, shifting negative charges left and positive charges right.
   - *Loatheb:* Bots kill the spore underfoot for the Fungal Bloom buff and otherwise stay on Loatheb; no Necrotic Aura heal-timing exists in vanilla.
   - *Four Horsemen:* Mark carriers with 3+ stacks rotate clockwise to the next corner.
@@ -193,4 +193,4 @@ When [`AiPlayerbot.EnableCustomRaidTactics`](../server/settings/dungeons-raids.m
 
 - **Emerald Sanctum (Solnius):** Tanks keep the dragon facing away to avoid Acid Breath. Emerald Rot carriers run out via the shared bomb runout action. When Call of Nightmare triggers, DPS bots focus down incoming add waves.
 - **Lower Karazhan (Araxxna & Moroes):** Araxxna's spiderling swarms trigger AoE cleave. Moroes' smoke bomb forces tanks and DPS to re-acquire their targets.
-- **Karazhan Crypt:** Set `.bot formation near` before entering narrow tunnels to keep bots from clipping through walls. Levers and puzzle doors must be operated manually by the player.
+- **Karazhan Crypt:** Set [`.bot formation near`](commands/party-actions.md#bot-formation) before entering narrow tunnels to keep bots from clipping through walls. Levers and puzzle doors must be operated manually by the player.

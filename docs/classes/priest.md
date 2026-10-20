@@ -32,7 +32,7 @@ Priests select healing spells based on defined health bands (bands follow [Comba
 - **Almost-Full (70%–90%):** *Renew* (Discipline shields first).
 - **Multiple Injured:** *Prayer of Healing* (requires 5+ nearby members, 3 hurt in a 5-man scaling to 15 in a raid).
 
-Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#shared-bot-behaviors), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls below 50% health. *Desperate Prayer* serves as a self-only emergency heal.
+Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#shared-bot-behaviors), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls below 20% health. *Desperate Prayer* serves as a self-only emergency heal.
 
 ### Power Word: Shield & Weakened Soul Refusal
 The bot verifies that the target does not have the *Weakened Soul* debuff before casting *Power Word: Shield*. If present, the shield is skipped in favor of direct heals.
