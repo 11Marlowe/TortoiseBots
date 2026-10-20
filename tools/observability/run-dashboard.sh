@@ -6,6 +6,9 @@
 # Usage:
 #   ./run-dashboard.sh [--mangosd-conf /path/to/mangosd.conf] [--tag v2026-10-07]
 #
+# Optional: TBDASH_AGENT_MAPS_DIR=DIR (the folder `turtle-agent map` writes its run maps into) enables the
+# read-only Agent maps tab; unset, the tab stays hidden. It is passed to the daemon as is.
+#
 # mangosd.conf discovery: --mangosd-conf, else MANGOSD_CONF env, else
 # ./mangosd.conf | ./etc/mangosd.conf | <module>/../../../etc/mangosd.conf
 # (module inside core modules/) | /opt/turtle/etc/mangosd.conf.
@@ -23,7 +26,7 @@ while [[ $# -gt 0 ]]; do
     --tag=*) TAG="${1#*=}" ;;
     --tag) shift; TAG="${1:?missing tag}" ;;
     -h|--help)
-      sed -n '2,14p' "$0"
+      sed -n '2,16p' "$0"
       exit 0
       ;;
     *) echo "unknown argument: $1" >&2; exit 1 ;;

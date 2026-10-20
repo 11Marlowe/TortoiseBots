@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"tortoise-observability/internal/agentmaps"
 	"tortoise-observability/internal/armory"
 	"tortoise-observability/internal/auth"
 	zoneproject "tortoise-observability/internal/map"
@@ -67,6 +68,9 @@ func main() {
 	// Optional folder of real game-map pictures (turtle-agent `minimap-extract` output) for the Commanders tab maps. Never part of the
 	// repository: the owner's own extracted assets. Unset: the maps keep their plain grid.
 	mapDirRaw := flag.String("map-dir", getEnv("TBDASH_MAP_DIR", ""), "Optional folder of map pictures (<id>.png + <id>.json from `turtle-agent minimap-extract`) drawn under the Commanders tab maps (env TBDASH_MAP_DIR)")
+	// Optional folder of turtle-agent run maps (`turtle-agent map`: one SVG per run, plus the single-file HTML replay with --html).
+	// Read-only and off by default: unset, the Agent maps tab is hidden and its routes 404.
+	agentMapsDirRaw := flag.String("agent-maps-dir", getEnv("TBDASH_AGENT_MAPS_DIR", ""), "Optional folder of turtle-agent run maps (`turtle-agent map` .svg and .html replays) listed in the Agent maps tab (env TBDASH_AGENT_MAPS_DIR)")
 	devNoAuth := flag.Bool("dev-no-auth", false, "Disable Game Master authentication check for local dev testing")
 	// The activity rollup is in-memory, so without this a dashboard restart
 	// resets every counter. The file sits in the mounted icon-cache directory
@@ -146,13 +150,13 @@ func main() {
 	log.Printf("[Auth] Realmd MySQL authentication ready against %s:%d/%s", *dbHost, *dbPort, *dbName)
 
 	armoryService, err := armory.NewService(armory.Config{
-		DBHost:           *dbHost,
-		DBPort:           *dbPort,
-		DBUser:           *dbUser,
-		DBPassword:       *dbPass,
-		CharDB:           *dbChar,
-		WorldDB:          *dbWorld,
-		DBCDir:           *dbcDir,
+		DBHost:     *dbHost,
+		DBPort:     *dbPort,
+		DBUser:     *dbUser,
+		DBPassword: *dbPass,
+		CharDB:     *dbChar,
+		WorldDB:    *dbWorld,
+		DBCDir:     *dbcDir,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize armory service: %v", err)
@@ -216,6 +220,14 @@ func main() {
 		mapPics = nil
 	} else if mapPics != nil {
 		log.Printf("[Commanders] real map pictures served from %s", mapPics.Root())
+	}
+
+	agentMaps, err := agentmaps.New(*agentMapsDirRaw)
+	if err != nil {
+		log.Printf("[AgentMaps] ignoring the run-map folder %q: %v", *agentMapsDirRaw, err)
+		agentMaps = nil
+	} else if agentMaps != nil {
+		log.Printf("[AgentMaps] run maps served from %s (at most %d files, %d MiB each)", agentMaps.Root(), agentmaps.MaxFiles, agentmaps.MaxFileSize>>20)
 	}
 
 	// 5. WebSocket hub and UDP ingestion
@@ -475,6 +487,13 @@ func main() {
 		mux.HandleFunc(mapdir.FilePrefix, requireAuth(mapPics.HandleFile))
 	}
 
+	// Turtle-agent run maps (issue #1102): the list and the read-only files of --agent-maps-dir, behind the same login. The folder
+	// is off by default; when it is not set no route is registered, so the tab's URLs 404 and the page hides the tab.
+	if agentMaps != nil {
+		mux.HandleFunc(agentmaps.ListPrefix, requireAuth(agentMaps.HandleList))
+		mux.HandleFunc(agentmaps.FilePrefix, requireAuth(agentMaps.HandleFile))
+	}
+
 	mux.HandleFunc("/api/v1/server-info", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if info := store.ServerInfo(); info != nil {
 			writeJSON(w, info)
@@ -600,7 +619,7 @@ func main() {
 		hub.Serve(w, r, upgrader, initial...)
 	})
 
- serverAddr := fmt.Sprintf("0.0.0.0:%d", *httpPort)
+	serverAddr := fmt.Sprintf("0.0.0.0:%d", *httpPort)
 	log.Printf("[HTTP] Dashboard & API running at http://localhost:%d/dashboard", *httpPort)
 	log.Printf("[HTTP] Prometheus metrics available at http://localhost:%d/metrics", *httpPort)
 
