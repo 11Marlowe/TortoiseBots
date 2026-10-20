@@ -57,7 +57,7 @@ merged PRs below.
 | Chat hooks hardened behind delivery checks; addon payloads no longer parsed as commands | [#476](https://github.com/tortoise-wow/tortoise-wow/pull/476) |
 | `PlayerScript::OnChatYell` | [#493](https://github.com/tortoise-wow/tortoise-wow/pull/493) |
 
-The pre-build gate is the host contract verification check (`--core <core>`): a
+The pre-build gate is `tools/verify_penqle_host_contract.sh --core <core>`: a
 read-only source check that the merged core still exposes the generic interfaces
 this module calls, that legacy bot-object coupling has not returned to normal
 gameplay code, and that prints the core revision it verified. It passes against

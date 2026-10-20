@@ -22,7 +22,7 @@ It is a hobby project built for its owner and interested players: pragmatic, sma
 | Commands / actions (`commands/*`, `actions/*`) | [`docs/play/commands/README.md`](docs/play/commands/README.md) | `python3 tools/verify_okf.py` |
 | Config (`PlayerbotAIConfig.*`, `aiplayerbot.conf.dist.in`, `conf/tortoise_bots.conf.dist`) | [`docs/server/configuration.md`](docs/server/configuration.md) | `python3 tools/verify_okf.py` |
 | Class AI (`strategy/<class>/*`) | the class doc in [`docs/classes/`](docs/classes/) | `python3 tools/verify_okf.py` |
-| Host seams, sessions, lifecycle (`host/*`, `runtime/BotManager.*`) | [`docs/developers/host-api.md`](docs/developers/host-api.md), [`docs/developers/architecture.md`](docs/developers/architecture.md) | `tools/verify_all.sh` |
+| Host seams, sessions, lifecycle (`host/*`, `runtime/BotManager.*`) | [`docs/developers/host-api.md`](docs/developers/host-api.md), [`docs/developers/architecture.md`](docs/developers/architecture.md) | `tools/verify_penqle_host_contract.sh` |
 | Ported donor behaviour | source repo + SHA in the PR description; a new donor project in [`docs/developers/licensing-audit.md`](docs/developers/licensing-audit.md) | — |
 | Doc structure | `docs/manifest.yaml`, `docs/README.md` | `python3 tools/verify_okf.py` |
 | Observability daemon (`tools/observability`, `runtime/ObservabilityEmitter.*`) | [`tools/observability/README.md`](tools/observability/README.md) | see that file |
@@ -40,7 +40,7 @@ Full rules and rationale: [`docs/developers/architecture.md`](docs/developers/ar
 
 Read-only local checkouts live in `../playerbots-references/` (`mod-playerbots`, `shyalya-tortoise-wow`, `spp-classics-cmangos`). **Harvest behaviour, not architecture**: understand the donor behaviour, reimplement it inside the module, test it, record provenance. Never vendor a donor tree or expand host coupling to ease a port.
 
-Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tortoise-wow for 1.18.1 specifics; sessions/lifecycle → the current core; Turtle spells/talents/items → core data (DBCs in your server deployment, world DB).
+Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tortoise-wow for 1.18.1 specifics; sessions/lifecycle → the current core; Turtle spells/talents/items → core data (DBCs in `../tortoise-docker-penqle/data/dbc`, world DB).
 
 ## Working rules
 
@@ -55,7 +55,7 @@ Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tor
 Use the smallest check that proves the change, and never report runtime behaviour you only read in code.
 
 - Docs/config text only: `bash tools/verify_all.sh` (OKF, surface, wiring, unit and decision-trail tests; ~1 s) and `git diff --check`.
-- Module C++: one cached build after the batch is coherent — your server deployment build loop. Never run destructive Docker/DB commands unless asked.
+- Module C++: one cached build after the batch is coherent — the Docker dev loop in `../tortoise-docker-penqle` (`./dev/build-playerbots`, then `./dev/restart-server`; it builds the live `TortoiseBots` checkout). Read that repo's README first; never run destructive Docker/DB commands unless asked.
 - Runtime: the smallest relevant check (server boots, module loads, bot enters world and acts, clean logout/shutdown, no DB/session errors in the log).
 - Core-seam or build-gating change: module build while iterating, full module ON/OFF matrix before handing over.
 
