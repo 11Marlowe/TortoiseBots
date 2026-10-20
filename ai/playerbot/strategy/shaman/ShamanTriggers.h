@@ -997,10 +997,9 @@ namespace ai
 
     CAN_CAST_TRIGGER(ChainLightningTrigger, "chain lightning");
 
-    // Tank pack filler (2+ mobs): Chain Lightning only
-    // into a real pack so it never burns mana single-target. Attacker
-    // count means mobs on the bot; pull-time pack sizing uses the
-    // possible-targets count in the pull strategy instead.
+    // Tank pack filler: Chain Lightning only into a 2+ pack provided nothing
+    // is hitting the tank. Once mobs reach the tank, hard-casting is
+    // suppressed in favor of instant threat and strikes.
     class TankChainLightningTrigger : public Trigger
     {
     public:
@@ -1013,7 +1012,8 @@ namespace ai
            Unit* target = AI_VALUE(Unit*, "current target");
            if (!target || !ai->CanCastSpell("chain lightning", target, true, nullptr, true))
                return false;
-           return ChainLightningPackShouldFire(AI_VALUE(uint8, "attackers count"));
+           return TankChainLightningShouldFire(AI_VALUE(uint8, "attackers count"),
+                                               AI_VALUE(uint8, "possible attack targets count"));
        }
     };
 

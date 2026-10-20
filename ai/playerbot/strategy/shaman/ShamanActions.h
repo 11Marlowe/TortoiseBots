@@ -4,6 +4,7 @@
 #include "playerbot/strategy/actions/GenericActions.h"
 #include "playerbot/strategy/actions/ChangeStrategyAction.h"
 #include "ShamanFireGatePolicy.h"
+#include "ShamanTankPolicy.h"
 
 namespace ai
 {
@@ -607,12 +608,30 @@ namespace ai
         // Hits every mob in the area, loose adds included: the party threat back-off
         // checks it against the "aoe" threat (mod-playerbots types it Aoe too).
         virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_AOE; }
+
+        virtual bool isUseful() override
+        {
+            if ((ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)) &&
+                !TankHardCastAllowed(AI_VALUE(uint8, "attackers count")))
+                return false;
+
+            return CastSpellAction::isUseful();
+        }
     };
 
     class CastLightningBoltAction : public CastSpellAction
     {
     public:
         CastLightningBoltAction(PlayerbotAI* ai) : CastSpellAction(ai, "lightning bolt") {}
+
+        virtual bool isUseful() override
+        {
+            if ((ai->IsTank(bot) || ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT)) &&
+                !TankHardCastAllowed(AI_VALUE(uint8, "attackers count")))
+                return false;
+
+            return CastSpellAction::isUseful();
+        }
     };
 
     class CastCurePoisonAction : public CastCureSpellAction
