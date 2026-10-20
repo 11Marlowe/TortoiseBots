@@ -109,6 +109,32 @@ static void TestNormalize()
     exactPull.entries = {4851};
     exactPull.flags = kPlanFlagExact;
     CHECK(NormalizePlanStep(exactPull) == PlanStepRefusal::BadParam);
+
+    // move_hop_exact: a MoveDirect with exactLaunch, and back to its text.
+    PlanStepKind kind = PlanStepKind::None;
+    bool exactLaunch = false;
+    ParsePlanStepRowKind("move_hop_exact", kind, exactLaunch);
+    CHECK(kind == PlanStepKind::MoveDirect && exactLaunch);
+    PlanStep landing = Step(0, 11, kind, -287.5f, 5.0f, -63.6f);
+    landing.exactLaunch = exactLaunch;
+    CHECK(NormalizePlanStep(landing) == PlanStepRefusal::None);
+    CHECK(std::string(PlanStepRowKindName(landing)) == "move_hop_exact");
+    CHECK(std::string(PlanStepKindName(landing.kind)) == "move_direct");
+    ParsePlanStepRowKind("move_direct", kind, exactLaunch);
+    CHECK(kind == PlanStepKind::MoveDirect && !exactLaunch);
+    ParsePlanStepRowKind("move", kind, exactLaunch);
+    CHECK(kind == PlanStepKind::Move && !exactLaunch);
+    // exactLaunch on anything but a MoveDirect is refused.
+    PlanStep wrong = Step(0, 12, PlanStepKind::Move, 1, 1, 1);
+    wrong.exactLaunch = true;
+    CHECK(NormalizePlanStep(wrong) == PlanStepRefusal::BadParam);
+    // Fail closed: the kind-only parser (all a module before exact waypoints has)
+    // does not know the text, so that loader skips the row as UnknownKind.
+    CHECK(ParsePlanStepKind("move_hop_exact") == PlanStepKind::None);
+    DungeonPlanTable old;
+    CHECK(old.AddPlan("wailing_caverns", 43));
+    PlanStep oldRow = Step(10, 4, ParsePlanStepKind("move_hop_exact"), -287.5f, 5.0f, -63.6f);
+    CHECK(old.AddStep("wailing_caverns", oldRow) == PlanStepRefusal::UnknownKind);
 }
 
 static void TestTable()

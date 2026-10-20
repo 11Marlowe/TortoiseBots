@@ -833,6 +833,24 @@ inline std::size_t ExactLaunch(const DungeonPlan* plan, std::size_t idx)
     return IsExactPoint(plan, idx - 1) ? idx - 1 : static_cast<std::size_t>(-1);
 }
 
+// A move_hop_exact (PlanStep::exactLaunch) with no exact move right before
+// it in its leg: rows the exporter would never write. Its hop is not sent (the
+// run pauses), as it would not be on a module that does not know the kind.
+inline bool ExactLaunchBroken(const DungeonPlan* plan, std::size_t idx)
+{
+    if (!plan || idx >= plan->steps.size() || !plan->steps[idx].exactLaunch)
+        return false;
+    if (idx == 0)
+        return true;
+    return !IsExactPoint(plan, idx - 1) || plan->steps[idx - 1].leg != plan->steps[idx].leg;
+}
+
+inline std::string ExactLaunchBrokenNote(std::size_t idx)
+{
+    return "step " + std::to_string(idx + 1) + " is a move_hop_exact with no exact move (flags 64) right before it in " +
+        "its leg: the hop is not sent; export the plan again (.bot run skip passes it)";
+}
+
 // Clears what belongs to one step (also on resume, so a resumed step gets
 // fresh tries and ceilings).
 inline void ResetStep(Run& r)
@@ -2754,6 +2772,11 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         }
         return true;
     }
+    if (ExactLaunchBroken(r.plan, r.walkBackIdx))
+    {
+        Pause(r, "walk back: " + ExactLaunchBrokenNote(r.walkBackIdx));
+        return true;
+    }
     std::size_t const launch = ExactLaunch(r.plan, r.walkBackIdx);
     if (launch != static_cast<std::size_t>(-1) &&
         !(r.phase == Phase::Walk && r.walkX == p.x && r.walkY == p.y && r.walkZ == p.z) &&
@@ -3008,6 +3031,11 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     // this one after a resume or a fight) and still within kExactArriveYd.
     // Otherwise the tighten runs again here first (ExactWalkTo); the direct
     // walk under way (its own point in walkX) is not interrupted.
+    if (ExactLaunchBroken(r.plan, r.step))
+    {
+        Pause(r, ExactLaunchBrokenNote(r.step));
+        return;
+    }
     std::size_t const launch = ExactLaunch(r.plan, r.step);
     bool const directUnderWay = r.phase == Phase::Walk && r.walkX == s.x && r.walkY == s.y && r.walkZ == s.z;
     bool const crossed = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z) <= kArriveYd;

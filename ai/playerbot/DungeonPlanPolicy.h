@@ -57,6 +57,24 @@ namespace ai
         return PlanStepKind::None;
     }
 
+    // The kind text of a direct step launched from an exact waypoint (the move
+    // with kPlanFlagExact right before it). It is a move_direct in every way
+    // (PlanStepKind::MoveDirect, PlanStep::exactLaunch set), under a kind name
+    // of its own so that it FAILS CLOSED on a module without exact waypoints:
+    // such a loader does not know the kind and skips the row (UnknownKind), so
+    // an old binary that walks the foot as a plain move never sends the hop
+    // over the hole from short of it (docs/guides/dungeon-run-leader.md "Exact
+    // waypoints").
+    constexpr const char* kPlanKindMoveHopExact = "move_hop_exact";
+
+    // A row's kind text into the step: its kind, and exactLaunch for
+    // "move_hop_exact". An unknown text leaves the kind None.
+    inline void ParsePlanStepRowKind(const std::string& text, PlanStepKind& kind, bool& exactLaunch)
+    {
+        exactLaunch = text == kPlanKindMoveHopExact;
+        kind = exactLaunch ? PlanStepKind::MoveDirect : ParsePlanStepKind(text);
+    }
+
     inline const char* PlanStepKindName(PlanStepKind kind)
     {
         switch (kind)
@@ -125,7 +143,18 @@ namespace ai
         std::uint32_t flags = 0;
         std::uint32_t timeoutS = 0;
         std::vector<std::uint32_t> entries;
+        // The row's kind was "move_hop_exact" (kPlanKindMoveHopExact):
+        // a MoveDirect whose launch point is the exact move right before it.
+        bool exactLaunch = false;
     };
+
+    // The kind text of a step's row: "move_hop_exact" for an exact launch,
+    // else PlanStepKindName.
+    inline const char* PlanStepRowKindName(const PlanStep& step)
+    {
+        return step.exactLaunch && step.kind == PlanStepKind::MoveDirect ? kPlanKindMoveHopExact
+                                                                         : PlanStepKindName(step.kind);
+    }
 
     struct PlanLeg
     {
@@ -267,6 +296,8 @@ namespace ai
         if (step.timeoutS > kPlanMaxTimeoutS)
             return PlanStepRefusal::BadTimeout;
         if ((step.flags & kPlanFlagExact) && step.kind != PlanStepKind::Move)
+            return PlanStepRefusal::BadParam;
+        if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
             return PlanStepRefusal::BadParam;
         switch (step.kind)
         {

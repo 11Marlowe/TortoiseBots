@@ -11,7 +11,7 @@ import re
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-KINDS = {"move", "move_direct", "pull", "boss", "loot", "open", "use_item", "wait_object",
+KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open", "use_item", "wait_object",
          "wait_clear", "rest", "ritual", "hold"}
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step")
 
@@ -136,8 +136,32 @@ class DungeonPlanSql(unittest.TestCase):
                 self.assertEqual(row["kind"], "move", "%s: the exact flag on a %s row" % (name, row["kind"]))
                 self.assertLess(i + 1, len(rows), "%s: an exact move is the last row" % name)
                 after = rows[i + 1]
-                self.assertEqual((after["plan"], after["leg"], after["kind"]), (row["plan"], row["leg"], "move_direct"),
-                                 "%s: the exact move %s/%s/%s is not followed by its move_direct" % (name, row["plan"], row["leg"], row["seq"]))
+                self.assertEqual((after["plan"], after["leg"], after["kind"]), (row["plan"], row["leg"], "move_hop_exact"),
+                                 "%s: the exact move %s/%s/%s is not followed by its move_hop_exact" % (name, row["plan"], row["leg"], row["seq"]))
+
+    def test_hop_exact_follows_its_exact_move(self):
+        # move_hop_exact (DungeonPlanPolicy.h kPlanKindMoveHopExact) is the hop launched from the flag 64 move right before it in
+        # its leg; it fails closed on a module without exact waypoints, whose loader skips the unknown kind.
+        for name, text in migrations():
+            rows = list(self.step_rows(text))
+            for i, row in enumerate(rows):
+                if row["kind"] != "move_hop_exact":
+                    continue
+                self.assertGreater(i, 0, "%s: a move_hop_exact is the first row" % name)
+                before = rows[i - 1]
+                self.assertEqual((before["plan"], before["leg"], before["kind"]), (row["plan"], row["leg"], "move"), name)
+                self.assertTrue(int(before["flags"]) & 64, "%s: the row before the move_hop_exact %s/%s/%s is not an exact move" %
+                                (name, row["plan"], row["leg"], row["seq"]))
+
+    def test_inserted_kinds_fit_the_column(self):
+        # ai_dungeon_step.kind is a varchar(16) (20261014150000): a longer kind fails the INSERT in strict mode, or is cut.
+        for name, text in migrations():
+            for row in self.step_rows(text):
+                self.assertLessEqual(len(row["kind"]), 16, "%s: kind %r is longer than the column" % (name, row["kind"]))
+        with open(os.path.join(ROOT, "ai/playerbot/DungeonPlanPolicy.h"), encoding="utf-8") as handle:
+            policy = handle.read()
+        for kind in re.findall(r'\{"(\w+)", PlanStepKind::', policy) + re.findall(r'kPlanKind\w+ = "(\w+)"', policy):
+            self.assertLessEqual(len(kind), 16, "kind %r is longer than ai_dungeon_step.kind" % kind)
 
     def test_wailing_caverns_serpentis_foot_is_exact(self):
         # The newest migration that inserts the wailing_caverns steps carries the live-proven hop (tests/wc-hop-probe-2): the foot
@@ -154,7 +178,7 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(len(exact), 1, "%s: the wailing_caverns rows need exactly one exact move" % name)
         foot, hop = rows[exact[0]], rows[exact[0] + 1]
         self.assertEqual((foot["kind"], foot["x"], foot["y"], foot["z"]), ("move", "-293.3", "0.5", "-58"), name)
-        self.assertEqual((hop["kind"], hop["x"], hop["y"], hop["z"]), ("move_direct", "-287.5", "5", "-63.6"), name)
+        self.assertEqual((hop["kind"], hop["x"], hop["y"], hop["z"]), ("move_hop_exact", "-287.5", "5", "-63.6"), name)
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():

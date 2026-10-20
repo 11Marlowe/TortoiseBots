@@ -2,9 +2,9 @@
 -- plan the 2026-10-18 hop probe made live, with the Serpentis foot as an EXACT waypoint. Scope: ONLY the wailing_caverns rows
 -- (that migration's ragefire_chasm and deadmines rows stay as they are: its statements for them are not repeated). It
 -- replaces the unmerged re-export 20261018191746 of pjerra/TortoiseBots fix/wc-plan-reexport (caa65faf): same rows but for
--- the foot, which there was a plain move. Exported from turtle-agent dungeons/wailing_caverns.json as of origin/main f9836cd
+-- the foot (there a plain move) and the hop (there a plain move_direct). Exported from turtle-agent dungeons/wailing_caverns.json as of origin/main f9836cd
 -- (the plan file is unchanged on the exporter's branch) with the exporter of pjerra/turtle-agent feat/planexport-exact (it
--- writes `exact` as move flag 64) and that batch's exporter options, NO ROW HAND-SET:
+-- writes `exact` as move flag 64 and the hop after it as kind move_hop_exact) and that batch's exporter options, NO ROW HAND-SET:
 --   turtle-agent plan-export --mmaps <map 43 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev f9836cd \
 --     --out data/sql/world/ wailing_caverns          (stamp: the clock, UTC)
 -- Plan check (turtle-agent plan-check, map 43 mmaps): "ok, 204 points on the map 43 navmesh; 1 hops exempted by the plan
@@ -19,11 +19,16 @@
 --     done only once the lead bot stands within 1.5 yd of it, not moving, on one spot for 2 s; never by the plain 3 yd or
 --     stalled 6 yd arrival (the row before it is 2.25 yd away). A lead bot nearer than 6.5 yd on the ground plane is walked
 --     back to seq 0 (-308.6 -32.1 -60.9, the first plan point at least 6.5 yd from both) and onto the foot; no proof within
---     36 s out of combat pauses the run, and the move_direct (seq 4) is never sent without the proof. A module without flag
---     64 (before feat/exact-waypoint) walks it as a plain move: apply this migration only with that module.
---   * leg 10 (serpentis), seq 4, the move_direct: (-289.1 3.2 -64.1) -> (-287.5 5.0 -63.6), the live-proven landing: 7.3 yd
---     across, 5.6 yd down (was 5.0 across, 6.1 down). Taken live three times from the exact foot, 0.00 yd
---     (tests/wc-hop-probe-2). The run leader has not run it yet.
+--     36 s out of combat pauses the run, and the hop (seq 4) is never sent without the proof.
+--   * leg 10 (serpentis), seq 4, the hop: kind move_direct -> move_hop_exact (a move_direct launched from the exact move
+--     right before it), (-289.1 3.2 -64.1) -> (-287.5 5.0 -63.6), the live-proven landing: 7.3 yd across, 5.6 yd down (was
+--     5.0 across, 6.1 down). Taken live three times from the exact foot, 0.00 yd (tests/wc-hop-probe-2). The run leader has
+--     not run it yet.
+--   * FAIL CLOSED on a module without exact waypoints (a binary rolled back to before feat/exact-waypoint): it ignores flag
+--     64 and walks the foot as a plain move, but its loader does not know move_hop_exact and skips seq 4 (UnknownKind, in
+--     the server log), so no direct order goes out over the hole. Its next step, seq 5 (-270.9 24.3 -60 on the ramp), has no
+--     navmesh path from the ledge: the `cmd move` is refused, the run looks for a reachable point within 15 yd of it on the
+--     ledge side and walks there by the navmesh or pauses; nobody jumps.
 --   * leg 8 (skum): its last group (4 x 5055 Lashers, patrol 3640) and the 18 rows of the walk to it and back are gone.
 --   * leg 9 (west_column): that group is now its pull group 3, pulled on the way north (2 approach moves + the pull + 3
 --     moves back), and the approach point to the old group 3 moved -277.3 -170.7 -> -271.2 -170.7 (+5 rows). This is the
@@ -275,7 +280,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('wailing_caverns', 10, 1, 'move', 0, -292.80005, -3.4667964, -58.160522, 0, 0, 0, 0, 0, '', 'path'),
 ('wailing_caverns', 10, 2, 'move', 0, -292.00006, -1.3334637, -57.860523, 0, 0, 0, 0, 0, '', 'path'),
 ('wailing_caverns', 10, 3, 'move', 0, -293.3, 0.5, -58, 0, 0, 0, 64, 0, '', 'via (exact: the direct step''s launch point)'),
-('wailing_caverns', 10, 4, 'move_direct', 0, -287.5, 5, -63.6, 0, 0, 0, 0, 0, '', 'via'),
+('wailing_caverns', 10, 4, 'move_hop_exact', 0, -287.5, 5, -63.6, 0, 0, 0, 0, 0, '', 'via (direct from the exact point before it)'),
 ('wailing_caverns', 10, 5, 'move', 0, -270.93338, 24.26666, -59.96052, 0, 0, 0, 0, 0, '', 'path'),
 ('wailing_caverns', 10, 6, 'move', 0, -261.3334, 42.666656, -53.46052, 0, 0, 0, 0, 0, '', 'path'),
 ('wailing_caverns', 10, 7, 'move', 0, -254.40005, 49.866653, -53.06052, 0, 0, 0, 0, 0, '', 'path'),
