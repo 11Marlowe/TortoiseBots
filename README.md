@@ -4,6 +4,8 @@ An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1
 
 This is an unofficial, community-driven project, not affiliated with Turtle WoW or Blizzard Entertainment.
 
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/sagiroth)
+
 `TortoiseBots` delivers native AI companions through a decoupled C++ architecture: bot AI, combat strategies, and lifecycle management live entirely within this module, while session transport and character state stay cleanly owned by the core via generic headless sessions (`SessionTransport::Headless`). The core builds and runs 100% cleanly without the module (`MODULES=disabled`).
 
 > **Companion in-game UI:** pair with [**TortoiseBotsManager**](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`). All player-facing control — roster, lifecycle, and tactical party actions — is driven from this addon; the server-side command surface is an internal/advanced transport, not a player API.
@@ -271,6 +273,12 @@ Playerbots: TortoiseBots by Sagiroth — https://github.com/Sagiroth/TortoiseBot
 
 The in-game login message and `.bot about` show the same line; keep them in
 modified builds (see [`LICENCE.md`](LICENCE.md#attribution-author-notice)).
+
+### ☕ Support
+
+If you enjoy TortoiseBots and would like to support its development, you can
+buy me a coffee on [**Ko-fi**](https://ko-fi.com/sagiroth). It's completely
+optional: every feature stays free and open for everyone.
 
 ## 📜 License & Provenance
 
