@@ -19,7 +19,7 @@
 // Classes (SharedDefines.h).
 constexpr uint32_t SPEC_POLICY_CLASS_WARRIOR = 1;
 constexpr uint32_t SPEC_POLICY_CLASS_PALADIN = 2;
-
+constexpr uint32_t SPEC_POLICY_CLASS_SHAMAN = 7;
 // Equipment slots (Player.h).
 constexpr uint32_t SPEC_POLICY_SLOT_MAINHAND = 15;
 constexpr uint32_t SPEC_POLICY_SLOT_OFFHAND = 16;
@@ -47,26 +47,29 @@ constexpr uint32_t SPEC_POLICY_WS_CROSSBOW = 18;
 constexpr uint32_t SPEC_POLICY_AS_MISC = 0;
 constexpr uint32_t SPEC_POLICY_AS_SHIELD = 6;
 constexpr uint32_t SPEC_POLICY_AS_LIBRAM = 7;
+constexpr uint32_t SPEC_POLICY_AS_TOTEM = 8;
 
 namespace ai
 {
     // True when the spec's off hand is a shield (protection warrior/paladin,
-    // holy paladin). Other classes never take this path.
+    // holy paladin, shaman tank). Other classes never take this path.
     inline bool SpecUsesShieldOffHand(uint32_t playerClass, std::string const& specName)
     {
         if (playerClass == SPEC_POLICY_CLASS_WARRIOR)
             return specName == "prot";
         if (playerClass == SPEC_POLICY_CLASS_PALADIN)
             return specName == "prot" || specName == "holy";
+        if (playerClass == SPEC_POLICY_CLASS_SHAMAN)
+            return specName == "shamantank";
         return false;
     }
-
     // True when the prototype may occupy `slot` for the spec. Covers only
-    // warriors/paladins; every other class returns true (fail-open - the old
-    // RandomItemMgr logic still owns those). `slot` is the concrete slot the
-    // item is evaluated for, not "any slot it could fit": a 1H weapon is
-    // main-hand-legal but off-hand-forbidden for shield specs, which is the
-    // reverse guard the ping-pong fix needs.
+    // shield specs (warrior/paladin protection + holy, shaman tank); every
+    // other spec returns true (fail-open - the old RandomItemMgr logic still
+    // owns those). `slot` is the concrete slot the item is evaluated for,
+    // not "any slot it could fit": a 1H weapon is main-hand-legal but
+    // off-hand-forbidden for shield specs, which is the reverse guard the
+    // ping-pong fix needs.
     inline bool SpecWeaponAllowed(uint32_t playerClass, std::string const& specName,
         uint32_t itemClass, uint32_t itemSubClass, uint32_t slot, bool canDualWield)
     {
@@ -153,6 +156,24 @@ namespace ai
             if (slot == SPEC_POLICY_SLOT_RANGED)
                 return itemClass == SPEC_POLICY_ITEM_ARMOR && itemSubClass == SPEC_POLICY_AS_LIBRAM;
             return false;
+        }
+        if (playerClass == SPEC_POLICY_CLASS_SHAMAN)
+        {
+            // Shaman tank only: slow 1H main hand (axe/mace/fist - no daggers
+            // for threat, no swords, never a 2H), shield off hand, totem
+            // ranged. Every other shaman spec stays fail-open below.
+            if (specName == "shamantank")
+            {
+                if (slot == SPEC_POLICY_SLOT_MAINHAND)
+                    return itemClass == SPEC_POLICY_ITEM_WEAPON &&
+                        (itemSubClass == SPEC_POLICY_WS_AXE || itemSubClass == SPEC_POLICY_WS_MACE ||
+                         itemSubClass == SPEC_POLICY_WS_FIST);
+                if (slot == SPEC_POLICY_SLOT_OFFHAND)
+                    return itemClass == SPEC_POLICY_ITEM_ARMOR && itemSubClass == SPEC_POLICY_AS_SHIELD;
+                if (slot == SPEC_POLICY_SLOT_RANGED)
+                    return itemClass == SPEC_POLICY_ITEM_ARMOR && itemSubClass == SPEC_POLICY_AS_TOTEM;
+                return false;
+            }
         }
         return true;
     }

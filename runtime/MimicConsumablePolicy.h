@@ -243,7 +243,10 @@ enum class MimicRole : uint8_t
 
 // Spec -> role. Feral covers both cat (melee) and bear (tank); the bot
 // resolves bear via form at cast time, the policy defaults feral to melee.
-inline MimicRole RoleForSpec(uint32_t playerClass, uint32_t spec)
+// isTank covers specs the enum cannot express: a shaman tank still reports
+// SPEC_SHAMAN_ENHANCEMENT (tab 1), so the MimicConsumableAction call site
+// passes ai->IsTank through and the tank ladders (Titans, armor, STA) apply.
+inline MimicRole RoleForSpec(uint32_t playerClass, uint32_t spec, bool isTank = false)
 {
     switch (playerClass)
     {
@@ -262,6 +265,8 @@ inline MimicRole RoleForSpec(uint32_t playerClass, uint32_t spec)
         case MIMIC_CLASS_SHAMAN_ID:
             if (spec == SPEC_SHAMAN_RESTORATION)
                 return MimicRole::HEALER;
+            if (isTank)
+                return MimicRole::TANK;
             return spec == SPEC_SHAMAN_ELEMENTAL ? MimicRole::CASTER_DPS : MimicRole::MELEE_DPS;
         case MIMIC_CLASS_MAGE_ID:
         case MIMIC_CLASS_WARLOCK_ID:
@@ -600,9 +605,9 @@ inline uint32_t BestTierForLevel(T const (&ladder)[N], uint32_t botLevel)
 }
 
 // Battle elixir for the bot's role/spec. Healers take none (0).
-inline uint32_t ResolveBattleElixir(uint32_t playerClass, uint32_t spec, uint32_t botLevel)
+inline uint32_t ResolveBattleElixir(uint32_t playerClass, uint32_t spec, uint32_t botLevel, bool isTank = false)
 {
-    MimicRole role = RoleForSpec(playerClass, spec);
+    MimicRole role = RoleForSpec(playerClass, spec, isTank);
     switch (role)
     {
         case MimicRole::MELEE_DPS:
@@ -649,9 +654,9 @@ inline uint32_t ResolveBattleElixir(uint32_t playerClass, uint32_t spec, uint32_
 }
 
 // Guardian elixir for the bot's role/spec.
-inline uint32_t ResolveGuardianElixir(uint32_t playerClass, uint32_t spec, uint32_t botLevel)
+inline uint32_t ResolveGuardianElixir(uint32_t playerClass, uint32_t spec, uint32_t botLevel, bool isTank = false)
 {
-    MimicRole role = RoleForSpec(playerClass, spec);
+    MimicRole role = RoleForSpec(playerClass, spec, isTank);
     switch (role)
     {
         case MimicRole::TANK:
@@ -672,9 +677,9 @@ inline uint32_t ResolveGuardianElixir(uint32_t playerClass, uint32_t spec, uint3
 
 // Scroll for the bot's role: STR/AGI for melee, STA for tanks,
 // INT for casters, SPI for healers.
-inline uint32_t ResolveScroll(uint32_t playerClass, uint32_t spec, uint32_t botLevel)
+inline uint32_t ResolveScroll(uint32_t playerClass, uint32_t spec, uint32_t botLevel, bool isTank = false)
 {
-    MimicRole role = RoleForSpec(playerClass, spec);
+    MimicRole role = RoleForSpec(playerClass, spec, isTank);
     switch (role)
     {
         case MimicRole::TANK:
@@ -698,9 +703,9 @@ inline uint32_t ResolveScroll(uint32_t playerClass, uint32_t spec, uint32_t botL
 
 // Flask for the bot's role at 50+: Titans for melee/tank/ranged,
 // Distilled Wisdom for healers, Supreme Power for casters.
-inline uint32_t ResolveFlask(uint32_t playerClass, uint32_t spec, uint32_t botLevel)
+inline uint32_t ResolveFlask(uint32_t playerClass, uint32_t spec, uint32_t botLevel, bool isTank = false)
 {
-    MimicRole role = RoleForSpec(playerClass, spec);
+    MimicRole role = RoleForSpec(playerClass, spec, isTank);
     if (role == MimicRole::HEALER)
         return botLevel >= FLASK_WISDOM_REQ ? FLASK_WISDOM_ITEM_ID : 0;
     if (role == MimicRole::CASTER_DPS)
@@ -710,9 +715,9 @@ inline uint32_t ResolveFlask(uint32_t playerClass, uint32_t spec, uint32_t botLe
 
 // Role food at the effective level: Bands 1-2 universal STA/SPI, Band 3+
 // specialize (AGI physical, MP5 casters, STA tanks, STR melee, INT casters).
-inline uint32_t ResolveFood(uint32_t playerClass, uint32_t spec, uint32_t level)
+inline uint32_t ResolveFood(uint32_t playerClass, uint32_t spec, uint32_t level, bool isTank = false)
 {
-    MimicRole role = RoleForSpec(playerClass, spec);
+    MimicRole role = RoleForSpec(playerClass, spec, isTank);
     if (level <= BAND_1_CEILING)
         return BestTierForLevel(FOOD_BAND1_LADDER, level);
     if (level <= BAND_2_CEILING)
@@ -752,7 +757,7 @@ inline uint32_t ResolveFood(uint32_t playerClass, uint32_t spec, uint32_t level)
 // Special raid buff at the effective level. Firewater/Juju direct-mirror;
 // Zanza picks by role (spirit tanks/melee, sheen casters/healers,
 // swiftness mirrored); Blasted Lands buffs direct-mirror.
-inline uint32_t ResolveSpecialRaid(uint32_t masterItemId, uint32_t playerClass, uint32_t spec, uint32_t level)
+inline uint32_t ResolveSpecialRaid(uint32_t masterItemId, uint32_t playerClass, uint32_t spec, uint32_t level, bool isTank = false)
 {
     switch (masterItemId)
     {
@@ -761,7 +766,7 @@ inline uint32_t ResolveSpecialRaid(uint32_t masterItemId, uint32_t playerClass, 
             return masterItemId;
         case 20079: case 20080: case 20081:
             {
-                MimicRole role = RoleForSpec(playerClass, spec);
+                MimicRole role = RoleForSpec(playerClass, spec, isTank);
                 if (role == MimicRole::CASTER_DPS || role == MimicRole::HEALER)
                     return ZANZA_SHEEN_ITEM_ID;
                 return ZANZA_SPIRIT_ITEM_ID;
@@ -827,7 +832,7 @@ struct MimicResolution
 
 // Top-level mimic decision: master item -> bot's own equivalent, capped by
 // the master's item band (anti-abuse: effectiveLevel = min(bot, ceiling)).
-inline MimicResolution ResolveMimicItem(uint32_t masterItemId, uint32_t playerClass, uint32_t spec, uint32_t botLevel)
+inline MimicResolution ResolveMimicItem(uint32_t masterItemId, uint32_t playerClass, uint32_t spec, uint32_t botLevel, bool isTank = false)
 {
     MimicResolution out;
     out.purpose = PurposeForMasterItem(masterItemId);
@@ -843,15 +848,15 @@ inline MimicResolution ResolveMimicItem(uint32_t masterItemId, uint32_t playerCl
         case MimicPurpose::BATTLE_PHYS_STR:
         case MimicPurpose::BATTLE_PHYS_AGI:
         case MimicPurpose::BATTLE_CASTER:
-            out.battleItemId = ResolveBattleElixir(playerClass, spec, level);
+            out.battleItemId = ResolveBattleElixir(playerClass, spec, level, isTank);
             break;
         case MimicPurpose::GUARDIAN_ARMOR:
         case MimicPurpose::GUARDIAN_HEALTH:
         case MimicPurpose::GUARDIAN_MANA:
-            out.guardianItemId = ResolveGuardianElixir(playerClass, spec, level);
+            out.guardianItemId = ResolveGuardianElixir(playerClass, spec, level, isTank);
             break;
         case MimicPurpose::SCROLL_STAT:
-            out.singleItemId = ResolveScroll(playerClass, spec, level);
+            out.singleItemId = ResolveScroll(playerClass, spec, level, isTank);
             break;
         case MimicPurpose::WEAPON_IMBUE:
             // Rogues use poisons (handled by the action; levels 1-19 may
@@ -885,25 +890,25 @@ inline MimicResolution ResolveMimicItem(uint32_t masterItemId, uint32_t playerCl
                 break;
             }
             // Casters take wizard oil, healers take mana oil.
-            if (RoleForSpec(playerClass, spec) == MimicRole::HEALER)
+            if (RoleForSpec(playerClass, spec, isTank) == MimicRole::HEALER)
                 out.singleItemId = BestTierForLevel(MANA_OIL_LADDER, level);
             else
                 out.singleItemId = BestTierForLevel(WIZARD_OIL_LADDER, level);
             break;
         case MimicPurpose::FLASK:
-            out.singleItemId = ResolveFlask(playerClass, spec, level);
+            out.singleItemId = ResolveFlask(playerClass, spec, level, isTank);
             break;
         case MimicPurpose::PROT_POTION:
             out.singleItemId = ResolveProtPotion(masterItemId, level);
             break;
         case MimicPurpose::FOOD_BUFF:
-            out.singleItemId = ResolveFood(playerClass, spec, level);
+            out.singleItemId = ResolveFood(playerClass, spec, level, isTank);
             break;
         case MimicPurpose::ALCOHOL_BUFF:
             out.singleItemId = masterItemId;
             break;
         case MimicPurpose::SPECIAL_RAID:
-            out.singleItemId = ResolveSpecialRaid(masterItemId, playerClass, spec, level);
+            out.singleItemId = ResolveSpecialRaid(masterItemId, playerClass, spec, level, isTank);
             break;
         case MimicPurpose::UTILITY:
             out.singleItemId = ResolveUtility(masterItemId, level);
