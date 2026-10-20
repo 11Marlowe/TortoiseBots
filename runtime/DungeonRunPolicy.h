@@ -634,6 +634,7 @@ struct Run
     std::uint32_t shotStillMs = 0;
     std::uint32_t shotWalkMs = 0;             // the stand walk's time (kShotWalkCapMs)
     bool shotStandPrep = false;
+    std::uint64_t shotHoldGuid = 0;           // ... the unit the prep is for (another pick checks the way back)
     std::string shotHow;
     // HoldForShot ran on this tick. A tick it did not run on (a fight, a
     // gather, a dead member, a joiner rest, a regroup, another step kind) ends
@@ -821,6 +822,7 @@ inline void ResetShotStand(Run& r)
     r.shotStillMs = 0;
     r.shotWalkMs = 0;
     r.shotStandPrep = false;
+    r.shotHoldGuid = 0;
     r.shotHow.clear();
 }
 
@@ -2438,6 +2440,7 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
     auto hold = [&](const std::string& note)
     {
         r.shotStandPrep = true;
+        r.shotHoldGuid = u.guid;
         r.note = note;
         return true;
     };
@@ -2457,11 +2460,16 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
             if ((!gaining && r.walkStillMs + dt >= kWalkRetryMs && dist > kStalledArriveYd) ||
                 r.shotWalkMs >= kShotWalkCapMs)
             {
+                // Held one tick more, without the hold's pass on the way back:
+                // the next tick checks the anchor from where the tank got stuck
+                // (another floor: the gather back first), then the order goes out.
                 tries = kShotStandTries;
                 r.shotWalkMs = 0;
                 EnterPhase(r, Phase::Begin);
                 r.shotHow = "firing stand unreachable: ordering from here";
-                return false;
+                r.shotStandPrep = false;
+                r.note = "firing stand unreachable for " + what + ": checking the way back before the order";
+                return true;
             }
             if (!WalkTo(r, f, r.shotStandX, r.shotStandY, r.shotStandZ, false, dt, order))
             {
@@ -2488,7 +2496,8 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
     }
     if (tries >= kShotStandTries)
     {
-        r.shotHow = "firing stands used up (" + std::to_string(tries) + ")";
+        if (r.shotHow.compare(0, 24, "firing stand unreachable") != 0)
+            r.shotHow = "firing stands used up (" + std::to_string(tries) + ")";
         return false;
     }
     if (standRead)
@@ -2540,6 +2549,8 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     }
     if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
         DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
+    if (r.shotStandPrep && r.shotHoldGuid != u.guid)
+        r.shotStandPrep = false; // the pull stand held another unit: this one checks the way back
     // A pull the stand rule holds checked the way back on its first tick; its
     // stand walk is driven every tick, not every other one while the path back
     // is read (shotStandPrep is only set on consecutive gate ticks).
@@ -3238,6 +3249,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         r.bossWaitMs = 0;
         // The way back to the anchor not known yet: read it first (one tick),
         // before this pull counts as one.
+        // (A hold for another unit than the pick is caught by PullUnit's own check of the way back.)
         if (r.phase != Phase::Gather && !r.gatherWaived && !r.shotStandPrep && CheckAnchor(r, f) == AnchorState::Unknown)
         {
             r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);

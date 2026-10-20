@@ -5085,7 +5085,8 @@ static void TestStandWalkStuckOrdersFromHere()
         }
         CHECK(order == "pullback 11");
         CHECK(Has(r.note, "(order 1; firing stand unreachable: ordering from here)"));
-        CHECK(longWalk ? ms == kShotWalkCapMs : ms == kWalkRetryMs);
+        // The give-up tick holds once more (the way back is checked on the next): the order a tick later.
+        CHECK(longWalk ? ms == kShotWalkCapMs + kTickMs : ms == kWalkRetryMs + kTickMs);
         CHECK(r.shotStandTries[11] == kShotStandTries);
     }
 }
@@ -5113,6 +5114,82 @@ static void TestStandWalkIsDrivenEveryTick()
         CHECK(Tick(r, f).empty());
         CHECK(Has(r.note, "to firing stand 1 for 4851"));
     }
+}
+
+// (review round 2) The stuck give-up holds its own tick and drops the hold's pass on the way back, so the
+// next tick checks the anchor from where the tank got stuck: more than kStragglerDzYd below it (another
+// floor) the party gathers back there first; the same floor with a way back, the order goes out.
+static void TestStuckStandChecksTheWayBackFirst()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    for (int otherFloor = 0; otherFloor < 2; ++otherFloor)
+    {
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.units = {Seen(11, 4851, 120.0f, false)};
+        r.anchorKnown = true; // the anchor: (0, 0, 0)
+        Tick(r, f);
+        GiveStand(f, r, 100.0f, 24.0f);
+        CHECK(Tick(r, f) == "move 100.0 0.0 0.0");
+        ClearStand(f);
+        f.leadX = 30.0f; // stuck there
+        f.leadZ = otherFloor ? -12.0f : 0.0f;
+        std::string order;
+        int ticks = 0;
+        for (; ticks < 30 && order.empty() && !Has(r.note, "firing stand unreachable"); ++ticks)
+            order = Tick(r, f);
+        CHECK(order.empty()); // the give-up tick sends nothing
+        CHECK(r.note == "firing stand unreachable for 4851 0x000000000000000b: checking the way back before the order");
+        CHECK(!r.shotStandPrep && r.shotStandTries[11] == kShotStandTries && r.state == State::Running);
+        if (otherFloor)
+        {
+            CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the gather back to the anchor
+            CHECK(r.phase == Phase::Gather);
+        }
+        else
+        {
+            f.anchorPathRead = true; // the glue's read: the way back is there
+            CHECK(Tick(r, f) == "pullback 11");
+            CHECK(Has(r.note, "(order 1; firing stand unreachable: ordering from here)"));
+        }
+    }
+}
+
+// (review round 2) The pick switching to another unit in the middle of a hold: the new unit's first tick
+// checks the way back (the hold's pass belonged to the old unit).
+static void TestPickSwitchChecksTheWayBack()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    Run r = Start(&plan);
+    Facts f = StandParty();
+    f.units = {Seen(11, 4851, 40.0f, false)};
+    r.anchorKnown = true;
+    r.anchorX = -10.0f; // the lead bot is off it: the way back has to be read
+    f.anchorPathRead = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.shotStandPrep && r.shotHoldGuid == 11);
+    f.anchorPathRead = false;
+    f.units = {Seen(11, 4851, 40.0f, false), Seen(12, 4851, 30.0f, false)}; // 12 is nearer now
+    CHECK(Tick(r, f).empty());
+    CHECK(Has(r.note, "checking the way back"));
+    CHECK(!r.shotStandPrep);
+    // A move step's hop pull (PullUnit alone, no FightStep): the same.
+    DungeonPlan move;
+    move.steps = {Step(PlanStepKind::Move, 50, 0, 0)};
+    Run m = Start(&move);
+    Facts g = StandParty();
+    g.hopUnits = {Seen(11, 4851, 40.0f, false)};
+    m.anchorKnown = true;
+    m.anchorX = -10.0f;
+    g.anchorPathRead = true;
+    CHECK(Tick(m, g).empty());
+    CHECK(m.shotStandPrep && m.shotHoldGuid == 11);
+    g.anchorPathRead = false;
+    g.hopUnits = {Seen(11, 4851, 40.0f, false), Seen(12, 4851, 30.0f, false)};
+    CHECK(Tick(m, g).empty());
+    CHECK(Has(m.note, "checking the way back") && !m.shotStandPrep);
 }
 
 // F2: among units of the same kill_first rank one the tank can shoot from where it stands goes before a
@@ -5342,6 +5419,8 @@ int main()
     TestStandRequestIsReadOnce();
     TestStandWalkStuckOrdersFromHere();
     TestStandWalkIsDrivenEveryTick();
+    TestStuckStandChecksTheWayBackFirst();
+    TestPickSwitchChecksTheWayBack();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }
