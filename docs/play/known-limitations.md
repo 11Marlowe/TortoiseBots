@@ -29,9 +29,9 @@ By default, 5-player dungeons and raids are designed for a player (or a remote c
 - **The commander stays in control:** the commander (a player, or turtle-agent in observe mode) watches the run and may pause, skip, resume or stop it. Any player order pauses it. Every wait has a time limit, and a ceiling pauses the run with the reason.
 - **Some plan steps are not carried over yet:** plan v1's `skip`, per-leg `rest`, `companions_loot`, `area_trigger` and gossip.
 - **Avoid boxes are not known to the run:** its hops are the server's navmesh paths, so a fight, a knockback or a pull onto a plan's avoid box (Ragefire Chasm's lava basin) is not covered.
-- **Not tried live:** Wailing Caverns' ramp to Lord Serpentis is a straight walk (`move_direct`) that has not been tried in a live run.
+- **Little live evidence:** Wailing Caverns' ramp to Lord Serpentis is a `move_direct` (a straight walk down over a 3.9 yd gap). It was walked in one live observe clear of the whole plan (2026-10-20, a candidate result). The other dungeons have had partial runs.
 
-The separate `mod-dungeon-clear` port, a second autonomous pull and pathing brain, stays excluded.
+The separate `mod-dungeon-clear` module is not ported as a second autonomous pull and pathing brain; the run leader is TortoiseBots' own.
 
 ## Explicit Non-Goals
 
