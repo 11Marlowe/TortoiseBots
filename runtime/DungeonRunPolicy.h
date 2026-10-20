@@ -53,6 +53,7 @@
 //     once it has arrived. Never during an event.
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
+#include "../ai/playerbot/RangedApproachPolicy.h"
 #include "RezHoldPolicy.h"
 
 #include <algorithm>
@@ -124,6 +125,16 @@ constexpr std::uint32_t kPullNoFightMs = 25000;   // a pull that started no figh
 constexpr std::uint32_t kPullTriesPerUnit = 2;    // a unit two pulls could not start a fight with is passed
 constexpr std::uint32_t kMaxPullsPerTarget = 3;  // a unit three fought pulls did not kill is out of reach
 constexpr std::uint32_t kFruitlessPulls = 3;      // three pulls in a row that kill nothing: the rest of the pack is out of reach
+// The pull stand (AiPlayerbot.DungeonRunPullStand, HoldForShot): `pullback`
+// goes out only when the tank can shoot from where it stands, else it walks to
+// a firing stand first. The margin is the module's own ReachPullAction margin
+// (the walk of a ranged pull stops this much inside the shot's range).
+constexpr float kShotMarginYd = 5.0f;
+constexpr std::uint32_t kShotStandTries = 2;      // firing stands walked to per unit and step, then the order as before
+constexpr std::uint32_t kShotStillWaitMs = 3000;  // a moving tank is waited for this long before the stand rule judges it
+// A stand walk that gains nothing for kWalkRetryMs, or takes longer than this
+// in all, is given up: the order goes out from where the tank is (never a pause).
+constexpr std::uint32_t kShotWalkCapMs = kWalkRetryMs * kWalkTries;
 constexpr std::uint32_t kMaxPullsPerStep = 20;
 constexpr std::uint32_t kMaxWalkBackPulls = 8;    // pulls on the way of a walk back (their own count), then pause
 constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead must be up within this
@@ -275,6 +286,9 @@ struct UnitFact
     // creatures an estimate (ai::EstimateAggro) says come if this one is pulled.
     std::uint32_t joiners = 0;
     bool joinersPatrol = false; // ... and a lone patrol alone puts that over the ceiling
+    // Pull step and hop units, when Facts::pullStand is set: the lead bot sees
+    // it now (Unit::IsWithinLOSInMap).
+    bool losLead = false;
 };
 
 // The mage's Polymorph (all ranks and forms): the aura the run waits for after
@@ -412,6 +426,23 @@ struct Facts
     // (AiPlayerbot.DungeonRunAggroCeiling) while the estimate is on, 0 = off.
     // Off, the units carry no estimate and no pull ever waits for it.
     std::uint32_t joinerCeiling = 0;
+    // AiPlayerbot.DungeonRunPullStand (HoldForShot): the key is on. Off (the
+    // default) nothing below is read and the pull goes out as before, byte for byte.
+    bool pullStand = false;
+    // The lead bot's ranged weapon shot range (its PullStrategy::GetRange(),
+    // pull action "shoot" only); 0 for a spell pull, a body pull ("reach pull":
+    // no ranged weapon, skill, spell or ammo) or when it could not be read. At or
+    // under kShotMarginYd it keeps the old order too (PullStandOn).
+    float leadShotYd = 0.0f;
+    // The firing stand the policy asked for (Run::shotStandFor), read this
+    // tick: the lead bot's navmesh path to that unit walked back from the unit
+    // end to the first point within leadShotYd - kShotMarginYd that sees it
+    // (ShotStandOnPath). shotStandGuid is the unit it was read for (0: none
+    // read this tick); shotStandKnown false: no such point, or the unit is gone.
+    std::uint64_t shotStandGuid = 0;
+    bool shotStandKnown = false;
+    float shotStandX = 0.0f, shotStandY = 0.0f, shotStandZ = 0.0f;
+    float shotStandYd = 0.0f;           // ... the stand's distance from the unit (centre to centre); it sees the unit
 };
 
 // A bot's own stand point in a hold (HoldStands): the glue walks it there and
@@ -589,6 +620,26 @@ struct Run
     bool restForJoiners = false;              // the rest phase is the joiner rest: its time is not step idle time
     std::uint32_t joinerRests = 0;            // joiner rests used this step (kMaxJoinerRests)
     std::string joinerNote;                   // "N joiners expected ..."
+    // The pull stand (Facts::pullStand, HoldForShot): the unit the glue reads a
+    // firing stand for on the next tick (0: none), the stands walked to per
+    // unit this step, the stand walk under way (its unit and point), the time
+    // a moving tank has been waited for, and how the last order's shot stood
+    // (the order's note). shotStandPrep: a tick of this pull held for the
+    // stand rule; the pull's fruitless count is not taken again until it goes out.
+    std::uint64_t shotStandFor = 0;
+    std::unordered_map<std::uint64_t, std::uint32_t> shotStandTries;
+    bool shotStandWalk = false;
+    std::uint64_t shotStandGuid = 0;
+    float shotStandX = 0.0f, shotStandY = 0.0f, shotStandZ = 0.0f;
+    std::uint32_t shotStillMs = 0;
+    std::uint32_t shotWalkMs = 0;             // the stand walk's time (kShotWalkCapMs)
+    bool shotStandPrep = false;
+    std::uint64_t shotHoldGuid = 0;           // ... the unit the prep is for (another pick checks the way back)
+    std::string shotHow;
+    // HoldForShot ran on this tick. A tick it did not run on (a fight, a
+    // gather, a dead member, a joiner rest, a regroup, another step kind) ends
+    // the hold: the stand request, the walk and the wait are dropped (Tick).
+    bool shotGateRan = false;
     std::uint64_t ccPending = 0;              // the `cc moon` sent, its Polymorph not seen yet
     bool ccResent = false;                    // ... sent a second time
     std::uint32_t ccWaitMs = 0;               // fight time since the mark (or its second sending)
@@ -758,6 +809,33 @@ inline void EnterPhase(Run& r, Phase p)
 {
     r.phase = p;
     r.phaseMs = 0;
+}
+
+// The pull stand's state of one step (HoldForShot).
+inline void ResetShotStand(Run& r)
+{
+    r.shotStandFor = 0;
+    r.shotStandTries.clear();
+    r.shotStandWalk = false;
+    r.shotStandGuid = 0;
+    r.shotStandX = r.shotStandY = r.shotStandZ = 0.0f;
+    r.shotStillMs = 0;
+    r.shotWalkMs = 0;
+    r.shotStandPrep = false;
+    r.shotHoldGuid = 0;
+    r.shotHow.clear();
+}
+
+// A tick the pull stand's gate did not run on ends its hold (the stand tries
+// already spent stay counted): no stand request is left for the glue to
+// answer, and the next pull checks the way back and counts as usual.
+inline void EndShotHold(Run& r)
+{
+    r.shotStandFor = 0;
+    r.shotStandWalk = false;
+    r.shotStillMs = 0;
+    r.shotWalkMs = 0;
+    r.shotStandPrep = false;
 }
 
 inline void ClearRunBack(Run& r)
@@ -936,6 +1014,7 @@ inline void ResetStep(Run& r)
     r.restForJoiners = false;
     r.joinerRests = 0;
     r.joinerNote.clear();
+    ResetShotStand(r);
     r.focusGuid = 0;
     r.ccPending = 0;
     r.ccResent = false;
@@ -2196,15 +2275,33 @@ inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGu
     return best;
 }
 
+// The pull stand rule is on for this pull (AiPlayerbot.DungeonRunPullStand):
+// the key, a ranged weapon shot the glue could read with more range than the
+// margin (the glue reads no stand below that), and not inside a scripted event.
+inline bool PullStandOn(const Run& r, const Facts& f)
+{
+    return f.pullStand && f.leadShotYd > kShotMarginYd && !InEvent(r);
+}
+
+// The tank's shot can go out from where it stands: the unit in sight and
+// within the shot's range less the module's reach margin.
+inline bool ShootableFromLead(const Facts& f, const UnitFact& u)
+{
+    return u.losLead && u.distLead <= f.leadShotYd - kShotMarginYd;
+}
+
 // A pack's pull target (a pull step): a kill_first unit first (best rank,
 // then nearest), else the nearest; never the unit the crowd control is for,
 // or a crowd-controlled one, while another can be pulled. Null for none.
+// With the pull stand on, among units of the same rank one the tank can shoot
+// from where it stands goes before a nearer one it cannot.
 inline const UnitFact* PickPackPull(const Run& r, const Facts& f)
 {
     const UnitFact* cc = PickCc(r, f, 0);
     const UnitFact* best = nullptr;
     const UnitFact* held = nullptr;
     int bestRank = -1;
+    bool const stand = PullStandOn(r, f);
     for (const UnitFact& u : f.units)
     {
         if (!Pullable(r, u))
@@ -2221,6 +2318,8 @@ inline const UnitFact* PickPackPull(const Run& r, const Facts& f)
         {
             if (rank >= 0 && (bestRank < 0 || rank < bestRank))
                 better = true;
+            else if (rank == bestRank && stand && ShootableFromLead(f, u) != ShootableFromLead(f, *best))
+                better = ShootableFromLead(f, u);
             else if (rank == bestRank && u.distLead < best->distLead)
                 better = true;
         }
@@ -2260,10 +2359,183 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
     return best;
 }
 
+// The firing stand on the lead bot's navmesh path to a unit (the glue's
+// read for Run::shotStandFor): `path` runs from the lead bot (front) toward the
+// unit, `range` is Facts::leadShotYd - kShotMarginYd, `hasLos(point)` whether
+// the unit is in sight from a point (at the core's sight heights).
+//   - Beyond range: the ranged reach's own choice (ai::SelectRangedApproachPoint,
+//     ReachTargetAction::MoveIntoRangeAlongPath): the path walked back from the
+//     unit end to the first point within range that sees it, or the nearest
+//     point toward it in sight when none within range does.
+//   - Within range but out of sight (that choice leaves this to the chase): the
+//     first point of the path, from the lead bot on, nearer the unit and in sight.
+// Every stand sees the unit; none found: known false (the order goes out as before).
+struct ShotStand
+{
+    bool known = false;
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
+template <typename LosFn>
+inline ShotStand ShotStandOnPath(const std::vector<ai::ApproachPoint>& path, const ai::ApproachPoint& unit, float range,
+    LosFn hasLos)
+{
+    ShotStand stand;
+    if (path.size() < 2 || range <= 0.0f)
+        return stand;
+    ai::RangedApproachChoice const choice = ai::SelectRangedApproachPoint(path, unit, range, hasLos);
+    if (choice.valid)
+    {
+        stand.known = true;
+        stand.x = choice.point.x;
+        stand.y = choice.point.y;
+        stand.z = choice.point.z;
+        return stand;
+    }
+    float const startSq = ai::ApproachDistanceSq(path.front(), unit);
+    if (startSq > range * range)
+        return stand; // beyond range and no point nearer in sight
+    for (std::size_t i = 1; i < path.size(); ++i)
+        if (ai::ApproachDistanceSq(path[i], unit) < startSq && hasLos(path[i]))
+        {
+            stand.known = true;
+            stand.x = path[i].x;
+            stand.y = path[i].y;
+            stand.z = path[i].z;
+            return stand;
+        }
+    return stand;
+}
+
+// The pull stand (AiPlayerbot.DungeonRunPullStand; PLAN-PULLBACK-RANGE F1):
+// `pullback` goes out only when the tank's shot can go out from where it
+// stands. In the WC runs of 19z17 the tank, ordered from a spot it could not
+// shoot from, walked to a firing position by itself and never fired from
+// there (0 shots in 33 such pulls; 16 of 16 from a stand). So, before the
+// order:
+//   - a moving tank is waited for up to kShotStillWaitMs (again after each
+//     stand walk);
+//   - a unit out of sight or beyond leadShotYd - kShotMarginYd: the glue
+//     reads a firing stand for it (one tick, Run::shotStandFor), and the party
+//     walks there (WalkTo); a walk with no headway for kWalkRetryMs, or longer
+//     than kShotWalkCapMs, gives the stand up and orders from here (never a
+//     pause); at most kShotStandTries stands per unit and step;
+//   - no stand found, or the stands used up: the order as before.
+// True while the pull waits (`order` may hold the move); false: the order
+// goes out now, and Run::shotHow says how its shot stood.
+inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t dt, std::string& order)
+{
+    r.shotGateRan = true;
+    // A stand request is answered (or dropped) on the very next tick: the
+    // glue reads at most one stand per request.
+    bool const standRead = r.shotStandFor == u.guid && f.shotStandGuid == u.guid;
+    r.shotStandFor = 0;
+    if (!PullStandOn(r, f))
+    {
+        r.shotHow = f.leadShotYd > kShotMarginYd ? "no stand rule in an event" : "no ranged weapon pull: stand rule off";
+        return false;
+    }
+    std::string const what = std::to_string(u.entry) + " " + GuidArg(u.guid);
+    std::uint32_t& tries = r.shotStandTries[u.guid];
+    auto hold = [&](const std::string& note)
+    {
+        r.shotStandPrep = true;
+        r.shotHoldGuid = u.guid;
+        r.note = note;
+        return true;
+    };
+    // The stand walk for this unit: on to its end. A walk something else
+    // broke off (a gather) ends here too; its stand counted already.
+    if (r.shotStandWalk && r.shotStandGuid == u.guid)
+    {
+        r.shotStandWalk = false;
+        if (r.phase == Phase::Walk && r.walkX == r.shotStandX && r.walkY == r.shotStandY && r.walkZ == r.shotStandZ)
+        {
+            // Stuck (no headway for kWalkRetryMs short of the point) or too
+            // long: the stand is given up before WalkTo would resend the move
+            // or pause the run, and the order goes out from here.
+            float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.shotStandX, r.shotStandY, r.shotStandZ);
+            bool const gaining = dist < r.walkBestYd - kWalkProgressYd;
+            r.shotWalkMs += dt;
+            if ((!gaining && r.walkStillMs + dt >= kWalkRetryMs && dist > kStalledArriveYd) ||
+                r.shotWalkMs >= kShotWalkCapMs)
+            {
+                // Held one tick more, without the hold's pass on the way back:
+                // the next tick checks the anchor from where the tank got stuck
+                // (another floor: the gather back first), then the order goes out.
+                tries = kShotStandTries;
+                r.shotWalkMs = 0;
+                EnterPhase(r, Phase::Begin);
+                r.shotHow = "firing stand unreachable: ordering from here";
+                r.shotStandPrep = false;
+                r.note = "firing stand unreachable for " + what + ": checking the way back before the order";
+                return true;
+            }
+            if (!WalkTo(r, f, r.shotStandX, r.shotStandY, r.shotStandZ, false, dt, order))
+            {
+                if (r.state != State::Running)
+                    return true; // stuck: WalkTo paused the run with its reason
+                r.shotStandWalk = true;
+                return hold("to firing stand " + std::to_string(tries) + " for " + what);
+            }
+            EnterPhase(r, Phase::Begin); // arrived (the anchor is the stand now)
+        }
+        r.shotStillMs = 0;
+    }
+    if (f.leadMoving && r.shotStillMs < kShotStillWaitMs)
+    {
+        r.shotStillMs += dt;
+        return hold("waiting for the tank to stand still before pulling " + what);
+    }
+    bool const moving = f.leadMoving;
+    if (ShootableFromLead(f, u))
+    {
+        r.shotHow = std::string(tries ? "shot from firing stand " + std::to_string(tries) : "shot from where it stands") +
+            (moving ? ", still moving" : "");
+        return false;
+    }
+    if (tries >= kShotStandTries)
+    {
+        if (r.shotHow.compare(0, 24, "firing stand unreachable") != 0)
+            r.shotHow = "firing stands used up (" + std::to_string(tries) + ")";
+        return false;
+    }
+    if (standRead)
+    {
+        if (!f.shotStandKnown)
+        {
+            tries = kShotStandTries;
+            r.shotHow = "no firing stand found";
+            return false;
+        }
+        if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, f.shotStandX, f.shotStandY, f.shotStandZ) <= kArriveYd)
+        {
+            // The stand is where the tank stands: walking gains nothing.
+            tries = kShotStandTries;
+            r.shotHow = "the firing stand is where it stands";
+            return false;
+        }
+        ++tries;
+        r.shotStandWalk = true;
+        r.shotStandGuid = u.guid;
+        r.shotStandX = f.shotStandX;
+        r.shotStandY = f.shotStandY;
+        r.shotStandZ = f.shotStandZ;
+        r.shotStillMs = 0;
+        r.shotWalkMs = 0;
+        WalkTo(r, f, f.shotStandX, f.shotStandY, f.shotStandZ, false, dt, order);
+        return hold("to firing stand " + std::to_string(tries) + " for " + what + " (" + Num(f.shotStandYd) +
+            " yd from it; was " + Num(u.distLead) + " yd, los " + (u.losLead ? "yes" : "no") + ")");
+    }
+    r.shotStandFor = u.guid; // the glue reads it on the next tick
+    return hold("reading a firing stand for " + what);
+}
+
 // Gathers the party, crowd-controls the plan's cc target of the pack (one
 // `cc moon <guid> <mage>`, once per unit and step), then sends `pullback <guid>`.
+// With the pull stand on (HoldForShot), the tank is put where it can shoot first.
 inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& order, const UnitFact* cc = nullptr,
-    bool walkBack = false)
+    bool walkBack = false, std::uint32_t dt = kTickMs)
 {
     // The owner's wait rule at the pull itself (Uldaman 19z11: 17 of 63 pulls
     // went out with a member dead, 15 with the healer, two of them into
@@ -2277,7 +2549,12 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     }
     if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
         DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
-    AnchorState const anchor = r.gatherWaived ? AnchorState::On : CheckAnchor(r, f);
+    if (r.shotStandPrep && r.shotHoldGuid != u.guid)
+        r.shotStandPrep = false; // the pull stand held another unit: this one checks the way back
+    // A pull the stand rule holds checked the way back on its first tick; its
+    // stand walk is driven every tick, not every other one while the path back
+    // is read (shotStandPrep is only set on consecutive gate ticks).
+    AnchorState const anchor = r.gatherWaived || r.shotStandPrep ? AnchorState::On : CheckAnchor(r, f);
     if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
     {
         r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
@@ -2330,6 +2607,14 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         order = "cc moon " + std::to_string(cc->guid) + " " + bot;
         return;
     }
+    // The pull stand (off: false at once, nothing changed): before the gather
+    // waiver is spent, so a stand walk from a hop in sight keeps it.
+    if (f.pullStand)
+    {
+        auto const done = r.pullTries.find(u.guid);
+        if ((done == r.pullTries.end() || done->second < kMaxPullsPerTarget) && HoldForShot(r, f, u, dt, order))
+            return;
+    }
     // A gather left out holds for this pull only: the next one gathers again.
     r.gatherWaived = false;
     r.hopWaiveUnits.clear();
@@ -2351,6 +2636,17 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     EnterPhase(r, Phase::AwaitPull);
     r.note = "pulling " + std::to_string(u.entry);
     order = "pullback " + std::to_string(u.guid);
+    if (f.pullStand)
+    {
+        // Each order its own status line (the trace keeps only changes): the
+        // target's guid, the how-many-th order to it, and how its shot stood.
+        r.note += " " + GuidArg(u.guid) + " (order " + std::to_string(tries) + "; " + r.shotHow + ")";
+        r.shotStandPrep = false;
+        r.shotStandFor = 0;
+        r.shotStandWalk = false;
+        r.shotStillMs = 0;
+        r.shotHow.clear();
+    }
 }
 
 // The step's pull is out: wait for the fight (the fight gate takes over) or
@@ -2720,7 +3016,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
     }
     if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0))
     {
-        PullUnit(r, f, *hopUnit, order, nullptr, true);
+        PullUnit(r, f, *hopUnit, order, nullptr, true, dt);
         if (r.state == State::Running)
             r.note = "walk back: " + r.note;
         return true;
@@ -2953,7 +3249,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         r.bossWaitMs = 0;
         // The way back to the anchor not known yet: read it first (one tick),
         // before this pull counts as one.
-        if (r.phase != Phase::Gather && !r.gatherWaived && CheckAnchor(r, f) == AnchorState::Unknown)
+        // (A hold for another unit than the pick is caught by PullUnit's own check of the way back.)
+        if (r.phase != Phase::Gather && !r.gatherWaived && !r.shotStandPrep && CheckAnchor(r, f) == AnchorState::Unknown)
         {
             r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
             return;
@@ -2981,7 +3278,8 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         // Pulls that kill nothing, three in a row: the rest of the pack is
         // out of reach (a pit, a ledge). It is left, not counted cleared.
         std::size_t const open = OpenUnits(r, f.units);
-        if (r.phase != Phase::Gather)
+        // A tick the pull stand held (HoldForShot) is the same pull, not another one.
+        if (r.phase != Phase::Gather && !r.shotStandPrep)
         {
             if (r.pulls > 0 && open >= r.openAtLastPull)
                 ++r.fruitlessPulls;
@@ -3000,9 +3298,9 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                 " pulls that killed nothing");
             return;
         }
-        PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid));
+        PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);
         if (!budgetNote.empty() && r.phase == Phase::AwaitPull)
-            r.note = budgetNote;
+            r.note = f.pullStand ? budgetNote + "; " + r.note : budgetNote;
         return;
     }
     if (OpenUnits(r, f.units) > 0)
@@ -3079,7 +3377,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     }
     if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0))
     {
-        PullUnit(r, f, *hopUnit, order);
+        PullUnit(r, f, *hopUnit, order, nullptr, false, dt);
         return;
     }
     // Far away (after a wipe the lead bot comes back from the entrance; a
@@ -4499,13 +4797,23 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
 
 inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
+    r.shotGateRan = false;
+    std::string order;
+    bool held = false;
     if (r.state == State::Running && !r.hold.empty())
     {
         UpdateHold(r, f);
         if (!r.hold.empty())
-            return TickBody(r, HoldView(r, f), dt, lines);
+        {
+            order = TickBody(r, HoldView(r, f), dt, lines);
+            held = true;
+        }
     }
-    return TickBody(r, f, dt, lines);
+    if (!held)
+        order = TickBody(r, f, dt, lines);
+    if (!r.shotGateRan)
+        EndShotHold(r); // the pull stand's hold ends with any tick its gate did not run on
+    return order;
 }
 
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)

@@ -24,6 +24,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
+| [`AiPlayerbot.DungeonRunPullStand`](#aiplayerbotdungeonrunpullstand) | `0` | For a tank that pulls with a ranged weapon, the run leader orders `pullback` only when it can shoot from where it stands, else it walks the party to a firing stand first. |
 | [`AiPlayerbot.DungeonRunRezHold`](#aiplayerbotdungeonrunrezhold) | `0` | The run leader's regroup waits for a living resurrector to raise the fallen (and for its mana) before it revives the party at the spirit healer. |
 | [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) | `0` | Lets a bound remote commander start the opt-in run leader (`.bot run`). |
 | [`AiPlayerbot.DungeonTactics`](#aiplayerbotdungeontactics) | `0` | Applies the per-boss tactics table (`ai_boss_tactic`) to every bot, not only commanded parties. |
@@ -115,6 +116,17 @@ How long a run leader run (`.bot run`) may last before it ends by itself.
 <summary>How it works in detail</summary>
 
 **Run leader time limit:** a `.bot run` that has lasted this many minutes since `run start` (a pause counts) ends with the status note `time limit reached (3h)`, the bots staying bound. `0` = no limit. Only read while `AiPlayerbot.DungeonSelfClear = 1`. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+
+</details>
+
+### `AiPlayerbot.DungeonRunPullStand`
+Makes the run leader put the tank where its ranged weapon can fire before it orders `pullback`.
+**Default:** `0` · **Values:** `0` off (the run leader pulls exactly as before), `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Pull stand:** only read while `AiPlayerbot.DungeonSelfClear = 1`. In the Wailing Caverns runs of 2026-10-21 a tank ordered from a spot it could not shoot from walked to a firing position by itself and did not fire from there (the pull timed out and the same order came again about 26 s later), while every pull ordered with the tank standing in range and in sight fired at once. The rule only covers a tank whose pull is a ranged weapon shot (bow, crossbow, gun, thrown weapon or wand). Any other pull goes out as before: a spell pull, a body pull (no ranged weapon, skill, shoot spell or ammo), or a shot range of 5 yd or less. With `1`, before each `pullback` the run leader checks three things: the target is in the tank's sight, it is within the shot's range less 5 yd (the range is read from the tank's own pull), and the tank stands still (a moving tank is waited for up to 3 s). If any of them fails, it reads a firing stand on the tank's navmesh path to the target (the path walked back from the target to the first point in range that sees it). It walks the party there, then orders the pull; at most 2 stands per target and step. A stand walk that gains no ground for 12 s, or lasts more than 36 s, is given up and the order goes out from where the tank is (`firing stand unreachable: ordering from here`): the run never pauses for it. No stand, the stands used up, or a scripted event: the order goes out as before. A fight, a gather or a regroup that comes in between ends the wait; the stands already walked to stay counted for that target in that step, so the rule is applied again only with the stands left. A stand walk that is given up is followed by one tick that checks the way back to the last stand point (a tank stuck on another floor first gathers back there) before the order goes out. Among units of the same kill-first rank, one the tank can shoot from where it stands is pulled before a nearer one it cannot. The status note of each order names the target's guid, the how-many-th order to it this step and how its shot stood (`pulling 3636 0x... (order 2; shot from firing stand 1)`). With `0` nothing is read and nothing changes. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#pull-stand).
 
 </details>
 
