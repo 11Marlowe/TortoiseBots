@@ -1,0 +1,30 @@
+name: Delete branch of closed PR
+
+# Merged PRs already lose their branch through the repository setting
+# "Automatically delete head branches". This covers PRs closed without a
+# merge. Long-lived branches and branches from forks are left alone.
+on:
+  pull_request_target:
+    types: [closed]
+
+permissions:
+  contents: write
+
+jobs:
+  delete:
+    if: >-
+      github.event.pull_request.merged == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(fromJSON('["main", "dev", "feat/dungeon-self-clear"]'), github.event.pull_request.head.ref)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete the head branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$BRANCH"; then
+            echo "Deleted $BRANCH"
+          else
+            echo "Could not delete $BRANCH (already gone or protected by a ruleset)"
+          fi

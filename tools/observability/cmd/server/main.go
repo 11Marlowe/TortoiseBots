@@ -17,6 +17,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
+	"tortoise-observability/internal/agentmaps"
 	"tortoise-observability/internal/armory"
 	"tortoise-observability/internal/auth"
 	"tortoise-observability/internal/dungeons"
@@ -70,8 +71,11 @@ func main() {
 	mapDirRaw := flag.String("map-dir", getEnv("TBDASH_MAP_DIR", ""), "Optional folder of map pictures (<id>.png + <id>.json from `turtle-agent minimap-extract`) drawn under the Commanders tab maps (env TBDASH_MAP_DIR)")
 	// The run summaries the module's run trace recorder writes (`.bot trace`, AiPlayerbot.RunTrace.Dir under LogsDir). Read-only.
 	// Unset: look in the usual places (logs/traces, traces) next to where the daemon runs, and keep looking until one exists.
-	traceDir := flag.String("trace-dir", getEnv("TBDASH_TRACE_DIR", ""), "Folder of run trace summaries (<run>.summary.json) for the Dungeons tab; the module's AiPlayerbot.RunTrace.Dir (env TBDASH_TRACE_DIR)")
+	traceDir := flag.String("trace-dir", getEnv("TBDASH_TRACE_DIR", ""), "Folder of run trace summaries (<run>.summary.json) for the Dungeon runs tab; the module's AiPlayerbot.RunTrace.Dir (env TBDASH_TRACE_DIR)")
 	traceScanSec := flag.Int("trace-scan-sec", getEnvInt("TBDASH_TRACE_SCAN_SEC", 10), "How often the trace folder is checked for new or changed summaries, in seconds")
+	// Optional folder of turtle-agent run maps (`turtle-agent map`: one SVG per run, plus the single-file HTML replay with --html).
+	// Read-only and off by default: unset, the Agent maps tab is hidden and its routes 404.
+	agentMapsDirRaw := flag.String("agent-maps-dir", getEnv("TBDASH_AGENT_MAPS_DIR", ""), "Optional folder of turtle-agent run maps (`turtle-agent map` .svg and .html replays) listed in the Agent maps tab (env TBDASH_AGENT_MAPS_DIR)")
 	devNoAuth := flag.Bool("dev-no-auth", false, "Disable Game Master authentication check for local dev testing")
 	// The activity rollup is in-memory, so without this a dashboard restart
 	// resets every counter. The file sits in the mounted icon-cache directory
@@ -151,13 +155,13 @@ func main() {
 	log.Printf("[Auth] Realmd MySQL authentication ready against %s:%d/%s", *dbHost, *dbPort, *dbName)
 
 	armoryService, err := armory.NewService(armory.Config{
-		DBHost:           *dbHost,
-		DBPort:           *dbPort,
-		DBUser:           *dbUser,
-		DBPassword:       *dbPass,
-		CharDB:           *dbChar,
-		WorldDB:          *dbWorld,
-		DBCDir:           *dbcDir,
+		DBHost:     *dbHost,
+		DBPort:     *dbPort,
+		DBUser:     *dbUser,
+		DBPassword: *dbPass,
+		CharDB:     *dbChar,
+		WorldDB:    *dbWorld,
+		DBCDir:     *dbcDir,
 	})
 	if err != nil {
 		log.Fatalf("Failed to initialize armory service: %v", err)
@@ -223,7 +227,7 @@ func main() {
 		log.Printf("[Commanders] real map pictures served from %s", mapPics.Root())
 	}
 
-	// Dungeons tab: one pass over the trace folder now, then a cheap directory check every few seconds. Requests read the in-memory index.
+	// Dungeon runs tab: one pass over the trace folder now, then a cheap directory check every few seconds. Requests read the in-memory index.
 	dungeonIndex := dungeons.NewIndex(*traceDir)
 	dungeonIndex.Scan()
 	if m := dungeonIndex.Meta(); m.DirFound {
@@ -235,6 +239,14 @@ func main() {
 		*traceScanSec = 2
 	}
 	go dungeonIndex.Loop(time.Duration(*traceScanSec)*time.Second, make(chan struct{}))
+
+	agentMaps, err := agentmaps.New(*agentMapsDirRaw)
+	if err != nil {
+		log.Printf("[AgentMaps] ignoring the run-map folder %q: %v", *agentMapsDirRaw, err)
+		agentMaps = nil
+	} else if agentMaps != nil {
+		log.Printf("[AgentMaps] run maps served from %s (at most %d files, %d MiB each)", agentMaps.Root(), agentmaps.MaxFiles, agentmaps.MaxFileSize>>20)
+	}
 
 	// 5. WebSocket hub and UDP ingestion
 	hub := ws.NewHub()
@@ -451,20 +463,33 @@ func main() {
 		}{store.Commanders(), commanderURL, mapPics != nil})
 	}))
 
+	// The live dungeon runs (issue #895): one entry per instance copy (map +
+	// instance id) of a dungeon or raid that has bots in it, members (bots and
+	// real players) included. Read-only: the tab draws, it never orders.
+	mux.HandleFunc("/api/v1/dungeons", requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, store.Dungeons())
+	}))
+
 	// The bound bots' recent paths (a short bounded history kept in memory), so a page opened mid-run starts with the trails drawn:
-	// {"<commander>": {"<bot guid>": {"map": 209, "pts": [[x, y, unix seconds], ...]}}}, oldest point first.
+	// {"<commander>": {"<bot guid>": {"map": 209, "pts": [[x, y, unix seconds], ...]}}}, oldest point first. A point where something
+	// happened carries a fourth element: "d" the bot died here, "t" it teleported (a jump no walking explains), "r" the same while dead
+	// (spirit release or resurrection), "m" it arrived on this map. A point marked t, r or m starts a new segment: draw no line from the
+	// point before it.
 	mux.HandleFunc("/api/v1/commanders/trails", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		type trailJSON struct {
-			Map uint32       `json:"map"`
-			Pts [][3]float64 `json:"pts"`
+			Map uint32  `json:"map"`
+			Pts [][]any `json:"pts"`
 		}
 		out := map[string]map[string]trailJSON{}
 		for c, bots := range store.Trails() {
 			m := make(map[string]trailJSON, len(bots))
 			for g, t := range bots {
-				pts := make([][3]float64, len(t.Points))
+				pts := make([][]any, len(t.Points))
 				for i, p := range t.Points {
-					pts[i] = [3]float64{math.Round(float64(p.X)*10) / 10, math.Round(float64(p.Y)*10) / 10, float64(p.T)}
+					pts[i] = []any{math.Round(float64(p.X)*10) / 10, math.Round(float64(p.Y)*10) / 10, p.T}
+					if p.Kind != 0 {
+						pts[i] = append(pts[i], string(rune(p.Kind)))
+					}
 				}
 				m[strconv.FormatUint(uint64(g), 10)] = trailJSON{Map: t.Map, Pts: pts}
 			}
@@ -480,8 +505,14 @@ func main() {
 		mux.HandleFunc(mapdir.FilePrefix, requireAuth(mapPics.HandleFile))
 	}
 
-	// Dungeons: success rate, clear times, boss kill times and wipe spots from the run trace summaries. Files only; GET only.
+	// Dungeon runs (GET /api/v1/dungeon-runs; the live Dungeons tab is /api/v1/dungeons above): success rate, clear times, boss kill times and wipe spots from the run trace summaries. Files only; GET only.
 	dungeonIndex.Register(mux, requireAuth)
+	// Turtle-agent run maps (issue #1102): the list and the read-only files of --agent-maps-dir, behind the same login. The folder
+	// is off by default; when it is not set no route is registered, so the tab's URLs 404 and the page hides the tab.
+	if agentMaps != nil {
+		mux.HandleFunc(agentmaps.ListPrefix, requireAuth(agentMaps.HandleList))
+		mux.HandleFunc(agentmaps.FilePrefix, requireAuth(agentMaps.HandleFile))
+	}
 
 	mux.HandleFunc("/api/v1/server-info", requireAuth(func(w http.ResponseWriter, r *http.Request) {
 		if info := store.ServerInfo(); info != nil {
@@ -608,7 +639,7 @@ func main() {
 		hub.Serve(w, r, upgrader, initial...)
 	})
 
- serverAddr := fmt.Sprintf("0.0.0.0:%d", *httpPort)
+	serverAddr := fmt.Sprintf("0.0.0.0:%d", *httpPort)
 	log.Printf("[HTTP] Dashboard & API running at http://localhost:%d/dashboard", *httpPort)
 	log.Printf("[HTTP] Prometheus metrics available at http://localhost:%d/metrics", *httpPort)
 

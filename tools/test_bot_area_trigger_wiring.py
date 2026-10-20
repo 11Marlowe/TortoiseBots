@@ -70,12 +70,13 @@ class BotAreaTriggerWiringTest(unittest.TestCase):
         self.assertIn('LoadList<std::list<uint32> >(config.GetStringDefault("AiPlayerbot.BotAreaTriggers", ""), botAreaTriggerIds);', CONF_CPP)
         self.assertRegex(TEMPLATE, r"(?m)^AiPlayerbot\.BotAreaTriggers =$")
         self.assertIn("# Default: (empty)", TEMPLATE)
-        doc = (ROOT / "docs/guides/configuration-tuning.md").read_text()
-        self.assertIn("| `AiPlayerbot.BotAreaTriggers` | *(empty)* | `962` |", doc)
+        doc = (ROOT / "docs/server/settings/dungeons-raids.md").read_text()
+        self.assertIn("| [`AiPlayerbot.BotAreaTriggers`](#aiplayerbotbotareatriggers) | *(empty)* |", doc)
+        self.assertIn("**Default:** *(empty)*", doc[doc.index("### `AiPlayerbot.BotAreaTriggers`"):])
 
     def test_audited_ids_are_documented(self):
         # 962 is the opt-in example; every audited id says what its script does.
-        doc = (ROOT / "docs/guides/configuration-tuning.md").read_text()
+        doc = (ROOT / "docs/server/settings/dungeons-raids.md").read_text()
         audited = re.findall(r"(?m)^#   (\d+) - ", TEMPLATE)
         self.assertEqual(audited, ["962"])
         self.assertIn("Opt in with: AiPlayerbot.BotAreaTriggers = 962", TEMPLATE)

@@ -2,7 +2,7 @@
 
 // Run trace (opt-in): records what a party of bots did during one run as a
 // bt-trace v1 JSONL file plus a <run_id>.summary.json, for offline scoring by
-// tools/trace_score.py. Schema: docs/guides/run-trace.md. Records and decisions:
+// tools/trace_score.py. Schema: docs/server/run-trace.md. Records and decisions:
 // runtime/RunTraceRecords.h; file writer: runtime/RunTraceWriter.h.
 //
 // Off by default (AiPlayerbot.RunTrace.Enabled = 0). Started and stopped by
@@ -14,7 +14,7 @@
 // detached (the world tick after the run ends).
 //
 // Threading: the whole recorder runs on the world thread (the bots' AI, the
-// command queue and Update() all do; see docs/concepts/architecture-invariants.md).
+// command queue and Update() all do; see docs/developers/architecture.md).
 // Every disk write after the file is opened is off it: lines, the summary and
 // the end record go through a bounded queue to the writer thread (lines are
 // dropped and counted when it is full), and ending a run only queues the end

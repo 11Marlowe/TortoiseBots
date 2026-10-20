@@ -3,7 +3,7 @@
 
 A trace is the JSONL file the server's run trace recorder writes
 (`.bot trace start <run_id>`, runtime/RunTrace.cpp; schema in
-docs/guides/run-trace.md). The oracles are pure functions of the trace, so an
+docs/server/run-trace.md). The oracles are pure functions of the trace, so an
 old trace can be re-scored after an oracle changes and two builds compared on
 the same scenario.
 
@@ -41,7 +41,7 @@ By default the verdicts are written into the run's `<run_id>.summary.json`
 Provenance: the idea of scoring a trace with pure oracles and the oracle
 catalogue's shape come from mod-dungeon-clear's Pull Lab (jrad7/mod-dungeon-clear
 @ da0bdfbc, src/Lab/DcLabOracles.*, AGPL-3.0-or-later); the oracles here are
-new, for the 1.12 module (docs/PROVENANCE.md).
+new, for the 1.12 module (provenance in its PR).
 """
 
 import argparse

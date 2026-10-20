@@ -77,6 +77,7 @@ def main():
     parser.add_argument("--thread-id", default="", help="Target Discord thread ID.")
     parser.add_argument("--username", default="TortoiseBots Releases", help="Webhook bot display name.")
     parser.add_argument("--avatar-url", default="", help="Optional bot avatar image URL.")
+    parser.add_argument("--changelog-thread-id", default="", help="With --short: link to this Discord changelog thread.")
     parser.add_argument("--short", action="store_true", help="Post a concise release announcement with link instead of full changelog dump.")
     args = parser.parse_args()
 
@@ -106,21 +107,18 @@ def main():
         if args.tag and args.tag not in args.title and args.tag.lstrip("v") not in args.title:
             embed_title += f" • {args.tag}"
 
+        # Release thread: version, download and the full changelog only. The
+        # list of changes itself goes to the changelog thread.
+        changelog_url = f"https://github.com/{args.repo}/blob/main/CHANGELOG.md"
         desc_parts = [
-            f"A new release of **{args.tag or 'TortoiseBots'}** is now available!",
-            ""
+            f"A new release of TortoiseBots is out: **{args.tag or args.title}**.",
+            "",
+            f"**Download:** {release_url}",
+            f"**Full changelog:** {changelog_url}",
         ]
-        if notes_text:
-            preview = notes_text[:600]
-            if len(notes_text) > 600:
-                last_nl = preview.rfind("\n")
-                if last_nl > 200:
-                    preview = preview[:last_nl]
-                preview += "\n..."
-            desc_parts.append(preview)
-            desc_parts.append("")
-
-        desc_parts.append(f"**[Download Release & View Changelog on GitHub]({release_url})**")
+        if args.changelog_thread_id:
+            # A thread is a channel: <#id> renders as a link to it.
+            desc_parts.append(f"**What changed:** <#{args.changelog_thread_id}>")
         embed_desc = "\n".join(desc_parts)
 
         embed = {

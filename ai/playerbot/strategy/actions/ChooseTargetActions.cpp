@@ -63,7 +63,7 @@ bool AttackAnythingAction::isUseful()
     // at the graveyard) pulls nothing for the revive grace minute: it rests
     // first. Over half of all revives died again within 10 min (Oct 2026
     // pool). Revenge above still answers anything that attacks it.
-    if (ai->InReviveGrace() && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster())
+    if (ai->InReviveGrace() && sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster())
         return false;
 
     // A finished quest waiting at its taker is the bot's own business: the walk
@@ -89,7 +89,7 @@ bool AttackAnythingAction::isUseful()
     // answered, so the gate below only runs with no attacker holding the bot.
     // Pool-only (masterless random): owned bots and bots with a real
     // player master keep today's behaviour.
-    if (!bot->InBattleGround() && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
+    if (!bot->InBattleGround() && sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
         bot->GetAttackers().empty())
     {
         uint8 const healthPct = AI_VALUE2(uint8, "health", "self target");

@@ -24,7 +24,7 @@ DOCS_DIR = Path(__file__).resolve().parent.parent / "docs"
 MANIFEST_FILE = DOCS_DIR / "manifest.yaml"
 
 REQUIRED_FIELDS = ["id", "title", "category", "summary", "tags"]
-VALID_CATEGORIES = {"classes", "guides", "concepts", "reference"}
+VALID_CATEGORIES = {"play", "world", "classes", "server", "developers", "reference"}
 
 FRONTMATTER_REGEX = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 MD_LINK_REGEX = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")

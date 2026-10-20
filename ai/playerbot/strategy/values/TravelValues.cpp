@@ -8,6 +8,7 @@
 #include "MaintenanceValues.h"
 #include "QuestValues.h"
 #include "SharedValueContext.h"
+#include "runtime/AltBotService.h"
 #include "BudgetValues.h"
 #include "GuildValues.h"
 #include "Guild/GuildMgr.h"
@@ -343,7 +344,7 @@ bool NeedTravelPurposeValue::Calculate()
         // below level 5), so the last 15 minutes of each hour leave a level 1-4
         // pool bot with quests parked and no errand at all (issue #393). Let
         // them grind around the clock instead of idling at an NPC.
-        bool const beginner = bot->GetLevel() < 5 && sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+        bool const beginner = bot->GetLevel() < 5 && sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
         if (!beginner)
         {
             uint32 rpgPhase = ai->GetFixedBotNumber(BotTypeNumber::RPG_PHASE_NUMBER, 60, 1);
@@ -478,10 +479,16 @@ bool ShouldTravelNamedValue::Calculate()
     }
     else if (name == "reagent vendor")
     {
+        // Issue #872 (B11): autonomous alts never travel to buy reagents.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return false;
         return AI_VALUE(bool, "needs profession reagents");
     }
     else if (name == "mount")
     {
+        // Issue #872 (B11): autonomous alts never buy mounts.
+        if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return false;
         if (AI_VALUE(bool, "can buy mount"))
             return true;
 
@@ -489,6 +496,10 @@ bool ShouldTravelNamedValue::Calculate()
     }
     else if (name.find("trainer") == 0)
     {
+        // Issue #872 (B11): autonomous alts train class spells only.
+        if (name != "trainer class" &&
+            TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return false;
         // Park pre-gate (perf): a parked trainer need stays parked until the
         // purse covers the cheapest rank (money park) or a level-up clears it
         // (AutoLearnSpellAction). The full probe below walks the trainer map
@@ -543,7 +554,7 @@ bool ShouldTravelNamedValue::Calculate()
             if (entries.empty())
                 return false;
 
-            bool const masterless = sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster();
+            bool const masterless = sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster();
             // Same window the request searches (ChooseTravelTargetAction).
             float const window = name == "trainer class" ?
                 ClassTrainerRequestMaxDistance(masterless, bot->GetLevel(),
@@ -651,7 +662,7 @@ bool ShouldLeaveOutgrownZoneValue::Calculate()
     if (!sPlayerbotAIConfig.leaveOutgrownZones)
         return false;
 
-    if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
+    if (!sRandomBotFacade.IsFreeBot(bot) || ai->HasRealPlayerMaster())
         return false;
 
     if (!bot->IsAlive())

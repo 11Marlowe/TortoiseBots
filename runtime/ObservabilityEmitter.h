@@ -24,6 +24,9 @@ struct BotTelemetrySnapshot
     uint32 guid = 0;
     bool isPlayer = false;  // true for a real online player, false for a bot
     uint32 groupId = 0;     // core Group::GetId(), 0 = not in a group
+    bool isAlt = false;     // true for an autonomous owned alt-bot (Issue #872)
+    // Dashboard kind (Issue #872): pool/hired/claimed/alt/companion/player.
+    std::string kind;
     std::string className;
     std::string role;
     uint32 level = 0;
@@ -36,6 +39,13 @@ struct BotTelemetrySnapshot
     std::string powerType; // "mana", "rage", "energy", "focus", "happiness"
     uint32 mapId = 0;
     uint32 zoneId = 0;
+    // Instance copy the unit is in (Map::GetInstanceId(), issue #895): 0 in
+    // the open world, non-zero inside a dungeon, raid or battleground copy,
+    // so the dashboard can tell two copies of the same dungeon apart. The
+    // unit's raid subgroup (Player::GetSubGroup()) rides along for the
+    // Dungeons tab.
+    uint32 instanceId = 0;
+    uint32 subgroupId = 0;
     float x = 0.0f;
     float y = 0.0f;
     float z = 0.0f;

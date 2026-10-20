@@ -43,12 +43,19 @@ namespace ai
         static bool IsMountSpell(uint32 spellId);
         static uint32 GetSpeed(uint32 spellId);
         static uint32 GetMountSpell(uint32 itemId);
+        static uint32 GetMountItem(uint32 spellId);
+        uint32 GetItemId() const;
         bool IsValidLocation(Player* bot);
+        bool IsAllowedFor(Player* bot) const;
 
     private:
         const ItemPrototype* proto = nullptr;
         uint32 spellId = 0;
     };
+
+    // Core-owned collection_mount rows (itemId, spellId), loaded once from
+    // WorldDatabase and shared by the factory and the shop-mount classifier.
+    std::vector<std::pair<uint32, uint32>> const& CollectionMounts();
 
     class CurrentMountSpeedValue : public Uint32CalculatedValue, public Qualified
     {

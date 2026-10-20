@@ -16,7 +16,7 @@ using namespace ai;
 // Defined in Helpers.cpp.
 bool istarts_with(std::string_view text, std::string_view prefix);
 
-std::unordered_set<std::string> noReplyMsgs = { "all ?", "attack", "attack rti", "bank", "c", "co ?", "de ?", "dead ?", "do accept invitation", "faction", "flee", "follow", "give leader", "guard", "guild leave", "help", "home", "items", "join", "jump", "leave", "lfg", "loot", "los", "nc ?", "pet aggressive", "pet defensive", "pet passive", "pet follow", "pet stay", "pet attack", "pet dismiss", "pet call", "pull", "pull rti", "quests", "quests co", "quests in", "quests all", "react ?", "release", "repair", "reset", "reset ai", "reset strats", "revive", "roll feedback", "skill", "spells", "stats", "stay", "summon", "talents", "talk", "trainer" "trainer learn", "u go", "who", "where" };
+std::unordered_set<std::string> noReplyMsgs = { "all ?", "attack", "attack rti", "bank", "c", "co ?", "de ?", "dead ?", "do accept invitation", "faction", "flee", "follow", "give leader", "guard", "guild leave", "help", "home", "items", "join", "jump", "leave", "lfg", "loot", "los", "nc ?", "pet aggressive", "pet defensive", "pet passive", "pet follow", "pet stay", "pet attack", "pet dismiss", "pet call", "pull", "pullback", "pull rti", "quests", "quests co", "quests in", "quests all", "react ?", "release", "repair", "reset", "reset ai", "reset strats", "revive", "roll feedback", "skill", "spells", "stats", "stay", "summon", "talents", "talk", "trainer" "trainer learn", "u go", "who", "where" };
 
 std::unordered_set<std::string> noReplyMsgParts = {  };
 
@@ -453,6 +453,29 @@ delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
     return packets;
 }
 
+// Issue #1108: the channels where a line reaches everybody around, not the
+// bot's own group and not one player. A reply in one of them is ambient
+// traffic and follows AiPlayerbot.EnableBroadcasts.
+static bool IsPublicChatSource(ChatChannelSource source)
+{
+    switch (source)
+    {
+    case ChatChannelSource::SRC_SAY:
+    case ChatChannelSource::SRC_YELL:
+    case ChatChannelSource::SRC_GUILD:
+    case ChatChannelSource::SRC_WORLD:
+    case ChatChannelSource::SRC_GENERAL:
+    case ChatChannelSource::SRC_TRADE:
+    case ChatChannelSource::SRC_LOOKING_FOR_GROUP:
+    case ChatChannelSource::SRC_LOCAL_DEFENSE:
+    case ChatChannelSource::SRC_WORLD_DEFENSE:
+    case ChatChannelSource::SRC_GUILD_RECRUITMENT:
+        return true;
+    default:
+        return false;
+    }
+}
+
 void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name)
 {
     // if we're just commanding bots around, don't respond...
@@ -487,6 +510,14 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
 
     ChatChannelSource chatChannelSource = PlayerbotAIStorage::Instance().GetAI(bot)->GetChatChannelSource(bot, type, chanName);
 
+    // Issue #1108: with broadcasts off the bot only answers where the
+    // answer stays private or inside its group. A reply to the bot's own
+    // master answers a player, it is not a broadcast, so it stays.
+    PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(bot);
+    Player* master = botAi ? botAi->GetMaster() : nullptr;
+    bool replyToMaster = master && master->GetGUIDLow() == guid1;
+    PlayerbotAI::CommandedChatScope commandedChat(botAi, replyToMaster);
+
     if ((istarts_with(msg, "LFG") || istarts_with(msg, "LFM"))
         && HandleLFGQuestsReply(bot, chatChannelSource, msg, name))
     {
@@ -511,6 +542,15 @@ void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32
     if (PlayerbotAIStorage::Instance().GetAI(bot)->GetChatHelper()->ExtractAllItemIds(msg).count(19019))
     {
         HandleThunderfuryReply(bot, chatChannelSource, msg, name);
+        return;
+    }
+
+    // Issue #1108: a reply that goes out in /say, /yell, guild chat or a
+    // world channel is broadcast traffic and follows
+    // AiPlayerbot.EnableBroadcasts. A private answer, a group answer and
+    // the answer to the bot's own master are functional and stay.
+    if (!sPlayerbotAIConfig.enableBroadcasts && !replyToMaster && IsPublicChatSource(chatChannelSource))
+    {
         return;
     }
 
@@ -1543,6 +1583,11 @@ bool ChatReplyAction::isUseful()
 
 bool SpeakAction::Execute(Event& event)
 {
+    // Issue #1108: "speak" is a player order. The line it produces answers
+    // that order, it is not a broadcast, so it survives
+    // AiPlayerbot.EnableBroadcasts = 0.
+    PlayerbotAI::CommandedChatScope commandedChat(ai, true);
+
     bool botsTalkLikePlayers = true;
 
     std::string text = event.GetParam();

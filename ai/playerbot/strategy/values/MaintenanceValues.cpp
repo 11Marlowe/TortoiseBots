@@ -286,7 +286,7 @@ GuidPosition ai::NearbyServiceTarget(PlayerbotAI* ai)
     //while owned alts keep their orders).
     if (TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
         return GuidPosition();
-    if (!sRandomBotFacade.IsRandomBot(bot) || ai->HasRealPlayerMaster())
+    if (!sRandomBotFacade.IsFreeBot(bot) || ai->HasRealPlayerMaster())
         return GuidPosition();
 
     if (!bot->IsAlive() || bot->IsInCombat() || !WorldPosition(bot).isOverworld())

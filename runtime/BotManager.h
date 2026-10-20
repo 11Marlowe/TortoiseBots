@@ -31,6 +31,7 @@ class WorldSession;
 class Player;
 class WorldPacket;
 class Unit;
+class PlayerbotAI;
 
 namespace TortoiseBots {
 
@@ -116,6 +117,12 @@ public:
     void OnPlayerLogin(Player* player);
     void OnPlayerBeforeLogout(Player* player);
     void OnPlayerLogout(Player* player);
+    // Issue #1043: checks the bot's current pet once per pet guid and moves a
+    // pet that appeared out of the bot's sight, on another floor or far away
+    // onto the bot (runtime/PetSpawnPolicy.h). Called on the world thread after
+    // the bot's AI turn and, for a clearly misplaced pet, from the map-thread
+    // player update hook; the two never run at the same time.
+    static void CheckNewPetSpawn(::Player* bot, ::PlayerbotAI* ai);
     void ReleaseToClient(Player* player);
     void Shutdown();
 
@@ -144,6 +151,9 @@ public:
     // RelocateHopelessBot). Same eligibility, +5 rule and destinations;
     // relocates after a grace period of continuous stranding.
     bool RelocateStrandedBot(::Player* bot);
+    // Teleport to a validated point in a zone that fits the bot's level (the
+    // pool's login scatter picker), for any bot. Level 10+, alive, fail-closed.
+    bool TeleportToLevelFittingZone(::Player* bot);
 
     // Durable manual ownership is separate from the transient Headless record.
     // GetOwnedCharacters includes every undeleted same-account character plus

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>TortoiseBots — Server & Bot Observability</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=12">
+  <link rel="stylesheet" href="/static/css/app.css?v=13">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232ea043%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polygon points=%2212 2 2 7 12 12 22 7 12 2%22/><polyline points=%222 17 12 22 22 17%22/><polyline points=%222 12 12 17 22 12%22/></svg>">
 </head>
 <body>
@@ -41,6 +41,16 @@
         <span>Map</span>
       </a>
 
+      <a class="menu-item" data-tab="dungeons" href="#/dungeons" title="Live view of every dungeon or raid copy that has bots in it">
+        <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V8l4-4 2 3 3-5 3 5 2-3v17"/><path d="M9 21v-4h6v4"/></svg>
+        <span>Dungeons</span>
+      </a>
+
+      <a class="menu-item" data-tab="agentmaps" href="#/agent-maps" style="display: none;" title="turtle-agent run maps (SVG and single-file HTML replays) from the folder the daemon was given">
+        <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-5.5 2V6L9 4l6 2 5.5-2v16L15 22l-6-2z"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="6" x2="15" y2="22"/></svg>
+        <span>Agent maps</span>
+      </a>
+
       <a class="menu-item" data-tab="commanders" href="#/commanders" style="display: none;" title="Remote commanders: the bots each one leads, where they are and the orders it gave">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22V4"/><path d="M4 4h12l-2 4 2 4H4"/><circle cx="19" cy="19" r="2"/></svg>
         <span>Commanders</span>
@@ -50,9 +60,9 @@
       </a>
 
       <div class="menu-category">Insight</div>
-      <a class="menu-item" data-tab="dungeons" href="#/dungeons" title="Dungeon runs: success rate, clear times, boss kill times and where the party wiped">
+      <a class="menu-item" data-tab="dungeon-runs" href="#/dungeon-runs" title="Dungeon runs: success rate, clear times, boss kill times and where the party wiped (run trace summaries)">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21V10a9 9 0 0 1 18 0v11"/><path d="M9 21v-6a3 3 0 0 1 6 0v6"/><line x1="2" y1="21" x2="22" y2="21"/></svg>
-        <span>Dungeons</span>
+        <span>Dungeon runs</span>
       </a>
       <a class="menu-item" data-tab="progress" href="#/progress" title="Levelling speed, XP and gear behind level">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
@@ -116,6 +126,11 @@
           <span id="status-dot" class="status-dot"></span>
           <span id="status-label">offline · <strong id="top-bots-val">0</strong> bots · <strong id="players-val">0</strong> players</span>
         </div>
+        <button type="button" class="refresh-badge" data-refresh-badge hidden title="The live views are frozen. Click to resume at the default rate (or pick a rate)">Paused &middot; click to resume</button>
+        <label class="refresh-picker" title="How often the live views (roster, maps, Commanders) show new data. The game server still reports every 2 s; this only changes what this page shows. Kept in this browser.">
+          <span>Refresh every</span>
+          <select data-refresh-select aria-label="Refresh every"></select>
+        </label>
         <button id="refresh-btn" class="btn btn-icon" title="Reload data from the daemon">Refresh</button>
       </div>
     </header>
@@ -229,6 +244,7 @@
             </div>
           </div>
           <div class="chip-row" id="state-chips" aria-label="Filter by state"></div>
+          <div class="chip-row" id="kind-chips" aria-label="Filter by kind"></div>
           <div class="chip-row" id="class-chips" aria-label="Filter by class"></div>
         </div>
 
@@ -454,9 +470,64 @@
         </div>
       </section>
 
-      <!-- TAB: DUNGEONS — how do the dungeon runs go: success rate, clear and boss times, wipes (run trace summaries) -->
-      <section id="tab-dungeons" class="tab-view" style="display: none;">
+      <!-- TAB: DUNGEON RUNS — how do the dungeon runs go: success rate, clear and boss times, wipes (run trace summaries) -->
+      <section id="tab-dungeon-runs" class="tab-view" style="display: none;">
         <div id="dg-root"></div>
+      </section>
+
+      <!-- TAB: DUNGEONS — every live instance copy (dungeon or raid) that has bots in it, one run per copy (issue #895) -->
+      <section id="tab-dungeons" class="tab-view" style="display: none;">
+        <div id="dgn-empty" class="card cmd-empty">
+          <h2 class="cmd-empty-title">No dungeon run right now</h2>
+          <p class="empty-hint">A run appears here within a couple of seconds of a bot entering an instance (a dungeon or raid copy; bots enter with a real player today, alt-bots may enter alone). Two groups in the same dungeon are two runs, each with its own live map. Read-only: this tab shows, it never orders.</p>
+        </div>
+        <div id="dgn-stale" class="card cmd-empty" style="display: none;">
+          <p class="empty-hint">The game server runs an older module that reports no instance id, so all copies of one dungeon appear as one run per map. Update the module to tell copies apart.</p>
+        </div>
+        <!-- The list of runs -->
+        <div id="dgn-list" class="card"></div>
+        <!-- The live view of one run: back link, header and the Commanders map card -->
+        <div id="dgn-view" style="display: none;">
+          <div class="card dgn-head">
+            <button type="button" id="dgn-back" class="btn" title="Back to the list of runs">&larr; All runs</button>
+            <h2 id="dgn-run-title"></h2>
+            <div id="dgn-run-sub" class="muted"></div>
+          </div>
+          <div id="dgn-card"></div>
+        </div>
+      </section>
+
+      <!-- TAB: AGENT MAPS — turtle-agent run maps from --agent-maps-dir, read-only and off unless the folder is set (issue #1102) -->
+      <section id="tab-agentmaps" class="tab-view" style="display: none;">
+        <div id="am-off" class="card cmd-empty" style="display: none;">
+          <h2 class="cmd-empty-title">Agent maps are off</h2>
+          <p class="empty-hint">Start the daemon with <code>--agent-maps-dir DIR</code> (or <code>TBDASH_AGENT_MAPS_DIR=DIR</code>), pointing at the folder <code>turtle-agent map</code> writes its <code>.svg</code> maps and single-file <code>.html</code> replays into. The tab then lists that folder read-only; nothing is uploaded, written or deleted.</p>
+        </div>
+        <div id="am-list-card" class="card table-card" style="display: none;">
+          <div class="card-head">
+            <h2 class="card-title">Run maps <span class="card-hint" id="am-count"></span></h2>
+            <button type="button" id="am-refresh" class="btn" title="Read the folder again">Refresh</button>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead><tr><th>Map</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead>
+              <tbody id="am-rows">
+                <tr><td colspan="4" class="table-empty">Loading run maps…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="empty-hint" id="am-note"></p>
+        </div>
+        <div id="am-viewer" style="display: none;">
+          <div class="card dgn-head">
+            <button type="button" id="am-back" class="btn" title="Back to the list of run maps">&larr; All maps</button>
+            <h2 id="am-title"></h2>
+            <div id="am-meta" class="muted"></div>
+          </div>
+          <div class="card">
+            <iframe id="am-frame" class="cmd-frame" title="Agent run map" referrerpolicy="no-referrer" sandbox=""></iframe>
+          </div>
+        </div>
       </section>
 
       <!-- TAB: COMMANDERS — who leads which bots, and what did they order -->
@@ -471,6 +542,15 @@
           <h2 class="cmd-empty-title">No commander is bound right now</h2>
           <p id="cmd-empty-why" class="empty-hint"></p>
           <p class="empty-hint">A card appears here within a couple of seconds of a binding. A commander binds a bot-only party of up to five with <code>.bot commander bind &lt;LeadBot&gt; [&lt;Bot&gt; ...]</code> (a GM, or a player who controls every bot of the party; the server needs <code>AiPlayerbot.RemoteCommander = 1</code>). The card goes away when the commander unbinds with <code>.bot commander unbind</code>, logs out, or the party breaks up.</p>
+        </div>
+        <!-- Refresh rate: the same choice as in the top bar (one setting for every live view, kept in this browser). -->
+        <div class="card cmd-refresh-bar">
+          <label class="refresh-picker">
+            <span>Refresh every</span>
+            <select data-refresh-select aria-label="Refresh every"></select>
+          </label>
+          <button type="button" class="refresh-badge" data-refresh-badge hidden title="Frozen for a close look. Click to resume">Paused &middot; click to resume</button>
+          <span class="empty-hint">How often the maps and cards show new data. Paused freezes them, paths included; on resume they catch up to the newest data. The game server reports every 2 s either way.</span>
         </div>
         <!-- Demo map: a simulated group on its own card to try every drawing layer. Off by default; also #/commanders?demo=1. -->
         <div class="card cmd-demo-bar">
@@ -687,12 +767,15 @@
 
 </div>
 
-<script src="/static/js/commanders.js?v=5"></script>
+<script src="/static/js/refresh.js?v=1"></script>
+<script src="/static/js/commanders.js?v=6"></script>
+<script src="/static/js/dungeons.js?v=1"></script>
+<script src="/static/js/agentmaps.js?v=1"></script>
 <script src="/static/js/maplayers.js?v=4"></script>
 <script src="/static/js/unitinfo.js?v=2"></script>
-<script src="/static/js/paths.js?v=1"></script>
-<script src="/static/js/dungeons.js?v=1"></script>
+<script src="/static/js/paths.js?v=2"></script>
+<script src="/static/js/dungeon-runs.js?v=1"></script>
 <script src="/static/js/demo.js?v=1"></script>
-<script src="/static/js/app.js?v=17"></script>
+<script src="/static/js/app.js?v=19"></script>
 </body>
 </html>

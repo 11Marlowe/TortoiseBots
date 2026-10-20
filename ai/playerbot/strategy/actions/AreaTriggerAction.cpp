@@ -83,7 +83,7 @@ bool AreaTriggerAction::Execute(Event& event)
         // keep their level gate.
         AreaTriggerTeleport const* tele = sObjectMgr.GetAreaTriggerTeleport(triggerId);
         if (tele && WorldPosition(tele->destination.mapId, 0, 0, 0).isOverworld() &&
-            !ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot) && bot->IsAlive() &&
+            !ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot) && bot->IsAlive() &&
             bot->TeleportTo(tele->destination.mapId, tele->destination.x, tele->destination.y, tele->destination.z, tele->destination.o))
             return true;
 

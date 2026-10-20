@@ -1,6 +1,6 @@
 #pragma once
 
-// Dungeon plans for the opt-in run leader (docs/guides/dungeon-run-leader.md).
+// Dungeon plans for the opt-in run leader (docs/play/dungeon-run-leader.md).
 //
 // The rows live in the world tables `ai_dungeon_plan`, `ai_dungeon_leg` and
 // `ai_dungeon_step` and are read ONCE at startup into DungeonPlanTable (loader:
@@ -64,7 +64,7 @@ namespace ai
     // skips the row (UnknownKind), so it sends no direct order for the hop. The
     // rows and this module are deployed and rolled back together; what such an
     // old module does with the row after the hop is not guarded here
-    // (docs/guides/dungeon-run-leader.md "Exact waypoints").
+    // (docs/play/dungeon-run-leader.md "Exact waypoints").
     constexpr const char* kPlanKindMoveHopExact = "move_hop_exact";
 
     // A row's kind text into the step: its kind, and exactLaunch for

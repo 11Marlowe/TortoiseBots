@@ -1,248 +1,52 @@
 # TortoiseBots
 
-An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1** core repository ([`tortoise-wow`](https://github.com/tortoise-wow/tortoise-wow), `main` branch).
+[![Linux + Windows build](https://img.shields.io/github/actions/workflow/status/Sagiroth/TortoiseBots/build.yml?branch=main&event=push&label=Linux%20%2B%20Windows%20build&logo=github)](https://github.com/Sagiroth/TortoiseBots/actions/workflows/build.yml?query=branch%3Amain)
+[![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/sagiroth)
+[![Discord](https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white)](https://discord.gg/FT2rZcXm3)
 
-This is an unofficial, community-driven project, not affiliated with Turtle WoW or Blizzard Entertainment.
+An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1** core repository ([`tortoise-wow`](https://github.com/tortoise-wow/tortoise-wow), `main` branch). This is an unofficial, community-driven project, not affiliated with Turtle WoW or Blizzard Entertainment.
 
-`TortoiseBots` delivers native AI companions through a decoupled C++ architecture: bot AI, combat strategies, and lifecycle management live entirely within this module, while session transport and character state stay cleanly owned by the core via generic headless sessions (`SessionTransport::Headless`). The core builds and runs 100% cleanly without the module (`MODULES=disabled`).
+TortoiseBots delivers native AI companions through a decoupled C++ architecture: bot AI, combat strategies, and lifecycle management live entirely within this module, while bots run as headless sessions with no game client and character state stays cleanly owned by the core. The core compiles and runs cleanly without the module.
 
-> **Companion in-game UI:** pair with [**TortoiseBotsManager**](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`). All player-facing control — roster, lifecycle, and tactical party actions — is driven from this addon; the server-side command surface is an internal/advanced transport, not a player API.
+> [!TIP]
+> Pair with the [TortoiseBotsManager](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`) in-game addon for roster management, party controls, and bot inspection.
 
----
+### 🐢 Vision
 
-## 🎯 Vision
+TortoiseBots should make Tortoise WoW feel like a living, populated vanilla server for a player who plays alone. The player levels and gears up at their own pace, and bots fill the world and their group the way real players would.
 
-> TortoiseBots should make Tortoise WoW feel like a living, populated vanilla server for a player who plays alone. The player levels and gears up at their own pace, and bots fill the world and their group the way real players would.
+- **Organic living world:** Random pool bots start at level 1 in starter zones, questing, grinding, and traveling by foot and flight path. Long-range teleports are a stuck-recovery safety net, not normal movement.
+- **Earned progression:** No free gold top-ups, gear handouts, or synthetic AH supply or buyers by default. Equipment and riches come from playing the game.
+- **Player control first:** Explicit player orders always override automation. Extra automation for player-owned bots sits behind opt-in configuration flags.
+- **Modern AI standard:** Gameplay and class AI adapt modern mod-playerbots behavior to Vanilla 1.12 and Turtle WoW 1.18.1 content.
 
-The full version below explains where the project is heading and how I judge changes. Worth a read before opening an issue or PR.
+### ✨ Highlights
 
-<details><summary><b>Read the full vision</b> — a living solo vanilla world, earned progression, a real economy</summary>
+- [Your Party](docs/play/features.md#your-party-owned-bots-hiring-following-commands): Adventure with your own account alts or hire mercenaries at inn recruiters; command formations, follow behavior, and tactical actions.
+- [Combat & Classes](docs/play/features.md#combat--classes): Tailored combat rotations for all nine classes, Turtle custom abilities, interrupt coordination, and spec-based roles.
+- [Dungeons & Raids](docs/play/features.md#dungeons--raids): Corner pullback line-of-sight pulls, CC protection, boss encounter tactics, hazard avoidance, and wipe recovery.
+- [The Living World](docs/play/features.md#the-living-world-pool-bots-leveling-questing-wandering): Autonomous pool bots level from 1, grind quests, train affordable spell ranks at trainers, gather materials, and travel by foot and flight path.
+- [Social Systems](docs/play/features.md#social-invites-guilds-trading): Roaming bots invite solo questers to groups, greet passing players, establish autonomous guilds, and trade conjured food or water.
+- [Living Economy](docs/play/features.md#economy-auction-house): Optional native Auction House service where pool bots appraise loot, list surplus items, and bid on upgrades.
+- [Dungeon Finder & PvP](docs/play/features.md#dungeon-finder--battlegrounds): Looking for Turtles queue backfill for missing roles and battleground matchmaking for WSG, AB, and AV.
+- [Server & Monitoring](docs/play/features.md#server--monitoring-dashboard-logs): Live browser map, Prometheus telemetry metrics, in-game bot panel, and structured CSV logging.
 
-#### The player experience I'm building for
-- The player is a solo player on their own realm. Bots are there to **complete** their experience, not to replace playing the game.
-- Progression should feel **slow and earned**, like real vanilla. The loop I want:
-  1. Level up in a world full of other "players" (bots) who are levelling too.
-  2. Hire a random companion, or bring my own alts, to run dungeons.
-  3. Gear them up in those dungeons. They get stronger, I get stronger, and we clear harder content together.
-  4. Over time, unlock stronger content and stronger companions (see the hire gear ladder, #490).
-- Nothing should feel handed out. Gear, gold and power come from playing.
+## 📚 Documentation
 
-#### Bots should feel like real players
-- **Organic, not synthetic.** A bot should look and behave like a human player: it quests, grinds, travels by foot and flight path, uses towns, vendors, trainers and the AH, and moves on from zones it has outgrown.
-- **Fresh realm feel.** Random pool bots start at level 1 in their starting zones and spread over the world as they level. Teleports exist only as a safety net (stuck recovery), never as the normal way to move.
-- **Always alive.** Bots are active all the time. I don't want bots that freeze and wake up artificially.
-- **Behaviour standard:** mod-playerbots (AzerothCore) is the gold standard for how a bot should play. When something can be ported from it and adapted to 1.12, prefer that over inventing new logic or keeping older cmangos-lineage code.
+Detailed guides, class breakdowns, commands, and architecture rules live in the documentation catalog:
 
-#### The economy must be real
-- **Items on the AH are looted or crafted by bots.** There is no synthetic supply, no seeded listings and no fake buyers.
-- **No money injection.** Bots earn gold by grinding, selling and questing. If a bot can't afford its trainer spells, that's a bug in its economy, not a reason to give it gold.
-- **No free gear** on level-up. Gear comes from drops, quests, crafting and vendors.
-
-Deliberate, limited exceptions, where pure realism would just break bots:
-- Ammo and reagents are unlimited for bots (the `item` cheat).
-- Anything a behaviour needs in order to work at all (profession tools, Lockpicking, Thieves' Tools, encounter items like Hourglass Sand) is auto-granted, so the feature doesn't silently never fire.
-- The raised bot XP rate and the bot-only green and blue drop boost are temporary helpers while the 1-60 loop is being fixed. The goal is to reduce them once bots level and gear up naturally.
-
-#### The vision is the default, not the only way to play
-Everything above is the **leading way of playing**: the defaults ship that experience. But players are different, and I want them to be able to shape the experience for themselves.
-
-- Things that don't fit the vision (faster levelling, gold or gear handouts, synthetic AH supply, teleport travel, activity throttling, all hire tiers unlocked at once, and so on) are welcome **as long as they sit behind a config option**.
-- We already work this way in many places: XP and loot rates for bots, the AH market and synthetic supply switches, activity throttling, the hire gear ladder options (account-wide unlocks, all tiers at once, Turtle content optional), opt-in dungeon follow holds.
-- Rule of thumb: **default = the vision; config = the player's choice.** A config option should be clearly named, documented in the config file, and must not change anything for players who leave it at its default.
-
-#### The kinds of bots
-| Kind | What it is | Persistence |
-|---|---|---|
-| **Pool bots** | The living world: random characters levelling from 1 | Permanent, part of the world |
-| **Own alts** | Characters the player created on their own account | Permanent, fully the player's |
-| **Hired companions** | Temporary mercenaries hired for a session | Deleted after dismissal, party leave or logout grace. Never released into the pool, because that would pollute the organic world with hire-level gear |
-
-**Future (roadmap #289):** claim a world bot into your guild (#489) and gear and progress your own team from there. Unlocking stronger hires goes through content: quest and raid clears raise what a hired bot can wear (#490). Bots copy their master's consumables in a way that fits their role (#491). World buffs are unlocked once and can then be bought (#492).
-
-#### Player control
-- **Explicit player orders always beat automation.** If the player says stay, attack or CC, the bot does it.
-- New automation that acts on the player's own bots goes behind a toggle. World-life behaviour (pool bots) defaults to the organic vision above, with a config flag where it makes sense.
-
-#### Performance
-- Defaults must run on an average PC. The **bot count is the player's knob**: weak hardware runs 100-200 bots, strong hardware 2000+. I don't chase per-device tuning.
-- Watch the per-tick cost of new logic: no world scans or pathfinding every tick.
-
-#### Ideas on the list (not started)
-- **PvP and duel logic:** bots that duel well and are genuinely hard to beat.
-- Porting the bots to other vanilla and TBC cores, much later.
-
-#### How to judge a change (for agents)
-Ask these questions:
-1. Does it make bots feel **more like real players**, or more synthetic?
-2. Does it keep progression **earned**? No free gold, gear or items outside the exceptions above.
-3. If it doesn't fit the vision but players might want it: is it **behind a config option, off by default**?
-4. Is it a **bug fix** (the bot fails at what it is supposed to do), or a **behaviour change** (it plays differently than today)? Bug fixes are welcome directly. Behaviour changes need my decision, so describe what changes in game and ask.
-5. Does it respect player control and stay cheap per tick?
-6. Is there a mod-playerbots behaviour to port instead?
-
-When you find bugs or improvements, open an issue or PR with a plain-language "what you see in game / what changes in game" section.
-
-</details>
-
-## ✨ What It Does
-
-* **A living world.** A pool of autonomous bots quests, grinds, trains, trades and travels on its own. The pool is configurable for different playstyles, from a fresh realm where everyone starts at level 1 to a populated world with bots at every level.
-* **Your own party.** Play with bot alts from your own account or hire companions; they follow, fight, heal and tank in dungeons and raids, controlled from the TortoiseBotsManager addon.
-* **Full class AI** for all 9 classes, including Turtle WoW 1.18.1 custom abilities.
-* **Observability.** A web dashboard with a live map, per-bot activity and incidents.
-
-Details and every setting are in the [documentation](docs/README.md).
-
-## 🎮 What Bots Can Do
-
-Player-facing summary, no internals. Every claim below exists in the code on this branch; each category links to the full guide.
-
-<details><summary><b>🌍 Living world & autonomy</b> — questing, grinding, travel, professions, auction house, guilds</summary>
-
-- Quest, grind and explore on their own: pick up level-fitting quests, fight level-appropriate mobs, rest with food and water, and return to town to repair, sell junk, learn spells and turn in.
-- Travel like players: flight paths, zeppelins, boats and hearthstones — autonomous travel never teleports (your `.bot summon` order does).
-- Gather and craft: herbalism/mining runs from level 10, skinning what they kill, fishing while idle, materials feeding crafting and the Auction House.
-- Trade on the Auction House with their own loot at market prices — opt-in and off by default (`AiPlayerbot.AhMarketEnabled = 1`; the synthetic buyer that can take your auctions needs `AiPlayerbot.AhMarketBuyer = 1`).
-- Social life: greet passing players, invite lone questers to a party, form and join guilds with custom names.
--
-- Details: [Living World & Autonomous Bots](docs/guides/living-world.md).
-</details>
-
-<details><summary><b>👥 Party play</b> — follow, assist, buffs, ready checks, loot, companions</summary>
-
-- Follow, stay, guard or roam free; assist the tank or your target and focus the Skull-marked kill priority.
-- Keep party buffs up automatically (single and group versions); bots can hold a ready-check confirm until buffs settle (opt-in).
-- Answer ready checks, roll Need/Greed/Pass on loot, share conjured food, water and healthstones through trade.
-- Hire companions at inn recruiters: fresh characters at your level with talents, spells and spec-weighted gear; summon stragglers to your side.
-- Line-of-sight corner pulling (`pullback`), crowd-control marks that the party will not break, and safe CC defaults (AoE fear off in groups, auto-CC off) with opt-in overrides.
--
-- Details: [Player Controls](docs/guides/player-controls.md), [Dungeon & Raid Tactics](docs/guides/dungeon-tactics.md).
-</details>
-
-<details><summary><b>🛡️ Tanking · 💚 Healing · ⚔️ DPS</b> — rotations, interrupts, dispels, threat, positioning</summary>
-
-- One rotation per class and spec, rebuilt when you set `.bot role <Name> tank|healer|dps` — tanks hold aggro and turn mobs away, healers triage the party, DPS focus fire.
-- Interrupt on order (`.bot action interrupt`): the first party bot with a ready interrupt closes in and casts it.
-- Dispel magic, curses, poisons and diseases off the party; ease off when near the tank's threat.
-- Positioning: melee strike from behind the target, step out of AoE and hazards, spread apart via the opt-in spread toggle, flee and regroup when told.
--
-- Details: [Class AI & Rotations](docs/classes/overview.md).
-</details>
-
-<details><summary><b>🧙 Class highlights</b> — one line per class</summary>
-
-- **Warrior:** Protection tanking with stance discipline, Arms/Fury DPS with Execute and cleave.
-- **Paladin:** Holy healing, Protection AoE-threat tanking, Retribution burst; auras and blessings coordinated across the party.
-- **Hunter:** Beast Mastery / Marksmanship ranged DPS plus Turtle Survival melee; tames a pet at 10, feeds, mends, calls and revives it.
-- **Rogue:** stealth openers, combo-point finishers, poison upkeep, Sap/Blind control, lockbox unlocking.
-- **Priest:** Holy/Discipline healing ladder, Shadow DPS, Shackle Undead, Fear Ward and dispels.
-- **Shaman:** Restoration Chain Heal, Enhancement melee, Elemental burst; four-element totem sets and Earth Shock interrupts.
-- **Mage:** Frost/Fire/Arcane DPS, Polymorph CC, Counterspell, Evocation and Ice Block safety.
-- **Warlock:** DoT spread across attackers, demon summons (Voidwalker, Succubus, Felhunter), Soul Shards, Banish/Fear, Unending Breath while swimming.
-- **Druid:** Bear tank, Cat DPS, Restoration healing, Balance casting — shapeshifts to the job, innervates healers, removes poisons and curses.
--
-- Details: [Class AI & Rotations](docs/classes/overview.md) and each class page under `docs/classes/`.
-</details>
-
-<details><summary><b>🐉 Raids & dungeons</b> — only bosses with wired tactics are listed</summary>
-
-- Entering a raid auto-enables its tactics; everywhere: bomb carriers run clear, non-tanks sidestep breath/tail cones, casters spread, tanks can drag dragons away on order.
-- **Molten Core:** Magmadar, Baron Geddon (Inferno runout); rune dousing on order.
-- **Blackwing Lair:** rogues disarm suppression devices; Broodlord ranged stand-off; Vaelastrasz Burning Adrenaline flee; Nefarian Wild Magic Ice Block.
-- **Onyxia:** air-phase ranged fire with spread while she flies.
-- **Naxxramas:** Four Horsemen void zones and mark rotation; Sapphiron air-phase hide and blizzard step-out.
-- **Emerald Sanctum:** Solnius Emerald Rot runout and add focus. **Lower Karazhan:** Araxxna spiderling cleave, Moroes re-target. Karazhan Crypt puzzles stay manual.
-- 5-player dungeons: corner pulls, CC marks, wipe recovery (release + corpse run), summon to regroup.
--
-- Details: [Dungeon & Raid Tactics](docs/guides/dungeon-tactics.md).
-</details>
-
-<details><summary><b>⚔️ PvP battlegrounds</b> — WSG, AB, AV alongside real players</summary>
-
-- Queue at the battlemaster with Join as Group (WSG/AB; AV solo): your party bots queue with you and auto-accept the invite.
-- Random bots queue only while real players wait — to balance teams and start the match, never on their own.
-- Per-map tactics: WSG flag capture and chasing the enemy flag carrier, AB/AV objectives, battleground buffs and banners.
--
-- Details: [Living World](docs/guides/living-world.md#6-automated-dungeon--battleground-queues).
-</details>
-
-<details><summary><b>🔍 Dungeon finder (LFT)</b> — bots fill your missing roles</summary>
-
-- On by default: when you queue and wait on a role (often tank or healer), matching idle bots queue and accept the invite.
-- Role match is strict — a tank slot gets a real tank with a shield equipped, a healer gets real healing spells — or it stays empty with a logged reason.
-- Your own party bots auto-accept the dungeon offer; everyone walks to the portal (no teleport — summon stragglers).
--
-- Details: [Living World](docs/guides/living-world.md#6-automated-dungeon--battleground-queues).
-</details>
-
-<details><summary><b>🎛️ Player control</b> — commands, addon, formations</summary>
-
-- `.bot action` intents: attack, interrupt, pull, pullback, focus skull, cc \<mark\>, aoe on/off, flee, stop, stay, follow, trade, release, corpse run (plus come/hold/loot/repair/sell/rest/learn/ready/raid). Summon is the separate `.bot summon \<Name\>`.
-- Roster commands: add, hire, role, invite, summon, maintenance, autogear, remove — or whisper a bot directly.
-- [TortoiseBotsManager](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`) addon: roster, party actions, bot panel (gear, bags, behaviour toggles) over a silent channel.
-- Formations (arrow, queue, near, line, circle, shield), opt-in combat spread, mimic-consumables toggle, per-bot loot/AoE/mana/threat/potion switches.
--
-- Details: [Player Controls](docs/guides/player-controls.md).
-</details>
-
-<details><summary><b>📊 Observability dashboard</b> — watch the fleet (optional)</summary>
-
-- Optional web dashboard: live 2D world map with per-bot markers, bot list with gear/talent/activity profiles, stuck-bot issue tracker.
-- Off by default, zero overhead while disabled.
--
-- Details: [Observability Dashboard](docs/guides/observability-dashboard.md).
-</details>
-
----
-
-## 🏛️ Architecture Boundary
-
-```text
-  Core Server (tortoise-wow: main)
-  ┌─────────────────────────────────────────┐
-  │ Canonical 1.18.1 World Server           │
-  │ Generic Headless Sessions (No bot deps) │
-  └──────────────────▲──────────────────────┘
-                     │ Generic Seam API
-  TortoiseBots Module│ (modules/TortoiseBots)
-  ┌──────────────────┴──────────────────────┐
-  │ Decoupled Native C++ PlayerBots Engine  │
-  │ Class Combat AI, Actions & Strategies   │
-  └──────────────────▲──────────────────────┘
-                     │ .bot transport / TBM: protocol
-  TortoiseBotsManager│ (Client Addon)
-  ┌──────────────────┴──────────────────────┐
-  │ In-game 1.12 / 11200 UI (/tbm)          │
-  │ Tactical Actions & Roster Management    │
-  └─────────────────────────────────────────┘
-```
-
-* **Clean decoupling:** Bot state is never attached to core classes (`WorldSession::GetBot()` / `m_bot` are strictly prohibited).
-* **Optional native module:** Core compiles 100% cleanly without the module (`MODULES=disabled`).
-
----
-
-## 📚 Knowledge Base (`docs/`)
-
-All architecture, class AI, commands, mechanics, and operational guides are documented under the **Open Knowledge Format (OKF)** standard (see [`docs/manifest.yaml`](docs/manifest.yaml)):
-
-| Guide / Reference | Content & Focus |
+| Guide / Reference | Description |
 | :--- | :--- |
-| 🧭 [**Documentation Catalog**](docs/README.md) | Central switchboard, role-based navigation, and **Quick Task Finder** |
-| 🚀 [**Getting Started**](docs/guides/getting-started.md) | Spawning account alts, party setup, `/tbm` addon, and quick controls |
-| ⚔️ [**Class AI & Rotations**](docs/classes/overview.md) | Rotations, specs, and Turtle WoW 1.18.1 custom abilities for all 9 classes |
-| 🛡️ [**Dungeon & Raid Tactics**](docs/guides/dungeon-tactics.md) | Line-of-sight corner pulling (`pullback`), CC discipline, and wipe recovery |
-| 🌍 [**Living World & Economy**](docs/guides/living-world.md) | Roaming bots, quest grinding, AH trading, guilds, and LFT/BG auto-queues |
-| 🎮 [**Player Controls & Commands**](docs/guides/player-controls.md) | Complete `.bot` command suite, tactical intents, whispers, and addon protocol |
-| ⚙️ [**Configuration & Tuning**](docs/guides/configuration-tuning.md) | Plain-English tuning guide for `aiplayerbot.conf` settings and knobs |
-| 📊 [**Observability Dashboard**](docs/guides/observability-dashboard.md) | Web dashboard, 2D live map, Prometheus metrics, and stuck-bot tracker |
-| 🧠 [**Strategy Engine**](docs/concepts/strategy-engine.md) | How the `UpdateAI` tick, triggers, actions, and backoff work under the hood |
-| 🏛️ [**Architecture Invariants**](docs/concepts/architecture-invariants.md) | The 5 non-negotiable modularity rules and headless session lifecycle |
-| 🔌 [**Host API Contract**](docs/HOST_API.md) | Technical host seams, generic interfaces, and packet routing |
-| 📜 [**Changelog**](CHANGELOG.md) | Chronological log of gameplay fixes, AI updates, and engine releases |
-| 📜 [**Source Provenance**](docs/PROVENANCE.md) | Donor lineage, porting ledger, and commit references |
-
----
+| [Documentation Start Page](docs/README.md) | Central switchboard, quick task finder, and audience directory |
+| [What Bots Can Do](docs/play/features.md) | Feature catalog, defaults, and configuration toggle flags |
+| [Getting Started](docs/play/getting-started.md) | Client setup, `/tbm` addon, summoning alts, and first party setup |
+| [Player Commands](docs/play/commands/README.md) | Complete `.bot` command reference, whisper syntax, and tactical intents |
+| [Class AI & Rotations](docs/classes/overview.md) | Rotations, specs, and Turtle WoW 1.18.1 custom abilities for all classes |
+| [Dungeon & Raid Tactics](docs/play/dungeons-and-raids.md) | Line-of-sight pullback pulls, CC discipline, and wipe recovery |
+| [Living World & Economy](docs/world/living-world.md) | Autonomous roaming, quest grinding, vendor trips, and guilds |
+| [Configuration & Tuning](docs/server/configuration.md) | Plain-English settings reference, presets, and configuration files |
+| [Observability Dashboard](docs/server/dashboard.md) | Real-time web dashboard, 2D live map, and Prometheus metrics |
+| [Architecture Invariants](docs/developers/architecture.md) | Decoupled C++ rules, headless sessions, and host boundary seams |
 
 ## 🛠️ Quick Build
 
@@ -257,9 +61,7 @@ cmake -B build -DMODULES=static -DMODULE_TORTOISEBOTS=static
 cmake --build build -j"$(nproc)"
 ```
 
-Install puts the templates next to `mangosd.conf` (`aiplayerbot.conf.dist`, `modules/tortoise_bots.conf.dist`) and creates `aiplayerbot.conf` and `modules/tortoise_bots.conf` from them on the first install only; a reinstall keeps your edited files. Module SQL in `data/sql/world` and `data/sql/character` is applied by the core auto-updater on startup. See [**Configuration & Tuning**](docs/guides/configuration-tuning.md) for available settings.
-
----
+Install puts the templates next to `mangosd.conf` (`aiplayerbot.conf.dist`, `modules/tortoise_bots.conf.dist`) and creates `aiplayerbot.conf` and `modules/tortoise_bots.conf` from them on the first install only; a reinstall keeps your edited files. Module SQL in the source-tree `data/sql/world` and `data/sql/character` is applied by the core auto-updater on startup. See [Configuration & Tuning](docs/server/configuration.md) for available settings.
 
 ## 🙏 Credit
 
@@ -270,11 +72,17 @@ public servers are welcome — please credit it. Ready to paste:
 Playerbots: TortoiseBots by Sagiroth — https://github.com/Sagiroth/TortoiseBots
 ```
 
-The in-game login message and `.bot about` show the same line; keep them in
-modified builds (see [`LICENCE.md`](LICENCE.md#attribution-author-notice)).
+The in-game login message and `.bot version` / `.bot about` show the project attribution line (`by Sagiroth`, source URL, licence); keep it visible in
+modified builds (see [`NOTICE.md`](NOTICE.md#attribution-author-notice)).
+
+### ☕ Support
+
+If you enjoy TortoiseBots and would like to support its development, you can
+buy me a coffee on [**Ko-fi**](https://ko-fi.com/sagiroth). It's completely
+optional: every feature stays free and open for everyone.
 
 ## 📜 License & Provenance
 
-Original TortoiseBots work is licensed under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)). If you distribute it, or run a modified version on a server players connect to, you must publish the full source of that version under the same licence. Contributions are accepted under the same terms. Donor code keeps its own notices (GPL-2.0-or-later / AGPL-3.0 lineages). See [`LICENCE.md`](LICENCE.md), [`docs/PROVENANCE.md`](docs/PROVENANCE.md), and [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md).
+Original TortoiseBots work is licensed under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)). If you distribute it, or run a modified version on a server players connect to, you must publish the full source of that version under the same licence. Contributions are accepted under the same terms. Donor code keeps its own notices (GPL-2.0-or-later / AGPL-3.0 lineages). See [`NOTICE.md`](NOTICE.md) and [`docs/developers/licensing-audit.md`](docs/developers/licensing-audit.md).
 
 **Disclaimer:** TortoiseBots is a non-commercial hobby project. Voluntary donations (Ko-fi) only support development; they buy no access, features or service, and are not tied to any server. The author is not affiliated with, does not operate, endorse or receive money from any server that uses this code, and is not responsible for how third parties use it. TortoiseBots is not affiliated with Turtle WoW or its creators. World of Warcraft is a trademark of Blizzard Entertainment; this project is not affiliated with Blizzard.

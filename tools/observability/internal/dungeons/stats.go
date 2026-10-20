@@ -67,7 +67,7 @@ type BossStat struct {
 	BestRun string   `json:"best_run,omitempty"`
 }
 
-// DungeonSummary is one dungeon of the Dungeons tab.
+// DungeonSummary is one dungeon of the Dungeon runs tab.
 type DungeonSummary struct {
 	Map  uint32 `json:"map"`
 	Name string `json:"name"`
@@ -256,7 +256,7 @@ func groups(runs []*Run, key func(*Run) string) []Group {
 	return out
 }
 
-// Summarize builds the Dungeons tab's list from runs (any order), keeping the dungeons that have a run matching f.
+// Summarize builds the Dungeon runs tab's list from runs (any order), keeping the dungeons that have a run matching f.
 func Summarize(runs []*Run, f Filter) []DungeonSummary {
 	byMap := map[uint32][]*Run{}
 	for _, r := range runs {

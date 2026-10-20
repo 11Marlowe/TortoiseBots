@@ -4,7 +4,7 @@ import "time"
 
 // ProtocolVersion is bumped whenever the C++ -> Go datagram layout changes in
 // a way the daemon must understand. It is carried in every datagram.
-const ProtocolVersion = 9
+const ProtocolVersion = 12
 
 // Anomaly types accepted from the game server. Anything else is rejected so
 // that Prometheus label cardinality stays bounded. STUCK is counter-only
@@ -27,8 +27,15 @@ type BotSnapshot struct {
 	Name     string  `json:"name"`
 	GUID     uint32  `json:"guid"`
 	Player   bool    `json:"player,omitempty"`
-	GroupID  uint32  `json:"group,omitempty"`
+	// Alt marks an autonomous owned alt-bot (Issue #872). Additive since
+	// protocol v10; an older module omits it and it reads false.
+	Alt      bool    `json:"alt,omitempty"`
+	// Kind is the dashboard kind label (Issue #872): pool, hired, claimed,
+	// alt, companion or player. Additive since protocol v11; an older module
+	// omits it and readers fall back to player/alt/pool from the flags.
+	Kind     string  `json:"kind,omitempty"`
 	Class    string  `json:"class"`
+	GroupID  uint32  `json:"group,omitempty"`
 	Role     string  `json:"role"`
 	Level    uint32  `json:"level"`
 	XP       uint32  `json:"xp,omitempty"`      // PLAYER_XP: progress into the current level
@@ -40,6 +47,14 @@ type BotSnapshot struct {
 	PowerType string `json:"power_type,omitempty"` // mana, rage, energy, focus, happiness
 	MapID     uint32 `json:"map"`
 	ZoneID   uint32  `json:"zone"`
+	// Instance is the instance copy the unit is in (v12, issue #895): 0 in
+	// the open world, non-zero inside a dungeon, raid or battleground copy.
+	// A pointer so a pre-v12 module (field absent, nil) and a new one
+	// reporting the open world (present, 0) stay distinguishable: the old
+	// module's dungeon units fall back to one run per map. SubGroup is the
+	// unit's raid subgroup (0 outside a raid or group).
+	Instance *uint32 `json:"instance,omitempty"`
+	SubGroup uint32  `json:"subgroup,omitempty"`
 	X        float64 `json:"x"`
 	Y        float64 `json:"y"`
 	Z        float64 `json:"z"`
@@ -92,6 +107,27 @@ type BotSnapshot struct {
 	// the character DB every few minutes (never per tick). Nil until the first
 	// gear sweep completes.
 	Gear *BotGear `json:"gear,omitempty"`
+}
+// Kind constants for BotSnapshot.Kind (Issue #872).
+const (
+	KindPool      = "pool"
+	KindHired     = "hired"
+	KindClaimed   = "claimed"
+	KindAlt       = "alt"
+	KindCompanion = "companion"
+	KindPlayer    = "player"
+)
+
+// KindFromFlags reads the kind off the pre-v11 player/alt flags: player,
+// then alt, else pool (hired/claimed/companion need the v11 kind field).
+func KindFromFlags(player, alt bool) string {
+	if player {
+		return KindPlayer
+	}
+	if alt {
+		return KindAlt
+	}
+	return KindPool
 }
 
 // BotGear is one bot's equipped-gear summary: the average item level of the
@@ -676,4 +712,62 @@ type CommandersView struct {
 	// when Commanders is empty whatever the last datagram said.
 	AgeSec float64 `json:"age_sec"`
 	Fresh  bool    `json:"fresh"`
+}
+
+// DungeonMember is one unit (bot or real player) inside a dungeon run: the
+// fields the Dungeons tab shows (party list, map dots, state line).
+type DungeonMember struct {
+	Name   string `json:"name"`
+	GUID   uint32 `json:"guid"`
+	Player bool   `json:"player"` // a real online player, drawn apart from the bots
+	Kind   string `json:"kind"`
+	Class  string `json:"class"`
+	Role   string `json:"role"`
+	Level  uint32 `json:"level"`
+	HP     uint32 `json:"hp"`
+	MaxHP  uint32 `json:"max_hp"`
+	// Dead is reported from the snapshot (state "dead" or a 0-HP corpse).
+	Dead bool `json:"dead"`
+	// SubGroup is the raid subgroup the unit sits in (0 outside a raid).
+	SubGroup uint32 `json:"subgroup,omitempty"`
+	State    string `json:"state"`
+	// Position for the live map. All members of a run share MapID.
+	MapID uint32  `json:"map"`
+	Zone  uint32  `json:"zone"`
+	X     float64 `json:"x"`
+	Y     float64 `json:"y"`
+	Z     float64 `json:"z"`
+	O     float64 `json:"o"`
+}
+
+// DungeonRun is one live instance copy (map + instance id) of a dungeon or
+// raid map with at least one bot in it (issue #895).
+type DungeonRun struct {
+	// Key is the stable id of the copy: "<map id>:<instance id>" (a
+	// pre-v12 module reports no instance, so the map id alone: "<map>:0").
+	Key      string `json:"key"`
+	MapID    uint32 `json:"map"`
+	Instance uint32 `json:"instance"`
+	// FirstSeen is the unix second the daemon first saw this copy with a
+	// bot in it (this game-server session).
+	FirstSeen int64 `json:"first_seen"`
+	// SeenSec is how long the run has been seen (FirstSeen until now).
+	SeenSec float64 `json:"seen_sec"`
+	Bots    int     `json:"bots"`
+	Players int     `json:"players"`
+	Dead    int     `json:"dead"`
+	// Members carries bots and players; players first, then by subgroup
+	// (raids) and name.
+	Members []DungeonMember `json:"members"`
+}
+
+// DungeonsView is what GET /api/v1/dungeons carries.
+type DungeonsView struct {
+	Runs []DungeonRun `json:"runs"`
+	// GeneratedAt is the unix second the view was built at.
+	GeneratedAt int64 `json:"generated_at"`
+	// StaleModule is true when the game server runs a pre-v12 module that
+	// reports no instance id: copies of one dungeon then fall back to one
+	// run per map and cannot be told apart.
+	StaleModule bool `json:"stale_module,omitempty"`
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-// The run leader (`.bot run`, docs/guides/dungeon-run-leader.md): an opt-in
+// The run leader (`.bot run`, docs/play/dungeon-run-leader.md): an opt-in
 // driver that walks a bound party through a dungeon plan
 // (ai/playerbot/DungeonPlanPolicy.h) by itself, behind
 // AiPlayerbot.DungeonSelfClear (default 0).
@@ -19,7 +19,7 @@
 // on its own.
 //
 // Safety rules, carried over from turtle-agent's remote driver (its plan
-// stepper is the owner's MIT code; see docs/PROVENANCE.md):
+// stepper is the owner's MIT code; provenance in its PR):
 //   - gather before a pull: every living bot within kGatherYd of the lead bot;
 //   - the plan's cc units get one mage's `cc moon` before a pull (never the
 //     pull target), its kill_first units are pulled first and focused in a
@@ -138,7 +138,7 @@ constexpr std::uint32_t kPartyRezWaitMs = 15000;  // a regroup with a living rez
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
-// Scripted events (ritual, hold; docs/guides/dungeon-run-leader.md "Events").
+// Scripted events (ritual, hold; docs/play/dungeon-run-leader.md "Events").
 constexpr float kHoldReturnYd = 8.0f;             // out of a fight, a lead bot farther than this from the hold spot walks back
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
 constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
@@ -3399,7 +3399,7 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
 }
 
 // ---------------------------------------------------------------------------
-// Scripted events (docs/guides/dungeon-run-leader.md "Events"): a start step
+// Scripted events (docs/play/dungeon-run-leader.md "Events"): a start step
 // (`ritual` here; `open` and `use_item` start events too), then a `hold` that
 // stands on a spot and fights what the event sends until its done condition.
 // ---------------------------------------------------------------------------

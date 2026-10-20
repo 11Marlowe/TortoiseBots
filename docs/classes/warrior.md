@@ -1,101 +1,102 @@
 ---
-id: class-warrior
-title: Warrior Bot AI & Specs
+id: classes-warrior
+title: Warrior Bot Guide
 category: classes
-summary: Deep dive into Warrior bot combat behavior, stance transitions, tanking priorities, and Turtle WoW custom abilities.
-tags: [class, warrior, tank, dps, melee]
+summary: Complete guide to Warrior bot AI, stance dancing, tanking rotations, melee DPS, shouts, and Turtle WoW custom abilities.
+tags: [classes, warrior, tank, dps, melee]
 relates_to:
-  - class-overview
-  - guide-player-controls
+  - classes-overview
 ---
 
-# Warrior Bot AI & Specs
+# Warrior Bot Guide
 
-Warriors serve as primary dungeon tanks or powerful melee DPS. The bot manages rage generation, dynamic stance switching, interrupt priority, and defensive cooldowns.
+Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic stance switches, rage expenditure, interrupt timing, and defensive cooldowns.
 
-## Supported Specs & Roles
+## Specs & roles
 
-- **Protection (Tank):** Holds **Defensive Stance** before the pull (non-combat row, tank-gated) and through combat (standalone combat row at HIGH+2, below the overpower dance so dodge procs still dance out and back). Prioritizes threat generation via *Sunder Armor*, *Revenge*, *Shield Slam*, and *Taunt*.
-- **Arms (Melee DPS):** Uses two-handed weapons, pinned to **Battle Stance** (dancing to Berserker for *Whirlwind* only). Centers on *Mortal Strike*, *Overpower* on dodges, and *Sweeping Strikes* for cleaving packs.
-- **Fury (Melee DPS):** Dual-wields in **Berserker Stance**. Drives high rage spend into *Bloodthirst*, *Whirlwind*, and *Execute*.
-
----
-
-## Combat Rotations & Priorities
-
-### 1. Protection (Tank)
-1. **Pull & Engagement:** Charges on enemy-out-of-melee, then swaps to Defensive Stance (no Battle Stance prep in code). No *Intercept* gap-closer: it needs Berserker Stance, and the tank stays in Defensive Stance (donor `TankWarriorStrategy` has none either).
-   - *Ranged pull (commanded):* a tank hired with a gun, bow, crossbow or thrown weapon plus ammo opens a `.bot action pull`/`.bot cmd pull` from range when the mob stands where walking in is wrong — no walkable path (a ledge), farther than `AiPlayerbot.RangedPullMeleeApproach` (20 yd), or the order says `ranged` — and a pullback always does. It fires *Shoot Bow/Gun/Crossbow* or *Throw* once, stands still until the shot lands, then falls back to the pull anchor as usual. Without the weapon, its skill, the shoot spell or ammo it walks in (and whispers what is missing when the order said `ranged` or the weapon lacks ammo or skill). A rogue pulls the same way; see [player controls](../guides/player-controls.md).
-2. **Threat Generation:**
-   - Keeps *Shield Block* active on cooldown to enable *Revenge*.
-   - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh an expiring stack; sunder yields to Shield Slam only once 40+ rage makes slam live).
-   - *Shield Slam* fires on the Improved Shield Slam proc (+35%/+70% damage charge) above the rage ladder but below taunt/shield block, otherwise at 40+ rage — after the sunder stack is complete and *Revenge* has had its GCD.
-   - *Thunder Clap* (usable in Defensive Stance on Turtle) fires first whenever two or more mobs are in melee and the current target is not clapped yet: it outranks *Demoralizing Shout* and *Sunder Armor*, so the tank's rage goes to threat on the whole pack before the single-target builders.
-   - Stacks *Sunder Armor* to a full 5-stack, then stops (re-applies only to refresh an expiring stack; sunder yields to Shield Slam only once 20+ rage makes slam live).
-   - *Shield Slam* fires on the Improved Shield Slam proc (+35%/+70% damage charge) above the rage ladder but below taunt/shield block, otherwise at any affordable rage (20+) — after the sunder stack is complete and *Revenge* has had its GCD — so off-tanks that are not being hit still convert white-rage trickle into slams instead of sitting melee-only.
-   - *Thunder Clap* fires on spare rage (40+) as extra threat, since the AoE toggle the base tree gates it behind is normally off in party pulls.
-3. **Emergency Mitigation:**
-   - *Shield Wall* fires early at low health (default 20-50%) so damage is blunted before it becomes lethal.
-   - *Last Stand* (12975, per game data) is held for the critical-health trigger (default 20) only.
-   - *Taunt* fires on the current target whenever it peels onto any non-tank member (not just healers/casters).
-   - A held CC mark (Moon or a bot's CC mark, not sheeped yet, in its hold window) is never the tank's target, but when it hits a healer the tank *Taunts* it ("taunt on snare target") without switching its own target. No other attack touches it until the sheep lands or the hold ends: *Cleave* and *Thunder Clap* are not used while the held mark is in their reach, and *Shield Bash* / *Pummel* on an enemy healer skip it.
-   - *Last Stand* (12975, per game data) triggers on the critical-health trigger (default 20).
-   - *Shield Wall* triggers under severe incoming damage.
-   - *Taunt* fires on the current target whenever it peels onto any non-tank member (not just healers/casters).
-   - *Intervene* charges to a focused party member taking melee hits.
-   - *Taunt* fires whenever the current target peels onto any non-tank member (not just healers/casters), outranking DPS spenders and interrupts.
-
-### 2. Arms / Fury (DPS)
-1. **Opener:** *Charge* from range when available.
-2. **Rage Spenders:**
-   - *Overpower* is wired for Arms (and via the Protection stance-dance); Fury has no Overpower wiring, and the dodge window is core spell data.
-   - *Mortal Strike* (Arms) or *Bloodthirst* (Fury) on cooldown, plus *Rend* upkeep, and the *Master Strike* weapon nuke. *Heroic Strike* dumps spare rage from 40+ (donor medium-rage parity) so it fires on bosses instead of pooling. With no tank warrior in the group, DPS warriors keep *Sunder Armor* stacked (bottom of the ladder); with a tank warrior present they leave it to the tank.
-   - *Slam* is not in the DPS rotation. On Turtle it is a hard cast (15 rage, a real cast time; the trainer rows 1482/8821/11606/11607 only teach the castable spells 1464/8820/11604/11605) and casting stops auto-attack, so the bots leave it out. There is no instant "Slam!" proc on Turtle (the bot's `instant slam` trigger never fires).
-   - *Whirlwind* is used on cooldown above 20% target health; 2+ nearby targets only raises its priority.
-   - Cooldowns: both specs fire *Death Wish* and *Recklessness* as boosts, plus *Retaliation* while near full health (70-90%) with two or more melee attackers on the warrior — all behind the boost toggle.
-3. **Execute Phase:** Below 20% enemy health, *Execute* becomes highest priority, consuming all available rage.
+| Spec | Role | Primary Focus |
+| :--- | :--- | :--- |
+| **Protection** | Tank | Defensive Stance holding, Sunder Armor stacking, Shield Slam, and peel taunts. |
+| **Arms** | Melee DPS | Battle Stance two-handed strikes, Mortal Strike, Overpower procs, and cleaves. |
+| **Fury** | Melee DPS | Berserker Stance dual-wielding, Bloodthirst, Whirlwind, and Execute bursts. |
 
 ---
 
-## Turtle WoW 1.18.1 Custom Content
+## What the bot does in combat
 
-- **Master Strike (Spell ID 54023, per game data):**
-  - Custom Turtle WoW weapon-dispatched strike (30s cooldown, 20 rage, per game data).
-  - Wired into both Arms and Fury combat strategies as a high-damage burst nuke whenever a main-hand weapon is equipped (core enforces cooldown/rage/weapon rules).
-- **Defensive Tactics (Spell ID 51606, per game data):**
-  - Passive talent providing threat aura benefits while wielding a shield in Battle or Berserker stances, per game data. It needs no bot wiring, so no `ai/` references exist.
+### Protection (Tank)
+- **Pull & Engagement:** Opens with *Charge* on distant targets before swapping to Defensive Stance. Ranged pulls using bows, guns, or thrown weapons fire when line of sight or distance requires it.
+- **Threat Generation:**
+  - Maintains *Shield Block* on cooldown to activate *Revenge*.
+  - Stacks *Sunder Armor* to 5 stacks, refreshing before expiry.
+  - Casts *Shield Slam* on cooldown (or procced by Improved Shield Slam).
+  - Uses *Thunder Clap* (usable in Defensive Stance on Turtle) against 2 or more melee attackers.
+- **Mitigation & Taunts:**
+  - Activates *Shield Wall* early at low health (20-50%) and holds *Last Stand* for critical health emergencies (<20%).
+  - Taunts with *Taunt* immediately if any attacker peels onto non-tank party members.
+  - Intervenes to intercept physical attacks aimed at focused group members.
+
+### Arms & Fury (Melee DPS)
+- **Arms:**
+  - Fights in Battle Stance, maintaining *Rend*, casting *Mortal Strike* on cooldown and *Overpower* on dodges.
+  - Cleaves packs with *Sweeping Strikes* and *Whirlwind* (dancing to Berserker Stance for Whirlwind).
+  - Dumps rage with *Master Strike* and uses *Heroic Strike* once rage reaches 40.
+- **Fury:**
+  - Fights dual-wielding in Berserker Stance, centering rage spend on *Bloodthirst* and *Whirlwind*.
+  - Activates *Death Wish*, *Recklessness*, and *Retaliation* during encounter burn phases.
+- **Execute Phase:** When targets drop below 20% health, *Execute* becomes top priority, consuming all available rage.
+- **Finishing Runners:** Warriors in Berserker Stance with *Intercept* off cooldown charge after fleeing enemies within 25 yards per [shared runner rules](overview.md#finishing-runners).
 
 ---
 
-## Utility & Interrupts
+## Turtle WoW custom spells
 
-- **Interrupts:** Protection: *Shield Bash* only (+enemy-healer row; the base *Pummel* rows are not inherited, so a tank never leaves Defensive Stance to interrupt) · Fury: *Pummel* (auto-Berserker) · Arms/Fury base: *Pummel* first, *Shield Bash* as the no-stance-dance fallback (both at ACTION_INTERRUPT, plus enemy-healer rows). Pummel stance-dances via its berserker-stance node; shield bash has no stance gate, so one of the two always fires without per-cast dancing. Every interrupt row only fires on a real cast on the bar (generic spell preparing with cast time, or channeling) — delayed instants and idle bosses never trigger it.
-- **Shouts:** Automatically maintains *Battle Shout* on party members (all specs) — skipped while an equal-or-stronger *Blessing of Might* is up, since shouting over it wastes rage for zero gain; only Protection wires *Demoralizing Shout*. *Intimidating Shout* (AoE fear) never fires inside a dungeon or raid, or for a bot grouped with a real player (a feared mob pulls neighbouring packs); outdoors with no master to disrupt, a critical-health bot may still shout to make space.
-- **No break-off (opt-in):** Pool warriors carry the generic `flee` strategy (`panic` and `critical health no master` at critical health, `outnumbered` under medium health with two or more attackers). `AiPlayerbot.PoolMeleeHoldGround = 1` drops it for warriors and rogues so they fight on with their own kit (*Last Stand* / *Shield Wall* where the spec wires them, *Intimidating Shout*), as mod-playerbots melee do. Off by default.
+- **Master Strike (Spell ID 54023):** Weapon-dispatched burst strike (30s cooldown, 20 rage, per game data) wired into Arms and Fury rotations as a high-damage physical nuke.
+- **Defensive Tactics (Spell ID 51606):** Passive Protection talent granting threat aura benefits while wielding a shield in Battle or Berserker Stance.
 
 ---
 
-## Premade Talent Specs & Progression (1.18.1)
+## Utility & interrupts
 
-TortoiseBots ships with pre-configured talent progressions at 5-level intervals (levels 10–60) designed for Turtle WoW 1.18.1:
+- **Interrupts:**
+  - *Protection:* Relies strictly on *Shield Bash* to remain in Defensive Stance.
+  - *Fury:* Uses *Pummel* (in Berserker Stance).
+  - *Arms:* Uses *Pummel* first, falling back to *Shield Bash* without stance dancing.
+  - Interrupts only fire on active cast bars or channels; delayed instants never trigger interrupts.
+- **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
+- **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool warriors fight through low-health emergencies using *Shield Wall* and *Last Stand* rather than fleeing.
+
+---
+
+## Talent builds
+
+TortoiseBots provides pre-configured talent progressions at 5-level checkpoints (levels 10–60) tailored for Turtle WoW 1.18.1:
 
 | Spec Name | Config ID | Role | 60 Allocation | Key Signatures & Synergies |
 | :--- | :--- | :--- | :--- | :--- |
-| **Fury** | `1.0` | Melee DPS | `17 / 34 / 0` | Death Wish (30), Flurry (35), Bloodthirst (40), Ravager (-3s Whirlwind CD, per game data), 17 Arms dip for Deep Wounds 3/3 + Impale 2/2 (+20% crit damage bonus, per game data). |
-| **Protection** | `1.1` | Tank | `7 / 0 / 44` | Shield Slam (40), Concussion Blow (50), Gag Order (silence on Shield Bash / dispel on Shield Slam, per game data), Defensive Tactics, Tactical Mastery 4/5. |
-| **Arms** | `1.2` | Melee DPS | `40 / 11 / 0` | Sweeping Strikes (30), Mortal Strike (40), Master Strike (20 rage, per game data), Boundless Anger, 11 Fury dip for Cruelty 5/5 + Piercing Howl. |
+| **Fury** | `1.0` | Melee DPS | `17 / 34 / 0` | Death Wish, Flurry, Bloodthirst, Ravager (-3s Whirlwind CD), 17 Arms dip for Deep Wounds + Impale. |
+| **Protection** | `1.1` | Tank | `7 / 0 / 44` | Shield Slam, Concussion Blow, Gag Order, Defensive Tactics, Tactical Mastery dip. |
+| **Arms** | `1.2` | Melee DPS | `40 / 11 / 0` | Sweeping Strikes, Mortal Strike, Master Strike, Boundless Anger, 11 Fury dip. |
 
-### Leveling Milestones & Progression Rationale
+<details>
+<summary>Leveling milestones and progression rationale</summary>
 
 - **Fury (`1.0`):**
-  - *Levels 10–30:* Pure Fury path rush to *Cruelty* (5/5 crit), *Dual Wield Specialization* (5/5), *Unbridled Wrath* (5/5), *Piercing Howl* (1/1 AoE snare), and *Death Wish* (30).
-  - *Levels 30–40:* *Flurry* (5/5 attack speed) into *Bloodthirst* (40 capstone).
-  - *Levels 40–60:* Takes *Ravager* (3/3 Cleave rage / Whirlwind CD) and *Improved Execute* (2/2), then transitions into Arms for *Tactical Mastery* (5/5), *Improved Overpower* (2/2), *Deep Wounds* (3/3), and *Impale* (2/2), maximizing critical strike burst.
+  - *Levels 10–30:* Takes *Cruelty* (5/5), *Dual Wield Specialization* (5/5), *Unbridled Wrath* (5/5), *Piercing Howl* (1/1), and *Death Wish* (30).
+  - *Levels 30–40:* Takes *Flurry* (5/5) and *Bloodthirst* (40).
+  - *Levels 40–60:* Takes *Ravager* (3/3) and *Improved Execute* (2/2), then dips into Arms for *Tactical Mastery* (5/5), *Improved Overpower* (2/2), *Deep Wounds* (3/3), and *Impale* (2/2).
 - **Protection (`1.1`):**
-  - *Levels 10–30:* Defensive core rushing *Shield Specialization* (5/5), *Anticipation* (3/3), *Toughness* (5/5), *Last Stand* (20), *Improved Taunt* (2/2), and *Improved Revenge* (3/3).
-  - *Levels 30–50:* *Defiance* (5/5 threat), *Gag Order* (2/2 silence utility), *Shield Slam* (40), *Improved Shield Slam* (2/2), *Reprisal* (2/2), and *Concussion Blow* (50).
-  - *Levels 50–60:* *Defensive Tactics* (3/3) and 7 points in Arms (*Tactical Mastery* + *Improved Heroic Strike*) to retain rage across stance dancing.
+  - *Levels 10–30:* Takes *Shield Specialization* (5/5), *Anticipation* (3/3), *Toughness* (5/5), *Last Stand* (20), *Improved Taunt* (2/2), and *Improved Revenge* (3/3).
+  - *Levels 30–50:* Takes *Defiance* (5/5), *Gag Order* (2/2), *Shield Slam* (40), *Improved Shield Slam* (2/2), *Reprisal* (2/2), and *Concussion Blow* (50).
+  - *Levels 50–60:* Takes *Defensive Tactics* (3/3) and 7 points in Arms (*Tactical Mastery* + *Improved Heroic Strike*).
 - **Arms (`1.2`):**
-  - *Levels 10–40:* Focuses on two-handed power: *Deflection* (5/5), *Deep Wounds* (3/3), *Two-Handed Weapon Specialization* (3/3), *Impale* (2/2), *Sweeping Strikes* (30), and *Mortal Strike* (40).
-  - *Levels 40–60:* Custom Turtle talents *Boundless Anger* (3/3) and *Master of Arms* (5/5), followed by an 11-point Fury dip into *Cruelty* (5/5) and *Piercing Howl* (1/1).
+  - *Levels 10–40:* Takes *Deflection* (5/5), *Deep Wounds* (3/3), *Two-Handed Weapon Specialization* (3/3), *Impale* (2/2), *Sweeping Strikes* (30), and *Mortal Strike* (40).
+  - *Levels 40–60:* Takes *Boundless Anger* (3/3) and *Master of Arms* (5/5), followed by an 11-point Fury dip into *Cruelty* (5/5) and *Piercing Howl* (1/1).
 
+</details>
+
+---
+
+## Class settings
+
+There are no class-specific configuration flags for Warriors. General combat, tanking, and pull settings are configured in [Combat settings](../server/settings/combat.md).

@@ -18,6 +18,7 @@
 #include "playerbot/strategy/values/BudgetValues.h"
 #include "playerbot/strategy/values/FreeMoveValues.h"
 #include "runtime/HireLifecycle.h"
+#include "runtime/AltBotService.h"
 #include <cstdlib>
 #include <iomanip>
 
@@ -318,7 +319,7 @@ bool MoveToTravelTargetAction::TryRescueServiceTrip(TravelTarget* target, std::s
         return false;
     if (!bot->IsAlive() || bot->IsInCombat() || bot->IsTaxiFlying() || bot->IsBeingTeleported())
         return false;
-    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot))
+    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot))
         return false;
     WorldPosition const botPos(bot);
     if (ai->HasPlayerNearby(botPos, sPlayerbotAIConfig.reactDistance) || ai->HasPlayerNearby(location, sPlayerbotAIConfig.reactDistance))
@@ -373,7 +374,10 @@ bool MoveToTravelTargetAction::TryRescueStuckTravel(TravelTarget* target, std::s
     if (!bot->IsAlive() || bot->IsInCombat() || bot->InBattleGround() || bot->IsTaxiFlying() ||
         bot->IsBeingTeleported() || bot->GetTransport())
         return false;
-    if (ai->HasRealPlayerMaster() || ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot) ||
+    // Issue #872: an alt-bot gets the pool's same-map stuck recovery (C22).
+    if (ai->HasRealPlayerMaster() ||
+        (!TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+         (ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot))) ||
         TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
         return false;
 
@@ -428,7 +432,7 @@ bool MoveToTravelTargetAction::TryRescueStuckTravel(TravelTarget* target, std::s
 // route node instead, from where every route works.
 bool MoveToTravelTargetAction::TeleportToNearestRouteNode()
 {
-    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot) || bot->IsBeingTeleported() || bot->IsTaxiFlying())
+    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot) || bot->IsBeingTeleported() || bot->IsTaxiFlying())
         return false;
     WorldPosition const botPos(bot);
     if (ai->HasPlayerNearby(botPos, sPlayerbotAIConfig.reactDistance))
@@ -568,7 +572,7 @@ void ai::DecideFlightPlanForTarget(PlayerbotAI* ai, Player* bot, TravelTarget co
     ClearFlightPlan(ai);
     if (!ai || !bot || !target || !target->getPosition())
         return;
-    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot))
+    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot))
         return;
     if (!bot->IsAlive())
         return;
@@ -639,7 +643,7 @@ static bool TryBoardFlightToTarget(PlayerbotAI* ai, Player* bot, TravelTarget* t
     WorldPosition const& botLocation, WorldPosition const& location)
 {
     AiObjectContext* context = ai->GetAiObjectContext();
-    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot))
+    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot))
         return false;
     if (!bot->IsAlive() || bot->IsInCombat())
         return false;
@@ -718,7 +722,7 @@ static bool TryBoardFlightToTarget(PlayerbotAI* ai, Player* bot, TravelTarget* t
 //    close the gap, so the walk cannot loop.
 bool MoveToTravelTargetAction::TryStepTowardTarget(WorldPosition const& location)
 {
-    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsRandomBot(bot) || bot->InBattleGround() ||
+    if (ai->HasRealPlayerMaster() || !sRandomBotFacade.IsFreeBot(bot) || bot->InBattleGround() ||
         bot->IsInCombat() || !bot->IsAlive() || bot->IsTaxiFlying() || bot->GetTransport() ||
         location.GetMapId() != bot->GetMapId())
         return false;
@@ -779,7 +783,10 @@ bool MoveToTravelTargetAction::TryUndercityLift(WorldPosition const& location)
         return false;
     if (!bot->IsAlive() || bot->IsInCombat() || bot->IsTaxiFlying() || bot->IsBeingTeleported() || bot->GetTransport())
         return false;
-    if (ai->HasRealPlayerMaster() || ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot) ||
+    // Issue #872: an alt-bot gets the pool's same-map stuck recovery (C22).
+    if (ai->HasRealPlayerMaster() ||
+        (!TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+         (ai->IsOwnedBot() || !sRandomBotFacade.IsRandomBot(bot))) ||
         TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()))
         return false;
 
@@ -1049,7 +1056,7 @@ bool MoveToTravelTargetAction::Execute(Event& event)
     // closer: 5 yd nearer the taker than ever before on this trip clears the
     // failures so far (HandInTripProgressed, donor MoveFarTo). Only a walk
     // that stops closing the gap reaches the drop and the 5-min quest park.
-    if (sRandomBotFacade.IsRandomBot(bot) && !ai->HasRealPlayerMaster() &&
+    if (sRandomBotFacade.IsFreeBot(bot) && !ai->HasRealPlayerMaster() &&
         HandInTakerDestination(target, purpose) &&
         HandInTripProgressed(target->HandInBestDistance(), botLocation.distance(location)))
         target->SetRetry(true, 0);
@@ -1108,7 +1115,7 @@ bool MoveToTravelTargetAction::Execute(Event& event)
             // coming drop walks a different kind instead of the same spot.
             // Without it the bot drops, re-picks the identical target and
             // fires "move stuck" resets in place indefinitely.
-            if (TravelMoveFailBlacklistsKind(!ai->HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot),
+            if (TravelMoveFailBlacklistsKind(!ai->HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot),
                 dynamic_cast<GrindTravelDestination*>(target->GetDestination()) != nullptr,
                 noPath, target->GetEntry()))
             {

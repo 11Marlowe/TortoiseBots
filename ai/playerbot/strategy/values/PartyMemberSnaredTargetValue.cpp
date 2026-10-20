@@ -25,6 +25,10 @@ public:
         if (!unit || !unit->IsAlive() || !unit->IsInWorld() || unit == botAI->GetBot())
             return false;
 
+        // A hidden GM is never a spell target (see PartyMemberValue::Check).
+        if (unit->IsPlayer() && unit->GetVisibility() == VISIBILITY_OFF)
+            return false;
+
         if (unit->GetMapId() != botAI->GetBot()->GetMapId())
             return false;
 

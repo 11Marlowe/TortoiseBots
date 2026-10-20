@@ -340,7 +340,7 @@ func TestHTTP(t *testing.T) {
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		return rec
 	}
-	rec := get("/api/v1/dungeons")
+	rec := get("/api/v1/dungeon-runs")
 	if rec.Code != 200 {
 		t.Fatalf("list: %d", rec.Code)
 	}
@@ -348,13 +348,13 @@ func TestHTTP(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &lv); err != nil || len(lv.Dungeons) != 2 || lv.Meta.Runs != 9 || lv.Hint == "" {
 		t.Fatalf("list body wrong: %v %+v", err, lv.Meta)
 	}
-	rec = get("/api/v1/dungeons?driver=" + "haiku%20%C2%B7%20max")
+	rec = get("/api/v1/dungeon-runs?driver=" + "haiku%20%C2%B7%20max")
 	_ = json.Unmarshal(rec.Body.Bytes(), &lv)
 	if len(lv.Dungeons) != 1 || lv.Dungeons[0].Runs != 2 {
 		t.Fatalf("filtered list wrong: %+v", lv.Dungeons)
 	}
 
-	rec = get("/api/v1/dungeons/209/runs?limit=3")
+	rec = get("/api/v1/dungeon-runs/209/runs?limit=3")
 	var rv RunsView
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &rv) != nil || rv.Total != 6 || len(rv.Runs) != 3 || rv.Name != "Zul'Farrak" || len(rv.Bosses) != 3 {
 		t.Fatalf("runs wrong: %d %+v", rec.Code, rv)
@@ -362,17 +362,51 @@ func TestHTTP(t *testing.T) {
 	if rv.Runs[0].Wipes == nil || rv.Runs[0].Bosses == nil {
 		t.Fatal("lists must serialise as [], never null")
 	}
-	if get("/api/v1/dungeons/abc/runs").Code != 400 || get("/api/v1/dungeons/0/runs").Code != 400 {
+	if get("/api/v1/dungeon-runs/abc/runs").Code != 400 || get("/api/v1/dungeon-runs/0/runs").Code != 400 {
 		t.Fatal("a bad map id must be 400")
 	}
-	if get("/api/v1/dungeons/33/runs").Code != 404 {
+	if get("/api/v1/dungeon-runs/33/runs").Code != 404 {
 		t.Fatal("a map with no run must be 404")
 	}
 	// GET only
 	rec = httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/dungeons", nil))
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/dungeon-runs", nil))
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST must be refused, got %d", rec.Code)
+	}
+}
+
+// TestRoutesBesideLiveDungeons mounts the run-trace routes next to the live Dungeons tab's route (issue #895, registered in
+// cmd/server/main.go as "/api/v1/dungeons") on one ServeMux, as the daemon does: no registration panic, and each path reaches its
+// own handler (neither shadows the other).
+func TestRoutesBesideLiveDungeons(t *testing.T) {
+	ix := NewIndex(copyFixtures(t))
+	ix.Scan()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/dungeons", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Route", "live")
+		_, _ = w.Write([]byte(`{"runs":[]}`))
+	})
+	ix.Register(mux, func(h http.HandlerFunc) http.HandlerFunc { return h })
+
+	get := func(path string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		return rec
+	}
+	if rec := get("/api/v1/dungeons"); rec.Code != 200 || rec.Header().Get("X-Route") != "live" {
+		t.Fatalf("live route shadowed: %d %q", rec.Code, rec.Header().Get("X-Route"))
+	}
+	rec := get("/api/v1/dungeon-runs")
+	var lv ListView
+	if rec.Code != 200 || rec.Header().Get("X-Route") != "" || json.Unmarshal(rec.Body.Bytes(), &lv) != nil || lv.Meta.Runs != 9 {
+		t.Fatalf("dungeon-runs list wrong: %d %q", rec.Code, rec.Header().Get("X-Route"))
+	}
+	if rec := get("/api/v1/dungeon-runs/209/runs"); rec.Code != 200 || rec.Header().Get("X-Route") != "" {
+		t.Fatalf("dungeon-runs runs wrong: %d", rec.Code)
+	}
+	if rec := get("/api/v1/dungeons/209/runs"); rec.Code != 404 {
+		t.Fatalf("the old run-trace path must be gone, got %d", rec.Code)
 	}
 }
 
@@ -389,7 +423,7 @@ func TestDumpAPIForNode(t *testing.T) {
 	ix.Scan()
 	mux := http.NewServeMux()
 	ix.Register(mux, func(h http.HandlerFunc) http.HandlerFunc { return h })
-	for name, path := range map[string]string{"dungeons_list.json": "/api/v1/dungeons", "dungeons_runs_209.json": "/api/v1/dungeons/209/runs"} {
+	for name, path := range map[string]string{"dungeon_runs_list.json": "/api/v1/dungeon-runs", "dungeon_runs_209.json": "/api/v1/dungeon-runs/209/runs"} {
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		var v any

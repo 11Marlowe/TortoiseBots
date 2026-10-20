@@ -50,6 +50,13 @@
     serverInfo: null,
     // Remote-commander bindings reported by the module (COMMANDERS datagrams).
     commanders: { list: [], fresh: false, updatedAt: 0, freshAt: 0, reportedAt: 0, lost: false, externalUrl: '' },
+    // Live dungeon runs (issue #895) from /api/v1/dungeons: one per instance copy
+    // of a dungeon or raid with bots in it. byMember maps guid -> the run it is in
+    // (profile links); binds are the run cards in the shape the Commanders map draws.
+    dungeons: { runs: [], binds: [], byMember: new Map(), staleModule: false, at: 0, openKey: null },
+    // turtle-agent run maps from --agent-maps-dir (issue #1102): a read-only list of SVG maps and single-file HTML replays. The
+    // daemon answers 404 while the folder is unset, which is how the page learns to keep the tab hidden.
+    agentMaps: { probed: false, enabled: false, error: false, files: [], open: '', at: 0 },
     server: {
       online: false,
       stale: true,
@@ -73,6 +80,7 @@
     // Bots tab
     botsPresence: 'all',
     botsKind: 'all',
+    botsKindFilter: 'all',
     botsView: 'live',
     botsState: 'all',
     botsClass: 'all',
@@ -516,6 +524,7 @@
     kindSeg: document.getElementById('bots-kind'),
     viewSeg: document.getElementById('bots-view'),
     stateChips: document.getElementById('state-chips'),
+    kindChips: document.getElementById('kind-chips'),
     classChips: document.getElementById('class-chips'),
     rosterHead: document.getElementById('roster-head'),
     rosterTable: document.getElementById('roster-table-body'),
@@ -598,6 +607,20 @@
     // Overview
     activityPanel: document.getElementById('activity-panel'),
     fleetHealth: document.getElementById('fleet-health'),
+
+    // Agent maps (issue #1102)
+    agentMapsMenu: document.querySelector('.menu-item[data-tab="agentmaps"]'),
+    agentMapsOff: document.getElementById('am-off'),
+    agentMapsCard: document.getElementById('am-list-card'),
+    agentMapsRows: document.getElementById('am-rows'),
+    agentMapsCount: document.getElementById('am-count'),
+    agentMapsNote: document.getElementById('am-note'),
+    agentMapsViewer: document.getElementById('am-viewer'),
+    agentMapsTitle: document.getElementById('am-title'),
+    agentMapsMeta: document.getElementById('am-meta'),
+    agentMapsFrame: document.getElementById('am-frame'),
+    agentMapsBack: document.getElementById('am-back'),
+    agentMapsRefresh: document.getElementById('am-refresh'),
 
     // Chart & Console
     activityChart: document.getElementById('activity-chart'),
@@ -750,8 +773,10 @@
     overview: { hash: 'overview', title: 'Overview' },
     roster: { hash: 'bots', title: 'Bots' },
     map: { hash: 'map', title: 'Map' },
-    commanders: { hash: 'commanders', title: 'Commanders' },
     dungeons: { hash: 'dungeons', title: 'Dungeons' },
+    agentmaps: { hash: 'agent-maps', title: 'Agent maps' },
+    commanders: { hash: 'commanders', title: 'Commanders' },
+    'dungeon-runs': { hash: 'dungeon-runs', title: 'Dungeon runs' },
     progress: { hash: 'progress', title: 'Progress' },
     activity: { hash: 'activity', title: 'Activity' },
     auctions: { hash: 'auctions', title: 'Auction House' },
@@ -780,7 +805,7 @@
     const q = new URLSearchParams(query || '');
     const bot = parseInt(q.get('bot'), 10);
     const map = parseInt(q.get('map'), 10);
-    return { tab: HASH_TO_TAB[path] || null, bot: Number.isFinite(bot) ? bot : null, ptab: q.get('p'), demo: q.get('demo') === '1', map: Number.isFinite(map) && map > 0 ? map : null };
+    return { tab: HASH_TO_TAB[path] || null, bot: Number.isFinite(bot) ? bot : null, ptab: q.get('p'), demo: q.get('demo') === '1', run: q.get('run'), map: Number.isFinite(map) && map > 0 ? map : null };
   }
 
   function routeHash(r) {
@@ -789,6 +814,7 @@
       q.set('bot', r.bot);
       if (r.ptab && r.ptab !== 'overview') q.set('p', r.ptab);
     }
+    if (r.run) q.set('run', r.run);
     const qs = q.toString();
     return `#/${TABS[r.tab].hash}${qs ? `?${qs}` : ''}`;
   }
@@ -796,8 +822,9 @@
   // Change the route: switching tab closes the profile unless a bot is given;
   // switching only the profile tab replaces the history entry.
   function go(partial, opts) {
-    const next = Object.assign({ tab: state.activeTab, bot: state.profileGuid, ptab: state.profileTab }, partial);
+    const next = Object.assign({ tab: state.activeTab, bot: state.profileGuid, ptab: state.profileTab, run: state.dungeons.openKey }, partial);
     if (partial.tab && !('bot' in partial)) next.bot = null;
+    if (partial.tab && !('run' in partial)) next.run = null;
     const hash = routeHash(next);
     if (opts && opts.replace) {
       history.replaceState(null, '', hash);
@@ -813,10 +840,13 @@
   function applyRoute() {
     const r = parseRoute();
     const tab = r.tab || state.activeTab;
+    const prevRunKey = state.dungeons.openKey;
+    state.dungeons.openKey = tab === 'dungeons' && r.run ? r.run : null;
     if (tab !== state.activeTab || !routeApplied) showTab(tab);
+    else if (tab === 'dungeons' && state.dungeons.openKey !== prevRunKey) renderDungeons();
     routeApplied = true;
     if (r.demo && tab === 'commanders') setCmdDemo(true, true); // #/commanders?demo=1
-    if (r.map && tab === 'dungeons') dgSelect(r.map); // #/dungeons?map=209 (the glance panel's links)
+    if (r.map && tab === 'dungeon-runs') dgSelect(r.map); // #/dungeon-runs?map=209 (the glance panel's links)
     if (r.bot !== null) {
       state.profileTab = PROFILE_TABS.includes(r.ptab) ? r.ptab : 'overview';
       showProfile(r.bot);
@@ -840,6 +870,8 @@
     else if (tab === 'map') renderMap();
     else if (tab === 'commanders') renderCommanders();
     else if (tab === 'dungeons') renderDungeons();
+    else if (tab === 'dungeon-runs') renderDgRuns();
+    else if (tab === 'agentmaps') renderAgentMaps();
     else if (tab === 'roster') renderBotsTab();
     else if (tab === 'progress') renderProgress();
     else if (tab === 'activity') renderActivityTab();
@@ -872,6 +904,8 @@
     if (tab === 'issues') fetchAnomalyTotals();
     if (tab === 'commanders') fetchCommanders();
     if (tab === 'dungeons') fetchDungeons();
+    if (tab === 'dungeon-runs') fetchDgRuns();
+    if (tab === 'agentmaps') fetchAgentMaps();
   }
 
   el.menuItems.forEach(item => item.addEventListener('click', closeNavDrawer));
@@ -914,6 +948,7 @@
 
   if (el.refreshBtn) {
     el.refreshBtn.addEventListener('click', () => {
+      refreshGate.flush(); // an explicit reload shows what a paused or slowed page was holding back
       fetchBots(true);
       fetchAnomalies();
       fetchIssues(true);
@@ -1349,9 +1384,10 @@
     const bots = renderWorldPanel(mapId);
     const off = state.bots.filter(b => b.map !== 0 && b.map !== 1);
     if (el.worldOffmap) {
-      el.worldOffmap.textContent = off.length
-        ? `${off.length} in instances or other maps (see the Bots list).`
+      el.worldOffmap.innerHTML = off.length
+        ? `${off.length} in instances or other maps — the live ones on the <a href="#/dungeons">Dungeons</a> tab, the rest in the <a href="#/bots">Bots</a> list.`
         : '';
+      el.worldOffmap.classList.toggle('offmap-note', off.length > 0);
     }
     renderMapLegend(bots);
   }
@@ -2122,6 +2158,13 @@
     el.mapTooltip.style.left = `${Math.max(6, left)}px`;
     el.mapTooltip.style.top = `${Math.max(6, top)}px`;
   }
+  // Issue #872: map tooltip badge from live telemetry (kind field, flags as
+  // fallback for pre-v11 modules). kindBadge is a function declaration in the
+  // Bots section, hoisted, so calling it here is safe.
+  function liveKindBadge(b) {
+    const k = (b && b.kind) || (b && b.player ? 'player' : (b && b.alt ? 'alt' : 'pool'));
+    return kindBadge(k);
+  }
 
   function showMapTooltip(b, e) {
     if (!el.mapTooltip) return;
@@ -2130,7 +2173,7 @@
       ? `<br><span style="color: var(--accent-red);">Issue:</span> ${esc(ISSUE_LABELS[issue.type] || issue.type)} (${esc(fmtDuration(issue.duration_sec))})`
       : '';
     el.mapTooltip.innerHTML = `
-      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${b.player ? ' <span class="badge badge-success">player</span>' : ''}<br>
+      <strong style="color: #fff;">${esc(b.name)}</strong> (${esc(b.class)} Lvl ${esc(b.level)})${liveKindBadge(b)}<br>
       ${b.player
         ? `<span style="color: var(--text-muted);">Group:</span> ${b.group ? `#${esc(b.group)}` : 'solo'}<br>`
         : `<span style="color: var(--text-muted);">Role:</span> ${esc(roleLabel(b))}<br>`}
@@ -2255,10 +2298,23 @@
     return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '–';
   }
 
+  // Issue #872: every row carries one kind: pool, hired, claimed, alt,
+  // companion (owned alt following its player), player, or own (a
+  // player-account character offline or not yet seen live). Live telemetry
+  // wins; the DB list only knows pool/hired/claimed/own.
+  function rowKind(db, live) {
+    if (live && live.kind) return live.kind;
+    if (live && live.player) return 'player';
+    if (live && live.alt) return 'alt';
+    if (db && db.kind) return db.kind;
+    return 'pool';
+  }
+
   function makeBotRow(db, live) {
     return {
       guid: live ? live.guid : db.guid,
       name: live ? live.name : db.name,
+      kind: rowKind(db, live),
       cls: String((live && live.class) || (db ? classNameById(db.class) : '') || 'unknown').toLowerCase(),
       level: live ? live.level : db.level,
       spec: db ? (db.spec || '') : '',
@@ -2301,6 +2357,22 @@
     return `<span class="mono" title="${esc(title)}">${esc(g.item_level.toFixed(1))}</span>`;
   }
 
+  // Issue #872: one badge per kind. Offline player-account rows read "own";
+  // the roster join upgrades them to player/alt/companion when live.
+  const KIND_BADGE = {
+    pool: ['pool', 'badge', 'Wandering pool bot'],
+    hired: ['hired', 'badge badge-warn', 'Hired companion'],
+    claimed: ['claimed', 'badge badge-pvp', 'Claimed guild bot'],
+    alt: ['alt', 'badge badge-info', 'Autonomous owned alt-bot'],
+    companion: ['companion', 'badge badge-info', 'Owned alt following its player'],
+    player: ['player', 'badge badge-success', 'Real player, not a bot'],
+    own: ['own', 'badge', 'Player character (offline or unclassified)'],
+  };
+  function kindBadge(kind) {
+    const b = KIND_BADGE[kind || 'pool'];
+    return ` <span class="${b[1]}" title="${esc(b[2])}">${esc(b[0])}</span>`;
+  }
+
   // Counter cell for the Activity view (session counters; offline bots have none).
   const actNum = (key) => ({
     sort: r => (r.live && r.live.activity ? r.live.activity[key] || 0 : -1),
@@ -2317,7 +2389,7 @@
           ? ` <span class="badge ${issue.severity === 'persistent' ? 'badge-error' : 'badge-warn'}" title="${esc(ISSUE_LABELS[issue.type] || issue.type)}">${esc(fmtDuration(issue.duration_sec))}</span>`
           : '';
         const pvp = pvpBadge(r.live);
-        const kind = r.live && r.live.player ? ' <span class="badge badge-success" title="Real player, not a bot">player</span>' : '';
+        const kind = kindBadge(r.kind);
         return `<a class="bot-name bot-link" style="color: ${classColor(r.cls)};" href="${esc(routeHash({ tab: 'roster', bot: r.guid, ptab: state.profileTab }))}">${esc(r.name)}</a>${kind}${pvp ? ` ${pvp}` : ''}${badge}`;
       }
     },
@@ -2452,6 +2524,21 @@
         .map(([c, n]) => chip('class', c, capClass(c), n, classColor(c), state.botsClass === c)).join('');
   }
 
+  // Issue #872: kind chips filter like the state/class chips. The sentence
+  // form ("bots, of which N alts") stays in the header count below.
+  function renderKindChips(base) {
+    if (!el.kindChips) return;
+    const chip = (value, label, count, active) =>
+      `<button class="chip${active ? ' active' : ''}" data-kind="kind" data-v="${esc(value)}">${esc(label)} <b>${count}</b></button>`;
+    const counts = {};
+    base.forEach(r => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
+    const order = ['pool', 'hired', 'claimed', 'alt', 'companion', 'player', 'own'];
+    el.kindChips.innerHTML =
+      chip('all', 'Any kind', base.length, state.botsKindFilter === 'all') +
+      order.filter(k => counts[k] || state.botsKindFilter === k)
+        .map(k => chip(k, k[0].toUpperCase() + k.slice(1), counts[k] || 0, state.botsKindFilter === k)).join('');
+  }
+
   // Search-box fields: "lvl:50-60 ilvl:>40 zone:tanaris". Any column key works;
   // these aliases and scales make the common ones read the way they display.
   const QUERY_ALIASES = { lvl: 'level', ilvl: 'gear', spec: 'class' };
@@ -2497,21 +2584,24 @@
     const issues = issueSet();
     const query = (el.botSearch ? el.botSearch.value : '').toLowerCase().trim();
     const presenceOk = r => state.botsPresence === 'all' || (state.botsPresence === 'online') === r.online;
-    const kindOk = r => state.botsKind === 'all' || (state.botsKind === 'player') === !!(r.live && r.live.player);
+    // The Bots/Players segment is the coarse cut; the kind chips refine it.
+    const segOk = r => state.botsKind === 'all' || (state.botsKind === 'player') === (r.kind === 'player' || r.kind === 'own');
+    const kindOk = r => state.botsKindFilter === 'all' || r.kind === state.botsKindFilter;
     const words = query.split(/\s+/).filter(Boolean);
     const fields = words.map(queryField);
     const text = words.filter((w, i) => !fields[i]);
     const tests = fields.filter(Boolean);
     const queryOk = r => tests.every(t => t(r)) &&
-      text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w));
+      text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w) || r.kind.includes(w));
     const stateOk = r => state.botsState === 'all' || (r.live && (r.live.state || 'idle') === state.botsState);
     const classOk = r => state.botsClass === 'all' || r.cls === state.botsClass;
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
     const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
 
-    const base = rows.filter(r => presenceOk(r) && kindOk(r) && queryOk(r));
+    const base = rows.filter(r => presenceOk(r) && segOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
-    const list = base.filter(r => stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
+    renderKindChips(base);
+    const list = base.filter(r => kindOk(r) && stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
 
     const cols = BOT_VIEWS[state.botsView] || BOT_VIEWS.live;
     const sortKey = cols.includes(state.botsSort.key) ? state.botsSort.key : null;
@@ -2526,12 +2616,16 @@
     });
 
     const online = rows.filter(r => r.online).length;
-    const players = rows.filter(r => r.live && r.live.player).length;
+    const players = rows.filter(r => r.kind === 'player' || r.kind === 'own').length;
+    const alts = rows.filter(r => r.kind === 'alt').length;
+    const companions = rows.filter(r => r.kind === 'companion').length;
     const noun = state.botsKind === 'player' ? 'players' : (players ? 'bots + players' : 'bots');
     if (el.rosterCount) el.rosterCount.textContent = `${list.length === rows.length ? rows.length : `${list.length} of ${rows.length}`} ${noun}`;
     if (el.rosterNote) {
       el.rosterNote.textContent = `${online} online · ${rows.length - online} offline` +
-        (players ? ` · ${players} player${players === 1 ? '' : 's'} live` : '') +
+        (players ? ` · ${players} player${players === 1 ? '' : 's'}` : '') +
+        (alts ? ` · ${alts} alt${alts === 1 ? '' : 's'}` : '') +
+        (companions ? ` · ${companions} companion${companions === 1 ? '' : 's'}` : '') +
         (state.rosterError ? ' · offline bots unavailable (database list failed)' : '');
     }
 
@@ -2725,12 +2819,14 @@
       const v = btn.dataset.v;
       if (btn.dataset.kind === 'state') state.botsState = state.botsState === v ? 'all' : v;
       else if (btn.dataset.kind === 'class') state.botsClass = state.botsClass === v ? 'all' : v;
+      else if (btn.dataset.kind === 'kind') state.botsKindFilter = state.botsKindFilter === v ? 'all' : v;
       else if (btn.dataset.kind === 'pvp') state.botsPvpOnly = !state.botsPvpOnly;
       else state.botsIssueOnly = !state.botsIssueOnly;
       renderRoster();
     };
     el.stateChips.addEventListener('click', onChip);
     el.classChips.addEventListener('click', onChip);
+    if (el.kindChips) el.kindChips.addEventListener('click', onChip);
 
     const sortBy = (th) => {
       const key = th.dataset.sort;
@@ -3381,9 +3477,15 @@
       el.armoryOnline.className = `badge ${online ? 'badge-success' : 'badge-warn'}`;
     }
     if (el.armoryKind) {
-      el.armoryKind.textContent = isPlayer ? 'Player' : 'Bot';
-      el.armoryKind.className = `badge ${isPlayer ? 'badge-success' : 'badge-info'}`;
-      el.armoryKind.style.display = live ? '' : 'none';
+      // Live kind wins; the DB summary carries pool/hired/claimed/own for
+      // offline rows. Offline player-account rows read "Own".
+      const k = (live && (live.kind || (live.player ? 'player' : (live.alt ? 'alt' : '')))) || (s && s.kind) || 'pool';
+      const label = k[0].toUpperCase() + k.slice(1);
+      const titles = { pool: 'Wandering pool bot', hired: 'Hired companion', claimed: 'Claimed guild bot', alt: 'Autonomous owned alt-bot', companion: 'Owned alt following its player', player: 'Real player, not a bot', own: 'Player character (offline or unclassified)' };
+      el.armoryKind.textContent = label;
+      el.armoryKind.className = `badge ${k === 'player' ? 'badge-success' : (k === 'pool' || k === 'own' ? 'badge' : (k === 'hired' ? 'badge badge-warn' : (k === 'claimed' ? 'badge badge-pvp' : 'badge badge-info')))}`;
+      el.armoryKind.title = titles[k] || '';
+      el.armoryKind.style.display = (live || s) ? '' : 'none';
     }
     if (el.armoryMapBtn) el.armoryMapBtn.style.display = live ? '' : 'none';
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
@@ -3408,6 +3510,15 @@
   const kv = (label, value) => `<div class="kv-row"><span>${esc(label)}</span><span>${value}</span></div>`;
   const kvMono = (value) => `<span class="mono">${esc(value || '-')}</span>`;
 
+  // The character's dungeon run, when it is in one: a link to the run's live view on the Dungeons tab (issue #895).
+  function dgnRunLink(guid) {
+    const run = state.dungeons.byMember.get(guid);
+    if (!run) return '';
+    const labels = DgnView.copyLabels(state.dungeons.runs);
+    const label = dgnRunName(run) + (labels[run.key] ? ` · copy ${labels[run.key]}` : '');
+    return kv('Run', `<a class="card-link" href="#/dungeons?run=${encodeURIComponent(run.key)}" title="Open the run's live view">${esc(label)}</a>`);
+  }
+
   function renderProfileOverview() {
     const host = document.getElementById('armory-content-overview');
     if (!host || state.profileTab !== 'overview' || state.profileGuid === null) return;
@@ -3423,13 +3534,14 @@
         <div class="kv-card">
           <div class="section-label">Right now</div>
           ${kv('Status', stateTag(live.state))}
-          ${live.player ? kv('Group', live.group ? `<span class="mono">Group #${esc(live.group)}</span>` : '<span class="cell-muted">solo</span>') : ''}
+          ${live.kind || live.player || live.alt ? kv('Kind', kindBadge((live.kind || (live.player ? 'player' : (live.alt ? 'alt' : 'pool'))))) : ''}
           ${kv('Target', live.target ? `<strong class="target-cell">${esc(displayTarget(live))}</strong>${live.target_level ? ` <span class="cell-muted">L${esc(live.target_level)}</span>` : ''}` : DASH)}
           ${live.travel_purpose ? kv('Travel', `<strong>${esc(live.travel_purpose)}</strong><span class="cell-muted"> → ${esc(live.travel_to || '')}</span>`) : ''}
           ${live.player ? '' : kv('Last action', kvMono(live.last_action))}
           ${live.player ? '' : kv('Trigger', kvMono(live.last_trigger))}
           ${live.player ? '' : kv('Strategy', kvMono(live.strategy || 'default'))}
           ${live.pvp ? kv('PvP', pvpBadge(live)) : ''}
+          ${dgnRunLink(guid)}
           ${live.player ? '' : kv('Combat role', `<span class="badge badge-info" title="AI combat role (forced role / combat strategies / talent-gear auto-detect), not a group slot">${esc(roleLabel(live))}</span>`)}
         </div>
         <div class="kv-card">
@@ -4459,6 +4571,39 @@
     state.server.bots = s.bots || 0;
   }
 
+  // ---- Refresh rate (the picker "Refresh every 1 / 2 / 5 / 10 / 30 s / paused") ----
+  // The daemon keeps pushing every 2 s; the page applies a live update to the roster, the maps and the Commanders cards no more often than
+  // the viewer chose, or not at all while paused (the newest update waits and shows on resume). The choice is kept per browser. Server
+  // health (heartbeat, the offline watchdog, the snapshot age) always stays live, so a frozen page cannot pass for a healthy server.
+  const refreshStore = (() => { try { return window.localStorage; } catch (e) { return null; } })();
+  const refreshGate = RefreshRate.createGate(RefreshRate.load(refreshStore), {
+    now: () => Date.now(),
+    setTimer: (fn, ms) => setTimeout(fn, ms),
+    clearTimer: h => clearTimeout(h),
+  });
+
+  function paintRefresh() {
+    const sec = refreshGate.interval(), paused = refreshGate.paused();
+    document.querySelectorAll('select[data-refresh-select]').forEach(sel => { sel.value = String(sec); });
+    document.querySelectorAll('[data-refresh-badge]').forEach(b => { b.hidden = !paused; });
+    document.body.classList.toggle('refresh-paused', paused);
+  }
+
+  function setRefresh(sec) {
+    refreshGate.set(sec);
+    RefreshRate.save(refreshStore, refreshGate.interval());
+    paintRefresh();
+  }
+
+  function initRefreshPicker() {
+    document.querySelectorAll('select[data-refresh-select]').forEach(sel => {
+      sel.innerHTML = RefreshRate.OPTIONS.map(n => `<option value="${n}">${n === 0 ? 'paused' : n + ' s'}</option>`).join('');
+      sel.addEventListener('change', () => setRefresh(sel.value));
+    });
+    document.querySelectorAll('[data-refresh-badge]').forEach(b => b.addEventListener('click', () => setRefresh(RefreshRate.DEFAULT_SEC)));
+    paintRefresh();
+  }
+
   // WebSocket Live Streaming
   let reconnectTimer = null;
 
@@ -4512,20 +4657,27 @@
       if (typeof data.seq === 'number' && data.seq < state.snapshotSeq) return;
       state.snapshotSeq = data.seq || 0;
 
-      const prevCount = state.bots.length;
-      state.bots = Array.isArray(data.bots) ? data.bots : [];
-      if (data.grinding) state.grinding = data.grinding;
-      if (data.info) { state.serverInfo = data.info; renderServerPanel(); applyCommanderTabFlag(); }
       state.lastSnapshotAt = Date.now();
       applyServerStatus(data.server);
-      applyIssues(data.issues);
-      updateOverviewMetrics();
+      // The roster, the issues and what draws them follow the refresh rate (frozen while paused); the server's health above does not.
+      refreshGate.submit('snapshot', () => {
+        const prevCount = state.bots.length;
+        state.bots = Array.isArray(data.bots) ? data.bots : [];
+        if (data.grinding) state.grinding = data.grinding;
+        if (data.info) { state.serverInfo = data.info; renderServerPanel(); applyCommanderTabFlag(); }
+        applyIssues(data.issues);
+        updateOverviewMetrics();
 
-      renderLive();
+        renderLive();
 
-      if (state.bots.length !== prevCount) {
-        appendConsoleLog(time, 'roster', `Snapshot #${esc(state.snapshotSeq)}: ${state.bots.length} bots active.`);
-      }
+        // The Dungeons view is a rollup of the roster; refresh it with each
+        // snapshot (the profile's run link and the world map's link read it too).
+        fetchDungeons();
+
+        if (state.bots.length !== prevCount) {
+          appendConsoleLog(time, 'roster', `Snapshot #${esc(state.snapshotSeq)}: ${state.bots.length} bots active.`);
+        }
+      });
     } else if (msg.event === 'heartbeat') {
       const d = msg.data;
       if (!d) return;
@@ -4573,10 +4725,10 @@
   }
 
 
-  // ---- Dungeons ---------------------------------------------------------------------------------------------------------------
+  // ---- Dungeon runs -----------------------------------------------------------------------------------------------------------
   // Success rate, clear times, boss kill times and wipe spots per dungeon, read by the daemon from the run trace summaries
-  // (GET /api/v1/dungeons, /api/v1/dungeons/<map>/runs; files only, no database). The wording, the tables and the wipe map SVG are built
-  // in dungeons.js (DgView, unit-tested under node); this part fetches, keeps the state and sets innerHTML. The glance panel on the
+  // (GET /api/v1/dungeon-runs, /api/v1/dungeon-runs/<map>/runs; files only, no database). The wording, the tables and the wipe map SVG are built
+  // in dungeon-runs.js (DgView, unit-tested under node); this part fetches, keeps the state and sets innerHTML. The glance panel on the
   // Overview is the same data, off until the viewer ticks its box.
   const DG_REFRESH_MS = 15000, DG_GLANCE_KEY = 'tbdash.dgGlance';
   const dg = { list: null, error: null, sel: null, runs: null, filter: { build: '', driver: '', mode: '' }, mapN: 10, pic: null, picFor: null, glance: false, timer: null };
@@ -4589,29 +4741,29 @@
     return s ? `?${s}` : '';
   }
 
-  function fetchDungeons() {
-    return fetch('/api/v1/dungeons' + dgQuery()).then(jsonOrThrow).then(list => {
+  function fetchDgRuns() {
+    return fetch('/api/v1/dungeon-runs' + dgQuery()).then(jsonOrThrow).then(list => {
       dg.list = list;
       dg.error = null;
       const ds = list.dungeons || [];
       if (!ds.find(d => d.map === dg.sel)) dg.sel = ds.length ? ds[0].map : null;
       renderGlance();
-      if (state.activeTab === 'dungeons') { renderDungeons(); fetchDungeonRuns(); }
+      if (state.activeTab === 'dungeon-runs') { renderDgRuns(); fetchDgRunsOfMap(); }
     }).catch(err => {
       dg.error = String(err && err.message ? err.message : err);
-      if (state.activeTab === 'dungeons') renderDungeons();
+      if (state.activeTab === 'dungeon-runs') renderDgRuns();
     });
   }
 
-  function fetchDungeonRuns() {
+  function fetchDgRunsOfMap() {
     const id = dg.sel;
     if (!id) { dg.runs = null; return; }
     const want = dg.sel;
-    fetch(`/api/v1/dungeons/${encodeURIComponent(id)}/runs${dgQuery()}`).then(r => (r.ok ? r.json() : null)).then(rv => {
+    fetch(`/api/v1/dungeon-runs/${encodeURIComponent(id)}/runs${dgQuery()}`).then(r => (r.ok ? r.json() : null)).then(rv => {
       if (want !== dg.sel) return; // the viewer picked another dungeon meanwhile
       dg.runs = rv;
       ensureDgPic(id);
-      if (state.activeTab === 'dungeons') renderDungeons();
+      if (state.activeTab === 'dungeon-runs') renderDgRuns();
     }).catch(() => {});
   }
 
@@ -4623,7 +4775,7 @@
     fetch('/api/v1/maps/' + encodeURIComponent(mapId)).then(r => (r.ok ? r.json() : null)).then(ls => {
       const l = CmdView.pictureLayers(ls);
       dgPics.set(mapId, l.length ? l[0] : null);
-      if (dg.sel === mapId) { dg.pic = dgPics.get(mapId); if (state.activeTab === 'dungeons') renderDungeons(); }
+      if (dg.sel === mapId) { dg.pic = dgPics.get(mapId); if (state.activeTab === 'dungeon-runs') renderDgRuns(); }
     }).catch(() => dgPics.set(mapId, null));
   }
 
@@ -4632,10 +4784,10 @@
     dg.sel = mapId;
     dg.runs = null;
     dg.pic = dgPics.get(mapId) && dgPics.get(mapId) !== 'loading' ? dgPics.get(mapId) : null;
-    if (state.activeTab === 'dungeons') { renderDungeons(); fetchDungeonRuns(); }
+    if (state.activeTab === 'dungeon-runs') { renderDgRuns(); fetchDgRunsOfMap(); }
   }
 
-  function renderDungeons() {
+  function renderDgRuns() {
     const root = document.getElementById('dg-root');
     if (!root) return;
     const html = DgView.tabHtml({ list: dg.list, error: dg.error, sel: dg.sel, runs: dg.runs, filter: dg.filter, mapN: dg.mapN, pic: dg.pic });
@@ -4653,7 +4805,7 @@
     setHtml(box, DgView.glanceHtml(dg.list, Date.now() / 1000));
   }
 
-  function initDungeons() {
+  function initDgRuns() {
     const root = document.getElementById('dg-root');
     if (root) {
       root.addEventListener('click', e => {
@@ -4662,7 +4814,7 @@
         if (e.target.closest('[data-dg-clear]')) {
           dg.filter = { build: '', driver: '', mode: '' };
           dg.runs = null;
-          fetchDungeons();
+          fetchDgRuns();
         }
       });
       root.addEventListener('change', e => {
@@ -4670,10 +4822,10 @@
         if (t.matches('select[data-dg-f]')) {
           dg.filter[t.dataset.dgF] = t.value;
           dg.runs = null;
-          fetchDungeons();
+          fetchDgRuns();
         } else if (t.matches('select[data-dg-mapn]')) {
           dg.mapN = parseInt(t.value, 10) || 0;
-          renderDungeons();
+          renderDgRuns();
         }
       });
     }
@@ -4684,15 +4836,16 @@
       toggle.addEventListener('change', () => {
         dg.glance = toggle.checked;
         try { localStorage.setItem(DG_GLANCE_KEY, dg.glance ? '1' : '0'); } catch (e) {}
-        if (dg.glance) fetchDungeons(); else renderGlance();
+        if (dg.glance) fetchDgRuns(); else renderGlance();
       });
     }
     // one cheap request per interval, only while something shows the data (the tab, or the glance panel on the Overview)
-    dg.timer = setInterval(() => {
+    // guarded: a paused page (refresh picker) does not poll
+    dg.timer = setInterval(refreshGate.guard(() => {
       if (document.hidden) return;
-      if (state.activeTab === 'dungeons' || (dg.glance && state.activeTab === 'overview')) fetchDungeons();
-    }, DG_REFRESH_MS);
-    if (dg.glance) fetchDungeons();
+      if (state.activeTab === 'dungeon-runs' || (dg.glance && state.activeTab === 'overview')) fetchDgRuns();
+    }), DG_REFRESH_MS);
+    if (dg.glance) fetchDgRuns();
   }
 
   // ---- Commanders -----------------------------------------------------------
@@ -4734,8 +4887,15 @@
   // The Demo map: a simulated group (demo.js) on its own card, off by default. It goes through the same note / draw functions as a real
   // report; it is never put in state.commanders.list, so the counts, the badge and the real cards never see it.
   const cmdDemo = { on: false, timer: null, start: 0, bind: null };
-  const CMD_DEMO_MS = 2000;
-  const cmdAllBinds = () => (cmdDemo.on && cmdDemo.bind ? state.commanders.list.concat([cmdDemo.bind]) : state.commanders.list);
+  const CMD_DEMO_MS = 2000; // the demo is stepped at the refresh rate when that is slower (see cmdDemoMs)
+  const cmdDemoMs = () => Math.max(CMD_DEMO_MS, refreshGate.interval() * 1000);
+  // A binding the page remembers: commanders (and the demo) plus, for the Dungeons tab (issue #895), one pseudo-binding per live
+  // dungeon run — the same card DOM and the same map renderer draw it (drawCmdMap reads cmdFindBind), only the header and the party
+  // rows are the Dungeons tab's own.
+  const cmdAllBinds = () => {
+    const commanders = cmdDemo.on && cmdDemo.bind ? state.commanders.list.concat([cmdDemo.bind]) : state.commanders.list;
+    return commanders.concat(state.dungeons.binds);
+  };
   const cmdFindBind = key => cmdAllBinds().find(b => b.commander === key);
   const cmdNowFor = bind => (bind && bind.demo ? Date.now() / 1000 : cmdServerNow());
 
@@ -4771,7 +4931,7 @@
     if (note) note.hidden = !on;
     if (on) {
       cmdDemo.start = Date.now() / 1000;
-      cmdDemo.timer = setInterval(cmdDemoTick, CMD_DEMO_MS);
+      cmdDemo.timer = setInterval(refreshGate.guard(cmdDemoTick), cmdDemoMs()); // the simulated group freezes with the rest
       cmdDemoTick();
     } else {
       cmdDemo.bind = null;
@@ -4804,20 +4964,30 @@
     if (typeof view.real_maps === 'boolean') c.realMaps = view.real_maps; // the daemon was given TBDASH_MAP_DIR (only the REST answer says)
     c.reportedAt = view.updated_at || c.reportedAt || 0;
     if (view.fresh) {
-      c.list = Array.isArray(view.commanders) ? view.commanders : [];
-      c.fresh = true;
-      c.updatedAt = view.updated_at || Math.round(Date.now() / 1000);
-      c.freshAt = Date.now();
-      c.lost = false;
-      c.list.forEach(bind => { CmdView.note(cmdTracker, bind, c.updatedAt); UnitInfo.noteEvents(cmdEvents, bind, c.updatedAt); cmdNotePaths(bind, c.updatedAt); });
-      cmdPruneAll();
-      seedCmdTrails(c.list);
-    } else {
-      // No fresh report: keep what was last shown (see COMMANDERS_KEEP_MS) and say so.
-      c.fresh = false;
+      const list = Array.isArray(view.commanders) ? view.commanders : [];
+      const updatedAt = view.updated_at || Math.round(Date.now() / 1000), receivedAt = Date.now();
+      // What the page remembers (paths, hp changes, events) keeps every report, so a slow refresh rate loses no part of a path; while
+      // paused it is held too, so nothing on the map moves, and it is replayed in order on resume.
+      refreshGate.note(() => list.forEach(bind => { CmdView.note(cmdTracker, bind, updatedAt); UnitInfo.noteEvents(cmdEvents, bind, updatedAt); cmdNotePaths(bind, updatedAt); }));
+      refreshGate.submit('commanders', () => {
+        c.list = list;
+        c.fresh = true;
+        c.updatedAt = updatedAt;
+        c.freshAt = receivedAt;
+        c.lost = false;
+        cmdPruneAll();
+        seedCmdTrails(c.list);
+        paintCommandersBadge();
+        if (state.activeTab === 'commanders') renderCommanders();
+      });
+      return;
     }
-    paintCommandersBadge();
-    if (state.activeTab === 'commanders') renderCommanders();
+    // No fresh report: keep what was last shown (see COMMANDERS_KEEP_MS) and say so.
+    refreshGate.submit('commanders', () => {
+      c.fresh = false;
+      paintCommandersBadge();
+      if (state.activeTab === 'commanders') renderCommanders();
+    });
   }
 
   // What the browser remembers of a binding between reports: every bot's path and the places where the run stalled or an order was refused.
@@ -4831,8 +5001,9 @@
   // A binding the page has not asked the daemon about yet gets its short stored history once: the paths then start with what happened
   // before this page was opened. One request at a time; a failure only means the paths start now.
   function seedCmdTrails(list) {
-    if (cmdTrailsLoading || !list.some(b => !cmdTrails.seeded[b.commander])) return;
-    list.forEach(b => { cmdTrails.seeded[b.commander] = true; });
+    const targets = CmdPaths.seedTargets(cmdTrails, list, refreshGate.paused());
+    if (cmdTrailsLoading || !targets.length) return;
+    targets.forEach(c => { cmdTrails.seeded[c] = true; });
     cmdTrailsLoading = true;
     fetch('/api/v1/commanders/trails').then(jsonOrThrow).then(data => {
       CmdPaths.seedTrails(cmdTrails, data);
@@ -4969,6 +5140,7 @@
     chest: '<path d="M-4 -0.8a4 3.2 0 0 1 8 0V3.6h-8z"/><path class="ln eyeln" d="M-4 0.6h8"/><circle class="eye" cx="0" cy="1.8" r="0.8"/>',
     lever: '<path class="ln" d="M-3.4 3.6h6.8M0 3.4L2.6 -2.6"/><circle cx="2.8" cy="-3.2" r="1.5"/>',
     gong: '<circle class="ring" cx="0" cy="0" r="3.7"/><circle cx="0" cy="0" r="1.5"/>',
+    swirl: '<path class="ln" d="M0 0.6a1 1 0 1 1 1.3 -1.1a2.3 2.3 0 1 1 -3.5 1.7a3.7 3.7 0 1 1 5.6 -2.3"/>',
     stop: '<path d="M-3.4 -3.4h6.8v6.8h-6.8z"/><path class="ln eyeln" d="M-1 -1.8v3.6M1 -1.8v3.6"/>',
   };
   // One icon centred at plane point (x, y); size in drawing units (px * k) on a dark disc so it reads on any picture.
@@ -4985,6 +5157,7 @@
       + '<span><i class="lead"></i>Lead</span><span><i class="dead"></i>Dead</span>'
       + (o.trail ? '<span><i class="trail"></i>Lead\'s path</span>' : '')
       + (o.membertrails ? '<span><i class="mtrail"></i>Group paths</span>' : '')
+      + (o.trail || o.membertrails ? '<span class="lic">teleport / summon <svg viewBox="-6 -6 12 12" class="ic-swirl">' + CMD_MAP_ICONS.swirl + '</svg></span><span class="lic">died <svg viewBox="-6 -6 12 12" class="ic-skull">' + CMD_MAP_ICONS.skull + '</svg></span>' : '')
       + (o.runsteps ? '<span><i class="route"></i>Run route</span><span><i class="lstep"></i>Pull / boss step</span>' : '')
       + (o.stalls ? '<span class="lic">stalled / refused <svg viewBox="-6 -6 12 12" class="ic-x"><path d="M-3.4 -3.4L3.4 3.4M3.4 -3.4L-3.4 3.4"/></svg></span>' : '')
       + (o.objects ? '<span class="lic">door <svg viewBox="-6 -6 12 12" class="ic-door">' + CMD_MAP_ICONS.door + '</svg></span><span class="lic">chest <svg viewBox="-6 -6 12 12" class="ic-chest">' + CMD_MAP_ICONS.chest + '</svg></span>'
@@ -5085,11 +5258,24 @@
 
   const cmdPt = (c, x, y) => { const p = CmdView.project(x, y); return `${c.f(p.x)},${c.f(p.y)}`; };
 
-  // The lead's path (fading with age, brighter than the others') or another bot's, cut to the length set in the panel.
+  // The lead's path (fading with age, brighter than the others') or another bot's, cut to the length set in the panel. A path is drawn in
+  // pieces: never a line across a teleport (summon, portal), a spirit release, a resurrection at the spirit healer or a map change
+  // (points marked t / r / m, see CmdView.trailEvent). Where it broke, a swirl marks the arrival; a skull marks where the bot died.
+  const CMD_TRAIL_MARKS = {
+    d: { icon: 'skull', text: 'Died here' },
+    t: { icon: 'swirl', text: 'Teleported or summoned here (the path is not joined to the place before)' },
+    r: { icon: 'swirl', text: 'Released or resurrected here (the path is not joined to the place before)' },
+    m: { icon: 'swirl', text: 'Arrived on this map' },
+  };
   function cmdTrailSvg(c, key, cls, pts, baseAlpha, basePx) {
     let g = '';
-    CmdView.trailSegments(pts.map(p => CmdView.project(p[0], p[1])), 14, 0.15).forEach(sg => {
+    CmdView.trailSegmentsBroken(pts, 14, 0.15).forEach(sg => {
       g += `<polyline class="${cls}" style="${cmdLineStyle(key, basePx, sg.alpha * baseAlpha)}" points="${sg.points.map(p => `${c.f(p.x)},${c.f(p.y)}`).join(' ')}"/>`;
+    });
+    CmdView.trailMarks(pts).forEach(m => {
+      const def = CMD_TRAIL_MARKS[m.kind], p = CmdView.project(m.x, m.y);
+      const when = typeof m.t === 'number' && m.t > 0 ? ' (' + new Date(m.t * 1000).toLocaleTimeString() + ')' : '';
+      if (def) g += '<g class="trailmark">' + cmdMapIcon(def.icon, p.x, p.y, (basePx > 2.5 ? 12 : 9) * c.k, def.text + when) + '</g>';
     });
     return g;
   }
@@ -5332,7 +5518,7 @@
     onMap.slice().sort((a, b) => (a.alive === false ? 0 : 1) - (b.alive === false ? 0 : 1)).forEach(b => {
       const p = CmdView.project(b.x, b.y), role = CmdView.roleKey(b), isLead = b === lead && on.lead, uid = 'b:' + (b.guid || b.name);
       units[uid] = { kind: 'b', obj: b };
-      g += `<g class="bot ${role}" data-u="${esc(uid)}"${CmdView.botHref(b.guid) ? ` data-guid="${esc(b.guid)}"` : ''}><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(12 * k)}"/>`
+      g += `<g class="bot ${role}${b.player ? ' player' : ''}" data-u="${esc(uid)}"${CmdView.botHref(b.guid) ? ` data-guid="${esc(b.guid)}"` : ''}><circle class="hit" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(12 * k)}"/>`
         + (isLead ? `<circle class="leadring" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(11 * k)}"/>` : '')
         + (on.bots ? `<circle class="dot" cx="${f(p.x)}" cy="${f(p.y)}" r="${f(6 * k)}"/>` : '')
         + (on.bots ? overlay(b, 'bot', p, (isLead ? 11 : 6) * k) : '')
@@ -5588,7 +5774,8 @@
         : 'The game server has not reported any commander yet (it sends them only while a binding stands).';
     }
 
-    const all = cmdAllBinds(), keys = all.map(b => b.commander);
+    // Only the commanders' cards live in #cmd-list; the Dungeons tab draws its own (the shared cmdCards map holds both).
+    const all = cmdAllBinds().filter(b => !b.dungeon), keys = all.map(b => b.commander);
     cmdCards.forEach((card, key) => { if (!keys.includes(key)) { card.remove(); cmdCards.delete(key); delete cmdMaps[key]; delete cmdAvail[key]; } });
     all.forEach((bind, i) => {
       const key = bind.commander, demo = !!bind.demo, nowSec = cmdNowFor(bind);
@@ -5620,6 +5807,259 @@
     });
     paintCmdLayers();
     showCommanderLink();
+  }
+
+  // ---- Dungeons (issue #895) -----------------------------------------------
+  // A read-only live view of every instance copy (dungeon or raid) that has bots in it, one run per copy (map + instance id), so two
+  // copies of the same dungeon are two runs. The daemon does the grouping (/api/v1/dungeons, internal/state/dungeons.go); the tab shows
+  // the list of runs, and a run's live view reuses the Commanders card and map renderer. No orders, no buttons that act on bots.
+
+  // A run as the card/map machinery expects it: a pseudo-binding whose bots are the run's members (bots and the real player, alive
+  // from the dead flag). `dungeon` marks it so the Commanders render never picks it up.
+  function dgnBind(run) {
+    return {
+      commander: 'dgn:' + run.key,
+      dungeon: true,
+      dgn: run,
+      online: true, group: 0, lead: '',
+      bots: (run.members || []).map(m => ({
+        name: m.name, guid: m.guid, player: m.player, class: m.class, role: m.role, level: m.level,
+        hp: m.hp, max_hp: m.max_hp, power: m.power, max_power: m.max_power, power_type: m.power_type,
+        map: m.map, zone: m.zone, x: m.x, y: m.y, z: m.z, o: m.o,
+        alive: !m.dead, state: m.state,
+      })),
+    };
+  }
+
+  // The run's name: the zone name of the members' zone if the client knows one for it (a dungeon is its own
+  // zone there), else any zone name recorded for the map, else "Map <id>".
+  function dgnRunName(run) {
+    const first = (run.members || [])[0];
+    const byZone = first ? ZONE_CONFIG[first.zone] : null;
+    if (byZone && byZone.name) return displayZoneName(byZone.name);
+    for (const key in ZONE_BOUNDS) {
+      const zb = ZONE_BOUNDS[key];
+      if (zb && Number(zb.map_id) === run.map && zb.name) return displayZoneName(zb.name);
+    }
+    return 'Map ' + run.map;
+  }
+
+  // The party list of a run: the real player(s) first and marked apart, bots with role colours and bars —
+  // a raid as compact subgroup blocks (5 per group), a party as one list. Same row look as a commander's party.
+  function dgnPartyHtml(run) {
+    const rows = DgnView.memberRows(run);
+    if (!rows.length) return '<div class="empty-hint">Nobody in this run.</div>';
+    const row = r => {
+      const bars = r.dead
+        ? '<span class="cmd-meter cmd-deadtxt">Dead</span><span class="cmd-meter"></span>'
+        : `<span class="cmd-meter">${cmdBarHtml(r.hp, r.hp < CmdView.LOW_HP_PCT && !r.dead ? 'low' : 'hp', 'Health ' + r.hpText)}</span>
+           <span class="cmd-meter">${r.hasPower ? cmdBarHtml(r.power, r.powerKind, r.powerKind + ' ' + r.powerText) : '<span class="muted">–</span>'}</span>`;
+      return `<div class="cmd-row ${r.dead ? 'dead' : ''}">
+        ${cmdIcon(r.role, r.roleLabel + (r.dead ? ' (dead)' : ''))}
+        <span class="cmd-who"><b>${cmdBotLink(r.guid, r.name)}</b>${r.player ? ' <span class="badge badge-info" title="A real player online in this run">player</span>' : ''} <span class="muted">${esc(r.cls)}${r.level ? ' · ' + esc(r.level) : ''}</span></span>
+        ${bars}<span class="cmd-dist">${esc(r.state)}</span></div>`;
+    };
+    return DgnView.memberGroups(rows).map(g =>
+      (g.label ? `<h4 class="dgn-subgroup">${esc(g.label)}</h4>` : '') + g.rows.map(row).join('')
+    ).join('');
+  }
+
+  function fetchDungeons() {
+    if (dungeonsInflight) return;
+    dungeonsInflight = true;
+    fetch('/api/v1/dungeons')
+      .then(jsonOrThrow)
+      .then(view => { if (view && Array.isArray(view.runs)) applyDungeons(view); })
+      .catch(() => {})
+      .finally(() => { dungeonsInflight = false; });
+  }
+  let dungeonsInflight = false;
+
+  function applyDungeons(view) {
+    // The same refresh-rate gate as every other live view: frozen while paused.
+    refreshGate.submit('dungeons', () => {
+      state.dungeons.runs = view.runs;
+      state.dungeons.staleModule = !!view.stale_module;
+      state.dungeons.at = Date.now();
+      state.dungeons.binds = view.runs.map(dgnBind);
+      state.dungeons.byMember = new Map();
+      view.runs.forEach(r => (r.members || []).forEach(m => {
+        if (!state.dungeons.byMember.has(m.guid)) state.dungeons.byMember.set(m.guid, r);
+      }));
+      cmdPruneAll();
+      if (state.activeTab === 'dungeons') renderDungeons();
+    });
+  }
+
+  // The tab: a run opened (#/dungeons?run=<key>) shows its card (map + party), otherwise the list of runs.
+  function renderDungeons() {
+    const listEl = document.getElementById('dgn-list'), viewEl = document.getElementById('dgn-view');
+    if (!listEl || !viewEl) return;
+    const runs = state.dungeons.runs;
+    const open = state.dungeons.openKey != null ? runs.find(r => r.key === state.dungeons.openKey) : null;
+    listEl.style.display = open ? 'none' : '';
+    viewEl.style.display = open ? '' : 'none';
+
+    const emptyEl = document.getElementById('dgn-empty');
+    if (emptyEl) emptyEl.style.display = runs.length || open ? 'none' : '';
+    const staleEl = document.getElementById('dgn-stale');
+    if (staleEl) staleEl.style.display = state.dungeons.staleModule ? '' : 'none';
+
+    // Back link of the open run; drawn before the card so the header is never empty.
+    const back = document.getElementById('dgn-back');
+    if (back) back.onclick = () => go({ tab: 'dungeons', run: null });
+
+    if (open) {
+      const labels = DgnView.copyLabels(runs);
+      const name = dgnRunName(open);
+      const stateWord = DgnView.runState(open);
+      document.getElementById('dgn-run-title').innerHTML =
+        `${esc(name)}${labels[open.key] ? ` &middot; <span class="cell-muted">copy ${labels[open.key]}</span>` : ''} &middot; <span class="cmd-state s-${esc(stateWord.replace(/\s+/g, '-'))}">${esc(stateWord)}</span>`;
+      setHtml(document.getElementById('dgn-run-sub'),
+        `${open.bots ? open.bots + ' bot' + (open.bots === 1 ? '' : 's') : ''}`
+        + `${open.players ? (open.bots ? ' · ' : '') + open.players + ' player' + (open.players === 1 ? '' : 's') : open.bots ? '' : 'no player'}`
+        + ` · seen ${esc(DgnView.seenText(open.seen_sec))}${state.dungeons.staleModule ? ' · <span title="The game server runs an older module that reports no instance id, so copies of one dungeon cannot be told apart">one run per map</span>' : ''}`);
+
+    // One shared card per run, rebuilt and drawn like a commander's; the cards of runs that are no longer open go away.
+    const key = 'dgn:' + open.key;
+    cmdCards.forEach((cardEl, k) => {
+      if (k.indexOf('dgn:') !== 0 || k === key) return;
+      cardEl.remove(); cmdCards.delete(k); delete cmdMaps[k]; delete cmdAvail[k];
+    });
+    let card = cmdCards.get(key);
+    if (!card) { card = newCmdCard(key); cmdCards.set(key, card); }
+    const host = document.getElementById('dgn-card');
+    if (!host.contains(card)) host.appendChild(card);
+    setHtml(card.querySelector('.cmd-title'), esc(name) + (labels[open.key] ? ` &middot; copy ${labels[open.key]}` : ''));
+    setHtml(card.querySelector('.cmd-badges'), `<span class="badge badge-info" title="Instance copy ${esc(String(open.instance))} of map ${esc(String(open.map))}">instance ${esc(String(open.instance))}</span>`);
+    setHtml(card.querySelector('.cmd-sub'), `Party of <b>${open.bots + open.players}</b>${open.dead ? ` &middot; ${open.dead} down` : ''}`);
+    card.querySelector('.cmd-orders').parentElement.querySelector('.cmd-h').style.display = 'none';
+    setHtml(card.querySelector('.cmd-orders'), '');
+    setHtml(card.querySelector('.cmd-party'), dgnPartyHtml(open));
+    drawCmdMap(key);
+    return;
+  }
+
+    // The list of runs.
+    const host = document.getElementById('dgn-list');
+    host.innerHTML = runs.length
+      ? '<table class="dgn-table"><thead><tr><th>Dungeon</th><th>Player</th><th>Bots</th><th>Down</th><th>State</th><th>Seen</th></tr></thead><tbody>'
+        + runs.map((r, i) => {
+          const labels = DgnView.copyLabels(runs);
+          const players = (r.members || []).filter(m => m.player).map(m => m.name);
+          return `<tr class="dgn-run-row" data-run="${esc(r.key)}" data-i="${i}" title="Open the live view of this run">
+            <td>${esc(dgnRunName(r))}${labels[r.key] ? ` <span class="cell-muted">copy ${labels[r.key]}</span>` : ''}</td>
+            <td>${players.length ? esc(players.join(', ')) : '<span class="cell-muted">no player</span>'}</td>
+            <td>${r.bots}</td>
+            <td>${r.dead || '–'}</td>
+            <td><span class="cmd-state s-${esc(DgnView.runState(r).replace(/\s+/g, '-'))}">${esc(DgnView.runState(r))}</span></td>
+            <td>${esc(DgnView.seenText(r.seen_sec))}</td>
+          </tr>`;
+        }).join('') + '</tbody></table>'
+      : '';
+    if (!host._wired) {
+      host._wired = true;
+      host.addEventListener('click', e => {
+        const row = e.target.closest && e.target.closest('.dgn-run-row');
+        if (row) go({ tab: 'dungeons', run: row.dataset.run });
+      });
+    }
+  }
+
+  // ---- Agent maps (issue #1102): turtle-agent run maps from --agent-maps-dir, read-only ----
+
+  let agentMapsInflight = false;
+
+  function applyAgentMapsEnabled(on) {
+    state.agentMaps.enabled = !!on;
+    if (el.agentMapsMenu) el.agentMapsMenu.style.display = on ? '' : 'none';
+    if (!on && state.activeTab === 'agentmaps') go({ tab: 'overview' }, { replace: true });
+  }
+
+  // The list is also the feature probe: the daemon registers the route only when the operator set a folder, so a 404 keeps the
+  // tab hidden (and sends a pasted #/agent-maps URL back to Overview).
+  function fetchAgentMaps() {
+    if (agentMapsInflight) return;
+    agentMapsInflight = true;
+    fetch('/api/v1/agent-maps')
+      .then(r => {
+        if (r.status === 404) { applyAgentMapsEnabled(false); return null; }
+        return jsonOrThrow(r);
+      })
+      .then(data => {
+        state.agentMaps.probed = true;
+        if (!data) {
+          state.agentMaps.error = false;
+          if (state.activeTab === 'agentmaps') renderAgentMaps();
+          return;
+        }
+        state.agentMaps.error = false;
+        applyAgentMapsEnabled(true);
+        state.agentMaps.files = Array.isArray(data.files) ? data.files : [];
+        state.agentMaps.at = Date.now();
+        if (state.agentMaps.open && !state.agentMaps.files.some(f => f.name === state.agentMaps.open)) state.agentMaps.open = '';
+        if (state.activeTab === 'agentmaps') renderAgentMaps();
+      })
+      .catch(() => {
+        state.agentMaps.probed = true;
+        state.agentMaps.error = true;
+        if (state.activeTab === 'agentmaps') renderAgentMaps();
+      })
+      .finally(() => { agentMapsInflight = false; });
+  }
+
+  function renderAgentMaps() {
+    const am = state.agentMaps;
+    if (am.open && !am.files.some(f => f.name === am.open)) am.open = '';
+    const open = am.enabled && am.open ? am.files.find(f => f.name === am.open) : null;
+    if (el.agentMapsOff) el.agentMapsOff.style.display = am.probed && !am.enabled ? '' : 'none';
+    if (el.agentMapsCard) el.agentMapsCard.style.display = am.enabled && !open ? '' : 'none';
+    if (el.agentMapsViewer) el.agentMapsViewer.style.display = open ? '' : 'none';
+    if (!am.enabled) return;
+
+    if (open) {
+      if (el.agentMapsTitle) el.agentMapsTitle.textContent = open.name;
+      if (el.agentMapsMeta) {
+        el.agentMapsMeta.textContent = `${open.kind === 'html' ? 'HTML replay' : 'SVG map'} · ${AgentMapsView.formatSize(open.size)} · ${AgentMapsView.formatTime(open.mtime)}`;
+      }
+      if (el.agentMapsFrame) {
+        // The sandbox is set before the source: an HTML replay may run its own inline script, but neither kind gets
+        // allow-same-origin, so the framed document has an opaque origin and cannot reach this page or its cookies.
+        el.agentMapsFrame.setAttribute('sandbox', AgentMapsView.sandbox(open.kind));
+        const url = AgentMapsView.fileURL(open.name);
+        if (el.agentMapsFrame.getAttribute('src') !== url) el.agentMapsFrame.setAttribute('src', url);
+      }
+    } else if (el.agentMapsFrame) {
+      el.agentMapsFrame.removeAttribute('src'); // stop a replay when the viewer closes
+    }
+
+    if (el.agentMapsRows) {
+      let rows;
+      if (!am.probed) rows = '<tr><td colspan="4" class="table-empty">Reading the run-map folder…</td></tr>';
+      else if (am.error) rows = '<tr><td colspan="4" class="table-empty">Could not read the run-map folder; see the dashboard log.</td></tr>';
+      else rows = AgentMapsView.renderRows(am.files) || '<tr><td colspan="4" class="table-empty">No run maps yet. Produce one with <code>turtle-agent map --capture agent.cap --out run.svg --html</code> into the configured folder.</td></tr>';
+      el.agentMapsRows.innerHTML = rows;
+    }
+    if (el.agentMapsCount) el.agentMapsCount.textContent = `${am.files.length} map${am.files.length === 1 ? '' : 's'}`;
+    if (el.agentMapsNote) {
+      el.agentMapsNote.textContent = 'Newest first. Only .svg and .html files directly in the configured folder are listed. '
+        + 'Click a map to show it inline; a replay is sandboxed so it cannot reach this dashboard or the network.';
+    }
+  }
+
+  function initAgentMaps() {
+    if (el.agentMapsBack) el.agentMapsBack.addEventListener('click', () => { state.agentMaps.open = ''; renderAgentMaps(); });
+    if (el.agentMapsRefresh) el.agentMapsRefresh.addEventListener('click', () => fetchAgentMaps());
+    if (el.agentMapsRows && !el.agentMapsRows._wired) {
+      el.agentMapsRows._wired = true;
+      el.agentMapsRows.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('.agent-map-open');
+        if (!btn) return;
+        state.agentMaps.open = btn.dataset.name || '';
+        renderAgentMaps();
+      });
+    }
+    fetchAgentMaps(); // probe: shows the tab when the folder is configured
   }
 
   // ---- the layers panel: one choice for all maps ----
@@ -6031,15 +6471,19 @@
   fetchIssues();
   fetchHistory();
   fetchActivity();
-  setInterval(fetchActivity, 30000);
+  setInterval(refreshGate.guard(fetchActivity), 30000);
   initCommanderLink();
   initCmdLayers();
   initCmdDemo();
-  initDungeons();
+  initDgRuns();
+  initRefreshPicker();
+  initAgentMaps();
+  refreshGate.onGap(() => { CmdView.markGap(cmdTracker); CmdPaths.markGap(cmdTrails); });
+  refreshGate.onChange(() => { seedCmdTrails(state.commanders.list); if (cmdDemo.on) { clearInterval(cmdDemo.timer); cmdDemo.timer = setInterval(refreshGate.guard(cmdDemoTick), cmdDemoMs()); } });
   fetchCommanders();
-  setInterval(fetchCommanders, 30000);
-  setInterval(expireCommanders, 3000);
-  setInterval(fetchRoster, 60000);
+  setInterval(fetchCommanders, 30000); // goes through the refresh gate like the stream's reports
+  setInterval(refreshGate.guard(expireCommanders), 3000); // a paused page keeps what it froze
+  setInterval(refreshGate.guard(fetchRoster), 60000);
   initWebSocket();
 
   // First route: the URL hash wins; without one, return to the last tab used.

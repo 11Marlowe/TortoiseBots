@@ -1,6 +1,7 @@
 #include "../../runtime/PlayerbotAIStorage.h"
 #include "../../runtime/BotManager.h"
 #include "../../runtime/HireLifecycle.h"
+#include "../../runtime/AltBotService.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/AiContextAugment.h"
@@ -1285,8 +1286,9 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
         nonCombatEngine->addStrategy("roll");
 
-        // let 25% of free bots start duels.
-        if (!urand(0, 3))
+        // let 25% of free bots start duels (never an alt-bot, issue #872:
+        // it is the player's own character).
+        if (!urand(0, 3) && !TortoiseBots::AltBotService::Instance().IsAutonomous(player->GetObjectGuid()))
         {
             nonCombatEngine->addStrategy("start duel");
         }

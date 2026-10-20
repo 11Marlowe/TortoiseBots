@@ -32,21 +32,6 @@ static bool HasOtherWarlockInGroup(Player* bot, Group* group)
     return false;
 }
 
-static bool BotIsAlreadySoulstoned(Player* bot)
-{
-    Unit::SpellAuraHolderMap const& auras = bot->GetSpellAuraHolderMap();
-    for (auto const& pair : auras)
-    {
-        SpellEntry const* spellInfo = pair.second->GetSpellProto();
-        for (int i = 0; i < 3; i++)
-        {
-            if (spellInfo->Effect[i] == SPELL_EFFECT_SELF_RESURRECT)
-                return true;
-        }
-    }
-    return false;
-}
-
 // The group as the warlock sees it, for TortoiseBots::DecideSoulstoneTarget
 // (runtime/WarlockSoulstonePolicy.h: healer, else tank, else master/leader).
 // Members on other maps and offline members are left out, so they never hold
@@ -64,7 +49,10 @@ Unit* PartyMemberToSoulstone::Calculate()
 
     Group* group = bot->GetGroup();
     facts.inGroup = group != nullptr;
-    facts.botHasSoulstoneAura = BotIsAlreadySoulstoned(bot);
+    // The buff (Soulstone Resurrection), as for the members below. The old
+    // SPELL_EFFECT_SELF_RESURRECT test matched the "Use Soulstone" spell,
+    // which is never an aura, so the bot never saw its own buff.
+    facts.botHasSoulstoneAura = ai->HasAura("soulstone resurrection", bot);
 
     std::vector<TortoiseBots::SoulstoneCandidate> candidates;
     std::vector<Player*> players;
@@ -75,6 +63,12 @@ Unit* PartyMemberToSoulstone::Calculate()
         for (Player* member : LiveGroupMembers(group))
         {
             if (!member || member == bot || member->GetMapId() != bot->GetMapId() || member->InBattleGround())
+                continue;
+
+            // An invisible GM is dropped as a spell target by the core
+            // (Spell::CheckTarget): the stone finished with no target and the
+            // bot started it again every few seconds (#1107).
+            if (member->GetVisibility() == VISIBILITY_OFF)
                 continue;
 
             TortoiseBots::SoulstoneCandidate c;

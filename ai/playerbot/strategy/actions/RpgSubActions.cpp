@@ -111,7 +111,7 @@ void RpgHelper::setDelay(bool waitForGroup)
     // next tick, not ten seconds of gossip per step (issue #393). Only a pool bot
     // parked at an NPC it actually needs - a rewardable hand-in, an acceptable
     // quest, a needed vendor or trainer sale/learn - keeps the full roleplay pause.
-    bool const poolSolo = !ai->HasRealPlayerMaster() && !bot->GetGroup() && sRandomBotFacade.IsRandomBot(bot);
+    bool const poolSolo = !ai->HasRealPlayerMaster() && !bot->GetGroup() && sRandomBotFacade.IsFreeBot(bot);
     if (poolSolo && !NearbyServiceTarget(ai))
     {
         ai->SetActionDuration(sPlayerbotAIConfig.rpgDelay / 5);
@@ -402,10 +402,16 @@ bool RpgAIChatAction::SpeakLine()
 
     if (bot->getObjectGuid() == senderGuid)
     {
-        if (type == CHAT_MSG_EMOTE)
-            bot->TextEmote(message.c_str());
-        else
-            bot->Say(message.c_str(), lang);
+        // Issue #1108: the bot's own dialogue line is chat and follows
+        // AiPlayerbot.EnableBroadcasts. The npc line below is not the bot
+        // talking and stays.
+        if (sPlayerbotAIConfig.enableBroadcasts)
+        {
+            if (type == CHAT_MSG_EMOTE)
+                bot->TextEmote(message.c_str());
+            else
+                bot->Say(message.c_str(), lang);
+        }
         message = bot->GetName() + std::string(": ") + message;
     }
     else
@@ -670,10 +676,15 @@ void RpgAIChatAction::ManualChat(GuidPosition target, const std::string& line)
     {
         SET_AI_VALUE2(int32, "manual int", "rpg ai chat line", 11);
 
-        if (line.find("*") == 0)
-            bot->TextEmote(line);
-        else
-            bot->Say(line, LANG_UNIVERSAL);
+        // Issue #1108: the line the bot speaks in the rpg dialogue is chat
+        // and follows AiPlayerbot.EnableBroadcasts.
+        if (sPlayerbotAIConfig.enableBroadcasts)
+        {
+            if (line.find("*") == 0)
+                bot->TextEmote(line);
+            else
+                bot->Say(line, LANG_UNIVERSAL);
+        }
 
         llmContext += std::string(" ") + bot->GetName() + std::string(":") + line;
     }
@@ -764,7 +775,7 @@ bool RpgTradeUsefulAction::Execute(Event& event)
             {
                 if (bot->GetGroup() && bot->GetGroup()->IsMember(guidP))
                     ai->TellPlayerNoFacing(GetMaster(), "You can use this " + chat->formatItem(item) + " better than me, " + player->GetName() + ".", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
-                else
+                else if (sPlayerbotAIConfig.enableBroadcasts)
                     bot->Say("You can use this " + chat->formatItem(item) + " better than me, " + player->GetName() + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
             }
 
@@ -863,7 +874,7 @@ bool RpgEnchantAction::Execute(Event& event)
                     {
                         if (bot->GetGroup() && bot->GetGroup()->IsMember(guidP))
                             ai->TellPlayerNoFacing(GetMaster(), "Let me enchant this " + chat->formatItem(item) + " with " + chat->formatSpell(spellId) + " for you " + player->GetName() + ".", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
-                        else
+                        else if (sPlayerbotAIConfig.enableBroadcasts)
                             bot->Say("Let me enchant this " + chat->formatItem(item) + " with " + chat->formatSpell(spellId) + " for you " + player->GetName() + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
                     }
 

@@ -13,6 +13,8 @@
 #include "playerbot/BotAreaTriggers.h"
 
 #include "../../runtime/ObservabilityEmitter.h"
+#include "../../runtime/AltBotPolicy.h"
+#include "../../runtime/AltBotService.h"
 #include "../../runtime/RunTrace.h"
 #include "../../runtime/BotActivityLease.h"
 #include "../../runtime/HireLifecycle.h"
@@ -20,6 +22,7 @@
 #include "../../runtime/PoolBotTradePolicy.h"
 #include "../../runtime/QueuedOrderPolicy.h"
 #include "../../runtime/RemoteCommanderTasks.h"
+#include "../../runtime/AltBotService.h"
 #include "ByteBuffer.h"
 #include "ObjectAccessor.h"
 
@@ -38,6 +41,9 @@
 #include "PlayerbotAI.h"
 #include "BotAreaTriggers.h"
 #include "playerbot/InterruptCastingPolicy.h"
+#include "playerbot/strategy/values/MountValues.h"
+#include "playerbot/MountDismountPolicy.h"
+#include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/WandPolicy.h"
 #include "BotDiagnostics.h"
 #include "BotActionLog.h"
@@ -327,6 +333,7 @@ PacketHandlerSpec const kBotOutgoingPacketHandlers[] =
     { SMSG_TEXT_EMOTE, "receive text emote", false },
     { SMSG_EMOTE, "receive emote", false },
     { SMSG_LOOT_START_ROLL, "loot start roll", true },
+    { SMSG_LOOT_ROLL, "loot vote", true },
     { SMSG_LOOT_ROLL_WON, "loot roll won", true },
     { SMSG_SUMMON_REQUEST, "summon request", false },
     { MSG_RAID_READY_CHECK, "ready check", false },
@@ -439,7 +446,11 @@ PlayerbotAI::PlayerbotAI(Player* bot) :
     RegisterPacketHandlers(botOutgoingPacketHandlers, kBotOutgoingPacketHandlers, std::size(kBotOutgoingPacketHandlers));
     RegisterPacketHandlers(masterOutgoingPacketHandlers, kMasterOutgoingPacketHandlers, std::size(kMasterOutgoingPacketHandlers));
 
-    if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0)
+    // Issue #872: autonomous alts never auto-spend talents (B12). The
+    // IsOwnedBot guard already covers companions; this covers the
+    // masterless autonomous state (master was cleared at session start).
+    if (!HasRealPlayerMaster() && !IsOwnedBot() && bot->GetFreeTalentPoints() > 0 &&
+        !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
     {
         DoSpecificAction("auto talents");
     }
@@ -545,6 +556,11 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     }
 
     SC_PHASE("UpdateAI.entry", bot ? bot->GetName() : "(null)");
+
+    // Action log scope (AiPlayerbot.ActionLogScope = commanded): re-read at most
+    // every 15 s per bot, here because the group, binding and hire lookups are
+    // world-thread state. One branch while the log is off.
+    botdiag::BotActionLog::RefreshScope(this);
 
     // A Headless bot has no client to finish a cinematic
     // (CMSG_COMPLETE_CINEMATIC), so any cinematic started mid-session - e.g.
@@ -848,7 +864,7 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
     }
 
     // cheat options
-    if (bot->IsAlive() && ((uint32)GetCheat() > 0 || (uint32)sPlayerbotAIConfig.botCheatMask > 0))
+    if (bot->IsAlive() && ((uint32)GetCheat() > 0 || (uint32)sPlayerbotAIConfig.botCheatMask > 0 || (uint32)sPlayerbotAIConfig.rndBotCheatMask > 0))
     {
         if (HasCheat(BotCheatMask::health))
             bot->SetHealthPercent(100);
@@ -1797,7 +1813,7 @@ void PlayerbotAI::OnDeath()
             // before the cluster escape below, which may drop the target.
             // Pool bots without a real player master only; a forced target
             // (an explicit order) is never counted or parked.
-            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsRandomBot(bot))
+            if (context && !HasRealPlayerMaster() && sRandomBotFacade.IsFreeBot(bot))
             {
                 TravelTarget* errandTarget = AI_VALUE(TravelTarget*, "travel target");
                 TravelDestination* errandDest = errandTarget ? errandTarget->GetDestination() : nullptr;
@@ -2557,7 +2573,10 @@ bool PlayerbotAI::IsBotOwnerOrGm(Player const& fromPlayer) const
         uint32 ownerAccount = record->ownerAccountId ? record->ownerAccountId : record->accountId;
         if (ownerAccount != 0 && ownerAccount == senderAccount)
             return true;
-        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid())
+        // Issue #872: a stranger's group binds them as the alt-bot's master
+        // (AcceptInvitationAction), but only the owner's account owns it.
+        if (record->masterGuid && record->masterGuid == fromPlayer.GetObjectGuid() &&
+            !TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
             return true;
     }
     TortoiseBots::OwnedCharacter owned;
@@ -2583,6 +2602,14 @@ bool PlayerbotAI::CheckBotCommandAuth(Player& fromPlayer, std::string const& com
         return false;
     }
     if (IsBotOwnerOrGm(fromPlayer))
+        return true;
+    // Issue #872: an autonomous alt-bot in another player's group takes
+    // combat orders (follow, attack, ...) from strangers, but only the
+    // owner's account (or a GM) may touch anything outside combat. The
+    // master binding alone must not grant it: joining the stranger's group
+    // is what put the stranger's guid in the record.
+    if (TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()) &&
+        TortoiseBots::CheckAltBotStrangerCommand(command) == TortoiseBots::AltBotStrangerVerdict::Allowed)
         return true;
     if (!silentDeny)
         TellPlayer(&fromPlayer, "Only this bot's owner (or a GameMaster) may do that.");
@@ -2803,7 +2830,7 @@ void PlayerbotAI::PublishChatGate()
     // and every 30 s so a re-registered AI cannot keep the storage default.
     bool const ignoreAll = !AllowActivity();
     bool const ignoreTrade = !m_recordIncommingMessages && !HasRealPlayerMaster() &&
-        sRandomBotFacade.IsRandomBot(bot) &&
+        sRandomBotFacade.IsFreeBot(bot) &&
         !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid());
     time_t const now = time(nullptr);
     if (m_chatGatePublished && ignoreAll == m_chatGateIgnoreAll && ignoreTrade == m_chatGateIgnoreTrade &&
@@ -2981,7 +3008,7 @@ void PlayerbotAI::HandleBotOutgoingPacket(const WorldPacket& packet)
                 // raw name): General/LFG/Defense/World keep prior behaviour.
                 // Owned/hired bots (live master, owner, hire record) pass.
                 if (msgtype == CHAT_MSG_CHANNEL && !HasRealPlayerMaster() &&
-                    sRandomBotFacade.IsRandomBot(bot) &&
+                    sRandomBotFacade.IsFreeBot(bot) &&
                     !TortoiseBots::HireLifecycle::Instance().IsHired(bot->GetObjectGuid()) &&
                     GetChatChannelSource(bot, msgtype, chanName) == ChatChannelSource::SRC_TRADE &&
                     !TortoiseBots::PoolBotTradeChatAllowed(true, true, message.find(bot->GetName()) != std::string::npos))
@@ -3586,7 +3613,9 @@ void PlayerbotAI::DoNextAction(bool min, bool forceActivity)
 
                 if (GetMaster() == GetGroupMaster())
                 {
-                    if (!HasStrategy("silent", BotState::BOT_STATE_NON_COMBAT) && master)
+                    // Issue #1108: the announcement in chat is ambient, the
+                    // whisper below answers the new master and stays.
+                    if (!HasStrategy("silent", BotState::BOT_STATE_NON_COMBAT) && master && sPlayerbotAIConfig.enableBroadcasts)
                         bot->TextEmote("is following " + std::string(master->GetName()) + ".");
                 }
                 else
@@ -4496,9 +4525,18 @@ ChatChannelSource PlayerbotAI::GetChatChannelSource(Player* bot, uint32 type, st
     return ChatChannelSource::SRC_UNDEFINED;
 }
 
+// Issue #1108: one gate for the automated chat. AiPlayerbot.EnableBroadcasts
+// = 0 silences what the bots say on their own; a line that answers a player
+// who commanded the bot (".bot speak", a reply to the bot's own master) is
+// functional and always goes out.
+bool PlayerbotAI::IsChatAllowed() const
+{
+    return sPlayerbotAIConfig.enableBroadcasts || IsCommandedChat();
+}
+
 bool PlayerbotAI::SayToGuild(std::string msg, bool likePlayer)
 {
-    if (msg.empty())
+    if (!IsChatAllowed() || msg.empty())
     {
         return false;
     }
@@ -4562,13 +4600,16 @@ static bool SayToNamedChannel(Player* bot, std::string const& name, std::string 
     return true;
 }
 
-bool PlayerbotAI::SayToWorld(std::string msg) { return SayToNamedChannel(bot, "World", msg); }
-bool PlayerbotAI::SayToGeneral(std::string msg) { return SayToNamedChannel(bot, "General", msg); }
-bool PlayerbotAI::SayToTrade(std::string msg) { return SayToNamedChannel(bot, "Trade", msg); }
-bool PlayerbotAI::SayToLFG(std::string msg) { return SayToNamedChannel(bot, "LookingForGroup", msg); }
-bool PlayerbotAI::SayToLocalDefense(std::string msg) { return SayToNamedChannel(bot, "LocalDefense", msg); }
-bool PlayerbotAI::SayToWorldDefense(std::string msg) { return SayToNamedChannel(bot, "WorldDefense", msg); }
-bool PlayerbotAI::SayToGuildRecruitment(std::string msg) { return SayToNamedChannel(bot, "GuildRecruitment", msg); }
+// Issue #1108: the named channels are broadcast channels, so they follow
+// AiPlayerbot.EnableBroadcasts. A commanded answer ("speak /1 ...") is not a
+// broadcast and still goes out.
+bool PlayerbotAI::SayToWorld(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "World", msg); }
+bool PlayerbotAI::SayToGeneral(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "General", msg); }
+bool PlayerbotAI::SayToTrade(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "Trade", msg); }
+bool PlayerbotAI::SayToLFG(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "LookingForGroup", msg); }
+bool PlayerbotAI::SayToLocalDefense(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "LocalDefense", msg); }
+bool PlayerbotAI::SayToWorldDefense(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "WorldDefense", msg); }
+bool PlayerbotAI::SayToGuildRecruitment(std::string msg) { return IsChatAllowed() && SayToNamedChannel(bot, "GuildRecruitment", msg); }
 
 bool PlayerbotAI::SayToParty(std::string msg, bool likePlayer)
 {
@@ -4635,7 +4676,7 @@ bool PlayerbotAI::SayToRaid(std::string msg)
 
 bool PlayerbotAI::Yell(std::string msg, bool likePlayer)
 {
-    if (msg.empty())
+    if (!IsChatAllowed() || msg.empty())
         return false;
 
     SanitizeCommandLikeChat(msg);
@@ -4674,7 +4715,7 @@ bool PlayerbotAI::Yell(std::string msg, bool likePlayer)
 
 bool PlayerbotAI::Say(std::string msg, bool likePlayer)
 {
-    if (msg.empty())
+    if (!IsChatAllowed() || msg.empty())
         return false;
 
     SanitizeCommandLikeChat(msg);
@@ -4774,7 +4815,12 @@ bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, Playerbot
         if (type == CHAT_MSG_SYSTEM && HasRealPlayerMaster())
             type = CHAT_MSG_WHISPER;
 
-        if (type == CHAT_MSG_SYSTEM && (sPlayerbotAIConfig.randomBotSayWithoutMaster || HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT)))
+        // Issue #1108: a bot without a master that has nobody to answer says
+        // it in /say. That is ambient chatter, so it follows
+        // AiPlayerbot.EnableBroadcasts; with broadcasts off the message type
+        // stays CHAT_MSG_SYSTEM and nothing is sent. A bot the owner put into
+        // the debug strategy keeps its diagnostic line.
+        if (type == CHAT_MSG_SYSTEM && (HasStrategy("debug", BotState::BOT_STATE_NON_COMBAT) || (sPlayerbotAIConfig.enableBroadcasts && sPlayerbotAIConfig.randomBotSayWithoutMaster)))
             type = CHAT_MSG_SAY;
 
         if (type == CHAT_MSG_SYSTEM && isRealPlayer_Helper(player))
@@ -5400,6 +5446,25 @@ bool PlayerbotAI::CheckCanCastSpell(uint32 spellid, Unit* target, uint8 effectMa
         return false;
     }
 
+    // A mounted travelling bot must not start an out-of-combat cast the core
+    // would strip its mount for (issue #1097: a Blessing of Wisdom refresh
+    // every few seconds kept a paladin dismounting and re-mounting in place
+    // for 30+ min). Every bot spell cast on a unit passes here, so the buff
+    // waits for the next dismounted stop. Combat casts, mount spells (incl.
+    // travel form / ghost wolf), ride-safe spells and callers that pass
+    // ignoreMount (reach probes) are not affected; loot/gather and commanded
+    // casts dismount first, so the mounted check lets them through.
+    if (!ignoreMount && bot->IsMounted() &&
+        !(spellInfo->Attributes & SPELL_ATTR_CASTABLE_WHILE_MOUNTED) &&
+        !MountValue::IsMountSpell(spellid) && aiObjectContext &&
+        !ai::MountedTravelCastAllowed(bot->IsInCombat(),
+            aiObjectContext->GetValue<bool>("travel target traveling")->Get()))
+    {
+        if (checkResult)
+            *checkResult = SPELL_FAILED_NOT_MOUNTED;
+        return false;
+    }
+
     // Spell::prepare() refuses a new cast while another non-melee spell is
     // still being cast, and that is where SPELL_FAILED_SPELL_IN_PROGRESS comes
     // from. CheckCast(true) alone does not cover it, so without the same gate
@@ -5541,6 +5606,29 @@ bool PlayerbotAI::CheckCanCastSpell(uint32 spellid, Unit* target, uint8 effectMa
 
                     return false;
                 }
+            }
+        }
+
+        // Issue #903 (donor mod-playerbots @ 79bd4281,
+        // src/Bot/PlayerbotAI.cpp:3459-3466): a cast-time cast started while
+        // the bot is still moving is cancelled on the first movement packet,
+        // so it only burns the GCD and logs an interrupt. Refuse it here so
+        // the trigger falls through to instant casts instead of firing the
+        // doomed cast. Same cast-time shape as CastSpell below; a spline
+        // still in flight counts as moving (GO-overload clause).
+        {
+            uint32 castTime = GetSpellCastTime(spellInfo, bot);
+            bool spellNeedsStandStill = castTime > 0 ||
+                (IsChanneledSpell(spellInfo) && GetSpellDuration(spellInfo) > 0);
+            if (ai::CastStartBlockedByMove(sServerFacade.isMoving(bot),
+                !bot->movespline->Finalized(), spellNeedsStandStill))
+            {
+                if (checkResult)
+                {
+                    *checkResult = SPELL_FAILED_MOVING;
+                }
+
+                return false;
             }
         }
 
@@ -6053,7 +6141,10 @@ bool PlayerbotAI::CastSpell(uint32 spellId, Unit* target, Item* itemTarget, bool
     }
 
     // Fail the cast if the bot is moving and the spell is a casting/channeled spell
-    if (sServerFacade.isMoving(bot) && ((GetSpellCastTime(pSpellInfo, bot, spell) > 0) || (IsChanneledSpell(pSpellInfo) && (GetSpellDuration(pSpellInfo) > 0))))
+    // (#903: CastStartBlockedByMove - the probe above already refused this
+    // case, this is the direct-call backstop for callers that skip it).
+    if (ai::CastStartBlockedByMove(sServerFacade.isMoving(bot), false,
+        (GetSpellCastTime(pSpellInfo, bot, spell) > 0) || (IsChanneledSpell(pSpellInfo) && (GetSpellDuration(pSpellInfo) > 0))))
     {
         // always fail when jumping
         if (IsJumping() || bot->IsFalling())
@@ -6260,8 +6351,11 @@ bool PlayerbotAI::CastSpell(uint32 spellId, GameObject* goTarget, Item* itemTarg
         targets.setDestination(fx, fy, fz);
     }
 
-    // Fail the cast if the bot is moving and the spell is a casting/channeled spell
-    if (sServerFacade.isMoving(bot) && ((GetSpellCastTime(pSpellInfo, bot, spell) > 0) || (IsChanneledSpell(pSpellInfo) && (GetSpellDuration(pSpellInfo) > 0))))
+    // Fail the cast if the bot is moving and the spell is a casting/channeled spell.
+    // A server spline still in flight counts as moving although the movement flags
+    // are clear (MotionMaster::Clear leaves it running): the Opening cast of a
+    // chest broke after 0.2 s on the bot's own last 0.9 yd.
+    if ((sServerFacade.isMoving(bot) || !bot->movespline->Finalized()) && ((GetSpellCastTime(pSpellInfo, bot, spell) > 0) || (IsChanneledSpell(pSpellInfo) && (GetSpellDuration(pSpellInfo) > 0))))
     {
         // always fail when jumping
         if (IsJumping() || bot->IsFalling())
@@ -6649,7 +6743,7 @@ inline int strcmpi(const char* s1, const char* s2)
 // Debuffs a healer must not cleanse (Turtle 1.18.1 spell ids). Mutating Injection (Grobbulus, Naxx, 28169) drops a
 // poison cloud where its carrier stands when it is removed, by dispel or by expiry (core boss_grobbulus.cpp,
 // spell_mutating_injection). A cleanse while the carrier is still in the raid puts the cloud in the raid; bomb runout
-// moves the carrier clear first (BombRunoutPolicy.h). Ported from mod-playerbots dispel_whitelist (docs/PROVENANCE.md).
+// moves the carrier clear first (BombRunoutPolicy.h). Ported from mod-playerbots dispel_whitelist.
 // StoneformTrigger is held back by the same list: Stoneform removes every disease on the bot when it is cast.
 static constexpr uint32 kNeverDispelSpellIds[] = { 28169 };
 
@@ -7347,6 +7441,15 @@ bool PlayerbotAI::HasCheat(BotCheatMask mask) const
     {
         if (((uint32)mask & sPlayerbotAIConfig.botCheatMask) != 0)
             return true;
+        // Issue #872: the item cheat (ammo/reagents) applies to autonomous
+        // alts as for the pool (B15). The cheat mask is never set per-bot,
+        // so without this an alt would read the Bank list (BotCheats:
+        // repair,breath) and lose the refill/ration/kit paths the pool gets
+        // from the random list. Scoped to the item cheat only: gold/health/
+        // mana/cooldown cheats stay off, so repair stays paid (B10).
+        if (mask == BotCheatMask::item &&
+            TortoiseBots::AltBotService::Instance().IsAutonomous(bot->GetObjectGuid()))
+            return true;
     }
 
     return false;
@@ -7767,6 +7870,43 @@ void PlayerbotAI::EndPullWindow()
     // The anchor goes with the window; a no-op when it is already released
     // (combat end, death, a movement order) or when none was placed.
     ReleasePullHold();
+    // Member-owned pet stance: a pet the hold parked passive comes back even
+    // when the tank's pull-end loop can no longer reach this bot (left the
+    // group, logged out, died). Every path that outlives the window funnels
+    // through here (expiry, strategy reset, reload).
+    RestorePullHoldPet();
+}
+
+void PlayerbotAI::ParkPetForPullHold()
+{
+    if (!bot)
+        return;
+    Pet* pet = bot->GetPet();
+    if (!pet || pet->GetReactState() == REACT_PASSIVE)
+        return;
+    // Save once: a re-hold while already parked must not overwrite the
+    // pre-hold stance with REACT_PASSIVE.
+    if (pullHoldPetStance_ == kNoSavedStance)
+        pullHoldPetStance_ = static_cast<int>(pet->GetReactState());
+    pet->SetReactState(REACT_PASSIVE);
+}
+
+void PlayerbotAI::RestorePullHoldPet()
+{
+    if (pullHoldPetStance_ == kNoSavedStance)
+        return;
+    ReactStates stance = static_cast<ReactStates>(pullHoldPetStance_);
+    pullHoldPetStance_ = kNoSavedStance;
+    if (!bot)
+        return;
+    Pet* pet = bot->GetPet();
+    if (!pet)
+        return;
+    // Only undo our own park: a stance the player (or another order) set
+    // meanwhile is theirs, not the hold's.
+    if (pet->GetReactState() != REACT_PASSIVE)
+        return;
+    pet->SetReactState(stance);
 }
 
 size_t PlayerbotAI::DropQueuedMovementOrders()
@@ -9573,6 +9713,14 @@ bool PlayerbotAI::CanMove()
         return false;
     }
 #endif
+    return true;
+}
+
+bool PlayerbotAI::StopForObjectCast()
+{
+    if (!sServerFacade.isMoving(bot) && bot->movespline->Finalized())
+        return false;
+    StopMoving();
     return true;
 }
 
