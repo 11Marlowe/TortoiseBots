@@ -437,6 +437,13 @@ bool RandomItemMgr::ShouldEquipArmorForSpec(uint8 playerclass, uint8 spec, ItemP
     }
     case CLASS_SHAMAN:
     {
+        if (m_weightScales[spec].info.name == "shamantank")
+        {
+            // Shaman tank: shield always (its armor is the prized stat); the
+            // leather/mail level split stays in CanEquipArmor, not here.
+            resultArmorSubClass = { ITEM_SUBCLASS_ARMOR_TOTEM, ITEM_SUBCLASS_ARMOR_LEATHER, ITEM_SUBCLASS_ARMOR_MAIL, ITEM_SUBCLASS_ARMOR_SHIELD };
+            break;
+        }
         if (m_weightScales[spec].info.name == "enhance" && proto->InventoryType == INVTYPE_HOLDABLE)
             return false;
 
@@ -656,7 +663,16 @@ bool RandomItemMgr::ShouldEquipWeaponForSpec(uint8 playerclass, uint8 spec, Item
     }
     case CLASS_SHAMAN:
     {
-        if (m_weightScales[spec].info.name == "resto")
+        if (m_weightScales[spec].info.name == "shamantank")
+        {
+            // Shaman tank: slow 1H main hand (mace/axe/fist - no daggers, no
+            // 2H), shield off hand, totem ranged. Speed preference lives in
+            // the factory seed filter and the mledps weight, not here.
+            mh_weapons = { ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_FIST };
+            oh_weapons = { ITEM_SUBCLASS_ARMOR_SHIELD };
+            r_weapons = { ITEM_SUBCLASS_ARMOR_TOTEM };
+        }
+        else if (m_weightScales[spec].info.name == "resto")
         {
             mh_weapons = { ITEM_SUBCLASS_WEAPON_STAFF, ITEM_SUBCLASS_WEAPON_DAGGER, ITEM_SUBCLASS_WEAPON_AXE, ITEM_SUBCLASS_WEAPON_MACE, ITEM_SUBCLASS_WEAPON_FIST };
             oh_weapons = { ITEM_SUBCLASS_ARMOR_MISC, ITEM_SUBCLASS_ARMOR_SHIELD };
@@ -731,9 +747,10 @@ bool RandomItemMgr::ShouldEquipWeaponForSpec(uint8 playerclass, uint8 spec, Item
 
 bool RandomItemMgr::ShouldEquipWeaponForSlot(uint8 playerclass, uint8 spec, ItemPrototype const* proto, uint8 slot, bool canDualWield)
 {
-    // Only warriors and paladins have a slot-aware policy; every other
-    // class keeps the plain any-slot answer (fail-open).
-    if (playerclass != CLASS_WARRIOR && playerclass != CLASS_PALADIN)
+    // Only shield specs have a slot-aware policy (protection warrior /
+    // paladin, shaman tank); every other class keeps the plain any-slot
+    // answer (fail-open).
+    if (playerclass != CLASS_WARRIOR && playerclass != CLASS_PALADIN && playerclass != CLASS_SHAMAN)
         return ShouldEquipWeaponForSpec(playerclass, spec, proto, canDualWield);
 
     if (!spec)
@@ -744,6 +761,7 @@ bool RandomItemMgr::ShouldEquipWeaponForSlot(uint8 playerclass, uint8 spec, Item
 
     // The policy header owns the sets (single source of truth with the
     // standalone test); the scale id maps back to the spec name it loaded.
+    // Non-tank shaman specs stay fail-open inside the policy.
     return ai::SpecWeaponAllowed(playerclass, m_weightScales[spec].info.name,
         proto->Class, proto->SubClass, slot, canDualWield);
 }
@@ -2924,7 +2942,18 @@ std::string RandomItemMgr::GetPlayerSpecName(Player* player)
         if (tab == 2)
             specName = "resto";
         else if (tab == 1)
-            specName = "enhance";
+        {
+            // A shaman bot is a tank iff PlayerbotAI::IsTank says so (forced
+            // role TANK or the tank strategy; the tank build still lives on
+            // tab 1, so the tab alone cannot tell it apart from Enhancement
+            // DPS). Tank bots score gear with the `shamantank` scale; when the
+            // scale row is absent (DB not migrated) the id lookup below
+            // returns 0 and every caller falls back as before.
+            if (PlayerbotAI::IsTank(player))
+                specName = "shamantank";
+            else
+                specName = "enhance";
+        }
         else
             specName = "elem";
         break;

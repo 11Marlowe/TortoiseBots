@@ -1542,8 +1542,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                     QuerySeedCandidates(bot, specId, slot, searchLevel, maxItemLevel, q, ids);
 
-                    // add one hand weapons for tanks
-                    if ((specId == 3 || specId == 5) && slot == EQUIPMENT_SLOT_MAINHAND)
+                    // add one hand weapons for tanks (prot warrior/paladin, shaman tank id 16)
+                    if ((specId == 3 || specId == 5 || specId == 16) && slot == EQUIPMENT_SLOT_MAINHAND)
                     {
                         std::vector<uint32> oneHanded = sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), EQUIPMENT_SLOT_OFFHAND, q);
                         if (oneHanded.size())
@@ -1663,8 +1663,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (!proto)
                         continue;
-                    // filter tank weapons
-                    if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
+                    // filter tank weapons (prot warrior/paladin, shaman tank id 16)
+                    if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5 || specId == 16) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
                         continue;
 
                     if (slot == EQUIPMENT_SLOT_MAINHAND && proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
@@ -1681,12 +1681,17 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_HUNTER))
                         continue;
 
-                    // filter tank weapons
-                    if (slot == EQUIPMENT_SLOT_MAINHAND && (specId == 3 || specId == 5) && !(proto->Class == ITEM_CLASS_WEAPON && proto->InventoryType != INVTYPE_HOLDABLE))
+                    // filter tank weapons (prot warrior/paladin, shaman tank id 16)
+                    if (slot == EQUIPMENT_SLOT_MAINHAND && (specId == 3 || specId == 5 || specId == 16) && !(proto->Class == ITEM_CLASS_WEAPON && proto->InventoryType != INVTYPE_HOLDABLE))
                         continue;
 
                     // make fury wear slow weapon as main hand
                     if (slot == EQUIPMENT_SLOT_MAINHAND && specId == 2 && proto->IsWeapon() && proto->Delay < 2000)
+                        continue;
+
+                    // shaman tank (id 16) wants a slow 1H main hand for threat;
+                    // same 2.0s bar as fury so fast stat sticks never seed over it
+                    if (slot == EQUIPMENT_SLOT_MAINHAND && specId == 16 && proto->IsWeapon() && proto->InventoryType != INVTYPE_2HWEAPON && proto->Delay < 2000)
                         continue;
 
                     // classic enh shaman and retri paladin 60+ use weapon speed >= 3.0

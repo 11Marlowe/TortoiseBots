@@ -9,7 +9,6 @@
 #include "GuildValues.h"
 
 #include "playerbot/RandomItemMgr.h"
-#include "playerbot/AiFactory.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/QuestLogPolicy.h"
 #include "../../../../runtime/ClassConsumablePolicy.h"
@@ -701,15 +700,17 @@ uint8 ItemUsageValue::GetPreferredEquipSlot(Player* bot, Item* item, ItemPrototy
 
 // A shield is only worth keeping for a bot that can still end up in a
 // one-hander-and-shield setup: a spec that lists the shield as its off-hand
-// (protection warrior/paladin, holy paladin) or the tank role the roster gave
-// the bot. Two-hander specs (arms, fury, retribution) never get back to it, so
-// for them a shield stays ordinary loot.
+// (protection warrior/paladin, holy paladin, shaman tank) or a bot the AI
+// reads as a tank (forced role, tank strategy or tank gear/talents - the
+// strategy-tanked shaman has no talent-role bit). Two-hander specs (arms,
+// fury, retribution) never get back to it, so for them a shield stays
+// ordinary loot.
 static bool BotCanReturnToShield(Player* bot, uint32 specId, ItemPrototype const* proto)
 {
     if (sRandomItemMgr.ShouldEquipWeaponForSpec(bot->GetClass(), specId, proto, bot->CanDualWield()))
         return true;
 
-    return (AiFactory::GetPlayerRoles(bot) & BOT_ROLE_TANK) != 0;
+    return PlayerbotAI::IsTank(bot);
 }
 
 // True when nothing else the bot carries is a better shield: the off-hand and
