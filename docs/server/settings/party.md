@@ -19,7 +19,7 @@ These settings configure player-owned bots, alt-bots, formation positioning, and
 | :--- | :---: | :--- |
 | [`AiPlayerbot.SyncAltLevelToMaster`](#aiplayerbotsyncaltleveltomaster) | `0` | Automatically levels grouped owned bot alts to match the leader level. |
 | [`AiPlayerbot.BoostFollow`](#aiplayerbotboostfollow) | `0` | Causes bots trailing far behind to mount up to catch up. |
-| [`AiPlayerbot.DungeonFollowHoldBeforePacks`](#aiplayerbotdungeonfollowholdbeforepacks) | `0` | Stops follower bots outside unpulled monster pack aggro range in dungeons. |
+| [`AiPlayerbot.DungeonFollowHoldBeforePacks`](#aiplayerbotdungeonfollowholdbeforepacks) | `0` | Stops follower bots outside unpulled pack aggro radius (attack detection range). |
 | [`AiPlayerbot.DefaultFormation`](#aiplayerbotdefaultformation) | `chaos` | Sets default idle follow formation around the party leader. |
 | [`AiPlayerbot.NonGmFreeSummon`](#aiplayerbotnongmfreesummon) | `0` | Enables the free instant summon action for non-staff players. |
 | [`AiPlayerbot.OwnedBotMaintenanceEnabled`](#aiplayerbotownedbotmaintenanceenabled) | `0` | Enables the maintenance command for owned and hired companion bots. |
@@ -36,8 +36,9 @@ These settings configure player-owned bots, alt-bots, formation positioning, and
 | [`AiPlayerbot.RollBadItemsWithPlayer`](#aiplayerbotrollbaditemswithplayer) | `0` | Forces bots to roll Need on dungeon drops for empty gear slots. |
 | [`AiPlayerbot.AltBots`](#aiplayerbotaltbots) | `0` | Allows dismissed owned alts to continue roaming and playing independently. |
 | [`AiPlayerbot.AltBotsLogoutWithOwner`](#aiplayerbotaltbotslogoutwithowner) | `0` | Forces active alt-bots to log out when their account owner logs out. |
-| [`AiPlayerbot.SummonAtInnkeepersEnabled`](#aiplayerbotsummonatinnkeepersenabled) | `1` (built in) | Enables summoning owned bots while the master is near an innkeeper NPC. |
-| [`AiPlayerbot.SyncQuestForPlayer`](#aiplayerbotsyncquestforplayer) | `0` (built in) | Synchronizes player master quest progression directly to party bots. |
+| [`AiPlayerbot.SummonAtInnkeepersEnabled`](#aiplayerbotsummonatinnkeepersenabled) | `1` (built in) | Enables summoning owned bots while near an innkeeper NPC. |
+| [`AiPlayerbot.SyncQuestForPlayer`](#aiplayerbotsyncquestforplayer) | `0` (built in) | Completes quests for player master when a companion bot turns them in. |
+| [`AiPlayerbot.SyncQuestWithPlayer`](#aiplayerbotsyncquestwithplayer) | `0` | Completes quests for bots when the player master turns them in. |
 | [`AiPlayerbot.BotCheats`](#aiplayerbotbotcheats) | `repair,breath` | Convenience and sustenance cheats granted to owned companion bots and alts. |
 
 ## Settings
@@ -51,7 +52,7 @@ Automatically levels owned bot alts to match your character level while grouped.
 
 While an owned (non-random) bot is in your group and you are the group leader, it gains one character level per AI update until its level equals your level.
 
-The bot learns spells and skills according to its level progression rules. This applies only to characters on your own account, never to random pool bots or hired mercenaries.
+This applies only to owned (non-random) bots, never to random pool bots or hired mercenaries.
 
 </details>
 
@@ -64,7 +65,7 @@ Causes bots that have fallen far behind the party leader to mount up and ride to
 
 When a follower bot falls farther behind the leader than its configured reaction distance (150 yards), the bot evaluates its mount state. If eligible, it mounts up and rides until it reaches standard follow distance.
 
-This behavior uses standard movement speeds and is safe around combat. The bot dismounts immediately if combat begins or if the leader stops.
+This behavior uses standard movement speeds and is safe around combat.
 
 </details>
 
@@ -75,7 +76,7 @@ Prevents follower bots from running through unpulled monster packs when trailing
 <details>
 <summary>How it works in detail</summary>
 
-Inside a dungeon or raid instance, while nobody in the party is in combat, a bot whose leader is more than 30 yards ahead calculates its own travel path along the route.
+Inside a dungeon or raid instance, while neither the bot nor the leader is in combat (aggro: the radius in which monsters attack), a bot whose leader is more than 30 yards ahead calculates its own travel path along the route.
 
 If an unpulled hostile creature stands along that path, the bot stops 3 yards outside the creature aggro radius and holds its position rather than running through. The bot whispers the party leader once per pack (at most every 30 seconds): `Pack in the way: <name>. Waiting here - pull it or come back for me.`
 
@@ -85,7 +86,7 @@ While holding, the bot does not eat or drink. It resumes moving once the pack is
 
 ### `AiPlayerbot.DefaultFormation`
 Sets the default idle spatial arrangement party bots form around the leader. Change this if you prefer a tighter or more structured marching order.
-**Default:** `chaos` · **Values:** `near`, `melee`, `queue`, `chaos`, `circle`, `line`, `shield`, `arrow`, `far` · **Restart:** needed
+**Default:** `chaos` · **Values:** `near`, `melee`, `queue`, `chaos`, `circle`, `line`, `shield`, `arrow`, `far` (also accepts `default`, `custom`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -93,6 +94,8 @@ Sets the default idle spatial arrangement party bots form around the leader. Cha
 Idle party bots arrange themselves in the chosen geometric formation relative to the group leader orientation:
 - `chaos`: loose cluster around the leader with slight randomized offsets to avoid unnatural stacking.
 - `near`: tight following radius within melee interaction range.
+- `melee`: positions melee bots close to target and ranged bots behind.
+- `far`: loose formation maintaining wide distance behind the leader.
 - `circle`: evenly spaced ring surrounding the leader.
 - `line`: horizontal line abreast with the leader.
 - `shield`: defensive wedge positioned slightly forward.
@@ -123,7 +126,7 @@ Enables the comprehensive maintenance command for owned and hired companions. Us
 <details>
 <summary>How it works in detail</summary>
 
-When enabled, players can execute `.bot maintenance <Name>` to perform full upkeep on their owned bots or hired companions. Upkeep includes repairing durability, restocking ammunition, and clearing unusable junk.
+When enabled, players can execute `.bot maintenance <Name>` to perform full upkeep on their owned bots or hired companions. Upkeep restocks reagents, potions, food, consumables, bandages and ammunition (including thrown), and fully repairs durability.
 
 When disabled, attempting to run the command informs the player that maintenance is disabled. This command cannot be used on random pool bots.
 
@@ -248,7 +251,7 @@ Repairs occur out of combat unless `AiPlayerbot.OwnedBotSummonAllowInCombat` is 
 
 ### `AiPlayerbot.OwnedBotSummonCooldown`
 Specifies the minimum cooldown in seconds between group accept summons for each bot. Prevents exploit loops.
-**Default:** `300` · **Values:** seconds (`0` disables cooldown) · **Restart:** needed
+**Default:** `300` · **Values:** seconds (`0..3600`; `0` disables cooldown) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -268,7 +271,7 @@ Forces party bots to roll Need on dungeon loot if their corresponding equipment 
 
 When enabled, party bots roll Need on equipment drops when their own corresponding equipment slot is empty or significantly below the item power.
 
-Bots pause their roll decisions until human players in the group have made their selections. If any human player rolls Need on the item, the bot immediately switches its roll to Greed to ensure bots never roll Need against human players.
+Genuine upgrades are Needed regardless of this flag; in all cases, bots wait for humans to roll and step down to Greed if any human rolls Need on the item.
 
 </details>
 
@@ -305,22 +308,35 @@ Enables summoning owned companion bots while the player master is near an innkee
 <details>
 <summary>How it works in detail</summary>
 
-Allows players to summon their owned companion bots when standing within interaction radius of any innkeeper NPC, in addition to standard meeting stone summon locations.
+Allows players to summon their owned companion bots when standing within sight distance (`AiPlayerbot.SightDistance`, 60 yd default) of any innkeeper NPC, in addition to standard meeting stone summon locations. The bot (or player) must carry a Hearthstone and its hearthstone cooldown must be ready.
 
 Set to `0` if you want companion bot summoning restricted solely to dungeon meeting stones and explicit summon commands.
 
 </details>
 
 ### `AiPlayerbot.SyncQuestForPlayer`
-Synchronizes the player master's quest progression directly to companion party bots.
+Completes quests for the real-player master when a companion bot turns them in.
 **Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-When enabled, quest progress, objectives, and completions achieved by the player leader are mirrored to grouped companion bots.
+When enabled, whenever a bot interacts with a quest giver and completes a quest, that quest is automatically completed for the real-player master as well if the master is on the quest and eligible.
 
-When disabled (`0`), bots track and advance their quest objectives independently.
+When disabled (`0`), quests turned in by bots do not automatically complete for the master.
+
+</details>
+
+### `AiPlayerbot.SyncQuestWithPlayer`
+Completes quests for companion bots when the player master turns them in.
+**Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When enabled, bots automatically complete quests the moment the player master hands them in, and bots ignore looting quest items.
+
+When disabled (`0`), bots track and collect quest objectives and hand in quests independently.
 
 </details>
 
@@ -333,7 +349,7 @@ Convenience and survival cheats active on player-owned companion bots and alts.
 
 Configures the cheat mask applied to player-owned bots and alts. Available cheat keywords include:
 
-- `repair`: Prevents gear from breaking completely when bots run out of repair funds.
+- `repair`: No durability loss, including resurrection sickness.
 - `breath`: Grants underwater breathing to prevent drowning while navigating water.
 - `item`: Grants unlimited conjured sustenance items and spell reagents.
 - `gold`: Free repairs and vendor purchases.
@@ -345,6 +361,6 @@ Configures the cheat mask applied to player-owned bots and alts. Available cheat
 - `taxi`: Unlocks all flight paths.
 - `quest`: Quests complete immediately.
 
-Masterless random pool bots use [`AiPlayerbot.RndBotCheats`](world-population.md#aiplayerbotrndbotcheats) instead.
+Masterless random pool bots and hired companions use [`AiPlayerbot.RndBotCheats`](world-population.md#aiplayerbotrndbotcheats) instead.
 
 </details>

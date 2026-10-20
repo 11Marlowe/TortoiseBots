@@ -1,6 +1,6 @@
 ---
 id: server-settings-class-behaviour
-title: Class Behavior Settings
+title: Class Behaviour Settings
 category: server
 summary: Configuration flags controlling class-specific AI decisions for hunters, paladins, rogues, and warlocks.
 tags: [config, classes, ai, spells]
@@ -12,7 +12,7 @@ relates_to:
   - classes-warlock
 ---
 
-# Class Behavior Settings
+# Class Behaviour Settings
 
 These settings configure class-specific artificial intelligence behaviors, ability swaps, and threat management for bot companions. Settings go in `aiplayerbot.conf`; see [How configuration works](../configuration.md).
 
@@ -53,9 +53,9 @@ In a group, paladin bots coordinate to maintain debuffs on bosses, elite targets
 - Retribution paladins prioritize Judgement of Wisdom.
 - Holy paladins prioritize Judgement of Light.
 - If two paladins of the same specialization are present, the second takes the alternate debuff so two paladins never judge the same debuff. A third non-tank paladin maintains none.
-- Protection paladins serving as tanks never take a group judgement, keeping Seal of Righteousness active for threat generation.
+- Protection paladins serving as tanks never own a group judgement (keeps its own Seal for threat generation).
 
-Paladins refresh their assigned judgement when 4 seconds remain on the target debuff. Healers only judge when their mana is above 50% and no group member is below medium health. Paladins require at least medium mana to judge. Judgements are never cast on targets below 25% health, on enemy players, or over debuffs maintained by human players.
+Paladins refresh their assigned judgement when ~4 seconds remain on the target debuff. Healers only judge when their mana is above 50% and no group member is below medium health. Paladins require at least medium mana to judge. Judgements are never cast on targets below 25% health or on enemy players. A still-fresh Judgement (whoever applied it, including a player paladin) is left alone until ~4 s remain.
 
 When set to `0`, paladins use their default individual rotations without group coordination.
 
@@ -72,7 +72,7 @@ In 5-player dungeons with a living main tank holding the mob, rogues monitor the
 - Casts *Feint* when threat reaches medium levels (60% or more of the tank threat).
 - Casts *Vanish* when threat reaches high levels (80% and climbing).
 
-This behavior applies only while the target mob is actively held by the tank or the rogue, ensuring rogues do not blow cooldowns on unengaged loose adds. Rogues never cast threat drops while solo, without an active tank, or in the open world.
+This behavior applies only while the target mob is actively held by the tank or the rogue, ensuring rogues do not blow cooldowns on unengaged loose adds. Raid rogues keep their own Feint/Vanish rows regardless of this toggle. Rogues never cast threat drops while solo, without an active tank, or in the open world.
 
 Vanish is prioritized below Feint so a ready Feint is always attempted first. When set to `0`, dungeon rogues only react defensively upon reaching low health.
 

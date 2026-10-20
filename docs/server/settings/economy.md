@@ -22,7 +22,7 @@ For player trading permissions with open-world bots, see [`AiPlayerbot.PoolBotTr
 | :--- | :---: | :--- |
 | [`AiPlayerbot.AhMarketEnabled`](#aiplayerbotahmarketenabled) | `0` | Enables bots posting surplus items and bidding on the Auction House. |
 | [`AiPlayerbot.AhMarketInterval`](#aiplayerbotahmarketinterval) | `120` | Interval in seconds between market appraisal and posting passes. |
-| [`AiPlayerbot.AhMarketBatchSize`](#aiplayerbotahmarketbatchsize) | `1` | Number of items evaluated per bot during an auction pass. |
+| [`AiPlayerbot.AhMarketBatchSize`](#aiplayerbotahmarketbatchsize) | `1` | Maximum bots (one listing each) attempted per seller tick (1..5). |
 | [`AiPlayerbot.AhMarketSyntheticSupply`](#aiplayerbotahmarketsyntheticsupply) | `0` | Injects synthetic profession materials and gear to stock empty auction houses. |
 | [`AiPlayerbot.AhMarketBuyer`](#aiplayerbotahmarketbuyer) | `0` | Enables synthetic bot buyer orders to purchase player auctions. |
 | [`AiPlayerbot.AhMarketBudgetUs`](#aiplayerbotahmarketbudgetus) | `2000` | Microsecond time budget ceiling per world tick for auction processing. |
@@ -30,18 +30,19 @@ For player trading permissions with open-world bots, see [`AiPlayerbot.PoolBotTr
 | [`AiPlayerbot.AhMarketChanceSell`](#aiplayerbotahmarketchancesell) | `10` | Percentage probability that an eligible bot posts surplus items for sale. |
 | [`AiPlayerbot.AhMarketChanceBuy`](#aiplayerbotahmarketchancebuy) | `10` | Percentage probability that an eligible bot bids on or buys an auction. |
 | [`AiPlayerbot.AhMarketBuyValue`](#aiplayerbotahmarketbuyvalue) | `80` | Required perceived value percentage before a bot purchases an auction. |
-| [`AiPlayerbot.AhMarketMaxSpendPerBot`](#aiplayerbotahmarketmaxspendperbot) | `0` | Maximum copper a bot may spend on the auction house (0 = unlimited). |
-| [`AiPlayerbot.AhMarketMaxQuality`](#aiplayerbotahmarketmaxquality) | `4` | Maximum item quality (0 poor to 4 epic) generated for synthetic auctions. |
+| [`AiPlayerbot.AhMarketMaxSpendPerBot`](#aiplayerbotahmarketmaxspendperbot) | `0` | Maximum copper for a single auction purchase (0 = unlimited). |
+| [`AiPlayerbot.AhMarketMaxQuality`](#aiplayerbotahmarketmaxquality) | `4` | Maximum item quality (0 poor to 6 artifact) for synthetic auctions. |
 | [`AiPlayerbot.AhMarketMaxLevel`](#aiplayerbotahmarketmaxlevel) | `60` | Maximum item level generated for synthetic auction stock. |
 | [`AiPlayerbot.AhMarketDynamicLevel`](#aiplayerbotahmarketdynamiclevel) | `0` | Dynamically adjusts synthetic auction item levels to match online players. |
 | [`AiPlayerbot.AhMarketLevelRefresh`](#aiplayerbotahmarketlevelrefresh) | `600` | Seconds between recalculations of dynamic auction stock levels. |
 | [`AiPlayerbot.AhMarketVariance`](#aiplayerbotahmarketvariance) | `10` | Percentage price variance applied to baseline market valuations. |
-| [`AiPlayerbot.AhMarketBidMin` / `AhMarketBidMax`](#aiplayerbotahmarketbidmin--ahmarketbidmax) | `75` / `90` | Percentage range of buyout price used for opening auction bids. |
-| [`AiPlayerbot.AhMarketTimeMin` / `AhMarketTimeMax`](#aiplayerbotahmarkettimemin--ahmarkettimemax) | `8` / `24` | Duration range in hours for posted synthetic auction listings. |
+| [`AiPlayerbot.AhMarketBidMin` / `AhMarketBidMax`](#aiplayerbotahmarketbidmin--ahmarketbidmax) | `75` / `90` (built in) | Percentage range of buyout price used for opening auction bids. |
+| [`AiPlayerbot.AhMarketTimeMin` / `AhMarketTimeMax`](#aiplayerbotahmarkettimemin--ahmarkettimemax) | `8` / `24` (built in) | Duration range in hours for posted synthetic auction listings. |
+| [`AiPlayerbot.AuctionPriceRefreshInterval`](#aiplayerbotauctionpricerefreshinterval) | `60` | Seconds between market price evaluation sweeps. |
 | [`AiPlayerbot.VendorBatchMinCount` / `VendorBatchMinBagSpace`](#aiplayerbotvendorbatchmincount--vendorbatchminbagspace) | `8` / `60` | Inventory thresholds that trigger vendor selling trips for level 5+ bots. |
 | [`AiPlayerbot.LowLevelVendorBatchMinCount` / `LowLevelVendorBatchMinBagSpace`](#aiplayerbotlowlevelvendorbatchmincount--lowlevelvendorbatchminbagspace) | `3` / `25` | Inventory thresholds that trigger vendor selling trips for sub-level 5 bots. |
 | [`AiPlayerbot.LowLevelVendorMaxDistance`](#aiplayerbotlowlevelvendormaxdistance) | `600` | Maximum yard radius sub-level 5 bots travel to reach camp vendors. |
-| [`AiPlayerbot.BotLootRateUncommon` / `BotLootRateRare`](#aiplayerbotbotlootrateuncommon--botlootraterare) | `1.0` / `1.0` | Multipliers boosting green and blue item drop rates for pool bots. |
+| [`AiPlayerbot.BotLootRateUncommon` / `BotLootRateRare`](#aiplayerbotbotlootrateuncommon--botlootraterare) | `1.0` / `1.0` (built in) | Multipliers boosting green and blue item drop rates for pool bots. |
 | [`AiPlayerbot.MountBreakEvenFactor`](#aiplayerbotmountbreakevenfactor) | `1.5` | Safety factor applied to distance calculations before bots mount up. |
 
 ## Settings
@@ -71,13 +72,13 @@ Defines how frequently an eligible bot checks its inventory for auctionable surp
 </details>
 
 ### `AiPlayerbot.AhMarketBatchSize`
-Number of items evaluated per bot during each auction house pass.
+Maximum bots (one listing each) attempted per seller tick.
 **Default:** `1` · **Values:** integers (1..5) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Limits the number of items a single bot may post or evaluate during a single market pass, spreading auction load across server ticks.
+Caps the number of eligible seller bots attempted per seller tick (clamped between 1 and 5), with each chosen bot posting one item listing, spreading auction load across server ticks.
 
 </details>
 
@@ -153,7 +154,7 @@ Controls the probability that a bot with spare gold searches the auction house f
 
 ### `AiPlayerbot.AhMarketBuyValue`
 Perceived value percentage required before a bot commits to buying an auction.
-**Default:** `80` · **Values:** percentage (1..200) · **Restart:** needed
+**Default:** `80` · **Values:** percentage (`0..200`; `0` = never buys) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -163,19 +164,19 @@ Determines price sensitivity when bots consider purchasing items. A higher thres
 </details>
 
 ### `AiPlayerbot.AhMarketMaxSpendPerBot`
-Maximum copper amount an individual bot may spend on the Auction House.
+Maximum copper amount for a single auction purchase.
 **Default:** `0` · **Values:** copper amount (0 = unlimited) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Caps total auction expenditures for an individual bot, preventing individual bots from draining their entire purse on expensive luxury listings.
+Refuses any single bid or buyout above this price; it does not track cumulative spend.
 
 </details>
 
 ### `AiPlayerbot.AhMarketMaxQuality`
 Maximum item quality generated for synthetic auction supply listings.
-**Default:** `4` · **Values:** 0 poor, 1 common, 2 uncommon, 3 rare, 4 epic · **Restart:** needed
+**Default:** `4` · **Values:** `0` poor, `1` common, `2` uncommon, `3` rare, `4` epic, `5` legendary, `6` artifact (clamped 0..6) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -230,7 +231,7 @@ Introduces randomized price fluctuations above and below standard item values, c
 
 ### `AiPlayerbot.AhMarketBidMin` / `AhMarketBidMax`
 Percentage range of the buyout price used when calculating an auction's opening bid.
-**Default:** `75` / `90` · **Values:** percentage (1..100) · **Restart:** needed
+**Default:** `75` / `90` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** percentage (1..100) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -241,7 +242,7 @@ When a bot posts an auction with a buyout price, its opening starting bid is rol
 
 ### `AiPlayerbot.AhMarketTimeMin` / `AhMarketTimeMax`
 Duration range in hours for posted synthetic auction listings.
-**Default:** `8` / `24` · **Values:** hours (1..72) · **Restart:** needed
+**Default:** `8` / `24` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** hours (1..72) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -250,9 +251,20 @@ Sets the minimum and maximum duration in hours for posted synthetic auctions bef
 
 </details>
 
+### `AiPlayerbot.AuctionPriceRefreshInterval`
+Interval in seconds between background auction price and market valuation updates.
+**Default:** `60` · **Values:** seconds (5..3600) · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Controls how frequently the Auction House pricing engine sweeps active listings to refresh market price averages and item valuations.
+
+</details>
+
 ### `AiPlayerbot.VendorBatchMinCount` / `VendorBatchMinBagSpace`
 Inventory thresholds that trigger vendor selling trips for bots at level 5 or higher.
-**Default:** `8` / `60` · **Values:** item count / bag percentage (0..100) · **Restart:** needed
+**Default:** `8` / `60` · **Values:** item count (untuned upper bound) / bag-space percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -265,12 +277,12 @@ Bots also initiate vendor trips early if selling their inventory would cover the
 
 ### `AiPlayerbot.LowLevelVendorBatchMinCount` / `LowLevelVendorBatchMinBagSpace`
 Inventory thresholds that trigger vendor selling trips for beginner bots below level 5.
-**Default:** `3` / `25` · **Values:** item count / bag percentage (0..100) · **Restart:** needed
+**Default:** `3` / `25` · **Values:** item count (untuned upper bound) / bag-space percent · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Beginner bots carry small 16-slot starter bags and collect only a few grey items before running out of space.
+Beginner bots carry small starter bags and collect only a few grey items before running out of space.
 
 These lowered thresholds ensure low-level characters sell their loot and afford early class spells instead of hoarding items indefinitely.
 
@@ -278,12 +290,12 @@ These lowered thresholds ensure low-level characters sell their loot and afford 
 
 ### `AiPlayerbot.LowLevelVendorMaxDistance`
 Maximum yard distance sub-level 5 bots may travel to reach a vendor.
-**Default:** `600` · **Values:** yards · **Restart:** needed
+**Default:** `600` · **Values:** yards (`0` disables beginner vendor trips) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-General roleplay travel is restricted below level 5 to prevent fragile characters from wandering into higher-level hostile creatures.
+General roleplay travel is restricted below level 5 to prevent fragile characters from wandering into higher-level hostile creatures. Setting this to `0` disables beginner vendor trips.
 
 This exception allows low-level bots to navigate to local vendors within their immediate starting camp, capped to this yard radius and restricted to starter area level bands.
 
@@ -291,14 +303,14 @@ This exception allows low-level bots to navigate to local vendors within their i
 
 ### `AiPlayerbot.BotLootRateUncommon` / `BotLootRateRare`
 Drop rate multipliers for green (uncommon) and blue (rare) items dropped for pool bots.
-**Default:** `1.0` / `1.0` · **Values:** float multiplier (1.0..N) · **Restart:** needed
+**Default:** `1.0` / `1.0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** float multiplier (1.0..N) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
 Provides an optional loot boost exclusively for masterless random pool bots to stimulate their equipment progression and supply the Auction House.
 
-When a pool bot kills a creature, uncommon and rare loot table entries roll an additional check scaled by this factor. Quest items and unique items are never boosted. Real players, player-owned bots, and mixed player parties always use standard core drop rates.
+When a pool bot kills a creature, uncommon and rare loot table entries roll an additional check scaled by this factor. Quest items, quest starters, and unique items at `max_count` are skipped. Other quality entries remain untouched. Boost events are logged to `bot_events.csv` as `BotLootBonus`. Real players, player-owned bots, and mixed player parties always use standard core drop rates.
 
 A value of `1.0` disables the boost.
 

@@ -10,6 +10,12 @@ relates_to:
   - server-settings-class-behaviour
   - server-settings-dungeons-raids
   - server-settings-combat
+  - server-settings-world-population
+  - server-settings-economy
+  - server-settings-queues
+  - server-settings-performance
+  - server-settings-chat
+  - server-settings-logging
 ---
 
 # How Configuration Works
@@ -23,13 +29,13 @@ The default settings ship the intended vision of a living world and faithful van
 Alternate playstyles are supported through configuration options rather than unconfigurable hardcoding:
 - Features that alter progression, such as faster bot experience rates, equipment seeding, synthetic auction house supply, teleportation travel, or activity throttling, live behind explicit configuration toggles.
 - Systems such as mercenary hiring gear ladders and dungeon follow holds provide configurable knobs to tailor the experience to private realms or solo play.
-- Rule of thumb: **default equals the vision; config equals the player choice.** A configuration option must not alter behavior for players who leave it at its default setting.
+- Principle: default configurations aim to preserve standard gameplay, while config toggles give server administrators explicit choice.
 
 ## Configuration files & lifecycle
 
 Bot settings live in two files created during installation:
 
-1. `aiplayerbot.conf`: located next to `mangosd.conf`. This file contains all gameplay flags, player quality-of-life toggles, artificial intelligence thresholds, and autonomous services. The shipped template is `ai/playerbot/aiplayerbot.conf.dist.in`. A custom path can be specified using `AiPlayerbot.ConfigFile` in `mangosd.conf`.
+1. `aiplayerbot.conf`: located next to `mangosd.conf`. This file contains all gameplay flags, player quality-of-life toggles, artificial intelligence thresholds, and autonomous services. The shipped template is `ai/playerbot/aiplayerbot.conf.dist.in` (installed as `aiplayerbot.conf.dist`). A custom path can be specified using `AiPlayerbot.ConfigFile` in `mangosd.conf`.
 2. `modules/tortoise_bots.conf`: located in the server configuration directory. This file contains module-level options such as logging verbosity and telemetry. The shipped template is `conf/tortoise_bots.conf.dist`.
 
 ### Installation and updates
@@ -44,7 +50,7 @@ A line that is commented out with `#` in the configuration file sets nothing; th
 
 ## Recommended presets
 
-A full living world runs by default with 500 autonomous bots. The following recommended configuration in `aiplayerbot.conf` configures a balanced living world for an average PC:
+Once enabled (`AiPlayerbot.Enabled = 1`), a full living world runs 500 autonomous bots. The following recommended configuration in `aiplayerbot.conf` configures a balanced living world for an average PC:
 
 ```ini
 # Master bot toggle
@@ -80,36 +86,42 @@ Every configuration setting is documented across specialized settings pages:
 | :--- | :--- | :--- |
 | [Party & quality-of-life](settings/party.md) | `aiplayerbot.conf` | Owned bot management, alt-bots, follow catching up, pack holds, and party loot. |
 | [Mercenary hiring & recruiters](settings/hiring.md) | `aiplayerbot.conf` | Companion hiring costs, raid composition presets, gear tiers, and world buffs. |
-| [Class behavior](settings/class-behaviour.md) | `aiplayerbot.conf` | Class-specific AI rules for hunters, paladins, rogues, and warlocks. |
-| [Dungeons & raids](settings/dungeons-raids.md) | `aiplayerbot.conf` | Creature aura hazard avoidance, raid wipe protection, and custom raid tactics. |
+| [Class behaviour](settings/class-behaviour.md) | `aiplayerbot.conf` | Class-specific AI rules for hunters, paladins, rogues, and warlocks. |
+| [Dungeons & raids](settings/dungeons-raids.md) | `aiplayerbot.conf` | Creature aura hazard avoidance, bomb dispersal, hazard evasion, and custom raid tactics. |
 | [Combat & reaction thresholds](settings/combat.md) | `aiplayerbot.conf` | Health and mana lines, follow distances, casting pacing, and commanded pulls. |
 | [World population & immersion](settings/world-population.md) | `aiplayerbot.conf` | Pool sizing, level ladders, wander limits, greetings, guilds, and gear upkeep. |
 | [Economy & auction house](settings/economy.md) | `aiplayerbot.conf` | Synthetic auction house market supply, bidding, buyouts, and trade limits. |
 | [Dungeon finder & battlegrounds](settings/queues.md) | `aiplayerbot.conf` | Looking-for-trouble (LFT) autofill and autonomous battleground queues. |
 | [Performance & tick budget](settings/performance.md) | `aiplayerbot.conf` | Per-tick AI turn limits, self-tuning tick controllers, and core map caching. |
-| [Bot chatter & broadcasts](settings/chat.md) | `aiplayerbot.conf` | Channel chat rates, emote lines, say-without-master, and chatter filtering. |
-| [Diagnostic logging](settings/logging.md) | `tortoise_bots.conf` | Module log levels, bot CSV event streams, and per-bot action log rotation. |
+| [Bot chatter & broadcasts](settings/chat.md) | `aiplayerbot.conf` | Channel chat rates, emote lines, say-without-master, and broadcast chances. |
+| [Diagnostic logging](settings/logging.md) | `aiplayerbot.conf` + `tortoise_bots.conf` | Module log levels, telemetry streams, CSV logs, and per-bot action log rotation. |
 
 ## Settings with no effect
 
-These keys are read into the configuration object so older configuration files continue loading, but nothing consumes them. They are marked in `aiplayerbot.conf.dist.in` with "Currently has no effect (read but unused)" and listed here so administrators do not tune a dead knob:
+These keys are read into configuration so older configuration files continue loading, but nothing in the bot engine consumes them. Most are marked in `aiplayerbot.conf.dist.in` with "Currently has no effect (read but unused)"; all are listed here so administrators do not tune a dead knob:
 
 - `AhMarketValueVendor`
 - `AllowGuildBots`
 - `AllowMultiAccountAltBots`
 - `BotAutologin`
 - `BotsSilent`
+- `ClassRace.UseFixedClassRaceCounts`
 - `DiffEmpty`
 - `DiffWithPlayer`
-- `DisableBotOptimizations`
+- [`DisableBotOptimizations`](settings/performance.md#aiplayerbotdisablebotoptimizations)
+- `DisableRandomLevels`
 - `FreeMoveDelay`
 - `GroupMemberLootDistanceWithActiveMaster`
 - `InstantRandomize`
 - `LLMApiKey`
 - `MaxFreeMoveDistance`
 - `MinRandomBotInWorldTime`
+- `MinRandomBotReviveTime`, `MaxRandomReviveTime`
 - `MinRandomBotsPriceChangeInterval`
+- `PreQuests`
 - `RandomBotRandomPassword`
+- `RandomBotShowHelmet`, `RandomBotShowCloak`
+- `randombotStartingLevel`
 - `RandomBotTimedOffline`
 - `RandomGearTabardsUnobtainable`
 - `RandombotsWalkingRPG.InDoors`

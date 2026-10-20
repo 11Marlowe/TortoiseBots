@@ -29,8 +29,8 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HirePartyMult4`](#aiplayerbothirepartymult4) | `4.66` | Cost multiplier applied when hiring a fourth party companion. |
 | [`AiPlayerbot.HireRaidFlatCostCopper`](#aiplayerbothireraidflatcostcopper) | `10000` | Flat per-bot fee in copper for hiring raid companions beyond four. |
 | [`AiPlayerbot.HireDisconnectGracePeriod`](#aiplayerbothiredisconnectgraceperiod) | `300` | Seconds a hired companion waits after player disconnect before despawning. |
-| [`AiPlayerbot.HireRaidSpread`](#aiplayerbothireraidspread) | *(preset list)* | Comma-separated class priority list per raid role for composition auto-fill. |
-| [`AiPlayerbot.HireRaidPresets`](#aiplayerbothireraidpresets) | *(raid presets)* | Named composition presets for one-command raid hiring. |
+| [`AiPlayerbot.HireRaidSpread`](#aiplayerbothireraidspread) | `tank=warrior...;healer=priest...` | Class priority list per raid role for composition auto-fill. |
+| [`AiPlayerbot.HireRaidPresets`](#aiplayerbothireraidpresets) | `zg=2t...;aq20=2t...;onyxia=3t...` | Named composition presets for one-command raid hiring. |
 | [`AiPlayerbot.HireGearTiersEnabled`](#aiplayerbothiregeartiersenabled) | `1` | Enables pre-enchanted static gear tiers for hired companions. |
 | [`AiPlayerbot.HireGearStartTier`](#aiplayerbothiregearstarttier) | `0` | Baseline gear tier available to all players without completing quests. |
 | [`AiPlayerbot.HireGearUnlockAccountWide`](#aiplayerbothiregearunlockaccountwide) | `0` | Shares gear tier unlock quest completion across all account characters. |
@@ -68,7 +68,7 @@ When set to `0`, all hiring interactions and recruiter menus are disabled.
 
 ### `AiPlayerbot.HireMinAccountSecurity`
 Minimum account security level required to hire mercenary companions. Raise this to restrict hiring to server staff or privileged accounts.
-**Default:** `0` · **Values:** `0` player, `1` observer, `2` moderator, `3` developer, `4` administrator · **Restart:** needed
+**Default:** `0` · **Values:** `0` player, `1` observer, `2` moderator, `3` gamemaster, `4` bugtracker, `5` administrator, `6` root/console (values `0` to `6`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -81,7 +81,7 @@ The default value of `0` permits all standard players to hire companions. Settin
 
 ### `AiPlayerbot.HireFreeMinSecurity`
 Enables free companion hiring for staff accounts meeting or exceeding this security level.
-**Default:** `0` · **Values:** `0` off (everyone pays), `1` observer, `2` moderator, `3` developer, `4` administrator · **Restart:** needed
+**Default:** `0` · **Values:** `0` off (everyone pays), `1` observer, `2` moderator, `3` gamemaster, `4` bugtracker, `5` administrator, `6` root/console (values `0` to `6`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -94,7 +94,7 @@ No gold is deducted from the player, and recruiter dialogue menus and command ou
 
 ### `AiPlayerbot.HireMaxBotsPerPlayer`
 Caps the maximum number of hired companions a single player can maintain simultaneously.
-**Default:** `4` · **Values:** `1` to `39` · **Restart:** needed
+**Default:** `4` · **Values:** `0` to `39` (`0` disables companion hiring) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -146,7 +146,7 @@ At level 60 with default settings, hiring a complete four-bot party costs approx
 
 ### `AiPlayerbot.HirePartyMult2`
 Cost multiplier applied to the base hire price when employing a second companion.
-**Default:** `1.66` · **Values:** positive float · **Restart:** needed
+**Default:** `1.66` · **Values:** float (`0.0` to `100.0`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -159,7 +159,7 @@ The base cost is multiplied by this factor when quoting and charging the fee for
 
 ### `AiPlayerbot.HirePartyMult3`
 Cost multiplier applied to the base hire price when employing a third companion.
-**Default:** `2.66` · **Values:** positive float · **Restart:** needed
+**Default:** `2.66` · **Values:** float (`0.0` to `100.0`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -172,7 +172,7 @@ Combined with the earlier multipliers, this shapes the cost curve for small-grou
 
 ### `AiPlayerbot.HirePartyMult4`
 Cost multiplier applied to the base hire price when employing a fourth companion.
-**Default:** `4.66` · **Values:** positive float · **Restart:** needed
+**Default:** `4.66` · **Values:** float (`0.0` to `100.0`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -198,7 +198,7 @@ Companions below level 60 scale downward proportionally.
 
 ### `AiPlayerbot.HireDisconnectGracePeriod`
 Grace period in seconds that a hired companion remains in the world guarding after its master disconnects.
-**Default:** `300` (5 minutes) · **Values:** seconds · **Restart:** needed
+**Default:** `300` (5 minutes) · **Values:** seconds (`0..3600`; values below 60 on bound hires are floored to 60 s) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -255,9 +255,9 @@ Specifies the baseline gear tier accessible to all players without completing un
 <details>
 <summary>How it works in detail</summary>
 
-Determines the starting gear tier available on fresh accounts.
+Determines the starting gear tier available on fresh accounts. The tier actually offered is the higher of this setting and the player's highest rewarded unlock quest.
 
-At tier `0`, companions arrive in standard green and blue gear. At tier 1 or higher, companions arrive in static pre-enchanted gear sets. Setting this to `7` unlocks the entire gear ladder immediately without requiring quest turn-ins.
+At tier `0`, companions arrive in standard randomly-generated kit (tier 0 'Standard kit'). At tier 1 or higher, companions arrive in static pre-enchanted gear sets. Setting this to `7` unlocks the entire gear ladder immediately without requiring quest turn-ins.
 
 </details>
 
@@ -320,7 +320,7 @@ Master switch for purchasing world buffs from recruiter NPCs in capital cities.
 <details>
 <summary>How it works in detail</summary>
 
-Enables the `World buffs` dialogue branch at `<Mercenary Hire>` recruiters stationed in capital cities for players at level 60.
+Enables the `World buffs` dialogue branch at `<Mercenary Hire>` recruiters stationed in capital cities for players meeting `AiPlayerbot.WorldBuffsMinLevel` (60 by default).
 
 When set to `0`, recruiter dialogue menus omit the world buffs branch entirely.
 
@@ -341,7 +341,7 @@ When set to `0`, the core engine strips world buffs upon entering raids, and the
 
 ### `AiPlayerbot.WorldBuffsMinLevel`
 Minimum character level required to view and purchase world buffs at capital recruiters.
-**Default:** `60` · **Values:** `1` to `60` · **Restart:** needed
+**Default:** `60` · **Values:** `0` to `60` (clamped `>60`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -361,7 +361,7 @@ Base copper fee for purchasing standard raid boss world buffs from recruiters.
 
 Sets the base price for purchasing Rallying Cry of the Dragonslayer, Warchief's Blessing, Spirit of Zandalar, or the complete Dire Maul Tribute package.
 
-The total price charged equals this base fee plus `AiPlayerbot.WorldBuffsPricePerPersonCopper` multiplied by the number of nearby group members.
+The total price charged equals this base fee plus `AiPlayerbot.WorldBuffsPricePerPersonCopper` multiplied by the number of nearby group/raid members.
 
 </details>
 
@@ -372,7 +372,7 @@ Per-person copper fee added to standard recruiter world buff purchases.
 <details>
 <summary>How it works in detail</summary>
 
-Added to the base purchase price for each party member standing within 40 yards of the recruiter during purchase.
+Added to the base purchase price for each group or raid member standing within 40 yards of the recruiter during purchase.
 
 A solo player pays the base fee plus one personal share (12 gold total at defaults).
 
@@ -398,7 +398,7 @@ Per-person copper fee added when purchasing Sayge Dark Fortune buffs.
 <details>
 <summary>How it works in detail</summary>
 
-Added to the Sayge base fee for each eligible group member standing within 40 yards of the recruiter.
+Added to the Sayge base fee for each eligible group or raid member standing within 40 yards of the recruiter.
 
 </details>
 
@@ -420,7 +420,7 @@ Per-person copper fee added when purchasing Songflower Serenade.
 <details>
 <summary>How it works in detail</summary>
 
-Added to the Songflower base fee for each party member standing within 40 yards of the recruiter.
+Added to the Songflower base fee for each group or raid member standing within 40 yards of the recruiter.
 
 </details>
 
@@ -442,7 +442,7 @@ Per-person copper fee added when purchasing Traces of Silithyst.
 <details>
 <summary>How it works in detail</summary>
 
-Added to the Silithyst base fee for each party member standing within 40 yards of the recruiter.
+Added to the Silithyst base fee for each group or raid member standing within 40 yards of the recruiter.
 
 </details>
 

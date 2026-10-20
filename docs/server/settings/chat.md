@@ -22,11 +22,11 @@ Bot speech lines and flavor texts are stored in the `ai_playerbot_texts` databas
 | [`AiPlayerbot.EnableBroadcasts`](#aiplayerbotenablebroadcasts) | `1` | Master switch controlling automated public chat, channel announcements, and emotes. |
 | [`AiPlayerbot.BroadcastToWorldGlobalChance`](#aiplayerbotbroadcasttoworldglobalchance) | `3000` | Global frequency throttle for broadcasts routed to the server World channel. |
 | [`AiPlayerbot.BroadcastToGeneralGlobalChance`](#aiplayerbotbroadcasttogeneralglobalchance) | `3000` | Global frequency throttle for broadcasts routed to zone General channels. |
-| [`AiPlayerbot.BroadcastChance*`](#aiplayerbotbroadcastchance) | varies | Per-event broadcast chance multipliers for specific quest, kill, or joke lines. |
-| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` | 1-in-N chance for bots to broadcast looting a normal white item in chat. |
-| [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` | Probability of bots advertising items for sale in trade and public channels. |
-| [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` | Controls whether bots participate in the classic Thunderfury chat joke. |
-| [`AiPlayerbot.RandomBotSayWithoutMaster`](#aiplayerbotrandombotsaywithoutmaster) | `0` | Causes masterless bots to speak travel goals and cast errors in say chat. |
+| [`AiPlayerbot.BroadcastChance*`](#aiplayerbotbroadcastchance) | varies | Per-event broadcast chance weights for specific quest, kill, or joke lines. |
+| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` (built in) | 1-in-N chance for bots to broadcast looting a normal white item in chat. |
+| [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` (built in) | Probability of bots advertising items for sale in trade and public channels. |
+| [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` (built in) | Weight for bots participating in the classic Thunderfury chat joke. |
+| [`AiPlayerbot.RandomBotSayWithoutMaster`](#aiplayerbotrandombotsaywithoutmaster) | `0` | Causes masterless bots to speak travel plans and cast failures in say chat. |
 
 ## Settings
 
@@ -73,7 +73,7 @@ Acts as a probability gate for bot broadcasts sent to zone-wide General channels
 </details>
 
 ### `AiPlayerbot.BroadcastChance*`
-Per-event probability multipliers for individual speech triggers and announcement categories.
+Per-event probability weights for individual speech triggers and announcement categories.
 **Default:** varies · **Values:** integer weights · **Restart:** needed
 
 <details>
@@ -83,13 +83,13 @@ Allows fine-grained tuning of specific announcement types (such as `BroadcastCha
 
 Aggressive or toxic flavor lines default to `0` in shipped templates.
 
-Travel destination narration ("Traveling 120y to...") and vendor transaction confirmations are permanently silent for masterless bots, preventing spam in busy cities.
+Travel destination narration ("Traveling 120y to...") and vendor transaction confirmations are silent unless a live player asked (a direct `.bot`, `go`, or `where` reply still answers).
 
 </details>
 
 ### `AiPlayerbot.BroadcastChanceLootingItemNormal`
 Controls the 1-in-N probability for bots to announce looting a normal (white) quality item in chat.
-**Default:** `300` · **Values:** integer weight (0 = disabled) · **Restart:** needed
+**Default:** `300` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (0 = disabled) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -100,36 +100,36 @@ Defines the probability roll when a bot loots a standard common (white) item. Se
 
 ### `AiPlayerbot.BroadcastChanceSuggestSell`
 Frequency at which pool bots advertise goods for sale in trade and city chat.
-**Default:** `0` · **Values:** integer weight (0 = disabled) · **Restart:** needed
+**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (0 = disabled) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-When greater than `0`, bots will periodically hawk items in Trade and General channels (posting "WTS" lines). Disabled by default (`0`) to prevent public trade chat spam.
+When greater than `0`, bots will periodically hawk items in city say/yell, Trade, and General channels (posting "WTS" lines). Disabled by default (`0`) to prevent public trade chat spam.
 
 Direct player inquiries and native Auction House sales operate independently of this setting.
 
 </details>
 
 ### `AiPlayerbot.BroadcastChanceSuggestThunderfury`
-Toggles bot participation in the classic Thunderfury channel chat joke.
-**Default:** `1` · **Values:** `0` off, `1` on · **Restart:** needed
+Controls bot participation in the classic Thunderfury channel chat joke.
+**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight `0` = disabled (default `1`, very rare; higher = more frequent) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Controls whether bots periodically link Thunderfury, Blessed Blade of the Windseeker in public chat channels when triggered. Set to `0` to silence the joke.
+Controls the chance weight that bots periodically link Thunderfury, Blessed Blade of the Windseeker in public chat channels when triggered. Set to `0` to silence the joke.
 
 </details>
 
 ### `AiPlayerbot.RandomBotSayWithoutMaster`
-Directs masterless pool bots to speak status messages and travel destinations in local say chat.
+Directs masterless pool bots to speak travel plans and cast failures in local say chat.
 **Default:** `0` · **Values:** `0` silent, `1` speak in /say · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-By default (`0`), masterless pool bots wander silently, and only whisper notifications (such as out-of-mana warnings or pathing obstacles) to a live player master when grouped.
+By default (`0`), masterless pool bots wander silently, and only whisper notifications (such as travel plans or cast failures) to a live player master when grouped.
 
 Setting this to `1` causes masterless bots to vocalize these internal notifications aloud in `/say`. This is primarily useful for local debugging or immersive spectator viewing.
 

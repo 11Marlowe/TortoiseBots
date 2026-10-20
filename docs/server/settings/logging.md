@@ -62,7 +62,7 @@ Specifies which structured CSV event log files are written to the server's logs 
 Defines the active CSV log streams:
 
 - `bot_events.csv`: Records high-level bot behavioral events, travel destination changes, vendor trips, and unstuck interventions.
-- `deaths.csv`: Records character deaths, killer identities, and graveyard release coordinates.
+- `deaths.csv`: Records character deaths, death position, killer identity and level, other attackers, and travel destination.
 - Additional diagnostic logs (such as `travel_route_gate.csv` and `ghost_moves.csv`) can be added to the list as needed.
 
 Setting this key to an empty string (`""`) disables all CSV event logging. Note that if this key is omitted from configuration entirely, the internal fallback defaults to disabled; ensure the key is present to record events.
@@ -78,7 +78,7 @@ Number of days historical compressed CSV log files are retained on disk.
 <details>
 <summary>How it works in detail</summary>
 
-Active CSV logs are automatically compressed into `<filename>_<date>_<time>.csv.gz` archives every hour and at server startup.
+Active CSV logs are automatically compressed into `<filename>_<date>_<time>.csv.gz` archives every hour and at server startup. Packing occurs in the background; a packing operation stopped mid-pack finishes on the next server start.
 
 Compressed archives older than `LogRetentionDays` are automatically purged during background cleanup passes. At 500 bots, 3 days of retained logs require approximately 65–130 MB of disk storage; at 1,000 bots, expect roughly 130–260 MB.
 
@@ -113,6 +113,8 @@ Controls the scope of active action logs:
 - `commanded`: Generates log files only for bots in parties bound to a remote commander (`.bot commander bind`) or hired companions. Masterless pool bots are ignored.
 - `all`: Logs every bot on the server, including roaming pool bots. Use caution, as this generates significant disk I/O.
 - `none`: Completely disables per-bot log generation.
+
+Any unknown word logs an error and uses `commanded`.
 
 Eligibility is re-evaluated every 15 seconds. If a bot is hired or bound, logging begins within 15 seconds; when dismissed, its log file closes cleanly.
 
@@ -151,7 +153,7 @@ Maximum size in megabytes of a single bot action log file before rotating to a n
 <details>
 <summary>How it works in detail</summary>
 
-When an individual bot log file reaches this size, the file is closed cleanly and logging continues in a new numbered file for that character.
+When an individual bot log file reaches this size, the file notes this on its last line, closes cleanly, and logging continues in a new numbered file for that character.
 
 </details>
 
@@ -163,6 +165,8 @@ Records cumulative action execution counts and success/failure rates to CSV.
 <summary>How it works in detail</summary>
 
 When enabled, every executed bot action is tracked by class and action name, tallying successful versus failed executions. Every 5 minutes, a cumulative snapshot (`utc_time,class,action,ok_count,fail_count`) is appended to `logs/action_counts.csv`.
+
+Because the file is written while the server is active, a live copy may tear mid-line; copy twice and compare before using.
 
 When disabled (`0`), the tracking branch costs negligible CPU time.
 
@@ -192,20 +196,20 @@ Because UDP emission is non-blocking, disabling or losing connection to the daem
 
 </details>
 
-### `AiPlayerbot.ObservabilityHost` <a id="observabilityhost"></a>
+### `AiPlayerbot.ObservabilityHost`
 Destination hostname or IP address for the UDP observability telemetry collector.
 **Default:** `127.0.0.1` · **Values:** IP address or hostname · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Specifies the network destination where UDP telemetry packets are routed.
+Specifies the network destination where UDP telemetry packets are routed. An empty string defaults to loopback (`127.0.0.1`).
 
 Defaults to loopback (`127.0.0.1`) when running locally. In containerized environments, set this to the service name of the observability container (e.g. `observability`) or specify it via the `OBSERVABILITY_HOST` environment variable.
 
 </details>
 
-### `AiPlayerbot.ObservabilityPort` <a id="observabilityport"></a>
+### `AiPlayerbot.ObservabilityPort`
 Destination UDP port listened to by the observability daemon.
 **Default:** `9195` · **Values:** UDP port (1..65535) · **Restart:** needed
 
