@@ -654,6 +654,10 @@ uint32 BuffOnPartyAction::CountGroupMembersMissingBoth(std::string const& groupN
     {
         if (!member || !member->IsInWorld() || member->GetMapId() != bot->GetMapId() || !sServerFacade.IsAlive(member))
             continue;
+        // A hidden GM never gets the buff (see PartyMemberValue::Check), so
+        // counting them would keep the group version wanted forever.
+        if (member->GetVisibility() == VISIBILITY_OFF)
+            continue;
         Aura* single = ai->GetAura(GetSpellName(), member);
         if (!ai::BuffNeedsRefresh(single != nullptr, single ? single->GetAuraDuration() : 0,
             single ? single->GetAuraMaxDuration() : 0))

@@ -295,7 +295,11 @@ bool TradeStatusAction::CheckTrade()
             }
             else
             {
-                bot->Say("Thank you " + name + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                // Issue #1108: the whisper to the trader stays, the line in
+                // /say for everybody around follows
+                // AiPlayerbot.EnableBroadcasts.
+                if (sPlayerbotAIConfig.enableBroadcasts)
+                    bot->Say("Thank you " + name + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
             }
         }
         return isGettingItem;

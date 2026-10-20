@@ -327,11 +327,18 @@ void EquipAction::EquipItem(PlayerbotAI* ai, Player* requester, Item* item, bool
                     Item* content = oldBagBag->GetItemByPos(i);
                     if (!content)
                         continue;
-                    oldBagBag->RemoveItem(i, false);
+                    // Player::RemoveItem, not Bag::RemoveItem: StoreItem
+                    // re-registers a timed item (quest items with a
+                    // duration), so the bag-only removal left it twice in
+                    // the player's duration list and the copy dangled once
+                    // the item expired (SIGSEGV in Item::UpdateDuration).
+                    bot->RemoveItem(oldBagBag->GetSlot(), i, true);
                     ItemPosCountVec dest;
                     if (bot->CanStoreItem(NULL_BAG, NULL_SLOT, dest, content, false) != EQUIP_ERR_OK)
                     {
-                        oldBagBag->StoreItem(i, content, false);
+                        ItemPosCountVec back;
+                        if (bot->CanStoreItem(oldBagBag->GetSlot(), i, back, content, false) == EQUIP_ERR_OK)
+                            bot->StoreItem(back, content, true);
                         contentsMoved = false;
                         break;
                     }

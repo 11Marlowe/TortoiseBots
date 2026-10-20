@@ -92,6 +92,9 @@ bool RevealGatheringItemAction::Execute(Event& event)
 
     // everything is fine, do it
     ai->Ping(go->getPositionX(), go->getPositionY());
-    bot->Say(msg.str(), LANG_UNIVERSAL);
+    // Issue #1108: the ping is functional, the line in /say is ambient
+    // chatter and follows AiPlayerbot.EnableBroadcasts.
+    if (sPlayerbotAIConfig.enableBroadcasts)
+        bot->Say(msg.str(), LANG_UNIVERSAL);
     return true;
 }

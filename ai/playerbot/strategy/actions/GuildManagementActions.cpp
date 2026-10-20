@@ -213,7 +213,7 @@ bool GuildManageNearbyAction::Execute(Event& event)
                     ChatHandler::BuildChatPacket(data, bot->GetGroup()->IsRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY, line.c_str(), LANG_UNIVERSAL, CHAT_TAG_NONE, bot->getObjectGuid(), bot->GetName());
                     bot->GetGroup()->BroadcastPacket(&data, true);
                 }
-                else
+                else if (sPlayerbotAIConfig.enableBroadcasts)
                     bot->Say(line, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
         }
 
@@ -266,7 +266,9 @@ bool GuildLeaveAction::Execute(Event& event)
 
     Guild* guild = sGuildMgr.GetGuildById(bot->GetGuildId());
 
-    if (guild->GetMemberSize() > sPlayerbotAIConfig.guildMaxBotLimit)
+    // Issue #1108: the announcement is guild chat, the bot still leaves the
+    // guild either way.
+    if (sPlayerbotAIConfig.enableBroadcasts && guild->GetMemberSize() > sPlayerbotAIConfig.guildMaxBotLimit)
     {
         std::map<std::string, std::string> placeholders;
         placeholders["%guild_bot_limit"] = std::to_string(sPlayerbotAIConfig.guildMaxBotLimit);
