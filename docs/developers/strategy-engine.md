@@ -1,13 +1,13 @@
 ---
-id: concept-strategy-engine
+id: developers-strategy-engine
 title: Strategy Engine & Action Scheduling
-category: concepts
+category: developers
 summary: Deep dive into the Playerbots AI cycle, action baskets, triggers, multipliers, reaction queues, failure backoff, and the per-tick module pass that schedules player-owned bots ahead of the pool.
 tags: [architecture, engine, ai, triggers, actions, strategies, scheduling]
 relates_to:
-  - concept-architecture-invariants
-  - concept-donor-hierarchy
-  - guide-configuration-tuning
+  - developers-architecture
+  - developers-donor-hierarchy
+  - developers-host-api
 ---
 
 # Strategy Engine & Action Scheduling
@@ -37,9 +37,9 @@ The module drives every bot from a single pass on the world thread (`BotManager:
 1. **Player-owned bots first.** Bots a real player owns update first, on every tick, with no budget: a bot whose master is a live player with a network session (hired companions, party bots), and a bot on an account the random pool does not own (`tortoise_bots_pool_account`), i.e. the owner's own characters. Everything else is the pool — including pool characters that carry a master from a bot-only group, a stale `PlayerMaster` lease, or `random = false`. The decision lives in `runtime/PlayerBotClassification.h` (covered by `tools/test_player_bot_classification.cpp`); the lease and the `random` flag are bookkeeping, not ownership.
 2. **Random pool second, as one turn queue** (`runtime/BotTurnScheduler.h`, covered by `tools/test_bot_turn_scheduler.cpp`). After each turn a bot is due again when its own AI asked to think next (reaction delay, GCD, cast time, move duration), but never later than its situation allows: in combat 400 ms (the core's combat flag or the AI's own combat state, so a bot closing on or pulling a target already counts, as in mod-playerbots' `GetReactDelay`), dead or in a battleground 1 s, mid-teleport 100 ms, anything else 3 s. A change of situation (pulled into combat, died, started a teleport) makes it due at once, and a travel-pipeline step (pick a destination, then start walking) is due again on the next tick up to four times in a row. Each tick the due bots run most overdue first, measured against what their situation tolerates, so under load every bot is equally late relative to its tolerance: a fight never waits behind a questing walk and no bot is skipped for good. The pass stays O(pool).
 
-Only the pool phase can be cut short, and only while the previous world tick ran longer than `AiPlayerbot.PoolBudgetWhenTickOverMs` (default 0 = every tick, reclaimed to the full `AiPlayerbot.PoolTickBudgetUs` + `AiPlayerbot.CombatTickBudgetUs` ceilings on healthy ticks by the `AiPlayerbot.TargetWorldTickMs` controller): the pass then stops at the effective budget, and the bots it did not reach are the most overdue ones on the next tick. See [Configuration Knobs & Feature Flags](../guides/configuration-tuning.md).
+Only the pool phase can be cut short, and only while the previous world tick ran longer than `AiPlayerbot.PoolBudgetWhenTickOverMs` (default 0 = every tick, reclaimed to the full `AiPlayerbot.PoolTickBudgetUs` + `AiPlayerbot.CombatTickBudgetUs` ceilings on healthy ticks by the `AiPlayerbot.TargetWorldTickMs` controller): the pass then stops at the effective budget, and the bots it did not reach are the most overdue ones on the next tick. See [Performance settings](../server/settings/performance.md).
 
-Every ~30 s of tick time the pass logs its own cost — `TortoiseBots: BOTPERF passUs=... playerBots=... ownedBots=... masterBots=... poolBots=... poolProcessed=... due=... budgetHit=... turnLateAvgMs=... turnLateMaxMs=... turns=... usPerTurn=... coreMs=... combatTurns=... combatLateAvgMs=... otherTurns=... otherLateAvgMs=... routeReuse=... routeRebuild=... keepoutScans=... keepoutBudgetMiss=...` at module log level 1 or higher — which is the direct measure of how much of the world tick the AI pass owns; `turnLateAvgMs`/`turnLateMaxMs` say how far past due the pool turns ran, i.e. how far behind the pool is; `usPerTurn` is the average cost of one turn, `coreMs` the average world tick minus the bot pass, and the combat/other pairs split lateness by turn situation. `routeReuse`/`routeRebuild` count the window's movement route lookups (`ResolveMovePath`) that were answered from the cached route versus planned again. `keepoutScans` counts the grid visits for the creature aura keep-out's shared hazard snapshots, `keepoutBudgetMiss` the lookups due a new snapshot after the tick's refresh budget was spent. `ownedBots` + `masterBots` make up `playerBots`, so a pool bot that sneaks into the unbudgeted pass is visible in the log instead of silently stretching the tick.
+Every ~30 s of tick time the pass logs its own performance (`BOTPERF`) at module log level 1 or higher. For the complete field glossary and metrics explanation, see [Performance settings](../server/settings/performance.md).
 
 ## Core Building Blocks
 

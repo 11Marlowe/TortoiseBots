@@ -1,12 +1,12 @@
 ---
-id: concept-donor-hierarchy
+id: developers-donor-hierarchy
 title: Donor Hierarchy & Porting Rules
-category: concepts
+category: developers
 summary: Evidence priority and architectural guidelines when referencing shyalya-tortoise-wow, mod-playerbots, and upstream core.
 tags: [donors, shyalya-tortoise-wow, mod-playerbots, porting, rules]
 relates_to:
-  - concept-architecture-invariants
-  - concept-strategy-engine
+  - developers-architecture
+  - developers-strategy-engine
 ---
 
 # Donor Hierarchy & Porting Rules
@@ -39,4 +39,4 @@ Architecture ownership    → TortoiseBots rules always win
 ### Harvest Behavior, Never Coupling
 - Never copy global bot managers, baked-in player pointers, or core-level bot checks.
 - Keep all state and logic inside `modules/TortoiseBots/`.
-- Record all donor inspirations, file paths, and commit hashes in `docs/reference/donor-map.tsv`, and the source commit in the pull request.
+- Record all donor inspirations, file paths, and commit hashes in [data/donor-map.tsv](data/donor-map.tsv), and the source commit in the pull request.

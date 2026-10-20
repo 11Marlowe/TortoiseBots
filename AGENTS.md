@@ -19,17 +19,17 @@ It is a hobby project built for its owner and interested players: pragmatic, sma
 
 | When you change | Update | Gate |
 | :--- | :--- | :--- |
-| Commands / actions (`commands/*`, `actions/*`) | [`docs/guides/player-controls.md`](docs/guides/player-controls.md) | `python3 tools/verify_okf.py` |
-| Config (`PlayerbotAIConfig.*`, `aiplayerbot.conf.dist.in`, `conf/tortoise_bots.conf.dist`) | [`docs/guides/configuration-tuning.md`](docs/guides/configuration-tuning.md) | `python3 tools/verify_okf.py` |
+| Commands / actions (`commands/*`, `actions/*`) | [`docs/play/commands/README.md`](docs/play/commands/README.md) | `python3 tools/verify_okf.py` |
+| Config (`PlayerbotAIConfig.*`, `aiplayerbot.conf.dist.in`, `conf/tortoise_bots.conf.dist`) | [`docs/server/configuration.md`](docs/server/configuration.md) | `python3 tools/verify_okf.py` |
 | Class AI (`strategy/<class>/*`) | the class doc in [`docs/classes/`](docs/classes/) | `python3 tools/verify_okf.py` |
-| Host seams, sessions, lifecycle (`host/*`, `runtime/BotManager.*`) | [`docs/HOST_API.md`](docs/HOST_API.md), [`docs/concepts/architecture-invariants.md`](docs/concepts/architecture-invariants.md) | `tools/verify_penqle_host_contract.sh` |
-| Ported donor behaviour | source repo + SHA in the PR description; a new donor project in [`docs/LICENSING_AUDIT.md`](docs/LICENSING_AUDIT.md) | — |
+| Host seams, sessions, lifecycle (`host/*`, `runtime/BotManager.*`) | [`docs/developers/host-api.md`](docs/developers/host-api.md), [`docs/developers/architecture.md`](docs/developers/architecture.md) | `tools/verify_penqle_host_contract.sh` |
+| Ported donor behaviour | source repo + SHA in the PR description; a new donor project in [`docs/developers/licensing-audit.md`](docs/developers/licensing-audit.md) | — |
 | Doc structure | `docs/manifest.yaml`, `docs/README.md` | `python3 tools/verify_okf.py` |
 | Observability daemon (`tools/observability`, `runtime/ObservabilityEmitter.*`) | [`tools/observability/README.md`](tools/observability/README.md) | see that file |
 
 ## Architecture invariants
 
-Full rules and rationale: [`docs/concepts/architecture-invariants.md`](docs/concepts/architecture-invariants.md). The ones you will hit:
+Full rules and rationale: [`docs/developers/architecture.md`](docs/developers/architecture.md). The ones you will hit:
 
 - The core builds and runs with the module off (`MODULE_TORTOISEBOTS` selects it natively; `BUILD_LEGACY_PLAYERBOTS=OFF`).
 - Core code never knows a `Player` is a bot: no `WorldSession::GetBot()`/`m_bot`/`sPlayerBotMgr`, no `if (IsBot())` in core systems. Bot sessions are generic headless transport (`SessionTransport::Headless`).

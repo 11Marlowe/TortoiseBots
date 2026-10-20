@@ -723,7 +723,7 @@ void HireProvisionService::StepRaidJobs()
     }
 }
 
-// Closing summary and the structured TBM line (see docs/guides/player-controls.md).
+// Closing summary and the structured TBM line (see docs/play/commands/addon.md).
 void HireProvisionService::ReportRaidJob(Player* master, HireRaidOutcome const& job)
 {
     auto protocolSafe = [](std::string value)
