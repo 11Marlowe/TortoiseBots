@@ -26,7 +26,7 @@ Rogues deliver exceptional single-target physical melee DPS, pre-combat crowd co
 
 ### Stealth & Openers
 - Automatically enters *Stealth* out of combat.
-- Manoeuvres behind targets to open with *Ambush* (with main-hand daggers) or *Garrote* (swords/maces).
+- Manoeuvres behind targets to open with *Ambush* (with main-hand daggers) or *Garrote* (bleed, no weapon requirement).
 - Uses *Cheap Shot* as a fallback opener or when lockdown stuns are required.
 - **Pre-pull Sap:** When assigned a crowd control mark on an unpulled humanoid, a rogue following a human master stealths forward and casts *Sap* before combat begins. Can be toggled with [`.bot action sap [on|off] [bot]`](../play/commands/party-actions.md#bot-action-sap).
 
@@ -40,7 +40,7 @@ Rogues deliver exceptional single-target physical melee DPS, pre-combat crowd co
 - **Combat:** Activates *Adrenaline Rush* and *Blade Flurry* during difficult fights. *Blade Flurry* is automatically cancelled if a crowd-controlled mob comes within 8 yards.
 - **Assassination:** Holds *Cold Blood* until 4 or more combo points are banked to guarantee a critical finisher strike.
 - **Subtlety:** Activates *Preparation* to reset cooldowns during drawn-out battles.
-- **Defensives:** Triggers *Evasion* at low health, *Blind* to peel attackers, and *Vanish* at critical health (<20%) to drop threat. *Feint* is cast only when a living party tank or pet is present to hold aggro.
+- **Defensives:** Triggers *Evasion* at low health, *Blind* to peel attackers, and *Vanish* at critical health (<20%) to drop threat. *Blind* fires ahead of *Vanish*. *Feint* is cast only when a living party tank or pet is present to hold aggro.
 
 <details>
 <summary>Dungeon threat drops in detail</summary>
@@ -65,7 +65,7 @@ When enabled via configuration, rogues in 5-man dungeons use the same threat-dro
 
 ## Utility & interrupts
 
-- **Poisons:** Automatically applies poisons based on context: Raid and generic combat use Instant Poison (main hand) and Deadly Poison (off hand); general PvE uses Instant Poison on both hands; PvP uses Mind-Numbing Poison (main hand) and Crippling Poison (off hand). Respects level requirements (Instant at level 20, Deadly at level 30).
+- **Poisons:** Automatically applies poisons based on context: Raid and generic combat use Instant Poison (main hand) and Deadly Poison (off hand); general PvE uses Instant Poison on both hands; PvP uses Mind-Numbing Poison (main hand) and Crippling Poison (off hand). Respects level requirements (level-gated via spellbook).
 - **Interrupts:** Casts *Kick* immediately to lock out enemy spell casts. Uses *Kidney Shot* as a stun fallback.
 - **Self-Defense CC:** Uses *Gouge* at medium health and *Blind* at critical health to disorient attackers.
 - **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool rogues stand their ground using *Evasion* and *Vanish* rather than fleeing when low on health.

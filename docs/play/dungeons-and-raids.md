@@ -67,7 +67,7 @@ Every bot starts with **Moon** as its default CC mark. The table below represent
 
 | Raid Icon | Primary Class & Ability | Valid Targets | Notes |
 | :---: | :--- | :--- | :--- |
-| **Moon** | **Mage** (*Polymorph*) / **Rogue** (*Sap*) | Beasts, Humanoids | Rogues stealth and Sap out of combat before the pull. |
+| **Moon** | **Mage** (*Polymorph*) / **Rogue** (*Sap*) | Beasts, Humanoids (Sap: humanoids only) | Rogues stealth and Sap out of combat before the pull. |
 | **Star** | **Priest** (*Shackle Undead*) / **Paladin** (*Turn Undead*) | Undead only | Essential in Stratholme, Scholomance, and Shadowfang Keep. |
 | **Diamond** | **Warlock** (*Banish* / *Fear*) | Demons, Elementals (Banish) | Banish immunizes target; Fear only on assigned mark. |
 | **Triangle** | **Hunter** (*Freezing Trap* or *Scare Beast*) / **Druid** (*Hibernate* / *Roots*) | Beasts, Dragonkin | Hunter Freezing Trap or Scare Beast; Druid Hibernate (beasts, dragonkin) or Roots (outdoors only). |
@@ -114,7 +114,7 @@ If your group wipes, follow this recovery checklist:
 
 ### Healers and Casters Closing Range
 
-Inside an instance, a healer or caster that has line of sight to its target but stands out of range walks the navmesh path forward and stops at the first point within casting distance. Out of combat, a healer only walks to a party member who is injured (below [`AiPlayerbot.AlmostFullHealth`](../server/settings/combat.md#aiplayerbotalmostfullhealth)). In combat, healers stay close to the tank ([shared positioning rules](../classes/overview.md#shared-bot-behaviors)).
+Inside an instance, a healer or caster that has line of sight to its target but stands out of range walks the navmesh path forward and stops at the first point within casting distance. Out of combat, a healer only walks to a party member who is injured (below [`AiPlayerbot.AlmostFullHealth`](../server/settings/combat.md#aiplayerbotalmostfullhealth)). In combat, healers stay close to the tank ([shared positioning rules](../classes/overview.md#healer-positioning)).
 
 ### Stepping Down Off Dais and Ledges
 
@@ -159,7 +159,7 @@ Entering a raid map automatically activates the dungeon transition engine, enabl
 - **Living Poison Avoidance:** In Naxxramas, bots detect drifting Living Poison, step out inside 10 yd, and keep about 11 yd clear ([`AiPlayerbot.AvoidCreatureAuras`](../server/settings/dungeons-raids.md#aiplayerbotavoidcreatureauras)). Tanks step out as well because the explosion is fatal.
 - **Dragon Positioning:** Non-tanks automatically flank dragons to avoid breath and tail sweep cones. Tanks can be ordered to turn dragons with [`.bot action raid tankface`](commands/party-actions.md#bot-action-raid-tankface).
 - **Tank Assignment & Raid Assistant:** Main tanks and assist tanks coordinate boss and add assignments. Promoting an assist tank to **Raid Assistant** in the party frames assigns them secondary tank roles (such as holding Razorgore or Golemagg adds).
-- **Ranged Spread:** Stacked ranged spellcasters spread out (5 yd for ranged, 2 yd for melee) to minimize chain damage.
+- **Ranged Spread:** Stacked ranged spellcasters step out to 10-12 yd to minimize chain damage. Wider spacing is opt-in only via `.bot behavior party spread on` (5 yd ranged / 2 yd melee defaults, tanks excluded).
 - **Dispel Coordination:** Decursers and dispellers coordinate target claims to avoid casting multiple dispels on the same friendly target simultaneously.
 - **Protection Potions:** Bots level 48+ automatically drink Greater Protection Potions on relevant bosses if carried in bags: Fire for Magmadar, Geddon, Golemagg, Ragnaros, Onyxia, Razorgore, and Vaelastrasz; Shadow for Lucifron, Gehennas, and Nefarian; Nature for Princess Huhuran and Viscidus.
 
@@ -177,13 +177,13 @@ Entering a raid map automatically activates the dungeon transition engine, enabl
   - *Chromaggus:* Bots carrying Hourglass Sand (item 19183) use it to cleanse Bronze Affliction; bots step out of breath cones.
 - **Naxxramas:**
   - *Anub'Rekhan:* Non-tanks collapse to the room center during Locust Swarm; non-tanks burn Crypt Guards first when no swarm is up; tank kite ring needs live waypoints (no bot kite tactic).
-  - *Gluth:* Tanks rotate taunts at 5 Mortal Wound stacks; off-tanks and DPS execute sub-10% chow (kiting/slowing is the player's job; no bot kite ring).
+  - *Gluth:* Tanks rotate taunts at 5 Mortal Wound stacks; non-tank DPS execute sub-10% chow while tanks hold Gluth (kiting/slowing is the player's job; no bot kite ring).
   - *Thaddius:* Bots match Polarity Shift directions, shifting negative charges left and positive charges right.
   - *Loatheb:* Bots kill the spore underfoot for the Fungal Bloom buff and otherwise stay on Loatheb; no Necrotic Aura heal-timing exists in vanilla.
   - *Four Horsemen:* Mark carriers with 3+ stacks rotate clockwise to the next corner.
   - *Sapphiron:* Bots hide behind iceblocked players during the air phase and step out of blizzards.
   - *Heigan:* The group dances floor sections 0-1-2-3-2-1 during Plague Cloud.
-  - *Kel'Thuzad:* Raid spreads outside Frost Blast ice rings and steps out of Shadow Fissures immediately.
+  - *Kel'Thuzad:* Bots flee Shadow Fissures immediately; Frost Blast handling is not scripted beyond the shared bomb runout for Detonate Mana carriers.
 - **Ahn'Qiraj (AQ20/AQ40):** Designated runners activate crystals while *Strength of Ossirian* is active. Kiting Ossirian remains the player's responsibility.
 - **Paladin Aura Auto-Swap:** Paladins in raids automatically swap to *Fire Resistance Aura* or *Shadow Resistance Aura* on applicable bosses.
 

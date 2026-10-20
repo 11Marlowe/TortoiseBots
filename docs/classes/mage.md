@@ -31,7 +31,7 @@ Mages provide high-burst ranged spell DPS, dependable crowd control (*Polymorph*
 - Casts *Flamestrike* on 3 or more grouped enemies, layering channeled *Blizzard* over the burning zone.
 - Weaves *Cone of Cold* against 2 or more attackers in front of the mage within 10 yards.
 - Activates *Cold Snap* once Frost cooldowns (*Frost Nova*, *Cone of Cold*, *Ice Barrier*, *Ice Block*, *Frost Ward*) are spent.
-- Area spells (*Blizzard*, *Flamestrike*, *Cone of Cold*) pause during [party threat back-off](overview.md#shared-bot-behaviors) if holding 50% or more tank threat.
+- Area spells (*Blizzard*, *Flamestrike*, *Cone of Cold*) pause during [party threat back-off](overview.md#party-threat-back-off) if holding 50% or more tank threat.
 
 ### Fire Mage
 - Casts *Fireball* as primary filler and weaves *Scorch* to maintain Fire Vulnerability debuffs.
@@ -67,8 +67,8 @@ Mages provide high-burst ranged spell DPS, dependable crowd control (*Polymorph*
 
 ## Utility & interrupts
 
-- **Polymorph CC:** Casts *Polymorph* on targets assigned via `.bot action cc <mark>`. Stands still during casting, approaches within 25 yards in line of sight, and prevents AoE spells near sheeped mobs.
-- **Interrupts:** Casts *Counterspell* immediately upon detecting dangerous enemy spell casts, locking the school for up to 10 seconds.
+- **Polymorph CC:** Casts *Polymorph* on targets assigned via `.bot action cc <mark>`. Stands still during casting and prevents AoE spells near sheeped mobs.
+- **Interrupts:** Casts *Counterspell* immediately upon detecting dangerous enemy spell casts, locking the school.
 - **Food & Drink Conjuration:** Conjures food and water out of combat, sharing stacks with party members in need.
 - **Mana Gems & Runes:** Consumes the strongest mana gem held (Ruby down to Agate) below 40% mana in combat, re-conjuring gems between pulls. Uses *Dark Rune* when gems are exhausted.
 - **Party Buffs:** Maintains *Arcane Intellect* (and *Arcane Brilliance*) on mana users, refreshing expiring buffs (<15s) and coordinating buff claims with other mages.

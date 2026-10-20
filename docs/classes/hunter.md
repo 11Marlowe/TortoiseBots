@@ -17,7 +17,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 | Spec | Role | Primary Focus |
 | :--- | :--- | :--- |
 | **Beast Mastery** | Ranged DPS | Pet empowerment, high physical damage, and enrage burst. |
-| **Marksmanship** | Ranged DPS | Heavy ranged shot rotations, armor penetration, and party attack power. |
+| **Marksmanship** | Ranged DPS | Heavy ranged shot rotations, party attack power, and *Trueshot Aura*. |
 | **Survival** | Melee / Ranged Hybrid | Front-line melee strikes, front-cone cleaves, and trap mastery (ranged-first hybrid; keeps the ranged shot kit). |
 
 ---
@@ -27,13 +27,13 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 ### Beast Mastery & Marksmanship (Ranged DPS)
 - Maintains maximum ranged distance from hostiles, opening with *Hunter's Mark* and *Auto Shot*.
 - Fires *Aimed Shot* (MM) or *Arcane Shot* on cooldown.
-- Uses *Steady Shot* (taught by trainer, levels 36–60) as a filler timed cast fitting directly into the Auto Shot swing window.
+- Uses *Steady Shot* as a filler timed cast fitting directly into the Auto Shot swing window.
 - Uses *Multi-Shot* when multiple targets are present without risking crowd control breaks.
 - Channels *Volley* against grouped mobs, cancelling the channel if fewer than 2 mobs remain in the area.
-- Multi-Shot and Volley respect [party threat back-off](overview.md#shared-bot-behaviors) when holding ≥50% of the tank's threat.
+- Multi-Shot and Volley respect [party threat back-off](overview.md#party-threat-back-off) when holding ≥50% of the tank's threat.
 - Keeps *Serpent Sting* ticking on high-health targets (skipping targets near death).
 - Replaces Serpent Sting with *Viper Sting* when the hunter's mana is below 50% and the target has mana (≥10%); manual `sting viper` or `sting serpent` commands override this gate.
-- BM activates *Bestial Wrath* and *Kill Command* on cooldown. MM triggers *Rapid Fire* and manages *Lock and Load* procs.
+- BM activates *Bestial Wrath* and *Kill Command* on cooldown. MM triggers *Rapid Fire*.
 - Switches between *Aspect of the Hawk* for damage and *Aspect of the Viper* when low on mana.
 - Drops threat with *Feign Death* upon reaching medium threat. The bot holds back Feign Death if the attacking mob has only the hunter on its threat list to avoid causing scripted encounters to evade.
 
@@ -45,8 +45,8 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 - Employs *Counterattack* after parrying incoming strikes.
 
 ### Dead-Zone & Melee Weaving
-- If enemies close within the ranged dead zone (under 8 yards), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*.
-- When space opens or the mob is pulled off the hunter by the tank or pet (or is rooted), the bot immediately switches back to ranged attacks.
+- If enemies close inside Auto Shot minimum range (DBC-driven), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*.
+- When space opens or the mob is pulled off the hunter by the tank or pet (or is rooted), the bot switches back to ranged attacks.
 
 <details>
 <summary>Pet management and lifecycle details</summary>
@@ -68,7 +68,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
   - Custom aspect converting physical damage into mana regeneration while reducing total damage output.
   - Automatically triggered when hunter mana falls below threshold, swapping back to Hawk once mana recovers.
 - **Carve (Spell ID 51575):** Front-cone melee strike for Survival hunters hitting multiple targets.
-- **Lacerate (Spell ID 48049):** Stacking melee bleed attack designed for sustained melee boss damage.
+- **Lacerate (Spell ID 48049):** Stacking melee bleed attack for sustained melee damage.
 
 ---
 
@@ -79,7 +79,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
   - Deploys *Freezing Trap* on assigned crowd control marks.
   - Casts *Scare Beast* on hostile beasts, withholding area attacks until the target is controlled.
 - **Combat Traps:**
-  - Lays *Immolation Trap*, *Frost Trap*, or *Explosive Trap* via *Feign Death* only when enemies are already within 5 yards, avoiding melee suicide walks.
+  - Lays *Immolation Trap*, *Frost Trap*, or *Explosive Trap* via *Feign Death*, avoiding melee suicide walks.
 - **Snares:** Uses *Concussive Shot* and *Wing Clip* to slow fleeing or pursuing enemies.
 - **Low Ammo Warning:** Grouped hunters out of combat with under 100 rounds remaining notify the group in local chat.
 

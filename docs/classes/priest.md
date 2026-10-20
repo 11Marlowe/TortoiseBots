@@ -18,7 +18,7 @@ Priests provide comprehensive healing coverage through layered spell ladders, da
 | :--- | :--- | :--- |
 | **Holy** | Healer | Maximum throughput healing, group AoE heals, and spirit scaling. |
 | **Discipline** | Healer / Support | Damage absorption shielding, mana efficiency, and support damage. |
-| **Shadow** | Ranged DPS | Periodic Shadow damage, Mind Flay channels, and party mana/health return. |
+| **Shadow** | Ranged DPS | Periodic Shadow damage, Mind Flay channels, and Vampiric Embrace party healing. |
 
 ---
 
@@ -26,13 +26,13 @@ Priests provide comprehensive healing coverage through layered spell ladders, da
 
 ### The Priest Healing Ladder
 Priests select healing spells based on defined health bands (bands follow [Combat settings](../server/settings/combat.md)):
-- **Critical (<20%):** *Power Word: Shield* + *Flash Heal*.
-- **Low (20%–50%):** *Power Word: Shield* + *Flash Heal* + *Greater Heal* / *Heal*.
+- **Critical (<20%):** *Power Word: Shield* + *Flash Heal* (missing *Flash Heal* rows fall through to *Greater Heal* / *Heal* / *Renew*).
+- **Low (20%–50%):** *Power Word: Shield* + *Greater Heal* (+ *Heal* / *Lesser Heal* fallbacks at low level), plus fast *Flash Heal* ahead when loose mobs attack non-tanks.
 - **Medium (50%–70%):** *Power Word: Shield* + *Flash Heal* + *Greater Heal* + *Heal* + *Renew*.
 - **Almost-Full (70%–90%):** *Renew* (Discipline shields first).
-- **Multiple Injured:** *Prayer of Healing* (requires 5+ nearby members, 3 hurt in a 5-man scaling to 15 in a raid).
+- **Multiple Injured:** *Prayer of Healing* when at least 5 members are near and enough are hurt (3 hurt in a 5-man, scaling to 15 in a raid).
 
-Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#shared-bot-behaviors), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls below 20% health. *Desperate Prayer* serves as a self-only emergency heal.
+Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls at or below 20% health. *Desperate Prayer* serves as a self-only emergency heal.
 
 ### Power Word: Shield & Weakened Soul Refusal
 The bot verifies that the target does not have the *Weakened Soul* debuff before casting *Power Word: Shield*. If present, the shield is skipped in favor of direct heals.
@@ -52,7 +52,7 @@ The bot verifies that the target does not have the *Weakened Soul* debuff before
 <details>
 <summary>Healer off-spec damage and wand stops</summary>
 
-- **Off-spec DPS:** Enabled by default via the `offdps` strategy per [healer off-DPS rules](overview.md#shared-bot-behaviors), casting *Shadow Word: Pain*, *Holy Fire*, *Smite*, *Starshards*, or *Mind Blast* (*Holy Nova* into packed melee) against engaged mobs.
+- **Off-spec DPS:** Enabled by default via the `offdps` strategy per [healer off-DPS rules](overview.md#healer-off-dps-offdps), casting *Shadow Word: Pain*, *Holy Fire*, *Smite*, *Starshards*, or *Mind Blast* (*Holy Nova* into packed melee) against engaged mobs.
 - **Wand Stops:** Because wand shots incur global cooldown on Turtle WoW, the `wand blocks cast` trigger stops active wanding as soon as a party member requires healing or crowd control.
 
 </details>
@@ -70,7 +70,7 @@ The bot verifies that the target does not have the *Weakened Soul* debuff before
 
 - **Party Buffs:** Maintains *Power Word: Fortitude*, *Divine Spirit*, and *Shadow Protection*. Replaces single-target casts with group prayers (*Prayer of Fortitude*, etc.) when trained and reagents are stocked.
 - **Fear Ward:** Casts *Fear Ward* on the party tank first to prevent fear-based wipes, re-applying once the cooldown clears.
-- **Dispels:** Uses *Dispel Magic* to clear offensive and defensive magic debuffs, and *Cure Disease* on infected party members.
+- **Dispels:** Uses *Dispel Magic* to clear magic debuffs on allies, and *Cure Disease* on infected party members.
 - **Crowd Control:** Casts *Shackle Undead* on assigned undead CC marks. *Psychic Scream* is restricted to PvP or solo open-world emergencies; it is never used in dungeons or raids to avoid pulling neighbouring packs.
 - **Resurrection:** Revives fallen allies out of combat with *Resurrection* (dropping *Shadowform* first).
 
@@ -83,7 +83,7 @@ TortoiseBots provides pre-configured talent progressions at 5-level checkpoints 
 | Spec Name | Config ID | Role | 60 Allocation | Key Signatures & Synergies |
 | :--- | :--- | :--- | :--- | :--- |
 | **Holy** | `5.0` | Healer | `14 / 37 / 0` | Spirit of Redemption, Ascendance, Spiritual Guidance, Inspiration, Inner Focus dip. |
-| **Shadow** | `5.1` | Ranged DPS | `20 / 0 / 31` | Mind Flay, Shadowform, Vampiric Touch preset, Vampiric Embrace, Meditation dip. |
+| **Shadow** | `5.1` | Ranged DPS | `20 / 0 / 31` | Mind Flay, Shadowform, Vampiric Touch preset (never cast by the bot), Vampiric Embrace, Meditation dip. |
 | **Discipline** | `5.2` | Healer / Support | `40 / 11 / 0` | Resurgent Shield, Enlighten, Chastise, Force of Will, Inner Focus, Holy dip. |
 
 <details>

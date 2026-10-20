@@ -25,29 +25,29 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
 ## What the bot does in combat
 
 ### Affliction
-- Applies and maintains *Corruption*, *Curse of Agony*, and *Siphon Life* on primary targets.
+- Applies and maintains *Curse of Agony*, *Siphon Life*, and *Immolate* on primary targets. *Corruption* upkeep runs through the shared warlock rotation.
 - Spreads *Corruption* and *Siphon Life* across secondary attackers under the AoE strategy.
 - Casts *Dark Harvest* when 2 or more DoTs are active on the target.
 - Uses *Dark Pact* and *Life Tap* to replenish mana from pet and personal health pools.
-- Channels *Drain Life* for self-sustain and *Drain Soul* on dying enemies (<20%) to harvest shards.
+- Channels *Drain Life* for self-sustain and *Drain Soul* on dying enemies (at or below 20% health) to harvest shards.
 
 ### Demonology
 - Summons resilient demons, links damage via *Soul Link*, and utilizes *Demonic Sacrifice* in raids.
-- Maintains *Immolate* and *Corruption* while casting *Shadow Bolt* fillers.
-- Commands the demon to cast *Power Overwhelming* during burst windows.
-- Channels *Health Funnel* when the active demon falls below 50% health, provided personal health exceeds 60%.
+- Maintains *Immolate* while casting *Shadow Bolt* fillers. *Corruption* upkeep runs through the shared warlock rotation.
+- Commands the demon to cast *Power Overwhelming* during burst windows while the demon stays above 60% health.
+- Channels *Health Funnel* when the active demon falls below 50% health in combat, provided personal health exceeds 60%.
 
 ### Destruction
-- Opens with *Immolate* and defaults to *Curse of the Elements* (from level 32).
+- Opens with *Immolate* and defaults to *Curse of the Elements* once trained (level 32), *Curse of Agony* before that.
 - Delivers burst damage using *Conflagrate* and *Shadowburn*.
-- Casts *Shadow Bolt* as primary nuke and channels *Rain of Fire* on packs of 3 or more clustered enemies.
+- Casts *Shadow Bolt* as primary nuke and channels *Rain of Fire* on packs of 3 or more clustered enemies. *Shadowburn* fires through the shared warlock rotation on dying targets.
 - Cancels *Rain of Fire* channels if fewer than 2 enemies remain in the target area.
 
 <details>
 <summary>Soul Shard harvest and Life Tap safety</summary>
 
-- **Shard Harvest:** Warlocks harvest Soul Shards organically with *Drain Soul* when targets drop below 20% health. Bots maintain up to 5 shards, destroying excess shards out of combat.
-- **Life Tap Safety:** *Life Tap* requires personal health above 50%. The urgent tap fires below 40% mana in combat, while top-up tapping occurs only out of combat between pulls to avoid pausing spell damage.
+- **Shard Harvest:** Warlocks harvest Soul Shards organically with *Drain Soul* when targets drop to at or below 20% health. Bots maintain up to 5 shards, destroying excess shards out of combat.
+- **Life Tap Safety:** *Life Tap* requires personal health above the low-health line (50% default). The urgent tap fires at or below medium mana (40% default) in combat, while top-up tapping occurs only out of combat between pulls to avoid pausing spell damage.
 - **Wand Stops:** Wand swings incur global cooldown on Turtle WoW. Dedicated triggers stop active wanding immediately when spells become affordable or crowd control is needed.
 
 </details>
@@ -56,9 +56,9 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
 
 ## Turtle WoW custom spells
 
-- **Dark Harvest (Spell ID 52550):** Affliction finisher requiring 2 or more active DoTs on the target, dealing rapid Shadow damage. Cooldown refunds if the target dies while afflicted.
+- **Dark Harvest (Spell ID 52550):** Affliction finisher requiring 2 or more active own DoTs on the target, dealing rapid Shadow damage. Cooldown refunds if the target dies while afflicted.
 - **Power Overwhelming (Spell ID 51714):** Demonology pet burst breaking crowd control and increasing pet damage at the cost of base demon health.
-- **Rain of Fire Safety:** Channels pause during [party threat back-off](overview.md#shared-bot-behaviors) if the warlock holds ≥50% tank threat.
+- **Rain of Fire Safety:** Channels pause during [party threat back-off](overview.md#party-threat-back-off) if the warlock holds ≥50% tank threat.
 
 ---
 
@@ -70,9 +70,9 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
   - *Felhunter:* Utility pet casting *Spell Lock* for ranged interrupts and *Devour Magic* for offensive and defensive dispels.
   - *Succubus:* CC demon casting *Seduction* on humanoids.
 - **Healthstones & Soulstones:** Creates and uses *Healthstones* in combat. Stores one Soulstone out of combat, prioritizing the party healer, then the tank.
-- **Weapon Stones & Buffs:** Conjours and carries *Spellstones* (Affliction/Demonology) or *Firestones* (Destruction) in bags. Maintains *Demon Armor* (*Demon Skin* fallback) and *Unending Breath* on self and party while swimming.
+- **Weapon Stones & Buffs:** Conjures and carries *Spellstones* (Affliction/Demonology) or *Firestones* (Destruction) in bags. Maintains *Demon Armor* (*Demon Skin* fallback) and *Unending Breath* on self and party while swimming.
 - **Curse Overrides:** Defaults to spec-appropriate curses (*Curse of Agony*, *Curse of the Elements*, or *Curse of Shadow*); players can manually override curse assignments using [`.bot strategy +curse <shadow|weakness|elements|agony|doom|tongues|exhaustion>`](../play/commands/party-actions.md#bot-strategy). Exhaustion snares runners; further warlocks cover Recklessness in raids; curse claims prevent duplicate picks (shared registry).
-- **Fel Domination:** Burns the 5-minute cooldown to instantly summon a replacement demon during combat if the active pet dies.
+- **Fel Domination:** Burns the 5-minute *Fel Domination* cooldown to summon a replacement demon during combat if the active pet dies.
 - **Crowd Control:** Casts *Fear* on assigned CC marks (skipping undead, mechanical, or already controlled targets) and *Banish* on Demons and Elementals. Area spells avoid targets near CC marks.
 
 ---

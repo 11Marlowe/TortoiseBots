@@ -225,4 +225,4 @@ With [`AiPlayerbot.AvoidCreatureAuras`](../server/settings/dungeons-raids.md#aip
 | **Status** | Map 129, confirmed |
 | **Kill Order** | Tuten'kash (7355, summoned via entrance gong) → Mordresh Fire Eye (7357) → Glutton (8567) → Amnennar the Coldbringer (7358, end boss) |
 | **Do Not Wait For** | Ragglesnout (7354, rare spawn). |
-| **Quirks** | Tuten'kash must be summoned by striking the gong three times. |
+| **Quirks** | Tuten'kash must be summoned by striking the gong. |
