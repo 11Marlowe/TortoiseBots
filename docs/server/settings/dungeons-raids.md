@@ -100,7 +100,7 @@ Allows the opt-in run leader: a bound remote commander's party clears a stored d
 <details>
 <summary>How it works in detail</summary>
 
-**Dungeon self-clear (run leader):** with `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. It pauses on 3 dead, on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
+**Dungeon self-clear (run leader):** with `1` (and `AiPlayerbot.RemoteCommander = 1`) a bound remote commander may start `.bot run start [plan]`: its party walks a dungeon plan from the world tables `ai_dungeon_plan`/`ai_dungeon_leg`/`ai_dungeon_step` and pulls, fights, rests, loots and opens doors by itself, using the commander's own `.bot cmd` orders. With 3 or more dead it regroups by itself once the fight is over (the safety rules are in the run leader page); it pauses on any player order and at every wait's ceiling. Bots then clear without a player giving each order, so it is off by default; with `0` every `.bot run` is refused. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 
