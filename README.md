@@ -108,7 +108,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - Trade on the Auction House with their own loot at market prices — opt-in and off by default (`AiPlayerbot.AhMarketEnabled = 1`; the synthetic buyer that can take your auctions needs `AiPlayerbot.AhMarketBuyer = 1`).
 - Social life: greet passing players, invite lone questers to a party, form and join guilds with custom names.
 -
-- Details: [Living World & Autonomous Bots](docs/guides/living-world.md).
+- Details: [Living World & Autonomous Bots](docs/world/living-world.md).
 </details>
 
 <details><summary><b>👥 Party play</b> — follow, assist, buffs, ready checks, loot, companions</summary>
@@ -119,7 +119,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - Hire companions at inn recruiters: fresh characters at your level with talents, spells and spec-weighted gear; summon stragglers to your side.
 - Line-of-sight corner pulling (`pullback`), crowd-control marks that the party will not break, and safe CC defaults (AoE fear off in groups, auto-CC off) with opt-in overrides.
 -
-- Details: [Player Controls](docs/guides/player-controls.md), [Dungeon & Raid Tactics](docs/guides/dungeon-tactics.md).
+- Details: [Player Controls](docs/play/commands/README.md), [Dungeon & Raid Tactics](docs/play/dungeons-and-raids.md).
 </details>
 
 <details><summary><b>🛡️ Tanking · 💚 Healing · ⚔️ DPS</b> — rotations, interrupts, dispels, threat, positioning</summary>
@@ -157,7 +157,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - **Emerald Sanctum:** Solnius Emerald Rot runout and add focus. **Lower Karazhan:** Araxxna spiderling cleave, Moroes re-target. Karazhan Crypt puzzles stay manual.
 - 5-player dungeons: corner pulls, CC marks, wipe recovery (release + corpse run), summon to regroup.
 -
-- Details: [Dungeon & Raid Tactics](docs/guides/dungeon-tactics.md).
+- Details: [Dungeon & Raid Tactics](docs/play/dungeons-and-raids.md).
 </details>
 
 <details><summary><b>⚔️ PvP battlegrounds</b> — WSG, AB, AV alongside real players</summary>
@@ -166,7 +166,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - Random bots queue only while real players wait — to balance teams and start the match, never on their own.
 - Per-map tactics: WSG flag capture and chasing the enemy flag carrier, AB/AV objectives, battleground buffs and banners.
 -
-- Details: [Living World](docs/guides/living-world.md#6-automated-dungeon--battleground-queues).
+- Details: [Living World](docs/world/queues.md).
 </details>
 
 <details><summary><b>🔍 Dungeon finder (LFT)</b> — bots fill your missing roles</summary>
@@ -175,7 +175,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - Role match is strict — a tank slot gets a real tank with a shield equipped, a healer gets real healing spells — or it stays empty with a logged reason.
 - Your own party bots auto-accept the dungeon offer; everyone walks to the portal (no teleport — summon stragglers).
 -
-- Details: [Living World](docs/guides/living-world.md#6-automated-dungeon--battleground-queues).
+- Details: [Living World](docs/world/queues.md).
 </details>
 
 <details><summary><b>🎛️ Player control</b> — commands, addon, formations</summary>
@@ -185,7 +185,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - [TortoiseBotsManager](https://github.com/Sagiroth/TortoiseBotsManager) (`/tbm`) addon: roster, party actions, bot panel (gear, bags, behaviour toggles) over a silent channel.
 - Formations (arrow, queue, near, line, circle, shield), opt-in combat spread, mimic-consumables toggle, per-bot loot/AoE/mana/threat/potion switches.
 -
-- Details: [Player Controls](docs/guides/player-controls.md).
+- Details: [Player Controls](docs/play/commands/README.md).
 </details>
 
 <details><summary><b>📊 Observability dashboard</b> — watch the fleet (optional)</summary>
@@ -193,7 +193,7 @@ Player-facing summary, no internals. Every claim below exists in the code on thi
 - Optional web dashboard: live 2D world map with per-bot markers, bot list with gear/talent/activity profiles, stuck-bot issue tracker.
 - Off by default, zero overhead while disabled.
 -
-- Details: [Observability Dashboard](docs/guides/observability-dashboard.md).
+- Details: [Observability Dashboard](docs/server/dashboard.md).
 </details>
 
 ---
@@ -232,16 +232,16 @@ All architecture, class AI, commands, mechanics, and operational guides are docu
 | Guide / Reference | Content & Focus |
 | :--- | :--- |
 | 🧭 [**Documentation Catalog**](docs/README.md) | Central switchboard, role-based navigation, and **Quick Task Finder** |
-| 🚀 [**Getting Started**](docs/guides/getting-started.md) | Spawning account alts, party setup, `/tbm` addon, and quick controls |
+| 🚀 [**Getting Started**](docs/play/getting-started.md) | Spawning account alts, party setup, `/tbm` addon, and quick controls |
 | ⚔️ [**Class AI & Rotations**](docs/classes/overview.md) | Rotations, specs, and Turtle WoW 1.18.1 custom abilities for all 9 classes |
-| 🛡️ [**Dungeon & Raid Tactics**](docs/guides/dungeon-tactics.md) | Line-of-sight corner pulling (`pullback`), CC discipline, and wipe recovery |
-| 🌍 [**Living World & Economy**](docs/guides/living-world.md) | Roaming bots, quest grinding, AH trading, guilds, and LFT/BG auto-queues |
-| 🎮 [**Player Controls & Commands**](docs/guides/player-controls.md) | Complete `.bot` command suite, tactical intents, whispers, and addon protocol |
-| ⚙️ [**Configuration & Tuning**](docs/guides/configuration-tuning.md) | Plain-English tuning guide for `aiplayerbot.conf` settings and knobs |
-| 📊 [**Observability Dashboard**](docs/guides/observability-dashboard.md) | Web dashboard, 2D live map, Prometheus metrics, and stuck-bot tracker |
-| 🧠 [**Strategy Engine**](docs/concepts/strategy-engine.md) | How the `UpdateAI` tick, triggers, actions, and backoff work under the hood |
-| 🏛️ [**Architecture Invariants**](docs/concepts/architecture-invariants.md) | The 5 non-negotiable modularity rules and headless session lifecycle |
-| 🔌 [**Host API Contract**](docs/HOST_API.md) | Technical host seams, generic interfaces, and packet routing |
+| 🛡️ [**Dungeon & Raid Tactics**](docs/play/dungeons-and-raids.md) | Line-of-sight corner pulling (`pullback`), CC discipline, and wipe recovery |
+| 🌍 [**Living World & Economy**](docs/world/living-world.md) | Roaming bots, quest grinding, AH trading, guilds, and LFT/BG auto-queues |
+| 🎮 [**Player Controls & Commands**](docs/play/commands/README.md) | Complete `.bot` command suite, tactical intents, whispers, and addon protocol |
+| ⚙️ [**Configuration & Tuning**](docs/server/configuration.md) | Plain-English tuning guide for `aiplayerbot.conf` settings and knobs |
+| 📊 [**Observability Dashboard**](docs/server/dashboard.md) | Web dashboard, 2D live map, Prometheus metrics, and stuck-bot tracker |
+| 🧠 [**Strategy Engine**](docs/developers/strategy-engine.md) | How the `UpdateAI` tick, triggers, actions, and backoff work under the hood |
+| 🏛️ [**Architecture Invariants**](docs/developers/architecture.md) | The 5 non-negotiable modularity rules and headless session lifecycle |
+| 🔌 [**Host API Contract**](docs/developers/host-api.md) | Technical host seams, generic interfaces, and packet routing |
 | 📜 [**Changelog**](CHANGELOG.md) | Chronological log of gameplay fixes, AI updates, and engine releases |
 
 ---
@@ -259,7 +259,7 @@ cmake -B build -DMODULES=static -DMODULE_TORTOISEBOTS=static
 cmake --build build -j"$(nproc)"
 ```
 
-Install puts the templates next to `mangosd.conf` (`aiplayerbot.conf.dist`, `modules/tortoise_bots.conf.dist`) and creates `aiplayerbot.conf` and `modules/tortoise_bots.conf` from them on the first install only; a reinstall keeps your edited files. Module SQL in `data/sql/world` and `data/sql/character` is applied by the core auto-updater on startup. See [**Configuration & Tuning**](docs/guides/configuration-tuning.md) for available settings.
+Install puts the templates next to `mangosd.conf` (`aiplayerbot.conf.dist`, `modules/tortoise_bots.conf.dist`) and creates `aiplayerbot.conf` and `modules/tortoise_bots.conf` from them on the first install only; a reinstall keeps your edited files. Module SQL in `data/sql/world` and `data/sql/character` is applied by the core auto-updater on startup. See [**Configuration & Tuning**](docs/server/configuration.md) for available settings.
 
 ---
 
@@ -283,6 +283,6 @@ optional: every feature stays free and open for everyone.
 
 ## 📜 License & Provenance
 
-Original TortoiseBots work is licensed under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)). If you distribute it, or run a modified version on a server players connect to, you must publish the full source of that version under the same licence. Contributions are accepted under the same terms. Donor code keeps its own notices (GPL-2.0-or-later / AGPL-3.0 lineages). See [`NOTICE.md`](NOTICE.md) and [`docs/LICENSING_AUDIT.md`](docs/LICENSING_AUDIT.md).
+Original TortoiseBots work is licensed under **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)). If you distribute it, or run a modified version on a server players connect to, you must publish the full source of that version under the same licence. Contributions are accepted under the same terms. Donor code keeps its own notices (GPL-2.0-or-later / AGPL-3.0 lineages). See [`NOTICE.md`](NOTICE.md) and [`docs/developers/licensing-audit.md`](docs/developers/licensing-audit.md).
 
 **Disclaimer:** TortoiseBots is a non-commercial hobby project. Voluntary donations (Ko-fi) only support development; they buy no access, features or service, and are not tied to any server. The author is not affiliated with, does not operate, endorse or receive money from any server that uses this code, and is not responsible for how third parties use it. TortoiseBots is not affiliated with Turtle WoW or its creators. World of Warcraft is a trademark of Blizzard Entertainment; this project is not affiliated with Blizzard.

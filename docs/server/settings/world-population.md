@@ -164,7 +164,7 @@ Controls whether the managed bot pool database is rebuilt during startup:
 - `once:<token>`: Performs a one-time pool reset on the next startup. The server marks `<token>` in `tortoise_bots_pool_account` as applied, preventing repeated resets on subsequent reboots.
 - `always`: Resets the pool on every server restart. This is intended strictly for development and testing environments, as all bot progression is wiped every reboot.
 
-Resetting requires `AiPlayerbot.RandomBotAutoCreate = 1`. For complete operational instructions, see [Resetting the managed bot pool](../bot-pool.md#pool-reset-modes).
+Resetting requires `AiPlayerbot.RandomBotAutoCreate = 1`. For complete operational instructions, see [Resetting the managed bot pool](../bot-pool.md#reset-modes).
 
 </details>
 

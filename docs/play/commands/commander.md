@@ -14,7 +14,7 @@ relates_to:
 
 The Remote Commander interface allows a player or GameMaster to lead a bot-only group of up to five bots without being present in the group. You can issue tactical orders, navigate dungeons, open objects, and view a live perception feed from anywhere in the game world.
 
-Remote Commander is disabled by default and requires [AiPlayerbot.RemoteCommander](../../server/settings/party.md#aiplayerbotremotecommander) to be enabled (1).
+Remote Commander is disabled by default and requires [AiPlayerbot.RemoteCommander](../../server/settings/performance.md#aiplayerbotremotecommander) to be enabled (1).
 
 ## Commander Rules and Architecture
 

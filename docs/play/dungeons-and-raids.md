@@ -107,7 +107,7 @@ If your group wipes, follow this recovery checklist:
 
 ### Releasing Spirit & Corpse Runs
 
-1. When dead, whisper your bots `/w <BotName> release` (or type `.bot command <Name> release`). See [Whisper Commands](commands/whispers.md#release).
+1. When dead, whisper your bots `/w <BotName> release` (or type `.bot command <Name> release`). See [Whisper Commands](commands/whispers.md#w--release).
 2. Once in ghost form at the graveyard, issue `/w <BotName> corpse run`.
 3. Ghost bots path back to the instance entrance and zone inside.
 4. If a bot gets stuck outside the entrance, zone inside yourself and use [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) at the instance portal.
@@ -139,12 +139,12 @@ Bots do not jump autonomously inside dungeons or raids (the chase jump, follow j
 - Bots participate in standard party loot rolls (`Need`, `Greed`, `Pass`).
 - **Never Need Against a Player:** Pool bots and your alts hold their roll when a real player is in the group. They vote roughly 15 seconds before the roll window expires or as soon as all human players have rolled. If a player voted Need, the bot votes Greed; otherwise, the bot Needs if the item is an upgrade for its spec.
 - **Empty Slot Filler:** When [`AiPlayerbot.RollBadItemsWithPlayer`](../server/settings/party.md#aiplayerbotrollbaditemswithplayer) is enabled, bots also roll Need on items that fill empty gear slots.
-- **Whisper Overrides:** You can instruct a bot directly: whisper `/w <BotName> keep need [item]` before a roll or `/w <BotName> roll need [item]` while the roll is open. Whisper `/w <BotName> roll feedback` to have the bot report when it steps down. See [Whisper Commands](commands/whispers.md#keep-need).
+- **Whisper Overrides:** You can instruct a bot directly: whisper `/w <BotName> keep need [item]` before a roll or `/w <BotName> roll need [item]` while the roll is open. Whisper `/w <BotName> roll feedback` to have the bot report when it steps down. See [Whisper Commands](commands/whispers.md#inventory--items).
 
 ### Reagents and Food Sharing
 
 - Open trade with Mage or Warlock bots out of combat (`/w <Name> trade`). They automatically place conjured food, water, or healthstones into the trade window.
-- To make an owned bot equip an item from its bags, run `.bot command <Name> equip [Item Link]`. See [Bot Panel Commands](commands/bot-panel.md#bot-command-equip).
+- To make an owned bot equip an item from its bags, run `.bot command <Name> equip [Item Link]`. See [Bot Panel Commands](commands/bot-panel.md#bot-item-equip).
 
 ## Raid Tactics & Boss Mechanics
 

@@ -86,7 +86,7 @@ See [Roster and Hiring Commands](commands/roster-and-hiring.md) for full command
 ### Progression and Training Tips
 
 - **Level Synchronization:** When [`AiPlayerbot.SyncAltLevelToMaster`](../server/settings/party.md#aiplayerbotsyncaltleveltomaster) is enabled, owned bots in your group gain one level per update until they match your leader level.
-- **Spell Training:** Escort your bots to class trainers in major cities and whisper `trainer` to each bot (or use `.bot command <Name> trainer`). The bot automatically learns all available spell ranks and class abilities in a single pass. See [Whisper Commands](commands/whispers.md#trainer).
+- **Spell Training:** Escort your bots to class trainers in major cities and whisper `trainer` to each bot (or use `.bot command <Name> trainer`). The bot automatically learns all available spell ranks and class abilities in a single pass. See [Whisper Commands](commands/whispers.md#w--trainer).
 - **Hiring Mercenaries:** If you lack alts of a specific class, visit a recruiter NPC in any capital city and hire a temporary companion at your level. See [Roster and Hiring Commands](commands/roster-and-hiring.md#bot-hire) and [Hiring Settings](../server/settings/hiring.md).
 
 ## Building a Balanced 5-Man Party

@@ -148,10 +148,10 @@ The table below lists every command and links to its authoritative documentation
 | [`.bot item give`](bot-panel.md#bot-item-give) | Bot Panel | Offers a bag item in an open trade window. |
 | [`.bot behavior`](bot-panel.md#bot-behavior) | Bot Panel | Toggles persistent behaviors (loot, AoE, mimic...). |
 | [`.bot totem`](bot-panel.md#bot-totem) | Bot Panel | Configures and drops shaman totem loadouts. |
-| [`/w <BotName> trainer`](whispers.md#w-botname-trainer) | Whisper Command | Trains all available class spells at open trainer. |
-| [`/w <BotName> talents`](whispers.md#w-botname-talents) | Whisper Command | Reports spent talent points and allocation tree. |
-| [`/w <BotName> rebuff`](whispers.md#w-botname-rebuff) | Whisper Command | Prompts bot to refresh party buffs out of combat. |
-| [`/w <BotName> end pull`](whispers.md#w-botname-end-pull) | Whisper Command | Aborts active pull and returns tank to follow. |
+| [`/w <BotName> trainer`](whispers.md#w--trainer) | Whisper Command | Trains all available class spells at open trainer. |
+| [`/w <BotName> talents`](whispers.md#w--talents) | Whisper Command | Reports spent talent points and allocation tree. |
+| [`/w <BotName> rebuff`](whispers.md#w--rebuff) | Whisper Command | Prompts bot to refresh party buffs out of combat. |
+| [`/w <BotName> end pull`](whispers.md#w--end-pull) | Whisper Command | Aborts active pull and returns tank to follow. |
 | [`/tbm`](addon.md) | Addon | Opens or toggles the TortoiseBotsManager GUI. |
 | [`.bot pool status`](../../server/admin-commands.md#bot-pool-status) | Admin & GM | Displays managed bot pool health and reset status. |
 | [`.bot pool accounts`](../../server/admin-commands.md#bot-pool-accounts) | Admin & GM | Lists managed bot accounts (console only). |

@@ -49,7 +49,7 @@ From the root of your TortoiseBots checkout:
   .\tools\observability\run-dashboard.ps1 -MangosdConf C:\path\to\mangosd.conf
   ```
 
-The runner script reads your database connection settings from `mangosd.conf`, enables [`AiPlayerbot.Observability`](settings/logging.md#aiplayerbotobservability) in `aiplayerbot.conf`, and starts the service. Open `http://localhost:8095` in your browser and sign in using any game account with GM rank 2 or higher.
+The runner script reads your database connection settings from `mangosd.conf`, enables [`AiPlayerbot.Observability`](settings/logging.md) in `aiplayerbot.conf`, and starts the service. Open `http://localhost:8095` in your browser and sign in using any game account with GM rank 2 or higher.
 
 ### Manual Configuration
 

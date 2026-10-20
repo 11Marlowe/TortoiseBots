@@ -71,7 +71,7 @@ Bots establish player-like social organizations across the realm:
 - **Guild chat & socialization:** Bots share achievements, quest milestones, and chatter in guild chat when automated broadcasts are enabled ([`AiPlayerbot.EnableBroadcasts`](../server/settings/chat.md#aiplayerbotenablebroadcasts)).
 - **Whisper guild management:** Human players in bot guilds can issue direct roster commands by whispering bot officers and guild leaders (`guild invite`, `guild join`, `guild leave`, `guild promote`, `guild demote`, `guild leader`, `guild remove`; see [Whisper Commands](../play/commands/whispers.md#guild-management)).
 - **Configuration:** Guild creation is controlled by [`AiPlayerbot.RandomBotFormGuild`](../server/settings/world-population.md#aiplayerbotrandombotformguild) (default 1).
-- **Reset protection:** Guilds containing human players are protected against automated pool resets. If a bot-led guild includes a real player, server pool resets abort safely to prevent orphaned players. For details, see [Pool reset safety guarantees](../server/bot-pool.md#safety-guarantees).
+- **Reset protection:** Guilds containing human players are protected against automated pool resets. If a bot-led guild includes a real player, server pool resets abort safely to prevent orphaned players. For details, see [Pool reset safety guarantees](../server/bot-pool.md#safety-guarantees--multi-phase-execution).
 
 ## Trading with pool bots
 
@@ -81,4 +81,4 @@ Players can interact with unmanaged pool bots through the trade window:
   - `0` (Default): Trading is disabled. Pool bots decline incoming trade requests from players.
   - `1`: Gift mode. Bots accept items and gold freely from players without providing return compensation.
   - `2`: Barter mode. Bots evaluate trade items by quality and value, accepting trades only when fair compensation is offered.
-- **Addon prefix suppression:** Addon communication prefixes (such as damage meter synchronization) are filtered through [`AiPlayerbot.TradeActionExcludedPrefixes`](../server/settings/economy.md#aiplayerbottradeactionexcludedprefixes) to prevent unintended trade rejections.
+- **Addon prefix suppression:** Addon communication prefixes (such as damage meter synchronization) are filtered through [`AiPlayerbot.TradeActionExcludedPrefixes`](../server/settings/world-population.md#aiplayerbottradeactionexcludedprefixes) to prevent unintended trade rejections.

@@ -96,5 +96,5 @@ The organic Auction House buyer operates without artificial teleportation:
 
 Administrators can monitor and tune economic activity:
 
-- **Administration commands:** Server operators can inspect market volume, reload custom price tables, trigger market rebuilds, and blacklist specific items using the [`.bot ah`](../server/admin-commands.md#bot-ah) and `.ahbot` commands.
+- **Administration commands:** Server operators can inspect market volume, reload custom price tables, trigger market rebuilds, and blacklist specific items using the [`.bot ah`](../server/admin-commands.md#autonomous-auction-house-administration-bot-ah--ahbot) and `.ahbot` commands.
 - **Drop rate multipliers:** To adjust bot progression without inflating player drop rates, administrators can scale uncommon and rare item drop rates for pool bots using [`AiPlayerbot.BotLootRateUncommon`](../server/settings/economy.md#aiplayerbotbotlootrateuncommon--botlootraterare) and `BotLootRateRare` (defaults `1.0`). Quest items, starter drops, and player characters are excluded from drop boosts.
