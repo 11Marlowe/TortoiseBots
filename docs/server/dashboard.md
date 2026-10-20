@@ -49,20 +49,11 @@ From the root of your TortoiseBots checkout:
   .\tools\observability\run-dashboard.ps1 -MangosdConf C:\path\to\mangosd.conf
   ```
 
-The runner script reads your database connection settings from `mangosd.conf`, enables [`AiPlayerbot.Observability`](settings/logging.md) in `aiplayerbot.conf`, and starts the service. Open `http://localhost:8095` in your browser and sign in using any game account with GM rank 2 or higher.
+The runner script reads your database connection settings from `mangosd.conf`, enables [`AiPlayerbot.Observability`](settings/logging.md) in `aiplayerbot.conf`, and starts the service (if already running, it continues without interrupting). Note that changing `AiPlayerbot.Observability` in `aiplayerbot.conf` requires restarting `mangosd`. Open `http://localhost:8095` in your browser and sign in using any game account with GM rank 2 or higher.
 
 ### Manual Configuration
 
-To configure telemetry manually, adjust these settings in `aiplayerbot.conf`:
-
-```ini
-AiPlayerbot.Observability = 1
-AiPlayerbot.ObservabilityHost = 127.0.0.1
-AiPlayerbot.ObservabilityPort = 9195
-```
-
-> [!NOTE]
-> The template default for `AiPlayerbot.ObservabilityHost` is `127.0.0.1`. If omitted, the C++ fallback is an empty string, which binds to localhost.
+To configure telemetry manually, adjust `AiPlayerbot.Observability`, `AiPlayerbot.ObservabilityHost`, and `AiPlayerbot.ObservabilityPort` in `aiplayerbot.conf` (see [Logging settings](settings/logging.md#aiplayerbotobservability)).
 
 To run the daemon directly from source:
 ```bash
@@ -77,7 +68,7 @@ The web interface provides real-time operational visibility into your realm's bo
 | Tab | Key Questions Answered | Primary Features |
 | :--- | :--- | :--- |
 | **Overview** | Is the server healthy? | Active population, world tick rate, population graphs, and state census. |
-| **Bots** | Who is online and what are they doing? | Complete roster list, filterable by level, class, spec, gold, or gear score. |
+| **Bots** | Who is online and what are they doing? | Complete roster list, filterable by level, class, spec, gold, or average item level (`iLvl`). |
 | **Map** | Where is the fleet distributed? | 2D world and zone map with player and bot markers and breadcrumb paths. |
 | **Commanders** | Who is leading bot groups? | Party health bars, tactical warnings, commander orders, and fight status. |
 | **Progress** | Are bots levelling up smoothly? | XP per hour KPIs, level-up timelines, and average gear item level by level band. |
@@ -90,14 +81,20 @@ The web interface provides real-time operational visibility into your realm's bo
 ### State Census Semantics
 
 On the Overview tab, bots are categorized into three operational states:
-- **Busy:** Standing still while performing actions (casting, looting, resting to eat/drink, or moving within the last 45 seconds).
-- **Stalled:** Stationary for 45+ seconds with an active destination or cycling actions without making forward progress.
-- **Idle:** No movement, cast, action, or target for 45+ seconds.
+- **Busy:** Standing still while performing actions (casting, looting, resting to eat/drink, fight or XP gain in last 60 seconds, or moving within the last 45 seconds).
+- **Stalled:** Stationary for 45+ seconds with an active destination, cycling actions without progress, or no fight/XP in 60 seconds while pursuing travel.
+- **Idle:** No movement, cast, action, loot, or combat target for 45+ seconds.
 
 ### Bot Profile Inspector
 
 Clicking any bot name or map marker opens a slide-over profile panel that inspects character data directly from the database:
-- **Gear & Stats:** Paperdoll equipment view, average item level, and item quality distribution.
+- **Overview:** Vital stats, current location, active strategy flags, and group status.
+- **Gear & Stats:** Paperdoll equipment view, average item level (`iLvl`), and item quality distribution.
+- **Talents:** Visual 7-tier talent trees with DBC layout.
+- **Spells:** Distinguishes runtime learned spells from default starting spells granted by race/class.
+- **Professions & Skills:** Current skill ranks and associated trade abilities.
+- **Bags & Containers:** Inventory slots and bag contents.
+- **Activity History:** Recent kills, quest completions, and loot transactions.
 - **Spells:** Distinguishes runtime learned spells from default starting spells granted by race/class.
 - **Talents:** Visual 7-tier talent trees with DBC layout.
 - **Professions & Skills:** Current skill ranks and associated trade abilities.
@@ -117,9 +114,9 @@ The service monitors persistent problems and groups them into episodes on the **
 
 - **Stuck Navigation (`STUCK`):** A bot remains in a moving state but its physical coordinates stay frozen for 60+ seconds.
 - **Prolonged Death (`DEAD_LONG`):** A dead bot remains a ghost without releasing or reviving for more than 2 minutes.
-- **Unreachable Target (`UNREACHABLE_TARGET`):** A bot attempts to engage a hostile target that cannot be reached on the navmesh.
-- **Anti-Flapping Filter:** Episodes must persist past a 5-minute age gate before surfacing, preventing transient pathing pauses from cluttering alerts.
-- **Restart Blackout:** Death alerts are suppressed for the first 5 minutes following a game server restart.
+- **Unreachable Target (`UNREACHABLE_TARGET`):** A bot attempts to engage a hostile target that is >45 yards away or out of line of sight for 10 seconds, unreachable on the navmesh.
+- **Anti-Flapping Filter:** Episodes must persist past an age gate (default 5 minutes; `UNREACHABLE_TARGET` surfaces after 2 minutes) before alerting, preventing transient pathing pauses from cluttering alerts.
+- **Restart Blackout:** `DEAD_LONG` alerts are suppressed for the first 5 minutes following a game server restart.
 
 ## Telemetry APIs & Metrics
 
@@ -128,18 +125,30 @@ The service monitors persistent problems and groups them into episodes on the **
 The daemon exports Prometheus metrics at `http://localhost:8095/metrics` for scraping by Prometheus and Grafana:
 
 - `tortoisebots_active_count{class,role}`: Number of active bots grouped by class and role.
-- `tortoisebots_state_ratio`: Ratio of time spent in combat, moving, busy, resting, or stalled.
+- `tortoisebots_state_ratio{state}`: Ratio of time spent in each operational state over rolling windows.
 - `tortoisebots_grinding_xp_per_hour_total`: Collective XP gain rate across the bot pool.
+- `tortoisebots_grinding_kills_total`: Total creature kills recorded.
 - `tortoisebots_issues_active{type}`: Current count of active stuck episodes.
+- `tortoisebots_anomalies_total{type}`: Cumulative anomalies and loop triggers encountered.
+- `tortoisebots_player_lag_seconds{player}`: Measured network lag for connected human players.
 - `tortoisebots_snapshots_total`: Number of telemetry roster snapshots ingested.
 
-### JSON REST Endpoints
+### Selected JSON REST Endpoints
 
-- `GET /api/v1/commanders`: Returns active remote commander bindings, party member positions, and recent orders.
-- `GET /api/v1/activity`: Returns pool-wide activity statistics and level progression timelines.
-- `GET /api/v1/activity/loot`: Recent notable item, gathering, and money drops.
-- `GET /api/v1/activity/quests`: Quest acceptances, completions, and rewards.
+The daemon provides comprehensive HTTP REST endpoints under `/api/v1`:
+
+- `GET /api/v1/status`: Daemon health, connected game server status, and pool population summary.
+- `GET /api/v1/bots`: Complete bot fleet state, coordinates, active strategies, and inventory summary.
+- `GET /api/v1/issues`: Active and historical navigation and combat stall episodes.
+- `GET /api/v1/commanders`: Active remote commander bindings, party member positions, and recent orders.
+- `GET /api/v1/dungeons`: Live view of active instance copies with member states and player indicators.
+- `GET /api/v1/activity`, `/activity/loot`, `/activity/quests`: Real-time feed of bot actions, items, and quests.
+- `GET /api/v1/grinding`: Detailed grinding analytics, XP rates, and kill distributions.
+- `GET /api/v1/history`: Timeline snapshots of historical bot counts and states.
+- `GET /api/v1/server-info`: Server version metadata, active rates, and configuration status.
 - `GET /api/v1/anomalies/totals`: Cumulative session totals for anomalies and action loops.
+- `GET /api/v1/auctions`: Searchable listings currently posted on the living auction house.
+- `WS /api/v1/stream`: Real-time WebSocket event feed streaming live bot updates to connected clients.
 
 Activity counters are periodically saved to `activity-state.json` so statistics persist across daemon restarts.
 
@@ -150,9 +159,12 @@ For offline analysis of bot fleet health over extended runs, use the Python KPI 
 ```bash
 python3 tools/pool_kpi_report.py \
   --bots-json path/to/bots.json \
-  --levelup-log logs/levelup.log \
+  --logs /path/to/logs \
+  --reset fresh-build-01 \
   --baseline tools/pool_kpi_baseline_2026-10-02.json
 ```
+
+Additional flags include `--db-cmd` (database query command), `--save-baseline` / `--out` (saving output baseline files), and `--anomaly-totals-json` for recording anomaly counters.
 
 The script generates a Markdown summary evaluating:
 - Bot level progression and median XP gain rates.
@@ -170,4 +182,4 @@ python3 tools/observability/scripts/gen_zone_maps.py \
   --out tools/observability/maps
 ```
 
-The tool builds composite map canvases from game MPQ archives. If map images are absent, the Map tab functions normally on a blank grid.
+The `--out` path feeds the Map tab; Commander map views use the folder configured via `--map-dir` or the `TBDASH_MAP_DIR` environment variable. If map images are absent, the Map tab displays a note instead of the picture while bot position markers continue to function normally.

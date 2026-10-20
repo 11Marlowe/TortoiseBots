@@ -18,39 +18,45 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 | :--- | :--- | :--- |
 | **Beast Mastery** | Ranged DPS | Pet empowerment, high physical damage, and enrage burst. |
 | **Marksmanship** | Ranged DPS | Heavy ranged shot rotations, armor penetration, and party attack power. |
-| **Survival** | Melee DPS | Front-line melee strikes, front-cone cleaves, and trap mastery. |
+| **Survival** | Melee / Ranged Hybrid | Front-line melee strikes, front-cone cleaves, and trap mastery (ranged-first hybrid; keeps the ranged shot kit). |
 
 ---
 
 ## What the bot does in combat
 
 ### Beast Mastery & Marksmanship (Ranged DPS)
-- Maintains maximum ranged distance from hostiles, opening with *Aimed Shot* or *Auto Shot*.
-- Maintains *Hunter's Mark* on primary targets.
-- Casts *Serpent Sting* for periodic Nature damage (skipping targets near death).
-- Casts *Arcane Shot* on cooldown and uses *Multi-Shot* when multiple targets are present without risking crowd control breaks.
+- Maintains maximum ranged distance from hostiles, opening with *Hunter's Mark* and *Auto Shot*.
+- Fires *Aimed Shot* (MM) or *Arcane Shot* on cooldown.
+- Uses *Steady Shot* (taught by trainer, levels 36–60) as a filler timed cast fitting directly into the Auto Shot swing window.
+- Uses *Multi-Shot* when multiple targets are present without risking crowd control breaks.
+- Channels *Volley* against grouped mobs, cancelling the channel if fewer than 2 mobs remain in the area.
+- Multi-Shot and Volley respect [party threat back-off](overview.md#shared-bot-behaviors) when holding ≥50% of the tank's threat.
+- Keeps *Serpent Sting* ticking on high-health targets (skipping targets near death).
+- Replaces Serpent Sting with *Viper Sting* when the hunter's mana is below 50% and the target has mana (≥10%); manual `sting viper` or `sting serpent` commands override this gate.
 - BM activates *Bestial Wrath* and *Kill Command* on cooldown. MM triggers *Rapid Fire* and manages *Lock and Load* procs.
 - Switches between *Aspect of the Hawk* for damage and *Aspect of the Viper* when low on mana.
+- Drops threat with *Feign Death* upon reaching medium threat. The bot holds back Feign Death if the attacking mob has only the hunter on its threat list to avoid causing scripted encounters to evade.
 
-### Survival (Melee DPS)
-- Fights directly in melee reach using two-handed or dual-wield weapons.
-- Delivers front-cone melee cleave using *Carve* (Spell ID 52504).
-- Stacks bleed damage using *Lacerate* (Spell ID 52509).
+### Survival (Melee / Ranged Hybrid)
+- Fights primarily in melee reach while keeping full access to the ranged shot kit.
+- Delivers front-cone melee cleave using *Carve* (Spell ID 51575) on AoE packs.
+- Stacks bleed damage using *Lacerate* (manual action, Spell ID 48049).
 - Uses *Raptor Strike* and *Mongoose Bite* on cooldown without requiring a dodge proc.
 - Employs *Counterattack* after parrying incoming strikes.
 
 ### Dead-Zone & Melee Weaving
-- If enemies close within the ranged dead zone (under 8 yards), ranged hunters engage in melee using *Wing Clip* and *Mongoose Bite* / *Raptor Strike*.
-- Below level 10, hunters holding a loaded ranged weapon step back out of melee range rather than trading into melee.
-- When space opens or the mob is snared, ranged hunters resume ranged auto-attacks.
+- If enemies close within the ranged dead zone (under 8 yards), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*.
+- When space opens or the mob is pulled off the hunter by the tank or pet, the bot immediately switches back to ranged attacks.
 
 <details>
-<summary>Pet management details</summary>
+<summary>Pet management and lifecycle details</summary>
 
+- **Lifecycle:** Hunters obtain their pet at level 10; pool hunters logging in below level 10 give up any previously seeded pet, while player-owned or hired hunters retain theirs.
 - Automatically summons, feeds, and revives pets out of combat.
-- Sends pets to attack the primary target, casting *Mend Pet* when pet health drops.
+- Sends pets to attack the primary target.
+- Casts *Mend Pet* when pet health drops below 70% (channeled) or in emergency below 40%.
+- Controls pets in Defensive stance. Solo hunters keep *Growl* on autocast; when grouped with a tank, *Growl* is automatically disabled and the pet uses *Cower* on threat spikes.
 - When an enemy is crowd-controlled, pets are strictly prevented from attacking the controlled target.
-- Summons and controls pets in Defensive stance, following pet peel commands when the hunter takes aggro.
 
 </details>
 
@@ -58,11 +64,11 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 
 ## Turtle WoW custom spells
 
-- **Aspect of the Viper (Spell ID 51339):**
+- **Aspect of the Viper (Spell ID 45651):**
   - Custom aspect converting physical damage into mana regeneration while reducing total damage output.
   - Automatically triggered when hunter mana falls below threshold, swapping back to Hawk once mana recovers.
-- **Carve (Spell ID 52504):** Front-cone melee strike for Survival hunters hitting multiple targets.
-- **Lacerate (Spell ID 52509):** Stacking melee bleed attack designed for sustained melee boss damage.
+- **Carve (Spell ID 51575):** Front-cone melee strike for Survival hunters hitting multiple targets.
+- **Lacerate (Spell ID 48049):** Stacking melee bleed attack designed for sustained melee boss damage.
 
 ---
 

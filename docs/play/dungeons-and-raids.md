@@ -70,14 +70,14 @@ Every bot starts with **Moon** as its default CC mark. The table below represent
 | **Moon** | **Mage** (*Polymorph*) / **Rogue** (*Sap*) | Beasts, Humanoids | Rogues stealth and Sap out of combat before the pull. |
 | **Star** | **Priest** (*Shackle Undead*) / **Paladin** (*Turn Undead*) | Undead only | Essential in Stratholme, Scholomance, and Shadowfang Keep. |
 | **Diamond** | **Warlock** (*Banish* / *Fear*) | Demons, Elementals (Banish) | Banish immunizes target; Fear only on assigned mark. |
-| **Triangle** | **Hunter** (*Freezing Trap*) / **Druid** (*Hibernate* / *Roots*) | Beasts, Dragonkin | Hunter drops trap; Druid roots work outdoors only. |
+| **Triangle** | **Hunter** (*Freezing Trap*) / **Druid** (*Hibernate* / *Roots*) | Beasts, Dragonkin | Hunter Freezing Trap; Druid Hibernate (beasts, dragonkin) or Roots (outdoors only). |
 
 ### Issuing CC In-Game
 
 - Target the enemy mob and run [`.bot action cc <mark>`](commands/party-actions.md#bot-action-cc).
 - **Exclusive Mark Ownership:** Each mark is assigned to exactly one bot. Reassigning a mark moves ownership.
 - **Rogue Sap Before Pull:** Out of combat, a rogue stealths and Saps the humanoid marked with its CC icon. Mark the target first, wait for the Sap, then pull.
-- **Dungeon 5-Man Rule:** Inside non-raid dungeons, bots CC only their explicitly assigned mark. They never CC random targets unless the opt-in auto-CC strategy is turned on.
+- **Dungeon 5-Man Rule:** Inside non-raid dungeons, bots CC only their explicitly assigned mark. They never CC random targets unless opt-in auto-CC is enabled ([`.bot action auto cc`](commands/party-actions.md#bot-action-auto-cc)).
 - **Protection for Held Marks:** Party bots and pets strictly avoid attacking crowd-controlled targets until all other active threats are dead. Marked mobs are killed last.
 - **Area Spell Discipline:** Area spells (*Blizzard*, *Rain of Fire*, *Multi-Shot*, *Frost Nova*) automatically check blast radii and will not fire if their radius touches a crowd-controlled enemy.
 - **Healer Peel Taunt Exception:** If a crowd-controlled mob breaks free or an un-CC'd mark attacks a healer, the tank will taunt it to save the healer without breaking CC rules.
@@ -114,9 +114,9 @@ If your group wipes, follow this recovery checklist:
 
 ### Healers and Casters Closing Range
 
-Inside an instance, a healer or caster that has line of sight to its target but stands out of range walks the navmesh path forward and stops at the first point within casting distance. Out of combat, a healer only walks to a party member who is injured (below [`AiPlayerbot.AlmostFullHealth`](../server/settings/combat.md#aiplayerbotalmostfullhealth), default 90%). In combat, healers stay close to the tank.
+Inside an instance, a healer or caster that has line of sight to its target but stands out of range walks the navmesh path forward and stops at the first point within casting distance. Out of combat, a healer only walks to a party member who is injured (below [`AiPlayerbot.AlmostFullHealth`](../server/settings/combat.md#aiplayerbotalmostfullhealth)). In combat, healers stay close to the tank.
 
-### Stepping Down Off Daises and Ledges
+### Stepping Down Off Dais Platforms and Ledges
 
 Dungeon navmeshes sometimes contain raised platforms or daises (such as in Uldaman's Hall of the Keepers) that are not linked by stairs to the surrounding floor. Inside dungeons and raids, a bot that lands on an isolated dais steps off the edge: it searches for walkable floor 2–8 yards lower within 8 yards forward. The bot runs over the edge and drops down safely. It will not drop while actively taking melee hits. If no safe landing floor exists, use [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) out of combat.
 
@@ -137,14 +137,14 @@ Bots do not jump autonomously inside dungeons or raids (the chase jump, follow j
 ### Loot Rolling Rules
 
 - Bots participate in standard party loot rolls (`Need`, `Greed`, `Pass`).
-- **Never Need Against a Player:** Pool bots and your alts hold their roll when a real player is in the group. They vote roughly 15 seconds before the roll window expires or as soon as all human players have rolled. If a player voted Need, the bot votes Greed; otherwise, the bot Needs if the item is an upgrade for its spec.
+- **Never Need Against a Player:** Genuine upgrades are Needed regardless of settings; both cases still wait for humans and step down to Greed/Pass if a human Needs. Bots hold their vote to give human players the full window, then vote once all humans have voted.
 - **Empty Slot Filler:** When [`AiPlayerbot.RollBadItemsWithPlayer`](../server/settings/party.md#aiplayerbotrollbaditemswithplayer) is enabled, bots also roll Need on items that fill empty gear slots.
-- **Whisper Overrides:** You can instruct a bot directly: whisper `/w <BotName> keep need [item]` before a roll or `/w <BotName> roll need [item]` while the roll is open. Whisper `/w <BotName> roll feedback` to have the bot report when it steps down. See [Whisper Commands](commands/whispers.md#inventory--items).
+- **Whisper Overrides:** You can instruct a bot directly: whisper `/w <BotName> keep need [item]` before a roll or `/w <BotName> roll need [item]` while the roll is open. Whisper `/w <BotName> roll feedback` to have the bot report when it steps down. See [Whisper Commands](commands/whispers.md#inventory-items--banking).
 
 ### Reagents and Food Sharing
 
 - Open trade with Mage or Warlock bots out of combat (`/w <Name> trade`). They automatically place conjured food, water, or healthstones into the trade window.
-- To make an owned bot equip an item from its bags, run `.bot command <Name> equip [Item Link]`. See [Bot Panel Commands](commands/bot-panel.md#bot-item-equip).
+- To make an owned bot equip an item from its bags, whisper `/w <Name> equip [Item Link]`. See [Whisper Commands](commands/whispers.md#inventory-items--banking).
 
 ## Raid Tactics & Boss Mechanics
 
@@ -152,24 +152,40 @@ Entering a raid map automatically activates the dungeon transition engine, enabl
 
 ### Universal Raid Reactions
 
-- **Bomb Runout:** Carriers of *Living Bomb* (Baron Geddon), *Burning Adrenaline* (Vaelastrasz), *Mutating Injection* (Grobbulus), or *Detonate Mana* (Kel'Thuzad) immediately run 30 yards clear of the raid group ([`AiPlayerbot.BombRunoutDistance`](../server/settings/dungeons-raids.md#aiplayerbotbombrunoutdistance)). Ranged Grobbulus carriers run behind the boss.
+- **Bomb Runout:** Carriers of *Living Bomb* (Baron Geddon), *Burning Adrenaline* (Vaelastrasz), *Mutating Injection* (Grobbulus), or *Detonate Mana* (Kel'Thuzad) immediately run clear of the raid group ([`AiPlayerbot.BombRunoutDistance`](../server/settings/dungeons-raids.md#aiplayerbotbombrunoutdistance)). Ranged Grobbulus carriers run behind the boss.
 - **Mutating Injection Cleansing Policy:** Healer disease cleansing spells intentionally skip Mutating Injection. Removing the debuff early drops a lethal poison cloud inside the raid; the carrier must run out and let the debuff expire harmlessly.
 - **Living Bomb Spacing:** During the Baron Geddon fight, any bot standing within 10 yards of a Living Bomb carrier steps away to avoid the explosion.
-- **Hazard Evasion:** Bots proactively step out of damaging ground effects, void zones, and trigger traps within 15 yards ([`AiPlayerbot.HazardEvasionDistance`](../server/settings/dungeons-raids.md#aiplayerbothazardevasiondistance)).
-- **Living Poison Avoidance:** In Naxxramas, bots detect drifting Living Poison and maintain an 11-yard distance ([`AiPlayerbot.AvoidCreatureAuras`](../server/settings/dungeons-raids.md#aiplayerbotavoidcreatureauras)). Tanks step out as well because the explosion is fatal.
-- **Dragon Positioning:** Non-tanks automatically flank dragons to avoid breath and tail sweep cones. Tanks can be ordered to turn dragons with `.bot action raid tankface`.
+- **Hazard Evasion:** Bots proactively step out of damaging ground effects, void zones, and trigger traps ([`AiPlayerbot.HazardEvasionDistance`](../server/settings/dungeons-raids.md#aiplayerbothazardevasiondistance)).
+- **Living Poison Avoidance:** In Naxxramas, bots detect drifting Living Poison, step out inside 10 yd, and keep about 11 yd clear ([`AiPlayerbot.AvoidCreatureAuras`](../server/settings/dungeons-raids.md#aiplayerbotavoidcreatureauras)). Tanks step out as well because the explosion is fatal.
+- **Dragon Positioning:** Non-tanks automatically flank dragons to avoid breath and tail sweep cones. Tanks can be ordered to turn dragons with [`.bot action raid tankface`](commands/party-actions.md#bot-action-raid-tankface).
 - **Tank Assignment & Raid Assistant:** Main tanks and assist tanks coordinate boss and add assignments. Promoting an assist tank to **Raid Assistant** in the party frames assigns them secondary tank roles (such as holding Razorgore or Golemagg adds).
-- **Ranged Spread:** Stacked spellcasters spread 12 yards apart.
+- **Ranged Spread:** Stacked ranged spellcasters spread out (5 yd for ranged, 2 yd for melee) to minimize chain damage.
 - **Dispel Coordination:** Decursers and dispellers coordinate target claims to avoid casting multiple dispels on the same friendly target simultaneously.
-- **Protection Potions:** Bots level 48+ automatically drink Greater Protection Potions on relevant bosses if carried in bags (Fire for Geddon/Ragnaros/Onyxia, Shadow for Lucifron/Nefarian, Nature for Huhuran/Viscidus).
+- **Protection Potions:** Bots level 48+ automatically drink Greater Protection Potions on relevant bosses if carried in bags: Fire for Magmadar, Geddon, Golemagg, Ragnaros, Onyxia, Razorgore, and Vaelastrasz; Shadow for Lucifron, Gehennas, and Nefarian; Nature for Princess Huhuran and Viscidus.
 
 ### Specific Encounter Tactics
 
-- **Molten Core:** Douse runes using [`.bot action raid douse`](commands/party-actions.md#bot-action-raid-douse). During Baron Geddon, bots run 20 yards out during *Inferno*.
+- **Molten Core:**
+  - Douse runes using [`.bot action raid douse`](commands/party-actions.md#bot-action-raid-douse). During Baron Geddon, bots run out during *Inferno*.
+  - *Garr & Shazzrah:* Warlocks banish and tanks separate Garr adds; bots keep distance from Shazzrah's Arcane Explosion and counter blink.
+  - *Golemagg:* Ranged and healers stay clear of Earthquake; assist tanks separate Core Ragers.
 - **Onyxia:** In Phase 2, bots switch to ranged attacks and spread out. Bots take cover in safe zones during *Deep Breath*. With [`AiPlayerbot.OnyxiaWhelpsAndEggs`](../server/settings/dungeons-raids.md#aiplayerbotonyxiawhelpsandeggs) enabled, ranged DPS clear hatched whelps while avoiding unbroken egg clusters.
-- **Blackwing Lair:** Rogues disarm suppression devices in both combat and non-combat states. Bots whisper a warning if they lack the Onyxia Scale Cloak for Shadow Flame protection.
-- **Naxxramas:** Four Horsemen carriers with 3+ stacks of a mark rotate clockwise to the next corner. During Sapphiron, bots hide behind iceblocked players during the air phase and step out of blizzards. On Heigan, the group dances floor sections 0-1-2-3-2-1 during Plague Cloud.
-- **Ahn'Qiraj (AQ20):** Designated runners activate crystals while *Strength of Ossirian* is active. Kiting Ossirian remains the player's responsibility.
+- **Blackwing Lair:**
+  - *Razorgore:* Bots assist the orb controller and intercept add waves without attacking the controller.
+  - *Vaelastrasz:* Tanks face away, DPS dumps all resources before burning out, and mages use *Ice Block* to survive *Burning Adrenaline*.
+  - *Broodlord & Nefarian:* Tanks face away; rogues disarm suppression devices in both combat and non-combat states. Bots whisper a warning if they lack the Onyxia Scale Cloak for Shadow Flame.
+  - *Chromaggus:* Bots carrying Hourglass Sand (item 19183) use it to cleanse Bronze Affliction; bots step out of breath cones.
+- **Naxxramas:**
+  - *Anub'Rekhan:* Tanks kite Anub'Rekhan during Locust Swarm while melee run out.
+  - *Gluth:* Tanks rotate taunts on Mortal Wound stacks; off-tanks and DPS kite or slow zombie chow.
+  - *Thaddius:* Bots match Polarity Shift directions, shifting positive charges left and negative charges right.
+  - *Loatheb:* Groups rotate to pop spores for the Fungal Bloom critical buff; healers stagger heals during 1-minute Necrotic Aura windows.
+  - *Four Horsemen:* Mark carriers with 3+ stacks rotate clockwise to the next corner.
+  - *Sapphiron:* Bots hide behind iceblocked players during the air phase and step out of blizzards.
+  - *Heigan:* The group dances floor sections 0-1-2-3-2-1 during Plague Cloud.
+  - *Kel'Thuzad:* Raid spreads outside Frost Blast ice rings and steps out of Shadow Fissures immediately.
+- **Ahn'Qiraj (AQ20/AQ40):** Designated runners activate crystals while *Strength of Ossirian* is active. Kiting Ossirian remains the player's responsibility.
+- **Paladin Aura Auto-Swap:** Paladins in raids automatically swap to *Fire Resistance Aura* or *Shadow Resistance Aura* on applicable bosses.
 
 ## Custom Turtle Raids
 
@@ -177,4 +193,4 @@ When [`AiPlayerbot.EnableCustomRaidTactics`](../server/settings/dungeons-raids.m
 
 - **Emerald Sanctum (Solnius):** Tanks keep the dragon facing away to avoid Acid Breath. Emerald Rot carriers run out via the shared bomb runout action. When Call of Nightmare triggers, DPS bots focus down incoming add waves.
 - **Lower Karazhan (Araxxna & Moroes):** Araxxna's spiderling swarms trigger AoE cleave. Moroes' smoke bomb forces tanks and DPS to re-acquire their targets.
-- **Karazhan Crypt:** Set `.bot formation near` before entering narrow tunnels to keep bots from clipping through walls. Levers and puzzle doors must be operated manually by the player.
+- **Karazhan Crypt:** Set a tight follow formation before entering narrow tunnels to keep bots from clipping through walls. Levers and puzzle doors must be operated manually by the player.

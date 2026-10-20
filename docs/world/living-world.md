@@ -19,9 +19,9 @@ This page explains how autonomous bots inhabit the realm, progress through level
 
 TortoiseBots populates the game world with autonomous characters on managed pool accounts. These bots travel through zones, complete quests, grind hostile creatures, gather crafting materials, trade on the Auction House, and form guilds. The world feels active and populated without requiring human players to fill every zone.
 
-A managed pool account is an account recorded in the character-database table `tortoise_bots_pool_account`. The module creates these accounts automatically during auto-creation or hiring, or an administrator can register them manually at the server console. An account whose username begins with the configured account prefix is not a pool account unless it is registered in that table. For information on rebuilding pool characters, see [Resetting the managed bot pool](../server/bot-pool.md).
+A managed pool account is an account recorded in the character-database table `tortoise_bots_pool_account` ([Resetting the managed bot pool](../server/bot-pool.md#the-managed-pool-registry)). The module creates these accounts automatically during auto-creation or hiring, or an administrator can register them manually at the server console. An account whose username begins with the configured account prefix is not a pool account unless it is registered in that table.
 
-Hired mercenary companions are temporary guests created on managed pool accounts. When a player hires a mercenary, a new character is created for that contract. When the player dismisses the companion, leaves the party, disbands the group, or logs out past the disconnect grace period, the hired character is permanently deleted. Dismissed companions never enter the roaming pool, ensuring that player-geared characters do not alter the organic leveling world. Kicking an owned alt-bot from your party behaves differently: the alt roams using pool behavior but retains owner protection. For details, see [Alt-bots](../play/commands/roster-and-hiring.md#alt-bots-autonomous-alts) and [Alt-bots configuration](../server/settings/party.md#aiplayerbotaltbots).
+Hired mercenary companions are temporary guests created on managed pool accounts. Each hire creates its own character; when dismissed, released, or expired after player logout, the character is permanently deleted and never returns to the roaming pool. The freed account slot is refilled by the auto-create target without altering configured bot counts ([`AiPlayerbot.MinRandomBots`](../server/settings/world-population.md#aiplayerbotminrandombots--maxrandombots)). Roaming alt-bots, by contrast, stay active in the world under owner protection ([Alt-bots](../play/commands/roster-and-hiring.md#alt-bots-autonomous-alts)).
 
 ## Autonomous bot lifecycle
 
@@ -62,10 +62,10 @@ The table below summarizes autonomous activities in the open world:
 | **Grind-spot ladder** | Bots move to new camps and zones as they outgrow lower-level creatures. |
 | **Beginner grinding** | Fresh bots (levels 1-4) hunt starter beasts and ignore no-XP critters. |
 | **Questing** | Bots accept level-appropriate quests, complete objectives, and turn them in for rewards. |
-| **Leisure mixer** | Pool bots pick leisure journeys from a weighted distribution of quests, grinding, camps, and exploration. |
+| **Leisure mixer** | Pool bots pick leisure tasks from a weighted distribution of quests, grinding, and exploration. |
 | **Quest-log upkeep** | Bots abandon obsolete or failed quests and prioritize turn-ins over grinding. |
 | **Gathering** | Bots gather nearby herbs and mining nodes, and skin beasts they kill. |
-| **Fishing** | Idle bots with fishing poles fish in nearby open water or visit fishing locations. |
+| **Fishing** | Idle bots fish in nearby open water or visit fishing locations. |
 | **Town services** | Bots visit nearby trainers, repair gear at blacksmiths, and sell vendor trash. |
 
 <details>
@@ -91,16 +91,17 @@ Autonomous bots never initiate combat against grey (zero-XP) creatures. If attac
 
 Bots progress across a level ladder to avoid lingering in outgrown areas. Grind destinations are valid only when creatures sit between two levels below and one level above the bot (widening to two levels above starting at level 10).
 
-When local creatures stop providing adequate experience, the current travel target expires. The bot then walks, takes a flight master, or boards a boat to the nearest camp matching its level band. Travel destinations allow an area rating up to three levels above the bot's level (or five levels above for starter levels 1-4). Camps occupied by too many active bots (one-third or more of the spawn count) are skipped in favor of quieter spots across the zone.
+When local creatures stop providing adequate experience, the current travel target expires. The bot then walks, takes a flight master, or boards a boat to the nearest camp matching its level band. Mob selection targets creatures within −2 to +1 levels (widening to +2 from level 10). Camps occupied by too many active bots are skipped for quieter spots across the zone.
 
 </details>
 
 <details>
 <summary>Beginner grinding (levels 1–4) in detail</summary>
 
-Fresh bots in starting valleys (Valley of Trials, Camp Narache, Northshire, Coldridge, Shadowglen) target creatures up to their own level, including coinless starter beasts like boars, scorpids, and plainstriders.
-
-True non-experience critters like rabbits are skipped, while wild critter-type beasts that yield experience remain valid targets. Below level 10, grind orders restrict targets to at most one level above the bot, preventing fresh characters from attempting difficult encounters.
+Fresh bots in starting valleys (Valley of Trials, Camp Narache, Northshire, Coldridge, Shadowglen) target creatures up to their own level, including coinless starter beasts like boars, scorpids, and plainstriders:
+- Grind travel for levels 1–4 skips zone-average level gates, walking directly to nearby starter beast fields.
+- Owned and hired companions maintain a conservative copper-only loot window during early grinding.
+- True non-experience critters like rabbits are skipped, while wild critter-type beasts that yield experience remain valid targets. Below level 10, grind orders restrict targets to at most one level above the bot, preventing fresh characters from attempting difficult encounters.
 
 </details>
 
@@ -146,14 +147,14 @@ Starting at level 10, bots with Herbalism or Mining will travel directly to near
 
 Masterless pool bots carrying a fishing pole engage in fishing as a casual side activity. Fishing occurs only when the bot is completely idle—with no pending travel, no completed quests to turn in, no vendor or repair needs, and bags below 90% capacity.
 
-Side-activity fishing lasts at most five minutes (or five casts) once per hour, targeting visible fish schools or nearby open shores within 40 yards. Entering combat ends fishing immediately and restores the bot's weapon. Additionally, bots can undertake dedicated travel errands to stored world fishing locations. Owned and hired companion bots never fish autonomously.
+Side-activity fishing lasts at most five minutes (or five casts) once per hour, targeting visible fish schools or nearby open shores within 40 yards. Entering combat ends fishing immediately and restores the bot's weapon. Additionally, bots can undertake dedicated travel errands to stored world fishing locations. Only masterless pool bots and roaming alt-bots fish; hired companions and bots with an active master do not. Fishing travel respects the bot's Fishing skill and never routes into dungeons/raids; with no stored spots only open-water fishing remains.
 
 </details>
 
 <details>
 <summary>Town life & service visits in detail</summary>
 
-When idle in town, bots interact with nearby service NPCs within 50 yards before requesting travel errands. They turn in completed quests, accept available quests, train affordable new spell ranks, and vendor accumulated junk.
+When idle in town, bots interact with nearby service NPCs within 50 yards before requesting travel errands. They turn in completed quests, accept available quests, train affordable new spell ranks, and vendor accumulated junk. Bots at 85%+ bag capacity sell immediately regardless of batch counters.
 
 A vendor trip requires a valid reason: items that vendors buy (grey items or surplus gear), broken equipment needing repair, or an empty food bag that the bot has coin to refill. If a vendor visit yields no successful sales, vendor errands are paused for ten minutes. Autonomous travel announcements and vendor confirmations remain muted unless a player explicitly queries the bot.
 
@@ -168,10 +169,10 @@ A newly created pool bot receives an initial level randomly selected between [`A
 
 New bots are distributed evenly across the starting zones via [`AiPlayerbot.RandomBotEvenStartZones`](../server/settings/world-population.md#aiplayerbotrandombotevenstartzones). Auto-creation monitors starting zone populations and assigns newly created bots to less populated regions. Custom race starting areas relocate naturally to core racial hubs (such as Goblins to Valley of Trials and High Elves to Northshire).
 
-Hunters observe standard class progression: hunters do not own pets below level 10. Upon reaching level 10, a pool hunter acquires a level-appropriate pet.
+Hunters observe standard class progression: hunters do not own pets below level 10. Upon reaching level 10, a pool hunter acquires a level-appropriate pet. A pool hunter logging in below level 10 gives up any previously seeded pet; player-owned, hired, or adopted hunters keep theirs.
 
 ### Initial skills & professions
-When persistent leveling is enabled ([`AiPlayerbot.DisableRandomLevels = 1`](../server/settings/world-population.md#aiplayerbotdisablerandomlevels)):
+Seeding runs once per fresh bot (skipped if primary professions exist or played time is recorded); learned professions and skill ranks save as permanent character data and are never re-rolled:
 - **Weapon skills:** Fresh bots receive full class-compatible weapon skills maxed to their current level cap (for example, 5/5 at level 1) to ensure attacks connect reliably.
 - **Ranged abilities:** Bots automatically learn the shooting ability matching their weapon proficiencies (*Shoot Bow*, *Shoot Gun*, *Shoot Crossbow*, *Throw*, or wand *Shoot*).
 - **Dual Wield:** Class level thresholds gate dual wielding: warrior level 10, rogue level 10, and hunter level 20. Bots below these thresholds cannot learn Dual Wield, and any premature grant is removed on login. Shamans cannot dual wield.
@@ -191,18 +192,18 @@ Every seeded pool bot and newly hired companion receives a complete starting fie
 | **Ranged weapons** | Warriors and rogues carry a level-appropriate thrown weapon for pulling. |
 | **Profession tools** | Mining picks, skinning knives, blacksmith hammers, arclight spanners, and fishing poles matching professions. |
 | **Mounts** | Swift Riding Turtle at level 18 ([`AiPlayerbot.TurtleMountAtLevel`](../server/settings/world-population.md#aiplayerbotturtlemountatlevel)), racial vendor mounts at level 40 (60% speed) and level 60 (100% speed). |
-| **Currencies & consumables** | Starting coin scaled to initial level, and a stack of First Aid bandages. |
+| **Currencies & consumables** | Level-scaled starting coin, granted once at first seed and never refilled; half-stack of level-appropriate bandages. |
 
 Hired mercenary companions receive an hourly restock of class reagents, rations, potions, and bandages.
 
 ### Mount rules
-Random pool bots and hired companions strictly ride vendor mounts matching their own character race (for example, Goblins ride Rocket Cars and Shredders), governed by [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts). Fast epic mounts are strictly gated to level 60 characters. By default, pool bots never ride rare dungeon or raid loot-drop mounts. Player-owned alts are not subject to these mount restrictions.
+Random pool bots and hired companions strictly ride vendor mounts matching their own character race, governed by [`AiPlayerbot.RandomBotShopMounts`](../server/settings/world-population.md#aiplayerbotrandombotshopmounts). Fast epic mounts are strictly gated to level 60 characters. When [`AiPlayerbot.LevelUpMounts`](../server/settings/world-population.md#aiplayerbotlevelupmounts) is enabled, bots earn level 40 and 60 mounts upon reaching the required level with riding-skill gating; otherwise mounts are granted only on initial seeding. By default, pool bots never ride rare dungeon or raid loot-drop mounts. Player-owned alts are not subject to these mount restrictions.
 
 ### Gear evaluation & upgrades
 When [`AiPlayerbot.RandomGearUpgradeEnabled = 1`](../server/settings/world-population.md#aiplayerbotrandomgearupgradeenabled), bots evaluate looted and vendor gear using class and spec stat weight scales:
 - **Stat weighting:** Equipment is scored by primary spec stats (Strength and Agility for melee; Spell Power and Intellect for casters).
 - **Empty slot backstop:** After equipment generation, any remaining unequipped armor or trinket slot takes the highest-rated fitting item within 10 levels, including class-restricted trinkets.
-- **Raid quest reward filtering:** Bots are barred from rolling or equipping end-game raid quest chain items (such as the *Onyxia Tooth Pendant*) during organic gearing passes.
+- **Raid quest reward filtering:** Bots are barred from rolling or equipping end-game raid quest chain items during organic gearing passes.
 - **Equipment enchanting:** Bots at level 10 or higher receive enchantments matching their level bracket ([`AiPlayerbot.minEnchantingBotLevel`](../server/settings/world-population.md#aiplayerbotminenchantingbotlevel)).
 - **Weapon rules:** Spec-forbidden weapons are replaced when an upgrade drops (such as an Assassination rogue replacing a mace with a dagger).
 - **Fury warriors below level 20:** Fury warriors can equip two-handed weapons until *Dual Wield* is trained, at which point one-handed weapons take priority if they out-score the two-hander.
@@ -213,7 +214,7 @@ When [`AiPlayerbot.RandomGearUpgradeEnabled = 1`](../server/settings/world-popul
 ### Bag management & cleanup order
 Bots manage their inventory dynamically to prevent stalls:
 - Soul bags and quivers take dedicated bag slots; plain bag upgrades only replace plain bags.
-- When bag capacity reaches 90% and the bot cannot reach a vendor, a cleanup routine destroys items in strict order: useless items, quest items (only if broke and unable to sell), cheapest grey trash, profession materials, and lastly consumables.
+- When bag capacity reaches 90% and the bot cannot reach a vendor, a cleanup routine destroys items in strict priority order (see [Economy cleanup order](economy.md#protected-inventory-items--cleanup-order-in-detail)).
 - Class trainer spell funds take priority: a bot short on coins for a trainer rank will travel to a vendor if its stock covers the required gold or if eight items have accumulated at 60% bag fullness.
 
 ## Sustenance & resting

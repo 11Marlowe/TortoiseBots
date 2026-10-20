@@ -28,7 +28,7 @@ Rogues deliver exceptional single-target physical melee DPS, pre-combat crowd co
 - Automatically enters *Stealth* out of combat.
 - Manoeuvres behind targets to open with *Ambush* (with main-hand daggers) or *Garrote* (swords/maces).
 - Uses *Cheap Shot* as a fallback opener or when lockdown stuns are required.
-- **Pre-pull Sap:** When assigned a crowd control mark on an unpulled humanoid, a rogue following a human master stealths forward and casts *Sap* before combat begins. Can be toggled with `.bot action sap [on|off]`.
+- **Pre-pull Sap:** When assigned a crowd control mark on an unpulled humanoid, a rogue following a human master stealths forward and casts *Sap* before combat begins. Can be toggled with [`.bot action sap [on|off] [bot]`](../play/commands/party-actions.md#bot-action-sap).
 
 ### Combo Points & Finisher Priority
 - **Builders:** Uses *Sinister Strike* (Combat), *Backstab* (Assassination), or *Hemorrhage* (Subtlety).
@@ -59,16 +59,16 @@ When enabled via configuration, rogues in 5-man dungeons use the same threat-dro
 - **Surprise Attack (Spell ID 52511):** Unblockable combo-building strike integrated into the Combat rotation.
 - **Noxious Assault (Spell ID 52714):** Assassination talent providing attack power and instant poison delivery.
 - **Envenom (Spell ID 52531):** Finisher consuming Deadly Poison stacks for instant Nature damage and an attack speed bonus.
-- **Shadow of Death & Mark for Death:** Subtlety talents enhancing banked burst detonation and party attack power.
+- **Shadow of Death & Mark for Death (Spell IDs 52710 / 52538):** Subtlety talents enhancing banked burst detonation and party attack power.
 
 ---
 
 ## Utility & interrupts
 
-- **Poisons:** Automatically applies poisons based on context: Instant (main hand) and Deadly (off hand) for PvE; Mind Numbing and Crippling for PvP. Respects level requirements (Instant at 20, Deadly at 30).
+- **Poisons:** Automatically applies poisons based on context: Raid and generic combat use Instant Poison (main hand) and Deadly Poison (off hand); general PvE uses Instant Poison on both hands; PvP uses Mind-Numbing Poison (main hand) and Crippling Poison (off hand). Respects level requirements (Instant at level 20, Deadly at level 30).
 - **Interrupts:** Casts *Kick* immediately to lock out enemy spell casts. Uses *Kidney Shot* as a stun fallback.
 - **Self-Defense CC:** Uses *Gouge* at medium health and *Blind* at critical health to disorient attackers.
-- **Hold Ground Opt-In:** With `AiPlayerbot.PoolMeleeHoldGround = 1`, pool rogues stand their ground using *Evasion* and *Vanish* rather than fleeing when low on health.
+- **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool rogues stand their ground using *Evasion* and *Vanish* rather than fleeing when low on health.
 
 ---
 

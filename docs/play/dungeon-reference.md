@@ -20,6 +20,8 @@ For general pulling, crowd control, and wipe recovery tactics, see the [Dungeon 
 - **Creature Entries:** Numbers in parentheses (e.g. `92107`) are database creature IDs from the Turtle WoW 1.18.1 world database.
 - **Turtle Tag:** A *(Turtle)* marker indicates custom creatures and bosses exclusive to Turtle WoW.
 - **Provisional:** Indicates that a kill order is based on map analysis or preliminary runs and should be verified in-game.
+- **Confirmed:** Indicates that the kill order has been walked and verified in-game.
+- **Atlas vs Walk:** Atlas = in-game Atlas map order; Walk = entrance-to-end walking order.
 - **Do Not Wait For:** Lists rares, pooled spawns, escorts, and friendly NPCs that may not be present in your instance run.
 - **Bracketed Items:** Items in brackets like `[Ring of Law]` represent non-boss objectives, doors, or event triggers.
 
@@ -111,7 +113,7 @@ Never halt your group waiting for these creatures to spawn. They share spawn poo
 | **Status** | Map 800, provisional |
 | **Kill Order** | Commander Andreon (91919) → Corpsemuncher (91917) → Guard Captain Gort (92935) → Hivaxxis (91929) → Archlich Enkhraz (91916) → Marrowspike (91920) → [Crypt Watcher summons] Alarus (91928, end boss) |
 | **Do Not Wait For** | None listed. |
-| **Quirks** | Alarus is summoned via the Crypt Watcher trigger event and lacks a static spawn point. Mobs are level 61–62. |
+| **Quirks** | Alarus is summoned via the Crypt Watcher trigger event and lacks a static spawn point. Mobs are level 61–62; fork notes group cap 60. |
 
 ### Razorfen Kraul (Map 47)
 

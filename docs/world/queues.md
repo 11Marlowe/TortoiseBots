@@ -46,7 +46,7 @@ Role matching is fail-closed based on each bot's talent spec and active equipmen
 - A **Healer** slot requires a healing specialization with core healing spells trained.
 - If an eligible bot cannot be found, the slot remains empty with a logged reason rather than assigning an unsuitable spec.
 
-Administrators can optionally allow bots to respec into missing roles using [`AiPlayerbot.RandomBotLftAllowRoleBorrow`](../server/settings/queues.md#aiplayerbotrandombotlftallowroleborrow) (default 0). When a bot whose default kit differs from its queued role is adopted (such as a Feral Druid queued as a Tank), the engine assigns the appropriate role kit (Bear kit instead of Cat kit).
+Administrators can optionally allow bots to respec into missing roles using [`AiPlayerbot.RandomBotLftAllowRoleBorrow`](../server/settings/queues.md#aiplayerbotrandombotlftallowroleborrow). When a bot whose default kit differs from its queued role is adopted (such as a Feral Druid queued as a Tank), the engine assigns the appropriate role kit (Bear kit instead of Cat kit).
 
 </details>
 
@@ -61,7 +61,7 @@ There is no automatic dungeon teleportation or summoning. Players must guide the
 
 ### LFT with your own party bots
 When you queue for LFT with owned alts or hired companions in your party:
-- The core automatically answers the role check for your party bots based on your explicit [`.bot role`](../play/commands/roster-and-hiring.md#bot-role) setting, active combat strategies, or automatic spec and gear evaluation.
+- The core automatically answers the role check for your party bots: named combat specs decide (ambient assist strategies are ignored); with nothing set, automatic spec/gear detection applies ([`.bot role`](../play/commands/roster-and-hiring.md#bot-role)).
 - Your party bots automatically accept dungeon offers on the fill service tick cadence, preventing the 90-second offer timeout from expiring.
 - Party auto-accept operates whether [`AiPlayerbot.RandomBotLftEnabled`](../server/settings/queues.md#aiplayerbotrandombotlftenabled) is enabled or disabled.
 
@@ -70,10 +70,10 @@ When you queue for LFT with owned alts or hired companions in your party:
 The battleground service populates PvP matches so players can experience active battlegrounds:
 
 - **Supported battlegrounds:** Warsong Gulch (WSG), Arathi Basin (AB), and Alterac Valley (AV).
-- **Demand-driven backfill:** When human players enter a battleground queue, the module queues level-appropriate random bots on both factions to reach match minimums and launch the game.
+- **Demand-driven backfill:** When human players enter a battleground queue, the service scans every 5 seconds, queueing up to 10 bots per check (5 per faction) toward match minimums. Setting [`AiPlayerbot.RandomBotBgQueueInterval = 0`](../server/settings/queues.md#aiplayerbotrandombotbgqueueinterval) disables both interval scans and bot backfills.
 - **Match launch threshold:** The system fills each faction to the match minimum plus one. This launches matches promptly without accumulating surplus bots that could trigger a separate, unwanted bot-only match.
-- **Prompt exit:** When a battleground match concludes, bots leave the instance within approximately 10 seconds rather than waiting for the server instance shutdown timer.
-- **Enabled by default:** Controlled by [`AiPlayerbot.RandomBotBgEnabled`](../server/settings/queues.md#aiplayerbotrandombotbgenabled) (default 1).
+- **Prompt exit:** When a battleground match concludes, bots leave the instance promptly rather than waiting for the server instance shutdown timer.
+- **Enabled by default:** Controlled by [`AiPlayerbot.RandomBotBgEnabled`](../server/settings/queues.md#aiplayerbotrandombotbgenabled).
 
 <details>
 <summary>Battleground objectives & map mechanics in detail</summary>
@@ -81,7 +81,7 @@ The battleground service populates PvP matches so players can experience active 
 Bots run dedicated objective strategies inside battlegrounds:
 - **Warsong Gulch:** Bots carry the enemy flag, escort friendly flag carriers, and defend base capture points.
 - **Arathi Basin:** Bots capture neutral or enemy banners within reach, ignoring friendly banners. Banner interactions are rate-limited to once every 4 seconds.
-- **Alterac Valley:** Bots navigate toward 17 fixed map waypoints (`AV_*` locations), coordinating attacks on graveyards, towers, bunkers, and commanders.
+- **Alterac Valley:** Bots navigate toward 17 fixed Alterac Valley map points (graveyards, towers, bunkers, and commanders).
 - **Healer preservation:** Healers (Holy/Discipline Priests, Restoration Shamans/Druids, Holy Paladins) retain their healing talent specs and priorities in battlegrounds. General DPS strategy directives cannot override healer combat roles in PvP.
 
 </details>
@@ -91,9 +91,9 @@ Bots run dedicated objective strategies inside battlegrounds:
 To keep battlegrounds lively when no human players are queued, pool bots can organize self-contained matches:
 
 - **Autonomous seeding:** When queue demand from real players is zero, pool bots seed their own Warsong Gulch matches in the most populated level bracket.
-- **Player priority:** Human queue demand takes absolute priority. Autonomous seeding pauses instantly whenever a real player queues for any battleground.
+- **Player priority:** Human queue demand takes absolute priority. Autonomous seeding pauses instantly whenever a real player queues for any battleground (players already invited or inside a match don't count).
 - **Instance concurrency:** Autonomous matches are restricted to solo pool bots, accumulating in single-bot batches until 10v10 is reached. Concurrency is capped by default to one active match per bracket.
-- **Settings:** Governed by [`AiPlayerbot.RandomBotBgAutonomous`](../server/settings/queues.md#aiplayerbotrandombotbgautonomous) (default 1) and [`AiPlayerbot.RandomBotBgAutonomousMaxInstances`](../server/settings/queues.md#aiplayerbotrandombotbgautonomousmaxinstances) (default 1). Requires `RandomBotBgEnabled = 1`.
+- **Settings:** Governed by [`AiPlayerbot.RandomBotBgAutonomous`](../server/settings/queues.md#aiplayerbotrandombotbgautonomous) and [`AiPlayerbot.RandomBotBgAutonomousMaxInstances`](../server/settings/queues.md#aiplayerbotrandombotbgautonomousmaxinstances). Requires `RandomBotBgEnabled = 1`.
 
 ## Battlegrounds with your own party bots
 

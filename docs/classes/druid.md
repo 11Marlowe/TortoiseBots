@@ -33,23 +33,23 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 
 ### Feral (Cat Melee DPS)
 - Enters Cat Form and opens from stealth using *Pounce* or *Ravage*.
-- Builds combo points using *Claw*, *Rake*, and *Shred*, spending points on *Rip* and *Ferocious Bite*.
+- Builds combo points using *Claw*, *Rake*, *Shred*, and *Tiger's Fury*, spending points on *Rip* and *Ferocious Bite*.
 - Drops threat with *Cower* at medium threat in party and raid encounters.
-- Fires *Ferocious Bite* early on targets below 25% health with 1 or more combo points, avoiding clipping active *Rip* bleeds.
+- Fires *Ferocious Bite* early on targets below 25% health with 1 or more combo points (against targets under ~4000 health; bosses keep Rip), avoiding clipping active *Rip* bleeds.
 - Out of combat or in battlegrounds, prowling cats maintain normal objective movement and routines.
 
 ### Restoration (Healer)
 - Maintains *Rejuvenation* and *Regrowth* HoTs (Heal-over-Time spells) on injured allies.
-- Casts direct heals (*Healing Touch*) downranked to match target wounds, using top ranks below critical health.
+- Casts direct heals (*Healing Touch*) downranked to match target wounds per [shared downranking rules](overview.md#shared-bot-behaviors).
 - Chains *Nature's Swiftness* into an instant *Healing Touch* when allies suffer critical damage.
 - Channels *Tranquility* when 3 or more nearby party members in a 5-man (up to 15 in a raid) are heavily wounded.
 - Spends *Omen of Clarity* procs on free *Rejuvenation* casts.
-- With the `+offdps` strategy active and mana above 70% (85% in difficult fights), shifts out of Tree of Life Form to deal damage with *Moonfire* and *Wrath*.
+- Supports party damage via the `+offdps` strategy per [healer off-DPS rules](overview.md#shared-bot-behaviors), shifting out of Tree of Life Form to cast *Moonfire* and *Wrath*.
 
 ### Balance (Ranged DPS)
 - Maintains *Moonkin Form* and attacks from range with *Moonfire*, *Wrath*, *Starfire*, and *Insect Swarm*.
 - Casts *Hurricane* against packs of 3 or more clustered enemies.
-- Honors threat throttling when grouped, pausing AoE spells if holding 50% or more of tank threat.
+- Honors [party threat back-off](overview.md#shared-bot-behaviors), pausing AoE spells if holding 50% or more of tank threat.
 
 ### Leveling (Below Level 10)
 - Fights in melee using auto-attacks, keeping *Moonfire* active and healing self with *Healing Touch* and *Rejuvenation*.

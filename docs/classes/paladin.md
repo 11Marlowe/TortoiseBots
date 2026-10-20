@@ -27,7 +27,7 @@ Paladins provide resilient group utility, customizable auras, coordinated blessi
 ### Holy (Healer)
 - Casts *Lay on Hands* on party members at critical health (<20%), claiming the target to prevent duplicate casts.
 - Uses *Flash of Light* for efficient maintenance and *Holy Light* for heavy damage spikes.
-- Downranks direct heals (*Holy Light*, *Flash of Light*) to match the wound, using max rank on targets below 50% health.
+- Downranks direct heals (*Holy Light*, *Flash of Light*) to match wounds per [shared downranking rules](overview.md#shared-bot-behaviors), using max rank on targets below 50% health.
 - Casts *Holy Shock* on allies below 50% health.
 - Weaves *Crusader Strike* only when already in melee reach, without moving out of healing position.
 - Casts *Divine Shield* (Bubble) when personally critically wounded, continuing to heal while immune.
@@ -52,7 +52,7 @@ When enabled, paladin bots coordinate to maintain *Judgement of Wisdom* and *Jud
 - **Assignment:** Retribution paladins maintain *Judgement of Wisdom*; Holy paladins maintain *Judgement of Light*. A second non-tank paladin takes the unassigned debuff.
 - **Protection Exemption:** Protection tanks never upkeep group judgements, keeping *Seal of Righteousness* for threat.
 - **Timing:** Debuffs are refreshed when 4 seconds or fewer remain.
-- **Mana Gates:** Paladins must hold medium mana (50% for healers). Healers only judge while party health is above medium levels.
+- **Mana Gates:** Paladins must hold medium mana (50% for healers per [Combat settings](../server/settings/combat.md)). Healers only judge while party health is above medium levels.
 - **Player Paladins:** Active judgements placed by human players are respected and never overwritten.
 
 </details>
@@ -73,7 +73,7 @@ When enabled, paladin bots coordinate to maintain *Judgement of Wisdom* and *Jud
 - **Hands:** Casts *Hand of Protection* on non-tank allies facing physical danger, *Hand of Freedom* on rooted allies, and *Hand of Sacrifice* for damage redistribution. Checks for *Forbearance* to prevent wasted casts.
 - **Auras:** Holy runs *Concentration Aura*, Protection runs *Retribution Aura*, and Retribution runs *Sanctity Aura*. Paladins automatically swap to *Fire Resistance Aura* or *Shadow Resistance Aura* on applicable raid encounters.
 - **Cleansing:** Uses *Cleanse* and *Purify* to remove poisons, diseases, and magic debuffs from self and allies.
-- **Crowd Control & Stuns:** Casts *Hammer of Justice* to stun dangerous casters or runners. *Repentance* provides humanoid crowd control and interrupts. *Turn Undead* is used when assigned CC on undead targets.
+- **Crowd Control & Stuns:** Casts *Hammer of Justice* to stun dangerous casters or runners. *Repentance* provides crowd control (no creature-type restriction) and interrupts; assigned-CC undead are covered by *Turn Undead*.
 - **Solo Survival:** Solo paladins with comfortable mana stand their ground and heal through combat rather than fleeing when outnumbered.
 
 ---

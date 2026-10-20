@@ -38,14 +38,14 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
 
 ### Arms & Fury (Melee DPS)
 - **Arms:**
-  - Fights in Battle Stance, casting *Mortal Strike* on cooldown and *Overpower* on dodges.
+  - Fights in Battle Stance, maintaining *Rend*, casting *Mortal Strike* on cooldown and *Overpower* on dodges.
   - Cleaves packs with *Sweeping Strikes* and *Whirlwind* (dancing to Berserker Stance for Whirlwind).
   - Dumps rage with *Master Strike* and uses *Heroic Strike* when rage exceeds 40.
 - **Fury:**
   - Fights dual-wielding in Berserker Stance, centering rage spend on *Bloodthirst* and *Whirlwind*.
   - Activates *Death Wish*, *Recklessness*, and *Retaliation* during encounter burn phases.
 - **Execute Phase:** When targets drop below 20% health, *Execute* becomes top priority, consuming all available rage.
-- **Finishing Runners:** Warriors in Berserker Stance with *Intercept* off cooldown immediately charge after fleeing enemies within 25 yards.
+- **Finishing Runners:** Warriors in Berserker Stance with *Intercept* off cooldown immediately charge after fleeing enemies within 25 yards per [shared runner rules](overview.md#shared-bot-behaviors).
 
 ---
 
@@ -64,7 +64,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
   - *Arms:* Uses *Pummel* first, falling back to *Shield Bash* without stance dancing.
   - Interrupts only fire on active cast bars or channels; delayed instants never trigger interrupts.
 - **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
-- **Hold Ground Opt-In:** With `AiPlayerbot.PoolMeleeHoldGround = 1`, pool warriors fight through low-health emergencies using *Shield Wall* and *Last Stand* rather than fleeing.
+- **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool warriors fight through low-health emergencies using *Shield Wall* and *Last Stand* rather than fleeing.
 
 ---
 

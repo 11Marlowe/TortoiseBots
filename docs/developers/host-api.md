@@ -175,18 +175,18 @@ Current adapters:
 | --- | --- |
 | `BotHostAdapter` | startup, shutdown and world update; at startup registers the observability emitter's commander provider (`ObservabilityEmitter::SetCommanderProvider` -> `BotCommands::CollectCommanderTelemetry`, module-internal: the dashboard's Commanders tab, no core seam; the `COMMANDERS` datagram also carries map data, i.e. the commander's position, each bound bot's target and up to 24 hostile units near the lead from the `TBM:VIEW` feed's own builder, plus unit info (each bot's AI state, newest action, spell being cast, crowd control, drinking/eating and target name; each unit's level, rank, cast and crowd control; the binding's start time), read once per 2 s cycle only while a binding stands: no per-tick cost, no world scan, no new core call; fields in `runtime/CommanderTelemetry.h`, see `tools/observability/README.md`) |
 | `BotSessionAdapter` | Headless session lifecycle |
-| `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`); logs bot quest completions for `bot_events.csv`; on a bot's own `OnMapChanged` re-applies the Issue #218 instance guard to its non-combat strategies (`AiFactory::ApplyInstanceGuardOnMapChange`); `OnUpdate` (map thread, end of the owner's update) hands a bot pet more than 100 yd from its owner (the core unsummons at 120) to `BotManager::CheckNewPetSpawn` before the map updates creatures (a summon cast completing inside `Player::Update`); the same check also runs on the world thread after each bot's AI turn. Each pet guid is checked once and a pet that appeared out of sight, more than 5 yd off the owner's height or more than 30 yd away is moved onto its owner (issue #1043, `runtime/PetSpawnPolicy.h`); real players return on the first field read, and the fast path takes no lock |
+| `BotPlayerAdapter` | player lifecycle/reclaim attachment; answers core LFT managed-bot rolecheck (`IsManagedBot`/`GetBotRoles`); logs bot quest completions for `bot_events.csv`; on a bot's own `OnMapChanged` re-applies the [#218](https://github.com/Sagiroth/TortoiseBots/issues/218) instance guard to its non-combat strategies (`AiFactory::ApplyInstanceGuardOnMapChange`); `OnUpdate` (map thread, end of the owner's update) hands a bot pet more than 100 yd from its owner (the core unsummons at 120) to `BotManager::CheckNewPetSpawn` before the map updates creatures (a summon cast completing inside `Player::Update`); the same check also runs on the world thread after each bot's AI turn. Each pet guid is checked once and a pet that appeared out of sight, more than 5 yd off the owner's height or more than 30 yd away is moved onto its owner [#1043](https://github.com/Sagiroth/TortoiseBots/issues/1043), `runtime/PetSpawnPolicy.h`); real players return on the first field read, and the fast path takes no lock |
 | `BotUnitAdapter` | `UnitScript::OnUnitDeath`: killer attribution for `deaths.csv`; `UnitScript::OnDamage`: last-non-self-damager memory so Spirit of Redemption expiries (core self-kill) still log the real killer |
 | `BotChatAdapter` | native `.bot` command integration |
 | `BotPacketAdapter` | packet bridge into Existing PlayerBots (primarily AzerothCore/mod-playerbots) |
-| `HireRecruiterAdapter` | `<Mercenary Hire>` recruiter gossip (`Hire bots` wizard + capital `World buffs` branch, issue #492; pure logic in `runtime/WorldBuffPolicy.h` + `runtime/WorldBuffService.h`; capital `Mercenary contracts` branch, issue #490; pure math in `runtime/HireUnlockSync.h`) |
+| `HireRecruiterAdapter` | `<Mercenary Hire>` recruiter gossip (`Hire bots` wizard + capital `World buffs` branch, [#492](https://github.com/Sagiroth/TortoiseBots/issues/492); pure logic in `runtime/WorldBuffPolicy.h` + `runtime/WorldBuffService.h`; capital `Mercenary contracts` branch, [#490](https://github.com/Sagiroth/TortoiseBots/issues/490); pure math in `runtime/HireUnlockSync.h`) |
 | `HireGroupAdapter` | hired-companion group hooks |
-| `ClaimGuildAdapter` | `GuildScript::OnRemoveMember`/`OnDisband`: unclaims a claimed guild bot (issue #489) back to the wandering pool |
-| `WorldBuffKillAdapter` | `PlayerScript::OnCreatureKill`: Onyxia/Nefarian → invisible Rally credit 95100 via `RewardPlayerAndGroupAtEvent` (issue #492) |
-| `WorldBuffAuraAdapter` | `UnitScript::OnAuraApply`: DM/Sayge/Songflower aura → receiver-only event credit via `AreaExploredOrEventHappens`, recruiter casters ignored (issue #492) |
-| `WorldBuffPvpAdapter` | `PlayerScript::OnPVPKill`: opposite-faction kill in Silithus (zone 1377) → Silithyst credit 95101 via `RewardPlayerAndGroupAtEvent` (issue #492) |
-| `WorldBuffRaidAdapter` | `PlayerScript::OnBeforeTeleport` snapshot + `OnMapChanged` restore/strip + `OnLogout` memory cleanup for `KeepWorldBuffsInRaids` and Upper Karazhan 814 (issue #492; pure table in `runtime/WorldBuffRaidKeeper.h`) |
-| `HireUnlockKillAdapter` | `PlayerScript::OnCreatureKill` (killer only; core already fans out per member): unlock boss → per-character encounter record + `KilledMonsterCredit` counter credit, Four Horsemen on last death, bots excluded (issue #490); `OnLogin` cache load + counter sync, `OnLogout` drop, `OnDelete` row cleanup; quest-accept sync via `HireRecruiterAdapter::OnQuestAccept` |
+| `ClaimGuildAdapter` | `GuildScript::OnRemoveMember`/`OnDisband`: unclaims a claimed guild bot [#489](https://github.com/Sagiroth/TortoiseBots/issues/489) back to the wandering pool |
+| `WorldBuffKillAdapter` | `PlayerScript::OnCreatureKill`: Onyxia/Nefarian → invisible Rally credit 95100 via `RewardPlayerAndGroupAtEvent` [#492](https://github.com/Sagiroth/TortoiseBots/issues/492) |
+| `WorldBuffAuraAdapter` | `UnitScript::OnAuraApply`: DM/Sayge/Songflower aura → receiver-only event credit via `AreaExploredOrEventHappens`, recruiter casters ignored [#492](https://github.com/Sagiroth/TortoiseBots/issues/492) |
+| `WorldBuffPvpAdapter` | `PlayerScript::OnPVPKill`: opposite-faction kill in Silithus (zone 1377) → Silithyst credit 95101 via `RewardPlayerAndGroupAtEvent` [#492](https://github.com/Sagiroth/TortoiseBots/issues/492) |
+| `WorldBuffRaidAdapter` | `PlayerScript::OnBeforeTeleport` snapshot + `OnMapChanged` restore/strip + `OnLogout` memory cleanup for `KeepWorldBuffsInRaids` and Upper Karazhan 814 [#492](https://github.com/Sagiroth/TortoiseBots/issues/492); pure table in `runtime/WorldBuffRaidKeeper.h`) |
+| `HireUnlockKillAdapter` | `PlayerScript::OnCreatureKill` (killer only; core already fans out per member): unlock boss → per-character encounter record + `KilledMonsterCredit` counter credit, Four Horsemen on last death, bots excluded [#490](https://github.com/Sagiroth/TortoiseBots/issues/490); `OnLogin` cache load + counter sync, `OnLogout` drop, `OnDelete` row cleanup; quest-accept sync via `HireRecruiterAdapter::OnQuestAccept` |
 The module should prefer an existing generic hook before requesting a new core
 seam.
 
@@ -196,7 +196,7 @@ Bot AI runs on the normal world/game thread. The core exposes a generic world
 update listener mechanism, and `BotHostAdapter` drives `BotManager` / AI,
 module-owned `PlayerConvenience`, `AhMarketService`, and
 `BattlegroundQueueService` updates from that tick. The remote commander's
-binding sweep (issue #884, `BotCommands::UpdateRemoteCommanders`) runs there
+binding sweep [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), `BotCommands::UpdateRemoteCommanders`) runs there
 too: nothing while no commander is bound, otherwise a once-a-second check of
 each binding by guid (commander logout, disband, lead change), plus the
 bound commanders' `TBM:VIEW` perception feed (phase 2: one frame per
@@ -221,7 +221,7 @@ a map thread for `SAY` / `YELL` / `EMOTE` (`PACKET_PROCESS_MAP`), the
 AsyncPackets thread for `PARTY`, `RAID`, `GUILD`, `WHISPER`, `CHANNEL` and the
 other group types (`PACKET_PROCESS_DB_QUERY`, whose window overlaps the next
 tick's `WORLDHOOK_ON_UPDATE`), and the world thread only for GM sessions and
-`LANG_ADDON`. Since issue #833 `BotChatAdapter` and `BotAddonAdapter` therefore
+`LANG_ADDON`. Since [#833](https://github.com/Sagiroth/TortoiseBots/issues/833) `BotChatAdapter` and `BotAddonAdapter` therefore
 only queue an in-game player's command (requester guid, transport, a copy of the
 text — no `Player`, session or handler pointer; `commands/BotCommandQueue.h`),
 and `BotHostAdapter::OnUpdate` drains the queue every tick — right after the
@@ -237,7 +237,7 @@ in-game player (the server console, remote access, `pending_commands` rows)
 already run on the world thread and stay inline.
 
 Commands and the deferred bot chat and packets (§10) are separate queues, so
-since issue #846 every item in them carries one shared sequence number
+since [#846](https://github.com/Sagiroth/TortoiseBots/issues/846) every item in them carries one shared sequence number
 (`NextWorldQueueSequence`, `runtime/WorldThreadQueue.h`), stamped under the
 queue's lock at enqueue. Before each command the drain runs the bot chat and
 packets queued ahead of it, and after the commands the rest, merged by that
@@ -265,9 +265,9 @@ updated first and without a budget, then the random pool follows as one
 turn queue, each bot due when its AI asked to think next, capped by its
 situation (`runtime/BotTurnScheduler.h`); the pool's per-tick time budget engages
 while the previous world tick ran longer than
-`AiPlayerbot.PoolBudgetWhenTickOverMs` (0 = every tick, the default — the
-self-tuning `AiPlayerbot.TargetWorldTickMs` controller then reclaims the
-full ceilings on healthy ticks; see [Configuration](../server/configuration.md)).
+`AiPlayerbot.PoolBudgetWhenTickOverMs` (default 0 = every tick; the
+self-tuning `AiPlayerbot.TargetWorldTickMs` controller reclaims full
+ceilings on healthy ticks; see [Configuration](../server/configuration.md)).
 "Under a real player" means a live master with a network session, or a
 character on an account the pool does not own (`runtime/PlayerBotClassification.h`);
 the `random` flag and the `PlayerMaster` lease are not ownership signals.
@@ -290,7 +290,7 @@ This is module-internal scheduling and needs no core seam.
 | Durable master GUID | `BotRecord.masterGuid` |
 | Live master pointer | `PlayerbotAI` |
 | Durable hire ledger | `HireLifecycle` (`tortoise_bots_hire`) |
-| Durable claimed-guild-bot ledger | `ClaimLifecycle` (`tortoise_bots_claimed`, issue #489) |
+| Durable claimed-guild-bot ledger | `ClaimLifecycle` (`tortoise_bots_claimed`, [#489](https://github.com/Sagiroth/TortoiseBots/issues/489) |
 
 A second owner for session lifetime, AI state, movement or master identity is an
 architecture warning.
@@ -320,7 +320,7 @@ Network master incoming
 
 No bot-specific opcode branches belong in core packet handlers.
 
-Threading (issue #839, #844): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
+Threading [#839](https://github.com/Sagiroth/TortoiseBots/issues/839), #844): `SERVERHOOK_CAN_PACKET_SEND` fires on the thread that
 calls `WorldSession::SendPacket` and `SERVERHOOK_CAN_PACKET_RECEIVE` on the thread
 that processes the packet (`WorldSession::ProcessPackets`): the world thread, a
 map thread, the AsyncPackets thread (party / raid / guild / whisper chat, name
@@ -346,13 +346,13 @@ the same table the AI registers its handlers from).
 
 | Entry | Threads | What it does now |
 | --- | --- | --- |
-| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped. Not copied (issue #846, `runtime/BotChatGate.h`): any line for a bot whose `AllowActivity()` is false (activity throttling only), and Trade-channel lines that do not name a masterless, unhired, non-recording pool bot (#469) — the gates the AI applies first, published by each AI's update on change |
+| `CanPacketSend`, headless session, `SMSG_MESSAGECHAT` | any (AsyncPackets, ChannelBroadcaster, map, world) | copies the packet (chat types the AI reacts to only) into the per-bot chat FIFO, also on the world thread; the drain runs `HandleBotOutgoingPacket`, so party / whisper commands and chat state change on the world thread, in arrival order per bot, at most one tick later; over 64 per bot per tick are dropped. Not copied [#846](https://github.com/Sagiroth/TortoiseBots/issues/846), `runtime/BotChatGate.h`): any line for a bot whose `AllowActivity()` is false (activity throttling only), and Trade-channel lines that do not name a masterless, unhired, non-recording pool bot (#469) — the gates the AI applies first, published by each AI's update on change |
 | `CanPacketSend`, headless session, other handled opcodes (invites, loot, quest updates, cast results, spell failure / delay, knockback, ...) | any; the spell / knockback cases come from the bot's map thread or the world thread | world thread: `HandleBotOutgoingPacket` at once. Otherwise: the bot guid from `PlayerbotAIStorage::GetBotGuid` (pointer comparison, no `Player` dereference), a copy into the per-bot packet FIFO, `HandleBotOutgoingPacket` in the drain; over 256 per bot per tick are dropped. A map-thread packet is handled before any further map update, so the AI sees the same game state |
 | `CanPacketSend`, network master session | any | bot guids from `BotManager::GetBotGuidsForMasterAnyThread` (a master -> bot view published under a lock at the end of every `OnWorldUpdate`, at most one tick stale); world thread: `HandleMasterOutgoingPacket` at once; otherwise one shared copy queued for every bot, handed over in the drain |
 | `CanPacketReceive` / `DispatchMasterIncoming` | world, map or AsyncPackets | same view and the same world-thread-inline / queue-elsewhere split, `HandleMasterIncomingPacket` |
 | `CanPacketReceive` / `MaybeSendMimicSummary` (`CMSG_USE_ITEM`) | the master's map thread (`PACKET_PROCESS_MAP`) | same view; reads AI strategy flags and whispers directly: the world thread waits in `MapManager::Update` while map threads run, so no AI is updated or deleted meanwhile |
 
-Both caps drop silently in play; since issue #846 the end-of-tick drain logs
+Both caps drop silently in play; since [#846](https://github.com/Sagiroth/TortoiseBots/issues/846) the end-of-tick drain logs
 the drops at `TortoiseBots.LogLevel = 3` (debug), at most once per bot
 per minute, with the count since the bot's last line. General, LFG and World
 channel lines still reach masterless pool bots: they reply there, so their cost
@@ -482,7 +482,7 @@ action cc <raid-mark> [bot]  # star/circle/diamond/triangle/moon/square/cross/sk
 action cc clear [bot]  # dismiss ownership: named bot, targeted bot, or whole owned party; ACK scope bot:<Name> or party
 action auto cc [on|off]  # opt-in smart auto CC (OFF default); per-bot persisted strategy toggle; ACK on|off|mixed
 action aoe [on|off]
-commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander (issue #884, AiPlayerbot.RemoteCommander, default off)
+commander bind <LeadBot> [<Bot>...] | unbind | status | view on|off  # remote commander [#884](https://github.com/Sagiroth/TortoiseBots/issues/884), AiPlayerbot.RemoteCommander, default off)
 cmd attack|pull|pullback <guid> [seconds] | cc <mark> <guid> [bot] | focus <guid> | move <x> <y> <z> | stay | follow | rest | revive <bot> | summon <bot>  # orders to the bound group; ACK/ERR intent "cmd <verb>"
 inv <bot>  # TBM:INV_BEGIN/INV_EQ/INV_ITEM/INV_END inventory snapshot
 item <bot> trade | equip|unequip|give <bag> <slot>  # item order by server bag/slot; ACK/ERR intent "item <op>"
@@ -514,7 +514,7 @@ companion UI does not print request or reply lines into the chat frame.
 explicit cross-account ownership rows from the module-owned durable table. It
 emits the stable six-field `TBM:ROSTER_BEGIN`, `TBM:ROSTER`, and
 `TBM:ROSTER_END` system-message stream, then one `TBM:ALTBOTS|<name,name>` line
-naming the roster characters that currently play on their own (issue #872; empty
+naming the roster characters that currently play on their own [#872](https://github.com/Sagiroth/TortoiseBots/issues/872); empty
 after the pipe when none; older addons ignore it), followed by a separate
 `TBM:CC_ASSIGN_BEGIN`, `TBM:CC_ASSIGN`, `TBM:CC_ASSIGN_END` stream for live
 CC assignments of the controllable party bots that have the `cc` strategy and a
@@ -551,7 +551,7 @@ the other class actions remain eligible without a second class policy table.
 Among the bots whose mature action is usable, the best spell fit wins (Sap on an
 unengaged target, then Shackle Undead, Banish, Hibernate, Polymorph, Freezing
 Trap, Turn Undead, Scare Beast, Entangling Roots, and Fear last). Ties go to the
-lowest bot GUID, so the choice never depends on party invite order (issue #58).
+lowest bot GUID, so the choice never depends on party invite order [#58](https://github.com/Sagiroth/TortoiseBots/issues/58).
 Assignment is persisted even when the current marked creature is not legal for
 the selected bot; the immediate cast is best-effort and normal AI fallback
 remains available. Inside non-raid dungeons the generic CC triggers fire only
@@ -872,7 +872,7 @@ hire ends its character is deleted (`.bot hire`, `<Mercenary Hire>`, and the
   immediately reuses the freed slot instead of being pushed onto a brand-new
   pool account (or rejected while the deletion queue drains).
 
-## 18.3 Claimed guild bots are protected pool alts (issue #489)
+## 18.3 Claimed guild bots are protected pool alts [#489](https://github.com/Sagiroth/TortoiseBots/issues/489)
 
 A wandering pool bot invited into a player's guild via `/ginvite` becomes a
 **claimed guild bot**: it stays on its pool account (avoiding the

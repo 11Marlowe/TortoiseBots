@@ -86,7 +86,7 @@ This leaves disabled services inert, including periodic performance reporting
 and stale-hire recovery. The AI enable flag is read at startup; changing it
 requires a restart.
 
-Within that world-tick pass, `BotManager::UpdateBots` schedules bots without any core involvement: bots under a real player update first and unbudgeted, the random pool follows as one turn queue (each bot due when its AI asked to think next, capped by its situation, most overdue first) whose per-tick budget engages only while the previous world tick ran long (see [Strategy Engine & Action Scheduling](strategy-engine.md) and [Performance settings](../server/settings/performance.md)).
+Within that world-tick pass, `BotManager::UpdateBots` schedules bots without any core involvement: bots under a real player update first and unbudgeted, while the random pool follows as a turn queue whose per-tick budget engages only while the previous world tick ran long. For scheduling details, see [Strategy Engine & Action Scheduling](strategy-engine.md).
 
 Module and bot AI state is touched on the world thread only. A player's `.bot` or `TBM` command can arrive on a map or AsyncPackets thread, so the command adapters queue it (requester guid + text, never a pointer) and the world tick drains it before the bot update (every tick, also with the AI disabled); commands without an in-game player run inline (they are already on the world thread). See [host-api.md](host-api.md). The packet hooks follow the same rule: chat delivered to a bot is copied and handled by the world tick, and master -> bot lookups off the world thread read a guid view `BotManager` publishes under a lock once per tick instead of walking its records. A bot's AI is deleted on the world thread, and the AI storage lock covers only the lookup, so a packet hook off the world thread never keeps a `PlayerbotAI` or bot `Player` pointer: every packet an AI handles is copied, keyed by the bot's guid, and handed to the AI by the same world-tick drain, which resolves the guid again. Only a hook on the world thread itself, and the master's map-thread mimic summary (the world thread waits for map threads), use an AI directly. Commands, deferred chat and deferred packets share one sequence number stamped at enqueue, and the drain runs them merged by it, so a player's chat and `.bot` commands reach the bots in the order the module received them. To keep that world-thread drain cheap, each AI publishes the chat its first checks would drop (`runtime/BotChatGate.h`) and the hook does not copy those lines.
 
@@ -95,22 +95,8 @@ LLM-based chat interactions are purely asynchronous and decoupled. If an LLM bac
 
 ---
 
-## Architectural Warts & Design Decisions
+## Architectural Boundaries
 
+Player-facing boundaries, gameplay quirks, and project non-goals are cataloged in [Known Limitations & Quirks](../play/known-limitations.md). Key architectural invariants include:
 - **Summon Sequencing:** Re-binding the master occurs before follow movement is resumed to guarantee ownership cannot be hijacked during a teleport transition.
 - **Out-of-AH Inventory Queries:** Bots check their inventory values using cached vendor and pricing models rather than sending world-wide auction queries.
-- **Totem Range Churn:** Shamans occasionally refresh totems when moving between combat anchors.
-- **Fake Client Packets:** Certain player operations (such as interaction requests or trade confirmations) use synthetic client packet injection to reuse core validation handlers safely without core coupling.
-
----
-
-## Project Non-Goals
-
-- **Autonomous Dungeon Clear (`mod-dungeon-clear` / `.dc` commands):**
-  Autonomous bot pathfinding that clears entire dungeons without a human leader is explicitly excluded. Dungeons are designed for a human player leading companion bots.
-- **Expansion Mechanics (TBC / WotLK):**
-  No Death Knights, glyphs, vehicles, Arena ratings, or expansion zones (e.g. Outland, Northrend). All classes are strictly Vanilla 1.12 with Turtle WoW 1.18.1 additions.
-- **Synchronous LLM in Combat or Movement:**
-  LLM chat is disabled in this build (`PlayerbotLLMInterface::Generate()` returns no response). Combat, movement, healing, threat, and interrupts never depend on it.
-- **Guild Vaults:**
-  Turtle WoW 1.18.1 does not feature multi-tab WotLK-style guild vaults; all guild bank actions fail closed gracefully.

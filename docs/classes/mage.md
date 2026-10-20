@@ -31,13 +31,14 @@ Mages provide high-burst ranged spell DPS, dependable crowd control (*Polymorph*
 - Casts *Flamestrike* on 3 or more grouped enemies, layering channeled *Blizzard* over the burning zone.
 - Weaves *Cone of Cold* against 2 or more attackers in front of the mage within 10 yards.
 - Activates *Cold Snap* once major Frost cooldowns (*Frost Nova*, *Ice Barrier*, *Ice Block*) are spent.
-- Area spells (*Blizzard*, *Flamestrike*, *Cone of Cold*) pause during party threat back-off if holding 50% or more tank threat.
+- Area spells (*Blizzard*, *Flamestrike*, *Cone of Cold*) pause during [party threat back-off](overview.md#shared-bot-behaviors) if holding 50% or more tank threat.
 
 ### Fire Mage
 - Casts *Fireball* as primary filler and weaves *Scorch* to maintain Fire Vulnerability debuffs.
 - Rushes instant *Pyroblast* casts upon reaching full *Hot Streak* stacks.
 - Consumes *Presence of Mind* with instant *Pyroblast*.
 - Uses *Fire Blast* on the move or as an instant finishing blow.
+- Casts *Blast Wave* as a point-blank interrupt and daze against nearby clustered enemies.
 - Automatically falls back to *Frostbolt* when facing fire-immune enemies.
 
 ### Arcane Mage

@@ -25,14 +25,14 @@ Priests provide comprehensive healing coverage through layered spell ladders, da
 ## What the bot does in combat
 
 ### The Priest Healing Ladder
-Priests select healing spells based on defined health bands (Critical 20% / Low 50% / Medium 70% / Almost-Full 90%):
+Priests select healing spells based on defined health bands (bands follow [Combat settings](../server/settings/combat.md)):
 - **Critical (<20%):** *Power Word: Shield* + *Flash Heal*.
 - **Low (20%–50%):** *Power Word: Shield* + *Flash Heal* + *Greater Heal* / *Heal*.
 - **Medium (50%–70%):** *Power Word: Shield* + *Flash Heal* + *Greater Heal* + *Heal* + *Renew*.
 - **Almost-Full (70%–90%):** *Renew* (Discipline shields first).
 - **Multiple Injured:** *Prayer of Healing* (requires 5+ nearby members, 3 hurt in a 5-man scaling to 15 in a raid).
 
-Direct heals are downranked to match target wounds, using the lowest rank covering missing health. Full ranks are enforced whenever the target falls below 50% health. *Desperate Prayer* serves as a self-only emergency heal.
+Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#shared-bot-behaviors), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls below 50% health. *Desperate Prayer* serves as a self-only emergency heal.
 
 ### Power Word: Shield & Weakened Soul Refusal
 The bot verifies that the target does not have the *Weakened Soul* debuff before casting *Power Word: Shield*. If present, the shield is skipped in favor of direct heals.
@@ -44,7 +44,7 @@ The bot verifies that the target does not have the *Weakened Soul* debuff before
 ### Shadow DPS Rotation
 1. Maintains *Shadowform*.
 2. Keeps *Vampiric Embrace* active on primary targets to return party healing.
-3. Applies and maintains *Shadow Word: Pain*.
+3. Applies and maintains *Shadow Word: Pain* (undead priests also keep *Devouring Plague*).
 4. Casts *Mind Blast* on cooldown.
 5. Channels *Mind Flay* as primary filler, stacking *Shadow Weaving* where talented.
 6. Casts *Silence* to interrupt dangerous enemy spellcasters and healers.
@@ -52,7 +52,7 @@ The bot verifies that the target does not have the *Weakened Soul* debuff before
 <details>
 <summary>Healer off-spec damage and wand stops</summary>
 
-- **Off-spec DPS:** Enabled by default via the `offdps` strategy. Grouped healers only damage when no party member is below 90% health and mana exceeds 70% (85% in difficult fights), casting *Shadow Word: Pain*, *Smite*, or *Mind Blast* against engaged mobs.
+- **Off-spec DPS:** Enabled by default via the `offdps` strategy per [healer off-DPS rules](overview.md#shared-bot-behaviors), casting *Shadow Word: Pain*, *Holy Fire*, *Smite*, *Starshards*, or *Mind Blast* (*Holy Nova* into packed melee) against engaged mobs.
 - **Wand Stops:** Because wand shots incur global cooldown on Turtle WoW, the `wand blocks cast` trigger stops active wanding as soon as a party member requires healing or crowd control.
 
 </details>
