@@ -423,6 +423,8 @@ def main():
     # slot 17 per class: relic-only (druid idol / paladin libram / shaman
     # totem, invtype 28) for shaman/druid/paladin; hunters use ranged.
     RELIC_ONLY = {7, 11, 2}
+    # head, shoulders, chest, waist, legs, feet, wrist, hands, robe (not cloaks)
+    MAIL_ARMOR_INV = {1, 3, 5, 6, 7, 8, 9, 10, 20}
 
     def usable(item, cls):
         s = stats.get(item)
@@ -707,8 +709,16 @@ def main():
 
                 def allowed(it):
                     t = tier_of(it)
-                    return t is not None and t <= tier and not excluded(it) \
-                        and usable(it, cls)
+                    if t is None or t > tier or excluded(it) \
+                            or not usable(it, cls):
+                        return False
+                    # the shaman tank wears mail for armor (the Enhancement
+                    # lists it borrows rank leather agility pieces high).
+                    s = stats.get(it)
+                    if (cls, spec) == (7, "tank") and s[2] == 4 \
+                            and s[3] in (1, 2) and s[4] in MAIL_ARMOR_INV:
+                        return False
+                    return True
 
                 # generic slot vs inventory_type gate (orchestrator rule):
                 # 15 accepts 13,17,21; 16 accepts 13,14,22,23 (17 never —
@@ -1054,8 +1064,10 @@ def main():
                     # the current phase list, then tier, then t0 floor).
                     # NOTE: reads prev_tier (snapshot), NOT prev[] which the
                     # slot loop already overwrote with this tier's picks.
+                    # never revert to the item slot `a` already holds
+                    # (unique-equip), or the set keeps the duplicate.
                     if rep is not None and b in prev_tier \
-                            and prev_tier[b] not in (0, rep):
+                            and prev_tier[b] not in (0, rep, ia):
                         phase_ranks = {}
                         for cs in cand_slots:
                             for rk, it, oh in ranked.get(
