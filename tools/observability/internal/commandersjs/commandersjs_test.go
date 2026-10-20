@@ -69,6 +69,12 @@ func TestRefreshWiringJS(t *testing.T) {
 	runCheck(t, "refresh_wiring_check.js", "../../web/static/js/app.js")
 }
 
+// TestAgentMapsJS runs agentmaps_check.js: the Agent maps list (sizes, URL encoding, the viewer's sandbox and escaping a file name
+// that looks like markup).
+func TestAgentMapsJS(t *testing.T) {
+	runCheck(t, "agentmaps_check.js", "../../web/static/js/agentmaps.js")
+}
+
 // TestDungeonsJS runs dungeons_check.js: the Dungeons tab's run states, copy labels, party rows and raid subgroup blocks.
 func TestDungeonsJS(t *testing.T) {
 	node, err := exec.LookPath("node")

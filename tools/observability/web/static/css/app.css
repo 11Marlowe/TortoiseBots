@@ -908,6 +908,21 @@ select.input {
   color: var(--text-dim);
 }
 
+/* Agent maps tab: a file name is the button that opens it inline, so it reads as a link, not a browser button. */
+.agent-map-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-blue-bright);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.agent-map-open:hover,
+.agent-map-open:focus-visible {
+  text-decoration: underline;
+}
+
 .cell-time {
   font-size: 0.74rem;
   color: var(--text-muted);

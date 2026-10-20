@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <title>TortoiseBots — Server & Bot Observability</title>
-  <link rel="stylesheet" href="/static/css/app.css?v=12">
+  <link rel="stylesheet" href="/static/css/app.css?v=13">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%232ea043%22 stroke-width=%222%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22><polygon points=%2212 2 2 7 12 12 22 7 12 2%22/><polyline points=%222 17 12 22 22 17%22/><polyline points=%222 12 12 17 22 12%22/></svg>">
 </head>
 <body>
@@ -44,6 +44,11 @@
       <a class="menu-item" data-tab="dungeons" href="#/dungeons" title="Live view of every dungeon or raid copy that has bots in it">
         <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18"/><path d="M5 21V8l4-4 2 3 3-5 3 5 2-3v17"/><path d="M9 21v-4h6v4"/></svg>
         <span>Dungeons</span>
+      </a>
+
+      <a class="menu-item" data-tab="agentmaps" href="#/agent-maps" style="display: none;" title="turtle-agent run maps (SVG and single-file HTML replays) from the folder the daemon was given">
+        <svg class="menu-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 20l-5.5 2V6L9 4l6 2 5.5-2v16L15 22l-6-2z"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="6" x2="15" y2="22"/></svg>
+        <span>Agent maps</span>
       </a>
 
       <a class="menu-item" data-tab="commanders" href="#/commanders" style="display: none;" title="Remote commanders: the bots each one leads, where they are and the orders it gave">
@@ -478,6 +483,39 @@
         </div>
       </section>
 
+      <!-- TAB: AGENT MAPS — turtle-agent run maps from --agent-maps-dir, read-only and off unless the folder is set (issue #1102) -->
+      <section id="tab-agentmaps" class="tab-view" style="display: none;">
+        <div id="am-off" class="card cmd-empty" style="display: none;">
+          <h2 class="cmd-empty-title">Agent maps are off</h2>
+          <p class="empty-hint">Start the daemon with <code>--agent-maps-dir DIR</code> (or <code>TBDASH_AGENT_MAPS_DIR=DIR</code>), pointing at the folder <code>turtle-agent map</code> writes its <code>.svg</code> maps and single-file <code>.html</code> replays into. The tab then lists that folder read-only; nothing is uploaded, written or deleted.</p>
+        </div>
+        <div id="am-list-card" class="card table-card" style="display: none;">
+          <div class="card-head">
+            <h2 class="card-title">Run maps <span class="card-hint" id="am-count"></span></h2>
+            <button type="button" id="am-refresh" class="btn" title="Read the folder again">Refresh</button>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead><tr><th>Map</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead>
+              <tbody id="am-rows">
+                <tr><td colspan="4" class="table-empty">Loading run maps…</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="empty-hint" id="am-note"></p>
+        </div>
+        <div id="am-viewer" style="display: none;">
+          <div class="card dgn-head">
+            <button type="button" id="am-back" class="btn" title="Back to the list of run maps">&larr; All maps</button>
+            <h2 id="am-title"></h2>
+            <div id="am-meta" class="muted"></div>
+          </div>
+          <div class="card">
+            <iframe id="am-frame" class="cmd-frame" title="Agent run map" referrerpolicy="no-referrer" sandbox=""></iframe>
+          </div>
+        </div>
+      </section>
+
       <!-- TAB: COMMANDERS — who leads which bots, and what did they order -->
       <section id="tab-commanders" class="tab-view" style="display: none;">
         <div class="kpi-row">
@@ -718,10 +756,11 @@
 <script src="/static/js/refresh.js?v=1"></script>
 <script src="/static/js/commanders.js?v=6"></script>
 <script src="/static/js/dungeons.js?v=1"></script>
+<script src="/static/js/agentmaps.js?v=1"></script>
 <script src="/static/js/maplayers.js?v=4"></script>
 <script src="/static/js/unitinfo.js?v=2"></script>
 <script src="/static/js/paths.js?v=2"></script>
 <script src="/static/js/demo.js?v=1"></script>
-<script src="/static/js/app.js?v=17"></script>
+<script src="/static/js/app.js?v=18"></script>
 </body>
 </html>
