@@ -28,12 +28,24 @@ namespace ai
         return knowsWaterShield && manaPct <= 66;
     }
 
-    // Chain Lightning pack gate: 2+ mobs (REVISION overrides the old 4+).
-    // Attacker count here means mobs on the bot; the pull path uses the
-    // possible-targets count instead (see TankShamanPullWantsChainLightning).
-    inline bool ChainLightningPackShouldFire(std::uint8_t attackerCount)
+    // Hard-cast gate: a tank taking hits cannot hard-cast without pushback
+    // and interrupts (Chain Lightning, Lightning Bolt). Hard casts are only
+    // permitted while nothing is hitting the tank (pull / range before contact,
+    // or while free of attackers).
+    inline bool TankHardCastAllowed(std::uint8_t attackerCount)
     {
-        return attackerCount >= 2;
+        return attackerCount == 0;
+    }
+
+    // Chain Lightning pack gate: 2+ mobs standing ahead, provided nothing is
+    // hitting the tank. Once mobs reach the tank (attackerCount > 0), hard
+    // casts are suppressed; the tank uses instant spells and strikes instead
+    // (Earth Shock, Stoneclaw, Fire Nova, weapon strikes).
+    inline bool TankChainLightningShouldFire(std::uint8_t attackerCount, std::uint8_t packSize)
+    {
+        if (!TankHardCastAllowed(attackerCount))
+            return false;
+        return packSize >= 2;
     }
 
     // Chain Lightning pull branch: fire CL on any pull of 2+ mobs, single
@@ -43,6 +55,7 @@ namespace ai
     {
         return possibleTargets >= 2;
     }
+
 
     // Earth Shock fight gate (REVISION + live fix): any elite (creature
     // rank above normal — elite, rare-elite, world boss and rare, anywhere)

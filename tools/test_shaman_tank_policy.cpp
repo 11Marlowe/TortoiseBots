@@ -10,8 +10,9 @@
     } \
 } while (0)
 
-using ai::ChainLightningPackShouldFire;
+using ai::TankChainLightningShouldFire;
 using ai::TankEarthTotemIsStrength;
+using ai::TankHardCastAllowed;
 using ai::TankMagmaShouldFollow;
 using ai::TankShamanTargetIsElite;
 using ai::TankShamanEarthShockFreeFire;
@@ -42,14 +43,27 @@ int main()
     CHECK(TankShamanWantsWaterShield(false, 10) == false);
     std::cout << "  [PASS] water shield takes over at two thirds mana\n";
 
-    // Chain Lightning: 2+ mobs, both mid-fight and on the pull.
-    CHECK(ChainLightningPackShouldFire(0) == false);
-    CHECK(ChainLightningPackShouldFire(1) == false);
-    CHECK(ChainLightningPackShouldFire(2) == true);
-    CHECK(ChainLightningPackShouldFire(5) == true);
+    // Hard-cast gate: allowed when 0 attackers, forbidden when 1+ mobs on the tank.
+    CHECK(TankHardCastAllowed(0) == true);
+    CHECK(TankHardCastAllowed(1) == false);
+    CHECK(TankHardCastAllowed(2) == false);
+    CHECK(TankHardCastAllowed(5) == false);
+    std::cout << "  [PASS] hard-casts forbidden once mobs hit the tank\n";
+
+    // Chain Lightning: pull tool for 2+ mobs and fine while free of attackers,
+    // blocked once mobs are on the tank.
+    CHECK(TankChainLightningShouldFire(0, 2) == true);
+    CHECK(TankChainLightningShouldFire(0, 5) == true);
+    CHECK(TankChainLightningShouldFire(0, 1) == false);
+    CHECK(TankChainLightningShouldFire(0, 0) == false);
+    CHECK(TankChainLightningShouldFire(1, 2) == false);
+    CHECK(TankChainLightningShouldFire(2, 2) == false);
+    CHECK(TankChainLightningShouldFire(5, 5) == false);
+    CHECK(TankChainLightningShouldFire(0, 2) == true);
+    CHECK(TankChainLightningShouldFire(2, 2) == false);
     CHECK(TankShamanPullWantsChainLightning(1) == false);
     CHECK(TankShamanPullWantsChainLightning(2) == true);
-    std::cout << "  [PASS] chain lightning fires on 2+ mobs\n";
+    std::cout << "  [PASS] chain lightning fires only when not being hit and pack >= 2\n";
 
     // Earth Shock fight gate: bosses/elites/raid instances burn it on
     // cooldown; normal 5-man trash stays economical.
