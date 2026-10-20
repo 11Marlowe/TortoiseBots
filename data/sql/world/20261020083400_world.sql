@@ -1,4 +1,4 @@
--- Boss tactics: Zul'Farrak (map 209) rows, first content.
+-- Boss tactics: Zul Farrak (map 209) rows, first content.
 --
 -- Same table and loader as the Uldaman rows (data/sql/world/20261014120000_world.sql), the
 -- phase 1a rows (20261018120925_world.sql) and the Windhorn/Gilneas/Karazhan/Crescent rows
@@ -60,7 +60,7 @@ INSERT INTO `ai_boss_tactic` (`map`, `boss_entry`, `kind`, `target_entry`, `spel
 -- list membership not traced, live check). Servants first, in both waves.
 (209, 8127, 'kill_first', 8156, 0, 1, 0, 'Antusul: Servant of Antusul first (summoned by 11894, events 812705/812706)');
 
--- No behind rows in Zul'Farrak. Chief Ukorz Sandscalp (7267, spell list 72670) casts Cleave
+-- No behind rows in Zul Farrak. Chief Ukorz Sandscalp (7267, spell list 72670) casts Cleave
 -- 15496 (first at 6-20 s, then every 8-19 s) and Ruuzlu (7797, spell list 77970) casts it
 -- (first at 7-12 s, then every 7-18 s): effect 58 on a unit target (implicit target 6),
 -- radius index 0 and no radius in the spell text, so there is no yard value for a behind row

@@ -167,7 +167,7 @@ What needs a live check (not verified in game): whether interrupting Ranathos' 2
 
 ## Zul'Farrak rows (map 209)
 
-Rows added 2026-10-20 (`data/sql/world/20261020080622_world.sql`), read from `tortoise-wow` 5d79486. All three bosses carry their list through `creature_template.spell_list_id`; the cast-time rule is the same as above (no SpellCastTimes.dbc, so `castingTimeIndex` above 1 plus the kick bits in `interruptFlags`).
+Rows added 2026-10-20 (`data/sql/world/20261020083400_world.sql`), read from `tortoise-wow` 5d79486. All three bosses carry their list through `creature_template.spell_list_id`; the cast-time rule is the same as above (no SpellCastTimes.dbc, so `castingTimeIndex` above 1 plus the kick bits in `interruptFlags`).
 
 | Boss (entry) | Row | Data behind it |
 | :--- | :--- | :--- |
