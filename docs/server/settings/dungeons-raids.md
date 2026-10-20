@@ -21,6 +21,8 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.BombRunoutDistance`](#aiplayerbotbombrunoutdistance) | `30.0` | Distance in yards bomb debuff carriers run clear of the living group. |
 | [`AiPlayerbot.BotAreaTriggers`](#aiplayerbotbotareatriggers) | *(empty)* | Audited allowlist of scripted area triggers a bot party may fire (off when empty; opt in with `962`). |
 | [`AiPlayerbot.BotGossipNpcs`](#aiplayerbotbotgossipnpcs) | *(empty)* | Creature entries `.bot cmd gossip` may talk to (empty: every gossip order is refused). |
+| [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
+| [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
 | [`AiPlayerbot.DungeonSelfClear`](#aiplayerbotdungeonselfclear) | `0` | Lets a bound remote commander start the opt-in run leader (`.bot run`). |
 | [`AiPlayerbot.DungeonTactics`](#aiplayerbotdungeontactics) | `0` | Applies the per-boss tactics table (`ai_boss_tactic`) to every bot, not only commanded parties. |
@@ -79,6 +81,28 @@ Allowlist of creature entries the `.bot cmd gossip` order may talk to (issue #10
 <summary>How it works in detail</summary>
 
 **Bot gossip allowlist (issue #1012):** comma-separated creature entries that `.bot cmd gossip` may talk to. A gossip option can do anything its script says (take money, give items, teleport), so list only NPCs whose scripts you have read. Empty: every gossip order is refused with `not-allowed` before anything is sent to the NPC. Audited: `7604` Sergeant Bly (starts his fight after the Zul'Farrak pyramid event) and `7607` Weegli Blastfuse (blows the End Door after it), so `7607,7604` opens both. See [`.bot cmd gossip`](../../play/commands/commander.md#bot-cmd-gossip).
+
+</details>
+
+### `AiPlayerbot.DungeonRunAggroCeiling`
+The number of joiners (creatures besides the one pulled) above which the run leader rests the party before a pull.
+**Default:** `6` · **Values:** `1` and up · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Only read while [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) is `1`. A pull whose estimate is exactly the ceiling goes out as before; one more joiner holds it once. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#aggro-estimate).
+
+</details>
+
+### `AiPlayerbot.DungeonRunAggroEstimate`
+Lets the run leader (`.bot run`) estimate how many creatures a pull would bring and rest the party first when that is many.
+**Default:** `0` · **Values:** `0` off (the run leader pulls exactly as before), `1` on · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Pull aggro estimate:** before each pack pull the run leader counts the creatures that would come with the pulled one, by the core's own wake-up rules: the pulled creature's whole pack (`creature_groups` that aggro together, `creature_linking` rows), every creature whose aggro radius reaches the spot the party pulls from (detection range 20 yd, widened or narrowed by the level difference to the lowest party member, plus a few yards of drift), and one ring of family assistance (same faction, 10 yd, `CreatureFamilyAssistanceRadius`). When more than [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) would join, the status note reads `N joiners expected` and the party rests to its end lines once for that pull. It adds no movement and never skips a pull; with `0` nothing is estimated. Only read while `AiPlayerbot.DungeonSelfClear = 1`. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#aggro-estimate).
 
 </details>
 

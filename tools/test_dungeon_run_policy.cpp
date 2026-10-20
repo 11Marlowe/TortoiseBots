@@ -4051,6 +4051,126 @@ static void TestBrokenHopPausesAndSkippedHopRowHasNoDirectOrder()
         CHECK(!IsDirectOrder(Tick(o, g)));
 }
 
+// AiPlayerbot.DungeonRunAggroEstimate: a pull expected to bring more joiners
+// than the ceiling waits once, on the rest wait, for the party to be rested.
+static UnitFact Joiners(std::uint64_t guid, std::uint32_t entry, float dist, std::uint32_t joiners, bool patrol = false)
+{
+    UnitFact u = Unit(guid, entry, dist);
+    u.joiners = joiners;
+    u.joinersPatrol = patrol;
+    return u;
+}
+
+static void TestAggroEstimateOffChangesNothing()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852}), PullStep(40, {4851})};
+    Run plain = Start(&plan);
+    Run off = Start(&plan);
+    Facts a = Party(0);
+    a.units = {Unit(31, 4852, 54.7f)};
+    a.minHealthPct = 85;
+    Facts b = a;
+    b.units = {Joiners(31, 4852, 54.7f, 40, true)}; // the estimate is read, the ceiling is off
+    CHECK(b.joinerCeiling == 0);
+    for (int i = 0; i < 40; ++i)
+    {
+        std::string const oa = Tick(plain, a);
+        std::string const ob = Tick(off, b);
+        CHECK(oa == ob);
+        CHECK(plain.note == off.note && plain.phase == off.phase && plain.step == off.step);
+        CHECK(StatusLine(plain) == StatusLine(off));
+        CHECK(!off.joinerRest && off.joinerHeld.empty());
+        if (i == 3)
+        {
+            a.anyInCombat = b.anyInCombat = true;
+            a.units.clear();
+            b.units.clear();
+        }
+        if (i == 5)
+            a.anyInCombat = b.anyInCombat = false;
+    }
+}
+
+static void TestAggroEstimateHoldsOnceForARest()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    f.units = {Joiners(31, 4852, 54.7f, 7)};
+    f.minHealthPct = 85; // above the start lines, under the end lines
+    // Over the ceiling: a note, no order; then the rest wait; then the pull.
+    Run r = Start(&plan);
+    CHECK(Tick(r, f).empty());
+    CHECK(r.note == "7 joiners expected" && r.joinerHeld.count(31));
+    CHECK(r.phase != Phase::AwaitPull && r.pulls == 0);
+    CHECK(Tick(r, f) == "rest");
+    CHECK(r.phase == Phase::Rest && r.note == "resting: 7 joiners expected");
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).find("pullback") == std::string::npos);
+    f.minHealthPct = 100;
+    std::string order;
+    for (int i = 0; i < 5 && order.find("pullback") == std::string::npos; ++i)
+        order = Tick(r, f);
+    CHECK(order == "pullback 31");
+    // Only once per unit: after a fruitless pull the same unit goes out again at once.
+    CHECK(r.joinerHeld.size() == 1 && !r.joinerRest);
+
+    // Already rested: the note, then the pull, no rest order.
+    Run e = Start(&plan);
+    CHECK(Tick(e, f).empty());
+    CHECK(e.note == "7 joiners expected");
+    CHECK(Tick(e, f) == "pullback 31");
+    CHECK(e.phase == Phase::AwaitPull);
+
+    // At the ceiling is not over it, and 0 expected joiners never waits.
+    f.minHealthPct = 85;
+    f.units = {Joiners(31, 4852, 54.7f, 6)};
+    Run at = Start(&plan);
+    CHECK(Tick(at, f) == "pullback 31");
+    f.units = {Joiners(31, 4852, 54.7f, 0)};
+    Run none = Start(&plan);
+    CHECK(Tick(none, f) == "pullback 31");
+
+    // A patrol being the whole reason is said.
+    f.units = {Joiners(31, 4852, 54.7f, 8, true)};
+    Run patrol = Start(&plan);
+    CHECK(Tick(patrol, f).empty());
+    CHECK(patrol.note == "8 joiners expected (a patrol is the cause)");
+
+    // Inside a scripted event the rest wait is not entered.
+    f.units = {Joiners(31, 4852, 54.7f, 8)};
+    Run ev = Start(&plan);
+    ev.eventOn = true;
+    CHECK(Tick(ev, f).empty());
+    CHECK(Tick(ev, f) == "pullback 31");
+    CHECK(ev.phase != Phase::Rest);
+
+    // A fight that begins before the rest is due does not start one.
+    Run fight = Start(&plan);
+    CHECK(Tick(fight, f).empty());
+    CHECK(fight.joinerRest);
+    f.anyInCombat = true;
+    CHECK(Tick(fight, f).empty());
+    CHECK(!fight.joinerRest && fight.phase != Phase::Rest && fight.fighting);
+
+    // A step's reset (also a resume) forgets the hold.
+    Run reset = Start(&plan);
+    f.anyInCombat = false;
+    CHECK(Tick(reset, f).empty() && reset.joinerRest && !reset.joinerHeld.empty());
+    ResetStep(reset);
+    CHECK(!reset.joinerRest && reset.joinerHeld.empty() && reset.joinerNote.empty());
+
+    // The nearest unit is the one judged: a quiet pick goes out, and the
+    // loud one is held when it is picked.
+    f.anyInCombat = false;
+    f.units = {Joiners(31, 4852, 54.7f, 9), Joiners(32, 4852, 30.0f, 1)};
+    Run two = Start(&plan);
+    CHECK(Tick(two, f) == "pullback 32");
+}
+
+
 int main()
 {
     TestHopRechecksTheLeadOnTheFoot();
@@ -4165,6 +4285,8 @@ int main()
     TestOneReviveSummonPerRevive();
     TestFailedReviveSummonWalks();
     TestRegroupGatherCapScales();
+    TestAggroEstimateOffChangesNothing();
+    TestAggroEstimateHoldsOnceForARest();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

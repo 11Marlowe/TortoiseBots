@@ -807,6 +807,19 @@ AiPlayerbot.DungeonSelfClear = 0
 # 180 - three hours (Default)
 AiPlayerbot.DungeonRunMaxMinutes = 180
 
+# The run leader's pull aggro estimate. Before each pack pull it works out how many
+# other creatures the pull would bring (the pack, creatures in aggro range of the
+# party, one ring of family assistance) and, when that is more than the ceiling
+# below, rests the party to its end lines once before it pulls (status note
+# "N joiners expected"). It adds no movement and never skips a pull.
+# 0 - off, the run leader pulls as before (Default)
+# 1 - on
+AiPlayerbot.DungeonRunAggroEstimate = 0
+
+# Joiners (creatures besides the pulled one) above which the estimate rests the party first.
+# 6 - default; 1 and up. Only read while AiPlayerbot.DungeonRunAggroEstimate = 1.
+AiPlayerbot.DungeonRunAggroCeiling = 6
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
