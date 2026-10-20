@@ -27,7 +27,7 @@ Paladins provide resilient group utility, customizable auras, coordinated blessi
 ### Holy (Healer)
 - Casts *Lay on Hands* on party members at critical health (<20%), claiming the target to prevent duplicate casts.
 - Uses *Flash of Light* for efficient maintenance and *Holy Light* for heavy damage spikes.
-- Downranks direct heals (*Holy Light*, *Flash of Light*) to match wounds per [shared downranking rules](overview.md#shared-bot-behaviors), using max rank on targets below 50% health.
+- Downranks direct heals (*Holy Light*, *Flash of Light*) to match wounds per [shared downranking rules](overview.md#shared-bot-behaviors).
 - Casts *Holy Shock* on allies below 50% health.
 - Weaves *Crusader Strike* only when already in melee reach, without moving out of healing position.
 - Casts *Divine Shield* (Bubble) when personally critically wounded, continuing to heal while immune.

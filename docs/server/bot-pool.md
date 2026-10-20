@@ -71,13 +71,7 @@ Follow these steps to rebuild the bot pool on an active realm:
    AiPlayerbot.RandomBotPoolReset = once:fresh-build-01
    AiPlayerbot.RandomBotAutoCreate = 1
    ```
-8. **Start the server:** Monitor `Server.log` during startup for lines like:
-   ```text
-   TortoiseBots: random pool generation 'fresh-build-01'; reset scheduled...
-   TortoiseBots: random pool reset progress: ...
-   TortoiseBots: random pool reset verified: 0 characters remain...
-   TortoiseBots: random pool generation 'fresh-build-01' applied; pool rebuild starts now
-   ```
+8. **Start the server:** Monitor `Server.log` during startup for pool reset progress.
 9. **Verify clean rebuild:** Run [`bot pool status`](admin-commands.md#bot-pool-status). New characters will begin generating up to [`MinRandomBots`](settings/world-population.md#aiplayerbotminrandombots--maxrandombots).
 10. **Leave the token in place:** The token can remain in the configuration file; since it matches the completed generation, it will not run again on future restarts.
 

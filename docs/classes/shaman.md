@@ -40,7 +40,7 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 - Attacks from range with *Lightning Bolt* and casts *Chain Lightning* against enemy packs.
 - Keeps *Water Shield* active for mana regeneration (*Lightning Shield* before training).
 - Activates *Elemental Mastery* for guaranteed critical strikes.
-- Saves *Earth Shock* as a finishing execute below 25% health while reserving interrupts for casting targets.
+- Saves *Earth Shock* as a finishing execute below 25% health and below 1500 absolute HP while reserving interrupts for casting targets.
 - Respects [party threat back-off](overview.md#shared-bot-behaviors) on *Chain Lightning* and *Earthquake* when holding ≥50% tank threat.
 
 <details>

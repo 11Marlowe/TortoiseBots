@@ -147,7 +147,7 @@ Starting at level 10, bots with Herbalism or Mining will travel directly to near
 
 Masterless pool bots carrying a fishing pole engage in fishing as a casual side activity. Fishing occurs only when the bot is completely idle—with no pending travel, no completed quests to turn in, no vendor or repair needs, and bags below 90% capacity.
 
-Side-activity fishing lasts at most five minutes (or five casts) once per hour, targeting visible fish schools or nearby open shores within 40 yards. Entering combat ends fishing immediately and restores the bot's weapon. Additionally, bots can undertake dedicated travel errands to stored world fishing locations. Only masterless pool bots and roaming alt-bots fish; hired companions and bots with an active master do not. Fishing travel respects the bot's Fishing skill and never routes into dungeons/raids; with no stored spots only open-water fishing remains.
+Side-activity fishing targets visible fish schools or nearby open shores; approaching hostile creatures within 30 yards or entering combat ends fishing immediately and restores the bot's weapon. Additionally, bots can undertake dedicated travel errands to stored world fishing locations. Only masterless pool bots and roaming alt-bots fish; hired companions and bots with an active master do not. Fishing travel respects the bot's Fishing skill and never routes into dungeons/raids; with no stored spots only open-water fishing remains.
 
 </details>
 

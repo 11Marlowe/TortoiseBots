@@ -71,7 +71,7 @@ Players can use [`.bot role <Name|self>`](../play/commands/roster-and-hiring.md#
 | **Targeting & Assist** | Tank or party leader engages hostile enemies. | Assists leader focus target and respects crowd control marks. | See [Focus skull](../play/commands/party-actions.md#bot-action-focus-skull). |
 | **Finishing Runners** | Enemy mob flees below 30% health. | Ranged DPS finish within spell range; eligible melee close distance. | See detailed runner policy below. |
 | **Threat Back-Off** | Threat reaches 50% or more of tank's threat. | Pauses high-threat single-target or AoE spells. | Controlled by `threat` strategy. |
-| **Healer Off-DPS** | Party stable (no member <90% in standard/raid maintenance, otherwise 70%) and mana >70–85% (95% in raids). | Contributes offensive spells and debuffs. | Controlled by `offdps` strategy. |
+| **Healer Off-DPS** | Party stable (no member below 90%) and mana >70–85% (95% in raids). | Contributes offensive spells and debuffs. | Controlled by `offdps` strategy. |
 | **Spell Downranking** | Friendly target wounded but not in critical danger. | Casts lower-rank heals matching missing health. | Automatic triage optimization. |
 | **Healer Positioning** | Party member out of heal range or line of sight. | Closes distance toward the tank or injured party member. | Automatic positioning routine. |
 | **Looting & Gathering** | Corpse or nearby gathering node available. | Approaches corpse, loots quest items, and rolls on items. | See [Party actions](../play/commands/party-actions.md). |
@@ -93,12 +93,12 @@ In groups with the `threat` strategy active, damage dealers (including Druids, H
 
 ### Healer Off-DPS (`offdps`)
 When the `offdps` strategy is enabled, healing bots contribute damage spells only when the group is safe:
-- No member below 90% in standard/raid maintenance, otherwise 70%.
+- No member below 90%.
 - The healer's own mana exceeds 85% (or 90% for expensive spells, 70% in light encounters).
 - Casting immediately yields to incoming damage when an ally needs healing.
 
 ### Spell Downranking
-Healing bots automatically select the lowest spell rank that covers the target's missing health to conserve mana. Full spell ranks are enforced whenever a target falls into critical health (below 50% or 20% health bands depending on class).
+Healing bots automatically select the lowest spell rank that covers the target's missing health to conserve mana. Full spell ranks are enforced whenever a target falls into critical health (at or below 20% health).
 
 ### Healer Positioning
 When a party member is out of heal range or line of sight:
