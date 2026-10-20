@@ -42,12 +42,30 @@ assert.strictEqual(thralia.roleLabel, "Player");
 assert.strictEqual(thralia.role, "other");       // a player carries no AI role
 assert.strictEqual(thralia.hp, 75);              // pct, not raw
 assert.strictEqual(thralia.powerKind, "mana");
+assert.strictEqual(thralia.power, 50);           // pct of the max, not raw
+assert.strictEqual(thralia.powerText, "2000 / 4000");
 const aria = rows[1];
 assert.strictEqual(aria.role, "dead");           // a 0-HP corpse greys out
 assert.strictEqual(aria.hpText, "0 / 3500");
+assert.strictEqual(aria.hasPower, false);        // a dead member draws no power bar, even with power left
 const zug = rows[2];
 assert.strictEqual(zug.role, "tank");
-assert.strictEqual(zug.hasPower, false);         // a warrior has no power bar
+assert.strictEqual(zug.hasPower, false);         // a warrior has no power bar (max_power 0)
+
+// ---- the power bar helper (issue #1112): the Bots tab's types and colours, and when there is no bar
+const pw = (over) => D.powerOf(Object.assign({ name: "B", guid: 1, hp: 1, max_hp: 1, power: 40, max_power: 100, power_type: "mana", state: "combat" }, over));
+assert.deepStrictEqual(pw({}), { power: 40, kind: "mana", text: "40 / 100" });
+assert.strictEqual(pw({ power_type: "rage", power: 0 }).kind, "rage");   // an empty rage bar still draws
+assert.strictEqual(pw({ power_type: "rage", power: 0 }).power, 0);
+assert.strictEqual(pw({ power_type: "energy" }).kind, "energy");
+assert.strictEqual(pw({ power_type: "focus" }).kind, "mana");            // only rage and energy are coloured apart
+assert.strictEqual(pw({ power_type: "happiness" }).kind, "mana");
+assert.strictEqual(pw({ max_power: 0 }), null);                          // no resource: no bar
+assert.strictEqual(pw({ power: 0, max_power: 0 }), null);                // 0 max, even at 0 current
+assert.strictEqual(pw({ dead: true }), null);                            // dead: no bar
+assert.strictEqual(pw({ state: "dead" }), null);                         // the daemon's dead state too
+assert.strictEqual(pw({ max_power: undefined }), null);                  // a pre-power module sends no fields
+assert.strictEqual(D.powerOf(undefined), null);
 
 // ---- a party reads as one unlabelled group, a raid as compact subgroup blocks
 assert.deepStrictEqual(D.memberGroups(D.memberRows(run)).length, 1);

@@ -763,6 +763,15 @@ type DungeonMember struct {
 	Level  uint32 `json:"level"`
 	HP     uint32 `json:"hp"`
 	MaxHP  uint32 `json:"max_hp"`
+	// Power is the unit's resource, the same fields the Bots tab's bar
+	// draws (issue #1112): current, max and type (mana, rage, energy,
+	// focus, happiness — the tab colours mana blue, rage red, energy
+	// yellow). A pre-power module reports none, so the pointers stay nil
+	// and the JSON omits them: the tab then draws no bar, and a resource
+	// that really is 0 (an empty rage bar) is still present with max > 0.
+	Power     *uint32 `json:"power,omitempty"`
+	MaxPower  *uint32 `json:"max_power,omitempty"`
+	PowerType string  `json:"power_type,omitempty"`
 	// Dead is reported from the snapshot (state "dead" or a 0-HP corpse).
 	Dead bool `json:"dead"`
 	// SubGroup is the raid subgroup the unit sits in (0 outside a raid).
