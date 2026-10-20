@@ -84,7 +84,7 @@ Detailed combat rotations, Turtle WoW 1.18.1 custom abilities, pet handling, and
 
 - [**Host API Contract**](HOST_API.md) — Technical C++ host boundary seams, session lifecycle, and packet bridges.
 - [**Player Control Catalog**](PLAYER_CONTROL.md) — Technical command delivery specification and addon serialization.
-- [**License Audit**](LICENSE_AUDIT.md) — Donor license compatibility analysis and release gates.
+- [**License Audit**](LICENSING_AUDIT.md) — Donor license compatibility analysis and release gates.
 - [**Hire Gear Sets**](reference/hire-gear.md) — Generated static level-60 hire sets per class/spec/tier.
 - [**Spell Coverage Reference**](reference/spell-coverage.tsv) — Census of custom Turtle WoW spells mapped into AI strategies.
 - [**Talent Builds Reference**](reference/talent-builds.tsv) — Level 10–60 preset build progression rationale.

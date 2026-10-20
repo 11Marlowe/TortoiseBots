@@ -206,7 +206,7 @@ Bots do not clear dungeons on their own. Autonomous dungeon clearing is an expli
 - **Provisional** means the server owner has not confirmed that order. Treat it as a guess and check it in game.
 - **Do not wait for** lists rares, pool spawns, escorts and friendly NPCs. A group that waits on one stalls, because its spawn may not be in the instance.
 - Objectives that are not bosses are shown in [brackets].
-- The data comes from the T-imothy/tortoise-wow fork's dungeon-clear roster. See [LICENSE_AUDIT](../LICENSE_AUDIT.md) for the source and licence.
+- The data comes from the T-imothy/tortoise-wow fork's dungeon-clear roster. See [LICENSING_AUDIT](../LICENSING_AUDIT.md) for the source and licence.
 
 ### Pooled rares to never wait for
 

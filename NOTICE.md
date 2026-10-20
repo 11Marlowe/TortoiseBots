@@ -38,7 +38,7 @@ Contributors confirm their consent by adding themselves to
 
 Every file ported from a donor must retain its original copyright and licence
 notice. See `ai/playerbot/` headers and
-[`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md) for the donors, their source
+[`docs/LICENSING_AUDIT.md`](docs/LICENSING_AUDIT.md) for the donors, their source
 commits and the open compatibility audit. Do not strip those notices.
 
 ## Upstream — tortoise-wow/tortoise-wow
@@ -102,4 +102,4 @@ licence text.
 * Keep notices intact and name the source repository and commit of a port in
   its pull request.
 * Track evidence and unresolved items in
-  [`docs/LICENSE_AUDIT.md`](docs/LICENSE_AUDIT.md).
+  [`docs/LICENSING_AUDIT.md`](docs/LICENSING_AUDIT.md).

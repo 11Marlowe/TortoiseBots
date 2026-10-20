@@ -49,7 +49,7 @@ Before publishing a binary or operating a combined network service:
 - [ ] Resolve every GPL-2.0-only or unclear component before combining it with
       the AGPL-3.0 target core, either through additional permission or a clean
       compatible replacement.
-- [ ] Reconcile `LICENCE.md`, README badges/metadata and release artifacts with
+- [ ] Reconcile `NOTICE.md`, README badges/metadata and release artifacts with
       the completed matrix.
 - [ ] Have the completed matrix reviewed by a qualified open-source licensing
       professional if the project will be publicly deployed or distributed.
