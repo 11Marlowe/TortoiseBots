@@ -382,8 +382,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertTrue(read.rstrip().endswith("ReadPullStand(slot, lead, f);"))
         stand = body(COMMANDS, "void ReadPullStand(DungeonRunSlot const& slot,", "\n}\n")
         self.assertIn("if (!f.pullStand || !lead->IsAlive() || !lead->IsInWorld())\n        return;", stand)
-        # leadShotYd is the module's PullStrategy::GetRange(), 0 (unset) on a body pull.
-        self.assertIn('if (pull && pull->GetPullActionName() != "reach pull")\n        f.leadShotYd = pull->GetRange();',
+        # leadShotYd is the module's PullStrategy::GetRange(), for a ranged weapon shot only (0 for spell and body pulls).
+        self.assertIn('if (pull && pull->GetPullActionName() == "shoot")\n        f.leadShotYd = pull->GetRange();',
                       stand)
         self.assertNotIn("f.leadShotYd = ", stand.replace("f.leadShotYd = pull->GetRange();", ""))
         # The stand: only for Run::shotStandFor, and the path search comes after that check.
@@ -403,7 +403,11 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertLess(gate, pull.index('order = "pullback " + std::to_string(u.guid);'))
         self.assertLess(gate, pull.index("++tries;"))
         on = body(policy, "inline bool PullStandOn(", "\n}\n")
-        self.assertIn("return f.pullStand && f.leadShotYd > 0.0f && !InEvent(r);", on)
+        self.assertIn("return f.pullStand && f.leadShotYd > kShotMarginYd && !InEvent(r);", on)
+        # The hold ends with any tick the gate did not run on (no stale stand request for the glue).
+        tick = body(policy, "inline std::string Tick(", "\n}\n")
+        self.assertIn("r.shotGateRan = false;", tick)
+        self.assertIn("if (!r.shotGateRan)\n        EndShotHold(r);", tick)
         hold = body(policy, "inline bool HoldForShot(", "\n}\n")
         self.assertIn("if (!PullStandOn(r, f))", hold)
         self.assertIn("r.shotStandFor = u.guid;", hold)

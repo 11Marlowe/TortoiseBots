@@ -132,6 +132,9 @@ constexpr std::uint32_t kFruitlessPulls = 3;      // three pulls in a row that k
 constexpr float kShotMarginYd = 5.0f;
 constexpr std::uint32_t kShotStandTries = 2;      // firing stands walked to per unit and step, then the order as before
 constexpr std::uint32_t kShotStillWaitMs = 3000;  // a moving tank is waited for this long before the stand rule judges it
+// A stand walk that gains nothing for kWalkRetryMs, or takes longer than this
+// in all, is given up: the order goes out from where the tank is (never a pause).
+constexpr std::uint32_t kShotWalkCapMs = kWalkRetryMs * kWalkTries;
 constexpr std::uint32_t kMaxPullsPerStep = 20;
 constexpr std::uint32_t kMaxWalkBackPulls = 8;    // pulls on the way of a walk back (their own count), then pause
 constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead must be up within this
@@ -426,9 +429,10 @@ struct Facts
     // AiPlayerbot.DungeonRunPullStand (HoldForShot): the key is on. Off (the
     // default) nothing below is read and the pull goes out as before, byte for byte.
     bool pullStand = false;
-    // The lead bot's ranged pull range (its PullStrategy::GetRange()); 0 when
-    // its pull is a body pull ("reach pull": no bow, skill, spell or ammo) or
-    // it could not be read. 0 keeps the old order too.
+    // The lead bot's ranged weapon shot range (its PullStrategy::GetRange(),
+    // pull action "shoot" only); 0 for a spell pull, a body pull ("reach pull":
+    // no ranged weapon, skill, spell or ammo) or when it could not be read. At or
+    // under kShotMarginYd it keeps the old order too (PullStandOn).
     float leadShotYd = 0.0f;
     // The firing stand the policy asked for (Run::shotStandFor), read this
     // tick: the lead bot's navmesh path to that unit walked back from the unit
@@ -628,8 +632,13 @@ struct Run
     std::uint64_t shotStandGuid = 0;
     float shotStandX = 0.0f, shotStandY = 0.0f, shotStandZ = 0.0f;
     std::uint32_t shotStillMs = 0;
+    std::uint32_t shotWalkMs = 0;             // the stand walk's time (kShotWalkCapMs)
     bool shotStandPrep = false;
     std::string shotHow;
+    // HoldForShot ran on this tick. A tick it did not run on (a fight, a
+    // gather, a dead member, a joiner rest, a regroup, another step kind) ends
+    // the hold: the stand request, the walk and the wait are dropped (Tick).
+    bool shotGateRan = false;
     std::uint64_t ccPending = 0;              // the `cc moon` sent, its Polymorph not seen yet
     bool ccResent = false;                    // ... sent a second time
     std::uint32_t ccWaitMs = 0;               // fight time since the mark (or its second sending)
@@ -810,8 +819,21 @@ inline void ResetShotStand(Run& r)
     r.shotStandGuid = 0;
     r.shotStandX = r.shotStandY = r.shotStandZ = 0.0f;
     r.shotStillMs = 0;
+    r.shotWalkMs = 0;
     r.shotStandPrep = false;
     r.shotHow.clear();
+}
+
+// A tick the pull stand's gate did not run on ends its hold (the stand tries
+// already spent stay counted): no stand request is left for the glue to
+// answer, and the next pull checks the way back and counts as usual.
+inline void EndShotHold(Run& r)
+{
+    r.shotStandFor = 0;
+    r.shotStandWalk = false;
+    r.shotStillMs = 0;
+    r.shotWalkMs = 0;
+    r.shotStandPrep = false;
 }
 
 inline void ClearRunBack(Run& r)
@@ -2252,10 +2274,11 @@ inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGu
 }
 
 // The pull stand rule is on for this pull (AiPlayerbot.DungeonRunPullStand):
-// the key, a ranged pull the glue could read, and not inside a scripted event.
+// the key, a ranged weapon shot the glue could read with more range than the
+// margin (the glue reads no stand below that), and not inside a scripted event.
 inline bool PullStandOn(const Run& r, const Facts& f)
 {
-    return f.pullStand && f.leadShotYd > 0.0f && !InEvent(r);
+    return f.pullStand && f.leadShotYd > kShotMarginYd && !InEvent(r);
 }
 
 // The tank's shot can go out from where it stands: the unit in sight and
@@ -2392,16 +2415,22 @@ inline ShotStand ShotStandOnPath(const std::vector<ai::ApproachPoint>& path, con
 //     stand walk);
 //   - a unit out of sight or beyond leadShotYd - kShotMarginYd: the glue
 //     reads a firing stand for it (one tick, Run::shotStandFor), and the party
-//     walks there (WalkTo: its retries and its stuck pause); at most
-//     kShotStandTries stands per unit and step;
+//     walks there (WalkTo); a walk with no headway for kWalkRetryMs, or longer
+//     than kShotWalkCapMs, gives the stand up and orders from here (never a
+//     pause); at most kShotStandTries stands per unit and step;
 //   - no stand found, or the stands used up: the order as before.
 // True while the pull waits (`order` may hold the move); false: the order
 // goes out now, and Run::shotHow says how its shot stood.
 inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t dt, std::string& order)
 {
+    r.shotGateRan = true;
+    // A stand request is answered (or dropped) on the very next tick: the
+    // glue reads at most one stand per request.
+    bool const standRead = r.shotStandFor == u.guid && f.shotStandGuid == u.guid;
+    r.shotStandFor = 0;
     if (!PullStandOn(r, f))
     {
-        r.shotHow = f.leadShotYd > 0.0f ? "no stand rule in an event" : "no ranged pull: stand rule off";
+        r.shotHow = f.leadShotYd > kShotMarginYd ? "no stand rule in an event" : "no ranged weapon pull: stand rule off";
         return false;
     }
     std::string const what = std::to_string(u.entry) + " " + GuidArg(u.guid);
@@ -2419,6 +2448,21 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
         r.shotStandWalk = false;
         if (r.phase == Phase::Walk && r.walkX == r.shotStandX && r.walkY == r.shotStandY && r.walkZ == r.shotStandZ)
         {
+            // Stuck (no headway for kWalkRetryMs short of the point) or too
+            // long: the stand is given up before WalkTo would resend the move
+            // or pause the run, and the order goes out from here.
+            float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.shotStandX, r.shotStandY, r.shotStandZ);
+            bool const gaining = dist < r.walkBestYd - kWalkProgressYd;
+            r.shotWalkMs += dt;
+            if ((!gaining && r.walkStillMs + dt >= kWalkRetryMs && dist > kStalledArriveYd) ||
+                r.shotWalkMs >= kShotWalkCapMs)
+            {
+                tries = kShotStandTries;
+                r.shotWalkMs = 0;
+                EnterPhase(r, Phase::Begin);
+                r.shotHow = "firing stand unreachable: ordering from here";
+                return false;
+            }
             if (!WalkTo(r, f, r.shotStandX, r.shotStandY, r.shotStandZ, false, dt, order))
             {
                 if (r.state != State::Running)
@@ -2447,9 +2491,8 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
         r.shotHow = "firing stands used up (" + std::to_string(tries) + ")";
         return false;
     }
-    if (r.shotStandFor == u.guid && f.shotStandGuid == u.guid)
+    if (standRead)
     {
-        r.shotStandFor = 0;
         if (!f.shotStandKnown)
         {
             tries = kShotStandTries;
@@ -2470,6 +2513,7 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
         r.shotStandY = f.shotStandY;
         r.shotStandZ = f.shotStandZ;
         r.shotStillMs = 0;
+        r.shotWalkMs = 0;
         WalkTo(r, f, f.shotStandX, f.shotStandY, f.shotStandZ, false, dt, order);
         return hold("to firing stand " + std::to_string(tries) + " for " + what + " (" + Num(f.shotStandYd) +
             " yd from it; was " + Num(u.distLead) + " yd, los " + (u.losLead ? "yes" : "no") + ")");
@@ -2496,7 +2540,10 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     }
     if (!r.hopWaiveUnits.empty() && !r.hopWaiveUnits.count(u.guid))
         DropHopWaiver(r); // another target than the units the hop was abandoned for: gather as usual
-    AnchorState const anchor = r.gatherWaived ? AnchorState::On : CheckAnchor(r, f);
+    // A pull the stand rule holds checked the way back on its first tick; its
+    // stand walk is driven every tick, not every other one while the path back
+    // is read (shotStandPrep is only set on consecutive gate ticks).
+    AnchorState const anchor = r.gatherWaived || r.shotStandPrep ? AnchorState::On : CheckAnchor(r, f);
     if (anchor == AnchorState::Unknown && r.phase != Phase::Gather)
     {
         r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
@@ -3191,7 +3238,7 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
         r.bossWaitMs = 0;
         // The way back to the anchor not known yet: read it first (one tick),
         // before this pull counts as one.
-        if (r.phase != Phase::Gather && !r.gatherWaived && CheckAnchor(r, f) == AnchorState::Unknown)
+        if (r.phase != Phase::Gather && !r.gatherWaived && !r.shotStandPrep && CheckAnchor(r, f) == AnchorState::Unknown)
         {
             r.note = "checking the way back to " + Num(r.anchorX) + " " + Num(r.anchorY) + " " + Num(r.anchorZ);
             return;
@@ -4738,13 +4785,23 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
 
 inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
+    r.shotGateRan = false;
+    std::string order;
+    bool held = false;
     if (r.state == State::Running && !r.hold.empty())
     {
         UpdateHold(r, f);
         if (!r.hold.empty())
-            return TickBody(r, HoldView(r, f), dt, lines);
+        {
+            order = TickBody(r, HoldView(r, f), dt, lines);
+            held = true;
+        }
     }
-    return TickBody(r, f, dt, lines);
+    if (!held)
+        order = TickBody(r, f, dt, lines);
+    if (!r.shotGateRan)
+        EndShotHold(r); // the pull stand's hold ends with any tick its gate did not run on
+    return order;
 }
 
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)

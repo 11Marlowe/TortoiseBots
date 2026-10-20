@@ -9696,10 +9696,12 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
 }
 
 // The pull stand (AiPlayerbot.DungeonRunPullStand, DungeonRun::HoldForShot), key on only: the lead bot's
-// ranged pull range from its own pull strategy (PullStrategy::GetRange, the range its pull action fires at;
-// 0 for a body pull, "reach pull"), and on the tick after the policy asked for one (Run::shotStandFor) the
-// firing stand on its navmesh path to that unit (DungeonRun::ShotStandOnPath: the path walked back from the
-// unit end to the first point within range less kShotMarginYd that sees it, at the core's sight heights).
+// ranged pull range from its own pull strategy (PullStrategy::GetRange, the range its pull action fires at),
+// for a ranged weapon shot only (the pull action "shoot": bow, crossbow, gun, thrown, wand). A spell pull
+// (a paladin's or druid's) and a body pull ("reach pull") leave it 0: the order as before. On the tick after
+// the policy asked for one (Run::shotStandFor, which the policy sets on one tick and clears on the next, so
+// one request is read once) the firing stand on its navmesh path to that unit (DungeonRun::ShotStandOnPath:
+// the path walked back from the unit end to the first point within range less kShotMarginYd that sees it).
 // One path and a few sight rays, for that one unit, on that one tick.
 void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::DungeonRun::Facts& f)
 {
@@ -9708,7 +9710,7 @@ void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::Dunge
         return;
     PlayerbotAI* const leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
     PullStrategy* const pull = leadAi ? PullStrategy::Get(leadAi) : nullptr;
-    if (pull && pull->GetPullActionName() != "reach pull")
+    if (pull && pull->GetPullActionName() == "shoot")
         f.leadShotYd = pull->GetRange();
     uint64 const guid = slot.run.shotStandFor;
     if (!guid || f.leadShotYd <= kShotMarginYd)
@@ -9741,6 +9743,10 @@ void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::Dunge
     goal.x = unit->GetPositionX();
     goal.y = unit->GetPositionY();
     goal.z = unit->GetPositionZ();
+    // The core's own sight heights, as lead->IsWithinLOSInMap(unit) aims them (the unit losLead comes from):
+    // the viewer at its collision height (WorldObject::IsWithinLOSAtPosition), the target at its
+    // Unit::GetLosCheckPosition, which for a creature is also its collision height (WorldObject's z + 1.0
+    // is only for objects that are not units).
     float const leadHeight = lead->GetCollisionHeight();
     float const unitHeight = unit->GetCollisionHeight();
     auto const sees = [map, &goal, leadHeight, unitHeight](ai::ApproachPoint const& point)

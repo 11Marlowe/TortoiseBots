@@ -4943,7 +4943,8 @@ static void TestPullNoShotDataKeepsOldOrder()
         Run plain = Start(&plan);
         Run other = Start(&plan);
         Facts a = Party(0);
-        a.units = {Unit(11, 4851, 45), Unit(12, 4852, 38)};
+        // 12 is shootable from where the tank stands, 11 nearer and out of sight: F2 would pick 12.
+        a.units = {Unit(11, 4851, 18), Unit(12, 4852, 23)};
         a.maxMemberYd = 35;
         Facts b = a;
         if (variant == 0)
@@ -4960,8 +4961,9 @@ static void TestPullNoShotDataKeepsOldOrder()
             b.shotStandX = 9.0f;
         }
         b.units[0].losLead = false;
-        b.units[1].losLead = false;
+        b.units[1].losLead = true;
         b.leadMoving = a.leadMoving = true;
+        bool sawFirst = false;
         for (int i = 0; i < 120; ++i)
         {
             if (i == 2)
@@ -4971,12 +4973,14 @@ static void TestPullNoShotDataKeepsOldOrder()
             if (i == 70)
             {
                 a.anyInCombat = b.anyInCombat = false;
-                a.units = {Unit(11, 4851, 45)};
+                a.units = {Unit(11, 4851, 18)};
                 b.units = {a.units[0]};
             }
             std::string const oa = Tick(plain, a);
             std::string const ob = Tick(other, b);
             CHECK(oa == ob);
+            CHECK(oa != "pullback 12" || i >= 70 || sawFirst); // the nearest (11) goes first
+            sawFirst = sawFirst || oa == "pullback 11";
             CHECK(plain.phase == other.phase && plain.step == other.step && plain.state == other.state);
             CHECK(other.shotStandFor == 0 && !other.shotStandWalk && !other.shotStandPrep);
             if (variant == 1)
@@ -4985,8 +4989,129 @@ static void TestPullNoShotDataKeepsOldOrder()
                 CHECK(StatusLine(plain) == StatusLine(other));
             }
             else if (oa.compare(0, 9, "pullback ") == 0)
-                CHECK(Has(other.note, "no ranged pull: stand rule off"));
+                CHECK(Has(other.note, "no ranged weapon pull: stand rule off"));
         }
+        CHECK(sawFirst);
+    }
+}
+
+// (review 1) A shot range at or under the margin (4.5, 5.0): the glue reads no stand for it, so the rule
+// is off and the order goes out on the first tick (it used to read "reading a firing stand" for 300 s).
+static void TestPullStandNeedsMoreRangeThanTheMargin()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    for (float shot : {4.5f, 5.0f})
+    {
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.leadShotYd = shot;
+        f.units = {Seen(11, 4851, 20.0f, false)};
+        CHECK(Tick(r, f) == "pullback 11");
+        CHECK(Has(r.note, "no ranged weapon pull: stand rule off") && r.shotStandFor == 0);
+    }
+}
+
+// (review 2, 6) A stand request lives one tick: the next tick answers or drops it, whether the gate runs
+// (a still-wait) or not (a fight); the hold's prep, walk and wait end with any tick the gate did not run on.
+static void TestStandRequestIsReadOnce()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    {
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.units = {Seen(11, 4851, 40.0f, false)};
+        CHECK(Tick(r, f).empty());
+        CHECK(r.shotStandFor == 11 && r.shotStandPrep);
+        f.anyInCombat = true; // a fight comes before the read is used
+        Tick(r, f);
+        CHECK(r.shotStandFor == 0 && !r.shotStandPrep);
+        for (int i = 0; i < 5; ++i)
+            Tick(r, f);
+        CHECK(r.shotStandFor == 0 && !r.shotStandPrep && !r.shotStandWalk && r.shotStillMs == 0);
+    }
+    {
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.units = {Seen(11, 4851, 40.0f, false)};
+        CHECK(Tick(r, f).empty());
+        GiveStand(f, r, 10.0f, 30.0f);
+        f.leadMoving = true; // the read tick goes to the still-wait: the read is dropped, not asked again
+        CHECK(Tick(r, f).empty());
+        CHECK(r.shotStandFor == 0 && Has(r.note, "waiting for the tank to stand still"));
+        CHECK(Tick(r, f).empty());
+        CHECK(r.shotStandFor == 0);
+    }
+    {
+        // A gather breaks the stand walk off: the hold ends (prep and walk off), the stand stays counted.
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.units = {Seen(11, 4851, 40.0f, false)};
+        Tick(r, f);
+        GiveStand(f, r, 10.0f, 30.0f);
+        CHECK(Tick(r, f) == "move 10.0 0.0 0.0");
+        ClearStand(f);
+        f.maxMemberYd = 30.0f;
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0"); // the gather on the lead bot's spot
+        CHECK(!r.shotStandPrep && !r.shotStandWalk && r.shotStandTries[11] == 1);
+    }
+}
+
+// (review 4) A stand walk that gains nothing for kWalkRetryMs, or runs past kShotWalkCapMs, gives the stand
+// up and orders from where the tank is; the run never pauses for it.
+static void TestStandWalkStuckOrdersFromHere()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    for (int longWalk = 0; longWalk < 2; ++longWalk)
+    {
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.units = {Seen(11, 4851, 120.0f, false)};
+        Tick(r, f);
+        GiveStand(f, r, 100.0f, 24.0f);
+        CHECK(Tick(r, f) == "move 100.0 0.0 0.0");
+        ClearStand(f);
+        f.anchorPathRead = true;
+        std::string order;
+        std::uint32_t ms = 0;
+        for (; ms < 60000 && order.empty(); ms += kTickMs)
+        {
+            if (longWalk)
+                f.leadX += 2.1f; // headway every tick, never there in time
+            order = Tick(r, f);
+            CHECK(r.state == State::Running);
+        }
+        CHECK(order == "pullback 11");
+        CHECK(Has(r.note, "(order 1; firing stand unreachable: ordering from here)"));
+        CHECK(longWalk ? ms == kShotWalkCapMs : ms == kWalkRetryMs);
+        CHECK(r.shotStandTries[11] == kShotStandTries);
+    }
+}
+
+// (review 4) The stand walk is driven on every tick while the way back to the old anchor is read on every
+// other one (the glue reads the path the tick after it is asked for).
+static void TestStandWalkIsDrivenEveryTick()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    Run r = Start(&plan);
+    Facts f = StandParty();
+    f.units = {Seen(11, 4851, 40.0f, false)};
+    Tick(r, f);
+    GiveStand(f, r, 20.0f, 20.0f);
+    CHECK(Tick(r, f) == "move 20.0 0.0 0.0");
+    ClearStand(f);
+    r.anchorKnown = true; // the anchor the walk leaves: 2 yd behind the tank
+    r.anchorX = -2.0f;
+    for (int i = 0; i < 5; ++i)
+    {
+        f.anchorPathRead = r.anchorPathWanted;
+        f.leadX += 3.0f;
+        f.leadMoving = true;
+        CHECK(Tick(r, f).empty());
+        CHECK(Has(r.note, "to firing stand 1 for 4851"));
     }
 }
 
@@ -5213,6 +5338,10 @@ int main()
     TestPickPackPullPrefersShootable();
     TestStandTicksAreNotFruitlessPulls();
     TestShotStandOnPath();
+    TestPullStandNeedsMoreRangeThanTheMargin();
+    TestStandRequestIsReadOnce();
+    TestStandWalkStuckOrdersFromHere();
+    TestStandWalkIsDrivenEveryTick();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

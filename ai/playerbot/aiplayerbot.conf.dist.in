@@ -833,8 +833,10 @@ AiPlayerbot.DungeonRunRezHold = 0
 # from where it stands: the target in its sight, within its ranged pull's range
 # less 5 yd, and the tank standing still (it is waited for up to 3 s). Otherwise
 # the party walks to a firing stand on the tank's navmesh path to the target
-# first (at most 2 stands per target and step), then the order goes out. A tank
-# with no ranged pull (no bow, gun, thrown weapon, skill or ammo) pulls as before.
+# first (at most 2 stands per target and step), then the order goes out; a stand
+# walk that gets stuck gives the stand up, it never pauses the run. Only a pull with
+# a ranged weapon (bow, crossbow, gun, thrown, wand) is covered: a spell pull or a
+# body pull (no ranged weapon, skill or ammo) goes out as before.
 # The status note of each order names the target's guid and how its shot stood.
 # 0 - off, the run leader pulls as before (Default)
 # 1 - on
