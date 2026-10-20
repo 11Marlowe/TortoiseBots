@@ -29,7 +29,7 @@ Targeting in TortoiseBots is governed by specialized value calculators rather th
 | **Grind Target (mob pick)** | `GrindTargetValue` + `PullRegenPolicy` | **Low-Level Order Cap + XP eligibility + masterless leash + pull-regen gate:** the mob picked by `attack anything` (solo grind only). A bot below level 10 with no real player master and outside a battleground takes targets at most 1 level above its own; from level 10 the ceiling is +4. A wounded masterless pool bot starts no new pull below [`AiPlayerbot.MediumHealth`](../server/settings/combat.md#aiplayerbotmediumhealth) or [`AiPlayerbot.MediumMana`](../server/settings/combat.md#aiplayerbotmediummana). Followers keep the free-move leash to the master. |
 | **Attack Order (auto-attack)** | `AttackAction` | **Auto-attack arming:** `bot->Attack(target, meleeAttack)` arms `UNIT_STAT_MELEE_ATTACKING`. A bot designated ranged with no usable ranged weapon (e.g. pre-10 druid on Wrath, elemental shaman) is armed for melee so it swings once the mob closes. |
 | **Dispel / Decurse (party)** | `PartyMemberToDispel` (`DispelTargetPolicy.h`) | **Spread, in reach, in sight:** a member carrying a curable aura is ranked by cast range, line of sight, and unpicked status. Each bot claims its pick for 4 s per dispel type so multiple decursers clear multiple targets simultaneously. |
-| **Enemy Player (PvP)** | `EnemyPlayerValue` / `EnemyPlayersValue` | **Fighting it first, then what the bot can reach:** duel opponent, players actively attacking the bot, then proximity in battlegrounds (LOS required, within 40 yd, or 20 yd when enemy has more health). Flag carriers prioritized. |
+| **Enemy Player (PvP)** | `EnemyPlayerValue` / `EnemyPlayersValue` | **Fighting it first, then in reach:** duel opponent, players attacking the bot, then proximity (LOS, 60 yd overworld / 40 yd battlegrounds, 20 yd if the enemy has more health). Flag carriers prioritized. |
 | **Enemy Healer** | `EnemyHealerTargetValue` | Detects enemies casting interruptible heals in range and surfaces them as high-priority interrupt and focus targets. |
 
 ---
@@ -86,7 +86,7 @@ Bot movement bridges native C++ AI directly to the core server's `MotionMaster`:
 
 | Mechanic | How It Works |
 | :--- | :--- |
-| **Simultaneous Eat & Drink** | Out of combat, bots eat and drink simultaneously in a single rest phase. Cheat bots recover to 90% health and mana; non-cheat bots recover to 50% health and 85% mana. Pre-pull meal checks outrank `attack anything` until almost full. |
+| **Simultaneous Eat & Drink** | Out of combat, bots eat and drink in a single rest phase. Cheat bots recover to 90% health and mana; non-cheat bots to 50% health and 85% mana. Pre-pull meal checks outrank `attack anything` until above medium health/mana (70/40 default). |
 | **No Meal While Group Fights** | Bots do not sit down to rest while group members within 60 yd are in combat. Eating or drinking bots immediately stand up when combat begins. |
 | **Level-Tier Rations** | Pool bots are seeded with level-appropriate food and water that upgrade upon leveling and restock automatically. |
 | **Conjured Item Sharing** | Mages out of combat conjure food and water and trade stacks to mana-using allies in need. |
@@ -105,7 +105,7 @@ For player-facing quirks and troubleshooting, see [Known Limitations & Quirks](.
 
 | Subsystem / Quirk | Technical Implementation & Guard Logic |
 | :--- | :--- |
-| **Upkeep Buff Mana Floor** | Out of combat upkeep buffs require that the post-cast mana stays at or above 40% (70% for charged buffs like *Earth Shield* or *Inner Fire*). Prevents bots draining mana before combat. Stances and shapeshifting forms are exempt. |
+| **Upkeep Buff Mana Floor** | Out of combat upkeep buffs require post-cast mana at or above 40% (70% charged); companions with a real player master use 20% (40% charged). Stances and shapeshifting forms are exempt. |
 | **Greater Party Buff Target** | Group buffs (*Prayer of Fortitude*, *Arcane Brilliance*, *Gift of the Wild*) check that targets lack both the single and group aura versions. Requires 3+ missing party members on the same map and stocked reagents. Expiring auras (<15s) count as missing. |
 | **Party Target Out of Sight** | Buff, blessing, dispel, and resurrection scans prioritize visible targets before considering out-of-sight allies to avoid failed cast loops. |
 | **Upkeep Buff Retry Cadence** | Out of combat buffs are throttled to at most one attempt per target per 3 s (group buffs once per minute) to eliminate cast spam when movement or mana issues occur. |

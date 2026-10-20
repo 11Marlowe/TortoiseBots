@@ -195,6 +195,7 @@ Alias: `.bot behaviour`. Settings are persisted per bot across sessions.
 - `loot`: Autonomous corpse looting (on by default).
 - `aoe`: Multi-target and area-of-effect abilities (on by default).
 - `autocc`: Smart crowd control on loose hostile adds (off by default).
+- `savemana`: Mana conservation that holds back expensive casts.
 - `boost`: Offensive cooldown usage (for example warrior *Death Wish* or mage *Arcane Power*).
 - `threat`: Threat back-off that eases off when the bot nears the tank's threat.
 - `potions`: Automatic consumption of healing and mana potions through the reaction engine.

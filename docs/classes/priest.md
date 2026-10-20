@@ -30,7 +30,7 @@ Priests select healing spells based on defined health bands (bands follow [Comba
 - **Low (20%–50%):** *Power Word: Shield* + *Greater Heal* (+ *Heal* / *Lesser Heal* fallbacks at low level), plus fast *Flash Heal* ahead when loose mobs attack non-tanks.
 - **Medium (50%–70%):** *Power Word: Shield* + *Flash Heal* + *Greater Heal* + *Heal* + *Renew*.
 - **Almost-Full (70%–90%):** *Renew* (Discipline shields first).
-- **Multiple Injured:** *Prayer of Healing* when at least 5 members are near and enough are hurt (3 hurt in a 5-man, scaling to 15 in a raid).
+- **Multiple Injured:** *Prayer of Healing* when 2 or more members in 30 yards are medium-hurt.
 
 Direct heals are downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking), using the lowest rank covering missing health. Full ranks are enforced whenever the target falls at or below 20% health. *Desperate Prayer* serves as a self-only emergency heal.
 

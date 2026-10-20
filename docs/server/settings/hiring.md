@@ -276,7 +276,7 @@ When set to `0`, each character must complete the recruiter unlock quests indivi
 
 ### `AiPlayerbot.HireGearAllQuestsAvailable`
 Controls whether recruiter gear unlock quests must be completed in order or are all offered at once.
-**Default:** `0` · **Values:** `0` sequential, `1` all available · **Restart:** needed (requires two restarts to rebuild quest records)
+**Default:** `0` · **Values:** `0` sequential, `1` all available · **Restart:** needed (live after the next restart)
 
 <details>
 <summary>How it works in detail</summary>

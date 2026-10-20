@@ -90,7 +90,7 @@ Enables automatic bot matchmaking for battleground PvP queues when players queue
 
 Monitors PvP queues for Warsong Gulch (WSG), Arathi Basin (AB), and Alterac Valley (AV). When real human players queue, random bots of the matching level bracket queue on both factions to meet the core's minimum player requirement plus one.
 
-This launches battleground matches within seconds even on low-population private servers. When a match concludes, bots leave within about 10 seconds rather than waiting for instance shutdown timers.
+This launches battleground matches within seconds even on low-population private servers. When a match concludes, bots leave rather than waiting for instance shutdown timers.
 
 Your own party bots can queue alongside you via "Join as Group" at battlemasters (supported for WSG and AB; AV requires solo queues in the core) and will auto-accept match invites regardless of this toggle.
 

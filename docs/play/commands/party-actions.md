@@ -282,7 +282,7 @@ Bare `aoe` toggles the switch. AoE is on by default. Turning it off applies the 
 - **Shaman:** Chain Lightning, Magma Totem, Fire Nova, Earthquake.
 - **Warrior:** Cleave, Whirlwind, Sweeping Strikes, Thunder Clap, Thunder Clap on snare target, Demoralizing Shout, Challenging Shout, Intimidating Shout, Piercing Howl.
 - **Rogue:** Blade Flurry.
-- **Other:** War Stomp, Goblin Sapper Charge, Grenades (throw grenade), Oil of Immolation. The `dps aoe` target picker is also suppressed.
+- **Other:** War Stomp, Goblin Sapper, Grenades (throw grenade), Oil of Immolation. The `dps aoe` target picker is also suppressed.
 
 </details>
 

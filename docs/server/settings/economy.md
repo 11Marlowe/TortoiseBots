@@ -104,7 +104,7 @@ Enables synthetic buyer bids that purchase auctions posted by human players.
 
 Simulates economic demand by having bots purchase realistically priced player auctions. When a purchase occurs, the bid or buyout is placed through native auction handling.
 
-Purchases are organic: bids and buyouts only execute through bots already standing at an auctioneer during their roleplay phase.
+Purchases are organic: bids and buyouts only execute through bots already standing at an auctioneer.
 
 </details>
 

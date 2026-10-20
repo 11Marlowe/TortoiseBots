@@ -42,7 +42,7 @@ Druids fulfill Tank, Healer, Melee DPS, or Ranged Caster roles using flexible sh
 - Maintains *Rejuvenation* and *Regrowth* HoTs (Heal-over-Time spells) on injured allies.
 - Casts direct heals (*Healing Touch*) downranked to match target wounds per [shared downranking rules](overview.md#spell-downranking).
 - Chains *Nature's Swiftness* into an instant *Healing Touch* when allies suffer critical damage.
-- Channels *Tranquility* when 3 or more nearby party members are heavily wounded.
+- Channels *Tranquility* when 2 or more members in 30 yards are medium-hurt.
 - Spends *Omen of Clarity* procs on free *Rejuvenation* casts.
 - Supports party damage via the `+offdps` strategy per [healer off-DPS rules](overview.md#healer-off-dps-offdps), shifting out of Tree of Life Form to cast *Moonfire* and *Wrath*.
 
