@@ -75,7 +75,15 @@ NextAction** TankShamanStrategy::GetDefaultCombatActions()
 
 void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    ShamanStrategy::InitCombatTriggers(triggers);
+    ClassStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "earth shock on enemy healer",
+        NextAction::array(0, new NextAction("earth shock on enemy healer", ACTION_INTERRUPT + 2), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "earth shock interrupt",
+        NextAction::array(0, new NextAction("earth shock", ACTION_INTERRUPT + 2), NULL)));
 
     // Salvation must never sit on the tank (protection/druid pattern).
     triggers.push_back(new TriggerNode(
@@ -130,13 +138,6 @@ void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "tank threat lead",
         NextAction::array(0, new NextAction("earth shock", ACTION_NORMAL), NULL)));
-
-    // Flame shock is the DoT half of the shared shock cooldown: it fires
-    // before either earth shock line so the DoT lands first (enhancement
-    // pattern).
-    triggers.push_back(new TriggerNode(
-        "flame shock upkeep",
-        NextAction::array(0, new NextAction("flame shock", ACTION_NORMAL + 1), NULL)));
 }
 
 void TankShamanStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -247,7 +248,7 @@ void TankShamanAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
         NextAction::array(0, new NextAction("fire nova", ACTION_HIGH + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "melee medium aoe",
+        "tank magma totem",
         NextAction::array(0, new NextAction("magma totem", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(

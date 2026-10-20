@@ -253,3 +253,24 @@ bool TotemicSlamTrigger::IsActive()
         (!strike || sServerFacade.IsSpellReady(bot, strike));
     return !strikesReady;
 }
+
+bool TankMagmaTrigger::IsActive()
+{
+    if (!ai->HasSpell("magma totem"))
+        return false;
+    if (AI_VALUE2(bool, "has totem", "magma totem"))
+        return false;
+
+    uint32 novaSpellId = AI_VALUE2(uint32, "spell id", "fire nova totem");
+    bool novaOnCooldown = novaSpellId && !sServerFacade.IsSpellReady(bot, novaSpellId);
+    bool novaTotemDown = novaOnCooldown || AI_VALUE2(bool, "has totem", "fire nova totem");
+
+    bool partyAoeing = MeleeMediumAoeTrigger::IsActive();
+    uint8 attackerCount = AI_VALUE(uint8, "attackers count");
+    bool manaForMagma = AI_VALUE2(uint8, "mana", "self target") >= 25;
+
+    if (!TankMagmaShouldFollow(novaTotemDown, partyAoeing, attackerCount, manaForMagma))
+        return false;
+
+    return ai->CanCastSpell("magma totem", bot, true, nullptr, true);
+}

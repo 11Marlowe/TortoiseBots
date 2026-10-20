@@ -36,6 +36,11 @@ int main()
     CHECK(TotemicRecallShouldFire(true, true, false, true, true) == false);
     std::cout << "  [PASS] combat anywhere vetoes the recall\n";
 
+    // Prepull totems wanted: never destroy pre-pull totems.
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, true) == false);
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, false) == true);
+    std::cout << "  [PASS] prepull wanted vetoes the recall\n";
+
     std::cout << "All shaman totemic-recall policy checks PASSED!\n";
     return 0;
 }

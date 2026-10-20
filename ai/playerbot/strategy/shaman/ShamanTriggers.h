@@ -70,7 +70,17 @@ namespace ai
                     }
                 }
             }
-            return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat);
+            AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
+            bool prepullWanted = false;
+            time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
+            if (anchor != time_t(0) && time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec())
+                prepullWanted = true;
+            else
+            {
+                int beginMs = ctx ? ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get() : 0;
+                prepullWanted = beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
+            }
+            return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat, prepullWanted);
         }
     };
 
@@ -101,6 +111,18 @@ namespace ai
         TotemDropMode mode = StoredTotemDropMode(stored);
         if (mode == TotemDropMode::Manual)
             return false;
+        if (inCombat)
+        {
+            time_t recallTime = ctx ? ctx->GetValue<time_t>("manual time", "totemic recall time")->Get() : time_t(0);
+            if (recallTime != time_t(0))
+                ctx->GetValue<time_t>("manual time", "totemic recall time")->Set(time_t(0));
+        }
+        else
+        {
+            time_t recallTime = ctx ? ctx->GetValue<time_t>("manual time", "totemic recall time")->Get() : time_t(0);
+            if (recallTime != time_t(0) && time(0) - recallTime < 60)
+                return false;
+        }
         if (mode == TotemDropMode::Prepull && !inCombat)
         {
             time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
@@ -1055,6 +1077,16 @@ namespace ai
        TankStoneclawTrigger(PlayerbotAI* ai) : Trigger(ai, "tank stoneclaw", 5) {}
 
        virtual bool IsActive() override;
+    };
+
+    // Tank Magma: last resort AoE after Fire Nova is on cooldown or down and
+    // 3+ mobs remain, or into a wide pack (4+) where Nova alone will not hold it.
+    class TankMagmaTrigger : public MeleeMediumAoeTrigger
+    {
+    public:
+        TankMagmaTrigger(PlayerbotAI* ai) : MeleeMediumAoeTrigger(ai) {}
+
+        bool IsActive() override;
     };
 
     // Tank shield swap: Lightning Shield for the pull, Water Shield once
