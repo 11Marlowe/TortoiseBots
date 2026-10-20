@@ -54,6 +54,9 @@
     // of a dungeon or raid with bots in it. byMember maps guid -> the run it is in
     // (profile links); binds are the run cards in the shape the Commanders map draws.
     dungeons: { runs: [], binds: [], byMember: new Map(), staleModule: false, at: 0, openKey: null },
+    // turtle-agent run maps from --agent-maps-dir (issue #1102): a read-only list of SVG maps and single-file HTML replays. The
+    // daemon answers 404 while the folder is unset, which is how the page learns to keep the tab hidden.
+    agentMaps: { probed: false, enabled: false, error: false, files: [], open: '', at: 0 },
     server: {
       online: false,
       stale: true,
@@ -605,6 +608,20 @@
     activityPanel: document.getElementById('activity-panel'),
     fleetHealth: document.getElementById('fleet-health'),
 
+    // Agent maps (issue #1102)
+    agentMapsMenu: document.querySelector('.menu-item[data-tab="agentmaps"]'),
+    agentMapsOff: document.getElementById('am-off'),
+    agentMapsCard: document.getElementById('am-list-card'),
+    agentMapsRows: document.getElementById('am-rows'),
+    agentMapsCount: document.getElementById('am-count'),
+    agentMapsNote: document.getElementById('am-note'),
+    agentMapsViewer: document.getElementById('am-viewer'),
+    agentMapsTitle: document.getElementById('am-title'),
+    agentMapsMeta: document.getElementById('am-meta'),
+    agentMapsFrame: document.getElementById('am-frame'),
+    agentMapsBack: document.getElementById('am-back'),
+    agentMapsRefresh: document.getElementById('am-refresh'),
+
     // Chart & Console
     activityChart: document.getElementById('activity-chart'),
     tickChart: document.getElementById('tick-chart'),
@@ -757,6 +774,7 @@
     roster: { hash: 'bots', title: 'Bots' },
     map: { hash: 'map', title: 'Map' },
     dungeons: { hash: 'dungeons', title: 'Dungeons' },
+    agentmaps: { hash: 'agent-maps', title: 'Agent maps' },
     commanders: { hash: 'commanders', title: 'Commanders' },
     progress: { hash: 'progress', title: 'Progress' },
     activity: { hash: 'activity', title: 'Activity' },
@@ -849,6 +867,7 @@
     else if (tab === 'map') renderMap();
     else if (tab === 'commanders') renderCommanders();
     else if (tab === 'dungeons') renderDungeons();
+    else if (tab === 'agentmaps') renderAgentMaps();
     else if (tab === 'roster') renderBotsTab();
     else if (tab === 'progress') renderProgress();
     else if (tab === 'activity') renderActivityTab();
@@ -881,6 +900,7 @@
     if (tab === 'issues') fetchAnomalyTotals();
     if (tab === 'commanders') fetchCommanders();
     if (tab === 'dungeons') fetchDungeons();
+    if (tab === 'agentmaps') fetchAgentMaps();
   }
 
   el.menuItems.forEach(item => item.addEventListener('click', closeNavDrawer));
@@ -5818,6 +5838,102 @@
     }
   }
 
+  // ---- Agent maps (issue #1102): turtle-agent run maps from --agent-maps-dir, read-only ----
+
+  let agentMapsInflight = false;
+
+  function applyAgentMapsEnabled(on) {
+    state.agentMaps.enabled = !!on;
+    if (el.agentMapsMenu) el.agentMapsMenu.style.display = on ? '' : 'none';
+    if (!on && state.activeTab === 'agentmaps') go({ tab: 'overview' }, { replace: true });
+  }
+
+  // The list is also the feature probe: the daemon registers the route only when the operator set a folder, so a 404 keeps the
+  // tab hidden (and sends a pasted #/agent-maps URL back to Overview).
+  function fetchAgentMaps() {
+    if (agentMapsInflight) return;
+    agentMapsInflight = true;
+    fetch('/api/v1/agent-maps')
+      .then(r => {
+        if (r.status === 404) { applyAgentMapsEnabled(false); return null; }
+        return jsonOrThrow(r);
+      })
+      .then(data => {
+        state.agentMaps.probed = true;
+        if (!data) {
+          state.agentMaps.error = false;
+          if (state.activeTab === 'agentmaps') renderAgentMaps();
+          return;
+        }
+        state.agentMaps.error = false;
+        applyAgentMapsEnabled(true);
+        state.agentMaps.files = Array.isArray(data.files) ? data.files : [];
+        state.agentMaps.at = Date.now();
+        if (state.agentMaps.open && !state.agentMaps.files.some(f => f.name === state.agentMaps.open)) state.agentMaps.open = '';
+        if (state.activeTab === 'agentmaps') renderAgentMaps();
+      })
+      .catch(() => {
+        state.agentMaps.probed = true;
+        state.agentMaps.error = true;
+        if (state.activeTab === 'agentmaps') renderAgentMaps();
+      })
+      .finally(() => { agentMapsInflight = false; });
+  }
+
+  function renderAgentMaps() {
+    const am = state.agentMaps;
+    if (am.open && !am.files.some(f => f.name === am.open)) am.open = '';
+    const open = am.enabled && am.open ? am.files.find(f => f.name === am.open) : null;
+    if (el.agentMapsOff) el.agentMapsOff.style.display = am.probed && !am.enabled ? '' : 'none';
+    if (el.agentMapsCard) el.agentMapsCard.style.display = am.enabled && !open ? '' : 'none';
+    if (el.agentMapsViewer) el.agentMapsViewer.style.display = open ? '' : 'none';
+    if (!am.enabled) return;
+
+    if (open) {
+      if (el.agentMapsTitle) el.agentMapsTitle.textContent = open.name;
+      if (el.agentMapsMeta) {
+        el.agentMapsMeta.textContent = `${open.kind === 'html' ? 'HTML replay' : 'SVG map'} · ${AgentMapsView.formatSize(open.size)} · ${AgentMapsView.formatTime(open.mtime)}`;
+      }
+      if (el.agentMapsFrame) {
+        // The sandbox is set before the source: an HTML replay may run its own inline script, but neither kind gets
+        // allow-same-origin, so the framed document has an opaque origin and cannot reach this page or its cookies.
+        el.agentMapsFrame.setAttribute('sandbox', AgentMapsView.sandbox(open.kind));
+        const url = AgentMapsView.fileURL(open.name);
+        if (el.agentMapsFrame.getAttribute('src') !== url) el.agentMapsFrame.setAttribute('src', url);
+      }
+    } else if (el.agentMapsFrame) {
+      el.agentMapsFrame.removeAttribute('src'); // stop a replay when the viewer closes
+    }
+
+    if (el.agentMapsRows) {
+      let rows;
+      if (!am.probed) rows = '<tr><td colspan="4" class="table-empty">Reading the run-map folder…</td></tr>';
+      else if (am.error) rows = '<tr><td colspan="4" class="table-empty">Could not read the run-map folder; see the dashboard log.</td></tr>';
+      else rows = AgentMapsView.renderRows(am.files) || '<tr><td colspan="4" class="table-empty">No run maps yet. Produce one with <code>turtle-agent map --capture agent.cap --out run.svg --html</code> into the configured folder.</td></tr>';
+      el.agentMapsRows.innerHTML = rows;
+    }
+    if (el.agentMapsCount) el.agentMapsCount.textContent = `${am.files.length} map${am.files.length === 1 ? '' : 's'}`;
+    if (el.agentMapsNote) {
+      el.agentMapsNote.textContent = 'Newest first. Only .svg and .html files directly in the configured folder are listed. '
+        + 'Click a map to show it inline; a replay is sandboxed so it cannot reach this dashboard or the network.';
+    }
+  }
+
+  function initAgentMaps() {
+    if (el.agentMapsBack) el.agentMapsBack.addEventListener('click', () => { state.agentMaps.open = ''; renderAgentMaps(); });
+    if (el.agentMapsRefresh) el.agentMapsRefresh.addEventListener('click', () => fetchAgentMaps());
+    if (el.agentMapsRows && !el.agentMapsRows._wired) {
+      el.agentMapsRows._wired = true;
+      el.agentMapsRows.addEventListener('click', (e) => {
+        const btn = e.target.closest && e.target.closest('.agent-map-open');
+        if (!btn) return;
+        state.agentMaps.open = btn.dataset.name || '';
+        renderAgentMaps();
+      });
+    }
+    fetchAgentMaps(); // probe: shows the tab when the folder is configured
+  }
+
   // ---- the layers panel: one choice for all maps ----
 
   const cmdLayerRows = {}; // layer key -> {box, row, why}
@@ -6232,6 +6348,7 @@
   initCmdLayers();
   initCmdDemo();
   initRefreshPicker();
+  initAgentMaps();
   refreshGate.onGap(() => { CmdView.markGap(cmdTracker); CmdPaths.markGap(cmdTrails); });
   refreshGate.onChange(() => { seedCmdTrails(state.commanders.list); if (cmdDemo.on) { clearInterval(cmdDemo.timer); cmdDemo.timer = setInterval(refreshGate.guard(cmdDemoTick), cmdDemoMs()); } });
   fetchCommanders();

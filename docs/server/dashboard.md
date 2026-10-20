@@ -74,6 +74,7 @@ The web interface provides real-time operational visibility into your realm's bo
 | **Progress** | Are bots levelling up smoothly? | XP per hour KPIs, level-up timelines, and average gear item level by level band. |
 | **Activity** | What events have occurred? | Real-time feed of completed quests, rare loot drops, gathered nodes, and kills. |
 | **Dungeons** | What dungeon and raid runs are active? | Live view of active instance copies with bots, member health, and player badges. |
+| **Agent maps** | What did a turtle-agent test run do? | Developer tool for turtle-agent test runs. Hidden unless the daemon is given a maps folder. |
 | **Auction House** | What is currently on the market? | Searchable catalog of all active auction listings posted by bots and players. |
 | **Issues** | Which bots are stuck or in trouble? | Tracked navigation stalls, long deaths, and unreachable combat targets. |
 | **Server** | What settings are active? | Live server rates, active configuration flags, and one-click diagnostic reports. |
@@ -105,6 +106,25 @@ The **Dungeons** tab provides a dedicated live overview of all active dungeon an
 - **Player Highlighting:** Real players in bot parties are visually distinguished with a distinct badge and gold ring indicator.
 - **Raid Subgroups:** Raid encounters display members formatted into compact 5-player subgroup tiles.
 - **Live Run View:** Selecting an active run presents an interactive instance map rendering bot positions and vital health/power bars.
+
+### Agent Maps Tab
+
+This tab is a developer tool for [turtle-agent](https://github.com/pjerra/turtle-agent), the headless test client used to test bots in dungeons. If you do not run turtle-agent, you will never see it and can skip this section.
+
+The **Agent maps** tab shows the run maps that `turtle-agent map` writes: one SVG per run (`run.svg`, or `run-f1.svg`, `run-f2.svg` when the run spans floors) and, with `--html`, a self-contained `run.html` replay next to it. Click a file to view it inline.
+
+The tab is off by default. Start the daemon with `--agent-maps-dir DIR` (or `TBDASH_AGENT_MAPS_DIR=DIR`) to turn it on; without it the tab stays hidden and its API answers 404.
+
+<details>
+<summary>What it serves and the security limits</summary>
+
+- Lists the newest 200 `.svg`/`.html` files directly in the folder, newest first, with type, size and modified time. Hidden files, sub-folders and every other extension are not served. A served map is capped at 32 MiB.
+- Read-only: nothing is uploaded, written or deleted. The list and the files sit behind the normal GM login, and file names are always shown as text.
+- A replay runs in a sandboxed frame: it may run its own inline script, but it has no same-origin access and a `default-src 'none'` content security policy blocks every network request.
+- A symlink is followed only to a regular file directly inside the folder. The daemon re-checks the folder before every list and open and refuses if it no longer resolves to the directory it started with.
+- **Known limits:** keep the folder and every directory above it writable only by the operator. Files are opened by pathname, so someone who can rename the folder or an ancestor and put a symlink in its place can race a request between the check and the open (closing this needs Go 1.24 `os.Root` or Linux `openat2`; the dashboard is pinned to Go 1.22). A hard link inside the folder to a file outside it is served, so leave `fs.protected_hardlinks` at its default (`1`).
+
+</details>
 
 ## Issue Tracking & Stalls
 
@@ -147,9 +167,20 @@ The daemon provides selected admin-relevant HTTP REST endpoints under `/api/v1`:
 - `GET /api/v1/server-info`: Server version metadata, active rates, and configuration status.
 - `GET /api/v1/anomalies/totals`: Cumulative session totals for anomalies and action loops.
 - `GET /api/v1/auctions`: Searchable listings currently posted on the auction house by bots and players.
+- `GET /api/v1/agent-maps`: Turtle-agent run maps in the configured folder, newest first (only with `--agent-maps-dir`).
+- `GET /api/v1/agent-maps/files/<name>`: One run map, served inline (only with `--agent-maps-dir`).
 - `WS /api/v1/stream`: Real-time WebSocket event feed streaming live bot updates to connected clients.
 
 Activity counters are periodically saved to `activity-state.json` so statistics persist across daemon restarts.
+
+<details>
+<summary>Agent maps API details</summary>
+
+`GET /api/v1/agent-maps` returns `{"files":[{"name","size","mtime","kind"}...],"max_files":200,"max_file_size":33554432}`. `kind` is `svg` or `html`; `mtime` is unix seconds. Only regular `.svg`/`.html` files directly in the folder are listed (hidden files, sub-folders and symlinks that resolve outside are left out). The routes exist only when the daemon runs with `--agent-maps-dir DIR` (env `TBDASH_AGENT_MAPS_DIR`); unset, they are not registered and answer 404, which the page uses to keep the tab hidden. Both routes require the normal GM login.
+
+`GET /api/v1/agent-maps/files/<name>` serves `.svg` as `image/svg+xml` and `.html` as `text/html; charset=utf-8`. Both carry `X-Content-Type-Options: nosniff`, `Cache-Control: no-cache` and a restrictive `Content-Security-Policy` (`default-src 'none'`, no `connect-src`/`frame-src`/external fetch). The HTML policy also allows the replay's own inline script and style and adds `sandbox allow-scripts` (no `allow-same-origin`), so the replay runs in an opaque origin that cannot read the dashboard's cookies or DOM. A name with a separator, backslash, NUL, control character, leading dot, encoded traversal (`%2e%2e`, `%2f`, `%5c`, `%00`) or any extension other than `.svg`/`.html` is 404; a file over 32 MiB is 413. GET and HEAD only.
+
+</details>
 
 ## Pool KPI Report (`tools/pool_kpi_report.py`)
 
