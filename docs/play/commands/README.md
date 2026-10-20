@@ -44,14 +44,15 @@ Every bot command evaluates permission gates before executing:
 | Tier | Who Can Use | Permitted Operations |
 | :--- | :--- | :--- |
 | **GM Only** | GameMasters with session security above player level | Diagnostics, engine cheats, AI profiles (`save/load/list/reset ai`), `.bot pool`, `.bot ah`, `.reload config`. |
-| **Owner or GM** | Account owner of the bot, or any GM | Trading, inventory, gear equipping, talent points, trainer learning, recruitment (`.bot hire`), and lifecycle commands. |
+| **Owner or GM** | Account owner of the bot, or any GM | Trading, inventory, gear equipping, talent points, trainer learning, and lifecycle commands. |
 | **Group Member** | Anyone currently grouped with the bot | Tactical combat actions, movement orders, ready checks, whisper `hire` (random bots only), and inspection queries. |
+| **Any Player** | Any in-game player | Companion recruitment (`.bot hire`, subject to costs, caps, and `AiPlayerbot.HireAnywhere`). |
 
 ### Alt-Bots and Pool Bots
 
 - **Autonomous Alt-Bots:** When an owned alt plays autonomously in the world, other players may invite it and issue tactical combat orders. Only the account owner (or a GM) may trade with it, equip gear, spend talents, manage quests, or log it out. Note that [`.bot cmd`](commander.md) orders never move autonomous alt-bots; order them with whispers or party chat instead.
 - **Pool-Bot Trading:** By default, masterless random-pool bots refuse trade requests from players. Owned alts and hired companions always trade freely with their master.
-- **Fail-Closed Security:** Unrecognized commands default to requiring Owner or GM permissions. Refused whisper commands answer in chat (plus one addon error line); refused `.bot`/party commands fail silently.
+- **Fail-Closed Security:** Unrecognized commands default to requiring Owner or GM permissions. Refused `.bot action` answers with `TBM:ACTION_ERR`; only non-whisper mature-chat denials fail silently (whisper denials answer in chat plus one addon error line).
 
 ## Master Command Index
 
@@ -147,10 +148,10 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot version`](bot-panel.md#bot-version) | Inspection | Displays module version, protocol line, and credits. |
 | [`.bot help`](bot-panel.md#bot-help) | Inspection | Prints bot system version header. |
 | [`.bot inv`](bot-panel.md#bot-inv) | Bot Panel | Emits inventory, equipped gear, and money details. |
-| [`.bot item trade`](bot-panel.md#bot-item-trade) | Bot Panel | Opens direct trade window with a bot. |
-| [`.bot item equip`](bot-panel.md#bot-item-equip) | Bot Panel | Equips an item from the bot's bags into gear slots. |
-| [`.bot item unequip`](bot-panel.md#bot-item-unequip) | Bot Panel | Moves an equipped item into inventory bags. |
-| [`.bot item give`](bot-panel.md#bot-item-give) | Bot Panel | Offers a bag item in an open trade window. |
+| [`.bot item <Name> trade`](bot-panel.md#bot-item-trade) | Bot Panel | Opens direct trade window with a bot. |
+| [`.bot item <Name> equip`](bot-panel.md#bot-item-equip) | Bot Panel | Equips an item from the bot's bags into gear slots. |
+| [`.bot item <Name> unequip`](bot-panel.md#bot-item-unequip) | Bot Panel | Moves an equipped item into inventory bags. |
+| [`.bot item <Name> give`](bot-panel.md#bot-item-give) | Bot Panel | Offers a bag item in an open trade window. |
 | [`.bot behavior`](bot-panel.md#bot-behavior) | Bot Panel | Toggles persistent behaviors (loot, AoE, mimic...). |
 | [`.bot totem`](bot-panel.md#bot-totem) | Bot Panel | Configures and drops shaman totem loadouts. |
 | [`/w <BotName> trainer`](whispers.md#w--trainer) | Whisper Command | Trains all available class spells at open trainer. |

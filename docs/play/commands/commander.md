@@ -167,7 +167,7 @@ Directs the lead bot to pathfind to specific 3D coordinates; followers follow th
 .bot cmd move <x> <y> <z> [direct]
 ```
 
-Coordinates must be within `AiPlayerbot.ReactDistance` (default 150 yards) of the lead bot on walkable ground. Coordinates accept commas or semicolons as separators (without spaces). Fails with `too-far`, `unreachable`, or `off-mesh` (>5 yards off navmesh). After combat ends, bots return to this stay spot.
+Coordinates must be within `AiPlayerbot.ReactDistance` (default 150 yards) of the lead bot on walkable ground. Coordinates accept spaces, commas, or semicolons as separators (`x y z`, `x,y,z`, `x;y;z`, or with spaces). Fails with `too-far`, `unreachable`, or `off-mesh` (>5 yards off navmesh). After combat ends, bots return to this stay spot.
 
 <details>
 <summary>Direct movement mode</summary>
@@ -238,7 +238,7 @@ Moves the commanded party through a dungeon entrance trigger.
 .bot cmd enter <area trigger id|near> [bot]
 ```
 
-Requires Owner or GM permissions. Passing `near` picks the nearest entrance trigger within `ReactDistance` (lowest ID breaks ties). Bots must be on the trigger map and within `ReactDistance`. Checks instance requirements and lockouts (`requirement`, `instance-limit`; GM bypasses, raid maps refused). Lead bot enters first (30-second budget), followed by followers (30-second budget). Replies with `(n of m got in)`.
+Requires Owner or GM permissions. Passing `near` picks the nearest entrance trigger within `ReactDistance` (lowest ID breaks ties). Bots must be on the trigger map and within `ReactDistance`. Checks instance requirements and lockouts (`requirement`, `instance-limit`; requirements apply to GM commanders as well since only a GM bot would skip; raid maps need a raid group, which a bound party cannot satisfy). Lead bot enters first (30-second budget), followed by followers (30-second budget). Replies with `(n of m got in)`.
 
 ---
 
