@@ -33,7 +33,7 @@ TortoiseBots features three distinct categories of bots in the game world:
 
 Pool bots represent the living realm: they start at level 1 in starter zones, grind, quest, run dungeons via queue autofill, and progress naturally. They never join your private roster directly unless hired or claimed.
 
-Your own alts are secondary characters on your account. When spawned with `.bot add`, the server starts a headless session for that character and places them directly into your group. You can swap gear, train spells, set talents, and log into them directly as a human player at any time.
+Your own alts are secondary characters on your account. When spawned with `.bot add`, the server starts a headless session for that character and sets it to follow you. You can then invite it into your group with `.bot invite <CharacterName>`, swap gear, train spells, set talents, and log into them directly as a human player at any time.
 
 Hired companions are generated on demand at capital recruiters or mercenary inns to match your character level. When dismissed or when you leave the party, they are cleanly cleaned up and never pollute the organic world pool.
 
@@ -45,10 +45,9 @@ Hired companions are generated on demand at capital recruiters or mercenary inns
 flowchart LR
     CreateAlt["1. Create Alts on Your Account"] --> LogMain["2. Log Main Character"]
     LogMain --> OpenTBM["3. Open /tbm (Roster Tab)"]
-    SelectRow["4. Select Alt & Click Login"]
-    OpenTBM --> SelectRow
-    SelectRow --> Headless["5. Headless Session Joins Party"]
-    Headless --> Field["6. Adventure & Dungeons"]
+    OpenTBM --> SelectRow["4. Select Alt & Click Login"]
+    SelectRow --> InviteParty["5. Invite Alt to Party"]
+    InviteParty --> Field["6. Adventure & Dungeons"]
 ```
 
 ### Prerequisites
@@ -65,7 +64,7 @@ You can manage your bots using the in-game addon interface or through native cha
 
 1. Type `/tbm` in chat to open the management panel. See [TortoiseBotsManager Addon](commands/addon.md) for full controls.
 2. Open the **Roster** tab.
-3. Select an alt character from the list and click **Login** or **Invite**.
+3. Select an alt character from the list and click **Login**, then click **Invite** to add them to your party.
 4. The alt enters the world as a headless session and joins your party.
 
 ### Command-Line Shortcuts
@@ -74,6 +73,7 @@ You can also control bot logins directly using chat commands:
 
 ```text
 .bot add <CharacterName>
+.bot invite <CharacterName>
 .bot summon <CharacterName>
 .bot remove <CharacterName>
 ```
@@ -91,14 +91,14 @@ See [Roster and Hiring Commands](commands/roster-and-hiring.md) for full command
 
 ## Building a Balanced 5-Man Party
 
-A standard dungeon group consists of one tank, one healer, one melee DPS, and two ranged DPS.
+A standard dungeon group consists of one tank, one healer, one melee DPS, and two ranged DPS. Example balanced compositions:
 
 | Role | Recommended Classes & Specs | Primary Responsibilities | Tactical Strengths |
 | :--- | :--- | :--- | :--- |
 | **Tank** (1) | Protection Warrior, Feral Bear Druid, Protection Paladin | Holds primary threat and positions packs. | High mitigation, taunt mechanics, and melee interrupts. |
 | **Healer** (1) | Holy Priest, Restoration Shaman, Holy Paladin, Resto Druid | Maintains party health and dispels debuffs. | Triage healing, dispel coverage, and party recovery. |
-| **Melee DPS** (1) | Combat Rogue, Fury Warrior, Feral Cat Druid | Focuses single-target burst and kicks spells. | Physical burst, secondary interrupts, and stealth Sap. |
-| **Ranged DPS** (2) | Frost Mage, Marksmanship Hunter, Affliction Warlock | Deals ranged burst and provides crowd control. | Polymorph, Freezing Trap, Banish, and food summons. |
+| **Melee DPS** (1) | Combat / Assassination Rogue, Fury Warrior, Feral Cat Druid | Focuses single-target burst, interrupts, and utility. | Physical burst, interrupts, stealth Sap, and Lockpicking. |
+| **Ranged DPS** (2) | Frost / Fire Mage, Marksmanship Hunter, Affliction Warlock | Deals ranged burst and provides crowd control. | Polymorph, Freezing Trap, Banish, and conjured food/water. |
 
 ## Basic Controls in the Field
 

@@ -32,7 +32,7 @@ The interface is divided into functional tabs designed for different stages of g
 
 ### Roster Tab
 
-- **Character List:** Lists all characters on your account, displaying level, class, and whether they are offline, online, or already in your party.
+- **Character List:** Lists all characters on your account, displaying level, class, and whether they are offline, online, starting, removing, or already in your party.
 - **Login & Logout:** Click **Login** to spawn an owned alt as a headless companion bot; click **Logout** to log it out cleanly.
 - **Invite & Summon:** Group with online alts or summon them directly to your location with one click.
 - **Alt-Bot Indicators:** Highlights alts playing autonomously in the world, allowing you to reclaim them or log them out remotely.
@@ -63,33 +63,44 @@ The addon communicates with the server over private addon communication channels
 
 - **Silent Operation:** Commands sent by clicking addon buttons do not print `.bot` text into your chat frame, and server responses do not clutter your chat log.
 - **Chat Fallback:** If the private addon channel becomes unavailable (for example, while ungrouped or on an older server build), the addon automatically falls back to sending standard `.bot` chat commands.
-- **Execution Order:** Addon commands execute on the server's next world tick, immediately before bots take their actions. Commands run strictly in the order they reach the server.
-- **Movement Conflict Resolution:** A newer movement order always overrides an earlier pending order. For example, typing `/p stay` followed immediately by clicking **Follow** in the addon cancels the stay and results in follow.
-- **Rate Limiting:** To prevent server desynchronization, the server accepts up to 128 bot commands per player per world tick. Any excess commands within that tick are dropped with a warning.
+- **Execution Order & Queueing:** Commands sent via client packets and chat share a single FIFO queue on the player's session. Because packet delivery and chat dispatch can resolve asynchronously, send order does not guarantee receive order across different channels. Addon commands execute on the server's next world tick, immediately before bots take their actions.
+- **Movement Conflict Resolution:** A newer movement order always cancels earlier pending movement orders (`follow`, `stay`, `guard`, `free`, `flee`, `wander`) in the queue.
+- **Exemptions & Teardown:** Inline action packets are processed directly and exempt from command queuing. Logging out drops all pending queued commands for that bot. Even if the module is globally disabled (`AiPlayerbot.Enabled=0`), orders are still accepted and queued.
+- **Rate Limiting:** To prevent server desynchronization, the server accepts up to 128 bot commands per player per world tick. Any excess commands within that tick are dropped with the exact message: `Too many bot commands at once: <n> ignored.`
 
 ---
 
 ## Synchronization Streams
 
-The module transmits structured protocol lines (prefixed with `TBM:`) to keep the addon interface synchronized with server state:
+The module transmits structured protocol lines (prefixed with `TBM:`) to keep the addon interface synchronized with server state. Detailed stream definitions and grammar:
 
 | Protocol Stream | Description |
 | :--- | :--- |
-| `TBM:TRANSPORT` | Reports whether private addon communication is active (`party` or `none`). |
-| `TBM:BOTSTATE` | Streams movement modes (`follow`, `stay`, `guard`, `free`) and live toggle states. |
-| `TBM:CC_ASSIGN` | Broadcasts active crowd control mark assignments across party bots. |
-| `TBM:CAPS` | Advertises server feature capabilities (e.g. pull sliders, flee, inventory, mimic). |
-| `TBM:ALTBOTS` | Lists owned characters currently active as autonomous alt-bots. |
-| `TBM:VERSION` | Handshakes the server module version and build date with the client addon. |
-| `TBM:VIEW` | Streams real-time tactical perception frames when Remote Commander view is active. |
-| `TBM:ACTION_ACK` | Confirms execution of party or bot actions (`TBM:ACTION_ACK\|<intent>\|<scope>\|<count>\|<detail>`). |
-| `TBM:ACTION_ERR` | Notifies action failures (`TBM:ACTION_ERR\|<intent>\|<code>\|<message>`). |
+| `TBM:TRANSPORT\|<channel>` | Reports active transport channel (`party` or `none`). |
+| `TBM:ROSTER_BEGIN\|<n>` / `TBM:ROSTER_END` | Delimits the account character roster stream. |
+| `TBM:ROSTER\|<guid>\|<name>\|<class>\|<state>\|<grouped>\|<loc>` | Emits one owned character row. |
+| `TBM:CLAIMED_BEGIN\|<n>` / `TBM:CLAIMED_END` | Delimits claimed guild/account bots stream. |
+| `TBM:CLAIMED\|<guid>\|<name>\|<class>\|<level>\|<state>\|<grouped>\|<loc>\|<locked>` | Emits one claimed bot row. |
+| `TBM:BOTSTATE_BEGIN\|<n>` / `TBM:BOTSTATE_END` | Delimits live movement and toggle states for controllable party bots. |
+| `TBM:BOTSTATE\|<bot>\|<fields>` | Emits bot movement mode and 9 behavior toggles. |
+| `TBM:CC_ASSIGN_BEGIN\|<n>` / `TBM:CC_ASSIGN_END` | Delimits active crowd control assignments. |
+| `TBM:CC_ASSIGN\|<bot>\|<mark>` | Emits a party bot's assigned CC raid mark. |
+| `TBM:CAPS\|<capabilities>` | Advertises server feature capabilities. Exact tokens: `pull-seconds,flee,inventory,behavior,claimed-roster`. |
+| `TBM:ALTBOTS\|<names>` | Comma-separated list of owned characters active as autonomous alt-bots. |
+| `TBM:VERSION\|<version>` | Handshakes server module version (e.g. `2026-10-20-v1` or `dev`). |
+| `TBM:VIEW` | Real-time perception frame lines for Remote Commander. |
+| `TBM:ACTION_ACK\|<intent>\|<scope>\|<count>\|<detail>` | Confirms action execution (`<scope>` is `party` or `bot:<Name>`). |
+| `TBM:ACTION_ERR\|<intent>\|<code>\|<message>` | Notifies action failure with structured error code. |
 
-### Protocol Format & Delivery Rules
+### Protocol Grammar & Semantics
 
+- **Capabilities (`TBM:CAPS`):** Emits exactly `TBM:CAPS|pull-seconds,flee,inventory,behavior,claimed-roster`. (`mimic` is a behavior toggle, not a capability token).
+- **Bot State Grammar (`TBM:BOTSTATE`):** Emitted for all controllable party bots (owned alts and hired companions). Format:
+  ```text
+  TBM:BOTSTATE|<bot>|move=<follow|stay|guard|free|flee|custom>,loot=<on|off>,aoe=<on|off>,autocc=<on|off>,savemana=<on|off>,boost=<on|off>,threat=<on|off>,potions=<on|off>,mimic=<on|off>,spread=<on|off>
+  ```
+- **CC Assignments (`TBM:CC_ASSIGN`):** Broadcasts assigned raid marks for controllable party bots (owned alts and hires). A bot is included only if it is in your party, has the `cc` combat strategy active, and has a non-default CC mark assigned (ungrouped alts are excluded).
 - **Message Length Cap:** Each emitted protocol line is strictly limited to 250 bytes (within the WoW client addon message buffer limit of 255 bytes).
-- **Acknowledgment Format:** `TBM:ACTION_ACK|<intent>|<scope>|<count>|<detail>`, where `<scope>` is either `party` or `bot:<Name>`.
-- **Error Notification Format:** `TBM:ACTION_ERR|<intent>|<code>|<message>`, providing structured error codes (such as `no-trade`, `unknown-target`, `out-of-range`) so the interface can display contextual error banners.
 - **Delivery Guarantees:** Addon commands execute sequentially in receipt order during the world tick immediately preceding bot AI turn execution.
 
 Hand-typed `.bot` commands in chat continue to work identically alongside the addon.
