@@ -162,6 +162,20 @@ What needs a live check (not verified in game): the cast cadence of Fear and Fre
 
 What needs a live check (not verified in game): whether interrupting Ranathos' 2 s Wrath spam starves the kick for Entangling Roots and Regrowth, and whether the 5 s Starfire is interruptible in time.
 
+## Zul'Farrak rows (map 209)
+
+Rows added 2026-10-20 (`data/sql/world/20261020080622_world.sql`), read from `tortoise-wow` 5d79486. All three bosses carry their list through `creature_template.spell_list_id`; the cast-time rule is the same as above (no SpellCastTimes.dbc, so `castingTimeIndex` above 1 plus the kick bits in `interruptFlags`).
+
+| Boss (entry) | Row | Data behind it |
+| :--- | :--- | :--- |
+| Hydromancer Velratha (7795) | `interrupt` Healing Wave 12491, Shadow Bolt Volley 15245, Shadow Bolt 12739 | Spell list 77950 (also inline `spell_id1-4`): Healing Wave 12491 (first at 0 s, every 9-22 s, castingTimeIndex 14, interruptFlags 15, heal, cast target 15), Shadow Bolt Volley 15245 (first at 5-10 s, every 17-22 s, castingTimeIndex 14, interruptFlags 15, radius index 10) and Shadow Bolt 12739 (every 2 s at 90 %, castingTimeIndex 14, interruptFlags 15). Ward of Zumrah 11086 (every 13-28 s) is instant (castingTimeIndex 1, interruptFlags 0) and gets no row. |
+| Shadowpriest Sezzziz (7275) | `interrupt` Heal 12039 and Renew 8362 | Spell list 72750: Heal 12039 (first at 0 s, every 14-25 s, castingTimeIndex 14, interruptFlags 15, cast target 15) and Renew 8362 (every 28-35 s, castingTimeIndex 5, interruptFlags 15, cast target 15, aura 8). Renew is a real cast, not an instant (the phase 1b brief had assumed instant); the re-verification settled it. Psychic Scream 13704 (every 22-32 s) is instant (castingTimeIndex 1, interruptFlags 8, radius index 14). Shadow Bolt 15537 (every 2-4 s) is the filler bolt and gets no row, so kicks are kept for the two heals. EventAI only has the 15 % flee event 727501. |
+| Antusul (8127) | `kill_first` Servant of Antusul 8156, priority 1 | EventAI events 812705 and 812706 cast Antusul Minion 11894 at 75 % and 25 % health (effect 42, summon at the caster, `effectMiscValue1` 8156); the first casts one servant, the second two. Servant 8156 is faction 107, unit_flags 0, no EventAI and no script, so it joins the fight and is on the bots' attacker list. The row is active while Antusul is among the attackers, which is when the servants appear. |
+| Chief Ukorz Sandscalp (7267) and Ruuzlu (7797) | no row | Both lists (72670, 77970) cast Cleave 15496 every 7-19 s: effect 58 on a unit target (implicit target 6), radius index 0 and no radius in the spell text, so no yard value exists for a `behind` row. Ukorz also casts Wide Slash 11837 (every 7-24 s), a cone (implicit target 24) with radius index 13, but the client SpellRadius table is not in the repo (same reason as Ahgk'tos Wing Flap in Windhorn). Ruuzlu casts no other spell; both open with Berserker Stance 7366 on themselves (instant). |
+| Witch Doctor Zumrah (7271) | no row for Ward of Zumrah 7785 | The ward is a ScriptedAI totem (`src/scripts/dungeons/zulfarrak/zulfarrak.cpp:605-632`) that casts Skeleton of Zumrah 11088 every 5 s and never attacks, so it never enters the bots' attacker list and a boss-tactics `kill_first` row could not pick it. The Zul'Farrak run-leader plan already names 7785 in its own `kill_first` column; the migration does not duplicate it. |
+
+What needs a live check (not verified in game): whether the kicks land on Velratha's 9-22 s Healing Wave when its 2 s Shadow Bolt filler is also listed (12739 is the row to drop if the kick is eaten), that Sezzziz starts casting early enough for a kick, and that the DPS bots switch to the servants in both waves before the boss dies.
+
 ## Adding a boss
 
 1. Read the boss from the core: `creature_template` (`spell_list_id`, `ai_name`), `creature_spells`, the `creature_ai_events`/`creature_ai_scripts` rows or the `src/scripts` boss file, and `spell_template` for each spell. Do not use another core's ids.
