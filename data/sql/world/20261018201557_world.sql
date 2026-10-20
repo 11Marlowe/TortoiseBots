@@ -24,11 +24,12 @@
 --     right before it), (-289.1 3.2 -64.1) -> (-287.5 5.0 -63.6), the live-proven landing: 7.3 yd across, 5.6 yd down (was
 --     5.0 across, 6.1 down). Taken live three times from the exact foot, 0.00 yd (tests/wc-hop-probe-2). The run leader has
 --     not run it yet.
---   * FAIL CLOSED on a module without exact waypoints (a binary rolled back to before feat/exact-waypoint): it ignores flag
---     64 and walks the foot as a plain move, but its loader does not know move_hop_exact and skips seq 4 (UnknownKind, in
---     the server log), so no direct order goes out over the hole. Its next step, seq 5 (-270.9 24.3 -60 on the ramp), has no
---     navmesh path from the ledge: the `cmd move` is refused, the run looks for a reachable point within 15 yd of it on the
---     ledge side and walks there by the navmesh or pauses; nobody jumps.
+--   * DEPLOY TOGETHER: this migration and the module of feat/exact-waypoint are deployed together and rolled back together;
+--     this DB under a module from before exact waypoints is an unsupported state. Such a module ignores flag 64 (walks the
+--     foot as a plain move) and its loader does not know move_hop_exact, so it skips seq 4 (UnknownKind, in the server log)
+--     and sends no direct order for the hop. It then tries seq 5 (-270.9 24.3 -60, on the ramp below) as a plain navmesh
+--     move, which is NOT guaranteed to be refused: what that walk or its 15 yd stand-in search does from the ledge is
+--     untested.
 --   * leg 8 (skum): its last group (4 x 5055 Lashers, patrol 3640) and the 18 rows of the walk to it and back are gone.
 --   * leg 9 (west_column): that group is now its pull group 3, pulled on the way north (2 approach moves + the pull + 3
 --     moves back), and the approach point to the old group 3 moved -277.3 -170.7 -> -271.2 -170.7 (+5 rows). This is the

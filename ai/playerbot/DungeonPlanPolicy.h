@@ -60,11 +60,11 @@ namespace ai
     // The kind text of a direct step launched from an exact waypoint (the move
     // with kPlanFlagExact right before it). It is a move_direct in every way
     // (PlanStepKind::MoveDirect, PlanStep::exactLaunch set), under a kind name
-    // of its own so that it FAILS CLOSED on a module without exact waypoints:
-    // such a loader does not know the kind and skips the row (UnknownKind), so
-    // an old binary that walks the foot as a plain move never sends the hop
-    // over the hole from short of it (docs/guides/dungeon-run-leader.md "Exact
-    // waypoints").
+    // of its own: a module without exact waypoints does not know the kind and
+    // skips the row (UnknownKind), so it sends no direct order for the hop. The
+    // rows and this module are deployed and rolled back together; what such an
+    // old module does with the row after the hop is not guarded here
+    // (docs/guides/dungeon-run-leader.md "Exact waypoints").
     constexpr const char* kPlanKindMoveHopExact = "move_hop_exact";
 
     // A row's kind text into the step: its kind, and exactLaunch for

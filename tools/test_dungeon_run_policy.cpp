@@ -4010,11 +4010,15 @@ static void TestBackPointStopsAtADirectStep()
     }
 }
 
-// Fail closed. A move_hop_exact with no exact move right before it is not
-// sent: the run pauses. And what a module without exact waypoints loads (it
-// skips the unknown kind, and walks the foot as a plain move) holds no direct
-// step at all, so it sends no order over the hole.
-static void TestExactLaunchFailsClosed()
+// A move_hop_exact with no exact move right before it is not sent: the run
+// pauses (at the step and on a walk back). Then a narrow check of the rows an
+// older module would load: with the hop's row skipped (the parser test in
+// test_dungeon_plan_policy.cpp shows the old kind parser returns None for it)
+// and the flag ignored, the plan holds no direct step, and THIS runtime run on
+// those rows emits no direct order. It does not model the old runtime, and it
+// says nothing about where its plain move to seq 5 ends: that deploy state is
+// unsupported (the migration and the module ship together).
+static void TestBrokenHopPausesAndSkippedHopRowHasNoDirectOrder()
 {
     DungeonPlan plan = SerpentisPlan();
     plan.steps[3].flags = 0; // the foot without its flag
@@ -4035,8 +4039,8 @@ static void TestExactLaunchFailsClosed()
         w.note.find("move_hop_exact") != std::string::npos);
 
     DungeonPlan old = SerpentisPlan();
-    old.steps[3].flags = 0;                  // an old runtime ignores the flag
-    old.steps.erase(old.steps.begin() + 4);  // an old loader skips move_hop_exact (UnknownKind)
+    old.steps[3].flags = 0;                  // the flag dropped, as an older module ignores it
+    old.steps.erase(old.steps.begin() + 4);  // the hop's row skipped, as an older loader does (UnknownKind)
     old.steps.insert(old.steps.begin() + 4, Step(PlanStepKind::Move, -270.9f, 24.3f, -60.0f)); // seq 5, on the ramp
     Run o = Start(&old, 0);
     Facts g = Party(0);
@@ -4053,7 +4057,7 @@ int main()
     TestDriftWithinTheRadiusIsNoProof();
     TestProofIsRetakenAfterAFightAndAResume();
     TestBackPointStopsAtADirectStep();
-    TestExactLaunchFailsClosed();
+    TestBrokenHopPausesAndSkippedHopRowHasNoDirectOrder();
     TestWalkBackReplaysTheExactPoint();
     TestExactSerpentisFootIsNotSkipped();
     TestExactNeverProvedPauses();

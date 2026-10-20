@@ -141,7 +141,7 @@ class DungeonPlanSql(unittest.TestCase):
 
     def test_hop_exact_follows_its_exact_move(self):
         # move_hop_exact (DungeonPlanPolicy.h kPlanKindMoveHopExact) is the hop launched from the flag 64 move right before it in
-        # its leg; it fails closed on a module without exact waypoints, whose loader skips the unknown kind.
+        # its leg; a module without exact waypoints skips the unknown kind (no direct order for the hop).
         for name, text in migrations():
             rows = list(self.step_rows(text))
             for i, row in enumerate(rows):
