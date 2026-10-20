@@ -83,9 +83,9 @@ By default (`AiPlayerbot.HireAnywhere = 0`), the `.bot hire` chat command always
 <details>
 <summary>Hiring options, level syntax, and equipment tiers</summary>
 
-- **Level Syntax & Clamping:** Companions match your level by default (`0` means hirer's level). Specify levels using `level=`, `level:`, `lvl=`, `lvl:`, bare `level <n>`, or a bare number $\ge 12$ as the last argument. Levels requested above the server cap are automatically lowered with notice; invalid forms (`level=0`, non-numeric, double level) are refused.
+- **Level Syntax & Clamping:** Companions match your level by default (`0` means hirer's level). Specify levels using `level=`, `level:`, `lvl=`, `lvl:`, bare `level <n>`, or a bare number $\ge 12$ as the last argument. Levels requested above the server cap are automatically lowered with notice; invalid forms (`level=0`, non-numeric, double level) are refused; a bare number anywhere but last is refused (`Unclear number … put the level last`).
 - **Tier & Druid Spec Words:** Accepts tier words `t<N>`, `tier<N>`, or instance names `mc`, `bwl`, `zg`, `aq`, `naxx`, `kara`. Druid specs can be specified as `cat`, `balance`, `bear`, or `feral`.
-- **Intro & Respec:** Once joined in your group, the hired companion waits until it arrives at your coordinates, then posts an introductory message in party chat. Hiring a tier kit respecs talents and refits equipment.
+- **Intro & Respec:** Once it is grouped with you (and in world), it posts its spec/spell intro once in party chat. Hiring a tier kit respecs talents and refits equipment.
 - **Equipment Tiers:** Level 60 companions can be hired in fixed Best-in-Slot gear sets (Tiers 0 through 7). Tiers unlock per character via recruiter quests (or account-wide if [`AiPlayerbot.HireGearUnlockAccountWide`](../../server/settings/hiring.md#aiplayerbothiregearunlockaccountwide) is enabled): Tier 0 (Standard), Tier 1 (Pre-raid), Tier 2 (Zul'Gurub), Tier 3 (Molten Core), Tier 4 (Blackwing Lair), Tier 5 (Ahn'Qiraj), Tier 6 (Naxxramas), Tier 7 (Karazhan).
 - **Temporary Character:** Hires exist while you are online, plus a disconnect grace period ([`AiPlayerbot.HireDisconnectGracePeriod`](../../server/settings/hiring.md#aiplayerbothiredisconnectgraceperiod)). Removing them deletes the temporary character.
 
@@ -99,7 +99,7 @@ Recruits up to 39 mercenary companions for a raid in a single operation.
 .bot hire raid <preset|composition> [tier]
 ```
 
-Requires Mercenary Recruiter access or `AiPlayerbot.HireAnywhere = 1`. The command requires party leader permissions, converts your group to a raid if needed, and checks available raid capacity and seats.
+Requires Mercenary Recruiter access or `AiPlayerbot.HireAnywhere = 1`. The command requires party leader permissions when the party must be converted to a raid (a party that would overflow 5); otherwise no leadership needed. It converts your group to a raid if needed, and checks available raid capacity and seats.
 
 <details>
 <summary>Raid compositions, batching, and quotes</summary>
@@ -119,7 +119,7 @@ Overrides party role assignments used by the AI strategy engine to select specs 
 .bot role <Name|self> <tank|healer|dps|clear>
 ```
 
-- `<Name>`: Sets the role for a specific companion bot and rebuilds its combat strategy kit. You may use your own character name instead of `self`.
+- `<Name>`: Sets the role for a specific companion bot and rebuilds its combat strategy kit. You may use your own character name instead of `self`. `.bot role self` sets the requesting player's own runtime role override and does not target a bot.
 - `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role.
 - `clear` (aliases `none`, `reset`): Clears the override and restores automatic role inference based on talents and gear.
 
@@ -149,7 +149,7 @@ Teleports an owned bot or hired companion safely to your current location out of
 .bot summon <CharacterName>
 ```
 
-Teleportation takes 3 seconds. Upon arrival, the bot resumes following you unless you issued an explicit order (`stay`, `guard`, `hold`, or `comestay`) after the summon request, in which case the bot anchors where it landed (issuing `come` later re-enables follow-restore). <a id="automatic-summon-on-group-accept"></a>When [`AiPlayerbot.OwnedBotSummonWhenGroup`](../../server/settings/party.md#aiplayerbotownedbotsummonwhengroup) is enabled, owned bots and hires that accept a party invite are automatically summoned if on the same map beyond sight distance (300 s cooldown; pool bots are never auto-summoned).
+Teleportation takes 3 seconds. Upon arrival, the bot resumes following you unless you issued an explicit order (`stay`, `guard`, `hold`, or `comestay`) after the summon request, in which case the bot anchors where it landed (issuing `come` later re-enables follow-restore). <a id="automatic-summon-on-group-accept"></a>When [`AiPlayerbot.OwnedBotSummonWhenGroup`](../../server/settings/party.md#aiplayerbotownedbotsummonwhengroup) is enabled, owned bots and hires that accept a party invite are automatically summoned if on the same map beyond sight distance (governed by [`AiPlayerbot.OwnedBotSummonCooldown`](../../server/settings/party.md#aiplayerbotownedbotsummoncooldown), [`AiPlayerbot.OwnedBotSummonAllowInCombat`](../../server/settings/party.md#aiplayerbotownedbotsummonallowincombat), [`AiPlayerbot.OwnedBotSummonAllowMasterDead`](../../server/settings/party.md#aiplayerbotownedbotsummonallowmasterdead), [`AiPlayerbot.OwnedBotSummonAllowBotDead`](../../server/settings/party.md#aiplayerbotownedbotsummonallowbotdead), [`AiPlayerbot.OwnedBotSummonRevive`](../../server/settings/party.md#aiplayerbotownedbotsummonrevive), and [`AiPlayerbot.OwnedBotSummonRepair`](../../server/settings/party.md#aiplayerbotownedbotsummonrepair); pool bots are never auto-summoned).
 
 ### `.bot maintenance`
 
@@ -239,7 +239,7 @@ Level-60 players can purchase world buffs for themselves and nearby group member
 | **Songflower Serenade** (1 h) | Cleanse songflower in Felwood | 4g + 1g per person |
 | **Traces of Silithyst** (30 min) | Defeat 5 opposing players in Silithus | 2g + 40s per person |
 
-- **Recruiter Rules:** Players must complete the unlock quest before purchasing; buffs provide no quest XP or rewards; world buff purchases only apply to party members (pool bots cannot purchase buffs, and bystanders outside the purchaser's party receive nothing). See [Hiring and Recruiter Settings](../../server/settings/hiring.md).
+- **Recruiter Rules:** Players must complete the unlock quest before purchasing; buffs provide no quest XP or rewards; world buff purchases only apply to party members (pool bots cannot purchase buffs, and bystanders outside the purchaser's party receive nothing); the menu shows the quest or the purchase for each buff, never both. See [Hiring and Recruiter Settings](../../server/settings/hiring.md).
 
 ### Mercenary Contracts
 

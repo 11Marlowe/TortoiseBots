@@ -32,7 +32,7 @@ The interface is divided into functional tabs designed for different stages of g
 
 ### Roster Tab
 
-- **Character List:** Lists all characters on your account, displaying level, class, and whether they are offline, online, starting, removing, or already in your party.
+- **Character List:** Lists all characters on your account, displaying level, class, and offline/online/starting/removing, plus an in-party indicator.
 - **Login & Logout:** Click **Login** to spawn an owned alt as a headless companion bot; click **Logout** to log it out cleanly.
 - **Invite & Summon:** Group with online alts or summon them directly to your location with one click.
 - **Alt-Bot Indicators:** Highlights alts playing autonomously in the world, allowing you to reclaim them or log them out remotely.
@@ -63,9 +63,9 @@ The addon communicates with the server over private addon communication channels
 
 - **Silent Operation:** Commands sent by clicking addon buttons do not print `.bot` text into your chat frame, and server responses do not clutter your chat log.
 - **Chat Fallback:** If the private addon channel becomes unavailable (for example, while ungrouped or on an older server build), the addon automatically falls back to sending standard `.bot` chat commands.
-- **Execution Order & Queueing:** Commands sent via client packets and chat share a single FIFO queue on the player's session. Because packet delivery and chat dispatch can resolve asynchronously, send order does not guarantee receive order across different channels. Addon commands execute on the server's next world tick, immediately before bots take their actions.
+- **Execution Order & Queueing:** Commands sent via addon-channel commands and chat share a single FIFO queue on the player's session. Because packet delivery and chat dispatch can resolve asynchronously, send order does not guarantee receive order across different channels. Addon commands execute on the server's next world tick, immediately before bots take their actions.
 - **Movement Conflict Resolution:** A newer movement order always cancels earlier pending movement orders (`follow`, `stay`, `guard`, `free`, `flee`, `wander`) in the queue.
-- **Exemptions & Teardown:** Inline action packets are processed directly and exempt from command queuing. Logging out drops all pending queued commands for that bot. Even if the module is globally disabled (`AiPlayerbot.Enabled=0`), orders are still accepted and queued.
+- **Exemptions & Teardown:** Inline action packets are processed directly and exempt from command queuing. Logging out drops all pending queued commands for that player/requester. Even if the module is globally disabled (`AiPlayerbot.Enabled=0`), orders are still accepted and queued.
 - **Rate Limiting:** To prevent server desynchronization, the server accepts up to 128 bot commands per player per world tick. Any excess commands within that tick are dropped with the exact message: `Too many bot commands at once: <n> ignored.`
 
 ---

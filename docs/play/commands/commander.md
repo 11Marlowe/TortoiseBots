@@ -71,7 +71,7 @@ The specified lead bot becomes party leader. If you specify additional bots, the
 
 - **Kept-Party Rule:** If the lead bot and named bots are already in your party, the party is kept intact: the lead bot takes leadership, you leave the group, and dungeon instances remain preserved.
 - **Hired Companions:** You can bind up to 5 of your own hired companions. Hires belonging to other players cannot be bound.
-- **Refusal Codes:** `disabled`, `already-bound`, `lead-unavailable`, `no-bot`, `not-master`, `group-has-player`, `group-raid`, `group-too-large`, `group-bound`, `no-members`, `member-grouped`, `bot-bound`, `party-unnamed`, `lead-bound`, `hired`, `denied`.
+- **Refusal Codes:** `disabled`, `already-bound`, `no-bot`, `group-has-player`, `group-raid`, `group-too-large`, `group-bound`, `no-members`, `member-grouped`, `bot-bound`, `party-unnamed`, `lead-bound`, `hired`, `denied`, `invite-failed`.
 
 </details>
 
@@ -218,7 +218,7 @@ Configures the loot distribution method and threshold for the commanded party.
 .bot cmd lootmethod <ffa|group|rr|master|nbg> [threshold]
 ```
 
-Supported methods: `ffa`, `group`, `rr`, `master` (lead bot is master looter), `nbg`. Threshold is kept when omitted; aliases include `poor` (`0` is rejected), `common`/`white`, `uncommon`/`green`, `rare`/`blue`, `epic`/`purple`, `legendary`/`orange`. The acknowledgment reflects the method now in force (`failed` if unchanged).
+Supported methods: `ffa`, `group`, `rr`, `master` (lead bot is master looter), `nbg`. Threshold is kept when omitted; aliases include `common`/`white`, `uncommon`/`green`, `rare`/`blue`, `epic`/`purple`, `legendary`/`orange` (`0` is rejected). The acknowledgment reflects the method now in force (`failed` if unchanged).
 
 ### `.bot cmd summon`
 

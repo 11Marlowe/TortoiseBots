@@ -23,11 +23,13 @@ Any whisper command can be sent through the `.bot command` proxy:
 # Example: .bot command Tanky trainer
 ```
 
+The whisper prefix `do <action>` or `d <action>` (e.g. `/w <BotName> do attack`) directly executes any internal AI action via `DoSpecificAction`.
+
 ### Access Tiers
 
 Whisper commands fall into distinct permission tiers:
 - **Tactical / Info (Group Members):** Combat movement, target targeting, and read-only status queries. Any group member may issue these.
-- **Owner or GM:** Economy, inventory, equipment, talents, trades, guild actions, and durable configuration changes. Permitted only to the bot's owner account or a GameMaster. Denials to non-owners fail silently.
+- **Owner or GM:** Economy, inventory, equipment, talents, trades, guild actions, and durable configuration changes. Permitted only to the bot's owner account or a GameMaster. Denials tell you in chat (plus one addon error line).
 - **GM Only:** Diagnostic and cheat commands (`debug`, `cdebug`, `cs`, `cheat`, `teleport`, `log`, `set value`, `save ai`, `load ai`, `list ai`, `reset ai`). GameMaster privilege is required.
 
 Multiple whisper commands can be chained in a single line using `\\` as a delimiter (e.g. `/w Tanky follow\\co +focus`).
@@ -54,9 +56,9 @@ Multiple whisper commands can be chained in a single line using `\\` as a delimi
 | `outfit <name>` | `<name>` | Owner or GM | Equips a previously saved equipment outfit set. |
 | `outfit save <name>` | `<name>` | Owner or GM | Saves currently equipped items under a profile name. |
 | `keep` | `<item link\|name>` | Owner or GM | Designates an item to keep and not sell. |
-| `keep need` | None | Owner or GM | Automatically keeps items rolled Need on. |
-| `roll need` / `greed` / `pass` | None | Owner or GM | Sets default loot roll choice on group drops. |
-| `roll feedback` | `[on\|off]` | Owner or GM | Toggles chat feedback on loot roll decisions. |
+| `keep need` | `<item>` | Owner or GM | Forces Need rolls / retention for that item (bot tries to get more). |
+| `roll <need\|greed\|pass\|auto\|emote>` | `[item]` | Owner or GM | Votes on current loot rolls (or all open rolls if omitted). |
+| `roll feedback` | None | Owner or GM | Toggles chat feedback on roll decisions. |
 
 ---
 
@@ -70,9 +72,9 @@ Multiple whisper commands can be chained in a single line using `\\` as a delimi
 | `repair` | None | Owner or GM | Repairs damaged equipment at a repair merchant. |
 | `t` / `nt` | None | Owner or GM | Initiates or accepts a direct trade window. |
 | `wts` | None | Tactical | Advertises items for sale or checks trade availability. |
-| `ah` | None | Owner or GM | Interacts with an open auction house window. |
-| `ah bid` | `<auctionId> <bid>` | Owner or GM | Places a bid on an auction house listing. |
-| `ah cancel` | `<auctionId>` | Owner or GM | Cancels an active player auction listing. |
+| `ah` | `[vendor\|itemlink money]` | Owner or GM | Auctions items at a nearby auction house. |
+| `ah bid` | `[vendor\|itemlink money]` | Owner or GM | Bids on auction house items within the given budget. |
+| `ah cancel` | `[itemlink\|all\|<auctionId>]` | Owner or GM | Cancels the bot's own auction house listings. |
 
 ---
 
@@ -85,7 +87,8 @@ Multiple whisper commands can be chained in a single line using `\\` as a delimi
 | `talk` | None | Owner or GM | Interacts and gossips with the targeted NPC. |
 | `r` / `reward` | `[reward index]` | Owner or GM | Selects quest reward and turns in completed quest. |
 | `share` | None | Owner or GM | Shares eligible quests with other party members. |
-| `doquest` / `do` / `d` | `[quest]` | Owner or GM | Directs the bot to focus on a specific quest objective. |
+| `doquest` | `[quest]` | Owner or GM | Directs the bot to focus travel on a specific quest objective. |
+| `d` / `do` | `<action>` | Owner or GM | Generic action prefix that executes any AI action by name. |
 
 ---
 
@@ -106,6 +109,11 @@ Multiple whisper commands can be chained in a single line using `\\` as a delimi
 | `list ai` | None | GM Only | Lists all saved strategy configuration profiles. |
 | `reset ai` | None | GM Only | Resets strategy configuration to default AI. |
 | `reset` | None | Owner or GM | Flushes AI action queues and resets combat strategies. |
+| `co` | `[+|-|~strategy\|?]` | Owner or GM | Queries or toggles combat strategies (`co ?` to list). |
+| `nc` | `[+|-|~strategy\|?]` | Owner or GM | Queries or toggles non-combat strategies (`nc ?` to list). |
+| `de` | `[+|-|~strategy\|?]` | Owner or GM | Queries or toggles dead strategies (`de ?` to list). |
+| `react` | `[+|-|~strategy\|?]` | Owner or GM | Queries or toggles reaction strategies (`react ?` to list). |
+| `all` | `[+|-|~strategy\|?]` | Owner or GM | Queries or toggles strategies across all engines. |
 
 ---
 
@@ -119,14 +127,14 @@ Multiple whisper commands can be chained in a single line using `\\` as a delimi
 | `release` | None | Owner or GM | Releases spirit to the graveyard after dying. |
 | `corpse run` | None | Owner or GM | Paths back to corpse location in spirit form. |
 | `revive` | None | Owner or GM | Resurrects at Spirit Healer with resurrection sickness. |
-| `invite` | `<player>` | Owner or GM | Sends a party invitation to a player. |
+| `invite` | `[player]` | Owner or GM | Sends a party invitation to a player. |
 | `join` | None | Owner or GM | Accepts a pending group invitation. |
 | `leave` | None | Owner or GM | Leaves the current group. |
-| `lfg` | None | Owner or GM | Queues or toggles Looking For Group. |
-| `summon` | `<player>` | Owner or GM | Casts ritual or summoning spell on player. |
+| `lfg` | `[5\|10\|20\|25\|40]` | Owner or GM | Queues or toggles Looking For Group. |
+| `summon` | None | Owner or GM | Teleports the bot to you. |
 | `logout` | None | Owner or GM | Initiates clean logout for the bot session. |
 | `bg free` | None | Owner or GM | Leaves the active battleground. |
-| `give leader` | `<player>` | Owner or GM | Promotes named player to party leader. |
+| `give leader` | None | Owner or GM | Promotes you when the bot leads the group. |
 
 ---
 
@@ -172,10 +180,15 @@ Bots support explicit target-assignment lists using the `+name` / `-name` parame
 | `wait for attack time` | None | Tactical | Holds attacks until main-hand swing timer synchronizes. |
 | `jump` | None | Tactical | Triggers an immediate jump action. |
 | `warning` | None | Tactical | Prints active combat or environmental warnings. |
-| `grind` | None | Tactical | Toggles solo autonomous grinding mode for the bot. |
-| `skill` / `faction` / `rep` | None | Owner or GM | Reports skill proficiencies and reputation standing. |
+| `grind` | None | Owner or GM | Toggles solo autonomous grinding mode for the bot. |
+| `skill` | `[name\|unlearn <name>]` | Owner or GM | Lists skills or unlearns a primary profession. |
+| `faction` | `[name\|±atwar <name>]` | Owner or GM | Lists factions or toggles at-war status. |
+| `rep` | None | Owner or GM | Reports reputation standings. |
 | `range` | `[distance]` | Owner or GM | Adjusts or reports combat engagement range. |
-| `flag` / `speak` / `chat` | `[args]` | Owner or GM | Configures chat broadcast and speech parameters. |
+| `flag` | `<cloak\|helm\|pvp\|sheathe> <on\|off\|toggle\|?>` | Owner or GM | Sets or queries visual and PvP flags. |
+| `speak` | `<text\|/channel text>` | Owner or GM | Makes the bot speak in chat or specified channel. |
+| `chat` | `[channel]` | Owner or GM | Sets or reports the bot's current chat channel. |
+| `go` | `[target\|x;y\|where\|travel <target>]` | Owner or GM | Orders the bot to move or travel to a destination. |
 | `move style` | `[style]` | Owner or GM | Sets bot movement pathing preference. |
 
 ---
