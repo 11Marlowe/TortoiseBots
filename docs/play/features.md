@@ -81,6 +81,7 @@ For health and mana thresholds, engagement distances, and casting pacing, see [C
 | Bomb debuff carriers run out | Always on | None | [Raid mechanics](dungeons-and-raids.md#universal-raid-reactions) |
 | Scripted tactics for Vanilla raid encounters | Always on | None | [Vanilla raids](dungeons-and-raids.md#specific-encounter-tactics) |
 | Boss strategies for 18 5-player dungeons | Always on | None | [Dungeon reference](dungeon-reference.md) |
+| Autonomous dungeon clearing (run leader) | No | [`AiPlayerbot.DungeonSelfClear`](../server/settings/dungeons-raids.md#aiplayerbotdungeonselfclear) | [Dungeon run leader](dungeon-run-leader.md) |
 | Steer clear of permanent creature auras | Yes | [`AiPlayerbot.AvoidCreatureAuras`](../server/settings/dungeons-raids.md#aiplayerbotavoidcreatureauras) | [Aura avoidance](dungeons-and-raids.md#universal-raid-reactions) |
 | Turtle WoW custom raid encounter tactics | Yes | [`AiPlayerbot.EnableCustomRaidTactics`](../server/settings/dungeons-raids.md#aiplayerbotenablecustomraidtactics) | [Custom raids](dungeons-and-raids.md#custom-turtle-raids) |
 | Onyxia whelp priority and egg avoidance | Yes | [`AiPlayerbot.OnyxiaWhelpsAndEggs`](../server/settings/dungeons-raids.md#aiplayerbotonyxiawhelpsandeggs) | [Onyxia tactics](dungeons-and-raids.md#specific-encounter-tactics) |
@@ -195,7 +196,7 @@ For log verbosity, retention limits, CSV streams, and tick budgets, see [Logging
 ## What Bots Cannot Do (Yet)
 
 - [Self-botting](known-limitations.md#blocked--incomplete-features): you cannot convert your currently logged-in character into an automated bot.
-- [Autonomous dungeon clearing](known-limitations.md#explicit-non-goals): bots cannot clear dungeons or raids on their own without a human player directing them.
+- [Autonomous dungeon clearing](dungeon-run-leader.md): an opt-in option, off by default (`AiPlayerbot.DungeonSelfClear = 0`). Turned on, a bound party clears a stored dungeon plan by itself; its limits are in [Known limitations](known-limitations.md#opt-in-dungeon-clearing).
 - [No dedicated 1v1-duel mode](known-limitations.md#blocked--incomplete-features): bots accept duels and fight duel opponents, but lack dedicated competitive player versus player skirmish logic.
 - [Expansion features](known-limitations.md#explicit-non-goals): no Death Knights, glyphs, vehicles, Outland zones, or multi-tab guild banks.
 - [Pre-movement node queries](known-limitations.md#blocked--incomplete-features): bots cannot check loot rights before walking toward a herb or ore vein.

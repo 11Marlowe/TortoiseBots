@@ -225,7 +225,7 @@ The same steps carry other events: a hold done by the instance data a script kee
 
 - A party with a real player in it (a player leading their own party): the run leads bound parties only.
 - **Avoid boxes** (plan v1 `avoid`: ground the navmesh calls walkable that kills, Ragefire Chasm's lava basin at x -226..-142, y -64..6, floor z about -65.4, 605-610 damage a tick). The run leader does not know them: its hops are the server's navmesh paths. The exporter checks every hop between two rows on the plain navmesh and `20261017130000_world.sql` has none that enters the box, but a fight, a knockback or a pull onto the basin is not covered. Follow-up.
-- **`gm_cross`** (a GM moves the party over a gap no walk crosses): Wailing Caverns' ramp to Lord Serpentis is exported as a `move_direct` (a straight walk down 6 yd over a 3.9 yd gap), not tried live.
+- **`gm_cross`** (a GM moves the party over a gap no walk crosses): Wailing Caverns' ramp to Lord Serpentis is exported as a `move_direct` (a straight walk down 6 yd over a 3.9 yd gap); it was walked in one live observe clear of the whole plan (2026-10-20, a candidate result).
 - Plan v1's `skip`, per-leg `rest`, `companions_loot` (Revelosh's Shaft: the run's `loot` takes the corpse with the lead bot, but other bots may loot it first), `area_trigger` and gossip.
 
 ### Cost
