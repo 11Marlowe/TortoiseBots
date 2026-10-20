@@ -4719,7 +4719,7 @@
   let cmdLayers = MapLayers.load(cmdLayerStore);
   const cmdAvail = {};        // commander -> availability of each layer on its map
   const cmdEvents = UnitInfo.newEvents(); // deaths, wipes, boss kills, objects opened (derived from the reports as they come)
-  const cmdPics = new Map();  // map id -> [picture layer] | 'loading' | null (the folder has none; asked again after a while)
+  const cmdPics = new Map();  // map id -> [picture slot] | 'loading' | null (the daemon gave no list; asked again after a while)
   const cmdPicMiss = new Map();
   const cmdTrails = CmdPaths.newTrails(); // every bot's path (the lead's is in cmdTracker.trail), kept from the 2 s reports
   const cmdStalls = CmdPaths.newStalls(); // where the run paused or an order was refused, fixed when first seen
@@ -5044,15 +5044,16 @@
     return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y), name: displayZoneName(zb.name) };
   }
 
-  // The real game-map pictures of a map id, when the daemon has a folder of them (TBDASH_MAP_DIR): undefined = not offered, 'loading',
-  // null = none for this map (looked for again after 30 s), else the list of {name, url, x, y, w, h}.
+  // The picture slots of a map id, from the daemon's folder (TBDASH_MAP_DIR): undefined = no folder or not asked yet, 'loading', null =
+  // the daemon has no folder answer for this map (asked again after 30 s), else the slots of CmdView.pictureSlots (the World map and its
+  // floors, the Minimap and the Navmesh; a missing one says why).
   function ensureCmdPics(mapId) {
     if (!state.commanders.realMaps || mapId == null) return undefined;
     const have = cmdPics.get(mapId);
     if (cmdPics.has(mapId) && !(have === null && Date.now() - (cmdPicMiss.get(mapId) || 0) > 30000)) return have;
     cmdPics.set(mapId, 'loading');
     fetch('/api/v1/maps/' + encodeURIComponent(mapId)).then(r => (r.ok ? r.json() : null)).then(ls => {
-      const l = CmdView.pictureLayers(ls);
+      const l = CmdView.pictureSlots(ls);
       cmdPics.set(mapId, l.length ? l : null);
       cmdPicMiss.set(mapId, Date.now());
       if (state.activeTab === 'commanders') renderCommanders();
@@ -5064,8 +5065,10 @@
   function cmdMapFacts(bind) {
     const lead = CmdView.leadBot(bind), first = lead || (bind.bots || [])[0] || null;
     const onMap = first ? (bind.bots || []).filter(b => b.map === first.map) : [];
-    const pl = first ? ensureCmdPics(first.map) : undefined;
-    const pics = Array.isArray(pl) ? pl : [];
+    // the demo card draws made-up picture slots (the reference Zul'Farrak layout and Uldaman's, without a minimap), so the three-entry
+    // picker can be tried without TBDASH_MAP_DIR
+    const pl = first ? (bind.demo ? CmdView.pictureSlots(CmdDemo.pictures(first.map)) : ensureCmdPics(first.map)) : undefined;
+    const slots = Array.isArray(pl) ? pl : [];
     const tr = cmdTracker.trail[bind.commander];
     const trail = tr && first && tr.map === first.map ? tr.pts : [];
     const heading = lead && lead.map === (first && first.map) ? CmdView.heading(trail, cmdNowFor(bind)) : null;
@@ -5091,13 +5094,14 @@
     const ctx = {
       memberTrails: !!first && CmdPaths.memberTrails(cmdTrails, bind, mapId, CmdPaths.TRAIL_MAX).length > 0,
       runSteps: steps.length > 0, stalls: stalls.length > 0, objects: objsReported,
-      picture: pics.length > 0, zone: !!zr, zonesAround, bots: onMap.length > 0, lead: !!lead && onMap.indexOf(lead) >= 0,
+      picture: slots.some(s => s.available), pictureWhy: (slots.find(s => s.kind === 'minimap') || {}).reason || '',
+      zone: !!zr, zonesAround, bots: onMap.length > 0, lead: !!lead && onMap.indexOf(lead) >= 0,
       trail: trail.length >= 2, heading: !!heading, healer: onMap.some(b => b.role === 'healer' && b.alive !== false),
       commanderPos: !!commanderAt, mobs: reported, mobTargets: reported, botTargets: reported && onMap.some(b => !!b.id),
       activity: onMap.some(b => b.st != null) || mobs.some(m => m.cast || m.cc),
       events: UnitInfo.eventsOf(cmdEvents, bind.commander).length > 0,
     };
-    return { lead, first, onMap, pics, trail, heading, zr, ctx, mobs, mobsTotal, commanderAt, steps, stalls, objs };
+    return { lead, first, onMap, slots, trail, heading, zr, ctx, mobs, mobsTotal, commanderAt, steps, stalls, objs };
   }
 
   // A clock time for a label on the path: the game server's seconds in the browser's locale.
@@ -5239,7 +5243,7 @@
     if (!pw || !ph) return; // the tab is hidden
     const ms = cmdMaps[key] || (cmdMaps[key] = { follow: true, view: null, userScale: null, pic: '' });
     const facts = cmdMapFacts(bind);
-    const { lead, first, onMap, pics, trail, heading, zr, mobs, mobsTotal, commanderAt, steps, stalls, objs } = facts;
+    const { lead, first, onMap, slots, trail, heading, zr, mobs, mobsTotal, commanderAt, steps, stalls, objs } = facts;
     const avail = MapLayers.availability(facts.ctx);
     cmdAvail[key] = avail;
     const on = MapLayers.active(cmdLayers, avail, facts.ctx);
@@ -5251,7 +5255,9 @@
     const f = n => n.toFixed(2);
 
     // the picture sits in its own group that is only rebuilt when it changes, so it does not flicker while the rest is redrawn
-    const pick = pics.find(l => l.name === ms.pic) || pics[0] || null;
+    const choice = CmdView.pictureChoice(slots, ms.pic);
+    const pick = choice.slot;
+    const ui = CmdView.pictureSelect(slots, ms.pic);
     const picKey = on.bg && pick ? `${pick.url}|${pick.x}|${pick.y}|${pick.w}|${pick.h}` : '';
     const picG = svg.querySelector('g.pic');
     if (picG._k !== picKey) {
@@ -5260,12 +5266,23 @@
     }
     svg.style.setProperty('--bgb', String((100 - cmdLayers.dim) / 100)); // the picture's brightness (the dim slider)
     const sel = card.querySelector('select.cmd-pic');
-    sel.hidden = pics.length < 2;
-    if (pics.length >= 2 && sel._k !== pics.map(l => l.name).join('|')) {
-      sel._k = pics.map(l => l.name).join('|');
-      sel.replaceChildren(...pics.map(l => { const o = document.createElement('option'); o.value = l.name; o.textContent = l.name; return o; }));
+    sel.hidden = ui.hidden;
+    const selKey = ui.options.map(o => `${o.value}|${o.label}|${o.disabled}|${o.title}`).join('|');
+    if (!ui.hidden && sel._k !== selKey) {
+      sel._k = selKey;
+      sel.replaceChildren(...ui.options.map(o => {
+        const el = document.createElement('option');
+        el.value = o.value;
+        el.textContent = o.label;
+        el.disabled = o.disabled;
+        if (o.title) el.title = o.title;
+        return el;
+      }));
     }
-    if (pick) sel.value = pick.name;
+    if (pick) sel.value = pick.key;
+    // why the picture the card is set to is not there (a run moved to a map without it): the picker shows the fallback, this says why
+    const picWhy = card.querySelector('.cmd-picwhy');
+    if (picWhy) { picWhy.hidden = !ui.reason; picWhy.textContent = ui.reason || ''; }
 
     let g = '';
     if (on.grid) {
@@ -5601,6 +5618,7 @@
             <div class="cmd-mapnote"></div>
             <div class="cmd-tip" hidden></div>
           </div>
+          <div class="cmd-picwhy" hidden></div>
           <div class="cmd-feed" hidden></div>
           <div class="cmd-legend">${cmdLegendHtml()}</div>
         </div>

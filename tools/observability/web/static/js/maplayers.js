@@ -249,7 +249,9 @@
     const c = ctx || {}, out = {};
     DEFS.forEach((d) => {
       const missing = d.parts.filter((p) => OLD_LAYERS[p].needs && !c[OLD_LAYERS[p].needs]);
-      const why = missing.map((p) => OLD_LAYERS[p].why || "no data").filter((w, i, a) => a.indexOf(w) === i).join("; ");
+      // a map with no picture at all says why: the map folder's own minimap reason (ctx.pictureWhy) when there is one
+      const why = missing.map((p) => (p === "bg" && typeof c.pictureWhy === "string" && c.pictureWhy) || OLD_LAYERS[p].why || "no data")
+        .filter((w, i, a) => a.indexOf(w) === i).join("; ");
       out[d.key] = missing.length === d.parts.length ? { ok: false, why: why || "no data" } : { ok: true, why: "" };
     });
     return out;

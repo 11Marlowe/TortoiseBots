@@ -49,6 +49,10 @@ assert.deepStrictEqual(Object.keys(av).sort(), L.keys().slice().sort());
 ["grid", "hpbars", "runinfo"].forEach((k) => assert.strictEqual(av[k].ok, true, k));
 let grey = ["bg", "zone", "bots", "leadpath", "memberpaths", "partyextras", "enemies", "critters", "enemynames", "threat", "aggro", "actionlines", "events", "stalls", "objects"];
 grey.forEach((k) => { assert.strictEqual(av[k].ok, false, k); assert.ok(av[k].why.length > 5, k + " says why"); });
+// the map folder's own reason (the missing minimap's) stands in for the built-in one of the map picture
+assert.strictEqual(L.availability({ pictureWhy: "No minimap picture: indoor dungeon" }).bg.why, "No minimap picture: indoor dungeon");
+assert.strictEqual(L.availability({ picture: true, pictureWhy: "ignored" }).bg.ok, true);
+assert.strictEqual(L.availability({ pictureWhy: "" }).bg.why, L.OLD_LAYERS.bg.why);
 // bots: the dots and names need bots, the lead mark needs the lead; any one is enough
 av = L.availability({ lead: true });
 assert.strictEqual(av.bots.ok, true, "the lead mark alone makes the party layer available");
