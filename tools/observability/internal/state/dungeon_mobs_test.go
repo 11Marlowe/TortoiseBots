@@ -44,9 +44,9 @@ func hostileMob(id, victim string) model.CommanderMob {
 	return model.CommanderMob{ID: id, Entry: 4863, Name: "Stonevault Rockchewer", HP: 85, X: 1230.5, Y: 850, Victim: victim, Reaction: "h"}
 }
 
-// A newer session starts from an empty map, an older session is ignored, and a
-// datagram from an older cycle (lower seq) is dropped even when it carries a
-// run the newer one did not (UDP reorder: stale data must not come back).
+// A datagram from an older cycle (lower seq) is dropped even when it carries a
+// run the newer one did not (UDP reorder: stale data must not come back), and
+// parts of one cycle (same seq) are all applied.
 func TestDungeonMobsSessionAndSeqOrdering(t *testing.T) {
 	s := newTestStore(newClock())
 	runA := mobRun(409, 13, []model.DungeonMobsMember{{GUID: 1, ID: botGUID}}, 1, hostileMob(mobGUID, botGUID))
@@ -56,11 +56,6 @@ func TestDungeonMobsSessionAndSeqOrdering(t *testing.T) {
 	s.ApplyDungeonMobs(mobPayload(7, 5, runA))
 	if got := mobEntries(s); len(got) != 1 || got["409:13"].run.MobsTotal != 1 {
 		t.Fatalf("first datagram: %+v", got)
-	}
-	// An older session cannot touch the map.
-	s.ApplyDungeonMobs(mobPayload(6, 99, runB))
-	if got := mobEntries(s); len(got) != 1 || got["409:14"].seq != 0 {
-		t.Fatalf("older session applied: %+v", got)
 	}
 	// An older seq of the same session is a reordered datagram: dropped whole.
 	s.ApplyDungeonMobs(mobPayload(7, 4, runB))
@@ -72,20 +67,39 @@ func TestDungeonMobsSessionAndSeqOrdering(t *testing.T) {
 	if got := mobEntries(s); len(got) != 2 {
 		t.Fatalf("same-seq part not applied: %+v", got)
 	}
-	// A newer session resets the map.
-	s.ApplyDungeonMobs(mobPayload(8, 1, runB))
-	if got := mobEntries(s); len(got) != 1 || got["409:14"].run.MobsTotal != 0 || got["409:13"].seq != 0 {
-		t.Fatalf("new session did not reset: %+v", got)
-	}
 	// The end marker with the newest seq clears everything...
-	s.ApplyDungeonMobs(mobPayload(8, 2))
+	s.ApplyDungeonMobs(mobPayload(7, 6))
 	if got := mobEntries(s); len(got) != 0 {
 		t.Fatalf("end marker did not clear: %+v", got)
 	}
 	// ...and a late part of the older cycle cannot bring a run back.
-	s.ApplyDungeonMobs(mobPayload(8, 1, runA))
+	s.ApplyDungeonMobs(mobPayload(7, 5, runA))
 	if got := mobEntries(s); len(got) != 0 {
 		t.Fatalf("late part after the end marker: %+v", got)
+	}
+}
+
+// Any session change resets the map, not only a higher one: the roster resets
+// on any session change and a game server restarting with a clock behind must
+// not freeze the mobs feed on the old session.
+func TestDungeonMobsSessionChangeResets(t *testing.T) {
+	s := newTestStore(newClock())
+	runA := mobRun(409, 13, []model.DungeonMobsMember{{GUID: 1, ID: botGUID}}, 1, hostileMob(mobGUID, botGUID))
+	runB := mobRun(409, 14, []model.DungeonMobsMember{{GUID: 2, ID: "99"}}, 0,
+		model.CommanderMob{ID: "5", Entry: 6, Name: "Rat", HP: 100, X: 1, Y: 2, Reaction: "n", Kind: "k"})
+
+	s.ApplyDungeonMobs(mobPayload(7, 5, runA))
+	// A lower session (a restart whose clock is behind) still replaces the map.
+	s.ApplyDungeonMobs(mobPayload(6, 1, runB))
+	got := mobEntries(s)
+	if len(got) != 1 || got["409:14"].run.MobsTotal != 0 || got["409:13"].seq != 0 {
+		t.Fatalf("lower session did not reset: %+v", got)
+	}
+	// And a higher one replaces it again.
+	s.ApplyDungeonMobs(mobPayload(8, 1, runA))
+	got = mobEntries(s)
+	if len(got) != 1 || got["409:13"].run.MobsTotal != 1 || got["409:14"].seq != 0 {
+		t.Fatalf("higher session did not reset: %+v", got)
 	}
 }
 
@@ -100,8 +114,8 @@ func TestDungeonMobsTrims(t *testing.T) {
 	for i := range 70 {
 		mobs = append(mobs, model.CommanderMob{ID: "m", Entry: uint32(i), Name: "Mob", HP: 100, X: float64(i), Y: 0, Reaction: "h"})
 	}
-	runs := make([]model.DungeonMobsRun, 0, 70)
-	for i := range 70 {
+	runs := make([]model.DungeonMobsRun, 0, maxDungeonMobsRuns+2)
+	for i := range maxDungeonMobsRuns + 2 {
 		runs = append(runs, mobRun(uint32(500+i), 1, members, 70, mobs...))
 	}
 	s.ApplyDungeonMobs(mobPayload(1, 1, runs...))
@@ -119,8 +133,10 @@ func TestDungeonMobsTrims(t *testing.T) {
 	}
 }
 
-// A run that stops being reported stays for three cycles and then vanishes;
-// the join drops it without touching the roster run.
+// A run that stops being reported survives the module's rotation gap and then
+// vanishes; the join drops it without touching the roster run. The times are
+// fixed (7 s still fresh, 9 s stale) so changing DungeonMobsStaleAfter fails
+// this test.
 func TestDungeonMobsStaleExpiry(t *testing.T) {
 	c := newClock()
 	s := newTestStore(c)
@@ -133,7 +149,14 @@ func TestDungeonMobsStaleExpiry(t *testing.T) {
 	if len(view.Runs) != 1 || view.Runs[0].Mobs == nil || len(*view.Runs[0].Mobs) != 1 || view.Runs[0].MobsTotal != 1 {
 		t.Fatalf("mobs not joined: %+v", view.Runs)
 	}
-	c.Advance(DungeonMobsStaleAfter + time.Second)
+	// 7 s: a rotated run (refreshed every ~6 s) is still shown.
+	c.Advance(7 * time.Second)
+	view = s.Dungeons()
+	if len(view.Runs) != 1 || view.Runs[0].Mobs == nil || len(*view.Runs[0].Mobs) != 1 {
+		t.Fatalf("mobs dropped inside the staleness window: %+v", view.Runs)
+	}
+	// 9 s: past the 8 s limit, the entry and its member ids are gone.
+	c.Advance(2 * time.Second)
 	view = s.Dungeons()
 	if len(view.Runs) != 1 {
 		t.Fatalf("run lost with its mobs: %+v", view.Runs)

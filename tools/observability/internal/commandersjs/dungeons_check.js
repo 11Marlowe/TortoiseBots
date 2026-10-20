@@ -84,6 +84,13 @@ const bind = D.bindOf(liveRun);
 assert.strictEqual(bind.commander, "dgn:409:13");
 assert.strictEqual(bind.dungeon, true);
 assert.strictEqual(bind.lead, "Tank"); // the first living tank, not the dead one
+// A dead tank listed first is skipped for the next living tank.
+const deadFirstLead = D.bindOf({ key: "70:2", map: 70, instance: 2, members: [
+  { name: "DeadTank", guid: 11, role: "tank", dead: true, state: "dead", map: 70 },
+  { name: "OffTank", guid: 12, role: "tank", dead: false, state: "combat", map: 70 },
+  { name: "Dps", guid: 13, role: "dps", dead: false, state: "combat", map: 70 },
+]});
+assert.strictEqual(deadFirstLead.lead, "OffTank");
 const tank = bind.bots.find((b) => b.guid === 1);
 assert.strictEqual(tank.id, "10844");
 assert.strictEqual(tank.target, "900");

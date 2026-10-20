@@ -19,12 +19,17 @@ const (
 	// can make the daemon hold (the module sends at most 48 and 40).
 	maxDungeonMobsPerRun  = 64
 	maxDungeonMobsMembers = 40
-	maxDungeonMobsRuns    = 64
-	// DungeonMobsStaleAfter is how long a run's mob entry stays valid: three
-	// snapshot cycles. A run that leaves the instance stops being refreshed
-	// and its mobs vanish a few seconds later; the module's "runs":[] marker
-	// clears the rest at once.
-	DungeonMobsStaleAfter = 6 * time.Second
+	// maxDungeonMobsRuns bounds the whole map. The module sends at most 32
+	// runs per cycle and rotates the rest (up to 96 live runs behind three
+	// cycles); keep headroom above that so a rotation is never evicted.
+	maxDungeonMobsRuns = 128
+	// DungeonMobsStaleAfter is how long a run's mob entry stays valid: four
+	// snapshot cycles. With the rotation above, a run may be refreshed only
+	// every third cycle (~6 s), so four cycles leave one cycle of slack. A
+	// run that leaves the instance stops being refreshed and its mobs vanish
+	// a few seconds later; the module's "runs":[] marker clears the rest at
+	// once.
+	DungeonMobsStaleAfter = 8 * time.Second
 )
 
 // dungeonMobsEntry is one run's newest payload plus when it arrived.
@@ -46,8 +51,9 @@ type dungeonMobsState struct {
 	runs map[string]dungeonMobsEntry
 }
 
-// ApplyDungeonMobs folds one DUNGEON_MOBS datagram into the store. A newer
-// session starts from an empty map, an older session is ignored, and a
+// ApplyDungeonMobs folds one DUNGEON_MOBS datagram into the store. Any
+// session change starts from an empty map (the roster does the same: a new
+// game-server process is a new session even if its clock is behind), and a
 // datagram whose seq is older than the newest applied one is dropped (UDP
 // reorder). An empty "runs" list with the newest seq ends every run.
 func (s *Store) ApplyDungeonMobs(p *model.DungeonMobsPayload) {
@@ -58,10 +64,7 @@ func (s *Store) ApplyDungeonMobs(p *model.DungeonMobsPayload) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
-	if p.Session < st.session {
-		return
-	}
-	if p.Session > st.session {
+	if p.Session != st.session {
 		st.session = p.Session
 		st.seq = 0
 		st.runs = make(map[string]dungeonMobsEntry)
