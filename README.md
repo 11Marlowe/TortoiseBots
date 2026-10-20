@@ -1,4 +1,5 @@
 # TortoiseBots
+[![Linux + Windows build](https://img.shields.io/github/actions/workflow/status/Sagiroth/TortoiseBots/build.yml?branch=main&event=push&label=Linux%20%2B%20Windows%20build&logo=github)](https://github.com/Sagiroth/TortoiseBots/actions/workflows/build.yml?query=branch%3Amain)
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-support-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/sagiroth)
 
 An independent, native PlayerBots module for the canonical **Tortoise WoW 1.18.1** core repository ([`tortoise-wow`](https://github.com/tortoise-wow/tortoise-wow), `main` branch).
