@@ -20,11 +20,23 @@ TortoiseBots strives to make companion bots behave like human players. However, 
 - **Synthetic Auction Market:** While bots list and purchase items from their actual inventories, fully synthetic auction supply and synthetic buyers are optional features disabled by default ([`AiPlayerbot.AhMarketSyntheticSupply`](../server/settings/economy.md#aiplayerbotahmarketsyntheticsupply) and [`AiPlayerbot.AhMarketBuyer`](../server/settings/economy.md#aiplayerbotahmarketbuyer)). When enabled, synthetic items remain isolated from real player inventories.
 - **Pre-Movement Loot Admission:** Bots check loot rights for creature corpses before walking to them. However, the server engine currently lacks an upfront query for game object loot rights; a bot may occasionally walk toward a gathered herb or mined vein before determining that there is nothing lootable.
 
+## Opt-In Dungeon Clearing
+
+By default, 5-player dungeons and raids are designed for a player (or a remote commander) directing companion bots. Autonomous dungeon clearing is an **opt-in** option, off by default. With `AiPlayerbot.DungeonSelfClear = 1` and `AiPlayerbot.RemoteCommander = 1`, a bound party follows a stored dungeon plan by itself, under the remote commander's own orders. The **run leader** (`.bot run`) is described in [Dungeon Run Leader](dungeon-run-leader.md), and its setting in [Dungeon & raid settings](../server/settings/dungeons-raids.md#aiplayerbotdungeonselfclear). Its limits:
+
+- **A stored plan is needed:** a run follows a dungeon plan from the world tables (`ai_dungeon_plan`, `ai_dungeon_leg`, `ai_dungeon_step`). Plans are on the server for Uldaman, Zul'Farrak, Ragefire Chasm and Wailing Caverns, and for Deadmines, whose plan is still a draft in turtle-agent. No raid plan is listed.
+- **Bound bot parties only:** the run leads a party bound to a remote commander (`.bot commander bind`). A party with a real player in it is not supported.
+- **The commander stays in control:** the commander (a player, or turtle-agent in observe mode) watches the run and may pause, skip, resume or stop it. Any player order pauses it. Every wait has a time limit, and a ceiling pauses the run with the reason.
+- **Some plan steps are not carried over yet:** plan v1's `skip`, per-leg `rest`, `companions_loot`, `area_trigger` and gossip.
+- **Avoid boxes are not known to the run:** its hops are the server's navmesh paths, so a fight, a knockback or a pull onto a plan's avoid box (Ragefire Chasm's lava basin) is not covered.
+- **Not tried live:** Wailing Caverns' ramp to Lord Serpentis is a straight walk (`move_direct`) that has not been tried in a live run.
+
+The separate `mod-dungeon-clear` port, a second autonomous pull and pathing brain, stays excluded.
+
 ## Explicit Non-Goals
 
 TortoiseBots deliberately excludes certain features to maintain immersion, stability, and vanilla fidelity:
 
-- **Autonomous Dungeon Clearing:** A second, autonomous pull and pathing brain (a `mod-dungeon-clear` port) stays excluded. 5-player dungeons and raids are designed for a player (or a remote commander) directing companion bots. The one exception, by owner decision (2026-10-14): the opt-in **run leader** (`.bot run`, `AiPlayerbot.DungeonSelfClear`, default `0`) lets a bound party follow a stored dungeon plan with the remote commander's own orders, and any player order pauses it. See [Dungeon Run Leader](dungeon-run-leader.md).
 - **Expansion Content (TBC / WotLK):** No Death Knights, glyphs, vehicles, Outland/Northrend zones, or Arena ratings. Classes and mechanics strictly adhere to Vanilla 1.12 with Turtle WoW 1.18.1 additions.
 - **Synchronous LLM in Combat or Movement:** Combat decisions, healing triage (prioritizing wounds), interrupts, and movement never wait on external language model responses. The combat and reaction engine is entirely deterministic C++.
 - **Multi-Tab Guild Vaults:** Turtle WoW 1.18.1 does not support WotLK-style multi-tab guild banks. Bot interactions with unsupported guild bank actions fail closed safely.
