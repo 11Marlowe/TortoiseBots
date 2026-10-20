@@ -1,101 +1,107 @@
 ---
-id: class-rogue
-title: Rogue Bot AI & Specs
+id: classes-rogue
+title: Rogue Bot Guide
 category: classes
-summary: Deep dive into Rogue stealth openers, combo point spenders, poison application, interrupts, and custom Turtle abilities.
-tags: [class, rogue, dps, melee, stealth]
+summary: Complete guide to Rogue bot AI, stealth openers, combo point spenders, poison application, interrupts, and dungeon threat drops.
+tags: [classes, rogue, dps, melee, stealth]
 relates_to:
-  - class-overview
-  - guide-player-controls
+  - classes-overview
 ---
 
-# Rogue Bot AI & Specs
+# Rogue Bot Guide
 
-Rogues provide premier single-target melee physical DPS, invaluable pre-combat crowd control (*Sap*), rapid interrupts (*Kick*), and defensive evasion.
+Rogues deliver exceptional single-target physical melee DPS, pre-combat crowd control (*Sap*), rapid interrupts (*Kick*), and defensive threat dumps (*Feint*, *Vanish*).
 
-## Supported Specs & Roles
+## Specs & roles
 
-- **Combat (Melee DPS):** Sustained sword/mace DPS using *Sinister Strike*, *Slice and Dice*, and *Blade Flurry* for multi-target cleave.
-- **Assassination (Melee DPS):** Dagger and poison specialist, maximizing critical strikes with *Backstab*, *Cold Blood*, and *Eviscerate*.
-- **Subtlety (Melee DPS & Control):** Mobility and utility, leveraging *Hemorrhage*, *Premeditation*, *Preparation*, and high bleed uptime.
+| Spec | Role | Primary Focus |
+| :--- | :--- | :--- |
+| **Combat** | Melee DPS | Sustained sword/mace DPS, Slice and Dice uptime, and Blade Flurry cleave. |
+| **Assassination** | Melee DPS | Dagger strikes, poison synergy, Cold Blood burst, and high critical damage. |
+| **Subtlety** | Melee DPS | High mobility, bleed scaling, Preparation resets, and opening burst. |
 
 ---
 
-## Combat Rotations & Priorities
+## What the bot does in combat
 
-### 1. Stealth & Openers
+### Stealth & Openers
 - Automatically enters *Stealth* out of combat.
-- Moves into position behind target to execute appropriate openers:
-  - *Cheap Shot* for lockdown stuns on dangerous casters.
-  - *Ambush* (Daggers) or *Garrote* (Bleed) for initial damage. Behind the target the bot tries Ambush first; without a dagger in the main hand it opens with Garrote (needs stealth and behind, no weapon), and Cheap Shot is the fallback when Garrote cannot be cast.
-  - Out of combat *Sap* when assigned CC on humanoid targets.
-- In battlegrounds a stealthed rogue still takes enemy-player orders: it sneaks up to the player in stealth and opens from there, and it keeps playing the objectives (flag, carrier, move to objective) while stealthed.
-  - *Sap* before the pull: when the rogue's CC mark (Moon unless `.bot action cc <mark>` changed it) sits on a humanoid that is not in combat, a rogue whose master is a real player stealths, walks to a spot about 2.5 yd from the mob's edge on its own side (a point move, not a melee chase, so no auto-attack and no bump into the mob's stealth detection) and Saps it while the party is still out of combat. Pool bots without a real player never do this. On by default; `.bot action sap off [bot]` turns it off (`sap on` back on, bare `sap` toggles). `off` adds the non-combat opt-out strategy `no sap` (listed by `nc ?`) and `on` removes it; it is saved with the bot like the loot toggle.
+- Manoeuvres behind targets to open with *Ambush* (with main-hand daggers) or *Garrote* (swords/maces).
+- Uses *Cheap Shot* as a fallback opener or when lockdown stuns are required.
+- **Pre-pull Sap:** When assigned a crowd control mark on an unpulled humanoid, a rogue following a human master stealths forward and casts *Sap* before combat begins. Can be toggled with `.bot action sap [on|off]`.
 
-### 2. Combo Points & Finisher Priority
-- **Generator:** Uses *Sinister Strike* (Swords) or *Backstab* (Daggers), or *Hemorrhage* (Subtlety).
-- **Slice and Dice Priority:** Combat ranks *Slice and Dice* above *Eviscerate*; Assassination and Subtlety rank *Eviscerate* above *Slice and Dice*.
-- **Finishers:**
-  - 4–5 Combo Points: Casts *Eviscerate* for burst damage (falling back to *Rupture* when the debuff is missing; Assassination/Subtlety also cast *Rupture* from 3+ combo points, on any target).
-  - Almost-dead dump: a target at 25% health or less eats whatever combo points are banked (1+) as *Eviscerate*, ahead of the gated finishers, so points land as damage instead of dying with the mob.
-  - *Expose Armor* (Combat and generic DPS) is skipped while the target already carries *Sunder Armor* from any caster at any stack count, since the two do not stack (spell group 1064, strongest wins); the rogue's own *Expose Armor* upkeep is unchanged.
-  - Interrupts are covered by *Kick* (*Cheap Shot* while stealthed); *Kidney Shot* is only a fallback when *Kick* cannot run.
+### Combo Points & Finisher Priority
+- **Builders:** Uses *Sinister Strike* (Combat), *Backstab* (Assassination), or *Hemorrhage* (Subtlety).
+- **Slice and Dice:** Combat prioritizes *Slice and Dice* above *Eviscerate*; Assassination and Subtlety prioritize *Eviscerate*.
+- **Spenders:** At 4–5 combo points, casts *Eviscerate* or *Rupture*. Dumps banked combo points (1+) into *Eviscerate* if the target falls below 25% health.
+- *Expose Armor* is withheld if the target already carries *Sunder Armor*.
 
-### 3. Burst Cooldowns
-- Combat casts *Adrenaline Rush* and *Blade Flurry* during tough encounters or multi-mob pulls (never *Oil of Immolation* within 8 yd, or *Blade Flurry* within 11 yd, of a crowd-controlled mob or a CC mark still waiting for its sheep, since the cleave would break it; *Blade Flurry* is a toggle on Turtle that stays on between pulls, so a running one is cancelled when such a mob, or a CC mark whose CC bot is ready to sheep it, comes within 8 yd, via "blade flurry near cc" / "remove blade flurry", and it is not turned on again while one is within 11 yd. The rogue's own target does not count for the crowd-control test (the cleave never hits it), so its own *Gouge* leaves *Blade Flurry* alone; a ready mark counts even as its target); Assassination fires *Cold Blood* only with 4 or more combo points banked, so the crit boost lands on a finisher (Turtle's Cold Blood also covers *Sinister Strike*, *Backstab*, *Ambush* and *Noxious Assault*); Subtlety fires *Preparation*.
-- Near a CC mark the rogue also keeps *Kick on enemy healer* off a held mark (Moon or a bot's CC mark in its hold window or under a CC cast bar): a Moon mob casting a heal is left to the CC bot.
-- Activates *Evasion* on the low-health trigger (own HP in the low band), regardless of aggro source; when evasion is spent (5-minute cooldown, e.g. death loops), *Vanish* breaks combat instead of a solo-useless *Feint*, which stays last for grouped rogues with a tank to save (*Feint* is not cast at all while the rogue is ungrouped).
-- Activates *Vanish* if health falls below 20% to wipe threat (after *Blind*).
-- **Feint needs someone to take the threat:** every *Feint* row (dungeon, raid, low-health emergency) is skipped unless the rogue is grouped and a living main tank (not the rogue) or a living party pet is there to take the mob; right after the tank dies it does not waste the global cooldown.
-- **Dungeon threat drops (`AiPlayerbot.RogueDungeonThreatDrops`, default on):** raid rogues already cast *Feint* on medium threat and *Vanish* on high threat; with the toggle on, rogues do the same in grouped 5-man dungeons (`runtime/RogueThreatPolicy.h`, reimplemented from mod-playerbots' medium-threat Vanish). It uses the bots' existing "medium threat" (relative threat on the current target 60 or more) and "high threat" (80 or more, with the five-second look-ahead) triggers, so there is no extra threat scan. *Feint* fires first; *Vanish* is queued below it and only fires at high threat while the mob is held by the main tank or by the rogue. Everything requires a group, a main tank other than the rogue that is alive, in combat and holding the mob (it is the mob's victim or has threat on it; a loose add the tank never touched is left alone, because the threat value reads 100 for it), and a dungeon map that is not a raid: a solo rogue, a rogue with no tank, and the open world are never touched, so Vanish cannot reset a solo fight or drop combat for the group. The rows reuse the `feint` (cast on the current target) and `vanish` actions, neither of which carries a threat back-off. With the toggle off none of this applies.
-- **Raid threat drops:** in raids the rogue casts *Feint* on its current target at medium threat and *Vanish* at high threat, but *Vanish* only while the tank has threat on the target (a loose add the tank never touched reads as 100 on the threat value and would only waste the 5-minute cooldown). *Feint* is a target-enemy spell and is cast on the current target; both actions carry no threat back-off, so a party bot with the threat strategy is not vetoed exactly when the threat is high.
+### Cooldowns & Defensive Play
+- **Combat:** Activates *Adrenaline Rush* and *Blade Flurry* during difficult fights. *Blade Flurry* is automatically cancelled if a crowd-controlled mob comes within 8 yards.
+- **Assassination:** Holds *Cold Blood* until 4 or more combo points are banked to guarantee a critical finisher strike.
+- **Subtlety:** Activates *Preparation* to reset cooldowns during drawn-out battles.
+- **Defensives:** Triggers *Evasion* at low health, *Blind* to peel attackers, and *Vanish* at critical health (<20%) to drop threat. *Feint* is cast only when a living party tank or pet is present to hold aggro.
 
----
+<details>
+<summary>Dungeon threat drops in detail</summary>
 
-## Turtle WoW 1.18.1 Custom Content
+When enabled via configuration, rogues in 5-man dungeons use the same threat-drop discipline as in raids:
+- Casts *Feint* upon reaching medium threat (relative threat ≥ 60%).
+- Casts *Vanish* upon reaching high threat (relative threat ≥ 80%), provided the tank is holding the target.
+- Requires an active, living tank to prevent accidental resets in solo play.
 
-- **Surprise Attack (Spell ID 52511, per game data):**
-  - Combat combo-builder strike wired into the Combat rotation via a combo-gated trigger.
-- **Noxious Assault (Spell ID 52714, per game data):**
-  - Assassination talent providing +30% Attack Power and instant poison delivery, per game data.
-- **Envenom (Spell ID 52531, per game data):**
-  - Finisher consuming Deadly Poison stacks for instant Nature damage and an attack-speed poison buff, per game data.
-- **Shadow of Death (Spell ID 52710) & Mark for Death (Spell ID 52538, per game data):**
-  - Subtlety talents for banked burst detonation and party-wide attack power enhancement on fresh targets, per game data.
+</details>
 
 ---
 
-## Utility & Poisons
+## Turtle WoW custom spells
 
-- **Poisons:** Poison choice is context-dependent: raid/generic uses Instant (main hand) + Deadly (off hand, Instant fallback while Deadly is untrained); PvE uses Instant on both hands; PvP uses Mind (main hand) + Crippling (off hand). Open-world rogues keep Instant on the main hand themselves; expiry or rank upgrades re-apply automatically. Wound-poison actions exist per hand, but the factory seeds no wound ladder yet — Instant/Deadly/Crippling/Mind only. A poison is only attempted when its item level requirement is met, including for item-cheat bots and the always-on `main hand`/`off hand weapon no enchant` triggers (Instant Poison 20, Deadly 30), so lowbie rogues no longer loop on `apply deadly poison`.
-- **Interrupts:** Casts *Kick* instantly to lock out enemy spell schools — only on a real cast on the bar (preparing with cast time, or channeling); idle bosses and delayed instants never trigger it.
-- **Gouge & Blind:** Both are self-defence reactions — *Gouge* fires on the bot's own medium-health band against its current target; *Blind* is the top-priority critical-health self-peel, ahead of *Vanish*.
-- **No break-off (opt-in):** Pool rogues carry the generic `flee` strategy (`panic` and `critical health no master` at critical health, `outnumbered` under medium health with two or more attackers). `AiPlayerbot.PoolMeleeHoldGround = 1` drops it for rogues and warriors so they fight on with *Evasion* / *Blind* / *Vanish*, as mod-playerbots melee do. Off by default.
+- **Surprise Attack (Spell ID 52511):** Unblockable combo-building strike integrated into the Combat rotation.
+- **Noxious Assault (Spell ID 52714):** Assassination talent providing attack power and instant poison delivery.
+- **Envenom (Spell ID 52531):** Finisher consuming Deadly Poison stacks for instant Nature damage and an attack speed bonus.
+- **Shadow of Death & Mark for Death:** Subtlety talents enhancing banked burst detonation and party attack power.
 
 ---
 
-## Premade Talent Specs & Progression (1.18.1)
+## Utility & interrupts
 
-TortoiseBots ships with verified 5-level talent checkpoints (levels 10–60) tailored for Turtle WoW 1.18.1:
+- **Poisons:** Automatically applies poisons based on context: Instant (main hand) and Deadly (off hand) for PvE; Mind Numbing and Crippling for PvP. Respects level requirements (Instant at 20, Deadly at 30).
+- **Interrupts:** Casts *Kick* immediately to lock out enemy spell casts. Uses *Kidney Shot* as a stun fallback.
+- **Self-Defense CC:** Uses *Gouge* at medium health and *Blind* at critical health to disorient attackers.
+- **Hold Ground Opt-In:** With `AiPlayerbot.PoolMeleeHoldGround = 1`, pool rogues stand their ground using *Evasion* and *Vanish* rather than fleeing when low on health.
+
+---
+
+## Talent builds
+
+TortoiseBots provides pre-configured talent progressions at 5-level checkpoints (levels 10–60) tailored for Turtle WoW 1.18.1:
 
 | Spec Name | Config ID | Role | 60 Allocation | Key Signatures & Synergies |
 | :--- | :--- | :--- | :--- | :--- |
-| **Combat** | `4.0` | Melee DPS | `20 / 31 / 0` | Dual Wield Spec (30), Blade Rush (35), Adrenaline Rush (40), Hack and Slash extra attacks, Relentless Strikes, Lethality. |
-| **Assassination** | `4.1` | Melee DPS | `40 / 11 / 0` | Cold Blood (35), Seal Fate (45), Noxious Assault (50), Envenom, Vigor, Efficient Poisons, Precision dip. |
-| **Subtlety** | `4.2` | Melee DPS | `10 / 0 / 41` | Hemorrhage (30), Preparation (35), Mark for Death (45), Honor Among Thieves, Tricks of the Trade, Assassination crit dip. |
+| **Combat** | `4.0` | Melee DPS | `20 / 31 / 0` | Dual Wield Spec, Blade Rush, Adrenaline Rush, Hack and Slash, Lethality dip. |
+| **Assassination** | `4.1` | Melee DPS | `40 / 11 / 0` | Cold Blood, Seal Fate, Noxious Assault, Envenom, Vigor, Precision dip. |
+| **Subtlety** | `4.2` | Melee DPS | `10 / 0 / 41` | Hemorrhage, Preparation, Mark for Death, Honor Among Thieves, Assassination dip. |
 
-### Leveling Milestones & Progression Rationale
+<details>
+<summary>Leveling milestones and progression rationale</summary>
 
 - **Combat (`4.0`):**
-  - *Levels 10–30:* Melee efficiency path: *Opportunity* (5/5), *Precision* (5/5 +5% hit), *Improved Backstab* (3/3), *Improved Sprint* (2/2), and *Dual Wield Specialization* (30 +50% offhand damage).
-  - *Levels 30–40:* *Surprise Attack* (1/1 unblockable strike), *Hack and Slash* (2/2 sword/axe extra attacks), *Blade Rush* (35 attack speed & energy recovery), and *Adrenaline Rush* (40 signature energy surge).
-  - *Levels 40–60:* Transitions into Assassination for *Malice* (5/5 crit), *Ruthlessness* (3/3 combo points on finisher), *Relentless Strikes* (25 energy on finisher), and *Lethality* (5/5 +30% crit damage bonus).
+  - *Levels 10–30:* Takes *Opportunity* (5/5), *Precision* (5/5), *Improved Backstab* (3/3), *Improved Sprint* (2/2), and *Dual Wield Specialization* (30).
+  - *Levels 30–40:* Takes *Surprise Attack* (1/1), *Hack and Slash* (2/2), *Blade Rush* (35), and *Adrenaline Rush* (40).
+  - *Levels 40–60:* Dips into Assassination for *Malice* (5/5), *Ruthlessness* (3/3), *Relentless Strikes* (1/1), and *Lethality* (5/5).
 - **Assassination (`4.1`):**
-  - *Levels 10–35:* Poison and crit engine: *Malice* (5/5), *Ruthlessness* (3/3), *Murder* (2/2), *Relentless Strikes* (1/1), *Lethality* (5/5), *Vile Poisons* (3/3), *Improved Poisons* (3/3), and *Cold Blood* (35 guaranteed crit).
-  - *Levels 35–50:* *Efficient Poisons* (3/3), *Envenom* (40 finisher), *Seal Fate* (45 double combo point on crit), and *Noxious Assault* (50 twin-weapon strike).
-  - *Levels 50–60:* Combat dip (*Opportunity* 5/5 + *Precision* 3/5) to maximize hit and energy delivery.
+  - *Levels 10–35:* Takes *Malice* (5/5), *Ruthlessness* (3/3), *Murder* (2/2), *Relentless Strikes* (1/1), *Lethality* (5/5), and *Cold Blood* (35).
+  - *Levels 35–50:* Takes *Efficient Poisons* (3/3), *Envenom* (40), *Seal Fate* (45), and *Noxious Assault* (50).
+  - *Levels 50–60:* Dips into Combat (*Opportunity* 5/5 + *Precision* 3/5).
 - **Subtlety (`4.2`):**
-  - *Levels 10–30:* Stealth and bleed path: *Camouflage* (5/5), *Serrated Blades* (3/3 armor penetration), *Initiative* (3/3), *Ghostly Strike* (3/3), and *Hemorrhage* (30 low-cost debuff strike).
-  - *Levels 30–45:* *Preparation* (35 cooldown reset), *Shadow of Death* (1/1 burst), *Bloody Mess* (2/2 bleed scaling), and *Mark for Death* (45 capstone).
-  - *Levels 45–60:* *Honor Among Thieves* (2/2 group crit synergy) and 10 points in Assassination (*Malice* 5/5 + *Ruthlessness* 3/3 + *Murder* 2/2) for reliable finisher cycling.
+  - *Levels 10–30:* Takes *Camouflage* (5/5), *Serrated Blades* (3/3), *Initiative* (3/3), *Ghostly Strike* (3/3), and *Hemorrhage* (30).
+  - *Levels 30–45:* Takes *Preparation* (35), *Shadow of Death* (1/1), *Bloody Mess* (2/2), and *Mark for Death* (45).
+  - *Levels 45–60:* Takes *Honor Among Thieves* (2/2) and dips 10 points into Assassination (*Malice* 5/5 + *Ruthlessness* 3/3 + *Murder* 2/2).
 
+</details>
+
+---
+
+## Class settings
+
+- [`AiPlayerbot.RogueDungeonThreatDrops`](../server/settings/class-behaviour.md#aiplayerbotroguedungeonthreatdrops): Enables Feint on medium threat and Vanish on high threat in 5-man dungeons.

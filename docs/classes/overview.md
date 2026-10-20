@@ -1,39 +1,38 @@
 ---
-id: class-overview
+id: classes-overview
 title: Class AI & Roles Overview
 category: classes
 summary: Summary of the nine Vanilla classes, spec detection, combat roles, and shared behaviors in TortoiseBots.
 tags: [classes, overview, roles, specs, combat]
 relates_to:
-  - class-warrior
-  - class-paladin
-  - class-hunter
-  - class-rogue
-  - class-priest
-  - class-shaman
-  - class-mage
-  - class-warlock
-  - class-druid
-  - guide-player-controls
+  - classes-warrior
+  - classes-paladin
+  - classes-hunter
+  - classes-rogue
+  - classes-priest
+  - classes-shaman
+  - classes-mage
+  - classes-warlock
+  - classes-druid
 ---
 
 # Class AI & Roles Overview
 
-TortoiseBots implements comprehensive AI for all **nine Vanilla classes** (Warrior through Druid), with full spec awareness, rotational priorities, and support for **Turtle WoW 1.18.1** custom spells and talents.
+TortoiseBots implements combat and utility AI for all nine Vanilla classes (Warrior through Druid). Bots detect their active talent spec dynamically, execute class-appropriate rotations, and support Turtle WoW 1.18.1 custom spells and talents.
 
 ## Supported Roles & Classes
 
 | Class | Tank | Healer | Melee DPS | Ranged DPS | Crowd Control (CC) | Interrupts |
 | :--- | :---: | :---: | :---: | :---: | :--- | :--- |
-| **[Warrior](warrior.md)** | ✅ (Prot) | ❌ | ✅ (Arms/Fury) | ❌ | Intimidating Shout, Concussion Blow | Shield Bash, Pummel |
-| **[Paladin](paladin.md)** | ✅ (Prot) | ✅ (Holy) | ✅ (Ret) | ❌ | Hammer of Justice, Repentance | Hammer of Justice (stun/interrupt), Repentance |
-| **[Hunter](hunter.md)** | ❌ | ❌ | ✅ (Survival, ranged-first hybrid) | ✅ (BM/MM) | Freezing Trap, Scare Beast | None (Scatter Shot is a snare) |
-| **[Rogue](rogue.md)** | ❌ | ❌ | ✅ (All Specs) | ❌ | Sap, Blind, Gouge | Kick |
-| **[Priest](priest.md)** | ❌ | ✅ (Holy/Disc) | ❌ | ✅ (Shadow) | Shackle Undead, Psychic Scream, Chastise | Silence (Shadow) |
-| **[Shaman](shaman.md)** | ❌ | ✅ (Resto) | ✅ (Enh) | ✅ (Ele) | None | Earth Shock |
-| **[Mage](mage.md)** | ❌ | ❌ | ❌ | ✅ (All Specs) | Polymorph | Counterspell |
-| **[Warlock](warlock.md)** | ❌ | ❌ | ❌ | ✅ (All Specs) | Fear, Banish | Spell Lock (Felhunter) |
-| **[Druid](druid.md)** | ✅ (Bear) | ✅ (Resto) | ✅ (Cat) | ✅ (Balance) | Entangling Roots, Hibernate | Bash |
+| **[Warrior](warrior.md)** | Prot | - | Arms, Fury | - | Intimidating Shout, Concussion Blow | Shield Bash, Pummel |
+| **[Paladin](paladin.md)** | Prot | Holy | Retribution | - | Hammer of Justice, Repentance | Hammer of Justice, Repentance |
+| **[Hunter](hunter.md)** | - | - | Survival | BM, MM | Freezing Trap, Scare Beast | None (Scatter Shot snares) |
+| **[Rogue](rogue.md)** | - | - | All Specs | - | Sap, Blind, Gouge | Kick |
+| **[Priest](priest.md)** | - | Holy, Disc | - | Shadow | Shackle Undead, Psychic Scream, Chastise | Silence (Shadow) |
+| **[Shaman](shaman.md)** | - | Resto | Enhancement | Elemental | None | Earth Shock |
+| **[Mage](mage.md)** | - | - | - | All Specs | Polymorph | Counterspell |
+| **[Warlock](warlock.md)** | - | - | - | All Specs | Fear, Banish | Spell Lock (Felhunter) |
+| **[Druid](druid.md)** | Bear | Resto | Cat | Balance | Entangling Roots, Hibernate | Bash |
 
 ---
 
@@ -52,25 +51,45 @@ flowchart TD
     Modifiers --> ActiveEngine["Active Class Strategy Engine Attached"]
 ```
 
-The bot's combat strategy is determined dynamically by analyzing its spent talent points (`AiFactory::GetPlayerSpecTab`):
-- **Dominant Talent Tree:** The bot tallies spent talent points across the three class tabs. Whichever tree has the highest allocation determines the active combat strategy (e.g. Arms vs Fury vs Protection for Warriors).
-- **Hybrid Support:** Hybrid classes adapt based on context. For example, a Feral Druid switches to Bear form when tanking or Cat form when DPSing.
-- **Battlegrounds:** Healing specs keep their heal strategy in a battleground (priest Holy/Discipline, shaman and druid Restoration, paladin Holy); the BG switch in `AiFactory::AddDefaultCombatStrategies` only layers objectives and `pvp` on top.
-- **Dynamic Role Assignment:** In party groups, the player can designate bot roles (Tank, Healer, DPS) which adjusts multiplier weights for aggro generation, healing urgency, and positioning.
+The bot determines its combat strategy dynamically by inspecting spent talent points:
 
-Players can set `.bot role self <tank|healer|dps|clear>` to override runtime role inference. Without an override, role detection uses party context and current stance/form or tank equipment signals; if another tank already occupies the role, temporary stance/form changes do not promote a second tank.
+- **Dominant Talent Tree:** The bot tallies spent talent points across the three class tabs. Whichever tree has the highest allocation activates that combat strategy.
+- **Hybrid Support:** Hybrid classes adapt forms and stances based on context and assigned group roles.
+- **Battlegrounds:** Healing specs retain healing priorities in battlegrounds, layering battleground objectives and PvP strategies on top.
+- **Dynamic Role Assignment:** In parties, players can set bot roles to adjust aggro generation, healing urgency, and positioning.
+
+Players can use [`.bot role self`](../play/commands/party-actions.md#bot-role) to override runtime role inference. Without an override, role detection uses party composition, stance or form, and tanking equipment. If another tank already occupies the role, temporary stance or form changes do not promote a second tank.
 
 ---
 
 ## Shared Bot Behaviors
 
-| Shared Subsystem | Trigger Condition | Bot Action / Behavior | Configuration / Control |
+| Subsystem | Trigger Condition | Bot Action / Behavior | Configuration / Control |
 | :--- | :--- | :--- | :--- |
-| **Resting & Recovery** | Out-of-combat, HP below `AiPlayerbot.AlmostFullHealth` (default 90%) for bots with the item cheat (free rations, seeded and refilled to a full level-tier stack) or below `AiPlayerbot.LowHealth` (default 50%) otherwise; drink stops at almost-full for cheat bots (85 otherwise), mana users only | Sits down, consumes food/water simultaneously | Automatic; pauses when group moves |
-| **Buffs & Imbues** | Buff missing on self/party | Recasts class buffs (Arcane Intellect, PW:F, MotW) and poisons | Automated out-of-combat maintenance |
-| **Targeting & Assist** | Leader/Tank enters combat | Assists master's target; honors Skull focus and CC exclusions | `.bot action focus skull`, CC mark priority |
-| **Finishing Runners** | A mob of the party's fight flees below 30% health (flee or flee-for-assistance) | Ranged DPS finish it within spell range; melee only when it is a warrior whose *Intercept* is castable now (in combat, Berserker Stance, rage, off cooldown), within 25 yd; other melee only when in reach. The bot's CC target is never chased. The current runner is never dropped for a fresh mob. Healers and tanks stay out | During `stay` (the commander's hold) only ranged within spell range; melee hold their spot |
-| **Healer Positioning** | A party member out of heal range or out of sight | Walks towards that member (`reach party member to heal`). The heal target is always a tank when nobody is hurt, so in combat the healer stays near the tank, unless another living healer of the group (party or raid, a player counts too) already has that member in heal range and in sight (a healer that is crowd-controlled, silenced, pacified or under 20% mana does not count; the battleground heal range applies in a battleground): then it neither walks to that member (trigger and the walk-up before each heal) nor picks it as its heal target (a member at or below `AiPlayerbot.CriticalHealth` is never treated as covered: every healer keeps it as a target and walks to it), and heals whom it can reach; out of combat it only walks for a member below `AiPlayerbot.AlmostFullHealth` (default 90%) and otherwise follows you | Automatic; holy/discipline priest, holy paladin, restoration druid and shaman |
-| **Looting & Gathering** | Dead corpse or nearby resource node | Navigates to corpse, loots quest items, rolls Greed/Need | loot/roll actions; `RollBadItemsWithPlayer` only forces Need on empty-slot upgrades |
+| **Resting & Recovery** | Out-of-combat health or mana below recovery thresholds. | Sits down and consumes food and drink simultaneously. | See [Combat settings](../server/settings/combat.md). |
+| **Buffs & Imbues** | Buff missing on self or party member. | Recasts class buffs, seals, auras, and weapon poisons. | Automatic out-of-combat maintenance. |
+| **Targeting & Assist** | Tank or party leader engages hostile enemies. | Assists leader focus target and respects crowd control marks. | See [Party actions](../play/commands/party-actions.md). |
+| **Finishing Runners** | Enemy mob flees below 30% health. | Ranged DPS finish within spell range; eligible melee close distance. | See detailed runner policy below. |
+| **Healer Positioning** | Party member out of heal range or line of sight. | Closes distance toward the tank or injured party member. | Automatic positioning routine. |
+| **Looting & Gathering** | Corpse or nearby gathering node available. | Approaches corpse, loots quest items, and rolls on items. | See [Party actions](../play/commands/party-actions.md). |
 
-> Spell names and bot wiring described here are verified against the bot code; spell IDs and percentage effects (damage, crit, hit, threat) come from Turtle WoW game data, not from the bot code.
+<details>
+<summary>Runner finishing and healer positioning details</summary>
+
+### Finishing Runners
+When an enemy mob flees below 30% health (either flee state or flee-for-assistance):
+- Ranged DPS finish the target within spell range.
+- Warriors finish the runner if *Intercept* is available (in combat, Berserker Stance, rage available, off cooldown) within 25 yards.
+- Other melee only attack runners already in melee reach.
+- During `stay` holds, melee bots hold their position while ranged bots shoot within spell range.
+- Healers and tanks do not chase runners.
+- The active runner is never dropped for a fresh mob, and crowd-controlled targets are never chased.
+
+### Healer Positioning
+When a party member is out of heal range or line of sight:
+- The healer moves toward that member. The default follow anchor is the tank when no member is injured.
+- If another living healer already has that member in range and sight, the healer does not path to them unless the member is at or below critical health.
+- Silenced, pacified, crowd-controlled, or out-of-mana healers do not satisfy the coverage check.
+- Out of combat, healers only path to members below 90% health.
+
+</details>

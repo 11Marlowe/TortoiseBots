@@ -1,12 +1,12 @@
 ---
-id: ref-host-api
+id: developers-host-api
 title: Core Host Seams & Module API Contract
-category: reference
+category: developers
 summary: Technical specification of the generic C++ host seams, headless session lifecycle, packet bridge, and module integration contracts.
 tags: [host-api, seams, c++, headless, packets, contract]
 relates_to:
-  - concept-architecture-invariants
-  - concept-strategy-engine
+  - developers-architecture
+  - developers-strategy-engine
 ---
 
 # HOST_API — current TortoiseBots host contract
@@ -944,7 +944,3 @@ Before adding another core seam, establish that:
 
 If the design would make PlayerBots-specific checks spread through normal
 core gameplay code, redesign it.
-
-## 21. Historical closure
-
-F-03/F-27 closure, validation boundary and full historical audit evidence are preserved in Git history. This contract covers only the current host API.
