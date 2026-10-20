@@ -74,7 +74,7 @@ The web interface provides real-time operational visibility into your realm's bo
 | **Progress** | Are bots levelling up smoothly? | XP per hour KPIs, level-up timelines, and average gear item level by level band. |
 | **Activity** | What events have occurred? | Real-time feed of completed quests, rare loot drops, gathered nodes, and kills. |
 | **Dungeons** | What dungeon and raid runs are active? | Live view of active instance copies with bots, member health, and player badges. |
-| **Agent maps** | What did a turtle-agent test run do? | Read-only list and viewer for turtle-agent run maps. Hidden unless enabled. |
+| **Agent maps** | What did a turtle-agent test run do? | Developer tool for turtle-agent test runs. Hidden unless the daemon is given a maps folder. |
 | **Auction House** | What is currently on the market? | Searchable catalog of all active auction listings posted by bots and players. |
 | **Issues** | Which bots are stuck or in trouble? | Tracked navigation stalls, long deaths, and unreachable combat targets. |
 | **Server** | What settings are active? | Live server rates, active configuration flags, and one-click diagnostic reports. |
@@ -108,6 +108,8 @@ The **Dungeons** tab provides a dedicated live overview of all active dungeon an
 - **Live Run View:** Selecting an active run presents an interactive instance map rendering bot positions and vital health/power bars.
 
 ### Agent Maps Tab
+
+This tab is a developer tool for [turtle-agent](https://github.com/pjerra/turtle-agent), the headless test client used to test bots in dungeons. If you do not run turtle-agent, you will never see it and can skip this section.
 
 The **Agent maps** tab shows the run maps that `turtle-agent map` writes: one SVG per run (`run.svg`, or `run-f1.svg`, `run-f2.svg` when the run spans floors) and, with `--html`, a self-contained `run.html` replay next to it. Click a file to view it inline.
 
