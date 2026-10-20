@@ -30,7 +30,7 @@ These settings configure player-owned bots, alt-bots, formation positioning, and
 | [`AiPlayerbot.OwnedBotSummonAllowInCombat`](#aiplayerbotownedbotsummonallowincombat) | `0` | Allows group accept summoning while either leader or bot is in combat. |
 | [`AiPlayerbot.OwnedBotSummonAllowMasterDead`](#aiplayerbotownedbotsummonallowmasterdead) | `0` | Allows group accept summoning while the party leader is dead. |
 | [`AiPlayerbot.OwnedBotSummonAllowBotDead`](#aiplayerbotownedbotsummonallowbotdead) | `0` | Allows group accept summoning while the invited bot is dead. |
-| [`AiPlayerbot.OwnedBotSummonRevive`](#aiplayerbotownedbotsummonrevive) | `0` | Revives a dead bot upon arrival during group accept summon. |
+| [`AiPlayerbot.OwnedBotSummonRevive`](#aiplayerbotownedbotsummonrevive) | `0` | Revives a dead bot before teleporting it on group accept. |
 | [`AiPlayerbot.OwnedBotSummonRepair`](#aiplayerbotownedbotsummonrepair) | `0` | Automatically repairs bot durability upon group accept summon arrival. |
 | [`AiPlayerbot.OwnedBotSummonCooldown`](#aiplayerbotownedbotsummoncooldown) | `300` | Minimum seconds required between group accept summons per bot. |
 | [`AiPlayerbot.RollBadItemsWithPlayer`](#aiplayerbotrollbaditemswithplayer) | `0` | Forces bots to roll Need on dungeon drops for empty gear slots. |
@@ -78,9 +78,9 @@ Prevents follower bots from running through unpulled monster packs when trailing
 
 Inside a dungeon or raid instance, while neither the bot nor the leader is in combat (aggro: the radius in which monsters attack), a bot whose leader is more than 30 yards ahead calculates its own travel path along the route.
 
-If an unpulled hostile creature stands along that path, the bot stops 3 yards outside the creature aggro radius and holds its position rather than running through. The bot whispers the party leader once per pack (at most every 30 seconds): `Pack in the way: <name>. Waiting here - pull it or come back for me.`
+If an unpulled hostile creature stands along that path, the bot stops 3 yards outside the creature aggro radius and holds its position rather than running through. The bot whispers its master once per pack (at most every 30 seconds): `Pack in the way: <name>. Waiting here - pull it or come back for me.`
 
-While holding, the bot does not eat or drink. It resumes moving once the pack is defeated, when the route changes, or when the leader returns within 25 yards. Only packs in line of sight count, and paths are rechecked once per second. This check is suspended while either party member is riding a transport.
+While holding, the bot does not eat or drink. It resumes moving once the pack is defeated, when the route changes, or when the leader returns within 25 yards. Only creatures visible to the bot count, and paths are rechecked once per second. This check is suspended while the bot or the leader is on a transport.
 
 </details>
 
@@ -98,11 +98,11 @@ Idle party bots arrange themselves in the chosen geometric formation relative to
 - `far`: follow formation holding the follow angle at follow range.
 - `circle`: evenly spaced ring surrounding the leader.
 - `line`: horizontal line abreast with the leader.
-- `shield`: defensive wedge positioned slightly forward.
-- `arrow`: arrowhead formation pointed in the leader movement direction.
+- `shield`: role-aware lines with tanks holding forward of the leader and the rest grouped behind.
+- `arrow`: arrowhead formation with role groups staged in depth behind the leader's facing direction.
 - `queue`: single-file column trailing behind the leader.
 
-Individual bots can be assigned custom formations during gameplay using the `.bot formation` command.
+Individual bots can be assigned custom formations during gameplay using the [`.bot formation`](../../play/commands/party-actions.md#bot-formation) command.
 
 </details>
 
@@ -230,7 +230,7 @@ Automatically revives a dead bot when it is summoned to the leader upon group in
 <details>
 <summary>How it works in detail</summary>
 
-When set to `1`, a summoned dead bot is restored to life upon arrival.
+When set to `1`, a dead bot is revived before it is teleported to the group leader.
 
 Requires `AiPlayerbot.OwnedBotSummonAllowBotDead = 1` to be effective.
 
@@ -361,6 +361,6 @@ Configures the cheat mask applied to player-owned bots and alts. Available cheat
 - `taxi`: Unlocks all flight paths.
 - `quest`: Quests complete immediately.
 
-Masterless random pool bots and hired companions use [`AiPlayerbot.RndBotCheats`](world-population.md#aiplayerbotrndbotcheats) instead.
+Masterless random pool bots use [`AiPlayerbot.RndBotCheats`](world-population.md#aiplayerbotrndbotcheats) instead. Hired companions are also random-flagged, so they read `RndBotCheats` except for maintenance, autogear, and group-accept summoning, which accept active hires.
 
 </details>

@@ -28,7 +28,7 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HirePartyMult3`](#aiplayerbothirepartymult3) | `2.66` | Cost multiplier applied when hiring a third party companion. |
 | [`AiPlayerbot.HirePartyMult4`](#aiplayerbothirepartymult4) | `4.66` | Cost multiplier applied when hiring a fourth party companion. |
 | [`AiPlayerbot.HireRaidFlatCostCopper`](#aiplayerbothireraidflatcostcopper) | `10000` | Flat per-bot fee in copper for hiring raid companions beyond four. |
-| [`AiPlayerbot.HireDisconnectGracePeriod`](#aiplayerbothiredisconnectgraceperiod) | `300` | Seconds a hired companion waits after player disconnect before despawning. |
+| [`AiPlayerbot.HireDisconnectGracePeriod`](#aiplayerbothiredisconnectgraceperiod) | `300` | Seconds a hired companion keeps guarding after disconnect before the hire ends. |
 | [`AiPlayerbot.HireRaidSpread`](#aiplayerbothireraidspread) | `tank=warrior...;healer=priest...` | Class priority list per raid role for composition auto-fill. |
 | [`AiPlayerbot.HireRaidPresets`](#aiplayerbothireraidpresets) | `zg=2t...;aq20=2t...;onyxia=3t...` | Named composition presets for one-command raid hiring. |
 | [`AiPlayerbot.HireGearTiersEnabled`](#aiplayerbothiregeartiersenabled) | `1` | Enables pre-enchanted static gear tiers for hired companions. |
@@ -197,15 +197,15 @@ Companions below level 60 scale downward proportionally.
 </details>
 
 ### `AiPlayerbot.HireDisconnectGracePeriod`
-Grace period in seconds that a hired companion remains in the world guarding after its master disconnects.
-**Default:** `300` (5 minutes) · **Values:** seconds (`0..3600`; values below 60 on bound hires are floored to 60 s) · **Restart:** needed
+Grace period in seconds before a hire whose master went offline ends.
+**Default:** `300` (5 minutes) · **Values:** seconds (`0..3600`) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
 When a player disconnects from the server, their hired companions hold position and guard their location for this duration.
 
-If the player reconnects within the grace period, companions automatically rejoin their party. If the timer expires before reconnecting, the companions dismiss cleanly.
+If the player logs back in within the grace period, companions automatically rejoin their party. If the timer expires before they return, the hire ends and the companion character is deleted.
 
 </details>
 
@@ -374,7 +374,7 @@ Per-person copper fee added to standard recruiter world buff purchases.
 
 Added to the base purchase price for each group or raid member standing within 40 yards of the recruiter during purchase.
 
-A solo player pays the base fee plus one personal share (12 gold total at defaults).
+A solo player pays the base fee plus one personal share (12 gold total at defaults). Only living group or raid members in the world and in range are counted; random bystanders get nothing.
 
 </details>
 
