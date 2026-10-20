@@ -23,9 +23,9 @@ Bot speech lines and flavor texts are stored in the `ai_playerbot_texts` databas
 | [`AiPlayerbot.BroadcastToWorldGlobalChance`](#aiplayerbotbroadcasttoworldglobalchance) | `3000` | Global frequency throttle for broadcasts routed to the server World channel. |
 | [`AiPlayerbot.BroadcastToGeneralGlobalChance`](#aiplayerbotbroadcasttogeneralglobalchance) | `3000` | Global frequency throttle for broadcasts routed to zone General channels. |
 | [`AiPlayerbot.BroadcastChance*`](#aiplayerbotbroadcastchance) | varies | Per-event broadcast chance weights for specific quest, kill, or joke lines. |
-| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` | 1-in-N chance for bots to broadcast looting a normal white item in chat. |
-| [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` | Probability of bots advertising items for sale in trade and public channels. |
-| [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` | Weight for bots participating in the classic Thunderfury chat joke. |
+| [`AiPlayerbot.BroadcastChanceLootingItemNormal`](#aiplayerbotbroadcastchancelootingitemnormal) | `300` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) | Chance weight (rolled out of 30000) for bots announcing a normal white loot in chat. |
+| [`AiPlayerbot.BroadcastChanceSuggestSell`](#aiplayerbotbroadcastchancesuggestsell) | `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) | Probability of bots advertising items for sale in city say/yell, trade and general channels. |
+| [`AiPlayerbot.BroadcastChanceSuggestThunderfury`](#aiplayerbotbroadcastchancesuggestthunderfury) | `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) | Weight for bots participating in the classic Thunderfury chat joke. |
 | [`AiPlayerbot.RandomBotSayWithoutMaster`](#aiplayerbotrandombotsaywithoutmaster) | `0` | Causes masterless bots to speak travel plans and cast failures in say chat. |
 
 ## Settings
@@ -57,7 +57,7 @@ Global volume throttle controlling how often bot announcements reach the World c
 <details>
 <summary>How it works in detail</summary>
 
-Acts as a master probability gate for messages destined for the public World channel. A value of `0` redirects or suppresses all automated bot messages from World chat, leaving the channel clear for human conversation. Higher values allow more milestone broadcasts to show.
+Acts as a master probability gate for messages destined for the public World channel. A value of `0` re-routes most broadcasts to other available channels instead of World chat; setting every channel gate to `0` disables most broadcasts. Higher values allow more milestone broadcasts to show.
 
 </details>
 
@@ -68,7 +68,7 @@ Global volume throttle controlling how often bot announcements reach zone Genera
 <details>
 <summary>How it works in detail</summary>
 
-Acts as a probability gate for bot broadcasts sent to zone-wide General channels. Set to `0` to keep regional General channels completely quiet.
+Acts as a probability gate for bot broadcasts sent to zone-wide General channels. A value of `0` re-routes most broadcasts away from zone General channels instead.
 
 </details>
 
@@ -79,7 +79,7 @@ Per-event probability weights for individual speech triggers and announcement ca
 <details>
 <summary>How it works in detail</summary>
 
-Allows fine-grained tuning of specific announcement types (such as `BroadcastChanceQuestAccepted` or `BroadcastChanceKillCreature`). Setting any specific event key to `0` silences that category of broadcast while leaving other announcements active.
+Allows fine-grained tuning of specific announcement types (such as `BroadcastChanceQuestAccepted` or `BroadcastChanceKillNormal`). Setting any specific event key to `0` silences that category of broadcast while leaving other announcements active.
 
 Aggressive or toxic flavor lines default to `0` in shipped templates.
 
@@ -88,8 +88,8 @@ Travel destination narration ("Traveling 120y to...") and vendor transaction con
 </details>
 
 ### `AiPlayerbot.BroadcastChanceLootingItemNormal`
-Controls the 1-in-N probability for bots to announce looting a normal (white) quality item in chat.
-**Default:** `300` · **Values:** integer weight (0 = disabled) · **Restart:** needed
+Controls the chance weight (rolled out of 30000) for bots to announce looting a normal (white) quality item in chat.
+**Default:** `300` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (0 = disabled) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
@@ -99,13 +99,13 @@ Defines the probability roll when a bot loots a standard common (white) item. Se
 </details>
 
 ### `AiPlayerbot.BroadcastChanceSuggestSell`
-Frequency at which pool bots advertise goods for sale in trade and city chat.
-**Default:** `0` · **Values:** integer weight (0 = disabled) · **Restart:** needed
+Frequency at which pool bots advertise goods for sale in city say/yell, Trade, and General channels.
+**Default:** `0` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (0 = disabled) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-When greater than `0`, bots will periodically hawk items in city say/yell, Trade, and General channels (posting "WTS" lines). Disabled by default (`0`) to prevent public trade chat spam.
+When greater than `0`, bots will periodically hawk items in city say/yell, Trade, and General channels (posting `suggest_sell` lines such as "WTS ..."). Disabled by default (`0`) to prevent public trade chat spam.
 
 Direct player inquiries and native Auction House sales operate independently of this setting.
 
@@ -113,7 +113,7 @@ Direct player inquiries and native Auction House sales operate independently of 
 
 ### `AiPlayerbot.BroadcastChanceSuggestThunderfury`
 Controls bot participation in the classic Thunderfury channel chat joke.
-**Default:** `1` · **Values:** integer weight `0` = disabled (default `1`, very rare; higher = more frequent) · **Restart:** needed
+**Default:** `1` (built in; the key is not in the template — add it to `aiplayerbot.conf` to change it) · **Values:** integer weight (`0` = disabled; higher = more frequent) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>

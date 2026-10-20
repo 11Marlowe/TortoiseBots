@@ -23,7 +23,7 @@ The total bot population is the primary factor influencing server CPU and memory
 | [`AiPlayerbot.botActiveAlone`](#aiplayerbotbotactivealone) | `10` | Percentage of isolated bots kept active when throttling is enabled. |
 | [`AiPlayerbot.ForceActiveWhenNearPlayer`](#aiplayerbotforceactivewhennearplayer) | `0` | Forces bots within human visibility range to remain fully active. |
 | [`AiPlayerbot.DisableBotOptimizations`](#aiplayerbotdisablebotoptimizations) | `0` | Dead knob (read but unused; see [Settings with no effect](../configuration.md#settings-with-no-effect)). |
-| [`AiPlayerbot.PoolTickBudgetUs`](#aiplayerbotpooltickbudgetus) | `10000` | Microsecond time budget per world tick for processing idle pool bots. |
+| [`AiPlayerbot.PoolTickBudgetUs`](#aiplayerbotpooltickbudgetus) | `10000` | Microsecond time budget per world tick for processing pool bots. |
 | [`AiPlayerbot.CombatTickBudgetUs`](#aiplayerbotcombattickbudgetus) | `15000` | Microsecond time budget per world tick for processing combat turns. |
 | [`AiPlayerbot.PoolBudgetWhenTickOverMs`](#aiplayerbotpoolbudgetwhentickoverms) | `0` | World tick latency threshold in milliseconds where budgets engage. |
 | [`AiPlayerbot.TargetWorldTickMs`](#aiplayerbottargetworldtickms) | `100` | Target world tick duration used by the self-tuning budget controller. |
@@ -106,13 +106,13 @@ This key is read during configuration loading but currently has no effect on run
 </details>
 
 ### `AiPlayerbot.PoolTickBudgetUs`
-Microsecond execution budget ceiling per world tick for processing idle pool bots.
+Microsecond execution budget ceiling per world tick for processing pool bots.
 **Default:** `10000` · **Values:** microseconds (1000..100000, or 0) · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Defines the time budget allocated for updating non-combat random pool bots during each server world tick (10,000 microseconds = 10 milliseconds).
+Defines the time budget allocated for updating random pool bots during each server world tick (10,000 microseconds = 10 milliseconds).
 
 Player-owned bots and companions hired by online players always update first, on every tick, and are completely exempt from this budget. The random pool runs afterward as one turn queue, most-overdue-first; bots it does not reach run first on the next tick. The budget is checked between bots so a single pass can overshoot by one bot. Setting this to `0` removes the budget ceiling entirely.
 
@@ -127,7 +127,7 @@ Microsecond execution budget ceiling per world tick for processing bots in comba
 <details>
 <summary>How it works in detail</summary>
 
-Combines with `PoolTickBudgetUs` to form the overall module execution ceiling per server tick. Bots engaged in combat receive priority evaluation within this time window.
+Combines with `PoolTickBudgetUs` to form the overall module execution ceiling per server tick. The pool runs as one turn queue under this combined budget; combat turns are ordered by the scheduler's urgency (combat has a 400 ms cap, so combat bots naturally sort first when late).
 
 Setting this to `0` removes the combat budget limit, executing all combat turns immediately.
 
@@ -143,7 +143,7 @@ Latency threshold in milliseconds where per-tick time budgets begin to throttle 
 Specifies when the tick budget engages based on previous world tick latency:
 
 - `0`: Budgets apply to every tick (recommended). The automated self-tuning controller reclaims unused budget on healthy ticks automatically.
-- `>0`: Budgets only throttle pool turns when the previous world tick exceeded this duration in milliseconds (for example `150`).
+- `>0`: Budgets only engage when the previous world tick exceeded this duration in milliseconds (for example `150`).
 
 </details>
 
@@ -154,10 +154,10 @@ Target world tick duration in milliseconds used by the automated self-tuning bud
 <details>
 <summary>How it works in detail</summary>
 
-Enables the self-tuning dynamic budget controller. On every tick, the controller monitors world tick duration and dynamically scales the effective pool budgets:
+On every tick, the controller feeds the measured world tick through an 8-tick moving average and dynamically scales the effective pool budgets:
 
-- If ticks exceed `TargetWorldTickMs + 10 ms`, budgets shrink to restore tick health.
-- If ticks run well below the target, budgets expand by +1 ms per tick up to their configured ceilings.
+- If the smoothed reading exceeds `TargetWorldTickMs + 10 ms`, budgets shrink fast (x0.7 per tick) — but only when the pool turns are what keep the tick over the line. If the core and other services alone keep the tick over, budgets hold instead of starving bot logic.
+- If the smoothed reading is at or under the target, budgets grow back slowly (+1 ms per tick) up to their configured ceilings.
 
 The controller only trims bot processing time if doing so will successfully bring the tick below the target line; if the core engine itself is overloaded, bot budgets are preserved to prevent starving bot logic. Setting this to `0` disables dynamic adjustment and locks budgets to static ceilings.
 
@@ -174,7 +174,7 @@ Refreshes cached AI sensory values at their full configured interval instead of 
 
 Bots access world data (targets, inventory, quest states) through cached AI values. By default (`0`), caches refresh after half their interval (for example, a 2-second value refreshes every second).
 
-Setting this to `1` refreshes values only after their full interval elapses, cutting calculation overhead in half. Critical combat and situational values remain on legacy rapid refresh cycles: attackers and attacker counts, aggro, possible attack targets, all targets and nearest adds, stealthed units, possible triggers, traps and void zones, boss target, AoE heal, enemy players, free-move leash values, and grind target.
+Setting this to `1` refreshes values only after their full interval elapses, cutting calculation overhead in half. Critical combat and situational values remain on legacy rapid refresh cycles: attackers and attacker counts, aggro, possible attack targets and all targets, nearest adds, stealthed units, possible triggers, damaging traps, boss target, AoE heal, enemy players, free-move values, and grind target.
 
 To evaluate performance gains safely, conduct an A/B test run of at least 20 minutes under each setting: compare `BOTPERF` metrics (`usPerTurn`, `passUs`, and `turnLateAvgMs`) and verify bot combat responsiveness.
 
@@ -194,13 +194,13 @@ This bounds worst-case single-bot latency, preventing expensive path evaluations
 </details>
 
 ### `AiPlayerbot.AsyncTravelPartitions`
-Enables asynchronous partitioning for world travel destination evaluations.
+Enables asynchronous partitioning for world travel destination lookups.
 **Default:** `0` · **Values:** `0` off, `1` on · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Spreads long-range travel node evaluations across partitioned background passes.
+Spreads long-range travel destination evaluations across partitioned background passes.
 
 Keep `0` on cores without concurrent terrain loading; only enable on cores with concurrent terrain support to avoid crashes.
 
@@ -213,7 +213,7 @@ Builds equipment and item candidate database tables on first startup.
 <details>
 <summary>How it works in detail</summary>
 
-On initial server boot, if the `ai_playerbot_equip_cache` and `ai_playerbot_rnditem_cache` database tables are empty, this setting generates them from creature and quest loot templates.
+On initial server boot, if the `ai_playerbot_equip_cache` and `ai_playerbot_rnditem_cache` character-database tables are empty, this setting generates them from the loaded item prototypes.
 
 Once generated, the tables are loaded directly from SQL on subsequent restarts. Leave this setting enabled; if disabled with empty tables, bots cannot judge gear upgrades.
 
@@ -248,7 +248,7 @@ Disables generic out-of-combat fleeing behaviors for masterless warrior and rogu
 <details>
 <summary>How it works in detail</summary>
 
-When set to `1`, masterless pool warriors and rogues do not run the generic panic fleeing strategy when health drops low. Instead, they stand their ground and fight using their own defensive abilities, matching classic melee behaviors.
+When set to `1`, masterless pool warriors and rogues are not granted the generic fleeing strategy at all. Instead, they stand their ground and fight using their own defensive abilities, matching classic melee behaviors.
 
 Player-owned bots and party companions are not affected by this toggle.
 
@@ -303,7 +303,7 @@ Clamped internally between 1 and 256 entries.
 </details>
 
 ### `AiPlayerbot.IterationsPerTick`
-Maximum action engine evaluation iterations allowed per bot per world tick.
+Maximum action engine evaluation iterations allowed per bot per world tick (multiplied by action queue size).
 **Default:** `100` · **Values:** integer count (1..N) · **Restart:** needed
 
 <details>
@@ -329,13 +329,13 @@ If pathing fails to arrive at the destination within this duration, the move act
 </details>
 
 ### `AiPlayerbot.RemoteCommander`
-Enables remote commander commands for leading bot-only parties from another zone.
+Enables remote commander commands for leading bot-only parties of up to five from another zone.
 **Default:** `0` · **Values:** `0` disabled, `1` enabled · **Restart:** needed
 
 <details>
 <summary>How it works in detail</summary>
 
-Enables `.bot commander bind` and `.bot cmd` commands. When enabled, a GameMaster or the owner of a group of bots can bind a 5-man bot party and command their movement, targeting, and spellcasting by GUID or 3D coordinates from anywhere in the world.
+Enables `.bot commander bind` and `.bot cmd` commands. When enabled, a GameMaster or the owner of every bot in it can bind a bot-only party of up to five and command their movement, targeting, and spellcasting by GUID or 3D coordinates from anywhere in the world.
 
 When disabled (`0`), remote commander commands report that the feature is off and any existing bindings terminate.
 
@@ -421,23 +421,28 @@ When AI is enabled (`AiPlayerbot.Enabled = 1`), the module outputs an AI perform
 TortoiseBots: BOTPERF passUs=812 playerBots=5 ownedBots=5 masterBots=0 poolBots=495 poolProcessed=4 due=9 budgetHit=1 maxUs=9820 ticks=62 poolBudgetUs=10000 combatBudgetUs=15000 turnLateAvgMs=180 turnLateMaxMs=1400 turns=410 usPerTurn=1900 coreMs=78 combatTurns=95 combatLateAvgMs=60 otherTurns=315 otherLateAvgMs=240
 ```
 
+The sample above predates `routeReuse`, `routeRebuild`, `keepoutScans`, and `keepoutBudgetMiss`; current log lines always append those four fields.
+
 <details>
 <summary>Field Reference & Log Interpretation</summary>
 
-- `passUs`: Average execution time of the bot update pass in microseconds.
-- `maxUs`: Worst single-tick bot update duration in the sample window.
-- `playerBots`: Count of player-owned bots evaluated first and unbudgeted (`ownedBots` + `masterBots`).
+- `passUs`: Average `UpdateBots` pass cost in the window in microseconds.
+- `maxUs`: Worst single-tick bot update cost in the sample window.
+- `ticks`: World ticks in the window.
+- `playerBots`: Count of player-owned bots updated first and unbudgeted. Split into `ownedBots` (owner's own account) and `masterBots` (live real-player master).
 - `poolBots`: Total registered pool bots in the background turn queue.
-- `poolProcessed`: Average number of pool bots processed per server tick.
-- `due`: Number of bots due for evaluation during that pass.
-- `budgetHit`: Set to `1` if the tick budget halted pool updates before all due bots ran.
-- `poolBudgetUs` / `combatBudgetUs`: Effective microsecond budgets active during that window.
+- `poolProcessed`: Pool turns run in the last pass of the window, out of `due` bots due.
+- `due`: Number of bots due for evaluation when the window closed.
+- `budgetHit`: Set to `1` when the tick budget halted pool updates before all due bots ran.
+- `poolBudgetUs` / `combatBudgetUs`: Effective microsecond budgets active during that window. Their sum is the one budget; equal to the configured ceilings when the server is healthy.
 - `turnLateAvgMs` / `turnLateMaxMs`: Average and maximum delay beyond a bot's scheduled turn time. This is the direct measure of how far behind the bot queue is running.
-- `usPerTurn`: Average microseconds required to execute a single bot turn.
-- `coreMs`: Average duration of the world tick spent by the core engine outside bot code. If `coreMs` is high, reducing bot budgets will not lower tick latency.
-- `combatTurns` / `combatLateAvgMs`: Turn counts and latency specifically for bots in combat.
-- `routeReuse` / `routeRebuild`: Counts of path lookups answered by route cache versus expensive full recalculations.
-- `keepoutScans` / `keepoutBudgetMiss`: Checks performed for hazard auras and creature avoidance rings.
+- `turns`: Total pool turns run in the window.
+- `usPerTurn`: Average microseconds to run one pool turn (turn-loop wall time divided by turns).
+- `coreMs`: Average world tick minus the average bot pass (the share of the tick spent by the core and other services, which cutting bots cannot reduce).
+- `combatTurns` / `combatLateAvgMs`: Turn count and average lateness for pool turns whose situation was combat.
+- `otherTurns` / `otherLateAvgMs`: Turn count and average lateness for all other pool turns.
+- `routeReuse` / `routeRebuild`: Counts of movement path lookups answered by cached route versus expensive full recalculations.
+- `keepoutScans` / `keepoutBudgetMiss`: Counts of grid visits made for shared creature-aura hazard snapshots versus lookups due a refresh after the tick's snapshot budget was spent.
 
 **Tuning Guidance:**
 - `budgetHit = 1` with a low `passUs` indicates the budget throttle is operating normally.
