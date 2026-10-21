@@ -67,7 +67,7 @@ constexpr size_t kMaxRunStepsPerPayload = 32; // all bindings together
 constexpr size_t kMaxObjectsPerBinding = 16;
 constexpr size_t kMaxObjectsPerPayload = 24;
 constexpr size_t kMaxObjectName = 24;
-constexpr size_t kMaxBossesPerBinding = 16; // Naxxramas has 15 bosses, a five-man dungeon at most 10
+constexpr size_t kMaxBossesPerBinding = 32; // a longer roster is not sent at all (never cut short); the dashboard keeps 32 too
 constexpr size_t kMaxBossesPerPayload = 48;
 constexpr size_t kMaxBossName = 24;
 constexpr size_t kPayloadByteBudget = 60000; // the boss lists are left out of the bindings that would pass it
@@ -244,9 +244,17 @@ inline char BossState(bool found, bool alive, bool respawnPending)
     return respawnPending ? 'd' : 'u';
 }
 
+// The same from what the game hands over for one spawn row: whether the creature is on the instance's map and alive, and the respawn
+// time the instance holds for that row (unix seconds, 0 = none). A respawn time still in the future means it was killed.
+inline char BossSpawnState(bool found, bool alive, int64_t respawnAt, int64_t now)
+{
+    return BossState(found, alive, respawnAt > now);
+}
+
 // One row per entry from the spawns of a map (a boss can have several spawn rows), in the order the entries first appear: alive beats
-// dead beats unknown, the first spawn's place and name are kept, in the plan when any spawn is; a zero entry is dropped; at most `cap`.
-inline std::vector<BossInfo> MergeBosses(std::vector<BossInfo> const& spawns, size_t cap = kMaxBossesPerBinding)
+// dead beats unknown, the first spawn's place and name are kept, in the plan when any spawn is; a zero entry is dropped. Not capped: a
+// roster longer than kMaxBossesPerBinding is left out of the payload whole (BuildPayload), never cut short.
+inline std::vector<BossInfo> MergeBosses(std::vector<BossInfo> const& spawns)
 {
     std::vector<BossInfo> out;
     auto rankOf = [](char st) { return st == 'a' ? 2 : st == 'd' ? 1 : 0; };
@@ -266,8 +274,6 @@ inline std::vector<BossInfo> MergeBosses(std::vector<BossInfo> const& spawns, si
             have->inPlan = have->inPlan || s.inPlan;
             continue;
         }
-        if (out.size() >= cap)
-            continue;
         out.push_back(s);
         out.back().state = st;
     }
@@ -452,8 +458,13 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
     size_t mobsTotal = 0;
     size_t stepsTotal = 0;
     size_t objectsTotal = 0;
-    size_t bossesTotal = 0;
-    std::vector<std::pair<size_t, std::string>> bossLists; // where each binding's list goes (before its orders), and the list
+    struct BossList
+    {
+        size_t at;        // where the list goes: before its binding's orders
+        std::string json;
+        size_t count;     // bosses in it
+    };
+    std::vector<BossList> bossLists;
     for (BindingInfo const& b : bindings)
     {
         if (shown >= kMaxBindings)
@@ -609,10 +620,9 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
             }
             ss << "]";
         }
-        // A list the payload cap would cut is left out whole (the dashboard falls back), never sent short: a short list reads as "these
-        // are all the bosses".
-        size_t const bossCount = b.bosses.size() < kMaxBossesPerBinding ? b.bosses.size() : kMaxBossesPerBinding;
-        if (b.bossesReported && bossesTotal + bossCount <= kMaxBossesPerPayload)
+        // A roster longer than kMaxBossesPerBinding is left out whole, never sent short: a short list reads as "these are all the
+        // bosses". Which lists go in (the per-datagram count and the byte budget) is decided below, once every binding is written.
+        if (b.bossesReported && b.bosses.size() <= kMaxBossesPerBinding)
         {
             std::ostringstream bs;
             bs.setf(std::ios::fixed);
@@ -621,11 +631,8 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
             size_t listed = 0;
             for (BossInfo const& boss : b.bosses)
             {
-                if (listed >= kMaxBossesPerBinding || bossesTotal >= kMaxBossesPerPayload)
-                    break;
                 if (listed++)
                     bs << ",";
-                ++bossesTotal;
                 bs << "{\"e\":" << boss.entry << ",\"n\":\"" << JsonEscape(Clip(boss.name, kMaxBossName)) << "\""
                    << ",\"x\":" << boss.x << ",\"y\":" << boss.y
                    << ",\"s\":\"" << (boss.state == 'a' || boss.state == 'd' ? boss.state : 'u') << "\"";
@@ -634,7 +641,7 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
                 bs << "}";
             }
             bs << "]";
-            bossLists.emplace_back(static_cast<size_t>(ss.tellp()), bs.str());
+            bossLists.push_back(BossList{static_cast<size_t>(ss.tellp()), bs.str(), listed});
         }
         ss << ",\"orders\":[";
         size_t orders = 0;
@@ -654,18 +661,21 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
     }
     ss << "]}";
     std::string out = ss.str();
-    // The lists that fit, first binding first; inserted from the back so the earlier positions stay valid.
+    // The lists that fit both the per-datagram count and the byte budget, first binding first; only a list that goes in counts. Inserted
+    // from the back so the earlier positions stay valid.
     size_t total = out.size();
+    size_t bosses = 0;
     std::vector<bool> keep(bossLists.size(), false);
     for (size_t i = 0; i < bossLists.size(); ++i)
-        if (total + bossLists[i].second.size() <= kPayloadByteBudget)
+        if (bosses + bossLists[i].count <= kMaxBossesPerPayload && total + bossLists[i].json.size() <= kPayloadByteBudget)
         {
             keep[i] = true;
-            total += bossLists[i].second.size();
+            total += bossLists[i].json.size();
+            bosses += bossLists[i].count;
         }
     for (size_t i = bossLists.size(); i-- > 0;)
         if (keep[i])
-            out.insert(bossLists[i].first, bossLists[i].second);
+            out.insert(bossLists[i].at, bossLists[i].json);
     return out;
 }
 

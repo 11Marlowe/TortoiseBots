@@ -575,8 +575,14 @@ void TestBosses()
     std::vector<BossInfo> lots;
     for (uint32_t i = 1; i <= 40; ++i)
         lots.push_back(boss(i, 'a'));
-    Check(MergeBosses(lots).size() == kMaxBossesPerBinding, "capped per binding");
-    Check(MergeBosses(lots, 3).size() == 3 && MergeBosses(lots, 0).empty(), "the cap is honoured");
+    Check(MergeBosses(lots).size() == 40, "the merge never cuts a roster short (the payload leaves a long one out whole)");
+
+    // the state from what the game hands over: on the map (alive or a corpse), else the instance's respawn time against now
+    Check(BossSpawnState(true, true, 0, 100) == 'a' && BossSpawnState(true, false, 0, 100) == 'd', "found: alive or a corpse");
+    Check(BossSpawnState(false, false, 101, 100) == 'd', "gone, respawn time still ahead: killed");
+    Check(BossSpawnState(false, false, 100, 100) == 'u' && BossSpawnState(false, false, 50, 100) == 'u', "a respawn time that has passed: not killed");
+    Check(BossSpawnState(false, false, 0, 100) == 'u', "no respawn time: not known");
+    Check(BossSpawnState(false, true, 500, 100) == 'd', "the respawn time decides for a creature not found");
 
     // the payload: absent when not reported, [] when reported with none, the fields, the letters sanitized, the name clipped
     BindingInfo b;
@@ -598,20 +604,20 @@ void TestBosses()
     Check(Has(json, "\"n\":\"Q\\\"x\"") && Has(json, "\"s\":\"u\"}"), "names escaped, a stray letter sent as unknown");
     Check(Has(json, "\"bosses\":[") && Has(json, "],\"orders\":["), "the list sits before the orders");
 
-    // caps: per binding and per payload
-    BindingInfo full = b;
-    full.bosses.clear();
-    for (uint32_t i = 1; i <= 40; ++i)
-        full.bosses.push_back(boss(i, 'u'));
-    json = BuildPayload(9, 1, 1, 1, {full});
-    Check(Count(json, "\"e\":") == kMaxBossesPerBinding, "bosses per binding are capped");
-    json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, full));
-    Check(Count(json, "\"e\":") == kMaxBossesPerPayload, "bosses per payload are capped");
-    Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / kMaxBossesPerBinding, "a list the payload cap would cut is left out, never sent short");
-    std::vector<BindingInfo> mixed(kMaxBindings, full);
-    mixed[kMaxBindings - 1].bosses.resize(1);
-    json = BuildPayload(9, 1, 1, 1, mixed);
-    Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / kMaxBossesPerBinding, "a short list still fits after the full ones are cut");
+    // per binding: a roster of up to kMaxBossesPerBinding goes whole (Naxxramas: 18 boss-rule entries, AQ40: 16); a longer one not at all
+    auto roster = [&](size_t n) { BindingInfo r = b; r.bosses.clear(); for (uint32_t i = 1; i <= n; ++i) r.bosses.push_back(boss(i, 'u')); return r; };
+    json = BuildPayload(9, 1, 1, 1, {roster(18)});
+    Check(Count(json, "\"e\":") == 18, "an 18-boss raid roster is sent whole");
+    json = BuildPayload(9, 1, 1, 1, {roster(kMaxBossesPerBinding)});
+    Check(Count(json, "\"e\":") == kMaxBossesPerBinding, "a roster at the cap is sent whole");
+    json = BuildPayload(9, 1, 1, 1, {roster(kMaxBossesPerBinding + 1)});
+    Check(!Has(json, "\"bosses\"") && !Has(json, "\"bosses_map\""), "a roster over the cap is left out whole, never cut short");
+    // per payload: the lists go in whole while the count allows; a list that does not fit is left out, a later one that fits goes in
+    json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, roster(20)));
+    Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / 20 && Count(json, "\"e\":") == (kMaxBossesPerPayload / 20) * 20,
+        "whole lists while the per-datagram count allows");
+    json = BuildPayload(9, 1, 1, 1, {roster(30), roster(30), roster(18)});
+    Check(Count(json, "\"bosses\":[") == 2 && Count(json, "\"e\":") == 48, "the second list does not fit the count, the third does");
 }
 
 // The boss lists never push a datagram past the byte budget: with every other cap reached, the bindings that still fit keep their list
@@ -664,10 +670,10 @@ void TestBossesByteBudget()
     std::string const without = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, big));
     big.bossesReported = true;
     big.bossesMap = 4000000000u;
-    for (uint32_t i = 0; i < 20; ++i)
+    for (uint32_t i = 0; i < 16; ++i)
         big.bosses.push_back(boss(i));
     std::string const one = BuildPayload(9, 1, 1, 1, {big});
-    Check(Count(one, "\"s\":\"d\"") == kMaxBossesPerBinding, "one full binding keeps its whole list");
+    Check(Count(one, "\"s\":\"d\"") == 16, "one full binding keeps its whole list");
     std::printf("one full binding with bosses: %zu bytes\n", one.size());
     std::string const json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, big));
     Check(json.size() <= kPayloadByteBudget, "the worst case with bosses stays within the byte budget");
@@ -675,7 +681,7 @@ void TestBossesByteBudget()
     size_t const lists = Count(json, "\"bosses\":[");
     Check(lists < kMaxBindings, "the bindings past the budget leave their list out");
     Check(Count(json, "\"bosses_map\":") == lists, "a binding without its list has no bosses_map either");
-    Check(Count(json, "\"s\":\"d\"") == lists * kMaxBossesPerBinding, "a binding that keeps its list keeps all of it");
+    Check(Count(json, "\"s\":\"d\"") == lists * 16, "a binding that keeps its list keeps all of it");
     Check(json.size() - without.size() == lists * (one.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = big; c.bossesReported = false; return c; }()}).size()),
         "nothing but the lists changes");
     std::printf("worst case with bosses (%zu bindings, %zu lists kept): %zu bytes\n", kMaxBindings, lists, json.size());
@@ -684,11 +690,42 @@ void TestBossesByteBudget()
     dungeon.run.stepList.clear();
     dungeon.objects.clear();
     std::string const usual = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, dungeon));
-    Check(Count(usual, "\"bosses\":[") == kMaxBossesPerPayload / kMaxBossesPerBinding, "the lists that the payload cap allows all fit");
+    Check(Count(usual, "\"bosses\":[") == kMaxBossesPerPayload / 16, "the lists that the payload count allows all fit");
     Check(usual.find("\"bosses\":[") < usual.find("\"commander\":\"" + big.commander + "\"", usual.find("\"commander\":\"") + 1),
         "the first binding keeps its list");
     Check(usual.size() <= kPayloadByteBudget, "within the budget");
     std::printf("8 dungeon bindings with bosses: %zu bytes\n", usual.size());
+}
+
+// A list the byte budget leaves out does not use up the per-datagram count: a later list that fits both still goes in.
+void TestBossesBudgetDoesNotCount()
+{
+    auto mk = [](size_t n, size_t nameLen) {
+        BindingInfo r;
+        r.commander = "C";
+        r.bossesReported = true;
+        r.bossesMap = 70;
+        for (uint32_t i = 1; i <= n; ++i)
+        {
+            BossInfo b; b.entry = i; b.name = std::string(nameLen, 'N'); b.state = 'u'; r.bosses.push_back(b);
+        }
+        return r;
+    };
+    BindingInfo pad = mk(0, 0);
+    pad.bossesReported = false;
+    BindingInfo big = mk(30, kMaxBossName);   // ~30 x 60 bytes
+    BindingInfo small = mk(20, 1);            // ~20 x 36 bytes
+    std::string const bigList = BuildPayload(9, 1, 1, 1, {big}), smallList = BuildPayload(9, 1, 1, 1, {small});
+    std::string const bare = BuildPayload(9, 1, 1, 1, {pad, mk(0, 0), mk(0, 0)});
+    size_t const bigLen = bigList.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = big; c.bossesReported = false; return c; }()}).size();
+    size_t const smallLen = smallList.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = small; c.bossesReported = false; return c; }()}).size();
+    Check(bigLen > smallLen + 200, "the test needs a big and a small list");
+    // pad the first binding so that the small list fits the budget and the big one does not
+    pad.commander = std::string(kPayloadByteBudget - bare.size() - (bigLen + smallLen) / 2 - 2 * 20, 'P');
+    std::string const json = BuildPayload(9, 1, 1, 1, {pad, big, small});
+    Check(json.size() <= kPayloadByteBudget, "within the budget");
+    Check(Count(json, "\"bosses\":[") == 1 && Count(json, "\"e\":") == 20,
+        "the big list is left out by the budget and the small one still goes in (30 + 20 would pass the count of 48)");
 }
 
 void TestControlCharacters()
@@ -715,6 +752,7 @@ int main()
     TestPathData();
     TestBosses();
     TestBossesByteBudget();
+    TestBossesBudgetDoesNotCount();
     TestControlCharacters();
     if (g_failures)
     {

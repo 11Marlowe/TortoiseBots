@@ -36,8 +36,10 @@ class BossListWiring(unittest.TestCase):
         # the state of each spawn: the creature on THIS map (instance), else the instance's respawn time
         self.assertIn("map->GetCreature(", fn)
         self.assertIn("map->GetPersistentState()", fn)
-        self.assertIn("GetCreatureRespawnTime(spawn.dbGuid)", fn)
-        self.assertIn("CommanderTelemetry::BossState(", fn)
+        self.assertIn("persistent->GetCreatureRespawnTime(spawn.dbGuid)", fn)
+        # the decision is the tested pure helper, handed the creature's own state and the respawn time against now
+        self.assertIn("CommanderTelemetry::BossSpawnState(creature != nullptr, creature && creature->IsAlive(), respawnAt, static_cast<int64_t>(now))", fn)
+        self.assertNotIn("CommanderTelemetry::BossState(", fn)
         self.assertIn("ref.bosses = CommanderTelemetry::MergeBosses(", fn)
 
     def test_no_grid_or_world_scan_per_report(self):

@@ -11418,7 +11418,7 @@ struct DashBossSpawn
 // The boss spawns of a map, or null before the dungeon plans are sealed. Built ONCE, the first time a binding stands on a dungeon map
 // after the seal, by one pass over the core's creature spawn data: every spawn whose creature is a boss by the telemetry's rank rule
 // (an `ai_dungeon_boss` row or a plan boss-step entry of that map, world-boss rank, or the instance-bind flag), kept per map for the
-// server's life; a plan boss step whose entry has no spawn row on its map adds the step's place. Per map: the plan's bosses in plan order
+// server's life; a plan boss step whose entry has no spawn row on its map adds the step's place (that row's state stays 'u'). Per map: the plan's bosses in plan order
 // first, then the rest by spawn row. The reports read it; they never scan.
 static std::vector<DashBossSpawn> const* DashBossSpawnsOn(uint32 mapId)
 {
@@ -11519,15 +11519,17 @@ static void FillCommanderBosses(Player* lead, CommanderTelemetry::BindingRef& re
     all.reserve(spawns->size());
     for (DashBossSpawn const& spawn : *spawns)
     {
+        // A plan boss with no spawn row (dbGuid 0: summoned or scripted) has neither a guid nor a respawn time: it reads 'u' here, and
+        // the dashboard learns its state from the unit in sight and the kill it sees.
         Creature* creature = spawn.dbGuid ? map->GetCreature(::ObjectGuid(HIGHGUID_UNIT, spawn.entry, spawn.dbGuid)) : nullptr;
-        bool const pending = spawn.dbGuid && persistent && persistent->GetCreatureRespawnTime(spawn.dbGuid) > now;
+        int64_t const respawnAt = spawn.dbGuid && persistent ? static_cast<int64_t>(persistent->GetCreatureRespawnTime(spawn.dbGuid)) : 0;
         CommanderTelemetry::BossInfo boss;
         boss.entry = spawn.entry;
         boss.name = spawn.name;
         boss.x = spawn.x;
         boss.y = spawn.y;
         boss.inPlan = spawn.inPlan;
-        boss.state = CommanderTelemetry::BossState(creature != nullptr, creature && creature->IsAlive(), pending);
+        boss.state = CommanderTelemetry::BossSpawnState(creature != nullptr, creature && creature->IsAlive(), respawnAt, static_cast<int64_t>(now));
         all.push_back(std::move(boss));
     }
     ref.bosses = CommanderTelemetry::MergeBosses(all);
