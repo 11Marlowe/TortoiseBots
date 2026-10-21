@@ -8,7 +8,10 @@
 #include "playerbot/BotDiagnostics.h" // SC_LOG for attack-command diagnostic trace
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/strategy/values/ThreatValues.h"
+#include "GenericActions.h"
 #include "../../../../runtime/AttackOrderPolicy.h"
+#include "../../../../runtime/PetAttackGatePolicy.h"
 
 using namespace ai;
 
@@ -201,6 +204,29 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
     return true;
 }
 
+// Live input gathering for runtime/PetAttackGatePolicy.h. Cheap-first: a solo
+// bot and a party without a living tank (the pet is the fallback tank) leave
+// before any threat read.
+bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)
+{
+    Player* bot = ai ? ai->GetBot() : nullptr;
+    if (!bot || !target || !bot->GetGroup())
+        return false;
+
+    TortoiseBots::PetAttackGateInputs in;
+    in.grouped = true;
+    in.liveTank = !IsPetTauntAllowed(ai, bot);
+    if (!in.liveTank)
+        return false;
+
+    Unit* victim = target->GetVictim();
+    in.targetOnBot = victim == bot;
+    Player* victimPlayer = victim ? dynamic_cast<Player*>(victim) : nullptr;
+    in.targetOnTank = victimPlayer && PlayerbotAI::IsTank(victimPlayer);
+    in.tankThreat = ThreatValue::GetTankThreat(ai, target);
+    return TortoiseBots::PetAttackHeldForTank(in);
+}
+
 bool AttackAction::ArmsMeleeSwing()
 {
     // Why "ranged" bots without a ranged weapon still swing: see Attack().
@@ -273,7 +299,10 @@ bool AttackAction::Attack(Player* requester, Unit* target, float maxDistance, bo
             }
 
             UnitAI* creatureAI = ((Creature*)pet)->AI();
-            if (creatureAI && CanPetAttack(ai, pet, target))
+            // An explicit order (acceptCurrentVictim) sends the pet at once; the
+            // automatic attack waits until the tank holds the mob (F5).
+            if (creatureAI && CanPetAttack(ai, pet, target) &&
+                (acceptCurrentVictim || !PetHeldForTank(ai, target)))
             {
                 creatureAI->AttackStart(target);
             }

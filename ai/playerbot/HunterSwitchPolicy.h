@@ -39,6 +39,46 @@
 
 namespace ai
 {
+    // Swarmed hunter (audit F13, r7 Ragefire: a hunter held three mobs for 27 s
+    // with the tank at 0-1 % threat on them, and Mongoose Bite was the only
+    // thing she did until she died). With this many mobs on the hunter itself
+    // a raptor/mongoose chain on one of them is the wrong answer: the hunter
+    // stays in (or returns to) the ranged kit, Wing Clips the mob in reach and
+    // steps out (the kite flee). Level 18 hunters have neither Feign Death
+    // nor Disengage, so the snare plus the step-out is all the self-help there is.
+    inline constexpr uint32_t kHunterSwarmAttackers = 2;
+    inline constexpr bool HunterSwarmed(uint32_t attackersOnHunter)
+    {
+        return attackersOnHunter >= kHunterSwarmAttackers;
+    }
+
+    // The swarm Wing Clip row: swarmed, and the mob in question is on the hunter
+    // and within melee reach. (The Wing Clip action itself refuses a mob that
+    // already carries the debuff, so the row does not re-cast.)
+    inline constexpr bool HunterSwarmClipWanted(uint32_t attackersOnHunter, bool targetOnHunter, bool inMeleeReach)
+    {
+        return HunterSwarmed(attackersOnHunter) && targetOnHunter && inMeleeReach;
+    }
+
+    // Multi-Shot is an area shot (audit F6: its share of the hunter's combat
+    // frames was the same on one mob, 7.0 %, as on three or more, 7.7 %). Only
+    // worth the shot when this many usable targets (alive, not under a
+    // breakable CC; the primary target counts) stand within its radius.
+    inline constexpr uint32_t kMultiShotMinTargets = 2;
+    inline constexpr bool MultiShotWorthIt(uint32_t usableTargets)
+    {
+        return usableTargets >= kMultiShotMinTargets;
+    }
+
+    // Hunter's Mark with a living tank in the fight goes only on a mob the tank
+    // holds (or that nobody holds yet, the opening mark). The r7 hunter re-cast
+    // it on every new target while three mobs were on her.
+    enum class HuntersMarkHolder { Nobody, Tank, Hunter, Other };
+    inline constexpr bool HuntersMarkAllowed(bool tankInFight, HuntersMarkHolder holder)
+    {
+        return !tankInFight || holder == HuntersMarkHolder::Tank || holder == HuntersMarkHolder::Nobody;
+    }
+
     // Glued inside the shot's dead zone: the donor's own melee edge, and the
     // same band the GenericHunterStrategy step-back ("enemy too close for
     // auto shot" -> disengage/flee) uses, so the switch and the step-back
@@ -65,13 +105,16 @@ namespace ai
     // trade except out-of-ammo waits for the kit dwell (dwellElapsed).
     inline bool ShouldSwitchToMelee(bool hasRangedKit, bool victimOnBot, bool immobilized,
         bool fastOrFinisher, float distanceYd, bool hasAmmo,
-        bool stuckInDeadZone = false, bool dwellElapsed = true)
+        bool stuckInDeadZone = false, bool dwellElapsed = true, uint32_t attackersOnBot = 1)
     {
         if (!hasAmmo)
             return true;
         (void)fastOrFinisher;
         (void)stuckInDeadZone;
         if (!hasRangedKit)
+            return false;
+        // Two or more mobs on the hunter: no melee trade (audit F13).
+        if (HunterSwarmed(attackersOnBot))
             return false;
         return dwellElapsed && victimOnBot && !immobilized &&
             distanceYd <= kHunterMeleeGlueYd;
@@ -100,13 +143,17 @@ namespace ai
     // dwell and the ranged kit's step-out moves the hunter out.
     inline bool ShouldSwitchToRanged(bool hasCloseKit, bool targetOffBot, bool immobilized,
         bool tooSlowToFollow, float distanceYd, bool hasAmmo,
-        bool stepOutBlocked = false, bool dwellElapsed = true)
+        bool stepOutBlocked = false, bool dwellElapsed = true, uint32_t attackersOnBot = 1)
     {
         if (!(hasCloseKit && hasAmmo))
             return false;
         if (!dwellElapsed)
             return false;
         if (immobilized)
+            return true;
+        // Two or more mobs on the hunter: back to the ranged kit, where the
+        // Wing Clip row and the step-out run (audit F13).
+        if (HunterSwarmed(attackersOnBot))
             return true;
         (void)tooSlowToFollow;
         (void)distanceYd;

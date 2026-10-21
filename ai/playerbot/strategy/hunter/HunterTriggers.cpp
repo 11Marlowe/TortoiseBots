@@ -2,6 +2,9 @@
 #include "playerbot/playerbot.h"
 #include "HunterTriggers.h"
 #include "../../../runtime/PetRevivePolicy.h"
+#include "../../../runtime/PetAttackGatePolicy.h"
+#include "playerbot/strategy/values/ThreatValues.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "HunterActions.h"
 #include "../../../runtime/HunterViperPolicy.h"
 
@@ -102,15 +105,95 @@ bool HuntersPetLowHealthTrigger::IsActive()
 // taunts are stood down (grouped with a real tank). Cheap-first: the
 // victim check and group check run before the member walk inside the
 // helper, so solo hunters never pay for the scan.
+//
+// F5: also fires on the pet's first threat lead over the tank, before it has
+// become the mob's victim (PetThreatLeadsTank): Cower after the mob has turned
+// is a tank swap the party has to pay for. The victim check still catches a
+// pet that holds the mob with no tank value to compare against.
 bool PetHasAggroTrigger::IsActive()
 {
     Unit* pet = AI_VALUE(Unit*, "pet target");
     if (!pet || !pet->IsAlive())
         return false;
     Unit* target = AI_VALUE(Unit*, "current target");
-    if (!target || target->GetVictim() != pet)
+    if (!target)
         return false;
-    return bot->GetGroup() && !ai::IsPetTauntAllowed(ai, bot);
+    if (!bot->GetGroup() || ai::IsPetTauntAllowed(ai, bot))
+        return false;
+    if (target->GetVictim() == pet)
+        return true;
+    return TortoiseBots::PetThreatLeadsTank(
+        sServerFacade.GetThreatManager(target).getThreat(pet), ThreatValue::GetTankThreat(ai, target));
+}
+
+bool HuntersMarkTrigger::IsActive()
+{
+    if (!DebuffTrigger::IsActive())
+        return false;
+
+    // Cheap gates first: the tank read only runs for a grouped hunter that is
+    // about to mark.
+    if (!bot->GetGroup())
+        return true;
+    Unit* tank = AI_VALUE(Unit*, "main tank");
+    bool const tankInFight = tank && tank != bot && tank->IsAlive() && sServerFacade.IsInCombat(tank);
+    if (!tankInFight)
+        return true;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    Unit* victim = target ? target->GetVictim() : nullptr;
+    HuntersMarkHolder holder = HuntersMarkHolder::Other;
+    if (!victim)
+        holder = HuntersMarkHolder::Nobody;
+    else if (victim == bot)
+        holder = HuntersMarkHolder::Hunter;
+    else if (victim == tank)
+        holder = HuntersMarkHolder::Tank;
+    return HuntersMarkAllowed(true, holder);
+}
+
+bool MultishotCanCastTrigger::IsActive()
+{
+    if (!SpellCanBeCastedTrigger::IsActive())
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || PossibleAttackTargetsValue::HoldsBreakableCc(ai, target, bot))
+        return false;
+
+    // The primary target counts as one; every other live, un-CC'd attacker
+    // inside the AoE radius of it counts as another.
+    uint32 usable = 1;
+    std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end() && !MultiShotWorthIt(usable); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!unit || unit == target || !unit->IsAlive())
+            continue;
+        if (!sServerFacade.IsDistanceLessOrEqualThan(
+                sServerFacade.getDistance2d(unit, target), sPlayerbotAIConfig.aoeRadius))
+            continue;
+        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
+            continue;
+        ++usable;
+    }
+    return MultiShotWorthIt(usable);
+}
+
+bool HunterSwarmedTrigger::IsActive()
+{
+    // The count first: it is one container size, and a hunter with one mob or
+    // none on it (almost always) stops here.
+    uint32 const attackers = AI_VALUE(uint8, "my attacker count");
+    if (!HunterSwarmed(attackers))
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target)
+        return false;
+    bool const inReach = sServerFacade.IsDistanceLessOrEqualThan(
+        AI_VALUE2(float, "distance", "current target"), sPlayerbotAIConfig.tooCloseDistance);
+    return HunterSwarmClipWanted(attackers, target->GetVictim() == bot, inReach) && ai->HasSpell("wing clip");
 }
 
 // PET-4 (donor GenericHunterStrategy.cpp:72-73): the medium band below

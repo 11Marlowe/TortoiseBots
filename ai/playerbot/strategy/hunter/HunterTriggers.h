@@ -73,10 +73,14 @@ namespace ai
     BEGIN_TRIGGER(HuntersPetMediumHealthTrigger, Trigger)
     END_TRIGGER()
 
+    // With a living tank in the fight the mark goes only on a mob the tank holds
+    // (or that nobody holds yet): the r7 Ragefire hunter re-marked every new
+    // target while three mobs were on her (HuntersMarkAllowed, F13).
     class HuntersMarkTrigger : public DebuffTrigger
     {
     public:
         HuntersMarkTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "hunter's mark") {}
+        bool IsActive() override;
     };
 
     class FreezingTrapTrigger : public HasCcTargetTrigger
@@ -304,7 +308,7 @@ private:
             HunterKitState* state = GetHunterKitState(ai);
             bool const dwellElapsed = !state || HunterKitDwellElapsed(*state, WorldTimer::getMSTime());
             return ai::ShouldSwitchToRanged(true, targetOffBot, immobilized, tooSlowToFollow, distance, true,
-                false, dwellElapsed);
+                false, dwellElapsed, AI_VALUE(uint8, "my attacker count"));
         }
     };
 
@@ -419,11 +423,28 @@ private:
             HunterKitState* state = GetHunterKitState(ai);
             bool const dwellElapsed = !state || HunterKitDwellElapsed(*state, WorldTimer::getMSTime());
             return ai::ShouldSwitchToMelee(true, target->GetVictim() == bot,
-                IsImmobilizedStateCompat(target), fastOrFinisher, distance, true, false, dwellElapsed);
+                IsImmobilizedStateCompat(target), fastOrFinisher, distance, true, false, dwellElapsed,
+                AI_VALUE(uint8, "my attacker count"));
         }
     };
 
-    CAN_CAST_TRIGGER(MultishotCanCastTrigger, "multi-shot");
+    // Multi-Shot is an area shot: castable AND two or more usable targets within
+    // the AoE radius of the current target (F6, MultiShotWorthIt).
+    class MultishotCanCastTrigger : public SpellCanBeCastedTrigger
+    {
+    public:
+        MultishotCanCastTrigger(PlayerbotAI* ai) : SpellCanBeCastedTrigger(ai, "multi-shot") {}
+        bool IsActive() override;
+    };
+
+    // Two or more mobs on the hunter itself, the current target one of them and
+    // within reach: the Wing Clip row that runs before the step-out (F13).
+    class HunterSwarmedTrigger : public Trigger
+    {
+    public:
+        HunterSwarmedTrigger(PlayerbotAI* ai) : Trigger(ai, "hunter swarmed", 1) {}
+        bool IsActive() override;
+    };
     // BM cooldown: intimidation is a self-cast (BUFF_ACTION on self, core
     // rejects positive spells on hostile targets), ordered by the owner, so
     // the cast gate must run against the hunter itself — plus a live-pet

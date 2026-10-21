@@ -82,6 +82,18 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "hunter dead zone step out",
         NextAction::array(0, new NextAction("hunter step out", ACTION_MOVE), NULL)));
 
+    // Two or more mobs on the hunter (audit F13): Wing Clip the one in reach
+    // first, then the kite step-out above takes over. Same band as the melee
+    // switch, above the step-out, so the clip lands before the hunter moves
+    // (a clipped mob is half speed: the step-out opens real distance). A row at
+    // the melee-chain relevance (ACTION_NORMAL+2) would never run in the ranged
+    // kit, where the kite flee outranks it. The action refuses a mob that
+    // already carries the debuff, so this does not re-cast; then the melee
+    // chain below and the step-out carry on.
+    triggers.push_back(new TriggerNode(
+        "hunter swarmed",
+        NextAction::array(0, new NextAction("wing clip", ACTION_MOVE), NULL)));
+
     triggers.push_back(new TriggerNode(
         "counterattack",
         NextAction::array(0, new NextAction("counterattack", ACTION_HIGH + 2), NULL)));
