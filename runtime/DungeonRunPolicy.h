@@ -747,6 +747,7 @@ struct Run
     bool holdUnstayed = false;
     std::uint64_t holdEngageGuid = 0; // the unit the last engage order sent the tank at
     std::uint64_t engageGuid = 0;     // the mob the last engage-on-arrival order (EngageTarget) sent the tank at
+    std::uint32_t engageOrders = 0;   // engage orders this fight (kGuardOrdersPerFight at most; guardOrders is not touched)
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -1074,6 +1075,7 @@ inline void ResetStep(Run& r)
     r.guardMs = 0;
     r.guardOrders = 0;
     r.engageGuid = 0;
+    r.engageOrders = 0;
     r.guardReturn = false;
     r.stopReachDue = false;
     r.reachStopped = false;
@@ -4705,11 +4707,18 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     }
     if (!hold)
     {
-        // Engage on arrival: no wait, and not one of the fight's pick-ups.
+        // Engage on arrival: the fight's first one without a wait, a further
+        // one (another mob) no sooner than kGuardRepeatMs after the last order
+        // and at most kGuardOrdersPerFight in all. An `attack` the bot holds
+        // (stunned, feared) leaves the stay on, and the nearest mob changes:
+        // without the spacing and the cap an order went out every tick. Not
+        // one of the pick-ups (guardOrders).
         const UnitFact* arrival = EngageTarget(r, f);
-        if (arrival && arrival->guid != r.engageGuid)
+        if (arrival && arrival->guid != r.engageGuid && r.engageOrders < kGuardOrdersPerFight &&
+            (r.engageOrders == 0 || r.guardSinceOrderMs >= kGuardRepeatMs))
         {
             r.engageGuid = arrival->guid;
+            ++r.engageOrders;
             r.guardMs = 0;
             r.guardSinceOrderMs = 0; // a pick-up follows it no sooner than kGuardRepeatMs
             if (!r.guardReturn)
@@ -5561,6 +5570,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.guardMs = 0;
         r.guardOrders = 0;
         r.engageGuid = 0;
+        r.engageOrders = 0;
         r.reachStopped = false;
         // A fight may have moved the lead bot: an exact point's tighten starts
         // over and its proof is taken again before a direct step goes out.

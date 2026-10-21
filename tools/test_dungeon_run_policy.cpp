@@ -4091,8 +4091,10 @@ static void TestEngageT1()
     CHECK(r.guardReturn);
 }
 
-// T2: the stay still reads as on while the order is in flight: the same
-// mob gets no second order, however long it lasts.
+// T2: the same mob gets no second order, however long its fight lasts. In a
+// live run the order ends the stay at once; the stay stays on only when the bot
+// holds the attack (stunned, feared: HoldsAttackUntilControl), and then the
+// order must not be repeated every tick.
 static void TestEngageT2()
 {
     DungeonPlan plan;
@@ -4236,6 +4238,65 @@ static void TestEngageT8()
     CHECK(!r.guardReturn);
 // The next fight starts over: the same mob guid is engaged again.
     CHECK(r.engageGuid == 0);
+}
+
+// T9: the attack is held (the stay stays on) and the nearest mob changes every
+// tick: the order is not sent every tick. The fight's first engage is at once,
+// a further one only kGuardRepeatMs after the last order, and three at most.
+static void TestEngageT9()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    std::vector<int> at;
+    for (int i = 0; i < 16; ++i)
+    {
+        Facts f = EngageFight();
+        OnLead(f, i % 2 == 0 ? 60 : 61, 11517, 2.0f);
+        std::string const order = Tick(r, f);
+        if (order.compare(0, 7, "attack ") == 0)
+            at.push_back(i);
+    }
+    CHECK(at.size() == kGuardOrdersPerFight);
+    CHECK(at[0] == 0);
+    for (std::size_t i = 1; i < at.size(); ++i)
+        CHECK(at[i] - at[i - 1] >= static_cast<int>(kGuardRepeatMs / kTickMs));
+    CHECK(r.guardOrders == 0 && r.engageOrders == kGuardOrdersPerFight);
+}
+
+// T10: the end of the fight starts the engage over: the next fight, with the
+// tank off its stay, is not watched by the guard on account of the old engage
+// (no pick-up of a DPS's attacker, no spacing), and its first engage is at once
+// again, the cap spent or not.
+static void TestEngageT10()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    for (int i = 0; i < 8; ++i)
+    {
+        Facts f = EngageFight();
+        OnLead(f, 60 + i % 2, 11517, 2.0f);
+        Tick(r, f);
+    }
+    CHECK(r.engageOrders == kGuardOrdersPerFight && r.engageGuid != 0);
+    // The fight is over: back to the stand, the step goes on.
+    Facts over = EngageFight(false);
+    over.anyInCombat = false;
+    over.leadX = 14; // chased it
+    CHECK(Tick(r, over) == "move 0.0 0.0 0.0");
+    over.leadX = 1;
+    over.leadStaying = true;
+    Tick(r, over);
+    CHECK(r.engageGuid == 0 && r.engageOrders == 0 && !r.guardReturn);
+    // A new fight, the tank off its stay with a DPS being hit: its own AI; the
+    // guard does not keep watching for the old engage.
+    Facts next = EngageFight(false);
+    next.partyAttackers = {Hitter(31, 4855, 20)};
+    CHECK(OrdersIn(r, next, 8) == 0);
+    // A new fight with the tank on its stay: the engage is at once again.
+    Run r2 = r;
+    Facts stay = EngageFight();
+    OnLead(stay, 70, 11517, 2.0f);
+    CHECK(Tick(r2, stay) == "attack 70 Tanky");
 }
 
 // R1: Ragefire Chasm 19z19, Oggleflint pull (step 25), t=862-875. Oggleflint is
@@ -6507,6 +6568,8 @@ int main()
     TestEngageT6();
     TestEngageT7();
     TestEngageT8();
+    TestEngageT9();
+    TestEngageT10();
     TestEngageReplayRfcOggleflint();
     TestEngageReplayUldamanStep85();
     TestEmptyPlan();
