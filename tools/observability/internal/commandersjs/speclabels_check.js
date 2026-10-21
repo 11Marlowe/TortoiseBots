@@ -6,7 +6,7 @@
 const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
-const src = fs.readFileSync(require("path").resolve(process.argv[2]), "utf8");
+const src = fs.readFileSync(require("path").resolve(process.argv[2] || require("path").join(__dirname, "../../web/static/js/app.js")), "utf8");
 
 function grab(name) {
   const re = new RegExp(`^  function ${name}\\(`, "m"), m = re.exec(src);

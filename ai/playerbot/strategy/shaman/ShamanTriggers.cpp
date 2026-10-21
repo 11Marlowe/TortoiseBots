@@ -68,6 +68,24 @@ namespace
         }
         return false;
     }
+
+    // The tank's pack fire rows (Fire Nova, Magma) are automatic rows: they
+    // follow the drop mode like FireTotemTrigger, and a manual fire strategy
+    // or a `.bot totem fire` order owns the slot, so the pack pick never
+    // drops over the player's totem (nor gets replaced by it next tick).
+    bool TankFirePackRowAllowed(PlayerbotAI* ai, Player* bot)
+    {
+        if (!TotemAutoRowActive(ai, bot, bot->IsInCombat()))
+            return false;
+        for (char const* manual : { "totem fire nova", "totem fire flametongue", "totem fire resistance",
+            "totem fire magma", "totem fire searing" })
+        {
+            if (ai->HasStrategy(manual, BotState::BOT_STATE_COMBAT))
+                return false;
+        }
+        std::string stored = ai->GetAiObjectContext()->GetValue<std::string>("manual saved string", TotemOrderKey(1))->Get();
+        return stored.empty() || stored == "auto";
+    }
 }
 
 bool TankFightTargetTrigger::IsActive()
@@ -300,6 +318,8 @@ bool TankMagmaTrigger::IsActive()
         return false;
     if (AI_VALUE2(bool, "has totem", "magma totem"))
         return false;
+    if (!TankFirePackRowAllowed(ai, bot))
+        return false;
 
     // Magma is the fire slot's fallback, never a replacement for a Fire Nova
     // that is still available or still standing: Nova owns the slot while its
@@ -332,6 +352,8 @@ bool TankFireNovaTrigger::IsActive()
     bool ready = spellId && sServerFacade.IsSpellReady(bot, spellId);
     bool standing = AI_VALUE2(bool, "has totem", "fire nova totem");
     if (!TankFireNovaShouldDrop(known, ready, standing))
+        return false;
+    if (!TankFirePackRowAllowed(ai, bot))
         return false;
 
     // The pack gate: 2+ attackers inside the Nova's own detonation window
