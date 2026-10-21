@@ -1,14 +1,20 @@
 -- Zul'Farrak (map 209), the run leader's plan extended past Velratha (Gahz'rilla left out, see below): the courtyard, Witch Doctor
 -- Zum'rah, and the pyramid stairs event up to Nekrum Gutchewer and Shadowpriest Sezz'ziz. Replaces the rows of
--- 20261015200100_world.sql (that file and 20261015200200_world.sql stay as applied). Exported from turtle-agent f11df6d
--- (branch feat/zf-full-module-plan: dungeons/zulfarrak.json of feat/zf-events-and-stairs b860ad1 plus the stairs holds) with
---   turtle-agent plan-export --drop-companions-loot --mmaps <map 209 mmaps of 2026-10-20> --rev f11df6d --stamp 20261021005900 zulfarrak
+-- 20261015200100_world.sql (that file and 20261015200200_world.sql stay as applied). Exported from turtle-agent 848693b
+-- (branch feat/zf-full-module-plan: dungeons/zulfarrak.json of feat/zf-events-and-stairs b860ad1 plus the stairs holds and the
+-- cold review's velratha stands) with
+--   turtle-agent plan-export --drop-companions-loot --mmaps <map 209 mmaps of 2026-10-20> --rev 848693b --stamp 20261021005900 zulfarrak
 -- 14 legs, 122 steps (the applied plan: 9 legs, 86 steps, ending at Velratha).
 --
 -- NEW IN THE ROWS (none of it has run under the run leader yet; the agent-led rounds 3-5 of 2026-10-15/17 ran these legs):
 --   * legs 0-8: the plan's current route to Velratha (the applied antusul_a4 leg is gone; the velratha leg is split into
 --     'velratha' and 'velratha_b', Velratha met on her strip by the gong, stand 1633.6 1130.7), with the pool-stairs approach
---     moves before the last two packs of 'velratha' (zf-full-19z16 STUCK #2).
+--     moves before the last two packs of 'velratha' (zf-full-19z16 STUCK #2). Their last points, where the party stands to
+--     pull, are 1603 1043 9.8 (group 4: 44.0 yd or more from every member's spawn, 29.3 yd or more from the Sandcrawler
+--     81587's patrol waypoints less its followers' 5.3 yd) and 1584 1088 9.1 (group 5: 24.1 yd or more from the four), so the
+--     walk there does not pull the pack before the Polymorph (cold review 2026-10-21; the first export had 1582 1070, 10.8 yd
+--     from the Witch Doctor, and 1593.6 1089.9, 16.6 yd from a Shadowhunter). Legs 0-8 are 71 steps, not the applied 86: the
+--     route itself changed, so a first run of these rows tests legs 0-8 again as well as the new legs.
 --   * leg 9 'courtyard' (7 packs) and leg 10 'zumrah': the walk into area trigger 962 is a move to its stand (1903 1014 11.8);
 --     the server must list it: AiPlayerbot.BotAreaTriggers = 962 (TortoiseBots #1002), or Zum'rah (7271) stays friendly and the
 --     boss step pauses after 60 s. The 31 Shallow Grave steps of the plan are NOT in the rows (companions_loot false cannot be
@@ -50,7 +56,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'zulfarrak';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'zulfarrak';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'zulfarrak';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('zulfarrak', 209, '7246,5648', '7246', '7785,8179,5650,7247', 'turtle-agent f11df6d dungeons/zulfarrak.json', 'plan v1, live-checked; cut before leg 14 (weegli_door): a step the run leader cannot do');
+('zulfarrak', 209, '7246,5648', '7246', '7785,8179,5650,7247', 'turtle-agent 848693b dungeons/zulfarrak.json', 'plan v1, live-checked; cut before leg 14 (weegli_door): a step the run leader cannot do');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('zulfarrak', 0, 'antusul_a', ''),
 ('zulfarrak', 1, 'antusul_a2', ''),
@@ -128,10 +134,10 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('zulfarrak', 7, 13, 'pull', 0, 1589.4, 985.4, 9.2, 30, 0, 0, 0, 0, '5648', 'pull group 2'),
 ('zulfarrak', 7, 14, 'pull', 0, 1585.1, 1035.5, 9, 30, 0, 0, 0, 0, '5649', 'pull group 3'),
 ('zulfarrak', 7, 15, 'move', 0, 1584, 1050, 9, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
-('zulfarrak', 7, 16, 'move', 0, 1582, 1070, 9, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('zulfarrak', 7, 16, 'move', 0, 1603, 1043, 9.8, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
 ('zulfarrak', 7, 17, 'pull', 0, 1583, 1086.76, 8.98, 30, 0, 0, 0, 0, '5650,7246,8095,5649', 'pull group 4'),
 ('zulfarrak', 7, 18, 'move', 0, 1588, 1080, 9.1, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
-('zulfarrak', 7, 19, 'move', 0, 1593.6, 1089.9, 9.3, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
+('zulfarrak', 7, 19, 'move', 0, 1584, 1088, 9.1, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
 ('zulfarrak', 7, 20, 'pull', 0, 1606.7, 1107.4, 9, 15, 0, 0, 0, 0, '7246,5650', 'pull group 5'),
 ('zulfarrak', 8, 0, 'move', 0, 1633.6, 1130.7, 9.9, 0, 0, 0, 0, 0, '', 'to'),
 ('zulfarrak', 8, 1, 'pull', 0, 1639.44, 1106.82, 9.04, 15, 0, 0, 0, 0, '5649,5650,7246', 'pull group 0'),
