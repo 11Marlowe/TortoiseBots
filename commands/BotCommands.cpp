@@ -9635,6 +9635,8 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
     static uint32 const shaman[] = {20777, 20776, 20610, 20609, 2008};
     static uint32 const druid[] = {20748, 20747, 20742, 20739, 20484};
     f.rezHold = true;
+    std::vector<Player*> memberBots;      // parallel to f.rezMembers: whose roster entry it is
+    std::vector<WorldObject*> memberBody; // ... and for the dead, the body (a corpse, else the ghost or the body in place)
     for (Player* bot : bots)
     {
         TortoiseBots::RezHold::Member m;
@@ -9647,9 +9649,15 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
             Corpse* corpse = bot->GetCorpse();
             WorldObject* body = corpse ? static_cast<WorldObject*>(corpse) : static_cast<WorldObject*>(bot);
             m.corpseYd = body->GetMapId() == lead->GetMapId() ? body->GetDistance(lead) : 1000.0f;
+            m.placed = true;
+            m.bodyX = body->GetPositionX();
+            m.bodyY = body->GetPositionY();
+            m.bodyZ = body->GetPositionZ();
             if (bot->IsRessurectRequested())
                 f.rezInProgress = true; // raised: the request waits for the bot to accept it
             f.rezMembers.push_back(m);
+            memberBots.push_back(bot);
+            memberBody.push_back(body);
             continue;
         }
         m.inCombat = bot->IsInCombat();
@@ -9692,7 +9700,23 @@ void ReadRezRoster(Player* lead, std::vector<Player*> const& bots, TortoiseBots:
                 for (size_t k = 0; casting->m_spellInfo && k < 5; ++k)
                     if (casting->m_spellInfo->Id == list[k])
                         f.rezInProgress = true;
+        m.placed = true;
+        m.x = bot->GetPositionX();
+        m.y = bot->GetPositionY();
+        m.z = bot->GetPositionZ();
         f.rezMembers.push_back(m);
+        memberBots.push_back(bot);
+        memberBody.push_back(nullptr);
+    }
+    // Sight, for the hold's note: one line-of-sight ray per living rezzer to the body the run expects raised first
+    // (the same pick the policy makes). Only here: this runs with the key on and someone dead.
+    int const target = TortoiseBots::RezHold::PickTarget(f.rezMembers);
+    WorldObject* const body = target >= 0 ? memberBody[static_cast<std::size_t>(target)] : nullptr;
+    for (std::size_t i = 0; body && i < f.rezMembers.size(); ++i)
+    {
+        TortoiseBots::RezHold::Member& m = f.rezMembers[i];
+        if (!m.dead && m.rez != RezClass::None && memberBots[i]->GetMapId() == body->GetMapId())
+            m.seesBody = memberBots[i]->IsWithinLOSInMap(body);
     }
 }
 

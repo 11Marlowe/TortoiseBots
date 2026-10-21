@@ -342,6 +342,33 @@ int main()
         CHECK(r.verdict == Verdict::Hold && r.targetIdx == 2);
     }
 
+    // The label of the plain hold says what the run does, not that a cast is under way (the 2026-10-20 Uldaman
+    // hold read "a resurrection is under way" for 63 s with no cast at all).
+    CHECK(std::string(ReasonName(Reason::Recovering)) == "waiting for a resurrection");
+    CHECK(std::string(ReasonName(Reason::Casting)) == "a resurrection is being cast");
+
+    // RezzerView: the elected rezzer's distance to the elected target's body, and its sight of it.
+    {
+        std::vector<Member> p = Party();
+        p[2] = Dead();
+        Result r = Decide(in, p);
+        float yd = -1.0f;
+        bool sees = true;
+        CHECK(!RezzerView(r, p, yd, sees)); // nothing placed by the glue: no view
+        p[1].placed = true;
+        p[1].x = 3; p[1].y = 4; p[1].z = 0;
+        CHECK(!RezzerView(r, p, yd, sees)); // the body is not placed either
+        p[2].placed = true;
+        p[2].bodyX = 3; p[2].bodyY = 4; p[2].bodyZ = 12;
+        CHECK(RezzerView(r, p, yd, sees) && yd > 11.99f && yd < 12.01f && !sees);
+        p[1].seesBody = true;
+        CHECK(RezzerView(r, p, yd, sees) && sees);
+        p[2].bodyX = 3 + 6; p[2].bodyY = 4 + 8; p[2].bodyZ = 0;
+        CHECK(RezzerView(r, p, yd, sees) && yd > 9.99f && yd < 10.01f);
+        // A verdict that names nobody has no view.
+        CHECK(!RezzerView(Result(), p, yd, sees));
+    }
+
     CHECK(std::string(VerdictName(Verdict::Hold)) == "hold");
     CHECK(std::string(ReasonName(Reason::LowMana)).size() > 0);
 

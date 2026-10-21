@@ -34,6 +34,7 @@
 // the facts the glue read this tick (behind AiPlayerbot.DungeonRunRezHold).
 // Unit-tested in tools/test_rez_hold_policy.cpp.
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -50,6 +51,8 @@ constexpr std::uint32_t kManaWaitMs = 90000;      // a rezzer short of mana is w
 constexpr std::uint32_t kCastGraceMs = 12000;     // a resurrection under way (a cast, or a request not yet accepted) may finish this long
                                                   // after the budget, once: the cast is not thrown away for the clock
 constexpr float kCorpseMaxYd = 80.0f;             // a corpse farther than this from the party is not walked to
+constexpr std::uint32_t kRezNudgeMs = 12000;      // a hold this long with no cast under way: the lead bot walks onto the body
+constexpr float kRezNearYd = 8.0f;                // ... unless it stands this close to it already
 
 enum class RezClass : std::uint8_t
 {
@@ -74,6 +77,12 @@ struct Member
     std::uint32_t mana = 0;         // living rezzers: current mana
     std::uint32_t rezCost = 0;      // ... and the mana of their best rez spell (0: unknown, taken as enough)
     float corpseYd = -1.0f;         // dead: how far its body lies from the party (-1: not known, taken as near)
+    // Where things are, for the status note and the lead bot's walk onto the body. `placed` says the glue filled them
+    // (a dead member: bodyX/Y/Z; a living rezzer: x/y/z and seesBody); a member without it is never used for either.
+    bool placed = false;
+    float bodyX = 0, bodyY = 0, bodyZ = 0; // dead: where the body lies
+    float x = 0, y = 0, z = 0;             // living: where it stands
+    bool seesBody = false;                 // living rezzers: it has line of sight to the body the run expects raised first
 };
 
 struct Inputs
@@ -137,7 +146,7 @@ inline const char* ReasonName(Reason r)
     switch (r)
     {
         case Reason::NoDeaths: return "no deaths";
-        case Reason::Recovering: return "a resurrection is under way";
+        case Reason::Recovering: return "waiting for a resurrection";
         case Reason::RezzerBusy: return "the resurrectors are in a fight";
         case Reason::Fighting: return "a fight is on";
         case Reason::Casting: return "a resurrection is being cast";
@@ -179,6 +188,23 @@ inline std::uint32_t HoldBudgetMs(std::size_t bodies, std::size_t rezzers)
     std::size_t const extra = bodies > per ? bodies - per : 0;
     std::uint32_t const total = kHoldMs + static_cast<std::uint32_t>(extra) * kPerExtraCorpseMs;
     return total > kHoldMaxMs ? kHoldMaxMs : total;
+}
+
+// The elected rezzer's distance to the body of the elected target and whether it sees it, for the hold's note.
+// False when the verdict names no pair or the glue placed neither.
+inline bool RezzerView(const Result& res, const std::vector<Member>& members, float& yd, bool& sees)
+{
+    if (res.rezzerIdx < 0 || res.targetIdx < 0 || static_cast<std::size_t>(res.rezzerIdx) >= members.size() ||
+        static_cast<std::size_t>(res.targetIdx) >= members.size())
+        return false;
+    const Member& who = members[static_cast<std::size_t>(res.rezzerIdx)];
+    const Member& body = members[static_cast<std::size_t>(res.targetIdx)];
+    if (!who.placed || !body.placed)
+        return false;
+    float const dx = who.x - body.bodyX, dy = who.y - body.bodyY, dz = who.z - body.bodyZ;
+    yd = std::sqrt(dx * dx + dy * dy + dz * dz);
+    sees = who.seesBody;
+    return true;
 }
 
 // The verdict for this tick.
