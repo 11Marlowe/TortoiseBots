@@ -28,9 +28,6 @@ static PetAttackGateInputs FreshPull()
     PetAttackGateInputs in;
     in.grouped = true;
     in.liveTank = true;
-    in.targetOnBot = false;
-    in.targetOnTank = false;
-    in.tankThreat = 0.0f;
     return in;
 }
 
@@ -40,17 +37,67 @@ static void TestHoldUntilTankHasThreat()
     PetAttackGateInputs in = FreshPull();
     CHECK(PetAttackHeldForTank(in));
 
-    // The tank's first hit lands: threat > 0 releases the pet.
-    in.tankThreat = 1.0f;
-    CHECK(!PetAttackHeldForTank(in));
+    // A tank that is there but has no threat yet (0, not "no tank value"):
+    // still held.
+    in.tankThreat = 0.0f;
+    CHECK(PetAttackHeldForTank(in));
 
-    // The mob already runs at the tank: released even before the threat reads.
-    in = FreshPull();
-    in.targetOnTank = true;
+    // The tank's first hit on a mob nobody else holds: released.
+    in.tankThreat = 1.0f;
     CHECK(!PetAttackHeldForTank(in));
 }
 
-// Never held where the pet is the tank or the mob is already on the hunter.
+// A mob whose current victim is a living tank is held by the tank, whatever
+// the threat numbers say yet; with several tanks any of them counts.
+static void TestVictimIsAnyLivingTank()
+{
+    PetAttackGateInputs in = FreshPull();
+    in.victimIsLivingTank = true;
+    CHECK(!PetAttackHeldForTank(in));
+
+    // The off-tank holds it while the main tank's threat is still token.
+    in.tankThreat = 5.0f;
+    in.victimThreat = 800.0f;
+    CHECK(!PetAttackHeldForTank(in));
+}
+
+// Token threat does not release the pet while the mob hits someone else.
+static void TestTokenThreatHolds()
+{
+    PetAttackGateInputs in = FreshPull();
+    in.tankThreat = 5.0f;     // a shout, a heal, a body pull
+    in.victimThreat = 800.0f; // the healer it is chewing on
+    CHECK(PetAttackHeldForTank(in));
+    in.tankInMelee = true;
+    CHECK(PetAttackHeldForTank(in));
+}
+
+// The switch margins: 110 % in melee reach, 130 % outside.
+static void TestSwitchMargins()
+{
+    PetAttackGateInputs in = FreshPull();
+    in.victimThreat = 1000.0f;
+
+    in.tankInMelee = true;
+    in.tankThreat = 1099.0f;
+    CHECK(PetAttackHeldForTank(in));
+    in.tankThreat = 1100.0f;
+    CHECK(!PetAttackHeldForTank(in));
+
+    in.tankInMelee = false;
+    in.tankThreat = 1299.0f;
+    CHECK(PetAttackHeldForTank(in));
+    in.tankThreat = 1300.0f;
+    CHECK(!PetAttackHeldForTank(in));
+
+    // Level with the victim is not a hold on the mob.
+    in.tankInMelee = true;
+    in.tankThreat = 1000.0f;
+    CHECK(PetAttackHeldForTank(in));
+}
+
+// Never held where the pet is the tank, the mob is on the hunter, or the
+// target is an enemy player.
 static void TestNoHoldWhenPetIsTheFallback()
 {
     PetAttackGateInputs in = FreshPull();
@@ -61,42 +108,51 @@ static void TestNoHoldWhenPetIsTheFallback()
     in.grouped = false; // solo hunter: the pet is the tank
     CHECK(!PetAttackHeldForTank(in));
 
-    // A mob already on the hunter: the pet helps, holding it would only
-    // leave the hunter alone with the mob.
+    // A mob already on the hunter: the pet helps.
     in = FreshPull();
     in.targetOnBot = true;
     CHECK(!PetAttackHeldForTank(in));
+
+    // An enemy player has no threat list (the tank's threat reads 0 forever)
+    // and a grouped battleground hunter has a "live tank" at any distance.
+    in = FreshPull();
+    in.targetIsPlayer = true;
+    CHECK(!PetAttackHeldForTank(in));
 }
 
-// "No tank value" (-1) is not "tank threat 0": with a live tank flag and the
-// threat value reading -1 (tank not safe to read) the pet still waits only
-// while nothing holds the mob.
+// "No tank value" (-1) is not threat: the pet waits only while nothing holds
+// the mob.
 static void TestNegativeTankThreatStillHolds()
 {
     PetAttackGateInputs in = FreshPull();
     in.tankThreat = -1.0f;
     CHECK(PetAttackHeldForTank(in));
-    in.targetOnTank = true;
+    in.victimIsLivingTank = true;
     CHECK(!PetAttackHeldForTank(in));
 }
 
 // Early Cower: the pet is ahead of the tank before it takes the mob.
-static void TestPetThreatLeadsTank()
+static void TestPetCowerOnLead()
 {
-    CHECK(PetThreatLeadsTank(120.0f, 100.0f));
-    CHECK(!PetThreatLeadsTank(100.0f, 100.0f));   // level is not a lead
-    CHECK(!PetThreatLeadsTank(80.0f, 100.0f));
-    CHECK(PetThreatLeadsTank(30.0f, 0.0f));       // tank has none yet
-    CHECK(!PetThreatLeadsTank(0.0f, 0.0f));       // nobody has any
-    CHECK(!PetThreatLeadsTank(30.0f, -1.0f));     // no tank value: not a lead
+    CHECK(PetCowerOnLead(120.0f, 100.0f, false));
+    CHECK(!PetCowerOnLead(100.0f, 100.0f, false)); // level is not a lead
+    CHECK(!PetCowerOnLead(80.0f, 100.0f, false));
+    CHECK(!PetCowerOnLead(30.0f, 0.0f, false));    // tank has not engaged yet
+    CHECK(!PetCowerOnLead(0.0f, 0.0f, false));
+    CHECK(!PetCowerOnLead(30.0f, -1.0f, false));   // no tank value
+    // The mob is on the hunter: no Cower.
+    CHECK(!PetCowerOnLead(120.0f, 100.0f, true));
 }
 
 int main()
 {
     TestHoldUntilTankHasThreat();
+    TestVictimIsAnyLivingTank();
+    TestTokenThreatHolds();
+    TestSwitchMargins();
     TestNoHoldWhenPetIsTheFallback();
     TestNegativeTankThreatStillHolds();
-    TestPetThreatLeadsTank();
+    TestPetCowerOnLead();
     std::printf("test_pet_attack_gate_policy: %d checks passed\n", checks);
     return 0;
 }

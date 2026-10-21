@@ -276,6 +276,18 @@ private:
             WorldTimer::getMSTime(), HunterTargetInDeadZone(ai, target), target->GetVictim() == bot, moving);
     }
 
+    // Mobs on the hunter that count for the swarm rules (HunterSwarmAttackers):
+    // 0 unless the hunter is grouped with a living tank. The count is read
+    // first, so the group walk only runs for a hunter with two or more on it.
+    inline uint32_t HunterSwarmAttackerCount(PlayerbotAI* ai)
+    {
+        Player* bot = ai->GetBot();
+        uint32_t const attackers = ai->GetAiObjectContext()->GetValue<uint8>("my attacker count")->Get();
+        if (!HunterSwarmed(attackers))
+            return 0;
+        return HunterSwarmAttackers(attackers, bot->GetGroup() && !IsPetTauntAllowed(ai, bot));
+    }
+
     class SwitchToRangedTrigger : public Trigger
     {
     public:
@@ -308,7 +320,7 @@ private:
             HunterKitState* state = GetHunterKitState(ai);
             bool const dwellElapsed = !state || HunterKitDwellElapsed(*state, WorldTimer::getMSTime());
             return ai::ShouldSwitchToRanged(true, targetOffBot, immobilized, tooSlowToFollow, distance, true,
-                false, dwellElapsed, AI_VALUE(uint8, "my attacker count"));
+                false, dwellElapsed, HunterSwarmAttackerCount(ai));
         }
     };
 
@@ -424,7 +436,7 @@ private:
             bool const dwellElapsed = !state || HunterKitDwellElapsed(*state, WorldTimer::getMSTime());
             return ai::ShouldSwitchToMelee(true, target->GetVictim() == bot,
                 IsImmobilizedStateCompat(target), fastOrFinisher, distance, true, false, dwellElapsed,
-                AI_VALUE(uint8, "my attacker count"));
+                HunterSwarmAttackerCount(ai));
         }
     };
 

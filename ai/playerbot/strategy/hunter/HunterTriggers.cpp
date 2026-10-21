@@ -107,7 +107,7 @@ bool HuntersPetLowHealthTrigger::IsActive()
 // helper, so solo hunters never pay for the scan.
 //
 // F5: also fires on the pet's first threat lead over the tank, before it has
-// become the mob's victim (PetThreatLeadsTank): Cower after the mob has turned
+// become the mob's victim (PetCowerOnLead; not for a mob on the hunter): Cower after the mob has turned
 // is a tank swap the party has to pay for. The victim check still catches a
 // pet that holds the mob with no tank value to compare against.
 bool PetHasAggroTrigger::IsActive()
@@ -120,10 +120,11 @@ bool PetHasAggroTrigger::IsActive()
         return false;
     if (!bot->GetGroup() || ai::IsPetTauntAllowed(ai, bot))
         return false;
-    if (target->GetVictim() == pet)
+    Unit* victim = target->GetVictim();
+    if (victim == pet)
         return true;
-    return TortoiseBots::PetThreatLeadsTank(
-        sServerFacade.GetThreatManager(target).getThreat(pet), ThreatValue::GetTankThreat(ai, target));
+    return TortoiseBots::PetCowerOnLead(
+        sServerFacade.GetThreatManager(target).getThreat(pet), ThreatValue::GetTankThreat(ai, target), victim == bot);
 }
 
 bool HuntersMarkTrigger::IsActive()
@@ -131,25 +132,19 @@ bool HuntersMarkTrigger::IsActive()
     if (!DebuffTrigger::IsActive())
         return false;
 
-    // Cheap gates first: the tank read only runs for a grouped hunter that is
-    // about to mark.
-    if (!bot->GetGroup())
-        return true;
-    Unit* tank = AI_VALUE(Unit*, "main tank");
-    bool const tankInFight = tank && tank != bot && tank->IsAlive() && sServerFacade.IsInCombat(tank);
-    if (!tankInFight)
+    // Cheap gates first: the victim read only runs for a grouped hunter that
+    // is about to mark, with a living tank anywhere in the group.
+    if (!bot->GetGroup() || ai::IsPetTauntAllowed(ai, bot))
         return true;
 
     Unit* target = AI_VALUE(Unit*, "current target");
     Unit* victim = target ? target->GetVictim() : nullptr;
-    HuntersMarkHolder holder = HuntersMarkHolder::Other;
-    if (!victim)
-        holder = HuntersMarkHolder::Nobody;
-    else if (victim == bot)
-        holder = HuntersMarkHolder::Hunter;
-    else if (victim == tank)
-        holder = HuntersMarkHolder::Tank;
-    return HuntersMarkAllowed(true, holder);
+    Player* victimPlayer = victim ? dynamic_cast<Player*>(victim) : nullptr;
+    // Any living tank of the group counts (an off-tank's mob too), not only
+    // the main tank.
+    bool const victimIsLivingTank = victimPlayer && victimPlayer != bot && victimPlayer->IsAlive() &&
+        PlayerbotAI::IsTank(victimPlayer);
+    return HuntersMarkAllowed(true, ClassifyHuntersMarkHolder(victim != nullptr, victim == bot, victimIsLivingTank));
 }
 
 bool MultishotCanCastTrigger::IsActive()
@@ -184,7 +179,7 @@ bool HunterSwarmedTrigger::IsActive()
 {
     // The count first: it is one container size, and a hunter with one mob or
     // none on it (almost always) stops here.
-    uint32 const attackers = AI_VALUE(uint8, "my attacker count");
+    uint32 const attackers = HunterSwarmAttackerCount(ai);
     if (!HunterSwarmed(attackers))
         return false;
 

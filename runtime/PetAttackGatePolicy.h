@@ -7,45 +7,76 @@
 // the "pet attack" row (and the pet send inside AttackAction::Attack) put the
 // pet on the mob the moment the bot picked it, before the tank had touched it.
 //
-// Two pure rules, fed by plain facts from the action layer and unit-tested on
+// Pure rules, fed by plain facts from the action layer and unit-tested on
 // their own (tools/test_pet_attack_gate_policy.cpp):
 //  - PetAttackHeldForTank: with a live tank in the party, the pet is not sent
-//    in until the tank holds the mob (it is the mob's victim, or has threat on
-//    it). A mob already on the hunter releases the pet at once, and so does a
-//    group with no living tank (the pet is the fallback tank) or a solo
-//    hunter. The hold needs no timer: if the tank never gets the mob, the
-//    hunter's own shots pull it onto the hunter, which releases the pet.
-//    Explicit orders (the player's "pet attack" or ".bot attack") are not
-//    held; only the automatic rows are.
-//  - PetThreatLeadsTank: Cower on the pet's first lead over the tank, not after
+//    in until the tank really holds the mob: the mob's current victim is a
+//    living tank (any tank of the group, so an off-tank counts), or the best
+//    tank's threat on it has reached the core's switch margin over the
+//    victim's (110 % in melee reach, 130 % outside; the same margins as the
+//    tank's taunt-the-attacker row, ai/playerbot/strategy/values/
+//    TauntAttackerPolicy.h on fix/tank-taunts-attacker, copied here so this
+//    branch does not depend on it). Token threat does not release the pet: a
+//    shout, a heal or a body pull gives a tank a few points while the mob
+//    still hits someone else. A mob on the hunter, an enemy player (no threat
+//    list, the tank's threat reads 0), a tankless party and a solo hunter
+//    never hold the pet. The hold needs no timer: if the tank never gets the
+//    mob, the hunter's own shots pull it onto the hunter, which releases the
+//    pet. Explicit orders (the player's "pet attack" or ".bot attack") are
+//    not held; only the automatic rows are.
+//  - PetCowerOnLead: Cower on the pet's first lead over the tank, not after
 //    the pet has become the mob's victim.
 
 namespace TortoiseBots
 {
 
+// The core's aggro switch margins (threat needed over the victim's).
+inline constexpr float kPetTankMarginMelee = 1.1f;
+inline constexpr float kPetTankMarginRanged = 1.3f;
+
 struct PetAttackGateInputs
 {
-    bool grouped = false;       // the bot is in a group
-    bool liveTank = false;      // a living tank other than the bot is in the group (pet taunts stood down)
-    bool targetOnBot = false;   // the mob's victim is the bot
-    bool targetOnTank = false;  // the mob's victim is a tank
-    float tankThreat = -1.0f;   // best tank's threat on the mob; -1 = no tank value
+    bool grouped = false;            // the bot is in a group
+    bool liveTank = false;           // a living tank other than the bot is in the group (pet taunts stood down)
+    bool targetIsPlayer = false;     // an enemy player: never held
+    bool targetOnBot = false;        // the mob's victim is the bot
+    bool victimIsLivingTank = false; // the mob's victim is a living tank of the group
+    float tankThreat = -1.0f;        // best tank's threat on the mob; -1 = no tank value
+    float victimThreat = 0.0f;       // the current victim's threat on the mob (0 = no victim / none)
+    bool tankInMelee = false;        // that tank is in melee reach of the mob
 };
+
+// The tank takes the mob by itself: its threat reaches the switch margin over
+// the victim's. A victim without threat on the mob counts as taken once the
+// tank has any threat at all.
+inline bool PetTankHoldsByThreat(PetAttackGateInputs const& in)
+{
+    if (!(in.tankThreat > 0.0f))
+        return false;
+    if (!(in.victimThreat > 0.0f))
+        return true;
+    float const margin = in.tankInMelee ? kPetTankMarginMelee : kPetTankMarginRanged;
+    return in.tankThreat >= in.victimThreat * margin;
+}
 
 inline bool PetAttackHeldForTank(PetAttackGateInputs const& in)
 {
-    if (!in.grouped || !in.liveTank)
+    if (!in.grouped || !in.liveTank || in.targetIsPlayer)
         return false;
-    if (in.targetOnBot || in.targetOnTank)
+    if (in.targetOnBot || in.victimIsLivingTank)
         return false;
-    return !(in.tankThreat > 0.0f);
+    return !PetTankHoldsByThreat(in);
 }
 
-// True when the pet's threat on the mob is above the tank's. A tank value of
-// -1 (no tank / unreadable) is never a lead; a pet with no threat never leads.
-inline bool PetThreatLeadsTank(float petThreat, float tankThreat)
+// True when the pet's threat on the mob is above the tank's and the tank has
+// threat on it at all (a tank at 0 has not engaged: the pet is not "leading"
+// anybody). A mob already on the hunter is left alone: the pet was released
+// for it and a Cower would only waste the pet's focus.
+inline bool PetCowerOnLead(float petThreat, float tankThreat, bool mobOnBot)
 {
-    return tankThreat >= 0.0f && petThreat > 0.0f && petThreat > tankThreat;
+    if (mobOnBot)
+        return false;
+    return tankThreat > 0.0f && petThreat > tankThreat;
 }
 
 } // namespace TortoiseBots

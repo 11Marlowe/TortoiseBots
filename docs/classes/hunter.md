@@ -47,17 +47,17 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 ### Dead-Zone & Melee Weaving
 - If enemies close inside Auto Shot minimum range (DBC-driven), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*.
 - When space opens or the mob is pulled off the hunter by the tank or pet (or is rooted), the bot switches back to ranged attacks.
-- With two or more mobs on the hunter the bot no longer trades into melee: it stays in (or returns to) the ranged kit, *Wing Clips* the mob in reach first and then steps out. In the Ragefire runs of 2026-10-20 a hunter held three mobs for 27 seconds and only used *Mongoose Bite* until she died.
-- With a living tank in the party *Hunter's Mark* goes only on the tank's mob (or on a mob nobody holds yet), and *Multi-Shot* is cast only when two or more un-crowd-controlled mobs stand within the area-effect radius of the target; before 2026-10-21 both were cast on every target, a lone mob included.
+- With two or more mobs on the hunter and a living tank in the party the bot no longer trades into melee: it stays in (or returns to) the ranged kit, *Wing Clips* the mob in reach first and then steps out. In the Ragefire runs of 2026-10-20 a hunter held three mobs for 27 seconds and only used *Mongoose Bite* until she died.
+- With a living tank in the party *Hunter's Mark* goes only on a mob a tank (the main tank or an off-tank) holds (or on a mob nobody holds yet), and *Multi-Shot* is cast only when two or more un-crowd-controlled mobs stand within the area-effect radius of the target; before 2026-10-21 both were cast on every target, a lone mob included.
 
 <details>
 <summary>Pet management and lifecycle details</summary>
 
 - **Lifecycle:** Hunters obtain their pet at level 10; pool hunters logging in below level 10 give up any previously seeded pet, while player-owned, hired, or adopted hunters retain theirs.
 - Automatically summons, feeds, and revives pets out of combat.
-- Sends pets to attack the primary target. In a party with a living tank the pet waits until the tank holds the mob (it is the mob's victim or has threat on it); a mob already on the hunter, a tankless party and an explicit order send the pet at once. Before 2026-10-21 the pet went in the moment the hunter picked a target and topped the threat list in 11% of mob-frames over 33 runs.
+- Sends pets to attack the primary target. In a party with a living tank the pet waits until the tank really holds the mob (a tank is the mob's victim, or the tank's threat has reached 110% of the victim's in melee reach, 130% outside); a mob already on the hunter, an enemy player, a tankless party and an explicit order send the pet at once. Before 2026-10-21 the pet went in the moment the hunter picked a target and topped the threat list in 11% of mob-frames over 33 runs.
 - Casts *Mend Pet* below 40% in combat (channeled, when no rotation shot is ready) and below 70% out of combat.
-- Controls pets in Defensive stance. Solo hunters keep *Growl* on autocast; when grouped with a tank, *Growl* is automatically disabled and the pet uses *Cower* on its first threat lead over the tank, before it has taken the mob.
+- Controls pets in Defensive stance. Solo hunters keep *Growl* on autocast; when grouped with a tank, *Growl* is automatically disabled and the pet uses *Cower* on its first threat lead over the tank, before it has taken the mob (not for a mob already on the hunter).
 - When an enemy is crowd-controlled, pets are strictly prevented from attacking the controlled target.
 
 </details>

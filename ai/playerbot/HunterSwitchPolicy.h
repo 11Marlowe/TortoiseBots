@@ -52,6 +52,15 @@ namespace ai
         return attackersOnHunter >= kHunterSwarmAttackers;
     }
 
+    // The swarm rules (no melee trade, ranged kit back, the Wing Clip row) are
+    // for a hunter grouped with a living tank only: a solo or tankless hunter
+    // in a dead-zone swarm has no pet-less answer but melee, so it keeps the
+    // old switch rules. Callers feed this in place of the raw attacker count.
+    inline constexpr uint32_t HunterSwarmAttackers(uint32_t attackersOnBot, bool groupedWithLiveTank)
+    {
+        return groupedWithLiveTank ? attackersOnBot : 0;
+    }
+
     // The swarm Wing Clip row: swarmed, and the mob in question is on the hunter
     // and within melee reach. (The Wing Clip action itself refuses a mob that
     // already carries the debuff, so the row does not re-cast.)
@@ -74,6 +83,16 @@ namespace ai
     // holds (or that nobody holds yet, the opening mark). The r7 hunter re-cast
     // it on every new target while three mobs were on her.
     enum class HuntersMarkHolder { Nobody, Tank, Hunter, Other };
+    // Who holds the mob: the hunter, a living tank of the group (the main tank
+    // or an off-tank, PlayerbotAI::IsTank on the victim), nobody, or someone
+    // else (a healer, a pet).
+    inline constexpr HuntersMarkHolder ClassifyHuntersMarkHolder(bool hasVictim, bool victimIsBot, bool victimIsLivingTank)
+    {
+        return !hasVictim ? HuntersMarkHolder::Nobody
+            : victimIsBot ? HuntersMarkHolder::Hunter
+            : victimIsLivingTank ? HuntersMarkHolder::Tank
+            : HuntersMarkHolder::Other;
+    }
     inline constexpr bool HuntersMarkAllowed(bool tankInFight, HuntersMarkHolder holder)
     {
         return !tankInFight || holder == HuntersMarkHolder::Tank || holder == HuntersMarkHolder::Nobody;
