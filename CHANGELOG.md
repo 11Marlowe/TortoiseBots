@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.7.0 (2026-10-21)
+
+### Classes & Combat
+- Shaman can now tank: wear a shield, put Rockbiter Weapon on the main hand, and learn Totemic Alignment or Spirit Armor. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- Healers now treat a shaman tank as the real tank, and hunter and warlock pets stop taunting it. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- Damage dealers now keep their threat below the shaman tank instead of pulling enemies off it. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- Stormstrike works properly again. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+- The usual role command still works if you want to set a shaman as tank yourself. [#1128](https://github.com/Sagiroth/TortoiseBots/pull/1128)
+
+### Dungeons & Maps
+- Dungeon maps on the dashboard now show the enemies in each run and lines showing who they are attacking. [#1101](https://github.com/Sagiroth/TortoiseBots/pull/1101)
+- You now get enemies and target lines for every dungeon and raid run with a bot, not just your own group. [#1126](https://github.com/Sagiroth/TortoiseBots/pull/1126)
+- Maps are drawn from 18 combined map layers, so dungeon layouts line up properly. [#1112](https://github.com/Sagiroth/TortoiseBots/pull/1112)
+- Each dungeon view now always shows three map pictures. [#1112](https://github.com/Sagiroth/TortoiseBots/pull/1112)
+- The Dungeons tab also shows power bars for your group. [#1112](https://github.com/Sagiroth/TortoiseBots/pull/1112)
+- An older dashboard simply ignores the new enemy information and keeps working as before. [#1126](https://github.com/Sagiroth/TortoiseBots/pull/1126)
+
+### Behind the scenes
+- The dashboard update was moved onto the latest version of the game code and checked over. [#1123](https://github.com/Sagiroth/TortoiseBots/pull/1123)
+
+---
+
 ## v1.6.2 (2026-10-20)
 
 ### Dashboard
