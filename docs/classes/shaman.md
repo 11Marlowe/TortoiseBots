@@ -61,7 +61,7 @@ Shamans maintain 4-element totem sets tailored to group composition:
 - **Fire Totem:** Drops *Searing Totem* on single targets; drops *Magma Totem* or *Fire Nova Totem* on packs (only when in detonation range).
 - **Water Totem:** Drops *Mana Spring Totem* if mana users are present; drops *Healing Stream Totem* otherwise. Reacts to poison and disease with cleansing totems.
 - **Air Totem:** Drops *Windfury Totem* for melee groups; drops *Tranquil Air Totem* or *Grace of Air Totem* for casters. Reacts to incoming enemy spells with *Grounding Totem*.
-- **Out of Combat:** Totems can be pre-dropped before pulls, and *Totemic Recall* refunds the mana of a set nobody is about to rebuild. Because the automatic rows would re-drop the same set within seconds in the default drop mode, the refund waits while they are armed — use [`.bot totem`](../play/commands/bot-panel.md#bot-totem) `mode manual` (or `prepull`, outside the pre-pull window) to recall what you placed yourself.
+- **Out of Combat:** Totems drop in combat and in the pre-pull window (ready check / rebuff) only — never otherwise out of combat, so a following bot leaves no totems behind in town. After the fight *Totemic Recall* refunds the standing set, and because nothing re-drops it out of combat the refund sticks until the next fight. `.bot totem` `mode manual` drops nothing automatically (use `drop` to place a set), and the reactive rows (*Tremor*, cleansing, *Grounding*, *Earthbind*) still fire on need.
 
 </details>
 

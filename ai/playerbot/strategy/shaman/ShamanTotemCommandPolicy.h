@@ -10,8 +10,9 @@
 // Model: per-bot, per-slot order. Each of the four slots (earth/fire/water/
 // air) holds one of: "auto" (the subgroup-aware round-1/2 choice, default),
 // "none" (leave the slot empty), or an explicit totem spell name. Plus a
-// per-bot drop mode: auto (today's behaviour), prepull (drop OOC before the
-// pull and refresh in combat), manual (only on an explicit `drop` order).
+// per-bot drop mode: auto (combat and the pre-pull window — the default),
+// prepull (the same rule, kept as an explicit choice), manual (only on an
+// explicit `drop` order).
 // Orders persist per bot like the other behaviour toggles (manual values,
 // saved through the AI store); the slot triggers consult them first and
 // manual `totem ...` strategies keep winning over everything.
@@ -177,19 +178,20 @@ inline std::string OrderedTotemForSlot(std::string const& storedOrder)
 }
 
 // Should the automatic (non-manual, non-drop) rows fire right now?
-// auto: whenever useful (today's behaviour). prepull: OOC only when the
-// group is assembled for a fight, plus the in-combat refresh. manual:
-// never — only the explicit `drop` order queues totems.
+// auto (default) and prepull share one rule: combat, or the pre-pull window
+// while a fight is imminent (ready-check anchor / force-rebuff window).
+// Nothing drops out of combat otherwise — no totems in towns or while
+// following (owner decision 2026-10-21); after the fight the recall refund
+// takes the set back and, with the rows quiet, nothing re-drops it.
+// manual: never — only the explicit `drop` order queues totems.
 inline bool TotemAutoRowsFire(TotemDropMode mode, bool inCombat, bool fightImminent)
 {
     switch (mode)
     {
     case TotemDropMode::Manual:
         return false;
-    case TotemDropMode::Prepull:
-        return inCombat || fightImminent;
     default:
-        return true;
+        return inCombat || fightImminent;
     }
 }
 
