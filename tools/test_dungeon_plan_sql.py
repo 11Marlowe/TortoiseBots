@@ -63,7 +63,8 @@ class DungeonPlanSql(unittest.TestCase):
         # an exporter that does not write them must not land silently.
         row, name = None, None
         for name_, text in migrations():
-            for statement in re.findall(r"(INSERT INTO `ai_dungeon_plan`.*?;|UPDATE `ai_dungeon_plan`.*?;)", text, re.S):
+            # A statement ends with the ';' that ends its line: a comment value may hold one ('live-checked; cut before ...').
+            for statement in re.findall(r"(INSERT INTO `ai_dungeon_plan`.*?;$|UPDATE `ai_dungeon_plan`.*?;$)", text, re.S | re.M):
                 if statement.startswith("INSERT"):
                     cols, values = re.match(r"INSERT INTO `ai_dungeon_plan` \(([^)]*)\) VALUES\s*(.*);", statement, re.S).groups()
                     columns = re.findall(r"`(\w+)`", cols)
@@ -78,7 +79,11 @@ class DungeonPlanSql(unittest.TestCase):
         for column in ("cc_always", "kill_first"):
             self.assertTrue(row.get(column), "%s: the zulfarrak plan row has no %s" % (name, column))
         self.assertEqual(row.get("cc_always"), "7246")
-        self.assertEqual(row.get("kill_first"), "8179,5650,7247")
+        # 20261021005900 (the plan through the stairs event): the exporter writes the lists now; kill_first is the owner's
+        # 8179,5650,7247 with the Ward of Zum'rah 7785 first (his leg is in the rows), and cc_priority stays the owner's list
+        # (hand-set there: the plan file dropped 7247).
+        self.assertEqual(row.get("kill_first"), "7785,8179,5650,7247")
+        self.assertEqual(row.get("cc_priority"), "7246,7247,5648")
 
     def test_uldaman_keeps_its_event_steps(self):
         # The newest migration that inserts Uldaman's steps carries the two scripted events as hold rows
@@ -122,7 +127,8 @@ class DungeonPlanSql(unittest.TestCase):
         for block in re.findall(r"INSERT INTO `ai_dungeon_step` \(([^)]*)\) VALUES(.*?);\n", text, re.S):
             cols = [c.strip(" `") for c in block[0].split(",")]
             for row in re.findall(r"^\((.*)\)[,]?$", block[1], re.M):
-                values = [v.strip() for v in re.findall(r"'(?:[^']|'')*'|[^,]+", row)]
+                # A quoted value may hold commas (`entries`); the space after each comma is skipped before the match.
+                values = [v.strip() for v in re.findall(r"\s*('(?:[^']|'')*'|[^,]+)", row)]
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_exact_flag_only_on_a_move_before_its_direct_step(self):
@@ -179,6 +185,53 @@ class DungeonPlanSql(unittest.TestCase):
         foot, hop = rows[exact[0]], rows[exact[0] + 1]
         self.assertEqual((foot["kind"], foot["x"], foot["y"], foot["z"]), ("move", "-293.3", "0.5", "-58"), name)
         self.assertEqual((hop["kind"], hop["x"], hop["y"], hop["z"]), ("move_hop_exact", "-287.5", "5", "-63.6"), name)
+
+    def test_hold_rows_follow_the_loader_rules(self):
+        # NormalizePlanStep (DungeonPlanPolicy.h) for a hold: at most one done flag (8 data, 16 object); the encounter flag 32 only
+        # with 8 and then a state 0-4; by object a state 0-2 and an entry; with neither flag, entries. A plain script value (flag 8
+        # without 32: Zul'Farrak's pyramid phase) may be any number.
+        for name, text in migrations():
+            for row in self.step_rows(text):
+                if row["kind"] != "hold":
+                    continue
+                flags, param, where = int(row["flags"]), int(row["param"]), "%s: hold %s/%s/%s" % (name, row["plan"], row["leg"], row["seq"])
+                self.assertFalse(flags & 8 and flags & 16, where + " has both done flags")
+                if flags & 32:
+                    self.assertTrue(flags & 8, where + ": the encounter flag without the data flag")
+                    self.assertLessEqual(param, 4, where + ": no encounter state")
+                if flags & 16:
+                    self.assertNotEqual(row["entry"], "0", where)
+                    self.assertLessEqual(param, 2, where)
+                if not flags & 24:
+                    self.assertTrue(row["entries"], where + ": done by its units without entries")
+
+    def test_zulfarrak_runs_the_stairs_event(self):
+        # The newest migration that inserts the zulfarrak steps (20261021005900, turtle-agent plan-export of the plan with the stairs
+        # holds) carries Zum'rah, the Executioner's key to the cage, the two holds on the pyramid phase (instance data 1: 3 = WAVE_1,
+        # 7 = WAVE_3, script values with flag 8 alone) and Nekrum before Sezz'ziz; a re-export from an exporter without hold values
+        # would cut the plan at the stairs again (or write them as encounter states, which the loader refuses above 4).
+        newest = None
+        for name, text in migrations():
+            if re.search(r"INSERT INTO `ai_dungeon_step`.*?\('zulfarrak',", text, re.S):
+                newest = (name, text)
+        self.assertIsNotNone(newest)
+        name, text = newest
+        rows = [r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8127", "7272", "7795", "7271", "7274", "7275"], name)
+        cage = [i for i, r in enumerate(rows) if r["kind"] == "open"]
+        self.assertEqual(len(cage), 1, name)
+        i = cage[0]
+        self.assertEqual((rows[i]["entry"], rows[i]["item"]), ("141073", "8444"), name)
+        loot = [r for r in rows[:i] if r["kind"] == "loot"]
+        self.assertEqual((loot[-1]["entry"], loot[-1]["item"]), ("7274", "8444"), name + ": the key is looted before the cage")
+        holds = [r for r in rows if r["kind"] == "hold"]
+        self.assertEqual([(r["entry"], r["param"], r["flags"], r["timeout_s"]) for r in holds], [("1", "3", "8", "90"), ("1", "7", "8", "600")], name)
+        self.assertEqual(rows[i + 1]["kind"], "hold", name + ": the first hold right after the cage (the event's start)")
+        for r in holds:
+            self.assertEqual((r["x"], r["y"], r["z"], r["entries"]), ("1887", "1274", "42", "7787,7788,7789,8876,8877"), name)
+        self.assertEqual(rows[-2]["entries"], "7796", name + ": Nekrum before Sezz'ziz")
+        self.assertEqual(rows[-1]["kind"], "wait_clear", name)
+        self.assertIn("BotAreaTriggers = 962", text, name + ": the header names the trigger setting Zum'rah needs")
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():
