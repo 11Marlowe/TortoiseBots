@@ -46,6 +46,7 @@ python3 -m unittest tools/test_outfit_item_parser.py
 python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
 python3 -m unittest tools/test_stay_anchor_wiring.py
+python3 -m unittest tools/test_magma_guard_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_bot_area_trigger_wiring.py
 python3 -m unittest tools/test_gossip_order_wiring.py

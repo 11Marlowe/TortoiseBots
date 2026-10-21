@@ -24,6 +24,7 @@
 #include "../runtime/RandomBotService.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/WorldPosition.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/PlayerbotDbStore.h"
 #include "../ai/playerbot/ChatHelper.h"
@@ -6074,6 +6075,25 @@ static bool CommanderFocus(ChatHandler* handler, CommanderOrder const& order, Un
 static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& order,
     RemoteCommander::MovePoint const& point, std::string const& intent);
 
+// RFC r3-19z20: a run move point (plain or direct) or the lead bot's own
+// spot in magma on an instance map is logged, never refused: plan points are
+// curated, and a stalled plan step is worse. The bots' own movement guard is
+// MovementAction::MoveTo2 (MagmaHazardPolicy.h). One line per 10 s.
+static void NoteRunMagma(Player* lead, float x, float y, float z, char const* what)
+{
+    static time_t lastLog = 0;
+    if (!lead || !lead->IsInWorld() || !lead->GetMap()->IsDungeon())
+        return;
+    time_t const now = time(nullptr);
+    if (lastLog && now - lastLog < 10)
+        return;
+    if (!ai::WorldPosition(lead->GetMapId(), x, y, z).isInMagma(lead->GetMap()->GetTerrain()))
+        return;
+    lastLog = now;
+    TB_LOG_DETAIL("TortoiseBots: %s in magma at %.1f %.1f %.1f (map %u, lead %s)", what, x, y, z,
+        lead->GetMapId(), lead->GetName());
+}
+
 static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std::string const& args,
     std::string const& intent)
 {
@@ -6084,6 +6104,8 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
             "Usage: .bot cmd move <x> <y> <z> [direct] (map coordinates on the lead bot's map)");
         return true;
     }
+    NoteRunMagma(order.lead, request.point.x, request.point.y, request.point.z,
+        request.direct ? "a direct move point" : "a move point");
     if (request.direct)
         return CommanderMoveDirect(handler, order, request.point, intent);
     RemoteCommander::MovePoint point = request.point;
@@ -10524,9 +10546,11 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     // While the party rests the lead bot holds where it stands
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.
+    if (lead->IsInMagma())
+        NoteRunMagma(lead, lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), "the lead bot stands");
     if (PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead))
         if (TortoiseBots::DungeonRun::LeadStayDueWhileResting(slot.run, lead->IsAlive(), lead->IsInCombat(),
-                leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT)))
+                leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma()))
         {
             FormUpOnLead(commander, lead, std::vector<Player*>{ lead }, true);
             leadAi->StopMoving();

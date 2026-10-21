@@ -440,35 +440,37 @@ static void TestLeadHoldsStayWhileResting()
     f.maxMemberYd = 5;
     // Before the pull and during the fight: no hold from here.
     CHECK(Tick(r, f) == "pullback 11");
-    CHECK(!LeadStayDueWhileResting(r, true, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
     f.anyInCombat = true;
     Tick(r, f);
-    CHECK(!LeadStayDueWhileResting(r, true, true, false));
+    CHECK(!LeadStayDueWhileResting(r, true, true, false, false));
     // The fight is over and the healer is dry: the run rests, the lead holds.
     f.anyInCombat = false;
     f.units.clear();
     f.minHealerManaPct = 20;
     CHECK(Tick(r, f) == "rest");
     CHECK(r.phase == Phase::Rest);
-    CHECK(LeadStayDueWhileResting(r, true, false, false));
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false));
     // Sent once: a lead already on "stay" is left alone.
-    CHECK(!LeadStayDueWhileResting(r, true, false, true));
+    CHECK(!LeadStayDueWhileResting(r, true, false, true, false));
+    // A lead standing in magma is left free to walk out of it.
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, true));
     // A dead lead or one pulled into a fight again is not put on "stay".
-    CHECK(!LeadStayDueWhileResting(r, false, false, false));
-    CHECK(!LeadStayDueWhileResting(r, true, true, false));
+    CHECK(!LeadStayDueWhileResting(r, false, false, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, true, false, false));
     // Still resting a tick later (the formation walk would start any time).
     Tick(r, f);
     CHECK(r.phase == Phase::Rest);
-    CHECK(LeadStayDueWhileResting(r, true, false, false));
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false));
     // A paused run gives no orders.
     Run paused = r;
     paused.state = State::Paused;
-    CHECK(!LeadStayDueWhileResting(paused, true, false, false));
+    CHECK(!LeadStayDueWhileResting(paused, true, false, false, false));
     // Rested: the step goes on and the hold is the next order's business.
     f.minHealerManaPct = 85;
     Tick(r, f);
     CHECK(r.phase != Phase::Rest);
-    CHECK(!LeadStayDueWhileResting(r, true, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
 }
 
 static void TestUnseenPackIsApproachedNotCleared()

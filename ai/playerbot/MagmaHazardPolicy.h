@@ -38,6 +38,20 @@ namespace ai
     // either side of it.
     constexpr float kMagmaSampleStepYd = 2.0f;
 
+    // At most this many samples between path points per route check; past it
+    // only the path points themselves are looked at (the nearest 2 * 48 =
+    // 96 yd of the route keep the 2 yd spacing). Worst case per MoveTo2: 1
+    // lookup for the end point, 1 for the bot's own spot, 48 between points
+    // and 1 per path point (ClipPath has already ended the route within
+    // ReactDistance of its start); each lookup is one getLiquidStatus (a vmap
+    // liquid query plus a static height query).
+    constexpr std::size_t kMagmaMaxInteriorSamples = 48;
+
+    // How long (seconds) a refused magma destination stays refused for a bot
+    // without a new look, and the grid (yards) its point is rounded to.
+    constexpr std::int64_t kMagmaRefusalSeconds = 10;
+    constexpr float kMagmaRefusalGridYd = 2.0f;
+
     // The core's rule for "in magma" (Player::UpdateTerainEnvironmentFlags):
     // the liquid there is magma and the point is under it, in it, or just on
     // its surface. `typeFlags` is GridMapLiquidData::type_flags, `status` the
@@ -58,14 +72,53 @@ namespace ai
         return mapIsInstance;
     }
 
+    // A bot's memory of the last destination the guard refused: the same
+    // destination (same map, same 2 yd cell) is refused again without terrain
+    // queries until `until` (wall-clock seconds).
+    struct MagmaRefusal
+    {
+        bool set = false;
+        std::uint32_t mapId = 0;
+        std::int32_t cellX = 0, cellY = 0, cellZ = 0;
+        std::int64_t until = 0;
+    };
+
+    inline std::int32_t MagmaRefusalCell(float v)
+    {
+        if (v != v)
+            return 0;
+        return static_cast<std::int32_t>(std::floor(v / kMagmaRefusalGridYd));
+    }
+
+    inline MagmaRefusal MagmaRefusalFor(std::uint32_t mapId, float x, float y, float z, std::int64_t now)
+    {
+        MagmaRefusal r;
+        r.set = true;
+        r.mapId = mapId;
+        r.cellX = MagmaRefusalCell(x);
+        r.cellY = MagmaRefusalCell(y);
+        r.cellZ = MagmaRefusalCell(z);
+        r.until = now + kMagmaRefusalSeconds;
+        return r;
+    }
+
+    // Whether a move to (mapId, x, y, z) at `now` is refused from memory.
+    inline bool MagmaRefusalActive(MagmaRefusal const& r, std::uint32_t mapId, float x, float y, float z, std::int64_t now)
+    {
+        return r.set && now < r.until && r.mapId == mapId &&
+            r.cellX == MagmaRefusalCell(x) && r.cellY == MagmaRefusalCell(y) && r.cellZ == MagmaRefusalCell(z);
+    }
+
     struct MagmaPoint
     {
         float x = 0.0f, y = 0.0f, z = 0.0f;
     };
 
-    // The verdict on a route: keep the first `keepPoints` path points, then
-    // (when `addPoint`) the extra point `point`, the last safe sample between
-    // two path points. `cut` false: the route stays as it is.
+    // The verdict on a route. `cut` true: it walks into magma after dry
+    // ground (MoveTo2 then refuses the whole move and dispatches nothing);
+    // `keepPoints`, `addPoint` and `point` say where the dry part ends (the
+    // first `keepPoints` path points, then the last dry sample between two
+    // path points when `addPoint`), for the log and the tests.
     struct MagmaPathCut
     {
         bool cut = false;
@@ -84,15 +137,18 @@ namespace ai
     }
 
     // The route from `start` (the bot) along `path`, sampled at each path
-    // point and every kMagmaSampleStepYd between them, ends before its first
-    // magma sample. A bot already standing in magma walks out first: the
-    // leading run of magma samples is not a cut (only magma after dry ground
-    // is). A route that never leaves magma is left alone (nothing safe to stop
-    // at; the destination check refuses a magma end point before this runs).
+    // point and every kMagmaSampleStepYd between them (at most
+    // `maxInteriorSamples` of those, nearest the bot first), is cut at its
+    // first magma sample. A bot already standing in magma walks out first:
+    // the leading run of magma samples is not a cut (only magma after dry
+    // ground is). A route that never leaves magma is no cut either (the
+    // destination check refuses a magma end point before this runs).
     template <typename InMagma>
-    MagmaPathCut CutPathBeforeMagma(MagmaPoint const& start, std::vector<MagmaPoint> const& path, InMagma inMagma)
+    MagmaPathCut CutPathBeforeMagma(MagmaPoint const& start, std::vector<MagmaPoint> const& path, InMagma inMagma,
+        std::size_t maxInteriorSamples = kMagmaMaxInteriorSamples)
     {
         MagmaPathCut result;
+        std::size_t budget = maxInteriorSamples;
         bool dry = !inMagma(start);
         MagmaPoint lastSafe = start;
         MagmaPoint prev = start;
@@ -102,9 +158,11 @@ namespace ai
             float const dx = next.x - prev.x, dy = next.y - prev.y, dz = next.z - prev.z;
             float const length = std::sqrt(dx * dx + dy * dy + dz * dz);
             std::size_t const interior = MagmaInteriorSamples(length);
-            for (std::size_t k = 0; k <= interior; ++k)
+            std::size_t const taken = interior < budget ? interior : budget;
+            budget -= taken;
+            for (std::size_t k = 0; k <= taken; ++k)
             {
-                bool const atPoint = k == interior;
+                bool const atPoint = k == taken;
                 MagmaPoint sample = next;
                 if (!atPoint)
                 {

@@ -21,6 +21,11 @@ using ai::MagmaGuardApplies;
 using ai::MagmaInteriorSamples;
 using ai::MagmaPathCut;
 using ai::MagmaPoint;
+using ai::MagmaRefusal;
+using ai::MagmaRefusalActive;
+using ai::MagmaRefusalFor;
+using ai::kMagmaMaxInteriorSamples;
+using ai::kMagmaRefusalSeconds;
 
 // GridMapDefines.h, mirrored for the test (the static_asserts in
 // MovementActions.cpp pin the header's copies to the core's).
@@ -161,6 +166,57 @@ int main()
         MagmaPathCut c = CutPathBeforeMagma(P(0), path, Basin);
         CHECK(!c.cut);
         std::cout << "  [PASS] a route away from magma is unchanged\n";
+    }
+
+    // The sample cap: a long dry route makes at most 1 (start) + 48
+    // (between points) + 1 per path point lookups.
+    {
+        std::vector<MagmaPoint> path;
+        for (int i = 1; i <= 10; ++i)
+            path.push_back(P(-30.0f * i));
+        std::size_t calls = 0;
+        MagmaPathCut c = CutPathBeforeMagma(P(0), path, [&calls](MagmaPoint const&) { ++calls; return false; });
+        CHECK(!c.cut);
+        CHECK(kMagmaMaxInteriorSamples == 48);
+        CHECK(calls == 1 + 48 + path.size());
+        std::cout << "  [PASS] at most 48 samples between path points per route\n";
+    }
+
+    // Past the cap only path points are looked at: the samples nearest the
+    // bot keep their 2 yd spacing and still find a crossing there; a crossing
+    // between two dry points beyond the cap is not seen (a magma path point
+    // there still is).
+    {
+        // 0 -> 120 is 59 samples; the basin at 10..20 is inside the first 48.
+        MagmaPathCut near = CutPathBeforeMagma(P(0), { P(120) }, Basin);
+        CHECK(near.cut && near.addPoint && near.point.x >= 8.0f && near.point.x < 10.0f);
+        // A basin far out: 0 -> 100 uses 48 samples (to 96 yd)... then 100 -> 140 has none.
+        auto farBasin = [](MagmaPoint const& p) { return p.x >= 110.0f && p.x <= 120.0f; };
+        MagmaPathCut far = CutPathBeforeMagma(P(0), { P(100), P(140) }, farBasin);
+        CHECK(!far.cut);
+        MagmaPathCut farPoint = CutPathBeforeMagma(P(0), { P(100), P(115), P(140) }, farBasin);
+        CHECK(farPoint.cut && farPoint.keepPoints == 1 && !farPoint.addPoint);
+        std::cout << "  [PASS] past the cap only path points are checked\n";
+    }
+
+    // The refusal memory: the same destination (same map, same 2 yd cell) is
+    // refused again from memory until the time runs out; another cell,
+    // another map or a later time looks again.
+    {
+        MagmaRefusal none;
+        CHECK(!MagmaRefusalActive(none, 389, -205.5f, -16.4f, -65.7f, 100));
+        MagmaRefusal r = MagmaRefusalFor(389, -205.5f, -16.4f, -65.7f, 100);
+        CHECK(MagmaRefusalActive(r, 389, -205.5f, -16.4f, -65.7f, 100));
+        CHECK(MagmaRefusalActive(r, 389, -205.1f, -16.1f, -65.2f, 100 + kMagmaRefusalSeconds - 1));
+        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -16.4f, -65.7f, 100 + kMagmaRefusalSeconds));
+        CHECK(!MagmaRefusalActive(r, 389, -201.0f, -16.4f, -65.7f, 101));
+        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -12.0f, -65.7f, 101));
+        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -16.4f, -61.7f, 101));
+        CHECK(!MagmaRefusalActive(r, 1, -205.5f, -16.4f, -65.7f, 101));
+        MagmaRefusal cleared = r;
+        cleared.set = false;
+        CHECK(!MagmaRefusalActive(cleared, 389, -205.5f, -16.4f, -65.7f, 101));
+        std::cout << "  [PASS] a refused destination is refused from memory for 10 s\n";
     }
 
     std::cout << "All magma hazard policy tests passed.\n";

@@ -5,6 +5,7 @@
 #include "playerbot/TravelNode.h"
 #include "playerbot/CombatSpreadPolicy.h"
 #include "playerbot/TravelRouteCachePolicy.h"
+#include "playerbot/MagmaHazardPolicy.h"
 
 namespace ai
 {
@@ -79,6 +80,7 @@ namespace ai
             fleeNoSpotMs = other.fleeNoSpotMs;
             moveFailReason = other.moveFailReason;
             magmaLogAt = other.magmaLogAt;
+            magmaRefusal = other.magmaRefusal;
             moveEvent = Event();
         }
 
@@ -148,6 +150,10 @@ namespace ai
         // Wall-clock of the last "move refused: magma" log line (one per bot
         // per 10 s, MovementActions.cpp); clear() leaves it alone.
         time_t magmaLogAt = 0;
+        // The destination the magma guard refused last (MagmaHazardPolicy.h):
+        // MoveTo2 refuses it again from memory, without terrain queries, for
+        // kMagmaRefusalSeconds. clear() leaves it alone too.
+        MagmaRefusal magmaRefusal;
         Event moveEvent;
     };
 

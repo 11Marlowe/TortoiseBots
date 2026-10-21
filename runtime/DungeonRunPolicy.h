@@ -4746,9 +4746,13 @@ inline bool HealerKeptToHeals(bool runRunning, bool inRunParty, bool isLead, boo
 // stands; the next step's own order (a move puts it on "stay" at its point,
 // a pull or attack ends the stay again) takes over when the rest ends. Asked
 // once a tick; true only while the lead is off "stay", so it is sent once.
-inline bool LeadStayDueWhileResting(Run const& r, bool leadAlive, bool leadInCombat, bool leadStaying)
+// A lead standing in magma (Player::IsInMagma) is not held there: it must be
+// free to walk out (the movement guard lets a bot in magma leave it).
+inline bool LeadStayDueWhileResting(Run const& r, bool leadAlive, bool leadInCombat, bool leadStaying,
+    bool leadInMagma)
 {
-    return r.state == State::Running && r.phase == Phase::Rest && leadAlive && !leadInCombat && !leadStaying;
+    return r.state == State::Running && r.phase == Phase::Rest && leadAlive && !leadInCombat && !leadStaying &&
+        !leadInMagma;
 }
 
 // A party member coming back with attackers on it. The owner's rule
