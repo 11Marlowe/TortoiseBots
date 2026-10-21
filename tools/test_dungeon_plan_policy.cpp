@@ -157,6 +157,37 @@ static void TestNormalize()
     CHECK(talks.AddStep("zulfarrak", row) == PlanStepRefusal::None);
     CHECK(std::string(PlanStepRowKindName(row)) == "gossip");
 
+    // use_on: item `item` used ON game object `entry` at x,y,z (Zul'Farrak's gong 141832 with the Mallet 9240). The
+    // object, the item and the point are required; no flag or param is read, so a set one is refused, not ignored.
+    // Appended at the end of the enum: the ids of the older kinds do not move.
+    CHECK(static_cast<int>(PlanStepKind::UseOn) == static_cast<int>(PlanStepKind::Gossip) + 1);
+    CHECK(ParsePlanStepKind("use_on") == PlanStepKind::UseOn && std::string(PlanStepKindName(PlanStepKind::UseOn)) == "use_on");
+    PlanStep gong = Step(9, 10, PlanStepKind::UseOn, 1650.9f, 1171.9f, 10.9f);
+    gong.item = 9240;
+    CHECK(NormalizePlanStep(gong) == PlanStepRefusal::MissingEntry); // no object
+    gong.entry = 141832;
+    gong.item = 0;
+    CHECK(NormalizePlanStep(gong) == PlanStepRefusal::MissingEntry); // no item
+    gong.item = 9240;
+    PlanStep nowhere = gong;
+    nowhere.x = nowhere.y = nowhere.z = 0.0f;
+    CHECK(NormalizePlanStep(nowhere) == PlanStepRefusal::BadPoint);
+    PlanStep flagged = gong;
+    flagged.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(flagged) == PlanStepRefusal::BadParam);
+    flagged.flags = kPlanFlagAlliance;
+    CHECK(NormalizePlanStep(flagged) == PlanStepRefusal::BadParam);
+    PlanStep withParam = gong;
+    withParam.param = 1;
+    CHECK(NormalizePlanStep(withParam) == PlanStepRefusal::BadParam);
+    CHECK(NormalizePlanStep(gong) == PlanStepRefusal::None && gong.timeoutS == kPlanDefaultTimeoutS);
+    CHECK(talks.AddPlan("zf2", 209));
+    PlanStep gongRow = Step(9, 10, ParsePlanStepKind("use_on"), 1650.9f, 1171.9f, 10.9f);
+    gongRow.entry = 141832;
+    gongRow.item = 9240;
+    CHECK(talks.AddStep("zf2", gongRow) == PlanStepRefusal::None);
+    CHECK(std::string(PlanStepRowKindName(gongRow)) == "use_on");
+
     // move_hop_exact: a MoveDirect with exactLaunch, and back to its text.
     PlanStepKind kind = PlanStepKind::None;
     bool exactLaunch = false;

@@ -4565,6 +4565,8 @@ struct DungeonRunSlot
     uint64 carrierRaw = 0;    // the bot of the run's last loot/open/use order
     int taskReply = 0;        // its task's answer since then: 0 none, 1 ACK, 2 ERR
     std::string taskText;
+    bool taskActStarted = false;    // ... whose act (the cast) had started when it ended (DungeonRun::Facts::taskActStarted)
+    bool taskObjectReacted = false; // ... a use on a game object whose state changed under it (ObjectEffectOf at the answer)
     std::unordered_set<uint64> heldRaw; // bots on stay for the run's hold (DungeonRun::Run::hold)
     uint64 elapsedMs = 0;     // since `run start`, a pause counts (AiPlayerbot.DungeonRunMaxMinutes)
     std::unordered_set<uint64> placedRaw; // bots on their stand points of an event's hold (DungeonRun::HoldStands)
@@ -6995,7 +6997,11 @@ bool TaskInRange(CommanderTask const& task, Player* bot, TaskTarget const& targe
     return false;
 }
 
-// A run waiting on this bot's task learns its answer.
+RemoteCommander::ObjectEffect ObjectEffectOf(CommanderTask const& task, PlayerbotAI* ai);
+
+// A run waiting on this bot's task learns its answer, whether its act had started, and for a use on a game object
+// whether the object reacted (the run's use_on takes neither an in-combat answer after the cast began as "not done",
+// nor an ACK alone as "done": DungeonRun::UseOnStep).
 void NoteRunTaskReply(CommanderTask const& task, bool ok, std::string const& text)
 {
     auto it = DungeonRuns().find(task.commanderRaw);
@@ -7003,6 +7009,12 @@ void NoteRunTaskReply(CommanderTask const& task, bool ok, std::string const& tex
         return;
     it->second.taskReply = ok ? 1 : 2;
     it->second.taskText = text;
+    it->second.taskActStarted = task.actStarted;
+    it->second.taskObjectReacted = false;
+    if (task.state.kind == RemoteCommander::TaskKind::Use && task.useTargetRaw && ObjectGuid(task.useTargetRaw).IsGameObject())
+        if (Player* bot = FindCharacter(task.botRaw))
+            if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+                it->second.taskObjectReacted = ObjectEffectOf(task, ai) == RemoteCommander::ObjectEffect::Reacted;
 }
 
 void TaskReplyAck(CommanderTask const& task, uint32 count, std::string const& payload)
@@ -7375,6 +7387,10 @@ ActStart BeginUseAct(CommanderTask& task, Player* commander, Player* bot, Player
     std::string kind = "none";
     if (task.useTargetRaw)
         kind = ObjectGuid(task.useTargetRaw).IsGameObject() ? "go" : "unit";
+    // A use on a game object: its state before the cast, so the answer can tell whether it reacted (NoteRunTaskReply).
+    if (kind == "go")
+        if (GameObject* go = ai->GetGameObject(ObjectGuid(task.useTargetRaw)))
+            task.baseline = PackGoState(go);
     ai->ClearLastCastCheckFail();
     std::string const param = std::to_string(task.itemId) + " " + kind + " " + std::to_string(task.useTargetRaw);
     if (ExecuteQuietAction(ai, "commander use", ai::Event("cmd use", param, commander)))
@@ -9714,7 +9730,7 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
 std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(Player* lead, std::vector<Player*> const& bots,
     ai::PlanStep const& step, std::vector<uint32>& inputs)
 {
-    inputs.push_back(step.kind == ai::PlanStepKind::Open ? step.item : step.entry);
+    inputs.push_back(step.kind == ai::PlanStepKind::Open || step.kind == ai::PlanStepKind::UseOn ? step.item : step.entry);
     if (step.param)
         inputs.push_back(step.param);
     std::vector<TortoiseBots::DungeonRun::BagFact> bags;
@@ -9757,7 +9773,8 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
                     return bot;
         return lead;
     }
-    if (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem)
+    if (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem &&
+        step->kind != ai::PlanStepKind::UseOn)
         return lead;
     std::vector<uint32> inputs;
     std::vector<TortoiseBots::DungeonRun::BagFact> const bags = RunTaskBags(lead, bots, *step, inputs);
@@ -9780,7 +9797,8 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
 void RetireLostCarrier(DungeonRunSlot& slot, Player* lead, std::vector<Player*> const& bots)
 {
     ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
-    if (!step || (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem))
+    if (!step || (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem &&
+            step->kind != ai::PlanStepKind::UseOn))
         return;
     std::vector<uint32> inputs;
     if (TortoiseBots::DungeonRun::OutstandingCarrierVerdict(slot.run.orderSent, slot.carrierRaw,
@@ -9790,6 +9808,8 @@ void RetireLostCarrier(DungeonRunSlot& slot, Player* lead, std::vector<Player*> 
     slot.carrierRaw = 0;
     slot.taskReply = 0;
     slot.taskText.clear();
+    slot.taskActStarted = false;
+    slot.taskObjectReacted = false;
 }
 
 // A hold's done condition (DungeonRun::HoldDoneNote): the instance script's
@@ -10539,6 +10559,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         case ai::PlanStepKind::Loot:
         case ai::PlanStepKind::Open:
         case ai::PlanStepKind::UseItem:
+        case ai::PlanStepKind::UseOn: // the carrier of `item` (RunTaskBot), its task and answer: as an open's
         {
             // The bot of the task: the lead bot, the one a loot refusal moved
             // the order to (Run::taskBot), or the carrier of an open / use_item
@@ -10552,6 +10573,25 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             {
                 f.taskReply = slot.taskReply;
                 f.taskText = slot.taskText;
+            }
+            if (step->kind == ai::PlanStepKind::UseOn)
+            {
+                if (slot.carrierRaw == carrier->GetObjectGuid().GetRawValue())
+                {
+                    f.taskActStarted = slot.taskActStarted;
+                    f.objectReacted = slot.taskObjectReacted;
+                }
+                // The boss the use summons (the boss row right after it): any unit of its entry around the lead bot,
+                // alive or dead (a second summon dies at once and lies at the pit; DungeonRun::UseOnStep never uses again).
+                std::size_t const nextIdx = slot.run.step + 1;
+                if (slot.run.plan && nextIdx < slot.run.plan->steps.size() &&
+                    slot.run.plan->steps[nextIdx].kind == ai::PlanStepKind::Boss && slot.run.plan->steps[nextIdx].entry)
+                {
+                    std::list<Creature*> found;
+                    lead->GetCreatureListWithEntryInGrid(found, slot.run.plan->steps[nextIdx].entry,
+                        TortoiseBots::DungeonRun::kUseOnSummonYd);
+                    f.summonSeen = !found.empty();
+                }
             }
             if (step->kind == ai::PlanStepKind::Loot && step->item)
             {
@@ -10886,6 +10926,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                                   ->GetObjectGuid().GetRawValue();
             slot.taskReply = 0;
             slot.taskText.clear();
+            slot.taskActStarted = false;
+            slot.taskObjectReacted = false;
         }
         std::string answer;
         bool const accepted = IssueRunOrder(commander, order, answer,

@@ -2698,6 +2698,233 @@ static void TestGossipNotAllowedNamesTheConfigKey()
     CHECK(r.note.find("AiPlayerbot.BotGossipNpcs") != std::string::npos);
 }
 
+// use_on: Zul'Farrak's gong 141832, rung with the Mallet of Zul'Farrak 9240.
+static PlanStep GongRow()
+{
+    PlanStep s;
+    s.kind = PlanStepKind::UseOn;
+    s.entry = 141832;
+    s.item = 9240;
+    s.x = 1650.9f;
+    s.y = 1171.9f;
+    s.z = 10.9f;
+    CHECK(ai::NormalizePlanStep(s) == ai::PlanStepRefusal::None);
+    return s;
+}
+
+// One targeted use order by the carrier that holds the item; the busy task is waited for; only the ACK ends the step
+// (a free carrier with no answer yet is no answer).
+static void TestUseOnOneTargetedOrderThenAck()
+{
+    CHECK(Supported(PlanStepKind::UseOn));
+    DungeonPlan plan;
+    plan.steps = {GongRow(), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    f.carrierBusy = true; // an earlier order of the carrier: wait, send nothing
+    CHECK(Tick(r, f).empty() && !r.orderSent && r.note.find("waiting for Tanky") != std::string::npos);
+    f.carrierBusy = false;
+    CHECK(Tick(r, f) == "use 9240 Tanky entry:141832@1650.9,1171.9,10.9");
+    CHECK(r.orderSent && r.phase == Phase::AwaitTask && r.note == "use_on 141832 with item 9240 by Tanky");
+    f.carrierBusy = true;
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).empty() && r.step == 0);
+    f.carrierBusy = false; // free again, but no ACK read yet
+    CHECK(Tick(r, f).empty() && r.step == 0 && r.state == State::Running);
+    f.taskReply = 1;
+    f.taskText = "1|spell 11434";
+    f.objectReacted = true; // the gong's state changed under the use (ObjectEffectOf at the ACK)
+    Tick(r, f);
+    CHECK(r.step == 1 && r.note == "use_on 141832 with item 9240 done: 1|spell 11434");
+    CHECK(r.useOnRang.count(0) == 1);
+}
+
+// The ACK alone proves nothing: the step ends only once the object reacted or the boss row's boss is in sight
+// (alive or dead); else, after kUseOnProofMs, an honest pause that says the ACK came but nothing happened.
+static void TestUseOnAckNeedsProof()
+{
+    PlanStep boss = Step(PlanStepKind::Boss, 1702.6f, 1224.2f, 8.9f);
+    boss.entry = 7273;
+    DungeonPlan plan;
+    plan.steps = {GongRow(), boss};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 1;
+    f.taskText = "1|spell 11434";
+    Tick(r, f);
+    CHECK(r.step == 0 && r.state == State::Running && r.useOnRang.count(0) == 1);
+    CHECK(r.note.find("ACKed") != std::string::npos);
+    // The boss appears: done.
+    Run b = r;
+    Facts g = f;
+    g.summonSeen = true;
+    Tick(b, g);
+    CHECK(b.step == 1 && b.note.find("boss 7273 is here") != std::string::npos);
+    // Nothing shows within the proof window: an honest pause, not the boss row's search note.
+    for (std::uint32_t ms = 0; ms <= kUseOnProofMs && r.state == State::Running; ms += kTickMs)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("the order was ACKed but object 141832 showed no change and boss 7273 did not show") != std::string::npos);
+}
+
+// Never a second use once the act started or the item took: an in-combat answer after the cast began (the walking use
+// task fails in a fight after its act started) pauses instead of sending again; a boss already here is no reason to use it.
+static void TestUseOnNoResendOnceTheActStarted()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 2;
+    f.taskText = "in-combat: The bot is in combat and stopped.";
+    f.taskActStarted = true;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.taskResends == 0 && r.note.find("the cast had started") != std::string::npos);
+    // In combat before the act, but the boss row's boss is already in sight: no second use either.
+    PlanStep boss = Step(PlanStepKind::Boss, 1702.6f, 1224.2f, 8.9f);
+    boss.entry = 7273;
+    DungeonPlan withBoss;
+    withBoss.steps = {GongRow(), boss};
+    Run s = Start(&withBoss);
+    Facts g = Party(1650.9f);
+    g.carrierHasItem = true;
+    CHECK(!Tick(s, g).empty());
+    g.taskReply = 2;
+    g.taskText = "in-combat: The bot is in combat and stopped.";
+    g.summonSeen = true;
+    Tick(s, g);
+    CHECK(s.taskResends == 0 && s.state == State::Running && s.step == 1);
+    // A boss already here before any order: the step ends without a use.
+    Run t = Start(&withBoss);
+    Facts h = Party(1650.9f);
+    h.carrierHasItem = true;
+    h.summonSeen = true;
+    CHECK(Tick(t, h).empty() && t.step == 1);
+}
+
+// A wipe after the ACK (ResetStep clears orderSent and the resends) never sends the use again: the per-run latch holds,
+// and a run with no boss in sight pauses, naming why.
+static void TestUseOnResetAfterAckDoesNotUseAgain()
+{
+    PlanStep boss = Step(PlanStepKind::Boss, 1702.6f, 1224.2f, 8.9f);
+    boss.entry = 7273;
+    DungeonPlan plan;
+    plan.steps = {GongRow(), boss};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 1;
+    Tick(r, f);
+    CHECK(r.useOnRang.count(0) == 1);
+    ResetStep(r); // a wipe or the lead bot's death
+    f.taskReply = 0;
+    f.taskText.clear();
+    CHECK(Tick(r, f).empty() && !r.orderSent);
+    CHECK(r.state == State::Paused && r.note.find("used once already this run") != std::string::npos);
+    CHECK(Resume(r));
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+        CHECK(Tick(r, f).compare(0, 4, "use ") != 0);
+}
+
+// The item is in a dead bot's bags: the pause names that bot (revive it), not a second item.
+static void TestUseOnNamesADeadHolder()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = false;
+    f.itemsSplit = "item 9240 is with Tanky, who is dead";
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.note.find("item 9240 is with Tanky, who is dead") != std::string::npos);
+    CHECK(r.note.find(".additem") == std::string::npos);
+}
+
+// No bot of the party carries the item: a pause that says so (the item is the operator's to give), no order.
+static void TestUseOnWithoutTheItemPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = false;
+    CHECK(Tick(r, f).empty() && !r.orderSent);
+    CHECK(r.state == State::Paused && r.note.find("no bot of the party carries item 9240") != std::string::npos);
+    CHECK(r.note.find(".additem 9240") != std::string::npos);
+}
+
+// An answer that says the cast did not happen (in combat, busy, an interrupted cast) is sent again ONCE: a second cast
+// that took would run the object's event twice (a second Gahz'rilla dies at once and lies invisible at the pit). Any other ERR pauses at once,
+// naming the module's text.
+static void TestUseOnResendsOnceThenPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    std::string const order = "use 9240 Tanky entry:141832@1650.9,1171.9,10.9";
+    CHECK(Tick(r, f) == order);
+    f.taskReply = 2;
+    f.taskText = "in-combat: Tanky is in combat.";
+    Tick(r, f);
+    CHECK(r.state == State::Running && !r.orderSent && r.taskResends == 1);
+    f.taskReply = 0;
+    f.taskText.clear();
+    CHECK(Tick(r, f) == order);
+    f.taskReply = 2;
+    f.taskText = "in-combat: Tanky is in combat.";
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.note.find("use_on 141832 with item 9240 failed: in-combat: Tanky is in combat.") !=
+        std::string::npos);
+
+    Run h = Start(&plan);
+    Facts g = Party(1650.9f);
+    g.carrierHasItem = true;
+    CHECK(Tick(h, g) == order);
+    g.taskReply = 2;
+    g.taskText = "invalid-target: spell check 10";
+    Tick(h, g);
+    CHECK(h.state == State::Paused && h.taskResends == 0 &&
+        h.note.find("failed: invalid-target: spell check 10") != std::string::npos);
+}
+
+// No answer within the task cap pauses (the resume note warns that a resume rings again).
+static void TestUseOnNoAnswerPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    for (std::uint32_t ms = 0; ms <= kTaskCapMs && r.state == State::Running; ms += kTickMs)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.note.find("no answer") != std::string::npos);
+    CHECK(r.useOnRang.count(0) == 1); // it may have taken: never sent again this run
+}
+
+// A use_on right before a hold starts that event, as open and use_item do.
+static void TestUseOnStartsAnEvent()
+{
+    DungeonPlan plan;
+    PlanStep hold = Step(PlanStepKind::Hold, 1, 2, 3);
+    hold.entries = {7273};
+    plan.steps = {GongRow(), hold};
+    Run r = Start(&plan);
+    CHECK(EventHoldAhead(r) != nullptr && EventStartStep(plan, 1) == 0);
+    // A failed event goes back to the use_on.
+    Run h = Start(&plan, 1);
+    EventFailed(h, "the event did not start");
+    CHECK(h.state == State::Paused && h.step == 0 && h.note.find("(use_on)") != std::string::npos);
+}
+
 // No ACK and no ERR within the step's timeout (default 60 s): the run pauses.
 static void TestGossipNoAnswerPauses()
 {
@@ -2853,6 +3080,72 @@ static void TestGossipAfterAHoldThenTheDoor()
     f.taskReply = 1;
     Tick(r, f);
     CHECK(r.step == 2 && Current(r)->kind == PlanStepKind::WaitObject);
+}
+
+// Zul'Farrak's Sergeant Bly (turtle-agent feat/zf-gahz-bly): his gossip, then a hold done by its units (no done flag) with Bly
+// first. Bly and his crew stay friendly for 10 s after the option; a boss row would leave them alone at once, the hold waits:
+// the friendly first unit counts (EventUnitCounts), no friendly unit is pulled, the event starts when one turns hostile, and
+// the hold ends only when none of the four is left alive within its radius.
+static void TestUnitsHoldWaitsForAFriendlyBossToTurn()
+{
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 25.0f;
+    hold.timeoutS = 300;
+    hold.entries = {7604, 7608, 7606, 7605};
+    CHECK(ai::NormalizePlanStep(hold) == ai::PlanStepRefusal::None);
+    DungeonPlan plan;
+    plan.map = 209;
+    plan.steps = {GossipRow(0, 1, 7604), hold, Step(PlanStepKind::Move, 500)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "gossip 7604 Tanky 1");
+    f.carrierBusy = true;
+    f.taskReply = 1;
+    Tick(r, f);
+    CHECK(r.step == 1 && Current(r)->kind == PlanStepKind::Hold);
+    f.carrierBusy = false;
+    f.taskReply = 0;
+    std::vector<UnitFact> crew;
+    for (std::uint32_t e : {7604u, 7608u, 7606u, 7605u})
+    {
+        UnitFact u = Unit(e, e, 11.0f);
+        u.hostile = false;
+        crew.push_back(u);
+    }
+    f.units = crew;
+    // The 10 s before the script turns them: held, nothing pulled, nothing done.
+    for (int i = 0; i < 12; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order.find("attack") == std::string::npos && order.find("pull") == std::string::npos);
+    }
+    CHECK(r.state == State::Running && r.step == 1 && !r.eventStarted && r.eventTotal == 1);
+    // Hostile: the event is on; it is not done while one of them lives.
+    for (UnitFact& u : f.units)
+        u.hostile = true;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.eventStarted && r.eventTotal == 4);
+    f.units = {f.units[0]};
+    f.eventDown = 3;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    f.units.clear();
+    f.eventDown = 4;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2 && r.note.find("every unit of it is dead") != std::string::npos);
+
+    // The contrast: a boss row on the friendly Bly ends at once and leaves him alone.
+    DungeonPlan bossPlan;
+    PlanStep boss = Step(PlanStepKind::Boss);
+    boss.entry = 7604;
+    boss.entries = {7608, 7606, 7605};
+    CHECK(ai::NormalizePlanStep(boss) == ai::PlanStepRefusal::None);
+    bossPlan.steps = {boss, Step(PlanStepKind::Move, 500)};
+    Run b = Start(&bossPlan);
+    Facts g = Party(0);
+    g.units = crew;
+    Tick(b, g);
+    CHECK(b.step == 1 && b.note.find("boss is friendly to this party: left alone") != std::string::npos);
 }
 
 static void TestWaitObjectTimeoutIsBounded()
@@ -8981,6 +9274,16 @@ int main()
     TestGossipWalksToFarPointFirst();
     TestGossipStartsAnEvent();
     TestGossipAfterAHoldThenTheDoor();
+    TestUnitsHoldWaitsForAFriendlyBossToTurn();
+    TestUseOnOneTargetedOrderThenAck();
+    TestUseOnWithoutTheItemPauses();
+    TestUseOnResendsOnceThenPauses();
+    TestUseOnNoAnswerPauses();
+    TestUseOnStartsAnEvent();
+    TestUseOnAckNeedsProof();
+    TestUseOnNoResendOnceTheActStarted();
+    TestUseOnResetAfterAckDoesNotUseAgain();
+    TestUseOnNamesADeadHolder();
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();
