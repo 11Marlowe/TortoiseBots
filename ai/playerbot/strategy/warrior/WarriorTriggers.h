@@ -39,6 +39,28 @@ namespace ai
     SNARE_TRIGGER(ThunderClapSnareTrigger, "thunder clap");
     DEBUFF_TRIGGER(ThunderClapTrigger, "thunder clap");
     SNARE_TRIGGER(TauntSnareTrigger, "taunt");
+
+    // A mob standing on a non-tank party member (the healer first) that the
+    // tank can Taunt from where it stands ("attacker of non-tank"); "taunt
+    // on snare target" keeps the mobs still running at someone.
+    class TauntAttackerOfNonTankTrigger : public SpellTrigger
+    {
+    public:
+        TauntAttackerOfNonTankTrigger(PlayerbotAI* ai) : SpellTrigger(ai, "taunt") {}
+        virtual std::string getName() override { return "party member attacked"; }
+        virtual Value<Unit*>* GetTargetValue() override;
+        virtual bool IsActive() override;
+    };
+
+    // Three or more mobs on non-tank party members within Challenging
+    // Shout's radius, and the shout needs no step (the current target is in
+    // melee reach: the "challenging shout" action is a melee action on it).
+    class ChallengingShoutOnAttackersTrigger : public Trigger
+    {
+    public:
+        ChallengingShoutOnAttackersTrigger(PlayerbotAI* ai) : Trigger(ai, "party member attacked aoe") {}
+        virtual bool IsActive() override;
+    };
     SNARE_TRIGGER(InterceptSnareTrigger, "intercept");
     CD_TRIGGER(InterceptCanCastTrigger, "intercept");
     BOOST_TRIGGER(DeathWishTrigger, "death wish");

@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "WarriorTriggers.h"
 #include "WarriorActions.h"
+#include "playerbot/strategy/values/AttackerOfNonTankValue.h"
 
 using namespace ai;
 
@@ -61,4 +62,42 @@ bool SunderArmorDebuffTrigger::IsActive()
         return true;
 
     return !ai->HasAura("sunder armor", target, true) && !HasMaxDebuffs();
+}
+
+Value<Unit*>* TauntAttackerOfNonTankTrigger::GetTargetValue()
+{
+    return context->GetValue<Unit*>("attacker of non-tank", spell);
+}
+
+bool TauntAttackerOfNonTankTrigger::IsActive()
+{
+    // Cheap gate first: the value walks the group's attackers.
+    if (!ai->IsTank(bot) || !bot->GetGroup())
+        return false;
+    Unit* target = GetTarget();
+    if (!target)
+        return false;
+    // Range is the value's job (it only returns mobs in Taunt range); here
+    // stance, cooldown and rage, as SpellCanBeCastedTrigger asks the core.
+    return TauntAttackerGate(ai->IsTank(bot), bot->GetGroup() != nullptr,
+        ai->CanCastSpell(spell, target, true, nullptr, true));
+}
+
+bool ChallengingShoutOnAttackersTrigger::IsActive()
+{
+    if (!ai->IsTank(bot) || !bot->GetGroup())
+        return false;
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target || !bot->CanReachWithMeleeAutoAttack(target))
+        return false;
+    if (!ai->CanCastSpell("challenging shout", target, true, nullptr, true))
+        return false;
+
+    std::vector<NonTankAttacker> attackers;
+    CollectNonTankAttackers(ai, "taunt", nullptr, attackers);
+    std::vector<TauntAttackerCandidate> facts;
+    facts.reserve(attackers.size());
+    for (NonTankAttacker const& a : attackers)
+        facts.push_back(a.facts);
+    return ChallengingShoutOnAttackers(facts, ChallengingShoutRadiusYd);
 }
