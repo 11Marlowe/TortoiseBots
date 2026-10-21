@@ -2010,6 +2010,86 @@ static void TestRezHoldNudge()
     }
 }
 
+// T4 (F3): the rez nudge's move refused as unreachable (the Uldaman scorpid pit: the ledge the body lies on is
+// not on the navmesh) ends the hold at once and goes to the revive; any other refusal keeps the hold.
+static void TestRezNudgeUnreachable()
+{
+    using namespace TortoiseBots::RezHold;
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Facts f = Party(0);
+    f.dead = 1;
+    f.alive = 4;
+    f.rezHold = true;
+    f.leadAlive = true;
+    f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+    std::string const move = MoveOrder(20.0f, 0.0f, 0.0f, false);
+    std::string const noPath = "unreachable: The lead bot has no walkable path to that point.";
+    // Reaches the nudge and checks the move order went out.
+    auto nudged = [&](Run& r)
+    {
+        BeginRegroup(r);
+        // Ticks up to the nudge itself (the 15 s party-rezzer wait has not run out then).
+        std::string o;
+        for (std::uint32_t t = 0; t < 2 * kRezNudgeMs && o.empty(); t += kTickMs)
+            o = Tick(r, f);
+        CHECK(o == move);
+        CHECK(r.rezNudged && r.rezNudgeOrder == move && !r.rezBodyUnreachable);
+    };
+    // No walkable path: not paused, the very next tick revives.
+    {
+        Run r = Start(&plan);
+        nudged(r);
+        OrderRefused(r, move, noPath);
+        CHECK(r.state != State::Paused);
+        CHECK(r.rezBodyUnreachable && r.rezNudgeOrder.empty());
+        CHECK(r.note.find("cannot walk to the body") != std::string::npos);
+        CHECK(r.note.find("reviving instead") != std::string::npos);
+        CHECK(Tick(r, f) == "revive party");
+        CHECK(r.state != State::Paused);
+        CHECK(r.note.find("reviving") != std::string::npos);
+        CHECK(!r.rezBodyUnreachable); // the revive going out resets it
+    }
+    // Every path refusal code counts, and a living party rezzer does not bring the 15 s wait back.
+    for (char const* code : {"off-mesh: x", "no-ground: x", "no-los: x"})
+    {
+        Run r = Start(&plan);
+        nudged(r);
+        f.rezzer = true;
+        OrderRefused(r, move, code);
+        CHECK(r.state != State::Paused && r.rezBodyUnreachable);
+        CHECK(Tick(r, f) == "revive party");
+        f.rezzer = false;
+    }
+    // A refusal for the lead bot's state of the moment: not paused, no revive, the hold kept, no second nudge.
+    {
+        Run r = Start(&plan);
+        nudged(r);
+        OrderRefused(r, move, "busy: The lead bot is casting.");
+        CHECK(r.state != State::Paused);
+        CHECK(!r.rezBodyUnreachable && r.rezNudgeOrder.empty());
+        CHECK(r.note.find("refused") != std::string::npos);
+        for (std::string const& o : NudgeOrders(r, f, 20000))
+            CHECK(o != "revive party" && o != move);
+        CHECK(r.state != State::Paused);
+    }
+    // A refusal of some other order is not taken for the nudge's.
+    {
+        Run r = Start(&plan);
+        nudged(r);
+        OrderRefused(r, MoveOrder(99.0f, 0.0f, 0.0f, false), noPath);
+        CHECK(!r.rezBodyUnreachable);
+    }
+    // The next regroup starts clean.
+    {
+        Run r = Start(&plan);
+        nudged(r);
+        OrderRefused(r, move, noPath);
+        BeginRegroup(r);
+        CHECK(!r.rezBodyUnreachable && r.rezNudgeOrder.empty() && !r.rezNudged);
+    }
+}
+
 // The rez hold's clocks (review of b228d8e8). A priest short of mana for 70 s and then back up keeps
 // the whole hold budget from there (before, one shared clock released it the same tick); a cast under
 // way finishes past the budget; the 240 s corpse-run budget starts when the hold gave up; the status
@@ -7769,6 +7849,7 @@ int main()
     TestRezHoldOn();
     TestRezHoldClocks();
     TestRezHoldNudge();
+    TestRezNudgeUnreachable();
     TestAggroEstimateAndRezHoldDoNotCrossTheirResets();
     TestBothKeysOffChangeNothing();
     TestPullNoteCarriesTheJoinerCount();

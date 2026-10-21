@@ -638,6 +638,10 @@ struct Run
     // lead bot was sent onto the body already (once per regroup). Both stay 0/false with the key off.
     std::uint32_t rezHoldMs = 0;
     bool rezNudged = false;
+    // The order of that nudge, kept to tell its refusal (OrderRefused) from any other, and whether the module
+    // answered it with a path refusal (the body cannot be walked to): the hold is then over and the revive goes out.
+    std::string rezNudgeOrder;
+    bool rezBodyUnreachable = false;
     void RestartRegroupClock()
     {
         regroupMs = 0;
@@ -1549,6 +1553,8 @@ inline void BeginRegroup(Run& r)
     r.rezAbleMs = 0;
     r.rezHoldMs = 0;
     r.rezNudged = false;
+    r.rezNudgeOrder.clear();
+    r.rezBodyUnreachable = false;
     r.regroupDead = -1;
     r.summoned.clear(); // one summon per bot per regroup (SummonStraggler)
     r.reviveSummons.clear();
@@ -2259,6 +2265,21 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         // crowd control, a focus and the tank's pick-up (GuardTarget) are
         // help, the fight goes on without them.
         r.note = order + " refused: " + answer;
+        return;
+    }
+    // The rez hold's nudge (the lead bot walks onto a body). A path refusal (the ledge is not on the navmesh)
+    // ends the hold: the revive and the summon of the revived bot go out instead of a pause. Any other refusal
+    // only notes it; the hold's own budget ends it, and the nudge is not sent a second time.
+    if (!r.rezNudgeOrder.empty() && order == r.rezNudgeOrder)
+    {
+        r.rezNudgeOrder.clear();
+        if (IsPathRefusal(answer))
+        {
+            r.rezBodyUnreachable = true;
+            r.note = "regroup: the lead bot cannot walk to the body (" + answer + "): reviving instead";
+        }
+        else
+            r.note = "regroup: the walk to the body was refused (" + answer + ")";
         return;
     }
     if (!r.gatherOrder.empty() && order == r.gatherOrder)
@@ -5774,7 +5795,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         {
             // A living priest, paladin or shaman raises the dead where they
             // lie: `revive party` (a release and a corpse run) waits for it.
-            if (f.rezHold)
+            // A nudge the module answered as unwalkable (OrderRefused) ends the wait: the revive goes out now.
+            if (f.rezHold && !r.rezBodyUnreachable)
             {
                 // The rez hold decides (RezHoldPolicy.h): hold for a resurrection,
                 // wait for the resurrector's mana, or fall through to the revive.
@@ -5835,6 +5857,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                             {
                                 r.rezNudged = true;
                                 order = MoveOrder(body.bodyX, body.bodyY, body.bodyZ, false);
+                                r.rezNudgeOrder = order;
                                 r.note += "; the lead bot walks to the body";
                             }
                         }
@@ -5842,7 +5865,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                     return order;
                 }
             }
-            else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)
+            else if (f.rezzer && !r.reviveSent && !r.rezBodyUnreachable && r.regroupMs < kPartyRezWaitMs)
             {
                 r.note = "regroup: " + WaitNote(r, f) + ", a resurrection in the party first";
                 SummonRevived(r, f, order);
@@ -5856,6 +5879,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 r.reviveSent = true;
                 r.rezHoldMs = 0;
                 r.rezNudged = false;
+                r.rezNudgeOrder.clear();
+                r.rezBodyUnreachable = false;
                 order = "revive party";
             }
             else
