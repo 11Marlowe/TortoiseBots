@@ -9618,6 +9618,7 @@ void ReadPullJoiners(Player* lead, std::vector<Player*> const& bots, ai::PlanSte
         ai::JoinersOverCeiling(estimate, ceiling);
         unit.joiners = estimate.joiners;
         unit.joinersPatrol = estimate.patrolIsTheCause;
+        unit.joinersRead = true;
     }
 }
 
