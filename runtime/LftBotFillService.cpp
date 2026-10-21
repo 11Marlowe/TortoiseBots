@@ -226,12 +226,12 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
         }
         if (cls == CLASS_DRUID && !bot->HasSpell(5487) && !bot->HasSpell(9634))
             return "druid tank without bear form";
-        // A shaman without shield-legal tank credentials (shield + Rockbiter
-        // + Totemic Alignment / Spirit Armor) reads tank only via this
-        // branch's owner ("borrow" aside); keep it out of the tank slot.
+        // A shaman tanks the slot when it has a key tank talent or already
+        // plays the tank kit (a 7.3 build below the first key talent at 25);
+        // a DPS shaman has neither and stays out ("borrow" aside).
         if (cls == CLASS_SHAMAN)
         {
-            if (!AiFactory::HasShamanTankTalents(bot))
+            if (!AiFactory::HasShamanTankTalents(bot) && !(GetCombatKitRoleMask(bot) & kLftRoleTank))
                 return "shaman tank without tank talents";
         }
     }
