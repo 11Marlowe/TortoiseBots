@@ -4527,7 +4527,11 @@ uint32 RandomItemMgr::CalculateBestBotEnchantId(Player* bot, uint32 specId, Item
         // (e.g. Fiery Weapon onto a shield, scope onto a thrown weapon).
         // The item class must match first: a shield is armor subclass 6,
         // which is the polearm bit in a weapon enchant's subclass mask.
-        if (spellInfo->EquippedItemClass >= 0 && int32(proto->Class) != spellInfo->EquippedItemClass)
+        // 13419 (Enchant Cloak - Minor Agility) has a weapon class in the
+        // spell data; the core's Item::IsFitToSpellRequirements exempts it.
+        bool const minorAgilityCloak = candidate.spellId == 13419 && proto->InventoryType == INVTYPE_CLOAK;
+        if (!minorAgilityCloak && spellInfo->EquippedItemClass >= 0 &&
+            int32(proto->Class) != spellInfo->EquippedItemClass)
             continue;
         if (!((1 << proto->SubClass) & spellInfo->EquippedItemSubClassMask) &&
             !((1 << proto->InventoryType) & spellInfo->EquippedItemInventoryTypeMask))
