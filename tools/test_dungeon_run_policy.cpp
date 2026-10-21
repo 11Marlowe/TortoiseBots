@@ -1441,6 +1441,25 @@ static void TestRezHoldNudge()
         CHECK(NudgeOrders(r, f, kRezNudgeMs - 2 * kTickMs).empty());
         CHECK(NudgeOrders(r, f, 3 * kTickMs).size() == 1);
     }
+    // A revived straggler whose summon falls due on the very tick the 12 s are reached: the summon goes out
+    // (the nudge never replaces an order SummonRevived set), and the nudge follows on a later tick, once.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        r.waitFor.insert("Quelinator"); // died earlier in the run, revived far away
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        f.members = {Mem("Tanky", 0), Mem("Quelinator", 270)};
+        f.members[1].inCombat = true; // a summon is not sent into a fight: not due yet
+        CHECK(NudgeOrders(r, f, kRezNudgeMs - kTickMs).empty());
+        CHECK(r.rezHoldMs == kRezNudgeMs - kTickMs && !r.rezNudged);
+        f.members[1].inCombat = false; // due now: this tick reaches 12 s
+        CHECK(Tick(r, f) == "summon Quelinator");
+        CHECK(r.rezHoldMs >= kRezNudgeMs && !r.rezNudged);
+        CHECK(Tick(r, f) == move); // the next tick: the nudge, once
+        CHECK(r.rezNudged);
+        CHECK(NudgeOrders(r, f, 5000).empty());
+        f.members.clear();
+    }
     // A body the glue did not place, or a dead lead bot: no move.
     {
         Run r = Start(&plan);
