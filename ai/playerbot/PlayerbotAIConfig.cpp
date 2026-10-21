@@ -852,6 +852,7 @@ bool PlayerbotAIConfig::Initialize()
     observability = config.GetBoolDefault("AiPlayerbot.Observability", false);
     observabilityPort = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.ObservabilityPort", 0));
     observabilityHost = config.GetStringDefault("AiPlayerbot.ObservabilityHost", "");
+    observabilityDungeonMobs = config.GetBoolDefault("AiPlayerbot.ObservabilityDungeonMobs", true);
     enableActionLog = config.GetBoolDefault("AiPlayerbot.EnableActionLog", false);
     {
         bool scopeKnown = true;
