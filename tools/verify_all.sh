@@ -53,6 +53,7 @@ python3 -m unittest tools/test_priest_fade_flash_wiring.py
 python3 -m unittest tools/test_hire_never_leaves_wiring.py
 python3 -m unittest tools/test_raid_status_instance_wiring.py
 python3 -m unittest tools/test_wand_fallback_wiring.py
+python3 -m unittest tools/test_start_zone_write_ordering_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -116,6 +117,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_four_horsemen_rotation_policy
         test_gather_spot_policy
         test_gather_tool_policy
+        test_gear_ilvl_cap_policy
         test_geddon_inferno_policy
         test_ghost_stall_policy
         test_gluth_kite_policy
@@ -232,6 +234,11 @@ if command -v g++ >/dev/null 2>&1; then
         test_shaman_fire_gate_policy
         test_shaman_healer_dps_policy
         test_shaman_imbue_policy
+        test_shaman_tank_detection_policy
+        test_shaman_tank_flag_policy
+        test_shaman_tank_kit_policy
+        test_shaman_tank_leveling_policy
+        test_shaman_tank_policy
         test_shaman_mana_loop_policy
         test_shaman_recall_policy
         test_shaman_situational_totem_policy
@@ -246,6 +253,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_talent_spell_save_policy
         test_tank_add_pickup_policy
         test_taxi_path_policy
         test_thaddius_polarity_policy
@@ -256,6 +264,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_travel_pick_slice
         test_travel_repick_policy
         test_travel_route_cache_policy
+        test_travel_route_danger_policy
         test_travel_route_policy
         test_trinket_use_policy
         test_totem_command_policy

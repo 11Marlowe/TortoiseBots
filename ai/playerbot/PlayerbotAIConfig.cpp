@@ -229,6 +229,8 @@ bool PlayerbotAIConfig::Initialize()
 
     randomGearMaxLevel = config.GetIntDefault("AiPlayerbot.RandomGearMaxLevel", 100);
     randomGearMaxDiff = config.GetIntDefault("AiPlayerbot.RandomGearMaxDiff", 9);
+    randomGearMaxItemLevelAboveLevel = std::max(0, config.GetIntDefault("AiPlayerbot.RandomGearMaxItemLevelAboveLevel", 1));
+    hireGearMaxItemLevelAboveLevel = std::max(0, config.GetIntDefault("AiPlayerbot.HireGearMaxItemLevelAboveLevel", 5));
     randomGearMaxSourceTier = config.GetIntDefault("AiPlayerbot.RandomGearMaxSourceTier", 0);
     randomGearAllowReputation = config.GetBoolDefault("AiPlayerbot.RandomGearAllowReputation", false);
     randomGearAllowPvP = config.GetBoolDefault("AiPlayerbot.RandomGearAllowPvP", false);
@@ -492,6 +494,7 @@ bool PlayerbotAIConfig::Initialize()
     hireFreeMinSecurity = TortoiseBots::ClampHireFreeMinSecurity(
         static_cast<int64_t>(config.GetIntDefault("AiPlayerbot.HireFreeMinSecurity", 0)));
     hireAnywhere = config.GetBoolDefault("AiPlayerbot.HireAnywhere", false);
+    shamanTankEnabled = config.GetBoolDefault("AiPlayerbot.ShamanTankEnabled", true);
     hireBaseCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireBaseCostCopper", 15000));
     if (hireBaseCostCopper > 100000000)
         hireBaseCostCopper = 100000000;

@@ -7,6 +7,8 @@
 #include "ElementalShamanStrategy.h"
 #include "RestorationShamanStrategy.h"
 #include "EnhancementShamanStrategy.h"
+#include "TankShamanStrategy.h"
+#include "ShamanPullStrategy.h"
 
 namespace ai
 {
@@ -22,7 +24,7 @@ namespace ai
                 creators["cure"] = [](PlayerbotAI* ai) { return new CurePlaceholderStrategy(ai); };
                 creators["buff"] = [](PlayerbotAI* ai) { return new BuffPlaceholderStrategy(ai); };
                 creators["boost"] = [](PlayerbotAI* ai) { return new BoostPlaceholderStrategy(ai); };
-                creators["pull"] = [](PlayerbotAI* ai) { return new PullStrategy(ai, "lightning bolt"); };
+                creators["pull"] = [](PlayerbotAI* ai) { return new ShamanPullStrategy(ai); };
                 creators["offheal"] = [](PlayerbotAI* ai) { return new OffhealPlaceholderStrategy(ai); };
                 creators["offdps"] = [](PlayerbotAI* ai) { return new OffdpsPlaceholderStrategy(ai); };
             }
@@ -42,6 +44,9 @@ namespace ai
                 creators["aoe enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanAoePveStrategy(ai); };
                 creators["aoe enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanAoePvpStrategy(ai); };
                 creators["aoe enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanAoeRaidStrategy(ai); };
+                creators["aoe tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanAoePveStrategy(ai); };
+                creators["aoe tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanAoePvpStrategy(ai); };
+                creators["aoe tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanAoeRaidStrategy(ai); };
             }
         };
 
@@ -59,6 +64,9 @@ namespace ai
                 creators["cc enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanCcPveStrategy(ai); };
                 creators["cc enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanCcPvpStrategy(ai); };
                 creators["cc enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanCcRaidStrategy(ai); };
+                creators["cc tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanCcPveStrategy(ai); };
+                creators["cc tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanCcPvpStrategy(ai); };
+                creators["cc tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanCcRaidStrategy(ai); };
             }
         };
 
@@ -76,6 +84,9 @@ namespace ai
                 creators["cure enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanCurePveStrategy(ai); };
                 creators["cure enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanCurePvpStrategy(ai); };
                 creators["cure enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanCureRaidStrategy(ai); };
+                creators["cure tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanCurePveStrategy(ai); };
+                creators["cure tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanCurePvpStrategy(ai); };
+                creators["cure tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanCureRaidStrategy(ai); };
             }
         };
 
@@ -93,6 +104,9 @@ namespace ai
                 creators["buff enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanBuffPveStrategy(ai); };
                 creators["buff enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanBuffPvpStrategy(ai); };
                 creators["buff enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanBuffRaidStrategy(ai); };
+                creators["buff tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanBuffPveStrategy(ai); };
+                creators["buff tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanBuffPvpStrategy(ai); };
+                creators["buff tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanBuffRaidStrategy(ai); };
             }
         };
 
@@ -132,6 +146,9 @@ namespace ai
                 creators["boost enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanBoostPveStrategy(ai); };
                 creators["boost enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanBoostPvpStrategy(ai); };
                 creators["boost enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanBoostRaidStrategy(ai); };
+                creators["boost tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanBoostPveStrategy(ai); };
+                creators["boost tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanBoostPvpStrategy(ai); };
+                creators["boost tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanBoostRaidStrategy(ai); };
             }
         };
 
@@ -214,6 +231,9 @@ namespace ai
                 creators["totems restoration pve"] = [](PlayerbotAI* ai) { return new RestorationShamanTotemsPveStrategy(ai); };
                 creators["totems restoration pvp"] = [](PlayerbotAI* ai) { return new RestorationShamanTotemsPvpStrategy(ai); };
                 creators["totems restoration raid"] = [](PlayerbotAI* ai) { return new RestorationShamanTotemsRaidStrategy(ai); };
+                creators["totems tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanTotemsPveStrategy(ai); };
+                creators["totems tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanTotemsPvpStrategy(ai); };
+                creators["totems tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanTotemsRaidStrategy(ai); };
                 creators["totems enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanTotemsPveStrategy(ai); };
                 creators["totems enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanTotemsPvpStrategy(ai); };
                 creators["totems enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanTotemsRaidStrategy(ai); };
@@ -228,6 +248,8 @@ namespace ai
                 creators["restoration"] = [](PlayerbotAI* ai) { return new RestorationShamanPlaceholderStrategy(ai); };
                 creators["heal"] = [](PlayerbotAI* ai) { return new RestorationShamanPlaceholderStrategy(ai); };
                 creators["enhancement"] = [](PlayerbotAI* ai) { return new EnhancementShamanPlaceholderStrategy(ai); };
+                creators["tank shaman"] = [](PlayerbotAI* ai) { return new TankShamanPlaceholderStrategy(ai); };
+                creators["tank"] = [](PlayerbotAI* ai) { return new TankShamanPlaceholderStrategy(ai); };
                 creators["elemental"] = [](PlayerbotAI* ai) { return new ElementalShamanPlaceholderStrategy(ai); };
             }
         };
@@ -243,6 +265,9 @@ namespace ai
                 creators["restoration pvp"] = [](PlayerbotAI* ai) { return new RestorationShamanPvpStrategy(ai); };
                 creators["restoration pve"] = [](PlayerbotAI* ai) { return new RestorationShamanPveStrategy(ai); };
                 creators["restoration raid"] = [](PlayerbotAI* ai) { return new RestorationShamanRaidStrategy(ai); };
+                creators["tank shaman pve"] = [](PlayerbotAI* ai) { return new TankShamanPveStrategy(ai); };
+                creators["tank shaman pvp"] = [](PlayerbotAI* ai) { return new TankShamanPvpStrategy(ai); };
+                creators["tank shaman raid"] = [](PlayerbotAI* ai) { return new TankShamanRaidStrategy(ai); };
                 creators["enhancement pvp"] = [](PlayerbotAI* ai) { return new EnhancementShamanPvpStrategy(ai); };
                 creators["enhancement pve"] = [](PlayerbotAI* ai) { return new EnhancementShamanPveStrategy(ai); };
                 creators["enhancement raid"] = [](PlayerbotAI* ai) { return new EnhancementShamanRaidStrategy(ai); };
@@ -298,6 +323,17 @@ namespace ai
                 creators["totemic recall"] = [](PlayerbotAI* ai) { return new ReadyToRemoveTotemsTrigger(ai); };
                 creators["earth shield on party tank"] = [](PlayerbotAI* ai) { return new PartyTankEarthShieldTrigger(ai); };
                 creators["chain lightning"] = [](PlayerbotAI* ai) { return new ChainLightningTrigger(ai); };
+                creators["tank chain lightning"] = [](PlayerbotAI* ai) { return new TankChainLightningTrigger(ai); };
+                creators["tank fight target"] = [](PlayerbotAI* ai) { return new TankFightTargetTrigger(ai); };
+                creators["tank strength of earth"] = [](PlayerbotAI* ai) { return new TankStrengthOfEarthTrigger(ai); };
+                creators["tank earth shock fight"] = [](PlayerbotAI* ai) { return new TankEarthShockFightTrigger(ai); };
+                creators["tank threat lead"] = [](PlayerbotAI* ai) { return new TankThreatLeadTrigger(ai); };
+                creators["tank stoneclaw"] = [](PlayerbotAI* ai) { return new TankStoneclawTrigger(ai); };
+                creators["tank magma totem"] = [](PlayerbotAI* ai) { return new TankMagmaTrigger(ai); };
+                creators["tank fire nova"] = [](PlayerbotAI* ai) { return new TankFireNovaTrigger(ai); };
+                creators["tank lightning shield"] = [](PlayerbotAI* ai) { return new TankLightningShieldTrigger(ai); };
+                creators["tank water shield"] = [](PlayerbotAI* ai) { return new TankWaterShieldTrigger(ai); };
+                creators["totemic slam"] = [](PlayerbotAI* ai) { return new TotemicSlamTrigger(ai); };
                 creators["stormstrike"] = [](PlayerbotAI* ai) { return new StormstrikeTrigger(ai); };
                 creators["lightning strike"] = [](PlayerbotAI* ai) { return new LightningStrikeTrigger(ai); };
                 creators["elemental mastery"] = [](PlayerbotAI* ai) { return new ElementalMasteryTrigger(ai); };
@@ -351,6 +387,9 @@ namespace ai
                 creators["earth shield"] = [](PlayerbotAI* ai) { return new CastEarthShieldAction(ai); };
                 creators["earth shield on party"] = [](PlayerbotAI* ai) { return new CastEarthShieldOnPartyAction(ai); };
                 creators["chain heal"] = [](PlayerbotAI* ai) { return new CastChainHealAction(ai); };
+                creators["earthshaker slam"] = [](PlayerbotAI* ai) { return new CastEarthshakerSlamAction(ai); };
+                creators["totemic slam"] = [](PlayerbotAI* ai) { return new CastTotemicSlamAction(ai); };
+                creators["stormstrike"] = [](PlayerbotAI* ai) { return new CastStormstrikeAction(ai); };
                 creators["elemental mastery"] = [](PlayerbotAI* ai) { return new CastElementalMasteryAction(ai); };
                 creators["lightning strike"] = [](PlayerbotAI* ai) { return new CastLightningStrikeAction(ai); };
                 creators["earthquake"] = [](PlayerbotAI* ai) { return new CastEarthquakeAction(ai); };

@@ -247,7 +247,8 @@ std::string GetBotRole(Player* bot, PlayerbotAI* ai)
 {
     if (ai)
     {
-        if (ai->GetForcedRole() == 1 || ai->HasStrategy("tank", BotState::BOT_STATE_COMBAT))
+        if (ai->GetForcedRole() == 1 || ai->HasStrategy("tank", BotState::BOT_STATE_COMBAT) ||
+            ai->HasStrategy("tank shaman", BotState::BOT_STATE_COMBAT))
             return "tank";
         if (ai->GetForcedRole() == 2 || ai->HasStrategy("heal", BotState::BOT_STATE_COMBAT) ||
             ai->HasStrategy("healer", BotState::BOT_STATE_COMBAT))

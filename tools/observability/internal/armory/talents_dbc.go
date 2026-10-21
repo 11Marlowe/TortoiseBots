@@ -326,24 +326,46 @@ func (s *Service) talentsFromDBC(guid uint32, classID uint32, known map[uint32]b
 	return trees, nil
 }
 
+// specFromTabPoints names a character's spec from its talent points per tab:
+// the tab with the most points, "Hybrid" on a tie, and "" when there are no
+// talent points at all. Empty means "no spec" and the dashboard shows no
+// label: a placeholder name here would read as a real spec (a level-60 test
+// character with no talents showed "Unspecified" in the bot list).
+func specFromTabPoints(bp map[uint32]uint32, tabNames map[uint32]string) string {
+	var maxPts uint32
+	var maxTab uint32
+	var tie bool
+	for tabID, pts := range bp {
+		if pts > maxPts {
+			maxPts = pts
+			maxTab = tabID
+			tie = false
+		} else if pts == maxPts && pts > 0 {
+			tie = true
+		}
+	}
+	if maxPts == 0 {
+		return ""
+	}
+	if tie {
+		return "Hybrid"
+	}
+	if name := tabNames[maxTab]; name != "" {
+		return name
+	}
+	return "Hybrid"
+}
+
 // resolveBotSpecs populates the Spec field for a slice of bots by reading their
 // learned talent ranks from character_spell against Talent.dbc / TalentTab.dbc.
+// A bot without talent ranks (or without readable talent data) keeps an empty
+// Spec: "no spec" is a value the dashboard renders, not a spec name.
 func (s *Service) resolveBotSpecs(bots []BotSummary) {
 	if len(bots) == 0 || s.cfg.DBCDir == "" {
-		for i := range bots {
-			if bots[i].Spec == "" {
-				bots[i].Spec = "Unspecified"
-			}
-		}
 		return
 	}
 	talents, tabs, err := loadDBCTalents(s.cfg.DBCDir)
 	if err != nil {
-		for i := range bots {
-			if bots[i].Spec == "" {
-				bots[i].Spec = "Unspecified"
-			}
-		}
 		return
 	}
 	tabNames := make(map[uint32]string, len(tabs))
@@ -404,34 +426,7 @@ func (s *Service) resolveBotSpecs(bots []BotSummary) {
 		if !ok {
 			continue
 		}
-		var maxPts uint32
-		var maxTab uint32
-		var tie bool
-		for tabID, pts := range bp {
-			if pts > maxPts {
-				maxPts = pts
-				maxTab = tabID
-				tie = false
-			} else if pts == maxPts && pts > 0 {
-				tie = true
-			}
-		}
-		if maxPts == 0 {
-			bots[idx].Spec = "Unspecified"
-		} else if tie {
-			bots[idx].Spec = "Hybrid"
-		} else {
-			name := tabNames[maxTab]
-			if name == "" {
-				name = "Hybrid"
-			}
-			bots[idx].Spec = name
-		}
-	}
-	for i := range bots {
-		if bots[i].Spec == "" {
-			bots[i].Spec = "Unspecified"
-		}
+		bots[idx].Spec = specFromTabPoints(bp, tabNames)
 	}
 }
 

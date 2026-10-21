@@ -84,6 +84,7 @@
     botsView: 'live',
     botsState: 'all',
     botsClass: 'all',
+    botsSpec: 'all',
     botsIssueOnly: false,
     botsPvpOnly: false,
     botsSort: { key: null, dir: 1 }, // null = online first, then by name
@@ -526,6 +527,7 @@
     stateChips: document.getElementById('state-chips'),
     kindChips: document.getElementById('kind-chips'),
     classChips: document.getElementById('class-chips'),
+    specChips: document.getElementById('spec-chips'),
     rosterHead: document.getElementById('roster-head'),
     rosterTable: document.getElementById('roster-table-body'),
     rosterCount: document.getElementById('roster-count'),
@@ -2293,6 +2295,27 @@
     return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '–';
   }
 
+  // A shaman tank keeps its Enhancement spec for the filters, the chips and the
+  // class colour, but the spec label says so. The server's live combat role is
+  // the only source that knows (a forced role from the 7.3 premade build, a
+  // hired tank, or the gear+talent detection: see IsDetectedShamanTank), so an
+  // offline shaman keeps the plain spec name.
+  function specLabel(spec, cls, live) {
+    if (!spec) return '';
+    if (String(cls).toLowerCase() !== 'shaman' || !live || live.role !== 'tank') return spec;
+    return `${spec} (Tank)`;
+  }
+
+  // Spec chips under the class filter: one count per spec the class has. A row
+  // without a spec (a character with no talent points, or a bot the armory list
+  // has not caught up with) is counted under "All specs" only — giving it a
+  // spec name would show a spec the character does not have.
+  function specCounts(rows) {
+    const counts = {};
+    rows.forEach(r => { if (r.spec) counts[r.spec] = (counts[r.spec] || 0) + 1; });
+    return counts;
+  }
+
   // Issue #872: every row carries one kind: pool, hired, claimed, alt,
   // companion (owned alt following its player), player, or own (a
   // player-account character offline or not yet seen live). Live telemetry
@@ -2391,7 +2414,7 @@
     class: {
       label: 'Class',
       sort: r => `${r.cls} ${r.spec}`.toLowerCase(),
-      cell: r => `${esc(capClass(r.cls))}${r.spec ? ` <span class="cell-muted">${esc(r.spec)}</span>` : ''}`
+      cell: r => `${esc(capClass(r.cls))}${r.spec ? ` <span class="cell-muted">${esc(specLabel(r.spec, r.cls, r.live))}</span>` : ''}`
     },
     level: { label: 'Lvl', sort: r => r.level || 0, cell: r => esc(r.level) },
     state: {
@@ -2517,6 +2540,16 @@
       chip('class', 'all', 'All classes', forClasses.length, '', state.botsClass === 'all') +
       Object.entries(classCount).sort((a, b) => b[1] - a[1])
         .map(([c, n]) => chip('class', c, capClass(c), n, classColor(c), state.botsClass === c)).join('');
+
+    // Spec chips appear once a class is picked and split it by spec.
+    if (!el.specChips) return;
+    if (state.botsClass === 'all') { el.specChips.innerHTML = ''; return; }
+    const forSpecs = forClasses.filter(r => r.cls === state.botsClass);
+    const specCount = specCounts(forSpecs);
+    el.specChips.innerHTML =
+      chip('spec', 'all', 'All specs', forSpecs.length, '', state.botsSpec === 'all') +
+      Object.entries(specCount).sort((a, b) => b[1] - a[1])
+        .map(([s, n]) => chip('spec', s, s, n, '', state.botsSpec === s)).join('');
   }
 
   // Issue #872: kind chips filter like the state/class chips. The sentence
@@ -2590,13 +2623,14 @@
       text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w) || r.kind.includes(w));
     const stateOk = r => state.botsState === 'all' || (r.live && (r.live.state || 'idle') === state.botsState);
     const classOk = r => state.botsClass === 'all' || r.cls === state.botsClass;
+    const specOk = r => state.botsClass === 'all' || state.botsSpec === 'all' || r.spec === state.botsSpec;
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
     const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
 
     const base = rows.filter(r => presenceOk(r) && segOk(r) && queryOk(r));
     renderBotChips(base, issues, stateOk, classOk);
     renderKindChips(base);
-    const list = base.filter(r => kindOk(r) && stateOk(r) && classOk(r) && issueOk(r) && pvpOk(r));
+    const list = base.filter(r => kindOk(r) && stateOk(r) && classOk(r) && specOk(r) && issueOk(r) && pvpOk(r));
 
     const cols = BOT_VIEWS[state.botsView] || BOT_VIEWS.live;
     const sortKey = cols.includes(state.botsSort.key) ? state.botsSort.key : null;
@@ -2813,7 +2847,8 @@
       if (!btn) return;
       const v = btn.dataset.v;
       if (btn.dataset.kind === 'state') state.botsState = state.botsState === v ? 'all' : v;
-      else if (btn.dataset.kind === 'class') state.botsClass = state.botsClass === v ? 'all' : v;
+      else if (btn.dataset.kind === 'class') { state.botsClass = state.botsClass === v ? 'all' : v; state.botsSpec = 'all'; }
+      else if (btn.dataset.kind === 'spec') state.botsSpec = state.botsSpec === v ? 'all' : v;
       else if (btn.dataset.kind === 'kind') state.botsKindFilter = state.botsKindFilter === v ? 'all' : v;
       else if (btn.dataset.kind === 'pvp') state.botsPvpOnly = !state.botsPvpOnly;
       else state.botsIssueOnly = !state.botsIssueOnly;
@@ -2821,6 +2856,7 @@
     };
     el.stateChips.addEventListener('click', onChip);
     el.classChips.addEventListener('click', onChip);
+    if (el.specChips) el.specChips.addEventListener('click', onChip);
     if (el.kindChips) el.kindChips.addEventListener('click', onChip);
 
     const sortBy = (th) => {
@@ -2851,6 +2887,7 @@
         state.botsState = row.dataset.state;
         state.botsPresence = 'online';
         state.botsClass = 'all';
+        state.botsSpec = 'all';
         state.botsIssueOnly = false;
         state.botsPvpOnly = false;
         go({ tab: 'roster' });
@@ -2863,6 +2900,7 @@
         state.botsState = 'all';
         state.botsPresence = 'online';
         state.botsClass = 'all';
+        state.botsSpec = 'all';
         state.botsIssueOnly = false;
         state.botsPvpOnly = true;
         go({ tab: 'roster' });
@@ -3349,13 +3387,6 @@
   }
 
   function fetchProfile(guid) {
-    const live = liveBot(guid);
-    if (live && live.player) {
-      state.profile = null;
-      renderProfileHeader();
-      renderProfileOverview();
-      return;
-    }
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
       .then(async r => {
         if (r.status === 401) throw new Error('HTTP 401');
@@ -3486,7 +3517,8 @@
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
     if (el.armoryPlayed) el.armoryPlayed.textContent = s ? formatPlayed(s.totaltime) : '';
 
-    // Spec = the talent tree with the most points.
+    // Spec = the talent tree with the most points. A character with no talent
+    // points has no spec: the line says so instead of naming one.
     if (el.armorySpecInfo) {
       const trees = (p && p.talents) || [];
       if (!trees.length) {
@@ -3496,7 +3528,8 @@
         const total = pts.reduce((a, b) => a + b, 0);
         let top = trees[0];
         trees.forEach(t => { if ((t.points || 0) > (top.points || 0)) top = t; });
-        el.armorySpecInfo.textContent = `${total > 0 ? (top.name || 'Hybrid') : 'Unspecified'} (${pts.join(' / ')})`;
+        const name = total > 0 ? specLabel(top.name || 'Hybrid', clsName, live) : 'No talents';
+        el.armorySpecInfo.textContent = `${name} (${pts.join(' / ')})`;
       }
     }
     profileBars(p, live);
@@ -3614,12 +3647,7 @@
     if (tab === 'overview') { renderProfileOverview(); return; }
     if (!p) {
       const host = document.getElementById(`armory-content-${tab}`);
-      const live = liveBot(state.profileGuid);
-      if (host && tab !== 'gear') {
-        host.innerHTML = (live && live.player)
-          ? '<div class="empty-hint">Players have no database profile — live status is on the Overview tab.</div>'
-          : '<div class="empty-hint">Loading…</div>';
-      }
+      if (host && tab !== 'gear') host.innerHTML = '<div class="empty-hint">Loading…</div>';
       return;
     }
     // Gear & stats render together with the profile (renderArmory).

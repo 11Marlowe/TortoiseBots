@@ -644,21 +644,30 @@ RandomBotService::AutoCreateCharResult RandomBotService::TryCreateCharacterOnAcc
                 if (zone >= 0 && zone < int(kStartZoneCount))
                     ++m_startZoneCounts[zone];
             }
+            // Synchronous (direct) writes, like the creation seam itself
+            // (CharacterCreation::CreateCharacter commits the character with
+            // SaveToDB(false, true, false) before it returns): the bot's headless
+            // session starts reading `characters` and `character_homebind` right
+            // after this. Queued PExecute could land after that read, so the login
+            // found no homebind row, Player::_LoadHomeBind inserted one itself and
+            // the late REPLACE then hit the primary key ("[1062] Duplicate entry
+            // ... character_homebind", 25 pool goblins/high elves, live
+            // 2026-10-21 09:54-09:56).
             if (race == RACE_GOBLIN)
             {
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "UPDATE characters SET map = 1, zone = 14, position_x = -618.518, position_y = -4251.67, position_z = 38.718, orientation = 0 WHERE guid = '%u'",
                     outcome.guid.GetCounter());
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "REPLACE INTO character_homebind (guid, map, zone, position_x, position_y, position_z) VALUES ('%u', 1, 14, -618.518, -4251.67, 38.718)",
                     outcome.guid.GetCounter());
             }
             else if (race == RACE_HIGH_ELF)
             {
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "UPDATE characters SET map = 0, zone = 12, position_x = -8949.95, position_y = -132.493, position_z = 83.5312, orientation = 0 WHERE guid = '%u'",
                     outcome.guid.GetCounter());
-                CharacterDatabase.PExecute(
+                CharacterDatabase.DirectPExecute(
                     "REPLACE INTO character_homebind (guid, map, zone, position_x, position_y, position_z) VALUES ('%u', 0, 12, -8949.95, -132.493, 83.5312)",
                     outcome.guid.GetCounter());
             }

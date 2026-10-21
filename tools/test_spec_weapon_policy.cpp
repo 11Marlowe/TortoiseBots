@@ -13,16 +13,18 @@
 // Subclass literals mirrored from core ItemPrototype.h (see the policy header).
 static uint32_t const WAXE = 0, WAXE2 = 1, WBOW = 2, WGUN = 3, WMACE = 4, WMACE2 = 5,
     WPOLE = 6, WSWORD = 7, WSWORD2 = 8, WFIST = 13, WDAG = 15, WXBOW = 18;
-static uint32_t const WEAPON = 2, ARMOR = 4, MISC = 0, SHIELD = 6, LIBRAM = 7;
-static uint32_t const WAR = 1, PAL = 2, ROGUE = 4;
+static uint32_t const WEAPON = 2, ARMOR = 4, MISC = 0, SHIELD = 6, LIBRAM = 7, TOTEM = 8;
+static uint32_t const WAR = 1, PAL = 2, ROGUE = 4, SHAMAN = 7;
 static uint32_t const MH = 15, OH = 16, RH = 17;
 
+using ai::SpecScoresAsNonCaster;
 using ai::SpecUsesShieldOffHand;
 using ai::SpecWeaponAllowed;
 using ai::VendorShieldRank;
 
 int main()
 {
+
     std::cout << "Starting TortoiseBots spec weapon policy tests...\n";
 
     // Owner weapon matrix: protection (warrior + paladin) is 1H main hand,
@@ -71,9 +73,40 @@ int main()
     CHECK(SpecWeaponAllowed(WAR, "fury", WEAPON, WPOLE, MH, false) == true);
     std::cout << "  [PASS] fury dual-wields from Dual Wield, 2H stand-in before\n";
 
+    // Shaman tank: slow 1H main hand (axe/mace/fist - no daggers, no 2H),
+    // shield off hand, totem ranged. Other shaman specs stay fail-open.
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WAXE, MH, true) == true);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WMACE, MH, true) == true);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WFIST, MH, true) == true);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WDAG, MH, true) == false);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WAXE2, MH, true) == false);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WMACE2, MH, true) == false);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WSWORD, MH, true) == false);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", ARMOR, SHIELD, OH, true) == true);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", WEAPON, WAXE, OH, true) == false);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", ARMOR, TOTEM, RH, true) == true);
+    CHECK(SpecWeaponAllowed(SHAMAN, "shamantank", ARMOR, LIBRAM, RH, true) == false);
+    CHECK(SpecWeaponAllowed(SHAMAN, "enhance", WEAPON, WAXE2, MH, true) == true);
+    CHECK(SpecWeaponAllowed(SHAMAN, "resto", ARMOR, SHIELD, OH, true) == true);
+    std::cout << "  [PASS] shaman tank takes slow 1H + shield + totem\n";
+
+    // Scoring class: melee specs on mana classes score physical gear like a
+    // non-caster (the hire-kit root cause: spec 16 missing here zeroed every
+    // pure-physical item in CalculateStatWeight, emptying the spec pools).
+    CHECK(SpecScoresAsNonCaster(16) == true);
+    CHECK(SpecScoresAsNonCaster(21) == true);
+    CHECK(SpecScoresAsNonCaster(6) == true);
+    CHECK(SpecScoresAsNonCaster(30) == true);
+    CHECK(SpecScoresAsNonCaster(32) == true);
+    CHECK(SpecScoresAsNonCaster(20) == false);
+    CHECK(SpecScoresAsNonCaster(3) == false);
+    std::cout << "  [PASS] shaman tank scores physical gear like a non-caster\n";
+
     // Shield-off-hand detection feeds the audit and the vendor pass.
     CHECK(SpecUsesShieldOffHand(WAR, "prot") == true);
     CHECK(SpecUsesShieldOffHand(PAL, "prot") == true);
+    CHECK(SpecUsesShieldOffHand(SHAMAN, "shamantank") == true);
+    CHECK(SpecUsesShieldOffHand(SHAMAN, "enhance") == false);
     CHECK(SpecUsesShieldOffHand(PAL, "holy") == true);
     CHECK(SpecUsesShieldOffHand(WAR, "arms") == false);
     CHECK(SpecUsesShieldOffHand(WAR, "fury") == false);

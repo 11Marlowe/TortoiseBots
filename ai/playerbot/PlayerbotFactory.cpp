@@ -4,6 +4,7 @@
 #include "playerbot/PerformanceMonitor.h"
 #include "playerbot/SurvivePolicy.h"
 #include "playerbot/SpellRankPolicy.h"
+#include "playerbot/TalentSpellSavePolicy.h"
 #include "playerbot/AmmoStackPolicy.h"
 #include "../../runtime/BotNameService.h"
 #include "../../runtime/HunterPetPolicy.h"
@@ -11,6 +12,8 @@
 #include "../../runtime/StarterKitPolicy.h"
 #include "../../runtime/ProfessionGrantPolicy.h"
 #include "../../runtime/OwnedBotQolPolicy.h"
+#include "../../runtime/ShamanTankKitPolicy.h"
+#include "../../runtime/GearItemLevelCapPolicy.h"
 
 #include "Database/SQLStorages.h"
 #include "Objects/ItemPrototype.h"
@@ -74,6 +77,10 @@ void PlayerbotFactory::MakeComplete()
     // Gear last and incremental only — never wipe earned gear.
     // Enchants apply per item inside InitEquipment (ApplyBestEnchant) plus
     // the EnchantEquipment() sweep below; both read the candidate pool.
+    // Owner rule (Oct 2026): a pool bot is seeded (and later re-geared) within
+    // level + RandomGearMaxItemLevelAboveLevel, so a wandering bot never wears
+    // raid-level loot it could not have earned.
+    UsePoolGearCap();
     InitEquipment(true, false);
     // Missing kit, idempotent: thrown top-up FIRST (Issue #401: 76
     // rogues/warriors missed it with EQUIP_ERR_INVENTORY_FULL - the bulky
@@ -217,6 +224,12 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     InitAllSkills();
     InitAvailableSpells();
     InitSpecialSpells();
+    // Owner rule (Oct 2026): the standard (tier 0) companion kit is generated
+    // within level + HireGearMaxItemLevelAboveLevel - a little above the pool
+    // rule, still below the curated tier-2 kit. The curated tier 1-7 rows
+    // (HireProvisionService::ProvisionHireGear) replace this gear afterwards
+    // and are not touched.
+    UseStandardHireGearCap();
     InitEquipment(true, false);
     // Field kit, idempotent like the pool path: thrown top-up first (single
     // slot before the bulky kit), then bags, tools, mounts, ammo, reagents,
@@ -684,7 +697,7 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
     // getPremadePath(cls, specNo - 1) by TalentPath::id, so store id + 1.
     uint32 totalProbability = 0;
     for (TalentPath& path : paths)
-        totalProbability += std::max(0, path.probability);
+        totalProbability += TortoiseBots::PremadePathRollWeight(cls, path.id, path.probability, sPlayerbotAIConfig.shamanTankEnabled);
 
     TalentPath* chosen = &paths.front();
     if (totalProbability > 0)
@@ -693,7 +706,7 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
         uint32 cumulative = 0;
         for (TalentPath& path : paths)
         {
-            cumulative += std::max(0, path.probability);
+            cumulative += TortoiseBots::PremadePathRollWeight(cls, path.id, path.probability, sPlayerbotAIConfig.shamanTankEnabled);
             if (roll < cumulative)
             {
                 chosen = &path;
@@ -706,6 +719,24 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
         chosen->name.c_str(), uint32(cls), uint32(paths.size()), totalProbability);
 
     sRandomBotFacade.SetValue(bot, "specNo", chosen->id + 1);
+    // A pool bot that rolls the 7.3 tank build is a tank from birth
+    // (issue #1125): set the forced role so IsTank, the kit branches, and
+    // the talent respec guard all agree, and rebuild the strategies the
+    // engines already installed without it. The role itself is memory only -
+    // the build read in AiFactory (key tank talents) is what carries the
+    // identity across a restart. Other specs keep whatever the bot already
+    // had (a re-seed must not clear an operator designation).
+    if (cls == TortoiseBots::kShamanTankPremadeClass && chosen->id == TortoiseBots::kShamanTankPremadeSpec && ai)
+    {
+        ai->SetForcedRole(BOT_ROLE_TANK);
+        // The engines were already built for this login (PlayerbotAI's
+        // constructor), without the role, so the bot would play the
+        // enhancement DPS kit until the next rebuild - the bug in issue
+        // #1125. Same order as `.bot role`: the stored snapshot is
+        // spec-dependent, so drop its strategy rows first.
+        sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
+        ai->ResetStrategies();
+    }
     return true;
 }
 
@@ -1109,10 +1140,10 @@ void PlayerbotFactory::QuerySeedCandidates(Player* bot, uint32 specId, uint8 slo
     }
 }
 
-bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids)
+bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, std::vector<uint32>& ids)
 {
     ids.clear();
-    QuerySeedCandidates(bot, specId, slot, searchLevel, sPlayerbotAIConfig.randomGearMaxLevel, ITEM_QUALITY_EPIC, ids);
+    QuerySeedCandidates(bot, specId, slot, searchLevel, maxItemLevel, ITEM_QUALITY_EPIC, ids);
     if (ids.empty())
         return false;
     // Strip non-attested epics; the caller shuffles the survivors. The EPIC
@@ -1373,7 +1404,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
         uint32 searchLevel = level;
         uint32 quality = ITEM_QUALITY_POOR;
-        uint32 maxItemLevel = maxItemLevelOverride != 0 ? maxItemLevelOverride : sPlayerbotAIConfig.randomGearMaxLevel;
+        // Generated-gear ceiling for this bot: the explicit override wins,
+        // otherwise the population cap (level + configured allowance, never
+        // above RandomGearMaxLevel). See GearItemLevelCapPolicy.h.
+        uint32 maxItemLevel = maxItemLevelOverride != 0 ? maxItemLevelOverride
+            : TortoiseBots::GearItemLevelCap(bot->GetLevel(), generatedGearIlvlAboveLevel, sPlayerbotAIConfig.randomGearMaxLevel);
         bool progressiveGear = progressive;
         if(syncWithMaster && ai->GetMaster())
         {
@@ -1507,7 +1542,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 if (seedSpread && !setQuality && level >= 30 &&
                     sPlayerbotAIConfig.randomGearSeedEpicChance > 0.0f &&
                     frand(0.0f, 1.0f) < sPlayerbotAIConfig.randomGearSeedEpicChance)
-                    seedEpic = TrySeedEpicIds(bot, specId, slot, searchLevel, ids);
+                    seedEpic = TrySeedEpicIds(bot, specId, slot, searchLevel, maxItemLevel, ids);
                 // Fresh-seed quality band (owner spec): greens and blues mixed
                 // from level 20, the progressive poor/normal floor below that.
                 // Epics only through the rare world-epic gate above (a fresh
@@ -1535,8 +1570,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                     QuerySeedCandidates(bot, specId, slot, searchLevel, maxItemLevel, q, ids);
 
-                    // add one hand weapons for tanks
-                    if ((specId == 3 || specId == 5) && slot == EQUIPMENT_SLOT_MAINHAND)
+                    // add one hand weapons for tanks (prot warrior/paladin, shaman tank id 16)
+                    if ((specId == 3 || specId == 5 || specId == 16) && slot == EQUIPMENT_SLOT_MAINHAND)
                     {
                         std::vector<uint32> oneHanded = sRandomItemMgr.Query(level, bot->GetClass(), uint8(specId), EQUIPMENT_SLOT_OFFHAND, q);
                         if (oneHanded.size())
@@ -1656,8 +1691,12 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (!proto)
                         continue;
-                    // filter tank weapons
-                    if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
+                    // QuerySeedCandidates only stops its level descent once one
+                    // candidate fits the cap; the rest of the list can sit above it.
+                    if (proto->ItemLevel > maxItemLevel)
+                        continue;
+                    // filter tank weapons (prot warrior/paladin, shaman tank id 16)
+                    if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5 || specId == 16) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
                         continue;
 
                     if (slot == EQUIPMENT_SLOT_MAINHAND && proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD)
@@ -1674,12 +1713,17 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         (bot->GetClass() == CLASS_WARRIOR || bot->GetClass() == CLASS_ROGUE || bot->GetClass() == CLASS_HUNTER))
                         continue;
 
-                    // filter tank weapons
-                    if (slot == EQUIPMENT_SLOT_MAINHAND && (specId == 3 || specId == 5) && !(proto->Class == ITEM_CLASS_WEAPON && proto->InventoryType != INVTYPE_HOLDABLE))
+                    // filter tank weapons (prot warrior/paladin, shaman tank id 16)
+                    if (slot == EQUIPMENT_SLOT_MAINHAND && (specId == 3 || specId == 5 || specId == 16) && !(proto->Class == ITEM_CLASS_WEAPON && proto->InventoryType != INVTYPE_HOLDABLE))
                         continue;
 
                     // make fury wear slow weapon as main hand
                     if (slot == EQUIPMENT_SLOT_MAINHAND && specId == 2 && proto->IsWeapon() && proto->Delay < 2000)
+                        continue;
+
+                    // shaman tank (id 16) wants a slow 1H main hand for threat;
+                    // same 2.0s bar as fury so fast stat sticks never seed over it
+                    if (slot == EQUIPMENT_SLOT_MAINHAND && specId == 16 && proto->IsWeapon() && proto->InventoryType != INVTYPE_2HWEAPON && proto->Delay < 2000)
                         continue;
 
                     // classic enh shaman and retri paladin 60+ use weapon speed >= 3.0
@@ -2721,6 +2765,50 @@ void PlayerbotFactory::EnsureSkillRewardedSpells(Player* bot)
     }
 }
 
+// A talent rank spell must never stay "dependent": Player::_SaveSpells writes
+// only non-dependent spells to `character_spell`, this core keeps talents
+// nowhere else, and the core's spell-chain pass marks the lower ranks dependent
+// whenever a higher rank of the chain is learned (Player::AddSpell ->
+// "learn low ranks (recursive call)", Player.cpp:4436-4442). Turtle's data heads
+// a few trainer chains with a *talent* rank-1 spell - Lightning Strike 51387
+// (talent 258 rank 1) -> 52420 (trainer row 52423) -> 52422 (row 52424), Mortal
+// Strike 12294 -> 21551 -> 21552 (rows 21555/21557), Bloodthirst, Shield Slam,
+// Moonkin Form, Repentance and five more - so InitClassLevelSpells' trainer
+// ranks, and the same chain re-derived at every login, used to drop the talent
+// out of the DB: a 51-point shaman tank hire ended with 16 of its spec's 17 rank
+// spells in character_spell while its live spellbook (and the intro) said
+// 15/36, so the armory dashboard read 15/35.
+//
+// The core has no API to clear the flag (LearnSpell/AddSpell only set it,
+// Player.cpp:4344-4347) and RemoveSpell + LearnSpell would cascade into
+// disabling every higher rank the bot trained (Player.cpp:4638-4641), so the
+// entry is re-asserted directly - the same rule the core applies to the sibling
+// flag ("talents should never be marked as disabled", Player.cpp:4633). See
+// TalentSpellSavePolicy.h.
+void PlayerbotFactory::EnsureTalentSpellsSaved(Player* bot)
+{
+    if (!bot)
+        return;
+
+    for (auto& known : bot->GetSpellMap())
+    {
+        ai::TalentSpellSaveInputs entry;
+        entry.isTalentSpell = GetTalentSpellCost(known.first) != 0;
+        entry.dependent     = known.second.dependent;
+        entry.removed       = known.second.state == PLAYERSPELL_REMOVED;
+        entry.disabled      = known.second.disabled;
+
+        if (!ai::TalentSpellMustStaySaved(entry))
+            continue;
+
+        known.second.dependent = false;
+        // A row loaded from the DB is UNCHANGED, and _SaveSpells writes only
+        // NEW/CHANGED spells - without this the repair would never reach disk.
+        if (known.second.state == PLAYERSPELL_UNCHANGED)
+            known.second.state = PLAYERSPELL_CHANGED;
+    }
+}
+
 void PlayerbotFactory::SetRandomSkill(uint16 id)
 {
     uint32 maxValue = level * 5; // vanilla 60*5 = 300
@@ -2885,6 +2973,12 @@ void PlayerbotFactory::InitClassLevelSpells()
         if (!learnedThisPass)
             break;
     }
+
+    // Those trainer ranks can chain onto a *talent* rank-1 spell (Lightning
+    // Strike, Mortal Strike, Bloodthirst, ...): the core then marks the talent
+    // rank dependent and _SaveSpells would drop it from character_spell. Re-assert
+    // it so the hire/seed's talents reach the DB. See EnsureTalentSpellsSaved.
+    EnsureTalentSpellsSaved(bot);
 }
 
 void PlayerbotFactory::InitAvailableSpells()

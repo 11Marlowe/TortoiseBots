@@ -36,6 +36,19 @@ int main()
     CHECK(TotemicRecallShouldFire(true, true, false, true, true) == false);
     std::cout << "  [PASS] combat anywhere vetoes the recall\n";
 
+    // Fight imminent (pre-pull window): the automatic rows own the standing
+    // set there and would rebuild it, so no recall until it closes.
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, true) == false);
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, false) == true);
+    std::cout << "  [PASS] prepull wanted vetoes the recall\n";
+
+    // No recall -> re-drop loop out of combat: the rows only drop in combat
+    // or the pre-pull window (pinned in test_totem_command_policy.cpp), so
+    // the recalled set stays recalled until the next fight. Nothing here
+    // latches on combat, so a single combat tick cannot restart a loop.
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, false) == true);
+    std::cout << "  [PASS] a quiet out-of-combat recall settles (no re-drop)\n";
+
     std::cout << "All shaman totemic-recall policy checks PASSED!\n";
     return 0;
 }

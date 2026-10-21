@@ -12,6 +12,7 @@
 #include "playerbot/ZoneMigratePolicy.h"
 #include "playerbot/TravelInstancePolicy.h"
 #include "playerbot/TravelRepickPolicy.h"
+#include "playerbot/TravelRouteDangerPolicy.h"
 #include "playerbot/RpgMixerPolicy.h"
 #include "playerbot/strategy/values/VendorTripPolicy.h"
 #include "playerbot/strategy/values/TravelValues.h"
@@ -923,53 +924,150 @@ inline std::string PrintPartion(uint32 sqPartition)
     return "> " + std::to_string(prevPartition);
 }
 
+// One walk leg of a route: the straight line a bot actually walks between two
+// route waypoints. Cross-map legs are the boat/zeppelin hops (the bot is a
+// passenger, not on foot) and non-walk edges are taxi/portal/transport links,
+// so both are skipped - the gate is about ground the bot walks.
+//
+// checkLevel is false for the head leg (the bot's own position to the first
+// node): the bot is already standing there, and refusing every destination
+// because of the ground under its feet would leave a bot that is already in a
+// bad spot with no way to pick a trip out of it. Ground the *journey* crosses
+// is what the level rule is for.
+static bool RouteLegIsSurvivable(Player* bot, WorldPosition const& from, WorldPosition const& to,
+    TravelNodePath* edge, bool avoidTowns, bool checkLevel, std::string& blocker)
+{
+    if (from.GetMapId() != to.GetMapId())
+        return true;
+    if (edge && edge->GetPathType() != TravelNodePathType::walk)
+        return true;
+
+    float const length = from.distance(to);
+    if (!(length > 0.0f))
+        return true;
+
+    uint32 const samples = ai::TravelRouteSampleCount(length);
+    for (uint32 i = 0; i < samples; ++i)
+    {
+        float const t = ai::TravelRouteSampleFraction(i, samples);
+        WorldPosition const sample(from.GetMapId(),
+            from.getX() + (to.getX() - from.getX()) * t,
+            from.getY() + (to.getY() - from.getY()) * t,
+            from.getZ() + (to.getZ() - from.getZ()) * t, 0.0f);
+
+        if (avoidTowns && sample.IsGuardedHostileTownFor(bot, ai::TRAVEL_ROUTE_SAMPLE_RADIUS_YD, false))
+        {
+            blocker = sample.getAreaName(true, true) + " (hostile town guards)";
+            return false;
+        }
+        if (checkLevel)
+        {
+            int32 const areaLevel = sample.GetAreaLevel();
+            if (ai::TravelRouteAreaTooHigh(areaLevel, bot->GetLevel()))
+            {
+                blocker = sample.getAreaName(true, true) + " (level " + std::to_string(areaLevel) + ")";
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 //Sets the target to the best destination.
 // A destination whose walking route crosses a zone the bot cannot survive is no
 // destination: the gates in SetBestTarget only look at the area of the target itself
 // (a level-6 bot standing in Stormwind happily picks a Coldridge Valley quest and walks
 // the Burning Steppes to get there). The route is the travel-node route the bot would
-// follow; a route that does not exist at all (another continent without a transfer) is
-// rejected too. Short hops on the same map are not checked - no A* for the everyday case.
+// follow, checked both at its waypoints and along the legs between them; a route that
+// does not exist at all (another continent without a transfer) is rejected too.
 static bool RouteIsSurvivableUncached(Player* bot, WorldPosition const& start, WorldPosition* position, std::string& blocker)
 {
     std::vector<WorldPosition> beginPath, endPath;
     TravelNodeRoute route = sTravelNodeMap.getRoute(start, *position, beginPath, endPath, bot);
-    if (route.isEmpty())
+    if (route.isEmpty() && start.getMapId() != position->getMapId())
     {
-        if (start.getMapId() != position->getMapId())
-        {
-            blocker = "no route to that continent";
-            return false;
-        }
-        return true; // same map without a node route: the pathfinder handles it directly
+        blocker = "no route to that continent";
+        return false;
     }
-    int32 const limit = (int32)bot->GetLevel() + 5;
     bool ok = true;
-    // Hostile-town route leg (cheap: only the named route nodes are scanned, no
-    // extra spawn-table walk beyond the per-node guard check; start/end legs and
-    // the 1000 yd short-hop bypass above are untouched). Random masterless bots
-    // only; the check needs an ai for the master gate, so callers pass it in.
+    // Random masterless bots only; the town check needs an ai for the master
+    // gate, so callers pass it in.
     PlayerbotAI* routeAi = PlayerbotAIStorage::Instance().GetAI(bot);
     bool const avoidTowns = sPlayerbotAIConfig.avoidHostileTowns && routeAi && !routeAi->HasRealPlayerMaster();
+    if (route.isEmpty())
+    {
+        // Same map without a node route: the pathfinder walks straight there,
+        // so the direct leg is the journey. The level rule applies unless the
+        // bot already stands in ground above it (or inside a hostile town), or
+        // it could never walk out.
+        bool const checkLevel = !ai::TravelRouteAreaTooHigh(start.GetAreaLevel(), bot->GetLevel());
+        bool const checkTowns = avoidTowns &&
+            !start.IsGuardedHostileTownFor(bot, ai::TRAVEL_ROUTE_SAMPLE_RADIUS_YD, false);
+        return RouteLegIsSurvivable(bot, start, *position, nullptr, checkTowns, checkLevel, blocker);
+    }
     for (TravelNode* node : route.getNodes())
     {
         WorldPosition* p = node ? node->getPosition() : nullptr;
         if (!p)
             continue;
         int32 const level = p->GetAreaLevel();
-        if (level > 0 && level > limit)
+        if (ai::TravelRouteAreaTooHigh(level, bot->GetLevel()))
         {
             blocker = p->getAreaName(true, true) + " (level " + std::to_string(level) + ")";
             ok = false;
             break;
         }
-        if (avoidTowns && p->IsGuardedHostileTownFor(bot, 60.0f, false))
+        if (avoidTowns && p->IsGuardedHostileTownFor(bot, ai::TRAVEL_ROUTE_SAMPLE_RADIUS_YD, false))
         {
             blocker = p->getAreaName(true, true) + " (hostile town guards)";
             ok = false;
             break;
         }
     }
+
+    // The waypoints above are not the walk: MoveToTravelTargetAction moves to
+    // the destination point with the navmesh pathfinder and the node route
+    // only supplies the waypoints, so a leg can pass through a hostile town or
+    // an area far above the bot's level without any waypoint sitting in it.
+    // Sample the legs - the same town and area-level rules as the waypoints,
+    // plus the head and tail legs no waypoint check ever covered. The guard
+    // index is a static spawn hash and the area lookup is the one the waypoint
+    // rule already does per node, so this stays a plain lookup on the pick
+    // path: no A*, no world scan.
+    if (ok)
+    {
+        TravelNode* prevNode = nullptr;
+        for (TravelNode* node : route.getNodes())
+        {
+            WorldPosition* p = node ? node->getPosition() : nullptr;
+            if (!p)
+                continue;
+
+            TravelNodePath* edge = nullptr;
+            if (prevNode)
+            {
+                auto links = prevNode->GetLinks();
+                auto linkIt = links->find(node);
+                if (linkIt != links->end())
+                    edge = linkIt->second;
+            }
+            WorldPosition const& from = prevNode ? *prevNode->getPosition() : start;
+            if (!RouteLegIsSurvivable(bot, from, *p, edge, avoidTowns, prevNode != nullptr, blocker))
+            {
+                ok = false;
+                break;
+            }
+            prevNode = node;
+        }
+
+        // Tail leg: last waypoint to the destination itself. No edge to look
+        // up (getRoute builds it separately); a cross-map destination is
+        // skipped inside by the map check.
+        if (ok && prevNode &&
+            !RouteLegIsSurvivable(bot, *prevNode->getPosition(), *position, nullptr, avoidTowns, true, blocker))
+            ok = false;
+    }
+
     route.cleanTempNodes();
     return ok;
 }
@@ -995,25 +1093,25 @@ static bool DestinationPointOnMesh(Player* bot, WorldPosition* position)
     return probe.ClosestCorrectPoint(5.0f, 10.0f, bot->GetInstanceId());
 }
 
-// The verdict is cached per bot, level, hostile-town mode, checked-hop mode,
-// start area (200 yd cells) and destination (25 yd cells) for 5 minutes.
-// SetBestTarget re-checks the same candidates
-// on every pick, and a rejected or unreachable destination costs a full
-// travel-node A* each time; with hundreds of bots that search dominated the
-// world thread. Gold, reputation and graph changes are picked up when the
-// entry expires.
-// checkShortHop makes the 1000 yd bypass below not apply: callers use it for
-// trips a bot below level 10 makes on foot, where the bypass would silently
-// skip the one check that keeps a starter-zone hand-in out of a higher-level
-// neighbourhood (see SetBestTarget).
-static bool RouteIsSurvivable(Player* bot, WorldPosition* position, std::string& blocker, bool checkShortHop = false)
+// The verdict is cached per bot, level, hostile-town mode, start area (200 yd
+// cells) and destination (25 yd cells) for 5 minutes. SetBestTarget re-checks
+// the same candidates on every pick, and a rejected or unreachable destination
+// costs a full travel-node A* plus one leg scan each time; with hundreds of
+// bots that search dominated the world thread. Gold, reputation and graph
+// changes are picked up when the entry expires.
+//
+// A same-map trip under 1000 yd used to skip the check entirely ("no A* for
+// the everyday case"). The leg scan made checking those cheap - a hop that
+// short is at most 16 static-index samples and no A* runs for it - and a
+// short hop is exactly how a bot walks into the camp next door: live pool
+// 2026-10-21, bots picked grind/gather points a few hundred yards away and
+// died to mobs 8-15 levels above them on the way.
+static bool RouteIsSurvivable(Player* bot, WorldPosition* position, std::string& blocker)
 {
     if (!position)
         return false;
 
     WorldPosition start(bot);
-    if (!checkShortHop && start.getMapId() == position->getMapId() && start.distance(*position) < 1000.0f)
-        return true;
 
     struct Verdict
     {
@@ -1028,7 +1126,7 @@ static bool RouteIsSurvivable(Player* bot, WorldPosition* position, std::string&
     bool const avoidTowns = sPlayerbotAIConfig.avoidHostileTowns && botAi && !botAi->HasRealPlayerMaster();
 
     std::ostringstream key;
-    key << bot->GetGUIDLow() << ':' << bot->GetLevel() << ':' << avoidTowns << ':' << checkShortHop << ':'
+    key << bot->GetGUIDLow() << ':' << bot->GetLevel() << ':' << avoidTowns << ':'
         << start.getMapId() << ':' << int32(std::floor(start.getX() / 200.0f)) << ':' << int32(std::floor(start.getY() / 200.0f)) << ':'
         << position->getMapId() << ':' << int32(std::floor(position->getX() / 25.0f)) << ':' << int32(std::floor(position->getY() / 25.0f));
 
@@ -1283,20 +1381,11 @@ ai::TravelPickOutcome ChooseTravelTargetAction::SetBestTargetSliced(Player* requ
                     }
 
                     std::string blocker;
-                    // The 1000 yd bypass inside RouteIsSurvivable skips exactly
-                    // the trips a beginner makes - starter-zone takers and
-                    // breadcrumb reports sit a few hundred yards away - and a
-                    // taker is the one destination the search layer does not
-                    // level-check (IsLocationLevelValid exempts QuestTaker,
-                    // because inside the async search the destination's area is
-                    // frequently unresolved) while the band here is the loose
-                    // +5. A masterless bot below level 10 therefore walks the
-                    // route like a long journey, so a hand-in across a
-                    // higher-level neighbourhood is refused instead of walked.
-                    // One travel-node A*, cached five minutes per candidate.
-                    bool const checkTakerRoute = !ai->HasRealPlayerMaster() && bot->GetLevel() < 10 &&
-                        destination->GetPurpose() == TravelDestinationPurpose::QuestTaker;
-                    if (!RouteIsSurvivable(bot, position, blocker, checkTakerRoute))
+                    // Every purpose takes the same route check now (the short-hop
+                    // bypass that a below-level-10 hand-in used to dodge is gone):
+                    // waypoints and the legs between them, one travel-node A* plus
+                    // one leg scan, cached five minutes per candidate.
+                    if (!RouteIsSurvivable(bot, position, blocker))
                     {
                         ai->TellDebug(requester, "Skipping " + destination->GetTitle() + " - route crosses " + blocker, "debug travel");
                         if (sPlayerbotAIConfig.hasLog("travel_route_gate.csv"))

@@ -111,7 +111,8 @@ uint8 HireProvisionService::DefaultRoleForClass(uint8 classId)
 bool HireProvisionService::ClassCanRole(uint8 classId, uint8 role)
 {
     if (role == ai::BOT_ROLE_TANK)
-        return classId == CLASS_WARRIOR || classId == CLASS_PALADIN || classId == CLASS_DRUID;
+        return classId == CLASS_WARRIOR || classId == CLASS_PALADIN || classId == CLASS_DRUID ||
+            classId == CLASS_SHAMAN;
     if (role == ai::BOT_ROLE_HEALER)
         return classId == CLASS_PRIEST || classId == CLASS_PALADIN ||
             classId == CLASS_SHAMAN || classId == CLASS_DRUID;
@@ -184,6 +185,12 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
         return outcome;
     }
     uint8 role = sel.role ? sel.role : DefaultRoleForClass(sel.classId);
+    if (!ShamanTankRoleOffered(sel.classId, role, sPlayerbotAIConfig.shamanTankEnabled))
+    {
+        outcome.status = HireStatus::InvalidChoice;
+        outcome.message = "The experimental shaman tank is turned off on this server.";
+        return outcome;
+    }
     if (!ClassCanRole(sel.classId, role))
     {
         outcome.status = HireStatus::InvalidChoice;
@@ -526,7 +533,11 @@ HireRaidOutcome HireProvisionService::HireRaid(Player* requester, HireRaidReques
     if (!ParseHireRaidSpread(sPlayerbotAIConfig.hireRaidSpread, spread))
         ParseHireRaidSpread(kHireRaidSpreadDefault, spread);
     HireRaidClassRules rules;
-    rules.canRole = &HireProvisionService::ClassCanRole;
+    rules.canRole = [](uint8 classId, uint8 role)
+    {
+        return HireProvisionService::ClassCanRole(classId, role) &&
+            ShamanTankRoleOffered(classId, role, sPlayerbotAIConfig.shamanTankEnabled);
+    };
     rules.defaultRole = &HireProvisionService::DefaultRoleForClass;
     std::vector<HireRaidSlot> roster;
     std::string error;
@@ -1362,6 +1373,10 @@ uint32_t HireProvisionService::IntroWishlist(uint8_t classId, size_t rank)
     // Shaman: Healing Wave 331, Lesser Healing Wave 8004, Chain Heal 1064,
     // Lightning Bolt 403, Earth Shock 8042, Rockbiter Weapon 8017.
     static uint32_t const shaman[] = { 331, 8004, 1064, 403, 8042, 8017 };
+    // Shaman tank (issue #1125): its own kit list lives in the role-aware
+    // IntroWishlist overload below (taunt, shocks, Stormstrike, Lightning
+    // Strike, Rockbiter, Stoneclaw, shields); the class list stays the
+    // healer/DPS list.
     // Mage: Frost Armor 168, Fireball 133, Frostbolt 116, Polymorph 118,
     // Conjure Water 5504, Arcane Intellect 1459.
     static uint32_t const mage[] = { 168, 133, 116, 118, 5504, 1459 };
@@ -1392,6 +1407,18 @@ uint32_t HireProvisionService::IntroWishlist(uint8_t classId, size_t rank)
         if (row.cls == classId && rank < row.count)
             return row.ids[rank];
     return 0;
+}
+
+uint32_t HireProvisionService::IntroWishlist(uint8_t classId, uint8_t role, size_t rank)
+{
+    if (HireIntroUseTankWishlist(classId, role))
+    {
+        static uint32_t const ids[] = { 51365, 8042, 17364, 51387, 8017, 5730, 324, 403 };
+        if (rank < sizeof(ids) / sizeof(ids[0]))
+            return ids[rank];
+        return 0;
+    }
+    return IntroWishlist(classId, rank);
 }
 
 // Highest known spell of a chain: the spell map holds every rank the bot
@@ -1617,7 +1644,7 @@ void HireProvisionService::AnnounceIntro(Player* bot, Player* master, PendingPro
     std::vector<std::string> names;
     for (size_t rank = 0;; ++rank)
     {
-        uint32_t chainHead = IntroWishlist(bot->GetClass(), rank);
+        uint32_t chainHead = IntroWishlist(bot->GetClass(), forcedRole, rank);
         if (!chainHead)
             break;
         uint32_t spellId = HighestKnownRankInChain(bot, chainHead);

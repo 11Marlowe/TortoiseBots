@@ -21,6 +21,28 @@ from pathlib import Path
 
 MAX_TALENT_RANK = 5
 
+# Shaman tank-build markers (issue #1125): TortoiseBots reads the tank build
+# from these two talents alone (runtime/ShamanTankDetectionPolicy.h,
+# kShamanTankTalent*), so no shaman premade other than 7.3 may allocate them -
+# a DPS link that took one would make every bot on it read as a tank. Matched
+# by rank-1 spell id, so a DBC reshuffle cannot silently defeat the rule.
+SHAMAN_TANK_KEY_TALENT_SPELLS = {51381, 45951}  # Totemic Alignment, Spirit Armor
+SHAMAN_TANK_SPEC = 3
+SHAMAN_CLASS = 7
+
+# The C++ half of the tank identity below the first key talent (issue #1125):
+# the levelling-layout read in AiFactory is level-gated by this constant, and
+# the LFT role mask keys off the key talents themselves. Keep them honest.
+LEVELING_POLICY_PATH = 'runtime/ShamanTankLevelingPolicy.h'
+
+
+def policy_constant(module_root, path, name):
+    text = (Path(module_root) / path).read_text(encoding='utf-8', errors='replace')
+    m = re.search(rf'\b{name}\s*=\s*(\d+)', text)
+    if not m:
+        raise ValueError(f'{name} not found in {path}')
+    return int(m.group(1))
+
 
 def load_dbc(path):
     data = Path(path).read_bytes()
@@ -82,6 +104,8 @@ def main():
     ap.add_argument('--dbc', required=True)
     ap.add_argument('--conf', required=True)
     ap.add_argument('--rate', type=float, default=1.0)
+    ap.add_argument('--module-root', default='.',
+                    help='module checkout root holding runtime/ShamanTank*Policy.h')
     args = ap.parse_args()
 
     dbc = Path(args.dbc)
@@ -119,6 +143,9 @@ def main():
 
     failures = []
     total = 0
+    # Shaman premade allocations per level, for the tank-identity checks below:
+    # {level: {spec: {talentId: rank}}}.
+    shaman_allocs = defaultdict(dict)
     for (cls, spec), rows in sorted(groups.items()):
         mask = 1 << (cls - 1)
         class_t = [e for e in enriched if tab_class.get(e[1], 0) & mask]
@@ -131,6 +158,7 @@ def main():
         # parse_list entries: idx0=id, idx5=page
         rows.sort()
         prev = None
+        tank_marker_seen = False
         for level, link in rows:
             total += 1
             try:
@@ -167,6 +195,24 @@ def main():
                         if alloc.get(dep_id, 0) <= dep_idx:
                             failures.append(
                                 f'{cls}.{spec}.{level}: talent {e[0]} needs spell {e[11]} from talent {dep_id} rank {dep_idx+1}')
+            # Tank-build markers stay in the 7.3 spec (issue #1125): the
+            # detection read trusts these two talents alone. The other way
+            # round, the tank link must keep one of them at some checkpoint,
+            # or every bot on it silently falls back to the DPS kit.
+            if cls == SHAMAN_CLASS and spec != SHAMAN_TANK_SPEC:
+                for e in class_t:
+                    if alloc[e[0]] > 0 and any(
+                            (e[4 + r] & 0xFFFFFFFF) in SHAMAN_TANK_KEY_TALENT_SPELLS
+                            for r in range(MAX_TALENT_RANK)):
+                        failures.append(
+                            f'{cls}.{spec}.{level}: key tank talent {e[0]} allocated outside the '
+                            f'{SHAMAN_CLASS}.{SHAMAN_TANK_SPEC} tank build')
+            elif cls == SHAMAN_CLASS and any(
+                    alloc[e[0]] > 0 and any(
+                        (e[4 + r] & 0xFFFFFFFF) in SHAMAN_TANK_KEY_TALENT_SPELLS
+                        for r in range(MAX_TALENT_RANK))
+                    for e in class_t):
+                tank_marker_seen = True
             budget = int((level - 9) * args.rate) if level >= 10 else 0
             spent = sum(alloc.values())
             if spent > budget:
@@ -177,6 +223,72 @@ def main():
                         failures.append(f'{cls}.{spec}.{level}: talent {tid} decreases {prev.get(tid,0)}->{r}')
                         break
             prev = alloc
+            if cls == SHAMAN_CLASS:
+                shaman_allocs[level][spec] = alloc
+        if cls == SHAMAN_CLASS and spec == SHAMAN_TANK_SPEC and not tank_marker_seen:
+            failures.append(
+                f'{cls}.{spec}: the tank build allocates no key tank talent '
+                f'({sorted(SHAMAN_TANK_KEY_TALENT_SPELLS)}) at any checkpoint, so the '
+                f'tank-spec read (issue #1125) would never match it')
+
+    # Issue #1125, the levels below the first key talent: the tank identity is
+    # read from the spent levelling layout there (AiFactory ->
+    # runtime/ShamanTankLevelingPolicy.h), and that read is level-gated by
+    # kShamanTankFirstTalentLevel and trusted only where the layout singles the
+    # tank entry out. Pin both against this conf and the DBC.
+    tank_by_level = {level: by_spec[SHAMAN_TANK_SPEC]
+                     for level, by_spec in shaman_allocs.items() if SHAMAN_TANK_SPEC in by_spec}
+    key_tank_talent_ids = set()
+    for spell_id in sorted(SHAMAN_TANK_KEY_TALENT_SPELLS):
+        found = spell_to_talent.get(spell_id)
+        if not found:
+            failures.append(f'Talent.dbc: key tank talent spell {spell_id} is not a talent rank')
+        else:
+            key_tank_talent_ids.add(found[0])
+
+    try:
+        first_talent_level = policy_constant(args.module_root, LEVELING_POLICY_PATH,
+                                             'kShamanTankFirstTalentLevel')
+    except (OSError, ValueError) as ex:
+        failures.append(f'{LEVELING_POLICY_PATH}: {ex}')
+        first_talent_level = None
+
+    key_talent_levels = sorted(level for level, alloc in tank_by_level.items()
+                               if any(alloc.get(tid, 0) > 0 for tid in key_tank_talent_ids))
+    if first_talent_level is not None:
+        if not key_talent_levels:
+            failures.append(f'{SHAMAN_CLASS}.{SHAMAN_TANK_SPEC}: no checkpoint allocates a key tank talent')
+        elif key_talent_levels[0] != first_talent_level:
+            failures.append(
+                f'{LEVELING_POLICY_PATH}: kShamanTankFirstTalentLevel is {first_talent_level} but the '
+                f'{SHAMAN_CLASS}.{SHAMAN_TANK_SPEC} link first allocates a key tank talent at '
+                f'{key_talent_levels[0]}')
+
+        # The read is trusted from the first level the tank layout is the only
+        # match up to the key-talent level. It has to cover that whole window:
+        # a level inside it where another premade matches the same layout would
+        # silently drop the identity the read exists for. Below the window (the
+        # 10-14 links are identical) the read correctly falls back to DPS.
+        unique_below = sorted(level for level, alloc in tank_by_level.items()
+                              if level < first_talent_level
+                              and all(alloc != other for spec, other in shaman_allocs[level].items()
+                                      if spec != SHAMAN_TANK_SPEC))
+        if not unique_below:
+            failures.append(
+                f'{SHAMAN_CLASS}.{SHAMAN_TANK_SPEC}: the levelling link is never distinguishable from '
+                f'another shaman premade below level {first_talent_level}, so the layout read would '
+                f'never identify the build')
+        else:
+            missing = [level for level in sorted(tank_by_level)
+                       if unique_below[0] <= level < first_talent_level and level not in unique_below]
+            if missing:
+                failures.append(
+                    f'{SHAMAN_CLASS}.{SHAMAN_TANK_SPEC}: the levelling link is not distinguishable at '
+                    f'level {missing[0]}, inside the {unique_below[0]}-{first_talent_level - 1} window '
+                    f'the layout read is trusted for')
+            print(f'shaman tank identity: key talents at {key_talent_levels}, layout read window '
+                  f'{unique_below[0]}-{first_talent_level - 1}')
+
     print(f'checked {total} links, {len(failures)} failures')
     for f in failures:
         print('FAIL', f)
