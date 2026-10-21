@@ -240,20 +240,23 @@ void TankShamanAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers
     ShamanAoeStrategy::InitCombatTriggers(triggers);
 
     // Pack order (community shaman tank guide): Stoneclaw first (cheap threat on every
-    // mob), then Fire Nova when the party AoEs, Magma only as the last
-    // resort after Nova. Medium-aoe (3+) fires above the 2+ light line so
-    // the pack tool wins on a real pack.
+    // mob), then Fire Nova — the tank's own pack pick, above the single-target
+    // Searing row so a pack never falls back to the filler — and Magma only
+    // while Fire Nova is on its 15 s cooldown, as the last resort.
+    //
+    // The Nova row keys on the Nova's own detonation window (2+ attackers
+    // within FireNovaDropRange of the tank) rather than the 5 yd melee
+    // density, and its trigger carries the melee AoE pack gate and the
+    // breakable-CC interlock. It also stands down while a Nova totem is
+    // standing or the drop is cooling down, so the totem is never replaced
+    // before it detonates.
     triggers.push_back(new TriggerNode(
-        "melee medium aoe",
+        "tank fire nova",
         NextAction::array(0, new NextAction("fire nova", ACTION_HIGH + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
         "tank magma totem",
         NextAction::array(0, new NextAction("magma totem", ACTION_HIGH + 1), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "melee light aoe",
-        NextAction::array(0, new NextAction("fire nova", ACTION_HIGH), NULL)));
 }
 
 void TankShamanAoeStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "ShamanTriggers.h"
 #include "ShamanActions.h"
+#include "ShamanFireGatePolicy.h"
 #include "playerbot/strategy/values/ThreatValues.h"
 
 using namespace ai;
@@ -54,20 +55,48 @@ bool ShockTrigger::IsActive()
     return SpellTrigger::IsActive() && !ai->HasAnyAuraOf(GetTarget(), "frost shock", "earth shock", NULL) && !HasMaxDebuffs();
 }
 
+namespace
+{
+    // Creature-rank read shared by the fight decision: anything above normal
+    // (elite, rare, rare-elite, world boss) counts wherever the fight happens.
+    bool TankFightRankIsElite(Unit* unit)
+    {
+        if (Creature* creature = dynamic_cast<Creature*>(unit))
+        {
+            if (CreatureInfo const* info = creature->GetCreatureInfo())
+                return TankShamanTargetIsElite(info->rank, CREATURE_ELITE_NORMAL);
+        }
+        return false;
+    }
+}
+
 bool TankFightTargetTrigger::IsActive()
 {
+    // The fight decision must hold for the whole fight: reading the current
+    // target alone flipped it on every target switch between an elite and its
+    // normal-rank adds, and the earth pick followed the flip (Stoneclaw took
+    // the slot from Strength of Earth, the fight row took it back on the next
+    // switch). Any engaged attacker that is elite/boss keeps it a fight.
     Unit* target = AI_VALUE(Unit*, "current target");
-    bool bossOrElite = false;
-    if (Creature* creature = dynamic_cast<Creature*>(target))
+    bool targetElite = TankFightRankIsElite(target);
+    bool attackerElite = false;
+    if (!targetElite)
     {
-        if (CreatureInfo const* info = creature->GetCreatureInfo())
-            bossOrElite = TankShamanTargetIsElite(info->rank, CREATURE_ELITE_NORMAL);
+        for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+        {
+            if (TankFightRankIsElite(ai->GetUnit(guid)))
+            {
+                attackerElite = true;
+                break;
+            }
+        }
     }
+
     Group* group = bot->GetGroup();
     bool inRaid = group && group->isRaidGroup();
     Map* map = bot->GetMap();
     bool inInstance = map && map->IsDungeon();
-    return TankShamanEarthShockFreeFire(bossOrElite, inInstance, inRaid);
+    return TankShamanEarthShockFreeFire(TankFightTargetIsBossOrElite(targetElite, attackerElite), inInstance, inRaid);
 }
 
 bool TankEarthShockFightTrigger::IsActive()
@@ -272,16 +301,43 @@ bool TankMagmaTrigger::IsActive()
     if (AI_VALUE2(bool, "has totem", "magma totem"))
         return false;
 
+    // Magma is the fire slot's fallback, never a replacement for a Fire Nova
+    // that is still available or still standing: Nova owns the slot while its
+    // row above this one can fire, and a standing Nova totem must be left
+    // alone to detonate (any fire totem drop unsummons the one in the slot).
     uint32 novaSpellId = AI_VALUE2(uint32, "spell id", "fire nova totem");
-    bool novaOnCooldown = novaSpellId && !sServerFacade.IsSpellReady(bot, novaSpellId);
-    bool novaTotemDown = novaOnCooldown || AI_VALUE2(bool, "has totem", "fire nova totem");
+    bool novaReady = novaSpellId && sServerFacade.IsSpellReady(bot, novaSpellId);
+    bool novaTotemStanding = AI_VALUE2(bool, "has totem", "fire nova totem");
 
-    bool partyAoeing = MeleeMediumAoeTrigger::IsActive();
     uint8 attackerCount = AI_VALUE(uint8, "attackers count");
     bool manaForMagma = AI_VALUE2(uint8, "mana", "self target") >= 25;
 
-    if (!TankMagmaShouldFollow(novaTotemDown, partyAoeing, attackerCount, manaForMagma))
+    if (!TankMagmaShouldFollow(novaReady, novaTotemStanding, attackerCount, manaForMagma))
         return false;
 
     return ai->CanCastSpell("magma totem", bot, true, nullptr, true);
+}
+
+TankFireNovaTrigger::TankFireNovaTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 2, FireNovaDropRange())
+{
+}
+
+bool TankFireNovaTrigger::IsActive()
+{
+    // The drop's own readiness/ownership gate: the spell must be trained and
+    // off its 15 s category cooldown, and a Nova totem already standing owns
+    // the slot until it detonates.
+    uint32 spellId = AI_VALUE2(uint32, "spell id", "fire nova totem");
+    bool known = spellId != 0;
+    bool ready = spellId && sServerFacade.IsSpellReady(bot, spellId);
+    bool standing = AI_VALUE2(bool, "has totem", "fire nova totem");
+    if (!TankFireNovaShouldDrop(known, ready, standing))
+        return false;
+
+    // The pack gate: 2+ attackers inside the Nova's own detonation window
+    // (10 yd, the blast radius of the pulse the totem drops at our feet),
+    // inherited from AoeTrigger with its breakable-CC interlock - a sheep or
+    // sap beside the pack still blocks the blast. Wider than the 5 yd melee
+    // window, so a pack that stopped just outside melee still counts.
+    return AoeTrigger::IsActive();
 }
