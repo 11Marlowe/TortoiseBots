@@ -9,6 +9,7 @@
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "playerbot/strategy/values/Formations.h"
 #include "playerbot/FormationStationPolicy.h"
+#include "playerbot/MagmaHazardPolicy.h"
 
 namespace ai
 {
@@ -475,7 +476,12 @@ namespace ai
             if (Formation::IsNullLocation(loc) || loc.mapId == -1 || bot->GetMapId() != loc.mapId)
                 return false;
             float const distance = sServerFacade.getDistance2d(bot, loc.x, loc.y);
-            return FormationStationWanted(distance);
+            if (!FormationStationWanted(distance))
+                return false;
+            // A slot in magma is no station (RFC r3-19z20: the lead tank's
+            // slot lay in the trogg-cave lava basin); MoveTo2 would refuse the
+            // walk every 3 s anyway (MagmaHazardPolicy.h).
+            return !(MagmaGuardApplies(bot->GetMap()->IsDungeon()) && WorldPosition(loc).isInMagma());
         }
     };
 

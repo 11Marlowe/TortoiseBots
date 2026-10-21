@@ -3,6 +3,7 @@
 #include "playerbot/PlayerbotAI.h"
 #include "playerbot/TravelMgr.h"
 #include "TravelNode.h"
+#include "playerbot/MagmaHazardPolicy.h"
 
 #include "Maps/Map.h"
 
@@ -1305,6 +1306,19 @@ bool WorldPosition::isPathTo(const std::vector<WorldPosition>& path, float const
     float realMaxDistance = maxDistance ? maxDistance : sPlayerbotAIConfig.targetPosRecalcDistance;
     return !path.empty() && path.back().GetMapId() == getMapId() && sqDistance2d(path.back()) < realMaxDistance * realMaxDistance && abs(path.back().getZ() - getZ()) < maxZDistance;
 };
+
+// The query Player::UpdateTerainEnvironmentFlags makes before it sets
+// ENVIRONMENT_FLAG_IN_MAGMA (z + 0.01, all liquids), read by the same rule.
+bool WorldPosition::isInMagma(const TerrainInfo* terrain) const
+{
+    if (!terrain)
+        return false;
+    GridMapLiquidData liquid{};
+    GridMapLiquidStatus const status = terrain->getLiquidStatus(x, y, z + 0.01f, MAP_ALL_LIQUIDS, &liquid);
+    if (status == LIQUID_MAP_NO_WATER)
+        return false;
+    return ai::IsMagmaHazard(liquid.type_flags, static_cast<uint32>(status));
+}
 
 bool WorldPosition::setAtWaterSurface()
 {

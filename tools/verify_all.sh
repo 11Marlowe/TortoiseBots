@@ -46,6 +46,7 @@ python3 -m unittest tools/test_outfit_item_parser.py
 python3 -m unittest tools/test_queue_prerequisite_merge.py
 python3 -m unittest tools/test_tactical_stay_release.py
 python3 -m unittest tools/test_stay_anchor_wiring.py
+python3 -m unittest tools/test_magma_guard_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_bot_area_trigger_wiring.py
 python3 -m unittest tools/test_gossip_order_wiring.py
@@ -180,6 +181,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_loot_roll_policy
         test_loot_window_policy
         test_lowbie_graveyard_policy
+        test_magma_hazard_policy
         test_main_tank_policy
         test_mc_garr_shazzrah_policy
         test_mimic_consumable_policy
