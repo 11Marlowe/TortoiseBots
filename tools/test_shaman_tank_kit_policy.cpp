@@ -47,6 +47,9 @@ static void TestCombatKit()
     CHECK(Contains(kit, "buff"));
     CHECK(Contains(kit, "cure"));
     CHECK(Contains(kit, "boost"));
+    // ...the "aoe" placeholder, without which the tank's Fire Nova / Magma
+    // rows ("aoe tank shaman *") are never installed...
+    CHECK(Contains(kit, "aoe"));
     // ...and never the DPS-kit pieces that fight the tank role.
     CHECK(!Contains(kit, "dps assist"));
     CHECK(!Contains(kit, "behind"));

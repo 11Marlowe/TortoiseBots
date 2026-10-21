@@ -50,18 +50,18 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 - **Threat:** on bosses and elites, *Earth Shock* goes out on cooldown, followed by *Stormstrike* and *Lightning Strike*. On normal trash the bot saves mana: the strikes and auto-attack always run, and *Earth Shock* goes out only when another member catches up on threat or a mob is loose. Auto-attack never stops, because *Earthen Bulwark* builds from white hits.
 - **Taunt:** *Earthshaker Slam* (Turtle taunt, trained at 10) when a mob attacks someone else, with *Earth Shock* behind it. Tauren also use *Totemic Slam*.
 - **Packs:** *Stoneclaw Totem* on trash packs (with *Totemic Alignment* most of its threat goes to the shaman), *Fire Nova Totem* on packs of 2 or more, and *Magma Totem* only while *Fire Nova* is on cooldown and 3 or more mobs are still up, because it drains mana.
-- **Earth totem:** *Strength of Earth* on bosses and elites, *Stoneclaw* on trash. Never *Stoneskin* on bosses.
+- **Earth totem:** *Strength of Earth* on bosses and elites, *Stoneclaw* on trash. Never *Stoneskin* on bosses. Each pick owns the earth slot: the fight pick replaces the tank's own *Stoneclaw* from the pack just fought, and a pack takes the slot back from *Strength of Earth* or *Earthbind* — a leftover totem from the other fight type never locks the slot out.
 - **Does not:** spend the shock cooldown on *Flame Shock*, keep *Earth Shield* on itself, or leave its target to place a totem.
 
 <details>
 <summary>Totem orchestration details</summary>
 
 Shamans maintain 4-element totem sets tailored to group composition:
-- **Earth Totem:** Drops *Strength of Earth Totem* if melee allies are present; otherwise leaves the slot open (*Stoneskin Totem* is the fallback when Strength is unknown). Reacts to fears with *Tremor Totem* and to runners with *Earthbind Totem*.
+- **Earth Totem:** Drops *Strength of Earth Totem* if melee allies are present; otherwise leaves the slot open (*Stoneskin Totem* is the fallback when Strength is unknown). Reacts to fears with *Tremor Totem* and to runners with *Earthbind Totem*. A tank shaman drops no earth totem out of combat: the earth pick depends on the fight type, so it is decided once the fight starts.
 - **Fire Totem:** Drops *Searing Totem* on single targets; drops *Magma Totem* or *Fire Nova Totem* on packs (only when in detonation range).
 - **Water Totem:** Drops *Mana Spring Totem* if mana users are present; drops *Healing Stream Totem* otherwise. Reacts to poison and disease with cleansing totems.
 - **Air Totem:** Drops *Windfury Totem* for melee groups; drops *Tranquil Air Totem* or *Grace of Air Totem* for casters. Reacts to incoming enemy spells with *Grounding Totem*.
-- **Out of Combat:** Totems can be pre-dropped before pulls and reclaimed using *Totemic Recall* to refund mana.
+- **Out of Combat:** Totems can be pre-dropped before pulls, and *Totemic Recall* refunds the mana of a set nobody is about to rebuild. Because the automatic rows would re-drop the same set within seconds in the default drop mode, the refund waits while they are armed — use [`.bot totem`](../play/commands/bot-panel.md#bot-totem) `mode manual` (or `prepull`, outside the pre-pull window) to recall what you placed yourself.
 
 </details>
 

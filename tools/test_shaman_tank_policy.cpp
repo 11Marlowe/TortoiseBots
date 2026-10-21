@@ -11,7 +11,7 @@
 } while (0)
 
 using ai::TankChainLightningShouldFire;
-using ai::TankEarthTotemIsStrength;
+using ai::TankEarthPickReplaceable;
 using ai::TankHardCastAllowed;
 using ai::TankMagmaShouldFollow;
 using ai::TankShamanTargetIsElite;
@@ -21,6 +21,7 @@ using ai::TankShamanPullWantsChainLightning;
 using ai::TankShamanThreatNeedsShock;
 using ai::TankShamanWantsWaterShield;
 using ai::TankStoneclawShouldDrop;
+using ai::TankStrengthOfEarthShouldDrop;
 
 int main()
 {
@@ -87,9 +88,18 @@ int main()
     std::cout << "  [PASS] open-world elites count as fight targets\n";
 
     // Stable earth pick (live fix): fights hold Strength of Earth, trash
-    // holds Stoneclaw. Never Stoneskin on a fight.
-    CHECK(TankEarthTotemIsStrength(true) == true);
-    CHECK(TankEarthTotemIsStrength(false) == false);
+    // holds Stoneclaw. Never Stoneskin on a fight. One pick owns the slot:
+    // the fight pick replaces our own Stoneclaw from the pack just fought,
+    // and a standing Strength of Earth never keeps a pack out of Stoneclaw.
+    CHECK(TankStrengthOfEarthShouldDrop(true, false, false) == true);
+    CHECK(TankStrengthOfEarthShouldDrop(true, true, true) == true);
+    CHECK(TankStrengthOfEarthShouldDrop(true, true, false) == false);
+    CHECK(TankStrengthOfEarthShouldDrop(false, false, false) == false);
+    CHECK(TankStrengthOfEarthShouldDrop(false, true, true) == false);
+    CHECK(TankEarthPickReplaceable(true, false) == true);
+    CHECK(TankEarthPickReplaceable(false, true) == true);
+    CHECK(TankEarthPickReplaceable(true, true) == true);
+    CHECK(TankEarthPickReplaceable(false, false) == false);
     std::cout << "  [PASS] one earth totem per fight, never stoneskin\n";
 
     // Threat-lead decision: shock when a member catches up (70%+ of our
@@ -117,6 +127,14 @@ int main()
     CHECK(TankStoneclawShouldDrop(true, false, false, false, false, 2) == false);
     CHECK(TankStoneclawShouldDrop(true, false, false, false, false, 3) == true);
     CHECK(TankStoneclawShouldDrop(true, false, false, false, false, 3, true) == false);
+    // A replaceable standing pick (our own Strength of Earth or Earthbind)
+    // does not keep the pack out of Stoneclaw — the pack tool would never
+    // land otherwise on a trash pull inside the previous totem's lifetime.
+    CHECK(TankStoneclawShouldDrop(true, false, false, true, false, 3, false, true) == true);
+    CHECK(TankStoneclawShouldDrop(true, false, false, true, true, 1, false, true) == true);
+    // Replacing still needs a pack reason, and never happens on a fight.
+    CHECK(TankStoneclawShouldDrop(true, false, false, true, false, 2, false, true) == false);
+    CHECK(TankStoneclawShouldDrop(true, false, false, true, true, 5, true, true) == false);
     std::cout << "  [PASS] stoneclaw drops on arrival when threat needs it\n";
 
     // Magma order: Nova first; Magma only as the last resort after Nova
