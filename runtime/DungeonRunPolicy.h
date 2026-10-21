@@ -4707,15 +4707,16 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     }
     if (!hold)
     {
-        // Engage on arrival: the fight's first one without a wait, a further
-        // one (another mob) no sooner than kGuardRepeatMs after the last order
-        // and at most kGuardOrdersPerFight in all. An `attack` the bot holds
+        // Engage on arrival: the first order of the fight (of either kind)
+        // without a wait, every other one (another mob, or after a pick-up) no
+        // sooner than kGuardRepeatMs after the last order of either kind, and
+        // at most kGuardOrdersPerFight engage orders in all. An `attack` the bot holds
         // (stunned, feared) leaves the stay on, and the nearest mob changes:
         // without the spacing and the cap an order went out every tick. Not
         // one of the pick-ups (guardOrders).
         const UnitFact* arrival = EngageTarget(r, f);
         if (arrival && arrival->guid != r.engageGuid && r.engageOrders < kGuardOrdersPerFight &&
-            (r.engageOrders == 0 || r.guardSinceOrderMs >= kGuardRepeatMs))
+            ((r.engageOrders == 0 && r.guardOrders == 0) || r.guardSinceOrderMs >= kGuardRepeatMs))
         {
             r.engageGuid = arrival->guid;
             ++r.engageOrders;

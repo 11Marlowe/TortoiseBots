@@ -4299,6 +4299,56 @@ static void TestEngageT10()
     CHECK(Tick(r2, stay) == "attack 70 Tanky");
 }
 
+// T11: one clock for both kinds of order. After a pick-up (attack held, the
+// stay still on) an engage waits kGuardRepeatMs too, and after an engage a
+// pick-up candidate inside kGuardRepeatMs waits (the existing repeat rule).
+static void TestEngageT11()
+{
+    {
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        Facts f = EngageFight();
+        f.partyAttackers = {Hitter(31, 4855, 20)};
+        for (std::uint32_t ms = kTickMs; ms < kGuardWaitMs; ms += kTickMs)
+            CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f) == "attack 31 Tanky"); // a pick-up; the attack is held, the stay stays on
+        CHECK(r.guardOrders == 1 && r.engageOrders == 0);
+        Facts g = EngageFight();
+        OnLead(g, 60, 11517, 2.0f); // an engage target appears on the next tick
+        CHECK(Tick(r, g).empty());  // 1 s after the pick-up
+        CHECK(Tick(r, g) == "attack 60 Tanky"); // kGuardRepeatMs after it, exactly one
+        CHECK(r.guardOrders == 1 && r.engageOrders == 1);
+        CHECK(OrdersIn(r, g, 6) == 0);
+    }
+    {
+        // The mirror: an engage, then a pick-up candidate (a mob on the healer)
+        // inside kGuardRepeatMs; the stay is off (the order took effect).
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        Facts f = EngageFight();
+        OnLead(f, 60, 11517, 2.0f);
+        CHECK(Tick(r, f) == "attack 60 Tanky");
+        f.leadStaying = false;
+        f.partyAttackers = {Hitter(41, 7320, 12, true)};
+        CHECK(Tick(r, f).empty()); // 1 s after the engage
+        CHECK(Tick(r, f) == "attack 41 Tanky");
+        CHECK(r.guardOrders == 1 && r.engageOrders == 1);
+    }
+    {
+        // ... and with the stay still on (held attack), the same candidate is
+        // an engage target: it waits the same 2 s, then one order.
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        Facts f = EngageFight();
+        OnLead(f, 60, 11517, 2.0f);
+        CHECK(Tick(r, f) == "attack 60 Tanky");
+        f.partyAttackers = {Hitter(41, 7320, 12, true)};
+        CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f) == "attack 41 Tanky");
+        CHECK(r.guardOrders == 0 && r.engageOrders == 2);
+    }
+}
+
 // R1: Ragefire Chasm 19z19, Oggleflint pull (step 25), t=862-875. Oggleflint is
 // on Tanky from 862 while he stands on "stay" with no target; a Ragefire Trogg
 // (be05) hits the mage Gera 4 yd away and later the rogue. The old guard sent
@@ -6570,6 +6620,7 @@ int main()
     TestEngageT8();
     TestEngageT9();
     TestEngageT10();
+    TestEngageT11();
     TestEngageReplayRfcOggleflint();
     TestEngageReplayUldamanStep85();
     TestEmptyPlan();
