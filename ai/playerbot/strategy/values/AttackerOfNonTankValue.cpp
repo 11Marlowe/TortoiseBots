@@ -108,5 +108,5 @@ void AttackerOfNonTankValue::NoteTaunt(Unit* unit)
     }
     lastTaunt[unit->GetObjectGuid().GetRawValue()] = now;
     // The next read recalculates: the Taunted mob is no candidate now.
-    Reset();
+    UnitCalculatedValue::Reset();
 }
