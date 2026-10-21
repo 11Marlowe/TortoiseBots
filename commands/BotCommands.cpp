@@ -9394,10 +9394,35 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
             f.leadStayZ = stay->second.z;
         }
     }
+    // The nearest mob on the lead bot in melee reach (EngageTarget): what the
+    // tank on "stay" is sent at on arrival.
+    Unit* nearestHit = nullptr;
+    float nearestHitYd = 0.0f;
     for (Unit* attacker : lead->GetAttackers())
         if (attacker && attacker->IsAlive() && attacker->GetVictim() == lead &&
             attacker->CanReachWithMeleeAutoAttack(lead))
+        {
             f.leadHit = true;
+            float const yd = lead->GetDistance(attacker);
+            if (attacker->IsCreature() && !sServerFacade.IsFriendlyTo(attacker, lead) &&
+                (!nearestHit || yd < nearestHitYd))
+            {
+                nearestHit = attacker;
+                nearestHitYd = yd;
+            }
+        }
+    if (nearestHit)
+    {
+        UnitFact& fact = f.leadAttacker;
+        fact.guid = nearestHit->GetObjectGuid().GetRawValue();
+        fact.entry = nearestHit->GetEntry();
+        fact.distLead = nearestHitYd;
+        fact.evading = static_cast<Creature*>(nearestHit)->IsInEvadeMode();
+        fact.polymorphed = Polymorphed(nearestHit);
+        fact.engaged = true;
+        fact.hitting = true;
+        f.leadHasAttacker = true;
+    }
     std::unordered_set<uint64> seen;
     for (Player* bot : bots)
     {

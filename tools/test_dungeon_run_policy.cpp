@@ -3951,7 +3951,10 @@ static void TestTankGuardPull100Replay()
     for (int i = 0; i < 20; ++i)
         if (Tick(r, f).compare(0, 7, "attack ") == 0)
             ++orders;
-    CHECK(orders == static_cast<int>(kGuardOrdersPerFight));
+    // The first order was an engage on arrival (a healer's attacker on the
+    // staying tank), which the cap does not count: it and the cap's pick-ups.
+    CHECK(orders == static_cast<int>(kGuardOrdersPerFight) + 1);
+    CHECK(r.guardOrders == kGuardOrdersPerFight);
     CHECK(r.state == State::Running);
 }
 
@@ -4029,6 +4032,364 @@ static void TestTankGuardLimits()
         OrderRefused(r, "move 0.0 0.0 0.0", "unreachable: The lead bot has no walkable path to that point.");
         CHECK(r.state == State::Running && !r.guardReturn);
     }
+}
+
+// Engage on arrival (PLAN-THREAT-265 M1a). The tank on "stay" at a stand fights
+// nothing (an attack action is a movement action): RFC 19z19 step 25 had it idle
+// 21 s with a Trogg on the mage and the rogue 2-4 yd away, Uldaman 19z19 step 85
+// three mobs on it with no target for 14 s. So a mob on the tank in melee reach
+// (Facts::leadAttacker), or one hitting the healer, sends it at once
+// (`attack <guid> <tank>`, which ends the stay), without the guard's wait and
+// without using up a pick-up of the fight (kGuardOrdersPerFight).
+static Run EngageRun(DungeonPlan& plan)
+{
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {4855})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f); // on the stand point: the anchor, next step
+    f.units = {Unit(31, 4855, 40)};
+    Tick(r, f); // pullback 31
+    return r;
+}
+
+static Facts EngageFight(bool staying = true)
+{
+    Facts f = Party(0);
+    f.anyInCombat = true;
+    f.leadIsTank = true;
+    f.leadStaying = staying;
+    return f;
+}
+
+// A living mob on the lead bot in melee reach (what the glue reads for leadHit).
+static void OnLead(Facts& f, std::uint64_t guid, std::uint32_t entry, float dist)
+{
+    f.leadHit = true;
+    f.leadAttacker = Hitter(guid, entry, dist);
+    f.leadHasAttacker = true;
+}
+
+static int OrdersIn(Run& r, const Facts& f, int ticks)
+{
+    int n = 0;
+    for (int i = 0; i < ticks; ++i)
+        if (Tick(r, f).compare(0, 7, "attack ") == 0)
+            ++n;
+    return n;
+}
+
+// T1: the first tick sends the tank at the mob on it; no pick-up is used.
+static void TestEngageT1()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 60, 11517, 2.0f);
+    CHECK(Tick(r, f) == "attack 60 Tanky");
+    CHECK(r.guardOrders == 0 && r.engageGuid == 60);
+    CHECK(r.note.find("the tank engages 11517 on arrival") != std::string::npos);
+    CHECK(r.guardReturn);
+}
+
+// T2: the same mob gets no second order, however long its fight lasts. In a
+// live run the order ends the stay at once; the stay stays on only when the bot
+// holds the attack (stunned, feared: HoldsAttackUntilControl), and then the
+// order must not be repeated every tick.
+static void TestEngageT2()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 60, 11517, 2.0f);
+    CHECK(Tick(r, f) == "attack 60 Tanky");
+    CHECK(OrdersIn(r, f, 12) == 0);
+    CHECK(r.guardOrders == 0);
+}
+
+// T3: a polymorphed or evading mob is not engaged.
+static void TestEngageT3()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 60, 11517, 2.0f);
+    f.leadAttacker.polymorphed = true;
+    CHECK(OrdersIn(r, f, 6) == 0);
+    f.leadAttacker.polymorphed = false;
+    f.leadAttacker.evading = true;
+    CHECK(OrdersIn(r, f, 6) == 0);
+    CHECK(r.engageGuid == 0);
+    f.leadAttacker.evading = false;
+    CHECK(Tick(r, f) == "attack 60 Tanky"); // the same mob once it is neither
+}
+
+// T3b: the same for the healer's attacker.
+static void TestEngageT3b()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    f.partyAttackers = {Hitter(41, 7320, 12, true)};
+    f.partyAttackers[0].polymorphed = true;
+    CHECK(OrdersIn(r, f, 3) == 0 && r.engageGuid == 0);
+}
+
+// T4: the healer's attacker first, then the mob on the tank.
+static void TestEngageT4()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 60, 11517, 2.0f);
+    f.partyAttackers = {Hitter(41, 7320, 20, true), Hitter(42, 7320, 12, true)};
+    CHECK(Tick(r, f) == "attack 42 Tanky"); // the nearer of the healer's
+    CHECK(r.guardOrders == 0 && r.engageGuid == 42);
+// Off its stay now; the guard keeps watching (guardOrders is still 0):
+// the other mob on the healer is picked up, a guard order this time.
+    f.leadStaying = false;
+    f.partyAttackers = {Hitter(41, 7320, 20, true)};
+    CHECK(Tick(r, f).empty()); // kGuardRepeatMs after the engage, as after a pick-up
+    CHECK(Tick(r, f) == "attack 41 Tanky");
+    CHECK(r.guardOrders == 1);
+}
+
+// T5: only a DPS's attacker: no engage; the guard's wait rule fires as before.
+static void TestEngageT5()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    f.partyAttackers = {Hitter(31, 4855, 20)};
+    for (std::uint32_t ms = kTickMs; ms < kGuardWaitMs; ms += kTickMs)
+        CHECK(Tick(r, f).empty());
+    CHECK(r.engageGuid == 0 && r.guardOrders == 0);
+    CHECK(Tick(r, f) == "attack 31 Tanky");
+    CHECK(r.guardOrders == 1 && r.engageGuid == 0);
+// ... and with a mob on the tank as well, the tank takes that one and
+// not the DPS's.
+    DungeonPlan plan2;
+    Run r2 = EngageRun(plan2);
+    Facts g = EngageFight();
+    OnLead(g, 60, 11517, 2.0f);
+    g.partyAttackers = {Hitter(31, 4855, 20)};
+    CHECK(Tick(r2, g) == "attack 60 Tanky");
+}
+
+// T6: a tank that is not staying (already engaged) gets no order; nor does a
+// lead bot that is no tank, or a dead one.
+static void TestEngageT6()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight(false);
+    OnLead(f, 60, 11517, 2.0f);
+    f.partyAttackers = {Hitter(41, 7320, 20, true)};
+    CHECK(OrdersIn(r, f, 8) == 0);
+    Facts g = EngageFight();
+    OnLead(g, 60, 11517, 2.0f);
+    g.leadIsTank = false;
+    CHECK(OrdersIn(r, g, 8) == 0);
+    Facts h = EngageFight();
+    OnLead(h, 60, 11517, 2.0f);
+    h.leadAlive = false;
+    CHECK(OrdersIn(r, h, 8) == 0);
+    CHECK(r.engageGuid == 0);
+}
+
+// T7: inside an event (a hold, its ritual, the moves into it): no engage.
+// The hold's own engage (HoldEngageTarget) is the event policy's.
+static void TestEngageT7()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 60, 11517, 2.0f);
+    CHECK(EngageTarget(r, f) != nullptr);
+    r.eventOn = true;
+    CHECK(EngageTarget(r, f) == nullptr);
+    CHECK(OrdersIn(r, f, 8) == 0);
+    CHECK(r.engageGuid == 0);
+}
+
+// T8: after the fight the guard return walks the tank back to its stand.
+static void TestEngageT8()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    f.leadX = 6; // dragging the pullback in, short of its stand
+    f.leadStayKnown = true;
+    f.leadStayX = 0;
+    OnLead(f, 60, 11517, 2.0f);
+    CHECK(Tick(r, f) == "attack 60 Tanky");
+    CHECK(r.guardReturn && r.guardX == 0.0f);
+    f.leadStaying = false;
+    f.leadStayKnown = false;
+    f.leadX = 14; // chased it
+    CHECK(OrdersIn(r, f, 5) == 0);
+    f.anyInCombat = false;
+    f.leadHit = false;
+    f.leadHasAttacker = false;
+    f.units.clear();
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    f.leadX = 1;
+    f.leadStaying = true;
+    CHECK(Tick(r, f).empty());
+    CHECK(!r.guardReturn);
+// The next fight starts over: the same mob guid is engaged again.
+    CHECK(r.engageGuid == 0);
+}
+
+// T9: the attack is held (the stay stays on) and the nearest mob changes every
+// tick: the order is not sent every tick. The fight's first engage is at once,
+// a further one only kGuardRepeatMs after the last order, and three at most.
+static void TestEngageT9()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    std::vector<int> at;
+    for (int i = 0; i < 16; ++i)
+    {
+        Facts f = EngageFight();
+        OnLead(f, i % 2 == 0 ? 60 : 61, 11517, 2.0f);
+        std::string const order = Tick(r, f);
+        if (order.compare(0, 7, "attack ") == 0)
+            at.push_back(i);
+    }
+    CHECK(at.size() == kGuardOrdersPerFight);
+    CHECK(at[0] == 0);
+    for (std::size_t i = 1; i < at.size(); ++i)
+        CHECK(at[i] - at[i - 1] >= static_cast<int>(kGuardRepeatMs / kTickMs));
+    CHECK(r.guardOrders == 0 && r.engageOrders == kGuardOrdersPerFight);
+}
+
+// T10: the end of the fight starts the engage over: the next fight, with the
+// tank off its stay, is not watched by the guard on account of the old engage
+// (no pick-up of a DPS's attacker, no spacing), and its first engage is at once
+// again, the cap spent or not.
+static void TestEngageT10()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    for (int i = 0; i < 8; ++i)
+    {
+        Facts f = EngageFight();
+        OnLead(f, 60 + i % 2, 11517, 2.0f);
+        Tick(r, f);
+    }
+    CHECK(r.engageOrders == kGuardOrdersPerFight && r.engageGuid != 0);
+    // The fight is over: back to the stand, the step goes on.
+    Facts over = EngageFight(false);
+    over.anyInCombat = false;
+    over.leadX = 14; // chased it
+    CHECK(Tick(r, over) == "move 0.0 0.0 0.0");
+    over.leadX = 1;
+    over.leadStaying = true;
+    Tick(r, over);
+    CHECK(r.engageGuid == 0 && r.engageOrders == 0 && !r.guardReturn);
+    // A new fight, the tank off its stay with a DPS being hit: its own AI; the
+    // guard does not keep watching for the old engage.
+    Facts next = EngageFight(false);
+    next.partyAttackers = {Hitter(31, 4855, 20)};
+    CHECK(OrdersIn(r, next, 8) == 0);
+    // A new fight with the tank on its stay: the engage is at once again.
+    Run r2 = r;
+    Facts stay = EngageFight();
+    OnLead(stay, 70, 11517, 2.0f);
+    CHECK(Tick(r2, stay) == "attack 70 Tanky");
+}
+
+// T11: one clock for both kinds of order. After a pick-up (attack held, the
+// stay still on) an engage waits kGuardRepeatMs too, and after an engage a
+// pick-up candidate inside kGuardRepeatMs waits (the existing repeat rule).
+static void TestEngageT11()
+{
+    {
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        Facts f = EngageFight();
+        f.partyAttackers = {Hitter(31, 4855, 20)};
+        for (std::uint32_t ms = kTickMs; ms < kGuardWaitMs; ms += kTickMs)
+            CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f) == "attack 31 Tanky"); // a pick-up; the attack is held, the stay stays on
+        CHECK(r.guardOrders == 1 && r.engageOrders == 0);
+        Facts g = EngageFight();
+        OnLead(g, 60, 11517, 2.0f); // an engage target appears on the next tick
+        CHECK(Tick(r, g).empty());  // 1 s after the pick-up
+        CHECK(Tick(r, g) == "attack 60 Tanky"); // kGuardRepeatMs after it, exactly one
+        CHECK(r.guardOrders == 1 && r.engageOrders == 1);
+        CHECK(OrdersIn(r, g, 6) == 0);
+    }
+    {
+        // The mirror: an engage, then a pick-up candidate (a mob on the healer)
+        // inside kGuardRepeatMs; the stay is off (the order took effect).
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        Facts f = EngageFight();
+        OnLead(f, 60, 11517, 2.0f);
+        CHECK(Tick(r, f) == "attack 60 Tanky");
+        f.leadStaying = false;
+        f.partyAttackers = {Hitter(41, 7320, 12, true)};
+        CHECK(Tick(r, f).empty()); // 1 s after the engage
+        CHECK(Tick(r, f) == "attack 41 Tanky");
+        CHECK(r.guardOrders == 1 && r.engageOrders == 1);
+    }
+    {
+        // ... and with the stay still on (held attack), the same candidate is
+        // an engage target: it waits the same 2 s, then one order.
+        DungeonPlan plan;
+        Run r = EngageRun(plan);
+        Facts f = EngageFight();
+        OnLead(f, 60, 11517, 2.0f);
+        CHECK(Tick(r, f) == "attack 60 Tanky");
+        f.partyAttackers = {Hitter(41, 7320, 12, true)};
+        CHECK(Tick(r, f).empty());
+        CHECK(Tick(r, f) == "attack 41 Tanky");
+        CHECK(r.guardOrders == 0 && r.engageOrders == 2);
+    }
+}
+
+// R1: Ragefire Chasm 19z19, Oggleflint pull (step 25), t=862-875. Oggleflint is
+// on Tanky from 862 while he stands on "stay" with no target; a Ragefire Trogg
+// (be05) hits the mage Gera 4 yd away and later the rogue. The old guard sent
+// nothing until 885 (a mob on the healer, and the tank held one in reach, so the
+// DPS's Trogg was left alone). Now the tank is sent at Oggleflint on the first
+// tick, and it keeps its mob: the Trogg on the mage draws no second order.
+static void TestEngageReplayRfcOggleflint()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 161, 11517, 1.5f);                  // Oggleflint on Tanky
+    f.partyAttackers = {Hitter(48645, 11318, 4.0f)}; // the Trogg (be05) on Gera
+    CHECK(Tick(r, f) == "attack 161 Tanky");
+    CHECK(r.guardOrders == 0);
+    f.leadStaying = false; // the order ended the stay; 863-875 go on like that
+    for (int i = 0; i < 13; ++i)
+        CHECK(Tick(r, f).empty());
+    CHECK(r.guardOrders == 0 && r.state == State::Running);
+}
+
+// R2: Uldaman 19z19, step 85 (the firing stand for 4853), t=2613-2632. Three
+// mobs are on Cedrias (staying, no target from 2616 to 2630); Katrien's Rain of
+// Fire wakes more. The tank is sent at the nearest mob on it on the first tick
+// (old: no order until 2632, for the healer), and from 2632 the guard still
+// picks the healer's attacker up (a pick-up, not an engage, off the stay).
+static void TestEngageReplayUldamanStep85()
+{
+    DungeonPlan plan;
+    Run r = EngageRun(plan);
+    Facts f = EngageFight();
+    OnLead(f, 8201, 4853, 2.4f); // the nearest of the three; the glue reports one
+    f.partyAttackers = {Hitter(8101, 4855, 9.0f), Hitter(8103, 4855, 11.0f)}; // on Katrien and the hunter
+    CHECK(Tick(r, f) == "attack 8201 Tanky");
+    CHECK(r.guardOrders == 0 && r.engageGuid == 8201);
+    f.leadStaying = false;
+    for (int i = 0; i < 18; ++i) // 2614-2631
+        CHECK(Tick(r, f).empty());
+    f.partyAttackers.push_back(Hitter(8204, 4853, 16.0f, true)); // 2632: 4853 on the priest
+    CHECK(Tick(r, f) == "attack 8204 Tanky");
+    CHECK(r.guardOrders == 1);
 }
 
 // Uldaman run 3 (19z12, 10:45-10:54): the priest and the mage revived at the
@@ -6248,6 +6609,20 @@ int main()
     TestTankGuardReturnsToItsOwnSpot();
     TestTankGuardPull100Replay();
     TestTankGuardLimits();
+    TestEngageT1();
+    TestEngageT2();
+    TestEngageT3();
+    TestEngageT3b();
+    TestEngageT4();
+    TestEngageT5();
+    TestEngageT6();
+    TestEngageT7();
+    TestEngageT8();
+    TestEngageT9();
+    TestEngageT10();
+    TestEngageT11();
+    TestEngageReplayRfcOggleflint();
+    TestEngageReplayUldamanStep85();
     TestEmptyPlan();
     TestStuckStragglerThatMovedIsSummoned();
     TestApproachHopSummonsBeforePause();
