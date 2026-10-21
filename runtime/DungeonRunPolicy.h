@@ -4738,6 +4738,19 @@ inline bool HealerKeptToHeals(bool runRunning, bool inRunParty, bool isLead, boo
     return runRunning && inRunParty && !isLead && isHealer;
 }
 
+// Whether the glue puts the lead bot back on "stay" now (RFC r3-19z20, step
+// 22): an attack or pull order ends the lead's stay (RelaxTacticalMovement)
+// and nothing gave it back after the fight, so while the party rested the
+// lead ran the idle "formation station" walk, 16 yd into the lava basin, and
+// the party followed it in. While the run rests, the lead holds where it
+// stands; the next step's own order (a move puts it on "stay" at its point,
+// a pull or attack ends the stay again) takes over when the rest ends. Asked
+// once a tick; true only while the lead is off "stay", so it is sent once.
+inline bool LeadStayDueWhileResting(Run const& r, bool leadAlive, bool leadInCombat, bool leadStaying)
+{
+    return r.state == State::Running && r.phase == Phase::Rest && leadAlive && !leadInCombat && !leadStaying;
+}
+
 // A party member coming back with attackers on it. The owner's rule
 // (2026-10-17): "the party members running back to party should just run past
 // the mobs and try to run to the party, when its with the party and gets help

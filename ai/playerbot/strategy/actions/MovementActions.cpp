@@ -24,6 +24,7 @@
 #include "playerbot/PoolFleePolicy.h"
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/JumpPolicy.h"
+#include "playerbot/MagmaHazardPolicy.h"
 #include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
 
@@ -34,6 +35,60 @@ using namespace ai;
 // of a real ground clamp. A stair step or slope is well under this; the
 // subterranean terrain fallback is not.
 static constexpr float kMaxWaypointDrop = 4.0f;
+
+// MagmaHazardPolicy.h mirrors the core's liquid values (it has no core
+// includes); these pin the copies to GridMapDefines.h.
+static_assert(ai::kMagmaLiquidTypeFlag == MAP_LIQUID_TYPE_MAGMA, "magma type flag differs from the core");
+static_assert(ai::kLiquidStatusWaterWalk == static_cast<uint32>(LIQUID_MAP_WATER_WALK), "water-walk status differs from the core");
+static_assert(ai::kLiquidStatusInWater == static_cast<uint32>(LIQUID_MAP_IN_WATER), "in-water status differs from the core");
+static_assert(ai::kLiquidStatusUnderWater == static_cast<uint32>(LIQUID_MAP_UNDER_WATER), "under-water status differs from the core");
+
+// One "move refused: magma" line per bot per this many seconds.
+static constexpr time_t kMagmaLogSeconds = 10;
+
+static void LogMagmaRefusal(Player* bot, LastMovement& lastMove, const WorldPosition& at, const char* what)
+{
+    time_t const now = time(nullptr);
+    if (lastMove.magmaLogAt && now - lastMove.magmaLogAt < kMagmaLogSeconds)
+        return;
+    lastMove.magmaLogAt = now;
+    sLog.outDetail("%s: move refused: magma at %.1f %.1f %.1f (%s)", bot->GetName(), at.getX(), at.getY(), at.getZ(), what);
+}
+
+// MagmaHazardPolicy.h: the route ends before its first magma sample. Returns
+// false when nothing is left to walk.
+static bool CutRouteBeforeMagma(Player* bot, LastMovement& lastMove, const WorldPosition& startPos, TravelPath& movePath)
+{
+    TerrainInfo const* terrain = bot->GetMap()->GetTerrain();
+    std::vector<PathNodePoint>& points = movePath.GetPath();
+    std::vector<ai::MagmaPoint> route;
+    route.reserve(points.size());
+    for (PathNodePoint const& p : points)
+    {
+        ai::MagmaPoint m;
+        m.x = p.point.getX();
+        m.y = p.point.getY();
+        m.z = p.point.getZ();
+        route.push_back(m);
+    }
+    ai::MagmaPoint start;
+    start.x = startPos.getX();
+    start.y = startPos.getY();
+    start.z = startPos.getZ();
+    uint32 const mapId = bot->GetMapId();
+    ai::MagmaPathCut const cut = ai::CutPathBeforeMagma(start, route, [terrain, mapId](ai::MagmaPoint const& m)
+    {
+        return WorldPosition(mapId, m.x, m.y, m.z).isInMagma(terrain);
+    });
+    if (!cut.cut)
+        return true;
+    WorldPosition const magmaAt = points[cut.keepPoints].point;
+    points.erase(points.begin() + cut.keepPoints, points.end());
+    if (cut.addPoint) // the last dry sample between two path points: a plain walk point
+        movePath.addPoint(WorldPosition(mapId, cut.point.x, cut.point.y, cut.point.z));
+    LogMagmaRefusal(bot, lastMove, magmaAt, points.empty() ? "nothing left to walk" : "route cut short");
+    return !points.empty();
+}
 
 // Mounted follow spacing: the on-foot follow slot (FollowDistance 1.5 yd) is
 // smaller than a mount model, so mounted companions parked on top of the
@@ -985,6 +1040,16 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
         return false;
     }
 
+    // Magma guard (MagmaHazardPolicy.h, RFC r3-19z20): on an instance map no
+    // move ends in magma and no route walks into it.
+    bool const magmaGuard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
+    if (magmaGuard && endPos.isInMagma())
+    {
+        LogMagmaRefusal(bot, lastMove, endPos, "end point");
+        lastMove.moveFailReason = MOVE_FAIL_MAGMA;
+        return false;
+    }
+
     Unit* mover = GetMover(bot);
 
     bool detailedMove = ai->AllowActivity(DETAILED_MOVE_ACTIVITY, true);
@@ -1075,6 +1140,12 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     }
 
     movePath.ClipPath(ai, mover, ignoreEnemyTargets, packHold);
+
+    if (magmaGuard && !movePath.empty() && !CutRouteBeforeMagma(bot, lastMove, startPos, movePath))
+    {
+        lastMove.moveFailReason = MOVE_FAIL_MAGMA;
+        return false;
+    }
 
     if(ai->HasStrategy("debug move", BotState::BOT_STATE_NON_COMBAT))
     {

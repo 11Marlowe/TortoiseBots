@@ -10521,6 +10521,16 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     TortoiseBots::DungeonRun::Facts facts;
     ReadRunFacts(slot, lead, bots, facts);
     std::string const order = TortoiseBots::DungeonRun::Tick(slot.run, facts, dt);
+    // While the party rests the lead bot holds where it stands
+    // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
+    // order below, so its own drink or meal follows the stay's reset.
+    if (PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead))
+        if (TortoiseBots::DungeonRun::LeadStayDueWhileResting(slot.run, lead->IsAlive(), lead->IsInCombat(),
+                leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT)))
+        {
+            FormUpOnLead(commander, lead, std::vector<Player*>{ lead }, true);
+            leadAi->StopMoving();
+        }
     for (std::string const& name : slot.run.runBack)
         for (Player* bot : bots)
             if (bot != lead && bot->IsAlive() && name == bot->GetName())

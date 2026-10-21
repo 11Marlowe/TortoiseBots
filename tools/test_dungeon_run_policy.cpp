@@ -426,6 +426,51 @@ static void TestPullGatherAndFight()
     CHECK(r.state == State::Done || r.step == 1);
 }
 
+// RFC r3-19z20 step 22: the lead bot holds "stay" while the run rests (an
+// attack order had ended its stay, and its idle formation walk took it into
+// the lava basin while the healer drank). Only in the rest phase of a running
+// run, only for a living lead out of combat that is off "stay".
+static void TestLeadHoldsStayWhileResting()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(11, 4851, 38)};
+    f.maxMemberYd = 5;
+    // Before the pull and during the fight: no hold from here.
+    CHECK(Tick(r, f) == "pullback 11");
+    CHECK(!LeadStayDueWhileResting(r, true, false, false));
+    f.anyInCombat = true;
+    Tick(r, f);
+    CHECK(!LeadStayDueWhileResting(r, true, true, false));
+    // The fight is over and the healer is dry: the run rests, the lead holds.
+    f.anyInCombat = false;
+    f.units.clear();
+    f.minHealerManaPct = 20;
+    CHECK(Tick(r, f) == "rest");
+    CHECK(r.phase == Phase::Rest);
+    CHECK(LeadStayDueWhileResting(r, true, false, false));
+    // Sent once: a lead already on "stay" is left alone.
+    CHECK(!LeadStayDueWhileResting(r, true, false, true));
+    // A dead lead or one pulled into a fight again is not put on "stay".
+    CHECK(!LeadStayDueWhileResting(r, false, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, true, false));
+    // Still resting a tick later (the formation walk would start any time).
+    Tick(r, f);
+    CHECK(r.phase == Phase::Rest);
+    CHECK(LeadStayDueWhileResting(r, true, false, false));
+    // A paused run gives no orders.
+    Run paused = r;
+    paused.state = State::Paused;
+    CHECK(!LeadStayDueWhileResting(paused, true, false, false));
+    // Rested: the step goes on and the hold is the next order's business.
+    f.minHealerManaPct = 85;
+    Tick(r, f);
+    CHECK(r.phase != Phase::Rest);
+    CHECK(!LeadStayDueWhileResting(r, true, false, false));
+}
+
 static void TestUnseenPackIsApproachedNotCleared()
 {
     DungeonPlan plan;
@@ -6171,6 +6216,7 @@ int main()
     TestSkipWhileRunning();
     TestUnreachableMoveDetours();
     TestPullGatherAndFight();
+    TestLeadHoldsStayWhileResting();
     TestUnseenPackIsApproachedNotCleared();
     TestFarPackHopIsNotUndoneByTheGatherBack();
     TestApproachHopCapCountsHopsWithoutProgress();

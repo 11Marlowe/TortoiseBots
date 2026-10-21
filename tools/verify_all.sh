@@ -180,6 +180,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_loot_roll_policy
         test_loot_window_policy
         test_lowbie_graveyard_policy
+        test_magma_hazard_policy
         test_main_tank_policy
         test_mc_garr_shazzrah_policy
         test_mimic_consumable_policy
