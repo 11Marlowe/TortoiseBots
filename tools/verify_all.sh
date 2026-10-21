@@ -63,6 +63,7 @@ python3 -m unittest tools/test_dungeon_plan_sql.py
 python3 -m unittest tools/test_run_leader_wiring.py
 python3 -m unittest tools/test_island_escape_wiring.py
 python3 -m unittest tools/test_taunt_attacker_wiring.py
+python3 -m unittest tools/test_warrior_rage_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -300,6 +301,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_warlock_pet_policy
         test_warlock_stone_policy test_warlock_soulstone_policy
         test_warlock_tap_policy
+        test_warrior_rage_policy
         test_weighted_shuffle_policy
         test_work_idle_policy
         test_world_buff_policy
