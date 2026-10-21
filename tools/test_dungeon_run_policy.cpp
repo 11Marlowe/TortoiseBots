@@ -3134,6 +3134,53 @@ static void TestStillBotInAFightIsNotWaitedFor()
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
 }
 
+// A bot far from the lead bot (past kSummonYd, or on another floor) that is in
+// a fight, or has attackers on it, is never summoned by a gather's ceiling:
+// the summon would drag the encounter to the lead bot or leave the bot alone
+// in it, and `cmd summon` refuses a bot in combat. Walking or standing, it is
+// not waited for as stuck either: the run pauses as before.
+static void TestFarBusyBotIsNeverSummonedAtTheCeiling()
+{
+    for (int variant = 0; variant < 4; ++variant)
+    {
+        bool const inCombat = variant % 2 == 1; // attackers only, or in combat
+        bool const otherFloor = variant >= 2;   // 60 yd out, or 10 yd away but 12 yd up
+        DungeonPlan plan;
+        plan.steps = {PullStep(100, {1})};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        float const yd = otherFloor ? 25.0f : 60.0f;
+        f.maxMemberYd = yd;
+        f.members = {Mem("Tanky", 0), Mem("Busy", yd, otherFloor ? 12.0f : 0.0f)};
+        f.units = {Unit(7, 1, 50)};
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+        for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+        {
+            f.members[1] = Mem("Busy", yd, otherFloor ? 12.0f : 0.0f);
+            if (i % 2 == 0)
+                f.members[1].x += 3.0f; // some ticks walking, then standing still for 6 s
+            f.members[1].inCombat = inCombat;
+            f.members[1].attackers = inCombat ? 0 : 2;
+            CHECK(Tick(r, f).find("summon") == std::string::npos);
+        }
+        CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+        CHECK(r.summoned.empty());
+    }
+    // The same bot, free of the fight, is summoned (the exclusion is the fight).
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 60;
+    f.members = {Mem("Tanky", 0), Mem("Busy", 60)};
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::string order;
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "summon Busy");
+}
+
 // Live (events-5 01:48:43 -> 01:50:42): after the wipe the regroup's gather
 // waited its whole ceiling (60 s, a bot 363 yd out) for a bot that had not moved
 // at all; it is summoned after kStuckSummonMs instead.
@@ -7852,6 +7899,7 @@ int main()
     TestComingStragglerIsWaitedForAtDirectGathers();
     TestComingStragglerIsSummonedAfterTheComingLimit();
     TestStillBotInAFightIsNotWaitedFor();
+    TestFarBusyBotIsNeverSummonedAtTheCeiling();
     TestRegroupSummonsAStuckFarBotEarly();
     TestStuckSummonCountsFromTheGather();
     TestWalkBackRefusalKinds();
