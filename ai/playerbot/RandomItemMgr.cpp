@@ -4525,6 +4525,10 @@ uint32 RandomItemMgr::CalculateBestBotEnchantId(Player* bot, uint32 specId, Item
         // Slot/item-type mask fit: mirrors EnchantItemT's own check so
         // mismatches are skipped silently instead of spamming error logs
         // (e.g. Fiery Weapon onto a shield, scope onto a thrown weapon).
+        // The item class must match first: a shield is armor subclass 6,
+        // which is the polearm bit in a weapon enchant's subclass mask.
+        if (spellInfo->EquippedItemClass >= 0 && int32(proto->Class) != spellInfo->EquippedItemClass)
+            continue;
         if (!((1 << proto->SubClass) & spellInfo->EquippedItemSubClassMask) &&
             !((1 << proto->InventoryType) & spellInfo->EquippedItemInventoryTypeMask))
             continue;
