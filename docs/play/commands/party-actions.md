@@ -161,7 +161,7 @@ Accepts `[seconds]` (0 to 60, default 5) and `[ranged]` in either order. The tan
 <summary>How it works in detail</summary>
 
 - **Corner Pulling:** Use this maneuver to pull enemy packs around corners or through doorways to break enemy caster line of sight.
-- **Anchor Hold:** The tank holds ground at the pullback spot for that fight only. Once the pulled enemies are defeated, the tank resumes normal following.
+- **Anchor Hold:** The tank holds ground at the pullback spot only while the pulled enemy is still on its way. Once it arrives, stops short or dies, the tank fights the rest of the pack freely and follows you again after combat.
 - **Fallback Melee:** If the tank has no working ranged weapon, it walks in, strikes the target once in melee, and sprints back to your position.
 
 </details>

@@ -179,18 +179,19 @@ bool PullAnchorDoneTrigger::IsActive()
     if (!posMap["pull hold"].isSet())
         return false;
 
-    // Hold the anchor for as long as the pulled fight lasts: in combat, or
-    // with a live target left to tank. Once nothing is left - the mob dead,
-    // the pack finished, the hold broken off - the tank follows the party
-    // again instead of standing at the anchor forever.
+    // Hold the anchor only while the pulled mob is still on its way. Once it
+    // has arrived (in melee), stopped short (a caster), or died, the anchor
+    // has done its job: a stay held for the whole fight kept the tank from
+    // reaching the rest of the pack, so it stood idle while the other mobs
+    // beat on the party. mod-playerbots' pull back holds no stay at all.
     //
     // This runs inside the combat engine, which is evaluated between reaction
-    // ticks: it frees the tank in the same tick the fight is over, while
-    // PlayerbotAI::OnCombatEnded is the guarantee (it fires with the engine
-    // switch, where this trigger no longer exists). Both call the same release.
-    if (sServerFacade.IsInCombat(bot))
-        return false;
-
+    // ticks, while PlayerbotAI::OnCombatEnded is the guarantee (it fires with
+    // the engine switch, where this trigger no longer exists). Both call the
+    // same release.
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
-    return !currentTarget || !currentTarget->IsAlive();
+    if (!currentTarget || !currentTarget->IsAlive())
+        return true;
+
+    return !sServerFacade.isMoving(currentTarget) || bot->CanReachWithMeleeAutoAttack(currentTarget);
 }
