@@ -110,14 +110,28 @@ class IslandEscapeWiringTest(unittest.TestCase):
         # to a walk back any more, and MoveStep asks IslandConfirmed before its walk.
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         read = at(facts, "else if (step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&\n"
-                         "                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd)")
+                         "                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd &&\n"
+                         "                (slot.run.walkBack ||\n"
+                         "                    TortoiseBots::DungeonRun::ForwardMoveProbeWanted(slot.run, true, f.seen, f.anyInCombat, toPoint)))")
+        hit = at(facts, "if (forward && TortoiseBots::DungeonRun::MoveProbeHit(slot.moveProbe, slot.run.step, lead->GetPositionX(),\n"
+                        "                        lead->GetPositionY(), step->x, step->y, step->z, slot.run.runMs))")
+        cached = at(facts, "f.leadIsland = slot.moveProbe.island;\n                    f.leadPathGood = slot.moveProbe.good;")
         note = at(facts, "NoteLeadWay(path, lead, step->x, step->y, step->z, f);")
-        self.assertLess(read, note)
+        store = at(facts, "if (forward)\n                        TortoiseBots::DungeonRun::StoreMoveProbe(slot.moveProbe, slot.run.step, lead->GetPositionX(),\n"
+                          "                            lead->GetPositionY(), step->x, step->y, step->z, slot.run.runMs, f.leadIsland, f.leadPathGood);")
+        self.assertTrue(read < hit < cached < note < store)
+        # The combat fact the gate reads is set before the step's facts.
+        self.assertLess(at(facts, "f.anyInCombat = true;"), read)
+        at(COMMANDS, "mutable TortoiseBots::DungeonRun::MoveProbeCache moveProbe;")
         self.assertNotIn("slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase", facts)
         move = body(POLICY, "inline void MoveStep(", "\n}\n")
-        island = at(move, "IslandConfirmed(r, f, s.x, s.y, s.z)")
+        island = at(move, "IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r))")
         self.assertLess(island, at(move, "WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order)"))
         self.assertLess(island, at(move, "if (r.detour)"))
+        at(move, "IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r)))")
+        at(move, "r.escapeFromMove = r.escapeOn;")
+        refused = body(POLICY, "inline void OrderRefused(", "\n}\n")
+        at(refused, "if (!wait && ((r.walkBack && r.walkBackIdx < r.step) || fromMove))")
 
     def test_the_detour_candidate_leads_on(self):
         # r6-19z24: NearestReachablePoint took ring points whose partial paths
