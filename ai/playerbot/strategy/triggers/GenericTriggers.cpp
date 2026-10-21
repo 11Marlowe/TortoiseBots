@@ -1913,6 +1913,11 @@ bool PetAttackTrigger::IsActive()
     if (!AttackAction::CanPetAttack(ai, pet, target))
         return false;
 
+    // With a live tank in the party the pet goes in once the tank holds the
+    // mob, not the moment the bot picks it (F5: pets topped 11 % of threat lists).
+    if (AttackAction::PetHeldForTank(ai, target))
+        return false;
+
     // A channeling pet holds its spell (e.g. the succubus's Seduction):
     // re-ordering it to the DPS target moves it and breaks the channel.
     if (pet->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
