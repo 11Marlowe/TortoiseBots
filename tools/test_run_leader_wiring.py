@@ -236,7 +236,23 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn('order.compare(0, 4, "use ") == 0', COMMANDS)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         self.assertIn("case PlanStepKind::UseOn:\n            UseOnStep(r, f, *s, order);", policy)
+        # The review of 2026-10-21: the answer carries whether the act had started and whether the object reacted (its state
+        # before the cast is kept for a use on a game object), the slot clears both with each new order, and the facts read the
+        # summoned boss (the boss row after the use_on) alive or dead around the lead bot.
+        note = body(COMMANDS, "void NoteRunTaskReply(CommanderTask const& task, bool ok, std::string const& text)", "\n}\n")
+        self.assertIn("it->second.taskActStarted = task.actStarted;", note)
+        self.assertIn("ObjectEffectOf(task, ai) == RemoteCommander::ObjectEffect::Reacted", note)
+        begin = body(COMMANDS, "ActStart BeginUseAct(", "\n}\n")
+        self.assertLess(begin.index("task.baseline = PackGoState(go);"), begin.index('ExecuteQuietAction(ai, "commander use"'))
+        self.assertIn("slot.taskActStarted = false;\n            slot.taskObjectReacted = false;", COMMANDS)
+        self.assertIn("slot.taskActStarted = false;\n    slot.taskObjectReacted = false;", retire)
+        self.assertIn("f.taskActStarted = slot.taskActStarted;", facts)
+        self.assertIn("f.objectReacted = slot.taskObjectReacted;", facts)
+        self.assertIn("f.summonSeen = !found.empty();", facts)
         use_on = body(policy, "inline void UseOnStep(", "\n}\n")
+        self.assertIn("TaskResendable(f.taskText) && !f.taskActStarted && r.taskResends < kUseOnResends", use_on)
+        reset = body(policy, "inline void ResetStep(Run& r)", "\n}\n")
+        self.assertNotIn("useOnRang", reset)
         self.assertIn('order = "use " + std::to_string(s.item) + " " + f.carrier + " " + EntryArg(s.entry, s.x, s.y, s.z);', use_on)
 
     def test_live_fixes_2026_10_16_are_wired(self):

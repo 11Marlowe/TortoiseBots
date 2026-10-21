@@ -2734,8 +2734,116 @@ static void TestUseOnOneTargetedOrderThenAck()
     CHECK(Tick(r, f).empty() && r.step == 0 && r.state == State::Running);
     f.taskReply = 1;
     f.taskText = "1|spell 11434";
+    f.objectReacted = true; // the gong's state changed under the use (ObjectEffectOf at the ACK)
     Tick(r, f);
     CHECK(r.step == 1 && r.note == "use_on 141832 with item 9240 done: 1|spell 11434");
+    CHECK(r.useOnRang.count(0) == 1);
+}
+
+// The ACK alone proves nothing: the step ends only once the object reacted or the boss row's boss is in sight
+// (alive or dead); else, after kUseOnProofMs, an honest pause that says the ACK came but nothing happened.
+static void TestUseOnAckNeedsProof()
+{
+    PlanStep boss = Step(PlanStepKind::Boss, 1702.6f, 1224.2f, 8.9f);
+    boss.entry = 7273;
+    DungeonPlan plan;
+    plan.steps = {GongRow(), boss};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 1;
+    f.taskText = "1|spell 11434";
+    Tick(r, f);
+    CHECK(r.step == 0 && r.state == State::Running && r.useOnRang.count(0) == 1);
+    CHECK(r.note.find("ACKed") != std::string::npos);
+    // The boss appears: done.
+    Run b = r;
+    Facts g = f;
+    g.summonSeen = true;
+    Tick(b, g);
+    CHECK(b.step == 1 && b.note.find("boss 7273 is here") != std::string::npos);
+    // Nothing shows within the proof window: an honest pause, not the boss row's search note.
+    for (std::uint32_t ms = 0; ms <= kUseOnProofMs && r.state == State::Running; ms += kTickMs)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("the order was ACKed but object 141832 showed no change and boss 7273 did not show") != std::string::npos);
+}
+
+// Never a second use once the act started or the item took: an in-combat answer after the cast began (the walking use
+// task fails in a fight after its act started) pauses instead of sending again; a boss already here is no reason to use it.
+static void TestUseOnNoResendOnceTheActStarted()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 2;
+    f.taskText = "in-combat: The bot is in combat and stopped.";
+    f.taskActStarted = true;
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.taskResends == 0 && r.note.find("the cast had started") != std::string::npos);
+    // In combat before the act, but the boss row's boss is already in sight: no second use either.
+    PlanStep boss = Step(PlanStepKind::Boss, 1702.6f, 1224.2f, 8.9f);
+    boss.entry = 7273;
+    DungeonPlan withBoss;
+    withBoss.steps = {GongRow(), boss};
+    Run s = Start(&withBoss);
+    Facts g = Party(1650.9f);
+    g.carrierHasItem = true;
+    CHECK(!Tick(s, g).empty());
+    g.taskReply = 2;
+    g.taskText = "in-combat: The bot is in combat and stopped.";
+    g.summonSeen = true;
+    Tick(s, g);
+    CHECK(s.taskResends == 0 && s.state == State::Running && s.step == 1);
+    // A boss already here before any order: the step ends without a use.
+    Run t = Start(&withBoss);
+    Facts h = Party(1650.9f);
+    h.carrierHasItem = true;
+    h.summonSeen = true;
+    CHECK(Tick(t, h).empty() && t.step == 1);
+}
+
+// A wipe after the ACK (ResetStep clears orderSent and the resends) never sends the use again: the per-run latch holds,
+// and a run with no boss in sight pauses, naming why.
+static void TestUseOnResetAfterAckDoesNotUseAgain()
+{
+    PlanStep boss = Step(PlanStepKind::Boss, 1702.6f, 1224.2f, 8.9f);
+    boss.entry = 7273;
+    DungeonPlan plan;
+    plan.steps = {GongRow(), boss};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    f.taskReply = 1;
+    Tick(r, f);
+    CHECK(r.useOnRang.count(0) == 1);
+    ResetStep(r); // a wipe or the lead bot's death
+    f.taskReply = 0;
+    f.taskText.clear();
+    CHECK(Tick(r, f).empty() && !r.orderSent);
+    CHECK(r.state == State::Paused && r.note.find("used once already this run") != std::string::npos);
+    CHECK(Resume(r));
+    for (int i = 0; i < 400 && r.state == State::Running; ++i)
+        CHECK(Tick(r, f).compare(0, 4, "use ") != 0);
+}
+
+// The item is in a dead bot's bags: the pause names that bot (revive it), not a second item.
+static void TestUseOnNamesADeadHolder()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = false;
+    f.itemsSplit = "item 9240 is with Tanky, who is dead";
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.note.find("item 9240 is with Tanky, who is dead") != std::string::npos);
+    CHECK(r.note.find(".additem") == std::string::npos);
 }
 
 // No bot of the party carries the item: a pause that says so (the item is the operator's to give), no order.
@@ -2752,7 +2860,7 @@ static void TestUseOnWithoutTheItemPauses()
 }
 
 // An answer that says the cast did not happen (in combat, busy, an interrupted cast) is sent again ONCE: a second cast
-// that took would run the object's event twice (a second Gahz'rilla despawns the first). Any other ERR pauses at once,
+// that took would run the object's event twice (a second Gahz'rilla dies at once and lies invisible at the pit). Any other ERR pauses at once,
 // naming the module's text.
 static void TestUseOnResendsOnceThenPauses()
 {
@@ -2799,6 +2907,7 @@ static void TestUseOnNoAnswerPauses()
     for (std::uint32_t ms = 0; ms <= kTaskCapMs && r.state == State::Running; ms += kTickMs)
         Tick(r, f);
     CHECK(r.state == State::Paused && r.note.find("no answer") != std::string::npos);
+    CHECK(r.useOnRang.count(0) == 1); // it may have taken: never sent again this run
 }
 
 // A use_on right before a hold starts that event, as open and use_item do.
@@ -9171,6 +9280,10 @@ int main()
     TestUseOnResendsOnceThenPauses();
     TestUseOnNoAnswerPauses();
     TestUseOnStartsAnEvent();
+    TestUseOnAckNeedsProof();
+    TestUseOnNoResendOnceTheActStarted();
+    TestUseOnResetAfterAckDoesNotUseAgain();
+    TestUseOnNamesADeadHolder();
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();

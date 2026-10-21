@@ -63,6 +63,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -188,6 +189,8 @@ constexpr std::uint32_t kLootRestoreTries = 3;    // ... and orders the loot met
 constexpr std::uint32_t kTaskResends = 2;         // loot, open, use: an interrupted or in-combat task is sent again this often
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kUseOnResends = 1;        // use_on: an answer that says the cast did not happen is sent again once
+constexpr std::uint32_t kUseOnProofMs = 30000;    // use_on: after the ACK, the object's change or its boss must show this soon
+constexpr float kUseOnSummonYd = 150.0f;          // use_on: how far around the lead bot the glue looks for the summoned boss
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
 // Scripted events (ritual, hold; docs/play/dungeon-run-leader.md "Events").
@@ -458,6 +461,12 @@ struct Facts
     // open / use_item: the step's inputs (its item, and `param` when set) are
     // split between bots, none carries them all: who holds what (PickItemCarrier).
     std::string itemsSplit;
+    // use_on: the act of the carrier's task had started when its answer came (the cast began: an in-combat answer after it
+    // is no sign the item did not take); the object's state differed from the one it had when the use began (ObjectEffectOf
+    // at the answer); a unit of the boss row right after the use_on is in sight around the lead bot, alive or dead.
+    bool taskActStarted = false;
+    bool objectReacted = false;
+    bool summonSeen = false;
     bool carrierHasItem = false;        // the step's `item` is in the carrier's bags
     bool carrierHasEntryItem = false;   // use_item: the item to use is in the bags
     bool carrierBusy = false;           // a commander task (loot/open/use) runs for the carrier
@@ -551,6 +560,7 @@ struct Run
     bool stepRested = false; // a `rest` step has had its gate
     bool orderSent = false;  // task steps: the order went out
     std::uint32_t taskResends = 0; // task steps: orders sent again after an interrupted cast or an in-combat answer
+    std::set<std::size_t> useOnRang; // use_on steps whose order was ACKed (or went unanswered) this run: never sent again; ResetStep keeps it
     long long dataAtOrder = -1; // a ritual: the hold's instance data when the order went out
     bool walkedThrough = false;
     // The target of the approach hop the walk goes to (hopWalk), to tell it from
@@ -4919,18 +4929,54 @@ inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t 
 // `use <item> <bot> entry:<obj>@x,y,z`, which walks the bot to the object and
 // casts the item's spell at it (Zul'Farrak's gong 141832: the Mallet of
 // Zul'Farrak 9240's spell 11434 opens its lock and the gong's event summons
-// Gahz'rilla; a plain `open` of the gong does nothing). ONE order: an answer
-// that says the cast did not happen (in combat, busy, an interrupted cast) is
-// sent again once (kUseOnResends), never more, since a second cast that took
-// would run the object's event twice (a second Gahz'rilla despawns the first).
-// Only the order's ACK ends the step; an ERR pauses with the module's text; no
-// carrier with the item pauses before any order (the item is the operator's
-// to give: the run leader has no GM step).
+// Gahz'rilla; a plain `open` of the gong does nothing).
+//
+// The use is made ONCE a run. A second use summons a second Gahz'rilla, which
+// the instance kills at once (instance_zulfarrak.cpp OnCreatureCreate:
+// DisappearAndDie once the encounter is in progress), leaving an invisible
+// corpse at the pit that a boss row may take for his death. So:
+//   - an answer that says the cast did not happen (in combat, busy, an
+//     interrupted cast) is sent again once (kUseOnResends), and only when the
+//     act had not started (Facts::taskActStarted);
+//   - a boss row's boss already in sight (alive or dead, Facts::summonSeen)
+//     ends the step without a use, before the order and after an ERR;
+//   - once an ACK came, the step is latched for the run (Run::useOnRang, kept
+//     through ResetStep: a wipe or the lead bot's death replays the step, never
+//     the use);
+//   - the ACK alone is not taken as done: the object must have reacted
+//     (Facts::objectReacted) or the boss must show within kUseOnProofMs, else
+//     the run pauses saying so.
+// An ERR pauses with the module's text; the item in a dead or absent bot's
+// bags (Facts::itemsSplit) pauses naming that bot; no carrier with the item
+// pauses before any order (the item is the operator's to give: the run leader
+// has no GM step).
 inline void UseOnStep(Run& r, const Facts& f, const PlanStep& s, std::string& order)
 {
     std::string const what = "use_on " + std::to_string(s.entry) + " with item " + std::to_string(s.item);
+    const PlanStep* next = r.plan && r.step + 1 < r.plan->steps.size() ? &r.plan->steps[r.step + 1] : nullptr;
+    std::string const boss = next && next->kind == PlanStepKind::Boss ? "boss " + std::to_string(next->entry) : std::string();
+    bool const seen = f.summonSeen && !boss.empty();
     if (!r.orderSent)
     {
+        if (seen)
+        {
+            r.useOnRang.insert(r.step);
+            NextStep(r, what + ": " + boss + " is here already (alive or dead): not used again");
+            return;
+        }
+        if (r.useOnRang.count(r.step))
+        {
+            Pause(r, what + ": used once already this run (its order was ACKed) and " +
+                (boss.empty() ? std::string("nothing shows it took") : boss + " is not in sight") +
+                ": not used again (a second use summons a second boss that the instance kills at once, leaving an " +
+                "invisible corpse); .bot run skip goes on");
+            return;
+        }
+        if (!f.itemsSplit.empty())
+        {
+            Pause(r, what + ": " + f.itemsSplit + " (revive or bring that bot, then .bot run resume)");
+            return;
+        }
         if (!f.carrierHasItem)
         {
             Pause(r, what + ": no bot of the party carries item " + std::to_string(s.item) + " (" + f.carrier +
@@ -4951,7 +4997,14 @@ inline void UseOnStep(Run& r, const Facts& f, const PlanStep& s, std::string& or
     }
     if (f.taskReply == 2)
     {
-        if (TaskResendable(f.taskText) && r.taskResends < kUseOnResends)
+        if (seen)
+        {
+            r.useOnRang.insert(r.step);
+            NextStep(r, what + ": " + boss + " is here (the use took before the answer " + FirstSentence(f.taskText) +
+                "): not used again");
+            return;
+        }
+        if (TaskResendable(f.taskText) && !f.taskActStarted && r.taskResends < kUseOnResends)
         {
             ++r.taskResends;
             r.orderSent = false;
@@ -4960,18 +5013,40 @@ inline void UseOnStep(Run& r, const Facts& f, const PlanStep& s, std::string& or
                 " of " + std::to_string(kUseOnResends) + ")";
             return;
         }
-        Pause(r, what + " failed: " + f.taskText);
+        Pause(r, what + " failed: " + f.taskText +
+            (f.taskActStarted ? " (the cast had started: not sent again; look whether it took before .bot run resume)"
+                              : std::string()));
         return;
     }
     if (f.taskReply == 1)
     {
-        NextStep(r, what + " done" + (f.taskText.empty() ? std::string() : ": " + f.taskText));
+        r.useOnRang.insert(r.step);
+        if (f.objectReacted || seen)
+        {
+            NextStep(r, what + " done" + (f.objectReacted ? (f.taskText.empty() ? std::string() : ": " + f.taskText)
+                                                          : ": " + boss + " is here"));
+            return;
+        }
+        if (r.phase != Phase::Wait)
+            EnterPhase(r, Phase::Wait);
+        if (r.phaseMs >= kUseOnProofMs)
+        {
+            Pause(r, what + ": the order was ACKed but object " + std::to_string(s.entry) + " showed no change" +
+                (boss.empty() ? std::string() : " and " + boss + " did not show") + " within " +
+                std::to_string(kUseOnProofMs / 1000) + " s: the item did not take (it is not used again this run; " +
+                ".bot run skip goes on)");
+            return;
+        }
+        r.note = what + ": ACKed; waiting for the object or " + (boss.empty() ? std::string("its event") : boss) +
+            " to show it took";
         return;
     }
     if (r.phaseMs >= kTaskCapMs)
     {
-        Pause(r, what + ": no answer in " + std::to_string(kTaskCapMs / 1000) + " s (look whether the object's " +
-            "event ran before .bot run resume: a resume uses the item on it again)");
+        // The use may have taken without an answer: latched like an ACK, never sent again this run.
+        r.useOnRang.insert(r.step);
+        Pause(r, what + ": no answer in " + std::to_string(kTaskCapMs / 1000) + " s: not used again this run (it may " +
+            "have taken); .bot run skip goes on");
         return;
     }
     r.note = what + (f.carrierBusy ? ": " + f.carrier + " is on it" : std::string(": waiting for the answer"));
