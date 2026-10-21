@@ -30,6 +30,16 @@ public:
     void EquipGearPartialUpgrade() { return InitEquipment(false, false, true, true); }
     void UpgradeGear(bool syncWithMaster) { return InitEquipment(!syncWithMaster, syncWithMaster); }
     void UpgradeGearBest() { return InitEquipment(true, false, false); }
+    // Owner rule (Oct 2026): generated gear is also capped by the bot's own
+    // level (TortoiseBots::GearItemLevelCap), so a wandering pool bot never
+    // wears raid loot it could not have earned. Every gear pass that serves
+    // pool bots or standard (tier 0) companions declares its population here
+    // first: MakeComplete (pool seed and later re-gear), UpgradeGearBest on a
+    // pool respec (ChangeTalentsAction) and ProvisionSpellsAndGear (companion
+    // kit). The owned-bot autogear, the master-sync path and the curated hire
+    // tiers set neither and keep the global RandomGearMaxLevel alone.
+    void UsePoolGearCap() { generatedGearIlvlAboveLevel = sPlayerbotAIConfig.randomGearMaxItemLevelAboveLevel; }
+    void UseStandardHireGearCap() { generatedGearIlvlAboveLevel = sPlayerbotAIConfig.hireGearMaxItemLevelAboveLevel; }
     // Issue #473: owned-bot autogear. Incremental-only re-gear at the bot's
     // level within a quality/ilvl cap, via the same candidate pool as every
     // other gear path (no wipe, no syncWithMaster; the ilvl cap is an
@@ -115,7 +125,7 @@ private:
     // loot-attested BoE world epics the bot can wear. Returns true with ids
     // filled when the slot has any; false (fall back to the normal band)
     // otherwise.
-    bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids);
+    bool TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, std::vector<uint32>& ids);
     bool CanEquipItem(ItemPrototype const* proto, uint32 desiredQuality);
     void InitTradeSkills();
     void SetRandomSkill(uint16 id);
@@ -171,6 +181,12 @@ private:
     // Set only by AutogearOwned: InitEquipment then filters the ranged slot
     // by the ammo the bags hold.
     bool ammoAwareRanged = false;
+    // Generated-gear item-level cap: how far above its own level a bot's
+    // *generated* gear may sit (TortoiseBots::GearItemLevelCap). Set through
+    // UsePoolGearCap() / UseStandardHireGearCap() by the passes that serve pool
+    // bots and standard companions; 0 keeps the global RandomGearMaxLevel
+    // alone, which is what the owned-bot and master-sync paths want.
+    uint32 generatedGearIlvlAboveLevel = 0;
 };
 
 enum PriorizedConsumables

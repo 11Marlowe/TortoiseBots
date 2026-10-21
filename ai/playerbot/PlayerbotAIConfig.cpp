@@ -229,6 +229,8 @@ bool PlayerbotAIConfig::Initialize()
 
     randomGearMaxLevel = config.GetIntDefault("AiPlayerbot.RandomGearMaxLevel", 100);
     randomGearMaxDiff = config.GetIntDefault("AiPlayerbot.RandomGearMaxDiff", 9);
+    randomGearMaxItemLevelAboveLevel = std::max(0, config.GetIntDefault("AiPlayerbot.RandomGearMaxItemLevelAboveLevel", 1));
+    hireGearMaxItemLevelAboveLevel = std::max(0, config.GetIntDefault("AiPlayerbot.HireGearMaxItemLevelAboveLevel", 5));
     randomGearMaxSourceTier = config.GetIntDefault("AiPlayerbot.RandomGearMaxSourceTier", 0);
     randomGearAllowReputation = config.GetBoolDefault("AiPlayerbot.RandomGearAllowReputation", false);
     randomGearAllowPvP = config.GetBoolDefault("AiPlayerbot.RandomGearAllowPvP", false);

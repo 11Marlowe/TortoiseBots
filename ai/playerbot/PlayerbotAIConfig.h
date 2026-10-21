@@ -126,6 +126,13 @@ public:
     uint32 transportTeleportType;
     uint32 randomGearMaxLevel;
     uint32 randomGearMaxDiff;
+    // Owner rule (Oct 2026): generated gear is bounded by the bot's own level,
+    // not only by randomGearMaxLevel. Pool bots (fresh seed and every later
+    // regear) cap at level + randomGearMaxItemLevelAboveLevel; the standard
+    // (tier 0) hire kit at level + hireGearMaxItemLevelAboveLevel. 0 disables
+    // the above-level part. Earned gear (loot, quests, vendor/AH) is uncapped.
+    uint32 randomGearMaxItemLevelAboveLevel;
+    uint32 hireGearMaxItemLevelAboveLevel;
     bool randomGearUpgradeEnabled;
     // Owner-rule source-tier cap (roadmap #289): 0 base only, 1 + end-game
     // dungeons (229/289/329/800), 2 + raids. REP/PVP are orthogonal flags.

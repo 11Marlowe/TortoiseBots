@@ -92,6 +92,7 @@ These settings configure autonomous random bots roaming the open world, includin
 | [`AiPlayerbot.RandomGearAllowPvP`](#aiplayerbotrandomgearallowpvp) | `0` | Allows or disallows PvP honor rank items on newly seeded bots. |
 | [`AiPlayerbot.RandomGearSeedEpicChance`](#aiplayerbotrandomgearseedepicchance) | `0.02` | Probability per equipment slot that a fresh seed rolls a rare world epic. |
 | [`AiPlayerbot.RandomGearMaxLevel`](#aiplayerbotrandomgearmaxlevel) | `100` | Maximum item level considered when generating random equipment. |
+| [`AiPlayerbot.RandomGearMaxItemLevelAboveLevel`](#aiplayerbotrandomgearmaxitemlevelabovelevel) | `1` | Item-level allowance above a pool bot's own level for generated gear. |
 | [`AiPlayerbot.ForceRebuffOnReadyCheck`](#aiplayerbotforcerebuffonreadycheck) | `0` | Delays ready check confirmation until all party buffs are refreshed. |
 | [`AiPlayerbot.RpgDelay`](#aiplayerbotrpgdelay) | `10000` | Delay in milliseconds between autonomous roleplay interactions. |
 | [`AiPlayerbot.RndBotCheats`](#aiplayerbotrndbotcheats) | `repair,breath,item` | Sustenance and repair cheats active on masterless random pool bots. |
@@ -1047,6 +1048,19 @@ Caps the maximum item level considered when selecting random equipment.
 <summary>How it works in detail</summary>
 
 Defines the absolute item level ceiling for random equipment pools, accommodating high-tier end-game items.
+
+</details>
+
+### `AiPlayerbot.RandomGearMaxItemLevelAboveLevel`
+Caps generated pool-bot gear relative to the bot's own level.
+**Default:** `1` · **Values:** integer item levels · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+Generated item level must not exceed `bot level + this value`, and never exceeds `AiPlayerbot.RandomGearMaxLevel`. The default `1` means a level-60 pool bot tops out at item level 61, roughly what its own drops and dungeons give.
+
+It applies to fresh seeding and to every later re-gear of a wandering pool bot. Gear a bot earns itself — loot, quest rewards, vendor and auction purchases — is organic and is not capped. `0` keeps `AiPlayerbot.RandomGearMaxLevel` as the only ceiling. Standard (tier 0) hired companions use [`AiPlayerbot.HireGearMaxItemLevelAboveLevel`](hiring.md#aiplayerbothiregearmaxitemlevelabovelevel) instead, and the curated tier 1-7 hire kits are unaffected.
 
 </details>
 
