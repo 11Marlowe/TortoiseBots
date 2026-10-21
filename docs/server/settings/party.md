@@ -102,6 +102,8 @@ Idle party bots arrange themselves in the chosen geometric formation relative to
 - `arrow`: arrowhead formation with role groups staged in depth behind the leader's facing direction.
 - `queue`: single-file column trailing behind the leader.
 
+Bots walk into their slot once when a formation is set or changed. After that they stand still and follow the leader normally, so an idle party does not shuffle.
+
 Individual bots can be assigned custom formations during gameplay using the [`.bot formation`](../../play/commands/party-actions.md#bot-formation) command.
 
 </details>
