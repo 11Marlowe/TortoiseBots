@@ -97,6 +97,7 @@ constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point m
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
 constexpr std::uint32_t kGatherCapMs = 30000;
+constexpr std::uint32_t kGatherComingMaxMs = 90000; // a straggler that keeps coming is waited for this long in all
 constexpr float kSummonYd = 40.0f;                // at a gather's ceiling a bot this far that ...
 constexpr float kStragglerDzYd = 8.0f;            // ... or this far up or down (another floor) ...
 constexpr float kStragglerGainYd = 5.0f;          // ... came less than this closer since the last sample is summoned
@@ -649,6 +650,7 @@ struct Run
     std::uint32_t gatherRefusals = 0;
     bool gatherWaived = false;
     std::unordered_set<std::string> summoned; // stragglers this step summoned already (once each)
+    std::uint32_t gatherComingMs = 0; // the gather ceilings this step let a straggler that keeps coming pass (GatherCeiling)
     std::string summonDue; // a follower a direct step left behind (refused too-far): summoned on the next tick
     std::string summonWait; // ... the summon sent: the step waits for that bot at the lead bot (kSummonWaitMs at most)
     std::uint32_t summonWaitMs = 0;
@@ -1118,6 +1120,7 @@ inline void ResetStep(Run& r)
     r.gatherRefusals = 0;
     r.gatherWaived = false;
     r.summoned.clear();
+    r.gatherComingMs = 0;
     r.summonDue.clear();
     r.summonWait.clear();
     r.summonWaitMs = 0;
@@ -1297,6 +1300,52 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
         (pickStill ? "has not moved for " + std::to_string(kStillMs / 1000) + " s" : std::string("does not come closer")) +
         ": summoned";
     return true;
+}
+
+// The ceiling of a pull's or a direct step's gather (kGatherCapMs). In order:
+// SummonStraggler (a stuck or far bot, once each). Else the farthest bot, if it
+// is still on its way (it is not still and came kStragglerGainYd closer since
+// the last sample, the gather's start or the last ceiling), is waited for: the
+// gather starts over for another kGatherCapMs, up to kGatherComingMaxMs in all
+// (Run::gatherComingMs). Uldaman r4-19z21 slot 2 step 102: a bot 33.7 yd out,
+// walking in at about 1 yd/s, paused the run at the 30 s ceiling. Else, that
+// bot is summoned once (past the limit, or when it is walking but not coming)
+// unless it is in a fight; and if none of that applies: the pause, with the
+// text the caller gave.
+inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std::string& pauseText)
+{
+    std::unordered_map<std::string, float> const sampled = r.memberYd; // SummonStraggler takes a new sample
+    if (SummonStraggler(r, f, order))
+    {
+        EnterPhase(r, Phase::Gather);
+        return;
+    }
+    const MemberFact* farthest = nullptr;
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && m.yd > kGatherYd && (!farthest || m.yd > farthest->yd))
+            farthest = &m;
+    if (farthest && !r.summoned.count(farthest->name))
+    {
+        auto it = sampled.find(farthest->name);
+        bool const coming = !IsStill(r, farthest->name) && it != sampled.end() && it->second - farthest->yd >= kStragglerGainYd;
+        if (coming && kGatherCapMs + r.gatherComingMs < kGatherComingMaxMs)
+        {
+            r.gatherComingMs += kGatherCapMs;
+            EnterPhase(r, Phase::Gather);
+            r.note = "gathering: " + farthest->name + " is coming (" + Num(farthest->yd) + " yd)";
+            return;
+        }
+        if (!farthest->inCombat && !farthest->attackers)
+        {
+            r.summoned.insert(farthest->name);
+            order = "summon " + farthest->name;
+            r.note = "gather: " + farthest->name + " stands " + Num(farthest->yd) + " yd from the lead bot and " +
+                (coming ? std::string("did not come in time") : std::string("does not come closer")) + ": summoned";
+            EnterPhase(r, Phase::Gather);
+            return;
+        }
+    }
+    Pause(r, pauseText);
 }
 
 // A regroup's gather: a living bot far from the lead bot (kSummonYd, or
@@ -1551,6 +1600,7 @@ inline void BeginRegroup(Run& r)
     r.rezNudged = false;
     r.regroupDead = -1;
     r.summoned.clear(); // one summon per bot per regroup (SummonStraggler)
+    r.gatherComingMs = 0;
     r.reviveSummons.clear();
     r.regroupGatherCapMs = kRegroupGatherMs;
     r.leadDied = false; // the regroup revives and gathers whoever died
@@ -3054,11 +3104,8 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         }
         else if (r.phaseMs >= kGatherCapMs)
         {
-            if (SummonStraggler(r, f, order))
-                EnterPhase(r, Phase::Gather);
-            else
-                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) + " s (a bot is " +
-                    Num(f.maxMemberYd) + " yd from the lead bot)");
+            GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
+                " s (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
         }
         return;
     }
@@ -3675,11 +3722,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         }
         else if (r.phaseMs >= kGatherCapMs)
         {
-            if (SummonStraggler(r, f, order))
-                EnterPhase(r, Phase::Gather);
-            else
-                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
-                    " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+            GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
+                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
         }
         return true;
     }
@@ -3971,11 +4015,8 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         }
         else if (r.phaseMs >= kGatherCapMs)
         {
-            if (SummonStraggler(r, f, order))
-                EnterPhase(r, Phase::Gather);
-            else
-                Pause(r, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
-                    " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
+            GatherCeiling(r, f, order, "the party did not gather within " + std::to_string(kGatherCapMs / 1000) +
+                " s before a direct step (a bot is " + Num(f.maxMemberYd) + " yd from the lead bot)");
         }
         return;
     }
