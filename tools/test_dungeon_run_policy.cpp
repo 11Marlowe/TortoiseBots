@@ -2373,6 +2373,127 @@ static void TestOpenWithoutKeyAndTaskError()
     CHECK(r.state == State::Paused && r.note.find("locked") != std::string::npos);
 }
 
+// ---- task resend (F1): an interrupted cast or an in-combat answer sends the same order again ----
+
+static const char* const kInterruptedText =
+    "failed: The opening cast was interrupted after 2.5 s (it did not move and is not in combat).";
+
+// One AwaitTask round: the order is out (carrier busy), then the ERR answer is read.
+static std::string AnswerErr(Run& r, Facts& f, const std::string& text)
+{
+    f.carrierBusy = true;
+    f.taskReply = 2;
+    f.taskText = text;
+    std::string order = Tick(r, f);
+    f.carrierBusy = false; // the module's task ended with the answer
+    f.taskReply = 0;
+    f.taskText.clear();
+    return order;
+}
+
+static void TestTaskResendAfterInterruptedCast()
+{
+    for (PlanStepKind kind : {PlanStepKind::Loot, PlanStepKind::Open})
+    {
+        DungeonPlan plan;
+        plan.steps = {GraveStep(kind, 0), Step(PlanStepKind::Move, 9)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        std::string const first = Tick(r, f);
+        CHECK(first.compare(0, 5, kind == PlanStepKind::Loot ? "loot " : "open ") == 0);
+        CHECK(r.orderSent && r.phase == Phase::AwaitTask);
+
+        // 1st failure: running, back at Begin, the note says so, the next tick sends the same order.
+        AnswerErr(r, f, kInterruptedText);
+        CHECK(r.state == State::Running && r.step == 0 && r.phase == Phase::Begin && !r.orderSent);
+        CHECK(r.note.find("sending it again (1 of 2)") != std::string::npos);
+        CHECK(r.note.find("The opening cast was interrupted after 2.5 s (it did not move and is not in combat): sending") != std::string::npos);
+        CHECK(Tick(r, f) == first);
+        CHECK(r.orderSent && r.phase == Phase::AwaitTask);
+
+        // 2nd failure: again.
+        AnswerErr(r, f, kInterruptedText);
+        CHECK(r.state == State::Running && r.step == 0 && !r.orderSent);
+        CHECK(r.note.find("sending it again (2 of 2)") != std::string::npos);
+        CHECK(Tick(r, f) == first);
+
+        // 3rd failure: the old pause.
+        AnswerErr(r, f, kInterruptedText);
+        CHECK(r.state == State::Paused && r.step == 0);
+        CHECK(r.note.find("failed: " + std::string(kInterruptedText)) != std::string::npos);
+    }
+}
+
+static void TestTaskResendInCombatAndBusy()
+{
+    for (const char* text : {"in-combat: The bot is in combat and stopped.", "busy: The chest is in use."})
+    {
+        DungeonPlan plan;
+        plan.steps = {GraveStep(PlanStepKind::Loot, 0), Step(PlanStepKind::Move, 9)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        std::string const first = Tick(r, f);
+        AnswerErr(r, f, text);
+        CHECK(r.state == State::Running && r.phase == Phase::Begin && !r.orderSent);
+        CHECK(r.note.find("sending it again (1 of 2)") != std::string::npos);
+        CHECK(Tick(r, f) == first);
+    }
+}
+
+// The counter is per step: the second step gets its own two re-sends; a resume resets it too.
+static void TestTaskResendCounterResetsPerStep()
+{
+    DungeonPlan plan;
+    plan.steps = {GraveStep(PlanStepKind::Open, 0), GraveStep(PlanStepKind::Open, 0)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    AnswerErr(r, f, kInterruptedText);
+    Tick(r, f);
+    AnswerErr(r, f, kInterruptedText);
+    Tick(r, f);
+    Tick(r, f); // the 3rd try ends without an error: step 2
+    CHECK(r.step == 1);
+    CHECK(r.taskResends == 0);
+    for (int i = 0; i < 3 && !r.orderSent; ++i)
+        Tick(r, f);
+    CHECK(r.orderSent);
+    AnswerErr(r, f, kInterruptedText);
+    CHECK(r.state == State::Running && r.note.find("sending it again (1 of 2)") != std::string::npos);
+}
+
+// A loot step sends to the same bot again: taskBot and the tried list are left as they were.
+static void TestTaskResendKeepsTheLootBot()
+{
+    DungeonPlan plan;
+    plan.steps = {GraveStep(PlanStepKind::Loot, 0), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    Tick(r, f);
+    std::string const bot = r.taskBot;
+    std::size_t const tried = r.lootTried.size();
+    AnswerErr(r, f, kInterruptedText);
+    CHECK(r.taskBot == bot);
+    CHECK(r.lootTried.size() == tried);
+    CHECK(r.lootRefusal.empty());
+}
+
+// Other failures still pause at once.
+static void TestTaskResendNotForOtherFailures()
+{
+    for (const char* text : {"locked: needs key", "failed: The bot was interrupted by a spell.", "too-far: x"})
+    {
+        DungeonPlan plan;
+        plan.steps = {GraveStep(PlanStepKind::Open, 0), Step(PlanStepKind::Move, 9)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        Tick(r, f);
+        AnswerErr(r, f, text);
+        CHECK(r.state == State::Paused && r.step == 0);
+        CHECK(r.note.find("sending it again") == std::string::npos);
+    }
+}
+
 // ---- gossip step (talk to an NPC: `cmd gossip <entry> <lead bot> <option>`) ----
 
 // Weegli Blastfuse (7607): option 1, the top of his menu, at x.
@@ -7683,6 +7804,11 @@ int main()
     TestFightCeiling();
     TestTaskSteps();
     TestOpenWithoutKeyAndTaskError();
+    TestTaskResendAfterInterruptedCast();
+    TestTaskResendInCombatAndBusy();
+    TestTaskResendCounterResetsPerStep();
+    TestTaskResendKeepsTheLootBot();
+    TestTaskResendNotForOtherFailures();
     TestWaitObjectTimeoutIsBounded();
     TestUnsupportedPausesAndSkip();
     TestPlayerOrderAndRefusalPause();

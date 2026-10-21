@@ -180,6 +180,7 @@ constexpr std::uint32_t kPartyRezWaitMs = 15000;  // a regroup with a living rez
                                                   // long for its resurrection before `revive party` releases the dead
 constexpr std::uint32_t kLootFfaWaitMs = 20000;   // a loot step's free-for-all detour waits this long for a busy carrier
 constexpr std::uint32_t kLootRestoreTries = 3;    // ... and orders the loot method back this many times (one a tick)
+constexpr std::uint32_t kTaskResends = 2;         // loot, open, use: an interrupted or in-combat task is sent again this often
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
@@ -542,6 +543,7 @@ struct Run
     bool restForEating = false; // the rest phase is the meal wait: it also ends when nobody eats any more
     bool stepRested = false; // a `rest` step has had its gate
     bool orderSent = false;  // task steps: the order went out
+    std::uint32_t taskResends = 0; // task steps: orders sent again after an interrupted cast or an in-combat answer
     long long dataAtOrder = -1; // a ritual: the hold's instance data when the order went out
     bool walkedThrough = false;
     // The target of the approach hop the walk goes to (hopWalk), to tell it from
@@ -1087,6 +1089,7 @@ inline void ResetStep(Run& r)
     r.restForEating = false;
     r.stepRested = false;
     r.orderSent = false;
+    r.taskResends = 0;
     r.taskBot.clear();
     r.lootTried.clear();
     r.lootRefusal.clear();
@@ -4308,6 +4311,25 @@ inline bool LootFfaRestoreTick(Run& r, const Facts& f, std::string& order)
     return true;
 }
 
+// A task answer that is worth one more try: the cast was cut (an interrupted opening, the party's fight), or the
+// bot or the object was busy. The fight is handled first by the run (it holds the tick), then the same order goes out.
+inline bool TaskResendable(const std::string& text)
+{
+    auto starts = [&](const std::string& prefix) { return text.compare(0, prefix.size(), prefix) == 0; };
+    return starts("in-combat:") || starts("busy:") || starts("failed: The opening cast was interrupted");
+}
+
+// The first sentence of a module answer, for a note ("2.5 s" does not end it: a full stop ends it when a space or
+// the end follows).
+inline std::string FirstSentence(const std::string& text)
+{
+    std::size_t const at = text.find(". ");
+    std::string out = at == std::string::npos ? text : text.substr(0, at);
+    while (!out.empty() && out.back() == '.')
+        out.pop_back();
+    return out;
+}
+
 // loot, open, use_item: one commander task for the carrier, then its result.
 inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& order)
 {
@@ -4422,6 +4444,17 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
         if (s.kind == PlanStepKind::Loot && LootRefusalOpen(f.taskText))
         {
             LootRefused(r, kind + " failed: " + f.taskText);
+            return;
+        }
+        if (TaskResendable(f.taskText) && r.taskResends < kTaskResends)
+        {
+            // An interrupted cast or an in-combat answer: the run leader fights first (it already does), then the
+            // same order goes out again, to the same bot (taskBot and lootTried stay).
+            ++r.taskResends;
+            r.orderSent = false;
+            EnterPhase(r, Phase::Begin);
+            r.note = kind + ": " + FirstSentence(f.taskText) + ": sending it again (" + std::to_string(r.taskResends) +
+                " of " + std::to_string(kTaskResends) + ")";
             return;
         }
         Pause(r, kind + " failed: " + f.taskText + MissingHint(r));
