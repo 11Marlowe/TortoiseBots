@@ -5904,14 +5904,20 @@ static Facts OnIsland()
 
 static void TestLeadOnIslandReading()
 {
-    CHECK(LeadOnIsland(true, 1.1f, 315.1f));             // partial, ends at the lead bot
-    CHECK(LeadOnIsland(true, 3.05f, 315.1f));            // ... or across the island (B5: step 65, 1591.2 1044.3)
-    CHECK(LeadOnIsland(true, kGoodPathMinYd, 315.1f));
-    CHECK(!LeadOnIsland(true, kGoodPathMinYd + 0.1f, 315.1f)); // partial and gets somewhere: the length cap
-    CHECK(!LeadOnIsland(false, 1.1f, 315.1f));           // complete
-    CHECK(!LeadOnIsland(true, -1.0f, 315.1f));           // not measured
-    CHECK(!LeadOnIsland(true, 1.1f, kArriveYd));         // at the point already
-    CHECK(!LeadOnIsland(true, 6.0f, 9.0f));              // the path ends at the point: not short of it
+    CHECK(LeadOnIsland(false, true, 1.1f, 315.1f));             // partial, ends at the lead bot
+    CHECK(LeadOnIsland(false, true, 3.05f, 315.1f));            // ... or across the island (B5: step 65, 1591.2 1044.3)
+    CHECK(LeadOnIsland(false, true, kGoodPathMinYd, 315.1f));
+    CHECK(!LeadOnIsland(false, true, kGoodPathMinYd + 0.1f, 315.1f)); // partial and gets somewhere: the length cap
+    CHECK(!LeadOnIsland(false, false, 1.1f, 315.1f));           // complete
+    CHECK(!LeadOnIsland(false, true, -1.0f, 315.1f));           // not measured
+    CHECK(!LeadOnIsland(false, true, 1.1f, kArriveYd));         // at the point already
+    CHECK(!LeadOnIsland(false, true, 6.0f, 9.0f));              // the path ends at the point: not short of it
+    // No path (r9-19z26 Uldaman: a partial path inside the smooth-path slop comes back NOPATH, its end the
+    // point itself, 59.4 yd off for step 127 and 9.9 yd for step 124): one reading, however far its end.
+    CHECK(LeadOnIsland(true, false, 59.4f, 59.4f));
+    CHECK(LeadOnIsland(true, false, 9.9f, 9.9f));
+    CHECK(LeadOnIsland(true, false, -1.0f, kArriveYd + 0.1f));
+    CHECK(!LeadOnIsland(true, false, kArriveYd, kArriveYd));     // at the point already
     CHECK(LeadPathGood(false, false, 0.5f));
     CHECK(LeadPathGood(false, true, kGoodPathMinYd + 0.1f));
     CHECK(!LeadPathGood(false, true, kGoodPathMinYd));
@@ -6259,6 +6265,51 @@ static void TestForwardMoveIslandNeedsSecondSign()
     CHECK(Tick(a, h).find("escape") == std::string::npos);
 }
 
+// Uldaman r9-19z26 (descent leg): the fight of step 124 left the tank on a patch of
+// mesh at 132-139 / 296-304, z -23.8, above the -26.5 floor. From 137.3 298.7 -23.3
+// every path came back NOPATH (a partial one ending 0.0-0.2 yd off, inside the smooth
+// path's slop): step 124's move (141 290, 9.9 yd) and step 127's (158.8 243.8, 59.4 yd)
+// were refused unreachable, the second one 'no reachable point within 15 yd of it
+// either' = pause, twice. The reading said no island, so the escape never ran.
+static void TestForwardMoveNoPathLedgeEscapes()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 121, 280.5f, -26.3f), Step(PlanStepKind::Move, 141, 290, -26.4f),
+        Step(PlanStepKind::Move, 158.8f, 243.8f, -30.7f)};
+    float const lx = 137.3f, ly = 298.7f, lz = -23.3f;
+    auto onLedge = [&](float tx, float ty, float tz) {
+        Facts g = Party(0);
+        g.leadX = lx;
+        g.leadY = ly;
+        g.leadZ = lz;
+        float const to = ai::PlanDistance(lx, ly, lz, tx, ty, tz);
+        g.leadIsland = LeadOnIsland(true, false, to, to); // NOPATH: the end is the point itself
+        g.leadPathGood = LeadPathGood(true, false, to);
+        return g;
+    };
+    // Step 127 (here step 3): the last good spot was read at the via point 24.6 yd off,
+    // 94 s before; the path from the ledge to it is partial (the second sign).
+    Run r = Start(&plan, 2);
+    RecordGoodSpot(r, 121, 280.5f, -26.3f);
+    Facts g = onLedge(158.8f, 243.8f, -30.7f);
+    CHECK(g.leadIsland && !g.leadPathGood);
+    g.goodSpotCut = true;
+    CHECK(Tick(r, g) == "escape from 137.3 298.7 -23.3 toward 158.8 243.8 -30.7"); // the good spot is beyond kEscapeMaxYd
+    CHECK(r.note.find("navmesh island at 137.3 298.7 -23.3 (no path toward the point of step 3)") != std::string::npos);
+    CHECK(r.state == State::Running && r.escapeFromMove && r.goodLeadX == 121);
+    // Step 124 (here step 2) after the rest, 9.9 yd from its point: the same.
+    Run s = Start(&plan, 1);
+    RecordGoodSpot(s, 121, 280.5f, -26.3f);
+    Facts h = onLedge(141, 290, -26.4f);
+    h.goodSpotCut = true;
+    CHECK(Tick(s, h) == "escape from 137.3 298.7 -23.3 toward 141.0 290.0 -26.4");
+    // One sign alone (no fresh good spot, no second reading): the move goes out as before.
+    Run o = Start(&plan, 2);
+    Facts k = onLedge(158.8f, 243.8f, -30.7f);
+    CHECK(Tick(o, k) == "move 158.8 243.8 -30.7");
+    CHECK(o.islandEvidence && !o.escapeOn);
+}
+
 static void TestResumeEscapesFirst()
 {
     DungeonPlan plan = ZfIslandPlan();
@@ -6377,7 +6428,7 @@ static void TestIslandGapIsNotAGoodPath()
     Facts g = OnIsland();
     g.approachX = 1591.2f;
     g.approachY = 1044.3f;
-    g.leadIsland = LeadOnIsland(true, end, toStep65);
+    g.leadIsland = LeadOnIsland(false, true, end, toStep65);
     g.leadPathGood = LeadPathGood(false, true, end);
     CHECK(g.leadIsland && !g.leadPathGood);
     CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 to 1584.8 1040.2 8.9 toward 1633.6 1130.7 9.9");
@@ -6518,7 +6569,7 @@ static void TestSingleIslandReadingChangesNothing()
     r.walkBack = true;
     r.walkBackIdx = 0;
     Facts f = Party(0);
-    f.leadIsland = LeadOnIsland(true, 5.0f, 40.0f);
+    f.leadIsland = LeadOnIsland(false, true, 5.0f, 40.0f);
     CHECK(f.leadIsland && !f.goodSpotCut);
     CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
     OrderRefused(r, "move 40.0 0.0 0.0", "unreachable: no navmesh route reaches it");
@@ -6528,7 +6579,7 @@ static void TestSingleIslandReadingChangesNothing()
     g.seen = false;
     g.approachKnown = true;
     g.approachX = 5;
-    g.leadIsland = LeadOnIsland(true, 5.0f, 200.0f);
+    g.leadIsland = LeadOnIsland(false, true, 5.0f, 200.0f);
     // ... read toward a point 160 yd from the first one from the same spot: that
     // is the second sign (b), so this check uses another spot (another cell).
     g.leadX = f.leadX = 20;
@@ -6544,13 +6595,13 @@ static void TestSingleIslandReadingChangesNothing()
     h.seen = false;
     h.approachKnown = true;
     h.approachX = 5;
-    h.leadIsland = LeadOnIsland(true, 5.0f, 300.0f);
+    h.leadIsland = LeadOnIsland(false, true, 5.0f, 300.0f);
     CHECK(Tick(a, h) == "move 5.0 0.0 0.0");
     // ... and a zero-length hop with one reading only: no path, the pause (B-FIX-2), not an escape.
     Run z = Start(&plan, 2);
     z.restDue = false;
     h.approachX = 1;
-    h.leadIsland = LeadOnIsland(true, 1.0f, 300.0f);
+    h.leadIsland = LeadOnIsland(false, true, 1.0f, 300.0f);
     CHECK(Tick(z, h).empty());
     CHECK(z.state == State::Paused && z.note.find("no walkable path toward the pack") == 0);
 }
@@ -6575,7 +6626,7 @@ static void TestSecondReadingConfirmsTheIsland()
     g.goodSpotCut = false;
     g.seen = true;
     g.approachKnown = false;
-    g.leadIsland = LeadOnIsland(true, 3.05f, ai::PlanDistance(1589.6f, 1046.9f, 8.9f, 1588, 1080, 9.1f));
+    g.leadIsland = LeadOnIsland(false, true, 3.05f, ai::PlanDistance(1589.6f, 1046.9f, 8.9f, 1588, 1080, 9.1f));
     CHECK(Tick(r, g) == "move 1588.0 1080.0 9.1");
     CHECK(r.islandEvidence);
     OrderRefused(r, "move 1588.0 1080.0 9.1", "unreachable: no navmesh route reaches it");
@@ -6584,7 +6635,7 @@ static void TestSecondReadingConfirmsTheIsland()
     h.goodSpotCut = false;
     h.approachX = 1591.2f;
     h.approachY = 1044.3f;
-    h.leadIsland = LeadOnIsland(true, 3.05f, ai::PlanDistance(1589.6f, 1046.9f, 8.9f, 1633.6f, 1130.7f, 9.9f));
+    h.leadIsland = LeadOnIsland(false, true, 3.05f, ai::PlanDistance(1589.6f, 1046.9f, 8.9f, 1633.6f, 1130.7f, 9.9f));
     CHECK(Tick(r, h) == "escape from 1589.6 1046.9 8.9 toward 1633.6 1130.7 9.9");
     // The same point read again is no second sign.
     Run s = Start(&plan, 3);
@@ -6760,7 +6811,7 @@ static void TestNoSpotWalkBackNeverSpins()
         float const to = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, fs->x, fs->y, fs->z);
         f.seen = to <= kSeeYd;
         f.approachKnown = !f.seen;
-        f.leadIsland = LeadOnIsland(true, 3.05f, to);
+        f.leadIsland = LeadOnIsland(false, true, 3.05f, to);
         f.goodSpotCut = false;
         std::string const order = Tick(r, f);
         if (!r.walkBack && endedAt < 0)
@@ -6809,7 +6860,7 @@ static void TestSignBFromTheMainMeshIsBounded()
         f.seen = to <= kSeeYd;
         f.approachKnown = !f.seen;
         f.approachX = leadX + 5;
-        f.leadIsland = LeadOnIsland(true, 5.0f, to);
+        f.leadIsland = LeadOnIsland(false, true, 5.0f, to);
         std::string const order = Tick(r, f);
         if (order.compare(0, 7, "escape ") == 0)
         {
@@ -9288,6 +9339,7 @@ int main()
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();
     TestForwardMoveIslandNeedsSecondSign();
+    TestForwardMoveNoPathLedgeEscapes();
     TestDetourPointReachable();
     TestForwardEscapeNoSpotFallsBack();
     TestForwardEscapeAfterAFallFallsBack();

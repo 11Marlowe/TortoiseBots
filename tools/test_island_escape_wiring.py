@@ -145,6 +145,18 @@ class IslandEscapeWiringTest(unittest.TestCase):
         p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
         at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")
 
+    def test_a_no_path_reading_is_an_island_reading(self):
+        # r9-19z26 Uldaman: from the ledge every path came back NOPATH (a partial
+        # one inside the smooth path's slop); the reading must hand the NOPATH bit
+        # to LeadOnIsland, not only the INCOMPLETE one.
+        f = body(COMMANDS, "void NoteLeadWay(", "\n}\n")
+        nopath = at(f, "bool const noPath = (type & PATHFIND_NOPATH) != 0;")
+        island = at(f, "f.leadIsland = TortoiseBots::DungeonRun::LeadOnIsland(noPath, incomplete, endFromLead, DistanceTo(lead, x, y, z));")
+        good = at(f, "f.leadPathGood = TortoiseBots::DungeonRun::LeadPathGood(noPath, incomplete, endFromLead);")
+        self.assertTrue(nopath < island < good)
+        p = body(POLICY, "inline bool LeadOnIsland(", "\n}\n")
+        self.assertLess(at(p, "if (pathNoPath)\n        return toPointYd > kArriveYd;"), at(p, "return pathIncomplete &&"))
+
 
 if __name__ == "__main__":
     unittest.main()

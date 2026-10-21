@@ -9213,7 +9213,8 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
 
 // The island escape's facts (DungeonRun::LeadOnIsland, LeadPathGood) from a
 // navmesh path the lead bot's own search gave toward (x,y,z): partial and
-// ending within kGoodPathMinYd of it, or getting somewhere.
+// ending within kGoodPathMinYd of it, or no path (a partial path shorter than the
+// smooth path's slop comes back NOPATH, its end the point itself), or getting somewhere.
 static_assert(TortoiseBots::DungeonRun::kGoodPathMinYd > RemoteCommander::kNoProgressYd,
     "the island reading covers the move's own no-progress rule and the gap above it");
 static_assert(TortoiseBots::DungeonRun::kEscapeMaxVertical == RemoteCommander::kDirectMaxVertical,
@@ -9224,8 +9225,9 @@ void NoteLeadWay(PathFinder const& path, Player* lead, float x, float y, float z
     Vector3 const end = path.getActualEndPosition();
     float const endFromLead = DistanceTo(lead, end.x, end.y, end.z);
     bool const incomplete = (type & PATHFIND_INCOMPLETE) != 0;
-    f.leadIsland = TortoiseBots::DungeonRun::LeadOnIsland(incomplete, endFromLead, DistanceTo(lead, x, y, z));
-    f.leadPathGood = TortoiseBots::DungeonRun::LeadPathGood((type & PATHFIND_NOPATH) != 0, incomplete, endFromLead);
+    bool const noPath = (type & PATHFIND_NOPATH) != 0;
+    f.leadIsland = TortoiseBots::DungeonRun::LeadOnIsland(noPath, incomplete, endFromLead, DistanceTo(lead, x, y, z));
+    f.leadPathGood = TortoiseBots::DungeonRun::LeadPathGood(noPath, incomplete, endFromLead);
 }
 
 // The island's second sign (a), DungeonRun::IslandConfirmed: the run's last good
