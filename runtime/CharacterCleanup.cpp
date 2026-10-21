@@ -7,6 +7,7 @@
 #include "Player.h"
 #include "Log.h"
 #include "Database/DatabaseEnv.h"
+#include "Database/CharacterDatabaseCache.h"
 #include "Database/DBCStores.h"
 #include "AuctionHouse/AuctionHouseMgr.h"
 #include "Mail/Mail.h"
@@ -14,6 +15,7 @@
 #include <memory>
 #include <set>
 #include <sstream>
+#include <vector>
 
 namespace TortoiseBots
 {
@@ -145,8 +147,71 @@ bool SettleCharacterAuctions(uint32 guidLow, uint32& settled, std::string& error
     return true;
 }
 
+namespace
+{
+// Deletes the character's pet rows and then drops their cache entries.
+//
+// The character cache doubles as the pool's pet-number oracle: every
+// GeneratePetNumber() asks CharacterDatabaseCache::GetNextAvailablePetNumber()
+// for the lowest number the cache does not hold. The core's Pet::DeleteFromDB()
+// runs the other way round - it erases the cache entry at once and only *queues*
+// the four DELETEs (character database async queue, inside the caller's
+// transaction) - so for a while after a character is deleted the cache offers a
+// number whose rows are still in the table. The next pet created in that window
+// (the pool provisioning again, a hunter re-hired right after a dismissal, a
+// warlock re-summoning) takes that number and its INSERT dies with
+// "Duplicate entry '<id>' for key 'PRIMARY'", leaving the pet with no row at all
+// (and no pet_spell/pet_aura either). Deleting the rows here, synchronously and
+// before the cache entry, keeps the cache from ever running ahead of the table;
+// the core's own pet sweep afterwards finds nothing left to prune.
+void DeleteCharacterPets(uint32 guidLow)
+{
+    std::unique_ptr<QueryResult> pets(CharacterDatabase.PQuery(
+        "SELECT id FROM `character_pet` WHERE `owner` = '%u'", guidLow));
+    if (!pets)
+        return;
+
+    std::vector<uint32> petIds;
+    std::string idList;
+    do
+    {
+        uint32 petId = pets->Fetch()[0].GetUInt32();
+        petIds.push_back(petId);
+        if (!idList.empty())
+            idList += ",";
+        idList += std::to_string(petId);
+    } while (pets->NextRow());
+
+    if (petIds.empty())
+        return;
+
+    // The cache entry is only dropped once the row is really gone: if the
+    // delete fails (a deadlock with a concurrent pet save on another async
+    // worker), keeping the entry is the safe direction - the number stays
+    // unavailable instead of being handed out while the row still exists.
+    if (!CharacterDatabase.DirectPExecute("DELETE FROM `character_pet` WHERE `id` IN (%s)", idList.c_str()))
+    {
+        sLog.outError("TortoiseBots: pet rows of character %u could not be deleted; keeping their numbers reserved",
+            guidLow);
+        return;
+    }
+
+    if (!CharacterDatabase.DirectPExecute("DELETE FROM `pet_aura` WHERE `guid` IN (%s)", idList.c_str()) ||
+        !CharacterDatabase.DirectPExecute("DELETE FROM `pet_spell` WHERE `guid` IN (%s)", idList.c_str()) ||
+        !CharacterDatabase.DirectPExecute("DELETE FROM `pet_spell_cooldown` WHERE `guid` IN (%s)", idList.c_str()))
+        sLog.outError("TortoiseBots: pet side rows of character %u could not be deleted; they are orphaned", guidLow);
+
+    for (uint32 petId : petIds)
+        sCharacterDatabaseCache.DeleteCharacterPetById(petId);
+}
+} // namespace
+
 void DeleteCharacterEverywhere(uint32 guidLow, uint32 accountId)
 {
+    // Pets before the character, database before cache: the pool's pet-number
+    // oracle above must never see a number that the table still holds.
+    DeleteCharacterPets(guidLow);
+
     // Group membership, guild/petition membership, pets, items, mail, social
     // and the character rows themselves are the core's job.
     Player::DeleteFromDB(ObjectGuid(HIGHGUID_PLAYER, guidLow), accountId, true, true);
