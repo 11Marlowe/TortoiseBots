@@ -5155,6 +5155,75 @@ static bool Has(const std::string& text, const std::string& part)
 }
 
 // The glue's read of a stand for the unit the policy asked for (Run::shotStandFor).
+static void TestPullNoteCarriesTheJoinerCount()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4852})};
+    Facts f = Party(0);
+    f.joinerCeiling = 6;
+    std::string order;
+
+    // Ceiling 6, the glue read 3 joiners for the unit: the count rides on the note.
+    {
+        Run r = Start(&plan);
+        UnitFact u = Joiners(31, 4852, 40.0f, 3);
+        u.joinersRead = true;
+        f.units = {u};
+        order.clear();
+        PullUnit(r, f, f.units[0], order);
+        CHECK(order == "pullback 31" && r.note == "pulling 4852; 3 joiners expected");
+    }
+    // Ceiling 6, the unit was held or out of the glue's index, so no count this step: the note says so,
+    // and it never claims the stale count below.
+    {
+        Run r = Start(&plan);
+        UnitFact u = Unit(31, 4852, 40.0f);
+        u.joiners = 5;   // a stale read kept, but marked not read
+        u.joinersPatrol = true;
+        f.units = {u};
+        order.clear();
+        PullUnit(r, f, f.units[0], order);
+        CHECK(order == "pullback 31" && r.note == "pulling 4852; joiners not read");
+    }
+    // Ceiling on, the pull stand on: the count goes after the stand text.
+    {
+        Run r = Start(&plan);
+        Facts s = StandParty();
+        s.joinerCeiling = 6;
+        UnitFact u = Joiners(11, 4851, 24.5f, 3);
+        u.joinersRead = true;
+        u.losLead = true;
+        s.units = {u};
+        CHECK(Tick(r, s) == "pullback 11");
+        CHECK(r.note ==
+            "pulling 4851 0x000000000000000b (order 1; shot from where it stands); 3 joiners expected");
+    }
+
+    // Ceiling off: a stray count and stray read in the facts change nothing, both stand variants.
+    f.joinerCeiling = 0;
+    {
+        Run r = Start(&plan);
+        UnitFact u = Joiners(31, 4852, 40.0f, 9);
+        u.joinersRead = true;
+        f.units = {u};
+        order.clear();
+        PullUnit(r, f, f.units[0], order);
+        CHECK(order == "pullback 31" && r.note == "pulling 4852");
+    }
+    {
+        Run r = Start(&plan);
+        Facts s = StandParty();
+        UnitFact u = Seen(11, 4851, 24.5f);
+        u.joiners = 9;
+        u.joinersRead = true;
+        u.joinersPatrol = true;
+        s.units = {u};
+        CHECK(Tick(r, s) == "pullback 11");
+        CHECK(r.note == "pulling 4851 0x000000000000000b (order 1; shot from where it stands)");
+    }
+}
+
+// The glue's read of a stand for the unit the policy asked for (Run::shotStandFor).
 static void GiveStand(Facts& f, const Run& r, float x, float yd)
 {
     f.shotStandGuid = r.shotStandFor;
@@ -5791,6 +5860,7 @@ int main()
     TestRezHoldNudge();
     TestAggroEstimateAndRezHoldDoNotCrossTheirResets();
     TestBothKeysOffChangeNothing();
+    TestPullNoteCarriesTheJoinerCount();
     TestPullShootsFromStand();
     TestPullWaitsForStillTank();
     TestPullWalksToStandOutOfRange();

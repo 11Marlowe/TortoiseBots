@@ -287,6 +287,8 @@ struct UnitFact
     // creatures an estimate (ai::EstimateAggro) says come if this one is pulled.
     std::uint32_t joiners = 0;
     bool joinersPatrol = false; // ... and a lone patrol alone puts that over the ceiling
+    bool joinersRead = false;   // the count above is this step's (ReadPullJoiners judged the unit; a held
+                                // or off-index unit keeps its earlier read)
     // Pull step and hop units, when Facts::pullStand is set: the lead bot sees
     // it now (Unit::IsWithinLOSInMap).
     bool losLead = false;
@@ -2655,6 +2657,13 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         r.shotStillMs = 0;
         r.shotHow.clear();
     }
+    // The aggro estimate (Facts::joinerCeiling): the note says how many joiners
+    // the estimate expects with this pull, or that the facts carried no count
+    // this step (the glue reads it only for units it judged; a unit held or out
+    // of the index keeps its earlier read).
+    if (f.joinerCeiling > 0)
+        r.note += u.joinersRead ? "; " + std::to_string(u.joiners) + " joiners expected"
+                                : std::string("; joiners not read");
 }
 
 // The step's pull is out: wait for the fight (the fight gate takes over) or
