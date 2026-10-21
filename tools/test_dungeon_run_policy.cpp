@@ -8560,33 +8560,130 @@ static void TestHopUnitThatNeverCameIsNotPulledAgain()
     order = Tick(r, f);
     CHECK(order == "move 1584.0 1050.0 8.9");
     CHECK(r.walkBackPulls == 0);
-    // A resume (fresh tries and passed for the step) keeps the run-wide set.
+    // A resume regroups and judges the hop units afresh (the set is cleared):
+    // with the key off the unit gets its one pullback again.
     Pause(r, "test");
     CHECK(Resume(r));
+    CHECK(r.neverCame.empty());
     r.walkBack = false;
-    for (int i = 0; i < 10; ++i)
-        CHECK(Tick(r, f) != pull);
+    pulls = 0;
+    for (int i = 0; i < 40 && pulls == 0; ++i)
+        if (Tick(r, f) == pull)
+            ++pulls;
+    CHECK(pulls == 1);
 }
 
-// The same for a pull row's own unit: two pulls that drew no fight pass it for
-// the run, so a later row that sees it again does not pull it.
-static void TestStepUnitThatNeverCameIsPassedForTheRun()
+// Review of 8dee2ee1: the run-wide set holds hop units only. A pull row's own
+// unit is passed for its step only (a later row that lists it pulls it again),
+// a boss that never comes is pulled again after a resume (the pause's
+// "not found ... skip if already dead" keeps working), and a hold's idle pull
+// (no hop) never enters the set.
+static void TestStepUnitsNeverEnterTheRunWideSet()
+{
+    {
+        DungeonPlan plan;
+        plan.steps = {PullStep(10, {4851}), PullStep(12, {4851})};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.units = {Unit(7, 4851, 10)};
+        int first = 0, second = 0;
+        for (int i = 0; i < 200 && r.state == State::Running; ++i)
+        {
+            std::size_t const step = r.step;
+            if (Tick(r, f) == "pullback 7")
+                ++(step == 0 ? first : second);
+        }
+        CHECK(first == static_cast<int>(kPullTriesPerUnit));
+        CHECK(second == static_cast<int>(kPullTriesPerUnit));
+        CHECK(r.neverCame.empty());
+    }
+    {
+        DungeonPlan plan;
+        PlanStep boss = Step(PlanStepKind::Boss, 10);
+        boss.entry = 4854;
+        ai::NormalizePlanStep(boss);
+        plan.steps = {boss};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.units = {Unit(77, 4854, 10)};
+        int before = 0, after = 0;
+        for (int i = 0; i < 400 && r.state == State::Running; ++i)
+            if (Tick(r, f) == "pullback 77")
+                ++before;
+        CHECK(before == static_cast<int>(kPullTriesPerUnit));
+        CHECK(r.state == State::Paused && r.neverCame.empty());
+        CHECK(Resume(r));
+        for (int i = 0; i < 400 && r.state == State::Running; ++i)
+            if (Tick(r, f) == "pullback 77")
+                ++after;
+        CHECK(after == static_cast<int>(kPullTriesPerUnit));
+        CHECK(r.neverCame.empty());
+    }
+    {
+        // A step pull's no-fight timeout (the hold's idle pull is one): no run-wide entry.
+        DungeonPlan plan;
+        plan.steps = {PullStep(10, {4851})};
+        Run r = Start(&plan);
+        r.pullGuid = 5;
+        r.pullTries[5] = 1;
+        r.pullHop = false;
+        EnterPhase(r, Phase::AwaitPull);
+        r.phaseMs = kPullNoFightMs;
+        AwaitPull(r);
+        CHECK(r.phase == Phase::Begin && r.neverCame.empty());
+    }
+}
+
+// The 25 s window: a hop unit whose fight starts at 24 s is not marked; one
+// with no fight is marked on the tick its pull is 25 s old, not before. A
+// marked unit that turns up as an attacker of the party leaves the set at once.
+static void TestHopNeverCameWindowAndLateAttacker()
 {
     DungeonPlan plan;
-    plan.steps = {PullStep(10, {4851}), PullStep(12, {4851})};
-    Run r = Start(&plan);
-    Facts f = Party(0);
-    f.units = {Unit(7, 4851, 10)};
-    int first = 0, second = 0;
-    for (int i = 0; i < 200 && r.state == State::Running; ++i)
+    plan.steps = {Step(PlanStepKind::Move, 50, 0, 0)};
     {
-        std::size_t const step = r.step;
-        if (Tick(r, f) == "pullback 7")
-            ++(step == 0 ? first : second);
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 4852, 10)};
+        CHECK(Tick(r, f) == "pullback 9");
+        for (int i = 0; i < 23; ++i)
+            CHECK(Tick(r, f).empty());
+        CHECK(r.phase == Phase::AwaitPull && r.phaseMs == 23000);
+        f.anyInCombat = true; // the fight starts at 24 s
+        f.leadInCombat = true;
+        Tick(r, f);
+        f.hopUnits.clear(); // killed
+        for (int i = 0; i < 5; ++i)
+            Tick(r, f);
+        f.anyInCombat = false;
+        f.leadInCombat = false;
+        for (int i = 0; i < 30; ++i)
+            Tick(r, f);
+        CHECK(!r.neverCame.count(9));
     }
-    CHECK(first == static_cast<int>(kPullTriesPerUnit));
-    CHECK(second == 0);
-    CHECK(r.state == State::Done && r.neverCame.count(7));
+    {
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.hopUnits = {Unit(9, 4852, 10)};
+        CHECK(Tick(r, f) == "pullback 9");
+        for (int i = 0; i < 24; ++i)
+            Tick(r, f);
+        CHECK(r.phase == Phase::AwaitPull && !r.neverCame.count(9)); // 24 s: still waiting
+        Tick(r, f);
+        CHECK(r.neverCame.count(9)); // 25 s
+        // It came after all: on a party bot.
+        f.anyInCombat = true;
+        f.partyAttackers = {Unit(9, 4852, 6)};
+        Tick(r, f);
+        CHECK(!r.neverCame.count(9));
+        // Or on the lead bot itself.
+        r.neverCame.insert(9);
+        f.partyAttackers.clear();
+        f.leadHasAttacker = true;
+        f.leadAttacker = Unit(9, 4852, 2);
+        Tick(r, f);
+        CHECK(!r.neverCame.count(9));
+    }
 }
 
 // r6-19z24 step 64 (17:28:12): "pulling 7246 (order 1; no firing stand found)",
@@ -8610,10 +8707,28 @@ static void TestHopPullWithoutAShotSendsNoOrder()
         f.shotStandGuid = island; // read, nothing found
         f.shotStandKnown = false;
         CHECK(Tick(r, f).empty());
-        CHECK(r.neverCame.count(island) && r.passed.count(island));
+        CHECK(r.neverCame.count(island) && !r.passed.count(island));
         CHECK(Has(r.note, "passed: the tank cannot shoot it from here (no firing stand found)"));
         f.shotStandGuid = 0;
         CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+        // A regroup (a wipe recovery, a resume) clears the set; the same rule
+        // leaves the still unshootable unit out again, with no pull.
+        BeginRegroup(r);
+        CHECK(r.neverCame.empty());
+        r.regroup = false;
+        EnterPhase(r, Phase::Begin);
+        for (int i = 0; i < 6 && !r.neverCame.count(island); ++i)
+        {
+            if (r.shotStandFor == island)
+            {
+                f.shotStandGuid = island;
+                f.shotStandKnown = false;
+            }
+            else
+                f.shotStandGuid = 0;
+            CHECK(Tick(r, f) != pull);
+        }
+        CHECK(r.neverCame.count(island));
     }
     {
         // The walk back's hop pull: the same.
@@ -8666,7 +8781,8 @@ static void TestHopPullWithoutAShotSendsNoOrder()
 int main()
 {
     TestHopUnitThatNeverCameIsNotPulledAgain();
-    TestStepUnitThatNeverCameIsPassedForTheRun();
+    TestStepUnitsNeverEnterTheRunWideSet();
+    TestHopNeverCameWindowAndLateAttacker();
     TestHopPullWithoutAShotSendsNoOrder();
     TestGoneChestWithFlagIsDone();
     TestGoneChestWithoutFlagPauses();
