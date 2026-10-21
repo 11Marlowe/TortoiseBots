@@ -8,7 +8,7 @@
 #include "playerbot/BotDiagnostics.h" // SC_LOG for attack-command diagnostic trace
 #include "playerbot/strategy/generic/CombatStrategy.h"
 #include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
-#include "playerbot/strategy/values/ThreatValues.h"
+#include "playerbot/GroupMembers.h"
 #include "GenericActions.h"
 #include "../../../../runtime/AttackOrderPolicy.h"
 #include "../../../../runtime/PetAttackGatePolicy.h"
@@ -205,12 +205,16 @@ bool AttackAction::CanPetAttack(PlayerbotAI* ai, Pet* pet, Unit* target)
 }
 
 // Live input gathering for runtime/PetAttackGatePolicy.h. Cheap-first: a solo
-// bot and a party without a living tank (the pet is the fallback tank) leave
-// before any threat read.
+// bot, an enemy player and a party without a living tank (the pet is the
+// fallback tank) leave before any threat read.
 bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)
 {
     Player* bot = ai ? ai->GetBot() : nullptr;
     if (!bot || !target || !bot->GetGroup())
+        return false;
+
+    // An enemy player has no threat list: never hold the pet against one.
+    if (target->IsPlayer())
         return false;
 
     TortoiseBots::PetAttackGateInputs in;
@@ -219,11 +223,27 @@ bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)
     if (!in.liveTank)
         return false;
 
+    ThreatManager& threats = sServerFacade.GetThreatManager(target);
     Unit* victim = target->GetVictim();
     in.targetOnBot = victim == bot;
     Player* victimPlayer = victim ? dynamic_cast<Player*>(victim) : nullptr;
-    in.targetOnTank = victimPlayer && PlayerbotAI::IsTank(victimPlayer);
-    in.tankThreat = ThreatValue::GetTankThreat(ai, target);
+    in.victimIsLivingTank = victimPlayer && victimPlayer != bot && victimPlayer->IsAlive() &&
+        PlayerbotAI::IsTank(victimPlayer);
+    in.victimThreat = victim ? threats.getThreat(victim) : 0.0f;
+
+    // The best living tank of the group (the bot itself is never one here).
+    in.tankThreat = -1.0f;
+    for (Player* member : LiveGroupMembers(bot->GetGroup()))
+    {
+        if (!member || member == bot || !member->IsAlive() || !PlayerbotAI::IsTank(member))
+            continue;
+        float const threat = threats.getThreat(member);
+        if (threat > in.tankThreat)
+        {
+            in.tankThreat = threat;
+            in.tankInMelee = member->GetDistance(target, SizeFactor::CombatReach) <= ATTACK_DISTANCE;
+        }
+    }
     return TortoiseBots::PetAttackHeldForTank(in);
 }
 

@@ -52,15 +52,25 @@ class PetManners(unittest.TestCase):
     def test_hold_reads_live_tank_victim_and_tank_threat(self):
         fn = body(ATTACK, "bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)")
         self.assertIn("!IsPetTauntAllowed(ai, bot)", fn)
-        self.assertIn("ThreatValue::GetTankThreat(ai, target)", fn)
         self.assertIn("PlayerbotAI::IsTank(victimPlayer)", fn)
+        self.assertIn("victimPlayer->IsAlive()", fn)
+        self.assertIn("LiveGroupMembers(bot->GetGroup())", fn)
+        self.assertIn("PlayerbotAI::IsTank(member)", fn)
+        self.assertIn("in.victimThreat = victim ? threats.getThreat(victim) : 0.0f;", fn)
+        self.assertIn("float const threat = threats.getThreat(member);", fn)
+        self.assertIn("in.tankInMelee = member->GetDistance(target, SizeFactor::CombatReach) <= ATTACK_DISTANCE;", fn)
         self.assertIn("TortoiseBots::PetAttackHeldForTank(in)", fn)
+
+    def test_enemy_players_never_hold_the_pet(self):
+        fn = body(ATTACK, "bool AttackAction::PetHeldForTank(PlayerbotAI* ai, Unit* target)")
+        self.assertRegex(fn, r"if \(target->IsPlayer\(\)\)\s*return false;")
 
     def test_cower_fires_on_the_first_threat_lead(self):
         fn = body(H_TRIG_CPP, "bool PetHasAggroTrigger::IsActive()")
-        self.assertIn("TortoiseBots::PetThreatLeadsTank(", fn)
+        self.assertIn("    return TortoiseBots::PetCowerOnLead(", fn)
+        self.assertIn("victim == bot)", fn)
         self.assertIn("IsPetTauntAllowed", fn)
-        self.assertIn("target->GetVictim() == pet", fn)
+        self.assertIn("victim == pet", fn)
 
     def test_pet_rows_still_wired(self):
         pet = body(H_STRAT, "void HunterPetStrategy::InitCombatTriggers", "\n}\n")
@@ -72,10 +82,14 @@ class HunterManners(unittest.TestCase):
     def test_swarmed_hunter_does_not_trade_into_melee_and_gets_ranged_back(self):
         melee = body(H_TRIG_H, "class SwitchToMeleeTrigger", "\n    };")
         ranged = body(H_TRIG_H, "class SwitchToRangedTrigger", "\n    };")
-        self.assertIn('AI_VALUE(uint8, "my attacker count")', melee)
-        self.assertIn('AI_VALUE(uint8, "my attacker count")', ranged)
+        self.assertIn("HunterSwarmAttackerCount(ai)", melee)
+        self.assertIn("HunterSwarmAttackerCount(ai)", ranged)
         self.assertIn("ai::ShouldSwitchToMelee(", melee)
         self.assertIn("ai::ShouldSwitchToRanged(", ranged)
+
+    def test_swarm_rules_only_with_a_living_tank_in_the_group(self):
+        fn = body(H_TRIG_H, "inline uint32_t HunterSwarmAttackerCount(PlayerbotAI* ai)")
+        self.assertIn("HunterSwarmAttackers(attackers, bot->GetGroup() && !IsPetTauntAllowed(ai, bot))", fn)
 
     def test_wing_clip_row_sits_above_the_kite_step_out(self):
         self.assertRegex(H_STRAT, r'"hunter swarmed",\s*NextAction::array\(0, new NextAction\("wing clip", ACTION_MOVE\)')
@@ -85,12 +99,15 @@ class HunterManners(unittest.TestCase):
 
     def test_swarmed_trigger_uses_the_policy(self):
         fn = body(H_TRIG_CPP, "bool HunterSwarmedTrigger::IsActive()")
+        self.assertIn("HunterSwarmAttackerCount(ai)", fn)
         self.assertIn("HunterSwarmed(attackers)", fn)
         self.assertIn("HunterSwarmClipWanted(", fn)
 
     def test_hunters_mark_only_on_the_tanks_mob(self):
         fn = body(H_TRIG_CPP, "bool HuntersMarkTrigger::IsActive()")
-        self.assertIn("HuntersMarkAllowed(true, holder)", fn)
+        self.assertIn("    return HuntersMarkAllowed(true, ClassifyHuntersMarkHolder(victim != nullptr, victim == bot, victimIsLivingTank))", fn)
+        self.assertIn("PlayerbotAI::IsTank(victimPlayer)", fn)
+        self.assertIn("ai::IsPetTauntAllowed(ai, bot)", fn)
         self.assertIn("DebuffTrigger::IsActive()", fn)
         self.assertIn("bool IsActive() override;", body(H_TRIG_H, "class HuntersMarkTrigger", "\n    };"))
 
