@@ -117,16 +117,20 @@ bool TankStrengthOfEarthTrigger::IsActive()
     else if (!stored.empty() && stored != "auto")
         return false;
 
-    TankFightTargetTrigger fight(ai);
-    if (!TankEarthTotemIsStrength(fight.IsActive()))
-        return false;
-
     bool hasEarth = AI_VALUE2(bool, "has totem", "stoneclaw totem") ||
         AI_VALUE2(bool, "has totem", "stoneskin totem") ||
         AI_VALUE2(bool, "has totem", "earthbind totem") ||
         AI_VALUE2(bool, "has totem", "strength of earth totem") ||
         AI_VALUE2(bool, "has totem", "tremor totem");
-    if (hasEarth)
+
+    // Our own Stoneclaw is the pick of the trash pack just fought: the
+    // fight takes the slot over from it (a pack's totem must not lock a
+    // boss out of Strength of Earth). Any other standing earth totem —
+    // Tremor, Stoneskin, a manual order, another shaman's — keeps the slot.
+    bool standingStoneclaw = AI_VALUE2(bool, "has own totem", "stoneclaw totem");
+
+    TankFightTargetTrigger fight(ai);
+    if (!TankStrengthOfEarthShouldDrop(fight.IsActive(), hasEarth, standingStoneclaw))
         return false;
 
     return ai->CanCastSpell("strength of earth totem", bot, true, nullptr, true);
@@ -206,12 +210,19 @@ bool TankStoneclawTrigger::IsActive()
         AI_VALUE2(bool, "has totem", "earthbind totem") ||
         AI_VALUE2(bool, "has totem", "strength of earth totem") ||
         AI_VALUE2(bool, "has totem", "tremor totem");
+    // Our own Strength of Earth (the fight pick) or Earthbind (the runner
+    // snare) is a replaceable standing pick: the pack takes the slot from
+    // either instead of coming out of a boss fight with the wrong earth
+    // totem for it. Own-scoped, so another shaman's totem is never replaced.
+    bool replaceablePick = TankEarthPickReplaceable(
+        AI_VALUE2(bool, "has own totem", "strength of earth totem"),
+        AI_VALUE2(bool, "has own totem", "earthbind totem"));
     TankFightTargetTrigger fight(ai);
     bool isFight = fight.IsActive();
     TankThreatLeadTrigger lead(ai);
     bool threatNeeded = lead.IsActive();
     uint8 attackers = AI_VALUE(uint8, "attackers count");
-    if (!TankStoneclawShouldDrop(inGroup, manual, other, hasEarth, threatNeeded, attackers, isFight))
+    if (!TankStoneclawShouldDrop(inGroup, manual, other, hasEarth, threatNeeded, attackers, isFight, replaceablePick))
         return false;
     return ai->CanCastSpell("stoneclaw totem", bot, true, nullptr, true);
 }

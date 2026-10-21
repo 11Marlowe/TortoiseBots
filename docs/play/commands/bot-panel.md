@@ -224,6 +224,7 @@ Configures and manages shaman totem loadouts and casting policies.
   - `prepull` (or `pre-pull`): Drops totems out of combat when combat is imminent (ready check / rebuff window) and refreshes them in combat.
   - `manual`: Suppresses automatic drops; totems are dropped only via `.bot totem drop` or explicit strategies.
 - **Immediate Drop:** `.bot totem <scope> drop` queues the configured totems now, in or out of combat.
+- **Recall and Modes:** *Totemic Recall* refunds a standing set only while the automatic drops are quiet, because in `auto` mode they would rebuild the same set within seconds (a drop/recall loop that burns more mana than it refunds). Switch to `manual`, or use `prepull` outside the pre-pull window, to recall sets the bot is not about to re-place.
 - **Status Query:** `.bot totem <bot|party|raid> status` reports current loadout and mode via `TBM:TOTEM` records followed by a trailing `TBM:ACTION_ACK|totem status|<scope>|<n>|-`.
 
 </details>

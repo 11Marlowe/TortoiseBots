@@ -21,6 +21,23 @@ namespace ai
         static std::list<std::string> spells;
     };
 
+    // Fight-imminent read shared by the automatic totem rows (prepull drop
+    // mode) and by the recall refund, which must not fight the rows over
+    // the same set. True while a raid ready-check anchor is live or a
+    // force-rebuff window is open — the two "the group is assembling for a
+    // pull" signals the repo already keeps per bot.
+    inline bool TotemFightImminent(PlayerbotAI* ai)
+    {
+        AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
+        if (!ctx)
+            return false;
+        time_t anchor = ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get();
+        if (anchor != time_t(0) && time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec())
+            return true;
+        int beginMs = ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get();
+        return beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
+    }
+
     class ReadyToRemoveTotemsTrigger : public Trigger
     {
     public:
@@ -36,6 +53,9 @@ namespace ai
             // destroys the just-dropped set for pennies and the re-drop
             // loop burns more mana than the refund (live Naxx 2026-10-14:
             // 7 recalls mid fight, 26 water re-drops to repair it).
+            // The refund also stands down while the automatic totem rows
+            // are armed: they would rebuild the same set a few ticks later,
+            // so recall -> re-drop -> recall never settles (issue #1125).
             // Never recall mana tide: destroying the cooldown totem wastes
             // it for pennies. (No fire-elemental totem action exists in
             // 1.18.1, so there is nothing else to spare.)
@@ -71,16 +91,11 @@ namespace ai
                 }
             }
             AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
-            bool prepullWanted = false;
-            time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
-            if (anchor != time_t(0) && time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec())
-                prepullWanted = true;
-            else
-            {
-                int beginMs = ctx ? ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get() : 0;
-                prepullWanted = beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
-            }
-            return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat, prepullWanted);
+            bool prepullWanted = TotemFightImminent(ai);
+            std::string stored = ctx ? ctx->GetValue<std::string>("manual saved string", TotemModeKey())->Get() : "";
+            bool autoRowsArmed = TotemAutoRowsFire(StoredTotemDropMode(stored), false, prepullWanted);
+            return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat,
+                prepullWanted, autoRowsArmed);
         }
     };
 
@@ -103,40 +118,15 @@ namespace ai
     // `totem <slot> ...` strategies queue totems. prepull: combat rows fire
     // normally, OOC rows only while a fight is imminent (ready-check anchor
     // live or force-rebuff window open). auto/unset: today's behaviour.
+    // One rule for both the rows and the recall refund (TotemAutoRowsFire),
+    // so the two can never disagree about who owns the standing set.
     inline bool TotemAutoRowActive(PlayerbotAI* ai, Player* bot, bool inCombat)
     {
         (void)bot;
         AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
         std::string stored = ctx ? ctx->GetValue<std::string>("manual saved string", TotemModeKey())->Get() : "";
-        TotemDropMode mode = StoredTotemDropMode(stored);
-        if (mode == TotemDropMode::Manual)
-            return false;
-        if (inCombat)
-        {
-            time_t recallTime = ctx ? ctx->GetValue<time_t>("manual time", "totemic recall time")->Get() : time_t(0);
-            if (recallTime != time_t(0))
-                ctx->GetValue<time_t>("manual time", "totemic recall time")->Set(time_t(0));
-        }
-        else
-        {
-            time_t recallTime = ctx ? ctx->GetValue<time_t>("manual time", "totemic recall time")->Get() : time_t(0);
-            if (recallTime != time_t(0) && time(0) - recallTime < 60)
-                return false;
-        }
-        if (mode == TotemDropMode::Prepull && !inCombat)
-        {
-            time_t anchor = ctx ? ctx->GetValue<time_t>("manual time", ai::ReadyRebuffAnchorKey())->Get() : time_t(0);
-            bool imminent = anchor != time_t(0) &&
-                time(0) - anchor <= ai::ReadyRebuffCapSec() + ai::ReadyRebuffExpirySlackSec();
-            if (!imminent)
-            {
-                int beginMs = ctx ? ctx->GetValue<int>("manual int", "force rebuff begin ms")->Get() : 0;
-                imminent = beginMs != 0 && ai::ForceRebuffPending((std::uint32_t)beginMs, WorldTimer::getMSTime());
-            }
-            if (!imminent)
-                return false;
-        }
-        return true;
+        bool imminent = !inCombat && TotemFightImminent(ai);
+        return TotemAutoRowsFire(StoredTotemDropMode(stored), inCombat, imminent);
     }
 
     class FireTotemTrigger : public Trigger

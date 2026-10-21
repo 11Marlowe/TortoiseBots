@@ -336,16 +336,16 @@ void TankShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
         "tremor totem reactive",
         NextAction::array(0, new NextAction("tremor totem", ACTION_HIGH + 1), NULL)));
 
-    triggers.push_back(new TriggerNode(
-        "earthbind totem reactive",
-        NextAction::array(0, new NextAction("earthbind totem", ACTION_HIGH), NULL)));
-
     // Earth (one pick per fight, never Stoneskin
     // on bosses/elites): Strength of Earth on fight targets via the
     // slot-gated fight trigger, Stoneclaw on trash via the threat-gated
-    // tank trigger. Both check that no earth totem is already standing,
-    // so the slot never flaps; the slot-safe node in the factory keeps a
-    // failed Strength cast from falling back to Stoneskin.
+    // tank trigger. Both check that no earth totem is already standing
+    // (bar the tank's own replaceable pick), so the slot never flaps; the
+    // slot-safe node in the factory keeps a failed Strength cast from
+    // falling back to Stoneskin. The pack pick is queued AHEAD of the
+    // generic runner snare below: both sit at ACTION_HIGH and the earlier
+    // row wins the tick, so a wide pack gets its threat totem instead of
+    // letting one fleeing mob claim the earth slot for the whole fight.
     triggers.push_back(new TriggerNode(
         "tank strength of earth",
         NextAction::array(0, new NextAction("strength of earth totem", ACTION_HIGH), NULL)));
@@ -353,6 +353,10 @@ void TankShamanTotemsStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
     triggers.push_back(new TriggerNode(
         "tank stoneclaw",
         NextAction::array(0, new NextAction("stoneclaw totem", ACTION_HIGH), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "earthbind totem reactive",
+        NextAction::array(0, new NextAction("earthbind totem", ACTION_HIGH), NULL)));
 
     // Fire threat ladder: single-target searing stays the filler; the AoE
     // rows (Nova/Magma) live in the AoE strategy above, not here.
@@ -366,7 +370,12 @@ void TankShamanTotemsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& tr
     ShamanTotemsStrategy::InitNonCombatTriggers(triggers);
 
     // Pre-pull placement (enhancement pattern): same subgroup-picked totems
-    // as combat, above follow so the walk-in drops them.
+    // as combat, above follow so the walk-in drops them. Air and water only:
+    // the earth slot has no out-of-combat pick for a tank. A pre-pull
+    // Strength of Earth stood for its two minutes, so the trash pack pulled
+    // inside that window never got its Stoneclaw (the pack pick sees the
+    // slot taken) — the earth pick is decided in combat instead, where the
+    // fight type is known.
     triggers.push_back(new TriggerNode(
         "air totem",
         NextAction::array(0, new NextAction("windfury totem", ACTION_HIGH), NULL)));
@@ -382,10 +391,6 @@ void TankShamanTotemsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& tr
     triggers.push_back(new TriggerNode(
         "water totem",
         NextAction::array(0, new NextAction("mana spring totem", ACTION_HIGH - 1), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "earth totem",
-        NextAction::array(0, new NextAction("strength of earth totem", ACTION_HIGH - 1), NULL)));
 }
 
 void TankShamanTotemsPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

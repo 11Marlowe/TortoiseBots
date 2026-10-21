@@ -41,6 +41,13 @@ int main()
     CHECK(TotemicRecallShouldFire(true, true, false, false, false, false) == true);
     std::cout << "  [PASS] prepull wanted vetoes the recall\n";
 
+    // Automatic rows armed (default drop mode): they would rebuild the same
+    // set a few ticks later, so the refund only feeds a drop/recall loop.
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, false, true) == false);
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, true, true) == false);
+    CHECK(TotemicRecallShouldFire(true, true, false, false, false, false, false) == true);
+    std::cout << "  [PASS] armed automatic rows veto the recall\n";
+
     std::cout << "All shaman totemic-recall policy checks PASSED!\n";
     return 0;
 }

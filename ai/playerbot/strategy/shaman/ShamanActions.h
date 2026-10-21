@@ -669,16 +669,6 @@ namespace ai
     {
     public:
         CastTotemicRecall(PlayerbotAI* ai) : CastBuffSpellAction(ai, "totemic recall") {}
-
-        bool Execute(Event& event) override
-        {
-            bool ok = CastBuffSpellAction::Execute(event);
-            if (ok)
-            {
-                SET_AI_VALUE2(time_t, "manual time", "totemic recall time", time(0));
-            }
-            return ok;
-        }
     };
 
     class SetTotemBars : public Action

@@ -98,9 +98,15 @@ namespace ai
     // Earth; trash holds Stoneclaw (threat-needed or wide pack). Stoneskin
     // is never the tank pick on a fight — it only survives as the low-level
     // node fallback before Strength of Earth is trained.
-    inline bool TankEarthTotemIsStrength(bool fightTarget)
+    //
+    // A standing totem the tank's own automatic rows may replace when the
+    // pick changes: Strength of Earth (the fight pick, wrong pick on trash)
+    // or Earthbind (the runner snare, which must not lock a pack out of its
+    // threat totem). Anything else standing — Tremor, Stoneskin, another
+    // shaman's totem — keeps the slot.
+    inline bool TankEarthPickReplaceable(bool standingStrengthOfEarth, bool standingEarthbind)
     {
-        return fightTarget;
+        return standingStrengthOfEarth || standingEarthbind;
     }
 
     // Tank Stoneclaw: grouped threat-gated drop (opposite of the solo-only
@@ -109,9 +115,12 @@ namespace ai
     // (boss/elite/raid) hold Strength of Earth instead of Stoneclaw; trash
     // fires on arrival while the earth slot is empty and threat is needed
     // (another member catching up or a loose mob), or whenever the pack is
-    // wide enough that the totem earns its GCD (3+ attackers).
+    // wide enough that the totem earns its GCD (3+ attackers). A replaceable
+    // standing pick (Strength of Earth from the fight just fought, a runner
+    // Earthbind) does not keep the pack out of its own pick.
     inline bool TankStoneclawShouldDrop(bool inGroup, bool manualStoneclaw, bool otherManualEarthOrder,
-        bool hasEarthTotem, bool threatNeeded, std::uint8_t attackerCount, bool fightTarget = false)
+        bool hasEarthTotem, bool threatNeeded, std::uint8_t attackerCount, bool fightTarget = false,
+        bool standingEarthPickReplaceable = false)
     {
         if (otherManualEarthOrder)
             return false;
@@ -121,11 +130,23 @@ namespace ai
             return false;
         if (!inGroup)
             return false;
-        if (hasEarthTotem)
+        if (hasEarthTotem && !standingEarthPickReplaceable)
             return false;
         if (threatNeeded)
             return true;
         return attackerCount >= 3;
+    }
+
+    // Tank Strength of Earth, the fight pick: boss/elite/raid fights hold it
+    // while the earth slot is empty, and a standing Stoneclaw — the pick of
+    // the trash pack just fought — never locks the fight out of it.
+    inline bool TankStrengthOfEarthShouldDrop(bool fightTarget, bool hasEarthTotem, bool standingStoneclaw)
+    {
+        if (!fightTarget)
+            return false;
+        if (!hasEarthTotem)
+            return true;
+        return standingStoneclaw;
     }
 
     // Fire Nova vs Magma order: Nova first whenever the party AoEs (3+

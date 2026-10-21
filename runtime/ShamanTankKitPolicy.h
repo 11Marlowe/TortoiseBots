@@ -17,12 +17,17 @@ namespace TortoiseBots
 
 // Combat kit for a shaman with a tank role: the new spec strategy plus the
 // shared tank-framework pieces (warrior `:575` / bear `:667` pattern), then
-// the shared shaman pieces that still apply. Deliberately NOT "dps assist"
-// (threat race), NOT "behind" (tanks face the mob), NOT threat backoff.
+// the shared shaman pieces that still apply. "aoe" is a placeholder strategy:
+// the tank's Fire Nova / Magma rows live in the "aoe tank shaman *" variant,
+// which the shaman strategy updater only installs while both the spec and
+// "aoe" are present (the pack tools were dead without it). Deliberately NOT
+// "dps assist" (threat race), NOT "behind" (tanks face the mob), NOT threat
+// backoff. `.bot action aoe off` is unaffected: it adds the separate
+// "no aoe" veto strategy, which does not depend on the kit.
 inline std::vector<std::string> ShamanTankCombatKit()
 {
     return { "tank shaman", "tank assist", "pull", "pull back", "close", "tank face",
-        "cure", "totems", "buff", "boost" };
+        "cure", "totems", "buff", "boost", "aoe" };
 }
 
 // Noncombat kit mirrors the druid tank branch: spec strategy + "tank assist"
