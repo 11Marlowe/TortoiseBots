@@ -6,6 +6,7 @@ checks that each column the loader reads is created by a migration, and that any
 later (exporter) migration inserts use a kind the loader knows.
 """
 import glob
+import math
 import os
 import re
 import unittest
@@ -36,6 +37,18 @@ SEEDED_BOSSES = {
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
 # Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
 NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586}
+# Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
+# (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
+ZUMRAH_GRAVES = (
+    (1858.70, 1053.75), (1862.12, 1050.76), (1871.08, 1046.76), (1875.85, 1044.26),
+    (1881.46, 1041.43), (1881.99, 1034.68), (1888.36, 1037.00), (1867.74, 1041.84),
+    (1845.96, 1047.25), (1841.08, 1045.54), (1843.19, 1041.16), (1839.18, 1036.88),
+    (1832.72, 1032.39), (1841.82, 1027.76), (1839.42, 1023.49), (1845.54, 1024.12),
+    (1852.41, 1024.78), (1861.12, 1019.39), (1865.03, 1012.49), (1866.24, 1008.40),
+    (1871.30, 1008.32), (1871.86, 994.26), (1890.12, 989.76), (1894.39, 977.01),
+    (1887.46, 967.14), (1882.70, 971.83), (1879.89, 974.65), (1876.44, 972.21),
+    (1892.57, 1006.37), (1891.60, 1023.06), (1887.94, 1029.08),
+)
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -281,7 +294,7 @@ class DungeonPlanSql(unittest.TestCase):
                     self.assertTrue(row["entries"], where + ": done by its units without entries")
 
     def test_zulfarrak_runs_the_stairs_event(self):
-        # The newest migration that inserts the zulfarrak steps (20261021095914, turtle-agent plan-export of the plan with the stairs
+        # The newest migration that inserts the zulfarrak steps (20261021115557, the graves on 20261021095914; turtle-agent plan-export of the plan with the stairs
         # holds, Weegli's door and Ukorz) carries Zum'rah, the Executioner's key to the cage, the three holds on the pyramid phase
         # (instance data 1: 3 = WAVE_1, 7 = WAVE_3 on the stairs top, 8 = PYRAMID_KILLED_ALL_TROLLS at the foot, script values with
         # flag 8 alone), Nekrum before Sezz'ziz at the end of leg 13 and Ukorz as the last row; a re-export from an exporter without hold values
@@ -324,6 +337,35 @@ class DungeonPlanSql(unittest.TestCase):
         for stand, limit in ((leg[pulls[-3][0] - 1], 1625), (leg[pulls[-2][0] - 1], 1635)):
             self.assertLess(float(stand["x"]), limit, name)
         self.assertEqual(max(int(r["leg"]) for r in rows), 15, name)
+
+    def test_zulfarrak_graves_before_the_trigger(self):
+        # Zum'rah's 31 Shallow Graves (128403) are opened one at a time before the trigger 962 (turtle-agent plan-export
+        # --carrier-chests): each is a move to its stand (4 yd or less from the grave), the loot (gone-is-done flag 256, item 0)
+        # and the sweep pull of 7286,7276 at the grave's point (radius 15). The walk keeps ZUMRAH_GRAVES' order. 128308 (the
+        # script graves, not Zum'rah's) is never a row. The graves are read from the newest zulfarrak migration.
+        name, _text, rows = newest_zulfarrak_rows()
+        leg = next(r["leg"] for r in rows if r["kind"] == "boss" and r["entry"] == "7271")
+        steps = [r for r in rows if r["leg"] == leg]
+        self.assertEqual([int(r["seq"]) for r in steps], list(range(len(steps))), name + ": the zumrah seq is not 0..n-1")
+        self.assertEqual([r for r in rows if r["entry"] == "128308"], [], name + ": a 128308 row (script graves, not Zum'rah's)")
+        loots = [i for i, r in enumerate(steps) if r["kind"] == "loot"]
+        self.assertEqual(len(loots), len(ZUMRAH_GRAVES), name + ": the number of grave loot rows")
+        for i, (gx, gy) in zip(loots, ZUMRAH_GRAVES):
+            where = "%s: grave at seq %s" % (name, steps[i]["seq"])
+            self.assertEqual((steps[i]["entry"], steps[i]["flags"], steps[i]["item"]), ("128403", "256", "0"), where)
+            self.assertLessEqual(math.hypot(float(steps[i]["x"]) - gx, float(steps[i]["y"]) - gy), 0.1, where + ": not the plan's point")
+            move, pull = steps[i - 1], steps[i + 1]
+            self.assertEqual((move["kind"], move["comment"]), ("move", "stand"), where + ": not preceded by its stand")
+            self.assertLessEqual(math.hypot(float(move["x"]) - gx, float(move["y"]) - gy), 4, where + ": the stand is more than 4 yd off")
+            self.assertEqual((pull["kind"], pull["entries"], pull["radius"]), ("pull", "7286,7276", "15"), where + ": not followed by the sweep")
+            self.assertLessEqual(math.hypot(float(pull["x"]) - float(steps[i]["x"]), float(pull["y"]) - float(steps[i]["y"])), 0.1,
+                                 where + ": the sweep is not at the grave")
+        trigger = [i for i, r in enumerate(steps) if (r["kind"], r["x"], r["y"], r["z"]) == ("move", "1903", "1014", "11.8")]
+        boss = [i for i, r in enumerate(steps) if r["kind"] == "boss"]
+        self.assertEqual((len(trigger), len(boss)), (1, 1), name + ": the trigger 962 and the boss 7271 are each one row")
+        self.assertLess(loots[-1] + 1, trigger[0], name + ": the last grave's sweep is not before the trigger")
+        self.assertLess(trigger[0], boss[0], name + ": the trigger is not before the boss")
+        self.assertEqual(boss[0], len(steps) - 1, name + ": the boss does not end the zumrah leg")
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():
