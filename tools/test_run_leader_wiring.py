@@ -445,8 +445,21 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("r.shotStandFor = u.guid;", hold)
         # Every pull caller hands its tick length to the stand walk.
         self.assertIn("PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);", policy)
-        self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt);", policy)
+        self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, true, dt);", policy)
+        # PLAN-ZF-NOFIGHT: a move's and the walk back's pulls are hop pulls; a hop unit the tank cannot shoot is
+        # passed with no order (after the stand gate, before any pullback), and a unit that never came stays
+        # passed in every later step (ResetStep seeds `passed` with the run-wide set).
+        self.assertIn("hop = hop || walkBack;", pull)
+        nohop = pull.index("if (hop && PullStandOn(r, f) && !ShootableFromLead(f, u))")
+        self.assertLess(gate, nohop)
+        self.assertLess(nohop, pull.index('order = "pullback " + std::to_string(u.guid);'))
+        self.assertIn("r.pullHop = hop;", pull)
+        reset = body(policy, "inline void ResetStep(", "\n}\n")
+        self.assertIn("r.passed = r.neverCame;", reset)
+        self.assertNotIn("r.passed.clear();", reset)
+        await_pull = body(policy, "inline void AwaitPull(", "\n}\n")
+        self.assertIn("r.neverCame.insert(r.pullGuid);", await_pull)
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()

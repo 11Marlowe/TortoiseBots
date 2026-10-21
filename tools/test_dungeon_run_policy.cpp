@@ -8181,8 +8181,165 @@ static void TestCeilingPauseResumesByItself()
     CHECK(!CeilingFightOverWhilePaused(u, false, kCeilingQuietMs * 2) && u.state == State::Running);
 }
 
+// Zul'Farrak r3-19z20 / r6-19z24 (PLAN-ZF-NOFIGHT): the island Shadowhunter 7246
+// (spawn 81610 at 1591.0 1047.7) stood 7.4 yd from step 64's move point and was
+// hop-pulled there; it drew no fight. Passed was cleared every step, so r3 pulled
+// it 6 times over 3 steps, and the walk back pulled it again. A hop unit that
+// drew no fight from one pullback is passed for the run: step 65, the walk back
+// over step 64 and a resume do not pull it again.
+static void TestHopUnitThatNeverCameIsNotPulledAgain()
+{
+    std::uint64_t const island = 0xF130001C4E013ECAull;
+    std::string const pull = "pullback " + std::to_string(island);
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 1584.0f, 1050.0f, 8.9f), Step(PlanStepKind::Move, 1594.3f, 1048.0f, 9.4f),
+        PullStep(1700, {5649})};
+    Run r = Start(&plan);
+    Facts f = Party(1585.1f); // row 63's pull point
+    f.leadY = 1035.5f;
+    f.leadZ = 9.0f;
+    f.hopUnits = {Unit(island, 7246, 7.4f)};
+    CHECK(Tick(r, f) == pull);
+    int pulls = 1;
+    std::string order;
+    for (int i = 0; i < 40 && order.compare(0, 5, "move ") != 0; ++i)
+    {
+        order = Tick(r, f);
+        if (order == pull)
+            ++pulls;
+    }
+    CHECK(pulls == 1);
+    CHECK(order == "move 1584.0 1050.0 8.9");
+    CHECK(r.neverCame.count(island));
+    // Step 65: the same unit within 15 yd of its point (12.9 yd): no pull.
+    f.leadX = 1584.0f;
+    f.leadY = 1050.0f;
+    f.leadZ = 8.9f;
+    Tick(r, f);
+    CHECK(r.step == 1);
+    for (int i = 0; i < 3 && order.compare(0, 5, "move ") != 0; ++i)
+        CHECK((order = Tick(r, f)) != pull);
+    order = Tick(r, f);
+    CHECK(order == "move 1594.3 1048.0 9.4");
+    // The walk back over step 64: no pull on the way either.
+    r.walkBack = true;
+    r.walkBackIdx = 0;
+    r.gatherWaived = true;
+    r.gatherRefusals = 2;
+    f.leadX = 1594.3f;
+    f.leadY = 1048.0f;
+    f.leadZ = 9.4f;
+    order = Tick(r, f);
+    CHECK(order == "move 1584.0 1050.0 8.9");
+    CHECK(r.walkBackPulls == 0);
+    // A resume (fresh tries and passed for the step) keeps the run-wide set.
+    Pause(r, "test");
+    CHECK(Resume(r));
+    r.walkBack = false;
+    for (int i = 0; i < 10; ++i)
+        CHECK(Tick(r, f) != pull);
+}
+
+// The same for a pull row's own unit: two pulls that drew no fight pass it for
+// the run, so a later row that sees it again does not pull it.
+static void TestStepUnitThatNeverCameIsPassedForTheRun()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(10, {4851}), PullStep(12, {4851})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(7, 4851, 10)};
+    int first = 0, second = 0;
+    for (int i = 0; i < 200 && r.state == State::Running; ++i)
+    {
+        std::size_t const step = r.step;
+        if (Tick(r, f) == "pullback 7")
+            ++(step == 0 ? first : second);
+    }
+    CHECK(first == static_cast<int>(kPullTriesPerUnit));
+    CHECK(second == 0);
+    CHECK(r.state == State::Done && r.neverCame.count(7));
+}
+
+// r6-19z24 step 64 (17:28:12): "pulling 7246 (order 1; no firing stand found)",
+// the tank walked at it, engaged it on arrival and followed it onto the island.
+// With the pull stand on, a hop unit the tank cannot shoot from where it stands,
+// once the stand rule gave up, is not pulled at all: it is passed for the run and
+// the move goes on. A shootable hop unit is pulled as before, and so is every hop
+// unit with the key off (no sight is read then) and a pull row's own unit.
+static void TestHopPullWithoutAShotSendsNoOrder()
+{
+    std::uint64_t const island = 0xF130001C4E013ECAull;
+    std::string const pull = "pullback " + std::to_string(island);
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 50, 0, 0)};
+    {
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.hopUnits = {Seen(island, 7246, 7.4f, false)};
+        CHECK(Tick(r, f).empty());
+        CHECK(r.shotStandFor == island);
+        f.shotStandGuid = island; // read, nothing found
+        f.shotStandKnown = false;
+        CHECK(Tick(r, f).empty());
+        CHECK(r.neverCame.count(island) && r.passed.count(island));
+        CHECK(Has(r.note, "passed: the tank cannot shoot it from here (no firing stand found)"));
+        f.shotStandGuid = 0;
+        CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    }
+    {
+        // The walk back's hop pull: the same.
+        DungeonPlan two;
+        two.steps = {Step(PlanStepKind::Move, 50, 0, 0), Step(PlanStepKind::Move, 90, 0, 0)};
+        Run r = Start(&two, 1);
+        r.walkBack = true;
+        r.walkBackIdx = 0;
+        r.gatherWaived = true;
+        r.gatherRefusals = 2;
+        Facts f = StandParty();
+        f.hopUnits = {Seen(island, 7246, 7.4f, false)};
+        CHECK(Tick(r, f).empty());
+        f.shotStandGuid = island;
+        f.shotStandKnown = false;
+        CHECK(Tick(r, f).empty());
+        CHECK(r.neverCame.count(island) && r.walkBackPulls == 0);
+        f.shotStandGuid = 0;
+        CHECK(Tick(r, f) == "move 50.0 0.0 0.0");
+    }
+    {
+        // In sight and in range: pulled.
+        Run r = Start(&plan);
+        Facts f = StandParty();
+        f.hopUnits = {Seen(island, 7246, 20.0f, true)};
+        CHECK(Tick(r, f) == pull);
+    }
+    {
+        // The key off: pulled as before.
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.hopUnits = {Seen(island, 7246, 7.4f, false)};
+        CHECK(Tick(r, f) == pull);
+    }
+    {
+        // A pull row's own unit keeps the old order.
+        DungeonPlan pack;
+        pack.steps = {PullStep(40, {7246})};
+        Run r = Start(&pack);
+        Facts f = StandParty();
+        f.units = {Seen(island, 7246, 40.0f, false)};
+        CHECK(Tick(r, f).empty());
+        f.shotStandGuid = island;
+        f.shotStandKnown = false;
+        CHECK(Tick(r, f) == pull);
+        CHECK(!r.neverCame.count(island));
+    }
+}
+
 int main()
 {
+    TestHopUnitThatNeverCameIsNotPulledAgain();
+    TestStepUnitThatNeverCameIsPassedForTheRun();
+    TestHopPullWithoutAShotSendsNoOrder();
     TestGoneChestWithFlagIsDone();
     TestGoneChestWithoutFlagPauses();
     TestGoneIsDoneOnlyForAGoneObject();

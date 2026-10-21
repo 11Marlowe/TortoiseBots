@@ -601,6 +601,7 @@ struct Run
     std::uint32_t pulls = 0;
     std::unordered_map<std::uint64_t, std::uint32_t> pullTries;
     std::unordered_set<std::uint64_t> passed;
+    bool pullHop = false;           // the pull out is a hop pull (a move's or the walk back's)
     std::size_t openAtLastPull = 0;
     std::uint32_t fruitlessPulls = 0;
     std::uint32_t bossWaitMs = 0;   // a boss step: time at the spot with the boss neither alive nor dead in sight
@@ -608,6 +609,12 @@ struct Run
     std::uint32_t walkBackPulls = 0; // pulls on the way of the walk back (not counted in `pulls`)
     // Run-wide (kept across steps).
     std::unordered_set<std::uint64_t> unreachable;   // units given up on: never pulled again this run
+    // Units that never came (PLAN-ZF-NOFIGHT; Zul'Farrak r3/r6, the island
+    // Shadowhunter 81610): a pull that drew no fight within kPullNoFightMs (a
+    // hop pull at once, a step's pull after kPullTriesPerUnit in a step), or a
+    // hop unit the tank could not shoot (PullUnit). ResetStep seeds `passed`
+    // with it, so no later step, hop pull or walk back pulls them again.
+    std::unordered_set<std::uint64_t> neverCame;
     // loot: the bot the order goes to ("": the carrier), the bots a refusal on the
     // loot rules has been tried with, and the refusal's pause text while the
     // next bot is tried.
@@ -1127,7 +1134,8 @@ inline void ResetStep(Run& r)
     r.pullGuid = 0;
     r.pulls = 0;
     r.pullTries.clear();
-    r.passed.clear();
+    r.passed = r.neverCame; // a unit that never came stays passed for the run
+    r.pullHop = false;
     r.openAtLastPull = 0;
     r.fruitlessPulls = 0;
     r.bossWaitMs = 0;
@@ -3132,9 +3140,16 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
 // Gathers the party, crowd-controls the plan's cc target of the pack (one
 // `cc moon <guid> <mage>`, once per unit and step), then sends `pullback <guid>`.
 // With the pull stand on (HoldForShot), the tank is put where it can shoot first.
+// `hop`: a move's hop pull (the walk back's are hop pulls too). Such a unit is
+// not the step's target: with the pull stand on, one the tank still cannot
+// shoot once the stand rule gave up is passed for the run (neverCame), with no
+// order: the pullback would walk the tank at it (ReachPullAction), and in
+// r6-19z24 step 64 that walk, the engage on arrival and the chase put the tank
+// on the island of 81610 (PLAN-ZF-NOFIGHT).
 inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& order, const UnitFact* cc = nullptr,
-    bool walkBack = false, std::uint32_t dt = kTickMs)
+    bool walkBack = false, std::uint32_t dt = kTickMs, bool hop = false)
 {
+    hop = hop || walkBack;
     // The owner's wait rule at the pull itself (Uldaman 19z11: 17 of 63 pulls
     // went out with a member dead, 15 with the healer, two of them into
     // wipes): no pull while a bot is dead, outside a scripted event. Tick's
@@ -3214,6 +3229,20 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     r.gatherWaived = false;
     r.hopWaiveUnits.clear();
     r.gatherRefusals = 0;
+    if (hop && PullStandOn(r, f) && !ShootableFromLead(f, u))
+    {
+        r.neverCame.insert(u.guid);
+        r.passed.insert(u.guid);
+        r.note = "hop unit " + std::to_string(u.entry) + " " + GuidArg(u.guid) +
+            " passed: the tank cannot shoot it from here (" + r.shotHow + "), and a hop pull never walks to it";
+        r.shotStandPrep = false;
+        r.shotStandFor = 0;
+        r.shotStandWalk = false;
+        r.shotStillMs = 0;
+        r.shotHow.clear();
+        EnterPhase(r, Phase::Begin);
+        return;
+    }
     std::uint32_t& tries = r.pullTries[u.guid];
     if (tries >= kMaxPullsPerTarget)
     {
@@ -3227,6 +3256,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     ++tries;
     ++(walkBack ? r.walkBackPulls : r.pulls);
     r.pullGuid = u.guid;
+    r.pullHop = hop;
     r.reachStopped = false;
     EnterPhase(r, Phase::AwaitPull);
     r.note = "pulling " + std::to_string(u.entry);
@@ -3252,15 +3282,21 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
 }
 
 // The step's pull is out: wait for the fight (the fight gate takes over) or
-// give the pull up after kPullNoFightMs.
+// give the pull up after kPullNoFightMs. A unit that never came is passed for
+// the run (Run::neverCame): a hop pull's at once (the agent's one pullback), a
+// step pull's after kPullTriesPerUnit in a step.
 inline void AwaitPull(Run& r)
 {
     if (r.phaseMs < kPullNoFightMs)
         return;
     auto it = r.pullTries.find(r.pullGuid);
-    if (it != r.pullTries.end() && it->second >= kPullTriesPerUnit)
+    if (r.pullHop || (it != r.pullTries.end() && it->second >= kPullTriesPerUnit))
+    {
         r.passed.insert(r.pullGuid);
+        r.neverCame.insert(r.pullGuid);
+    }
     r.pullGuid = 0;
+    r.pullHop = false;
     EnterPhase(r, Phase::Begin);
 }
 
@@ -4032,7 +4068,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
     }
     if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0))
     {
-        PullUnit(r, f, *hopUnit, order, nullptr, false, dt);
+        PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);
         return;
     }
     // Far away (after a wipe the lead bot comes back from the entrance; a
