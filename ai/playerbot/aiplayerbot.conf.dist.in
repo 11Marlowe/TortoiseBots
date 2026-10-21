@@ -374,6 +374,10 @@ AiPlayerbot.TravelPickBudgetUs = 4000
 # command points players to one); 1 = .bot hire also works anywhere. Fees are
 # the same either way.
 #AiPlayerbot.HireAnywhere = 0
+# ShamanTankEnabled: 1 = the experimental 7.3 shaman tank build (Enhancement
+# (Tank)) is offered at recruiters and by `.bot hire`, and random pool shamans
+# may roll it. 0 = withheld everywhere. Shamans already on the build keep it.
+#AiPlayerbot.ShamanTankEnabled = 1
 #AiPlayerbot.HireBaseCostCopper = 15000
 #AiPlayerbot.HirePartyMult2 = 1.66
 #AiPlayerbot.HirePartyMult3 = 2.66

@@ -259,7 +259,7 @@ void ShowSpecMenu(Player* player, Creature* creature, uint8 classId, uint8 race,
     uint32 hireLevel = player ? player->GetLevel() : 0;
     for (uint32 i = 0; i < specCount && i < kMaxMenuItems - 1; ++i)
     {
-        if (!HireSpecOffered(classId, static_cast<int>(i), hireLevel))
+        if (!HireSpecOffered(classId, static_cast<int>(i), hireLevel, sPlayerbotAIConfig.shamanTankEnabled))
             continue;
         AddItem(player, GOSSIP_ICON_BATTLE, specs[i].label, kSenderSpec,
             (uint32(classId) << 24) | (uint32(race) << 16) | (uint32(gender) << 8) | i);
@@ -884,9 +884,9 @@ bool HireRecruiterScript::OnSelect(Player* player, Creature* creature, uint32_t 
         }
         // Shaman tank needs the hirer's level 10 (taunt): a stale menu from
         // before a level change cannot hire through the gate.
-        if (!HireSpecOffered(classId, static_cast<int>(low), player ? player->GetLevel() : 0))
+        if (!HireSpecOffered(classId, static_cast<int>(low), player ? player->GetLevel() : 0, sPlayerbotAIConfig.shamanTankEnabled))
         {
-            CloseWithHint(player, "Enhancement (Tank) needs level 10 (Earthshaker Slam taunt). Level up and hire again.");
+            CloseWithHint(player, "Enhancement (Tank) is not available: it needs level 10 (Earthshaker Slam taunt), and the server may have it turned off.");
             return true;
         }
         // Issue #490 PR 2: equipment step between spec and confirm. One

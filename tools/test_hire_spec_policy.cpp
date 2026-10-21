@@ -243,11 +243,11 @@ static void TestConfiguredNames()
 // everything else is always offered.
 static void TestTankLevelGate()
 {
-    CHECK(HireSpecOffered(kHireClassShaman, 3, 9) == false);
-    CHECK(HireSpecOffered(kHireClassShaman, 3, 10) == true);
-    CHECK(HireSpecOffered(kHireClassShaman, 3, 60) == true);
-    CHECK(HireSpecOffered(kHireClassShaman, 2, 1) == true);
-    CHECK(HireSpecOffered(kHireClassWarrior, 0, 1) == true);
+    CHECK(HireSpecOffered(kHireClassShaman, 3, 9, true) == false);
+    CHECK(HireSpecOffered(kHireClassShaman, 3, 10, true) == true);
+    CHECK(HireSpecOffered(kHireClassShaman, 3, 60, true) == true);
+    CHECK(HireSpecOffered(kHireClassShaman, 2, 1, true) == true);
+    CHECK(HireSpecOffered(kHireClassWarrior, 0, 1, true) == true);
     CHECK(HireSpecPathName(kHireClassShaman, 3) != nullptr);
 }
 

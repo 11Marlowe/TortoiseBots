@@ -73,4 +73,14 @@ inline bool ShamanPlaysTankKit(uint8_t forcedRole, bool tankBuild)
     return tankBuild;
 }
 
+// Roll weight of a premade path for a random pool bot. The 7.3 shaman tank
+// build weighs 0 while AiPlayerbot.ShamanTankEnabled is off; every other path
+// keeps its configured probability (issue #1125). Negative weights count as 0.
+inline uint32_t PremadePathRollWeight(uint8_t cls, int pathId, int probability, bool shamanTankEnabled)
+{
+    if (!shamanTankEnabled && cls == kShamanTankPremadeClass && pathId == kShamanTankPremadeSpec)
+        return 0;
+    return probability > 0 ? static_cast<uint32_t>(probability) : 0;
+}
+
 } // namespace TortoiseBots

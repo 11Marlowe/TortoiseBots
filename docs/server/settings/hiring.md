@@ -23,6 +23,7 @@ These settings configure mercenary companion hiring, party cost scaling, raid pr
 | [`AiPlayerbot.HireMaxBotsPerPlayer`](#aiplayerbothiremaxbotsperplayer) | `4` | Maximum number of hired companions a single player may lead. |
 | [`AiPlayerbot.HireMaxLevelAboveHirer`](#aiplayerbothiremaxlevelabovehirer) | `0` | Maximum character levels a hired companion may exceed its employer. |
 | [`AiPlayerbot.HireAnywhere`](#aiplayerbothireanywhere) | `0` | Allows hiring companions from anywhere via chat command. |
+| [`AiPlayerbot.ShamanTankEnabled`](#aiplayerbotshamantankenabled) | `1` | Offers the experimental 7.3 shaman tank build at recruiters, by `.bot hire`, and to random pool shamans. |
 | [`AiPlayerbot.HireBaseCostCopper`](#aiplayerbothirebasecostcopper) | `15000` | Base copper fee used for level-scaled party companion hiring. |
 | [`AiPlayerbot.HirePartyMult2`](#aiplayerbothirepartymult2) | `1.66` | Cost multiplier applied when hiring a second party companion. |
 | [`AiPlayerbot.HirePartyMult3`](#aiplayerbothirepartymult3) | `2.66` | Cost multiplier applied when hiring a third party companion. |
@@ -129,6 +130,17 @@ Controls whether players can hire companions from any location or only at recrui
 When set to `0`, companions may only be hired while interacting in person with a `<Mercenary Hire>` recruiter NPC.
 
 When set to `1`, players may execute `.bot hire` from anywhere in the world. Calculated hire fees and limits remain identical regardless of location.
+
+</details>
+
+### `AiPlayerbot.ShamanTankEnabled`
+Controls whether the experimental 7.3 shaman tank build (Enhancement (Tank)) is offered for hire and in the random pool.
+**Default:** `1` · **Values:** `1` offered, `0` withheld · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+When set to `0`, the recruiter spec menu omits the tank option, `.bot hire shaman tank` is refused, and random pool shamans never roll the `7.3` premade (its `AiPlayerbot.PremadeSpecProb.7.3` weight counts as 0). Shamans already on the build keep it.
 
 </details>
 

@@ -185,6 +185,12 @@ HireOutcome HireProvisionService::Hire(Player* requester, HireSelection const& s
         return outcome;
     }
     uint8 role = sel.role ? sel.role : DefaultRoleForClass(sel.classId);
+    if (!ShamanTankRoleOffered(sel.classId, role, sPlayerbotAIConfig.shamanTankEnabled))
+    {
+        outcome.status = HireStatus::InvalidChoice;
+        outcome.message = "The experimental shaman tank is turned off on this server.";
+        return outcome;
+    }
     if (!ClassCanRole(sel.classId, role))
     {
         outcome.status = HireStatus::InvalidChoice;
@@ -527,7 +533,11 @@ HireRaidOutcome HireProvisionService::HireRaid(Player* requester, HireRaidReques
     if (!ParseHireRaidSpread(sPlayerbotAIConfig.hireRaidSpread, spread))
         ParseHireRaidSpread(kHireRaidSpreadDefault, spread);
     HireRaidClassRules rules;
-    rules.canRole = &HireProvisionService::ClassCanRole;
+    rules.canRole = [](uint8 classId, uint8 role)
+    {
+        return HireProvisionService::ClassCanRole(classId, role) &&
+            ShamanTankRoleOffered(classId, role, sPlayerbotAIConfig.shamanTankEnabled);
+    };
     rules.defaultRole = &HireProvisionService::DefaultRoleForClass;
     std::vector<HireRaidSlot> roster;
     std::string error;

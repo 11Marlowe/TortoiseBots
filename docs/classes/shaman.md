@@ -19,7 +19,7 @@ Shamans provide unmatched group utility through versatile totem sets, elemental 
 | **Restoration** | Healer | Chain Heal throughput, single-target wave downranking, and totem support. |
 | **Enhancement** | Melee DPS | Front-line melee damage, Windfury burst, Stormstrike, and totem utility. |
 | **Elemental** | Ranged DPS | High-damage Lightning Bolt and Chain Lightning spells with instant crits. |
-| **Tank (experimental)** | Tank | Shield and Rockbiter Weapon, Earth Shock threat, Earthshaker Slam taunt, Stoneclaw on packs. A Turtle WoW meme spec, offered for players who want to try it ([#1125](https://github.com/Sagiroth/TortoiseBots/issues/1125)). |
+| **Tank (experimental)** | Tank | Shield and Rockbiter Weapon, Earth Shock threat, Earthshaker Slam taunt, Stoneclaw on packs. A Turtle WoW meme spec, offered for players who want to try it unless [`AiPlayerbot.ShamanTankEnabled`](../server/settings/hiring.md#aiplayerbotshamantankenabled) is `0` ([#1125](https://github.com/Sagiroth/TortoiseBots/issues/1125)). |
 
 ---
 
@@ -129,7 +129,7 @@ TortoiseBots provides pre-configured talent progressions at 5-level checkpoints 
 
 There are no class-specific configuration flags for Shamans. General combat and resting settings are configured in [Combat settings](../server/settings/combat.md).
 
-**How often random bots roll the tank spec:** `AiPlayerbot.PremadeSpecProb.7.3` is the tank's weight in the shaman spec draw (the other three specs ship at 100, the tank at 16, so about 5% of pool shamans). `0` turns the tank spec off for random bots; hiring it is unaffected.
+**How often random bots roll the tank spec:** `AiPlayerbot.PremadeSpecProb.7.3` is the tank's weight in the shaman spec draw (the other three specs ship at 100, the tank at 16, so about 5% of pool shamans). `0` turns the tank spec off for random bots; hiring it is unaffected by this key. [`AiPlayerbot.ShamanTankEnabled`](../server/settings/hiring.md#aiplayerbotshamantankenabled) `= 0` withholds it from hiring as well.
 
 **When a shaman counts as a tank:** a bot with the tank spec or tank role always does. A player shaman counts as a tank when wearing a shield, with *Rockbiter Weapon* on the main hand and *Totemic Alignment* or *Spirit Armor* learned (from about level 25 with the tank levelling order), or after [`.bot role self tank`](../play/commands/roster-and-hiring.md#bot-role). A shaman tank also counts as a tank next to a warrior, paladin or druid tank. Hunter and warlock pets then stop taunting, healers treat the shaman as the tank, and the other bots keep their threat below it.
 

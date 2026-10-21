@@ -1366,7 +1366,12 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     // the tank row, so refuse it here as one gate instead of per word.
     if (sel.classId == CLASS_SHAMAN && sel.role == static_cast<uint8>(ai::BOT_ROLE_TANK))
     {
-        if (!HireSpecOffered(CLASS_SHAMAN, 3, requester->GetLevel()))
+        if (!sPlayerbotAIConfig.shamanTankEnabled)
+        {
+            handler->PSendSysMessage("The experimental shaman tank is turned off on this server (AiPlayerbot.ShamanTankEnabled = 0).");
+            return true;
+        }
+        if (!HireSpecOffered(CLASS_SHAMAN, 3, requester->GetLevel(), sPlayerbotAIConfig.shamanTankEnabled))
         {
             handler->PSendSysMessage("Enhancement (Tank) needs level 10 (Earthshaker Slam taunt). Level up and hire again.");
             return true;

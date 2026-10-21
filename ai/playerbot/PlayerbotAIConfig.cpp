@@ -494,6 +494,7 @@ bool PlayerbotAIConfig::Initialize()
     hireFreeMinSecurity = TortoiseBots::ClampHireFreeMinSecurity(
         static_cast<int64_t>(config.GetIntDefault("AiPlayerbot.HireFreeMinSecurity", 0)));
     hireAnywhere = config.GetBoolDefault("AiPlayerbot.HireAnywhere", false);
+    shamanTankEnabled = config.GetBoolDefault("AiPlayerbot.ShamanTankEnabled", true);
     hireBaseCostCopper = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.HireBaseCostCopper", 15000));
     if (hireBaseCostCopper > 100000000)
         hireBaseCostCopper = 100000000;

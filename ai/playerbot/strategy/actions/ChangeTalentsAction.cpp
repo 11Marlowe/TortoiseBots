@@ -11,6 +11,7 @@
 #include "../../../../runtime/HireProvisionService.h"
 #include "../../../../runtime/AltBotService.h"
 #include "../../../../runtime/AltBotPolicy.h"
+#include "../../../../runtime/ShamanTankKitPolicy.h"
 
 using namespace ai;
 
@@ -105,7 +106,7 @@ bool ChangeTalentsAction::Execute(Event& event)
                         if (paths.size() > 1)
                             out << "Found " << paths.size() << " possible specs to choose from. ";
 
-                        TalentPath* path = PickPremadePath(paths, sRandomBotFacade.IsRandomBot(bot));
+                        TalentPath* path = PickPremadePath(bot->GetClass(), paths, sRandomBotFacade.IsRandomBot(bot));
                         TalentSpec newSpec = *GetBestPremadeSpec(bot, path->id);
                         std::string specLink = newSpec.GetTalentLink();
                         newSpec.CropTalents(bot);
@@ -321,14 +322,24 @@ void ChangeTalentsAction::listPremadePaths(uint8 cls, std::vector<TalentPath*> p
     *out << ".";
 }
 
-TalentPath* ChangeTalentsAction::PickPremadePath(std::vector<TalentPath*> paths, bool useProbability)
+// Roll weight of one premade path in a PickPremadePath draw. Random pool bots
+// roll by configured probability; other bots roll evenly (weight 1). Either way
+// the 7.3 shaman tank weighs 0 while AiPlayerbot.ShamanTankEnabled is off
+// (issue #1125).
+static int PremadeRollWeightFor(uint8 cls, TalentPath* path, bool useProbability)
+{
+    int weight = useProbability ? path->probability : 1;
+    return static_cast<int>(TortoiseBots::PremadePathRollWeight(cls, path->id, weight, sPlayerbotAIConfig.shamanTankEnabled));
+}
+
+TalentPath* ChangeTalentsAction::PickPremadePath(uint8 cls, std::vector<TalentPath*> paths, bool useProbability)
 {
     if (paths.size() == 1)
         return paths[0];
 
     int totProbability = 0;
     for (auto path : paths)
-        totProbability += useProbability ? path->probability : 1;
+        totProbability += PremadeRollWeightFor(cls, path, useProbability);
 
     if (totProbability <= 0)
         return paths[0];
@@ -343,7 +354,7 @@ TalentPath* ChangeTalentsAction::PickPremadePath(std::vector<TalentPath*> paths,
     int curProbability = 0;
     for (auto path : paths)
     {
-        curProbability += (useProbability ? path->probability : 1);
+        curProbability += PremadeRollWeightFor(cls, path, useProbability);
         if (curProbability > roll)
         {
             chosen = path;
@@ -494,7 +505,7 @@ bool ChangeTalentsAction::AutoSelectTalents(Player* bot, std::ostringstream* out
     }
     else
     {
-        specId = PickPremadePath(paths, sRandomBotFacade.IsRandomBot(bot))->id;
+        specId = PickPremadePath(bot->GetClass(), paths, sRandomBotFacade.IsRandomBot(bot))->id;
         TalentSpec newSpec = *GetBestPremadeSpec(bot, specId);
         specLink = newSpec.GetTalentLink();
         newSpec.CropTalents(bot);

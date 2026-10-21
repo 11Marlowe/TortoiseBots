@@ -697,7 +697,7 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
     // getPremadePath(cls, specNo - 1) by TalentPath::id, so store id + 1.
     uint32 totalProbability = 0;
     for (TalentPath& path : paths)
-        totalProbability += std::max(0, path.probability);
+        totalProbability += TortoiseBots::PremadePathRollWeight(cls, path.id, path.probability, sPlayerbotAIConfig.shamanTankEnabled);
 
     TalentPath* chosen = &paths.front();
     if (totalProbability > 0)
@@ -706,7 +706,7 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
         uint32 cumulative = 0;
         for (TalentPath& path : paths)
         {
-            cumulative += std::max(0, path.probability);
+            cumulative += TortoiseBots::PremadePathRollWeight(cls, path.id, path.probability, sPlayerbotAIConfig.shamanTankEnabled);
             if (roll < cumulative)
             {
                 chosen = &path;

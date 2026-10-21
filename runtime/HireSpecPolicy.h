@@ -156,13 +156,22 @@ inline int HireSpecIndexForWord(uint8_t classId, std::string const& word)
 // Shaman Enhancement (Tank) needs the level-10 taunt (Earthshaker Slam): the
 // gossip spec menu hides the row below that level instead of hiring a tank
 // that cannot taunt (issue #1125). Pure: the caller passes the hirer's level
-// (the hire arrives at it). Every other option is always offered.
-inline bool HireSpecOffered(uint8_t classId, int specIndex, uint32_t hirerLevel)
+// (the hire arrives at it) and AiPlayerbot.ShamanTankEnabled. Every other
+// option is always offered.
+inline bool HireSpecOffered(uint8_t classId, int specIndex, uint32_t hirerLevel, bool shamanTankEnabled)
 {
     if (classId == kHireClassShaman && specIndex == 3)
-        return hirerLevel >= 10;
+        return shamanTankEnabled && hirerLevel >= 10;
     return true;
- }
+}
+
+// The shaman tank role is the 7.3 build alone. With AiPlayerbot.ShamanTankEnabled
+// off, no shaman may be hired into the tank role by any path: recruiter, `.bot
+// hire`, raid roster or raid preset. Existing tanks keep their kit (issue #1125).
+inline bool ShamanTankRoleOffered(uint8_t classId, uint8_t role, bool shamanTankEnabled)
+{
+    return shamanTankEnabled || classId != kHireClassShaman || role != kHireRoleTank;
+}
 
 // Post-provision check: does the build that was applied honour the request?
 // A role-only request (empty/null name) is honoured by any role-matching
