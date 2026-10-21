@@ -24,6 +24,19 @@ public:
     // its off-hand, shoot a bow, or block without it.
     static void EnsureSkillRewardedSpells(Player* bot);
 
+    // A talent rank spell must never stay "dependent": this core writes only
+    // non-dependent spells to `character_spell` and keeps talents nowhere else,
+    // while its spell-chain pass marks the lower ranks dependent whenever a
+    // higher rank of the chain is learned - and Turtle's data heads a few
+    // trainer chains with a talent rank-1 spell (Lightning Strike 51387 ->
+    // 52420 -> 52422, Mortal Strike 12294 -> 21551 -> ..., Bloodthirst, Shield
+    // Slam, Moonkin Form, Repentance, ...). Teaching those trainer ranks, and
+    // re-loading the character that has them, used to leave the talent out of
+    // the DB (a 51-point shaman tank hire read 15/35 in the armory while its
+    // live spellbook said 15/36). Idempotent, O(spellbook), safe on every login
+    // and every provisioning pass. See TalentSpellSavePolicy.h.
+    static void EnsureTalentSpellsSaved(Player* bot);
+
     void EnchantEquipment();
     void EquipGear() { InitEquipment(false, false); }
     void EquipGearBest() { return InitEquipment(false, false, false); }

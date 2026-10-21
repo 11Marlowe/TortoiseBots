@@ -4,6 +4,7 @@
 #include "playerbot/PerformanceMonitor.h"
 #include "playerbot/SurvivePolicy.h"
 #include "playerbot/SpellRankPolicy.h"
+#include "playerbot/TalentSpellSavePolicy.h"
 #include "playerbot/AmmoStackPolicy.h"
 #include "../../runtime/BotNameService.h"
 #include "../../runtime/HunterPetPolicy.h"
@@ -2764,6 +2765,50 @@ void PlayerbotFactory::EnsureSkillRewardedSpells(Player* bot)
     }
 }
 
+// A talent rank spell must never stay "dependent": Player::_SaveSpells writes
+// only non-dependent spells to `character_spell`, this core keeps talents
+// nowhere else, and the core's spell-chain pass marks the lower ranks dependent
+// whenever a higher rank of the chain is learned (Player::AddSpell ->
+// "learn low ranks (recursive call)", Player.cpp:4436-4442). Turtle's data heads
+// a few trainer chains with a *talent* rank-1 spell - Lightning Strike 51387
+// (talent 258 rank 1) -> 52420 (trainer row 52423) -> 52422 (row 52424), Mortal
+// Strike 12294 -> 21551 -> 21552 (rows 21555/21557), Bloodthirst, Shield Slam,
+// Moonkin Form, Repentance and five more - so InitClassLevelSpells' trainer
+// ranks, and the same chain re-derived at every login, used to drop the talent
+// out of the DB: a 51-point shaman tank hire ended with 16 of its spec's 17 rank
+// spells in character_spell while its live spellbook (and the intro) said
+// 15/36, so the armory dashboard read 15/35.
+//
+// The core has no API to clear the flag (LearnSpell/AddSpell only set it,
+// Player.cpp:4344-4347) and RemoveSpell + LearnSpell would cascade into
+// disabling every higher rank the bot trained (Player.cpp:4638-4641), so the
+// entry is re-asserted directly - the same rule the core applies to the sibling
+// flag ("talents should never be marked as disabled", Player.cpp:4633). See
+// TalentSpellSavePolicy.h.
+void PlayerbotFactory::EnsureTalentSpellsSaved(Player* bot)
+{
+    if (!bot)
+        return;
+
+    for (auto& known : bot->GetSpellMap())
+    {
+        ai::TalentSpellSaveInputs entry;
+        entry.isTalentSpell = GetTalentSpellCost(known.first) != 0;
+        entry.dependent     = known.second.dependent;
+        entry.removed       = known.second.state == PLAYERSPELL_REMOVED;
+        entry.disabled      = known.second.disabled;
+
+        if (!ai::TalentSpellMustStaySaved(entry))
+            continue;
+
+        known.second.dependent = false;
+        // A row loaded from the DB is UNCHANGED, and _SaveSpells writes only
+        // NEW/CHANGED spells - without this the repair would never reach disk.
+        if (known.second.state == PLAYERSPELL_UNCHANGED)
+            known.second.state = PLAYERSPELL_CHANGED;
+    }
+}
+
 void PlayerbotFactory::SetRandomSkill(uint16 id)
 {
     uint32 maxValue = level * 5; // vanilla 60*5 = 300
@@ -2928,6 +2973,12 @@ void PlayerbotFactory::InitClassLevelSpells()
         if (!learnedThisPass)
             break;
     }
+
+    // Those trainer ranks can chain onto a *talent* rank-1 spell (Lightning
+    // Strike, Mortal Strike, Bloodthirst, ...): the core then marks the talent
+    // rank dependent and _SaveSpells would drop it from character_spell. Re-assert
+    // it so the hire/seed's talents reach the DB. See EnsureTalentSpellsSaved.
+    EnsureTalentSpellsSaved(bot);
 }
 
 void PlayerbotFactory::InitAvailableSpells()
