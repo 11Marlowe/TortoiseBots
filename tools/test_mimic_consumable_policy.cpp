@@ -74,6 +74,8 @@ static void TestRoleForSpec()
     CHECK(RoleForSpec(5, SPEC_PRIEST_HOLY) == MimicRole::HEALER);
     CHECK(RoleForSpec(5, SPEC_PRIEST_SHADOW) == MimicRole::CASTER_DPS);
     CHECK(RoleForSpec(7, SPEC_SHAMAN_ENHANCEMENT) == MimicRole::MELEE_DPS);
+    // Shaman tank reports the enhancement spec id (tab 1): isTank flips it.
+    CHECK(RoleForSpec(7, SPEC_SHAMAN_ENHANCEMENT, true) == MimicRole::TANK);
     CHECK(RoleForSpec(7, SPEC_SHAMAN_ELEMENTAL) == MimicRole::CASTER_DPS);
     CHECK(RoleForSpec(7, SPEC_SHAMAN_RESTORATION) == MimicRole::HEALER);
     CHECK(RoleForSpec(8, SPEC_MAGE_FIRE) == MimicRole::CASTER_DPS);
@@ -261,6 +263,20 @@ static void TestResolveMimicItem()
     // Warrior takes the top sharpening stone.
     CHECK(ResolveMimicItem(18262, 1, SPEC_WARRIOR_ARMS, 60).singleItemId == 23122);
 }
+
+// Shaman tank (isTank): tank ladders despite the enhancement spec id —
+// Titans flask, STR battle, armor guardian, STA scroll, STA food.
+static void TestShamanTankMimic()
+{
+    CHECK(ResolveFlask(7, SPEC_SHAMAN_ENHANCEMENT, 60, true) == 13510);
+    CHECK(ResolveFlask(7, SPEC_SHAMAN_ENHANCEMENT, 60) == 13510);
+    CHECK(ResolveBattleElixir(7, SPEC_SHAMAN_ENHANCEMENT, 60, true) == 13453);
+    CHECK(ResolveGuardianElixir(7, SPEC_SHAMAN_ENHANCEMENT, 43, true) == 13445);
+    CHECK(ResolveGuardianElixir(7, SPEC_SHAMAN_ENHANCEMENT, 43) == 3826);
+    CHECK(ResolveScroll(7, SPEC_SHAMAN_ENHANCEMENT, 60, true) == 10307);
+    CHECK(ResolveFood(7, SPEC_SHAMAN_ENHANCEMENT, 60, true) == ResolveFood(1, SPEC_WARRIOR_PROTECTION, 60));
+    CHECK(ResolveMimicItem(13510, 7, SPEC_SHAMAN_ENHANCEMENT, 60, true).singleItemId == 13510);
+}
 int main()
 {
     TestPurposeClassification();
@@ -271,6 +287,7 @@ int main()
     TestFlasks();
     TestProtPotions();
     TestResolveMimicItem();
+    TestShamanTankMimic();
     std::printf("mimic_consumable_policy: %d checks passed\n", checks);
     return 0;
 }

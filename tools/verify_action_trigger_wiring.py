@@ -121,15 +121,32 @@ def main():
             if cm:
                 current = cm.group(1)
             for name in CREATORS.findall(line):
+                if KEYFUNC.search(line):
+                    continue
                 if current and 'Trigger' in current:
                     trig_creators.add(name)
                 else:
                     act_creators.add(name)
+    # Node-factory keys (creators["K"] = &func) are not action creators: the
+    # engine looks the action up by the node's own name (the first string of
+    # ACTION_NODE_X(func, "A", ...)), so K resolves only when A does.
+    node_primary = {}
+    for path in sorted((ROOT / 'ai').rglob('*.cpp')) + sorted((ROOT / 'ai').rglob('*.h')):
+        try:
+            text = path.read_text(encoding='utf-8', errors='replace')
+        except OSError:
+            continue
+        funcs = {m.group(1): base(m.group(2)) for m in NODEMACRO.finditer(text)}
+        for m in KEYFUNC.finditer(text):
+            if m.group(2) in funcs:
+                node_primary.setdefault(base(m.group(1)), set()).add(funcs[m.group(2)])
     creators = trig_creators | act_creators
     def unresolved(kind, name):
         if kind == 'trigger':
             return name not in trig_creators
-        return name not in act_creators
+        if name in act_creators:
+            return False
+        return not any(a in act_creators for a in node_primary.get(name, ()))
     missing = {k: v for k, v in sorted(queued.items()) if unresolved(*k)}
     missing_real = {k: v for k, v in missing.items() if k[1] not in SKIP}
     skipped = {k: v for k, v in missing.items() if k[1] in SKIP}
@@ -168,6 +185,8 @@ def main():
         print(f'dead-tree {kind} "{name}" ({len(files)} refs)')
     for (kind, name), files in known.items():
         print(f'known {kind} "{name}": {KNOWN[name]}')
+    for (key, primary), files in sorted(node_broken.items()):
+        print(f'NODE-BROKEN "{key}" -> action "{primary}" <- {sorted(files)[0]}')
     if skipped:
         for (kind, name), files in sorted(skipped.items()):
             print(f'skip {kind} "{name}" ({len(files)} refs)')

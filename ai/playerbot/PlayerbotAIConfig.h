@@ -126,6 +126,13 @@ public:
     uint32 transportTeleportType;
     uint32 randomGearMaxLevel;
     uint32 randomGearMaxDiff;
+    // Owner rule (Oct 2026): generated gear is bounded by the bot's own level,
+    // not only by randomGearMaxLevel. Pool bots (fresh seed and every later
+    // regear) cap at level + randomGearMaxItemLevelAboveLevel; the standard
+    // (tier 0) hire kit at level + hireGearMaxItemLevelAboveLevel. 0 disables
+    // the above-level part. Earned gear (loot, quests, vendor/AH) is uncapped.
+    uint32 randomGearMaxItemLevelAboveLevel;
+    uint32 hireGearMaxItemLevelAboveLevel;
     bool randomGearUpgradeEnabled;
     // Owner-rule source-tier cap (roadmap #289): 0 base only, 1 + end-game
     // dungeons (229/289/329/800), 2 + raids. REP/PVP are orthogonal flags.
@@ -189,6 +196,8 @@ public:
     bool observability = false;
     uint32 observabilityPort = 0;
     std::string observabilityHost;
+    // Issue #1101: the DUNGEON_MOBS datagram (mobs per dungeon run); only acts while observability is on.
+    bool observabilityDungeonMobs = true;
     uint32 ahMarketBuyValue = 80;           // Buyer evaluation willingness % (relative to fair value)
     uint32 ahMarketMaxSpendPerBot = 0;      // Max spend per bot (0 = unlimited up to AH budget)
     uint32 ahMarketMaxQuality = 4;          // Max quality for synthetic supply (0=Poor..4=Epic)
@@ -382,6 +391,9 @@ public:
     // Companions are hired at a <Mercenary Hire> recruiter. When set, the fast
     // `.bot hire` command also works anywhere; fees are the same either way.
     bool hireAnywhere = false;
+    // Issue #1125: the experimental 7.3 shaman tank build. 0 withholds it from
+    // the recruiter spec menu, `.bot hire`, raid hire and the random pool roll.
+    bool shamanTankEnabled = true;
     // Hiring fee in copper for the 1st companion at level 60 (default 15000 =
     // 1.5g). Hires 2-4 multiply by the party mults below; the full 4-bot
     // party totals ~15g at 60. Set to 0 for free hiring.

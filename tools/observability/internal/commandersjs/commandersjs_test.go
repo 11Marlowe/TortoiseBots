@@ -63,6 +63,12 @@ func TestRefreshJS(t *testing.T) {
 	runCheck(t, "refresh_check.js", "../../web/static/js/refresh.js")
 }
 
+// TestSpecLabelsJS runs speclabels_check.js: the Bots tab's spec labels (a shaman tank says "Enhancement (Tank)" while filters,
+// chips and colours keep treating it as Enhancement) and the spec chips that never name a spec for a row without one.
+func TestSpecLabelsJS(t *testing.T) {
+	runCheck(t, "speclabels_check.js", "../../web/static/js/app.js")
+}
+
 // TestRefreshWiringJS runs refresh_wiring_check.js: app.js sends the roster and Commanders updates through the gate, no timer polls while
 // paused, and the page loads refresh.js and offers the picker.
 func TestRefreshWiringJS(t *testing.T) {
@@ -82,7 +88,7 @@ func TestDungeonsJS(t *testing.T) {
 		t.Skip("node is not installed")
 	}
 	out, err := exec.Command(node, "dungeons_check.js",
-		"../../web/static/js/commanders.js", "../../web/static/js/dungeons.js").CombinedOutput()
+		"../../web/static/js/commanders.js", "../../web/static/js/dungeons.js", "../../web/static/js/maplayers.js").CombinedOutput()
 	if err != nil {
 		t.Fatalf("dungeons_check.js failed: %v\n%s", err, out)
 	}

@@ -486,6 +486,11 @@ BotConsumableRole UseConsumableAction::GetBotRole() const
 
         // --- Shaman ------------------------------------------------------------
     case CLASS_SHAMAN:
+        // Shaman tank (forced role TANK or the tank strategy, like the
+        // feral branch below): tank food/scroll weights plus mana
+        // potions on cooldown (UsePotionsStrategy is role-agnostic).
+        if (tab == 1 && ai->IsTank(bot))
+            return BotConsumableRole::Tank;
         if (tab == 0)                           // Elemental
             return BotConsumableRole::CasterDps;
         if (tab == 1)                           // Enhancement

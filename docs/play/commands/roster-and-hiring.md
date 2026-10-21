@@ -84,7 +84,7 @@ By default (`AiPlayerbot.HireAnywhere = 0`), the `.bot hire` chat command always
 <summary>Hiring options, level syntax, and equipment tiers</summary>
 
 - **Level Syntax & Clamping:** Companions match your level by default (`0` means hirer's level). Specify levels using `level=`, `level:`, `lvl=`, `lvl:`, bare `level <n>`, or a bare number $\ge 12$ as the last argument. Levels requested above the server cap are automatically lowered with notice; invalid forms (`level=0`, non-numeric, double level) are refused; a bare number anywhere but last is refused (`Unclear number … put the level last`).
-- **Tier & Druid Spec Words:** Accepts tier words `t<N>`, `tier<N>`, or instance names `mc`, `bwl`, `zg`, `aq`, `naxx`, `kara`. Druid specs can be specified as `cat`, `balance`, `bear`, or `feral`.
+- **Tier & Druid Spec Words:** Accepts tier words `t<N>`, `tier<N>`, or instance names `mc`, `bwl`, `zg`, `aq`, `naxx`, `kara`. Druid specs can be specified as `cat`, `balance`, `bear`, or `feral`. `.bot hire shaman tank` hires the experimental shaman tank (level 10 and above; in the recruiter menu it is "Enhancement (Tank) (experimental)"). It is refused while [`AiPlayerbot.ShamanTankEnabled`](../../server/settings/hiring.md#aiplayerbotshamantankenabled) is `0`.
 - **Intro & Respec:** Once it is grouped with you (and in world), it posts its spec/spell intro once in party chat. Hiring a tier kit respecs talents and refits equipment.
 - **Equipment Tiers:** Level 60 companions can be hired in fixed Best-in-Slot gear sets (Tiers 0 through 7). Tiers unlock per character via recruiter quests (or account-wide if [`AiPlayerbot.HireGearUnlockAccountWide`](../../server/settings/hiring.md#aiplayerbothiregearunlockaccountwide) is enabled): Tier 0 (Standard), Tier 1 (Pre-raid), Tier 2 (Zul'Gurub), Tier 3 (Molten Core), Tier 4 (Blackwing Lair), Tier 5 (Ahn'Qiraj), Tier 6 (Naxxramas), Tier 7 (Karazhan).
 - **Temporary Character:** Hires exist while you are online, plus a disconnect grace period ([`AiPlayerbot.HireDisconnectGracePeriod`](../../server/settings/hiring.md#aiplayerbothiredisconnectgraceperiod)). Removing them deletes the temporary character.
@@ -120,7 +120,7 @@ Overrides party role assignments used by the AI strategy engine to select specs 
 ```
 
 - `<Name>`: Sets the role for a specific companion bot and rebuilds its combat strategy kit. You may use your own character name instead of `self`. `.bot role self` sets the requesting player's own runtime role override and does not target a bot.
-- `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role.
+- `tank`, `healer` (alias `heal`), `dps`: Sets the designated combat role. `tank` on a shaman bot installs the shaman tank kit.
 - `clear` (aliases `none`, `reset`): Clears the override and restores automatic role inference based on talents and gear.
 
 ### `.bot invite`

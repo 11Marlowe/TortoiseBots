@@ -43,6 +43,10 @@ public:
     static std::map<uint32, int32> GetPlayerSpecTabs(const Player* player);
     static BotRoles GetPlayerRoles(uint8 cls, uint8 specTab);
     static BotRoles GetPlayerRoles(const Player* player);
+    // The key tank talents alone (Totemic Alignment / Spirit Armor, either
+    // rank): the half of the shaman tank build that is available from level 25
+    // on, and the gate the LFT tank slot holds a shaman to (issue #1125).
+    static bool HasShamanTankTalents(const Player* player);
 
     // Party back-off rule: a non-tank bot grouped with a real-player master,
     // or in a party a remote commander leads, outside battlegrounds, keeps the

@@ -2148,6 +2148,125 @@ class,spec,race,tier,slot,item_id,item_name,enchant,source,flags
 7,restoration,0,7,15,23056,Hammer of the Twisting Nether,22750,turtle-sheet,0
 7,restoration,0,7,16,55349,"Nethraka, Wing of Oblivion",0,turtle-sheet,0
 7,restoration,0,7,17,22396,Totem of Life,0,wowisclassic,0
+7,tank,0,1,0,13359,Crown of Tyranny,15389,bisclassic,0
+7,tank,0,1,1,15411,Mark of Fordring,51045,bisclassic,0
+7,tank,0,1,2,15051,Black Dragonscale Shoulders,22599,bisclassic,0
+7,tank,0,1,4,11926,Deathdealer Breastplate,20026,bisclassic,0
+7,tank,0,1,5,18393,Warpwood Binding,57179,bisclassic,0
+7,tank,0,1,6,12903,Legguards of the Chromatic Defier,15389,bisclassic,0
+7,tank,0,1,7,14616,Bloodmail Boots,13890,bisclassic,0
+7,tank,0,1,8,13211,Slashclaw Bracers,20011,bisclassic,0
+7,tank,0,1,9,13963,Voone's Vice Grips,20012,bisclassic,0
+7,tank,0,1,10,11669,Naglering,51045,bisclassic,1
+7,tank,0,1,11,13098,Painweaver Band,51045,bisclassic,0
+7,tank,0,1,12,18537,Counterattack Lodestone,0,bisclassic,1
+7,tank,0,1,13,60559,Hatereaver Cog,0,bisclassic,1
+7,tank,0,1,14,13340,Cape of the Black Baron,20015,bisclassic,0
+7,tank,0,1,15,18376,Timeworn Mace,20034,weights,1
+7,tank,0,1,16,1168,Skullflame Shield,20017,weights,1
+7,tank,0,1,17,22395,Totem of Rage,0,bisclassic,1
+7,tank,0,2,0,19875,Bloodstained Coif,24149,bisclassic,0
+7,tank,0,2,1,15411,Mark of Fordring,51045,bisclassic,0
+7,tank,0,2,2,15051,Black Dragonscale Shoulders,24149,bisclassic,0
+7,tank,0,2,4,19904,Runed Bloodstained Hauberk,20026,bisclassic,0
+7,tank,0,2,5,18393,Warpwood Binding,57179,bisclassic,0
+7,tank,0,2,6,12903,Legguards of the Chromatic Defier,24149,bisclassic,0
+7,tank,0,2,7,14616,Bloodmail Boots,57127,bisclassic,0
+7,tank,0,2,8,13211,Slashclaw Bracers,20011,bisclassic,0
+7,tank,0,2,9,22715,Gloves of the Tormented,20012,bisclassic,0
+7,tank,0,2,10,13098,Painweaver Band,51045,bisclassic,0
+7,tank,0,2,11,21182,Band of Earthen Might,51045,bisclassic,0
+7,tank,0,2,12,13965,Blackhand's Breadth,0,bisclassic,0
+7,tank,0,2,13,61816,Araxxna's Husk,0,bisclassic,1
+7,tank,0,2,14,13340,Cape of the Black Baron,25086,bisclassic,0
+7,tank,0,2,15,18376,Timeworn Mace,20034,prev-tier,0
+7,tank,0,2,16,19862,Aegis of the Blood God,20017,bisclassic,1
+7,tank,0,2,17,61698,Totem of the Calming River,0,bisclassic,1
+7,tank,0,3,0,18817,Crown of Destruction,24149,bisclassic,0
+7,tank,0,3,1,18404,Onyxia Tooth Pendant,51045,bisclassic,0
+7,tank,0,3,2,15051,Black Dragonscale Shoulders,24149,bisclassic,0
+7,tank,0,3,4,19904,Runed Bloodstained Hauberk,20026,prev-tier,0
+7,tank,0,3,5,12634,Chiselbrand Girdle,57179,bisclassic,0
+7,tank,0,3,6,12903,Legguards of the Chromatic Defier,24149,bisclassic,0
+7,tank,0,3,7,14616,Bloodmail Boots,57127,bisclassic,0
+7,tank,0,3,8,18812,Wristguards of True Flight,20011,bisclassic,0
+7,tank,0,3,9,22715,Gloves of the Tormented,20012,prev-tier,0
+7,tank,0,3,10,18821,Quick Strike Ring,51045,bisclassic,0
+7,tank,0,3,11,13098,Painweaver Band,51045,bisclassic,0
+7,tank,0,3,12,58244,Sigil of Ancient Accord,0,bisclassic,1
+7,tank,0,3,13,18406,Onyxia Blood Talisman,0,bisclassic,1
+7,tank,0,3,14,13340,Cape of the Black Baron,25086,bisclassic,0
+7,tank,0,3,15,20580,Hammer of Bestial Fury,20034,weights,1
+7,tank,0,3,16,19862,Aegis of the Blood God,20017,prev-tier,0
+7,tank,0,3,17,61698,Totem of the Calming River,0,prev-tier,0
+7,tank,0,4,0,18817,Crown of Destruction,24149,bisclassic,0
+7,tank,0,4,1,19377,Prestor's Talisman of Connivery,51045,bisclassic,0
+7,tank,0,4,2,15051,Black Dragonscale Shoulders,24149,bisclassic,0
+7,tank,0,4,4,19904,Runed Bloodstained Hauberk,20026,prev-tier,0
+7,tank,0,4,5,19380,Therazane's Link,57179,bisclassic,0
+7,tank,0,4,6,12903,Legguards of the Chromatic Defier,24149,bisclassic,0
+7,tank,0,4,7,14616,Bloodmail Boots,57127,bisclassic,0
+7,tank,0,4,8,18812,Wristguards of True Flight,20011,bisclassic,0
+7,tank,0,4,9,19157,Chromatic Gauntlets,20012,bisclassic,0
+7,tank,0,4,10,18821,Quick Strike Ring,51045,bisclassic,0
+7,tank,0,4,11,13098,Painweaver Band,51045,bisclassic,0
+7,tank,0,4,12,58244,Sigil of Ancient Accord,0,prev-tier,0
+7,tank,0,4,13,18406,Onyxia Blood Talisman,0,prev-tier,0
+7,tank,0,4,14,19436,Cloak of Draconic Might,25086,bisclassic,0
+7,tank,0,4,15,19335,Spineshatter,20034,bisclassic,1
+7,tank,0,4,16,19862,Aegis of the Blood God,20017,prev-tier,0
+7,tank,0,4,17,61698,Totem of the Calming River,0,prev-tier,0
+7,tank,0,5,0,18817,Crown of Destruction,24149,bisclassic,0
+7,tank,0,5,1,19377,Prestor's Talisman of Connivery,51045,bisclassic,0
+7,tank,0,5,2,15051,Black Dragonscale Shoulders,24149,bisclassic,0
+7,tank,0,5,4,22191,Obsidian Mail Tunic,20026,bisclassic,0
+7,tank,0,5,5,21463,Ossirian's Binding,57179,bisclassic,0
+7,tank,0,5,6,21651,Scaled Sand Reaver Leggings,24149,bisclassic,0
+7,tank,0,5,7,14616,Bloodmail Boots,57127,bisclassic,0
+7,tank,0,5,8,18812,Wristguards of True Flight,20011,bisclassic,0
+7,tank,0,5,9,19157,Chromatic Gauntlets,20012,bisclassic,0
+7,tank,0,5,10,21677,Ring of the Qiraji Fury,51045,bisclassic,0
+7,tank,0,5,11,13098,Painweaver Band,51045,prev-tier,0
+7,tank,0,5,12,21670,Badge of the Swarmguard,0,bisclassic,0
+7,tank,0,5,13,18406,Onyxia Blood Talisman,0,prev-tier,0
+7,tank,0,5,14,21701,Cloak of Concentrated Hatred,25086,bisclassic,0
+7,tank,0,5,15,60003,Remnants of an Old God,20034,bisclassic,1
+7,tank,0,5,16,21269,Blessed Qiraji Bulwark,20017,bisclassic,1
+7,tank,0,5,17,61698,Totem of the Calming River,0,prev-tier,0
+7,tank,0,6,0,47162,Earthshatter Crown,24149,turtle-sheet,0
+7,tank,0,6,1,23053,Stormrage's Talisman of Seething,51045,bisclassic,0
+7,tank,0,6,2,47163,Earthshatter Pauldrons,29480,turtle-sheet,0
+7,tank,0,6,4,47164,Earthshatter Breastplate,20025,turtle-sheet,0
+7,tank,0,6,5,47167,Earthshatter Girdle,57179,turtle-sheet,0
+7,tank,0,6,6,21651,Scaled Sand Reaver Leggings,24149,bisclassic,0
+7,tank,0,6,7,47143,Sabatons of Ten Storms,57127,turtle-sheet,0
+7,tank,0,6,8,61212,Sanctum Bark Wraps,20011,turtle-sheet,0
+7,tank,0,6,9,47140,Fists of Ten Storms,25080,turtle-sheet,0
+7,tank,0,6,10,23038,Band of Unnatural Forces,51045,bisclassic,0
+7,tank,0,6,11,21677,Ring of the Qiraji Fury,51045,turtle-sheet,0
+7,tank,0,6,12,23041,Slayer's Crest,0,turtle-sheet,0
+7,tank,0,6,13,22954,Kiss of the Spider,0,turtle-sheet,0
+7,tank,0,6,14,23045,Shroud of Dominion,25086,bisclassic,0
+7,tank,0,6,15,60003,Remnants of an Old God,20034,prev-tier,0
+7,tank,0,6,16,21269,Blessed Qiraji Bulwark,20017,prev-tier,0
+7,tank,0,6,17,61698,Totem of the Calming River,0,prev-tier,0
+7,tank,0,7,0,47180,Stormhowl Crown,24149,turtle-sheet,0
+7,tank,0,7,1,47185,Choker of the Stormhowl,51045,turtle-sheet,0
+7,tank,0,7,2,47181,Stormhowl Pauldrons,29480,turtle-sheet,0
+7,tank,0,7,4,47182,Stormhowl Breastplate,20025,turtle-sheet,0
+7,tank,0,7,5,55357,Sash of the Grand Betrayal,57179,turtle-sheet,0
+7,tank,0,7,6,55122,Earthquake Leggings,24149,turtle-sheet,0
+7,tank,0,7,7,47184,Stormhowl Sabatons,57127,turtle-sheet,0
+7,tank,0,7,8,47165,Earthshatter Bracelets,20011,turtle-sheet,0
+7,tank,0,7,9,19143,Flameguard Gauntlets,25080,turtle-sheet,0
+7,tank,0,7,10,23038,Band of Unnatural Forces,51045,bisclassic,0
+7,tank,0,7,11,47170,Signet of the Earthshatterer,51045,turtle-sheet,0
+7,tank,0,7,12,23041,Slayer's Crest,0,turtle-sheet,0
+7,tank,0,7,13,22954,Kiss of the Spider,0,turtle-sheet,0
+7,tank,0,7,14,55095,Cloak of the Bloody Ravager,25086,turtle-sheet,0
+7,tank,0,7,15,60003,Remnants of an Old God,20034,prev-tier,0
+7,tank,0,7,16,55121,Bulwark of Enduring Earth,20017,bisclassic,1
+7,tank,0,7,17,61698,Totem of the Calming River,0,prev-tier,0
 8,arcane,0,1,0,14332,Eternal Crown,22844,bisclassic,0
 8,arcane,0,1,1,12103,Star of Mystaria,51043,bisclassic,0
 8,arcane,0,1,2,11782,Boreal Mantle,22599,bisclassic,0

@@ -18,8 +18,15 @@
 
 namespace ai
 {
-    inline std::string BestKnownShamanImbue(bool enhancement, bool windfury, bool flametongue, bool frostbrand, bool rockbiter)
+    inline std::string BestKnownShamanImbue(bool enhancement, bool windfury, bool flametongue, bool frostbrand, bool rockbiter, bool tank = false)
     {
+        // Tank shamans are enhancement-tabbed but tank on Rockbiter (the
+        // tank stance: +35% threat). The tank branch heads the policy so a
+        // tank bot never takes the windfury head its tab would give it; the
+        // fallback tail below still covers a tank that somehow knows no
+        // Rockbiter rank yet.
+        if (tank && rockbiter)
+            return "rockbiter weapon";
         if (enhancement && windfury)
             return "windfury weapon";
         if (flametongue)

@@ -1007,6 +1007,15 @@ void BotManager::OnPlayerLogin(::Player* player)
     // restores the per-session equip flags those spells carry.
     PlayerbotFactory::EnsureSkillRewardedSpells(player);
 
+    // The same spellbook invariant for talents: a talent rank spell the core
+    // marked dependent is never written to character_spell. The load path
+    // re-derives that flag on every login (a known trainer rank of the same
+    // spell chain teaches the talent rank below it as dependent), so without
+    // this the talent row would be deleted by the first save after the login
+    // while the live spellbook keeps the spell - a 51-point shaman tank read
+    // 15/35 in the armory instead of 15/36. Idempotent and O(spellbook).
+    PlayerbotFactory::EnsureTalentSpellsSaved(player);
+
     // Normalize Goblin and High Elf (and any random bot in custom isolated
     // starting zones lacking navmesh/transport to mainland) to standard faction
     // starting zones: Valley of Trials and Northshire. RandomBotEvenStartZones

@@ -1,7 +1,10 @@
 #include "../../runtime/PlayerbotAIStorage.h"
+#include "../../runtime/ShamanTankDetectionPolicy.h"
 #include "../../runtime/BotManager.h"
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/AltBotService.h"
+#include "../../runtime/ShamanTankKitPolicy.h"
+#include "../../runtime/ShamanTankLevelingPolicy.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/AiContextAugment.h"
@@ -361,6 +364,128 @@ static bool HasRockbiterWeapon(const Player* player)
     return false;
 }
 
+// Key tank talents as HasSpell flags (top rank first; rank 2 in the spell
+// map does not imply rank 1, so both ranks are checked).
+static bool HasTotemicAlignmentTalent(const Player* player)
+{
+    return player->HasSpell(TortoiseBots::kShamanTankTalentTotemicAlignmentR2) ||
+        player->HasSpell(TortoiseBots::kShamanTankTalentTotemicAlignmentR1);
+}
+
+static bool HasSpiritArmorTalent(const Player* player)
+{
+    return player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR2) ||
+        player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR1);
+}
+
+// Spent ranks of a talent spec, by talent id.
+static TortoiseBots::ShamanTalentRanks TalentRanks(TalentSpec const& spec)
+{
+    TortoiseBots::ShamanTalentRanks ranks;
+    for (TalentSpec::TalentListEntry const& entry : spec.talents)
+        ranks[entry.entry] = entry.rank;
+    return ranks;
+}
+
+// The premade entry the appliers would use for this bot's level: the first
+// entry it can afford (ChangeTalentsAction::GetBestPremadeSpec) cropped to its
+// level (CropTalents), so the ranks are exactly what a bot following that path
+// carries.
+static TalentSpec BestPremadeEntryForLevel(TalentPath const& path, Player* bot)
+{
+    TalentSpec best = path.talentSpec.back();
+    uint32 const available = GetTotalTalentPoints_TB(bot);
+    for (TalentSpec const& entry : path.talentSpec)
+        if (entry.points >= available)
+        {
+            best = entry;
+            break;
+        }
+    best.CropTalents(bot);
+    return best;
+}
+
+// Issue #1125: below the first key tank talent the 7.3 levelling layout is the
+// durable half of the identity - talents live in the character, the forced
+// role does not. The tank entry for the bot's level has to match the spent
+// ranks on its own: at 10-14 the 7.3 and 7.1 links are identical, so a match
+// shared with another premade proves nothing and the read stays on the DPS
+// spec (runtime/ShamanTankLevelingPolicy.h).
+static bool HasShamanTankLevelingBuild(const Player* player)
+{
+    if (!player || player->GetClass() != CLASS_SHAMAN)
+        return false;
+    // At or above the first key talent the key-talent read is authoritative
+    // and free; the talent walk stays off that path.
+    if (player->GetLevel() >= TortoiseBots::kShamanTankFirstTalentLevel)
+        return false;
+
+    std::vector<TalentPath>& paths = sPlayerbotAIConfig.classSpecs[CLASS_SHAMAN].talentPath;
+    if (paths.empty())
+        return false;
+
+    Player* bot = const_cast<Player*>(player);
+    TortoiseBots::ShamanTalentRanks const current = TalentRanks(TalentSpec(bot));
+    bool tankEntryMatches = false;
+    int otherPremadeMatches = 0;
+    for (TalentPath& path : paths)
+    {
+        if (path.talentSpec.empty())
+            continue;
+        if (!TortoiseBots::ShamanTalentRanksEqual(current, TalentRanks(BestPremadeEntryForLevel(path, bot))))
+            continue;
+        if (path.id == TortoiseBots::kShamanTankPremadeSpec)
+            tankEntryMatches = true;
+        else
+            ++otherPremadeMatches;
+    }
+
+    return TortoiseBots::ShamanOnTankLevelingPath(tankEntryMatches, otherPremadeMatches);
+}
+
+// The gear-free build read behind the shaman kit decision. Only the 7.3 tank
+// premade takes Totemic Alignment or Spirit Armor, so no enhancement,
+// elemental or restoration shaman ever matches (issue #1125). Talents are
+// persisted, unlike the forced role - and below the first key talent the
+// levelling layout is read instead, so the identity survives a restart there
+// too.
+static bool HasShamanTankBuild(const Player* player)
+{
+    if (TortoiseBots::IsShamanTankBuild(HasTotemicAlignmentTalent(player), HasSpiritArmorTalent(player)))
+        return true;
+    return HasShamanTankLevelingBuild(player);
+}
+
+// Which shaman kit this bot plays (issue #1125): the explicit forced role
+// (`.bot role`, hire, dungeon finder) decides outright, else the bot's own
+// build does — a pool shaman that rolled the tank spec kept its tank talents
+// but came back from every restart and group leave with the DPS kit, because
+// the forced role that made it a tank lived in memory only.
+static bool PlaysShamanTankKit(const Player* player, PlayerbotAI* const facade)
+{
+    if (!player || player->GetClass() != CLASS_SHAMAN)
+        return false;
+    uint8 const role = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+    return TortoiseBots::ShamanPlaysTankKit(role, HasShamanTankBuild(player));
+}
+
+// Shared gear+talent read behind GetRoleFromStanceOrGear and HasOtherTank:
+// shield equipped, Rockbiter on the main hand, and one key tank talent
+// (Totemic Alignment or Spirit Armor, either rank). Cheap Player::HasSpell
+// map lookups (top rank first); never GetPlayerSpecTabs here — it rewalks
+// the whole talent store per call and this runs per group member.
+// Forced roles are handled by the callers (player storage / bot AI) before
+// this is reached, so this is the pure detection signal only.
+static bool IsDetectedShamanTank(const Player* player)
+{
+    TortoiseBots::ShamanTankDetectionInputs inputs;
+    inputs.shieldEquipped = HasShieldEquipped(player);
+    inputs.rockbiterOnMainHand = HasRockbiterWeapon(player);
+    inputs.totemicAlignment = HasTotemicAlignmentTalent(player);
+    inputs.spiritArmor = HasSpiritArmorTalent(player);
+    return TortoiseBots::IsShamanTank(inputs);
+}
+
 static BotRoles GetRoleFromStanceOrGear(const Player* player)
 {
     switch (player->GetClass())
@@ -381,7 +506,7 @@ static BotRoles GetRoleFromStanceOrGear(const Player* player)
                 return BOT_ROLE_TANK;
             break;
         case CLASS_SHAMAN:
-            if (HasShieldEquipped(player) && HasRockbiterWeapon(player))
+            if (IsDetectedShamanTank(player))
                 return BOT_ROLE_TANK;
             break;
     }
@@ -433,6 +558,12 @@ static bool HasOtherTank(const Player* player)
             (GetTalentRoles(member) & BOT_ROLE_TANK) != 0)
             return true;
 
+        // A detected shaman tank is a real tank for the members scanned
+        // after it: gear+talent is as explicit as a talent tab here, and
+        // the shaman co-tanks instead of being suppressed.
+        if (memberClass == CLASS_SHAMAN && IsDetectedShamanTank(member))
+            return true;
+
         // If no explicit or talent tank exists, the first group-slot member
         // with a tank stance/form/gear signal owns the automatic tank role.
         // Counting later candidates would make two stance-shifters suppress
@@ -458,17 +589,36 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     if (botAi && botAi->GetForcedRole() != BOT_ROLE_NONE && botAi->HasActivePlayerMaster())
         return static_cast<BotRoles>(botAi->GetForcedRole());
 
+    // A bot that has the tank build counts as a tank on its own (issue
+    // #1125): the build lives in its talents, so it still reads tank after
+    // the restart or group leave that dropped the in-memory forced role.
+    // The forced-role returns above keep an explicit order in charge; real
+    // players keep the gear-gated read below (docs/classes/shaman.md).
+    if (botAi && botAi->GetForcedRole() == BOT_ROLE_NONE && PlaysShamanTankKit(player, botAi))
+        return BOT_ROLE_TANK;
+
     // Only scan the group when a current stance/form/gear signal could change
     // the talent role; without one, both paths return the talent role.
     BotRoles stateRole = GetRoleFromStanceOrGear(player);
     if (stateRole != BOT_ROLE_NONE)
     {
+        // A detected shaman tank co-tanks: another tank in the group never
+        // demotes it to its talent role (Enhancement DPS).
+        if (player->GetClass() == CLASS_SHAMAN && stateRole == BOT_ROLE_TANK)
+            return stateRole;
         if (HasOtherTank(player))
             return GetTalentRoles(player);
         return stateRole;
     }
 
     return GetTalentRoles(player);
+}
+
+bool AiFactory::HasShamanTankTalents(const Player* player)
+{
+    if (!player || player->GetClass() != CLASS_SHAMAN)
+        return false;
+    return HasTotemicAlignmentTalent(player) || HasSpiritArmorTalent(player);
 }
 
 // Party back-off (threat): non-tank DPS/healer bots grouped with a real player
@@ -589,6 +739,18 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 
         case CLASS_SHAMAN:
         {
+            // A shaman with a tank role plays the tank kit (issue #1125):
+            // the "tank shaman" spec strategy plus the shared tank-framework
+            // pieces (warrior `:575` / bear `:667` pattern), then the shared
+            // shaman pieces that still apply. Deliberately no "dps assist"
+            // (threat race), no "behind" (tanks face the mob).
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
+            {
+                for (std::string const& name : TortoiseBots::ShamanTankCombatKit())
+                    combatEngine->addStrategy(name);
+                break;
+            }
+
             if (tab == 0)
             {
                 combatEngine->addStrategies("elemental", "aoe", "cc", "flee", "ranged", NULL);
@@ -1095,6 +1257,16 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
         case CLASS_SHAMAN:
         {
+            // Tank-role shaman keeps the tank kit outside combat too (druid
+            // `:1180-1192` pattern): spec strategy + "tank assist" on top of
+            // the shared shaman noncombat pieces, never "dps assist".
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
+            {
+                for (std::string const& name : TortoiseBots::ShamanTankNonCombatKit())
+                    nonCombatEngine->addStrategy(name);
+                break;
+            }
+
             if (tab == 0)
             {
                 nonCombatEngine->addStrategies("elemental", "aoe", "cc", NULL);
@@ -1545,6 +1717,11 @@ void AiFactory::AddDefaultDeadStrategies(Player* player, PlayerbotAI* const faca
     {
         case CLASS_SHAMAN:
         {
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
+            {
+                deadEngine->addStrategy("tank shaman");
+                break;
+            }
             if (tab == 0)
             {
                 deadEngine->addStrategy("elemental");
@@ -1747,6 +1924,11 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
     {
         case CLASS_SHAMAN:
         {
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
+            {
+                reactionEngine->addStrategy("tank shaman");
+                break;
+            }
             if (tab == 0)
             {
                 reactionEngine->addStrategy("elemental");

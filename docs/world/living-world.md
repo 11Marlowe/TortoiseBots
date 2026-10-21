@@ -69,6 +69,8 @@ Autonomous pool bots travel without routine teleporting. When a bot selects a di
 
 Flight paths are selected from known taxi nodes to the node nearest the destination. The hop must be level-appropriate (the destination area can be at most five levels above the bot), and the bot must have enough gold to cover the flight fare above its class trainer savings reserve. The bot walks to the flight master, boards the taxi, and pays standard fare. Cross-zone travel such as leaving starting islands occurs naturally by air or boat rather than artificial movement. Teleports remain as a last resort for stuck travel, ghost recovery, and level-appropriate scatter of newly seeded bots.
 
+A destination is only accepted when the walk there is survivable, not just when the destination itself fits: the route is checked at every waypoint and along the legs between them (every 64 yd, against the static town-guard index and the same area-level table the destination gates use), so a bot refuses a trip whose walk crosses a hostile-faction town or an area more than five levels above it. Boat, zeppelin, portal and taxi hops are exempt - the bot is a passenger, not on foot. The verdict is cached per bot and destination for five minutes.
+
 </details>
 
 <details>

@@ -6,6 +6,7 @@
 #include "PullTriggers.h"
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/actions/PullActions.h"
+#include "playerbot/strategy/shaman/ShamanTankPolicy.h"
 
 using namespace ai;
 
@@ -50,6 +51,17 @@ bool ShouldPullTrigger::IsActive()
             if (maxMana && (100 * member->GetPower(POWER_MANA)) / maxMana < sPlayerbotAIConfig.mediumMana)
                 return false;
         }
+    }
+
+    // Shaman tanks fight on mana (shocks, Chain Lightning, totems): do not
+    // pull below 80% own mana, drink first (owner decision, issue #1125).
+    // Other tanks keep today's behaviour — their kits cost rage, not mana.
+    if (bot->GetClass() == CLASS_SHAMAN && PlayerbotAI::IsTank(bot))
+    {
+        bool const hasMana = bot->GetMaxPower(POWER_MANA) > 0;
+        uint8 const manaPct = hasMana ? (100 * bot->GetPower(POWER_MANA)) / bot->GetMaxPower(POWER_MANA) : 100;
+        if (!TankShamanPullManaReady(hasMana, manaPct))
+            return false;
     }
 
     return PullNearestTargetAction::FindPullTarget(ai) != nullptr;
