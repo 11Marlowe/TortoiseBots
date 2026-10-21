@@ -309,6 +309,29 @@ static void TestBossEntries()
     CHECK(!table.IsBossEntry(70, 0) && !table.IsBossEntry(0, 0));
 }
 
+static void TestBossRows()
+{
+    // ai_dungeon_boss rows: bosses no boss step names (Kresh 3653 is skipped, Mutanus 3654 is an event), in the
+    // same (map, entry) set as the boss steps' entries.
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("wailing_caverns", 43));
+    PlanStep cobrahn = Step(4, 8, PlanStepKind::Boss, -151.1f, 414.4f, -72.6f);
+    cobrahn.entry = 3669;
+    CHECK(table.AddStep("wailing_caverns", cobrahn) == PlanStepRefusal::None);
+    CHECK(table.AddBoss(43, 3653));
+    CHECK(table.AddBoss(43, 3654));
+    CHECK(table.AddBoss(43, 3669));   // also a boss step: one key, no harm
+    CHECK(!table.AddBoss(43, 3653));  // the primary key: first row wins
+    CHECK(!table.AddBoss(0, 3653) && !table.AddBoss(43, 0));
+    CHECK(!table.IsBossEntry(43, 3653));  // nothing before the seal
+    table.Seal();
+    CHECK(!table.AddBoss(43, 3671));  // loading only
+    CHECK(table.IsBossEntry(43, 3653) && table.IsBossEntry(43, 3654) && table.IsBossEntry(43, 3669));
+    CHECK(!table.IsBossEntry(43, 3671));
+    CHECK(!table.IsBossEntry(70, 3653));  // another map
+    CHECK(table.BossCount() == 3);
+}
+
 int main()
 {
     TestPlanUnits();
@@ -317,6 +340,7 @@ int main()
     TestNormalize();
     TestTable();
     TestBossEntries();
+    TestBossRows();
     TestLaterOwner();
     TestLongHops();
     std::cout << "test_dungeon_plan_policy: ok\n";
