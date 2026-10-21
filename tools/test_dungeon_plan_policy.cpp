@@ -110,6 +110,27 @@ static void TestNormalize()
     exactPull.flags = kPlanFlagExact;
     CHECK(NormalizePlanStep(exactPull) == PlanStepRefusal::BadParam);
 
+    // The gone-is-done flag (256) belongs to a loot or an open row only: on any other kind it is a row the exporter got wrong.
+    PlanStep graveLoot = Step(0, 11, PlanStepKind::Loot, 1858.7f, 1053.8f, 8.9f);
+    graveLoot.entry = 128403;
+    graveLoot.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(graveLoot) == PlanStepRefusal::None && (graveLoot.flags & kPlanFlagGoneIsDone));
+    PlanStep graveOpen = Step(0, 12, PlanStepKind::Open, 1858.7f, 1053.8f, 8.9f);
+    graveOpen.entry = 128403;
+    graveOpen.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(graveOpen) == PlanStepRefusal::None);
+    PlanStep goneMove = Step(0, 14, PlanStepKind::Move, 1.0f, 2.0f, 3.0f);
+    goneMove.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneMove) == PlanStepRefusal::BadParam);
+    PlanStep gonePull = Step(0, 15, PlanStepKind::Pull);
+    gonePull.entries = {7286};
+    gonePull.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(gonePull) == PlanStepRefusal::BadParam);
+    PlanStep goneBoss = Step(0, 16, PlanStepKind::Boss);
+    goneBoss.entry = 7271;
+    goneBoss.flags = kPlanFlagGoneIsDone;
+    CHECK(NormalizePlanStep(goneBoss) == PlanStepRefusal::BadParam);
+
     // gossip: the NPC's entry and the option the way `.bot cmd gossip` counts it (1 at the top, at most 15). A set flag
     // is refused (team flags come later), not ignored; the exact flag is refused as on any step that is not a move.
     PlanStep talk = Step(0, 13, PlanStepKind::Gossip, 1877.5f, 1199.6f, 8.9f);

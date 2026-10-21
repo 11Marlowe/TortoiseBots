@@ -119,6 +119,11 @@ namespace ai
     // point (detour) is taken for it. Any other kind with this flag is refused
     // (BadParam).
     constexpr std::uint32_t kPlanFlagExact = 64;
+    // loot or open only: the object being GONE (nothing of `entry` spawned near the point, or it despawned on the
+    // way: an opened chest that stays gone, a grave opened before a wipe) counts as done, with the note "object gone:
+    // counted as done", instead of pausing the run on a refused order. Read only on a row with no item (item 0).
+    // Any other kind with this flag is refused (BadParam). 128 is reserved.
+    constexpr std::uint32_t kPlanFlagGoneIsDone = 256;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -305,6 +310,8 @@ namespace ai
         if (step.timeoutS > kPlanMaxTimeoutS)
             return PlanStepRefusal::BadTimeout;
         if ((step.flags & kPlanFlagExact) && step.kind != PlanStepKind::Move)
+            return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagGoneIsDone) && step.kind != PlanStepKind::Loot && step.kind != PlanStepKind::Open)
             return PlanStepRefusal::BadParam;
         if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
             return PlanStepRefusal::BadParam;

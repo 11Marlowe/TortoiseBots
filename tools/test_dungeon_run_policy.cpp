@@ -285,6 +285,87 @@ static void TestMissingItemPausesOnce()
     CHECK(r.state == State::Running && r.step == 4 && r.note.find("open before it") != std::string::npos);
 }
 
+// ai::kPlanFlagGoneIsDone (Zul'Farrak's graves): a loot or open row with the flag counts the object being gone as
+// done; the same row without the flag pauses as before.
+static PlanStep GraveStep(PlanStepKind kind, std::uint32_t flags)
+{
+    PlanStep s = Step(kind, 1858.7f, 1053.8f, 8.9f);
+    s.entry = 128403;
+    s.flags = flags;
+    ai::NormalizePlanStep(s);
+    return s;
+}
+
+static void TestGoneChestWithFlagIsDone()
+{
+    for (PlanStepKind kind : {PlanStepKind::Loot, PlanStepKind::Open})
+    {
+        // The search answers `not-found` (nothing spawned of that entry near the point): done, one note, no pause.
+        DungeonPlan plan;
+        plan.steps = {GraveStep(kind, ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        std::string order = Tick(r, f);
+        CHECK(order.compare(0, 5, kind == PlanStepKind::Loot ? "loot " : "open ") == 0);
+        OrderRefused(r, order, "not-found: No spawned game object of that entry is near the point (or the bot).");
+        CHECK(r.state == State::Running && r.step == 1);
+        CHECK(r.note.find("object gone: counted as done") != std::string::npos);
+
+        // The object despawned while the bot walked to it: the task fails `invalid-target`: done too.
+        Run r2 = Start(&plan);
+        order = Tick(r2, f);
+        f.carrierBusy = true;
+        f.taskReply = 2;
+        f.taskText = "invalid-target: The object is gone.";
+        Tick(r2, f);
+        CHECK(r2.state == State::Running && r2.step == 1);
+        CHECK(r2.note.find("object gone: counted as done") != std::string::npos);
+    }
+}
+
+static void TestGoneChestWithoutFlagPauses()
+{
+    for (PlanStepKind kind : {PlanStepKind::Loot, PlanStepKind::Open})
+    {
+        DungeonPlan plan;
+        plan.steps = {GraveStep(kind, 0), Step(PlanStepKind::Move, 9)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        std::string order = Tick(r, f);
+        OrderRefused(r, order, "not-found: No spawned game object of that entry is near the point (or the bot).");
+        CHECK(r.state == State::Paused && r.step == 0);
+        Run r2 = Start(&plan);
+        order = Tick(r2, f);
+        f.carrierBusy = true;
+        f.taskReply = 2;
+        f.taskText = "invalid-target: The object is gone.";
+        Tick(r2, f);
+        CHECK(r2.state == State::Paused && r2.step == 0);
+    }
+}
+
+// The flag settles a gone object only: any other refusal (in combat, too far, busy) still pauses, and a row that
+// names an item stays a missing-item case.
+static void TestGoneIsDoneOnlyForAGoneObject()
+{
+    DungeonPlan plan;
+    plan.steps = {GraveStep(PlanStepKind::Loot, ai::kPlanFlagGoneIsDone), Step(PlanStepKind::Move, 9)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    std::string order = Tick(r, f);
+    OrderRefused(r, order, "in-combat: The bot is in combat.");
+    CHECK(r.state == State::Paused && r.step == 0);
+
+    DungeonPlan withItem;
+    PlanStep s = GraveStep(PlanStepKind::Loot, ai::kPlanFlagGoneIsDone);
+    s.item = 7741;
+    withItem.steps = {s, Step(PlanStepKind::Move, 9)};
+    Run r2 = Start(&withItem);
+    order = Tick(r2, f);
+    OrderRefused(r2, order, "not-found: No spawned game object or corpse of that entry is near the point");
+    CHECK(r2.state == State::Paused && r2.step == 0);
+}
+
 // After a wipe: resume revives the party and gathers it before the step.
 static void TestResumeRegroups()
 {
@@ -7298,6 +7379,9 @@ static void TestShotStandOnPath()
 
 int main()
 {
+    TestGoneChestWithFlagIsDone();
+    TestGoneChestWithoutFlagPauses();
+    TestGoneIsDoneOnlyForAGoneObject();
     TestHopRechecksTheLeadOnTheFoot();
     TestDriftWithinTheRadiusIsNoProof();
     TestProofIsRetakenAfterAFightAndAResume();
