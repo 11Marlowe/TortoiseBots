@@ -45,6 +45,13 @@ func NewService(cfg Config) (*Service, error) {
 	return &Service{cfg: cfg, db: db}, nil
 }
 
+// botListLimit bounds one armory list response. The list is meant to hold
+// every pool bot plus every player character, and the pool is operator-sized
+// (AiPlayerbot.MaxRandomBots): the old 1000 dropped 4 bots of a 1004-bot pool
+// from the list, which left them without a database row (no spec, gold or
+// level for offline ones).
+const botListLimit = 10000
+
 // likeEscape guards the name search against callers smuggling % _ or \ into
 // the match.
 func likeEscape(s string) string {
@@ -81,7 +88,7 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 		sqlQuery += " AND c.name LIKE ? ESCAPE '\\\\'"
 		args = append(args, "%"+likeEscape(query)+"%")
 	}
-	sqlQuery += " ORDER BY c.name LIMIT 1000"
+	sqlQuery += fmt.Sprintf(" ORDER BY c.name LIMIT %d", botListLimit)
 
 	rows, err := s.db.Query(sqlQuery, args...)
 	if err != nil {
@@ -116,7 +123,7 @@ func (s *Service) ListBots(query string) ([]BotSummary, error) {
 		playerQuery += " AND c.name LIKE ? ESCAPE '\\\\'"
 		pargs = append(pargs, "%"+likeEscape(query)+"%")
 	}
-	playerQuery += " ORDER BY c.name LIMIT 1000"
+	playerQuery += fmt.Sprintf(" ORDER BY c.name LIMIT %d", botListLimit)
 
 	prows, err := s.db.Query(playerQuery, pargs...)
 	if err != nil {
