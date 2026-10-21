@@ -39,6 +39,7 @@ namespace ai
         Rest,        // a rest gate even when nobody is low
         Ritual,      // a summoning ritual object several bots use together (`param` bots; 0 = 3): an event's start
         Hold,        // a scripted event: stand at x,y,z, fight what comes, until its done condition (flags)
+        Gossip,      // talk to creature `entry` (searched within kGossipSearchYd of x,y,z) and pick option `param` (1-15)
     };
 
     inline PlanStepKind ParsePlanStepKind(const std::string& text)
@@ -50,6 +51,7 @@ namespace ai
             {"use_item", PlanStepKind::UseItem}, {"wait_object", PlanStepKind::WaitObject},
             {"wait_clear", PlanStepKind::WaitClear}, {"rest", PlanStepKind::Rest},
             {"ritual", PlanStepKind::Ritual}, {"hold", PlanStepKind::Hold},
+            {"gossip", PlanStepKind::Gossip},
         };
         for (const auto& k : kinds)
             if (text == k.name)
@@ -91,6 +93,7 @@ namespace ai
             case PlanStepKind::Rest: return "rest";
             case PlanStepKind::Ritual: return "ritual";
             case PlanStepKind::Hold: return "hold";
+            case PlanStepKind::Gossip: return "gossip";
             default: return "none";
         }
     }
@@ -129,6 +132,11 @@ namespace ai
     constexpr std::uint32_t kPlanDefaultTimeoutS = 60;
     constexpr std::uint32_t kPlanMaxTimeoutS = 600;
     constexpr std::size_t kPlanMaxEntries = 16;
+    // gossip: `param` is the option the way `.bot cmd gossip` takes it, counted from 1 at the top of the NPC's
+    // menu (runtime/GossipOrderPolicy.h kMaxIndex: a 1.12 menu holds 15 options). The NPC is searched within
+    // kGossipSearchYd of x,y,z (GossipOrder::kSearchYards).
+    constexpr std::uint32_t kPlanMaxGossipOption = 15;
+    constexpr float kGossipSearchYd = 40.0f;
 
     struct PlanStep
     {
@@ -253,13 +261,14 @@ namespace ai
         UnknownPlan,
         UnknownKind,
         Duplicate,
-        MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual without entry;
+        MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual/gossip without entry;
                           // hold done by object without entry, by its units without entries
         BadRadius,        // negative, over kPlanMaxRadius, or a wait_clear without one
         BadTimeout,       // over kPlanMaxTimeoutS
         BadParam,         // wait_object state other than 0-2; hold with both done flags, an encounter
                           // flag without the data flag or a state above 4, an object state above 2;
-                          // the exact flag on a step that is not a move
+                          // the exact flag on a step that is not a move; gossip with an option
+                          // outside 1-15 or with any flag
         BadPoint,         // not a finite point
         BadEntries,       // `entries` is not a comma list of non-zero creature entries
     };
@@ -312,6 +321,13 @@ namespace ai
             case PlanStepKind::Ritual:
                 if (step.entry == 0)
                     return PlanStepRefusal::MissingEntry;
+                break;
+            case PlanStepKind::Gossip:
+                if (step.entry == 0)
+                    return PlanStepRefusal::MissingEntry;
+                // No flag is read on a gossip yet (team flags come with a later change): a set one is refused, not ignored.
+                if (step.param < 1 || step.param > kPlanMaxGossipOption || step.flags != 0)
+                    return PlanStepRefusal::BadParam;
                 break;
             case PlanStepKind::WaitObject:
                 if (step.entry == 0)

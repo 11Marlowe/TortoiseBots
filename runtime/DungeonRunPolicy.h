@@ -6,7 +6,7 @@
 // AiPlayerbot.DungeonSelfClear (default 0).
 //
 // It gives the party ONLY the remote commander's own orders (`cmd move`,
-// `move ... direct`, `pullback`, `rest`, `loot`, `open`, `use`, `ritual`), so every
+// `move ... direct`, `pullback`, `rest`, `loot`, `open`, `use`, `ritual`, `gossip`), so every
 // commander fix also fixes the run leader and the two cannot drift apart. The
 // fights themselves are the bots' own combat AI (with the boss tactics table).
 //
@@ -154,6 +154,7 @@ constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a p
 constexpr float kHoldReturnYd = 8.0f;             // out of a fight, a lead bot farther than this from the hold spot walks back
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
 constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
+constexpr float kGossipWalkYd = 30.0f;            // a gossip step walks to its point first when the lead bot is farther than this
 constexpr std::uint32_t kRitualNoReplyMs = 5000;  // a ritual whose bots are free again with no answer this long: pause
 constexpr std::uint32_t kEventResetWaitMs = 60000; // before a ritual: an encounter still in progress or failed (a boss
                                                    // walking home) is waited for this long, then the ritual goes out
@@ -735,14 +736,14 @@ inline const PlanStep* Current(const Run& r)
 }
 
 // The hold a start step leads into: the current step is a ritual, open,
-// use_item or move, and the next steps up to a hold are moves only. Its event
+// use_item, gossip or move, and the next steps up to a hold are moves only. Its event
 // may already be fighting (the Stone Keepers wake with the ritual's cast), so
 // such a fight is bounded as the hold's. Null for none.
 inline const PlanStep* EventHoldAhead(const Run& r)
 {
     const PlanStep* s = Current(r);
     if (!s || (s->kind != PlanStepKind::Ritual && s->kind != PlanStepKind::Open && s->kind != PlanStepKind::UseItem &&
-            s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
+            s->kind != PlanStepKind::Gossip && s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
         return nullptr;
     for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
     {
@@ -1583,7 +1584,7 @@ inline bool AllDigits(const std::string& v)
     return !v.empty() && v.size() <= 5 && std::all_of(v.begin(), v.end(), [](char c) { return c >= '0' && c <= '9'; });
 }
 
-// A scripted event starts at its ritual, open or use_item step and runs on in the
+// A scripted event starts at its ritual, open, use_item or gossip step and runs on in the
 // hold behind it (EventHoldAhead). A start that lands on the hold, or on a move
 // leading into one, would never send the ritual: it goes back to the step that
 // starts the event (the Uldaman Keepers' ritual ends leg 10, its hold opens
@@ -1607,7 +1608,8 @@ inline std::size_t EventStartStep(const DungeonPlan& plan, std::size_t idx)
     {
         --k;
         PlanStepKind const back = plan.steps[k].kind;
-        if (back == PlanStepKind::Ritual || back == PlanStepKind::Open || back == PlanStepKind::UseItem)
+        if (back == PlanStepKind::Ritual || back == PlanStepKind::Open || back == PlanStepKind::UseItem ||
+            back == PlanStepKind::Gossip)
             return k;
         if (!moveLike(back))
             return idx;
@@ -3860,6 +3862,64 @@ inline void RitualStep(Run& r, const Facts& f, const PlanStep& s, std::string& o
         Pause(r, what + ": the bots are free again but the ritual gave no answer (.bot run resume tries it again)");
 }
 
+// gossip: the lead bot talks to creature `entry` and picks option `param` (the
+// commander's `cmd gossip <entry> <bot> <option>`: the bot walks to the nearest
+// living NPC of the entry within 40 yd of itself, talks to it and picks the
+// option, one answer). The lead bot walks to the step's point first when it is
+// farther than kGossipWalkYd from it (as a move would: approach hops out of
+// sight, a plain walk in sight), so the NPC is within the order's search range.
+// ACK ends the step; an ERR pauses with the module's own words (an NPC that
+// AiPlayerbot.BotGossipNpcs does not list is the order's `not-allowed`, which
+// names that key); no answer within the step's timeout pauses too. A step
+// right before a hold counts as that event's start step (EventHoldAhead).
+inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt, std::string& order)
+{
+    std::string const what = "gossip " + std::to_string(s.entry) + " option " + std::to_string(s.param);
+    if (!r.orderSent)
+    {
+        float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z);
+        bool const direct = r.phase == Phase::Walk && r.walkX == s.x && r.walkY == s.y && r.walkZ == s.z;
+        bool const hop = r.phase == Phase::Walk && !direct;
+        if (hop || (!direct && dist > kGossipWalkYd && !f.seen))
+        {
+            ApproachHop(r, f, s, dt, order, "NPC");
+            return;
+        }
+        if (direct || dist > kGossipWalkYd)
+        {
+            r.note = what + ": walking to the NPC";
+            if (!WalkTo(r, f, s.x, s.y, s.z, false, dt, order))
+                return;
+        }
+        if (f.carrierBusy)
+        {
+            r.note = what + ": waiting for " + f.carrier + " to finish an earlier order";
+            return;
+        }
+        r.orderSent = true;
+        EnterPhase(r, Phase::AwaitTask);
+        order = "gossip " + std::to_string(s.entry) + " " + f.carrier + " " + std::to_string(s.param);
+        r.note = what + " by " + f.carrier;
+        return;
+    }
+    if (f.taskReply == 2)
+    {
+        Pause(r, what + " failed: " + f.taskText);
+        return;
+    }
+    if (f.taskReply == 1)
+    {
+        NextStep(r, what + " done");
+        return;
+    }
+    if (r.phaseMs >= s.timeoutS * 1000)
+    {
+        Pause(r, what + ": no answer in " + std::to_string(s.timeoutS) + " s (.bot run resume tries it again)");
+        return;
+    }
+    r.note = what + ": waiting for the answer";
+}
+
 // The event's units now (the glue lists the living ones within the hold's
 // radius, the friendly, still dormant ones too, and counts the dead).
 // Whether a unit of a hold's radius counts as one of the event's own: awake
@@ -3894,8 +3954,8 @@ inline std::string EventProgress(const Run& r)
         (r.eventUp ? ", " + std::to_string(r.eventUp) + " awake" : std::string());
 }
 
-// The step that started the event a hold waits on: the nearest ritual, open or
-// use_item before it, with only moves, rests and waits between. npos for none.
+// The step that started the event a hold waits on: the nearest ritual, open,
+// use_item or gossip before it, with only moves, rests and waits between. npos for none.
 inline std::size_t EventStartStep(const Run& r)
 {
     if (!r.plan)
@@ -3903,7 +3963,8 @@ inline std::size_t EventStartStep(const Run& r)
     for (std::size_t i = r.step; i-- > 0;)
     {
         PlanStepKind const k = r.plan->steps[i].kind;
-        if (k == PlanStepKind::Ritual || k == PlanStepKind::Open || k == PlanStepKind::UseItem)
+        if (k == PlanStepKind::Ritual || k == PlanStepKind::Open || k == PlanStepKind::UseItem ||
+            k == PlanStepKind::Gossip)
             return i;
         if (k != PlanStepKind::Move && k != PlanStepKind::MoveDirect && k != PlanStepKind::Rest &&
             k != PlanStepKind::WaitObject && k != PlanStepKind::WaitClear)
@@ -5431,6 +5492,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             break;
         case PlanStepKind::Ritual:
             RitualStep(r, f, *s, order);
+            break;
+        case PlanStepKind::Gossip:
+            GossipStep(r, f, *s, dt, order);
             break;
         case PlanStepKind::Hold:
             HoldStep(r, f, *s, dt, order);
