@@ -1248,7 +1248,7 @@ static void TestRezHoldOn()
         for (int i = 0; i < 30; ++i)
             CHECK(Tick(r, f).empty());
         CHECK(r.note.find("a resurrection in the party first") != std::string::npos);
-        CHECK(r.note.find("under way") != std::string::npos);
+        CHECK(r.note.find("waiting for a resurrection") != std::string::npos);
     }
     // The priest is short of mana: waited for up to kManaWaitMs.
     f.rezMembers = RezRoster(true, 20);
@@ -1324,6 +1324,158 @@ static void TestRezHoldOn()
             if (Tick(r, f) == "revive party")
                 ++revives;
         CHECK(revives == 3); // at ~60 s, then every 60 s: ~120 s, ~180 s
+    }
+}
+
+// The rez hold's nudge: a hold that went kRezNudgeMs with a rezzer able and no cast under way sends the lead
+// bot onto the body, once; the note gives the rezzer's distance to the body and its sight of it.
+// The roster: the priest (1) stands `rezzerYd` from the body of the dead mage (2), which lies `bodyYd` from
+// the lead bot (at x 0) on the x axis.
+static std::vector<TortoiseBots::RezHold::Member> NudgeRoster(float bodyYd, float rezzerYd, bool sees)
+{
+    std::vector<TortoiseBots::RezHold::Member> m = RezRoster(true, 500);
+    m[1].placed = true;
+    m[1].x = bodyYd + rezzerYd;
+    m[1].seesBody = sees;
+    m[2].placed = true;
+    m[2].bodyX = bodyYd;
+    m[2].bodyY = 0.0f;
+    m[2].bodyZ = 0.0f;
+    return m;
+}
+
+// Ticks a regroup for `ms`; every non-empty order, in order.
+static std::vector<std::string> NudgeOrders(Run& r, const Facts& f, std::uint32_t ms)
+{
+    std::vector<std::string> orders;
+    for (std::uint32_t t = kTickMs; t <= ms; t += kTickMs)
+    {
+        std::string const o = Tick(r, f);
+        if (!o.empty())
+            orders.push_back(o);
+    }
+    return orders;
+}
+
+static void TestRezHoldNudge()
+{
+    using namespace TortoiseBots::RezHold;
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {7011})};
+    Facts f = Party(0);
+    f.dead = 1;
+    f.alive = 4;
+    f.rezHold = true;
+    f.leadAlive = true;
+    std::string const move = MoveOrder(20.0f, 0.0f, 0.0f, false);
+    // A body 20 yd away: nothing before kRezNudgeMs, then one move onto it, and no second one.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        CHECK(NudgeOrders(r, f, kRezNudgeMs - 2 * kTickMs).empty());
+        CHECK(!r.rezNudged);
+        std::vector<std::string> const orders = NudgeOrders(r, f, 3 * kTickMs);
+        CHECK(orders.size() == 1 && orders[0] == move);
+        CHECK(r.rezNudged);
+        CHECK(r.note.find("waiting for a resurrection") != std::string::npos);
+        CHECK(NudgeOrders(r, f, 30000).empty()); // none a second time
+        // The next regroup may nudge again.
+        BeginRegroup(r);
+        CHECK(!r.rezNudged && r.rezHoldMs == 0);
+    }
+    // The note names the rezzer's distance to the body and its sight of it.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        f.rezMembers[1].name = "Lyrieluna";
+        f.rezMembers[2].name = "Beardkinz";
+        Tick(r, f);
+        CHECK(r.note.find("Lyrieluna 18.0 yd from the body, sight no") != std::string::npos);
+        f.rezMembers[1].seesBody = true;
+        Tick(r, f);
+        CHECK(r.note.find("Lyrieluna 18.0 yd from the body, sight yes") != std::string::npos);
+    }
+    // A body 5 yd from the lead bot: no move at all.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(5.0f, 3.0f, true);
+        CHECK(NudgeOrders(r, f, 40000).empty());
+        CHECK(!r.rezNudged);
+    }
+    // A resurrection under way (a cast, or a request not yet accepted): no move.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        f.rezInProgress = true;
+        CHECK(NudgeOrders(r, f, 40000).empty());
+        CHECK(!r.rezNudged);
+        // The cast ends without a rez: the 12 s run again from there.
+        f.rezInProgress = false;
+        CHECK(NudgeOrders(r, f, kRezNudgeMs - 2 * kTickMs).empty());
+        CHECK(NudgeOrders(r, f, 3 * kTickMs).size() == 1);
+    }
+    // The resurrector drinks (short of mana): no move, and the clock starts over when it is back.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        f.rezMembers[1].mana = 20;
+        CHECK(NudgeOrders(r, f, 30000).empty());
+        f.rezMembers[1].mana = 500;
+        CHECK(NudgeOrders(r, f, kRezNudgeMs - 2 * kTickMs).empty());
+        CHECK(NudgeOrders(r, f, 3 * kTickMs).size() == 1);
+    }
+    // Able 8 s, drinking, able again: the 12 s start over from the drink (the same restart as the hold budget's).
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        CHECK(NudgeOrders(r, f, 8000).empty());
+        f.rezMembers[1].mana = 20;
+        CHECK(NudgeOrders(r, f, 4 * kTickMs).empty());
+        f.rezMembers[1].mana = 500;
+        CHECK(NudgeOrders(r, f, kRezNudgeMs - 2 * kTickMs).empty());
+        CHECK(NudgeOrders(r, f, 3 * kTickMs).size() == 1);
+    }
+    // A body the glue did not place, or a dead lead bot: no move.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        f.rezMembers[2].placed = false;
+        CHECK(NudgeOrders(r, f, 40000).empty());
+        Run q = Start(&plan);
+        BeginRegroup(q);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        f.leadAlive = false;
+        CHECK(NudgeOrders(q, f, 40000).empty());
+        f.leadAlive = true;
+    }
+    // The key off: the same facts send no move, ever, and the old wait is unchanged.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezHold = false;
+        f.rezzer = true;
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        for (std::string const& o : NudgeOrders(r, f, 60000))
+            CHECK(o == "revive party");
+        CHECK(!r.rezNudged && r.rezHoldMs == 0);
+        f.rezHold = true;
+        f.rezzer = false;
+    }
+    // The revive going out ends the nudge for good.
+    {
+        Run r = Start(&plan);
+        BeginRegroup(r);
+        f.rezMembers = NudgeRoster(20.0f, 18.0f, false);
+        std::vector<std::string> const orders = NudgeOrders(r, f, 70000);
+        CHECK(orders.size() == 2 && orders[0] == move && orders[1] == "revive party");
+        CHECK(r.rezHoldMs == 0 && !r.rezNudged);
     }
 }
 
@@ -5636,6 +5788,7 @@ int main()
     TestRezHoldOffIsUnchanged();
     TestRezHoldOn();
     TestRezHoldClocks();
+    TestRezHoldNudge();
     TestAggroEstimateAndRezHoldDoNotCrossTheirResets();
     TestBothKeysOffChangeNothing();
     TestPullShootsFromStand();

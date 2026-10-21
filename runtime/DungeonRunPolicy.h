@@ -559,6 +559,10 @@ struct Run
     // went out (the 240 s revive budget runs from there). Both stay 0 with the key off.
     std::uint32_t rezAbleMs = 0;
     std::uint32_t reviveBaseMs = 0;
+    // The rez hold's nudge: the time the hold went on with a rezzer able and no cast under way, and whether the
+    // lead bot was sent onto the body already (once per regroup). Both stay 0/false with the key off.
+    std::uint32_t rezHoldMs = 0;
+    bool rezNudged = false;
     void RestartRegroupClock()
     {
         regroupMs = 0;
@@ -1422,6 +1426,8 @@ inline void BeginRegroup(Run& r)
     r.regroupGatherSent = false;
     r.RestartRegroupClock();
     r.rezAbleMs = 0;
+    r.rezHoldMs = 0;
+    r.rezNudged = false;
     r.regroupDead = -1;
     r.summoned.clear(); // one summon per bot per regroup (SummonStraggler)
     r.reviveSummons.clear();
@@ -5018,12 +5024,43 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                     std::string who = nameOf(verdict.rezzerIdx);
                     if (!who.empty() && verdict.targetIdx >= 0)
                         who += " for " + nameOf(verdict.targetIdx);
+                    // How far the rezzer stands from the body and whether it sees it: the 2026-10-20 Uldaman
+                    // hold ran 63 s on a priest that never got into sight of a body 20 yd away.
+                    float rezzerYd = 0.0f;
+                    bool rezzerSees = false;
+                    bool const viewed = verdict.verdict == Verdict::Hold &&
+                        TortoiseBots::RezHold::RezzerView(verdict, f.rezMembers, rezzerYd, rezzerSees);
                     r.note = "regroup: " + WaitNote(r, f) + ", " +
                         (verdict.verdict == Verdict::Hold ? std::string("a resurrection in the party first")
                                                           : std::string("the resurrector drinks first")) +
                         " (" + TortoiseBots::RezHold::ReasonName(verdict.reason) +
-                        (who.empty() ? std::string() : ": " + who) + ")";
+                        (who.empty() ? std::string() : ": " + who) +
+                        (viewed ? ", " + nameOf(verdict.rezzerIdx) + " " + Num(rezzerYd) + " yd from the body, sight " +
+                                      (rezzerSees ? "yes" : "no")
+                                : std::string()) + ")";
                     SummonRevived(r, f, order);
+                    // A hold that went kRezNudgeMs with a rezzer able and no cast: the lead bot walks onto the body
+                    // (once), and the party follows it into the rezzer's reach and sight.
+                    if (verdict.verdict == Verdict::WaitMana || f.rezInProgress)
+                        r.rezHoldMs = 0;
+                    else if (verdict.reason == Reason::Recovering)
+                    {
+                        r.rezHoldMs += dt;
+                        int const t = verdict.targetIdx;
+                        if (order.empty() && !r.rezNudged && r.rezHoldMs >= TortoiseBots::RezHold::kRezNudgeMs &&
+                            f.leadAlive && t >= 0 && static_cast<std::size_t>(t) < f.rezMembers.size() &&
+                            f.rezMembers[static_cast<std::size_t>(t)].placed)
+                        {
+                            TortoiseBots::RezHold::Member const& body = f.rezMembers[static_cast<std::size_t>(t)];
+                            if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, body.bodyX, body.bodyY, body.bodyZ) >
+                                TortoiseBots::RezHold::kRezNearYd)
+                            {
+                                r.rezNudged = true;
+                                order = MoveOrder(body.bodyX, body.bodyY, body.bodyZ, false);
+                                r.note += "; the lead bot walks to the body";
+                            }
+                        }
+                    }
                     return order;
                 }
             }
@@ -5039,6 +5076,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 if (!r.reviveSent && f.rezHold)
                     r.reviveBaseMs = r.regroupMs; // the hold's time is not taken from the corpse run
                 r.reviveSent = true;
+                r.rezHoldMs = 0;
+                r.rezNudged = false;
                 order = "revive party";
             }
             else
