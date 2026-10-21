@@ -83,10 +83,10 @@ inline char CcKind(bool stunned, bool confused, bool fleeing, bool rooted)
     return stunned ? 's' : confused ? 'c' : fleeing ? 'f' : rooted ? 'r' : 0;
 }
 
-// A creature's rank as one letter: b boss (world boss rank, one that binds the instance, or the boss of a dungeon
-// plan's boss step), e elite, r rare (or rare elite); 0 = an ordinary unit. A five-man boss carries rank 1 and no
-// instance bind in the core's data (Lord Cobrahn 3669, Oggleflint 11517), so only the plan's boss steps
-// (DungeonPlanTable::IsBossEntry) make it a boss.
+// A creature's rank as one letter: b boss (world boss rank, one that binds the instance, or a dungeon boss), e elite,
+// r rare (or rare elite); 0 = an ordinary unit. A five-man boss carries rank 1 and no instance bind in the core's data
+// (Lord Cobrahn 3669, Oggleflint 11517), so `planBoss` makes it a boss: DungeonPlanTable::IsBossEntry, the entry of a
+// dungeon plan's boss step or an `ai_dungeon_boss` row, both by map.
 inline char RankKind(uint32_t rank, bool bindsInstance, bool planBoss)
 {
     // rank: 0 normal, 1 elite, 2 rare elite, 3 world boss, 4 rare

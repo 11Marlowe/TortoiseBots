@@ -15,7 +15,7 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
          "wait_clear", "rest", "ritual", "hold", "gossip"}
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
-BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209}
+BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -23,16 +23,19 @@ SEEDED_BOSSES = {
     (389, 11519): "Bazzalan",
     (43, 3653): "Kresh", (43, 3671): "Lady Anacondra", (43, 3669): "Lord Cobrahn", (43, 3670): "Lord Pythas",
     (43, 3674): "Skum", (43, 3673): "Lord Serpentis", (43, 5775): "Verdan the Everliving",
-    (43, 3654): "Mutanus the Devourer",
+    (43, 3654): "Mutanus the Devourer", (43, 61965): "Vangros", (43, 61968): "Zandara Windhoof",
     (70, 6910): "Revelosh", (70, 6906): "Baelog", (70, 7228): "Ironaya", (70, 7023): "Obsidian Sentinel",
     (70, 7206): "Ancient Stone Keeper", (70, 7291): "Galgann Firehammer", (70, 4854): "Grimlok", (70, 2748): "Archaedas",
     (209, 8127): "Antu'sul", (209, 7272): "Theka the Martyr", (209, 7795): "Hydromancer Velratha",
     (209, 7271): "Witch Doctor Zum'rah", (209, 7274): "Sandfury Executioner", (209, 7275): "Shadowpriest Sezz'ziz",
     (209, 7267): "Chief Ukorz Sandscalp", (209, 7273): "Gahz'rilla",
+    (36, 644): "Rhahk'Zor", (36, 642): "Sneed's Shredder", (36, 643): "Sneed", (36, 1763): "Gilnid",
+    (36, 61963): "Masterpiece Harvester", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
+    (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
-# Disciple 3678, the Sergeant Bly event 7604, rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080}
+# Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586}
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -373,6 +376,12 @@ class DungeonPlanSql(unittest.TestCase):
                 continue
             self.assertNotRegex(text, r"CREATE TABLE `ai_dungeon_boss`", name)  # only IF NOT EXISTS
             self.assertNotRegex(text, r"(?m)^INSERT INTO `ai_dungeon_boss`", name)  # REPLACE, so a re-run keeps one row
+            # The DELETE before the rows is scoped to exactly the maps the file seeds: a seeded map it leaves out keeps a
+            # row a later file drops; a map it names beyond them loses rows it does not put back.
+            seeded = {int(m) for m in re.findall(r"(?m)^\((\d+), \d+, '", text)}
+            scoped = re.findall(r"DELETE FROM `ai_dungeon_boss` WHERE `map` IN \(([\d, ]+)\);", text)
+            self.assertEqual(len(scoped), 1, name)
+            self.assertEqual({int(m) for m in scoped[0].split(",")}, seeded, name)
 
 
 if __name__ == "__main__":

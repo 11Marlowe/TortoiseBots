@@ -8,14 +8,17 @@
 -- Mutanus the Devourer 3654 (the Naralex event), Archaedas 2748 (a hold step) and Gahz'rilla 7273 (summoned at the gong,
 -- not in the plan).
 --
--- First content: the four planned dungeons, Ragefire Chasm (389), Wailing Caverns (43), Uldaman (70) and Zul'Farrak
--- (209). Every entry, name and map was read from Turtle's own world data (tortoise-wow sql/base creature_template and
--- creature); all are rank 1 there. Left out: the adds of a boss step (Eric "The Swift" 6907 and Olaf 6908 beside Baelog,
--- Nekrum Gutchewer 7796 beside Sezz'ziz, Ruuzlu 7797 beside Ukorz), the friendly Naralex 3679 and his Disciple 3678, the
--- Sergeant Bly event 7604 and rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080). Other
--- dungeons get their rows when their plans arrive.
+-- First content: the dungeons that have a plan, Ragefire Chasm (389), Wailing Caverns (43), Uldaman (70), Zul'Farrak
+-- (209) and Deadmines (36). Every entry, name and map was read from Turtle's own world data (tortoise-wow sql/base
+-- creature_template and creature); all are rank 1 there. Also listed: Turtle's custom Wailing Caverns uniques Vangros
+-- 61965 and Zandara Windhoof 61968 (level 22 and 23, about 3.3k health, their own loot tables; Kresh is the same kind),
+-- and the Deadmines bosses no boss step names, Sneed 643 (he steps out of Sneed's Shredder 642 when it dies) and Cookie
+-- 645. Left out: the adds of a boss step (Eric "The Swift" 6907 and Olaf 6908 beside Baelog, Nekrum Gutchewer 7796
+-- beside Sezz'ziz, Ruuzlu 7797 beside Ukorz), the friendly Naralex 3679 and his Disciple 3678, the Sergeant Bly event
+-- 7604, Miner Johnson 3586 (a rare in the original game) and rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr
+-- Dunereaver 10080). Other dungeons get their rows when their plans arrive.
 --
--- Idempotent: CREATE TABLE IF NOT EXISTS, a DELETE of these four maps only, then REPLACE. Never edit this file once
+-- Idempotent: CREATE TABLE IF NOT EXISTS, a DELETE of these five maps only, then REPLACE. Never edit this file once
 -- applied; add a newer migration.
 
 CREATE TABLE IF NOT EXISTS `ai_dungeon_boss` (
@@ -25,7 +28,7 @@ CREATE TABLE IF NOT EXISTS `ai_dungeon_boss` (
   PRIMARY KEY (`map`, `entry`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3;
 
-DELETE FROM `ai_dungeon_boss` WHERE `map` IN (389, 43, 70, 209);
+DELETE FROM `ai_dungeon_boss` WHERE `map` IN (389, 43, 70, 209, 36);
 REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
 (389, 11517, 'Oggleflint'),
 (389, 11520, 'Taragaman the Hungerer'),
@@ -39,6 +42,8 @@ REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
 (43, 3673, 'Lord Serpentis'),
 (43, 5775, 'Verdan the Everliving'),
 (43, 3654, 'Mutanus the Devourer'),
+(43, 61965, 'Vangros'),
+(43, 61968, 'Zandara Windhoof'),
 (70, 6910, 'Revelosh'),
 (70, 6906, 'Baelog'),
 (70, 7228, 'Ironaya'),
@@ -54,4 +59,13 @@ REPLACE INTO `ai_dungeon_boss` (`map`, `entry`, `name`) VALUES
 (209, 7274, 'Sandfury Executioner'),
 (209, 7275, 'Shadowpriest Sezz''ziz'),
 (209, 7267, 'Chief Ukorz Sandscalp'),
-(209, 7273, 'Gahz''rilla');
+(209, 7273, 'Gahz''rilla'),
+(36, 644, 'Rhahk''Zor'),
+(36, 642, 'Sneed''s Shredder'),
+(36, 643, 'Sneed'),
+(36, 1763, 'Gilnid'),
+(36, 61963, 'Masterpiece Harvester'),
+(36, 646, 'Mr. Smite'),
+(36, 647, 'Captain Greenskin'),
+(36, 639, 'Edwin VanCleef'),
+(36, 645, 'Cookie');
