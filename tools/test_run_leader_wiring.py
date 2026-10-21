@@ -185,7 +185,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         # sets the run's carrier like loot/open/use (only the ritual's carrier is always the lead bot).
         reply = body(COMMANDS, "void RitualReply(RitualGroup const& group", "\n}\n")
         self.assertIn("run->second.taskReply = ok ? 1 : 2;", reply)
-        self.assertIn('order.compare(0, 7, "ritual ") == 0)', COMMANDS)
+        self.assertIn('order.compare(0, 7, "ritual ") == 0 ||', COMMANDS)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         self.assertIn("case ai::PlanStepKind::Ritual:", facts)
         self.assertIn("lead->GetMap()->GetInstanceData()", facts)
