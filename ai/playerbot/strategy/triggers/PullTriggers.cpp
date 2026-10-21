@@ -205,5 +205,13 @@ bool PullAnchorDoneTrigger::IsActive()
     if (!currentTarget || !currentTarget->IsAlive())
         return true;
 
+    // The pulled mob left the fight entirely (it reset and went home): nothing
+    // is coming to the anchor, and a wander at home must not keep the tank
+    // parked on it. The bot's own armed attack cannot be the test here - it
+    // stays on the reset mob for good, while the mob itself is out of combat
+    // and never comes back.
+    if (!currentTarget->IsInCombat())
+        return true;
+
     return !sServerFacade.isMoving(currentTarget) || bot->CanReachWithMeleeAutoAttack(currentTarget);
 }
