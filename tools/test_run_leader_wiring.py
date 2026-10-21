@@ -296,8 +296,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("bot->IsRessurectRequested()", roster)
         self.assertIn("m.blocksDruid =", roster)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
-        self.assertIn("if (f.rezHold)", policy)
-        self.assertIn("else if (f.rezzer && !r.reviveSent && r.regroupMs < kPartyRezWaitMs)", policy)
+        self.assertIn("if (f.rezHold && !r.rezBodyUnreachable)", policy)
+        self.assertIn("else if (f.rezzer && !r.reviveSent && !r.rezBodyUnreachable && r.regroupMs < kPartyRezWaitMs)", policy)
         self.assertIn("TortoiseBots::RezHold::Decide(hold, f.rezMembers)", policy)
         for doc in ("docs/server/settings/dungeons-raids.md",):
             self.assertIn("AiPlayerbot.DungeonRunRezHold", (ROOT / doc).read_text())
