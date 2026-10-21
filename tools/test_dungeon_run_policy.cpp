@@ -4907,6 +4907,144 @@ static void TestStepEscapeCap()
     CHECK(r.state == State::Paused && r.note.find("navmesh island") != std::string::npos);
 }
 
+
+// Final Opus check on d7e94c3b: the probe. After a hop that found no spot, the
+// walk back from that spot looped: a point refused from it set the island
+// suspicion instead of being passed, the no-spot mark cleared it, and the move
+// went out again every tick (3000 ticks at walk-back index 1). The driver here
+// answers every hop "no-spot" and every move "unreachable", as from the island.
+static void TestNoSpotWalkBackNeverSpins()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(1903, {7271});
+    pull.y = 1014;
+    pull.z = 11.8f;
+    plan.steps = {Step(PlanStepKind::Move, 1603, 1043, 9.8f), Step(PlanStepKind::Move, 1588, 1080, 9.1f),
+        Step(PlanStepKind::Move, 1584, 1088, 9.1f), Step(PlanStepKind::Move, 1633.6f, 1130.7f, 9.9f), pull};
+    Run r = Start(&plan, 4);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 0;
+    r.walkBackRestarted = true;
+    std::uint32_t sameOrder = 0, longestRepeat = 0, moves = 0;
+    std::string last;
+    std::size_t lastIdx = 0;
+    int endedAt = -1;
+    for (int t = 0; t < 3000 && r.state == State::Running; ++t)
+    {
+        Facts f = OnIsland();
+        const PlanStep* fs = FactStep(r);
+        float const to = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, fs->x, fs->y, fs->z);
+        f.seen = to <= kSeeYd;
+        f.approachKnown = !f.seen;
+        f.leadIsland = LeadOnIsland(true, 3.05f, to);
+        f.goodSpotCut = false;
+        std::string const order = Tick(r, f);
+        if (!r.walkBack && endedAt < 0)
+            endedAt = t;
+        if (order.empty())
+            continue;
+        if (order == last && r.walkBackIdx == lastIdx)
+            longestRepeat = std::max(longestRepeat, ++sameOrder);
+        else
+            sameOrder = 1;
+        last = order;
+        lastIdx = r.walkBackIdx;
+        if (order.compare(0, 7, "escape ") == 0)
+            OrderRefused(r, order, "no-spot: no spot within 10 yd");
+        else if (order.compare(0, 5, "move ") == 0)
+        {
+            ++moves;
+            OrderRefused(r, order, "unreachable: no navmesh route reaches it");
+        }
+    }
+    CHECK(endedAt >= 0 && endedAt < 200); // every point passed, the walk back is over
+    CHECK(longestRepeat <= 1); // each point refused once and passed (as on 2012dfee), never sent again
+    CHECK(moves <= 3);
+    CHECK(r.state == State::Paused); // the step's own approach then pauses (bounded)
+}
+
+// Sign (b) from the main mesh (two unreachable points read from one spot): one
+// hop off per spot, at most kStepEscapes in the step, and the run ends bounded.
+static void TestSignBFromTheMainMeshIsBounded()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(600, {1});
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 40, 30), Step(PlanStepKind::Move, 40, 60),
+        Step(PlanStepKind::Move, 40, 90), pull};
+    Run r = Start(&plan, 4);
+    r.walkBack = true;
+    r.walkBackRestarted = true;
+    float leadX = 0.0f;
+    std::uint32_t escapes = 0;
+    std::vector<float> escapedFrom;
+    for (int t = 0; t < 3000 && r.state == State::Running; ++t)
+    {
+        Facts f = Party(leadX);
+        const PlanStep* fs = FactStep(r);
+        float const to = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, fs->x, fs->y, fs->z);
+        f.seen = to <= kSeeYd;
+        f.approachKnown = !f.seen;
+        f.approachX = leadX + 5;
+        f.leadIsland = LeadOnIsland(true, 5.0f, to);
+        std::string const order = Tick(r, f);
+        if (order.compare(0, 7, "escape ") == 0)
+        {
+            ++escapes;
+            for (float x : escapedFrom)
+                CHECK(std::fabs(x - leadX) > kArriveYd); // one hop off per spot
+            escapedFrom.push_back(leadX);
+            leadX -= 6.0f; // the glue moved it 6 yd: another spot, another cell
+        }
+        else if (order.compare(0, 5, "move ") == 0 && f.seen)
+            OrderRefused(r, order, "unreachable: no navmesh route reaches it");
+    }
+    CHECK(escapes >= 1 && escapes <= kStepEscapes);
+    CHECK(r.state == State::Paused);
+}
+
+
+// The defensive bound on its own: a walk-back point tried more than
+// kWalkBackResends times from one spot is passed, whatever brought it back
+// (here a refusal handled elsewhere that left the point standing), in sight
+// (its move) or out of sight (its way found missing).
+static void TestWalkBackResendBound()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 200), PullStep(400, {1})};
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    Facts f = Party(0);
+    for (std::uint32_t i = 0; i < kWalkBackResends; ++i)
+    {
+        CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+        EnterPhase(r, Phase::Begin);
+    }
+    CHECK(Tick(r, f).empty());
+    CHECK(r.walkBackIdx == 1 && r.note.find("tried 6 times from this spot: on to the next") != std::string::npos);
+    // Out of sight, the way found missing each time without passing (the
+    // suspicion kept standing): the point is passed after kWalkBackResends.
+    Run o = Start(&plan, 2);
+    o.walkBack = true;
+    o.walkBackIdx = 1;
+    o.walkBackStart = 1;
+    o.walkBackRestarted = true;
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = false;
+    for (std::uint32_t i = 0; i < kWalkBackResends; ++i)
+    {
+        o.passSpotKnown = true; // a point given up here before, no good path: the suspicion
+        o.passX = o.passY = o.passZ = 0.0f;
+        o.noSpotKnown = true;   // ... and a no-spot mark that keeps it from a hop
+        o.noSpotX = 50.0f;      // (not on this spot: PassWalkBackPoint does not pass)
+        Tick(o, g);
+        CHECK(o.walkBackIdx == 1 && o.state == State::Running);
+        o.islandSuspect = false;
+    }
+    Tick(o, g);
+    CHECK(o.walkBackIdx == 2);
+}
+
 // (b) Uldaman 19z11 02:50: the approach paused after 8 hops while the priest
 // stood still on a navmesh pocket (43 371). Before the pause a far bot that
 // stands still is summoned, once; a walker is not; then the pause (the lead
@@ -6924,6 +7062,9 @@ int main()
     TestSecondReadingConfirmsTheIsland();
     TestWalkBackNoSpotPassesThePoint();
     TestStepEscapeCap();
+    TestNoSpotWalkBackNeverSpins();
+    TestSignBFromTheMainMeshIsBounded();
+    TestWalkBackResendBound();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

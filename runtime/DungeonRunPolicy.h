@@ -165,6 +165,7 @@ constexpr float kIslandCellYd = 4.0f;             // the evidence is kept for th
 constexpr float kEvidenceSpotYd = 2.0f;           // ... a second reading counts from this close to the first one's spot ...
 constexpr float kEvidenceTargetYd = 10.0f;        // ... toward a point at least this far from the first one's point
 constexpr float kGoodSpotProbeYd = 40.0f;         // the last good spot this close is probed (the glue: Facts::goodSpotCut)
+constexpr std::uint32_t kWalkBackResends = 6;     // a walk-back point sent this often from one spot (kArriveYd) is passed
 constexpr std::uint32_t kStepEscapes = 4;         // hops off an island one step may send in all (a good read in
                                                   // between gives kIslandEscapes again; the step ceiling is 300 s)
 constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead must be up within this
@@ -761,6 +762,10 @@ struct Run
     bool noSpotKnown = false;
     float noSpotX = 0.0f, noSpotY = 0.0f, noSpotZ = 0.0f;
     std::uint32_t stepEscapes = 0; // hops off an island this step (kStepEscapes)
+    // The walk-back point last sent, from where, and how often (kWalkBackResends).
+    std::size_t resendIdx = static_cast<std::size_t>(-1);
+    float resendX = 0.0f, resendY = 0.0f, resendZ = 0.0f;
+    std::uint32_t resends = 0;
     // A scripted event's hold (Hold steps): its clock runs from the first look,
     // in fights too; a regroup or resume starts it over.
     bool eventOn = false;
@@ -1129,6 +1134,8 @@ inline void ResetStep(Run& r)
     r.islandEvidence = false;
     r.noSpotKnown = false;
     r.stepEscapes = 0;
+    r.resendIdx = static_cast<std::size_t>(-1);
+    r.resends = 0;
     r.eventOn = false;
     r.eventResetWaitMs = 0;
     r.eventMs = 0;
@@ -2127,7 +2134,13 @@ inline void PassWalkBackPoint(Run& r, float x, float y, float z, const std::stri
 {
     if (direct)
         r.islandSuspect = false; // a direct step's point says nothing about an island
-    bool const same = !direct && r.passSpotKnown && ai::PlanDistance(x, y, z, r.passX, r.passY, r.passZ) <= kArriveYd;
+    // Where a walk back's hop found no spot the points are passed as before
+    // (2012dfee): no suspicion there, or the mark would clear it and the same
+    // point would go out again every tick.
+    bool const noSpotHere =
+        r.noSpotKnown && ai::PlanDistance(x, y, z, r.noSpotX, r.noSpotY, r.noSpotZ) <= kArriveYd;
+    bool const same = !direct && !noSpotHere && r.passSpotKnown &&
+        ai::PlanDistance(x, y, z, r.passX, r.passY, r.passZ) <= kArriveYd;
     r.passSpotKnown = true;
     r.passX = x;
     r.passY = y;
@@ -3379,6 +3392,33 @@ inline void NextWalkBackPoint(Run& r)
     EnterPhase(r, Phase::Begin);
 }
 
+// A bound on any walk back, whatever its state (the final check on d7e94c3b:
+// after a hop that found no spot one point went out every tick, 3000 ticks):
+// each try at the current point (its move sent, or its way found missing) from
+// one spot (kArriveYd) is counted; past kWalkBackResends the point is passed.
+// True when it was.
+inline bool ResendBound(Run& r, const Facts& f)
+{
+    if (r.resendIdx == r.walkBackIdx &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.resendX, r.resendY, r.resendZ) <= kArriveYd)
+        ++r.resends;
+    else
+    {
+        r.resendIdx = r.walkBackIdx;
+        r.resendX = f.leadX;
+        r.resendY = f.leadY;
+        r.resendZ = f.leadZ;
+        r.resends = 1;
+    }
+    if (r.resends <= kWalkBackResends)
+        return false;
+    r.resends = 0;
+    r.note = "walk back: the point of step " + std::to_string(r.walkBackIdx + 1) + " was tried " +
+        std::to_string(kWalkBackResends) + " times from this spot: on to the next";
+    NextWalkBackPoint(r); // clears the island suspicion too
+    return true;
+}
+
 // One second of the walk back. True while it walks (the tick ends there);
 // false once it is over. Each point is replayed as its move step would be:
 // the hostiles within kHopPullYd of it (the glue's hopUnits, read for this
@@ -3472,6 +3512,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         // A hop that ends where the lead bot stands goes nowhere: no path, not a hop.
         bool const noWay = !f.approachKnown ||
             ai::PlanDistance(f.leadX, f.leadY, f.leadZ, f.approachX, f.approachY, f.approachZ) <= kArriveYd;
+        if ((noWay || r.approachHops >= cap) && ResendBound(r, f))
+            return true;
         if (noWay || r.approachHops >= cap)
         {
             std::string const why = noWay ? "no walkable path toward " + what
@@ -3574,6 +3616,10 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         IslandEscape(r, f, p.x, p.y, p.z, "the point of step " + std::to_string(r.walkBackIdx + 1), order);
         return true;
     }
+    // A bound whatever the state: the same point sent more than kWalkBackResends
+    // times from one spot is passed (ResendBound).
+    if (!(r.phase == Phase::Walk && r.walkX == p.x && r.walkY == p.y && r.walkZ == p.z) && ResendBound(r, f))
+        return true;
     r.note = "walk back: to the point of step " + std::to_string(r.walkBackIdx + 1);
     if (WalkTo(r, f, p.x, p.y, p.z, direct, dt, order))
     {
