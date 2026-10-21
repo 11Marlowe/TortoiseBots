@@ -329,6 +329,7 @@ struct UnitFact
     bool victimLead = false;   // a hold's units: its victim is the lead bot (the tank holds it)
     // Facts::partyAttackers only:
     bool hitting = false;      // it hits its victim now: in melee reach of it, or standing and casting (not running in)
+    bool victimPet = false;    // its victim is a party bot's pet (the lead bot's own too), not a bot (victimHealer false)
     float distSpot = -1.0f;    // ... during a hold: its distance from the hold spot (-1: not read)
     // Pull step units only, when Facts::joinerCeiling is set: how many other
     // creatures an estimate (ai::EstimateAggro) says come if this one is pulled.
@@ -5173,6 +5174,9 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // it back to the stand point. A tank that holds a mob of its own in melee
 // reach picks up only a mob hitting a healer (Uldaman pull 100: a Brawler on
 // the tank while a Geomancer and two Maulers killed the mage and the healer).
+// A mob on a party pet (victimPet) is picked up too, but only when no mob on a
+// bot qualifies (Uldaman Pause 2: a Scorpid on a pet 15 yd off ran the fight
+// past the ceiling), and within the same kGuardYd bound.
 // Once the guard took the tank off its stay this fight, it keeps watching:
 // the next pick-up needs no stay. Never a polymorphed or evading mob. A
 // player's own order to the party pauses the run, so this never overrides the
@@ -5198,6 +5202,14 @@ inline const UnitFact* GuardPick(const Facts& f, float holdRadius)
             continue;
         if (f.leadHit && !u.victimHealer)
             continue;
+        // A mob on a party pet comes after every mob on a bot, whatever the
+        // distances (Uldaman Pause 2: a Scorpid on a pet 15 yd from the tank).
+        if (best && best->victimPet != u.victimPet)
+        {
+            if (u.victimPet)
+                continue;
+            best = nullptr;
+        }
         if (!best || u.distLead < best->distLead)
             best = &u;
     }
@@ -5400,7 +5412,7 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.guardZ = f.leadStayKnown ? f.leadStayZ : f.leadZ;
     }
     r.note = std::string(hold ? "event" : "fighting") + ": the tank picks up " + std::to_string(u->entry) + " off " +
-        (u->victimHealer ? "the healer" : "the party") + " (" + Num(u->distLead) + " yd)";
+        (u->victimHealer ? "the healer" : u->victimPet ? "a pet" : "the party") + " (" + Num(u->distLead) + " yd)";
     order = "attack " + std::to_string(u->guid) + " " + f.carrier;
     return true;
 }

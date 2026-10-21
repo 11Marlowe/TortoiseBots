@@ -4748,6 +4748,112 @@ static void TestTankGuardLimits()
     }
 }
 
+// Uldaman Pause 2 (scorpid_cave step 38, 2026-10-20): a Scorpid had a pet as its
+// victim 15 yd from the tank and never came; the guard saw only mobs on bots,
+// so the tank stood on "stay" and the fight ran past the 180 s ceiling. A mob
+// on a party pet is now picked up too, but after every mob on a bot, never while
+// the tank holds a mob of its own, and never from beyond kGuardYd of the tank
+// (a pet's attacker beside a sleeping pack must not pull the tank across).
+static UnitFact PetHitter(std::uint64_t guid, std::uint32_t entry, float dist)
+{
+    UnitFact u = Hitter(guid, entry, dist);
+    u.victimPet = true;
+    return u;
+}
+
+static void TestTankGuardPicksUpMobsOnPets()
+{
+    auto guardRun = [](DungeonPlan& plan)
+    {
+        plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {4855})};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        Tick(r, f);
+        f.units = {Unit(31, 4855, 40)};
+        Tick(r, f); // pullback 31
+        return r;
+    };
+    auto fight = [](std::vector<UnitFact> const& attackers, bool hit = false)
+    {
+        Facts f = Party(0);
+        f.anyInCombat = true;
+        f.leadIsTank = true;
+        f.leadStaying = true;
+        f.leadHit = hit;
+        f.partyAttackers = attackers;
+        return f;
+    };
+    std::string orderNote; // the run's note on the tick that sent the order
+    auto ordersIn = [&orderNote](Run& r, const Facts& f, int ticks)
+    {
+        std::string last;
+        int n = 0;
+        for (int i = 0; i < ticks; ++i)
+        {
+            std::string const o = Tick(r, f);
+            if (o.compare(0, 7, "attack ") == 0)
+            {
+                ++n;
+                last = o;
+                orderNote = r.note;
+            }
+        }
+        return std::make_pair(n, last);
+    };
+    {
+        // The Pause 2 case: only a pet has a mob on it, 15 yd away. After the
+        // guard's wait the tank is sent at it, and the note says "off a pet".
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        auto const res = ordersIn(r, fight({PetHitter(31, 4863, 15)}), 5);
+        CHECK(res.first == 1 && res.second == "attack 31 Tanky");
+        CHECK(orderNote.find("off a pet") != std::string::npos);
+        CHECK(r.guardReturn);
+    }
+    {
+        // Bounded by kGuardYd from the tank: a pet's attacker at the edge of a
+        // sleeping pack, beyond the bound, draws nothing; just inside it does.
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        CHECK(ordersIn(r, fight({PetHitter(31, 4863, kGuardYd + 1)}), 10).first == 0);
+        CHECK(ordersIn(r, fight({PetHitter(31, 4863, kGuardYd - 1)}), 5).first == 1);
+    }
+    {
+        // A mob on a bot goes first, though the pet's attacker is nearer; a pet's
+        // attacker only when no mob on a bot qualifies (here: one is not hitting yet).
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        auto const res = ordersIn(r, fight({PetHitter(31, 4863, 8), Hitter(41, 7320, 30)}), 5);
+        CHECK(res.first == 1 && res.second == "attack 41 Tanky");
+        CHECK(orderNote.find("off a pet") == std::string::npos);
+        DungeonPlan plan2;
+        Run r2 = guardRun(plan2);
+        UnitFact running = Unit(41, 7320, 30);
+        auto const res2 = ordersIn(r2, fight({PetHitter(31, 4863, 8), running}), 5);
+        CHECK(res2.first == 1 && res2.second == "attack 31 Tanky");
+    }
+    {
+        // The tank holds a mob of its own: it leaves a pet's attacker to its AI.
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        CHECK(ordersIn(r, fight({PetHitter(31, 4863, 15)}, true), 10).first == 0);
+    }
+    {
+        // Not hitting (still running in), evading or polymorphed: no pick-up.
+        DungeonPlan plan;
+        Run r = guardRun(plan);
+        UnitFact u = PetHitter(31, 4863, 15);
+        u.hitting = false;
+        CHECK(ordersIn(r, fight({u}), 10).first == 0);
+        u.hitting = true;
+        u.evading = true;
+        CHECK(ordersIn(r, fight({u}), 10).first == 0);
+        u.evading = false;
+        u.polymorphed = true;
+        CHECK(ordersIn(r, fight({u}), 10).first == 0);
+    }
+}
+
 // Engage on arrival (PLAN-THREAT-265 M1a). The tank on "stay" at a stand fights
 // nothing (an attack action is a movement action): RFC 19z19 step 25 had it idle
 // 21 s with a Trogg on the mage and the rogue 2-4 yd away, Uldaman 19z19 step 85
@@ -8158,6 +8264,7 @@ int main()
     TestTankGuardReturnsToItsOwnSpot();
     TestTankGuardPull100Replay();
     TestTankGuardLimits();
+    TestTankGuardPicksUpMobsOnPets();
     TestEngageT1();
     TestEngageT2();
     TestEngageT3();
