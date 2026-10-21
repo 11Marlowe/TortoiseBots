@@ -4,6 +4,7 @@
 #include "../../runtime/HireLifecycle.h"
 #include "../../runtime/AltBotService.h"
 #include "../../runtime/ShamanTankKitPolicy.h"
+#include "../../runtime/ShamanTankLevelingPolicy.h"
 #include "playerbot/playerbot.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/AiContextAugment.h"
@@ -377,13 +378,82 @@ static bool HasSpiritArmorTalent(const Player* player)
         player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR1);
 }
 
+// Spent ranks of a talent spec, by talent id.
+static TortoiseBots::ShamanTalentRanks TalentRanks(TalentSpec const& spec)
+{
+    TortoiseBots::ShamanTalentRanks ranks;
+    for (TalentSpec::TalentListEntry const& entry : spec.talents)
+        ranks[entry.entry] = entry.rank;
+    return ranks;
+}
+
+// The premade entry the appliers would use for this bot's level: the first
+// entry it can afford (ChangeTalentsAction::GetBestPremadeSpec) cropped to its
+// level (CropTalents), so the ranks are exactly what a bot following that path
+// carries.
+static TalentSpec BestPremadeEntryForLevel(TalentPath const& path, Player* bot)
+{
+    TalentSpec best = path.talentSpec.back();
+    uint32 const available = GetTotalTalentPoints_TB(bot);
+    for (TalentSpec const& entry : path.talentSpec)
+        if (entry.points >= available)
+        {
+            best = entry;
+            break;
+        }
+    best.CropTalents(bot);
+    return best;
+}
+
+// Issue #1125: below the first key tank talent the 7.3 levelling layout is the
+// durable half of the identity - talents live in the character, the forced
+// role does not. The tank entry for the bot's level has to match the spent
+// ranks on its own: at 10-14 the 7.3 and 7.1 links are identical, so a match
+// shared with another premade proves nothing and the read stays on the DPS
+// spec (runtime/ShamanTankLevelingPolicy.h).
+static bool HasShamanTankLevelingBuild(const Player* player)
+{
+    if (!player || player->GetClass() != CLASS_SHAMAN)
+        return false;
+    // At or above the first key talent the key-talent read is authoritative
+    // and free; the talent walk stays off that path.
+    if (player->GetLevel() >= TortoiseBots::kShamanTankFirstTalentLevel)
+        return false;
+
+    std::vector<TalentPath>& paths = sPlayerbotAIConfig.classSpecs[CLASS_SHAMAN].talentPath;
+    if (paths.empty())
+        return false;
+
+    Player* bot = const_cast<Player*>(player);
+    TortoiseBots::ShamanTalentRanks const current = TalentRanks(TalentSpec(bot));
+    bool tankEntryMatches = false;
+    int otherPremadeMatches = 0;
+    for (TalentPath& path : paths)
+    {
+        if (path.talentSpec.empty())
+            continue;
+        if (!TortoiseBots::ShamanTalentRanksEqual(current, TalentRanks(BestPremadeEntryForLevel(path, bot))))
+            continue;
+        if (path.id == TortoiseBots::kShamanTankPremadeSpec)
+            tankEntryMatches = true;
+        else
+            ++otherPremadeMatches;
+    }
+
+    return TortoiseBots::ShamanOnTankLevelingPath(tankEntryMatches, otherPremadeMatches);
+}
+
 // The gear-free build read behind the shaman kit decision. Only the 7.3 tank
 // premade takes Totemic Alignment or Spirit Armor, so no enhancement,
 // elemental or restoration shaman ever matches (issue #1125). Talents are
-// persisted, unlike the forced role.
+// persisted, unlike the forced role - and below the first key talent the
+// levelling layout is read instead, so the identity survives a restart there
+// too.
 static bool HasShamanTankBuild(const Player* player)
 {
-    return TortoiseBots::IsShamanTankBuild(HasTotemicAlignmentTalent(player), HasSpiritArmorTalent(player));
+    if (TortoiseBots::IsShamanTankBuild(HasTotemicAlignmentTalent(player), HasSpiritArmorTalent(player)))
+        return true;
+    return HasShamanTankLevelingBuild(player);
 }
 
 // Which shaman kit this bot plays (issue #1125): the explicit forced role
@@ -542,6 +612,13 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     }
 
     return GetTalentRoles(player);
+}
+
+bool AiFactory::HasShamanTankTalents(const Player* player)
+{
+    if (!player || player->GetClass() != CLASS_SHAMAN)
+        return false;
+    return HasTotemicAlignmentTalent(player) || HasSpiritArmorTalent(player);
 }
 
 // Party back-off (threat): non-tank DPS/healer bots grouped with a real player

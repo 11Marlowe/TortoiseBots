@@ -41,7 +41,7 @@ struct LftRoleKitInputs
 
 // True when the queued slot is achievable by the bot's own spec, yet its
 // installed kit would not play it, so the fill must hand the role to the bot
-// (SetForcedRole + snapshot invalidation + auto talents).
+// (SetForcedRole + snapshot invalidation + role rebuild).
 inline bool LftKitNeedsRoleAssignment(LftRoleKitInputs const& in)
 {
     if (!in.queuedRole)
@@ -51,6 +51,19 @@ inline bool LftKitNeedsRoleAssignment(LftRoleKitInputs const& in)
     if ((in.talentRoleMask & in.queuedRole) == 0)
         return false;
     return (in.kitRoleMask & in.queuedRole) == 0;
+}
+
+// Issue #1125: a shaman that reads tank from its own 7.3 levelling build
+// before it has learned a key tank talent (IsShamanTankBuild / the levelling
+// layout read in AiFactory) cannot fill the LFT tank slot - the fill fails it
+// closed there ("shaman tank without tank talents") - but its spec is still a
+// damage body. Without the damage bit it would be ineligible for every slot,
+// so the queue would lose a usable filler until level 25.
+inline uint8_t LftRoleMaskForLatentShamanTank(bool isShaman, uint8_t roleMask, bool hasKeyTankTalent)
+{
+    if (!isShaman || hasKeyTankTalent || (roleMask & kLftRoleTank) == 0)
+        return roleMask;
+    return static_cast<uint8_t>(roleMask | kLftRoleDamage);
 }
 
 } // namespace TortoiseBots

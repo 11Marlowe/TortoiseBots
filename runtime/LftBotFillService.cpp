@@ -184,7 +184,12 @@ uint8 LftBotFillService::GetBotRoleMask(Player const* bot) const
 {
     if (!bot) return 0;
     BotRoles r = AiFactory::GetPlayerRoles(bot);
-    return static_cast<uint8>(r);
+    // A shaman whose tank identity comes from its levelling build before the
+    // key talents cannot fill the tank slot (RoleMismatchReason) but is still
+    // a damage body; without the bit the queue would have no role for it at
+    // all (issue #1125).
+    return TortoiseBots::LftRoleMaskForLatentShamanTank(bot->GetClass() == CLASS_SHAMAN,
+        static_cast<uint8>(r), AiFactory::HasShamanTankTalents(bot));
 }
 
 std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) const
@@ -226,9 +231,7 @@ std::string LftBotFillService::RoleMismatchReason(Player* bot, uint8 needRole) c
         // branch's owner ("borrow" aside); keep it out of the tank slot.
         if (cls == CLASS_SHAMAN)
         {
-            bool keyTalent = bot->HasSpell(51382) || bot->HasSpell(51381) ||
-                bot->HasSpell(45952) || bot->HasSpell(45951);
-            if (!keyTalent)
+            if (!AiFactory::HasShamanTankTalents(bot))
                 return "shaman tank without tank talents";
         }
     }
@@ -411,7 +414,12 @@ void LftBotFillService::ClearForcedRole(uint32 guidLow)
         {
             ai->SetForcedRole(0);
             sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
+            // The same rebuild `.bot role` runs: "auto talents" only applies
+            // the premade, and a bot that already has it changes nothing
+            // there, so on its own it left the cleared role's kit installed
+            // (issue #1125). ResetStrategies reads the role and rebuilds.
             ai->DoSpecificAction("auto talents");
+            ai->ResetStrategies();
         }
 }
 
@@ -909,10 +917,14 @@ void LftBotFillService::Update(uint32_t diff)
                     {
                         // Same rebuild as `.bot role`: a stored strategy
                         // snapshot would replay the old spec's kit (e.g.
-                        // "shadow pve") under the borrowed role.
+                        // "shadow pve") under the borrowed role, and the
+                        // role-dependent build (shaman tank) is rebuilt from
+                        // the role here rather than whenever an unrelated
+                        // reset happens to run (issue #1125).
                         ai->SetForcedRole(needRole);
                         sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
                         ai->DoSpecificAction("auto talents");
+                        ai->ResetStrategies();
                     }
 
                 bool ok = sLFTMgr.QueuePlayer(chosen, instVec, needRole);
@@ -924,6 +936,7 @@ void LftBotFillService::Update(uint32_t diff)
                             ai->SetForcedRole(0);
                             sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
                             ai->DoSpecificAction("auto talents");
+                            ai->ResetStrategies();
                         }
                     BotActivityLeaseManager::Instance().Release(guidLow, BotActivity::LftQueued,
                         previousActivity == BotActivity::Grinding ? BotActivity::Grinding : BotActivity::Idle);

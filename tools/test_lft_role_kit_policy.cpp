@@ -13,6 +13,7 @@
 
 using TortoiseBots::LftRoleKitInputs;
 using TortoiseBots::LftKitNeedsRoleAssignment;
+using TortoiseBots::LftRoleMaskForLatentShamanTank;
 using TortoiseBots::kLftRoleTank;
 using TortoiseBots::kLftRoleHealer;
 using TortoiseBots::kLftRoleDamage;
@@ -22,6 +23,11 @@ namespace
     bool Assign(uint8_t queued, uint8_t talents, uint8_t kit)
     {
         return LftKitNeedsRoleAssignment({queued, talents, kit});
+    }
+
+    uint8_t Mask(bool isShaman, uint8_t roles, bool keyTalents)
+    {
+        return LftRoleMaskForLatentShamanTank(isShaman, roles, keyTalents);
     }
 }
 
@@ -68,6 +74,23 @@ int main()
     // slot, so the pick leaves it alone.
     CHECK(!Assign(kLftRoleTank, feralMask, kLftRoleTank));
     std::cout << "  [PASS] bear kit without a queued role stays put\n";
+
+    // (8) Issue #1125: a shaman that reads tank from its levelling build
+    // before the key talents is kept fillable as damage - the tank slot stays
+    // closed to it, but without the DPS bit every slot would be.
+    CHECK(Mask(true, kLftRoleTank, false) == (kLftRoleTank | kLftRoleDamage));
+    // With the key talents the read is a real tank: damage does not apply.
+    CHECK(Mask(true, kLftRoleTank, true) == kLftRoleTank);
+    // A damage or healer shaman is untouched either way.
+    CHECK(Mask(true, kLftRoleDamage, false) == kLftRoleDamage);
+    CHECK(Mask(true, kLftRoleHealer, false) == kLftRoleHealer);
+    CHECK(Mask(true, kLftRoleTank | kLftRoleHealer, true) == (kLftRoleTank | kLftRoleHealer));
+    // Non-shamans never change.
+    CHECK(Mask(false, kLftRoleTank, false) == kLftRoleTank);
+    const uint8_t latentMask = Mask(true, kLftRoleTank, false);
+    CHECK(Assign(kLftRoleDamage, latentMask, kLftRoleTank)); // tank kit cannot play the queued DPS slot
+    CHECK(!Assign(kLftRoleDamage, latentMask, kLftRoleDamage));
+    std::cout << "  [PASS] latent shaman tank stays fillable as damage\n";
 
     std::cout << "TortoiseBots LFT role kit tests passed.\n";
     return 0;
