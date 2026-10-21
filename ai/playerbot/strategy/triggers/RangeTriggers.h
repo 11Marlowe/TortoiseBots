@@ -450,7 +450,7 @@ namespace ai
     // 5 yd from the master, but a formation slot sits ~1.5 yd out, so an
     // idle bot inside the dead zone never walks to a newly set formation
     // (queue, circle, shield, ... visibly do nothing). This fires once per
-    // formation change while the bot stands off its slot, and "follow" then
+    // formation change or leader stop while the bot stands off its slot, and "follow" then
     // walks it there with the formation's angle/offset. Later ticks stay quiet:
     // chaos re-rolls its slot every 3 s, and chasing each new roll would
     // fidget the bot in place.
@@ -467,9 +467,13 @@ namespace ai
             if (!followTarget || !ai->IsSafe(followTarget))
                 return false;
             // A walking leader is the core follow's job; a slot point taken
-            // mid-walk is stale by the time the bot gets there.
+            // mid-walk is stale by the time the bot gets there. Each stop
+            // re-arms one station walk, so the party lines up again after a move.
             if (sServerFacade.isMoving(followTarget))
+            {
+                memory = FormationStationMemory();
                 return false;
+            }
             Formation* formation = AI_VALUE(Formation*, "formation");
             if (!formation)
                 return false;
