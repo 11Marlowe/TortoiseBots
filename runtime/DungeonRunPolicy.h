@@ -427,7 +427,7 @@ struct Facts
     float approachX = 0.0f, approachY = 0.0f, approachZ = 0.0f;
     // Read with that hop (and for a walk back's move point in sight with a path
     // of its own): the lead bot's navmesh path toward the point is partial and
-    // ends within kGoodPathMinYd of it, short of the point (LeadOnIsland:
+    // ends within kGoodPathMinYd of it, short of the point, or is no path (LeadOnIsland:
     // IslandEscape), or it gets somewhere (LeadPathGood: the lead bot's spot is the last good one).
     bool leadIsland = false;
     bool leadPathGood = false;
@@ -2034,9 +2034,18 @@ inline void LootRefused(Run& r, const std::string& text)
 
 // The island escape (Zul'Farrak r3-19z20, kGoodPathMinYd). The glue's reading
 // of the lead bot's navmesh path toward the point it is sent to: partial, ending
-// within kGoodPathMinYd of the lead bot and more than kArriveYd short of the point ...
-inline bool LeadOnIsland(bool pathIncomplete, float endFromLeadYd, float toPointYd)
+// within kGoodPathMinYd of the lead bot and more than kArriveYd short of the point,
+// or no path at all toward a point off the lead bot. Uldaman r9-19z26 step 127: the
+// tank stood on a ~3 x 8 yd patch of mesh at 132-139 / 296-304 (z -23.8, the floor
+// round it -26.5); every partial path from 137.3 298.7 ended 0.0-0.2 yd from it,
+// inside the server's smooth-path slop (PathFinder.cpp SMOOTH_PATH_SLOP 0.4), so
+// BuildPointPath made a one-point path and answered NOPATH with the point itself
+// as the end: read as partial-only, no reading said island and the escape never ran.
+// A NOPATH is one sign like a partial reading; IslandConfirmed still wants a second.
+inline bool LeadOnIsland(bool pathNoPath, bool pathIncomplete, float endFromLeadYd, float toPointYd)
 {
+    if (pathNoPath)
+        return toPointYd > kArriveYd;
     return pathIncomplete && endFromLeadYd >= 0.0f && endFromLeadYd <= kGoodPathMinYd &&
         toPointYd > endFromLeadYd + kArriveYd;
 }
