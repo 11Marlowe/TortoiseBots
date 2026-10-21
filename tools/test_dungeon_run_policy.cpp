@@ -187,6 +187,55 @@ static void TestStalledNearPointCountsAsArrived()
     CHECK(r2.state == State::Paused && r2.note.find("stuck") != std::string::npos);
 }
 
+// Live (Ragefire Chasm r6-19z24 slot 1 step 38, r6 slot 1b step 70, r2-19z19 slot 1 step 53): the stand
+// stood 3-4 yd above or below the lead bot on a ledge, the whole party within 7 yd; the 3D distance was
+// 6.0-6.7 yd, over kStalledArriveYd, so the walk retried three times and paused ("the lead bot is stuck
+// 6.7 yd from ...") for 70 s to 4 min, and one resume fixed it. A stand within kStandZTolYd above or below
+// counts by its ground distance: the stalled arrival ends the walk.
+static void RunStalledWalk(float leadX, float leadZ, PlanStepKind kind, bool& arrived, bool& stuck)
+{
+    DungeonPlan plan;
+    plan.steps = {Step(kind, 0, 0, 0), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(leadX);
+    f.leadZ = leadZ;
+    Tick(r, f);
+    for (int i = 0; i < 300 && r.step == 0 && r.state == State::Running; ++i)
+        Tick(r, f);
+    arrived = r.state == State::Running && r.step == 1 && r.note == "arrived";
+    stuck = r.state == State::Paused && r.note.find("stuck") != std::string::npos;
+}
+
+static void TestStandOnALedgeCountsByGroundDistance()
+{
+    bool arrived = false, stuck = false;
+    // r6-19z24: 6.0 yd, the stand 3 yd lower (ground 5.2 yd).
+    RunStalledWalk(5.2f, 3.0f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // r6 slot 1b: 6.7 yd, the lead 4 yd above the target (ground 5.4 yd).
+    RunStalledWalk(5.4f, 4.0f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // r2-19z19: 6.5 yd, the lead 3.6 yd above, and a stand below the lead bot.
+    RunStalledWalk(5.4f, 3.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    RunStalledWalk(-5.4f, -3.6f, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // The edge of the tolerance counts (6.0 yd on the ground, 4.5 above).
+    RunStalledWalk(5.9f, kStandZTolYd, PlanStepKind::Move, arrived, stuck);
+    CHECK(arrived && !stuck);
+    // A different floor (more than kStandZTolYd above or below) keeps the 3D rule.
+    RunStalledWalk(5.0f, kStandZTolYd + 0.5f, PlanStepKind::Move, arrived, stuck);
+    CHECK(!arrived && stuck);
+    RunStalledWalk(5.0f, 5.0f, PlanStepKind::Move, arrived, stuck); // 7.1 yd in 3D
+    CHECK(!arrived && stuck);
+    // Farther than kStalledArriveYd on the ground plane is still stuck.
+    RunStalledWalk(6.5f, 3.0f, PlanStepKind::Move, arrived, stuck);
+    CHECK(!arrived && stuck);
+    // A direct step keeps the 3D rule.
+    RunStalledWalk(5.4f, 4.0f, PlanStepKind::MoveDirect, arrived, stuck);
+    CHECK(!arrived && stuck);
+}
+
 // Live bug: a scorpid in the Sentinel pit was pulled, fought and leashed home
 // over and over for minutes.
 static void TestPullLoopOnOneTargetPauses()
@@ -7700,6 +7749,30 @@ static void TestPullWalksToStandOutOfRange()
     CHECK(r.anchorKnown && r.anchorX == 5.0f);
 }
 
+// ... and a firing stand 3 yd below the tank: the stand walk ends by the same rule, the pull goes out from
+// the tank's spot instead of giving the stand up as unreachable.
+static void TestFiringStandOnALedgeCountsByGroundDistance()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(40, {4851})};
+    Run r = Start(&plan);
+    Facts f = StandParty();
+    f.units = {Seen(11, 4851, 27.0f)};
+    CHECK(Tick(r, f).empty());
+    GiveStand(f, r, 0.0f, 23.0f);
+    f.leadX = 5.4f;
+    f.leadZ = 3.0f; // 6.2 yd from the stand in 3D, 5.4 on the ground
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    ClearStand(f);
+    f.units[0].distLead = 22.0f;
+    std::string order;
+    for (int i = 0; i < 300 && order.compare(0, 9, "pullback ") != 0 && r.state == State::Running; ++i)
+        order = Tick(r, f);
+    CHECK(r.state == State::Running);
+    CHECK(order == "pullback 11");
+    CHECK(Has(r.note, "shot from firing stand 1"));
+}
+
 // 22 yd, in range but out of sight: a stand too; a tank still moving on arrival is waited for.
 static void TestPullWalksToStandNoLos()
 {
@@ -8207,6 +8280,7 @@ int main()
     TestShortDirectHopKeepsTheLongWait();
     TestShortHopThatMovesIsNotCut();
     TestStalledNearPointCountsAsArrived();
+    TestStandOnALedgeCountsByGroundDistance();
     TestPullLoopOnOneTargetPauses();
     TestOutOfReachPackIsSkippedNotCleared();
     TestMissingItemPausesOnce();
@@ -8359,6 +8433,7 @@ int main()
     TestPullWaitsForStillTank();
     TestPullWalksToStandOutOfRange();
     TestPullWalksToStandNoLos();
+    TestFiringStandOnALedgeCountsByGroundDistance();
     TestPullStandTriesBounded();
     TestPullNoShotDataKeepsOldOrder();
     TestPickPackPullPrefersShootable();

@@ -83,6 +83,7 @@ constexpr std::uint32_t kWalkBackRetries = 3;     // a walk-back point refused f
 constexpr float kArriveYd = 3.0f;                 // a walk is done this close to its point
 constexpr float kStalledArriveYd = 6.0f;          // ... or this close once it stopped gaining ground (a point
                                                   // just off the mesh or on a ledge the bot cannot reach)
+constexpr float kStandZTolYd = 4.5f;              // a stand this far above or below the lead bot or less is judged on the ground plane
 constexpr float kSeeYd = 60.0f;                   // a pack, boss or spot is judged only from this close
 constexpr float kApproachYd = 30.0f;              // an unseen pack is approached to this far from its centre
 constexpr float kApproachHopYd = 40.0f;           // ... in navmesh path hops of at most this length
@@ -2501,6 +2502,20 @@ inline bool Rested(const Facts& f, const RestLines& l)
     return f.minHealthPct >= l.endHealth && f.minHealerManaPct >= l.endHealerMana && f.minManaPct >= l.endMana;
 }
 
+// How far the lead bot is from a plain walk's point for the stalled arrival
+// (kStalledArriveYd): the ground-plane distance while the point is no more than
+// kStandZTolYd above or below it (a stand on a ledge a few yards off the lead
+// bot's floor, which its horizontal reach covers), else the 3D distance (a real
+// other floor). Ragefire Chasm: stands 3-4 yd above or below at 6.0-6.7 yd in
+// 3D paused the run as stuck, 5.2-5.4 yd on the ground.
+inline float StandDistance(float lx, float ly, float lz, float x, float y, float z)
+{
+    float const dz = lz > z ? lz - z : z - lz;
+    if (dz <= kStandZTolYd)
+        return std::sqrt((lx - x) * (lx - x) + (ly - y) * (ly - y));
+    return ai::PlanDistance(lx, ly, lz, x, y, z);
+}
+
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
 // progress.
@@ -2545,9 +2560,12 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     // run B: 20 rows of 12-15 s, 275 s of a 101 min run; rows 28-31 were 3-6 yd
     // hops). A direct step (over a navmesh hole) keeps the 12 s rule and its
     // checkpoint.
-    if (!direct && r.walkStillMs >= kShortStallMs && dist <= kStalledArriveYd)
+    // A plain walk judges the stalled arrival by StandDistance (a stand on a ledge);
+    // a direct step keeps the 3D distance.
+    float const stallYd = direct ? dist : StandDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
+    if (!direct && r.walkStillMs >= kShortStallMs && stallYd <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
-    if (r.walkStillMs >= kWalkRetryMs && dist <= kStalledArriveYd)
+    if (r.walkStillMs >= kWalkRetryMs && stallYd <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs)
     {
