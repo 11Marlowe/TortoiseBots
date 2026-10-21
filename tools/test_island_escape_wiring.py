@@ -104,6 +104,21 @@ class IslandEscapeWiringTest(unittest.TestCase):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         at(facts, "if (f.leadIsland && lead->IsAlive())\n        f.goodSpotCut = GoodSpotCutOff(lead, slot.run);")
 
+    def test_a_move_point_in_sight_is_read_forward_too(self):
+        # r6-19z24: the forward run's step 64/65 points were in sight (6-9 yd)
+        # and nothing read the lead bot's path to them; the reading is not tied
+        # to a walk back any more, and MoveStep asks IslandConfirmed before its walk.
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        read = at(facts, "else if (step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&\n"
+                         "                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd)")
+        note = at(facts, "NoteLeadWay(path, lead, step->x, step->y, step->z, f);")
+        self.assertLess(read, note)
+        self.assertNotIn("slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase", facts)
+        move = body(POLICY, "inline void MoveStep(", "\n}\n")
+        island = at(move, "IslandConfirmed(r, f, s.x, s.y, s.z)")
+        self.assertLess(island, at(move, "WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order)"))
+        self.assertLess(island, at(move, "if (r.detour)"))
+
 
 if __name__ == "__main__":
     unittest.main()

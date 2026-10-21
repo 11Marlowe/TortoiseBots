@@ -5662,6 +5662,83 @@ static void TestIslandPausesAfterTwoEscapes()
     CHECK(r.walkBackIdx == 4); // no point passed
 }
 
+// Zul'Farrak r6-19z24 (PLAN-ZF-ISLAND-R6): going FORWARD, step 64's hop pull of
+// the Shadowhunter 7246 at 1591.0 1047.7 left the tank on the island
+// (1591.2 1044.3); 'back to the stand point refused (unreachable)', then
+// `cmd move` to step 64's point (6-9 yd away, in sight) refused = pause 1, and
+// step 65's the same = pause 2. The island escape covered only the walk back
+// and the approach hop of a point out of sight.
+static void TestForwardMoveEscapesNavmeshIsland()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1); // step 64: move 1584 1050 9.0, in sight
+    // At the stand of the pull before it (main mesh): the path to the point is good.
+    Facts f = Party(0);
+    f.leadX = 1583.7f;
+    f.leadY = 1040.3f;
+    f.leadZ = 8.9f;
+    f.leadPathGood = true;
+    f.anyInCombat = true; // the hop pull's fight
+    Tick(r, f);
+    CHECK(r.goodLeadKnown && r.goodLeadX == 1583.7f && r.goodLeadY == 1040.3f);
+    // The fight took the tank onto the island; its walk back to the stand was refused.
+    r.guardReturn = true;
+    r.guardX = 1583.7f;
+    r.guardY = 1040.3f;
+    r.guardZ = 8.9f;
+    OrderRefused(r, MoveOrder(1583.7f, 1040.3f, 8.9f, false),
+        "unreachable: The lead bot has no walkable path to that point (no navmesh route reaches it).");
+    CHECK(r.state == State::Running && r.note.find("back to the stand point refused") == 0);
+    Facts g = Party(0);
+    g.leadX = 1591.2f;
+    g.leadY = 1044.3f;
+    g.leadZ = 8.9f;
+    g.leadIsland = true;  // the path toward the step's point ends on the island
+    g.goodSpotCut = true; // ... and so does the one toward the last good spot (the second sign)
+    CHECK(Tick(r, g) == "escape from 1591.2 1044.3 8.9 to 1583.7 1040.3 8.9 toward 1584.0 1050.0 9.0");
+    CHECK(r.note.find("navmesh island at 1591.2 1044.3 8.9 (no path toward the point of step 2)") != std::string::npos);
+    CHECK(r.state == State::Running && r.step == 1);
+    g.leadMoving = true;
+    CHECK(Tick(r, g).empty()); // the hop under way
+    // At the good spot, standing: the hop is over; the step's move goes out.
+    f.anyInCombat = false;
+    CHECK(Tick(r, f).empty());
+    CHECK(!r.escapeOn && r.islandEscapes == 0);
+    CHECK(Tick(r, f) == "move 1584.0 1050.0 9.0");
+}
+
+// One reading is no island (a ledge, a closed door): the forward move goes out
+// as before; a direct step's point never escapes; out of sight the approach hop decides.
+static void TestForwardMoveIslandNeedsSecondSign()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1);
+    Facts g = Party(0);
+    g.leadX = 1591.2f;
+    g.leadY = 1044.3f;
+    g.leadZ = 8.9f;
+    g.leadIsland = true;
+    CHECK(Tick(r, g) == "move 1584.0 1050.0 9.0");
+    CHECK(r.islandEvidence && !r.escapeOn);
+    // The walk under way is not cut short by a reading (the glue reads none while it walks).
+    g.goodSpotCut = true;
+    CHECK(r.phase == Phase::Walk && Tick(r, g).find("escape") == std::string::npos && !r.escapeOn);
+
+    DungeonPlan direct = ZfIslandPlan();
+    direct.steps[1].kind = PlanStepKind::MoveDirect;
+    Run d = Start(&direct, 1);
+    CHECK(Tick(d, g).find("escape") == std::string::npos);
+    CHECK(!d.escapeOn);
+
+    // At the point already: nothing to escape toward.
+    Run a = Start(&plan, 1);
+    Facts h = g;
+    h.leadX = 1584.5f;
+    h.leadY = 1049.0f;
+    h.leadZ = 9.0f;
+    CHECK(Tick(a, h).find("escape") == std::string::npos);
+}
+
 static void TestResumeEscapesFirst()
 {
     DungeonPlan plan = ZfIslandPlan();
@@ -8380,6 +8457,8 @@ int main()
     TestGossipAfterAHoldThenTheDoor();
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
+    TestForwardMoveEscapesNavmeshIsland();
+    TestForwardMoveIslandNeedsSecondSign();
     TestIslandPausesAfterTwoEscapes();
     TestResumeEscapesFirst();
     TestWalkBackPointInSightOnIsland();

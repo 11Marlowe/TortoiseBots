@@ -10361,10 +10361,12 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 else
                     break;
             }
-            // A walk back's move point in sight has no approach hop read: the
-            // lead bot's own path to it is, for the island escape (not while it
-            // walks or regroups, nor for a direct step's line over a hole).
-            else if (slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&
+            // A move point in sight (a walk back's, or the forward run's own
+            // step: r6-19z24, the hop pull's fight left the tank on the island
+            // 6-9 yd from steps 64/65) has no approach hop read: the lead bot's
+            // own path to it is, for the island escape (not while it walks or
+            // regroups, nor for a direct step's line over a hole).
+            else if (step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&
                 !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd)
             {
                 PathFinder path(lead);

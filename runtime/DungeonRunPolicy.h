@@ -4067,6 +4067,18 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
             return;
         }
     }
+    // The forward run's own move point in sight (r6-19z24 Zul'Farrak steps 64/65:
+    // the hop pull's fight left the tank on the navmesh island at 1588-1591
+    // 1044-1047, 6-9 yd from the point, and both `cmd move`s were refused): the
+    // same rule as the walk back's (IslandConfirmed, two signs) before the move
+    // goes out (out of sight ApproachHop asks it, unless a detour is on). Never
+    // for a direct step (its line crosses a navmesh hole), nor while a walk is under way.
+    if (s.kind == PlanStepKind::Move && r.phase != Phase::Walk &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z) > kArriveYd && IslandConfirmed(r, f, s.x, s.y, s.z))
+    {
+        IslandEscape(r, f, s.x, s.y, s.z, "the point of step " + std::to_string(r.step + 1), order);
+        return;
+    }
     if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && FallenFirst(r, f))
         return;
     // A direct step takes the lead bot's line: the party gathers on it first
