@@ -34,6 +34,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
 - **Mitigation & Taunts:**
   - Activates *Shield Wall* early at low health (20-50%) and holds *Last Stand* for critical health emergencies (<20%).
   - Taunts with *Taunt* immediately if any attacker peels onto non-tank party members.
+  - Until 2026-10-21 a mob that had reached the healer and stood on it was nobody's Taunt (the lose-aggro row read only the tank's own target, the snare row only a mob still running; 31 of 53 priest deaths in 33 dungeon runs had a mob on the priest, 8 saw a Taunt). Since then a tank in a group with Taunt castable now (Defensive Stance, off cooldown) Taunts a mob standing on a non-tank party member: the healer's first, then the lowest member's, then the nearest; only within Taunt's own range and sight (it never steps off its spot or changes its target, so it keeps a run leader's stay and guard orders), never a crowd-controlled, evading or held CC mark (bar the healer rule), an enemy player, a mob on a pet or another tank, a mob it already wins back by threat (110 % in melee reach, 130 % outside), or a mob it Taunted in the last 10 s. With three or more such mobs within 10 yd and its target in melee reach it casts *Challenging Shout* first.
   - Intervenes to intercept physical attacks aimed at focused group members.
 
 ### Arms & Fury (Melee DPS)

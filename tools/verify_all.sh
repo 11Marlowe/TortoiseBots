@@ -62,6 +62,7 @@ python3 -m unittest tools/test_boss_tactics_sql.py
 python3 -m unittest tools/test_dungeon_plan_sql.py
 python3 -m unittest tools/test_run_leader_wiring.py
 python3 -m unittest tools/test_island_escape_wiring.py
+python3 -m unittest tools/test_taunt_attacker_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -273,6 +274,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
+        test_taunt_attacker_policy
         test_tank_add_pickup_policy
         test_taxi_path_policy
         test_thaddius_polarity_policy

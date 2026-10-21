@@ -136,6 +136,25 @@ namespace ai
     // protection
     MELEE_ACTION_U(CastTauntAction, "taunt", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
+
+    // Taunt the mob standing on a non-tank party member ("attacker of
+    // non-tank"). No reach step: the value only returns mobs within Taunt's
+    // range and sight, so the tank never leaves its spot (a run leader's
+    // "stay" or guard point). Taunt does no damage and leaves the tank's
+    // current target alone.
+    class CastTauntOnAttackerAction : public CastSpellAction
+    {
+    public:
+        CastTauntOnAttackerAction(PlayerbotAI* ai) : CastSpellAction(ai, "taunt") {}
+        virtual std::string getName() override { return "taunt on attacker"; }
+        virtual ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
+        virtual bool Execute(Event& event) override;
+
+    protected:
+        virtual std::string GetTargetName() override { return "attacker of non-tank"; }
+        virtual std::string GetTargetQualifier() override { return GetSpellName(); }
+        virtual std::string GetReachActionName() override { return ""; }
+    };
     BUFF_ACTION(CastBloodrageAction, "bloodrage");
     MELEE_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");
