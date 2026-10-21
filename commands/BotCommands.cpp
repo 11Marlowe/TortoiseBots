@@ -9169,6 +9169,22 @@ void NoteLeadWay(PathFinder const& path, Player* lead, float x, float y, float z
     f.leadPathGood = TortoiseBots::DungeonRun::LeadPathGood((type & PATHFIND_NOPATH) != 0, incomplete, endFromLead);
 }
 
+// The island's second sign (a), DungeonRun::IslandConfirmed: the run's last good
+// lead spot, a known spot of the main mesh within kGoodSpotProbeYd and
+// kEscapeMaxVertical (GoodSpotProbeWanted), that the lead bot's navmesh path
+// does not reach (incomplete or no path). Read only after a reading said island.
+bool GoodSpotCutOff(Player* lead, TortoiseBots::DungeonRun::Run const& run)
+{
+    using namespace TortoiseBots::DungeonRun;
+    if (!run.goodLeadKnown ||
+        !GoodSpotProbeWanted(DistanceTo(lead, run.goodLeadX, run.goodLeadY, run.goodLeadZ),
+            run.goodLeadZ - lead->GetPositionZ()))
+        return false;
+    PathFinder path(lead);
+    path.calculate(run.goodLeadX, run.goodLeadY, run.goodLeadZ, false);
+    return (static_cast<uint32>(path.getPathType()) & (PATHFIND_INCOMPLETE | PATHFIND_NOPATH)) != 0;
+}
+
 // The next approach hop toward (x,y,z): a point of the lead bot's own navmesh
 // path, the first one kApproachYd from the target or kApproachHopYd along the
 // path (or its end). False when the navmesh has no path at all. A point on the
@@ -9357,7 +9373,8 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
             PathFinder probe(lead);
             probe.calculate(Vector3(px, py, pz), Vector3(tx, ty, tz), false);
             Vector3 const end = probe.getActualEndPosition();
-            if (!RingSpotLeadsOn((static_cast<uint32>(probe.getPathType()) & PATHFIND_NOPATH) != 0,
+            uint32 const probeType = static_cast<uint32>(probe.getPathType());
+            if (!RingSpotLeadsOn((probeType & PATHFIND_NOPATH) != 0, (probeType & PATHFIND_INCOMPLETE) != 0,
                     ai::PlanDistance(end.x, end.y, end.z, px, py, pz), ai::PlanDistance(end.x, end.y, end.z, lx, ly, lz)))
                 continue;
             if (!lineFits(px, py, pz))
@@ -10471,6 +10488,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         default:
             break;
     }
+    if (f.leadIsland && lead->IsAlive())
+        f.goodSpotCut = GoodSpotCutOff(lead, slot.run);
     ReadPullStand(slot, lead, f);
 }
 
