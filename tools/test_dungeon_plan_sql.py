@@ -259,7 +259,7 @@ class DungeonPlanSql(unittest.TestCase):
                     self.assertTrue(row["entries"], where + ": done by its units without entries")
 
     def test_zulfarrak_runs_the_stairs_event(self):
-        # The newest migration that inserts the zulfarrak steps (20261021073330, turtle-agent plan-export of the plan with the stairs
+        # The newest migration that inserts the zulfarrak steps (20261021095914, turtle-agent plan-export of the plan with the stairs
         # holds, Weegli's door and Ukorz) carries Zum'rah, the Executioner's key to the cage, the three holds on the pyramid phase
         # (instance data 1: 3 = WAVE_1, 7 = WAVE_3 on the stairs top, 8 = PYRAMID_KILLED_ALL_TROLLS at the foot, script values with
         # flag 8 alone), Nekrum before Sezz'ziz at the end of leg 13 and Ukorz as the last row; a re-export from an exporter without hold values
@@ -284,6 +284,24 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(leg13[-1]["kind"], "wait_clear", name)
         self.assertEqual((rows[-1]["kind"], rows[-1]["leg"]), ("boss", "15"), name + ": Ukorz ends the plan")
         self.assertIn("BotAreaTriggers = 962", text, name + ": the header names the trigger setting Zum'rah needs")
+
+    def test_zulfarrak_antusul_pulls_the_pair_before_the_camp_from_stands(self):
+        # r2-19z19 step 26: with the camp before the pair and no stand, the run leader stopped 30 yd short of the camp centre, 15.4 yd from the
+        # pair's Shadowcaster, and the walk began the fight. The pair (5648,7247) is pulled first, from the stand 1620 880; the camp
+        # (5648,5650) after it, from 1630 878; the north pack last. Each pull is right behind its stand move.
+        name, _text, rows = newest_zulfarrak_rows()
+        leg = [r for r in rows if r["leg"] == "3"]
+        pulls = [(i, r) for i, r in enumerate(leg) if r["kind"] == "pull"]
+        order = [r["entries"] for _i, r in pulls]
+        self.assertEqual(order[-3:], ["5648,7247", "5648,5650", "7246,5648,5649"], name + ": the pair, the camp, the north pack")
+        for (i, r), stand in ((pulls[-3], ("1620", "880")), (pulls[-2], ("1630", "878"))):
+            move = leg[i - 1]
+            self.assertEqual((move["kind"], move["x"], move["y"]), ("move", stand[0], stand[1]), name + ": a stand before " + r["entries"])
+        # the stands keep 20 yd from every later pack and 15 yd from the patrol path (the plan check of turtle-agent measures it); here the
+        # pair's stand is west of 1625 and the camp's stand west of 1635, so neither is near the Shadowcaster camp at 1660 901
+        for stand, limit in ((leg[pulls[-3][0] - 1], 1625), (leg[pulls[-2][0] - 1], 1635)):
+            self.assertLess(float(stand["x"]), limit, name)
+        self.assertEqual(max(int(r["leg"]) for r in rows), 15, name)
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():
