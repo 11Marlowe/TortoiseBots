@@ -502,13 +502,14 @@ static void TestUnseenPackIsApproachedNotCleared()
     g.seen = false;
     Tick(r2, g);
     CHECK(r2.state == State::Paused && r2.note.find("no walkable path") == 0);
-    // Hops that never bring it in sight are bounded.
+    // A hop within kArriveYd of the lead bot goes nowhere: no path at once
+    // (it used to "arrive" 8 times first; r3-19z20 B-FIX-2). The hop cap's
+    // own test is TestApproachHopCapCountsHopsWithoutProgress.
     Run r3 = Start(&plan);
     g.approachKnown = true;
-    g.approachX = 1;  // within kArriveYd: every hop "arrives" at once
-    for (int i = 0; i < 50 && r3.state == State::Running; ++i)
-        Tick(r3, g);
-    CHECK(r3.state == State::Paused && r3.note.find("approach hops") != std::string::npos);
+    g.approachX = 1;
+    Tick(r3, g);
+    CHECK(r3.state == State::Paused && r3.note.find("no walkable path") == 0);
 }
 
 // Ragefire 19z13, trogg cave pull 13: the pack is 70 yd down a ramp. The hop
@@ -4703,6 +4704,755 @@ static void TestStuckStragglerThatMovedIsSummoned()
     CHECK(w.state == State::Paused);
 }
 
+// Zul'Farrak r3-19z20 (PLAN-ZF-ZUMRAH-WALKBACK B-FIX-1/2): after the wipe the
+// walk back pulled a Shadowhunter 7246 that stood on a ~3 x 3 yd navmesh island
+// at 1588-1591 1044-1047; the tank chased it onto the island and from there
+// every walk-back point was refused (no path) or an approach hop of zero length:
+// 23 points passed in 13 minutes, 8 hops at the step, a pause, and a resume that
+// did the same again. The slice: steps 63-67 of the plan's route and the
+// Zum'rah step after them.
+static DungeonPlan ZfIslandPlan()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(1903, {7271});
+    pull.y = 1014;
+    pull.z = 11.8f;
+    plan.steps = {Step(PlanStepKind::Move, 1603, 1043, 9.8f), Step(PlanStepKind::Move, 1584, 1050, 9.0f),
+        Step(PlanStepKind::Move, 1588, 1080, 9.1f), Step(PlanStepKind::Move, 1584, 1088, 9.1f),
+        Step(PlanStepKind::Move, 1633.6f, 1130.7f, 9.9f), pull};
+    return plan;
+}
+
+// The lead bot on the island: the glue's path toward the point is partial and
+// ends 1.1 yd from it (its approach hop with it).
+static Facts OnIsland()
+{
+    Facts f = Party(0);
+    f.leadX = 1589.6f;
+    f.leadY = 1046.9f;
+    f.leadZ = 8.9f;
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 1590.7f;
+    f.approachY = 1046.7f;
+    f.approachZ = 8.9f;
+    f.leadIsland = true;
+    f.goodSpotCut = true; // the second sign: the main mesh a few yards off cannot be reached
+    return f;
+}
+
+static void TestLeadOnIslandReading()
+{
+    CHECK(LeadOnIsland(true, 1.1f, 315.1f));             // partial, ends at the lead bot
+    CHECK(LeadOnIsland(true, 3.05f, 315.1f));            // ... or across the island (B5: step 65, 1591.2 1044.3)
+    CHECK(LeadOnIsland(true, kGoodPathMinYd, 315.1f));
+    CHECK(!LeadOnIsland(true, kGoodPathMinYd + 0.1f, 315.1f)); // partial and gets somewhere: the length cap
+    CHECK(!LeadOnIsland(false, 1.1f, 315.1f));           // complete
+    CHECK(!LeadOnIsland(true, -1.0f, 315.1f));           // not measured
+    CHECK(!LeadOnIsland(true, 1.1f, kArriveYd));         // at the point already
+    CHECK(!LeadOnIsland(true, 6.0f, 9.0f));              // the path ends at the point: not short of it
+    CHECK(LeadPathGood(false, false, 0.5f));
+    CHECK(LeadPathGood(false, true, kGoodPathMinYd + 0.1f));
+    CHECK(!LeadPathGood(false, true, kGoodPathMinYd));
+    CHECK(!LeadPathGood(false, true, 3.05f));            // the 3.05 yd path across the island is no good path
+    CHECK(!LeadPathGood(true, false, 50.0f));
+    CHECK(kGoodPathMinYd > kIslandSizeYd + kArriveYd);
+    // The ring search: the path must lead on from the spot AND from the lead bot
+    // (a spot off the mesh snaps onto the island: its path ends at the lead bot).
+    CHECK(RingSpotLeadsOn(false, true, kGoodPathMinYd + 1, kGoodPathMinYd + 1));
+    CHECK(!RingSpotLeadsOn(false, true, kGoodPathMinYd + 1, 2.0f));
+    CHECK(!RingSpotLeadsOn(false, true, 2.0f, kGoodPathMinYd + 1));
+    CHECK(!RingSpotLeadsOn(true, false, 50.0f, 50.0f));
+    // A complete path cannot start from a spot that snapped onto the island:
+    // accepted, its end 5 yd away (the point is near) or not.
+    CHECK(RingSpotLeadsOn(false, false, 5.0f, 5.0f));
+    // The last good spot is probed for the second sign only off the lead bot, near, on its level.
+    CHECK(GoodSpotProbeWanted(6.0f, 0.0f) && GoodSpotProbeWanted(kGoodSpotProbeYd, -kEscapeMaxVertical));
+    CHECK(!GoodSpotProbeWanted(kArriveYd, 0.0f) && !GoodSpotProbeWanted(kGoodSpotProbeYd + 1, 0.0f) &&
+        !GoodSpotProbeWanted(6.0f, kEscapeMaxVertical + 1));
+    // The last good spot as the hop's end: not on the lead bot, within reach.
+    CHECK(GoodSpotFits(1589.6f, 1046.9f, 8.9f, 1584.8f, 1040.2f, 8.9f));
+    CHECK(!GoodSpotFits(1589.6f, 1046.9f, 8.9f, 1590.6f, 1046.9f, 8.9f)); // 1 yd: the island itself
+    CHECK(!GoodSpotFits(0, 0, 0, kEscapeMaxYd + 0.5f, 0, 0));
+    CHECK(!GoodSpotFits(0, 0, 0, 5, 0, kEscapeMaxVertical + 0.5f));
+}
+
+static void TestWalkBackEscapesNavmeshIsland()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    // On the main mesh (where the forward run's tank stood): the hop toward
+    // step 5's point is a real one, and this spot is the last good one.
+    Facts f = Party(0);
+    f.leadX = 1584.8f;
+    f.leadY = 1040.2f;
+    f.leadZ = 8.9f;
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 1600;
+    f.approachY = 1080;
+    f.approachZ = 9;
+    f.leadPathGood = true;
+    CHECK(Tick(r, f) == "move 1600.0 1080.0 9.0");
+    CHECK(r.goodLeadKnown && r.goodLeadX == 1584.8f && r.goodLeadY == 1040.2f && r.goodLeadZ == 8.9f);
+    // A fight on the way took the tank onto the island.
+    f.anyInCombat = true;
+    Tick(r, f);
+    Facts g = OnIsland();
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 to 1584.8 1040.2 8.9 toward 1633.6 1130.7 9.9");
+    CHECK(r.note.find("navmesh island at 1589.6 1046.9 8.9") != std::string::npos);
+    CHECK(r.note.find("(1 of 2)") != std::string::npos && r.note.find("on to the next") == std::string::npos);
+    CHECK(r.state == State::Running && r.walkBackIdx == 4 && r.approachHops == 1); // no hop counted for it
+    // The hop is under way: nothing else goes out.
+    g.leadMoving = true;
+    CHECK(Tick(r, g).empty());
+    CHECK(r.note.find("hops off the navmesh island") != std::string::npos);
+    // At the good spot, standing: the hop is over; the walk back goes on.
+    f.anyInCombat = false;
+    CHECK(Tick(r, f).empty());
+    CHECK(!r.escapeOn && r.islandEscapes == 0);
+    CHECK(Tick(r, f) == "move 1600.0 1080.0 9.0");
+    CHECK(r.note == "walk back: approaching the point of step 5" && r.walkBackIdx == 4);
+}
+
+static void TestIslandPausesAfterTwoEscapes()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    // A good spot 19.6 yd away is not hopped to straight: the glue looks around the lead bot.
+    r.goodLeadKnown = true;
+    r.goodLeadX = 1570;
+    r.goodLeadY = 1046.9f;
+    r.goodLeadZ = 8.9f;
+    Facts g = OnIsland();
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 toward 1633.6 1130.7 9.9");
+    CHECK(Tick(r, g).empty());
+    CHECK(Tick(r, g).empty()); // the lead bot stands still: the hop is over
+    // Still on the island: the second hop.
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 toward 1633.6 1130.7 9.9");
+    CHECK(r.note.find("(2 of 2)") != std::string::npos);
+    CHECK(Tick(r, g).empty());
+    CHECK(Tick(r, g).empty());
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Paused);
+    CHECK(r.note.find("the lead bot stands on a navmesh island at 1589.6 1046.9 8.9: no path toward the point of step 5") == 0);
+    CHECK(r.walkBackIdx == 4); // no point passed
+}
+
+static void TestResumeEscapesFirst()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    Facts g = OnIsland();
+    for (int i = 0; i < 20 && r.state == State::Running; ++i)
+        Tick(r, g);
+    CHECK(r.state == State::Paused && r.note.find("navmesh island") != std::string::npos);
+    // `.bot run resume`: the regroup on the lead bot, the walk back from the
+    // same spot, and its first order is the hop off the island, not a hop.
+    CHECK(Resume(r));
+    g.members = {Mem("Tanky", 0), Mem("Healy", 4)};
+    g.maxMemberYd = 4;
+    CHECK(Tick(r, g).empty());
+    CHECK(r.walkBack && r.walkBackIdx == 4 && !r.regroup);
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 toward 1633.6 1130.7 9.9");
+    CHECK(r.islandEscapes == 1 && r.state == State::Running);
+}
+
+static void TestWalkBackPointInSightOnIsland()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    // Step 3's point is in sight: no hop is read, the glue reads the lead bot's path to it.
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = 2;
+    Facts g = OnIsland();
+    g.seen = true;
+    g.approachKnown = false;
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 toward 1588.0 1080.0 9.1");
+
+    // No island read (the backstop): two points refused from one spot with no
+    // path there that got anywhere; the second is not passed, the lead bot is hopped off first.
+    Run q = Start(&plan, 5);
+    q.walkBack = true;
+    q.walkBackIdx = 1;
+    Facts h = g;
+    h.leadIsland = false;
+    std::string const unreachable =
+        "unreachable: The lead bot has no walkable path to that point (no navmesh route reaches it).";
+    CHECK(Tick(q, h) == "move 1584.0 1050.0 9.0");
+    OrderRefused(q, "move 1584.0 1050.0 9.0", unreachable);
+    CHECK(q.walkBackIdx == 2 && q.note.find("on to the next") != std::string::npos);
+    CHECK(Tick(q, h) == "move 1588.0 1080.0 9.1");
+    OrderRefused(q, "move 1588.0 1080.0 9.1", unreachable);
+    CHECK(q.state == State::Running && q.walkBackIdx == 2 && q.islandSuspect);
+    CHECK(Tick(q, h) == "escape from 1589.6 1046.9 8.9 toward 1588.0 1080.0 9.1");
+
+    // A spot whose path read got somewhere: refused points are passed as before.
+    Run o = Start(&plan, 5);
+    o.walkBack = true;
+    o.walkBackIdx = 1;
+    Facts k = h;
+    k.leadPathGood = true;
+    CHECK(Tick(o, k) == "move 1584.0 1050.0 9.0");
+    OrderRefused(o, "move 1584.0 1050.0 9.0", "off-mesh: The point is not on walkable ground.");
+    CHECK(Tick(o, k) == "move 1588.0 1080.0 9.1");
+    OrderRefused(o, "move 1588.0 1080.0 9.1", "off-mesh: The point is not on walkable ground.");
+    CHECK(o.walkBackIdx == 3 && !o.islandSuspect && o.note.find("on to the next") != std::string::npos);
+
+    // Out of sight, a hop that ends where the lead bot stands (no island read):
+    // no path toward the point at once, not a hop counted (r3-19z20: 8 per point).
+    Run w = Start(&plan, 5);
+    w.walkBack = true;
+    w.walkBackIdx = w.walkBackStart = 4;
+    w.walkBackRestarted = true;
+    Facts z = OnIsland();
+    z.leadIsland = false;
+    CHECK(Tick(w, z).empty());
+    CHECK(w.approachHops == 0 && w.walkBackIdx == 5);
+    CHECK(w.note == "walk back: no walkable path toward the point of step 5: on to the next");
+}
+
+// The step's own approach (r3-19z20 step 102: 8 hops of zero length, then the
+// pause 315.1 yd out): on the island it hops off first; a hop that ends where
+// the lead bot stands is no path at once, not 8 hops.
+static void TestApproachHopIslandAndZeroHop()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.restDue = false;
+    Facts g = OnIsland();
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 toward 1903.0 1014.0 11.8");
+    CHECK(r.approachHops == 0 && r.note.find("no path toward the pack") != std::string::npos);
+
+    Run z = Start(&plan, 5);
+    z.restDue = false;
+    Facts h = OnIsland();
+    h.leadIsland = false;
+    CHECK(Tick(z, h).empty());
+    CHECK(z.state == State::Paused && z.note.find("no walkable path toward the pack") == 0);
+}
+
+
+// Cold review on bcc23124 (Opus M1): from the frozen spot the path to step 65
+// ended at 1591.2 1044.3, 3.05 yd from the lead bot: over the old 2 yd island
+// line and the old 3 yd "good path" line, so the island spot became the last
+// good one and each good read reset the escape count (hop, escape, hop ...).
+// With the real numbers it now reads as island and resets nothing.
+static void TestIslandGapIsNotAGoodPath()
+{
+    float const lx = 1589.6f, ly = 1046.9f, lz = 8.9f;
+    float const end = ai::PlanDistance(lx, ly, lz, 1591.2f, 1044.3f, 8.9f);
+    float const toStep65 = ai::PlanDistance(lx, ly, lz, 1588, 1080, 9.1f);
+    CHECK(end > 3.0f && end < 3.1f);
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    r.goodLeadKnown = true;
+    r.goodLeadX = 1584.8f;
+    r.goodLeadY = 1040.2f;
+    r.goodLeadZ = 8.9f;
+    Facts g = OnIsland();
+    g.approachX = 1591.2f;
+    g.approachY = 1044.3f;
+    g.leadIsland = LeadOnIsland(true, end, toStep65);
+    g.leadPathGood = LeadPathGood(false, true, end);
+    CHECK(g.leadIsland && !g.leadPathGood);
+    CHECK(Tick(r, g) == "escape from 1589.6 1046.9 8.9 to 1584.8 1040.2 8.9 toward 1633.6 1130.7 9.9");
+    for (int i = 0; i < 2; ++i)
+        CHECK(Tick(r, g).empty());
+    CHECK(r.islandEscapes == 1 && r.goodLeadX == 1584.8f && r.goodLeadY == 1040.2f); // not overwritten, not reset
+    CHECK(Tick(r, g).compare(0, 7, "escape ") == 0);
+    CHECK(r.islandEscapes == 2);
+    for (int i = 0; i < 3; ++i)
+        Tick(r, g);
+    CHECK(r.state == State::Paused && r.note.find("navmesh island at 1589.6 1046.9 8.9") != std::string::npos);
+    // A last good spot on the lead bot itself (within kArriveYd) is not hopped to.
+    Run n = Start(&plan, 5);
+    n.walkBack = true;
+    n.walkBackIdx = n.walkBackStart = 4;
+    n.goodLeadKnown = true;
+    n.goodLeadX = 1590.6f;
+    n.goodLeadY = 1046.9f;
+    n.goodLeadZ = 8.9f;
+    CHECK(Tick(n, OnIsland()) == "escape from 1589.6 1046.9 8.9 toward 1633.6 1130.7 9.9");
+}
+
+// Codex on bcc23124: a hop refused because a fight started or the lead bot
+// moved since the read ("wait: ...") is not a try; "no-spot" is.
+static void TestEscapeWaitIsNotATry()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    Facts g = OnIsland();
+    std::string const order = Tick(r, g);
+    CHECK(order.compare(0, 7, "escape ") == 0 && r.islandEscapes == 1);
+    OrderRefused(r, order, "wait: a party bot is in combat");
+    CHECK(r.islandEscapes == 0 && r.stepEscapes == 0 && !r.escapeOn && r.state == State::Running &&
+        r.note.find("not counted") != std::string::npos);
+    CHECK(Tick(r, g) == order);
+    OrderRefused(r, order, "no-spot: no spot within 10 yd");
+    CHECK(r.islandEscapes == 1 && r.note.find("not counted") == std::string::npos);
+}
+
+// Codex on bcc23124: the straight line is checked before the lead bot moves.
+static void TestEscapeSegmentCheck()
+{
+    std::vector<SegmentSample> s = EscapeSegmentSamples(0, 0, 0, 10, 0, 0);
+    CHECK(s.size() == 5 && s.back().x == 10.0f && s.front().x == 2.0f);
+    CHECK(EscapeSegmentSamples(0, 0, 0, 30, 0, 0).size() == kSegmentSamples);
+    CHECK(EscapeSegmentSamples(0, 0, 0, 0.5f, 0, 0).size() == 1);
+    auto flat = [&]()
+    {
+        std::vector<SegmentSample> v = EscapeSegmentSamples(0, 0, 0, 10, 0, 0);
+        for (SegmentSample& x : v)
+        {
+            x.ground = true;
+            x.groundZ = 0.0f;
+        }
+        return v;
+    };
+    CHECK(CheckEscapeSegment(0, flat(), false) == SegmentVerdict::Ok);
+    CHECK(CheckEscapeSegment(0, flat(), true) == SegmentVerdict::Hostile);
+    CHECK(CheckEscapeSegment(0, {}, false) == SegmentVerdict::NoGround);
+    std::vector<SegmentSample> v = flat();
+    v[2].ground = false;
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::NoGround);
+    v = flat();
+    v[2].groundZ = -(kSegmentGroundYd + 0.5f); // a floor far under the line (a drop)
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::NoGround);
+    v = flat();
+    v[2].groundZ = kSegmentRiseYd + 0.5f;
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::Step);
+    v = flat();
+    v[0].groundZ = kSegmentRiseYd + 0.5f; // the first sample against the lead bot's own height
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::Step);
+    v = flat();
+    v[3].liquid = true;
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::Liquid);
+    // A ramp of 1.9 yd per sample up a line to 9.5 yd: no step, too far up in all.
+    v = EscapeSegmentSamples(0, 0, 0, 10, 0, 9.5f);
+    for (SegmentSample& x : v)
+    {
+        x.ground = true;
+        x.groundZ = x.z;
+    }
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::Climb);
+    v.pop_back();
+    CHECK(CheckEscapeSegment(0, v, false) == SegmentVerdict::Ok);
+    CHECK(std::string(SegmentVerdictName(SegmentVerdict::Liquid)) == "liquid on the line");
+}
+
+// Opus notes on bcc23124: the island never hops a lead bot off a direct step's
+// point (it may stand at its launch spot), a direct point passed clears the
+// suspicion, and so does a point reached.
+static void TestIslandLeavesDirectStepsAlone()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(500, {1});
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::MoveDirect, 200), Step(PlanStepKind::Move, 220), pull};
+    Run r = Start(&plan, 3);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 1;
+    r.islandSuspect = true;
+    Facts f = Party(0);
+    f.seen = false;
+    f.approachKnown = true;
+    f.approachX = 40;
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    // A crossed direct point refused: passed, and the suspicion with it.
+    Run d = Start(&plan, 3);
+    d.walkBack = true;
+    d.walkBackIdx = 1;
+    d.islandSuspect = true;
+    d.routeKnown = true;
+    d.checkpoint = 1;
+    OrderRefused(d, "move 200.0 0.0 0.0 direct", "no-los: no line of sight");
+    CHECK(d.walkBackIdx == 2 && !d.islandSuspect);
+    // A point reached clears it too (the lead bot stands on it: no hop off it).
+    Run q = Start(&plan, 3);
+    q.walkBack = true;
+    q.walkBackIdx = 0;
+    q.islandSuspect = true;
+    Facts a = Party(10);
+    CHECK(Tick(q, a).empty());
+    CHECK(q.walkBackIdx == 1 && !q.islandSuspect);
+}
+
+
+// Codex/Opus on 269503e0: one partial path toward one point does not prove an
+// island (an unreachable ledge, a closed door, a point off the mesh). From the
+// main mesh with no second sign, the walk back and the approach hop do what
+// they did before (2012dfee): no escape order.
+static void TestSingleIslandReadingChangesNothing()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(300, {1});
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 200), pull};
+    // A ledge point in sight: the path toward it ends 5 yd out, short of it.
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    r.walkBackIdx = 0;
+    Facts f = Party(0);
+    f.leadIsland = LeadOnIsland(true, 5.0f, 40.0f);
+    CHECK(f.leadIsland && !f.goodSpotCut);
+    CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+    OrderRefused(r, "move 40.0 0.0 0.0", "unreachable: no navmesh route reaches it");
+    CHECK(r.walkBackIdx == 1 && r.note.find("on to the next") != std::string::npos);
+    // The next point out of sight: the hop is walked (5 yd), as before.
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = true;
+    g.approachX = 5;
+    g.leadIsland = LeadOnIsland(true, 5.0f, 200.0f);
+    // ... read toward a point 160 yd from the first one from the same spot: that
+    // is the second sign (b), so this check uses another spot (another cell).
+    g.leadX = f.leadX = 20;
+    g.approachX = 25;
+    Run w = Start(&plan, 2);
+    w.walkBack = true;
+    w.walkBackIdx = 1;
+    CHECK(Tick(w, g) == "move 25.0 0.0 0.0");
+    // The approach hop of a pull step: the hop, not an escape.
+    Run a = Start(&plan, 2);
+    a.restDue = false;
+    Facts h = Party(0);
+    h.seen = false;
+    h.approachKnown = true;
+    h.approachX = 5;
+    h.leadIsland = LeadOnIsland(true, 5.0f, 300.0f);
+    CHECK(Tick(a, h) == "move 5.0 0.0 0.0");
+    // ... and a zero-length hop with one reading only: no path, the pause (B-FIX-2), not an escape.
+    Run z = Start(&plan, 2);
+    z.restDue = false;
+    h.approachX = 1;
+    h.leadIsland = LeadOnIsland(true, 1.0f, 300.0f);
+    CHECK(Tick(z, h).empty());
+    CHECK(z.state == State::Paused && z.note.find("no walkable path toward the pack") == 0);
+}
+
+// The second sign (b) with the trace's numbers: from 1589.6 1046.9 the path to
+// step 65 (1588 1080) ended 3.05 yd away, and the one to step 70 (1633.6 1130.7)
+// came back partial too. The first reading changes nothing (the move goes out,
+// is refused and passed); the second, toward a point 58 yd from the first, hops
+// the lead bot off. Without the good spot probe (no good spot known yet).
+static void TestSecondReadingConfirmsTheIsland()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(1903, {7271});
+    pull.y = 1014;
+    pull.z = 11.8f;
+    plan.steps = {Step(PlanStepKind::Move, 1603, 1043, 9.8f), Step(PlanStepKind::Move, 1588, 1080, 9.1f),
+        Step(PlanStepKind::Move, 1633.6f, 1130.7f, 9.9f), pull};
+    Run r = Start(&plan, 3);
+    r.walkBack = true;
+    r.walkBackIdx = 1;
+    Facts g = OnIsland();
+    g.goodSpotCut = false;
+    g.seen = true;
+    g.approachKnown = false;
+    g.leadIsland = LeadOnIsland(true, 3.05f, ai::PlanDistance(1589.6f, 1046.9f, 8.9f, 1588, 1080, 9.1f));
+    CHECK(Tick(r, g) == "move 1588.0 1080.0 9.1");
+    CHECK(r.islandEvidence);
+    OrderRefused(r, "move 1588.0 1080.0 9.1", "unreachable: no navmesh route reaches it");
+    CHECK(r.walkBackIdx == 2);
+    Facts h = OnIsland();
+    h.goodSpotCut = false;
+    h.approachX = 1591.2f;
+    h.approachY = 1044.3f;
+    h.leadIsland = LeadOnIsland(true, 3.05f, ai::PlanDistance(1589.6f, 1046.9f, 8.9f, 1633.6f, 1130.7f, 9.9f));
+    CHECK(Tick(r, h) == "escape from 1589.6 1046.9 8.9 toward 1633.6 1130.7 9.9");
+    // The same point read again is no second sign.
+    Run s = Start(&plan, 3);
+    s.walkBack = true;
+    s.walkBackIdx = 2;
+    s.walkBackStart = 2;
+    s.walkBackRestarted = true;
+    Facts k = h;
+    k.approachX = 1600; // a hop that goes somewhere
+    k.approachY = 1060;
+    CHECK(Tick(s, k) == "move 1600.0 1060.0 8.9");
+    EnterPhase(s, Phase::Begin); // the hop did not move it: the same point is read again
+    CHECK(Tick(s, k) == "move 1600.0 1060.0 8.9");
+    CHECK(s.islandEvidence && s.state == State::Running);
+    // The evidence goes with the spot: the lead bot moved out of the cell, and a
+    // reading there toward the other point is a first one again.
+    Run m = Start(&plan, 3);
+    m.walkBack = true;
+    m.walkBackIdx = 1;
+    CHECK(Tick(m, g) == "move 1588.0 1080.0 9.1");
+    OrderRefused(m, "move 1588.0 1080.0 9.1", "unreachable: no navmesh route reaches it");
+    Facts moved = h;
+    moved.leadX = 1580.0f; // 9.6 yd west: another cell
+    moved.approachX = 1590;
+    moved.approachY = 1060;
+    CHECK(Tick(m, moved) == "move 1590.0 1060.0 8.9");
+    CHECK(m.evidenceX == 1580.0f);
+    Facts away = moved; // no reading on this tick: the old cell's evidence is gone all the same
+    away.leadIsland = false;
+    away.leadX = 1570.0f;
+    Run e = Start(&plan, 3);
+    e.walkBack = true;
+    e.walkBackIdx = 1;
+    CHECK(Tick(e, g) == "move 1588.0 1080.0 9.1");
+    CHECK(e.islandEvidence);
+    EnterPhase(e, Phase::Begin);
+    Tick(e, away);
+    CHECK(!e.islandEvidence);
+    // In the same cell but 2.7 yd from the first reading's spot: no second sign.
+    Run n = Start(&plan, 3);
+    n.walkBack = true;
+    n.walkBackIdx = 1;
+    CHECK(Tick(n, g) == "move 1588.0 1080.0 9.1");
+    OrderRefused(n, "move 1588.0 1080.0 9.1", "unreachable: no navmesh route reaches it");
+    Facts near = h;
+    near.leadY = 1044.2f;
+    near.approachX = 1600;
+    near.approachY = 1060;
+    CHECK(IslandCell(near.leadY) == IslandCell(1046.9f));
+    CHECK(Tick(n, near) == "move 1600.0 1060.0 8.9");
+    // That reading from 2.7 yd off does not replace the first: back on the first
+    // spot, the reading toward the other point is the second sign.
+    CHECK(n.evidenceY == 1046.9f);
+    EnterPhase(n, Phase::Begin);
+    Facts back = h;
+    back.approachX = 1600;
+    back.approachY = 1060;
+    n.walkBackIdx = 2;
+    CHECK(Tick(n, back).compare(0, 7, "escape ") == 0);
+    // ... and a good read clears it.
+    Run c = Start(&plan, 3);
+    c.walkBack = true;
+    c.walkBackIdx = 1;
+    CHECK(Tick(c, g) == "move 1588.0 1080.0 9.1");
+    Facts good = g;
+    good.leadIsland = false;
+    good.leadPathGood = true;
+    Tick(c, good);
+    CHECK(!c.islandEvidence);
+}
+
+// Opus on 269503e0: a walk back's hop that found no spot does not pause the
+// run from an unchanged spot: the walk back goes on as before (the point passed).
+static void TestWalkBackNoSpotPassesThePoint()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    r.walkBackRestarted = true;
+    Facts g = OnIsland();
+    std::string const order = Tick(r, g);
+    CHECK(order.compare(0, 7, "escape ") == 0);
+    OrderRefused(r, order, "no-spot: no spot within 10 yd");
+    CHECK(r.noSpotKnown && r.state == State::Running);
+    // Same spot: no second hop; the zero hop is no path and the point is passed.
+    CHECK(Tick(r, g).empty());
+    CHECK(r.state == State::Running && r.walkBackIdx == 5 && r.note.find("on to the next") != std::string::npos);
+    CHECK(r.islandEscapes == 1);
+    // Off that spot (another island read 5 yd away): the mark is gone, the hop goes out again.
+    Run q = Start(&plan, 5);
+    q.walkBack = true;
+    q.walkBackIdx = q.walkBackStart = 4;
+    q.walkBackRestarted = true;
+    std::string const first = Tick(q, g);
+    OrderRefused(q, first, "no-spot: no spot within 10 yd");
+    Facts there = g;
+    there.leadX += 5.0f;
+    CHECK(Tick(q, there).compare(0, 7, "escape ") == 0);
+    // The mark goes once the lead bot leaves the spot, even when it comes back there.
+    Run b = Start(&plan, 5);
+    b.walkBack = true;
+    b.walkBackIdx = b.walkBackStart = 4;
+    b.walkBackRestarted = true;
+    std::string const hop = Tick(b, g);
+    OrderRefused(b, hop, "no-spot: no spot within 10 yd");
+    Facts off = g;
+    off.leadIsland = false;
+    off.leadX += 5.0f;
+    off.approachX = off.leadX + 20; // a hop elsewhere, not walked
+    Tick(b, off);
+    CHECK(!b.noSpotKnown);
+    EnterPhase(b, Phase::Begin);
+    CHECK(Tick(b, g).compare(0, 7, "escape ") == 0);
+}
+
+// A good read between the hops gives fresh tries, but one step sends at most kStepEscapes.
+static void TestStepEscapeCap()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 5);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 4;
+    Facts g = OnIsland();
+    Facts good = g;
+    good.leadIsland = false;
+    good.leadPathGood = true;
+    good.approachX = 1600;
+    good.approachY = 1080;
+    std::uint32_t escapes = 0;
+    for (int i = 0; i < 40 && r.state == State::Running; ++i)
+    {
+        std::string const order = Tick(r, g);
+        if (order.compare(0, 7, "escape ") == 0)
+        {
+            ++escapes;
+            Tick(r, g);
+            Tick(r, g);   // the hop settles
+            Tick(r, good); // a good read in between: fresh tries ...
+            EnterPhase(r, Phase::Begin);
+        }
+    }
+    CHECK(escapes == kStepEscapes);
+    CHECK(r.state == State::Paused && r.note.find("navmesh island") != std::string::npos);
+}
+
+
+// Final Opus check on d7e94c3b: the probe. After a hop that found no spot, the
+// walk back from that spot looped: a point refused from it set the island
+// suspicion instead of being passed, the no-spot mark cleared it, and the move
+// went out again every tick (3000 ticks at walk-back index 1). The driver here
+// answers every hop "no-spot" and every move "unreachable", as from the island.
+static void TestNoSpotWalkBackNeverSpins()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(1903, {7271});
+    pull.y = 1014;
+    pull.z = 11.8f;
+    plan.steps = {Step(PlanStepKind::Move, 1603, 1043, 9.8f), Step(PlanStepKind::Move, 1588, 1080, 9.1f),
+        Step(PlanStepKind::Move, 1584, 1088, 9.1f), Step(PlanStepKind::Move, 1633.6f, 1130.7f, 9.9f), pull};
+    Run r = Start(&plan, 4);
+    r.walkBack = true;
+    r.walkBackIdx = r.walkBackStart = 0;
+    r.walkBackRestarted = true;
+    std::uint32_t sameOrder = 0, longestRepeat = 0, moves = 0;
+    std::string last;
+    std::size_t lastIdx = 0;
+    int endedAt = -1;
+    for (int t = 0; t < 3000 && r.state == State::Running; ++t)
+    {
+        Facts f = OnIsland();
+        const PlanStep* fs = FactStep(r);
+        float const to = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, fs->x, fs->y, fs->z);
+        f.seen = to <= kSeeYd;
+        f.approachKnown = !f.seen;
+        f.leadIsland = LeadOnIsland(true, 3.05f, to);
+        f.goodSpotCut = false;
+        std::string const order = Tick(r, f);
+        if (!r.walkBack && endedAt < 0)
+            endedAt = t;
+        if (order.empty())
+            continue;
+        if (order == last && r.walkBackIdx == lastIdx)
+            longestRepeat = std::max(longestRepeat, ++sameOrder);
+        else
+            sameOrder = 1;
+        last = order;
+        lastIdx = r.walkBackIdx;
+        if (order.compare(0, 7, "escape ") == 0)
+            OrderRefused(r, order, "no-spot: no spot within 10 yd");
+        else if (order.compare(0, 5, "move ") == 0)
+        {
+            ++moves;
+            OrderRefused(r, order, "unreachable: no navmesh route reaches it");
+        }
+    }
+    CHECK(endedAt >= 0 && endedAt < 200); // every point passed, the walk back is over
+    CHECK(longestRepeat <= 1); // each point refused once and passed (as on 2012dfee), never sent again
+    CHECK(moves <= 3);
+    CHECK(r.state == State::Paused); // the step's own approach then pauses (bounded)
+}
+
+// Sign (b) from the main mesh (two unreachable points read from one spot): one
+// hop off per spot, at most kStepEscapes in the step, and the run ends bounded.
+static void TestSignBFromTheMainMeshIsBounded()
+{
+    DungeonPlan plan;
+    PlanStep pull = PullStep(600, {1});
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 40, 30), Step(PlanStepKind::Move, 40, 60),
+        Step(PlanStepKind::Move, 40, 90), pull};
+    Run r = Start(&plan, 4);
+    r.walkBack = true;
+    r.walkBackRestarted = true;
+    float leadX = 0.0f;
+    std::uint32_t escapes = 0;
+    std::vector<float> escapedFrom;
+    for (int t = 0; t < 3000 && r.state == State::Running; ++t)
+    {
+        Facts f = Party(leadX);
+        const PlanStep* fs = FactStep(r);
+        float const to = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, fs->x, fs->y, fs->z);
+        f.seen = to <= kSeeYd;
+        f.approachKnown = !f.seen;
+        f.approachX = leadX + 5;
+        f.leadIsland = LeadOnIsland(true, 5.0f, to);
+        std::string const order = Tick(r, f);
+        if (order.compare(0, 7, "escape ") == 0)
+        {
+            ++escapes;
+            for (float x : escapedFrom)
+                CHECK(std::fabs(x - leadX) > kArriveYd); // one hop off per spot
+            escapedFrom.push_back(leadX);
+            leadX -= 6.0f; // the glue moved it 6 yd: another spot, another cell
+        }
+        else if (order.compare(0, 5, "move ") == 0 && f.seen)
+            OrderRefused(r, order, "unreachable: no navmesh route reaches it");
+    }
+    CHECK(escapes >= 1 && escapes <= kStepEscapes);
+    CHECK(r.state == State::Paused);
+}
+
+
+// The defensive bound on its own: a walk-back point tried more than
+// kWalkBackResends times from one spot is passed, whatever brought it back
+// (here a refusal handled elsewhere that left the point standing), in sight
+// (its move) or out of sight (its way found missing).
+static void TestWalkBackResendBound()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 40), Step(PlanStepKind::Move, 200), PullStep(400, {1})};
+    Run r = Start(&plan, 2);
+    r.walkBack = true;
+    Facts f = Party(0);
+    for (std::uint32_t i = 0; i < kWalkBackResends; ++i)
+    {
+        CHECK(Tick(r, f) == "move 40.0 0.0 0.0");
+        EnterPhase(r, Phase::Begin);
+    }
+    CHECK(Tick(r, f).empty());
+    CHECK(r.walkBackIdx == 1 && r.note.find("tried 6 times from this spot: on to the next") != std::string::npos);
+    // Out of sight, the way found missing each time without passing (the
+    // suspicion kept standing): the point is passed after kWalkBackResends.
+    Run o = Start(&plan, 2);
+    o.walkBack = true;
+    o.walkBackIdx = 1;
+    o.walkBackStart = 1;
+    o.walkBackRestarted = true;
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = false;
+    for (std::uint32_t i = 0; i < kWalkBackResends; ++i)
+    {
+        o.passSpotKnown = true; // a point given up here before, no good path: the suspicion
+        o.passX = o.passY = o.passZ = 0.0f;
+        o.noSpotKnown = true;   // ... and a no-spot mark that keeps it from a hop
+        o.noSpotX = 50.0f;      // (not on this spot: PassWalkBackPoint does not pass)
+        Tick(o, g);
+        CHECK(o.walkBackIdx == 1 && o.state == State::Running);
+        o.islandSuspect = false;
+    }
+    Tick(o, g);
+    CHECK(o.walkBackIdx == 2);
+}
+
 // (b) Uldaman 19z11 02:50: the approach paused after 8 hops while the priest
 // stood still on a navmesh pocket (43 371). Before the pause a far bot that
 // stands still is summoned, once; a walker is not; then the pause (the lead
@@ -6721,6 +7471,23 @@ int main()
     TestGossipWalksToFarPointFirst();
     TestGossipStartsAnEvent();
     TestGossipAfterAHoldThenTheDoor();
+    TestLeadOnIslandReading();
+    TestWalkBackEscapesNavmeshIsland();
+    TestIslandPausesAfterTwoEscapes();
+    TestResumeEscapesFirst();
+    TestWalkBackPointInSightOnIsland();
+    TestApproachHopIslandAndZeroHop();
+    TestIslandGapIsNotAGoodPath();
+    TestEscapeWaitIsNotATry();
+    TestEscapeSegmentCheck();
+    TestIslandLeavesDirectStepsAlone();
+    TestSingleIslandReadingChangesNothing();
+    TestSecondReadingConfirmsTheIsland();
+    TestWalkBackNoSpotPassesThePoint();
+    TestStepEscapeCap();
+    TestNoSpotWalkBackNeverSpins();
+    TestSignBFromTheMainMeshIsBounded();
+    TestWalkBackResendBound();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

@@ -9145,10 +9145,15 @@ void SendRunLine(Player* commander, DungeonRunSlot& slot, bool force)
         ChatHandler(commander).PSendSysMessage("%s", line.c_str());
 }
 
+bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer);
+
 // Sends one order as the commander's own `.bot cmd <text>`. False with the
 // module's answer when it was refused (ERR). A pending task answers later.
+// The hop off a navmesh island (DungeonRun::IslandEscape) is the run's own, not a `cmd`.
 bool IssueRunOrder(Player* commander, std::string const& text, std::string& answer, bool gather = false)
 {
+    if (text.compare(0, 7, "escape ") == 0)
+        return RunIslandEscape(commander, text, answer);
     ChatHandler handler(commander);
     s_runOrderCapture = RunOrderCapture();
     s_runOrderCapture.active = true;
@@ -9187,16 +9192,52 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
     });
 }
 
+// The island escape's facts (DungeonRun::LeadOnIsland, LeadPathGood) from a
+// navmesh path the lead bot's own search gave toward (x,y,z): partial and
+// ending within kGoodPathMinYd of it, or getting somewhere.
+static_assert(TortoiseBots::DungeonRun::kGoodPathMinYd > RemoteCommander::kNoProgressYd,
+    "the island reading covers the move's own no-progress rule and the gap above it");
+static_assert(TortoiseBots::DungeonRun::kEscapeMaxVertical == RemoteCommander::kDirectMaxVertical,
+    "the hop off an island is held to a direct step's height limit");
+void NoteLeadWay(PathFinder const& path, Player* lead, float x, float y, float z, TortoiseBots::DungeonRun::Facts& f)
+{
+    uint32 const type = static_cast<uint32>(path.getPathType());
+    Vector3 const end = path.getActualEndPosition();
+    float const endFromLead = DistanceTo(lead, end.x, end.y, end.z);
+    bool const incomplete = (type & PATHFIND_INCOMPLETE) != 0;
+    f.leadIsland = TortoiseBots::DungeonRun::LeadOnIsland(incomplete, endFromLead, DistanceTo(lead, x, y, z));
+    f.leadPathGood = TortoiseBots::DungeonRun::LeadPathGood((type & PATHFIND_NOPATH) != 0, incomplete, endFromLead);
+}
+
+// The island's second sign (a), DungeonRun::IslandConfirmed: the run's last good
+// lead spot, a known spot of the main mesh within kGoodSpotProbeYd and
+// kEscapeMaxVertical (GoodSpotProbeWanted), that the lead bot's navmesh path
+// does not reach (incomplete or no path). Read only after a reading said island.
+bool GoodSpotCutOff(Player* lead, TortoiseBots::DungeonRun::Run const& run)
+{
+    using namespace TortoiseBots::DungeonRun;
+    if (!run.goodLeadKnown ||
+        !GoodSpotProbeWanted(DistanceTo(lead, run.goodLeadX, run.goodLeadY, run.goodLeadZ),
+            run.goodLeadZ - lead->GetPositionZ()))
+        return false;
+    PathFinder path(lead);
+    path.calculate(run.goodLeadX, run.goodLeadY, run.goodLeadZ, false);
+    return (static_cast<uint32>(path.getPathType()) & (PATHFIND_INCOMPLETE | PATHFIND_NOPATH)) != 0;
+}
+
 // The next approach hop toward (x,y,z): a point of the lead bot's own navmesh
 // path, the first one kApproachYd from the target or kApproachHopYd along the
 // path (or its end). False when the navmesh has no path at all. A point on the
 // path is what `cmd move` accepts; a straight-line guess can sit off the mesh.
+// With `way`, the same path gives the island escape's facts (NoteLeadWay).
 bool ApproachOnPath(Player* lead, float x, float y, float z, float& ox, float& oy, float& oz,
-    std::vector<TortoiseBots::DungeonRun::PathPoint>* whole = nullptr)
+    std::vector<TortoiseBots::DungeonRun::PathPoint>* whole = nullptr, TortoiseBots::DungeonRun::Facts* way = nullptr)
 {
     using namespace TortoiseBots::DungeonRun;
     PathFinder path(lead);
     path.calculate(x, y, z, false);
+    if (way)
+        NoteLeadWay(path, lead, x, y, z, *way);
     if (path.getPathType() & PATHFIND_NOPATH)
         return false;
     Movement::PointsArray const& points = path.getPath();
@@ -9260,6 +9301,163 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
                 return true;
         }
     return false;
+}
+
+// The run leader's hop off a navmesh island (DungeonRun::IslandEscape: "escape
+// from lx ly lz [to x y z] toward tx ty tz"), carried out here, not as a `cmd`.
+// The lead bot alone walks a straight line (a MovePoint without
+// MOVE_PATHFINDING, as CommanderMoveDirect walks a direct step) to the last good
+// spot (x y z) when it fits (DungeonRun::GoodSpotFits); else to the nearest spot
+// 3, 6 or 10 yd around the lead bot (12 directions) whose navmesh path toward
+// (tx,ty,tz) leads on (DungeonRun::RingSpotLeadsOn). Every spot needs a floor
+// within kEscapeMaxVertical, the lead bot's sight, and a line that
+// DungeonRun::CheckEscapeSegment passes (a floor, no step, no liquid under each
+// sample; no hostile near the end). The others keep following it: the direct
+// step's follower check would refuse while none of them can reach the island.
+// False with the reason: "wait: ..." (a fight, or the lead bot moved more than
+// kEscapeMovedYd from lx ly lz since the facts were read: not a try), or
+// "no-spot: ..." (a try). Nothing is touched before every check passed.
+bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer)
+{
+    using namespace TortoiseBots::DungeonRun;
+    RemoteCommander::Binding const* binding = CommanderBindings().FindByCommander(commander->GetObjectGuid().GetRawValue());
+    Player* lead = binding ? FindCharacter(binding->leadGuid) : nullptr;
+    if (!lead || !lead->IsInWorld())
+    {
+        answer = "lead-unavailable: no lead bot in the world";
+        return false;
+    }
+    float fx = 0.0f, fy = 0.0f, fz = 0.0f, gx = 0.0f, gy = 0.0f, gz = 0.0f, tx = 0.0f, ty = 0.0f, tz = 0.0f;
+    bool const good = std::sscanf(order.c_str(), "escape from %f %f %f to %f %f %f toward %f %f %f", &fx, &fy, &fz,
+        &gx, &gy, &gz, &tx, &ty, &tz) == 9;
+    if (!good && std::sscanf(order.c_str(), "escape from %f %f %f toward %f %f %f", &fx, &fy, &fz, &tx, &ty, &tz) != 6)
+    {
+        answer = "invalid: " + order;
+        return false;
+    }
+    PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead);
+    if (!leadAi || !lead->IsAlive() || lead->IsTaxiFlying() || lead->IsBeingTeleported())
+    {
+        answer = "lead-unavailable: the lead bot is dead, on a taxi, teleporting or has no AI";
+        return false;
+    }
+    Map* const map = lead->GetMap();
+    float const lx = lead->GetPositionX();
+    float const ly = lead->GetPositionY();
+    float const lz = lead->GetPositionZ();
+    if (!map || !MaNGOS::IsValidMapCoord(lx, ly, lz))
+    {
+        answer = "no-spot: the lead bot's spot is not on the map";
+        return false;
+    }
+    if (ai::PlanDistance(lx, ly, lz, fx, fy, fz) > kEscapeMovedYd)
+    {
+        answer = "wait: the lead bot moved since the island was read";
+        return false;
+    }
+    float const h = RemoteCommander::kDirectLosHeight;
+    // A spot the straight hop may end on: a floor under it near the lead bot's height, in its sight.
+    auto fits = [&](float px, float py, float& ground) -> bool
+    {
+        if (!MaNGOS::IsValidMapCoord(px, py, lz))
+            return false;
+        ground = map->GetHeight(px, py, lz + h, true, kEscapeMaxVertical + h);
+        return ground > INVALID_HEIGHT && std::fabs(ground - lz) <= kEscapeMaxVertical &&
+            map->isInLineOfSight(lx, ly, lz + h, px, py, ground + h);
+    };
+    // The line to it (CheckEscapeSegment): the floor and any liquid under each
+    // sample, and the hostiles near its end (one grid visit around the lead bot).
+    auto lineFits = [&](float px, float py, float pz) -> bool
+    {
+        std::vector<SegmentSample> samples = EscapeSegmentSamples(lx, ly, lz, px, py, pz);
+        for (SegmentSample& sample : samples)
+        {
+            if (!MaNGOS::IsValidMapCoord(sample.x, sample.y, sample.z))
+                continue; // no ground read: NoGround
+            float const floor = map->GetHeight(sample.x, sample.y, sample.z + kSegmentGroundYd, true,
+                2.0f * kSegmentGroundYd);
+            sample.ground = floor > INVALID_HEIGHT;
+            sample.groundZ = floor;
+            if (!sample.ground)
+                continue;
+            // Half a yard above the floor, as the module's ledge check reads it: a ray from exactly on
+            // the bed can miss its own floor (MovementActions.cpp landingSafe).
+            GridMapLiquidData liquid{};
+            sample.liquid = map->GetTerrain()->getLiquidStatus(sample.x, sample.y, floor + 0.5f, MAP_ALL_LIQUIDS,
+                &liquid) != LIQUID_MAP_NO_WATER;
+        }
+        bool hostileNear = false;
+        std::list<Unit*> hostiles;
+        HostileCreaturesAround(lead, GroundDistance(lx, ly, px, py) + kEscapeHostileYd, hostiles);
+        for (Unit* unit : hostiles)
+            hostileNear = hostileNear || (unit->IsAlive() && DistanceTo(unit, px, py, pz) <= kEscapeHostileYd);
+        return CheckEscapeSegment(lz, samples, hostileNear) == SegmentVerdict::Ok;
+    };
+    float x = 0.0f, y = 0.0f, ground = INVALID_HEIGHT;
+    bool found = good && GoodSpotFits(lx, ly, lz, gx, gy, gz) && fits(gx, gy, ground) && lineFits(gx, gy, ground);
+    if (found)
+    {
+        x = gx;
+        y = gy;
+    }
+    float const rings[] = {3.0f, 6.0f, kEscapeMaxYd};
+    for (float ring : rings)
+        for (int i = 0; i < 12 && !found; ++i)
+        {
+            float const angle = static_cast<float>(i) * 3.14159265f / 6.0f;
+            float const px = lx + ring * std::cos(angle);
+            float const py = ly + ring * std::sin(angle);
+            float pz = INVALID_HEIGHT;
+            if (!fits(px, py, pz))
+                continue;
+            PathFinder probe(lead);
+            probe.calculate(Vector3(px, py, pz), Vector3(tx, ty, tz), false);
+            Vector3 const end = probe.getActualEndPosition();
+            uint32 const probeType = static_cast<uint32>(probe.getPathType());
+            if (!RingSpotLeadsOn((probeType & PATHFIND_NOPATH) != 0, (probeType & PATHFIND_INCOMPLETE) != 0,
+                    ai::PlanDistance(end.x, end.y, end.z, px, py, pz), ai::PlanDistance(end.x, end.y, end.z, lx, ly, lz)))
+                continue;
+            if (!lineFits(px, py, pz))
+                continue;
+            found = true;
+            x = px;
+            y = py;
+            ground = pz;
+        }
+    if (!found)
+    {
+        answer = "no-spot: no spot within " + std::to_string(static_cast<uint32>(kEscapeMaxYd)) +
+            " yd in the lead bot's sight has a floor, a clear line and a way on";
+        return false;
+    }
+    // Right before the lead bot is touched: a fight is the bots' own; the hop waits for it (not a try).
+    bool fight = lead->IsInCombat();
+    if (Group* group = lead->GetGroup())
+        for (Player* bot : CommandedBots(group, lead))
+            fight = fight || (bot && bot->IsInWorld() && bot->IsAlive() && bot->IsInCombat());
+    if (fight)
+    {
+        answer = "wait: a party bot is in combat";
+        return false;
+    }
+    SupersedeCommanderTasks(commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Move);
+    // The lead bot only, as CommanderMoveDirect moves it: on stay at the spot, the straight walk, its AI asleep for it.
+    leadAi->DropQueuedMovementOrders();
+    PlayerConvenience::Instance().NoteHoldOrder(lead->GetObjectGuid());
+    leadAi->Reset();
+    leadAi->SetMovementStrategy("stay");
+    SetStayAnchor(leadAi, x, y, ground, lead->GetMapId());
+    lead->GetMotionMaster()->Clear();
+    lead->GetMotionMaster()->MovePoint(0, x, y, ground, MOVE_RUN_MODE);
+    if (!lead->IsInCombat())
+    {
+        float const speed = lead->GetSpeed(MOVE_RUN) > 1.0f ? lead->GetSpeed(MOVE_RUN) : 7.0f;
+        float const length = ai::PlanDistance(lx, ly, lz, x, y, ground);
+        leadAi->SetActionDuration(std::min<uint32>(static_cast<uint32>(length / speed * 1000.0f) +
+            sPlayerbotAIConfig.reactDelay, RemoteCommander::kDirectMaxSleepMs));
+    }
+    answer = "escape to " + Num(x) + " " + Num(y) + " " + Num(ground);
+    return true;
 }
 
 // A food or drink aura is up: the core removes it when the bot stands
@@ -10048,7 +10246,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (!f.seen)
             {
                 if (wantsApproach)
-                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
+                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ,
+                        nullptr, &f);
                 break;
             }
             std::vector<uint32> entries = step->entries;
@@ -10128,7 +10327,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     std::vector<PathPoint> whole;
                     bool const direct = slot.run.walkBack && slot.run.walkBackDirect;
                     f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY,
-                        f.approachZ, direct ? &whole : nullptr);
+                        f.approachZ, direct ? &whole : nullptr, step->kind == ai::PlanStepKind::Move ? &f : nullptr);
                     if (direct && f.approachKnown)
                         f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,
                             slot.run.notCleared);
@@ -10149,6 +10348,16 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 }
                 else
                     break;
+            }
+            // A walk back's move point in sight has no approach hop read: the
+            // lead bot's own path to it is, for the island escape (not while it
+            // walks or regroups, nor for a direct step's line over a hole).
+            else if (slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&
+                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd)
+            {
+                PathFinder path(lead);
+                path.calculate(step->x, step->y, step->z, false);
+                NoteLeadWay(path, lead, step->x, step->y, step->z, f);
             }
             float const toCentre = DistanceTo(lead, cx, cy, cz);
             std::list<Unit*> hostiles;
@@ -10177,7 +10386,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (!f.seen)
             {
                 if (wantsApproach)
-                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
+                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ,
+                        nullptr, &f);
                 break;
             }
             std::list<Unit*> hostiles;
@@ -10219,7 +10429,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             if (!f.seen)
             {
                 if (wantsApproach)
-                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
+                    f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ,
+                        nullptr, &f);
                 break;
             }
             float const range = std::min(toPoint + step->radius, 2.0f * kSeeYd);
@@ -10280,7 +10491,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             // The lead bot talks (`cmd gossip`): its task stands for the step. Out of sight of the NPC's point the
             // run walks to it in navmesh hops first (DungeonRun::GossipStep).
             if (!f.seen && wantsApproach)
-                f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
+                f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ,
+                    nullptr, &f);
             f.carrierBusy = CommanderTasks().count(lead->GetObjectGuid().GetRawValue()) != 0;
             if (slot.carrierRaw == lead->GetObjectGuid().GetRawValue())
             {
@@ -10341,6 +10553,8 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         default:
             break;
     }
+    if (f.leadIsland && lead->IsAlive())
+        f.goodSpotCut = GoodSpotCutOff(lead, slot.run);
     ReadPullStand(slot, lead, f);
 }
 
