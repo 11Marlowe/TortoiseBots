@@ -49,13 +49,13 @@ One row is one thing to do. Steps run in `(leg, seq)` order; the primary key is 
 | :--- | :--- |
 | `plan`, `leg`, `seq` | Where the step sits. `seq` need not be dense. |
 | `kind` | What to do (table below). |
-| `entry` | A creature, game object or item entry, by kind; `hold`: the instance data index or the game object of its done condition. |
+| `entry` | A creature, game object or item entry, by kind; `hold`: the instance data index or the game object of its done condition; `gossip`: the NPC's creature entry. |
 | `x`, `y`, `z` | A point on the plan's map, by kind. |
 | `radius` | Yards, by kind; at most 100. |
 | `item` | An item entry, by kind; `0` for none. |
-| `param` | `wait_object`: the state to wait for (`0` ready / closed, `1` active / open, `2` active_alt). `ritual`: how many bots use the object (`0` = 3). `open`, `use_item`: a second item the step needs in the same bags (`0`: none; Uldaman's Medallion use needs the Shaft of Tsol 7741). `hold`: the value of its done condition. |
+| `param` | `wait_object`: the state to wait for (`0` ready / closed, `1` active / open, `2` active_alt). `ritual`: how many bots use the object (`0` = 3). `open`, `use_item`: a second item the step needs in the same bags (`0`: none; Uldaman's Medallion use needs the Shaft of Tsol 7741). `hold`: the value of its done condition. `gossip`: the option to pick, counted from 1 at the top of the NPC's menu as `.bot cmd gossip` takes it (1-15). |
 | `flags` | `1` ambush (a stealthed pack), `2` Alliance only, `4` Horde only. `hold`: `8` done by instance data, `16` done by object state, `32` the data is an encounter state (see [Events](#events)). `move`: `64` an **exact** waypoint (see [Exact waypoints](#exact-waypoints)); on any other kind the row is refused. |
-| `timeout_s` | `wait_object`, `wait_clear`: seconds before the wait fails; `hold`: the event's ceiling, fights included. `0` = 60, at most 600. |
+| `timeout_s` | `wait_object`, `wait_clear`: seconds before the wait fails; `hold`: the event's ceiling, fights included; `gossip`: how long the answer is waited for. `0` = 60, at most 600. |
 | `entries` | Comma-separated creature entries (`4851,4852`), by kind; at most 16. |
 | `comment` | Free text. |
 
@@ -76,8 +76,9 @@ One row is one thing to do. Steps run in `(leg, seq)` order; the primary key is 
 | `rest` | — | A rest gate even when nobody is low. |
 | `ritual` | `entry`, `x y z` (near), `param` (bots, 0: 3) | A summoning ritual object several bots use together (Uldaman's altars): an event's start. |
 | `hold` | `x y z` (the spot), `radius` (0: 30), `entries` (the event's units), `entry` + `param` + `flags` (the done condition), `timeout_s` | A scripted event: stand on the spot and fight what comes until it is done. See [Events](#events). |
+| `gossip` | `entry` (the NPC), `x y z` (near), `param` (the option, 1-15), `timeout_s` | The lead bot talks to the NPC and picks one option of its menu: the order `.bot cmd gossip <entry> <lead bot> <param>` ([commander](commands/commander.md#bot-cmd-gossip)). The NPC is searched within 40 yd of the bot; the lead bot first walks to the point when it is farther than 30 yd from it (navmesh hops while it is out of sight). The ACK ends the step; an error pauses the run with the module's own words (an NPC that `AiPlayerbot.BotGossipNpcs` does not list is `not-allowed`, and the words name that key); no answer in `timeout_s` pauses it too. It ends on the order's ACK, not on what the option did: put a `wait_object` (the door) or a `hold` after it. A gossip right before a `hold` starts that event, as `open` and `use_item` do. No flag is read: a gossip row with any flag is refused. |
 
-The loader skips a row it cannot use and names it in the server log (`ai_dungeon_step: plan ... skipped`): an unknown kind, a `pull` without entries, a `boss`/`loot`/`open`/`use_item`/`wait_object`/`ritual` without `entry`, a negative or over-100 radius, a `wait_clear` without one, a timeout over 600 s, a `wait_object` state above 2, the exact flag (64) on a step that is not a `move` (an unknown kind, `move_hop_exact` on a module before exact waypoints, is skipped as `UnknownKind`), a `hold` with both done flags (8 and 16), with flag 32 but not 8 or an encounter state above 4, done by object without `entry` or with a state above 2, or with neither done flag and no `entries`, a duplicate key, or a step of a plan with no `ai_dungeon_plan` row, or an `entries` text that is not a comma list of non-zero entries (`BadEntries`). It also logs a plan whose consecutive moves are more than 60 yd apart (the exporter should cut such a leg into via points). The rules are `NormalizePlanStep` in `ai/playerbot/DungeonPlanPolicy.h`; `tools/test_dungeon_plan_policy.cpp` and `tools/test_dungeon_plan_sql.py` test them.
+The loader skips a row it cannot use and names it in the server log (`ai_dungeon_step: plan ... skipped`): an unknown kind, a `pull` without entries, a `boss`/`loot`/`open`/`use_item`/`wait_object`/`ritual`/`gossip` without `entry`, a `gossip` with `param` outside 1-15 or with a flag, a negative or over-100 radius, a `wait_clear` without one, a timeout over 600 s, a `wait_object` state above 2, the exact flag (64) on a step that is not a `move` (an unknown kind, `move_hop_exact` on a module before exact waypoints, is skipped as `UnknownKind`), a `hold` with both done flags (8 and 16), with flag 32 but not 8 or an encounter state above 4, done by object without `entry` or with a state above 2, or with neither done flag and no `entries`, a duplicate key, or a step of a plan with no `ai_dungeon_plan` row, or an `entries` text that is not a comma list of non-zero entries (`BadEntries`). It also logs a plan whose consecutive moves are more than 60 yd apart (the exporter should cut such a leg into via points). The rules are `NormalizePlanStep` in `ai/playerbot/DungeonPlanPolicy.h`; `tools/test_dungeon_plan_policy.cpp` and `tools/test_dungeon_plan_sql.py` test them.
 
 ### From plan v1 to rows
 
@@ -99,6 +100,7 @@ The loader skips a row it cannot use and names it in the server log (`ai_dungeon
 | `legs[i].after_boss` | after the `boss` row, same kinds as `steps` |
 | `cc_priority`, `cc_always`, `kill_first` | `ai_dungeon_plan` columns of the same names, comma lists of creature entries as `entries` (`''` none). The exporter at turtle-agent 6cd0b13 does not write them yet (and its plan has no `kill_first`); the Zul'Farrak row carries them set by hand, pending pjerra/turtle-agent#190 (`20261015200100_world.sql` as applied, then the owner's values of 2026-10-15 in `20261015200200_world.sql`, whose header records that they are hand-set: polymorph the Shadowhunter 7246, whose Hex takes the tank out, and kill the ward 8179, then the Witch Doctor 5650, first: `cc_priority` 7246,7247,5648, `cc_always` 7246, `kill_first` 8179,5650,7247); `tools/test_dungeon_plan_sql.py` fails if the newest Zul'Farrak row loses `cc_always` or `kill_first` (a re-export from an exporter without them). |
 | `steps[]` `ritual` | `ritual` (`entry`, `position`, `param` = `participants`) |
+| `steps[]` `gossip` | `gossip` (`entry` = `npc`, x,y,z = `near`, `param` = `option` + 1: the plan's `option` is the menu's own index from 0, the order counts from 1). Only a gossip with an `option` number and `by` `tank` or `carrier` is exported (the lead bot talks); one that names its option by `text`, or `by` `agent`, cuts the export at its leg as before. `stand`, `by` and `retry_s` are not carried (a warning); `fail_text` goes into the row's comment |
 | `pull_groups[j].hold`, `boss.hold` | a `hold` row in place of the `pull` or `boss` (`entry` = `instance_data`, x,y,z = `spot`, `radius`, `param` 3 = DONE, `flags` 40, `timeout_s`, `entries` = the group's, or the boss entry, `first` and the hold's `entries`). A `move` right before it to the same spot is left out (the hold walks there), and a `wait_for.gameobject` right after it waits at most 60 s. `tools/test_dungeon_plan_sql.py` fails when the newest Uldaman rows lose their two holds |
 | `skip`, `rest`, `companions_loot`, `watchdog` | not carried over yet. The exporter (turtle-agent plan-export, since pjerra/turtle-agent branch feat/planexport-exact) warns, per attribute and naming where it stands, about every plan attribute the rows cannot carry (`skip`, `leftover_entries`, leg `rest`, `patrol`, `equiv`, `boss.tactics`, `fleers`, `no_cc`, `summoned_kill_first`, `hire_composition`, `watchdog`, `raid`, `avoid` without a navmesh, a `stand` of a ritual or loot step, an object's `spawn` or `range`, a `loot_object` `batch`, ...) instead of dropping it silently; the migration header should list them |
 
@@ -190,7 +192,7 @@ Opt-in (`AiPlayerbot.DungeonRunPullStand = 1`, default `0`; not yet proven in a 
 
 ### Events
 
-A scripted event is two or more steps: a **start** (`ritual`, or an `open` / `use_item` when an object or item starts it), then a **hold**. The hold:
+A scripted event is two or more steps: a **start** (`ritual`, or an `open` / `use_item` / `gossip` when an object, an item or an NPC's words start it), then a **hold**. The hold:
 
 1. Walks the party to its spot (navmesh hops while it is out of sight).
 2. Stands there. The run sends no pull of its own: the bots fight what the event sends with their own combat AI. After a fight that took the lead bot more than 8 yd off the spot, the party walks back to it (the bots chase in a fight; the run brings them back). An awake unit of the event (in `entries`, within `radius`, hostile) that has not come for 10 s is pulled.
@@ -226,7 +228,7 @@ The other gates of the plan are plain steps: the Keystone (124371, `open` with t
 
 #### For Zul'Farrak and later plans
 
-The same steps carry other events: a hold done by the instance data a script keeps (flag 8, without 32 when the values are not encounter states), by a door (flag 16) or by its units' death. Not here yet (the ZF part of #984): a `gossip` start step (`cmd gossip`, #1013), a fixed wait, waiting for a spawn, and a hold whose data must reach a value (`>=`) rather than equal it.
+The same steps carry other events: a hold done by the instance data a script keeps (flag 8, without 32 when the values are not encounter states), by a door (flag 16) or by its units' death. A `gossip` step (`cmd gossip`, #1013) talks to the NPC that ends or starts one: Zul'Farrak's Weegli Blastfuse (7607) blows the End Door once the pyramid data reads 8 (a hold, then `gossip` option 1, then a `wait_object` on the door 146084). Not here yet (the ZF part of #984): a fixed wait, waiting for a spawn, a boss that turns hostile after its gossip (Sergeant Bly), and a hold whose data must reach a value (`>=`) rather than equal it.
 
 ### Plans on the server
 
@@ -237,7 +239,7 @@ The same steps carry other events: a hold done by the instance data a script kee
 - A party with a real player in it (a player leading their own party): the run leads bound parties only.
 - **Avoid boxes** (plan v1 `avoid`: ground the navmesh calls walkable that kills, Ragefire Chasm's lava basin at x -226..-142, y -64..6, floor z about -65.4, 605-610 damage a tick). The run leader does not know them: its hops are the server's navmesh paths. The exporter checks every hop between two rows on the plain navmesh and `20261017130000_world.sql` has none that enters the box, but a fight, a knockback or a pull onto the basin is not covered. Follow-up.
 - **`gm_cross`** (a GM moves the party over a gap no walk crosses): Wailing Caverns' ramp to Lord Serpentis is exported as a `move_direct` (a straight walk down 6 yd over a 3.9 yd gap); it was walked in one live observe clear of the whole plan (2026-10-20, a candidate result).
-- Plan v1's `skip`, per-leg `rest`, `companions_loot` (Revelosh's Shaft: the run's `loot` takes the corpse with the lead bot, but other bots may loot it first), `area_trigger` and gossip.
+- Plan v1's `skip`, per-leg `rest`, `companions_loot` (Revelosh's Shaft: the run's `loot` takes the corpse with the lead bot, but other bots may loot it first), `area_trigger`.
 
 ### Cost
 

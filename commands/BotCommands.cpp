@@ -10143,6 +10143,18 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     f.eventData = data ? static_cast<long long>(data->GetData(hold->entry)) : -1;
                 }
             break;
+        case ai::PlanStepKind::Gossip:
+            // The lead bot talks (`cmd gossip`): its task stands for the step. Out of sight of the NPC's point the
+            // run walks to it in navmesh hops first (DungeonRun::GossipStep).
+            if (!f.seen && wantsApproach)
+                f.approachKnown = ApproachOnPath(lead, step->x, step->y, step->z, f.approachX, f.approachY, f.approachZ);
+            f.carrierBusy = CommanderTasks().count(lead->GetObjectGuid().GetRawValue()) != 0;
+            if (slot.carrierRaw == lead->GetObjectGuid().GetRawValue())
+            {
+                f.taskReply = slot.taskReply;
+                f.taskText = slot.taskText;
+            }
+            break;
         case ai::PlanStepKind::Loot:
         case ai::PlanStepKind::Open:
         case ai::PlanStepKind::UseItem:
@@ -10447,7 +10459,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     if (!order.empty())
     {
         if (order.compare(0, 5, "loot ") == 0 || order.compare(0, 5, "open ") == 0 || order.compare(0, 4, "use ") == 0 ||
-            order.compare(0, 7, "ritual ") == 0)
+            order.compare(0, 7, "ritual ") == 0 || order.compare(0, 7, "gossip ") == 0)
         {
             // A new order: the carrier is picked afresh (Tick has set orderSent
             // already; the old carrierRaw is the previous order's bot).

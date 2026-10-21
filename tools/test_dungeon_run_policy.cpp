@@ -1690,6 +1690,238 @@ static void TestOpenWithoutKeyAndTaskError()
     CHECK(r.state == State::Paused && r.note.find("locked") != std::string::npos);
 }
 
+// ---- gossip step (talk to an NPC: `cmd gossip <entry> <lead bot> <option>`) ----
+
+// Weegli Blastfuse (7607): option 1, the top of his menu, at x.
+static PlanStep GossipRow(float x, std::uint32_t option = 1, std::uint32_t entry = 7607)
+{
+    PlanStep s;
+    s.kind = PlanStepKind::Gossip;
+    s.entry = entry;
+    s.x = x;
+    s.param = option;
+    CHECK(ai::NormalizePlanStep(s) == ai::PlanStepRefusal::None);
+    return s;
+}
+
+// The one order goes out once, the busy task is waited for, the ACK ends the step.
+static void TestGossipOrderOnceThenAck()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 1");
+    CHECK(r.orderSent && r.phase == Phase::AwaitTask);
+    // The lead bot's task is under way: no second order, the step stays.
+    f.carrierBusy = true;
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).empty() && r.step == 0 && r.state == State::Running);
+    // The ACK.
+    f.taskReply = 1;
+    f.taskText = "1|Will you blow up that door now?";
+    Tick(r, f);
+    CHECK(r.step == 1 && r.state == State::Running && r.note == "gossip 7607 option 1 done");
+}
+
+// An ERR answer pauses with the module's own words; .bot run resume sends the order again.
+static void TestGossipErrPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10, 3)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 3");
+    f.taskReply = 2;
+    f.taskText = "no-option: No option 3. The menu offers: 1 \"Will you blow up that door now?\".";
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("gossip 7607 option 3 failed") != std::string::npos);
+    CHECK(r.note.find("no-option: No option 3.") != std::string::npos);
+    CHECK(Resume(r));
+    f.taskReply = 0;
+    f.taskText.clear();
+    for (int i = 0; i < 400 && !r.orderSent; ++i) // the resume's regroup first
+    {
+        std::string order = Tick(r, f);
+        if (order.compare(0, 7, "gossip ") == 0)
+            break;
+    }
+    CHECK(r.orderSent);
+}
+
+// The order's immediate ERR: an NPC that AiPlayerbot.BotGossipNpcs does not list pauses naming the key.
+static void TestGossipNotAllowedNamesTheConfigKey()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    std::string const order = Tick(r, f);
+    CHECK(order == "gossip 7607 Tanky 1");
+    OrderRefused(r, order, "not-allowed: That NPC is not in AiPlayerbot.BotGossipNpcs, so bots may not talk to it.");
+    CHECK(r.state == State::Paused);
+    CHECK(r.note.find("cmd gossip 7607 Tanky 1 refused") != std::string::npos);
+    CHECK(r.note.find("AiPlayerbot.BotGossipNpcs") != std::string::npos);
+}
+
+// No ACK and no ERR within the step's timeout (default 60 s): the run pauses.
+static void TestGossipNoAnswerPauses()
+{
+    DungeonPlan plan;
+    PlanStep row = GossipRow(10);
+    CHECK(row.timeoutS == ai::kPlanDefaultTimeoutS);
+    plan.steps = {row, Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 1");
+    f.carrierBusy = true;
+    std::uint32_t ticks = 0;
+    while (r.state == State::Running && ticks < 200)
+    {
+        CHECK(Tick(r, f).empty());
+        ++ticks;
+    }
+    CHECK(r.state == State::Paused && r.step == 0 && ticks >= 59 && ticks <= 61);
+    CHECK(r.note.find("no answer in 60 s") != std::string::npos);
+    // The step's own timeout counts: 20 s.
+    DungeonPlan quick;
+    PlanStep fast = GossipRow(10);
+    fast.timeoutS = 20;
+    quick.steps = {fast};
+    Run q = Start(&quick);
+    Facts g = Party(0);
+    Tick(q, g);
+    g.carrierBusy = true;
+    ticks = 0;
+    while (q.state == State::Running && ticks < 200)
+    {
+        Tick(q, g);
+        ++ticks;
+    }
+    CHECK(q.state == State::Paused && ticks >= 19 && ticks <= 21 && q.note.find("no answer in 20 s") != std::string::npos);
+}
+
+// A lead bot busy with an earlier task holds the order back.
+static void TestGossipWaitsForABusyLeadBot()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.carrierBusy = true;
+    CHECK(Tick(r, f).empty() && !r.orderSent);
+    CHECK(r.note.find("waiting for Tanky to finish an earlier order") != std::string::npos);
+    f.carrierBusy = false;
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 1");
+}
+
+// Farther than 30 yd from the point the lead bot walks there first (a plain walk in sight, navmesh hops out of
+// sight); the order goes out once it is within reach, and a walk once begun is finished.
+static void TestGossipWalksToFarPointFirst()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(45)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "move 45.0 0.0 0.0");
+    // 20 yd out is within the NPC search, but the walk was begun: it goes on to the point.
+    f.leadX = 25;
+    CHECK(Tick(r, f).empty() && !r.orderSent);
+    f.leadX = 44;
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 1");
+
+    // Out of sight of the point: a navmesh hop first.
+    DungeonPlan far;
+    far.steps = {GossipRow(200)};
+    Run q = Start(&far);
+    Facts g = Party(0);
+    g.seen = false;
+    g.approachKnown = true;
+    g.approachX = 40;
+    CHECK(Tick(q, g) == "move 40.0 0.0 0.0");
+    g.leadX = 40;
+    CHECK(Tick(q, g).empty());
+    g.seen = true;
+    CHECK(Tick(q, g) == "move 200.0 0.0 0.0");
+    g.leadX = 200;
+    CHECK(Tick(q, g) == "gossip 7607 Tanky 1");
+
+    // Within 30 yd there is no walk at all.
+    DungeonPlan near;
+    near.steps = {GossipRow(29)};
+    Run n = Start(&near);
+    Facts h = Party(0);
+    CHECK(Tick(n, h) == "gossip 7607 Tanky 1");
+}
+
+// A gossip right before a hold starts that event (like open / use_item): the run leader treats the walk and the
+// step as inside the event, and a failed event goes back to it.
+static void TestGossipStartsAnEvent()
+{
+    DungeonPlan plan;
+    plan.map = 209;
+    plan.steps = {Step(PlanStepKind::Move, 1, 2, 3), GossipRow(10), Step(PlanStepKind::Move, 1, 2, 3),
+                  Step(PlanStepKind::Hold, 1, 2, 3)};
+    plan.steps[3].entry = 1;
+    plan.steps[3].flags = ai::kPlanFlagDoneData;
+    plan.steps[3].entries = {5};
+    Run r = Start(&plan, 1);
+    CHECK(Current(r)->kind == PlanStepKind::Gossip && EventHoldAhead(r) != nullptr && InEvent(r));
+    // A start on the hold or the move leading into it goes back to the gossip.
+    std::size_t step = 99;
+    bool back = false;
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "4", step, &back) == FromResult::Ok && step == 1 && back);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "3", step, &back) == FromResult::Ok && step == 1 && back);
+    CHECK(ResolveStartStep(plan, StartFrom::Step, "2", step, &back) == FromResult::Ok && step == 1 && !back);
+    CHECK(EventStartStep(plan, 3) == 1);
+    // The failed event returns to the gossip step.
+    Run h = Start(&plan, 3);
+    EventFailed(h, "data 1 did not leave 0");
+    CHECK(h.state == State::Paused && h.step == 1);
+    CHECK(h.note.find("starts it again at step 2 (gossip)") != std::string::npos);
+
+    // Before a wait_object it is no event start: nothing to return to, no hold ahead.
+    DungeonPlan door;
+    door.steps = {GossipRow(10), Step(PlanStepKind::WaitObject, 1, 2, 3)};
+    door.steps[1].entry = 146084;
+    Run d = Start(&door);
+    CHECK(EventHoldAhead(d) == nullptr && !InEvent(d));
+}
+
+// The ZF shape: hold until the pyramid data reads 8, the gossip, then the door wait.
+static void TestGossipAfterAHoldThenTheDoor()
+{
+    DungeonPlan plan;
+    PlanStep hold = Step(PlanStepKind::Hold, 1877.5f, 1199.6f, 8.9f);
+    hold.entry = 1;
+    hold.param = 8;
+    hold.flags = ai::kPlanFlagDoneData;
+    hold.entries = {7787};
+    hold.timeoutS = 600;
+    ai::NormalizePlanStep(hold);
+    PlanStep door = Step(PlanStepKind::WaitObject, 1854.5f, 1142.9f, 16.1f);
+    door.entry = 146084;
+    door.param = 1;
+    ai::NormalizePlanStep(door);
+    PlanStep talk = GossipRow(1877.5f, 1);
+    talk.y = 1199.6f;
+    talk.z = 8.9f;
+    plan.steps = {hold, talk, door};
+    Run r = Start(&plan);
+    Facts f = Party(1877.5f);
+    f.leadY = 1199.6f;
+    f.leadZ = 8.9f;
+    f.eventData = 8; // the hold's data already reads 8: it ends at once
+    // The hold ends on the first look and the gossip step goes out in the same tick (it is in sight, the lead bot on its spot).
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 1");
+    CHECK(r.step == 1 && r.orderSent);
+    f.carrierBusy = true;
+    f.taskReply = 1;
+    Tick(r, f);
+    CHECK(r.step == 2 && Current(r)->kind == PlanStepKind::WaitObject);
+}
+
 static void TestWaitObjectTimeoutIsBounded()
 {
     DungeonPlan plan;
@@ -1723,7 +1955,7 @@ static void TestUnsupportedPausesAndSkip()
     Tick(r, f);
     CHECK(r.state == State::Paused && r.note.find("not supported yet") != std::string::npos);
     CHECK(!Supported(PlanStepKind::None) && Supported(PlanStepKind::Move));
-    CHECK(Supported(PlanStepKind::Ritual) && Supported(PlanStepKind::Hold));
+    CHECK(Supported(PlanStepKind::Ritual) && Supported(PlanStepKind::Hold) && Supported(PlanStepKind::Gossip));
     // Skip from a pause goes on running (after the regroup).
     CHECK(Skip(r));
     CHECK(r.state == State::Running && r.step == 1 && r.regroup);
@@ -5421,6 +5653,14 @@ int main()
     TestStandWalkIsDrivenEveryTick();
     TestStuckStandChecksTheWayBackFirst();
     TestPickSwitchChecksTheWayBack();
+    TestGossipOrderOnceThenAck();
+    TestGossipErrPauses();
+    TestGossipNotAllowedNamesTheConfigKey();
+    TestGossipNoAnswerPauses();
+    TestGossipWaitsForABusyLeadBot();
+    TestGossipWalksToFarPointFirst();
+    TestGossipStartsAnEvent();
+    TestGossipAfterAHoldThenTheDoor();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

@@ -29,7 +29,7 @@ static PlanStep Step(std::uint8_t leg, std::uint16_t seq, PlanStepKind kind, flo
 static void TestKinds()
 {
     const char* names[] = {"move", "move_direct", "pull", "boss", "loot", "open", "use_item", "wait_object",
-                           "wait_clear", "rest", "ritual", "hold"};
+                           "wait_clear", "rest", "ritual", "hold", "gossip"};
     for (const char* name : names)
     {
         PlanStepKind kind = ParsePlanStepKind(name);
@@ -109,6 +109,32 @@ static void TestNormalize()
     exactPull.entries = {4851};
     exactPull.flags = kPlanFlagExact;
     CHECK(NormalizePlanStep(exactPull) == PlanStepRefusal::BadParam);
+
+    // gossip: the NPC's entry and the option the way `.bot cmd gossip` counts it (1 at the top, at most 15). A set flag
+    // is refused (team flags come later), not ignored; the exact flag is refused as on any step that is not a move.
+    PlanStep talk = Step(0, 13, PlanStepKind::Gossip, 1877.5f, 1199.6f, 8.9f);
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::MissingEntry);
+    talk.entry = 7607;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam); // param 0: no option
+    talk.param = 16;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.param = 1;
+    talk.flags = kPlanFlagAlliance;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadParam);
+    talk.flags = 0;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None && talk.timeoutS == kPlanDefaultTimeoutS);
+    talk.param = 15;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::None);
+    talk.timeoutS = 601;
+    CHECK(NormalizePlanStep(talk) == PlanStepRefusal::BadTimeout);
+    DungeonPlanTable talks;
+    CHECK(talks.AddPlan("zulfarrak", 209));
+    PlanStep row = Step(15, 1, ParsePlanStepKind("gossip"), 1877.5f, 1199.6f, 8.9f);
+    CHECK(talks.AddStep("zulfarrak", row) == PlanStepRefusal::MissingEntry);
+    row.entry = 7607;
+    row.param = 1;
+    CHECK(talks.AddStep("zulfarrak", row) == PlanStepRefusal::None);
+    CHECK(std::string(PlanStepRowKindName(row)) == "gossip");
 
     // move_hop_exact: a MoveDirect with exactLaunch, and back to its text.
     PlanStepKind kind = PlanStepKind::None;
