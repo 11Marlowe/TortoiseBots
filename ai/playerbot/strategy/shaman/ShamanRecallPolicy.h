@@ -4,18 +4,21 @@
 // SHM-5): recall standing totems for mana when nothing is fighting, but
 // never destroy the mana-tide cooldown totem for pennies. Recall needs the
 // spell trained and at least one totem down.
+//
+// There is no recall -> re-drop loop to guard against any more: the
+// automatic totem rows only drop in combat or in the pre-pull window
+// (TotemAutoRowsFire), so an out-of-combat recall is never answered by a
+// re-drop — the set stays recalled until the next fight. The gate is
+// deliberately state-based: a "recalled" latch cleared by a single combat
+// tick would let a flicker restart the loop the rows can no longer feed
+// (issue #1125: a drop/recall pair burning mana out of combat).
 
 namespace ai
 {
-    // autoRowsArmed: the automatic totem rows would drop the same set again
-    // a few ticks later (they are the only reason a totem was standing),
-    // so the pair recall -> re-drop -> recall just burns mana and never
-    // settles (issue #1125: a tank looping out of combat, and the same
-    // pairing for every shaman). The refund is only worth taking when the
-    // set is not about to be rebuilt: while the rows are quiet, i.e. in
-    // manual drop mode, or outside the pre-pull window in prepull mode.
+    // prepullWanted: a fight is imminent (ready-check anchor live or the
+    // force-rebuff window open), so the rows own the standing set.
     inline bool TotemicRecallShouldFire(bool hasSpell, bool anyTotemDown, bool manaTideDown,
-        bool botInCombat, bool anyMemberInCombat, bool prepullWanted = false, bool autoRowsArmed = false)
+        bool botInCombat, bool anyMemberInCombat, bool prepullWanted = false)
     {
         if (!hasSpell || !anyTotemDown)
             return false;
@@ -24,8 +27,6 @@ namespace ai
         if (botInCombat || anyMemberInCombat)
             return false;
         if (prepullWanted)
-            return false;
-        if (autoRowsArmed)
             return false;
         return true;
     }

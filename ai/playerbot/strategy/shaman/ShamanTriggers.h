@@ -21,10 +21,10 @@ namespace ai
         static std::list<std::string> spells;
     };
 
-    // Fight-imminent read shared by the automatic totem rows (prepull drop
-    // mode) and by the recall refund, which must not fight the rows over
-    // the same set. True while a raid ready-check anchor is live or a
-    // force-rebuff window is open — the two "the group is assembling for a
+    // Fight-imminent read shared by the automatic totem rows (the auto and
+    // prepull drop modes) and by the recall refund, which must not fight the
+    // rows over the same set. True while a raid ready-check anchor is live or
+    // a force-rebuff window is open — the two "the group is assembling for a
     // pull" signals the repo already keeps per bot.
     inline bool TotemFightImminent(PlayerbotAI* ai)
     {
@@ -53,9 +53,13 @@ namespace ai
             // destroys the just-dropped set for pennies and the re-drop
             // loop burns more mana than the refund (live Naxx 2026-10-14:
             // 7 recalls mid fight, 26 water re-drops to repair it).
-            // The refund also stands down while the automatic totem rows
-            // are armed: they would rebuild the same set a few ticks later,
-            // so recall -> re-drop -> recall never settles (issue #1125).
+            // The refund also stands down while a fight is imminent: the
+            // automatic rows own the set in the pre-pull window and would
+            // rebuild what we just recalled. Out of combat otherwise the
+            // rows are quiet (they only drop in combat or that window), so
+            // the recalled set stays recalled until the next fight — no
+            // recall -> re-drop loop, and no latch that a single combat
+            // tick could clear to restart one (issue #1125).
             // Never recall mana tide: destroying the cooldown totem wastes
             // it for pennies. (No fire-elemental totem action exists in
             // 1.18.1, so there is nothing else to spare.)
@@ -90,12 +94,9 @@ namespace ai
                     }
                 }
             }
-            AiObjectContext* ctx = ai ? ai->GetAiObjectContext() : nullptr;
             bool prepullWanted = TotemFightImminent(ai);
-            std::string stored = ctx ? ctx->GetValue<std::string>("manual saved string", TotemModeKey())->Get() : "";
-            bool autoRowsArmed = TotemAutoRowsFire(StoredTotemDropMode(stored), false, prepullWanted);
             return TotemicRecallShouldFire(hasSpell, anyOwn, tideOwn, botCombat, memberCombat,
-                prepullWanted, autoRowsArmed);
+                prepullWanted);
         }
     };
 
@@ -115,9 +116,10 @@ namespace ai
 
     // Drop-mode gate for the automatic totem rows (`.bot totem ... mode`).
     // manual: every automatic row stays quiet — only `drop` and the manual
-    // `totem <slot> ...` strategies queue totems. prepull: combat rows fire
-    // normally, OOC rows only while a fight is imminent (ready-check anchor
-    // live or force-rebuff window open). auto/unset: today's behaviour.
+    // `totem <slot> ...` strategies queue totems. auto (default) and
+    // prepull: the rows fire in combat and, out of combat, only while a
+    // fight is imminent (ready-check anchor live or force-rebuff window
+    // open) — never otherwise, so a following bot leaves no totems in town.
     // One rule for both the rows and the recall refund (TotemAutoRowsFire),
     // so the two can never disagree about who owns the standing set.
     inline bool TotemAutoRowActive(PlayerbotAI* ai, Player* bot, bool inCombat)
