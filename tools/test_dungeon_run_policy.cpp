@@ -16,6 +16,7 @@ using namespace TortoiseBots::DungeonRun;
 using ai::DungeonPlan;
 using ai::PlanStep;
 using ai::PlanStepKind;
+namespace RemoteCommander = TortoiseBots::RemoteCommander;
 
 static PlanStep Step(PlanStepKind kind, float x = 0, float y = 0, float z = 0)
 {
@@ -693,6 +694,388 @@ static void TestLootRefusalTriesTheTurnBotThenEachBot()
     OrderRefused(m, order, rights);
     order = Tick(m, k);
     CHECK(order.find(" Healy 7741") != std::string::npos && m.taskBot == "Healy");
+}
+
+// ---- loot step: free-for-all detour (AiPlayerbot.DungeonRunLootFfa) ----
+
+static char const* const kFfaRights = "failed: This corpse has nothing this bot may loot under the group's loot rules "
+    "(another member's turn, already looted, or not tapped by the group)";
+
+static DungeonPlan FfaPlan()
+{
+    DungeonPlan plan;
+    PlanStep loot = Step(PlanStepKind::Loot, 1, 2, 3);
+    loot.entry = 6910;
+    loot.item = 7741;
+    plan.steps = {loot, Step(PlanStepKind::Move, 9)};
+    return plan;
+}
+
+// The facts of a party under group loot (3) whose lead bot leads it, the key on.
+static Facts FfaParty()
+{
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), Mem("Healy", 5), Mem("Stabby", 6)};
+    f.lootFfaOn = true;
+    f.lootMethod = RemoteCommander::kLootGroup;
+    f.leadLeadsGroup = true;
+    f.corpseChecked = true;
+    f.corpseHasItem = true;
+    return f;
+}
+
+// Order sequence: loot refused on the rules -> lootmethod ffa -> (its ACK) loot by the carrier -> the task's
+// answer -> lootmethod group -> the step ends.
+static void TestLootFfaOrderSequence()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    f.lootMethod = RemoteCommander::kLootGroup;
+    std::string order = Tick(r, f);
+    CHECK(order.compare(0, 5, "loot ") == 0 && order.find(" Tanky 7741") != std::string::npos);
+    OrderRefused(r, order, kFfaRights);
+    // Before NextLootBot: the method is changed first, once.
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    CHECK(r.lootFfaLive && r.lootRestore == RemoteCommander::kLootGroup && r.lootFfa == LootFfa::Ordered);
+    // The order was accepted: the next tick reads ffa and sends the loot to the carrier (not another bot).
+    f.lootMethod = RemoteCommander::kLootFfa;
+    order = Tick(r, f);
+    CHECK(order.compare(0, 5, "loot ") == 0 && order.find(" Tanky 7741") != std::string::npos);
+    CHECK(r.orderSent && r.lootFfa == LootFfa::Looting && r.step == 0);
+    // The task runs: nothing is sent, the method is not touched.
+    f.carrierBusy = true;
+    for (int i = 0; i < 3; ++i)
+        CHECK(Tick(r, f).empty() && r.lootFfa == LootFfa::Looting);
+    // The answer: the method goes back first, then the answer is read.
+    f.taskReply = 1;
+    CHECK(Tick(r, f) == "lootmethod group");
+    CHECK(r.lootFfa == LootFfa::Restoring && r.step == 0);
+    f.lootMethod = RemoteCommander::kLootGroup;
+    f.carrierBusy = false;
+    f.carrierHasItem = true;
+    f.partyHasItem = true;
+    f.itemHolder = "Tanky";
+    Tick(r, f);
+    CHECK(r.step == 1 && r.state == State::Running && r.lootFfa == LootFfa::Idle);
+    CHECK(r.note.find("loot done") != std::string::npos);
+    // The next running tick reads the method back and lets the flag go, with no second order.
+    CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+    CHECK(!r.lootFfaLive && r.lootRestoreTries == 0);
+}
+
+// An ERR answer restores too, then the old path goes on (the next bot), without a second ffa.
+static void TestLootFfaRestoresOnAnErrAnswerAndNeverTwice()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    f.lootMethod = RemoteCommander::kLootRoundRobin;
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    CHECK(Tick(r, f).compare(0, 5, "loot ") == 0);
+    f.carrierBusy = true;
+    f.taskReply = 2;
+    f.taskText = kFfaRights;
+    CHECK(Tick(r, f) == "lootmethod rr"); // the saved method, by the name the order parses
+    f.lootMethod = RemoteCommander::kLootRoundRobin;
+    f.carrierBusy = false;
+    std::string const order = Tick(r, f); // the answer is read: refused on the rules -> the next bot
+    CHECK(r.lootFfa == LootFfa::Idle);
+    CHECK(order.empty() || order.compare(0, 11, "lootmethod ") != 0);
+    for (int i = 0; i < 3; ++i)
+    {
+        std::string const next = Tick(r, f);
+        CHECK(next.compare(0, 11, "lootmethod ") != 0);
+        if (next.compare(0, 5, "loot ") == 0)
+            OrderRefused(r, next, kFfaRights);
+    }
+    CHECK(r.lootFfaUsed);
+}
+
+// The restore is what the glue sends when the run pauses or stops while the method is ffa: the flag and the
+// saved method stay set through a pause (fail-if-removed: lootFfaLive / lootRestore set at the ffa order).
+static void TestLootFfaStaysLiveThroughAPause()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    f.lootMethod = RemoteCommander::kLootNeedBeforeGreed;
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    CHECK(Tick(r, f).compare(0, 5, "loot ") == 0);
+    // The run pauses (the cap, a player's order) with the loot order out and the method on ffa.
+    Pause(r, "something stopped the run");
+    CHECK(r.state == State::Paused && r.lootFfaLive && r.lootRestore == RemoteCommander::kLootNeedBeforeGreed);
+    CHECK(std::string(RemoteCommander::LootMethodName(r.lootRestore)) == "nbg");
+    // A resume starts the step afresh but keeps the flag until the glue has put the method back
+    // (a resume can come before its next tick).
+    CHECK(Resume(r));
+    CHECK(r.lootFfa == LootFfa::Idle && !r.lootFfaUsed && r.lootFfaLive);
+}
+
+// The loot task ends with no ACK or ERR line seen (not busy any more, reply 0): the method goes back all the same.
+static void TestLootFfaRestoresWhenTheTaskEndsUnanswered()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    CHECK(Tick(r, f).compare(0, 5, "loot ") == 0);
+    f.carrierBusy = true;
+    CHECK(Tick(r, f).empty());
+    f.carrierBusy = false;
+    CHECK(Tick(r, f) == "lootmethod group");
+}
+
+// A refused ffa order: the old path (NextLootBot) goes on, the method was never changed.
+static void TestLootFfaRefusedFallsBackToTheOldPath()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    OrderRefused(r, "lootmethod ffa", "lead-unavailable: The lead bot does not lead the group.");
+    CHECK(r.state == State::Running && r.lootFfa == LootFfa::Idle && !r.lootFfaLive);
+    f.lootTurn = "Stabby";
+    std::string const order = Tick(r, f);
+    CHECK(order.compare(0, 5, "loot ") == 0 && order.find(" Stabby 7741") != std::string::npos);
+    CHECK(r.taskBot == "Stabby");
+    // An ACK that did not take (the method still reads group): the same.
+    Run q = Start(&plan);
+    Facts g = FfaParty();
+    OrderRefused(q, Tick(q, g), kFfaRights);
+    CHECK(Tick(q, g) == "lootmethod ffa");
+    std::string const next = Tick(q, g); // g.lootMethod is still group
+    CHECK(next.compare(0, 11, "lootmethod ") != 0 && q.lootFfa == LootFfa::Idle);
+    CHECK(q.state == State::Running);
+}
+
+// A regroup (a wipe, a lead death, a fight cap) resets the step between the ffa ACK and the restore and keeps the
+// run Running: the very next tick orders the method back, whatever the step; the tick after reads it and is done.
+static void TestLootFfaRegroupBetweenAckAndRestoreRestores()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    CHECK(Tick(r, f).compare(0, 5, "loot ") == 0);
+    f.carrierBusy = true;
+    CHECK(Tick(r, f).empty());
+    ResetStep(r); // the regroup redoes the step
+    CHECK(r.lootFfa == LootFfa::Idle && r.lootFfaLive && r.state == State::Running);
+    CHECK(Tick(r, f) == "lootmethod group");
+    CHECK(r.lootRestoreTries == 1);
+    // It took: the facts read the saved method; no second order, the flag is gone.
+    f.lootMethod = RemoteCommander::kLootGroup;
+    CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+    CHECK(!r.lootFfaLive && r.lootRestoreTries == 0 && r.state == State::Running);
+    // The redone step may go through the detour once more: the method is not ffa any more.
+    CHECK(r.lootFfaUsed == false);
+}
+
+// The restore is refused or does not take: one order a tick, three in all, then the run pauses naming the key.
+static void TestLootFfaRestoreRefusedRetriesThenPauses()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    f.lootMethod = RemoteCommander::kLootFfa;
+    r.lootFfaLive = true;
+    r.lootRestore = RemoteCommander::kLootNeedBeforeGreed;
+    for (int i = 1; i <= 3; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order == "lootmethod nbg");
+        OrderRefused(r, order, "lead-unavailable: The lead bot does not lead the group.");
+        CHECK(r.state == State::Running && r.lootRestoreTries == static_cast<std::uint32_t>(i));
+    }
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.lootFfaLive); // the glue tries once more as the run pauses, and clears the flag
+    CHECK(r.note.find("still free-for-all") != std::string::npos);
+    CHECK(r.note.find("the lead bot's group") != std::string::npos);
+    CHECK(r.note.find("AiPlayerbot.DungeonRunLootFfa") != std::string::npos);
+    CHECK(r.note.find("lootmethod nbg") != std::string::npos);
+}
+
+// Only "no group" or a method that is not ffa ends the flag; the key switched off meanwhile does not.
+static void TestLootFfaFlagEndsOnlyWhenTheMethodIsNotFfa()
+{
+    DungeonPlan plan = FfaPlan();
+    // The key was switched off by a reload while the detour was live: the restore still goes out.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        f.lootFfaOn = false;
+        f.lootMethod = RemoteCommander::kLootFfa;
+        r.lootFfaLive = true;
+        r.lootRestore = RemoteCommander::kLootRoundRobin;
+        CHECK(Tick(r, f) == "lootmethod rr" && r.lootFfaLive);
+    }
+    // ... and in the Ordered tick (the key off there, the method ffa): the detour goes on, the flag stays.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        CHECK(Tick(r, f) == "lootmethod ffa");
+        f.lootFfaOn = false;
+        f.lootMethod = RemoteCommander::kLootFfa;
+        CHECK(Tick(r, f).compare(0, 5, "loot ") == 0 && r.lootFfaLive);
+    }
+    // No group (-1): nothing to put back.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        f.lootMethod = -1;
+        r.lootFfaLive = true;
+        r.lootRestore = RemoteCommander::kLootGroup;
+        CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0 && !r.lootFfaLive);
+    }
+    // A player set another method meanwhile (Ordered tick reads nbg, not ffa, not the saved one): no order, flag gone.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        CHECK(Tick(r, f) == "lootmethod ffa");
+        f.lootMethod = RemoteCommander::kLootNeedBeforeGreed;
+        CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+        CHECK(!r.lootFfaLive && r.lootFfa == LootFfa::Idle);
+    }
+}
+
+// A bot dies while the detour waits for a busy carrier; the WaitForFallen regroup does not reset the step: the
+// detour ends there and the method is ordered back on the next tick (not after the whole regroup).
+static void TestLootFfaOrderedThenFallenRegroupRestores()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    f.carrierBusy = true;
+    CHECK(Tick(r, f).empty() && r.lootFfa == LootFfa::Ordered);
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Stabby"};
+    f.members = {Mem("Tanky", 0), Mem("Healy", 5)};
+    Tick(r, f);
+    CHECK(r.regroup && r.state == State::Running && r.lootFfa == LootFfa::Idle && r.lootFfaLive);
+    // The regroup's ticks: the restore is the first order out.
+    CHECK(Tick(r, f) == "lootmethod group");
+}
+
+// A carrier that stays busy: the ffa wait is bounded; on the cap the method goes back and the step goes the old way.
+static void TestLootFfaOrderedWaitIsBounded()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    f.carrierBusy = true;
+    int ticks = 0;
+    while (r.lootFfa == LootFfa::Ordered && ticks < 60)
+    {
+        CHECK(Tick(r, f).empty());
+        ++ticks;
+    }
+    CHECK(ticks >= 19 && ticks <= 22 && r.lootFfa == LootFfa::Idle && r.state == State::Running);
+    CHECK(r.lootFfaLive);
+    CHECK(Tick(r, f) == "lootmethod group");
+}
+
+// No ffa without the item, without the key, without the lead bot leading the group, for a method the order cannot
+// restore, or when the item is gone from the corpse; the shortcuts come first.
+static void TestLootFfaConditions()
+{
+    DungeonPlan plan = FfaPlan();
+    // No item on the step: the old path (the next bot).
+    DungeonPlan bare = FfaPlan();
+    bare.steps[0].item = 0;
+    {
+        Run r = Start(&bare);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        std::string const order = Tick(r, f);
+        CHECK(order.compare(0, 11, "lootmethod ") != 0 && r.lootFfa == LootFfa::Idle);
+    }
+    // Key off (the facts' default), not the leader, already ffa, no group: the old path.
+    for (int variant = 0; variant < 4; ++variant)
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        if (variant == 0)
+            f.lootFfaOn = false;
+        else if (variant == 1)
+            f.leadLeadsGroup = false;
+        else if (variant == 2)
+            f.lootMethod = RemoteCommander::kLootFfa;
+        else
+            f.lootMethod = -1;
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        for (int i = 0; i < 2; ++i)
+            CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+        CHECK(!r.lootFfaLive && r.lootFfa == LootFfa::Idle);
+    }
+    // The item is not on the corpse and in no bag: no point (the usual pause).
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        f.corpseHasItem = false;
+        Tick(r, f);
+        CHECK(r.state == State::Paused && r.lootFfa == LootFfa::Idle);
+    }
+    // 'Already carries' and partyHasItem come first: no order at all.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        f.partyHasItem = true;
+        f.itemHolder = "Healy";
+        CHECK(Tick(r, f).empty());
+        CHECK(r.step == 1 && r.lootFfa == LootFfa::Idle && !r.lootFfaLive);
+    }
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        f.carrierHasItem = true;
+        CHECK(Tick(r, f).empty() && r.step == 1 && !r.lootFfaLive);
+    }
+    // A refusal that is not about the loot rules pauses at once, no ffa.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), "not-found: No corpse of that entry is near the point");
+        CHECK(r.state == State::Paused && !r.lootFfaLive);
+    }
+}
+
+// The key off: the facts' defaults (what the glue leaves when the key is 0) give byte-identical orders to the old path.
+static void TestLootFfaKeyOffIsTheOldPath()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), Mem("Healy", 5), Mem("Stabby", 6)};
+    f.corpseChecked = true;
+    f.corpseHasItem = true;
+    CHECK(!f.lootFfaOn && f.lootMethod == -1 && !f.leadLeadsGroup);
+    std::string order = Tick(r, f);
+    CHECK(order == "loot entry:6910@1.0,2.0,3.0 Tanky 7741");
+    OrderRefused(r, order, kFfaRights);
+    f.lootTurn = "Stabby";
+    CHECK(Tick(r, f) == "loot entry:6910@1.0,2.0,3.0 Stabby 7741");
+    CHECK(!r.lootFfaUsed && !r.lootFfaLive);
 }
 
 // open / use_item go to the bot that carries every input of the step: its item
@@ -5795,6 +6178,18 @@ int main()
     TestUseItemPausesOnSplitInputs();
     TestLootStepIsDoneWhenAnyPartyBotHasTheItem();
     TestLootRefusalTriesTheTurnBotThenEachBot();
+    TestLootFfaOrderSequence();
+    TestLootFfaRestoresOnAnErrAnswerAndNeverTwice();
+    TestLootFfaStaysLiveThroughAPause();
+    TestLootFfaRestoresWhenTheTaskEndsUnanswered();
+    TestLootFfaRefusedFallsBackToTheOldPath();
+    TestLootFfaConditions();
+    TestLootFfaRegroupBetweenAckAndRestoreRestores();
+    TestLootFfaRestoreRefusedRetriesThenPauses();
+    TestLootFfaFlagEndsOnlyWhenTheMethodIsNotFfa();
+    TestLootFfaOrderedWaitIsBounded();
+    TestLootFfaOrderedThenFallenRegroupRestores();
+    TestLootFfaKeyOffIsTheOldPath();
     TestOutstandingCarrierKeepsTheOrdersBot();
     TestRetiredUseItemOrderGoesOutAgain();
     TestWaitObjectDoneWinsOverAStaleFightTimer();

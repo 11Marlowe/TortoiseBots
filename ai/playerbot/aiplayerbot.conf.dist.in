@@ -843,6 +843,18 @@ AiPlayerbot.DungeonRunRezHold = 0
 # Only read while AiPlayerbot.DungeonSelfClear = 1.
 AiPlayerbot.DungeonRunPullStand = 0
 
+# The run leader's loot step when the corpse's item is another member's under the group's loot
+# rules (round robin / group loot: the loot step is refused with "nothing this bot may loot",
+# e.g. Uldaman, Revelosh's Shaft of Tsol). With 1 the lead bot (it leads the bound group) sets
+# the loot method to free-for-all, the carrier loots the item, and the method goes back to
+# what it was; it also goes back when the run pauses or stops in between. Once per step. If the
+# lead bot does not lead the group or the order is refused, the step goes on as before (the
+# next bot is tried).
+# 0 - off, the run leader tries the other bots in turn as before (Default)
+# 1 - on
+# Only read while AiPlayerbot.DungeonSelfClear = 1.
+AiPlayerbot.DungeonRunLootFfa = 0
+
 # Scripted area triggers for bots (an audited allowlist of trigger ids, off by default).
 # A bot has no game client, so it never tells the server it walked into an area
 # trigger, and a trigger script never ran for it: Zul'Farrak's Witch Doctor
