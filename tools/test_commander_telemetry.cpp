@@ -291,9 +291,13 @@ void TestUnitInfo()
     Check(CcKind(true, true, true, true) == 's' && CcKind(false, true, true, true) == 'c' && CcKind(false, false, true, true) == 'f' &&
               CcKind(false, false, false, true) == 'r' && CcKind(false, false, false, false) == 0,
         "crowd control is the first kind that holds");
-    Check(RankKind(3, false) == 'b' && RankKind(1, true) == 'b' && RankKind(1, false) == 'e' && RankKind(2, false) == 'r' &&
-              RankKind(4, false) == 'r' && RankKind(0, false) == 0,
+    Check(RankKind(3, false, false) == 'b' && RankKind(1, true, false) == 'b' && RankKind(1, false, false) == 'e' &&
+              RankKind(2, false, false) == 'r' && RankKind(4, false, false) == 'r' && RankKind(0, false, false) == 0,
         "a rank letter: boss, elite, rare, ordinary");
+    // A five-man boss is an elite by rank (Lord Cobrahn 3669, Kresh 3653: rank 1, no instance bind); a dungeon plan's
+    // boss step names it, and that makes it a boss.
+    Check(RankKind(1, false, true) == 'b' && RankKind(0, false, true) == 'b' && RankKind(2, false, true) == 'b',
+        "a dungeon plan's boss is a boss whatever its rank");
 
     BindingInfo b;
     b.commander = "Zfmagea";

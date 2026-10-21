@@ -457,6 +457,9 @@ namespace ai
                 });
                 std::sort(entry.second.legs.begin(), entry.second.legs.end(),
                     [](const PlanLeg& a, const PlanLeg& b) { return a.leg < b.leg; });
+                for (const PlanStep& step : steps)
+                    if (step.kind == PlanStepKind::Boss && step.entry)
+                        bossEntries_.insert(BossKey(entry.second.map, step.entry));
             }
             sealed_.store(true, std::memory_order_release);
         }
@@ -500,7 +503,23 @@ namespace ai
             return out;
         }
 
+        // Whether a creature of `entry` on `map` is the boss of a plan's boss
+        // step (its `entry`, not the adds of its `entries`). Built once at the
+        // seal; false before it.
+        bool IsBossEntry(std::uint32_t map, std::uint32_t entry) const
+        {
+            if (!Sealed() || !entry)
+                return false;
+            return bossEntries_.count(BossKey(map, entry)) != 0;
+        }
+
     private:
+        static std::uint64_t BossKey(std::uint32_t map, std::uint32_t entry)
+        {
+            return (static_cast<std::uint64_t>(map) << 32) | entry;
+        }
+
+        std::unordered_set<std::uint64_t> bossEntries_;
         std::unordered_map<std::string, DungeonPlan> plans_;
         std::unordered_map<std::string, std::unordered_set<std::uint32_t>> stepKeys_;
         std::size_t steps_ = 0;
