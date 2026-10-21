@@ -9280,10 +9280,13 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
             return false;
         PathFinder path(lead);
         path.calculate(px, py, ground, false);
-        if (path.getPathType() & PATHFIND_NOPATH)
-            return false;
+        uint32 const type = static_cast<uint32>(path.getPathType());
         Vector3 const end = path.getActualEndPosition();
-        if (ai::PlanDistance(end.x, end.y, end.z, px, py, ground) > 5.0f)
+        // Near the point AND, when partial, leading on (r6-19z24: two ring points
+        // whose partial paths ended on the lead bot's island were taken, and refused).
+        if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,
+                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),
+                DistanceTo(lead, end.x, end.y, end.z)))
             return false;
         ox = px;
         oy = py;

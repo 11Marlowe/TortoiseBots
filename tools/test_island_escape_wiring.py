@@ -119,6 +119,18 @@ class IslandEscapeWiringTest(unittest.TestCase):
         self.assertLess(island, at(move, "WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order)"))
         self.assertLess(island, at(move, "if (r.detour)"))
 
+    def test_the_detour_candidate_leads_on(self):
+        # r6-19z24: NearestReachablePoint took ring points whose partial paths
+        # ended on the lead bot's island; every candidate goes through the pure rule.
+        f = body(COMMANDS, "bool NearestReachablePoint(", "\n}\n")
+        check = at(f, "if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,\n"
+                      "                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),\n"
+                      "                DistanceTo(lead, end.x, end.y, end.z)))\n            return false;")
+        self.assertLess(check, at(f, "ox = px;"))
+        self.assertNotIn("> 5.0f)", f)
+        p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
+        at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")
+
 
 if __name__ == "__main__":
     unittest.main()

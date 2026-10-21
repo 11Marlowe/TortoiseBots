@@ -5707,6 +5707,26 @@ static void TestForwardMoveEscapesNavmeshIsland()
     CHECK(Tick(r, f) == "move 1584.0 1050.0 9.0");
 }
 
+// The detour's candidate check (NearestReachablePoint). r6-19z24: from the
+// island at 1591.2 1044.3 the 3 yd ring point of step 64, 1587.0 1050.0, had a
+// partial path ending at 1588.4 1046.5 (3.8 yd from it, 3.6 yd from the lead
+// bot), and step 65's 10 yd ring point 1594.3 1048.0 one ending at 1590.9 1045.3
+// (4.3 yd from it, 1.0 yd from the lead bot): both were taken as reachable (end
+// within 5 yd of the point) and both `cmd move`s were refused, each a pause.
+static void TestDetourPointReachable()
+{
+    CHECK(!DetourPointReachable(false, true, 3.8f, 3.6f));     // r6 step 64's detour 1587 1050
+    CHECK(!DetourPointReachable(false, true, 4.3f, 1.0f));     // r6 step 65's detour 1594.3 1048
+    CHECK(!DetourPointReachable(false, true, 0.5f, 2.0f)); // CheckMove's refusal (RemoteCommander::kNoProgressYd)
+    CHECK(!DetourPointReachable(false, true, 4.0f, kGoodPathMinYd)); // partial and gets nowhere past the island
+    CHECK(DetourPointReachable(false, true, 4.0f, kGoodPathMinYd + 0.5f)); // partial, leads on, ends near the point
+    CHECK(!DetourPointReachable(false, true, kDetourEndYd + 0.5f, 30.0f)); // ... but short of it
+    CHECK(DetourPointReachable(false, false, 0.3f, 1.0f));     // complete: accepted, however short
+    CHECK(DetourPointReachable(false, false, kDetourEndYd, 1.0f));
+    CHECK(!DetourPointReachable(false, false, kDetourEndYd + 0.5f, 20.0f)); // complete but ends off the point
+    CHECK(!DetourPointReachable(true, false, 0.0f, 20.0f));    // no path
+}
+
 // One reading is no island (a ledge, a closed door): the forward move goes out
 // as before; a direct step's point never escapes; out of sight the approach hop decides.
 static void TestForwardMoveIslandNeedsSecondSign()
@@ -8459,6 +8479,7 @@ int main()
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();
     TestForwardMoveIslandNeedsSecondSign();
+    TestDetourPointReachable();
     TestIslandPausesAfterTwoEscapes();
     TestResumeEscapesFirst();
     TestWalkBackPointInSightOnIsland();

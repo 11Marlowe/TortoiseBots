@@ -93,7 +93,8 @@ constexpr std::uint32_t kMaxWalkBackHops = 40;    // a walk back straight to its
 constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to where it died (or stood at a pause) is
                                                   // still on its route checkpoint's stretch (Run::routeKnown)
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
-                                                  // reachable one at most this far from it
+                                                  // reachable one at most this far from it ...
+constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
 constexpr std::uint32_t kGatherCapMs = 30000;
@@ -2038,6 +2039,18 @@ inline bool LeadPathGood(bool pathNoPath, bool pathIncomplete, float endFromLead
 inline bool RingSpotLeadsOn(bool pathNoPath, bool pathIncomplete, float endFromSpotYd, float endFromLeadYd)
 {
     return !pathNoPath && (!pathIncomplete || (endFromSpotYd > kGoodPathMinYd && endFromLeadYd > kGoodPathMinYd));
+}
+
+// A candidate of the move's detour (the glue's NearestReachablePoint): the lead
+// bot's navmesh path to it ends within kDetourEndYd of it, and, when partial,
+// leads on as a ring spot's must (RingSpotLeadsOn; the start is the lead bot):
+// it ends more than kGoodPathMinYd from the lead bot. r6-19z24: from the island
+// the partial paths to 1587 1050 and 1594.3 1048 ended 3.6 and 1.0 yd from the
+// lead bot, within 5 yd of the point: both moves were refused (CheckMove's
+// no-progress rule), each a pause.
+inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd)
+{
+    return endFromPointYd <= kDetourEndYd && RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
 }
 
 // The glue probes the path to the last good lead spot (Facts::goodSpotCut)
