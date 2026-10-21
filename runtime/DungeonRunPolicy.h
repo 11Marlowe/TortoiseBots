@@ -1818,6 +1818,22 @@ inline void LootRefused(Run& r, const std::string& text)
     r.note = text + ": looking for another bot to take it";
 }
 
+// ai::kPlanFlagGoneIsDone: a loot or open row with the flag and no item counts the object being gone as done. `answer`
+// is the module's text for a refused order ("not-found: ...", the by-entry search found nothing spawned) or a failed
+// task ("invalid-target: The object is gone.", it despawned on the bot's way), each led by its code.
+inline bool GoneIsDone(const PlanStep* s, const std::string& answer)
+{
+    if (!s || (s->kind != PlanStepKind::Loot && s->kind != PlanStepKind::Open) || s->item ||
+        !(s->flags & ai::kPlanFlagGoneIsDone))
+        return false;
+    return answer.rfind("not-found:", 0) == 0 || answer.rfind("invalid-target: The object is gone", 0) == 0;
+}
+
+inline void GoneStepDone(Run& r, const PlanStep& s)
+{
+    NextStep(r, std::string(ai::PlanStepKindName(s.kind)) + " " + std::to_string(s.entry) + ": object gone: counted as done");
+}
+
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
 {
     // A revived bot's summon (SummonRevived): refused, it walks back.
@@ -1965,6 +1981,11 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         r.missing.insert(s->item);
         NextStep(r, "use_item " + std::to_string(s->entry) + " refused (" + answer + "): an earlier item is missing; " +
             "item " + std::to_string(s->item) + " is noted missing too");
+        return;
+    }
+    if ((order.compare(0, 5, "loot ") == 0 || order.compare(0, 5, "open ") == 0) && GoneIsDone(s, answer))
+    {
+        GoneStepDone(r, *s);
         return;
     }
     if (s && (s->kind == PlanStepKind::Loot || s->kind == PlanStepKind::UseItem) && s->item)
@@ -3920,6 +3941,11 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
             r.missing.insert(s.item);
             NextStep(r, "use_item failed (" + f.taskText + "): an earlier item is missing; item " +
                 std::to_string(s.item) + " is noted missing too");
+            return;
+        }
+        if (GoneIsDone(&s, f.taskText))
+        {
+            GoneStepDone(r, s);
             return;
         }
         if (s.kind != PlanStepKind::Open && s.item)
