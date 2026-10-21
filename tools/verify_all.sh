@@ -258,6 +258,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_travel_pick_slice
         test_travel_repick_policy
         test_travel_route_cache_policy
+        test_travel_route_danger_policy
         test_travel_route_policy
         test_trinket_use_policy
         test_totem_command_policy
