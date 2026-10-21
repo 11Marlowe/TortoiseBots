@@ -2295,6 +2295,27 @@
     return s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '–';
   }
 
+  // A shaman tank keeps its Enhancement spec for the filters, the chips and the
+  // class colour, but the spec label says so. The server's live combat role is
+  // the only source that knows (a forced role from the 7.3 premade build, a
+  // hired tank, or the gear+talent detection: see IsDetectedShamanTank), so an
+  // offline shaman keeps the plain spec name.
+  function specLabel(spec, cls, live) {
+    if (!spec) return '';
+    if (String(cls).toLowerCase() !== 'shaman' || !live || live.role !== 'tank') return spec;
+    return `${spec} (Tank)`;
+  }
+
+  // Spec chips under the class filter: one count per spec the class has. A row
+  // without a spec (a character with no talent points, or a bot the armory list
+  // has not caught up with) is counted under "All specs" only — giving it a
+  // spec name would show a spec the character does not have.
+  function specCounts(rows) {
+    const counts = {};
+    rows.forEach(r => { if (r.spec) counts[r.spec] = (counts[r.spec] || 0) + 1; });
+    return counts;
+  }
+
   // Issue #872: every row carries one kind: pool, hired, claimed, alt,
   // companion (owned alt following its player), player, or own (a
   // player-account character offline or not yet seen live). Live telemetry
@@ -2393,7 +2414,7 @@
     class: {
       label: 'Class',
       sort: r => `${r.cls} ${r.spec}`.toLowerCase(),
-      cell: r => `${esc(capClass(r.cls))}${r.spec ? ` <span class="cell-muted">${esc(r.spec)}</span>` : ''}`
+      cell: r => `${esc(capClass(r.cls))}${r.spec ? ` <span class="cell-muted">${esc(specLabel(r.spec, r.cls, r.live))}</span>` : ''}`
     },
     level: { label: 'Lvl', sort: r => r.level || 0, cell: r => esc(r.level) },
     state: {
@@ -2524,8 +2545,7 @@
     if (!el.specChips) return;
     if (state.botsClass === 'all') { el.specChips.innerHTML = ''; return; }
     const forSpecs = forClasses.filter(r => r.cls === state.botsClass);
-    const specCount = {};
-    forSpecs.forEach(r => { const s = r.spec || 'Unspecified'; specCount[s] = (specCount[s] || 0) + 1; });
+    const specCount = specCounts(forSpecs);
     el.specChips.innerHTML =
       chip('spec', 'all', 'All specs', forSpecs.length, '', state.botsSpec === 'all') +
       Object.entries(specCount).sort((a, b) => b[1] - a[1])
@@ -2603,7 +2623,7 @@
       text.every(w => r.name.toLowerCase().includes(w) || r.cls.includes(w) || r.spec.toLowerCase().includes(w) || r.kind.includes(w));
     const stateOk = r => state.botsState === 'all' || (r.live && (r.live.state || 'idle') === state.botsState);
     const classOk = r => state.botsClass === 'all' || r.cls === state.botsClass;
-    const specOk = r => state.botsClass === 'all' || state.botsSpec === 'all' || (r.spec || 'Unspecified') === state.botsSpec;
+    const specOk = r => state.botsClass === 'all' || state.botsSpec === 'all' || r.spec === state.botsSpec;
     const issueOk = r => !state.botsIssueOnly || !!issues[r.guid];
     const pvpOk = r => !state.botsPvpOnly || !!(r.live && r.live.pvp);
 
@@ -3497,7 +3517,8 @@
     if (el.armoryMoney) el.armoryMoney.innerHTML = s ? formatMoney(s.money) : '';
     if (el.armoryPlayed) el.armoryPlayed.textContent = s ? formatPlayed(s.totaltime) : '';
 
-    // Spec = the talent tree with the most points.
+    // Spec = the talent tree with the most points. A character with no talent
+    // points has no spec: the line says so instead of naming one.
     if (el.armorySpecInfo) {
       const trees = (p && p.talents) || [];
       if (!trees.length) {
@@ -3507,7 +3528,8 @@
         const total = pts.reduce((a, b) => a + b, 0);
         let top = trees[0];
         trees.forEach(t => { if ((t.points || 0) > (top.points || 0)) top = t; });
-        el.armorySpecInfo.textContent = `${total > 0 ? (top.name || 'Hybrid') : 'Unspecified'} (${pts.join(' / ')})`;
+        const name = total > 0 ? specLabel(top.name || 'Hybrid', clsName, live) : 'No talents';
+        el.armorySpecInfo.textContent = `${name} (${pts.join(' / ')})`;
       }
     }
     profileBars(p, live);
