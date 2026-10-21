@@ -4276,6 +4276,48 @@ static void TestHopWaiverEndsWhenCombatStartsDuringCrowdControl()
     CHECK(r.note.find("gathering") == 0);
 }
 
+// Uldaman's cc lists (20261021174717_world.sql): cc_priority 4853,4848,7321,7030,7012,7397. Grimlok's boss row
+// (4854, adds 4855,4853,4863) and Galgann's (7291, add 7030) name listed units as the adds their kill order takes
+// first: the run never crowd-controls the boss or one of those adds; another listed unit in the fight still can
+// be, and a pull step (the cascades) keeps its crowd control.
+static void TestBossStepNeverCrowdControlsItsAdds()
+{
+    auto boss = [](std::uint32_t entry, std::vector<std::uint32_t> adds) {
+        PlanStep s;
+        s.kind = PlanStepKind::Boss;
+        s.entry = entry;
+        s.entries = adds;
+        ai::NormalizePlanStep(s);
+        return s;
+    };
+    DungeonPlan plan;
+    plan.ccPriority = {4853, 4848, 7321, 7030, 7012, 7397};
+    plan.ccAlways = {4848, 7321};
+    plan.steps = {boss(4854, {4855, 4853, 4863}), boss(7291, {7030}), PullStep(10, {4853, 4855})};
+    Facts f = Party(0);
+    f.members = {MemberFact{"Magey", 5, true, true}};
+    // Grimlok: the Geomancer 4853 is ranked first, but it is his add.
+    f.units = {Unit(1, 4854, 12), Unit(2, 4853, 15), Unit(3, 4855, 10), Unit(4, 4863, 14)};
+    Run g = Start(&plan, 0);
+    CHECK(PickCc(g, f, 0) == nullptr);
+    CHECK(PickCc(g, f, 3) == nullptr);
+    CHECK(BossStepUnit(Current(g), 4853) && BossStepUnit(Current(g), 4854) && !BossStepUnit(Current(g), 7321));
+    // A listed unit that is not his (a wanderer that joined) is still taken.
+    f.units.push_back(Unit(5, 7321, 20));
+    const UnitFact* cc = PickCc(g, f, 0);
+    CHECK(cc && cc->guid == 5);
+    // Galgann: his 7030 is never sheeped.
+    Run a = Start(&plan, 1);
+    f.units = {Unit(1, 7291, 12), Unit(2, 7030, 15)};
+    CHECK(PickCc(a, f, 0) == nullptr);
+    // A pull step with the same units keeps its crowd control.
+    Run p = Start(&plan, 2);
+    f.units = {Unit(1, 4855, 10), Unit(2, 4853, 15)};
+    cc = PickCc(p, f, 1);
+    CHECK(cc && cc->guid == 2);
+    CHECK(!BossStepUnit(Current(p), 4853) && !BossStepUnit(nullptr, 4853));
+}
+
 static void TestPullCrowdControlsTheHealer()
 {
     DungeonPlan plan = ZfPlan();
@@ -6218,16 +6260,20 @@ static void TestForwardMoveProbeGateAndCache()
 
 static void TestDetourPointReachable()
 {
-    CHECK(!DetourPointReachable(false, true, 3.8f, 3.6f));     // r6 step 64's detour 1587 1050
-    CHECK(!DetourPointReachable(false, true, 4.3f, 1.0f));     // r6 step 65's detour 1594.3 1048
-    CHECK(!DetourPointReachable(false, true, 0.5f, 2.0f)); // CheckMove's refusal (RemoteCommander::kNoProgressYd)
-    CHECK(!DetourPointReachable(false, true, 4.0f, kGoodPathMinYd)); // partial and gets nowhere past the island
-    CHECK(DetourPointReachable(false, true, 4.0f, kGoodPathMinYd + 0.5f)); // partial, leads on, ends near the point
-    CHECK(!DetourPointReachable(false, true, kDetourEndYd + 0.5f, 30.0f)); // ... but short of it
-    CHECK(DetourPointReachable(false, false, 0.3f, 1.0f));     // complete: accepted, however short
-    CHECK(DetourPointReachable(false, false, kDetourEndYd, 1.0f));
-    CHECK(!DetourPointReachable(false, false, kDetourEndYd + 0.5f, 20.0f)); // complete but ends off the point
-    CHECK(!DetourPointReachable(true, false, 0.0f, 20.0f));    // no path
+    CHECK(!DetourPointReachable(false, true, 3.8f, 3.6f, 20.0f));     // r6 step 64's detour 1587 1050
+    CHECK(!DetourPointReachable(false, true, 4.3f, 1.0f, 20.0f));     // r6 step 65's detour 1594.3 1048
+    CHECK(!DetourPointReachable(false, true, 0.5f, 2.0f, 20.0f)); // CheckMove's refusal (RemoteCommander::kNoProgressYd)
+    CHECK(!DetourPointReachable(false, true, 4.0f, kGoodPathMinYd, 20.0f)); // partial and gets nowhere past the island
+    CHECK(DetourPointReachable(false, true, 4.0f, kGoodPathMinYd + 0.5f, 20.0f)); // partial, leads on, ends near the point
+    CHECK(!DetourPointReachable(false, true, kDetourEndYd + 0.5f, 30.0f, 20.0f)); // ... but short of it
+    CHECK(DetourPointReachable(false, false, 0.3f, 1.0f, 20.0f));     // complete: accepted, however short
+    CHECK(DetourPointReachable(false, false, kDetourEndYd, 1.0f, 20.0f));
+    CHECK(!DetourPointReachable(false, false, kDetourEndYd + 0.5f, 20.0f, 20.0f)); // complete but ends off the point
+    CHECK(!DetourPointReachable(true, false, 0.0f, 20.0f, 20.0f));    // no path
+    // r9-19z26 step 124: the ring point 136 298.7 on the tank's own island, 1.3 yd from it, its path complete.
+    CHECK(!DetourPointReachable(false, false, 0.0f, 1.3f, 1.3f));
+    CHECK(!DetourPointReachable(false, false, 0.0f, 20.0f, kArriveYd));
+    CHECK(DetourPointReachable(false, false, 0.0f, 20.0f, kArriveYd + 0.1f));
 }
 
 // One reading is no island (a ledge, a closed door): the forward move goes out
@@ -6308,6 +6354,18 @@ static void TestForwardMoveNoPathLedgeEscapes()
     Facts k = onLedge(158.8f, 243.8f, -30.7f);
     CHECK(Tick(o, k) == "move 158.8 243.8 -30.7");
     CHECK(o.islandEvidence && !o.escapeOn);
+    // The documented limit: the good spot is beyond the straight hop, and a ring spot 3 yd off on the -26.5 floor
+    // fails the line check (3.2 yd down at the first sample) unless the rubble's own slope steps down 2 yd or less.
+    CHECK(!GoodSpotFits(lx, ly, lz, 121, 280.5f, -26.3f));
+    std::vector<SegmentSample> line = EscapeSegmentSamples(lx, ly, lz, lx + 3, ly, -26.5f);
+    for (SegmentSample& sample : line)
+    {
+        sample.ground = true;
+        sample.groundZ = -26.5f;
+    }
+    CHECK(CheckEscapeSegment(lz, line, false) == SegmentVerdict::Step);
+    line.front().groundZ = -24.6f; // a slope like the one the tank walked up in r9 (-25.8 to -24.2 over 3.5 yd)
+    CHECK(CheckEscapeSegment(lz, line, false) == SegmentVerdict::Ok);
 }
 
 static void TestResumeEscapesFirst()
@@ -9243,6 +9301,7 @@ int main()
     TestStalledAnchorAndSkippedPacks();
     TestHopWaiverEndsWhenCombatStartsDuringCrowdControl();
     TestPullCrowdControlsTheHealer();
+    TestBossStepNeverCrowdControlsItsAdds();
     TestNoCrowdControlWithoutAMageOrPlanList();
     TestCrowdControlMustLand();
     TestKillFirstIsThisFightsOnly();

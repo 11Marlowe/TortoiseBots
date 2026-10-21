@@ -2088,9 +2088,15 @@ inline bool RingSpotLeadsOn(bool pathNoPath, bool pathIncomplete, float endFromS
 // the partial paths to 1587 1050 and 1594.3 1048 ended 3.6 and 1.0 yd from the
 // lead bot, within 5 yd of the point: both moves were refused (CheckMove's
 // no-progress rule), each a pause.
-inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd)
+// Never a point within kArriveYd of the lead bot (r9-19z26 Uldaman step 124: the
+// 10 yd ring point 136 298.7 lay 1.3 yd from the tank on its own rubble island,
+// its path complete, and the step counted as 'arrived' 10.3 yd from the plan's
+// point without a yard walked).
+inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd,
+    float pointFromLeadYd)
 {
-    return endFromPointYd <= kDetourEndYd && RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
+    return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd &&
+        RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
 }
 
 // The glue probes the path to the last good lead spot (Facts::goodSpotCut)
@@ -2958,16 +2964,28 @@ inline bool CcHeld(const Run& r, const Facts& f)
 // best-ranked of the plan's cc entries (cc_priority, then cc_always) among
 // the step's units, never the pull target, not one already done this step,
 // and none while an earlier one is still alive. Null without a mage in the
-// party or a plan list.
+// party or a plan list. Never the boss of a boss step or one of its own adds
+// (the step's entries, killed first in its kill order): Uldaman's cc lists
+// (20261021174717) name the Geomancer 4853 that Grimlok's step lists and the
+// 7030 of Galgann's, and a polymorphed add of the kill order holds the fight
+// up (turtle-agent remote_cc.go never sheeps the active boss's `first` adds).
+inline bool BossStepUnit(const PlanStep* s, std::uint32_t entry)
+{
+    if (!s || s->kind != PlanStepKind::Boss)
+        return false;
+    return entry == s->entry || std::find(s->entries.begin(), s->entries.end(), entry) != s->entries.end();
+}
+
 inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGuid)
 {
     if (!r.plan || CcBot(f).empty() || CcHeld(r, f))
         return nullptr;
+    const PlanStep* const step = Current(r);
     const UnitFact* best = nullptr;
     int bestRank = 0;
     for (const UnitFact& u : f.units)
     {
-        if (u.guid == pullGuid || !Pullable(r, u) || r.ccSent.count(u.guid))
+        if (u.guid == pullGuid || !Pullable(r, u) || r.ccSent.count(u.guid) || BossStepUnit(step, u.entry))
             continue;
         int const rank = r.plan->CcRank(u.entry);
         if (rank < 0)

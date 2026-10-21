@@ -139,11 +139,13 @@ class IslandEscapeWiringTest(unittest.TestCase):
         f = body(COMMANDS, "bool NearestReachablePoint(", "\n}\n")
         check = at(f, "if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,\n"
                       "                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),\n"
-                      "                DistanceTo(lead, end.x, end.y, end.z)))\n            return false;")
+                      "                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))\n            return false;")
         self.assertLess(check, at(f, "ox = px;"))
         self.assertNotIn("> 5.0f)", f)
         p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
         at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")
+        # r9-19z26 step 124: a ring point 1.3 yd from the lead bot on its own island was taken.
+        at(p, "return pointFromLeadYd > kArriveYd && endFromPointYd <= kDetourEndYd &&")
 
     def test_a_no_path_reading_is_an_island_reading(self):
         # r9-19z26 Uldaman: from the ledge every path came back NOPATH (a partial

@@ -9304,10 +9304,11 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
         uint32 const type = static_cast<uint32>(path.getPathType());
         Vector3 const end = path.getActualEndPosition();
         // Near the point AND, when partial, leading on (r6-19z24: two ring points
-        // whose partial paths ended on the lead bot's island were taken, and refused).
+        // whose partial paths ended on the lead bot's island were taken, and refused),
+        // and off the lead bot (r9-19z26: a ring point 1.3 yd from it on its island).
         if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,
                 (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),
-                DistanceTo(lead, end.x, end.y, end.z)))
+                DistanceTo(lead, end.x, end.y, end.z), DistanceTo(lead, px, py, ground)))
             return false;
         ox = px;
         oy = py;

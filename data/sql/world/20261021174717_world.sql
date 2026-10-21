@@ -11,6 +11,11 @@
 --     for the first time (turtle-agent 4f31de5 and 312d066, pjerra/turtle-agent#290, merged on origin/dev after the 330a858
 --     of the file before; 20261021174715 wrote them empty).
 -- Every other row is the same.
+-- The moved leg end is the cure for the r9 strand. The module's reading of a no-path answer as an island sign (fix/island-escape-
+-- ledge e2e9c386) is only the second line: from the r9 spot the last good spot lay 24.6 yd off (the hop goes at most 10 yd) and
+-- the floor round the rubble 3.2 yd below, where the hop's line check refuses a step over 2 yd; it was not shown to get off.
+-- The cc lists are read with a guard from the same branch: a boss step never crowd-controls its boss or the adds its row names
+-- (Grimlok's 4853, Galgann's 7030). The plan's no_cc list (4857, 4860) has no column and is not exported.
 --
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
