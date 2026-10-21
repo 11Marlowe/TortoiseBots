@@ -953,7 +953,7 @@ static bool RouteLegIsSurvivable(Player* bot, WorldPosition const& from, WorldPo
         WorldPosition const sample(from.GetMapId(),
             from.getX() + (to.getX() - from.getX()) * t,
             from.getY() + (to.getY() - from.getY()) * t,
-            from.getZ(), 0.0f);
+            from.getZ() + (to.getZ() - from.getZ()) * t, 0.0f);
 
         if (avoidTowns && sample.IsGuardedHostileTownFor(bot, ai::TRAVEL_ROUTE_SAMPLE_RADIUS_YD, false))
         {
@@ -984,20 +984,27 @@ static bool RouteIsSurvivableUncached(Player* bot, WorldPosition const& start, W
 {
     std::vector<WorldPosition> beginPath, endPath;
     TravelNodeRoute route = sTravelNodeMap.getRoute(start, *position, beginPath, endPath, bot);
-    if (route.isEmpty())
+    if (route.isEmpty() && start.getMapId() != position->getMapId())
     {
-        if (start.getMapId() != position->getMapId())
-        {
-            blocker = "no route to that continent";
-            return false;
-        }
-        return true; // same map without a node route: the pathfinder handles it directly
+        blocker = "no route to that continent";
+        return false;
     }
     bool ok = true;
     // Random masterless bots only; the town check needs an ai for the master
     // gate, so callers pass it in.
     PlayerbotAI* routeAi = PlayerbotAIStorage::Instance().GetAI(bot);
     bool const avoidTowns = sPlayerbotAIConfig.avoidHostileTowns && routeAi && !routeAi->HasRealPlayerMaster();
+    if (route.isEmpty())
+    {
+        // Same map without a node route: the pathfinder walks straight there,
+        // so the direct leg is the journey. The level rule applies unless the
+        // bot already stands in ground above it (or inside a hostile town), or
+        // it could never walk out.
+        bool const checkLevel = !ai::TravelRouteAreaTooHigh(start.GetAreaLevel(), bot->GetLevel());
+        bool const checkTowns = avoidTowns &&
+            !start.IsGuardedHostileTownFor(bot, ai::TRAVEL_ROUTE_SAMPLE_RADIUS_YD, false);
+        return RouteLegIsSurvivable(bot, start, *position, nullptr, checkTowns, checkLevel, blocker);
+    }
     for (TravelNode* node : route.getNodes())
     {
         WorldPosition* p = node ? node->getPosition() : nullptr;
