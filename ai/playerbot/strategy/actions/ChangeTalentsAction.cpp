@@ -176,6 +176,9 @@ bool ChangeTalentsAction::Execute(Event& event)
         if (!param.empty() && sRandomBotFacade.IsRandomBot(bot) && tier == 0)
         {
             PlayerbotFactory gear(bot, bot->GetLevel());
+            // Owner rule: a pool bot's re-gear stays inside the pool
+            // generated-gear cap, same as its seed.
+            gear.UsePoolGearCap();
             gear.UpgradeGearBest();
             bot->SaveToDB();
         }

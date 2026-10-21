@@ -12,6 +12,7 @@
 #include "../../runtime/ProfessionGrantPolicy.h"
 #include "../../runtime/OwnedBotQolPolicy.h"
 #include "../../runtime/ShamanTankKitPolicy.h"
+#include "../../runtime/GearItemLevelCapPolicy.h"
 
 #include "Database/SQLStorages.h"
 #include "Objects/ItemPrototype.h"
@@ -75,6 +76,10 @@ void PlayerbotFactory::MakeComplete()
     // Gear last and incremental only — never wipe earned gear.
     // Enchants apply per item inside InitEquipment (ApplyBestEnchant) plus
     // the EnchantEquipment() sweep below; both read the candidate pool.
+    // Owner rule (Oct 2026): a pool bot is seeded (and later re-geared) within
+    // level + RandomGearMaxItemLevelAboveLevel, so a wandering bot never wears
+    // raid-level loot it could not have earned.
+    UsePoolGearCap();
     InitEquipment(true, false);
     // Missing kit, idempotent: thrown top-up FIRST (Issue #401: 76
     // rogues/warriors missed it with EQUIP_ERR_INVENTORY_FULL - the bulky
@@ -218,6 +223,12 @@ void PlayerbotFactory::ProvisionSpellsAndGear()
     InitAllSkills();
     InitAvailableSpells();
     InitSpecialSpells();
+    // Owner rule (Oct 2026): the standard (tier 0) companion kit is generated
+    // within level + HireGearMaxItemLevelAboveLevel - a little above the pool
+    // rule, still below the curated tier-2 kit. The curated tier 1-7 rows
+    // (HireProvisionService::ProvisionHireGear) replace this gear afterwards
+    // and are not touched.
+    UseStandardHireGearCap();
     InitEquipment(true, false);
     // Field kit, idempotent like the pool path: thrown top-up first (single
     // slot before the bulky kit), then bags, tools, mounts, ammo, reagents,
@@ -1128,10 +1139,10 @@ void PlayerbotFactory::QuerySeedCandidates(Player* bot, uint32 specId, uint8 slo
     }
 }
 
-bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, std::vector<uint32>& ids)
+bool PlayerbotFactory::TrySeedEpicIds(Player* bot, uint32 specId, uint8 slot, uint32 searchLevel, uint32 maxItemLevel, std::vector<uint32>& ids)
 {
     ids.clear();
-    QuerySeedCandidates(bot, specId, slot, searchLevel, sPlayerbotAIConfig.randomGearMaxLevel, ITEM_QUALITY_EPIC, ids);
+    QuerySeedCandidates(bot, specId, slot, searchLevel, maxItemLevel, ITEM_QUALITY_EPIC, ids);
     if (ids.empty())
         return false;
     // Strip non-attested epics; the caller shuffles the survivors. The EPIC
@@ -1392,7 +1403,11 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
         uint32 searchLevel = level;
         uint32 quality = ITEM_QUALITY_POOR;
-        uint32 maxItemLevel = maxItemLevelOverride != 0 ? maxItemLevelOverride : sPlayerbotAIConfig.randomGearMaxLevel;
+        // Generated-gear ceiling for this bot: the explicit override wins,
+        // otherwise the population cap (level + configured allowance, never
+        // above RandomGearMaxLevel). See GearItemLevelCapPolicy.h.
+        uint32 maxItemLevel = maxItemLevelOverride != 0 ? maxItemLevelOverride
+            : TortoiseBots::GearItemLevelCap(bot->GetLevel(), generatedGearIlvlAboveLevel, sPlayerbotAIConfig.randomGearMaxLevel);
         bool progressiveGear = progressive;
         if(syncWithMaster && ai->GetMaster())
         {
@@ -1526,7 +1541,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                 if (seedSpread && !setQuality && level >= 30 &&
                     sPlayerbotAIConfig.randomGearSeedEpicChance > 0.0f &&
                     frand(0.0f, 1.0f) < sPlayerbotAIConfig.randomGearSeedEpicChance)
-                    seedEpic = TrySeedEpicIds(bot, specId, slot, searchLevel, ids);
+                    seedEpic = TrySeedEpicIds(bot, specId, slot, searchLevel, maxItemLevel, ids);
                 // Fresh-seed quality band (owner spec): greens and blues mixed
                 // from level 20, the progressive poor/normal floor below that.
                 // Epics only through the rare world-epic gate above (a fresh
