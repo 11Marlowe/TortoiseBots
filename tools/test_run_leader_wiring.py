@@ -448,18 +448,25 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, true, dt);", policy)
         # PLAN-ZF-NOFIGHT: a move's and the walk back's pulls are hop pulls; a hop unit the tank cannot shoot is
-        # passed with no order (after the stand gate, before any pullback), and a unit that never came stays
-        # passed in every later step (ResetStep seeds `passed` with the run-wide set).
+        # left out with no order (after the stand gate, before any pullback). The run-wide set holds hop units
+        # only, is read only by the two hop picks, is cleared by every regroup, and loses a unit that attacks.
         self.assertIn("hop = hop || walkBack;", pull)
         nohop = pull.index("if (hop && PullStandOn(r, f) && !ShootableFromLead(f, u))")
         self.assertLess(gate, nohop)
         self.assertLess(nohop, pull.index('order = "pullback " + std::to_string(u.guid);'))
         self.assertIn("r.pullHop = hop;", pull)
         reset = body(policy, "inline void ResetStep(", "\n}\n")
-        self.assertIn("r.passed = r.neverCame;", reset)
-        self.assertNotIn("r.passed.clear();", reset)
+        self.assertIn("r.passed.clear();", reset)
+        self.assertNotIn("neverCame", reset)
         await_pull = body(policy, "inline void AwaitPull(", "\n}\n")
-        self.assertIn("r.neverCame.insert(r.pullGuid);", await_pull)
+        self.assertIn("if (r.pullHop)\n        r.neverCame.insert(r.pullGuid);", await_pull)
+        self.assertEqual(policy.count("PickPull(r, f.hopUnits, 0, true)"), 2)
+        self.assertEqual(policy.count("r.neverCame.count("), 1)
+        regroup = body(policy, "inline void BeginRegroup(", "\n}\n")
+        self.assertIn("r.neverCame.clear();", regroup)
+        tick_body = body(policy, "inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)\n{",
+                         "\n}\n")
+        self.assertIn("ForgetUnitsThatCame(r, f);", tick_body)
         config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
         header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
         template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()

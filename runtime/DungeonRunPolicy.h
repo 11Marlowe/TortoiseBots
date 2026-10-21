@@ -610,10 +610,12 @@ struct Run
     // Run-wide (kept across steps).
     std::unordered_set<std::uint64_t> unreachable;   // units given up on: never pulled again this run
     // Units that never came (PLAN-ZF-NOFIGHT; Zul'Farrak r3/r6, the island
-    // Shadowhunter 81610): a pull that drew no fight within kPullNoFightMs (a
-    // hop pull at once, a step's pull after kPullTriesPerUnit in a step), or a
-    // hop unit the tank could not shoot (PullUnit). ResetStep seeds `passed`
-    // with it, so no later step, hop pull or walk back pulls them again.
+    // Shadowhunter 81610): hop units only (a move's or the walk back's) whose
+    // one pull drew no fight within kPullNoFightMs, or that the tank could not
+    // shoot (PullUnit). Read only by the hop picks (PickPull `hop`), so a pull,
+    // boss or hold step's own units are never left out by it. Cleared by every
+    // regroup (BeginRegroup: a resume, a wipe recovery); a unit in it that turns
+    // up as an attacker of the party is taken out at once (ForgetUnitsThatCame).
     std::unordered_set<std::uint64_t> neverCame;
     // loot: the bot the order goes to ("": the carrier), the bots a refusal on the
     // loot rules has been tried with, and the refusal's pause text while the
@@ -1134,7 +1136,7 @@ inline void ResetStep(Run& r)
     r.pullGuid = 0;
     r.pulls = 0;
     r.pullTries.clear();
-    r.passed = r.neverCame; // a unit that never came stays passed for the run
+    r.passed.clear();
     r.pullHop = false;
     r.openAtLastPull = 0;
     r.fruitlessPulls = 0;
@@ -1618,6 +1620,7 @@ inline void DropHopWaiver(Run& r)
 inline void BeginRegroup(Run& r)
 {
     DropHopWaiver(r);
+    r.neverCame.clear(); // a resume or a wipe recovery judges the hop units afresh
     r.anchorKnown = false; // the party comes back to life elsewhere
     r.regroup = true;
     r.reviveSent = false;
@@ -2729,12 +2732,16 @@ inline bool ExactWalkTo(Run& r, const Facts& f, std::size_t idx, std::uint32_t d
 
 // The unit to pull now: hostile, not evading, not passed, not stealthed;
 // nearest to the lead bot. When `entry` is not 0 only that entry. Null for none.
-inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units, std::uint32_t entry)
+// `hop`: a hop pick (Facts::hopUnits), which also leaves out Run::neverCame.
+inline const UnitFact* PickPull(const Run& r, const std::vector<UnitFact>& units, std::uint32_t entry,
+    bool hop = false)
 {
     const UnitFact* best = nullptr;
     for (const UnitFact& u : units)
     {
         if (!u.hostile || u.evading || u.stealthed || r.passed.count(u.guid) || r.unreachable.count(u.guid))
+            continue;
+        if (hop && r.neverCame.count(u.guid))
             continue;
         if (entry && u.entry != entry)
             continue;
@@ -3142,10 +3149,13 @@ inline bool HoldForShot(Run& r, const Facts& f, const UnitFact& u, std::uint32_t
 // With the pull stand on (HoldForShot), the tank is put where it can shoot first.
 // `hop`: a move's hop pull (the walk back's are hop pulls too). Such a unit is
 // not the step's target: with the pull stand on, one the tank still cannot
-// shoot once the stand rule gave up is passed for the run (neverCame), with no
-// order: the pullback would walk the tank at it (ReachPullAction), and in
-// r6-19z24 step 64 that walk, the engage on arrival and the chase put the tank
-// on the island of 81610 (PLAN-ZF-NOFIGHT).
+// shoot once the stand rule gave up is left out of the hop picks (neverCame),
+// with no order: the pullback would walk the tank at it (ReachPullAction), and
+// in r6-19z24 step 64 that walk, the engage on arrival and the chase put the
+// tank on the island of 81610 (PLAN-ZF-NOFIGHT). The judgement is made from
+// where the tank stands now: a unit around a corner is left too, and fights
+// when the party walks by. After a regroup cleared the set, the same rule
+// leaves a still unshootable unit out again without any pull.
 inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& order, const UnitFact* cc = nullptr,
     bool walkBack = false, std::uint32_t dt = kTickMs, bool hop = false)
 {
@@ -3232,7 +3242,6 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
     if (hop && PullStandOn(r, f) && !ShootableFromLead(f, u))
     {
         r.neverCame.insert(u.guid);
-        r.passed.insert(u.guid);
         r.note = "hop unit " + std::to_string(u.entry) + " " + GuidArg(u.guid) +
             " passed: the tank cannot shoot it from here (" + r.shotHow + "), and a hop pull never walks to it";
         r.shotStandPrep = false;
@@ -3282,19 +3291,18 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
 }
 
 // The step's pull is out: wait for the fight (the fight gate takes over) or
-// give the pull up after kPullNoFightMs. A unit that never came is passed for
-// the run (Run::neverCame): a hop pull's at once (the agent's one pullback), a
-// step pull's after kPullTriesPerUnit in a step.
+// give the pull up after kPullNoFightMs. A hop unit that never came is left
+// out of the hop picks at once (Run::neverCame: the agent's one pullback); a
+// step's own unit only for the step, after kPullTriesPerUnit such pulls.
 inline void AwaitPull(Run& r)
 {
     if (r.phaseMs < kPullNoFightMs)
         return;
     auto it = r.pullTries.find(r.pullGuid);
-    if (r.pullHop || (it != r.pullTries.end() && it->second >= kPullTriesPerUnit))
-    {
+    if (it != r.pullTries.end() && it->second >= kPullTriesPerUnit)
         r.passed.insert(r.pullGuid);
+    if (r.pullHop)
         r.neverCame.insert(r.pullGuid);
-    }
     r.pullGuid = 0;
     r.pullHop = false;
     EnterPhase(r, Phase::Begin);
@@ -3687,7 +3695,7 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         if (r.phase == Phase::AwaitPull)
             return true;
     }
-    if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0))
+    if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0, true))
     {
         PullUnit(r, f, *hopUnit, order, nullptr, true, dt);
         if (r.state == State::Running)
@@ -4066,7 +4074,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         if (r.phase == Phase::AwaitPull)
             return;
     }
-    if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0))
+    if (const UnitFact* hopUnit = PickPull(r, f.hopUnits, 0, true))
     {
         PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);
         return;
@@ -5838,6 +5846,21 @@ inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, cons
     return order;
 }
 
+// A unit in Run::neverCame that turns up as an attacker of the party (on a
+// bot, on the lead bot, or a kill_first unit in the fight) came after all: it
+// is taken out of the set at once, so the hop picks see it again.
+inline void ForgetUnitsThatCame(Run& r, const Facts& f)
+{
+    if (r.neverCame.empty())
+        return;
+    for (const UnitFact& u : f.partyAttackers)
+        r.neverCame.erase(u.guid);
+    for (const UnitFact& u : f.killFirst)
+        r.neverCame.erase(u.guid);
+    if (f.leadHasAttacker)
+        r.neverCame.erase(f.leadAttacker.guid);
+}
+
 inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const RestLines& lines)
 {
     std::string order;
@@ -5851,6 +5874,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         return order;
     }
     r.phaseMs += dt;
+    ForgetUnitsThatCame(r, f);
     if (r.eventOn)
         r.eventMs += dt; // an event's clock runs in its fights too
     r.gatherOrder.clear(); // only this tick's gather can be refused next
