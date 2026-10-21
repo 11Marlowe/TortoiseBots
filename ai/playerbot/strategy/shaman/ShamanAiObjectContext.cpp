@@ -330,6 +330,7 @@ namespace ai
                 creators["tank threat lead"] = [](PlayerbotAI* ai) { return new TankThreatLeadTrigger(ai); };
                 creators["tank stoneclaw"] = [](PlayerbotAI* ai) { return new TankStoneclawTrigger(ai); };
                 creators["tank magma totem"] = [](PlayerbotAI* ai) { return new TankMagmaTrigger(ai); };
+                creators["tank fire nova"] = [](PlayerbotAI* ai) { return new TankFireNovaTrigger(ai); };
                 creators["tank lightning shield"] = [](PlayerbotAI* ai) { return new TankLightningShieldTrigger(ai); };
                 creators["tank water shield"] = [](PlayerbotAI* ai) { return new TankWaterShieldTrigger(ai); };
                 creators["totemic slam"] = [](PlayerbotAI* ai) { return new TotemicSlamTrigger(ai); };

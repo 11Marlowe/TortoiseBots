@@ -12,6 +12,8 @@
 
 using ai::TankChainLightningShouldFire;
 using ai::TankEarthPickReplaceable;
+using ai::TankFightTargetIsBossOrElite;
+using ai::TankFireNovaShouldDrop;
 using ai::TankHardCastAllowed;
 using ai::TankMagmaShouldFollow;
 using ai::TankShamanTargetIsElite;
@@ -137,14 +139,65 @@ int main()
     CHECK(TankStoneclawShouldDrop(true, false, false, true, true, 5, true, true) == false);
     std::cout << "  [PASS] stoneclaw drops on arrival when threat needs it\n";
 
-    // Magma order: Nova first; Magma only as the last resort after Nova
-    // with the party still AoEing, or into a wide pack with mana to burn.
-    CHECK(TankMagmaShouldFollow(false, true, 3, true) == false);
-    CHECK(TankMagmaShouldFollow(true, true, 3, true) == true);
-    CHECK(TankMagmaShouldFollow(true, false, 3, true) == false);
-    CHECK(TankMagmaShouldFollow(false, true, 4, true) == true);
-    CHECK(TankMagmaShouldFollow(true, true, 5, false) == false);
-    std::cout << "  [PASS] magma stays the last resort after nova\n";
+    // Fire slot: Fire Nova owns it whenever the drop is available and no Nova
+    // totem stands; a standing Nova totem must be left to detonate.
+    CHECK(TankFireNovaShouldDrop(true, true, false) == true);
+    CHECK(TankFireNovaShouldDrop(true, true, true) == false);
+    CHECK(TankFireNovaShouldDrop(true, false, false) == false);   // 15 s category cooldown
+    CHECK(TankFireNovaShouldDrop(false, false, false) == false);  // not trained
+    std::cout << "  [PASS] nova owns the fire slot while ready and nothing stands\n";
+
+    // Magma order: only the fallback for the Nova cooldown, into a real pack
+    // with mana to burn — never while Nova is ready (that is Nova's tick) and
+    // never over a standing Nova totem (it would unsummon it before the blast).
+    CHECK(TankMagmaShouldFollow(true, false, 5, true) == false);
+    CHECK(TankMagmaShouldFollow(false, true, 5, true) == false);
+    CHECK(TankMagmaShouldFollow(false, false, 2, true) == false);
+    CHECK(TankMagmaShouldFollow(false, false, 3, true) == true);
+    CHECK(TankMagmaShouldFollow(false, false, 5, true) == true);
+    CHECK(TankMagmaShouldFollow(false, false, 5, false) == false);
+    std::cout << "  [PASS] magma stays the fallback on the nova cooldown\n";
+
+    // Stable fight decision: an engaged elite keeps the fight a fight while
+    // the tank switches between it and its normal-rank adds.
+    CHECK(TankFightTargetIsBossOrElite(true, false) == true);
+    CHECK(TankFightTargetIsBossOrElite(false, true) == true);
+    CHECK(TankFightTargetIsBossOrElite(false, false) == false);
+    std::cout << "  [PASS] fight decision survives a target switch\n";
+
+    // No flap on a mixed pull: with the stable fight decision the earth pick
+    // stays Strength of Earth while the elite is engaged, even though the
+    // current target alternates between the elite and its normal-rank adds
+    // every step (the old current-target-only read swapped the totem each
+    // switch: Stoneclaw took the slot, the fight row took it back).
+    {
+        int slot = 0;      // 0 empty, 1 Strength of Earth, 2 Stoneclaw
+        int replaced = 0;  // drops that replaced a standing pick
+        for (int step = 0; step < 6; ++step)
+        {
+            bool const targetElite = (step % 2) == 0;
+            bool const attackerElite = true;  // the elite is engaged throughout
+            bool const fight = TankFightTargetIsBossOrElite(targetElite, attackerElite);
+            bool const strengthStanding = slot == 1;
+            bool const stoneclawStanding = slot == 2;
+
+            bool const dropStrength = TankStrengthOfEarthShouldDrop(fight, slot != 0, stoneclawStanding);
+            bool const dropStoneclaw = TankStoneclawShouldDrop(true, false, false, slot != 0, true, 3,
+                fight, TankEarthPickReplaceable(strengthStanding, false));
+
+            int const before = slot;
+            if (dropStrength)
+                slot = 1;
+            else if (dropStoneclaw)
+                slot = 2;
+
+            if (slot != before && before != 0)
+                ++replaced;
+        }
+        CHECK(slot == 1);       // the fight pick holds for the whole pull
+        CHECK(replaced == 0);   // nothing replaced it after the first drop
+    }
+    std::cout << "  [PASS] earth pick does not flap on a mixed pull\n";
 
     std::cout << "All shaman tank policy checks PASSED!\n";
     return 0;

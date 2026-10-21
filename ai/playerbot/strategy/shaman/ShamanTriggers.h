@@ -177,8 +177,13 @@ namespace ai
                     return !AI_VALUE2(bool, "has totem", ordered.c_str());
                 if (!stored.empty() && stored != "auto")
                     return false;
+                // A standing Fire Nova Totem counts as the fire slot being
+                // taken: the drop carries a 5 s countdown and any fire totem
+                // dropped over it unsummons it before it can detonate, so the
+                // filler must not replace it.
                 return !AI_VALUE2(bool, "has totem", "searing totem") &&
                        !AI_VALUE2(bool, "has totem", "magma totem") &&
+                       !AI_VALUE2(bool, "has totem", "fire nova totem") &&
                        !AI_VALUE2(bool, "has totem", "frost resistance totem") &&
                        !AI_VALUE2(bool, "has totem", "flametongue totem");
             }
@@ -1069,8 +1074,22 @@ namespace ai
        virtual bool IsActive() override;
     };
 
-    // Tank Magma: last resort AoE after Fire Nova is on cooldown or down and
-    // 3+ mobs remain, or into a wide pack (4+) where Nova alone will not hold it.
+    // Tank Fire Nova, the tank's pack pick for the fire slot: 2+ attackers
+    // inside the Nova's own detonation window (the totem lands at our feet,
+    // so the window is the pulse radius, not the 5 yd melee window), while
+    // the drop is off cooldown and no Nova totem already stands. Inherits
+    // the melee AoE pack gate and its breakable-CC interlock from AoeTrigger.
+    class TankFireNovaTrigger : public AoeTrigger
+    {
+    public:
+        TankFireNovaTrigger(PlayerbotAI* ai);
+
+        bool IsActive() override;
+    };
+
+    // Tank Magma: fallback for the fire slot while Fire Nova is on cooldown
+    // (never while it is ready, and never over a standing Nova totem), into a
+    // real pack (3+) with mana to burn.
     class TankMagmaTrigger : public MeleeMediumAoeTrigger
     {
     public:

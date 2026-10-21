@@ -149,17 +149,48 @@ namespace ai
         return standingStoneclaw;
     }
 
-    // Fire Nova vs Magma order: Nova first whenever the party AoEs (3+
-    // attackers, the trigger already gates the count); Magma only as the
-    // last resort when the pack still lives after Nova (nova totem already
-    // down this fight is the proxy) and mana can take the burn, or when the
-    // pack is wide (4+) and Nova alone will not hold it.
-    inline bool TankMagmaShouldFollow(bool novaTotemDown, bool partyAoeing, std::uint8_t attackerCount, bool manaForMagma)
+    // Fire Nova drop gate for the tank's pack pick. One fire totem at a
+    // time: the Nova totem owns the slot for its whole countdown (5 s in
+    // 1.12) and detonates only if nothing replaces it, so the row stands
+    // down while one stands. The drop itself carries a 15 s category
+    // cooldown (spell_template 11315: category 35, categoryRecoveryTime
+    // 15000), which the caller reads off the spell - that is the "Nova is
+    // not available this tick" signal the Magma fallback keys on.
+    inline bool TankFireNovaShouldDrop(bool knowsFireNova, bool novaReady, bool novaTotemStanding)
     {
+        if (!knowsFireNova || !novaReady)
+            return false;
+        return !novaTotemStanding;
+    }
+
+    // Fire slot order (one fire totem at a time): Fire Nova is the pack pick
+    // and owns the slot whenever it is available; Magma is only the fallback
+    // while Fire Nova is on cooldown and no Nova totem stands; Searing is the
+    // single-target filler and never replaces a standing Nova or Magma.
+    //
+    //   Nova ready / standing -> Nova (its row sits above Magma and Searing)
+    //   Nova on cooldown      -> Magma into a real pack (3+), mana allowing
+    //   no pack at all        -> Searing
+    //
+    // The old "4+ attackers regardless of Nova" arm let Magma replace the
+    // Nova totem one GCD after the drop, before it could detonate.
+    inline bool TankMagmaShouldFollow(bool novaReady, bool novaTotemStanding, std::uint8_t attackerCount, bool manaForMagma)
+    {
+        if (novaReady || novaTotemStanding)
+            return false;
         if (!manaForMagma)
             return false;
-        if (novaTotemDown && partyAoeing)
-            return true;
-        return attackerCount >= 4 && partyAoeing;
+        return attackerCount >= 3;
+    }
+
+    // Stable per-fight boss/elite decision for the tank's earth pick and its
+    // Earth Shock gate. Reading the current target alone flipped the answer
+    // every time the tank switched between an elite and its normal-rank
+    // adds, and the earth pick followed the flip (Stoneclaw took the slot
+    // from Strength of Earth and the fight row took it back on the next
+    // switch). Any engaged elite keeps the fight a fight for its duration.
+    inline bool TankFightTargetIsBossOrElite(bool currentTargetElite, bool anyAttackerElite)
+    {
+        return currentTargetElite || anyAttackerElite;
     }
 }
