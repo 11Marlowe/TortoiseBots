@@ -302,6 +302,38 @@ class RunLeaderWiringTest(unittest.TestCase):
         for doc in ("docs/server/settings/dungeons-raids.md",):
             self.assertIn("AiPlayerbot.DungeonRunRezHold", (ROOT / doc).read_text())
 
+    def test_loot_ffa_is_wired_behind_its_key(self):
+        # AiPlayerbot.DungeonRunLootFfa (default 0): the glue reads the group's loot method and the lead bot's
+        # leadership only with the key on; the loot method goes back whenever the run is not running.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        self.assertIn('dungeonRunLootFfa = config.GetBoolDefault("AiPlayerbot.DungeonRunLootFfa", false);', config)
+        self.assertIn("bool dungeonRunLootFfa;", header)
+        self.assertIn("AiPlayerbot.DungeonRunLootFfa = 0", template)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n    f.leadAlive")
+        self.assertIn("if (sPlayerbotAIConfig.dungeonRunLootFfa)\n    {\n        f.lootFfaOn = true;", facts)
+        self.assertIn("f.lootMethod = static_cast<int>(leadGroup->GetLootMethod());", facts)
+        self.assertIn("f.leadLeadsGroup = leadGroup->IsLeader(lead->GetObjectGuid());", facts)
+        restore = body(COMMANDS, "void RestoreRunLootMethod(", "\n}\n")
+        self.assertIn("run.lootFfaLive = false;", restore)
+        self.assertIn("group->IsLeader(lead->GetObjectGuid())", restore)
+        self.assertIn("static_cast<int>(group->GetLootMethod()) != RemoteCommander::kLootFfa", restore)
+        self.assertIn("HandleLootMethodOpcode(packet)", restore)
+        # Every way a run stops being a running one restores: pause / stop / time limit (ReleaseRunHold),
+        # an unbind (ReleaseBinding), the key switched off.
+        hold = body(COMMANDS, "void ReleaseRunHold(", "\n    if (slot.heldRaw.empty()")
+        self.assertIn("RestoreRunLootMethod(leadRaw, slot.run);", hold)
+        release = body(COMMANDS, "uint32 ReleaseBinding(", "RemoteCommander::Binding removed =")
+        self.assertIn("RestoreRunLootMethod(standing->leadGuid, run->second.run);", release)
+        off = body(COMMANDS, "// Switched off by a config reload", "s_dungeonRunMs = 0;")
+        self.assertIn("RestoreRunLootMethod(standing->leadGuid, entry.second.run);", off)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("LootFfaWanted(r, f, s)", policy)
+        self.assertIn('order = "lootmethod ffa";', policy)
+        self.assertIn('std::string("lootmethod ") + RemoteCommander::LootMethodName(r.lootRestore)', policy)
+        self.assertIn("AiPlayerbot.DungeonRunLootFfa", (ROOT / "docs/server/settings/dungeons-raids.md").read_text())
+
     def test_uldaman_run4_fixes_are_wired(self):
         # The tank's reach for a pull stops once a mob has aggro: the facts are read in fights, the policy asks, the
         # glue ends the lead bot's pull.

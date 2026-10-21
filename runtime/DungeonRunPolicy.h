@@ -54,6 +54,7 @@
 
 #include "../ai/playerbot/DungeonPlanPolicy.h"
 #include "../ai/playerbot/RangedApproachPolicy.h"
+#include "RemoteCommanderTasks.h"
 #include "RezHoldPolicy.h"
 
 #include <algorithm>
@@ -237,6 +238,10 @@ struct RestLines
 enum class State : std::uint8_t { Running, Paused, Done };
 enum class Phase : std::uint8_t { Begin, Gather, Walk, AwaitPull, AwaitTask, Rest, Wait, Hold };
 
+// A loot step's free-for-all detour (AiPlayerbot.DungeonRunLootFfa, TaskStep): Idle; Ordered: `lootmethod ffa`
+// went out; Looting: the loot order is out under free-for-all; Restoring: the saved method was ordered back.
+enum class LootFfa : std::uint8_t { Idle, Ordered, Looting, Restoring };
+
 inline const char* StateName(State s)
 {
     switch (s)
@@ -406,6 +411,10 @@ struct Facts
     bool corpseHasItem = false;         // ... and is in the map, still holding the step's item (not looted)
     int taskReply = 0;                  // the carrier's task answer since the run's order: 0 none, 1 ACK, 2 ERR
     std::string taskText;
+    // AiPlayerbot.DungeonRunLootFfa (default 0): read every tick, only a loot step looks at them.
+    bool lootFfaOn = false;             // the key is on
+    int lootMethod = -1;                // the group's loot method (RemoteCommander::kLoot*), -1: no group
+    bool leadLeadsGroup = false;        // the lead bot leads the group (`cmd lootmethod` needs it)
     // Guarding the party (GuardTarget), read in fights only:
     bool leadIsTank = false;            // the lead bot is a tank
     bool leadStaying = false;           // the lead bot holds "stay" (the run's move to a stand or walk-back point)
@@ -545,6 +554,13 @@ struct Run
     std::vector<std::string> lootTried;
     std::string lootRefusal;
     bool lootRights = false;            // the refusal was the loot rules (another member's turn ...)
+    // The free-for-all detour of a loot step (LootFfaStart, LootFfaStep). lootFfaUsed: once per step (ResetStep).
+    // lootFfaLive and lootRestore are run-wide: the group's method may be ffa because of this run, and was
+    // lootRestore (RemoteCommander::kLoot*) before; the glue puts it back whenever the run is not running.
+    LootFfa lootFfa = LootFfa::Idle;
+    bool lootFfaUsed = false;
+    bool lootFfaLive = false;
+    int lootRestore = -1;
     std::unordered_set<std::uint32_t> missing;       // items the run did not get (a skipped loot or use)
     std::unordered_map<std::uint32_t, CorpseMark> corpses; // boss entry -> the corpse seen when that boss step ended "boss down"
     std::uint32_t pendingMissing = 0;                 // the item a paused step failed to get (missing on skip)
@@ -980,6 +996,8 @@ inline void ResetStep(Run& r)
     r.lootTried.clear();
     r.lootRefusal.clear();
     r.lootRights = false;
+    r.lootFfa = LootFfa::Idle; // lootFfaLive stays: the glue restores the method (RestoreRunLootMethod)
+    r.lootFfaUsed = false;
     r.dataAtOrder = -1;
     r.walkedThrough = false;
     r.approachHops = 0;
@@ -1806,6 +1824,21 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
             r.summonWaitMs = 0;
         }
         r.note = order + " refused: " + answer + (r.summonWait.empty() ? "" : ": waiting for it");
+        return;
+    }
+    // The loot method orders of a loot step's free-for-all detour (LootFfaStep). A refused `ffa` ends the
+    // detour: the step goes on the old way. A refused restore only notes it: the next tick sees the method
+    // is not back, and the glue puts it back when the run pauses or stops.
+    if (order == "lootmethod ffa" && r.lootFfa == LootFfa::Ordered)
+    {
+        r.lootFfa = LootFfa::Idle;
+        r.lootFfaLive = false;
+        r.note = "loot: free-for-all refused (" + answer + "): looking for another bot to take it";
+        return;
+    }
+    if (order.compare(0, 11, "lootmethod ") == 0)
+    {
+        r.note = order + " refused: " + answer;
         return;
     }
     if (order == "rest" || order == "revive party" || order.compare(0, 7, "summon ") == 0 ||
@@ -3623,10 +3656,115 @@ inline void LootGivenUp(Run& r, const Facts& f, const PlanStep& s)
     Pause(r, text + MissingHint(r));
 }
 
+// loot: the order for `bot` (and the status note for it). The boss corpse remembered from his step is
+// named by guid (the loot task walks to it); otherwise the plan's entry@point search.
+inline std::string LootOrderText(Run& r, const PlanStep& s, const std::string& bot)
+{
+    std::string const kind = ai::PlanStepKindName(s.kind);
+    auto const corpse = r.corpses.find(s.entry);
+    std::string const target = corpse != r.corpses.end() && corpse->second.guid
+        ? GuidArg(corpse->second.guid) : EntryArg(s.entry, s.x, s.y, s.z);
+    if (corpse != r.corpses.end() && corpse->second.guid)
+        r.note = kind + " by " + bot + ": the corpse of " + std::to_string(s.entry) + " at " +
+            Num(corpse->second.x) + " " + Num(corpse->second.y) + " " + Num(corpse->second.z);
+    return "loot " + target + " " + bot + (s.item ? " " + std::to_string(s.item) : "");
+}
+
+// loot, AiPlayerbot.DungeonRunLootFfa: the corpse's item is not the carrier's to take under the group's
+// loot rules (another member's turn; Revelosh's Shaft of Tsol went to the warlock, 2026-10-21). Before the
+// next bot is tried, the lead bot (the group's leader) sets free-for-all, the carrier loots, and the method
+// goes back. Once per step; the lead bot must lead the group and the method must be one to restore.
+inline bool LootFfaWanted(const Run& r, const Facts& f, const PlanStep& s)
+{
+    return f.lootFfaOn && f.leadLeadsGroup && s.item && !r.lootFfaUsed && r.lootFfa == LootFfa::Idle &&
+        f.lootMethod > RemoteCommander::kLootFfa && f.lootMethod <= RemoteCommander::kLootNeedBeforeGreed;
+}
+
+inline std::string LootRestoreOrder(const Run& r)
+{
+    return std::string("lootmethod ") + RemoteCommander::LootMethodName(r.lootRestore);
+}
+
+// Starts the detour: the order is `lootmethod ffa`; the method to restore is read now.
+inline void LootFfaStart(Run& r, const Facts& f, std::string& order)
+{
+    r.lootFfaUsed = true;
+    r.lootFfaLive = true;
+    r.lootRestore = f.lootMethod;
+    r.lootFfa = LootFfa::Ordered;
+    r.taskBot.clear();
+    r.note = std::string("loot: another member's turn: free-for-all loot for the carrier (the method goes back to ") +
+        RemoteCommander::LootMethodName(f.lootMethod) + ")";
+    order = "lootmethod ffa";
+}
+
+// The detour's later ticks; true when the tick is spent (an order sent, or waiting). False: go on with the
+// usual loot step (the detour ended, or never took).
+inline bool LootFfaStep(Run& r, const Facts& f, const PlanStep& s, std::string& order)
+{
+    switch (r.lootFfa)
+    {
+        case LootFfa::Ordered:
+        {
+            // A refusal of the order ended it already (OrderRefused). Free-for-all must have taken, or the
+            // carrier is no better off: the old way (the next bot).
+            if (f.lootMethod != RemoteCommander::kLootFfa)
+            {
+                r.lootFfa = LootFfa::Idle;
+                if (f.lootMethod == r.lootRestore || f.lootMethod < 0)
+                    r.lootFfaLive = false;
+                r.note = "loot: free-for-all did not take: looking for another bot to take it";
+                return false;
+            }
+            if (f.carrierHasItem || f.partyHasItem)
+            {
+                r.lootFfa = LootFfa::Restoring;
+                order = LootRestoreOrder(r);
+                r.note = "loot: the item is in a bag already: the loot method goes back";
+                return true;
+            }
+            if (f.carrierBusy)
+            {
+                r.note = "loot: waiting for " + f.carrier + " to finish an earlier order";
+                return true;
+            }
+            r.orderSent = true;
+            EnterPhase(r, Phase::AwaitTask);
+            r.lootTried.push_back(f.carrier);
+            r.lootFfa = LootFfa::Looting;
+            r.note = "loot by " + f.carrier + " (free-for-all)";
+            order = LootOrderText(r, s, f.carrier);
+            return true;
+        }
+        case LootFfa::Looting:
+            // The task's answer (ACK or ERR) or its end, whichever comes first: the method goes back before
+            // the answer is read. The task cap pauses the step in the usual code (the glue restores then).
+            if (f.taskReply == 0 && f.carrierBusy)
+                return false;
+            r.lootFfa = LootFfa::Restoring;
+            order = LootRestoreOrder(r);
+            r.note = "loot: the carrier's loot is answered: the loot method goes back";
+            return true;
+        case LootFfa::Restoring:
+            r.lootFfa = LootFfa::Idle;
+            if (f.lootMethod == r.lootRestore)
+                r.lootFfaLive = false;
+            else
+                r.note = "loot: the loot method is not back to " + std::string(RemoteCommander::LootMethodName(r.lootRestore)) +
+                    " (the glue puts it back when the run pauses or stops)";
+            return false;
+        case LootFfa::Idle:
+            break;
+    }
+    return false;
+}
+
 // loot, open, use_item: one commander task for the carrier, then its result.
 inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& order)
 {
     std::string const kind = ai::PlanStepKindName(s.kind);
+    if (s.kind == PlanStepKind::Loot && r.lootFfa != LootFfa::Idle && LootFfaStep(r, f, s, order))
+        return;
     if (!r.orderSent)
     {
         if ((s.kind == PlanStepKind::Loot || s.kind == PlanStepKind::UseItem) && s.item && f.carrierHasItem)
@@ -3648,7 +3786,14 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
             std::string next;
             // The item gone from the corpse (and in no bag): no bot can take it.
             if (r.lootRights && !(s.item && f.corpseChecked && !f.corpseHasItem))
+            {
+                if (LootFfaWanted(r, f, s))
+                {
+                    LootFfaStart(r, f, order);
+                    return;
+                }
                 next = NextLootBot(r, f);
+            }
             if (next.empty())
             {
                 LootGivenUp(r, f, s);
@@ -3701,17 +3846,7 @@ inline void TaskStep(Run& r, const Facts& f, const PlanStep& s, std::string& ord
             r.lootTried.push_back(bot);
         r.note = kind + " by " + bot;
         if (s.kind == PlanStepKind::Loot)
-        {
-            // The boss corpse remembered from his step: by guid (the loot task walks to it);
-            // otherwise the plan's entry@point search.
-            auto const corpse = r.corpses.find(s.entry);
-            std::string const target = corpse != r.corpses.end() && corpse->second.guid
-                ? GuidArg(corpse->second.guid) : EntryArg(s.entry, s.x, s.y, s.z);
-            if (corpse != r.corpses.end() && corpse->second.guid)
-                r.note = kind + " by " + bot + ": the corpse of " + std::to_string(s.entry) + " at " +
-                    Num(corpse->second.x) + " " + Num(corpse->second.y) + " " + Num(corpse->second.z);
-            order = "loot " + target + " " + bot + (s.item ? " " + std::to_string(s.item) : "");
-        }
+            order = LootOrderText(r, s, bot);
         else if (s.kind == PlanStepKind::Open)
             order = "open " + EntryArg(s.entry, s.x, s.y, s.z) + " " + f.carrier;
         else

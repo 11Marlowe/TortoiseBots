@@ -23,6 +23,7 @@ These settings configure boss encounter mechanics, environmental hazard evasion,
 | [`AiPlayerbot.BotGossipNpcs`](#aiplayerbotbotgossipnpcs) | *(empty)* | Creature entries `.bot cmd gossip` may talk to (empty: every gossip order is refused). |
 | [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) | `6` | Joiners above which the run leader rests the party before a pull (needs the estimate on). |
 | [`AiPlayerbot.DungeonRunAggroEstimate`](#aiplayerbotdungeonrunaggroestimate) | `0` | The run leader estimates how many creatures a pull brings and rests first when it is many. |
+| [`AiPlayerbot.DungeonRunLootFfa`](#aiplayerbotdungeonrunlootffa) | `0` | A run leader loot step whose item is another member's under the group loot rules sets free-for-all for the carrier's loot, then puts the method back. |
 | [`AiPlayerbot.DungeonRunMaxMinutes`](#aiplayerbotdungeonrunmaxminutes) | `180` | Time limit of a run leader run (`0` = none). |
 | [`AiPlayerbot.DungeonRunPullStand`](#aiplayerbotdungeonrunpullstand) | `0` | For a tank that pulls with a ranged weapon, the run leader orders `pullback` only when it can shoot from where it stands, else it walks the party to a firing stand first. |
 | [`AiPlayerbot.DungeonRunRezHold`](#aiplayerbotdungeonrunrezhold) | `0` | The run leader's regroup waits for a living resurrector to raise the fallen (and for its mana) before it revives the party at the spirit healer. |
@@ -105,6 +106,17 @@ Lets the run leader (`.bot run`) estimate how many creatures a pull would bring 
 <summary>How it works in detail</summary>
 
 **Pull aggro estimate:** before each pack pull the run leader counts the creatures that would come with the pulled one, by the core's own wake-up rules: the pulled creature's whole pack (`creature_groups` that aggro together, `creature_linking` rows), every creature whose aggro radius reaches the spot the party pulls from (detection range 20 yd, widened or narrowed by the level difference to the lowest party member, plus a few yards of drift), and one ring of family assistance (same faction, 10 yd, `CreatureFamilyAssistanceRadius`). When more than [`AiPlayerbot.DungeonRunAggroCeiling`](#aiplayerbotdungeonrunaggroceiling) would join, the status note reads `N joiners expected` and the party rests to its end lines once for that pull (at most 60 s, not counted toward the step's idle ceiling, at most three a step; after that the note reads `N joiners expected, rest budget used` and the pull goes out). It adds no movement and never skips a pull; the estimate is approximate (it can be high or low); with `0` nothing is estimated. Only read while `AiPlayerbot.DungeonSelfClear = 1`. See [Dungeon Run Leader](../../play/dungeon-run-leader.md#aggro-estimate).
+
+</details>
+
+### `AiPlayerbot.DungeonRunLootFfa`
+Lets the run leader's loot step get an item the group's loot rules gave to another member, by switching the group to free-for-all for that one loot.
+**Default:** `0` · **Values:** `0` the loot step tries the other bots in turn, `1` free-for-all for the carrier's loot · **Restart:** needed
+
+<details>
+<summary>How it works in detail</summary>
+
+**Loot step free-for-all:** only read while `AiPlayerbot.DungeonSelfClear = 1`. A boss's quest item that is a plain drop (Revelosh's Shaft of Tsol, Uldaman) belongs to the round-robin member's turn under group or round-robin loot, so the lead bot, who needs it for the next steps, is refused with *nothing this bot may loot* and the old way is to try the other bots, which leaves the item in a bag the lead bot cannot use. With `1`, on that refusal, once per step and before any other bot is tried, the lead bot (the leader of the bound group) sets the group's loot method to free-for-all (`cmd lootmethod ffa`), the carrier loots the item, and when that loot is answered (ACK or ERR) the method goes back to the one the group had (`cmd lootmethod group`, `rr`, `master` or `nbg`; the loot threshold is kept). The method also goes back when the run pauses or stops in between, when the binding ends and when the run leader is switched off; it is not touched if a player has set another method since. Not used when the step has no `item`, when anyone already carries the item, when the item is no longer on the corpse, when the group is free-for-all already or has no loot method to restore, or when the lead bot does not lead the group; a refused `lootmethod ffa` order sends the step down the old path. With `0` nothing is read and nothing changes. See [Dungeon Run Leader](../../play/dungeon-run-leader.md).
 
 </details>
 

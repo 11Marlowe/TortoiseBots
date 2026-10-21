@@ -4579,6 +4579,34 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 Player* FindCharacter(uint64 raw);
 void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead);
 
+// AiPlayerbot.DungeonRunLootFfa: a loot step may have left the group's loot method on free-for-all
+// (DungeonRun::Run::lootFfaLive). Whenever the run is not running (paused, stopped, done, released), the lead
+// bot, the group's leader, puts the saved method back through the loot method window's handler, as `cmd
+// lootmethod` does. Once: the flag is cleared first. Nothing is touched when the method is not free-for-all
+// any more (a player set another one) or the lead bot does not lead the group.
+void RestoreRunLootMethod(uint64 leadRaw, TortoiseBots::DungeonRun::Run& run)
+{
+    if (!run.lootFfaLive)
+        return;
+    run.lootFfaLive = false;
+    Player* lead = FindCharacter(leadRaw);
+    Group* group = lead ? lead->GetGroup() : nullptr;
+    int const method = run.lootRestore;
+    if (!lead || !lead->GetSession() || !group || !group->IsLeader(lead->GetObjectGuid()) ||
+        static_cast<int>(group->GetLootMethod()) != RemoteCommander::kLootFfa ||
+        method < RemoteCommander::kLootRoundRobin || method > RemoteCommander::kLootNeedBeforeGreed)
+        return;
+    int const threshold = std::max(RemoteCommander::kThresholdMin,
+        std::min(RemoteCommander::kThresholdMax, static_cast<int>(group->GetLootThreshold())));
+    WorldPacket packet;
+    packet << uint32(method);
+    packet << (method == RemoteCommander::kLootMaster ? lead->GetObjectGuid() : ObjectGuid());
+    packet << uint32(threshold);
+    lead->GetSession()->HandleLootMethodOpcode(packet);
+    TB_LOG_DETAIL("TortoiseBots: run leader: the loot method is back to %s",
+        RemoteCommander::LootMethodName(static_cast<int>(group->GetLootMethod())));
+}
+
 // Bots a run made passive followers of their lead bot while they run back to
 // the party with attackers on them (DungeonRun::RunBack): bot -> commander.
 // Only bots that were not passive already are listed, so a passive stance a
@@ -4872,8 +4900,13 @@ void SupersedeCommanderTasks(uint64 commanderRaw, uint64 onlyBotRaw, RemoteComma
 // release); an explicit unbind answers through its own ACK.
 uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason, bool notify)
 {
-    if (CommanderBindings().FindByCommander(commanderRaw))
+    if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(commanderRaw))
+    {
+        auto const run = DungeonRuns().find(commanderRaw);
+        if (run != DungeonRuns().end())
+            RestoreRunLootMethod(standing->leadGuid, run->second.run);
         CancelCommanderTasks(commanderRaw);
+    }
     RemoteCommander::Binding removed = CommanderBindings().Unbind(commanderRaw);
     CommanderViews().erase(commanderRaw);
     DungeonRuns().erase(commanderRaw);
@@ -9772,6 +9805,16 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.joinerCeiling = sPlayerbotAIConfig.dungeonRunAggroEstimate ? sPlayerbotAIConfig.dungeonRunAggroCeiling : 0;
     // The pull stand (DungeonRun::HoldForShot): off, no sight ray, range or stand is read.
     f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;
+    // A loot step's free-for-all detour (DungeonRun::LootFfaStep, AiPlayerbot.DungeonRunLootFfa): off, no group is read.
+    if (sPlayerbotAIConfig.dungeonRunLootFfa)
+    {
+        f.lootFfaOn = true;
+        if (Group* leadGroup = lead->GetGroup())
+        {
+            f.lootMethod = static_cast<int>(leadGroup->GetLootMethod());
+            f.leadLeadsGroup = leadGroup->IsLeader(lead->GetObjectGuid());
+        }
+    }
     f.leadAlive = lead->IsAlive();
     f.leadX = lead->GetPositionX();
     f.leadY = lead->GetPositionY();
@@ -10225,6 +10268,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
 // go the same way.
 void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
 {
+    RestoreRunLootMethod(leadRaw, slot.run); // a loot step's free-for-all detour ends with the run's tick
     if (slot.heldRaw.empty() && slot.placedRaw.empty())
         return;
     if (slot.run.note.compare(0, 13, "player order ") == 0)
@@ -10596,6 +10640,8 @@ static void UpdateDungeonRuns(uint32 diff)
     {
         for (auto& entry : DungeonRuns())
         {
+            if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
+                RestoreRunLootMethod(standing->leadGuid, entry.second.run);
             entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
             entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
             SendRunLine(FindCharacter(entry.first), entry.second, false);
