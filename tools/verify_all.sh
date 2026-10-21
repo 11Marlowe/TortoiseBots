@@ -65,6 +65,7 @@ python3 -m unittest tools/test_island_escape_wiring.py
 python3 -m unittest tools/test_taunt_attacker_wiring.py
 python3 -m unittest tools/test_warrior_rage_wiring.py
 python3 -m unittest tools/test_hunter_manners_wiring.py
+python3 -m unittest tools/test_dash_bosses_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""

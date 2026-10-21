@@ -209,9 +209,13 @@ snapshot cycle and only while a binding stands) carries, besides vitals, orders,
 map draws from, all additive and bounded: per casting bot `ctgt` (the spell's unit target, read from the bot's current spell),
 per binding `objects[]` (doors, chests, levers, goobers and rituals from the bots' already calculated `nearest game objects`
 lists, resolved on the lead's map, at most 16 per binding and 24 per datagram) and, for a run leader's run, `run.plan_steps[]`
-(the current section's steps, at most 20 per run and 32 per datagram, windowed around the current step). None of it runs per
-bot tick, scans the grid or touches the database; the datagram stays under 60 000 bytes in the worst case
-(`tools/test_commander_telemetry.cpp`). An older module simply omits the fields.
+(the current section's steps, at most 20 per run and 32 per datagram, windowed around the current step). Since the owner's
+request of 2026-10-21 a binding whose lead stood on a dungeon or raid map also carried `bosses_map` and `bosses[]`: every known
+boss of that map at its spawn point with its state in the lead's instance (`a` alive, `d` killed, `u` not known) and `p` for the
+plan's bosses, at most 32 per binding and 48 per datagram (a longer list was left out whole, never cut short); the spawn points came from one pass over the core's creature spawn
+data made once, and each report then read one creature guid and one respawn time per boss. None of it runs per bot tick, scans
+the grid or touches the database; the datagram stays under 60 000 bytes in the worst case, the boss lists being left out of the
+bindings that would pass that budget (`tools/test_commander_telemetry.cpp`). An older module simply omits the fields.
 
 The core listener is generic; it does not call a PlayerBots singleton.
 

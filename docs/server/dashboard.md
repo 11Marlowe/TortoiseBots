@@ -127,6 +127,8 @@ It is not the live **Dungeons** tab above: that one shows the instance copies bo
 
 **Run steps** (a party the run leader clears, "observe"): the plan's steps for the current section - a dashed route (grey = done, blue = ahead), numbered circles for pulls and bosses (green = cleared, yellow = the step it is on, struck out = skipped), a crown and name for bosses, icons for loot, doors, rituals and stops - need a module that sends `run.plan_steps`; an older one leaves the layer greyed.
 
+**Bosses** (owner request 2026-10-21): every known boss of the dungeon a card shows was drawn at its spawn point all the time, with its name - a gold crown while it lived, a grey crown with a tick and the name struck through once killed, an outlined crown when not seen - and the run line counted `bosses 3 / 8 killed` of the run's bosses (the ones the plan names; the others are listed in its tooltip), with `bosses –` on a dungeon map where nothing was known. The module sends the list with each boss's state in that party's own instance (`bosses` in the `COMMANDERS` report); without it the page falls back to the plan's boss steps, the bosses in sight and the kills it saw.
+
 ### Agent Maps Tab
 
 This tab is a developer tool for [turtle-agent](https://github.com/pjerra/turtle-agent), the headless test client used to test bots in dungeons. If you do not run turtle-agent, you will never see it and can skip this section.
