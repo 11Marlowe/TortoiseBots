@@ -3159,9 +3159,13 @@ static void TestStuckBotWithAttackersIsNotSummoned()
     CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
 }
 
-// ... but only a bot that stands still: one walking in (more than 2 yd a tick)
-// is left to its own way and the gather's ceiling pauses as before.
-static void TestMovingBotInsideSummonRangeStillPauses()
+// Live r4-19z21 slot 2 step 102 (13:57:42): the gather paused "the party did not
+// gather within 30 s (a bot is 33.7 yd from the lead bot)" while that bot was
+// coming at about 1 yd/s (54.9 -> 28.7 yd in the trace). A bot that keeps
+// coming is waited for, within kGatherComingMaxMs (T5). A walking bot that
+// does not come closer (it wobbles about 34 yd out) is summoned at the first
+// ceiling, once; if it is still not here by the next, the run pauses.
+static void TestMovingBotThatDoesNotGainIsSummoned()
 {
     DungeonPlan plan;
     plan.steps = {PullStep(100, {1})};
@@ -3173,15 +3177,162 @@ static void TestMovingBotInsideSummonRangeStillPauses()
     CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
     std::string order;
     std::uint32_t ticks = 0;
-    for (; ticks < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++ticks)
+    for (; ticks < 2 * kGatherCapMs / kTickMs + 6 && order.empty(); ++ticks)
     {
-        float const yd = 34.9f - 0.5f * static_cast<float>(ticks);
+        float const yd = (ticks % 2) ? 33.7f : 35.0f; // walking, but not coming
         f.members[1] = Mem("Stoutster", yd);
+        f.members[1].x += (ticks % 2 ? 3.0f : -3.0f);
         f.maxMemberYd = yd;
         order = Tick(r, f);
-        CHECK(order.find("summon") == std::string::npos);
+        CHECK(r.state == State::Running);
     }
-    CHECK(order.empty() && r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+    CHECK(order == "summon Stoutster");
+    CHECK(ticks <= kGatherCapMs / kTickMs + 2); // at the first ceiling, not at 90 s
+    CHECK(r.phase == Phase::Gather);
+    // Summoned and still not here at the next ceiling: pause as before.
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+    {
+        float const yd = (i % 2) ? 33.7f : 35.0f;
+        f.members[1] = Mem("Stoutster", yd);
+        f.members[1].x += (i % 2 ? 3.0f : -3.0f);
+        f.maxMemberYd = yd;
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    }
+    CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+}
+
+// T5: the trace's straggler, 54.9 yd out and walking in at 0.6 yd/s, is waited
+// for past the 30 s ceiling; once within kGatherYd the pull goes out.
+static void TestComingStragglerIsWaitedFor()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 54.9f;
+    f.members = {Mem("Tanky", 0), Mem("Walky", 54.9f)};
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    bool sawComing = false;
+    std::string order;
+    std::uint32_t ticks = 1;
+    for (; ticks < 120 && order.empty(); ++ticks)
+    {
+        float const yd = 54.9f - 0.6f * static_cast<float>(ticks);
+        f.members[1] = Mem("Walky", yd);
+        f.maxMemberYd = yd;
+        order = Tick(r, f);
+        CHECK(r.state == State::Running);
+        CHECK(order.find("summon") == std::string::npos);
+        if (r.note.find("Walky is coming") != std::string::npos)
+            sawComing = true;
+    }
+    CHECK(sawComing);
+    CHECK(order == "pullback 7");
+    CHECK(ticks > kGatherCapMs / kTickMs); // it went past the 30 s ceiling
+}
+
+// ... also at a direct step's gather and at the walk back's direct gather.
+static void TestComingStragglerIsWaitedForAtDirectGathers()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::MoveDirect, 5), PullStep(100, {1})};
+    for (int walkBack = 0; walkBack < 2; ++walkBack)
+    {
+        Run r = Start(&plan, walkBack ? 1 : 0);
+        if (walkBack)
+        {
+            r.walkBack = true;
+            r.walkBackIdx = r.walkBackStart = 0;
+            r.walkBackDirect = true;
+        }
+        Facts f = Party(0);
+        f.maxMemberYd = 54.9f;
+        f.members = {Mem("Tanky", 0), Mem("Walky", 54.9f)};
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+        CHECK(r.phase == Phase::Gather);
+        for (std::uint32_t ticks = 1; ticks < kGatherCapMs / kTickMs + 10; ++ticks)
+        {
+            float const yd = 54.9f - 0.6f * static_cast<float>(ticks);
+            f.members[1] = Mem("Walky", yd);
+            f.maxMemberYd = yd;
+            std::string const order = Tick(r, f);
+            CHECK(r.state == State::Running && r.phase == Phase::Gather);
+            CHECK(order.find("summon") == std::string::npos);
+        }
+        CHECK(r.note.find("Walky is coming") != std::string::npos);
+        // The same bot standing at 34 yd: no gain, summoned at the next ceiling.
+        for (std::uint32_t i = 0; i < 2 * kGatherCapMs / kTickMs; ++i)
+        {
+            f.members[1] = Mem("Walky", 34.0f);
+            f.members[1].x += (i % 2 ? 3.0f : -3.0f);
+            f.maxMemberYd = 34.0f;
+            std::string const order = Tick(r, f);
+            if (order == "summon Walky")
+                break;
+            CHECK(r.state == State::Running);
+        }
+        CHECK(r.state == State::Running && r.summoned.count("Walky") == 1);
+    }
+}
+
+// T5: a bot that comes, but too slowly, is waited for until kGatherComingMaxMs
+// and then summoned once (it is far and gaining, which SummonStraggler leaves
+// alone); the run pauses only if the summon does not bring it.
+static void TestComingStragglerIsSummonedAfterTheComingLimit()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 150;
+    f.members = {Mem("Tanky", 0), Mem("Slowpoke", 150)};
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    std::string order;
+    std::uint32_t ticks = 1;
+    for (; ticks < 200 && order.empty(); ++ticks)
+    {
+        float const yd = 150.0f - 0.5f * static_cast<float>(ticks);
+        f.members[1] = Mem("Slowpoke", yd);
+        f.maxMemberYd = yd;
+        order = Tick(r, f);
+        CHECK(r.state == State::Running);
+    }
+    CHECK(order == "summon Slowpoke");
+    CHECK(ticks >= kGatherComingMaxMs / kTickMs - 5 && ticks <= kGatherComingMaxMs / kTickMs + 8);
+    CHECK(r.phase == Phase::Gather && r.note.find("Slowpoke") != std::string::npos);
+    // Once only: it is still far at the next ceiling (the summon was refused or did not bring it).
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+    {
+        float const yd = 100.0f - 0.5f * static_cast<float>(i);
+        f.members[1] = Mem("Slowpoke", yd);
+        f.maxMemberYd = yd;
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    }
+    CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
+}
+
+// A bot that is not walking in is not waited for even if it is nearer than at
+// the last look: one that stands still in a fight (busy, `cmd summon` refuses
+// it) pauses the run as before.
+static void TestStillBotInAFightIsNotWaitedFor()
+{
+    DungeonPlan plan;
+    plan.steps = {PullStep(100, {1})};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.maxMemberYd = 45;
+    f.members = {Mem("Tanky", 0), Mem("Stoutster", 45)};
+    f.members[1].inCombat = true;
+    f.units = {Unit(7, 1, 50)};
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    f.members[1] = Mem("Stoutster", 38); // nearer by 7 yd, then it stops
+    f.members[1].inCombat = true;
+    f.maxMemberYd = 38;
+    for (std::uint32_t i = 0; i < kGatherCapMs / kTickMs + 2 && r.state == State::Running; ++i)
+        CHECK(Tick(r, f).find("summon") == std::string::npos);
+    CHECK(r.state == State::Paused && r.note.find("did not gather") != std::string::npos);
 }
 
 // Live (events-5 01:48:43 -> 01:50:42): after the wipe the regroup's gather
@@ -7902,7 +8053,11 @@ int main()
     TestStillBotInsideSummonRangeIsSummoned();
     TestStuckBotInCombatIsNotSummoned();
     TestStuckBotWithAttackersIsNotSummoned();
-    TestMovingBotInsideSummonRangeStillPauses();
+    TestMovingBotThatDoesNotGainIsSummoned();
+    TestComingStragglerIsWaitedFor();
+    TestComingStragglerIsWaitedForAtDirectGathers();
+    TestComingStragglerIsSummonedAfterTheComingLimit();
+    TestStillBotInAFightIsNotWaitedFor();
     TestRegroupSummonsAStuckFarBotEarly();
     TestStuckSummonCountsFromTheGather();
     TestWalkBackRefusalKinds();
