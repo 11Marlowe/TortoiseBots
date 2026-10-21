@@ -4570,6 +4570,8 @@ struct DungeonRunSlot
     std::unordered_set<uint64> placedRaw; // bots on their stand points of an event's hold (DungeonRun::HoldStands)
     uint32 placedGen = 0;                 // the Run::holdStandsGen they were placed for
     std::unordered_map<uint64, RemoteCommander::Point3> placedAt; // ... and the point each was sent to
+    // The forward run's move-point reading (DungeonRun::MoveProbeHit): ReadRunFacts reads a const slot.
+    mutable TortoiseBots::DungeonRun::MoveProbeCache moveProbe;
 };
 
 std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
@@ -9280,10 +9282,13 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
             return false;
         PathFinder path(lead);
         path.calculate(px, py, ground, false);
-        if (path.getPathType() & PATHFIND_NOPATH)
-            return false;
+        uint32 const type = static_cast<uint32>(path.getPathType());
         Vector3 const end = path.getActualEndPosition();
-        if (ai::PlanDistance(end.x, end.y, end.z, px, py, ground) > 5.0f)
+        // Near the point AND, when partial, leading on (r6-19z24: two ring points
+        // whose partial paths ended on the lead bot's island were taken, and refused).
+        if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,
+                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),
+                DistanceTo(lead, end.x, end.y, end.z)))
             return false;
         ox = px;
         oy = py;
@@ -10361,15 +10366,34 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                 else
                     break;
             }
-            // A walk back's move point in sight has no approach hop read: the
-            // lead bot's own path to it is, for the island escape (not while it
-            // walks or regroups, nor for a direct step's line over a hole).
-            else if (slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&
-                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd)
+            // A move point in sight (a walk back's, or the forward run's own
+            // step: r6-19z24, the hop pull's fight left the tank on the island
+            // 6-9 yd from steps 64/65) has no approach hop read: the lead bot's
+            // own path to it is, for the island escape (not while it walks or
+            // regroups, nor for a direct step's line over a hole). The forward
+            // run's reading only on a tick MoveStep can act on it, and one
+            // reading serves 5 s (DungeonRun::ForwardMoveProbeWanted, MoveProbeHit).
+            else if (step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&
+                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd &&
+                (slot.run.walkBack ||
+                    TortoiseBots::DungeonRun::ForwardMoveProbeWanted(slot.run, true, f.seen, f.anyInCombat, toPoint)))
             {
-                PathFinder path(lead);
-                path.calculate(step->x, step->y, step->z, false);
-                NoteLeadWay(path, lead, step->x, step->y, step->z, f);
+                bool const forward = !slot.run.walkBack;
+                if (forward && TortoiseBots::DungeonRun::MoveProbeHit(slot.moveProbe, slot.run.step, lead->GetPositionX(),
+                        lead->GetPositionY(), step->x, step->y, step->z, slot.run.runMs))
+                {
+                    f.leadIsland = slot.moveProbe.island;
+                    f.leadPathGood = slot.moveProbe.good;
+                }
+                else
+                {
+                    PathFinder path(lead);
+                    path.calculate(step->x, step->y, step->z, false);
+                    NoteLeadWay(path, lead, step->x, step->y, step->z, f);
+                    if (forward)
+                        TortoiseBots::DungeonRun::StoreMoveProbe(slot.moveProbe, slot.run.step, lead->GetPositionX(),
+                            lead->GetPositionY(), step->x, step->y, step->z, slot.run.runMs, f.leadIsland, f.leadPathGood);
+                }
             }
             float const toCentre = DistanceTo(lead, cx, cy, cz);
             std::list<Unit*> hostiles;

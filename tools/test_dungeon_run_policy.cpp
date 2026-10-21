@@ -5662,6 +5662,261 @@ static void TestIslandPausesAfterTwoEscapes()
     CHECK(r.walkBackIdx == 4); // no point passed
 }
 
+// Zul'Farrak r6-19z24 (PLAN-ZF-ISLAND-R6): going FORWARD, step 64's hop pull of
+// the Shadowhunter 7246 at 1591.0 1047.7 left the tank on the island
+// (1591.2 1044.3); 'back to the stand point refused (unreachable)', then
+// `cmd move` to step 64's point (6-9 yd away, in sight) refused = pause 1, and
+// step 65's the same = pause 2. The island escape covered only the walk back
+// and the approach hop of a point out of sight.
+static void TestForwardMoveEscapesNavmeshIsland()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1); // step 64: move 1584 1050 9.0, in sight
+    // At the stand of the pull before it (main mesh): the path to the point is good.
+    Facts f = Party(0);
+    f.leadX = 1583.7f;
+    f.leadY = 1040.3f;
+    f.leadZ = 8.9f;
+    f.leadPathGood = true;
+    f.anyInCombat = true; // the hop pull's fight
+    Tick(r, f);
+    CHECK(r.goodLeadKnown && r.goodLeadX == 1583.7f && r.goodLeadY == 1040.3f);
+    // The fight took the tank onto the island; its walk back to the stand was refused.
+    r.guardReturn = true;
+    r.guardX = 1583.7f;
+    r.guardY = 1040.3f;
+    r.guardZ = 8.9f;
+    OrderRefused(r, MoveOrder(1583.7f, 1040.3f, 8.9f, false),
+        "unreachable: The lead bot has no walkable path to that point (no navmesh route reaches it).");
+    CHECK(r.state == State::Running && r.note.find("back to the stand point refused") == 0);
+    Facts g = Party(0);
+    g.leadX = 1591.2f;
+    g.leadY = 1044.3f;
+    g.leadZ = 8.9f;
+    g.leadIsland = true;  // the path toward the step's point ends on the island
+    g.goodSpotCut = true; // ... and so does the one toward the last good spot (the second sign)
+    CHECK(Tick(r, g) == "escape from 1591.2 1044.3 8.9 to 1583.7 1040.3 8.9 toward 1584.0 1050.0 9.0");
+    CHECK(r.note.find("navmesh island at 1591.2 1044.3 8.9 (no path toward the point of step 2)") != std::string::npos);
+    CHECK(r.state == State::Running && r.step == 1);
+    g.leadMoving = true;
+    CHECK(Tick(r, g).empty()); // the hop under way
+    // At the good spot, standing: the hop is over; the step's move goes out.
+    f.anyInCombat = false;
+    CHECK(Tick(r, f).empty());
+    CHECK(!r.escapeOn && r.islandEscapes == 0);
+    CHECK(Tick(r, f) == "move 1584.0 1050.0 9.0");
+}
+
+// The detour's candidate check (NearestReachablePoint). r6-19z24: from the
+// island at 1591.2 1044.3 the 3 yd ring point of step 64, 1587.0 1050.0, had a
+// partial path ending at 1588.4 1046.5 (3.8 yd from it, 3.6 yd from the lead
+// bot), and step 65's 10 yd ring point 1594.3 1048.0 one ending at 1590.9 1045.3
+// (4.3 yd from it, 1.0 yd from the lead bot): both were taken as reachable (end
+// within 5 yd of the point) and both `cmd move`s were refused, each a pause.
+static void TestDetourPointReachable();
+
+// A forward run on the main mesh: the lead bot 8 yd short of step 2's point,
+// its path partial and ending 5 yd on (within 6 yd of the point: a ledge, a
+// rock), and the last good spot read just before (goodSpotCut: e.g. a mob's
+// body in the way). The forward check sends one hop; the glue finds no spot
+// (no-spot); from that spot the move goes out as before: no second hop, no pause.
+static Facts MainMeshPartial()
+{
+    Facts g = Party(0);
+    g.leadX = 1584.0f;
+    g.leadY = 1042.0f;
+    g.leadZ = 9.0f;
+    g.leadIsland = true;
+    g.goodSpotCut = true;
+    return g;
+}
+
+static void RecordGoodSpot(Run& r, float x, float y, float z)
+{
+    Facts f = Party(0);
+    f.leadX = x;
+    f.leadY = y;
+    f.leadZ = z;
+    f.leadPathGood = true;
+    f.anyInCombat = true; // a fight tick: nothing goes out for the step
+    Tick(r, f);
+    CHECK(r.goodLeadKnown && r.goodLeadX == x && r.goodLeadY == y && r.goodLeadZ == z);
+    CHECK(r.goodLeadMs == r.runMs && r.runMs > 0);
+}
+
+static void TestForwardEscapeNoSpotFallsBack()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1);
+    RecordGoodSpot(r, 1584.0f, 1036.0f, 9.0f);
+    Facts g = MainMeshPartial();
+    std::string const escape = Tick(r, g);
+    CHECK(escape == "escape from 1584.0 1042.0 9.0 to 1584.0 1036.0 9.0 toward 1584.0 1050.0 9.0");
+    CHECK(r.escapeFromMove);
+    OrderRefused(r, escape, "no-spot: no spot within 10 yd of the lead bot leads on");
+    CHECK(r.noSpotKnown && !r.escapeFromMove && r.state == State::Running);
+    CHECK(Tick(r, g) == "move 1584.0 1050.0 9.0");
+    CHECK(r.state == State::Running && r.islandEscapes == 1);
+    // A wait refusal (a fight) is no try and leaves no mark: the hop goes out again.
+    Run w = Start(&plan, 1);
+    RecordGoodSpot(w, 1584.0f, 1036.0f, 9.0f);
+    std::string const again = Tick(w, g);
+    OrderRefused(w, again, "wait: a party bot is in combat");
+    CHECK(!w.noSpotKnown && Tick(w, g) == again);
+    // Any other hop off an island (the approach hop's, a walk back's) is not the
+    // move check's; nor is one in the next step.
+    std::string other;
+    IslandEscape(w, g, 1603, 1043, 9.8f, "the next point", other);
+    CHECK(!other.empty() && !w.escapeFromMove);
+    w.escapeFromMove = true;
+    ResetStep(w);
+    CHECK(!w.escapeFromMove);
+}
+
+// A fall in a fight (a one-way drop within kGoodSpotFreshMs): the good spot is
+// 6 yd above the lead bot, the path back up partial. The hop to it is sent; the
+// glue's line check refuses it (a rise of more than kSegmentRiseYd per sample):
+// no-spot, and the move goes out as before.
+static void TestForwardEscapeAfterAFallFallsBack()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1);
+    RecordGoodSpot(r, 1584.0f, 1038.0f, 15.0f);
+    Facts g = MainMeshPartial();
+    std::string const escape = Tick(r, g);
+    CHECK(escape == "escape from 1584.0 1042.0 9.0 to 1584.0 1038.0 15.0 toward 1584.0 1050.0 9.0");
+    // What the glue's line check reads for it: the floor steps up 6 yd at once.
+    std::vector<SegmentSample> line = EscapeSegmentSamples(1584.0f, 1042.0f, 9.0f, 1584.0f, 1038.0f, 15.0f);
+    for (SegmentSample& sample : line)
+    {
+        sample.ground = true;
+        sample.groundZ = sample.y <= 1040.0f ? 15.0f : 9.0f;
+        sample.z = sample.groundZ;
+    }
+    CHECK(CheckEscapeSegment(9.0f, line, false) == SegmentVerdict::Step);
+    OrderRefused(r, escape, "no-spot: no spot within 10 yd of the lead bot leads on");
+    CHECK(Tick(r, g) == "move 1584.0 1050.0 9.0");
+    CHECK(r.state == State::Running);
+}
+
+// Sign (a) for the forward check counts only for a good spot read within
+// kGoodSpotFreshMs of run time.
+static void TestForwardEscapeNeedsAFreshGoodSpot()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1);
+    RecordGoodSpot(r, 1584.0f, 1036.0f, 9.0f);
+    r.runMs = r.goodLeadMs + kGoodSpotFreshMs + 1; // the spot is older than that
+    CHECK(!GoodSpotFresh(r));
+    Facts g = MainMeshPartial();
+    CHECK(Tick(r, g) == "move 1584.0 1050.0 9.0"); // one sign only: the evidence is kept
+    CHECK(r.islandEvidence && !r.escapeOn);
+    Run e = Start(&plan, 1);
+    RecordGoodSpot(e, 1584.0f, 1036.0f, 9.0f);
+    e.runMs = e.goodLeadMs + kGoodSpotFreshMs - kTickMs; // the tick brings it to exactly the bound
+    CHECK(Tick(e, g).compare(0, 7, "escape ") == 0);
+    CHECK(GoodSpotFresh(e) && e.runMs - e.goodLeadMs == kGoodSpotFreshMs);
+    Run n;
+    CHECK(!GoodSpotFresh(n)); // none read
+    // The run's own clock runs with every running tick.
+    Run c = Start(&plan, 1);
+    Tick(c, g, 700);
+    CHECK(c.runMs == 700);
+}
+
+static void TestForwardMoveProbeGateAndCache()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1);
+    CHECK(r.phase == Phase::Begin);
+    CHECK(ForwardMoveProbeWanted(r, true, true, false, 8.0f));
+    CHECK(!ForwardMoveProbeWanted(r, false, true, false, 8.0f)); // not a move step
+    CHECK(!ForwardMoveProbeWanted(r, true, false, false, 8.0f)); // out of sight: the approach hop reads
+    CHECK(!ForwardMoveProbeWanted(r, true, true, true, 8.0f));   // a fight
+    CHECK(!ForwardMoveProbeWanted(r, true, true, false, kArriveYd)); // at the point
+    Run w = r;
+    w.phase = Phase::Walk;
+    CHECK(!ForwardMoveProbeWanted(w, true, true, false, 8.0f));
+    w.phase = Phase::Rest;
+    CHECK(!ForwardMoveProbeWanted(w, true, true, false, 8.0f));
+    w.phase = Phase::AwaitPull;
+    CHECK(!ForwardMoveProbeWanted(w, true, true, false, 8.0f));
+    w = r;
+    w.regroup = true;
+    CHECK(!ForwardMoveProbeWanted(w, true, true, false, 8.0f));
+    w = r;
+    w.walkBack = true; // the walk back reads its own point, ungated as before
+    CHECK(!ForwardMoveProbeWanted(w, true, true, false, 8.0f));
+    w = r;
+    w.state = State::Paused;
+    CHECK(!ForwardMoveProbeWanted(w, true, true, false, 8.0f));
+
+    MoveProbeCache c;
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1584, 1050, 9, 0));
+    CHECK(!MoveProbeHit(c, 0, 0.5f, 0.5f, 0, 0, 0, 100)); // nothing read: no hit, whatever matches the zeros
+    StoreMoveProbe(c, 1, 1591.2f, 1044.3f, 1584, 1050, 9, 10000, true, false);
+    CHECK(c.island && !c.good);
+    CHECK(MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1584, 1050, 9, 10000));
+    CHECK(MoveProbeHit(c, 1, 1590.1f, 1045.9f, 1584, 1050, 9, 10000 + kMoveProbeCacheMs - 1)); // same 2 yd cell
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1584, 1050, 9, 10000 + kMoveProbeCacheMs)); // 5 s on
+    CHECK(!MoveProbeHit(c, 1, 1592.1f, 1044.3f, 1584, 1050, 9, 10001)); // another cell (x)
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1046.1f, 1584, 1050, 9, 10001)); // another cell (y)
+    CHECK(!MoveProbeHit(c, 2, 1591.2f, 1044.3f, 1584, 1050, 9, 10001)); // another step
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1603, 1050, 9, 10001)); // another point (x)
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1584, 1043, 9, 10001)); // (y)
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1584, 1050, 9.8f, 10001)); // (z)
+    CHECK(!MoveProbeHit(c, 1, 1591.2f, 1044.3f, 1584, 1050, 9, 9999)); // a clock before it (a new run)
+}
+
+static void TestDetourPointReachable()
+{
+    CHECK(!DetourPointReachable(false, true, 3.8f, 3.6f));     // r6 step 64's detour 1587 1050
+    CHECK(!DetourPointReachable(false, true, 4.3f, 1.0f));     // r6 step 65's detour 1594.3 1048
+    CHECK(!DetourPointReachable(false, true, 0.5f, 2.0f)); // CheckMove's refusal (RemoteCommander::kNoProgressYd)
+    CHECK(!DetourPointReachable(false, true, 4.0f, kGoodPathMinYd)); // partial and gets nowhere past the island
+    CHECK(DetourPointReachable(false, true, 4.0f, kGoodPathMinYd + 0.5f)); // partial, leads on, ends near the point
+    CHECK(!DetourPointReachable(false, true, kDetourEndYd + 0.5f, 30.0f)); // ... but short of it
+    CHECK(DetourPointReachable(false, false, 0.3f, 1.0f));     // complete: accepted, however short
+    CHECK(DetourPointReachable(false, false, kDetourEndYd, 1.0f));
+    CHECK(!DetourPointReachable(false, false, kDetourEndYd + 0.5f, 20.0f)); // complete but ends off the point
+    CHECK(!DetourPointReachable(true, false, 0.0f, 20.0f));    // no path
+}
+
+// One reading is no island (a ledge, a closed door): the forward move goes out
+// as before; a direct step's point never escapes; out of sight the approach hop decides.
+static void TestForwardMoveIslandNeedsSecondSign()
+{
+    DungeonPlan plan = ZfIslandPlan();
+    Run r = Start(&plan, 1);
+    RecordGoodSpot(r, 1583.7f, 1040.3f, 8.9f); // fresh: sign (a) would count
+    Facts g = Party(0);
+    g.leadX = 1591.2f;
+    g.leadY = 1044.3f;
+    g.leadZ = 8.9f;
+    g.leadIsland = true;
+    CHECK(Tick(r, g) == "move 1584.0 1050.0 9.0");
+    CHECK(r.islandEvidence && !r.escapeOn);
+    // The walk under way is not cut short by a reading (the glue reads none while it walks).
+    g.goodSpotCut = true;
+    CHECK(r.phase == Phase::Walk && Tick(r, g).find("escape") == std::string::npos && !r.escapeOn);
+
+    DungeonPlan direct = ZfIslandPlan();
+    direct.steps[1].kind = PlanStepKind::MoveDirect;
+    Run d = Start(&direct, 1);
+    RecordGoodSpot(d, 1583.7f, 1040.3f, 8.9f);
+    CHECK(Tick(d, g).find("escape") == std::string::npos);
+    CHECK(!d.escapeOn);
+
+    // At the point already: nothing to escape toward.
+    Run a = Start(&plan, 1);
+    RecordGoodSpot(a, 1583.7f, 1040.3f, 8.9f);
+    Facts h = g;
+    h.leadX = 1584.5f;
+    h.leadY = 1049.0f;
+    h.leadZ = 9.0f;
+    CHECK(Tick(a, h).find("escape") == std::string::npos);
+}
+
 static void TestResumeEscapesFirst()
 {
     DungeonPlan plan = ZfIslandPlan();
@@ -8380,6 +8635,13 @@ int main()
     TestGossipAfterAHoldThenTheDoor();
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
+    TestForwardMoveEscapesNavmeshIsland();
+    TestForwardMoveIslandNeedsSecondSign();
+    TestDetourPointReachable();
+    TestForwardEscapeNoSpotFallsBack();
+    TestForwardEscapeAfterAFallFallsBack();
+    TestForwardEscapeNeedsAFreshGoodSpot();
+    TestForwardMoveProbeGateAndCache();
     TestIslandPausesAfterTwoEscapes();
     TestResumeEscapesFirst();
     TestWalkBackPointInSightOnIsland();

@@ -104,6 +104,47 @@ class IslandEscapeWiringTest(unittest.TestCase):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         at(facts, "if (f.leadIsland && lead->IsAlive())\n        f.goodSpotCut = GoodSpotCutOff(lead, slot.run);")
 
+    def test_a_move_point_in_sight_is_read_forward_too(self):
+        # r6-19z24: the forward run's step 64/65 points were in sight (6-9 yd)
+        # and nothing read the lead bot's path to them; the reading is not tied
+        # to a walk back any more, and MoveStep asks IslandConfirmed before its walk.
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        read = at(facts, "else if (step->kind == ai::PlanStepKind::Move && slot.run.phase != Phase::Walk &&\n"
+                         "                !slot.run.regroup && lead->IsAlive() && lead->GetMapId() == slot.run.plan->map && toPoint > kArriveYd &&\n"
+                         "                (slot.run.walkBack ||\n"
+                         "                    TortoiseBots::DungeonRun::ForwardMoveProbeWanted(slot.run, true, f.seen, f.anyInCombat, toPoint)))")
+        hit = at(facts, "if (forward && TortoiseBots::DungeonRun::MoveProbeHit(slot.moveProbe, slot.run.step, lead->GetPositionX(),\n"
+                        "                        lead->GetPositionY(), step->x, step->y, step->z, slot.run.runMs))")
+        cached = at(facts, "f.leadIsland = slot.moveProbe.island;\n                    f.leadPathGood = slot.moveProbe.good;")
+        note = at(facts, "NoteLeadWay(path, lead, step->x, step->y, step->z, f);")
+        store = at(facts, "if (forward)\n                        TortoiseBots::DungeonRun::StoreMoveProbe(slot.moveProbe, slot.run.step, lead->GetPositionX(),\n"
+                          "                            lead->GetPositionY(), step->x, step->y, step->z, slot.run.runMs, f.leadIsland, f.leadPathGood);")
+        self.assertTrue(read < hit < cached < note < store)
+        # The combat fact the gate reads is set before the step's facts.
+        self.assertLess(at(facts, "f.anyInCombat = true;"), read)
+        at(COMMANDS, "mutable TortoiseBots::DungeonRun::MoveProbeCache moveProbe;")
+        self.assertNotIn("slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase", facts)
+        move = body(POLICY, "inline void MoveStep(", "\n}\n")
+        island = at(move, "IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r))")
+        self.assertLess(island, at(move, "WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order)"))
+        self.assertLess(island, at(move, "if (r.detour)"))
+        at(move, "IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r)))")
+        at(move, "r.escapeFromMove = r.escapeOn;")
+        refused = body(POLICY, "inline void OrderRefused(", "\n}\n")
+        at(refused, "if (!wait && ((r.walkBack && r.walkBackIdx < r.step) || fromMove))")
+
+    def test_the_detour_candidate_leads_on(self):
+        # r6-19z24: NearestReachablePoint took ring points whose partial paths
+        # ended on the lead bot's island; every candidate goes through the pure rule.
+        f = body(COMMANDS, "bool NearestReachablePoint(", "\n}\n")
+        check = at(f, "if (!TortoiseBots::DungeonRun::DetourPointReachable((type & PATHFIND_NOPATH) != 0,\n"
+                      "                (type & PATHFIND_INCOMPLETE) != 0, ai::PlanDistance(end.x, end.y, end.z, px, py, ground),\n"
+                      "                DistanceTo(lead, end.x, end.y, end.z)))\n            return false;")
+        self.assertLess(check, at(f, "ox = px;"))
+        self.assertNotIn("> 5.0f)", f)
+        p = body(POLICY, "inline bool DetourPointReachable(", "\n}\n")
+        at(p, "RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd)")
+
 
 if __name__ == "__main__":
     unittest.main()

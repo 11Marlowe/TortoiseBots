@@ -93,7 +93,8 @@ constexpr std::uint32_t kMaxWalkBackHops = 40;    // a walk back straight to its
 constexpr float kRouteSpotYd = 10.0f;             // a lead bot this close to where it died (or stood at a pause) is
                                                   // still on its route checkpoint's stretch (Run::routeKnown)
 constexpr float kDetourMaxYd = 15.0f;             // an unreachable move point may be stood in for by a
-                                                  // reachable one at most this far from it
+                                                  // reachable one at most this far from it ...
+constexpr float kDetourEndYd = 5.0f;              // ... whose navmesh path ends this close to it (DetourPointReachable)
 constexpr float kGatherYd = 20.0f;                // every living bot this close to the lead before a pull
 constexpr float kHopPullYd = 15.0f;               // units this close to the next hop are pulled first
 constexpr std::uint32_t kGatherCapMs = 30000;
@@ -165,6 +166,7 @@ constexpr float kEscapeHostileYd = 10.0f;         // no living hostile this clos
 constexpr float kIslandCellYd = 4.0f;             // the evidence is kept for the lead bot's cell of this size ...
 constexpr float kEvidenceSpotYd = 2.0f;           // ... a second reading counts from this close to the first one's spot ...
 constexpr float kEvidenceTargetYd = 10.0f;        // ... toward a point at least this far from the first one's point
+constexpr std::uint64_t kGoodSpotFreshMs = 120000; // ... and, for the forward move check, read this recently (GoodSpotFresh)
 constexpr float kGoodSpotProbeYd = 40.0f;         // the last good spot this close is probed (the glue: Facts::goodSpotCut)
 constexpr std::uint32_t kWalkBackResends = 6;     // a walk-back point sent this often from one spot (kArriveYd) is passed
 constexpr std::uint32_t kStepEscapes = 4;         // hops off an island one step may send in all (a good read in
@@ -765,6 +767,11 @@ struct Run
     // row given up from one spot, with no good path read: islandSuspect).
     bool goodLeadKnown = false;
     float goodLeadX = 0.0f, goodLeadY = 0.0f, goodLeadZ = 0.0f;
+    std::uint64_t goodLeadMs = 0; // runMs when it was read (GoodSpotFresh)
+    std::uint64_t runMs = 0;      // the run's own clock: every running tick's dt
+    // The hop off an island under way was sent by MoveStep's check of the
+    // forward run's own move point (its no-spot falls back like a walk back's).
+    bool escapeFromMove = false;
     bool leadPathGoodNow = false;
     std::uint32_t islandEscapes = 0;
     bool escapeOn = false;
@@ -781,7 +788,7 @@ struct Run
     float evidenceTX = 0.0f, evidenceTY = 0.0f, evidenceTZ = 0.0f;
     // A walk back's hop that found no spot (no-spot), and where: from there the
     // walk back goes on as before (points passed, its own ceilings).
-    bool noSpotKnown = false;
+    bool noSpotKnown = false; // ... or the forward run's move check's (escapeFromMove)
     float noSpotX = 0.0f, noSpotY = 0.0f, noSpotZ = 0.0f;
     std::uint32_t stepEscapes = 0; // hops off an island this step (kStepEscapes)
     // The walk-back point last sent, from where, and how often (kWalkBackResends).
@@ -1168,6 +1175,7 @@ inline void ResetStep(Run& r)
     r.islandEvidence = false;
     r.noSpotKnown = false;
     r.stepEscapes = 0;
+    r.escapeFromMove = false;
     r.resendIdx = static_cast<std::size_t>(-1);
     r.resends = 0;
     r.eventOn = false;
@@ -2040,12 +2048,77 @@ inline bool RingSpotLeadsOn(bool pathNoPath, bool pathIncomplete, float endFromS
     return !pathNoPath && (!pathIncomplete || (endFromSpotYd > kGoodPathMinYd && endFromLeadYd > kGoodPathMinYd));
 }
 
+// A candidate of the move's detour (the glue's NearestReachablePoint): the lead
+// bot's navmesh path to it ends within kDetourEndYd of it, and, when partial,
+// leads on as a ring spot's must (RingSpotLeadsOn; the start is the lead bot):
+// it ends more than kGoodPathMinYd from the lead bot. r6-19z24: from the island
+// the partial paths to 1587 1050 and 1594.3 1048 ended 3.6 and 1.0 yd from the
+// lead bot, within 5 yd of the point: both moves were refused (CheckMove's
+// no-progress rule), each a pause.
+inline bool DetourPointReachable(bool pathNoPath, bool pathIncomplete, float endFromPointYd, float endFromLeadYd)
+{
+    return endFromPointYd <= kDetourEndYd && RingSpotLeadsOn(pathNoPath, pathIncomplete, endFromLeadYd, endFromLeadYd);
+}
+
 // The glue probes the path to the last good lead spot (Facts::goodSpotCut)
 // only when that spot is off the lead bot (kArriveYd), within kGoodSpotProbeYd
 // and kEscapeMaxVertical.
 inline bool GoodSpotProbeWanted(float yd, float dz)
 {
     return yd > kArriveYd && yd <= kGoodSpotProbeYd && std::fabs(dz) <= kEscapeMaxVertical;
+}
+
+// The glue's reading of the forward run's own move point in sight (NoteLeadWay,
+// for MoveStep's island check) costs a navmesh search: it runs only on a tick
+// on which MoveStep can act on the move (running, no walk back or regroup, a
+// move step in sight and off its point, phase Begin, nobody in combat), and one
+// reading serves kMoveProbeCacheMs for the same step, target and
+// kMoveProbeCellYd cell of the lead bot (MoveProbeHit).
+constexpr float kMoveProbeCellYd = 2.0f;
+constexpr std::uint64_t kMoveProbeCacheMs = 5000;
+
+struct MoveProbeCache
+{
+    bool known = false;
+    std::size_t step = 0;
+    int cellX = 0, cellY = 0;
+    float tx = 0.0f, ty = 0.0f, tz = 0.0f;
+    std::uint64_t atMs = 0; // Run::runMs of the reading
+    bool island = false;    // Facts::leadIsland it gave
+    bool good = false;      // Facts::leadPathGood it gave
+};
+
+inline bool ForwardMoveProbeWanted(const Run& r, bool moveStep, bool seen, bool anyInCombat, float toPointYd)
+{
+    return r.state == State::Running && !r.walkBack && !r.regroup && moveStep && seen && !anyInCombat &&
+        r.phase == Phase::Begin && toPointYd > kArriveYd;
+}
+
+inline int MoveProbeCell(float v)
+{
+    return static_cast<int>(std::floor(v / kMoveProbeCellYd));
+}
+
+inline bool MoveProbeHit(const MoveProbeCache& c, std::size_t step, float lx, float ly, float tx, float ty, float tz,
+    std::uint64_t nowMs)
+{
+    return c.known && c.step == step && c.cellX == MoveProbeCell(lx) && c.cellY == MoveProbeCell(ly) && c.tx == tx &&
+        c.ty == ty && c.tz == tz && nowMs - c.atMs < kMoveProbeCacheMs; // a clock before it wraps: a miss
+}
+
+inline void StoreMoveProbe(MoveProbeCache& c, std::size_t step, float lx, float ly, float tx, float ty, float tz,
+    std::uint64_t nowMs, bool island, bool good)
+{
+    c.known = true;
+    c.step = step;
+    c.cellX = MoveProbeCell(lx);
+    c.cellY = MoveProbeCell(ly);
+    c.tx = tx;
+    c.ty = ty;
+    c.tz = tz;
+    c.atMs = nowMs;
+    c.island = island;
+    c.good = good;
 }
 
 inline int IslandCell(float v)
@@ -2150,7 +2223,19 @@ inline void NoteLeadPath(Run& r, const Facts& f)
     r.goodLeadX = f.leadX;
     r.goodLeadY = f.leadY;
     r.goodLeadZ = f.leadZ;
+    r.goodLeadMs = r.runMs;
     r.islandEscapes = 0;
+}
+
+// Sign (a) for the forward run's own move point (MoveStep): the last good lead
+// spot counts only when it was read within kGoodSpotFreshMs of run time; an
+// older one says nothing about where the lead bot stands now. The false positive
+// left: a one-way drop within that time (a fall in a fight); the straight hop up
+// to the good spot is then refused by CheckEscapeSegment (a rise of more than
+// kSegmentRiseYd per sample), a no-spot, and the move goes out as before.
+inline bool GoodSpotFresh(const Run& r)
+{
+    return r.goodLeadKnown && r.runMs - r.goodLeadMs <= kGoodSpotFreshMs;
 }
 
 // Whether the lead bot stands on a navmesh island on its way to (tx,ty,tz): this
@@ -2163,7 +2248,7 @@ inline void NoteLeadPath(Run& r, const Facts& f)
 // refused and passed, or the hop walked, as before. Or two walk-back points were
 // given up in a row from one spot (Run::islandSuspect). Never where a walk back's
 // hop found no spot (Run::noSpotKnown): the walk back goes on as before there.
-inline bool IslandConfirmed(Run& r, const Facts& f, float tx, float ty, float tz)
+inline bool IslandConfirmed(Run& r, const Facts& f, float tx, float ty, float tz, bool goodSpotCounts = true)
 {
     if (r.noSpotKnown && ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.noSpotX, r.noSpotY, r.noSpotZ) <= kArriveYd)
     {
@@ -2189,7 +2274,7 @@ inline bool IslandConfirmed(Run& r, const Facts& f, float tx, float ty, float tz
         r.evidenceTY = ty;
         r.evidenceTZ = tz;
     }
-    return f.goodSpotCut || second || r.islandSuspect;
+    return (f.goodSpotCut && goodSpotCounts) || second || r.islandSuspect;
 }
 
 // The lead bot stands on a navmesh island (IslandConfirmed)
@@ -2206,6 +2291,7 @@ inline void IslandEscape(Run& r, const Facts& f, float tx, float ty, float tz, c
     std::string& order)
 {
     r.islandSuspect = false;
+    r.escapeFromMove = false;
     std::string const spot = Num(f.leadX) + " " + Num(f.leadY) + " " + Num(f.leadZ);
     if (r.islandEscapes >= kIslandEscapes || r.stepEscapes >= kStepEscapes)
     {
@@ -2307,8 +2393,12 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
         if (wait && r.stepEscapes > 0)
             --r.stepEscapes;
         // A walk back's hop that found no spot: from this spot the walk back goes
-        // on as before (IslandConfirmed), passing the point, bounded by its own ceilings.
-        if (!wait && r.walkBack && r.walkBackIdx < r.step)
+        // on as before (IslandConfirmed), passing the point, bounded by its own
+        // ceilings. The same for the forward run's move check (escapeFromMove):
+        // the move (and its detour) goes out as before, not a second hop and a pause.
+        bool const fromMove = r.escapeFromMove;
+        r.escapeFromMove = false;
+        if (!wait && ((r.walkBack && r.walkBackIdx < r.step) || fromMove))
         {
             r.noSpotKnown = true;
             r.noSpotX = r.leadLastX;
@@ -4067,6 +4157,20 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
             return;
         }
     }
+    // The forward run's own move point in sight (r6-19z24 Zul'Farrak steps 64/65:
+    // the hop pull's fight left the tank on the navmesh island at 1588-1591
+    // 1044-1047, 6-9 yd from the point, and both `cmd move`s were refused): the
+    // same rule as the walk back's (IslandConfirmed, two signs) before the move
+    // goes out (out of sight ApproachHop asks it, unless a detour is on). Never
+    // for a direct step (its line crosses a navmesh hole), nor while a walk is under way.
+    if (s.kind == PlanStepKind::Move && r.phase != Phase::Walk &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, s.x, s.y, s.z) > kArriveYd &&
+        IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r)))
+    {
+        IslandEscape(r, f, s.x, s.y, s.z, "the point of step " + std::to_string(r.step + 1), order);
+        r.escapeFromMove = r.escapeOn; // its no-spot falls back to the move (OrderRefused)
+        return;
+    }
     if (s.kind == PlanStepKind::MoveDirect && r.phase != Phase::Walk && FallenFirst(r, f))
         return;
     // A direct step takes the lead bot's line: the party gathers on it first
@@ -5814,6 +5918,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.note = DoneNote(r);
         return order;
     }
+    r.runMs += dt;
     r.phaseMs += dt;
     if (r.eventOn)
         r.eventMs += dt; // an event's clock runs in its fights too
