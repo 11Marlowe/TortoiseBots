@@ -9805,16 +9805,16 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.joinerCeiling = sPlayerbotAIConfig.dungeonRunAggroEstimate ? sPlayerbotAIConfig.dungeonRunAggroCeiling : 0;
     // The pull stand (DungeonRun::HoldForShot): off, no sight ray, range or stand is read.
     f.pullStand = sPlayerbotAIConfig.dungeonRunPullStand;
-    // A loot step's free-for-all detour (DungeonRun::LootFfaStep, AiPlayerbot.DungeonRunLootFfa): off, no group is read.
-    if (sPlayerbotAIConfig.dungeonRunLootFfa)
-    {
-        f.lootFfaOn = true;
+    // A loot step's free-for-all detour (DungeonRun::LootFfaStep, AiPlayerbot.DungeonRunLootFfa): off, and no detour
+    // left the method on ffa, no group is read. The method is read while a detour is live even when the key was
+    // switched off meanwhile (a config reload): -1 means only "no group".
+    f.lootFfaOn = sPlayerbotAIConfig.dungeonRunLootFfa;
+    if (f.lootFfaOn || slot.run.lootFfaLive)
         if (Group* leadGroup = lead->GetGroup())
         {
             f.lootMethod = static_cast<int>(leadGroup->GetLootMethod());
             f.leadLeadsGroup = leadGroup->IsLeader(lead->GetObjectGuid());
         }
-    }
     f.leadAlive = lead->IsAlive();
     f.leadX = lead->GetPositionX();
     f.leadY = lead->GetPositionY();

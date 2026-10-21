@@ -148,6 +148,8 @@ constexpr std::uint32_t kRestCapMs = 60000;
 constexpr std::uint32_t kRestRepeatMs = 20000;
 constexpr std::uint32_t kPartyRezWaitMs = 15000;  // a regroup with a living rezzer (priest, paladin, shaman) waits this
                                                   // long for its resurrection before `revive party` releases the dead
+constexpr std::uint32_t kLootFfaWaitMs = 20000;   // a loot step's free-for-all detour waits this long for a busy carrier
+constexpr std::uint32_t kLootRestoreTries = 3;    // ... and orders the loot method back this many times (one a tick)
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
@@ -556,11 +558,14 @@ struct Run
     bool lootRights = false;            // the refusal was the loot rules (another member's turn ...)
     // The free-for-all detour of a loot step (LootFfaStart, LootFfaStep). lootFfaUsed: once per step (ResetStep).
     // lootFfaLive and lootRestore are run-wide: the group's method may be ffa because of this run, and was
-    // lootRestore (RemoteCommander::kLoot*) before; the glue puts it back whenever the run is not running.
+    // lootRestore (RemoteCommander::kLoot*) before. A running tick with lootFfaLive and no detour in progress
+    // orders it back (LootFfaRestoreTick); the glue does so whenever the run is not running.
     LootFfa lootFfa = LootFfa::Idle;
     bool lootFfaUsed = false;
     bool lootFfaLive = false;
     int lootRestore = -1;
+    std::uint32_t lootRestoreTries = 0; // restore orders sent by the running-tick restore (LootFfaRestoreTick)
+    std::uint32_t lootFfaMs = 0;        // time since the ffa order went out (while lootFfaLive)
     std::unordered_set<std::uint32_t> missing;       // items the run did not get (a skipped loot or use)
     std::unordered_map<std::uint32_t, CorpseMark> corpses; // boss entry -> the corpse seen when that boss step ended "boss down"
     std::uint32_t pendingMissing = 0;                 // the item a paused step failed to get (missing on skip)
@@ -996,7 +1001,7 @@ inline void ResetStep(Run& r)
     r.lootTried.clear();
     r.lootRefusal.clear();
     r.lootRights = false;
-    r.lootFfa = LootFfa::Idle; // lootFfaLive stays: the glue restores the method (RestoreRunLootMethod)
+    r.lootFfa = LootFfa::Idle; // lootFfaLive stays: the next running tick orders the method back (LootFfaRestoreTick)
     r.lootFfaUsed = false;
     r.dataAtOrder = -1;
     r.walkedThrough = false;
@@ -3690,6 +3695,8 @@ inline void LootFfaStart(Run& r, const Facts& f, std::string& order)
 {
     r.lootFfaUsed = true;
     r.lootFfaLive = true;
+    r.lootRestoreTries = 0;
+    r.lootFfaMs = 0;
     r.lootRestore = f.lootMethod;
     r.lootFfa = LootFfa::Ordered;
     r.taskBot.clear();
@@ -3710,9 +3717,9 @@ inline bool LootFfaStep(Run& r, const Facts& f, const PlanStep& s, std::string& 
             // carrier is no better off: the old way (the next bot).
             if (f.lootMethod != RemoteCommander::kLootFfa)
             {
+                // Not free-for-all (the order did not take, or a player set another method): nothing to put back.
                 r.lootFfa = LootFfa::Idle;
-                if (f.lootMethod == r.lootRestore || f.lootMethod < 0)
-                    r.lootFfaLive = false;
+                r.lootFfaLive = false;
                 r.note = "loot: free-for-all did not take: looking for another bot to take it";
                 return false;
             }
@@ -3725,6 +3732,15 @@ inline bool LootFfaStep(Run& r, const Facts& f, const PlanStep& s, std::string& 
             }
             if (f.carrierBusy)
             {
+                // Bounded: the group must not stay on free-for-all for a carrier that never frees up. On the cap
+                // the next running tick orders the method back (LootFfaRestoreTick) and the step goes the old way.
+                if (r.lootFfaMs >= kLootFfaWaitMs)
+                {
+                    r.lootFfa = LootFfa::Idle;
+                    r.note = "loot: " + f.carrier + " did not finish an earlier order in " +
+                        std::to_string(kLootFfaWaitMs / 1000) + " s: the loot method goes back";
+                    return false;
+                }
                 r.note = "loot: waiting for " + f.carrier + " to finish an earlier order";
                 return true;
             }
@@ -3746,17 +3762,45 @@ inline bool LootFfaStep(Run& r, const Facts& f, const PlanStep& s, std::string& 
             r.note = "loot: the carrier's loot is answered: the loot method goes back";
             return true;
         case LootFfa::Restoring:
+            // The restore order went out last tick: the next running tick reads the method and, if it is not
+            // back, orders it again (LootFfaRestoreTick).
             r.lootFfa = LootFfa::Idle;
-            if (f.lootMethod == r.lootRestore)
-                r.lootFfaLive = false;
-            else
-                r.note = "loot: the loot method is not back to " + std::string(RemoteCommander::LootMethodName(r.lootRestore)) +
-                    " (the glue puts it back when the run pauses or stops)";
             return false;
         case LootFfa::Idle:
             break;
     }
     return false;
+}
+
+// Every running tick, whatever the step: the group's loot method is ffa because of this run's detour and no
+// detour tick is in charge (a regroup after a wipe, a lead death or a fight cap reset the step with the method
+// still ffa; a restore that was refused or did not take). Orders the saved method back, one order a tick, at most
+// kLootRestoreTries times; then the run pauses and a human sets it (the glue tries once more as the run pauses).
+// The flag ends when the facts read a method that is not ffa. True: the tick is spent.
+inline bool LootFfaRestoreTick(Run& r, const Facts& f, std::string& order)
+{
+    if (!r.lootFfaLive || r.lootFfa != LootFfa::Idle)
+        return false;
+    if (f.lootMethod != RemoteCommander::kLootFfa)
+    {
+        // Not ffa any more (restored, or a player's choice), or no group to restore.
+        r.lootFfaLive = false;
+        r.lootRestoreTries = 0;
+        return false;
+    }
+    if (r.lootRestoreTries >= kLootRestoreTries)
+    {
+        Pause(r, "the loot method of " + f.carrier + "'s group is still free-for-all after " +
+            std::to_string(kLootRestoreTries) + " orders to put it back to " + RemoteCommander::LootMethodName(r.lootRestore) +
+            " (AiPlayerbot.DungeonRunLootFfa): set it with .bot cmd lootmethod " +
+            RemoteCommander::LootMethodName(r.lootRestore) + ", then .bot run resume");
+        return true;
+    }
+    ++r.lootRestoreTries;
+    order = LootRestoreOrder(r);
+    r.note = "the loot method goes back to " + std::string(RemoteCommander::LootMethodName(r.lootRestore)) +
+        " (try " + std::to_string(r.lootRestoreTries) + ")";
+    return true;
 }
 
 // loot, open, use_item: one commander task for the carrier, then its result.
@@ -5032,6 +5076,12 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.anchorPathWanted = false;
     UpdateStill(r, f, dt);
     NoteLeadDeath(r, f);
+    if (r.lootFfaLive)
+    {
+        r.lootFfaMs += dt;
+        if (LootFfaRestoreTick(r, f, order))
+            return order;
+    }
 
     // The stale flag's clocks: one snapshot of "nothing hostile engaged" proves
     // nothing (a guardian, a scripted fight), so the grace is spent once per

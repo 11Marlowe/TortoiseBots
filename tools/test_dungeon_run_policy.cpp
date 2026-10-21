@@ -757,8 +757,11 @@ static void TestLootFfaOrderSequence()
     f.partyHasItem = true;
     f.itemHolder = "Tanky";
     Tick(r, f);
-    CHECK(r.step == 1 && r.state == State::Running && !r.lootFfaLive && r.lootFfa == LootFfa::Idle);
+    CHECK(r.step == 1 && r.state == State::Running && r.lootFfa == LootFfa::Idle);
     CHECK(r.note.find("loot done") != std::string::npos);
+    // The next running tick reads the method back and lets the flag go, with no second order.
+    CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+    CHECK(!r.lootFfaLive && r.lootRestoreTries == 0);
 }
 
 // An ERR answer restores too, then the old path goes on (the next bot), without a second ffa.
@@ -779,7 +782,7 @@ static void TestLootFfaRestoresOnAnErrAnswerAndNeverTwice()
     f.lootMethod = RemoteCommander::kLootRoundRobin;
     f.carrierBusy = false;
     std::string const order = Tick(r, f); // the answer is read: refused on the rules -> the next bot
-    CHECK(r.lootFfa == LootFfa::Idle && !r.lootFfaLive);
+    CHECK(r.lootFfa == LootFfa::Idle);
     CHECK(order.empty() || order.compare(0, 11, "lootmethod ") != 0);
     for (int i = 0; i < 3; ++i)
     {
@@ -851,6 +854,120 @@ static void TestLootFfaRefusedFallsBackToTheOldPath()
     std::string const next = Tick(q, g); // g.lootMethod is still group
     CHECK(next.compare(0, 11, "lootmethod ") != 0 && q.lootFfa == LootFfa::Idle);
     CHECK(q.state == State::Running);
+}
+
+// A regroup (a wipe, a lead death, a fight cap) resets the step between the ffa ACK and the restore and keeps the
+// run Running: the very next tick orders the method back, whatever the step; the tick after reads it and is done.
+static void TestLootFfaRegroupBetweenAckAndRestoreRestores()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    CHECK(Tick(r, f).compare(0, 5, "loot ") == 0);
+    f.carrierBusy = true;
+    CHECK(Tick(r, f).empty());
+    ResetStep(r); // the regroup redoes the step
+    CHECK(r.lootFfa == LootFfa::Idle && r.lootFfaLive && r.state == State::Running);
+    CHECK(Tick(r, f) == "lootmethod group");
+    CHECK(r.lootRestoreTries == 1);
+    // It took: the facts read the saved method; no second order, the flag is gone.
+    f.lootMethod = RemoteCommander::kLootGroup;
+    CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+    CHECK(!r.lootFfaLive && r.lootRestoreTries == 0 && r.state == State::Running);
+    // The redone step may go through the detour once more: the method is not ffa any more.
+    CHECK(r.lootFfaUsed == false);
+}
+
+// The restore is refused or does not take: one order a tick, three in all, then the run pauses naming the key.
+static void TestLootFfaRestoreRefusedRetriesThenPauses()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    f.lootMethod = RemoteCommander::kLootFfa;
+    r.lootFfaLive = true;
+    r.lootRestore = RemoteCommander::kLootNeedBeforeGreed;
+    for (int i = 1; i <= 3; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order == "lootmethod nbg");
+        OrderRefused(r, order, "lead-unavailable: The lead bot does not lead the group.");
+        CHECK(r.state == State::Running && r.lootRestoreTries == static_cast<std::uint32_t>(i));
+    }
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.lootFfaLive); // the glue tries once more as the run pauses, and clears the flag
+    CHECK(r.note.find("still free-for-all") != std::string::npos);
+    CHECK(r.note.find("AiPlayerbot.DungeonRunLootFfa") != std::string::npos);
+    CHECK(r.note.find("lootmethod nbg") != std::string::npos);
+}
+
+// Only "no group" or a method that is not ffa ends the flag; the key switched off meanwhile does not.
+static void TestLootFfaFlagEndsOnlyWhenTheMethodIsNotFfa()
+{
+    DungeonPlan plan = FfaPlan();
+    // The key was switched off by a reload while the detour was live: the restore still goes out.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        f.lootFfaOn = false;
+        f.lootMethod = RemoteCommander::kLootFfa;
+        r.lootFfaLive = true;
+        r.lootRestore = RemoteCommander::kLootRoundRobin;
+        CHECK(Tick(r, f) == "lootmethod rr" && r.lootFfaLive);
+    }
+    // ... and in the Ordered tick (the key off there, the method ffa): the detour goes on, the flag stays.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        CHECK(Tick(r, f) == "lootmethod ffa");
+        f.lootFfaOn = false;
+        f.lootMethod = RemoteCommander::kLootFfa;
+        CHECK(Tick(r, f).compare(0, 5, "loot ") == 0 && r.lootFfaLive);
+    }
+    // No group (-1): nothing to put back.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        f.lootMethod = -1;
+        r.lootFfaLive = true;
+        r.lootRestore = RemoteCommander::kLootGroup;
+        CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0 && !r.lootFfaLive);
+    }
+    // A player set another method meanwhile (Ordered tick reads nbg, not ffa, not the saved one): no order, flag gone.
+    {
+        Run r = Start(&plan);
+        Facts f = FfaParty();
+        OrderRefused(r, Tick(r, f), kFfaRights);
+        CHECK(Tick(r, f) == "lootmethod ffa");
+        f.lootMethod = RemoteCommander::kLootNeedBeforeGreed;
+        CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
+        CHECK(!r.lootFfaLive && r.lootFfa == LootFfa::Idle);
+    }
+}
+
+// A carrier that stays busy: the ffa wait is bounded; on the cap the method goes back and the step goes the old way.
+static void TestLootFfaOrderedWaitIsBounded()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    f.carrierBusy = true;
+    int ticks = 0;
+    while (r.lootFfa == LootFfa::Ordered && ticks < 60)
+    {
+        CHECK(Tick(r, f).empty());
+        ++ticks;
+    }
+    CHECK(ticks >= 19 && ticks <= 22 && r.lootFfa == LootFfa::Idle && r.state == State::Running);
+    CHECK(r.lootFfaLive);
+    CHECK(Tick(r, f) == "lootmethod group");
 }
 
 // No ffa without the item, without the key, without the lead bot leading the group, for a method the order cannot
@@ -5804,6 +5921,10 @@ int main()
     TestLootFfaRestoresWhenTheTaskEndsUnanswered();
     TestLootFfaRefusedFallsBackToTheOldPath();
     TestLootFfaConditions();
+    TestLootFfaRegroupBetweenAckAndRestoreRestores();
+    TestLootFfaRestoreRefusedRetriesThenPauses();
+    TestLootFfaFlagEndsOnlyWhenTheMethodIsNotFfa();
+    TestLootFfaOrderedWaitIsBounded();
     TestLootFfaKeyOffIsTheOldPath();
     TestOutstandingCarrierKeepsTheOrdersBot();
     TestRetiredUseItemOrderGoesOutAgain();

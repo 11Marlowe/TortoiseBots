@@ -312,7 +312,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("bool dungeonRunLootFfa;", header)
         self.assertIn("AiPlayerbot.DungeonRunLootFfa = 0", template)
         facts = body(COMMANDS, "void ReadRunFacts(", "\n    f.leadAlive")
-        self.assertIn("if (sPlayerbotAIConfig.dungeonRunLootFfa)\n    {\n        f.lootFfaOn = true;", facts)
+        self.assertIn("f.lootFfaOn = sPlayerbotAIConfig.dungeonRunLootFfa;\n    if (f.lootFfaOn || slot.run.lootFfaLive)", facts)
         self.assertIn("f.lootMethod = static_cast<int>(leadGroup->GetLootMethod());", facts)
         self.assertIn("f.leadLeadsGroup = leadGroup->IsLeader(lead->GetObjectGuid());", facts)
         restore = body(COMMANDS, "void RestoreRunLootMethod(", "\n}\n")
