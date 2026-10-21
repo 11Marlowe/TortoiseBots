@@ -64,6 +64,7 @@ Warriors serve as primary dungeon tanks or powerful melee DPS, managing dynamic 
   - *Arms:* Uses *Pummel* first, falling back to *Shield Bash* without stance dancing.
   - Interrupts only fire on active cast bars or channels; delayed instants never trigger interrupts.
 - **Shouts:** Maintains *Battle Shout* on party members (skipping if an equal or stronger *Blessing of Might* is active). Protection maintains *Demoralizing Shout*. *Intimidating Shout* is restricted to open-world emergencies and never used in dungeons.
+- **Rage hygiene:** The *Disarm*, *Bloodrage* and *Battle Shout* rows were gated on 2026-10-21 after a trace audit found Protection tanks under 20 rage in 81 % of combat samples while these rows were tried, and failed as impossible, on almost every tick: *Disarm* now needs 20 rage, a ready spell and a target with a main-hand weapon, *Bloodrage* needs its cooldown to be over as well as low rage and medium health, and *Battle Shout* needs 10 rage (rules in `WarriorRagePolicy.h`).
 - **Hold Ground Opt-In:** When [PoolMeleeHoldGround](../server/settings/performance.md#aiplayerbotpoolmeleeholdground) is enabled, pool warriors fight through low-health emergencies using *Shield Wall* and *Last Stand* rather than fleeing.
 
 ---

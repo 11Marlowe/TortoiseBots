@@ -1,6 +1,7 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/BattleShoutPolicy.h"
+#include "playerbot/WarriorRagePolicy.h"
 
 namespace ai
 {
@@ -9,7 +10,7 @@ namespace ai
     BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
-    DEBUFF_TRIGGER(DisarmDebuffTrigger, "disarm");
+    DEBUFF_TRIGGER_A(DisarmDebuffTrigger, "disarm");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
     DEBUFF_TRIGGER(DemoralizingShoutDebuffTrigger, "demoralizing shout");
     DEBUFF_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
@@ -60,6 +61,10 @@ namespace ai
 
         bool IsActive() override
         {
+            // Audit F2: impossible below its cost (79 % of tried ticks).
+            if (!ShouldBattleShoutForRage(AI_VALUE2(uint8, "rage", "self target")))
+                return false;
+
             static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
 
             for (uint32 id : battleShoutIds)
