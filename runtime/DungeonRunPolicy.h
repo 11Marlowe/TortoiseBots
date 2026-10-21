@@ -1279,6 +1279,11 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
     {
         if (m.name.empty() || r.summoned.count(m.name))
             continue;
+        // A bot in a fight, or with something on it, is never summoned, far or
+        // not: `cmd summon` refuses a bot in combat, and one with attackers
+        // would drag the encounter to the lead bot or be abandoned in it.
+        if (m.inCombat || m.attackers > 0)
+            continue;
         // Far: past kSummonYd, or on another floor. Not far, a bot past the
         // gather radius that stands still is stuck too: the gather (kGatherYd
         // 20 yd) waits for it while the summon skips it (kSummonYd 40), so a
@@ -1287,12 +1292,10 @@ inline bool SummonStraggler(Run& r, const Facts& f, std::string& order, bool sti
         // still, "the party did not gather within 30 s", twice).
         bool const far = m.yd > kSummonYd || m.dz > kStragglerDzYd;
         bool const still = IsStill(r, m.name);
-        // A bot past the gather radius that stands still is stuck -- unless it
-        // is in a fight or has something on it: then it is not stuck, it is
-        // busy (`cmd summon` refuses a bot in combat anyway), exactly as in a
-        // regroup (SummonStuckInRegroup). The far rule below keeps its own
-        // tests.
-        if (!far && (!(still && m.yd > kGatherYd) || m.inCombat || m.attackers))
+        // A bot past the gather radius that stands still is stuck (a busy one
+        // never gets here, see above), exactly as in a regroup
+        // (SummonStuckInRegroup). The far rule below keeps its own tests.
+        if (!far && !(still && m.yd > kGatherYd))
             continue;
         if (!still)
         {
