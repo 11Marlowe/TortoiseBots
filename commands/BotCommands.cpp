@@ -9154,9 +9154,9 @@ void HostileCreaturesAround(Player* lead, float range, std::list<Unit*>& out)
 
 // The island escape's facts (DungeonRun::LeadOnIsland, LeadPathGood) from a
 // navmesh path the lead bot's own search gave toward (x,y,z): partial and
-// ending where it stands (CheckMove's no-progress rule), or getting somewhere.
-static_assert(TortoiseBots::DungeonRun::kIslandEndYd == RemoteCommander::kNoProgressYd,
-    "the island reading is the move's own no-progress rule");
+// ending within kGoodPathMinYd of it, or getting somewhere.
+static_assert(TortoiseBots::DungeonRun::kGoodPathMinYd > RemoteCommander::kNoProgressYd,
+    "the island reading covers the move's own no-progress rule and the gap above it");
 static_assert(TortoiseBots::DungeonRun::kEscapeMaxVertical == RemoteCommander::kDirectMaxVertical,
     "the hop off an island is held to a direct step's height limit");
 void NoteLeadWay(PathFinder const& path, Player* lead, float x, float y, float z, TortoiseBots::DungeonRun::Facts& f)
@@ -9248,15 +9248,19 @@ bool NearestReachablePoint(Player* lead, float x, float y, float z, float& ox, f
 }
 
 // The run leader's hop off a navmesh island (DungeonRun::IslandEscape: "escape
-// [x y z] toward tx ty tz"), carried out here, not as a `cmd`. The lead bot alone
-// walks a straight line (a MovePoint without MOVE_PATHFINDING, as
-// CommanderMoveDirect walks a direct step) to the last good spot (x y z) when it
-// has a floor and the lead bot sees it; else to the nearest spot 3, 6 or 10 yd
-// around the lead bot (12 directions) with a floor, in its sight, whose navmesh
-// path toward (tx,ty,tz) gets somewhere (DungeonRun::LeadPathGood). Floors within
-// kEscapeMaxVertical of the lead bot. The others keep following it: the direct
+// from lx ly lz [to x y z] toward tx ty tz"), carried out here, not as a `cmd`.
+// The lead bot alone walks a straight line (a MovePoint without
+// MOVE_PATHFINDING, as CommanderMoveDirect walks a direct step) to the last good
+// spot (x y z) when it fits (DungeonRun::GoodSpotFits); else to the nearest spot
+// 3, 6 or 10 yd around the lead bot (12 directions) whose navmesh path toward
+// (tx,ty,tz) leads on (DungeonRun::RingSpotLeadsOn). Every spot needs a floor
+// within kEscapeMaxVertical, the lead bot's sight, and a line that
+// DungeonRun::CheckEscapeSegment passes (a floor, no step, no liquid under each
+// sample; no hostile near the end). The others keep following it: the direct
 // step's follower check would refuse while none of them can reach the island.
-// False with the reason when no spot qualifies. Run at most kIslandEscapes times a step.
+// False with the reason: "wait: ..." (a fight, or the lead bot moved more than
+// kEscapeMovedYd from lx ly lz since the facts were read: not a try), or
+// "no-spot: ..." (a try). Nothing is touched before every check passed.
 bool RunIslandEscape(Player* commander, std::string const& order, std::string& answer)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -9267,9 +9271,10 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
         answer = "lead-unavailable: no lead bot in the world";
         return false;
     }
-    float gx = 0.0f, gy = 0.0f, gz = 0.0f, tx = 0.0f, ty = 0.0f, tz = 0.0f;
-    bool const good = std::sscanf(order.c_str(), "escape %f %f %f toward %f %f %f", &gx, &gy, &gz, &tx, &ty, &tz) == 6;
-    if (!good && std::sscanf(order.c_str(), "escape toward %f %f %f", &tx, &ty, &tz) != 3)
+    float fx = 0.0f, fy = 0.0f, fz = 0.0f, gx = 0.0f, gy = 0.0f, gz = 0.0f, tx = 0.0f, ty = 0.0f, tz = 0.0f;
+    bool const good = std::sscanf(order.c_str(), "escape from %f %f %f to %f %f %f toward %f %f %f", &fx, &fy, &fz,
+        &gx, &gy, &gz, &tx, &ty, &tz) == 9;
+    if (!good && std::sscanf(order.c_str(), "escape from %f %f %f toward %f %f %f", &fx, &fy, &fz, &tx, &ty, &tz) != 6)
     {
         answer = "invalid: " + order;
         return false;
@@ -9289,6 +9294,11 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
         answer = "no-spot: the lead bot's spot is not on the map";
         return false;
     }
+    if (ai::PlanDistance(lx, ly, lz, fx, fy, fz) > kEscapeMovedYd)
+    {
+        answer = "wait: the lead bot moved since the island was read";
+        return false;
+    }
     float const h = RemoteCommander::kDirectLosHeight;
     // A spot the straight hop may end on: a floor under it near the lead bot's height, in its sight.
     auto fits = [&](float px, float py, float& ground) -> bool
@@ -9299,8 +9309,36 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
         return ground > INVALID_HEIGHT && std::fabs(ground - lz) <= kEscapeMaxVertical &&
             map->isInLineOfSight(lx, ly, lz + h, px, py, ground + h);
     };
+    // The line to it (CheckEscapeSegment): the floor and any liquid under each
+    // sample, and the hostiles near its end (one grid visit around the lead bot).
+    auto lineFits = [&](float px, float py, float pz) -> bool
+    {
+        std::vector<SegmentSample> samples = EscapeSegmentSamples(lx, ly, lz, px, py, pz);
+        for (SegmentSample& sample : samples)
+        {
+            if (!MaNGOS::IsValidMapCoord(sample.x, sample.y, sample.z))
+                continue; // no ground read: NoGround
+            float const floor = map->GetHeight(sample.x, sample.y, sample.z + kSegmentGroundYd, true,
+                2.0f * kSegmentGroundYd);
+            sample.ground = floor > INVALID_HEIGHT;
+            sample.groundZ = floor;
+            if (!sample.ground)
+                continue;
+            // Half a yard above the floor, as the module's ledge check reads it: a ray from exactly on
+            // the bed can miss its own floor (MovementActions.cpp landingSafe).
+            GridMapLiquidData liquid{};
+            sample.liquid = map->GetTerrain()->getLiquidStatus(sample.x, sample.y, floor + 0.5f, MAP_ALL_LIQUIDS,
+                &liquid) != LIQUID_MAP_NO_WATER;
+        }
+        bool hostileNear = false;
+        std::list<Unit*> hostiles;
+        HostileCreaturesAround(lead, GroundDistance(lx, ly, px, py) + kEscapeHostileYd, hostiles);
+        for (Unit* unit : hostiles)
+            hostileNear = hostileNear || (unit->IsAlive() && DistanceTo(unit, px, py, pz) <= kEscapeHostileYd);
+        return CheckEscapeSegment(lz, samples, hostileNear) == SegmentVerdict::Ok;
+    };
     float x = 0.0f, y = 0.0f, ground = INVALID_HEIGHT;
-    bool found = good && GroundDistance(lx, ly, gx, gy) <= kEscapeMaxYd && fits(gx, gy, ground);
+    bool found = good && GoodSpotFits(lx, ly, lz, gx, gy, gz) && fits(gx, gy, ground) && lineFits(gx, gy, ground);
     if (found)
     {
         x = gx;
@@ -9318,10 +9356,11 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
                 continue;
             PathFinder probe(lead);
             probe.calculate(Vector3(px, py, pz), Vector3(tx, ty, tz), false);
-            uint32 const type = static_cast<uint32>(probe.getPathType());
             Vector3 const end = probe.getActualEndPosition();
-            if (!LeadPathGood((type & PATHFIND_NOPATH) != 0, (type & PATHFIND_INCOMPLETE) != 0,
-                    ai::PlanDistance(end.x, end.y, end.z, px, py, pz)))
+            if (!RingSpotLeadsOn((static_cast<uint32>(probe.getPathType()) & PATHFIND_NOPATH) != 0,
+                    ai::PlanDistance(end.x, end.y, end.z, px, py, pz), ai::PlanDistance(end.x, end.y, end.z, lx, ly, lz)))
+                continue;
+            if (!lineFits(px, py, pz))
                 continue;
             found = true;
             x = px;
@@ -9331,7 +9370,17 @@ bool RunIslandEscape(Player* commander, std::string const& order, std::string& a
     if (!found)
     {
         answer = "no-spot: no spot within " + std::to_string(static_cast<uint32>(kEscapeMaxYd)) +
-            " yd in the lead bot's sight has a floor and a way on";
+            " yd in the lead bot's sight has a floor, a clear line and a way on";
+        return false;
+    }
+    // Right before the lead bot is touched: a fight is the bots' own; the hop waits for it (not a try).
+    bool fight = lead->IsInCombat();
+    if (Group* group = lead->GetGroup())
+        for (Player* bot : CommandedBots(group, lead))
+            fight = fight || (bot && bot->IsInWorld() && bot->IsAlive() && bot->IsInCombat());
+    if (fight)
+    {
+        answer = "wait: a party bot is in combat";
         return false;
     }
     SupersedeCommanderTasks(commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Move);

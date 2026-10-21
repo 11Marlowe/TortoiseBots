@@ -142,13 +142,23 @@ constexpr std::uint32_t kMaxWalkBackPulls = 8;    // pulls on the way of a walk 
 // chased a Shadowhunter onto a ~3 x 3 yd patch of mesh at 1589 1046 that no
 // path leaves; every walk-back point was refused or a zero-length hop, and the
 // lead bot stood there 13 minutes, through a resume.
-constexpr float kIslandEndYd = 2.0f;              // its path is partial and ends this close to it (the move's own
-                                                  // no-progress rule, RemoteCommander::kNoProgressYd)
+constexpr float kIslandSizeYd = 3.0f;             // that island's size (offline navmesh check, PLAN-ZF-ZUMRAH-WALKBACK B5)
+constexpr float kGoodPathMinYd = 10.0f;           // a partial path that ends this close to the lead bot (short of its
+                                                  // point) may only cross the island: from 1589.6 1046.9 the path to
+                                                  // step 65 ended 3.05 yd away, on it. A good path is complete or ends farther.
+static_assert(kGoodPathMinYd > kIslandSizeYd + kArriveYd, "a path that only crosses the island is no good path");
 constexpr float kEscapeMaxYd = 10.0f;             // the straight hop off it goes to the last good spot this close ...
 constexpr float kEscapeMaxVertical = 8.0f;        // ... and this far up or down (RemoteCommander::kDirectMaxVertical)
 constexpr std::uint32_t kIslandEscapes = 2;       // hops off one island, then pause
 constexpr std::uint32_t kEscapeSettleMs = 2000;   // the hop is over once the lead bot stands still this long ...
 constexpr std::uint32_t kEscapeCapMs = 6000;      // ... or after this long
+constexpr float kEscapeMovedYd = 2.0f;            // the glue refuses the hop when the lead bot moved this far since the read
+// The straight line of the hop, checked before the lead bot is moved (CheckEscapeSegment):
+constexpr float kSegmentStepYd = 2.0f;            // sampled every this far ...
+constexpr std::size_t kSegmentSamples = 8;        // ... at most this many samples (the end point is the last)
+constexpr float kSegmentGroundYd = 4.0f;          // a floor within this far up or down of the line at each sample
+constexpr float kSegmentRiseYd = 2.0f;            // at most this height step from one sample to the next
+constexpr float kEscapeHostileYd = 10.0f;         // no living hostile this close to the hop's end
 constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead must be up within this
 constexpr std::uint32_t kRegroupGatherMs = 60000;  // ... and the party gathered within this after that
 constexpr std::uint32_t kFightCapMs = 180000;
@@ -394,8 +404,8 @@ struct Facts
     float approachX = 0.0f, approachY = 0.0f, approachZ = 0.0f;
     // Read with that hop (and for a walk back's move point in sight with a path
     // of its own): the lead bot's navmesh path toward the point is partial and
-    // ends within kIslandEndYd of it (LeadOnIsland: IslandEscape), or it gets
-    // somewhere (LeadPathGood: the lead bot's spot is the last good one).
+    // ends within kGoodPathMinYd of it, short of the point (LeadOnIsland:
+    // IslandEscape), or it gets somewhere (LeadPathGood: the lead bot's spot is the last good one).
     bool leadIsland = false;
     bool leadPathGood = false;
     std::vector<UnitFact> units;        // pull/boss: living units of the step's entries within its radius
@@ -1854,18 +1864,107 @@ inline void LootRefused(Run& r, const std::string& text)
     r.note = text + ": looking for another bot to take it";
 }
 
-// The island escape (Zul'Farrak r3-19z20, kIslandEndYd). The glue's reading of
-// the lead bot's navmesh path toward the point it is sent to: partial and ending
-// where the lead bot stands, while the point is farther than kArriveYd ...
+// The island escape (Zul'Farrak r3-19z20, kGoodPathMinYd). The glue's reading
+// of the lead bot's navmesh path toward the point it is sent to: partial, ending
+// within kGoodPathMinYd of the lead bot and more than kArriveYd short of the point ...
 inline bool LeadOnIsland(bool pathIncomplete, float endFromLeadYd, float toPointYd)
 {
-    return pathIncomplete && endFromLeadYd >= 0.0f && endFromLeadYd <= kIslandEndYd && toPointYd > kArriveYd;
+    return pathIncomplete && endFromLeadYd >= 0.0f && endFromLeadYd <= kGoodPathMinYd &&
+        toPointYd > endFromLeadYd + kArriveYd;
 }
 
-// ... or a path that gets somewhere: complete, or ending more than kArriveYd from it.
+// ... or a path that gets somewhere: complete, or ending more than kGoodPathMinYd from it.
 inline bool LeadPathGood(bool pathNoPath, bool pathIncomplete, float endFromLeadYd)
 {
-    return !pathNoPath && (!pathIncomplete || endFromLeadYd > kArriveYd);
+    return !pathNoPath && (!pathIncomplete || endFromLeadYd > kGoodPathMinYd);
+}
+
+// A spot around the lead bot that the hop may go to (the glue's ring search):
+// its navmesh path toward the point ends more than kGoodPathMinYd from the spot
+// AND from the lead bot (Detour snaps a start up to 5 yd onto the nearest
+// polygon: a spot off the mesh can snap onto the island itself).
+inline bool RingSpotLeadsOn(bool pathNoPath, float endFromSpotYd, float endFromLeadYd)
+{
+    return !pathNoPath && endFromSpotYd > kGoodPathMinYd && endFromLeadYd > kGoodPathMinYd;
+}
+
+// The last good spot as the hop's end: farther than kArriveYd from the lead bot
+// (nearer is the island itself), within kEscapeMaxYd and kEscapeMaxVertical.
+inline bool GoodSpotFits(float lx, float ly, float lz, float gx, float gy, float gz)
+{
+    float const dx = gx - lx, dy = gy - ly;
+    return ai::PlanDistance(lx, ly, lz, gx, gy, gz) > kArriveYd && std::sqrt(dx * dx + dy * dy) <= kEscapeMaxYd &&
+        std::fabs(gz - lz) <= kEscapeMaxVertical;
+}
+
+// One sample of the hop's straight line: the point on the line, and what the
+// glue read there (the floor's height, any liquid: water, slime, magma).
+struct SegmentSample
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+    bool ground = false;
+    float groundZ = 0.0f;
+    bool liquid = false;
+};
+
+// The samples of the line from (ax,ay,az) to (bx,by,bz): every kSegmentStepYd,
+// at most kSegmentSamples, the end point last.
+inline std::vector<SegmentSample> EscapeSegmentSamples(float ax, float ay, float az, float bx, float by, float bz)
+{
+    float const dx = bx - ax, dy = by - ay;
+    float const len = std::sqrt(dx * dx + dy * dy);
+    std::size_t n = static_cast<std::size_t>(std::ceil(len / kSegmentStepYd));
+    n = n < 1 ? 1 : (n > kSegmentSamples ? kSegmentSamples : n);
+    std::vector<SegmentSample> out(n);
+    for (std::size_t i = 0; i < n; ++i)
+    {
+        float const t = static_cast<float>(i + 1) / static_cast<float>(n);
+        out[i].x = ax + t * dx;
+        out[i].y = ay + t * dy;
+        out[i].z = az + t * (bz - az);
+    }
+    return out;
+}
+
+enum class SegmentVerdict : std::uint8_t { Ok, NoGround, Step, Climb, Liquid, Hostile };
+
+inline const char* SegmentVerdictName(SegmentVerdict v)
+{
+    switch (v)
+    {
+        case SegmentVerdict::Ok: return "ok";
+        case SegmentVerdict::NoGround: return "no ground under the line";
+        case SegmentVerdict::Step: return "a height step on the line";
+        case SegmentVerdict::Climb: return "too far up or down";
+        case SegmentVerdict::Liquid: return "liquid on the line";
+        default: return "a hostile near the end";
+    }
+}
+
+// The straight line may be walked: a floor within kSegmentGroundYd of the line at
+// every sample, no step over kSegmentRiseYd between samples (the lead bot's own
+// height first), never more than kEscapeMaxVertical from where it starts, no
+// liquid, and no hostile within kEscapeHostileYd of the end.
+inline SegmentVerdict CheckEscapeSegment(float startZ, const std::vector<SegmentSample>& samples, bool hostileNearEnd)
+{
+    if (hostileNearEnd)
+        return SegmentVerdict::Hostile;
+    if (samples.empty())
+        return SegmentVerdict::NoGround;
+    float prev = startZ;
+    for (const SegmentSample& s : samples)
+    {
+        if (!s.ground || std::fabs(s.groundZ - s.z) > kSegmentGroundYd)
+            return SegmentVerdict::NoGround;
+        if (s.liquid)
+            return SegmentVerdict::Liquid;
+        if (std::fabs(s.groundZ - prev) > kSegmentRiseYd)
+            return SegmentVerdict::Step;
+        if (std::fabs(s.groundZ - startZ) > kEscapeMaxVertical)
+            return SegmentVerdict::Climb;
+        prev = s.groundZ;
+    }
+    return SegmentVerdict::Ok;
 }
 
 // Every tick: the living lead bot's spot is the last good one when this tick's
@@ -1884,12 +1983,14 @@ inline void NoteLeadPath(Run& r, const Facts& f)
 
 // The lead bot stands on a navmesh island (Facts::leadIsland, or Run::islandSuspect)
 // on its way to (tx,ty,tz): before any point is passed or a hop counted, it is
-// moved alone in a straight line off it. The order "escape [x y z] toward tx ty
-// tz" is the glue's own (RunIslandEscape), not a `cmd`: to the last good spot
-// (x y z) when that lies within kEscapeMaxYd and kEscapeMaxVertical, else to the
-// nearest spot around the lead bot with a complete path toward the point; in
-// sight of the lead bot either way. kIslandEscapes hops a step (a resume gives
-// fresh ones), then a pause that names the spot.
+// moved alone in a straight line off it. The order "escape from lx ly lz [to x y
+// z] toward tx ty tz" is the glue's own (RunIslandEscape), not a `cmd`: from the
+// spot the facts were read at (the glue refuses it once the lead bot moved
+// kEscapeMovedYd), to the last good spot (x y z) when GoodSpotFits, else to the
+// nearest spot around the lead bot whose path leads on (RingSpotLeadsOn); in
+// sight, on a line CheckEscapeSegment passes. kIslandEscapes hops a step (a
+// resume gives fresh ones), then a pause that names the spot. A refusal that
+// starts "wait" (a fight, the lead bot moved) is not counted.
 inline void IslandEscape(Run& r, const Facts& f, float tx, float ty, float tz, const std::string& what,
     std::string& order)
 {
@@ -1905,10 +2006,9 @@ inline void IslandEscape(Run& r, const Facts& f, float tx, float ty, float tz, c
     r.escapeOn = true;
     r.escapeMs = 0;
     EnterPhase(r, Phase::Begin);
-    float const gx = r.goodLeadX - f.leadX, gy = r.goodLeadY - f.leadY;
-    bool const good = r.goodLeadKnown && std::sqrt(gx * gx + gy * gy) <= kEscapeMaxYd &&
-        std::fabs(r.goodLeadZ - f.leadZ) <= kEscapeMaxVertical;
-    order = "escape " + (good ? Num(r.goodLeadX) + " " + Num(r.goodLeadY) + " " + Num(r.goodLeadZ) + " " : std::string()) +
+    bool const good = r.goodLeadKnown && GoodSpotFits(f.leadX, f.leadY, f.leadZ, r.goodLeadX, r.goodLeadY, r.goodLeadZ);
+    order = "escape from " + Num(f.leadX) + " " + Num(f.leadY) + " " + Num(f.leadZ) + " " +
+        (good ? "to " + Num(r.goodLeadX) + " " + Num(r.goodLeadY) + " " + Num(r.goodLeadZ) + " " : std::string()) +
         "toward " + Num(tx) + " " + Num(ty) + " " + Num(tz);
     r.note = "the lead bot stands on a navmesh island at " + spot + " (no path toward " + what + "): a straight hop off it (" +
         std::to_string(r.islandEscapes) + " of " + std::to_string(kIslandEscapes) + ")";
@@ -1936,6 +2036,8 @@ inline bool EscapeWait(Run& r, const Facts& f, std::uint32_t dt)
 // hole; no path is read for it). r3-19z20 passed 23 points in 13 minutes from one spot.
 inline void PassWalkBackPoint(Run& r, float x, float y, float z, const std::string& why, bool direct = false)
 {
+    if (direct)
+        r.islandSuspect = false; // a direct step's point says nothing about an island
     bool const same = !direct && r.passSpotKnown && ai::PlanDistance(x, y, z, r.passX, r.passY, r.passZ) <= kArriveYd;
     r.passSpotKnown = true;
     r.passX = x;
@@ -1964,7 +2066,11 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     {
         r.escapeOn = false;
         EnterPhase(r, Phase::Begin);
-        r.note = "the straight hop off the navmesh island was not made (" + answer + ")";
+        bool const wait = answer.compare(0, 4, "wait") == 0;
+        if (wait && r.islandEscapes > 0)
+            --r.islandEscapes; // a fight or a lead bot on the move: not a try
+        r.note = "the straight hop off the navmesh island was not made (" + answer + ")" +
+            (wait ? ": not counted" : "");
         return;
     }
     // A revived bot's summon (SummonRevived): refused, it walks back.
@@ -3164,6 +3270,7 @@ inline void StartWalkBack(Run& r, const Facts& f)
 // On to the next walk-back point, with fresh tries, hops and gather waiver.
 inline void NextWalkBackPoint(Run& r)
 {
+    r.islandSuspect = false;
     ++r.walkBackIdx;
     r.walkBackRefusals = 0;
     r.approachHops = 0;
@@ -3239,7 +3346,9 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
                 EnterPhase(r, Phase::Begin);
             return true;
         }
-        if (f.leadIsland || r.islandSuspect)
+        // Never at a direct step's point: the lead bot may stand at its launch
+        // spot, and DirectStillToCross decides there.
+        if ((f.leadIsland || r.islandSuspect) && p.kind != PlanStepKind::MoveDirect)
         {
             IslandEscape(r, f, p.x, p.y, p.z, what, order);
             return true;
@@ -3359,7 +3468,8 @@ inline bool WalkBack(Run& r, const Facts& f, std::uint32_t dt, std::string& orde
         }
         return true;
     }
-    if (!direct && r.phase != Phase::Walk && (f.leadIsland || r.islandSuspect))
+    if (!direct && r.phase != Phase::Walk && (f.leadIsland || r.islandSuspect) &&
+        ai::PlanDistance(f.leadX, f.leadY, f.leadZ, p.x, p.y, p.z) > kArriveYd)
     {
         IslandEscape(r, f, p.x, p.y, p.z, "the point of step " + std::to_string(r.walkBackIdx + 1), order);
         return true;
