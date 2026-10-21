@@ -2855,6 +2855,72 @@ static void TestGossipAfterAHoldThenTheDoor()
     CHECK(r.step == 2 && Current(r)->kind == PlanStepKind::WaitObject);
 }
 
+// Zul'Farrak's Sergeant Bly (turtle-agent feat/zf-gahz-bly): his gossip, then a hold done by its units (no done flag) with Bly
+// first. Bly and his crew stay friendly for 10 s after the option; a boss row would leave them alone at once, the hold waits:
+// the friendly first unit counts (EventUnitCounts), no friendly unit is pulled, the event starts when one turns hostile, and
+// the hold ends only when none of the four is left alive within its radius.
+static void TestUnitsHoldWaitsForAFriendlyBossToTurn()
+{
+    PlanStep hold = Step(PlanStepKind::Hold);
+    hold.radius = 25.0f;
+    hold.timeoutS = 300;
+    hold.entries = {7604, 7608, 7606, 7605};
+    CHECK(ai::NormalizePlanStep(hold) == ai::PlanStepRefusal::None);
+    DungeonPlan plan;
+    plan.map = 209;
+    plan.steps = {GossipRow(0, 1, 7604), hold, Step(PlanStepKind::Move, 500)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "gossip 7604 Tanky 1");
+    f.carrierBusy = true;
+    f.taskReply = 1;
+    Tick(r, f);
+    CHECK(r.step == 1 && Current(r)->kind == PlanStepKind::Hold);
+    f.carrierBusy = false;
+    f.taskReply = 0;
+    std::vector<UnitFact> crew;
+    for (std::uint32_t e : {7604u, 7608u, 7606u, 7605u})
+    {
+        UnitFact u = Unit(e, e, 11.0f);
+        u.hostile = false;
+        crew.push_back(u);
+    }
+    f.units = crew;
+    // The 10 s before the script turns them: held, nothing pulled, nothing done.
+    for (int i = 0; i < 12; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order.find("attack") == std::string::npos && order.find("pull") == std::string::npos);
+    }
+    CHECK(r.state == State::Running && r.step == 1 && !r.eventStarted && r.eventTotal == 1);
+    // Hostile: the event is on; it is not done while one of them lives.
+    for (UnitFact& u : f.units)
+        u.hostile = true;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1 && r.eventStarted && r.eventTotal == 4);
+    f.units = {f.units[0]};
+    f.eventDown = 3;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 1);
+    f.units.clear();
+    f.eventDown = 4;
+    Tick(r, f);
+    CHECK(r.state == State::Running && r.step == 2 && r.note.find("every unit of it is dead") != std::string::npos);
+
+    // The contrast: a boss row on the friendly Bly ends at once and leaves him alone.
+    DungeonPlan bossPlan;
+    PlanStep boss = Step(PlanStepKind::Boss);
+    boss.entry = 7604;
+    boss.entries = {7608, 7606, 7605};
+    CHECK(ai::NormalizePlanStep(boss) == ai::PlanStepRefusal::None);
+    bossPlan.steps = {boss, Step(PlanStepKind::Move, 500)};
+    Run b = Start(&bossPlan);
+    Facts g = Party(0);
+    g.units = crew;
+    Tick(b, g);
+    CHECK(b.step == 1 && b.note.find("boss is friendly to this party: left alone") != std::string::npos);
+}
+
 static void TestWaitObjectTimeoutIsBounded()
 {
     DungeonPlan plan;
@@ -8981,6 +9047,7 @@ int main()
     TestGossipWalksToFarPointFirst();
     TestGossipStartsAnEvent();
     TestGossipAfterAHoldThenTheDoor();
+    TestUnitsHoldWaitsForAFriendlyBossToTurn();
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();
