@@ -15,30 +15,21 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
          "wait_clear", "rest", "ritual", "hold", "gossip"}
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step")
 
-# The Zul'Farrak rows past stairs_base as turtle-agent's plan-export writes them with the gossip step (pjerra/turtle-agent
-# feat/planexport-gossip, `plan-export --drop-companions-loot --skip-legs bly --mmaps <map 209> --rev 848693b --stamp 20261021005900
-# zulfarrak`; the plan's leg bly is left out because the run leader has no boss that turns hostile after his gossip). The checked-in
-# Zul'Farrak migration stops at stairs_base (20261021005900_world.sql on feat/zf-plan-extended), so these rows are a fixture: they pin the
-# gossip row's shape (what the loader accepts, what the run leader sends) until the migration is exported again with them.
-ZF_DOOR_AND_UKORZ = """INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, `timeout_s`, `entries`, `comment`) VALUES
-('zulfarrak', 14, 0, 'move', 0, 1884, 1212, 9, 0, 0, 0, 0, 0, '', 'to'),
-('zulfarrak', 14, 1, 'hold', 1, 1877.5, 1199.6, 8.9, 30, 0, 8, 8, 600, '7787,7788,7789,8876,8877', 'wait hold: the event''s mobs are fought on the spot until instance data 1 reads 8 (a script value, not an encounter state)'),
-('zulfarrak', 14, 2, 'gossip', 7607, 1877.52, 1199.63, 8.87, 0, 0, 1, 0, 0, '', 'talk to 7607, menu index 0 (cmd gossip option 1): Weegli''s menu has no option to blow up the door: the event is not over (PYRAMID_KILLED_ALL_TROLLS), or he is dead.'),
-('zulfarrak', 14, 3, 'wait_object', 146084, 1854.5, 1142.9, 16.1, 0, 0, 1, 0, 60, '', 'wait for object 146084 active: The End Door (146084) is not open 60 s after Weegli Blastfuse''s gossip: he opens it only if he reaches it alive and unhurt.'),
-('zulfarrak', 15, 0, 'move', 0, 1856.4, 1152.6, 14.4, 0, 0, 0, 0, 0, '', 'to'),
-('zulfarrak', 15, 1, 'pull', 0, 1824.05, 1118.7, 27.25, 15, 0, 0, 0, 0, '7246', 'pull group 0'),
-('zulfarrak', 15, 2, 'pull', 0, 1769, 1043.2, 50.6, 15, 0, 0, 0, 0, '8120', 'pull group 1'),
-('zulfarrak', 15, 3, 'pull', 0, 1765.4, 1019.1, 53.65, 15, 0, 0, 0, 0, '7268', 'pull group 2'),
-('zulfarrak', 15, 4, 'pull', 0, 1744.9, 1066.6, 51.2, 15, 0, 0, 0, 0, '8120', 'pull group 3'),
-('zulfarrak', 15, 5, 'pull', 0, 1721.8, 1057.5, 53.8, 15, 0, 0, 0, 0, '7268', 'pull group 4'),
-('zulfarrak', 15, 6, 'boss', 7267, 1727.5, 1017.4, 54.9, 0, 0, 0, 0, 0, '7797', 'boss');
-"""
-
-
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
         with open(path, encoding="utf-8") as handle:
             yield os.path.basename(path), handle.read()
+
+
+def newest_zulfarrak_rows():
+    """The step rows of the newest migration that inserts the zulfarrak steps (its name, its text, its zulfarrak rows)."""
+    newest = None
+    for name, text in migrations():
+        if re.search(r"INSERT INTO `ai_dungeon_step`.*?\('zulfarrak',", text, re.S):
+            newest = (name, text)
+    assert newest is not None, "no migration inserts the zulfarrak steps"
+    name, text = newest
+    return name, text, [r for r in DungeonPlanSql.step_rows(None, text) if r["plan"] == "zulfarrak"]
 
 
 def created_columns():
@@ -210,8 +201,7 @@ class DungeonPlanSql(unittest.TestCase):
         # counted from 1: it refuses 0) and no flag; the timeout is at most 600. A row the loader refuses is skipped with a log line and the
         # run then pauses at the step before it, so a migration must never carry one.
         seen = 0
-        sources = list(migrations()) + [("fixture ZF_DOOR_AND_UKORZ", ZF_DOOR_AND_UKORZ)]
-        for name, text in sources:
+        for name, text in migrations():
             for row in self.step_rows(text):
                 if row["kind"] != "gossip":
                     continue
@@ -222,14 +212,12 @@ class DungeonPlanSql(unittest.TestCase):
                 self.assertEqual(int(row["flags"]), 0, where + ": a gossip carries no flag")
                 self.assertLessEqual(int(row["timeout_s"]), 600, where)
         self.assertGreaterEqual(seen, 1)
-        # the fixture's own kinds are all kinds the loader knows
-        for row in self.step_rows(ZF_DOOR_AND_UKORZ):
-            self.assertIn(row["kind"], KINDS, "fixture ZF_DOOR_AND_UKORZ: unknown step kind in %s" % row)
 
     def test_zulfarrak_end_door_is_a_hold_a_gossip_and_a_door_wait(self):
         # Weegli Blastfuse (7607) blows the End Door (146084) only once the pyramid phase (instance data 1) reads 8 (PYRAMID_KILLED_ALL_TROLLS,
         # tortoise-wow zulfarrak.h:40) and his menu then offers its one line (zulfarrak.cpp:497: index 0, so `cmd gossip` option 1).
-        rows = [r for r in self.step_rows(ZF_DOOR_AND_UKORZ) if r["leg"] == "14"]
+        name, _text, zf = newest_zulfarrak_rows()
+        rows = [r for r in zf if r["leg"] == "14"]
         self.assertEqual([r["kind"] for r in rows], ["move", "hold", "gossip", "wait_object"])
         hold, gossip, door = rows[1], rows[2], rows[3]
         # flag 8 alone: the phase is a script value, not an encounter state (no 32), and param 8 is above the encounter states 0-4
@@ -239,7 +227,8 @@ class DungeonPlanSql(unittest.TestCase):
         # the door wait: object 146084 in state 1 (active); the order of the rows is the point
         self.assertEqual((door["entry"], door["param"]), ("146084", "1"))
         # the Ukorz leg follows with the plain kinds (Bly's leg is not in the rows)
-        ukorz = [r for r in self.step_rows(ZF_DOOR_AND_UKORZ) if r["leg"] == "15"]
+        ukorz = [r for r in zf if r["leg"] == "15"]
+        self.assertEqual(max(int(r["leg"]) for r in zf), 15, name + ": Ukorz is the last leg")
         self.assertEqual([r["kind"] for r in ukorz], ["move", "pull", "pull", "pull", "pull", "pull", "boss"])
         self.assertEqual((ukorz[-1]["entry"], ukorz[-1]["entries"]), ("7267", "7797"))
 
@@ -270,18 +259,13 @@ class DungeonPlanSql(unittest.TestCase):
                     self.assertTrue(row["entries"], where + ": done by its units without entries")
 
     def test_zulfarrak_runs_the_stairs_event(self):
-        # The newest migration that inserts the zulfarrak steps (20261021005900, turtle-agent plan-export of the plan with the stairs
-        # holds) carries Zum'rah, the Executioner's key to the cage, the two holds on the pyramid phase (instance data 1: 3 = WAVE_1,
-        # 7 = WAVE_3, script values with flag 8 alone) and Nekrum before Sezz'ziz; a re-export from an exporter without hold values
+        # The newest migration that inserts the zulfarrak steps (20261021073330, turtle-agent plan-export of the plan with the stairs
+        # holds, Weegli's door and Ukorz) carries Zum'rah, the Executioner's key to the cage, the three holds on the pyramid phase
+        # (instance data 1: 3 = WAVE_1, 7 = WAVE_3 on the stairs top, 8 = PYRAMID_KILLED_ALL_TROLLS at the foot, script values with
+        # flag 8 alone), Nekrum before Sezz'ziz at the end of leg 13 and Ukorz as the last row; a re-export from an exporter without hold values
         # would cut the plan at the stairs again (or write them as encounter states, which the loader refuses above 4).
-        newest = None
-        for name, text in migrations():
-            if re.search(r"INSERT INTO `ai_dungeon_step`.*?\('zulfarrak',", text, re.S):
-                newest = (name, text)
-        self.assertIsNotNone(newest)
-        name, text = newest
-        rows = [r for r in self.step_rows(text) if r["plan"] == "zulfarrak"]
-        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8127", "7272", "7795", "7271", "7274", "7275"], name)
+        name, text, rows = newest_zulfarrak_rows()
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["8127", "7272", "7795", "7271", "7274", "7275", "7267"], name)
         cage = [i for i, r in enumerate(rows) if r["kind"] == "open"]
         self.assertEqual(len(cage), 1, name)
         i = cage[0]
@@ -289,12 +273,16 @@ class DungeonPlanSql(unittest.TestCase):
         loot = [r for r in rows[:i] if r["kind"] == "loot"]
         self.assertEqual((loot[-1]["entry"], loot[-1]["item"]), ("7274", "8444"), name + ": the key is looted before the cage")
         holds = [r for r in rows if r["kind"] == "hold"]
-        self.assertEqual([(r["entry"], r["param"], r["flags"], r["timeout_s"]) for r in holds], [("1", "3", "8", "90"), ("1", "7", "8", "600")], name)
+        self.assertEqual([(r["entry"], r["param"], r["flags"], r["timeout_s"]) for r in holds], [("1", "3", "8", "90"), ("1", "7", "8", "600"), ("1", "8", "8", "600")], name)
         self.assertEqual(rows[i + 1]["kind"], "hold", name + ": the first hold right after the cage (the event's start)")
-        for r in holds:
+        for r in holds[:2]:
             self.assertEqual((r["x"], r["y"], r["z"], r["entries"]), ("1887", "1274", "42", "7787,7788,7789,8876,8877"), name)
-        self.assertEqual(rows[-2]["entries"], "7796", name + ": Nekrum before Sezz'ziz")
-        self.assertEqual(rows[-1]["kind"], "wait_clear", name)
+        self.assertEqual((holds[2]["leg"], holds[2]["x"], holds[2]["y"], holds[2]["z"], holds[2]["entries"]),
+                         ("14", "1877.5", "1199.6", "8.9", "7787,7788,7789,8876,8877"), name)
+        leg13 = [r for r in rows if r["leg"] == "13"]
+        self.assertEqual(leg13[-2]["entries"], "7796", name + ": Nekrum before Sezz'ziz")
+        self.assertEqual(leg13[-1]["kind"], "wait_clear", name)
+        self.assertEqual((rows[-1]["kind"], rows[-1]["leg"]), ("boss", "15"), name + ": Ukorz ends the plan")
         self.assertIn("BotAreaTriggers = 962", text, name + ": the header names the trigger setting Zum'rah needs")
 
     def test_inserted_step_kinds_are_known(self):
