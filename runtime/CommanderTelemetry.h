@@ -21,6 +21,10 @@
 // leader's run, the plan's steps of the current section (capped, rebuilt only when the step moves). The dashboard draws paths,
 // run steps, objects, stall spots and combat lines from these and from its own memory of the 2 s reports.
 //
+// Bosses (additive, same rule; owner request 2026-10-21): while the lead stands on a dungeon or raid map, every known boss of that map
+// (BossInfo) at its spawn point with its state in the lead's instance, so the dashboard map showed all of them all the time, alive or
+// dead, and its run line could count the bosses killed of the run's bosses.
+//
 // Cost rule: nothing here runs per bot tick. The emitter asks for the
 // bindings once per 2 s snapshot cycle, and only while at least one binding
 // exists; an order is noted when its reply is sent (a few per minute). The
@@ -63,6 +67,10 @@ constexpr size_t kMaxRunStepsPerPayload = 32; // all bindings together
 constexpr size_t kMaxObjectsPerBinding = 16;
 constexpr size_t kMaxObjectsPerPayload = 24;
 constexpr size_t kMaxObjectName = 24;
+constexpr size_t kMaxBossesPerBinding = 16; // Naxxramas has 15 bosses, a five-man dungeon at most 10
+constexpr size_t kMaxBossesPerPayload = 48;
+constexpr size_t kMaxBossName = 24;
+constexpr size_t kPayloadByteBudget = 60000; // the boss lists are left out of the bindings that would pass it
 constexpr size_t kMaxOrderDetail = 80;
 constexpr size_t kMaxOrderResult = 120;
 
@@ -213,6 +221,59 @@ struct ObjectInfo
     char state = 'r';
 };
 
+// One known boss of the lead's dungeon or raid map (owner 2026-10-21: every boss on the dashboard map, alive or dead): a creature of an
+// `ai_dungeon_boss` row, a plan's boss step, world-boss rank or the instance-bind flag, at its spawn point, with its state in the lead's
+// own instance. state: a alive, d killed, u not known (its grid is not loaded, or it has not spawned). inPlan: a plan of the map has a boss
+// step for the entry (the dashboard counts these as the run's bosses).
+struct BossInfo
+{
+    uint32_t entry = 0;
+    std::string name;
+    float x = 0.0f;
+    float y = 0.0f;
+    char state = 'u';
+    bool inPlan = false;
+};
+
+// The state of one boss spawn in an instance: found on the map -> alive, or a corpse (dead); not found -> dead while the instance still
+// holds its respawn time (killed, corpse gone), else unknown (the grid is not loaded, or the creature never spawned there).
+inline char BossState(bool found, bool alive, bool respawnPending)
+{
+    if (found)
+        return alive ? 'a' : 'd';
+    return respawnPending ? 'd' : 'u';
+}
+
+// One row per entry from the spawns of a map (a boss can have several spawn rows), in the order the entries first appear: alive beats
+// dead beats unknown, the first spawn's place and name are kept, in the plan when any spawn is; a zero entry is dropped; at most `cap`.
+inline std::vector<BossInfo> MergeBosses(std::vector<BossInfo> const& spawns, size_t cap = kMaxBossesPerBinding)
+{
+    std::vector<BossInfo> out;
+    auto rankOf = [](char st) { return st == 'a' ? 2 : st == 'd' ? 1 : 0; };
+    for (BossInfo const& s : spawns)
+    {
+        if (!s.entry)
+            continue;
+        char const st = s.state == 'a' || s.state == 'd' ? s.state : 'u';
+        BossInfo* have = nullptr;
+        for (BossInfo& o : out)
+            if (o.entry == s.entry)
+                have = &o;
+        if (have)
+        {
+            if (rankOf(st) > rankOf(have->state))
+                have->state = st;
+            have->inPlan = have->inPlan || s.inPlan;
+            continue;
+        }
+        if (out.size() >= cap)
+            continue;
+        out.push_back(s);
+        out.back().state = st;
+    }
+    return out;
+}
+
 // Which steps of a plan are listed: the current section's (leg's) steps, at most `cap`. legFirst..legEnd is the 0-based half-open range
 // of the section in the plan's step list, `current` the 0-based step the run stands at (it may lie past the end of a finished run).
 // A section longer than the cap shows the window that keeps the current step a few steps from its start, so what is coming up is
@@ -289,6 +350,9 @@ struct BindingRef
     RunInfo run;                     // the run leader's run of this binding, when it has one
     bool objectsReported = false;    // the object list was read (it may be empty)
     std::vector<ObjectInfo> objects; // game objects the bots have seen, on the lead's map
+    bool bossesReported = false;     // the lead is on a dungeon or raid map and its boss list was read (it may be empty)
+    uint32_t bossesMap = 0;          // that map
+    std::vector<BossInfo> bosses;    // every known boss of it, with its state in the lead's instance (MergeBosses)
 };
 
 // One bound bot as the dashboard shows it.
@@ -338,6 +402,9 @@ struct BindingInfo
     RunInfo run;
     bool objectsReported = false;
     std::vector<ObjectInfo> objects;
+    bool bossesReported = false;
+    uint32_t bossesMap = 0;
+    std::vector<BossInfo> bosses;
 };
 
 inline std::string JsonEscape(std::string const& s)
@@ -368,7 +435,8 @@ inline std::string JsonEscape(std::string const& s)
 }
 
 // The COMMANDERS datagram. An empty list is a valid payload: it tells the
-// daemon the last binding ended.
+// daemon the last binding ended. The boss lists go in last, binding by binding, only while the datagram stays within
+// kPayloadByteBudget; a binding whose list does not fit leaves `bosses_map` and `bosses` out (the dashboard falls back).
 inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t seq, int64_t ts,
                                 std::vector<BindingInfo> const& bindings)
 {
@@ -384,6 +452,8 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
     size_t mobsTotal = 0;
     size_t stepsTotal = 0;
     size_t objectsTotal = 0;
+    size_t bossesTotal = 0;
+    std::vector<std::pair<size_t, std::string>> bossLists; // where each binding's list goes (before its orders), and the list
     for (BindingInfo const& b : bindings)
     {
         if (shown >= kMaxBindings)
@@ -539,6 +609,33 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
             }
             ss << "]";
         }
+        // A list the payload cap would cut is left out whole (the dashboard falls back), never sent short: a short list reads as "these
+        // are all the bosses".
+        size_t const bossCount = b.bosses.size() < kMaxBossesPerBinding ? b.bosses.size() : kMaxBossesPerBinding;
+        if (b.bossesReported && bossesTotal + bossCount <= kMaxBossesPerPayload)
+        {
+            std::ostringstream bs;
+            bs.setf(std::ios::fixed);
+            bs.precision(1);
+            bs << ",\"bosses_map\":" << b.bossesMap << ",\"bosses\":[";
+            size_t listed = 0;
+            for (BossInfo const& boss : b.bosses)
+            {
+                if (listed >= kMaxBossesPerBinding || bossesTotal >= kMaxBossesPerPayload)
+                    break;
+                if (listed++)
+                    bs << ",";
+                ++bossesTotal;
+                bs << "{\"e\":" << boss.entry << ",\"n\":\"" << JsonEscape(Clip(boss.name, kMaxBossName)) << "\""
+                   << ",\"x\":" << boss.x << ",\"y\":" << boss.y
+                   << ",\"s\":\"" << (boss.state == 'a' || boss.state == 'd' ? boss.state : 'u') << "\"";
+                if (boss.inPlan)
+                    bs << ",\"p\":1";
+                bs << "}";
+            }
+            bs << "]";
+            bossLists.emplace_back(static_cast<size_t>(ss.tellp()), bs.str());
+        }
         ss << ",\"orders\":[";
         size_t orders = 0;
         for (OrderRecord const& o : b.orders)
@@ -556,7 +653,20 @@ inline std::string BuildPayload(int protocolVersion, uint64_t session, uint64_t 
         ss << "]}";
     }
     ss << "]}";
-    return ss.str();
+    std::string out = ss.str();
+    // The lists that fit, first binding first; inserted from the back so the earlier positions stay valid.
+    size_t total = out.size();
+    std::vector<bool> keep(bossLists.size(), false);
+    for (size_t i = 0; i < bossLists.size(); ++i)
+        if (total + bossLists[i].second.size() <= kPayloadByteBudget)
+        {
+            keep[i] = true;
+            total += bossLists[i].second.size();
+        }
+    for (size_t i = bossLists.size(); i-- > 0;)
+        if (keep[i])
+            out.insert(bossLists[i].first, bossLists[i].second);
+    return out;
 }
 
 } // namespace CommanderTelemetry

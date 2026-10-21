@@ -549,6 +549,148 @@ void TestPathData()
     std::printf("worst case with paths (%zu bindings): %zu bytes\n", kMaxBindings, json2.size());
 }
 
+// Every known boss of the lead's dungeon map with its state in the lead's instance (owner 2026-10-21: all bosses on the dashboard map,
+// alive or dead): the state rule, the merge of several spawns of one entry, and the payload fields, caps and byte budget.
+void TestBosses()
+{
+    // the state of one spawn: on the map -> alive or a corpse; not on the map -> killed while its respawn time runs, else not known
+    Check(BossState(true, true, false) == 'a', "a living creature is alive");
+    Check(BossState(true, true, true) == 'a', "found alive beats an old respawn time");
+    Check(BossState(true, false, false) == 'd', "a corpse on the map is dead");
+    Check(BossState(true, false, true) == 'd', "a corpse with its respawn time running is dead");
+    Check(BossState(false, false, true) == 'd', "gone with its respawn time running: killed, corpse despawned");
+    Check(BossState(false, false, false) == 'u', "not on the map, no respawn time: not loaded or not spawned, unknown");
+    Check(BossState(false, true, false) == 'u', "not found never says alive");
+
+    auto boss = [](uint32_t e, char st, bool plan = false, std::string n = "B") {
+        BossInfo b; b.entry = e; b.name = n; b.x = static_cast<float>(e); b.y = -1.0f; b.state = st; b.inPlan = plan; return b; };
+    // several spawns of one entry: one row, alive beats dead beats unknown, the first spawn's place and name; first-seen order
+    std::vector<BossInfo> m = MergeBosses({boss(5, 'u', false, "first"), boss(7, 'd'), boss(5, 'd', true, "second"), boss(9, 'u'), boss(7, 'a'), boss(0, 'a')});
+    Check(m.size() == 3, "one row per entry, a zero entry dropped");
+    Check(m[0].entry == 5 && m[0].state == 'd' && m[0].name == "first" && m[0].x == 5.0f, "dead beats unknown, the first spawn's name and place");
+    Check(m[0].inPlan, "in the plan when any spawn of the entry is");
+    Check(m[1].entry == 7 && m[1].state == 'a', "alive beats dead");
+    Check(m[2].entry == 9 && m[2].state == 'u', "unknown stays unknown");
+    Check(MergeBosses({boss(1, 'z')})[0].state == 'u', "an unknown letter becomes unknown");
+    std::vector<BossInfo> lots;
+    for (uint32_t i = 1; i <= 40; ++i)
+        lots.push_back(boss(i, 'a'));
+    Check(MergeBosses(lots).size() == kMaxBossesPerBinding, "capped per binding");
+    Check(MergeBosses(lots, 3).size() == 3 && MergeBosses(lots, 0).empty(), "the cap is honoured");
+
+    // the payload: absent when not reported, [] when reported with none, the fields, the letters sanitized, the name clipped
+    BindingInfo b;
+    b.commander = "Gb";
+    std::string json = BuildPayload(9, 1, 1, 1, {b});
+    Check(!Has(json, "\"bosses\"") && !Has(json, "\"bosses_map\""), "not reported: no bosses fields");
+    b.bossesReported = true;
+    b.bossesMap = 70;
+    json = BuildPayload(9, 1, 1, 1, {b});
+    Check(Has(json, ",\"bosses_map\":70,\"bosses\":[]"), "reported, no boss known: []");
+    BossInfo rev = boss(6910, 'a', true, "Revelosh");
+    rev.x = -123.42f; rev.y = 56.78f;
+    BossInfo arch = boss(2748, 'd', false, std::string(60, 'A'));
+    BossInfo odd = boss(1, 'q', false, "Q\"x");
+    b.bosses = {rev, arch, odd};
+    json = BuildPayload(9, 1, 1, 1, {b});
+    Check(Has(json, "{\"e\":6910,\"n\":\"Revelosh\",\"x\":-123.4,\"y\":56.8,\"s\":\"a\",\"p\":1}"), "a boss of the plan, alive");
+    Check(Has(json, "{\"e\":2748,\"n\":\"" + std::string(kMaxBossName, 'A') + "\",\"x\":2748.0,\"y\":-1.0,\"s\":\"d\"}"), "outside the plan: no p; name clipped");
+    Check(Has(json, "\"n\":\"Q\\\"x\"") && Has(json, "\"s\":\"u\"}"), "names escaped, a stray letter sent as unknown");
+    Check(Has(json, "\"bosses\":[") && Has(json, "],\"orders\":["), "the list sits before the orders");
+
+    // caps: per binding and per payload
+    BindingInfo full = b;
+    full.bosses.clear();
+    for (uint32_t i = 1; i <= 40; ++i)
+        full.bosses.push_back(boss(i, 'u'));
+    json = BuildPayload(9, 1, 1, 1, {full});
+    Check(Count(json, "\"e\":") == kMaxBossesPerBinding, "bosses per binding are capped");
+    json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, full));
+    Check(Count(json, "\"e\":") == kMaxBossesPerPayload, "bosses per payload are capped");
+    Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / kMaxBossesPerBinding, "a list the payload cap would cut is left out, never sent short");
+    std::vector<BindingInfo> mixed(kMaxBindings, full);
+    mixed[kMaxBindings - 1].bosses.resize(1);
+    json = BuildPayload(9, 1, 1, 1, mixed);
+    Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / kMaxBossesPerBinding, "a short list still fits after the full ones are cut");
+}
+
+// The boss lists never push a datagram past the byte budget: with every other cap reached, the bindings that still fit keep their list
+// (the first ones) and the rest leave it out (the dashboard then falls back to the plan and what it sees); the other fields are untouched.
+void TestBossesByteBudget()
+{
+    auto boss = [](uint32_t e) {
+        BossInfo b; b.entry = 4000000000u + e; b.name = std::string(60, 'N'); b.x = b.y = -12345.67f; b.state = 'd'; b.inPlan = true; return b; };
+    BindingInfo big;
+    big.commander = std::string(60, 'C');
+    for (int i = 0; i < 6; ++i)
+    {
+        BotInfo bot = Bot("Botname" + std::to_string(i), i == 0);
+        bot.id = bot.target = 0xFFFFFFFFFFFFFFFFull;
+        bot.hasExtra = true;
+        bot.extra.action = std::string(60, 'a');
+        bot.extra.cast = std::string(60, 'c');
+        bot.extra.castTarget = 0xFFFFFFFFFFFFFFFFull;
+        bot.extra.targetName = std::string(60, 't');
+        big.bots.push_back(bot);
+    }
+    for (int i = 0; i < 8; ++i)
+        big.orders.push_back(Order(i, "ritual", true, std::string(kMaxOrderResult, 'r'), std::string(kMaxOrderDetail, 'd')));
+    big.mobsReported = true;
+    for (int i = 0; i < 40; ++i)
+        big.mobs.push_back(Mob(0xFFFFFFFFFFFFFFFFull, std::string(60, 'M'), 'h', 'k', 0xFFFFFFFFFFFFFFFFull));
+    big.run.present = true;
+    big.run.plan = std::string(60, 'p');
+    big.run.note = std::string(500, 'n');
+    for (uint32_t i = 0; i < 60; ++i)
+    {
+        RunStepInfo st;
+        st.index = 4000000000u + i;
+        st.kind = "move_direct";
+        st.x = st.y = -12345.67f;
+        st.radius = 100.0f;
+        st.entry = 4000000000u;
+        st.name = std::string(60, 'S');
+        st.skipped = true;
+        big.run.stepList.push_back(st);
+    }
+    big.objectsReported = true;
+    for (int i = 0; i < 40; ++i)
+    {
+        ObjectInfo o;
+        o.id = 0xFFFFFFFFFFFFFFFFull;
+        o.name = std::string(60, 'O');
+        big.objects.push_back(o);
+    }
+    std::string const without = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, big));
+    big.bossesReported = true;
+    big.bossesMap = 4000000000u;
+    for (uint32_t i = 0; i < 20; ++i)
+        big.bosses.push_back(boss(i));
+    std::string const one = BuildPayload(9, 1, 1, 1, {big});
+    Check(Count(one, "\"s\":\"d\"") == kMaxBossesPerBinding, "one full binding keeps its whole list");
+    std::printf("one full binding with bosses: %zu bytes\n", one.size());
+    std::string const json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, big));
+    Check(json.size() <= kPayloadByteBudget, "the worst case with bosses stays within the byte budget");
+    Check(json.size() < 60000, "and fits one datagram");
+    size_t const lists = Count(json, "\"bosses\":[");
+    Check(lists < kMaxBindings, "the bindings past the budget leave their list out");
+    Check(Count(json, "\"bosses_map\":") == lists, "a binding without its list has no bosses_map either");
+    Check(Count(json, "\"s\":\"d\"") == lists * kMaxBossesPerBinding, "a binding that keeps its list keeps all of it");
+    Check(json.size() - without.size() == lists * (one.size() - BuildPayload(9, 1, 1, 1, {[&] { BindingInfo c = big; c.bossesReported = false; return c; }()}).size()),
+        "nothing but the lists changes");
+    std::printf("worst case with bosses (%zu bindings, %zu lists kept): %zu bytes\n", kMaxBindings, lists, json.size());
+    // a heavy but ordinary report (no plan steps, no objects): the lists fit, the first bindings keep theirs (the payload cap stops the rest)
+    BindingInfo dungeon = big;
+    dungeon.run.stepList.clear();
+    dungeon.objects.clear();
+    std::string const usual = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, dungeon));
+    Check(Count(usual, "\"bosses\":[") == kMaxBossesPerPayload / kMaxBossesPerBinding, "the lists that the payload cap allows all fit");
+    Check(usual.find("\"bosses\":[") < usual.find("\"commander\":\"" + big.commander + "\"", usual.find("\"commander\":\"") + 1),
+        "the first binding keeps its list");
+    Check(usual.size() <= kPayloadByteBudget, "within the budget");
+    std::printf("8 dungeon bindings with bosses: %zu bytes\n", usual.size());
+}
+
 void TestControlCharacters()
 {
     BindingInfo b;
@@ -571,6 +713,8 @@ int main()
     TestUnitInfo();
     TestRunInfo();
     TestPathData();
+    TestBosses();
+    TestBossesByteBudget();
     TestControlCharacters();
     if (g_failures)
     {
