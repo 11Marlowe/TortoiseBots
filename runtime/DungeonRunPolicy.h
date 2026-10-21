@@ -3790,7 +3790,7 @@ inline bool LootFfaRestoreTick(Run& r, const Facts& f, std::string& order)
     }
     if (r.lootRestoreTries >= kLootRestoreTries)
     {
-        Pause(r, "the loot method of " + f.carrier + "'s group is still free-for-all after " +
+        Pause(r, "the loot method of the lead bot's group is still free-for-all after " +
             std::to_string(kLootRestoreTries) + " orders to put it back to " + RemoteCommander::LootMethodName(r.lootRestore) +
             " (AiPlayerbot.DungeonRunLootFfa): set it with .bot cmd lootmethod " +
             RemoteCommander::LootMethodName(r.lootRestore) + ", then .bot run resume");
@@ -4971,6 +4971,10 @@ inline bool WaitForFallen(Run& r, const Facts& f)
     // the walk's retry clock).
     EnterPhase(r, Phase::Begin);
     BeginRegroup(r);
+    // A loot step's free-for-all detour waiting for its carrier (LootFfa::Ordered) ends here: this regroup does not
+    // reset the step, and the running-tick restore (LootFfaRestoreTick) only runs with no detour in progress.
+    // lootFfaLive stays, so the method is ordered back on the next tick.
+    r.lootFfa = LootFfa::Idle;
     if (lead)
     {
         r.walkBackDue = true;

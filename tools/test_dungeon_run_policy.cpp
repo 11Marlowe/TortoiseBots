@@ -900,6 +900,7 @@ static void TestLootFfaRestoreRefusedRetriesThenPauses()
     CHECK(Tick(r, f).empty());
     CHECK(r.state == State::Paused && r.lootFfaLive); // the glue tries once more as the run pauses, and clears the flag
     CHECK(r.note.find("still free-for-all") != std::string::npos);
+    CHECK(r.note.find("the lead bot's group") != std::string::npos);
     CHECK(r.note.find("AiPlayerbot.DungeonRunLootFfa") != std::string::npos);
     CHECK(r.note.find("lootmethod nbg") != std::string::npos);
 }
@@ -947,6 +948,28 @@ static void TestLootFfaFlagEndsOnlyWhenTheMethodIsNotFfa()
         CHECK(Tick(r, f).compare(0, 11, "lootmethod ") != 0);
         CHECK(!r.lootFfaLive && r.lootFfa == LootFfa::Idle);
     }
+}
+
+// A bot dies while the detour waits for a busy carrier; the WaitForFallen regroup does not reset the step: the
+// detour ends there and the method is ordered back on the next tick (not after the whole regroup).
+static void TestLootFfaOrderedThenFallenRegroupRestores()
+{
+    DungeonPlan plan = FfaPlan();
+    Run r = Start(&plan);
+    Facts f = FfaParty();
+    OrderRefused(r, Tick(r, f), kFfaRights);
+    CHECK(Tick(r, f) == "lootmethod ffa");
+    f.lootMethod = RemoteCommander::kLootFfa;
+    f.carrierBusy = true;
+    CHECK(Tick(r, f).empty() && r.lootFfa == LootFfa::Ordered);
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Stabby"};
+    f.members = {Mem("Tanky", 0), Mem("Healy", 5)};
+    Tick(r, f);
+    CHECK(r.regroup && r.state == State::Running && r.lootFfa == LootFfa::Idle && r.lootFfaLive);
+    // The regroup's ticks: the restore is the first order out.
+    CHECK(Tick(r, f) == "lootmethod group");
 }
 
 // A carrier that stays busy: the ffa wait is bounded; on the cap the method goes back and the step goes the old way.
@@ -5925,6 +5948,7 @@ int main()
     TestLootFfaRestoreRefusedRetriesThenPauses();
     TestLootFfaFlagEndsOnlyWhenTheMethodIsNotFfa();
     TestLootFfaOrderedWaitIsBounded();
+    TestLootFfaOrderedThenFallenRegroupRestores();
     TestLootFfaKeyOffIsTheOldPath();
     TestOutstandingCarrierKeepsTheOrdersBot();
     TestRetiredUseItemOrderGoesOutAgain();
