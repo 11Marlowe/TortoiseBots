@@ -10771,6 +10771,27 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
                             SendRunLine(commander, slot, false);
                         }
                     }
+    // A pause from the fight ceiling goes on by itself once no living bot and
+    // no pet of the party is in combat (DungeonRun::CeilingFightOverWhilePaused).
+    if (slot.run.state == TortoiseBots::DungeonRun::State::Paused && slot.run.ceilingPaused && commander)
+        if (Player* lead = FindCharacter(binding->leadGuid))
+            if (lead->IsInWorld() && lead->GetMapId() == slot.run.plan->map)
+            {
+                bool partyInCombat = false;
+                for (Player* bot : CommandedBots(lead->GetGroup(), lead))
+                    if (bot->IsAlive() && bot->IsInWorld())
+                    {
+                        Pet* pet = bot->GetPet();
+                        partyInCombat = partyInCombat || bot->IsInCombat() ||
+                            (pet && pet->IsAlive() && pet->IsInWorld() && pet->IsInCombat());
+                    }
+                if (TortoiseBots::DungeonRun::CeilingFightOverWhilePaused(slot.run, partyInCombat, dt))
+                {
+                    TB_LOG_DETAIL("TortoiseBots: run leader of %s: %s", commander->GetName(),
+                        slot.run.note.c_str());
+                    SendRunLine(commander, slot, false);
+                }
+            }
     if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)
     {
         ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)

@@ -7962,6 +7962,72 @@ static void TestShotStandOnPath()
     }
 }
 
+// Uldaman run 4, step 38: a fight past the 180 s ceiling paused the run, the
+// fight ended 15 s later, and the run stayed paused for 470 s. A ceiling pause
+// goes on by itself once the party is out of combat kCeilingQuietMs, once per
+// step; a player's pause and every other pause never do.
+static void TestCeilingPauseResumesByItself()
+{
+    DungeonPlan plan;
+    PlanStep wait = Step(PlanStepKind::WaitObject, 1, 2, 3);
+    wait.entry = 124369;
+    wait.param = 1;
+    plan.steps = {wait, Step(PlanStepKind::Move, 9)};
+    auto ceilingPause = [&](Run& r)
+    {
+        r.fighting = true;
+        r.fightMs = kFightCapMs + 1000;
+        Facts g = Party(0);
+        g.anyInCombat = true;
+        Tick(r, g);
+    };
+    // The fight past the ceiling pauses; ticks with the party in combat stay paused.
+    Run r = Start(&plan);
+    ceilingPause(r);
+    CHECK(r.state == State::Paused && r.ceilingPaused &&
+        r.note.find("a fight lasted more than 180 s") != std::string::npos);
+    for (int i = 0; i < 10; ++i)
+        CHECK(!CeilingFightOverWhilePaused(r, true, 1000) && r.state == State::Paused);
+    // A quiet stretch broken by one combat tick starts over.
+    CHECK(!CeilingFightOverWhilePaused(r, false, 4000));
+    CHECK(!CeilingFightOverWhilePaused(r, true, 1000) && r.ceilingQuietMs == 0);
+    CHECK(!CeilingFightOverWhilePaused(r, false, 4000) && r.state == State::Paused);
+    // kCeilingQuietMs out of combat: it goes on by itself, regrouping.
+    CHECK(CeilingFightOverWhilePaused(r, false, 1000));
+    CHECK(r.state == State::Running && !r.ceilingPaused && r.step == 0);
+    CHECK(r.note.find("going on by itself") != std::string::npos);
+    // A second ceiling on the same step stays paused for good.
+    ceilingPause(r);
+    CHECK(r.state == State::Paused && r.ceilingPaused);
+    CHECK(!CeilingFightOverWhilePaused(r, false, kCeilingQuietMs * 2) && r.state == State::Paused);
+    // A player's pause never self-resumes, and clears the ceiling mark.
+    Run p = Start(&plan);
+    ceilingPause(p);
+    PausePlayer(p, "player order (stay): .bot run resume to go on");
+    CHECK(!p.ceilingPaused);
+    CHECK(!CeilingFightOverWhilePaused(p, false, kCeilingQuietMs * 2) && p.state == State::Paused);
+    // ... and the guard holds on its own even if the mark were left set.
+    p.ceilingPaused = true;
+    CHECK(!CeilingFightOverWhilePaused(p, false, kCeilingQuietMs * 2) && p.state == State::Paused);
+    // Any other pause after the ceiling's clears it.
+    Run o = Start(&plan);
+    ceilingPause(o);
+    Pause(o, "the lead bot is not on the plan's map (70)");
+    CHECK(!o.ceilingPaused);
+    CHECK(!CeilingFightOverWhilePaused(o, false, kCeilingQuietMs * 2) && o.state == State::Paused);
+    // A manual resume and a skip clear it as well.
+    Run m = Start(&plan);
+    ceilingPause(m);
+    CHECK(Resume(m) && !m.ceilingPaused);
+    CHECK(!CeilingFightOverWhilePaused(m, false, kCeilingQuietMs * 2));
+    Run k = Start(&plan);
+    ceilingPause(k);
+    CHECK(Skip(k) && !k.ceilingPaused && k.step == 1);
+    // A running run is untouched.
+    Run u = Start(&plan);
+    CHECK(!CeilingFightOverWhilePaused(u, false, kCeilingQuietMs * 2) && u.state == State::Running);
+}
+
 int main()
 {
     TestGoneChestWithFlagIsDone();
@@ -8174,6 +8240,7 @@ int main()
     TestNoSpotWalkBackNeverSpins();
     TestSignBFromTheMainMeshIsBounded();
     TestWalkBackResendBound();
+    TestCeilingPauseResumesByItself();
     std::cout << "test_dungeon_run_policy: ok\n";
     return 0;
 }

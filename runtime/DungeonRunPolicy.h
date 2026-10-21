@@ -173,6 +173,7 @@ constexpr std::uint32_t kRegroupReviveMs = 240000; // after a resume: the dead m
 constexpr std::uint32_t kRegroupGatherMs = 60000;  // ... and the party gathered within this after that
 constexpr std::uint32_t kFightCapMs = 180000;
 constexpr std::uint32_t kBossFightCapMs = 420000;
+constexpr std::uint32_t kCeilingQuietMs = 5000; // a ceiling pause whose party stays out of combat this long goes on by itself
 constexpr std::uint32_t kStaleCombatGraceMs = 20000; // a combat flag with nothing hostile engaged is waited out this long in all of one fight, then the fight ceiling runs again
 constexpr std::uint32_t kStaleConfirmMs = 3000;      // ... and it must stand this long without a break before a wait_object is finished over it
 constexpr std::uint32_t kRestCapMs = 60000;
@@ -803,6 +804,12 @@ struct Run
     // The pause came from a player (an order to the party, `.bot run pause`),
     // not from the run: it never resumes by itself (HoldDoneWhilePaused).
     bool pausedByPlayer = false;
+    // The pause is the fight ceiling's (kFightCapMs): once the party is out of
+    // combat for kCeilingQuietMs the run goes on by itself, once per step
+    // (CeilingFightOverWhilePaused). Any other pause, Resume and Skip clear it.
+    bool ceilingPaused = false;
+    std::uint32_t ceilingQuietMs = 0;
+    std::size_t ceilingResumedStep = static_cast<std::size_t>(-1); // the step that has used its one self-resume (ResetStep keeps it)
     std::uint32_t eventIdleMs = 0; // out of a fight with an awake event unit standing
     std::uint32_t eventUp = 0, eventDown = 0, eventTotal = 0; // the event's units now: awake, dead, all seen
     // Run-wide counts for the report.
@@ -1030,6 +1037,8 @@ inline void Pause(Run& r, const std::string& why)
     r.state = State::Paused;
     r.note = why;
     r.pausedByPlayer = false; // PausePlayer sets it after
+    r.ceilingPaused = false; // the fight ceiling sets it after
+    r.ceilingQuietMs = 0;
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
     r.holdDue = false;
@@ -1866,6 +1875,8 @@ inline bool Resume(Run& r)
     if (r.state != State::Paused || !Current(r))
         return false;
     r.state = State::Running;
+    r.ceilingPaused = false;
+    r.ceilingQuietMs = 0;
     r.fighting = false;
     r.autoRegroups = 0;
     ResetStep(r);
@@ -1895,6 +1906,8 @@ inline bool Skip(Run& r)
     // target refused as invalid-target is already out of reach for the run.
     std::size_t const skipped = r.step + 1;
     r.state = State::Running;
+    r.ceilingPaused = false;
+    r.ceilingQuietMs = 0;
     NextStep(r, "skipped step " + std::to_string(skipped));
     if (wasPaused && r.state == State::Running)
         BeginRegroup(r);
@@ -1905,6 +1918,31 @@ inline bool Skip(Run& r)
 inline bool PausedByPlayer(const Run& r)
 {
     return r.state == State::Paused && r.pausedByPlayer;
+}
+
+// A pause from the fight ceiling (kFightCapMs) goes on by itself once the
+// party has been out of combat for kCeilingQuietMs (Uldaman run 4, step 38: the
+// fight ended 15 s after the pause and the run waited 470 s for a manual
+// resume). Once per step: a second ceiling on the same step stays paused. A
+// player's pause and every other pause never come back by themselves. The glue
+// ticks it while the run is paused; true when the run resumed.
+inline bool CeilingFightOverWhilePaused(Run& r, bool partyInCombat, std::uint32_t dt)
+{
+    if (r.state != State::Paused || !r.ceilingPaused || PausedByPlayer(r) || r.ceilingResumedStep == r.step)
+        return false;
+    if (partyInCombat)
+    {
+        r.ceilingQuietMs = 0;
+        return false;
+    }
+    r.ceilingQuietMs += dt;
+    if (r.ceilingQuietMs < kCeilingQuietMs)
+        return false;
+    r.ceilingResumedStep = r.step;
+    if (!Resume(r))
+        return false;
+    r.note = "the fight past the ceiling is over: going on by itself (regrouping)";
+    return true;
 }
 
 // A player's pause: only `.bot run resume` (or skip) goes on from it.
@@ -6136,6 +6174,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         if (r.fightMs > cap && !staleGrace)
         {
             Pause(r, "a fight lasted more than " + std::to_string(cap / 1000) + " s");
+            r.ceilingPaused = true;
+            r.ceilingQuietMs = 0;
             return order;
         }
         r.note = autoRegroup ? std::to_string(f.dead) + " dead: fighting on, a regroup follows"
