@@ -51,6 +51,10 @@ namespace ai
     // without a new look, and the grid (yards) its point is rounded to.
     constexpr std::int64_t kMagmaRefusalSeconds = 10;
     constexpr float kMagmaRefusalGridYd = 2.0f;
+    // A refused route is refused from memory only while the bot is still in
+    // the same cell of this size: from anywhere else (a knockback to the safe
+    // side, a step) the route is looked at again at once.
+    constexpr float kMagmaRefusalOriginGridYd = 4.0f;
 
     // The core's rule for "in magma" (Player::UpdateTerainEnvironmentFlags):
     // the liquid there is magma and the point is under it, in it, or just on
@@ -75,21 +79,32 @@ namespace ai
     // A bot's memory of the last destination the guard refused: the same
     // destination (same map, same 2 yd cell) is refused again without terrain
     // queries until `until` (wall-clock seconds).
+    // A route refusal also keeps the bot's origin cell (`hasOrigin`): the
+    // memory then holds only while the bot is still there. An end point in
+    // magma is refused from anywhere (no origin).
     struct MagmaRefusal
     {
         bool set = false;
         std::uint32_t mapId = 0;
         std::int32_t cellX = 0, cellY = 0, cellZ = 0;
+        bool hasOrigin = false;
+        std::int32_t originX = 0, originY = 0, originZ = 0;
         std::int64_t until = 0;
     };
 
-    inline std::int32_t MagmaRefusalCell(float v)
+    inline std::int32_t MagmaGridCell(float v, float grid)
     {
         if (v != v)
             return 0;
-        return static_cast<std::int32_t>(std::floor(v / kMagmaRefusalGridYd));
+        return static_cast<std::int32_t>(std::floor(v / grid));
     }
 
+    inline std::int32_t MagmaRefusalCell(float v)
+    {
+        return MagmaGridCell(v, kMagmaRefusalGridYd);
+    }
+
+    // An end point in magma: refused from anywhere.
     inline MagmaRefusal MagmaRefusalFor(std::uint32_t mapId, float x, float y, float z, std::int64_t now)
     {
         MagmaRefusal r;
@@ -102,11 +117,46 @@ namespace ai
         return r;
     }
 
-    // Whether a move to (mapId, x, y, z) at `now` is refused from memory.
-    inline bool MagmaRefusalActive(MagmaRefusal const& r, std::uint32_t mapId, float x, float y, float z, std::int64_t now)
+    // A route into magma: refused from this origin only.
+    inline MagmaRefusal MagmaRouteRefusalFor(std::uint32_t mapId, float x, float y, float z,
+        float fromX, float fromY, float fromZ, std::int64_t now)
     {
-        return r.set && now < r.until && r.mapId == mapId &&
-            r.cellX == MagmaRefusalCell(x) && r.cellY == MagmaRefusalCell(y) && r.cellZ == MagmaRefusalCell(z);
+        MagmaRefusal r = MagmaRefusalFor(mapId, x, y, z, now);
+        r.hasOrigin = true;
+        r.originX = MagmaGridCell(fromX, kMagmaRefusalOriginGridYd);
+        r.originY = MagmaGridCell(fromY, kMagmaRefusalOriginGridYd);
+        r.originZ = MagmaGridCell(fromZ, kMagmaRefusalOriginGridYd);
+        return r;
+    }
+
+    // Whether a move from (fromX, fromY, fromZ) to (mapId, x, y, z) at `now`
+    // is refused from memory.
+    inline bool MagmaRefusalActive(MagmaRefusal const& r, std::uint32_t mapId, float x, float y, float z,
+        float fromX, float fromY, float fromZ, std::int64_t now)
+    {
+        if (!(r.set && now < r.until && r.mapId == mapId &&
+                r.cellX == MagmaRefusalCell(x) && r.cellY == MagmaRefusalCell(y) && r.cellZ == MagmaRefusalCell(z)))
+            return false;
+        if (!r.hasOrigin)
+            return true;
+        return r.originX == MagmaGridCell(fromX, kMagmaRefusalOriginGridYd) &&
+            r.originY == MagmaGridCell(fromY, kMagmaRefusalOriginGridYd) &&
+            r.originZ == MagmaGridCell(fromZ, kMagmaRefusalOriginGridYd);
+    }
+
+    // A commander task's walk nudge (a plain core MovePoint to its standing
+    // point, BotCommands NudgeTaskWalk) on an instance map waits while the
+    // bot's last MoveTo2 was a magma refusal still in its window, or when the
+    // standing point itself is in magma: otherwise the nudge walks the bot
+    // where MoveTo2 refused to.
+    inline bool MagmaNudgeBlocked(bool guardApplies, bool lastMoveRefusedMagma, MagmaRefusal const& r,
+        std::int64_t now, bool standInMagma)
+    {
+        if (!guardApplies)
+            return false;
+        if (standInMagma)
+            return true;
+        return lastMoveRefusedMagma && r.set && now < r.until;
     }
 
     struct MagmaPoint

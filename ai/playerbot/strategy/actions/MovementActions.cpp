@@ -25,6 +25,7 @@
 #include "playerbot/CastKeepsRunningPolicy.h"
 #include "playerbot/JumpPolicy.h"
 #include "playerbot/MagmaHazardPolicy.h"
+#include "host/ModuleLog.h"
 #include "playerbot/BotActionLog.h"
 #include "Database/DBCStores.h"
 
@@ -52,7 +53,8 @@ static void LogMagmaRefusal(Player* bot, LastMovement& lastMove, const WorldPosi
     if (lastMove.magmaLogAt && now - lastMove.magmaLogAt < kMagmaLogSeconds)
         return;
     lastMove.magmaLogAt = now;
-    sLog.outDetail("%s: move refused: magma at %.1f %.1f %.1f (%s)", bot->GetName(), at.getX(), at.getY(), at.getZ(), what);
+    TB_LOG_DETAIL("TortoiseBots: %s: move refused: magma at %.1f %.1f %.1f (map %u, %s)", bot->GetName(), at.getX(),
+        at.getY(), at.getZ(), at.GetMapId(), what);
 }
 
 // MagmaHazardPolicy.h: whether the route walks into magma after dry ground
@@ -88,12 +90,17 @@ static bool RouteEntersMagma(Player* bot, const WorldPosition& startPos, TravelP
 
 // The magma guard refuses the whole move: nothing is dispatched (no hop to
 // the dry part of the route), the caller sees MOVE_FAIL_MAGMA, and the same
-// destination is refused from memory for kMagmaRefusalSeconds.
+// destination is refused from memory for kMagmaRefusalSeconds: from anywhere
+// for an end point in magma (`origin` null), from the same origin cell only
+// for a route into magma.
 static void RefuseMagmaMove(Player* bot, LastMovement& lastMove, const WorldPosition& endPos, const WorldPosition& magmaAt,
-    const char* what)
+    const WorldPosition* origin, const char* what)
 {
-    lastMove.magmaRefusal = ai::MagmaRefusalFor(endPos.GetMapId(), endPos.getX(), endPos.getY(), endPos.getZ(),
-        static_cast<std::int64_t>(time(nullptr)));
+    std::int64_t const now = static_cast<std::int64_t>(time(nullptr));
+    lastMove.magmaRefusal = origin
+        ? ai::MagmaRouteRefusalFor(endPos.GetMapId(), endPos.getX(), endPos.getY(), endPos.getZ(),
+              origin->getX(), origin->getY(), origin->getZ(), now)
+        : ai::MagmaRefusalFor(endPos.GetMapId(), endPos.getX(), endPos.getY(), endPos.getZ(), now);
     lastMove.moveFailReason = MOVE_FAIL_MAGMA;
     LogMagmaRefusal(bot, lastMove, magmaAt, what);
 }
@@ -1056,14 +1063,14 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (magmaGuard)
     {
         if (ai::MagmaRefusalActive(lastMove.magmaRefusal, endPos.GetMapId(), endPos.getX(), endPos.getY(), endPos.getZ(),
-                static_cast<std::int64_t>(time(nullptr))))
+                bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), static_cast<std::int64_t>(time(nullptr))))
         {
             lastMove.moveFailReason = MOVE_FAIL_MAGMA;
             return false;
         }
         if (endPos.isInMagma())
         {
-            RefuseMagmaMove(bot, lastMove, endPos, endPos, "end point");
+            RefuseMagmaMove(bot, lastMove, endPos, endPos, nullptr, "end point");
             return false;
         }
     }
@@ -1163,7 +1170,7 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
     if (magmaGuard && !movePath.empty() && RouteEntersMagma(bot, startPos, movePath, magmaAt))
     {
         lastMove.setPath(TravelPath()); // not reused by the next call: the whole move is refused
-        RefuseMagmaMove(bot, lastMove, endPos, magmaAt, "route");
+        RefuseMagmaMove(bot, lastMove, endPos, magmaAt, &startPos, "route");
         return false;
     }
 

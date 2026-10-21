@@ -38,6 +38,7 @@
 #include "../ai/playerbot/strategy/values/AttackersValue.h"
 #include "../ai/playerbot/strategy/values/PossibleAttackTargetsValue.h"
 #include "../ai/playerbot/strategy/values/PositionValue.h"
+#include "../ai/playerbot/strategy/values/LastMovementValue.h"
 #include "../ai/playerbot/strategy/values/ItemUsageValue.h"
 #include "../ai/playerbot/strategy/actions/EquipAction.h"
 #include "../ai/playerbot/strategy/actions/UnequipAction.h"
@@ -6079,17 +6080,20 @@ static bool CommanderMoveDirect(ChatHandler* handler, CommanderOrder const& orde
 // spot in magma on an instance map is logged, never refused: plan points are
 // curated, and a stalled plan step is worse. The bots' own movement guard is
 // MovementAction::MoveTo2 (MagmaHazardPolicy.h). One line per 10 s.
-static void NoteRunMagma(Player* lead, float x, float y, float z, char const* what)
+enum class RunMagmaNote : uint8 { MovePoint, DirectMovePoint, LeadSpot, Count };
+
+static void NoteRunMagma(Player* lead, float x, float y, float z, RunMagmaNote kind, char const* what)
 {
-    static time_t lastLog = 0;
+    static time_t lastLog[static_cast<size_t>(RunMagmaNote::Count)] = {};
+    time_t& last = lastLog[static_cast<size_t>(kind)];
     if (!lead || !lead->IsInWorld() || !lead->GetMap()->IsDungeon())
         return;
     time_t const now = time(nullptr);
-    if (lastLog && now - lastLog < 10)
+    if (last && now - last < 10)
         return;
     if (!ai::WorldPosition(lead->GetMapId(), x, y, z).isInMagma(lead->GetMap()->GetTerrain()))
         return;
-    lastLog = now;
+    last = now;
     TB_LOG_DETAIL("TortoiseBots: %s in magma at %.1f %.1f %.1f (map %u, lead %s)", what, x, y, z,
         lead->GetMapId(), lead->GetName());
 }
@@ -6105,6 +6109,7 @@ static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std
         return true;
     }
     NoteRunMagma(order.lead, request.point.x, request.point.y, request.point.z,
+        request.direct ? RunMagmaNote::DirectMovePoint : RunMagmaNote::MovePoint,
         request.direct ? "a direct move point" : "a move point");
     if (request.direct)
         return CommanderMoveDirect(handler, order, request.point, intent);
@@ -7174,6 +7179,18 @@ void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)
     task.nudgeMs = 0;
     if (sServerFacade.isMoving(bot))
         return;
+    // The magma guard (MagmaHazardPolicy.h): this plain core walk must not
+    // take the bot where MoveTo2 just refused to go, nor onto a stand in magma.
+    if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+    {
+        bool const guard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());
+        ai::LastMovement& lastMove = ai->GetAiObjectContext()->GetValue<ai::LastMovement&>("last movement")->Get();
+        if (ai::MagmaNudgeBlocked(guard, lastMove.moveFailReason == ai::MOVE_FAIL_MAGMA, lastMove.magmaRefusal,
+                static_cast<std::int64_t>(time(nullptr)),
+                guard && ai::WorldPosition(bot->GetMapId(), task.stand.x, task.stand.y, task.stand.z).isInMagma(
+                    bot->GetMap()->GetTerrain())))
+            return;
+    }
     bot->GetMotionMaster()->MovePoint(0, task.stand.x, task.stand.y, task.stand.z,
         MOVE_RUN_MODE | MOVE_PATHFINDING);
 }
@@ -10547,7 +10564,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     // (DungeonRun::LeadStayDueWhileResting, RFC r3-19z20). Before the rest
     // order below, so its own drink or meal follows the stay's reset.
     if (lead->IsInMagma())
-        NoteRunMagma(lead, lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), "the lead bot stands");
+        NoteRunMagma(lead, lead->GetPositionX(), lead->GetPositionY(), lead->GetPositionZ(), RunMagmaNote::LeadSpot,
+            "the lead bot stands");
     if (PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead))
         if (TortoiseBots::DungeonRun::LeadStayDueWhileResting(slot.run, lead->IsAlive(), lead->IsInCombat(),
                 leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma()))

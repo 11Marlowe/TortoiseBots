@@ -7,6 +7,10 @@ run leader call them, so the glue cannot drift away silently:
 - MoveTo2 checks the refusal memory first, then the end point, then the
   route, each refusal returns false with MOVE_FAIL_MAGMA, and a route into
   magma is refused whole (nothing dispatched, no hop to its dry part);
+- a route refusal is remembered from the bot's origin cell only, and logged
+  to the module log;
+- a commander task's walk nudge (a plain core MovePoint) waits after a magma
+  refusal and never walks onto a stand in magma;
 - the formation station trigger does not fire for a slot in magma;
 - the run leader holds the lead on "stay" while resting, unless it stands in
   magma, before the rest order goes out.
@@ -54,14 +58,37 @@ class MagmaGuardWiringTest(unittest.TestCase):
         memory = f[at(f, "ai::MagmaRefusalActive("):]
         self.assertRegex(memory, r"^[^}]*lastMove\.moveFailReason = MOVE_FAIL_MAGMA;\s*return false;")
         end = f[at(f, "if (endPos.isInMagma())"):]
-        self.assertRegex(end, r"^[^}]*RefuseMagmaMove\(bot, lastMove, endPos, endPos, \"end point\"\);\s*return false;")
+        self.assertRegex(end, r"^[^}]*RefuseMagmaMove\(bot, lastMove, endPos, endPos, nullptr, \"end point\"\);\s*return false;")
         route = f[at(f, "RouteEntersMagma(bot, startPos, movePath, magmaAt)"):]
-        self.assertRegex(route, r"^[^}]*RefuseMagmaMove\(bot, lastMove, endPos, magmaAt, \"route\"\);\s*return false;")
+        self.assertRegex(route, r"^[^}]*RefuseMagmaMove\(bot, lastMove, endPos, magmaAt, &startPos, \"route\"\);\s*return false;")
 
     def test_refusal_sets_memory_and_reason(self):
         f = body(MOVES, "static void RefuseMagmaMove(", "\n}\n")
-        self.assertIn("lastMove.magmaRefusal = ai::MagmaRefusalFor(endPos.GetMapId()", f)
+        self.assertIn("lastMove.magmaRefusal = origin", f)
+        self.assertIn("? ai::MagmaRouteRefusalFor(endPos.GetMapId()", f)
+        self.assertIn("origin->getX(), origin->getY(), origin->getZ(), now)", f)
+        self.assertIn(": ai::MagmaRefusalFor(endPos.GetMapId()", f)
         self.assertIn("lastMove.moveFailReason = MOVE_FAIL_MAGMA;", f)
+
+    def test_memory_is_keyed_on_the_bots_origin(self):
+        f = self.move2
+        self.assertIn("bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ(), static_cast<std::int64_t>(time(nullptr))))",
+                      f[at(f, "ai::MagmaRefusalActive("):])
+
+    def test_refusal_logs_to_the_module_log(self):
+        f = body(MOVES, "static void LogMagmaRefusal(", "\n}\n")
+        self.assertIn("TB_LOG_DETAIL(", f)
+        self.assertIn('#include "host/ModuleLog.h"', MOVES)
+
+    def test_task_walk_nudge_waits_after_a_magma_refusal(self):
+        f = body(COMMANDS, "void NudgeTaskWalk(CommanderTask& task, Player* bot, uint32 diff)", "\n}\n")
+        blocked = at(f, "if (ai::MagmaNudgeBlocked(guard, lastMove.moveFailReason == ai::MOVE_FAIL_MAGMA, lastMove.magmaRefusal,")
+        self.assertIn("bool const guard = ai::MagmaGuardApplies(bot->GetMap()->IsDungeon());", f)
+        self.assertIn("guard && ai::WorldPosition(bot->GetMapId(), task.stand.x, task.stand.y, task.stand.z).isInMagma(", f)
+        walk = at(f, "bot->GetMotionMaster()->MovePoint(0, task.stand.x, task.stand.y, task.stand.z,")
+        self.assertLess(blocked, walk)
+        self.assertEqual(f.count("MovePoint("), 1)  # the guarded walk is the only one
+        self.assertRegex(f[blocked:walk], r"isInMagma\(\s*bot->GetMap\(\)->GetTerrain\(\)\)\)\)\s*return;")
 
     def test_route_check_never_edits_the_route(self):
         f = body(MOVES, "static bool RouteEntersMagma(", "\n}\n")
@@ -96,9 +123,11 @@ class MagmaGuardWiringTest(unittest.TestCase):
         f = body(COMMANDS, "static bool CommanderMove(ChatHandler* handler, CommanderOrder const& order, std::string const& args,",
                  "\n}\n")
         note = at(f, "NoteRunMagma(order.lead, request.point.x, request.point.y, request.point.z,")
+        self.assertIn("request.direct ? RunMagmaNote::DirectMovePoint : RunMagmaNote::MovePoint,", f)
         direct = at(f, "return CommanderMoveDirect(handler, order, request.point, intent);")
         self.assertLess(note, direct)
         helper = body(COMMANDS, "static void NoteRunMagma(", "\n}\n")
+        self.assertIn("time_t& last = lastLog[static_cast<size_t>(kind)];", helper)
         self.assertNotIn("return true", helper)
         self.assertNotIn("SendActionError", helper)
 

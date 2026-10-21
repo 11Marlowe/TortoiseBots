@@ -24,6 +24,8 @@ using ai::MagmaPoint;
 using ai::MagmaRefusal;
 using ai::MagmaRefusalActive;
 using ai::MagmaRefusalFor;
+using ai::MagmaRouteRefusalFor;
+using ai::MagmaNudgeBlocked;
 using ai::kMagmaMaxInteriorSamples;
 using ai::kMagmaRefusalSeconds;
 
@@ -204,19 +206,53 @@ int main()
     // another map or a later time looks again.
     {
         MagmaRefusal none;
-        CHECK(!MagmaRefusalActive(none, 389, -205.5f, -16.4f, -65.7f, 100));
+        CHECK(!MagmaRefusalActive(none, 389, -205.5f, -16.4f, -65.7f, 0.0f, 0.0f, 0.0f, 100));
         MagmaRefusal r = MagmaRefusalFor(389, -205.5f, -16.4f, -65.7f, 100);
-        CHECK(MagmaRefusalActive(r, 389, -205.5f, -16.4f, -65.7f, 100));
-        CHECK(MagmaRefusalActive(r, 389, -205.1f, -16.1f, -65.2f, 100 + kMagmaRefusalSeconds - 1));
-        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -16.4f, -65.7f, 100 + kMagmaRefusalSeconds));
-        CHECK(!MagmaRefusalActive(r, 389, -201.0f, -16.4f, -65.7f, 101));
-        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -12.0f, -65.7f, 101));
-        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -16.4f, -61.7f, 101));
-        CHECK(!MagmaRefusalActive(r, 1, -205.5f, -16.4f, -65.7f, 101));
+        CHECK(MagmaRefusalActive(r, 389, -205.5f, -16.4f, -65.7f, 0.0f, 0.0f, 0.0f, 100));
+        CHECK(MagmaRefusalActive(r, 389, -205.1f, -16.1f, -65.2f, 0.0f, 0.0f, 0.0f, 100 + kMagmaRefusalSeconds - 1));
+        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -16.4f, -65.7f, 0.0f, 0.0f, 0.0f, 100 + kMagmaRefusalSeconds));
+        CHECK(!MagmaRefusalActive(r, 389, -201.0f, -16.4f, -65.7f, 0.0f, 0.0f, 0.0f, 101));
+        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -12.0f, -65.7f, 0.0f, 0.0f, 0.0f, 101));
+        CHECK(!MagmaRefusalActive(r, 389, -205.5f, -16.4f, -61.7f, 0.0f, 0.0f, 0.0f, 101));
+        CHECK(!MagmaRefusalActive(r, 1, -205.5f, -16.4f, -65.7f, 0.0f, 0.0f, 0.0f, 101));
         MagmaRefusal cleared = r;
         cleared.set = false;
-        CHECK(!MagmaRefusalActive(cleared, 389, -205.5f, -16.4f, -65.7f, 101));
+        CHECK(!MagmaRefusalActive(cleared, 389, -205.5f, -16.4f, -65.7f, 0.0f, 0.0f, 0.0f, 101));
         std::cout << "  [PASS] a refused destination is refused from memory for 10 s\n";
+    }
+
+    // An end point in magma is refused from anywhere; a route refusal only
+    // from the same 4 yd origin cell (a knockback to the safe side, or any
+    // step to a new cell, looks again at once).
+    {
+        MagmaRefusal end = MagmaRefusalFor(389, -205.5f, -16.4f, -65.7f, 100);
+        CHECK(MagmaRefusalActive(end, 389, -205.5f, -16.4f, -65.7f, -209.7f, -4.4f, -61.7f, 101));
+        CHECK(MagmaRefusalActive(end, 389, -205.5f, -16.4f, -65.7f, -180.0f, 0.0f, -60.0f, 101));
+        MagmaRefusal route = MagmaRouteRefusalFor(389, -205.5f, -16.4f, -65.7f, -209.7f, -4.4f, -61.7f, 100);
+        CHECK(MagmaRefusalActive(route, 389, -205.5f, -16.4f, -65.7f, -209.7f, -4.4f, -61.7f, 101));
+        CHECK(MagmaRefusalActive(route, 389, -205.5f, -16.4f, -65.7f, -210.5f, -5.5f, -61.0f, 101)); // same cell
+        CHECK(!MagmaRefusalActive(route, 389, -205.5f, -16.4f, -65.7f, -213.0f, -4.4f, -61.7f, 101)); // x cell
+        CHECK(!MagmaRefusalActive(route, 389, -205.5f, -16.4f, -65.7f, -209.7f, -0.5f, -61.7f, 101)); // y cell
+        CHECK(!MagmaRefusalActive(route, 389, -205.5f, -16.4f, -65.7f, -209.7f, -4.4f, -66.5f, 101)); // z cell
+        CHECK(!MagmaRefusalActive(route, 389, -205.5f, -16.4f, -65.7f, -209.7f, -4.4f, -61.7f, 110)); // expired
+        CHECK(!MagmaRefusalActive(route, 389, -195.0f, -16.4f, -65.7f, -209.7f, -4.4f, -61.7f, 101)); // other dest
+        std::cout << "  [PASS] a route refusal holds only from the same origin cell\n";
+    }
+
+    // The task walk nudge: on an instance map it waits after a magma refusal
+    // still in its window, or when its standing point is in magma.
+    {
+        MagmaRefusal r = MagmaRefusalFor(389, -205.5f, -16.4f, -65.7f, 100);
+        CHECK(MagmaNudgeBlocked(true, true, r, 101, false));
+        CHECK(!MagmaNudgeBlocked(true, true, r, 110, false));        // window over
+        CHECK(!MagmaNudgeBlocked(true, false, r, 101, false));       // the last move failed otherwise or worked
+        CHECK(!MagmaNudgeBlocked(true, true, MagmaRefusal(), 101, false)); // nothing refused
+        MagmaRefusal cleared = r;
+        cleared.set = false;
+        CHECK(!MagmaNudgeBlocked(true, true, cleared, 101, false));  // a cleared memory
+        CHECK(MagmaNudgeBlocked(true, false, MagmaRefusal(), 101, true));  // the stand is in magma
+        CHECK(!MagmaNudgeBlocked(false, true, r, 101, true));        // open world: unchanged
+        std::cout << "  [PASS] the task walk nudge waits after a magma refusal\n";
     }
 
     std::cout << "All magma hazard policy tests passed.\n";
