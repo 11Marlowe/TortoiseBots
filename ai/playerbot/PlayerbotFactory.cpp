@@ -1690,6 +1690,10 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(newItemId);
                     if (!proto)
                         continue;
+                    // QuerySeedCandidates only stops its level descent once one
+                    // candidate fits the cap; the rest of the list can sit above it.
+                    if (proto->ItemLevel > maxItemLevel)
+                        continue;
                     // filter tank weapons (prot warrior/paladin, shaman tank id 16)
                     if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5 || specId == 16) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))
                         continue;
