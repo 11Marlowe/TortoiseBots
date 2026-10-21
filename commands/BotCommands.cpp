@@ -9714,7 +9714,7 @@ void ReadGuardFacts(Player* lead, std::vector<Player*> const& bots, TortoiseBots
 std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(Player* lead, std::vector<Player*> const& bots,
     ai::PlanStep const& step, std::vector<uint32>& inputs)
 {
-    inputs.push_back(step.kind == ai::PlanStepKind::Open ? step.item : step.entry);
+    inputs.push_back(step.kind == ai::PlanStepKind::Open || step.kind == ai::PlanStepKind::UseOn ? step.item : step.entry);
     if (step.param)
         inputs.push_back(step.param);
     std::vector<TortoiseBots::DungeonRun::BagFact> bags;
@@ -9757,7 +9757,8 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
                     return bot;
         return lead;
     }
-    if (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem)
+    if (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem &&
+        step->kind != ai::PlanStepKind::UseOn)
         return lead;
     std::vector<uint32> inputs;
     std::vector<TortoiseBots::DungeonRun::BagFact> const bags = RunTaskBags(lead, bots, *step, inputs);
@@ -9780,7 +9781,8 @@ Player* RunTaskBot(DungeonRunSlot const& slot, Player* lead, std::vector<Player*
 void RetireLostCarrier(DungeonRunSlot& slot, Player* lead, std::vector<Player*> const& bots)
 {
     ai::PlanStep const* step = TortoiseBots::DungeonRun::Current(slot.run);
-    if (!step || (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem))
+    if (!step || (step->kind != ai::PlanStepKind::Open && step->kind != ai::PlanStepKind::UseItem &&
+            step->kind != ai::PlanStepKind::UseOn))
         return;
     std::vector<uint32> inputs;
     if (TortoiseBots::DungeonRun::OutstandingCarrierVerdict(slot.run.orderSent, slot.carrierRaw,
@@ -10539,6 +10541,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         case ai::PlanStepKind::Loot:
         case ai::PlanStepKind::Open:
         case ai::PlanStepKind::UseItem:
+        case ai::PlanStepKind::UseOn: // the carrier of `item` (RunTaskBot), its task and answer: as an open's
         {
             // The bot of the task: the lead bot, the one a loot refusal moved
             // the order to (Run::taskBot), or the carrier of an open / use_item

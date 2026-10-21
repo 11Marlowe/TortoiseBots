@@ -220,6 +220,25 @@ class RunLeaderWiringTest(unittest.TestCase):
         # A new order picks afresh: the previous order's bot is cleared before the pick.
         self.assertIn("slot.carrierRaw = 0;\n            slot.carrierRaw = RunTaskBot(slot, lead, bots,", COMMANDS)
 
+    def test_use_on_is_wired_like_an_open(self):
+        # use_on (Zul'Farrak's gong with the Mallet): its carrier is the bot that carries the step's `item`, picked, pinned and
+        # retired as for an open, and its facts (carrier, item, busy, answer) are read in the open / use_item case. The order
+        # it sends starts with "use ", so the dispatch picks the carrier afresh for it. The policy dispatches the kind.
+        bags = body(COMMANDS, "std::vector<TortoiseBots::DungeonRun::BagFact> RunTaskBags(", "\n}\n")
+        self.assertIn("step.kind == ai::PlanStepKind::Open || step.kind == ai::PlanStepKind::UseOn ? step.item : step.entry", bags)
+        task = body(COMMANDS, "Player* RunTaskBot(", "\n}\n")
+        self.assertIn("step->kind != ai::PlanStepKind::UseOn)\n        return lead;", task)
+        retire = body(COMMANDS, "void RetireLostCarrier(", "\n}\n")
+        self.assertIn("step->kind != ai::PlanStepKind::UseOn))\n        return;", retire)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("case ai::PlanStepKind::UseItem:\n        case ai::PlanStepKind::UseOn:", facts)
+        self.assertIn("f.carrierHasItem = step->item && carrier->HasItemCount(step->item);", facts)
+        self.assertIn('order.compare(0, 4, "use ") == 0', COMMANDS)
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        self.assertIn("case PlanStepKind::UseOn:\n            UseOnStep(r, f, *s, order);", policy)
+        use_on = body(policy, "inline void UseOnStep(", "\n}\n")
+        self.assertIn('order = "use " + std::to_string(s.item) + " " + f.carrier + " " + EntryArg(s.entry, s.x, s.y, s.z);', use_on)
+
     def test_live_fixes_2026_10_16_are_wired(self):
         # 1. `cmd move` takes the floor at or below the point before a surface above it (a low ceiling).
         move = body(COMMANDS, "static bool CommanderMove(", "\n}\n")

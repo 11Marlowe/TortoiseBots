@@ -40,6 +40,7 @@ namespace ai
         Ritual,      // a summoning ritual object several bots use together (`param` bots; 0 = 3): an event's start
         Hold,        // a scripted event: stand at x,y,z, fight what comes, until its done condition (flags)
         Gossip,      // talk to creature `entry` (searched within kGossipSearchYd of x,y,z) and pick option `param` (1-15)
+        UseOn,       // use item `item` ON game object `entry` at x,y,z (a key item whose spell opens the object's lock)
     };
 
     inline PlanStepKind ParsePlanStepKind(const std::string& text)
@@ -51,7 +52,7 @@ namespace ai
             {"use_item", PlanStepKind::UseItem}, {"wait_object", PlanStepKind::WaitObject},
             {"wait_clear", PlanStepKind::WaitClear}, {"rest", PlanStepKind::Rest},
             {"ritual", PlanStepKind::Ritual}, {"hold", PlanStepKind::Hold},
-            {"gossip", PlanStepKind::Gossip},
+            {"gossip", PlanStepKind::Gossip}, {"use_on", PlanStepKind::UseOn},
         };
         for (const auto& k : kinds)
             if (text == k.name)
@@ -94,6 +95,7 @@ namespace ai
             case PlanStepKind::Ritual: return "ritual";
             case PlanStepKind::Hold: return "hold";
             case PlanStepKind::Gossip: return "gossip";
+            case PlanStepKind::UseOn: return "use_on";
             default: return "none";
         }
     }
@@ -266,15 +268,16 @@ namespace ai
         UnknownPlan,
         UnknownKind,
         Duplicate,
-        MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual/gossip without entry;
+        MissingEntry,     // pull without entries; boss/loot/open/use_item/wait_object/ritual/gossip/use_on without entry;
+                          // use_on without item;
                           // hold done by object without entry, by its units without entries
         BadRadius,        // negative, over kPlanMaxRadius, or a wait_clear without one
         BadTimeout,       // over kPlanMaxTimeoutS
         BadParam,         // wait_object state other than 0-2; hold with both done flags, an encounter
                           // flag without the data flag or a state above 4, an object state above 2;
                           // the exact flag on a step that is not a move; gossip with an option
-                          // outside 1-15 or with any flag
-        BadPoint,         // not a finite point
+                          // outside 1-15 or with any flag; use_on with any flag or param
+        BadPoint,         // not a finite point; a use_on without a point (0,0,0)
         BadEntries,       // `entries` is not a comma list of non-zero creature entries
     };
 
@@ -334,6 +337,16 @@ namespace ai
                     return PlanStepRefusal::MissingEntry;
                 // No flag is read on a gossip yet (team flags come with a later change): a set one is refused, not ignored.
                 if (step.param < 1 || step.param > kPlanMaxGossipOption || step.flags != 0)
+                    return PlanStepRefusal::BadParam;
+                break;
+            case PlanStepKind::UseOn:
+                // The object and the item used on it; the point names the object (the commander's entry:<id>@x,y,z).
+                // No flag or param is read: a set one is refused, not ignored.
+                if (step.entry == 0 || step.item == 0)
+                    return PlanStepRefusal::MissingEntry;
+                if (step.x == 0.0f && step.y == 0.0f && step.z == 0.0f)
+                    return PlanStepRefusal::BadPoint;
+                if (step.flags != 0 || step.param != 0)
                     return PlanStepRefusal::BadParam;
                 break;
             case PlanStepKind::WaitObject:

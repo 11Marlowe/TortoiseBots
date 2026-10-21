@@ -187,6 +187,7 @@ constexpr std::uint32_t kLootFfaWaitMs = 20000;   // a loot step's free-for-all 
 constexpr std::uint32_t kLootRestoreTries = 3;    // ... and orders the loot method back this many times (one a tick)
 constexpr std::uint32_t kTaskResends = 2;         // loot, open, use: an interrupted or in-combat task is sent again this often
 constexpr std::uint32_t kTaskCapMs = 90000;       // loot, open, use: the commander task's own budget is shorter
+constexpr std::uint32_t kUseOnResends = 1;        // use_on: an answer that says the cast did not happen is sent again once
 constexpr std::uint32_t kStepIdleCapMs = 300000;  // out-of-combat time one step may take
 constexpr std::uint32_t kBossSearchMs = 60000;    // a boss not at his spot (a patrol) is waited for this long, then pause
 // Scripted events (ritual, hold; docs/play/dungeon-run-leader.md "Events").
@@ -887,7 +888,8 @@ inline const PlanStep* EventHoldAhead(const Run& r)
 {
     const PlanStep* s = Current(r);
     if (!s || (s->kind != PlanStepKind::Ritual && s->kind != PlanStepKind::Open && s->kind != PlanStepKind::UseItem &&
-            s->kind != PlanStepKind::Gossip && s->kind != PlanStepKind::Move && s->kind != PlanStepKind::MoveDirect))
+            s->kind != PlanStepKind::Gossip && s->kind != PlanStepKind::UseOn && s->kind != PlanStepKind::Move &&
+            s->kind != PlanStepKind::MoveDirect))
         return nullptr;
     for (std::size_t i = r.step + 1; i < r.plan->steps.size(); ++i)
     {
@@ -1828,7 +1830,7 @@ inline std::size_t EventStartStep(const DungeonPlan& plan, std::size_t idx)
         --k;
         PlanStepKind const back = plan.steps[k].kind;
         if (back == PlanStepKind::Ritual || back == PlanStepKind::Open || back == PlanStepKind::UseItem ||
-            back == PlanStepKind::Gossip)
+            back == PlanStepKind::Gossip || back == PlanStepKind::UseOn)
             return k;
         if (!moveLike(back))
             return idx;
@@ -4912,6 +4914,69 @@ inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t 
     r.note = what + ": waiting for the answer";
 }
 
+// use_on: the carrier (the bot of the party that carries item `item`, the lead
+// bot first) uses that item ON game object `entry` at x,y,z: the commander's
+// `use <item> <bot> entry:<obj>@x,y,z`, which walks the bot to the object and
+// casts the item's spell at it (Zul'Farrak's gong 141832: the Mallet of
+// Zul'Farrak 9240's spell 11434 opens its lock and the gong's event summons
+// Gahz'rilla; a plain `open` of the gong does nothing). ONE order: an answer
+// that says the cast did not happen (in combat, busy, an interrupted cast) is
+// sent again once (kUseOnResends), never more, since a second cast that took
+// would run the object's event twice (a second Gahz'rilla despawns the first).
+// Only the order's ACK ends the step; an ERR pauses with the module's text; no
+// carrier with the item pauses before any order (the item is the operator's
+// to give: the run leader has no GM step).
+inline void UseOnStep(Run& r, const Facts& f, const PlanStep& s, std::string& order)
+{
+    std::string const what = "use_on " + std::to_string(s.entry) + " with item " + std::to_string(s.item);
+    if (!r.orderSent)
+    {
+        if (!f.carrierHasItem)
+        {
+            Pause(r, what + ": no bot of the party carries item " + std::to_string(s.item) + " (" + f.carrier +
+                " was checked first): give it to the lead bot (GM .additem " + std::to_string(s.item) +
+                " with the bot selected), then .bot run resume");
+            return;
+        }
+        if (f.carrierBusy)
+        {
+            r.note = what + ": waiting for " + f.carrier + " to finish an earlier order";
+            return;
+        }
+        r.orderSent = true;
+        EnterPhase(r, Phase::AwaitTask);
+        order = "use " + std::to_string(s.item) + " " + f.carrier + " " + EntryArg(s.entry, s.x, s.y, s.z);
+        r.note = what + " by " + f.carrier;
+        return;
+    }
+    if (f.taskReply == 2)
+    {
+        if (TaskResendable(f.taskText) && r.taskResends < kUseOnResends)
+        {
+            ++r.taskResends;
+            r.orderSent = false;
+            EnterPhase(r, Phase::Begin);
+            r.note = what + ": " + FirstSentence(f.taskText) + ": sending it again (" + std::to_string(r.taskResends) +
+                " of " + std::to_string(kUseOnResends) + ")";
+            return;
+        }
+        Pause(r, what + " failed: " + f.taskText);
+        return;
+    }
+    if (f.taskReply == 1)
+    {
+        NextStep(r, what + " done" + (f.taskText.empty() ? std::string() : ": " + f.taskText));
+        return;
+    }
+    if (r.phaseMs >= kTaskCapMs)
+    {
+        Pause(r, what + ": no answer in " + std::to_string(kTaskCapMs / 1000) + " s (look whether the object's " +
+            "event ran before .bot run resume: a resume uses the item on it again)");
+        return;
+    }
+    r.note = what + (f.carrierBusy ? ": " + f.carrier + " is on it" : std::string(": waiting for the answer"));
+}
+
 // The event's units now (the glue lists the living ones within the hold's
 // radius, the friendly, still dormant ones too, and counts the dead).
 // Whether a unit of a hold's radius counts as one of the event's own: awake
@@ -4956,7 +5021,7 @@ inline std::size_t EventStartStep(const Run& r)
     {
         PlanStepKind const k = r.plan->steps[i].kind;
         if (k == PlanStepKind::Ritual || k == PlanStepKind::Open || k == PlanStepKind::UseItem ||
-            k == PlanStepKind::Gossip)
+            k == PlanStepKind::Gossip || k == PlanStepKind::UseOn)
             return i;
         if (k != PlanStepKind::Move && k != PlanStepKind::MoveDirect && k != PlanStepKind::Rest &&
             k != PlanStepKind::WaitObject && k != PlanStepKind::WaitClear)
@@ -6665,6 +6730,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             break;
         case PlanStepKind::Gossip:
             GossipStep(r, f, *s, dt, order);
+            break;
+        case PlanStepKind::UseOn:
+            UseOnStep(r, f, *s, order);
             break;
         case PlanStepKind::Hold:
             HoldStep(r, f, *s, dt, order);

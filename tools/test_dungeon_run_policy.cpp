@@ -2698,6 +2698,124 @@ static void TestGossipNotAllowedNamesTheConfigKey()
     CHECK(r.note.find("AiPlayerbot.BotGossipNpcs") != std::string::npos);
 }
 
+// use_on: Zul'Farrak's gong 141832, rung with the Mallet of Zul'Farrak 9240.
+static PlanStep GongRow()
+{
+    PlanStep s;
+    s.kind = PlanStepKind::UseOn;
+    s.entry = 141832;
+    s.item = 9240;
+    s.x = 1650.9f;
+    s.y = 1171.9f;
+    s.z = 10.9f;
+    CHECK(ai::NormalizePlanStep(s) == ai::PlanStepRefusal::None);
+    return s;
+}
+
+// One targeted use order by the carrier that holds the item; the busy task is waited for; only the ACK ends the step
+// (a free carrier with no answer yet is no answer).
+static void TestUseOnOneTargetedOrderThenAck()
+{
+    CHECK(Supported(PlanStepKind::UseOn));
+    DungeonPlan plan;
+    plan.steps = {GongRow(), Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    f.carrierBusy = true; // an earlier order of the carrier: wait, send nothing
+    CHECK(Tick(r, f).empty() && !r.orderSent && r.note.find("waiting for Tanky") != std::string::npos);
+    f.carrierBusy = false;
+    CHECK(Tick(r, f) == "use 9240 Tanky entry:141832@1650.9,1171.9,10.9");
+    CHECK(r.orderSent && r.phase == Phase::AwaitTask && r.note == "use_on 141832 with item 9240 by Tanky");
+    f.carrierBusy = true;
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).empty() && r.step == 0);
+    f.carrierBusy = false; // free again, but no ACK read yet
+    CHECK(Tick(r, f).empty() && r.step == 0 && r.state == State::Running);
+    f.taskReply = 1;
+    f.taskText = "1|spell 11434";
+    Tick(r, f);
+    CHECK(r.step == 1 && r.note == "use_on 141832 with item 9240 done: 1|spell 11434");
+}
+
+// No bot of the party carries the item: a pause that says so (the item is the operator's to give), no order.
+static void TestUseOnWithoutTheItemPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = false;
+    CHECK(Tick(r, f).empty() && !r.orderSent);
+    CHECK(r.state == State::Paused && r.note.find("no bot of the party carries item 9240") != std::string::npos);
+    CHECK(r.note.find(".additem 9240") != std::string::npos);
+}
+
+// An answer that says the cast did not happen (in combat, busy, an interrupted cast) is sent again ONCE: a second cast
+// that took would run the object's event twice (a second Gahz'rilla despawns the first). Any other ERR pauses at once,
+// naming the module's text.
+static void TestUseOnResendsOnceThenPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    std::string const order = "use 9240 Tanky entry:141832@1650.9,1171.9,10.9";
+    CHECK(Tick(r, f) == order);
+    f.taskReply = 2;
+    f.taskText = "in-combat: Tanky is in combat.";
+    Tick(r, f);
+    CHECK(r.state == State::Running && !r.orderSent && r.taskResends == 1);
+    f.taskReply = 0;
+    f.taskText.clear();
+    CHECK(Tick(r, f) == order);
+    f.taskReply = 2;
+    f.taskText = "in-combat: Tanky is in combat.";
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.note.find("use_on 141832 with item 9240 failed: in-combat: Tanky is in combat.") !=
+        std::string::npos);
+
+    Run h = Start(&plan);
+    Facts g = Party(1650.9f);
+    g.carrierHasItem = true;
+    CHECK(Tick(h, g) == order);
+    g.taskReply = 2;
+    g.taskText = "invalid-target: spell check 10";
+    Tick(h, g);
+    CHECK(h.state == State::Paused && h.taskResends == 0 &&
+        h.note.find("failed: invalid-target: spell check 10") != std::string::npos);
+}
+
+// No answer within the task cap pauses (the resume note warns that a resume rings again).
+static void TestUseOnNoAnswerPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {GongRow()};
+    Run r = Start(&plan);
+    Facts f = Party(1650.9f);
+    f.carrierHasItem = true;
+    CHECK(!Tick(r, f).empty());
+    for (std::uint32_t ms = 0; ms <= kTaskCapMs && r.state == State::Running; ms += kTickMs)
+        Tick(r, f);
+    CHECK(r.state == State::Paused && r.note.find("no answer") != std::string::npos);
+}
+
+// A use_on right before a hold starts that event, as open and use_item do.
+static void TestUseOnStartsAnEvent()
+{
+    DungeonPlan plan;
+    PlanStep hold = Step(PlanStepKind::Hold, 1, 2, 3);
+    hold.entries = {7273};
+    plan.steps = {GongRow(), hold};
+    Run r = Start(&plan);
+    CHECK(EventHoldAhead(r) != nullptr && EventStartStep(plan, 1) == 0);
+    // A failed event goes back to the use_on.
+    Run h = Start(&plan, 1);
+    EventFailed(h, "the event did not start");
+    CHECK(h.state == State::Paused && h.step == 0 && h.note.find("(use_on)") != std::string::npos);
+}
+
 // No ACK and no ERR within the step's timeout (default 60 s): the run pauses.
 static void TestGossipNoAnswerPauses()
 {
@@ -9048,6 +9166,11 @@ int main()
     TestGossipStartsAnEvent();
     TestGossipAfterAHoldThenTheDoor();
     TestUnitsHoldWaitsForAFriendlyBossToTurn();
+    TestUseOnOneTargetedOrderThenAck();
+    TestUseOnWithoutTheItemPauses();
+    TestUseOnResendsOnceThenPauses();
+    TestUseOnNoAnswerPauses();
+    TestUseOnStartsAnEvent();
     TestLeadOnIslandReading();
     TestWalkBackEscapesNavmeshIsland();
     TestForwardMoveEscapesNavmeshIsland();
