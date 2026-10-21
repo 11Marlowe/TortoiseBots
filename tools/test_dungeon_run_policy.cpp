@@ -3496,7 +3496,7 @@ static UnitFact Engaged(UnitFact u)
 // A Greater Healing Ward 8179 of `owner`; ownerEngaged: its owner fights the party.
 static UnitFact Ward(std::uint64_t guid, std::uint64_t owner, bool ownerEngaged)
 {
-    UnitFact u = Unit(guid, 8179, 18);
+    UnitFact u = Unit(guid, 8179, 12); // within kKillFirstMaxYd: the ward of a mob at the stand
     u.owner = owner;
     u.ownerEngaged = ownerEngaged;
     return u;
@@ -3665,6 +3665,149 @@ static void TestKillFirstIsThisFightsOnly()
     CHECK(Tick(r, f).empty());
     f.killFirst.push_back(Ward(21, 1, true)); // the ward of a unit in this fight
     CHECK(Tick(r, f) == "focus 21");
+}
+
+// A mob hitting the healer `dist` from the lead bot (Hitter is defined further down).
+static UnitFact ZfHitter(std::uint64_t guid, std::uint32_t entry, float dist)
+{
+    UnitFact u = Unit(guid, entry, dist);
+    u.hitting = true;
+    u.victimHealer = true;
+    return u;
+}
+
+// ZF r5-19z23 step 27, wipe 1 (15:10:58): the tank stood 20 yd from the
+// antusul camp's 5650 when two witch doctors aggroed on it; "kill 5650 first"
+// sent the tank and the party into the camp, next to the north group, and
+// 13 mobs joined at once. A kill_first unit more than kKillFirstMaxYd from the
+// lead bot is not focused (it is left to come to the tank, as in r3); within
+// it, it is. The fight goes on with the bots' own picks in between.
+static void TestKillFirstFarIsNotFocusedWipe1Replay()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true; // on firing stand 1
+    f.units = {Unit(1, 5648, 24.5f)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    // The camp's two witch doctors, engaged with the tank from 20 and 23 yd.
+    f.killFirst = {Engaged(Unit(30, 5650, 20)), Engaged(Unit(31, 5650, 23))};
+    for (int i = 0; i < 20; ++i)
+        CHECK(Tick(r, f).empty()); // no focus: the tank stays on its stand
+    CHECK(r.focusGuid == 0 && r.state == State::Running);
+    // One walks in to the tank: focused now.
+    f.killFirst[0].distLead = kKillFirstMaxYd - 1.0f;
+    CHECK(Tick(r, f) == "focus 30");
+    // At exactly the bound it counts as near; just past it, not.
+    Run b = Start(&plan);
+    Facts g = Party(0);
+    g.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(b, g) == "pullback 1");
+    g.anyInCombat = true;
+    g.killFirst = {Engaged(Unit(40, 5650, kKillFirstMaxYd + 0.5f))};
+    CHECK(Tick(b, g).empty());
+    g.killFirst[0].distLead = kKillFirstMaxYd;
+    CHECK(Tick(b, g) == "focus 40");
+}
+
+// The bound picks a near unit over a far better-ranked one, and a focus once
+// sent stays while its unit lives: a better-ranked unit that walks back and
+// forth across kKillFirstMaxYd must not flip the focus every tick.
+static void TestKillFirstBoundDoesNotFlipFlop()
+{
+    DungeonPlan plan = ZfPlan(); // kill_first 8179, 5650, 7247
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    // A 5650 (rank 1) far, a 7247 (rank 2) near: the near one.
+    f.killFirst = {Engaged(Unit(30, 5650, 30)), Engaged(Unit(3, 7247, 5))};
+    CHECK(Tick(r, f) == "focus 3");
+    int focuses = 0;
+    for (int i = 0; i < 40; ++i)
+    {
+        // The 5650 drifts in and out across the bound.
+        f.killFirst[0].distLead = (i % 2) ? kKillFirstMaxYd - 2.0f : kKillFirstMaxYd + 2.0f;
+        if (Tick(r, f).compare(0, 6, "focus ") == 0)
+            ++focuses;
+    }
+    // One switch to the better rank once it came in, then it holds.
+    CHECK(focuses == 1 && r.focusGuid == 30);
+    // The focused 5650 steps out of the bound again: still the focus.
+    f.killFirst[0].distLead = 30;
+    CHECK(Tick(r, f).empty() && r.focusGuid == 30);
+}
+
+// ZF r5-19z23 step 27, wipe 2 (15:14:23): "kill 5650 first" took every bot off
+// "stay" (CommanderFocus -> RelaxTacticalMovement), the lead included, with
+// guardOrders 0 and engageGuid 0, so GuardTarget never watched: 0 pick-ups the
+// whole fight while mobs hit the priest. A focus keeps the guard watching.
+static void TestGuardWatchesAfterAFocusWipe2Replay()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    f.units = {Unit(1, 7247, 24.5f)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 8))};
+    CHECK(Tick(r, f) == "focus 30");
+    // The focus ended the tank's stay; nothing has been picked up or engaged.
+    f.leadStaying = false;
+    CHECK(r.guardOrders == 0 && r.engageGuid == 0 && r.focusGuid == 30);
+    // A 5649 hits the priest 8 yd from the tank: picked up at once (healer).
+    f.partyAttackers = {ZfHitter(50, 5649, 8)};
+    CHECK(Tick(r, f) == "attack 50 Tanky");
+    CHECK(r.guardOrders == 1);
+    CHECK(r.note.find("picks up 5649 off the healer") != std::string::npos);
+    // No focus is re-sent: the pick-up does not change the kill_first pick.
+    CHECK(Tick(r, f).empty() && r.focusGuid == 30);
+}
+
+// The order rate in the new state (focus on, the tank off its stay): healer
+// attackers changing every tick give at most kGuardOrdersPerFight pick-ups,
+// each kGuardRepeatMs after the last order, and the focus is never re-sent.
+static void TestGuardAfterAFocusIsRateBounded()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.leadIsTank = true;
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    f.killFirst = {Engaged(Unit(30, 5650, 6))};
+    CHECK(Tick(r, f) == "focus 30");
+    f.leadStaying = false;
+    int pickups = 0, focuses = 0, other = 0;
+    std::uint32_t sinceLast = 0, minGap = ~0u;
+    bool any = false;
+    for (int i = 0; i < 300; ++i) // 30 s at kTickMs
+    {
+        f.partyAttackers = {ZfHitter(100 + (i % 7), 5649, 5.0f + (i % 5)), ZfHitter(200 + (i % 3), 5648, 4)};
+        std::string const o = Tick(r, f);
+        sinceLast += kTickMs;
+        if (o.compare(0, 7, "attack ") == 0)
+        {
+            ++pickups;
+            if (any && sinceLast < minGap)
+                minGap = sinceLast;
+            any = true;
+            sinceLast = 0;
+        }
+        else if (o.compare(0, 6, "focus ") == 0)
+            ++focuses;
+        else if (!o.empty())
+            ++other;
+    }
+    CHECK(pickups == static_cast<int>(kGuardOrdersPerFight));
+    CHECK(minGap >= kGuardRepeatMs);
+    CHECK(focuses == 0 && other == 0);
 }
 
 // 19z5: the mage enters the fight seconds after the pull (it waits for the
@@ -7486,6 +7629,10 @@ int main()
     TestNoCrowdControlWithoutAMageOrPlanList();
     TestCrowdControlMustLand();
     TestKillFirstIsThisFightsOnly();
+    TestKillFirstFarIsNotFocusedWipe1Replay();
+    TestKillFirstBoundDoesNotFlipFlop();
+    TestGuardWatchesAfterAFocusWipe2Replay();
+    TestGuardAfterAFocusIsRateBounded();
     TestCcWindowCountsTheMagesFightTime();
     TestTankGuardsThePartyFromItsStand();
     TestTankGuardReturnsToItsOwnSpot();
