@@ -148,6 +148,18 @@ bool PullEndTrigger::IsActive()
         return true;
     }
 
+    // An intercepted pullback is a landed pull too: pack members reaching the
+    // tank before its own shot's target does mean the fight has started. The
+    // meet branch above only sees the shot's target; without this the return
+    // leg (and its bounded clock) never arms, and the tank stays pinned at the
+    // camp for the approach cap. Landing here hands the fight over through the
+    // return leg like any other pullback - the cap bounds it even under fire.
+    if (pullback && !strategy->HasPullActionCompleted() && !bot->GetAttackers().empty())
+    {
+        const_cast<PullStrategy*>(strategy)->OnPullActionCompleted();
+        return false;
+    }
+
     // An ordinary pull hands control back to combat as soon as its pull action
     // succeeds.  Before that, retain the request while the tank closes to its
     // class-specific melee/ranged pull distance.
