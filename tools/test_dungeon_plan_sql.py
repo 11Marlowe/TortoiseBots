@@ -9,6 +9,9 @@ import glob
 import math
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,6 +68,32 @@ def newest_zulfarrak_rows():
     assert newest is not None, "no migration inserts the zulfarrak steps"
     name, text = newest
     return name, text, [r for r in DungeonPlanSql.step_rows(None, text) if r["plan"] == "zulfarrak"]
+
+
+def newest_plan_text(plan):
+    """The name and text of the newest migration that inserts the plan's steps."""
+    newest = None
+    for name, text in migrations():
+        if re.search(r"INSERT INTO `ai_dungeon_step`.*?\('%s'," % plan, text, re.S):
+            newest = (name, text)
+    assert newest is not None, "no migration inserts the %s steps" % plan
+    return newest
+
+
+def newest_uldaman_rows():
+    """The step rows of the newest migration that inserts the uldaman steps (its name, its text, its uldaman rows)."""
+    name, text = newest_plan_text("uldaman")
+    return name, text, [r for r in DungeonPlanSql.step_rows(None, text) if r["plan"] == "uldaman"]
+
+
+def leg_rows(text, plan):
+    """The ai_dungeon_leg rows of a migration for the plan as {leg: (name, comment)}."""
+    return {int(m.group(1)): (m.group(2), m.group(3).replace("''", "'")) for m in
+            re.finditer(r"^\('%s', (\d+), '(\w+)', '((?:[^']|'')*)'\)[,;]$" % plan, text, re.M)}
+
+
+def dist(row, x, y):
+    return math.hypot(float(row["x"]) - x, float(row["y"]) - y)
 
 
 def created_columns():
@@ -294,7 +323,7 @@ class DungeonPlanSql(unittest.TestCase):
                     self.assertTrue(row["entries"], where + ": done by its units without entries")
 
     def test_zulfarrak_runs_the_stairs_event(self):
-        # The newest migration that inserts the zulfarrak steps (20261021115557, the graves on 20261021095914; turtle-agent plan-export of the plan with the stairs
+        # The newest migration that inserts the zulfarrak steps (20261021174713, the graves on 20261021115557, 20261021095914 before; turtle-agent plan-export of the plan with the stairs
         # holds, Weegli's door and Ukorz) carries Zum'rah, the Executioner's key to the cage, the three holds on the pyramid phase
         # (instance data 1: 3 = WAVE_1, 7 = WAVE_3 on the stairs top, 8 = PYRAMID_KILLED_ALL_TROLLS at the foot, script values with
         # flag 8 alone), Nekrum before Sezz'ziz at the end of leg 13 and Ukorz as the last row; a re-export from an exporter without hold values
@@ -366,6 +395,126 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertLess(loots[-1] + 1, trigger[0], name + ": the last grave's sweep is not before the trigger")
         self.assertLess(trigger[0], boss[0], name + ": the trigger is not before the boss")
         self.assertEqual(boss[0], len(steps) - 1, name + ": the boss does not end the zumrah leg")
+
+    def test_zulfarrak_velratha_approach_stays_off_the_island_shadowhunter(self):
+        # turtle-agent#286: the lone Shadowhunter 81610 stands on a navmesh island at 1591 1047.7 (no path leaves it; a fight there
+        # takes the tank onto the island, zf-r6-19z24). Pull group 4's approach points were 1584 1050 and 1603 1043, 7.4 and 12.9 yd
+        # from it; they are 1594 1011, 1598 1028 and 1606 1040 now, and the leg's comment carries the plan's `leave` list as text
+        # (the run leader does not read it yet).
+        name, text, rows = newest_zulfarrak_rows()
+        legs = leg_rows(text, "zulfarrak")
+        leg = next(k for k, (leg_name, _c) in legs.items() if leg_name == "velratha")
+        steps = [r for r in rows if r["leg"] == str(leg)]
+        approach = [(float(r["x"]), float(r["y"])) for r in steps if r["kind"] == "move" and r["comment"] == "pull group 4 approach"]
+        self.assertEqual(approach, [(1594.0, 1011.0), (1598.0, 1028.0), (1606.0, 1040.0)], name)
+        for old in ((1584.0, 1050.0), (1603.0, 1043.0)):
+            self.assertEqual([r for r in steps if (float(r["x"]), float(r["y"])) == old], [], "%s: the old approach point %s is back" % (name, old))
+        for r in steps:
+            if r["kind"] == "move":
+                self.assertGreaterEqual(dist(r, 1591.0, 1047.7), 15, "%s: velratha move %s is within 15 yd of the island Shadowhunter" % (name, r["seq"]))
+        # the approach is right before its pull, which still fetches the Shadowhunters and the Witch Doctor of the group
+        after = steps[[r["comment"] for r in steps].index("pull group 4")]
+        self.assertEqual((after["kind"], after["x"], after["y"]), ("pull", "1583", "1086.76"), name)
+        self.assertEqual(int(after["seq"]) - 1, int(next(r for r in steps if r["x"] == "1606")["seq"]), name + ": the last approach is not right before its pull")
+        comment = legs[leg][1]
+        self.assertIn("leave (not read by the run leader yet)", comment, name)
+        self.assertIn("81610", comment, name)
+        self.assertIn("1591 1047.7", comment, name)
+        # the graves of 20261021115557 stay: 31 loots of 128403 with the gone-is-done flag, none of 128308
+        graves = [r for r in rows if r["kind"] == "loot" and r["entry"] == "128403"]
+        self.assertEqual(len(graves), 31, name)
+        self.assertEqual({r["flags"] for r in graves}, {"256"}, name)
+
+    def test_uldaman_pulls_the_keepers_neighbours_before_the_boss(self):
+        # PLAN-ULDAMAN-GRIMLOK #2 (turtle-agent#287): the boss 7206 was pulled with the Stone Steward 4860 (a patrol that walks to 13.6 yd
+        # from it), the Sculptors and the Rocksmasher of the galgann leg alive 20-35 yd north, and 5-6 mobs joined (r4 slot1, r6 slot5).
+        # They are pulled first, each from an approach move, in the Keeper's own leg; nothing of them is left in the galgann leg.
+        name, text, rows = newest_uldaman_rows()
+        legs = leg_rows(text, "uldaman")
+        keeper = next(k for k, (leg_name, _c) in legs.items() if leg_name == "ancient_stone_keeper")
+        galgann = next(k for k, (leg_name, _c) in legs.items() if leg_name == "galgann")
+        steps = [r for r in rows if r["leg"] == str(keeper)]
+        boss = [i for i, r in enumerate(steps) if r["kind"] == "boss" and r["entry"] == "7206"]
+        self.assertEqual(boss, [len(steps) - 1], name + ": the Stone Keeper is the one boss row and ends its leg")
+        for entries, x, y in (("4860", -39.6, 272.8), ("7012,7011", -43.03, 263.93), ("7011", -46.4, 202.9)):
+            pulls = [i for i, r in enumerate(steps) if r["kind"] == "pull" and r["entries"] == entries and dist(r, x, y) < 0.1]
+            self.assertEqual(len(pulls), 1, "%s: the pull of %s at %s %s is missing or doubled" % (name, entries, x, y))
+            self.assertLess(pulls[0], boss[0], "%s: the pull of %s comes after the Stone Keeper" % (name, entries))
+            self.assertEqual(steps[pulls[0] - 1]["kind"], "move", name + ": the pull of %s has no approach move" % entries)
+            self.assertIn("approach", steps[pulls[0] - 1]["comment"], name)
+        # they are the last three pulls of the leg, the Steward (the patrol's ground) first; the boss approach (-73.3 240.2) is the row before the boss
+        self.assertEqual([r["entries"] for r in steps if r["kind"] == "pull"][-3:], ["4860", "7012,7011", "7011"], name)
+        self.assertEqual((steps[-2]["kind"], steps[-2]["x"], steps[-2]["y"]), ("move", "-73.3", "240.2"), name)
+        for r in rows:
+            if r["leg"] == str(galgann) and r["kind"] == "pull":
+                self.assertNotEqual(r["entries"], "4860", name + ": the Steward is pulled in the galgann leg again")
+                self.assertGreater(dist(r, -43.03, 263.93), 1, name + ": the Sculptor pull is in the galgann leg again")
+
+    def test_uldaman_grimlok_corridor_is_pulled_one_group_at_a_time(self):
+        # PLAN-ULDAMAN-GRIMLOK #2: Brawler 30105 (40.6 359.9) joined pull group 0 in 8 of 8 runs, so group 0 lists it (radius 16 at
+        # 35.77 370.57: 11.7 yd to it, the Brawler at 55.4 379 stays out). The first groups of the keepers_door leg are pulled next
+        # from stands at 28 360 and 33 354, the patrol and its trio are one group (radius 18), and the pair at 38-40 439-445 is pulled from 48 419.
+        name, text, rows = newest_uldaman_rows()
+        legs = leg_rows(text, "uldaman")
+        by_name = {leg_name: k for k, (leg_name, _c) in legs.items()}
+        grimlok = [r for r in rows if r["leg"] == str(by_name["grimlok"])]
+        pulls = [r for r in grimlok if r["kind"] == "pull"]
+        first = pulls[0]
+        self.assertEqual((first["comment"], first["radius"], first["entries"]), ("pull group 0", "16", "4853,4855"), name)
+        self.assertLessEqual(dist(first, 40.6, 359.9), float(first["radius"]), name + ": the Brawler 30105 at 40.6 359.9 is outside group 0")
+        self.assertGreater(dist(first, 55.4, 379.0), float(first["radius"]), name + ": the patrol-side Brawler at 55.4 379 is inside group 0")
+        # the keepers_door packs now pulled from the grimlok leg, before the patrol and the east groups
+        order = [(float(r["x"]), float(r["y"])) for r in pulls]
+        def at(x, y):
+            found = [i for i, (px, py) in enumerate(order) if math.hypot(px - x, py - y) < 0.1]
+            self.assertEqual(len(found), 1, "%s: the grimlok leg has %d pulls at %s %s" % (name, len(found), x, y))
+            return found[0]
+        pair, brawlers, merged = at(49.1, 343.45), at(39.55, 327.5), at(58.63, 374.4)
+        self.assertLess(0, pair, name)
+        self.assertLess(pair, brawlers, name)
+        self.assertLess(brawlers, merged, name + ": the keepers_door packs are not pulled before the patrol")
+        for index, stand in ((pair, (28.0, 360.0)), (brawlers, (33.0, 354.0))):
+            move = grimlok[grimlok.index(pulls[index]) - 1]
+            self.assertEqual((move["kind"], float(move["x"]), float(move["y"])), ("move", stand[0], stand[1]), name)
+        # the patrol and the trio are one group of radius 18 (pull groups 1 and 2 of the old order were never alone)
+        self.assertEqual((pulls[merged]["radius"], pulls[merged]["entries"]), ("18", "4855,4853"), name)
+        self.assertEqual([i for i, (px, py) in enumerate(order) if math.hypot(px - 57.9, py - 374.0) < 3 and i != merged], [], name + ": a second pull of the patrol")
+        # the southern pair from 48 419, right before its pull, then Grimlok
+        south = at(38.85, 442.0)
+        move = grimlok[grimlok.index(pulls[south]) - 1]
+        self.assertEqual((move["kind"], float(move["x"]), float(move["y"])), ("move", 48.0, 419.0), name)
+        self.assertEqual(grimlok[-1]["kind"], "boss", name)
+        self.assertEqual(grimlok[-1]["entry"], "4854", name)
+        # none of the three packs is left to the keepers_door leg
+        for r in rows:
+            if r["leg"] == str(by_name["keepers_door"]) and r["kind"] == "pull":
+                for x, y in ((49.1, 343.45), (40.6, 359.9), (39.55, 327.5)):
+                    self.assertGreater(dist(r, x, y), 1, "%s: keepers_door pulls the pack at %s %s again" % (name, x, y))
+
+    def test_zulfarrak_and_uldaman_rows_pass_the_loader_checks(self):
+        # Every step row of the newest zulfarrak and uldaman migrations goes through the loader's own code (DungeonPlanPolicy.h:
+        # ParsePlanStepRowKind, ParsePlanEntries, DungeonPlanTable::AddStep with NormalizePlanStep and the (plan, leg, seq) key),
+        # compiled from tools/test_dungeon_plan_rows.cpp: a row the loader refuses is skipped at startup and the run pauses before it.
+        compiler = shutil.which("g++")
+        if compiler is None:
+            self.skipTest("g++ is not installed")
+        lines, counts = [], {}
+        for plan, rows in (("zulfarrak", newest_zulfarrak_rows()[2]), ("uldaman", newest_uldaman_rows()[2])):
+            lines.append("P\t%s\t%d" % (plan, BOSS_PLANS[plan]))
+            counts[plan] = len(rows)
+            for r in rows:
+                lines.append("\t".join(["S", r["plan"], r["leg"], r["seq"], r["kind"], r["entry"], r["x"], r["y"], r["z"], r["radius"], r["item"],
+                                        r["param"], r["flags"], r["timeout_s"], r["entries"]]))
+        self.assertGreater(counts["zulfarrak"], 200)
+        self.assertGreater(counts["uldaman"], 130)
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = os.path.join(tmp, "rows")
+            build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
+                                   capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([binary], input="\n".join(lines) + "\n", capture_output=True, text=True)
+        self.assertEqual(run.stdout.strip().splitlines()[-1], "rows %d refused 0" % sum(counts.values()), run.stdout)
+        self.assertEqual(run.returncode, 0, run.stdout)
 
     def test_inserted_step_kinds_are_known(self):
         for name, text in migrations():
