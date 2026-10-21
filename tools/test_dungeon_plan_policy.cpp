@@ -277,6 +277,61 @@ static void TestPlanUnits()
     CHECK(bare.Find("u")->CcRank(5650) == -1 && bare.Find("u")->KillFirstRank(8179) == -1);
 }
 
+static void TestBossEntries()
+{
+    // The entries of the plans' boss steps, per map: the run's own boss list,
+    // which the telemetry ranks 'b' (five-man bosses carry creature rank 1).
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("uldaman", 70));
+    CHECK(table.AddPlan("wailing_caverns", 43));
+    PlanStep baelog = Step(0, 12, PlanStepKind::Boss, -353.0f, 117.2f, -44.4f);
+    baelog.entry = 6906;
+    baelog.entries = {6907, 6908};  // killed first, but not the step's boss
+    CHECK(table.AddStep("uldaman", baelog) == PlanStepRefusal::None);
+    PlanStep pull = Step(0, 13, PlanStepKind::Pull, -281.8f, 163.8f, -47.3f);
+    pull.entries = {4851, 4852};
+    CHECK(table.AddStep("uldaman", pull) == PlanStepRefusal::None);
+    PlanStep open = Step(0, 14, PlanStepKind::Open, -230.0f, 160.0f, -45.0f);
+    open.entry = 124371;  // an object step's entry is no boss
+    CHECK(table.AddStep("uldaman", open) == PlanStepRefusal::None);
+    PlanStep cobrahn = Step(4, 8, PlanStepKind::Boss, -151.1f, 414.4f, -72.6f);
+    cobrahn.entry = 3669;
+    CHECK(table.AddStep("wailing_caverns", cobrahn) == PlanStepRefusal::None);
+
+    CHECK(!table.IsBossEntry(70, 6906));  // nothing before the seal
+    table.Seal();
+    CHECK(table.IsBossEntry(70, 6906));
+    CHECK(table.IsBossEntry(43, 3669));
+    CHECK(!table.IsBossEntry(43, 6906));  // another map's boss
+    CHECK(!table.IsBossEntry(70, 6907) && !table.IsBossEntry(70, 6908));  // a boss step's adds
+    CHECK(!table.IsBossEntry(70, 4851));  // a pull's member
+    CHECK(!table.IsBossEntry(70, 124371));  // another kind of step's entry
+    CHECK(!table.IsBossEntry(70, 0) && !table.IsBossEntry(0, 0));
+}
+
+static void TestBossRows()
+{
+    // ai_dungeon_boss rows: bosses no boss step names (Kresh 3653 is skipped, Mutanus 3654 is an event), in the
+    // same (map, entry) set as the boss steps' entries.
+    DungeonPlanTable table;
+    CHECK(table.AddPlan("wailing_caverns", 43));
+    PlanStep cobrahn = Step(4, 8, PlanStepKind::Boss, -151.1f, 414.4f, -72.6f);
+    cobrahn.entry = 3669;
+    CHECK(table.AddStep("wailing_caverns", cobrahn) == PlanStepRefusal::None);
+    CHECK(table.AddBoss(43, 3653));
+    CHECK(table.AddBoss(43, 3654));
+    CHECK(table.AddBoss(43, 3669));   // also a boss step: one key, no harm
+    CHECK(!table.AddBoss(43, 3653));  // the primary key: first row wins
+    CHECK(!table.AddBoss(0, 3653) && !table.AddBoss(43, 0));
+    CHECK(!table.IsBossEntry(43, 3653));  // nothing before the seal
+    table.Seal();
+    CHECK(!table.AddBoss(43, 3671));  // loading only
+    CHECK(table.IsBossEntry(43, 3653) && table.IsBossEntry(43, 3654) && table.IsBossEntry(43, 3669));
+    CHECK(!table.IsBossEntry(43, 3671));
+    CHECK(!table.IsBossEntry(70, 3653));  // another map
+    CHECK(table.BossCount() == 3);
+}
+
 int main()
 {
     TestPlanUnits();
@@ -284,6 +339,8 @@ int main()
     TestEntries();
     TestNormalize();
     TestTable();
+    TestBossEntries();
+    TestBossRows();
     TestLaterOwner();
     TestLongHops();
     std::cout << "test_dungeon_plan_policy: ok\n";

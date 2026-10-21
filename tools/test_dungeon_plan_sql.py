@@ -13,7 +13,29 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open", "use_item", "wait_object",
          "wait_clear", "rest", "ritual", "hold", "gossip"}
-TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step")
+TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
+# The plans whose bosses ai_dungeon_boss lists, and their maps.
+BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36}
+# Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
+# sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
+SEEDED_BOSSES = {
+    (389, 11517): "Oggleflint", (389, 11520): "Taragaman the Hungerer", (389, 11518): "Jergosh the Invoker",
+    (389, 11519): "Bazzalan",
+    (43, 3653): "Kresh", (43, 3671): "Lady Anacondra", (43, 3669): "Lord Cobrahn", (43, 3670): "Lord Pythas",
+    (43, 3674): "Skum", (43, 3673): "Lord Serpentis", (43, 5775): "Verdan the Everliving",
+    (43, 3654): "Mutanus the Devourer", (43, 61965): "Vangros", (43, 61968): "Zandara Windhoof",
+    (70, 6910): "Revelosh", (70, 6906): "Baelog", (70, 7228): "Ironaya", (70, 7023): "Obsidian Sentinel",
+    (70, 7206): "Ancient Stone Keeper", (70, 7291): "Galgann Firehammer", (70, 4854): "Grimlok", (70, 2748): "Archaedas",
+    (209, 8127): "Antu'sul", (209, 7272): "Theka the Martyr", (209, 7795): "Hydromancer Velratha",
+    (209, 7271): "Witch Doctor Zum'rah", (209, 7274): "Sandfury Executioner", (209, 7275): "Shadowpriest Sezz'ziz",
+    (209, 7267): "Chief Ukorz Sandscalp", (209, 7273): "Gahz'rilla",
+    (36, 644): "Rhahk'Zor", (36, 642): "Sneed's Shredder", (36, 643): "Sneed", (36, 1763): "Gilnid",
+    (36, 61963): "Masterpiece Harvester", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
+    (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
+}
+# Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
+# Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586}
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -311,6 +333,55 @@ class DungeonPlanSql(unittest.TestCase):
                 for row in re.findall(r"^\((.*)\)[,]?$", block[1], re.M):
                     values = [v.strip() for v in re.findall(r"'[^']*'|[^,]+", row)]
                     self.assertIn(values[kind_at].strip("'"), KINDS, "%s: unknown step kind in %s" % (name, row))
+
+    def boss_rows(self):
+        # Each ai_dungeon_boss row of every migration as (map, entry, name), in file order.
+        for _name, text in migrations():
+            for block in re.findall(r"(?:INSERT|REPLACE) INTO `ai_dungeon_boss` \(`map`, `entry`, `name`\) VALUES(.*?);\n", text, re.S):
+                for row in re.findall(r"^\((\d+), (\d+), '((?:[^']|'')*)'\)[,]?$", block, re.M):
+                    yield int(row[0]), int(row[1]), row[2].replace("''", "'")
+
+    def test_boss_table_is_the_seed(self):
+        rows = list(self.boss_rows())
+        keys = [(m, e) for m, e, _n in rows]
+        self.assertEqual(len(keys), len(set(keys)), "a (map, entry) is seeded twice")
+        self.assertEqual({(m, e): n for m, e, n in rows}, SEEDED_BOSSES)
+        self.assertFalse({e for _m, e in keys} & NOT_BOSSES, "an add, an event unit or a rare is seeded as a boss")
+
+    def test_boss_table_lists_every_plan_boss(self):
+        # The newest migration that inserts a plan's boss steps holds its bosses (later ones replace single legs).
+        seeded = set(SEEDED_BOSSES)
+        for plan, map_id in BOSS_PLANS.items():
+            newest = None
+            for name, text in migrations():
+                if re.search(r"^\('%s', \d+, \d+, 'boss'," % plan, text, re.M):
+                    newest = text
+            self.assertIsNotNone(newest, plan)
+            entries = [int(r["entry"]) for r in self.step_rows(newest) if r["plan"] == plan and r["kind"] == "boss"]
+            self.assertTrue(entries, plan)
+            for entry in entries:
+                self.assertIn((map_id, entry), seeded, "%s: boss step entry %d is not in ai_dungeon_boss" % (plan, entry))
+
+    def test_loader_adds_the_boss_rows_before_the_seal(self):
+        # AddBoss is refused after the seal, so a row read after it would be dropped without a word.
+        with open(os.path.join(ROOT, "ai/playerbot/DungeonPlanMgr.cpp"), encoding="utf-8") as handle:
+            loader = handle.read()
+        add = loader.find("table.AddBoss(fields[0].GetUInt32(), fields[1].GetUInt32())")
+        self.assertNotEqual(add, -1, "the loader does not add the ai_dungeon_boss rows")
+        self.assertLess(add, loader.index("table.Seal();"))
+
+    def test_boss_table_is_created_and_seeded_idempotently(self):
+        for name, text in migrations():
+            if "`ai_dungeon_boss`" not in text:
+                continue
+            self.assertNotRegex(text, r"CREATE TABLE `ai_dungeon_boss`", name)  # only IF NOT EXISTS
+            self.assertNotRegex(text, r"(?m)^INSERT INTO `ai_dungeon_boss`", name)  # REPLACE, so a re-run keeps one row
+            # The DELETE before the rows is scoped to exactly the maps the file seeds: a seeded map it leaves out keeps a
+            # row a later file drops; a map it names beyond them loses rows it does not put back.
+            seeded = {int(m) for m in re.findall(r"(?m)^\((\d+), \d+, '", text)}
+            scoped = re.findall(r"DELETE FROM `ai_dungeon_boss` WHERE `map` IN \(([\d, ]+)\);", text)
+            self.assertEqual(len(scoped), 1, name)
+            self.assertEqual({int(m) for m in scoped[0].split(",")}, seeded, name)
 
 
 if __name__ == "__main__":

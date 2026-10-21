@@ -5220,7 +5220,8 @@ void AddViewHostile(RemoteCommander::View::Snapshot& snapshot, RemoteCommander::
     hostile->level = unit->GetLevel();
     if (creature)
         hostile->rank = CommanderTelemetry::RankKind(creature->GetCreatureInfo()->rank,
-            creature->HasExtraFlag(CREATURE_FLAG_EXTRA_INSTANCE_BIND));
+            creature->HasExtraFlag(CREATURE_FLAG_EXTRA_INSTANCE_BIND),
+            ai::GetDungeonPlans().IsBossEntry(creature->GetMapId(), creature->GetEntry()));
     // What kind of unit it is: fields the unit and its template already hold
     // (no lookup, no scan).
     hostile->reaction = reaction <= REP_HOSTILE ? 'h' : (reaction >= REP_FRIENDLY ? 'f' : 'n');

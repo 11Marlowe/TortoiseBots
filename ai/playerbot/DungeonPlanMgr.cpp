@@ -80,6 +80,18 @@ void ai::LoadDungeonPlans()
         } while (result->NextRow());
     }
 
+    // Bosses no boss step names (the telemetry's boss rank, DungeonPlanTable::IsBossEntry).
+    uint32 skippedBosses = 0;
+    if (auto result = WorldDatabase.Query("SELECT `map`, `entry` FROM `ai_dungeon_boss`"))
+    {
+        do
+        {
+            Field* fields = result->Fetch();
+            if (!table.AddBoss(fields[0].GetUInt32(), fields[1].GetUInt32()))
+                ++skippedBosses;
+        } while (result->NextRow());
+    }
+
     // Sealed even when the tables are empty or missing: `.bot run` then finds no plan.
     table.Seal();
     for (const DungeonPlan* plan : table.All())
@@ -89,7 +101,8 @@ void ai::LoadDungeonPlans()
             sLog.outError("ai_dungeon_step: plan '%s' has %u moves more than %.0f yd from the move before them",
                 plan->name.c_str(), uint32(longHops), kLongHopYd);
     }
-    sLog.outString(">> Loaded %u dungeon plans, %u steps (%u plans and %u steps skipped)",
-        uint32(table.PlanCount()), uint32(table.StepCount()), skippedPlans, skippedSteps);
+    sLog.outString(">> Loaded %u dungeon plans, %u steps, %u dungeon bosses (%u plans, %u steps and %u boss rows skipped)",
+        uint32(table.PlanCount()), uint32(table.StepCount()), uint32(table.BossCount()), skippedPlans, skippedSteps,
+        skippedBosses);
     sLog.outString();
 }
