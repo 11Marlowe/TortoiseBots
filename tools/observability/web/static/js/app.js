@@ -3367,13 +3367,6 @@
   }
 
   function fetchProfile(guid) {
-    const live = liveBot(guid);
-    if (live && live.player) {
-      state.profile = null;
-      renderProfileHeader();
-      renderProfileOverview();
-      return;
-    }
     fetch(`/api/v1/armory/bot/${encodeURIComponent(guid)}`)
       .then(async r => {
         if (r.status === 401) throw new Error('HTTP 401');
@@ -3632,12 +3625,7 @@
     if (tab === 'overview') { renderProfileOverview(); return; }
     if (!p) {
       const host = document.getElementById(`armory-content-${tab}`);
-      const live = liveBot(state.profileGuid);
-      if (host && tab !== 'gear') {
-        host.innerHTML = (live && live.player)
-          ? '<div class="empty-hint">Players have no database profile — live status is on the Overview tab.</div>'
-          : '<div class="empty-hint">Loading…</div>';
-      }
+      if (host && tab !== 'gear') host.innerHTML = '<div class="empty-hint">Loading…</div>';
       return;
     }
     // Gear & stats render together with the profile (renderArmory).
