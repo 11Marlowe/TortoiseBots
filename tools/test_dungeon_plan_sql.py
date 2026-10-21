@@ -92,6 +92,11 @@ def leg_rows(text, plan):
             re.finditer(r"^\('%s', (\d+), '(\w+)', '((?:[^']|'')*)'\)[,;]$" % plan, text, re.M)}
 
 
+def leg_steps(rows, leg):
+    """The rows of one leg in run order: by seq, as the loader seals them, not by their place in the file."""
+    return sorted((r for r in rows if r["leg"] == str(leg)), key=lambda r: int(r["seq"]))
+
+
 def dist(row, x, y):
     return math.hypot(float(row["x"]) - x, float(row["y"]) - y)
 
@@ -404,7 +409,7 @@ class DungeonPlanSql(unittest.TestCase):
         name, text, rows = newest_zulfarrak_rows()
         legs = leg_rows(text, "zulfarrak")
         leg = next(k for k, (leg_name, _c) in legs.items() if leg_name == "velratha")
-        steps = [r for r in rows if r["leg"] == str(leg)]
+        steps = leg_steps(rows, leg)
         approach = [(float(r["x"]), float(r["y"])) for r in steps if r["kind"] == "move" and r["comment"] == "pull group 4 approach"]
         self.assertEqual(approach, [(1594.0, 1011.0), (1598.0, 1028.0), (1606.0, 1040.0)], name)
         for old in ((1584.0, 1050.0), (1603.0, 1043.0)):
@@ -433,7 +438,7 @@ class DungeonPlanSql(unittest.TestCase):
         legs = leg_rows(text, "uldaman")
         keeper = next(k for k, (leg_name, _c) in legs.items() if leg_name == "ancient_stone_keeper")
         galgann = next(k for k, (leg_name, _c) in legs.items() if leg_name == "galgann")
-        steps = [r for r in rows if r["leg"] == str(keeper)]
+        steps = leg_steps(rows, keeper)
         boss = [i for i, r in enumerate(steps) if r["kind"] == "boss" and r["entry"] == "7206"]
         self.assertEqual(boss, [len(steps) - 1], name + ": the Stone Keeper is the one boss row and ends its leg")
         for entries, x, y in (("4860", -39.6, 272.8), ("7012,7011", -43.03, 263.93), ("7011", -46.4, 202.9)):
@@ -457,7 +462,7 @@ class DungeonPlanSql(unittest.TestCase):
         name, text, rows = newest_uldaman_rows()
         legs = leg_rows(text, "uldaman")
         by_name = {leg_name: k for k, (leg_name, _c) in legs.items()}
-        grimlok = [r for r in rows if r["leg"] == str(by_name["grimlok"])]
+        grimlok = leg_steps(rows, by_name["grimlok"])
         pulls = [r for r in grimlok if r["kind"] == "pull"]
         first = pulls[0]
         self.assertEqual((first["comment"], first["radius"], first["entries"]), ("pull group 0", "16", "4853,4855"), name)
