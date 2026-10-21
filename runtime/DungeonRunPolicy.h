@@ -220,10 +220,6 @@ constexpr std::uint32_t kGuardOrdersPerFight = 3; // pick-up orders one fight ma
 // is the stand's melee and close-caster reach, well inside the 20 yd at which
 // the camp woke; a unit farther off is left to come to the tank (r3 lived that way).
 constexpr float kKillFirstMaxYd = 15.0f;
-// The unit already focused keeps the focus up to this far (the 15 yd bound
-// would otherwise flip it as the unit steps across): a focus taken at 12 yd
-// whose unit walks back to its camp is dropped here, not chased at any distance.
-constexpr float kKillFirstStickyMaxYd = 25.0f;
 // The healer's stand for a pull (the run leader's commander context): this far
 // behind the lead bot's spot, on the line from the pull target through that spot
 // (Uldaman run 4: the priest stood level with or ahead of the tank and died of
@@ -2792,15 +2788,31 @@ inline bool KillFirstBounded(const Run& r)
         (s->kind == PlanStepKind::Pull || s->kind == PlanStepKind::Move || s->kind == PlanStepKind::MoveDirect);
 }
 
+// The focused unit is gone: no longer among this fight's kill_first units (it
+// died: the glue lists living ones only) or crowd-controlled by the run. Then
+// there is nothing left to take the focus back from.
+inline bool FocusGone(const Run& r, const Facts& f)
+{
+    if (r.ccSent.count(r.focusGuid))
+        return true;
+    for (const UnitFact& u : f.killFirst)
+        if (u.guid == r.focusGuid)
+            return false;
+    return true;
+}
+
 // In a fight: the kill_first unit to focus (best rank, then nearest; not a
 // crowd-controlled one). On a pull or move step (KillFirstBounded) only one
 // within kKillFirstMaxYd of the lead bot (the tank): the focus sends every bot
 // at it, and Zul'Farrak r5-19z23 step 27 lost the party twice to a focus on a
 // witch doctor 20 and 43 yd off, in its camp. A farther one is left to come
-// in; the bots fight with their own picks in the meantime. The unit already
-// focused stays eligible up to kKillFirstStickyMaxYd, so a better-ranked one
-// walking back and forth across the bound switches the focus once, not every
-// tick. Boss steps and events: any distance, as before. Null for none.
+// in; the bots fight with their own picks in the meantime. The bound is for a
+// new focus only: the unit already focused stays eligible at any distance, so
+// a better-ranked one walking back and forth across the bound switches the
+// focus once, not every tick. There is no order that takes a focus back (the
+// skull and every bot's attack stay), so a held focus is never dropped for
+// distance: a focused unit that walks back to its camp still draws the party.
+// Boss steps and events: any distance, as before. Null for none.
 inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
 {
     if (!r.plan)
@@ -2815,7 +2827,7 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
         // Only this fight's: engaged with the party, or the ward of one that is.
         if (!u.engaged && !(u.owner && u.ownerEngaged))
             continue;
-        if (bounded && u.distLead > (u.guid == r.focusGuid ? kKillFirstStickyMaxYd : kKillFirstMaxYd))
+        if (bounded && u.guid != r.focusGuid && u.distLead > kKillFirstMaxYd)
             continue;
         int const rank = r.plan->KillFirstRank(u.entry);
         if (rank < 0)
@@ -5032,8 +5044,8 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // the next pick-up needs no stay. Never a polymorphed or evading mob. A
 // player's own order to the party pauses the run, so this never overrides the
 // commander. An engage on arrival (EngageTarget) also keeps it watching, and
-// so does a kill_first focus while it is on (Run::focusGuid, cleared once no
-// kill_first unit is left to focus): the focus order takes every bot,
+// so does a kill_first focus while it is on (Run::focusGuid, cleared once its
+// unit is dead or crowd-controlled and no other is left to focus): the focus order takes every bot,
 // the tank too, off "stay" (Zul'Farrak r5-19z23 wipe 2: no pick-up in a whole
 // fight while mobs killed the priest). Its pick-ups move only the tank and go
 // under the same cap and spacing; the focus is re-sent only when its unit
@@ -6046,9 +6058,9 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // The plan's kill_first unit of the fight (a healer, its healing ward)
         // is focused: skull on it, every bot attacks it. Again only when the
         // best one changes (it died, or a ward came up).
-        // None left (it died, was crowd-controlled, or went past
-        // kKillFirstStickyMaxYd): the focus is over, and with it the guard's
-        // reason to keep watching (GuardTarget).
+        // None left and the focused unit is gone (FocusGone: dead or
+        // crowd-controlled): the focus is over, and with it the guard's reason
+        // to keep watching (GuardTarget). One still alive (evading, say) keeps it.
         if (const UnitFact* k = PickKillFirst(r, f))
         {
             if (k->guid != r.focusGuid)
@@ -6058,7 +6070,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
                 order = "focus " + std::to_string(k->guid);
             }
         }
-        else
+        else if (r.focusGuid != 0 && FocusGone(r, f))
             r.focusGuid = 0;
         return order;
     }

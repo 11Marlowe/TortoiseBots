@@ -3736,38 +3736,53 @@ static void TestKillFirstBoundDoesNotFlipFlop()
     }
     // One switch to the better rank once it came in, then it holds.
     CHECK(focuses == 1 && r.focusGuid == 30);
-    // The focused 5650 steps out of the bound again: still the focus up to
-    // kKillFirstStickyMaxYd.
-    f.killFirst[0].distLead = kKillFirstStickyMaxYd - 1.0f;
+    // The focused 5650 steps out of the bound again: still the focus.
+    f.killFirst[0].distLead = 30;
     CHECK(Tick(r, f).empty() && r.focusGuid == 30);
-    // Past it the focus is dropped and picked again: the near 7247.
-    f.killFirst[0].distLead = kKillFirstStickyMaxYd + 1.0f;
-    CHECK(Tick(r, f) == "focus 3" && r.focusGuid == 3);
 }
 
-// A focus taken near (12 yd) whose unit walks back toward its camp is not
-// chased at any distance on a pull step: dropped past kKillFirstStickyMaxYd
-// (no other kill_first unit: no order, the focus is over), taken again only
-// within kKillFirstMaxYd.
-static void TestKillFirstStickyFocusHasAnOuterCap()
+// A focus is never dropped for distance: no order takes it back (the skull and
+// every bot's attack stay), so the policy must not think it over while the
+// party still chases. A focused unit that walks back toward its camp keeps
+// the focus (the known risk) and the guard keeps watching; it ends only when
+// the unit is gone: dead (out of the list) or crowd-controlled.
+static void TestHeldFocusEndsOnlyWhenItsUnitIsGone()
 {
     DungeonPlan plan = ZfPlan();
     Run r = Start(&plan);
     Facts f = Party(0);
+    f.leadIsTank = true;
     f.units = {Unit(1, 5648, 10)};
     CHECK(Tick(r, f) == "pullback 1");
     f.anyInCombat = true;
     f.killFirst = {Engaged(Unit(30, 5650, 12))};
     CHECK(Tick(r, f) == "focus 30");
-    f.killFirst[0].distLead = kKillFirstStickyMaxYd; // at the cap: kept
-    CHECK(Tick(r, f).empty() && r.focusGuid == 30);
-    f.killFirst[0].distLead = kKillFirstStickyMaxYd + 0.5f;
-    CHECK(Tick(r, f).empty() && r.focusGuid == 0);
-    f.killFirst[0].distLead = 20; // between the bounds: not taken again
+    f.leadStaying = false;
+    f.killFirst[0].distLead = 40; // back toward its camp
     for (int i = 0; i < 10; ++i)
-        CHECK(Tick(r, f).empty() && r.focusGuid == 0);
-    f.killFirst[0].distLead = kKillFirstMaxYd - 1.0f;
-    CHECK(Tick(r, f) == "focus 30");
+        CHECK(Tick(r, f).empty() && r.focusGuid == 30);
+    // Alive but not pickable (evading): still held, the guard still watches.
+    f.killFirst[0].evading = true;
+    CHECK(Tick(r, f).empty() && r.focusGuid == 30);
+    f.partyAttackers = {ZfHitter(50, 5649, 8)};
+    CHECK(Tick(r, f) == "attack 50 Tanky" && r.guardOrders == 1);
+    // Pick-ups stay available under the cap and the spacing.
+    f.partyAttackers = {ZfHitter(51, 5649, 6)};
+    int more = 0;
+    for (int i = 0; i < 100; ++i)
+        if (Tick(r, f).compare(0, 7, "attack ") == 0)
+            ++more;
+    CHECK(more == static_cast<int>(kGuardOrdersPerFight) - 1);
+    // Crowd-controlled by the run: gone, the focus ends.
+    Run c = Start(&plan);
+    Facts g = Party(0);
+    g.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(c, g) == "pullback 1");
+    g.anyInCombat = true;
+    g.killFirst = {Engaged(Unit(30, 5650, 12))};
+    CHECK(Tick(c, g) == "focus 30");
+    c.ccSent.insert(30);
+    CHECK(Tick(c, g).empty() && c.focusGuid == 0);
 }
 
 // A boss step keeps the old rule: the plan's kill_first unit is focused
@@ -7706,7 +7721,7 @@ int main()
     TestKillFirstIsThisFightsOnly();
     TestKillFirstFarIsNotFocusedWipe1Replay();
     TestKillFirstBoundDoesNotFlipFlop();
-    TestKillFirstStickyFocusHasAnOuterCap();
+    TestHeldFocusEndsOnlyWhenItsUnitIsGone();
     TestKillFirstOnABossStepIsNotBounded();
     TestGuardStopsWatchingWhenTheFocusEnds();
     TestGuardWatchesAfterAFocusWipe2Replay();
