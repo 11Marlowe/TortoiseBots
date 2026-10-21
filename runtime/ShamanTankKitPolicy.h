@@ -51,8 +51,26 @@ inline bool ShamanTankKitCoversTank(std::vector<std::string> const& kit)
 }
 
 // Premade spec identity for the 7.3 tank build: class 7, spec index 3,
-// name "tank". Pool bots drawing this spec get a persisted forced role TANK.
+// name "tank". Pool bots drawing this spec get the forced role TANK from the
+// factory (and keep tanking from the build read once it is gone).
 inline constexpr uint8_t kShamanTankPremadeClass = 7;
 inline constexpr int kShamanTankPremadeSpec = 3;
+
+// ai::BOT_ROLE_TANK (BotRoles) — the bit a forced role carries for a tank.
+inline constexpr uint8_t kShamanTankRoleBit = 0x01;
+
+// Does this shaman bot play the tank kit? An explicit forced role (`.bot
+// role`, hire, dungeon finder) decides outright: an ordered tank plays tank
+// even without the build, an ordered DPS/healer keeps its own kit. Only with
+// no forced role does the bot's own build decide — that is the durable half,
+// since talents live in the character DB and the forced role does not
+// (issue #1125: a pool shaman that rolled 7.3 came back from a restart and
+// after every group leave with its tank talents and the enhancement DPS kit).
+inline bool ShamanPlaysTankKit(uint8_t forcedRole, bool tankBuild)
+{
+    if (forcedRole)
+        return (forcedRole & kShamanTankRoleBit) != 0;
+    return tankBuild;
+}
 
 } // namespace TortoiseBots

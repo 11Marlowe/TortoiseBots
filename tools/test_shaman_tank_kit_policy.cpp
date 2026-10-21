@@ -3,6 +3,9 @@
 // role installs "tank shaman" plus the shared tank-framework pieces and the
 // shaman pieces that still apply — never "dps assist", "behind", or threat
 // backoff. The bare "tank" alias (LFT handoff) counts as covering the slot.
+// ShamanPlaysTankKit pins who plays that kit: an explicit forced role decides
+// outright, else the bot's own tank build does (durable across restarts and
+// group leaves), so a plain enhancement shaman keeps the DPS kit.
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_shaman_tank_kit_policy.cpp -o /tmp/test_shaman_tank_kit
@@ -83,6 +86,26 @@ static void TestPremadeIdentity()
     CHECK(kShamanTankPremadeSpec == 3);
 }
 
+static void TestKitDecision()
+{
+    // The durable half: no forced role, tank build -> tank kit. This is the
+    // case a restart or a group leave lands in (the forced role is gone, the
+    // tank talents are not) - issue #1125.
+    CHECK(ShamanPlaysTankKit(0, true));
+    // No forced role, DPS build -> DPS kit (enhancement/elemental/resto).
+    CHECK(!ShamanPlaysTankKit(0, false));
+    // Ordered/forced tank with no tank build (`.bot role tank`, LFT fill,
+    // hire, level 10-24 tank premade before the key talent): tank kit.
+    CHECK(ShamanPlaysTankKit(kShamanTankRoleBit, false));
+    CHECK(ShamanPlaysTankKit(kShamanTankRoleBit, true));
+    // An explicit non-tank order wins over the build: `.bot role dps` on a
+    // tank-built shaman keeps the DPS kit, and a healer order likewise.
+    CHECK(!ShamanPlaysTankKit(0x04, true));  // ai::BOT_ROLE_DPS
+    CHECK(!ShamanPlaysTankKit(0x02, true));  // ai::BOT_ROLE_HEALER
+    // The role bit is ai::BOT_ROLE_TANK.
+    CHECK(kShamanTankRoleBit == 0x01);
+}
+
 int main()
 {
     TestCombatKit();
@@ -93,6 +116,8 @@ int main()
     std::printf("  [PASS] kit coverage: spec and bare tank alias cover the slot\n");
     TestPremadeIdentity();
     std::printf("  [PASS] premade identity: class 7 spec 3\n");
+    TestKitDecision();
+    std::printf("  [PASS] kit decision: forced role wins, else the bot's tank build\n");
     std::printf("shaman tank kit policy tests passed (%d checks).\n", checks);
     return 0;
 }

@@ -708,11 +708,23 @@ bool PlayerbotFactory::SelectPremadeSpecNo()
 
     sRandomBotFacade.SetValue(bot, "specNo", chosen->id + 1);
     // A pool bot that rolls the 7.3 tank build is a tank from birth
-    // (issue #1125): persist the forced role so IsTank, the kit branches,
-    // and the talent respec guard all agree. Other specs keep whatever the
-    // bot already had (a re-seed must not clear an operator designation).
+    // (issue #1125): set the forced role so IsTank, the kit branches, and
+    // the talent respec guard all agree, and rebuild the strategies the
+    // engines already installed without it. The role itself is memory only -
+    // the build read in AiFactory (key tank talents) is what carries the
+    // identity across a restart. Other specs keep whatever the bot already
+    // had (a re-seed must not clear an operator designation).
     if (cls == TortoiseBots::kShamanTankPremadeClass && chosen->id == TortoiseBots::kShamanTankPremadeSpec && ai)
+    {
         ai->SetForcedRole(BOT_ROLE_TANK);
+        // The engines were already built for this login (PlayerbotAI's
+        // constructor), without the role, so the bot would play the
+        // enhancement DPS kit until the next rebuild - the bug in issue
+        // #1125. Same order as `.bot role`: the stored snapshot is
+        // spec-dependent, so drop its strategy rows first.
+        sPlayerbotDbStore.InvalidateStrategySnapshots(ai);
+        ai->ResetStrategies();
+    }
     return true;
 }
 

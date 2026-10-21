@@ -363,6 +363,42 @@ static bool HasRockbiterWeapon(const Player* player)
     return false;
 }
 
+// Key tank talents as HasSpell flags (top rank first; rank 2 in the spell
+// map does not imply rank 1, so both ranks are checked).
+static bool HasTotemicAlignmentTalent(const Player* player)
+{
+    return player->HasSpell(TortoiseBots::kShamanTankTalentTotemicAlignmentR2) ||
+        player->HasSpell(TortoiseBots::kShamanTankTalentTotemicAlignmentR1);
+}
+
+static bool HasSpiritArmorTalent(const Player* player)
+{
+    return player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR2) ||
+        player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR1);
+}
+
+// The gear-free build read behind the shaman kit decision. Only the 7.3 tank
+// premade takes Totemic Alignment or Spirit Armor, so no enhancement,
+// elemental or restoration shaman ever matches (issue #1125). Talents are
+// persisted, unlike the forced role.
+static bool HasShamanTankBuild(const Player* player)
+{
+    return TortoiseBots::IsShamanTankBuild(HasTotemicAlignmentTalent(player), HasSpiritArmorTalent(player));
+}
+
+// Which shaman kit this bot plays (issue #1125): the explicit forced role
+// (`.bot role`, hire, dungeon finder) decides outright, else the bot's own
+// build does — a pool shaman that rolled the tank spec kept its tank talents
+// but came back from every restart and group leave with the DPS kit, because
+// the forced role that made it a tank lived in memory only.
+static bool PlaysShamanTankKit(const Player* player, PlayerbotAI* const facade)
+{
+    if (!player || player->GetClass() != CLASS_SHAMAN)
+        return false;
+    uint8 const role = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
+    return TortoiseBots::ShamanPlaysTankKit(role, HasShamanTankBuild(player));
+}
+
 // Shared gear+talent read behind GetRoleFromStanceOrGear and HasOtherTank:
 // shield equipped, Rockbiter on the main hand, and one key tank talent
 // (Totemic Alignment or Spirit Armor, either rank). Cheap Player::HasSpell
@@ -375,12 +411,8 @@ static bool IsDetectedShamanTank(const Player* player)
     TortoiseBots::ShamanTankDetectionInputs inputs;
     inputs.shieldEquipped = HasShieldEquipped(player);
     inputs.rockbiterOnMainHand = HasRockbiterWeapon(player);
-    inputs.totemicAlignment = player->HasSpell(
-        TortoiseBots::kShamanTankTalentTotemicAlignmentR2) ||
-        player->HasSpell(TortoiseBots::kShamanTankTalentTotemicAlignmentR1);
-    inputs.spiritArmor = player->HasSpell(
-        TortoiseBots::kShamanTankTalentSpiritArmorR2) ||
-        player->HasSpell(TortoiseBots::kShamanTankTalentSpiritArmorR1);
+    inputs.totemicAlignment = HasTotemicAlignmentTalent(player);
+    inputs.spiritArmor = HasSpiritArmorTalent(player);
     return TortoiseBots::IsShamanTank(inputs);
 }
 
@@ -486,6 +518,14 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     PlayerbotAI* botAi = storage.GetAI(const_cast<Player*>(player));
     if (botAi && botAi->GetForcedRole() != BOT_ROLE_NONE && botAi->HasActivePlayerMaster())
         return static_cast<BotRoles>(botAi->GetForcedRole());
+
+    // A bot that has the tank build counts as a tank on its own (issue
+    // #1125): the build lives in its talents, so it still reads tank after
+    // the restart or group leave that dropped the in-memory forced role.
+    // The forced-role returns above keep an explicit order in charge; real
+    // players keep the gear-gated read below (docs/classes/shaman.md).
+    if (botAi && botAi->GetForcedRole() == BOT_ROLE_NONE && PlaysShamanTankKit(player, botAi))
+        return BOT_ROLE_TANK;
 
     // Only scan the group when a current stance/form/gear signal could change
     // the talent role; without one, both paths return the talent role.
@@ -627,8 +667,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
             // pieces (warrior `:575` / bear `:667` pattern), then the shared
             // shaman pieces that still apply. Deliberately no "dps assist"
             // (threat race), no "behind" (tanks face the mob).
-            uint8 const shamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
-            if (tab == 1 && shamanRole && (shamanRole & BOT_ROLE_TANK))
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
             {
                 for (std::string const& name : TortoiseBots::ShamanTankCombatKit())
                     combatEngine->addStrategy(name);
@@ -1144,8 +1183,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             // Tank-role shaman keeps the tank kit outside combat too (druid
             // `:1180-1192` pattern): spec strategy + "tank assist" on top of
             // the shared shaman noncombat pieces, never "dps assist".
-            uint8 const ncShamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
-            if (tab == 1 && ncShamanRole && (ncShamanRole & BOT_ROLE_TANK))
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
             {
                 for (std::string const& name : TortoiseBots::ShamanTankNonCombatKit())
                     nonCombatEngine->addStrategy(name);
@@ -1602,8 +1640,7 @@ void AiFactory::AddDefaultDeadStrategies(Player* player, PlayerbotAI* const faca
     {
         case CLASS_SHAMAN:
         {
-            uint8 const deadShamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
-            if (tab == 1 && deadShamanRole && (deadShamanRole & BOT_ROLE_TANK))
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
             {
                 deadEngine->addStrategy("tank shaman");
                 break;
@@ -1810,8 +1847,7 @@ void AiFactory::AddDefaultReactionStrategies(Player* player, PlayerbotAI* const 
     {
         case CLASS_SHAMAN:
         {
-            uint8 const reactShamanRole = facade ? facade->GetForcedRole() : static_cast<uint8>(BOT_ROLE_NONE);
-            if (tab == 1 && reactShamanRole && (reactShamanRole & BOT_ROLE_TANK))
+            if (tab == 1 && PlaysShamanTankKit(player, facade))
             {
                 reactionEngine->addStrategy("tank shaman");
                 break;

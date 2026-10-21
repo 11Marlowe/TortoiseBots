@@ -12,6 +12,11 @@
 // and it counts as an existing tank for everyone else (both enforced by the
 // AiFactory wiring; the predicate pins the rule by ignoring otherTankPresent).
 //
+// IsShamanTankBuild is the gear-free half of the same read: the key talents
+// alone identify the *build*. It is what a shaman bot plays its kit from, so
+// a pool bot that rolled the 7.3 tank premade keeps tanking after a restart
+// (the forced role is memory only).
+//
 // Pure decision logic; the live input gathering (item slots, HasSpell) lives
 // in AiFactory.cpp (IsDetectedShamanTank). Unit-tested on its own
 // (tools/test_shaman_tank_detection_policy.cpp).
@@ -40,6 +45,19 @@ struct ShamanTankDetectionInputs
     bool otherTankPresent = false;    // warrior/paladin/druid (or second shaman) tank in group
 };
 
+// The tank build's key talents: Totemic Alignment or Spirit Armor, either
+// rank. Only the 7.3 tank premade takes either one — the enhancement (7.1),
+// elemental (7.2) and restoration (7.0) links leave both at zero, so a DPS
+// shaman never matches this read (see the premade links in
+// ai/playerbot/aiplayerbot.conf.dist.in and the case pinned by
+// tools/test_shaman_tank_detection_policy.cpp). No key talent is available
+// before level 25 (the 7.3 levelling order learns Spirit Armor then), so a
+// tank-spec bot below that reads as DPS.
+inline bool IsShamanTankBuild(bool totemicAlignment, bool spiritArmor)
+{
+    return totemicAlignment || spiritArmor;
+}
+
 inline bool IsShamanTank(ShamanTankDetectionInputs const& inputs)
 {
     // An explicit forced role wins over the gear/talent read (a forced role
@@ -53,7 +71,7 @@ inline bool IsShamanTank(ShamanTankDetectionInputs const& inputs)
     // decides here.
     if (!inputs.shieldEquipped || !inputs.rockbiterOnMainHand)
         return false;
-    if (!inputs.totemicAlignment && !inputs.spiritArmor)
+    if (!IsShamanTankBuild(inputs.totemicAlignment, inputs.spiritArmor))
         return false;
     // Co-tank: another tank present never demotes a detected shaman tank.
     return true;
