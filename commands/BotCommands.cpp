@@ -1,4 +1,6 @@
 // pi-lens-ignore-file: all
+#include "BotCommandHandlers.h"
+#include "CommandShared.h"
 #include "BotCommands.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../runtime/BotManager.h"
@@ -170,48 +172,9 @@ static Log sLog;
 namespace TortoiseBots {
 namespace BotCommands {
 
-static bool IsRaidTargetMark(std::string const& mark);
-static std::string CurrentCcMark(PlayerbotAI* ai);
-static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent);
-static bool ExecuteInterruptAction(ChatHandler* handler, BotCommandContext const& context, Player* requester);
-
-static std::string Trim(std::string value)
-{
-    size_t first = value.find_first_not_of(" \t");
-    if (first == std::string::npos)
-        return {};
-    size_t last = value.find_last_not_of(" \t");
-    return value.substr(first, last - first + 1);
-}
-
-static Player* Requester(ChatHandler* handler)
-{
-    return handler && handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
-}
 
 
-static bool ResolveOwnedBot(ChatHandler* handler, char const* args, Player*& bot, BotRecord*& record, std::string& name)
-{
-    bot = nullptr;
-    record = nullptr;
-    name = Trim(args ? args : "");
-    if (name.empty() || !normalizePlayerName(name))
-        return false;
-
-    bot = sObjectMgr.GetPlayer(name.c_str());
-    if (!bot)
-        bot = sObjectAccessor.FindPlayerByName(name.c_str());
-    if (!bot)
-        return false;
-
-    record = BotManager::Instance().FindBot(bot->GetObjectGuid());
-    if (!CanControlBot(Requester(handler), record))
-        return false;
-
-    return IsLiveHeadlessBot(bot, record);
-}
-
-static bool HandleList(ChatHandler* handler, char const* /*args*/)
+bool HandleList(ChatHandler* handler, char const* /*args*/)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -239,7 +202,7 @@ static bool HandleList(ChatHandler* handler, char const* /*args*/)
     return true;
 }
 
-static bool HandleStats(ChatHandler* handler, char const* /*args*/)
+bool HandleStats(ChatHandler* handler, char const* /*args*/)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -291,7 +254,7 @@ static char const* MovementName(PlayerbotAI* ai)
     return "custom";
 }
 
-static bool HandleStatus(ChatHandler* handler, char const* args)
+bool HandleStatus(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -311,7 +274,7 @@ static bool HandleStatus(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleVersion(ChatHandler* handler, char const* /*args*/)
+bool HandleVersion(ChatHandler* handler, char const* /*args*/)
 {
     // Any player may ask; the version is public build metadata, not control.
     handler->PSendSysMessage("TortoiseBots %s", BuildVersion().c_str());
@@ -320,7 +283,7 @@ static bool HandleVersion(ChatHandler* handler, char const* /*args*/)
     return true;
 }
 
-static bool HandleLease(ChatHandler* handler, char const* args)
+bool HandleLease(ChatHandler* handler, char const* args)
 {
     std::string sub = Trim(args ? args : "");
     for (char& c : sub) c = tolower(c);
@@ -352,7 +315,7 @@ static bool HandleLease(ChatHandler* handler, char const* args)
 }
 
 
-static bool HandleInvite(ChatHandler* handler, char const* args)
+bool HandleInvite(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -427,7 +390,7 @@ static bool HandleInvite(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleUninvite(ChatHandler* handler, char const* args)
+bool HandleUninvite(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -460,7 +423,7 @@ static bool HandleUninvite(ChatHandler* handler, char const* args)
 // `.bot action interrupt`, but scoped to one owned bot instead of a
 // tactical executor search. Resolving the owner-selected or named bot first
 // keeps this consistent with .bot attack/.bot stay single-target verbs.
-static bool HandleInterrupt(ChatHandler* handler, char const* args)
+bool HandleInterrupt(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -537,7 +500,7 @@ static bool KnownStrategyChange(std::vector<Player*> const& scope, std::string c
 // persistence stay AI-owned via ChangeStrategyAction/DbStore.
 // Whole multi-word names, with an optional trailing role or owned bot name.
 // Changes and persistence still use the mature AI-owned paths.
-static bool HandleStrategy(ChatHandler* handler, char const* args)
+bool HandleStrategy(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -623,7 +586,7 @@ static bool HandleStrategy(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleStay(ChatHandler* handler, char const* args)
+bool HandleStay(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -657,7 +620,6 @@ static bool HandleStay(ChatHandler* handler, char const* args)
     return true;
 }
 
-static void RelaxTacticalMovement(PlayerbotAI* ai);
 
 // relaxMovement: the order sends the bot at a target, so it ends a stay the
 // same way the party-wide `.bot action` form does (RelaxTacticalMovement).
@@ -718,7 +680,7 @@ static void EndFlee(PlayerbotAI* ai)
 // bot's own spot. Setting only "stay" left "return" at the spot of an
 // earlier stay order, and the two strategies then walked the bot back and
 // forth between the old and the new spot every few seconds.
-static void SetStayAnchor(PlayerbotAI* ai, float x, float y, float z, uint32 mapId)
+void SetStayAnchor(PlayerbotAI* ai, float x, float y, float z, uint32 mapId)
 {
     ai::PositionMap& posMap = ai->GetAiObjectContext()->GetValue<ai::PositionMap&>("position")->Get();
     ai::PositionEntry stayPos = posMap["stay"];
@@ -732,7 +694,7 @@ static void SetStayAnchor(PlayerbotAI* ai, float x, float y, float z, uint32 map
 
 // Tactical requests must be able to leave a prior stay/follow hold. The
 // movement and combat behavior itself remains owned by PlayerbotAI.
-static void RelaxTacticalMovement(PlayerbotAI* ai)
+void RelaxTacticalMovement(PlayerbotAI* ai)
 {
     if (!ai)
         return;
@@ -746,7 +708,7 @@ static void RelaxTacticalMovement(PlayerbotAI* ai)
 // whispers never reach the player, and checking first keeps a refused pull
 // from changing any bot's state. Returns false with an ACTION_ERR code and a
 // player-facing reason.
-static bool CheckPullTarget(Player* executor, Unit* target, std::string& code, std::string& message)
+bool CheckPullTarget(Player* executor, Unit* target, std::string& code, std::string& message)
 {
     if (!executor || !target || !target->IsInWorld() || target->GetMapId() != executor->GetMapId())
     {
@@ -783,19 +745,7 @@ static bool CheckPullTarget(Player* executor, Unit* target, std::string& code, s
     return true;
 }
 
-// What ConfigurePullMode changes on the tank: the "pull back" strategy in each
-// engine and the PullStrategy command fields. Taken before it and put back
-// exactly when the pull is refused afterwards, so a refused command neither
-// leaves the tank in pull mode nor ends or rewrites an earlier pull that is
-// still running (OnPullEnded / "pull end" would).
-struct PullModeSnapshot
-{
-    bool pullBack[static_cast<uint8>(BotState::BOT_STATE_ALL)] = {};
-    bool hasCommand = false;
-    PullStrategy::CommandState command = {};
-};
-
-static PullModeSnapshot SavePullMode(PlayerbotAI* ai)
+PullModeSnapshot SavePullMode(PlayerbotAI* ai)
 {
     PullModeSnapshot snapshot;
     if (!ai)
@@ -810,7 +760,7 @@ static PullModeSnapshot SavePullMode(PlayerbotAI* ai)
     return snapshot;
 }
 
-static void RestorePullMode(PlayerbotAI* ai, PullModeSnapshot const& snapshot)
+void RestorePullMode(PlayerbotAI* ai, PullModeSnapshot const& snapshot)
 {
     if (!ai)
         return;
@@ -840,22 +790,22 @@ static bool BindMovementMaster(Player* requester, Player* bot)
     return BotManager::Instance().BindBotMaster(bot->GetObjectGuid(), requester->GetObjectGuid());
 }
 
-static bool HandleGuard(ChatHandler* handler, char const* args)
+bool HandleGuard(ChatHandler* handler, char const* args)
 {
     return HandleNamedAction(handler, args, "guard", "guard chat shortcut", "will guard this position", false, true);
 }
 
-static bool HandleFree(ChatHandler* handler, char const* args)
+bool HandleFree(ChatHandler* handler, char const* args)
 {
     return HandleNamedAction(handler, args, "free", "free chat shortcut", "is free to move", false, true);
 }
 
-static bool HandleReady(ChatHandler* handler, char const* args)
+bool HandleReady(ChatHandler* handler, char const* args)
 {
     return HandleNamedAction(handler, args, "ready", "ready check", "will run a readiness check");
 }
 
-static bool HandleAttack(ChatHandler* handler, char const* args)
+bool HandleAttack(ChatHandler* handler, char const* args)
 {
     return HandleNamedAction(handler, args, "attack", "attack my target", "will attack your selected target", true);
 }
@@ -868,7 +818,7 @@ static bool IsPublicFormation(std::string const& formation)
         formation == "far";
 }
 
-static bool HandleFormation(ChatHandler* handler, char const* args)
+bool HandleFormation(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::string input = Trim(args ? args : "");
@@ -961,7 +911,7 @@ static bool HandleFormation(ChatHandler* handler, char const* args)
 // Both spec placeholders are offered; each class context keeps the one it
 // knows ("protection" for Warrior/Paladin, "tank feral" for Druid) and the
 // engine silently ignores the unknown name.
-static bool HandleRole(ChatHandler* handler, char const* args)
+bool HandleRole(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::string input = Trim(args ? args : "");
@@ -1096,7 +1046,7 @@ static bool HandleRole(ChatHandler* handler, char const* args)
 }
 
 
-static bool HandleMatureCommand(ChatHandler* handler, char const* args)
+bool HandleMatureCommand(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::string input = Trim(args ? args : "");
@@ -1128,7 +1078,6 @@ static bool HandleMatureCommand(ChatHandler* handler, char const* args)
     return true;
 }
 
-static std::string ProtocolSafe(std::string value);
 
 // Issue #900: `.bot hire raid <preset|composition> [tier]`. The grammar and
 // the roster live in runtime/HireRaidPolicy.h, the cap, quote, raid conversion
@@ -1193,7 +1142,7 @@ static bool HandleHireRaid(ChatHandler* handler, Player* requester, std::vector<
 // position, or a bare number of 12 or more as the last word. HireLevelPolicy.h
 // holds the rule: 1 up to your level plus AiPlayerbot.HireMaxLevelAboveHirer
 // (a GM up to 60); no level hires at your own level.
-static bool HandleHire(ChatHandler* handler, char const* args)
+bool HandleHire(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -1466,7 +1415,7 @@ static bool HandleHire(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleAdd(ChatHandler* handler, char const* args)
+bool HandleAdd(ChatHandler* handler, char const* args)
 {
     if (!handler)
         return false;
@@ -1573,7 +1522,7 @@ static bool HandleAdd(ChatHandler* handler, char const* args)
 }
 
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename
-static bool HandleRemove(ChatHandler* handler, char const* args)
+bool HandleRemove(ChatHandler* handler, char const* args)
 {
     if (!handler)
         return false;
@@ -1632,7 +1581,7 @@ static bool HandleRemove(ChatHandler* handler, char const* args)
 }
 
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename
-static bool HandleFollow(ChatHandler* handler, char const* args)
+bool HandleFollow(ChatHandler* handler, char const* args)
 {
     ::Player* requester = handler->GetSession() ? handler->GetSession()->GetPlayer() : nullptr;
     if (!requester)
@@ -1684,8 +1633,7 @@ static bool HandleFollow(ChatHandler* handler, char const* args)
 // the dynamic scope (selected bot or all owned party bots). The mature chat
 // actions own vendor checks (proximity, gossip flags, gold); this layer only
 // resolves scope, invokes them, persists strategy state, and reports.
-static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent);
-static bool HandleLoot(ChatHandler* handler, char const* args)
+bool HandleLoot(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -1726,7 +1674,7 @@ static bool HandleLoot(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleRepair(ChatHandler* handler, char const* args)
+bool HandleRepair(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1755,7 +1703,7 @@ static bool HandleRepair(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleSell(ChatHandler* handler, char const* args)
+bool HandleSell(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1788,7 +1736,7 @@ static bool HandleSell(ChatHandler* handler, char const* args)
 // full, combat, or the master moves away. The mature food/drink actions own
 // inventory, sit state, and regen checks; this layer only fans out and
 // reports over the dynamic scope.
-static bool HandleRest(ChatHandler* handler, char const* args)
+bool HandleRest(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1834,7 +1782,7 @@ static std::vector<Player*> DeadBotsInScope(BotCommandContext const& context)
     return dead;
 }
 
-static bool HandleRelease(ChatHandler* handler, char const* args)
+bool HandleRelease(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1863,7 +1811,7 @@ static bool HandleRelease(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleCorpseRun(ChatHandler* handler, char const* args)
+bool HandleCorpseRun(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1892,7 +1840,7 @@ static bool HandleCorpseRun(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleLearn(ChatHandler* handler, char const* args)
+bool HandleLearn(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1921,7 +1869,7 @@ static bool HandleLearn(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleTrade(ChatHandler* handler, char const* args)
+bool HandleTrade(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -1951,7 +1899,7 @@ static bool HandleTrade(ChatHandler* handler, char const* args)
 }
 
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
-static bool HandlePullback(ChatHandler* handler, char const* args)
+bool HandlePullback(ChatHandler* handler, char const* args)
 {
     (void)args;
     Player* requester = Requester(handler);
@@ -2038,7 +1986,7 @@ static bool HandlePullback(ChatHandler* handler, char const* args)
 }
 
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename,clang:undeclared_var_use
-static bool HandleSummon(ChatHandler* handler, char const* args)
+bool HandleSummon(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -2141,44 +2089,8 @@ static bool HandleSummon(ChatHandler* handler, char const* args)
 }
 // Notes a remote commander's order and the module's answer for the observability
 // dashboard's Commanders tab (defined with the commander state below).
-static void NoteCommanderOrderResult(ChatHandler* handler, std::string const& intent, bool ok,
-    std::string const& result);
 
-static std::string ProtocolSafe(std::string value)
-{
-    for (char& character : value)
-    {
-        if (character == '|' || character == '\r' || character == '\n')
-            character = ' ';
-    }
-    return value;
-}
-
-static void SendActionError(ChatHandler* handler, std::string const& intent,
-    char const* code, char const* message)
-{
-    if (!handler)
-        return;
-    std::string safeMessage = ProtocolSafe(message ? message : "request rejected");
-    handler->PSendSysMessage("TBM:ACTION_ERR|%s|%s|%s", ProtocolSafe(intent).c_str(),
-        code ? code : "rejected", safeMessage.c_str());
-    NoteCommanderOrderResult(handler, intent, false,
-        std::string(code ? code : "rejected") + ": " + safeMessage);
-}
-
-static void SendActionAck(ChatHandler* handler, std::string const& intent,
-    std::string const& scope, uint32 count, std::string const& executor = {})
-{
-    if (!handler)
-        return;
-    std::string safeScope = ProtocolSafe(scope);
-    std::string safeExecutor = executor.empty() ? "-" : ProtocolSafe(executor);
-    handler->PSendSysMessage("TBM:ACTION_ACK|%s|%s|%u|%s",
-        ProtocolSafe(intent).c_str(), safeScope.c_str(), count, safeExecutor.c_str());
-    NoteCommanderOrderResult(handler, intent, true, safeScope + " " + std::to_string(count));
-}
-
-static bool ExecuteInterruptAction(ChatHandler* handler, BotCommandContext const& context,
+bool ExecuteInterruptAction(ChatHandler* handler, BotCommandContext const& context,
     Player* requester)
 {
     Unit* target = context.enemyTarget;
@@ -2348,7 +2260,7 @@ static void SetBehavior(PlayerbotAI* ai, BehaviorToggle const& toggle, bool enab
 // "TBM:BOTSTATE|<name>|move=follow,loot=on,..." - one line per live bot.
 // Flee parks a bot in passive follow, reported as its own movement mode so
 // the addon can show that the bot is holding off until the next order.
-static void SendBotStateLine(ChatHandler* handler, Player* bot)
+void SendBotStateLine(ChatHandler* handler, Player* bot)
 {
     PlayerbotAI* ai = bot ? PlayerbotAIStorage::Instance().GetAI(bot) : nullptr;
     if (!handler || !ai)
@@ -2362,7 +2274,7 @@ static void SendBotStateLine(ChatHandler* handler, Player* bot)
     handler->PSendSysMessage("TBM:BOTSTATE|%s|%s", ProtocolSafe(bot->GetName()).c_str(), fields.c_str());
 }
 
-static bool HandleRoster(ChatHandler* handler, char const* /*args*/)
+bool HandleRoster(ChatHandler* handler, char const* /*args*/)
 {
     Player* requester = Requester(handler);
     if (!requester || !requester->GetSession())
@@ -2533,7 +2445,7 @@ static bool HandleRoster(ChatHandler* handler, char const* /*args*/)
     return true;
 }
 
-static bool HandleLogout(ChatHandler* handler, char const* args)
+bool HandleLogout(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -2650,7 +2562,7 @@ static void SendInventorySnapshot(ChatHandler* handler, Player* bot, Player* req
     handler->PSendSysMessage("TBM:INV_END|%s|%u|%u", name.c_str(), freeSlots, totalSlots);
 }
 
-static bool HandleInventory(ChatHandler* handler, char const* args)
+bool HandleInventory(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -2671,7 +2583,7 @@ static bool HandleInventory(ChatHandler* handler, char const* args)
 // (consumables, reagents, ammo, thrown, bandages, then a free repair);
 // autogear re-gears incrementally within the quality/ilvl caps. With the
 // flags off the commands reply that the feature is disabled.
-static bool IsOwnedBotQolEligible(Player* bot, BotRecord const* record)
+bool IsOwnedBotQolEligible(Player* bot, BotRecord const* record)
 {
     if (!bot || !record)
         return false;
@@ -2682,7 +2594,7 @@ static bool IsOwnedBotQolEligible(Player* bot, BotRecord const* record)
     return true;
 }
 
-static bool HandleMaintenance(ChatHandler* handler, char const* args)
+bool HandleMaintenance(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     Player* bot = nullptr;
@@ -2722,7 +2634,7 @@ static bool HandleMaintenance(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleAutogear(ChatHandler* handler, char const* args)
+bool HandleAutogear(ChatHandler* handler, char const* args)
 {
     std::string text = Trim(args ? args : "");
     size_t split = text.find_first_of(" \t");
@@ -2796,7 +2708,7 @@ static bool OpenTradeWith(Player* bot, Player* requester)
 // .bot item <bot> equip|unequip|give <bag> <slot>
 // Every reply is one TBM:ACTION_ACK / TBM:ACTION_ERR with intent "item <op>";
 // equip and unequip follow it with a fresh inventory snapshot.
-static bool HandleItem(ChatHandler* handler, char const* args)
+bool HandleItem(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::istringstream input(Trim(args ? args : ""));
@@ -2956,7 +2868,7 @@ static bool HandleItem(ChatHandler* handler, char const* args)
 // strategy toggles (BehaviorToggles). Persisted through the mature AI store
 // like loot/auto cc; answers with an ACK and the bot's fresh TBM:BOTSTATE
 // line. "party"/"raid" fans out to every live owned bot in the scope.
-static bool HandleBehavior(ChatHandler* handler, char const* args)
+bool HandleBehavior(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::istringstream input(Trim(args ? args : ""));
@@ -3122,7 +3034,7 @@ static std::string TotemWantForBot(PlayerbotAI* ai, Player* bot, int slot)
 // <bot> status`. Answers the action protocol (ACK/ERR) so the addon
 // button/lines can drive it. Unknown totems and totems the bot never
 // trained answer ERR naming the reason.
-static bool HandleTotem(ChatHandler* handler, char const* args)
+bool HandleTotem(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::istringstream input(Trim(args ? args : ""));
@@ -3489,7 +3401,7 @@ static bool ParseAction(std::string input, std::string& intent, std::string& opt
     return true;
 }
 
-static bool IsRaidTargetMark(std::string const& mark)
+bool IsRaidTargetMark(std::string const& mark)
 {
     return RtiTargetValue::GetRtiIndex(mark) >= 0;
 }
@@ -3539,7 +3451,7 @@ static std::vector<PlayerbotAI*> RevokeDuplicateCcOwners(Player* owner, std::str
     return revoked;
 }
 
-static std::string CurrentCcMark(PlayerbotAI* ai)
+std::string CurrentCcMark(PlayerbotAI* ai)
 {
     if (!ai || !ai->GetAiObjectContext())
         return "-";
@@ -3553,7 +3465,7 @@ static std::string CurrentCcMark(PlayerbotAI* ai)
 // `.bot cmd cc` (issue #884): requester is the event owner and the unit whose
 // map and attack rules judge the target; reportIntent names the order in the
 // ACK/ERR line.
-static bool RunCcOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
+bool RunCcOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
     std::string const& intent, std::string const& reportIntent)
 {
     // Optional explicit bot name ("cc <mark> <BotName>") assigns that
@@ -3767,7 +3679,7 @@ static bool RunCcOrder(ChatHandler* handler, BotCommandContext const& context, P
 // #884): requester is the event owner, so the pull returns to its position;
 // option is the join delay in seconds (empty = configured default);
 // reportIntent names the order in the ACK/ERR line.
-static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
+bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context, Player* requester,
     std::string const& intent, std::string const& option, std::string const& reportIntent)
 {
     Player* executor = ResolvePullExecutor(context);
@@ -3976,7 +3888,7 @@ static bool RunPullOrder(ChatHandler* handler, BotCommandContext const& context,
     return true;
 }
 
-static bool HandleAction(ChatHandler* handler, char const* args)
+bool HandleAction(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
     std::string intent;
@@ -4447,7 +4359,7 @@ static bool HandleAction(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent)
+bool HandleRaidAction(ChatHandler* handler, BotCommandContext const& context, Player* requester, std::string const& intent)
 {
     std::vector<Player*> scope = ResolveDynamicScope(context);
     if (scope.empty())
@@ -5575,7 +5487,7 @@ static bool HandleCommanderBind(ChatHandler* handler, Player* commander, std::st
     return true;
 }
 
-static bool HandleCommander(ChatHandler* handler, char const* args)
+bool HandleCommander(ChatHandler* handler, char const* args)
 {
     Player* commander = Requester(handler);
     std::string text = Trim(args ? args : "");
@@ -8377,7 +8289,7 @@ static bool CommanderLootMethod(ChatHandler* handler, CommanderOrder const& orde
     return true;
 }
 
-static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
+bool HandleCommanderOrder(ChatHandler* handler, char const* args)
 {
     std::string text = Trim(args ? args : "");
     size_t split = text.find_first_of(" \t");
@@ -8686,7 +8598,7 @@ void UpdateRemoteCommanders(uint32_t diff)
     UpdateCommanderTasks(diff);
 }
 
-static void NoteCommanderOrderResult(ChatHandler* handler, std::string const& intent, bool ok,
+void NoteCommanderOrderResult(ChatHandler* handler, std::string const& intent, bool ok,
     std::string const& result)
 {
     // Only the answers to a bound commander's `.bot cmd <order>` count.
@@ -9088,7 +9000,7 @@ void ClearRemoteCommanders()
     s_commanderSweepMs = 0;
 }
 
-static bool HandleAhBot(ChatHandler* handler, char const* args)
+bool HandleAhBot(ChatHandler* handler, char const* args)
 {
     if (!handler)
         return false;
@@ -9423,7 +9335,7 @@ static bool HandlePoolAdopt(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandlePool(ChatHandler* handler, char const* args)
+bool HandlePool(ChatHandler* handler, char const* args)
 {
     std::string sub = Trim(args ? args : "");
     std::string subLower = sub;
@@ -9442,7 +9354,7 @@ static bool HandlePool(ChatHandler* handler, char const* args)
 }
 
 // `.bot corpse` guard: accepts bare "corpse" and "corpse run", rejects the rest.
-static bool HandleCorpseShortcut(ChatHandler* handler, char const* args)
+bool HandleCorpseShortcut(ChatHandler* handler, char const* args)
 {
     std::string rest = Trim(args ? args : "");
     for (char& c : rest)
@@ -9455,7 +9367,7 @@ static bool HandleCorpseShortcut(ChatHandler* handler, char const* args)
 
 // `.bot help` answers with the addon protocol version line; the TBM addon
 // parses it, so the output must stay exactly as it is.
-static bool HandleHelp(ChatHandler* handler, char const* /*args*/)
+bool HandleHelp(ChatHandler* handler, char const* /*args*/)
 {
     handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
     return true;

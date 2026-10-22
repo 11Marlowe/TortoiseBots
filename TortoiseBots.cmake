@@ -182,6 +182,7 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/behavior/Movement.cpp"
     "${TORTOISEBOTS_ROOT}/behavior/PlayerConvenience.cpp"
     "${TORTOISEBOTS_ROOT}/commands/BotCommands.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/CommandShared.cpp"
     "${TORTOISEBOTS_ROOT}/commands/BotCommandContext.cpp")
 
   # These are the module-owned runtime and mature AI foundations. The donor
