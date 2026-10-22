@@ -55,6 +55,11 @@ ZUMRAH_GRAVES = (
     (1887.46, 967.14), (1882.70, 971.83), (1879.89, 974.65), (1876.44, 972.21),
     (1892.57, 1006.37), (1891.60, 1023.06), (1887.94, 1029.08),
 )
+# Frostmane Hollow (20261022210030): its map and its four boss steps, names from the core's creature_template (all rank 1). Added apart
+# from the dicts above so that this change merges with the other plans' edits of them.
+BOSS_PLANS["frostmane_hollow"] = 822
+SEEDED_BOSSES.update({(822, 63131): "Battlemaster Ubukaz", (822, 63129): "Kan'za the Seer",
+                      (822, 63133): "Tan'sha the Sleek", (822, 63130): "Hailar the Frigid"})
 
 def migrations():
     for path in sorted(glob.glob(os.path.join(ROOT, "data/sql/world/*_world.sql"))):
@@ -277,6 +282,54 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual(name, "20261022170000_world.sql")
         self.assertEqual(len(leg_rows(text, "uldaman")), 14)
         self.assertEqual(len([r for r in self.step_rows(text) if r["plan"] == "uldaman"]), 139)
+
+    def test_frostmane_hollow_plan_is_whole(self):
+        # 20261022210030 (turtle-agent abd37a3, 2026-10-22): the first rows of the draft plan, exported with --allow-draft --gm-cross-direct
+        # --approach-hops. The plan file has no event, door or gossip step, so its 4 legs are only moves, pulls and one boss each. Every pin
+        # below fails when a leg, a pack or a boss row is cut.
+        name, text = newest_plan_text("frostmane_hollow")
+        self.assertEqual(name, "20261022210030_world.sql")
+        self.assertIn("('frostmane_hollow', 822, '', '', '', 'turtle-agent abd37a3 dungeons/frostmane_hollow.json', "
+                      "'plan v1, draft (not mapped, not live-checked)');", text)
+        legs = re.findall(r"^\('frostmane_hollow', (\d+), '((?:[^']|'')+)', ''\)[,;]$", text, re.M)
+        self.assertEqual([(int(n), leg.replace("''", "'")) for n, leg in legs],
+                         [(0, "battlemaster_ubukaz"), (1, "kan'za_the_seer"), (2, "tan'sha_the_sleek"), (3, "hailar_the_frigid")])
+        rows = [r for r in self.step_rows(text) if r["plan"] == "frostmane_hollow"]
+        self.assertEqual(len(rows), 432)
+        self.assertEqual({k: len([r for r in rows if r["kind"] == k]) for k in {r["kind"] for r in rows}}, {"move": 337, "pull": 91, "boss": 4})
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in range(4)}, {0: 53, 1: 207, 2: 49, 3: 123})
+        self.assertEqual({leg: len([r for r in rows if r["leg"] == str(leg) and r["kind"] == "pull"]) for leg in range(4)}, {0: 16, 1: 51, 2: 16, 3: 8})
+        # One boss per leg, last in the leg, in the plan's order Ubukaz, Kan'za, Tan'sha, Hailar; Hailar's five Ritualists 36519 (each
+        # linked to him in the core, channelling Frostmane Ritual on him) are five single pulls of leg 3 before the boss row.
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["63131", "63129", "63133", "63130"])
+        for leg in range(4):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+            self.assertEqual(leg_steps(rows, leg)[0]["kind"], "move", leg)
+            self.assertEqual(len([r for r in leg_steps(rows, leg) if r["comment"] == "to"]), 1, leg)
+        self.assertEqual([r["entries"] for r in leg_steps(rows, 3) if r["kind"] == "pull"].count("36519"), 5)
+        for r in rows:
+            self.assertEqual((r["item"], r["param"], r["timeout_s"]), ("0", "0", "0"), r)
+
+    def test_frostmane_hollow_rows_pass_the_loader_checks(self):
+        # Every step row goes through the loader's own code (DungeonPlanPolicy.h, compiled from tools/test_dungeon_plan_rows.cpp): a row
+        # the loader refuses is skipped at startup and the run pauses before it.
+        compiler = shutil.which("g++")
+        if compiler is None:
+            self.skipTest("g++ is not installed")
+        _name, text = newest_plan_text("frostmane_hollow")
+        rows = [r for r in self.step_rows(text) if r["plan"] == "frostmane_hollow"]
+        lines = ["P\tfrostmane_hollow\t822"]
+        for r in rows:
+            lines.append("\t".join(["S", r["plan"], r["leg"], r["seq"], r["kind"], r["entry"], r["x"], r["y"], r["z"], r["radius"], r["item"],
+                                    r["param"], r["flags"], r["timeout_s"], r["entries"]]))
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = os.path.join(tmp, "rows")
+            build = subprocess.run([compiler, "-std=c++17", "-Wall", "-Wextra", os.path.join(ROOT, "tools/test_dungeon_plan_rows.cpp"), "-o", binary],
+                                   capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([binary], input="\n".join(lines) + "\n", capture_output=True, text=True)
+        self.assertEqual(run.stdout.strip().splitlines()[-1], "rows %d refused 0" % len(rows), run.stdout)
+        self.assertEqual(run.returncode, 0, run.stdout)
 
     def test_exact_flag_only_on_a_move_before_its_direct_step(self):
         # flags 64 (kPlanFlagExact, DungeonPlanPolicy.h): the loader refuses it on any kind but move, and it marks the launch
