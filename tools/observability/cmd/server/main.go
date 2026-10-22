@@ -58,7 +58,7 @@ func main() {
 	httpHost := flag.String("http-host", getEnv("HTTP_HOST", "127.0.0.1"), "HTTP server bind address (127.0.0.1 = local only, 0.0.0.0 = all interfaces, for containers/LAN)")
 	udpHost := flag.String("udp-host", getEnv("UDP_HOST", "127.0.0.1"), "UDP telemetry listen address")
 	udpPort := flag.Int("udp-port", getEnvInt("UDP_PORT", 9195), "UDP telemetry listener port")
-	forwardUDP := flag.String("forward-udp", "", "Comma-separated host:port list; every telemetry datagram is also sent to each (empty = no forwarding)")
+	forwardUDP := flag.String("forward-udp", getEnv("FORWARD_UDP", ""), "Comma-separated host:port list; every telemetry datagram is also sent to each (empty = no forwarding)")
 	dbHost := flag.String("db-host", getEnv("DB_HOST", "127.0.0.1"), "MariaDB / MySQL host")
 	dbPort := flag.Int("db-port", getEnvInt("DB_PORT", 3306), "MariaDB / MySQL port")
 	dbUser := flag.String("db-user", getEnv("DB_USER", "mangos"), "MariaDB / MySQL user")

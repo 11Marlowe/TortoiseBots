@@ -86,7 +86,7 @@ func (l *Listener) readLoop() {
 		default:
 		}
 
-		n, _, err := l.conn.ReadFrom(buf)
+		n, src, err := l.conn.ReadFromUDP(buf)
 		if err != nil {
 			select {
 			case <-l.stopChan:
@@ -99,6 +99,11 @@ func (l *Listener) readLoop() {
 		}
 
 		if n > 0 {
+			// A datagram from one of our own forward sockets went round a loop:
+			// drop it before it is forwarded or processed a second time.
+			if l.isOwnForward(src) {
+				continue
+			}
 			// Forward first: the copy goes out whatever the parse makes of it.
 			l.forwardDatagram(buf[:n])
 			l.processPacket(buf[:n])
