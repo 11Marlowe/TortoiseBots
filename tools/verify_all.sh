@@ -119,6 +119,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_gather_spot_policy
         test_gather_tool_policy
         test_gear_ilvl_cap_policy
+        test_gear_duplicate_item_policy
         test_geddon_inferno_policy
         test_ghost_stall_policy
         test_gluth_kite_policy

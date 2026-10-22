@@ -12,6 +12,7 @@
 #endif
 #include "strategy/values/ItemUsageValue.h"
 #include "RaidQuestChainPolicy.h"
+#include "GearDuplicateItemPolicy.h"
 
 enum RandomItemType
 {
@@ -332,6 +333,12 @@ class RandomItemMgr
         void BuildRaidSourceIndex();
         bool raidSourceIndexed = false;
         std::set<uint32> raidSourceItems;
+        // Custom-id duplicate-copy index (see GearDuplicateItemPolicy.h):
+        // re-modelled copies of existing items at a far higher item id never
+        // enter itemInfoCache, the equip cache or the slot backstop. Filled
+        // in BuildItemInfoCache (the ascending item walk), read in
+        // BuildEquipCache's load path (persisted rows predate the rule).
+        TortoiseBots::GearDuplicateItemIndex gearDuplicateItems;
         std::map<uint32, std::vector<uint32> > questIdsMemo;
         TortoiseBots::QuestPredecessors const& GetQuestPredecessors();
         TortoiseBots::QuestPredecessors questPredecessorsMemo;
