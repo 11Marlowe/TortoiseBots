@@ -628,5 +628,28 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("GossipNpcDeadNote(what, f.taskText)", gossip_step)
 
 
+    def test_walk_back_after_won_fight_key_is_read_with_the_config(self):
+        # AiPlayerbot.DungeonRunWalkBackAfterWonFight (default 0): read in PlayerbotAIConfig::Initialize next to
+        # AiPlayerbot.DungeonSelfClear (the one config load the module has), and handed to the policy on every tick
+        # by ReadRunFacts, so no copy of it lives in a run.
+        config = (ROOT / "ai/playerbot/PlayerbotAIConfig.cpp").read_text()
+        header = (ROOT / "ai/playerbot/PlayerbotAIConfig.h").read_text()
+        template = (ROOT / "ai/playerbot/aiplayerbot.conf.dist.in").read_text()
+        policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
+        init = body(config, "bool PlayerbotAIConfig::Initialize()\n{", "\n}\n")
+        read = 'dungeonRunWalkBackAfterWonFight = config.GetBoolDefault("AiPlayerbot.DungeonRunWalkBackAfterWonFight", false);'
+        self.assertIn(read, init)
+        self.assertIn('dungeonSelfClear = config.GetBoolDefault("AiPlayerbot.DungeonSelfClear", false);', init)
+        self.assertIn("bool dungeonRunWalkBackAfterWonFight;", header)
+        self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight = 0", template)
+        facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
+        self.assertIn("f = Facts();", facts)
+        self.assertIn("f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;", facts)
+        self.assertIn("bool walkBackAfterWonFight = false;", policy)
+        self.assertIn("else if (!GuardWalkBackWanted(r, f, *s))", policy)
+        for doc in ("docs/server/settings/dungeons-raids.md", "docs/play/dungeon-run-leader.md"):
+            self.assertIn("AiPlayerbot.DungeonRunWalkBackAfterWonFight", (ROOT / doc).read_text())
+
+
 if __name__ == "__main__":
     unittest.main()

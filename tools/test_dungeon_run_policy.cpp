@@ -283,6 +283,7 @@ static void TestStalledLeadInFollowRangeCountsAsArrived()
     f.leadX = 1783.2f;
     f.leadY = 792.1f;
     f.leadZ = 22.2f;
+    f.walkBackAfterWonFight = true; // the walk back itself (a move step goes on forward at the key's default)
     CHECK(Tick(r, f) == "move 1787.8 790.6 17.6");
     int ticks = 1;
     while (ticks < 60 && r.guardReturn && r.state == State::Running)
@@ -6211,18 +6212,25 @@ static void TestTankGuardsThePartyFromItsStand()
     f.partyAttackers = {Hitter(41, 7320, 12)};
     for (int i = 0; i < 10; ++i)
         CHECK(Tick(r, f).empty()); // a mob on a DPS while the tank holds its own: the tank's own AI
-    // The fight is over: back to the stand point first, then the step goes on.
+    // The fight is over and the pack cleared: the step goes on from where the
+    // tank stands (AiPlayerbot.DungeonRunWalkBackAfterWonFight 0; until
+    // 2026-10-22 it walked back to the stand point first, as the key at 1 does).
     f.anyInCombat = false;
     f.leadHit = false;
     f.partyAttackers.clear();
     f.units.clear();
-    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
-    f.leadX = 1;
-    f.leadStaying = true;
-    CHECK(Tick(r, f).empty()); // arrived: the next tick reads fresh facts
-    CHECK(!r.guardReturn);
-    Tick(r, f);
-    CHECK(r.state == State::Done);
+    Facts old = f;
+    Run rOld = r;
+    CHECK(Tick(r, f).empty());
+    CHECK(!r.guardReturn && r.state == State::Done);
+    old.walkBackAfterWonFight = true;
+    CHECK(Tick(rOld, old) == "move 0.0 0.0 0.0");
+    old.leadX = 1;
+    old.leadStaying = true;
+    CHECK(Tick(rOld, old).empty()); // arrived: the next tick reads fresh facts
+    CHECK(!rOld.guardReturn);
+    Tick(rOld, old);
+    CHECK(rOld.state == State::Done);
 }
 
 // Uldaman run 3 (19z12, tests/uldaman-events-3), baelog: the leg's pulls have
@@ -6321,6 +6329,173 @@ static void TestTankGuardReturnsToItsOwnSpot()
     h.partyAttackers.clear();
     h.units = {Unit(32, 4851, 60)};
     CHECK(Tick(r3, h) == "move 90.0 0.0 0.0");
+}
+
+// Frostmane Hollow r20-19z39 slot 1 (2026-10-22), steps 277 and 278 (trace
+// 3044-3107 s): the tank walked to firing stand 1 for 63134, pulled, engaged it
+// on arrival and fought 26 s ahead of the stand; with nothing hostile left the
+// run walked the tank and the party back to the stand ("back to the stand
+// point after picking up the party's attackers", 3080-3082 s), said "pack
+// cleared" and walked forward again for the next 63134. The owner: "why do they
+// run back from the bosses?". `walkBack` is AiPlayerbot.DungeonRunWalkBackAfterWonFight.
+static Run FrostmaneWonFight(DungeonPlan& plan, bool walkBack, Facts& f)
+{
+    plan.steps = {Step(PlanStepKind::Move, 0), PullStep(40, {63134}), PullStep(70, {63134})};
+    Run r = Start(&plan);
+    f = Party(0);
+    f.walkBackAfterWonFight = walkBack;
+    f.leadIsTank = true;
+    f.leadStaying = true;
+    Tick(r, f); // on the stand point: the anchor, step 277
+    CHECK(r.step == 1 && r.anchorKnown);
+    f.units = {Unit(31, 63134, 24.5f)};
+    CHECK(Tick(r, f) == "pullback 31");
+    f.anyInCombat = true;
+    // It comes in on the party ("the pull stops, 1 mob has aggro already"); on
+    // the healer here, so the guard needs no kGuardWaitMs (live: off a pet).
+    f.partyAttackers = {Hitter(31, 63134, 6.9f, true)};
+    CHECK(Tick(r, f) == "attack 31 Tanky"); // engaged on arrival: the guard's stand is noted
+    CHECK(r.guardReturn && r.guardX == 0.0f);
+    // The tank fights it 20 yd ahead of the stand.
+    f.leadStaying = false;
+    f.leadHit = true;
+    f.leadX = 20;
+    f.partyAttackers.clear();
+    for (int i = 0; i < 10; ++i)
+        CHECK(Tick(r, f).empty());
+    // 3077 s: combat off, 63134 dead, nothing hostile left of the step.
+    f.anyInCombat = false;
+    f.leadHit = false;
+    f.units.clear();
+    f.anchorPathRead = true;
+    f.anchorReachable = true;
+    return r;
+}
+
+static void TestNoWalkBackAfterAWonFight()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = FrostmaneWonFight(plan, false, f);
+    std::string const first = Tick(r, f);
+    CHECK(first.compare(0, 5, "move ") != 0); // no walk back to the stand
+    CHECK(!r.guardReturn);
+    CHECK(r.note.find("back to the stand point") == std::string::npos);
+    CHECK(r.step == 2 && r.state == State::Running); // "pack cleared" at once
+    // Step 278: the next 63134 is pulled from where the tank stands.
+    f.leadStaying = true;
+    f.units = {Unit(32, 63134, 24.5f)};
+    std::string order;
+    for (int i = 0; i < 5 && order.empty() && r.state == State::Running; ++i)
+    {
+        order = Tick(r, f);
+        CHECK(order.compare(0, 5, "move ") != 0);
+    }
+    CHECK(order == "pullback 32");
+    CHECK(r.state == State::Running);
+}
+
+// AiPlayerbot.DungeonRunWalkBackAfterWonFight = 1: the old walk back, as in the trace.
+static void TestWalkBackAfterAWonFightOnTheOldKey()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = FrostmaneWonFight(plan, true, f);
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    CHECK(r.guardReturn && r.step == 1);
+    CHECK(r.note == "back to the stand point after picking up the party's attackers");
+    f.leadX = 1;
+    f.leadStaying = true;
+    CHECK(Tick(r, f).empty()); // arrived
+    CHECK(!r.guardReturn);
+    Tick(r, f);
+    CHECK(r.step == 2);
+}
+
+// Kept with the key at 0: during the fight nothing walks back (the walk back is
+// only ever ordered out of combat) and the stand stays noted for later; with
+// one of the pack left after the fight the same step pulls again from the same
+// stand, so the tank goes back to it first (TestTankGuardReturnsToItsOwnSpot
+// covers the unseen pack after that walk). A move step's fight goes on forward
+// to the step's point, not back to where the pick-up found the tank.
+static void TestWalkBackKeptWhereItMatters()
+{
+    {
+        // A fight still running: no walk back, the return stays pending.
+        DungeonPlan plan;
+        Facts f;
+        Run r = FrostmaneWonFight(plan, false, f);
+        f.anyInCombat = true;
+        f.units = {Unit(33, 63134, 12)};
+        f.partyAttackers = {Hitter(33, 63134, 12)};
+        for (int i = 0; i < 10; ++i)
+            CHECK(Tick(r, f).compare(0, 5, "move ") != 0);
+        CHECK(r.guardReturn && r.fighting && r.step == 1);
+        // That one dies too: the pack is cleared, the run goes on from here.
+        f.anyInCombat = false;
+        f.units.clear();
+        f.partyAttackers.clear();
+        CHECK(Tick(r, f).compare(0, 5, "move ") != 0);
+        CHECK(!r.guardReturn && r.step == 2);
+    }
+    {
+        // One of the step's pack left after the fight: the same stand pulls it.
+        DungeonPlan plan;
+        Facts f;
+        Run r = FrostmaneWonFight(plan, false, f);
+        f.units = {Unit(34, 63134, 30)};
+        CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+        CHECK(r.guardReturn && r.step == 1);
+    }
+    {
+        // A move step's fight: the walk goes on to the step's point.
+        DungeonPlan plan;
+        plan.steps = {Step(PlanStepKind::Move, 0), Step(PlanStepKind::Move, 60), PullStep(200, {4851})};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.leadIsTank = true;
+        f.leadStaying = true;
+        Tick(r, f);
+        CHECK(r.step == 1);
+        CHECK(Tick(r, f) == "move 60.0 0.0 0.0");
+        f.leadX = 20;
+        f.leadStayKnown = true;
+        f.leadStayX = 20;
+        f.anyInCombat = true;
+        f.partyAttackers = {Hitter(41, 4851, 8, true)};
+        CHECK(Tick(r, f) == "attack 41 Tanky");
+        CHECK(r.guardReturn && r.guardX == 20.0f);
+        f.leadStaying = false;
+        f.leadStayKnown = false;
+        f.leadX = 28;
+        f.anyInCombat = false;
+        f.partyAttackers.clear();
+        std::string order;
+        for (int i = 0; i < 5 && order.empty(); ++i)
+            order = Tick(r, f);
+        CHECK(order == "move 60.0 0.0 0.0");
+        CHECK(!r.guardReturn && r.step == 1);
+        // The key at 1: back to 20 first.
+        Run r2 = Start(&plan);
+        Facts g = Party(0);
+        g.walkBackAfterWonFight = true;
+        g.leadIsTank = true;
+        g.leadStaying = true;
+        Tick(r2, g);
+        CHECK(Tick(r2, g) == "move 60.0 0.0 0.0");
+        g.leadX = 20;
+        g.leadStayKnown = true;
+        g.leadStayX = 20;
+        g.anyInCombat = true;
+        g.partyAttackers = {Hitter(41, 4851, 8, true)};
+        CHECK(Tick(r2, g) == "attack 41 Tanky");
+        g.leadStaying = false;
+        g.leadStayKnown = false;
+        g.leadX = 28;
+        g.anyInCombat = false;
+        g.partyAttackers.clear();
+        CHECK(Tick(r2, g) == "move 20.0 0.0 0.0");
+    }
 }
 
 // Replay of keepers door pull 100 (trace r-...9bbf): a Brawler on the tank in
@@ -6486,6 +6661,7 @@ static void TestTankGuardLimits()
         Run r = guardRun(plan);
         CHECK(ordersIn(r, fight(true, true, false), 5) == 1);
         Facts after = Party(25);
+        after.walkBackAfterWonFight = true; // the pack is gone: only the key at 1 walks back
         CHECK(Tick(r, after) == "move 0.0 0.0 0.0");
         OrderRefused(r, "move 0.0 0.0 0.0", "unreachable: The lead bot has no walkable path to that point.");
         CHECK(r.state == State::Running && !r.guardReturn);
@@ -6775,12 +6951,15 @@ static void TestEngageT7()
     CHECK(r.engageGuid == 0);
 }
 
-// T8: after the fight the guard return walks the tank back to its stand.
+// T8: after the fight the guard return walks the tank back to its stand
+// (AiPlayerbot.DungeonRunWalkBackAfterWonFight 1: with the pack cleared the
+// default goes on from where the tank stands, TestNoWalkBackAfterAWonFight).
 static void TestEngageT8()
 {
     DungeonPlan plan;
     Run r = EngageRun(plan);
     Facts f = EngageFight();
+    f.walkBackAfterWonFight = true;
     f.leadX = 6; // dragging the pullback in, short of its stand
     f.leadStayKnown = true;
     f.leadStayX = 0;
@@ -6842,8 +7021,10 @@ static void TestEngageT10()
         Tick(r, f);
     }
     CHECK(r.engageOrders == kGuardOrdersPerFight && r.engageGuid != 0);
-    // The fight is over: back to the stand, the step goes on.
+    // The fight is over: back to the stand, the step goes on (the key at 1:
+    // the pack is gone, and at 0 the plan would end here).
     Facts over = EngageFight(false);
+    over.walkBackAfterWonFight = true;
     over.anyInCombat = false;
     over.leadX = 14; // chased it
     CHECK(Tick(r, over) == "move 0.0 0.0 0.0");
@@ -11733,6 +11914,9 @@ int main()
     TestCcWindowCountsTheMagesFightTime();
     TestTankGuardsThePartyFromItsStand();
     TestTankGuardReturnsToItsOwnSpot();
+    TestNoWalkBackAfterAWonFight();
+    TestWalkBackAfterAWonFightOnTheOldKey();
+    TestWalkBackKeptWhereItMatters();
     TestTankGuardPull100Replay();
     TestTankGuardOneMaulerAndTheCapAfterARefill();
     TestTankGuardLimits();

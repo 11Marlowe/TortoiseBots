@@ -593,6 +593,12 @@ struct Facts
     // AiPlayerbot.DungeonRunPullStand (HoldForShot): the key is on. Off (the
     // default) nothing below is read and the pull goes out as before, byte for byte.
     bool pullStand = false;
+    // AiPlayerbot.DungeonRunWalkBackAfterWonFight (GuardWalkBackWanted): on (1),
+    // the old walk back to the guard's stand point after every guarded fight. Off
+    // (0, the default) the run goes on from where the tank stands once the step's
+    // pack is cleared (Frostmane Hollow r20-19z39: the party ran back from each
+    // boss and pack, 2-3 s a pull, and walked forward again).
+    bool walkBackAfterWonFight = false;
     // The lead bot's ranged weapon shot range (its PullStrategy::GetRange(),
     // pull action "shoot" only); 0 for a spell pull, a body pull ("reach pull":
     // no ranged weapon, skill, spell or ammo) or when it could not be read. At or
@@ -6643,6 +6649,39 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
     return true;
 }
 
+// Whether the guard's walk back (Run::guardReturn) is still wanted once a fight
+// is over (asked only out of combat, outside an event, a task and a wait).
+// Frostmane Hollow r20-19z39 (2026-10-22, steps 277/278, 3077-3082 s): after
+// every guarded pull the tank and the party walked 2-3 s back to the stand,
+// then forward again for the next pack or boss; the owner: "why do they run
+// back from the bosses?". With AiPlayerbot.DungeonRunWalkBackAfterWonFight at 0
+// (the default):
+//   - a pull or boss step with none of its units left to pull: no walk back;
+//     the step says "pack cleared" or "boss down" and the next one starts from
+//     where the tank stands (its own approach, firing stand or gather places
+//     the party; the anchor check still gathers back on a lost floor);
+//   - a pull or boss step with units left: kept, the same stand pulls again;
+//   - a move step: no walk back, its walk goes on forward to its point;
+//   - any other step (it acts where the party stood: a wait_clear, a rest, an
+//     object or item step): kept.
+// The key at 1 keeps the walk back after every fight, as before.
+inline bool GuardWalkBackWanted(const Run& r, const Facts& f, const PlanStep& s)
+{
+    if (f.walkBackAfterWonFight)
+        return true;
+    switch (s.kind)
+    {
+        case PlanStepKind::Pull:
+        case PlanStepKind::Boss:
+            return OpenUnits(r, f.units) > 0;
+        case PlanStepKind::Move:
+        case PlanStepKind::MoveDirect:
+            return false;
+        default:
+            return true;
+    }
+}
+
 // The tank's reach for a pull stops as soon as a mob has aggro. Uldaman run 4
 // (2026-10-17, sentinel pull 2): the tank kept walking toward the west Relic
 // Hunters to reach its pull target, 15.7 yd from the Sentinel, after the camp
@@ -7537,6 +7576,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     {
         if (InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait)
             r.guardReturn = false;
+        else if (!GuardWalkBackWanted(r, f, *s))
+            r.guardReturn = false; // the fight is won: the step goes on from where the tank stands
         else if (r.phase != Phase::Walk &&
             ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.guardX, r.guardY, r.guardZ) > kGuardReturnMaxYd)
         {
