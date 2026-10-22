@@ -11567,6 +11567,400 @@ static void TestSmallPackStandWalkIsNotGated()
     CHECK(r.note == "gathering before a pull"); // the old gate, as before
 }
 
+// ---------------------------------------------------------------------------
+// The lead bot in another part of the instance (SM-GRAVEYARD-2026-10-22,
+// Scarlet Monastery r20-19z39 slot 7). The test plans lie on the x axis from
+// 10 to 220; the instance has two doors: its entry at -90 (100 yd from the
+// plan's first point) and another wing's at 2000 (1780 yd from every point).
+static std::vector<DoorFact> TwoDoors()
+{
+    DoorFact entry;
+    entry.x = -90.0f;
+    DoorFact other;
+    other.x = 2000.0f;
+    return {entry, other};
+}
+
+// A near wipe with the lead bot among the dead: the fight over, the regroup
+// arms the hold as WaitForFallen does (the living stay at the fight spot), and
+// once the lead bot is up at the entrance the living bot there holds.
+static void TestNearWipeHoldsTheLivingAtTheFightSpot()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(210);
+    f.doors = TwoDoors();
+    f.anyInCombat = true;
+    Tick(r, f); // fighting, the lead bot alive at 210
+    f.leadAlive = false;
+    f.dead = 3;
+    f.alive = 2;
+    f.deadNames = {"Tanky", "Healy", "Magey"};
+    Tick(r, f); // the lead bot and two more fall: a near wipe
+    CHECK(r.leadDied);
+    f.anyInCombat = false;
+    f.members = {Mem("Fyran", 5)};
+    f.members[0].x = 215;
+    f.maxMemberYd = 0;
+    Tick(r, f);
+    CHECK(r.regroup && r.walkBackDue && r.autoRegroups == 1);
+    CHECK(r.note.find("3 dead (") == 0);
+    CHECK(r.holdDue); // the near wipe's regroup arms the hold
+    CHECK(Tick(r, f) == "revive party");
+    // The lead bot up at the plan's entry door: the living bot at the fight spot holds.
+    f.leadAlive = true;
+    f.dead = 2;
+    f.alive = 3;
+    f.deadNames = {"Healy", "Magey"};
+    f.leadX = -90;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 305)};
+    f.members[1].x = 215;
+    f.maxMemberYd = 305;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && !r.holdDue && r.state == State::Running);
+    CHECK(!r.leadOtherPart); // the entry door, 100 yd from the plan: the run's own part
+    // The others up at the entry door too: the regroup never gathers or summons Fyran.
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.members = {Mem("Tanky", 0), Mem("Healy", 3), Mem("Magey", 3), Mem("Fyran", 305)};
+    f.members[3].x = 215;
+    for (int i = 0; i < 40 && r.regroup; ++i)
+    {
+        std::string const order = Tick(r, f);
+        CHECK(order != "summon Fyran");
+    }
+    CHECK(r.state == State::Running && r.hold.size() == 1 && r.hold[0] == "Fyran");
+}
+
+// The lead bot up at another wing's door: no gather, summon or island hop can
+// bring the party together. The run pauses with the true reason and the
+// living bot keeps holding at the fight spot while paused.
+static void TestLeadInOtherPartPausesWithTheTrueReason()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(210);
+    f.doors = TwoDoors();
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.leadAlive = false;
+    f.dead = 3;
+    f.alive = 2;
+    f.deadNames = {"Tanky", "Healy", "Magey"};
+    Tick(r, f);
+    f.anyInCombat = false;
+    f.members = {Mem("Fyran", 5)};
+    f.members[0].x = 215;
+    f.maxMemberYd = 0;
+    Tick(r, f);
+    CHECK(Tick(r, f) == "revive party");
+    // Raised at the other wing's door (2000 0 0), the others still dead.
+    f.leadAlive = true;
+    f.dead = 2;
+    f.alive = 3;
+    f.deadNames = {"Healy", "Magey"};
+    f.leadX = 2000;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
+    f.members[1].x = 215;
+    f.maxMemberYd = 1785;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.leadOtherPart);
+    CHECK(r.note == "the lead bot revived in another part of the instance (2000.0 0.0 0.0), 1780.0 yd from the run: "
+        "it cannot walk back; bring it to the party, then .bot run resume (the party holds where it is)");
+    CHECK(r.note.find("island") == std::string::npos);
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && r.holdWhilePaused && HoldStandsNow(r));
+    CHECK(Tick(r, f).empty()); // paused: no gather, no summon
+    // A resume with the lead bot still there pauses again (no walk back, no island hop).
+    CHECK(Resume(r));
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).find("summon") != 0);
+    CHECK(r.state == State::Paused && r.note.find("the lead bot revived in another part of the instance") == 0);
+    // A player's own pause lets the held bots go (the glue's rule unchanged).
+    CHECK(Resume(r));
+    CHECK(PauseForPlayer(r, "follow"));
+    CHECK(!r.holdWhilePaused && !HoldStandsNow(r));
+    // Moved back to the party by hand: the lead bot is near the plan again, the rule is off.
+    CHECK(Resume(r));
+    f.leadX = 214;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 1)};
+    f.members[1].x = 215;
+    f.maxMemberYd = 1;
+    Tick(r, f);
+    CHECK(!r.leadOtherPart && r.state != State::Paused); // regrouped, and the step (no units left) is done
+}
+
+// A door that is not the plan's entry but lies near the plan (the Uldaman and
+// Gnomeregan back doors: 50-60 yd from their plans' points) is no other part:
+// the walk back goes on as before. And with no doors read, no rule at all.
+static void TestBackDoorNearThePlanIsNotAnotherPart()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(270); // a back door 50 yd past the last point
+    DoorFact back;
+    back.x = 270.0f;
+    f.doors = {back};
+    CHECK(!LeadInOtherPart(r, f));
+    // Far from the plan but on no door (a walk, a chase): not by itself.
+    f.leadX = 900;
+    CHECK(!LeadInOtherPart(r, f));
+    // On the far door, no doors read: no rule.
+    Facts g = Party(2000);
+    CHECK(!LeadInOtherPart(r, g));
+    // Within kDoorSpotYd of the far door: the rule.
+    g.doors = TwoDoors();
+    g.leadX = 2000 + kDoorSpotYd - 0.5f;
+    CHECK(LeadInOtherPart(r, g));
+    // It holds while the lead bot walks off the door, far from the plan
+    // (r20: the island pause came 60 yd from it, at 1617.6 1002.7).
+    g.leadX = 1940;
+    CHECK(LeadInOtherPart(r, g));
+    // Back within kOtherPartYd of a plan point: off.
+    g.leadX = 220 + kOtherPartYd - 1;
+    CHECK(!LeadInOtherPart(r, g));
+    // A dead lead bot: off.
+    g.leadX = 2000;
+    g.leadAlive = false;
+    CHECK(!LeadInOtherPart(r, g));
+    CHECK(kDoorSpotYd == 10.0f && kOtherPartYd == 300.0f);
+}
+
+// The lead bot died alone and came back at another wing's door (LeadRevivedAway):
+// the pause, not the regroup and walk back that end on an island.
+static void TestLeadRevivedAwayInOtherPartPauses()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(210);
+    f.doors = TwoDoors();
+    f.anyInCombat = true;
+    Tick(r, f);
+    f.leadAlive = false;
+    f.dead = 1;
+    f.alive = 4;
+    f.deadNames = {"Tanky"};
+    Tick(r, f);
+    f.leadAlive = true;
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    f.anyInCombat = false;
+    f.leadX = 2000;
+    f.maxMemberYd = 1785;
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 1785)};
+    f.members[1].x = 215;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.note.find("the lead bot revived in another part of the instance") == 0);
+    CHECK(!r.regroup && r.autoRegroups == 0);
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Fyran" && r.holdWhilePaused);
+}
+
+// The regroup's summons never pull a bot toward a lead bot in another part:
+// the last member at the fight spot stays (r20: Nightcrest, summoned 1000 yd
+// into the Graveyard wing at 444.8).
+static void TestNoSummonTowardALeadInAnotherPart()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    auto stuckRun = [&plan]()
+    {
+        Run r = Start(&plan, 2);
+        BeginRegroup(r);
+        r.regroupMs = kStuckSummonMs;
+        r.still["Fyran"].ms = kStuckSummonMs;
+        r.waitFor.insert("Fyran");
+        return r;
+    };
+    Facts f = Party(2000);
+    f.doors = TwoDoors();
+    f.members = {Mem("Tanky", 0), Mem("Fyran", 1000)};
+    std::string order;
+    Run a = stuckRun();
+    CHECK(!SummonStuckInRegroup(a, f, order) && order.empty());
+    Run b = stuckRun();
+    CHECK(!SummonRevived(b, f, order) && order.empty());
+    // The same lead bot at the plan's entry: both summon as before.
+    f.leadX = -90;
+    Run c = stuckRun();
+    CHECK(SummonStuckInRegroup(c, f, order) && order == "summon Fyran");
+    order.clear();
+    Run d = stuckRun();
+    CHECK(SummonRevived(d, f, order) && order == "summon Fyran");
+}
+
+// The island hop never starts for a lead bot in another part: the pause says why.
+static void TestNoIslandHopForALeadInAnotherPart()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 10), Step(PlanStepKind::Move, 200), PullStep(220, {1})};
+    Run r = Start(&plan, 2);
+    Facts f = Party(1940); // walked 60 yd off the other wing's door
+    f.doors = TwoDoors();
+    r.leadOtherPart = true; // seen at the door
+    std::string order;
+    IslandEscape(r, f, 220, 0, 0, "the pack", order);
+    CHECK(order.empty() && r.islandEscapes == 0 && !r.escapeOn);
+    CHECK(r.state == State::Paused && r.note.find("another part of the instance (1940.0 0.0 0.0), 1720.0 yd") != std::string::npos);
+    // Elsewhere the hop goes out as before.
+    Run q = Start(&plan, 2);
+    Facts g = Party(219);
+    g.doors = TwoDoors();
+    IslandEscape(q, g, 220, 0, 0, "the pack", order);
+    CHECK(order.find("escape from ") == 0 && q.islandEscapes == 1);
+}
+
+// The r20-19z39 slot 7 sequence at the policy level (tests/r20-19z39/slot7
+// trace): scarlet_library, step 8 (pull group 7). Deaths: Nazra 356, Wrexxar
+// (lead) 370 at 178.8 -267.8, Ribbon 372, Duskstorm 378; Nightcrest alive at
+// 189.9 -257.6. 381: 4 dead, the near-wipe regroup; 382: revive party. Then
+// (1) as it ran: the lead bot raised at the Graveyard wing's door (1687.27
+// 1050.09): the run now pauses at once with that reason, Nightcrest held in
+// the Library (no gather on the lead, no summon of it, no island text);
+// (2) with the corpse run fixed: raised at the Library door (253.672 -206.624):
+// Nightcrest holds, the others gather on the lead bot, the walk back starts.
+static DungeonPlan ScarletLibraryHead()
+{
+    DungeonPlan plan;
+    plan.name = "scarlet_library";
+    plan.map = 189;
+    plan.steps = {
+        Step(PlanStepKind::Move, 240.84f, -229.627f, 18.6141f),
+        PullStep(240.88f, {4287}), PullStep(218.38f, {4287, 4296}), PullStep(201.14f, {4304, 4288}),
+        PullStep(201.0f, {4296}), PullStep(193.48f, {4287, 4296}), PullStep(188.11f, {4304, 4288}),
+        PullStep(182.41f, {4288, 4304}), PullStep(182.79f, {4287}),
+    };
+    float const ys[] = {-229.627f, -231.54f, -226.36f, -231.66f, -231.96f, -228.07f, -258.54f, -274.64f, -289.65f};
+    float const zs[] = {18.6141f, 18.61f, 18.61f, 18.53f, 18.53f, 18.61f, 18.75f, 18.79f, 19.28f};
+    for (std::size_t i = 0; i < plan.steps.size(); ++i)
+    {
+        plan.steps[i].y = ys[i];
+        plan.steps[i].z = zs[i];
+    }
+    return plan;
+}
+
+static std::vector<DoorFact> ScarletDoorDests()
+{
+    std::vector<DoorFact> doors(4);
+    doors[0].x = 1687.27f; doors[0].y = 1050.09f; doors[0].z = 18.6773f;  // 45 Graveyard
+    doors[1].x = 253.672f; doors[1].y = -206.624f; doors[1].z = 18.6773f; // 614 Library
+    doors[2].x = 1608.1f; doors[2].y = -318.919f; doors[2].z = 18.6714f;  // 612 Armory
+    doors[3].x = 853.179f; doors[3].y = 1319.18f; doors[3].z = 18.6714f;  // 610 Cathedral
+    return doors;
+}
+
+static MemberFact At(const std::string& name, float x, float y, float z, float leadX, float leadY, float leadZ)
+{
+    MemberFact m;
+    m.name = name;
+    m.x = x;
+    m.y = y;
+    m.z = z;
+    m.yd = ai::PlanDistance(x, y, z, leadX, leadY, leadZ);
+    return m;
+}
+
+static Run ScarletNearWipe(const DungeonPlan& plan, Facts& f)
+{
+    Run r = Start(&plan, 7); // step 8 of 88
+    f = Party(0);
+    f.carrier = "Wrexxar";
+    f.doors = ScarletDoorDests();
+    f.leadX = 178.8f;
+    f.leadY = -267.8f;
+    f.leadZ = 18.7f;
+    f.seen = true;
+    f.anyInCombat = true;
+    Tick(r, f); // fighting at the pull of step 8
+    // 370-378: the lead bot and three more fall, Nightcrest fights on.
+    f.leadAlive = false;
+    f.dead = 4;
+    f.alive = 1;
+    f.deadNames = {"Nazra", "Wrexxar", "Ribbon", "Duskstorm"};
+    f.members = {At("Nightcrest", 189.9f, -257.6f, 18.7f, 178.8f, -267.8f, 18.7f)};
+    Tick(r, f);
+    CHECK(r.leadDied && r.state == State::Running);
+    // 381: the fight is over: the near-wipe regroup, its hold armed.
+    f.anyInCombat = false;
+    f.maxMemberYd = 0;
+    Tick(r, f);
+    CHECK(r.regroup && r.holdDue && r.walkBackDue && r.note.find("4 dead (1 near wipe this run)") == 0);
+    // 382: revive party.
+    CHECK(Tick(r, f) == "revive party");
+    return r;
+}
+
+static void TestScarletLibraryR20Replay()
+{
+    DungeonPlan const plan = ScarletLibraryHead();
+    // (1) As it ran: the lead bot up at the Graveyard wing's door, three still dead.
+    Facts f;
+    Run r = ScarletNearWipe(plan, f);
+    f.leadAlive = true;
+    f.dead = 3;
+    f.alive = 2;
+    f.deadNames = {"Nazra", "Ribbon", "Duskstorm"};
+    f.leadX = 1687.8f;
+    f.leadY = 1054.6f;
+    f.leadZ = 18.7f;
+    f.members = {At("Wrexxar", 1687.8f, 1054.6f, 18.7f, 1687.8f, 1054.6f, 18.7f),
+                 At("Nightcrest", 189.9f, -257.6f, 18.7f, 1687.8f, 1054.6f, 18.7f)};
+    f.maxMemberYd = f.members[1].yd;
+    CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.leadOtherPart);
+    CHECK(r.note.find("the lead bot revived in another part of the instance (1687.8 1054.6 18.7), ") == 0);
+    CHECK(r.note.find("it cannot walk back") != std::string::npos && r.note.find("island") == std::string::npos);
+    CHECK(r.hold.size() == 1 && r.hold[0] == "Nightcrest" && HoldStandsNow(r));
+    // The three come up beside it at 393, Nightcrest stood still 15 s: nothing goes out.
+    f.dead = 0;
+    f.alive = 5;
+    f.deadNames.clear();
+    r.still["Nightcrest"].ms = kStuckSummonMs * 4;
+    for (int i = 0; i < 60; ++i)
+        CHECK(Tick(r, f).empty());
+    CHECK(r.state == State::Paused && r.hold.size() == 1);
+
+    // (2) With the corpse run fixed: up at the Library door.
+    Facts g;
+    Run q = ScarletNearWipe(plan, g);
+    g.leadAlive = true;
+    g.dead = 3;
+    g.alive = 2;
+    g.deadNames = {"Nazra", "Ribbon", "Duskstorm"};
+    g.leadX = 253.7f;
+    g.leadY = -206.6f;
+    g.leadZ = 18.7f;
+    g.members = {At("Wrexxar", 253.7f, -206.6f, 18.7f, 253.7f, -206.6f, 18.7f),
+                 At("Nightcrest", 189.9f, -257.6f, 18.7f, 253.7f, -206.6f, 18.7f)};
+    g.maxMemberYd = g.members[1].yd;
+    CHECK(Tick(q, g).empty());
+    CHECK(q.state == State::Running && !q.leadOtherPart);
+    CHECK(q.hold.size() == 1 && q.hold[0] == "Nightcrest"); // held at the fight spot, 82 yd from the lead bot
+    // The others up beside the lead bot: the regroup gathers them (not Nightcrest) and the walk back follows.
+    g.dead = 0;
+    g.alive = 5;
+    g.deadNames.clear();
+    g.members.push_back(At("Nazra", 253.0f, -207.0f, 18.7f, 253.7f, -206.6f, 18.7f));
+    g.members.push_back(At("Ribbon", 254.0f, -207.0f, 18.7f, 253.7f, -206.6f, 18.7f));
+    g.members.push_back(At("Duskstorm", 253.5f, -206.0f, 18.7f, 253.7f, -206.6f, 18.7f));
+    bool walked = false;
+    for (int i = 0; i < 10 && !walked; ++i)
+    {
+        std::string const order = Tick(q, g);
+        CHECK(order.find("summon") != 0);
+        walked = q.walkBack;
+    }
+    CHECK(walked && q.state == State::Running && q.hold.size() == 1 && q.hold[0] == "Nightcrest");
+}
+
 int main()
 {
     TestPatrollerOutsideTheRadiusIsWaitedForThenPulled();
@@ -11767,6 +12161,13 @@ int main()
     TestRegroupWaitsForTheFight();
     TestDeathDuringRegroup();
     TestLeadDeadAfterTheFightHolds();
+    TestNearWipeHoldsTheLivingAtTheFightSpot();
+    TestLeadInOtherPartPausesWithTheTrueReason();
+    TestBackDoorNearThePlanIsNotAnotherPart();
+    TestLeadRevivedAwayInOtherPartPauses();
+    TestNoSummonTowardALeadInAnotherPart();
+    TestNoIslandHopForALeadInAnotherPart();
+    TestScarletLibraryR20Replay();
     TestRevivedBotSummonedBeforeWalking();
     TestNoReviveSummonInCombat();
     TestOneReviveSummonPerRevive();

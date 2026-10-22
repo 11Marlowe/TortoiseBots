@@ -109,7 +109,12 @@ If your group wipes, follow this recovery checklist:
 
 1. When dead, whisper your bots `/w <BotName> release` (or type `.bot command <Name> release`). See [Whisper Commands](commands/whispers.md#w--release).
 2. Once in ghost form at the graveyard, issue `/w <BotName> corpse run`.
-3. Ghost bots path back to the instance entrance and zone inside.
+3. Ghost bots path back to the instance entrance and zone inside. On a dungeon with several doors (Scarlet
+   Monastery's four wings, the Uldaman and Gnomeregan back doors) a ghost takes the door whose inside lies nearest
+   its body, so it comes back to life in the part where it died. Only real entrances count: a door on the open world
+   that leads into the dungeon, never a teleport inside it or a door inside another dungeon. The 300 s corpse-run timeout
+   uses the same door when it lies on the ghost's map or the map the dungeon is entered from, and the server's default
+   entrance otherwise.
 4. If a bot gets stuck outside the entrance, zone inside yourself and use [`.bot summon <Name>`](commands/roster-and-hiring.md#bot-summon) at the instance portal.
 
 ### Healers and Casters Closing Range

@@ -10281,6 +10281,32 @@ void ReadPullStand(DungeonRunSlot const& slot, Player* lead, TortoiseBots::Dunge
     f.shotStandYd = ai::PlanDistance(stand.x, stand.y, stand.z, goal.x, goal.y, goal.z);
 }
 
+// The doors of an instance map (DungeonRun::Facts::doors): the destination of
+// every area trigger that leads onto it. Static world data, so one pass over
+// the trigger store per map, then cached for the server's life.
+std::vector<TortoiseBots::DungeonRun::DoorFact> const& InstanceDoors(uint32 mapId)
+{
+    static std::unordered_map<uint32, std::vector<TortoiseBots::DungeonRun::DoorFact>> cache;
+    auto found = cache.find(mapId);
+    if (found != cache.end())
+        return found->second;
+    std::vector<TortoiseBots::DungeonRun::DoorFact>& doors = cache[mapId];
+    for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); ++i)
+    {
+        if (!sAreaTriggerStore.LookupEntry(i))
+            continue;
+        AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(i);
+        if (!at || at->destination.mapId != mapId)
+            continue;
+        TortoiseBots::DungeonRun::DoorFact door;
+        door.x = at->destination.x;
+        door.y = at->destination.y;
+        door.z = at->destination.z;
+        doors.push_back(door);
+    }
+    return doors;
+}
+
 void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -10301,6 +10327,9 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
             f.leadLeadsGroup = leadGroup->IsLeader(lead->GetObjectGuid());
         }
     f.leadAlive = lead->IsAlive();
+    // The instance's doors: a living lead bot raised at another wing's door (DungeonRun::LeadInOtherPart).
+    if (f.leadAlive)
+        f.doors = InstanceDoors(slot.run.plan->map);
     f.leadX = lead->GetPositionX();
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
@@ -10915,7 +10944,8 @@ void SyncRunHold(Player* commander, Player* lead, std::vector<Player*> const& bo
         if (bot == lead || !bot->IsInWorld())
             continue;
         uint64 const raw = bot->GetObjectGuid().GetRawValue();
-        bool const wanted = bot->IsAlive() && slot.run.state == TortoiseBots::DungeonRun::State::Running &&
+        // Running, or paused for a lead bot in another part (DungeonRun::HoldStandsNow): the held stay put.
+        bool const wanted = bot->IsAlive() && TortoiseBots::DungeonRun::HoldStandsNow(slot.run) &&
             std::find(slot.run.hold.begin(), slot.run.hold.end(), std::string(bot->GetName())) != slot.run.hold.end();
         bool const held = slot.heldRaw.count(raw) != 0;
         if (wanted && (!held || orderSent))
@@ -11087,7 +11117,10 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             }
     if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)
     {
-        ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)
+        // Paused for a lead bot in another part of the instance (DungeonRun::PauseOtherPart): the held bots stay
+        // on stay where they are, or their follow would walk them out through the instance's exits after it.
+        if (!(commander && TortoiseBots::DungeonRun::HoldStandsNow(slot.run)))
+            ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)
         return;
     }
     Player* lead = FindCharacter(binding->leadGuid);

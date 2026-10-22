@@ -86,6 +86,13 @@ constexpr float kStalledArriveYd = 6.0f;          // ... or this close once it s
                                                   // just off the mesh or on a ledge the bot cannot reach)
 constexpr float kStandZTolYd = 4.5f;              // a stand this far above or below the lead bot or less is judged on the ground plane
 constexpr float kSeeYd = 60.0f;                   // a pack, boss or spot is judged only from this close
+// A lead bot revived in another part of the instance (LeadInOtherPart, Scarlet
+// Monastery r20-19z39 slot 7): raised at a door's destination ...
+constexpr float kDoorSpotYd = 10.0f;              // ... this close to it
+constexpr float kOtherPartYd = 300.0f;            // ... and farther than this from every point of the plan (the
+                                                  // Uldaman and Gnomeregan back doors lie 50-60 yd from their
+                                                  // plans' points, the Scarlet Monastery wings' doors 1300+ yd
+                                                  // from the Library's)
 constexpr float kApproachYd = 30.0f;              // an unseen pack is approached to this far from its centre
 constexpr float kApproachHopYd = 40.0f;           // ... in navmesh path hops of at most this length
 constexpr std::uint32_t kMaxApproachHops = 8;     // ... and at most this many without getting nearer, then pause
@@ -442,12 +449,23 @@ struct MemberFact
     bool withLead = true;
 };
 
+// An instance door: where an area trigger into the plan's map puts a player
+// (the trigger's destination, tw_world_areatrigger_teleport).
+struct DoorFact
+{
+    float x = 0.0f, y = 0.0f, z = 0.0f;
+};
+
 // What the glue reads once a tick for the run's current step.
 struct Facts
 {
     // The party (the commander's bound bots, the lead bot included).
     std::uint32_t total = 0, alive = 0, dead = 0;
     bool leadAlive = true;
+    // The instance's doors (every area trigger into the plan's map), read by the glue from the core's trigger table
+    // once per map. A living lead bot on one of them far from every point of the plan revived in another part of the
+    // instance (LeadInOtherPart). Empty (not read, a policy test that does not set it): no such rule.
+    std::vector<DoorFact> doors;
     bool anyInCombat = false;
     bool leadInCombat = false;          // the lead bot itself is in a fight
     // anyInCombat, yet no living hostile is engaged with a bot (or its pet): a
@@ -840,6 +858,14 @@ struct Run
     // regroup gathers (19z11 03:24: the fight ended with the lead bot a ghost).
     bool holdDue = false;
     float leadDeathX = 0.0f, leadDeathY = 0.0f, leadDeathZ = 0.0f;
+    // The lead bot revived in another part of the instance (LeadInOtherPart):
+    // seen on a door's destination far from every point of the plan, kept
+    // while it stays that far (it may walk off the door).
+    bool leadOtherPart = false;
+    // The pause for it (PauseOtherPart) keeps the hold: the living party stays
+    // where it is instead of following the lead bot out through the instance's
+    // exits (HoldStandsNow; the glue keeps those bots on stay while paused).
+    bool holdWhilePaused = false;
     // Crowd control and kill-first (the plan's cc_priority / cc_always / kill_first).
     std::unordered_set<std::uint64_t> ccSent; // units this step put a `cc moon` on (once each)
     std::uint64_t focusGuid = 0;              // the kill-first unit focused in this fight
@@ -1220,9 +1246,17 @@ inline void Pause(Run& r, const std::string& why)
     ClearRunBack(r); // a paused run leaves every bot to its own AI
     r.hold.clear();
     r.holdDue = false;
+    r.holdWhilePaused = false;
     r.holdStands.clear();
     r.holdPlaced = false;
     r.holdFarTicks = 0;
+}
+
+// Whether the run's hold (Run::hold) keeps its bots on stay now: while the run
+// runs, and in the pause for a lead bot in another part (PauseOtherPart).
+inline bool HoldStandsNow(const Run& r)
+{
+    return r.state == State::Running || (r.state == State::Paused && r.holdWhilePaused);
 }
 
 // Clears an exact waypoint's tighten (not its standing proof, exactProved).
@@ -1610,6 +1644,73 @@ inline bool HoldForDirectJoin(Run& r, const Facts& f)
     return true;
 }
 
+// The distance from (x,y,z) to the plan's nearest point (a step without a
+// point, 0 0 0, does not count); -1 for a plan without points.
+inline float PlanNearestYd(const Run& r, float x, float y, float z)
+{
+    float best = -1.0f;
+    if (!r.plan)
+        return best;
+    for (const PlanStep& s : r.plan->steps)
+    {
+        if (s.x == 0.0f && s.y == 0.0f && s.z == 0.0f)
+            continue;
+        float const d = ai::PlanDistance(x, y, z, s.x, s.y, s.z);
+        if (best < 0.0f || d < best)
+            best = d;
+    }
+    return best;
+}
+
+// The lead bot revived in another part of the instance (Scarlet Monastery
+// r20-19z39 slot 7, SM-GRAVEYARD-2026-10-22): alive within kDoorSpotYd of a
+// door's destination (Facts::doors) that lies farther than kOtherPartYd from
+// every point of the plan. The core raises a ghost at the destination of the
+// door its corpse run took, and the 300 s corpse-run timeout puts it at one
+// too, so every revive away from the body lands on a door: in the run's own
+// part that door lies near the plan (the entry; a back door the plan passes),
+// in another wing it does not, and nothing the run can order (a gather, a
+// summon to the lead bot, the walk back, an island hop) joins the two. Kept
+// (Run::leadOtherPart) while the lead bot stays that far from the plan; off
+// once it is near the plan again or dead.
+inline bool LeadInOtherPart(Run& r, const Facts& f)
+{
+    float const planYd = f.leadAlive ? PlanNearestYd(r, f.leadX, f.leadY, f.leadZ) : -1.0f;
+    if (planYd < 0.0f || planYd <= kOtherPartYd)
+    {
+        r.leadOtherPart = false;
+        return false;
+    }
+    if (!r.leadOtherPart)
+        for (const DoorFact& d : f.doors)
+            if (ai::PlanDistance(f.leadX, f.leadY, f.leadZ, d.x, d.y, d.z) <= kDoorSpotYd)
+            {
+                r.leadOtherPart = true;
+                break;
+            }
+    return r.leadOtherPart;
+}
+
+// The pause for a lead bot in another part, with that reason (not "navmesh
+// island"): the living bots away from it (more than kGatherYd: at the fight
+// spot) hold where they are while the run is paused (Run::holdWhilePaused),
+// the ones already held too. Moving the lead bot to the party is left to the
+// player (a module summon of the lead bot is an owner decision).
+inline void PauseOtherPart(Run& r, const Facts& f)
+{
+    std::vector<std::string> keep = r.hold; // held already (HoldView leaves them out of f)
+    for (const MemberFact& m : f.members)
+        if (!m.name.empty() && m.name != f.carrier && m.yd > kGatherYd &&
+            std::find(keep.begin(), keep.end(), m.name) == keep.end())
+            keep.push_back(m.name);
+    Pause(r, "the lead bot revived in another part of the instance (" + Num(f.leadX) + " " + Num(f.leadY) + " " +
+        Num(f.leadZ) + "), " + Num(PlanNearestYd(r, f.leadX, f.leadY, f.leadZ)) +
+        " yd from the run: it cannot walk back; bring it to the party, then .bot run resume" +
+        (keep.empty() ? std::string() : std::string(" (the party holds where it is)")));
+    r.hold = keep;
+    r.holdWhilePaused = !keep.empty();
+}
+
 // A gather's ceiling: the farthest straggler, a bot more than kSummonYd from
 // the lead bot (or kStragglerDzYd up or down), or one that stands still more
 // than kGatherYd away, that stands still now
@@ -1758,7 +1859,7 @@ inline void GatherCeiling(Run& r, const Facts& f, std::string& order, const std:
 // gather's clock starts over; the caller sends the order. False: none.
 inline bool SummonStuckInRegroup(Run& r, const Facts& f, std::string& order)
 {
-    if (!f.leadAlive)
+    if (!f.leadAlive || LeadInOtherPart(r, f)) // never toward a lead bot in another part (r20: Nightcrest)
         return false;
     // The stand-still watch is older than the gather: it runs while the dead
     // are revived. The 15 s have to be the gather's own clock (regroupMs starts
@@ -1874,7 +1975,7 @@ inline void UpdateReviveSummons(Run& r, const Facts& f, std::uint32_t dt)
 // never a held bot (HoldView). The farthest first, one a tick. False: none.
 inline bool SummonRevived(Run& r, const Facts& f, std::string& order)
 {
-    if (!f.leadAlive)
+    if (!f.leadAlive || LeadInOtherPart(r, f)) // never toward a lead bot in another part
         return false;
     const MemberFact* pick = nullptr;
     for (const MemberFact& m : f.members)
@@ -2709,6 +2810,13 @@ inline void IslandEscape(Run& r, const Facts& f, float tx, float ty, float tz, c
 {
     r.islandSuspect = false;
     r.escapeFromMove = false;
+    // No path because the lead bot stands in another wing, not on an island:
+    // no hop, the pause with the true reason (r20: "navmesh island at 1617.6 1002.7").
+    if (LeadInOtherPart(r, f))
+    {
+        PauseOtherPart(r, f);
+        return;
+    }
     std::string const spot = Num(f.leadX) + " " + Num(f.leadY) + " " + Num(f.leadZ);
     if (r.islandEscapes >= kIslandEscapes || r.stepEscapes >= kStepEscapes)
     {
@@ -6896,6 +7004,12 @@ inline bool LeadRevivedAway(Run& r, const Facts& f)
     if (r.regroup || (InEvent(r) && !lostInHold) ||
         ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX, r.leadDeathY, r.leadDeathZ) <= kSeeYd)
         return false;
+    // Up in another wing: no walk back reaches the party from there.
+    if (LeadInOtherPart(r, f))
+    {
+        PauseOtherPart(r, f);
+        return true;
+    }
     if (r.autoRegroups >= kAutoRegroupsPerStep)
     {
         Pause(r, "the lead bot died and came back " + Num(ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.leadDeathX,
@@ -7160,6 +7274,15 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     {
         r.regroupMs += dt;
         UpdateReviveSummons(r, f, dt);
+        // The lead bot up in another part of the instance (another wing's
+        // door, far from every point of the plan): no gather, summon or walk
+        // back joins it to the party, so the run pauses with that reason and
+        // the living party holds where it is (r20-19z39 slot 7).
+        if (LeadInOtherPart(r, f))
+        {
+            PauseOtherPart(r, f);
+            return order;
+        }
         // A regroup for a dead lead bot: once it is up away from where it fell
         // (a release: the entrance), the living party there holds, before any
         // gather; from the next tick the regroup looks at the others only.
@@ -7345,9 +7468,14 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         // A wipe inside a hold whose event is not done: the event reset, so the
         // regroup goes back to its start step (RearmEventOnWipe).
         std::size_t const rearmed = RearmEventOnWipe(r, f) ? r.step : static_cast<std::size_t>(-1);
+        bool const deathSpotKnown = r.leadDied; // BeginRegroup clears it
         ResetStep(r);
         BeginRegroup(r);
         r.walkBackDue = true;
+        // The lead bot among the dead: as WaitForFallen, the living party holds
+        // at the fight spot once it is up away from there (r20-19z39 slot 7:
+        // the hunter left the Library after the lead bot's corpse run).
+        r.holdDue = deathSpotKnown;
         r.note = std::to_string(f.dead) + " dead (" + WipeCounts(r) + " this run): regrouping by itself (" +
             std::to_string(r.autoRegroups) + " of " + std::to_string(kAutoRegroupsPerStep) + " at this step)" +
             (rearmed == static_cast<std::size_t>(-1) ? std::string()
