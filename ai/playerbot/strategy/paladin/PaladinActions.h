@@ -588,9 +588,9 @@ namespace ai
 		CastHandOfReckoningAction(PlayerbotAI* ai) : CastSpellAction(ai, "hand of reckoning") {}
 	};
 
-	// Taunt the mob picked by "attacker of non-tank target"; the value only
-	// returns mobs inside the taunt spell range, so the reach prerequisite
-	// below never has to move the paladin.
+	// Taunt the mob picked by "attacker of non-tank target"; the cast reads
+	// its real range from the spell and the reach prerequisite walks the
+	// paladin in.
 	class CastHandOfReckoningOnAttackerAction : public CastHandOfReckoningAction
 	{
 	public:

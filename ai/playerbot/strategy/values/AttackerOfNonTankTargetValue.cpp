@@ -14,10 +14,12 @@ Unit* AttackerOfNonTankTargetValue::Calculate()
         ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible attack targets")->Get();
     CcGuard ccGuard(ai);
     // A held CC mark may be touched only by the tank's Taunt under the
-    // held-mark exception; the IsTank walk and the spell range never change
-    // inside the loop, so hoist them out.
+    // held-mark exception; the IsTank walk and the scan radius never change
+    // inside the loop, so hoist them out. The radius only caps which mobs
+    // are considered; the taunt's own range comes from the spell and its
+    // reach prerequisite walks the tank in.
     bool const tankTaunt = ai->IsTank(bot);
-    float const spellRange = ai->GetRange("spell");
+    float const scanRadius = ai->GetRange("spell");
     Player* const master = ai->GetMaster();
 
     std::vector<AttackerOfNonTankCandidate> candidates;
@@ -42,7 +44,8 @@ Unit* AttackerOfNonTankTargetValue::Calculate()
         candidate.victimIsTank = ai->IsTank(victimPlayer);
         candidate.victimIsHealer = PlayerbotAI::IsHeal(victimPlayer);
         candidate.distance = sServerFacade.getDistance2d(bot, unit);
-        candidate.inRange = candidate.distance <= spellRange;
+        if (candidate.distance > scanRadius)
+            continue;
 
         candidate.heldCcMark = ccGuard.IsHeldCcMark(unit);
         if (candidate.heldCcMark)

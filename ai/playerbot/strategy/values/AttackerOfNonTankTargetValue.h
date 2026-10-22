@@ -7,9 +7,10 @@ namespace ai
 {
     // The engaged hostile the tank should Taunt off a non-tank group member:
     // the closest mob whose victim is a non-tank member, the healer's
-    // attacker first, in spell range, honouring the CC hold. Players are
-    // never returned (no threat list to taunt). Selection rules live in
-    // AttackerOfNonTankPolicy.h.
+    // attacker first, within the scan radius below. Players are never
+    // returned (no threat list to taunt). Selection rules live in
+    // AttackerOfNonTankPolicy.h; closing the last yards is the taunt cast's
+    // own spell range plus reach prerequisite.
     class AttackerOfNonTankTargetValue : public UnitCalculatedValue
 	{
 	public:

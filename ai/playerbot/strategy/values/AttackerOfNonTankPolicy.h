@@ -22,19 +22,18 @@ namespace ai
         bool heldCcMark = false;          // a group CC mark the party leaves alone (CcGuard)
         bool heldMarkTauntAllowed = false; // CcHeldMarkTauntAllowed: tank Taunt only, not
                                            // crowd-controlled yet, no CC cast bar, healer victim
-        bool inRange = false;             // within the taunt spell range
         float distance = 0.0f;            // 2D distance to the tank, the closeness key
     };
 
-    // A candidate is tauntable when a group member needs it off them, the
-    // taunt can reach it and the CC hold (if any) allows this taunt. The
-    // owner exception only ever applies to a healer victim (the caller can
-    // only set heldMarkTauntAllowed then); the policy re-checks it so the
-    // rule stands on its own.
+    // A candidate is tauntable when a group member needs it off them; the
+    // cast's own spell range (read from the spell, not a constant) and its
+    // reach prerequisite move the tank into range. The owner exception only
+    // ever applies to a healer victim (the caller can only set
+    // heldMarkTauntAllowed then); the policy re-checks it so the rule stands
+    // on its own.
     inline bool AttackerOfNonTankUsable(AttackerOfNonTankCandidate const& candidate)
     {
         return candidate.victimIsGroupPlayer && !candidate.victimIsTank &&
-            candidate.inRange &&
             (!candidate.heldCcMark || (candidate.heldMarkTauntAllowed && candidate.victimIsHealer));
     }
 

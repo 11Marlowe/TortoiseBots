@@ -1,8 +1,12 @@
 // Standalone regression test for the off-target taunt policy: which engaged
 // hostile the tank taunts when a mob sits on a non-tank group member —
-// healer victims first, closest first, tanks' own mobs and out-of-
-// range / player attackers skipped, held CC marks refused unless the owner's
-// taunt exception applies.
+// healer victims first, closest first, tanks' own mobs and player attackers
+// skipped, held CC marks refused unless the owner's taunt exception applies.
+//
+// Range is not a policy decision: the value caps candidates at a fixed scan
+// radius and each taunt cast reads its real range from the spell, walking
+// the tank in with its reach prerequisite — game state this std-only test
+// cannot see, so only the ranking and hold rules are checked here.
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_attacker_of_non_tank_policy.cpp -o /tmp/test_attacker_of_non_tank_policy
@@ -29,7 +33,6 @@ static AttackerOfNonTankCandidate Mob(float distance, bool healerVictim)
     AttackerOfNonTankCandidate c;
     c.victimIsGroupPlayer = true;
     c.victimIsHealer = healerVictim;
-    c.inRange = true;
     c.distance = distance;
     return c;
 }
@@ -67,12 +70,11 @@ int main()
         CHECK(AttackerOfNonTankPick(candidates) == 1);
     }
 
-    // Out of taunt range: not picked, the tank never chases the healer's mob.
+    // A distant mob inside the scan radius is still picked: the taunt's own
+    // reach prerequisite walks the tank to it.
     {
-        AttackerOfNonTankCandidate far = Mob(45.0f, true);
-        far.inRange = false;
-        std::vector<AttackerOfNonTankCandidate> candidates = { far };
-        CHECK(AttackerOfNonTankPick(candidates) == 1);
+        std::vector<AttackerOfNonTankCandidate> candidates = { Mob(25.0f, true) };
+        CHECK(AttackerOfNonTankPick(candidates) == 0);
     }
 
     // A held CC mark is refused like every other row: the CC bot's job.

@@ -137,9 +137,9 @@ namespace ai
     MELEE_ACTION_U(CastTauntAction, "taunt", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
 
-    // Taunt the mob picked by "attacker of non-tank target"; the value only
-    // returns mobs already inside the taunt spell range, so the reach
-    // prerequisite below never has to move the tank.
+    // Taunt the mob picked by "attacker of non-tank target"; the cast reads
+    // its real range from the spell and the reach prerequisite walks the
+    // tank in.
     class CastTauntOnAttackerAction : public CastSnareSpellAction
     {
     public:

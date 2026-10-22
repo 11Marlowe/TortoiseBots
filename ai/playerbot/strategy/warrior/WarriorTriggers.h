@@ -40,7 +40,6 @@ namespace ai
     DEBUFF_TRIGGER(ThunderClapTrigger, "thunder clap");
     SNARE_TRIGGER(TauntSnareTrigger, "taunt");
     SNARE_TRIGGER(InterceptSnareTrigger, "intercept");
-
     CD_TRIGGER(InterceptCanCastTrigger, "intercept");
     BOOST_TRIGGER(DeathWishTrigger, "death wish");
     BOOST_TRIGGER(RecklessnessTrigger, "recklessness");

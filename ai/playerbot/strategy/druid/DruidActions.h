@@ -586,9 +586,9 @@ namespace ai
         CastGrowlAction(PlayerbotAI* ai) : CastSpellAction(ai, "growl") {}
     };
 
-    // Taunt the mob picked by "attacker of non-tank target"; the value only
-    // returns mobs inside the taunt spell range, so the reach prerequisite
-    // below never has to move the bear.
+    // Taunt the mob picked by "attacker of non-tank target"; the cast reads
+    // its real range from the spell and the reach prerequisite walks the
+    // bear in.
     class CastGrowlOnAttackerAction : public CastGrowlAction
     {
     public:

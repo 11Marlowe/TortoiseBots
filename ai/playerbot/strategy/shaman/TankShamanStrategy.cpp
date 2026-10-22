@@ -16,7 +16,6 @@ public:
         creators["magma totem"] = &magma_totem;
         creators["windfury totem"] = &windfury_totem;
         creators["earthshaker slam"] = &earthshaker_slam;
-        creators["earthshaker slam on attacker"] = &earthshaker_slam_on_attacker;
         creators["totemic slam"] = &totemic_slam;
     }
 
@@ -52,16 +51,6 @@ private:
     static ActionNode* earthshaker_slam(PlayerbotAI* ai)
     {
         return new ActionNode("earthshaker slam",
-            /*P*/ NextAction::array(0, new NextAction("reach melee", ACTION_MOVE), NULL),
-            /*A*/ NextAction::array(0, new NextAction("melee"), NULL),
-            /*C*/ NULL);
-    }
-
-    // Same melee-first shape for the off-target taunt: the picked mob is
-    // usually out of melee range, on the healer.
-    static ActionNode* earthshaker_slam_on_attacker(PlayerbotAI* ai)
-    {
-        return new ActionNode("earthshaker slam on attacker",
             /*P*/ NextAction::array(0, new NextAction("reach melee", ACTION_MOVE), NULL),
             /*A*/ NextAction::array(0, new NextAction("melee"), NULL),
             /*C*/ NULL);
