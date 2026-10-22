@@ -4587,7 +4587,9 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 
 Player* FindCharacter(uint64 raw);
 void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead);
-void ClearRunCcIcons(uint64 leadRaw, DungeonRunSlot& slot);
+void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot);
+void RetryRunCcIcons(uint32 diff);
+void DropPendingRunCcIcons();
 
 // AiPlayerbot.DungeonRunLootFfa: a loot step may have left the group's loot method on free-for-all
 // (DungeonRun::Run::lootFfaLive). Whenever the run is not running (paused, stopped, done, released), the lead
@@ -4916,7 +4918,7 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
         if (run != DungeonRuns().end())
         {
             RestoreRunLootMethod(standing->leadGuid, run->second.run);
-            ClearRunCcIcons(standing->leadGuid, run->second);
+            ClearRunCcIcons(standing->leadGuid, standing->groupId, run->second);
         }
         CancelCommanderTasks(commanderRaw);
     }
@@ -10420,8 +10422,11 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadMoving = lead->IsMoving(); // an exact waypoint's stand-still proof (DungeonRunPolicy.h ExactWalkTo)
     // The group's raid icons now: a cc order takes only a free mark or one the run set (DungeonRun::PickCcOrder).
     if (Group* const iconGroup = lead->GetGroup())
+    {
         for (uint8 i = 0; i < 8; ++i) // TARGET_ICON_COUNT
             f.raidIcons[i] = iconGroup->GetTargetIcon(i).GetRawValue();
+        f.raidIconsRead = true; // they confirm the run's icon record (DungeonRun::SyncCcIcons)
+    }
     f.carrier = lead->GetName();
     f.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
     // A direct step is the current one (or the walk back's next point): each follower is asked the step's own
@@ -10992,17 +10997,87 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
 // go the same way.
 // The raid icons the run's cc orders set (DungeonRun::Run::ccIcons) are
 // cleared when the run ends, each only while it is still on the unit the run
-// put it on: an icon a player or other code moved since is left alone.
-void ClearRunCcIcons(uint64 leadRaw, DungeonRunSlot& slot)
+// put it on: an icon a player or other code moved since is left alone
+// (DungeonRun::RunIconAtEnd). The group is the lead bot's while it is in the
+// binding's group, else that group by its id (the lead bot left or logged
+// out). A group not found now keeps the icon for a retry (RetryRunCcIcons),
+// for at most kRunIconRetryMs.
+struct PendingRunIcon
+{
+    uint64 leadRaw = 0;
+    uint32 groupId = 0;
+    int icon = -1;
+    uint64 guid = 0;
+    uint32 ageMs = 0;
+};
+
+constexpr uint32 kRunIconRetryMs = 30u * 60u * 1000u; // 30 minutes
+
+std::vector<PendingRunIcon>& PendingRunCcIcons()
+{
+    static std::vector<PendingRunIcon> pending;
+    return pending;
+}
+
+Group* RunIconGroup(uint64 leadRaw, uint32 groupId)
 {
     Player* const lead = FindCharacter(leadRaw);
-    Group* const group = lead ? lead->GetGroup() : nullptr;
-    if (group)
-        for (auto const& icon : TortoiseBots::DungeonRun::CcIconsToClear(slot.run))
-            if (icon.first >= 0 && icon.first < TARGET_ICON_COUNT &&
-                group->GetTargetIcon(static_cast<uint8>(icon.first)).GetRawValue() == icon.second)
-                group->SetTargetIcon(static_cast<uint8>(icon.first), ObjectGuid());
-    slot.run.ccIcons.clear();
+    if (Group* const group = lead ? lead->GetGroup() : nullptr)
+        if (!groupId || group->GetId() == groupId)
+            return group;
+    return groupId ? sObjectMgr.GetGroupById(groupId) : nullptr;
+}
+
+// True when the icon is settled (cleared, or not the run's any more).
+bool EndRunIcon(Group* group, int icon, uint64 guid)
+{
+    if (icon < 0 || icon >= TARGET_ICON_COUNT)
+        return true;
+    uint64 const live = group ? group->GetTargetIcon(static_cast<uint8>(icon)).GetRawValue() : 0;
+    switch (TortoiseBots::DungeonRun::RunIconAtEnd(group != nullptr, live, guid))
+    {
+        case TortoiseBots::DungeonRun::RunIconEnd::Clear:
+            group->SetTargetIcon(static_cast<uint8>(icon), ObjectGuid());
+            return true;
+        case TortoiseBots::DungeonRun::RunIconEnd::Drop:
+            return true;
+        default:
+            return false;
+    }
+}
+
+void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)
+{
+    Group* const group = RunIconGroup(leadRaw, groupId);
+    for (auto const& icon : TortoiseBots::DungeonRun::CcIconsToClear(slot.run))
+        if (!EndRunIcon(group, icon.first, icon.second))
+        {
+            PendingRunIcon pending;
+            pending.leadRaw = leadRaw;
+            pending.groupId = groupId;
+            pending.icon = icon.first;
+            pending.guid = icon.second;
+            PendingRunCcIcons().push_back(pending);
+        }
+    slot.run.ccIcons.clear(); // settled or kept in PendingRunCcIcons
+}
+
+void RetryRunCcIcons(uint32 diff)
+{
+    std::vector<PendingRunIcon>& pending = PendingRunCcIcons();
+    for (auto it = pending.begin(); it != pending.end();)
+    {
+        it->ageMs += diff;
+        if (EndRunIcon(RunIconGroup(it->leadRaw, it->groupId), it->icon, it->guid) || it->ageMs >= kRunIconRetryMs)
+            it = pending.erase(it);
+        else
+            ++it;
+    }
+}
+
+void DropPendingRunCcIcons()
+{
+    PendingRunCcIcons().clear();
 }
 
 void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
@@ -11186,7 +11261,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             slot.run.note.c_str());
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot);
-        ClearRunCcIcons(binding->leadGuid, slot);
+        ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);
         DungeonRuns().erase(it);
         return;
     }
@@ -11232,7 +11307,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     {
         ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)
         if (slot.run.state == TortoiseBots::DungeonRun::State::Done)
-            ClearRunCcIcons(binding->leadGuid, slot); // the plan's end: a pause keeps them
+            ClearRunCcIcons(binding->leadGuid, binding->groupId, slot); // the plan's end: a pause keeps them
         return;
     }
     Player* lead = FindCharacter(binding->leadGuid);
@@ -11425,7 +11500,7 @@ static void UpdateDungeonRuns(uint32 diff)
             if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
             {
                 RestoreRunLootMethod(standing->leadGuid, entry.second.run);
-                ClearRunCcIcons(standing->leadGuid, entry.second);
+                ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second);
             }
             entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
             entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
@@ -11649,7 +11724,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         slot.run.note = RunStopNote(rawArg); // "stopped by .bot run stop", or the reason the caller gave
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot); // held bots follow the lead bot again
-        ClearRunCcIcons(binding->leadGuid, slot);
+        ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);
         DungeonRuns().erase(it);
         SendActionAck(handler, intent, "party", 0);
         return true;
@@ -11686,6 +11761,9 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
 
 void UpdateRemoteCommanders(uint32_t diff)
 {
+    // The run's raid icons a run's end could not clear yet (its group not found then).
+    if (!PendingRunCcIcons().empty())
+        RetryRunCcIcons(diff);
     // Nothing runs while no commander is bound.
     if (CommanderBindings().Empty())
     {
@@ -12234,6 +12312,7 @@ void ClearRemoteCommanders()
     CommanderBindings().Clear();
     CommanderViews().clear();
     DungeonRuns().clear();
+    DropPendingRunCcIcons();
     s_dungeonRunMs = 0;
     SavedFollowTargets().clear();
     CommanderThreatBots().Clear();

@@ -153,13 +153,29 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn('namedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set("none");', clear)
         self.assertIn("order.group->GetTargetIcon(static_cast<uint8>(iconIndex)).GetRawValue() == iconGuid)", clear)
         self.assertIn("order.group->SetTargetIcon(static_cast<uint8>(iconIndex), ObjectGuid());", clear)
-        icons = strip_comments(body(COMMANDS, "void ClearRunCcIcons(uint64 leadRaw, DungeonRunSlot& slot)\n{", "\n}\n"))
-        self.assertIn("group->GetTargetIcon(static_cast<uint8>(icon.first)).GetRawValue() == icon.second)", icons)
+        # The run's end: the group without the lead bot too (its id from the binding), each icon by
+        # DungeonRun::RunIconAtEnd, and a group not found keeps the icon for a bounded retry.
+        group = strip_comments(body(COMMANDS, "Group* RunIconGroup(uint64 leadRaw, uint32 groupId)\n{", "\n}\n"))
+        self.assertIn("return groupId ? sObjectMgr.GetGroupById(groupId) : nullptr;", group)
+        end = strip_comments(body(COMMANDS, "bool EndRunIcon(Group* group, int icon, uint64 guid)\n{", "\n}\n"))
+        self.assertIn("RunIconAtEnd(group != nullptr, live, guid)", end)
+        self.assertIn("group->SetTargetIcon(static_cast<uint8>(icon), ObjectGuid());", end)
+        icons = strip_comments(body(COMMANDS, "void ClearRunCcIcons(uint64 leadRaw, uint32 groupId, DungeonRunSlot& slot)\n{", "\n}\n"))
+        self.assertIn("Group* const group = RunIconGroup(leadRaw, groupId);", icons)
+        self.assertIn("if (!EndRunIcon(group, icon.first, icon.second))", icons)
+        self.assertIn("PendingRunCcIcons().push_back(pending);", icons)
+        retry = strip_comments(body(COMMANDS, "void RetryRunCcIcons(uint32 diff)\n{", "\n}\n"))
+        self.assertIn("EndRunIcon(RunIconGroup(it->leadRaw, it->groupId), it->icon, it->guid) || it->ageMs >= kRunIconRetryMs", retry)
+        update = strip_comments(body(COMMANDS, "void UpdateRemoteCommanders(uint32_t diff)\n{", "\n}\n"))
+        self.assertLess(update.index("RetryRunCcIcons(diff);"), update.index("if (CommanderBindings().Empty())"))
+        # The facts confirm the record only when the icons were read.
+        facts = strip_comments(body(COMMANDS, "void ReadRunFacts(", "\n}\n"))
+        self.assertIn("f.raidIconsRead = true;", facts)
         # Every run end clears them: the time limit, `.bot run stop`, the plan's end, an unbind, a switch-off.
         code = strip_comments(COMMANDS)
-        self.assertEqual(code.count("ClearRunCcIcons(binding->leadGuid, slot);"), 3)
-        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, run->second);"), 1)
-        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, entry.second);"), 1)
+        self.assertEqual(code.count("ClearRunCcIcons(binding->leadGuid, binding->groupId, slot);"), 3)
+        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, standing->groupId, run->second);"), 1)
+        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, standing->groupId, entry.second);"), 1)
 
     def test_crowd_control_and_kill_first_facts(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")

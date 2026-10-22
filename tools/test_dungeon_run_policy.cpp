@@ -6247,14 +6247,18 @@ static void TestSapTimeoutClearsTheRogueBeforeTheGather()
         Typed(3, 101, 22, kCreatureHumanoid)};
     CHECK(Tick(r, f) == "cc moon 2 Roguey");
     CHECK(r.ccIcons.count(4) && r.ccIcons.at(4) == 2);
+    f.raidIconsRead = true;
+    f.raidIcons[4] = 2; // the order put moon on it
     f.maxMemberYd = 30; // the rogue is off by its mob
     f.members[1].yd = 30;
     std::string order;
     for (std::uint32_t i = 0; i <= kSapWaitMs / kTickMs + 1 && order.empty(); ++i)
         order = Tick(r, f);
     CHECK(order == "cc clear Roguey moon 2");
-    CHECK(r.ccIcons.empty()); // the clear takes the run's icon with it
+    CHECK(r.ccIcons.count(4) && r.ccIcons.at(4) == 2); // kept until the facts show the clear
+    f.raidIcons[4] = 0; // the clear went through
     order = Tick(r, f);
+    CHECK(r.ccIcons.empty());
     CHECK(order.compare(0, 5, "move ") == 0 && r.note.find("gathering before the pull") != std::string::npos);
     f.maxMemberYd = 0;
     f.members[1].yd = 5;
@@ -6371,7 +6375,49 @@ static void TestWarlockOnlyWhereBanishCanLand()
     CHECK(orders.find("cc moon 2 Locky|") != std::string::npos);
     CHECK(orders.find("cc clear Locky moon 2|") != std::string::npos);
     CHECK(orders.find("cc moon 2 Locky|") < orders.find("cc clear Locky moon 2|"));
-    CHECK(r.ccHolds.empty() && r.ccWatch.empty() && r.ccIcons.empty());
+    CHECK(r.ccHolds.empty() && r.ccWatch.empty());
+    CHECK(r.ccIcons.count(4) && r.ccIcons.at(4) == 2); // no icon read here: the record stays for the run's end
+}
+
+// Codex round 2 on 66e3ad30: a refused `cc clear` (the bot left the group, no
+// AI) keeps the run's record of the icon, so the run's end clears it; the
+// record goes only once the facts show the icon off the unit (cleared, or
+// moved by someone else, which the run's end then leaves alone).
+static void TestRefusedCcClearKeepsTheIconForTheRunsEnd()
+{
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Roguey", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 30, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Roguey");
+    f.raidIconsRead = true;
+    f.raidIcons[4] = 2;
+    Facts gone = f;
+    gone.units.pop_back();
+    CHECK(Tick(r, gone) == "cc clear Roguey moon 2");
+    OrderRefused(r, "cc clear Roguey moon 2", "no-bot: That bot is not in your commanded group.");
+    CHECK(Tick(r, f) == "pullback 2"); // the icon is still on it
+    CHECK(r.ccIcons.count(4) && r.ccIcons.at(4) == 2);
+    auto const clear = CcIconsToClear(r);
+    CHECK(clear.size() == 1 && clear[0].first == 4 && clear[0].second == 2);
+    // The run's end: still on the unit, cleared; moved by a player, left; no group now, kept to retry.
+    CHECK(RunIconAtEnd(true, 2, 2) == RunIconEnd::Clear);
+    CHECK(RunIconAtEnd(true, 55, 2) == RunIconEnd::Drop);
+    CHECK(RunIconAtEnd(true, 0, 2) == RunIconEnd::Drop);
+    CHECK(RunIconAtEnd(false, 0, 2) == RunIconEnd::Retry);
+    // A player moves moon elsewhere: no longer the run's.
+    f.raidIcons[4] = 55;
+    Tick(r, f);
+    CHECK(r.ccIcons.empty());
+    // Icons not read this tick (no group): nothing is concluded.
+    Run k = Start(&plan);
+    k.ccIcons[4] = 2;
+    Facts unread = f;
+    unread.raidIconsRead = false;
+    unread.raidIcons[4] = 0;
+    Tick(k, unread);
+    CHECK(k.ccIcons.count(4));
 }
 
 // The rogue's pre-pull Sap trigger runs only for a bot with a live client
@@ -12160,6 +12206,7 @@ int main()
     TestKillFirstUnitIsNeverCrowdControlled();
     TestWarlockOnlyWhereBanishCanLand();
     TestNoSapWithoutALiveMaster();
+    TestRefusedCcClearKeepsTheIconForTheRunsEnd();
     TestTankGuardsThePartyFromItsStand();
     TestTankGuardReturnsToItsOwnSpot();
     TestTankGuardPull100Replay();

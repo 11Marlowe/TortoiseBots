@@ -558,6 +558,7 @@ struct Facts
     // The group's raid icons now (Group::GetTargetIcon, star 0 ... skull 7):
     // a cc order only takes a mark that is free or one the run set itself.
     std::uint64_t raidIcons[8] = {};
+    bool raidIconsRead = false; // ... read this tick (the lead bot's group): only then they confirm a clear (SyncCcIcons)
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
     // The glue read MemberFact::withLead for every member this tick (only while DirectJoinWanted: a direct step
     // is the current one or the walk back's). The gate before a direct step then asks that test, not only the
@@ -3628,14 +3629,39 @@ inline void SyncCcWatch(Run& r)
 // The order that takes a bot off its cc mark (`cc clear <bot> <mark> <guid>`):
 // its "rti cc" goes to none, so no class row of it fires on the mark (a
 // warlock's "fear on cc"), and the raid icon is cleared when it is still on
-// that unit. The run's record of that icon goes with it.
-inline std::string CcClearOrder(Run& r, const Run::CcHold& hold, std::uint64_t guid)
+// that unit. The run's record of that icon stays until the facts show the
+// icon off that unit (SyncCcIcons): a refused clear (the bot left the group,
+// no AI) leaves it for the run's end to clear.
+inline std::string CcClearOrder(const Run::CcHold& hold, std::uint64_t guid)
 {
-    int const icon = CcMarkIcon(hold.mark);
-    auto const set = r.ccIcons.find(icon);
-    if (set != r.ccIcons.end() && set->second == guid)
-        r.ccIcons.erase(set);
     return "cc clear " + hold.bot + " " + hold.mark + " " + std::to_string(guid);
+}
+
+// Each tick the group's icons were read: a recorded icon no longer on the
+// unit the run put it on (cleared by a confirmed clear, a refused cc order that
+// put it back, or moved by someone else) is no longer the run's.
+inline void SyncCcIcons(Run& r, const Facts& f)
+{
+    if (!f.raidIconsRead)
+        return;
+    for (auto it = r.ccIcons.begin(); it != r.ccIcons.end();)
+    {
+        if (it->first < 0 || it->first >= 8 || f.raidIcons[it->first] != it->second)
+            it = r.ccIcons.erase(it);
+        else
+            ++it;
+    }
+}
+
+// The run's end, for one recorded icon: Clear it (still on the run's unit),
+// Drop it (someone moved or cleared it: not the run's to touch), or Retry
+// (the group could not be found now).
+enum class RunIconEnd : std::uint8_t { Clear, Drop, Retry };
+inline RunIconEnd RunIconAtEnd(bool groupFound, std::uint64_t live, std::uint64_t ours)
+{
+    if (!groupFound)
+        return RunIconEnd::Retry;
+    return live == ours ? RunIconEnd::Clear : RunIconEnd::Drop;
 }
 
 // In the fight after a `cc <mark>`: its aura must show on that unit within
@@ -3701,7 +3727,7 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
                 ++i; // the clear goes out next tick
                 continue;
             }
-            order = CcClearOrder(r, hold->second, held->guid);
+            order = CcClearOrder(hold->second, held->guid);
             sent = true;
             r.ccHolds.erase(hold);
         }
@@ -3753,7 +3779,7 @@ inline bool SapWait(Run& r, const Facts& f, std::uint32_t dt, std::string& order
         r.note = unit ? "sap did not land on " + std::to_string(unit->entry) + " in " +
                 std::to_string(kSapWaitMs / 1000) + " s: the rogue is taken off it, the pull goes without it"
                       : "sap off: its unit " + GuidArg(guid) + " left the read; the rogue is taken off it";
-        order = CcClearOrder(r, hold->second, guid);
+        order = CcClearOrder(hold->second, guid);
         r.ccSapFailed = true;
         r.ccSent.erase(guid);
         r.ccHolds.erase(hold);
@@ -7376,6 +7402,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
 inline std::string Tick(Run& r, const Facts& f, std::uint32_t dt = kTickMs, const RestLines& lines = RestLines())
 {
     r.shotGateRan = false;
+    SyncCcIcons(r, f);
     std::string order;
     bool held = false;
     if (r.state == State::Running && !r.hold.empty())
