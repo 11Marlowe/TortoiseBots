@@ -188,6 +188,7 @@ if(TORTOISE_MODULE_CMAKE_PHASE STREQUAL "DISCOVERY")
     "${TORTOISEBOTS_ROOT}/commands/Upkeep.cpp"
     "${TORTOISEBOTS_ROOT}/commands/Inventory.cpp"
     "${TORTOISEBOTS_ROOT}/commands/Party.cpp"
+    "${TORTOISEBOTS_ROOT}/commands/Totem.cpp"
     "${TORTOISEBOTS_ROOT}/commands/BotCommandContext.cpp")
 
   # These are the module-owned runtime and mature AI foundations. The donor
