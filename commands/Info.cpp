@@ -178,7 +178,7 @@ static char const* LifecycleName(BotLifecycle lifecycle)
 
     return "unknown";
 }
-static char const* MovementName(PlayerbotAI* ai)
+char const* MovementName(PlayerbotAI* ai)
 {
     if (!ai)
         return "unavailable";

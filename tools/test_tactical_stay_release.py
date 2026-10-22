@@ -149,7 +149,7 @@ class TacticalStayReleaseTest(unittest.TestCase):
         code = extract("void PlayerbotAI::EndStayForOrder()", "std::string PlayerbotAI::HandleRemoteCommand(", AI_SOURCE)
         # End at the function's own closing brace: helpers defined after it
         # (the pull checks and snapshots) need types this stand-in lacks.
-        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "\n}\n") + "\n}\n"
+        code += extract_definition("void RelaxTacticalMovement(PlayerbotAI* ai)", "\n}\n") + "\n}\n"
         with tempfile.TemporaryDirectory() as tmp:
             src = pathlib.Path(tmp) / "fixture.cpp"
             src.write_text(FIXTURE % {"code": code})
@@ -159,7 +159,7 @@ class TacticalStayReleaseTest(unittest.TestCase):
 
     def test_per_bot_attack_breaks_stay(self):
         # `.bot attack <Name>` must end a stay like `.bot action attack`.
-        body = extract("static bool HandleAttack(", "static bool IsPublicFormation(")
+        body = extract("bool HandleAttack(", "static bool IsPublicFormation(")
         self.assertRegex(body, r'HandleNamedAction\([^;]*"attack my target"[^;]*,\s*true\)')
         named = extract("static bool HandleNamedAction(", "// `.bot action flee`")
         relax = named.index("RelaxTacticalMovement(ai)")

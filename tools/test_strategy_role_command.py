@@ -63,7 +63,7 @@ std::string Trim(std::string const& s){auto a=s.find_first_not_of(" \t");return 
         for sig in ['static bool StrategyRoleMatches(', 'static bool KnownStrategyChange(']:
             if sig in source:
                 code += function(source,sig)
-        code += function(source,'static bool HandleStrategy(')
+        code += function(source,'bool HandleStrategy(')
         code += r'''
 int main(){
  Player tank{"Tank",true,false,false},dps{"Dps"},mage{"Mage",false,false,true},heal{"Heal",false,true,true},stranger{"Stranger",false,false,false,true,false};

@@ -36,6 +36,9 @@ void SetStayAnchor(PlayerbotAI* ai, float x, float y, float z, uint32_t mapId);
 void RelaxTacticalMovement(PlayerbotAI* ai);
 bool CheckPullTarget(Player* executor, Unit* target, std::string& code, std::string& message);
 void SendBotStateLine(ChatHandler* handler, Player* bot);
+// Info.cpp: the movement mode name of a bot's AI (its "follow"/"stay"/...
+// strategy), also shown by the roster.
+char const* MovementName(PlayerbotAI* ai);
 
 // What ConfigurePullMode changes on the tank: the "pull back" strategy in each
 // engine and the PullStrategy command fields. Taken before it and put back

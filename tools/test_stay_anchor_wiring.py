@@ -23,7 +23,7 @@ def body(text, start, end):
 
 class StayAnchorWiringTest(unittest.TestCase):
     def test_helper_sets_stay_and_return(self):
-        fn = body(COMMANDS, "static void SetStayAnchor(", "\n}\n")
+        fn = body(COMMANDS, "void SetStayAnchor(", "\n}\n")
         self.assertIn('posMap["stay"] = stayPos;', fn)
         self.assertIn('posMap["return"] = returnPos;', fn)
         self.assertIn('posMap["random"].Reset();', fn)
