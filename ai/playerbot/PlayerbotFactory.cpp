@@ -1309,6 +1309,17 @@ static uint32 CountEquippedSetPieces(Player* player, uint32 setId)
     return count;
 }
 
+// Copies of this item entry the player currently wears (equipment slots only).
+static uint32 CountEquippedCopies(Player* player, uint32 itemId)
+{
+    uint32 count = 0;
+    for (uint8 slot = EQUIPMENT_SLOT_START; slot < EQUIPMENT_SLOT_END; ++slot)
+        if (Item* item = player->GetItemByPos(INVENTORY_SLOT_BAG_0, slot))
+            if (item->GetEntry() == itemId)
+                ++count;
+    return count;
+}
+
 void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool progressive, bool partialUpgrade, uint32 maxItemLevelOverride)
 {
     // Bots below level 5 stay in their starting outfit: gear DB has little for them,
@@ -1809,13 +1820,13 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     // candidate fits the cap; the rest of the list can sit above it.
                     if (proto->ItemLevel > maxItemLevel)
                         continue;
-                    // Never two copies of a unique(-equippable) item, counting
-                    // what is already equipped or bagged (real players only;
-                    // the paired-slot guard above covers the twin slot).
+                    // Never two equipped copies of a unique-equipped item,
+                    // counting what is already worn (real players only; the
+                    // paired-slot guard above covers the twin slot).
                     if (playerUpgrade &&
                         !TortoiseBots::AutogearUniqueAllowed(
-                            (proto->Flags & (ITEM_FLAG_UNIQUE | ITEM_FLAG_UNIQUE_EQUIPPABLE)) != 0,
-                            bot->HasItemCount(newItemId, 1) ? 1 : 0))
+                            (proto->Flags & ITEM_FLAG_UNIQUE_EQUIPPED) != 0,
+                            CountEquippedCopies(bot, newItemId)))
                         continue;
                     // filter tank weapons (prot warrior/paladin, shaman tank id 16)
                     if (slot == EQUIPMENT_SLOT_OFFHAND && (specId == 3 || specId == 5 || specId == 16) && !(proto->Class == ITEM_CLASS_ARMOR && proto->SubClass == ITEM_SUBCLASS_ARMOR_SHIELD))

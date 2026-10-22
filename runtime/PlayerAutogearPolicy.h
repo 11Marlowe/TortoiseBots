@@ -228,11 +228,11 @@ inline PlayerAutogearTargetState DecidePlayerAutogearTargetState(bool alive, boo
     return PlayerAutogearTargetState::Ready;
 }
 
-// A unique or unique-equippable item may be given only when the player owns
-// no copy (equipped or in the bags).
-inline bool AutogearUniqueAllowed(bool isUniqueFlagged, uint32_t ownedCount)
+// A unique-equipped item may be given only when the player wears no copy of
+// it already (equipped count; the paired-slot guard covers the twin slot).
+inline bool AutogearUniqueAllowed(bool isUniqueEquipped, uint32_t equippedCount)
 {
-    return !isUniqueFlagged || ownedCount == 0;
+    return !isUniqueEquipped || equippedCount == 0;
 }
 
 // A set keeps all its equipped pieces while it triggers at least one bonus:
