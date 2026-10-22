@@ -28,12 +28,8 @@ void GenericPaladinStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("critical health", { NextAction("lay on hands", ACTION_EMERGENCY + 1) }));
     triggers.push_back(new TriggerNode("party member critical health",
         { NextAction("lay on hands on party", ACTION_EMERGENCY + 2) }));
-    triggers.push_back(new TriggerNode("divine shield low health",
-        { NextAction("flash of light", ACTION_EMERGENCY + 3), NextAction("holy light", ACTION_EMERGENCY + 2)}));
     triggers.push_back(new TriggerNode("protect party member",
         { NextAction("blessing of protection on party", ACTION_EMERGENCY + 3) }));
-    triggers.push_back(new TriggerNode("hand of freedom on party",
-        { NextAction("hand of freedom on party", ACTION_HIGH + 4) }));
 }
 
 void PaladinCureStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)

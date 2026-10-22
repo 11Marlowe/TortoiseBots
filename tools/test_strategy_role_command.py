@@ -79,6 +79,9 @@ int main(){
  HandleStrategy(&h,"-aoe fear @heal");check(changed(d,"-aoe fear")&&a.saves==0&&b.saves==0&&c.saves==0,"heal removal");clear();
  HandleStrategy(&h,"~aoe fear @melee");check(changed(a,"~aoe fear")&&changed(b,"~aoe fear")&&c.saves==0&&d.saves==0,"melee includes melee tanks");clear();
  HandleStrategy(&h,"+aoe fear @ranged");check(changed(c,"+aoe fear")&&changed(d,"+aoe fear")&&a.saves==0&&b.saves==0,"ranged includes ranged healers");clear();
+ a.context.supported.insert("bear");
+ current.partyBots={&tank,&dps};HandleStrategy(&h,"+bear @dps");check(b.saves==0&&h.reply.find("Unknown strategy change")!=h.reply.npos,"role scope validates against role-matching bots only");clear();
+ current.partyBots={&tank,&dps,&mage,&heal};
  HandleStrategy(&h,"+loot");check(changed(a,"+loot")&&b.saves==0,"legacy selected bot");clear();
  HandleStrategy(&h,"-passive Mage");check(changed(c,"-passive")&&a.saves==0,"legacy named bot");clear();
  HandleStrategy(&h,"  +aoe fear   Mage \t");check(changed(c,"+aoe fear")&&a.saves==0,"multiword named bot and whitespace");clear();
@@ -89,7 +92,7 @@ int main(){
  for(const char* invalid:{"","+","aoe fear","+aoe fear @dsp","+aoe fear @dps @tank","+aoe fear Missing"}){
   HandleStrategy(&h,invalid);check(a.saves+b.saves+c.saves+d.saves+e.saves==0,"invalid or unknown suffix has no changes");clear();
  }
- current.partyBots={&dps,&mage};HandleStrategy(&h,"+tank assist @tank");check(a.saves+b.saves+c.saves+d.saves==0&&h.reply.find("0 bot(s)")!=h.reply.npos,"no role match reports zero");clear();
+ current.partyBots={&dps,&mage};HandleStrategy(&h,"+tank assist @tank");check(a.saves+b.saves+c.saves+d.saves==0&&h.reply.find("No party bot matches role")!=h.reply.npos,"no role match says so");clear();
  requester=nullptr;HandleStrategy(&h,"+loot");check(a.saves+b.saves+c.saves+d.saves==0,"console denied");
  std::cout<<"Strategy command production handler: "<<failures<<" failures\n";return failures?1:0;
 }

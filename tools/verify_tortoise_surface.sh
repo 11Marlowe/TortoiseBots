@@ -94,7 +94,7 @@ fi
 # Vetted player controls must stay mapped to fixed mature actions. Do not turn
 # the public shell into an unrestricted forwarding path while adding aliases.
 for control in guard free ready attack formation status; do
-    grep -q "cmd == \"$control\"" commands/BotCommands.cpp \
+    grep -q "{\"$control\", Handle" commands/BotCommands.cpp \
         || fail "public player control is missing: $control"
 done
 grep -q 'guard chat shortcut' commands/BotCommands.cpp \

@@ -4,7 +4,7 @@
 
 It is a hobby project built for its owner and interested players: pragmatic, small, working changes beat ceremony.
 
-**Before you start:** every change needs an issue, only complete features go into `dev` (unfinished ones live on a feature branch), branches are named `feat/<topic>`, `fix/<topic>` or `docs/<topic>`, and the pull request description must say plainly what is added, changed and removed. Read [`AGENTIC_GUIDELINES.md`](AGENTIC_GUIDELINES.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Before you start:** every change needs an issue, only complete features go into `dev` (unfinished ones live on a feature branch), branches are named `feat/<topic>`, `fix/<topic>` or `docs/<topic>`, and the pull request description must say plainly, in player words and without code identifiers, what is added, changed and removed (see [`CONTRIBUTING.md`](CONTRIBUTING.md#pull-requests)). Read [`AGENTIC_GUIDELINES.md`](AGENTIC_GUIDELINES.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Product direction
 
@@ -54,7 +54,7 @@ Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tor
 
 Use the smallest check that proves the change, and never report runtime behaviour you only read in code.
 
-- Docs/config text only: `bash tools/verify_all.sh` (OKF, surface, wiring, unit and decision-trail tests; ~1 s) and `git diff --check`.
+- Docs/config text only: `bash tools/verify_all.sh` (OKF, surface, wiring, unit and decision-trail tests; ~30 s with 12 parallel test jobs) and `git diff --check`.
 - Module C++: one cached build after the batch is coherent — the Docker dev loop in `../tortoise-docker-penqle` (`./dev/build-playerbots`, then `./dev/restart-server`; it builds the live `TortoiseBots` checkout). Read that repo's README first; never run destructive Docker/DB commands unless asked.
 - Runtime: the smallest relevant check (server boots, module loads, bot enters world and acts, clean logout/shutdown, no DB/session errors in the log).
 - Core-seam or build-gating change: module build while iterating, full module ON/OFF matrix before handing over.

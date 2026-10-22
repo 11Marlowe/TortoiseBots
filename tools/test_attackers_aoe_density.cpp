@@ -8,6 +8,11 @@
 #include <cassert>
 #include <cstdint>
 
+// The rules under test live in the shared policy header the production
+// values call into (issue #1180): the mock types below only translate game
+// state into plain inputs.
+#include "../ai/playerbot/AttackersAoeDensityPolicy.h"
+
 // Lightweight mock types representing the MaNGOS/Tortoise types used in AttackersValue and AoeValues
 struct ObjectGuid
 {
@@ -45,82 +50,31 @@ float getDistance2d(const Unit* u1, const Unit* u2)
     return std::sqrt(dx * dx + dy * dy);
 }
 
-// C++ implementation of the hardened FindMaxDensity logic preserving first-seen sequence
+// FindMaxDensity through the shared policy: production passes the unit
+// lookup and 2D distance the same way (exact comparisons, epsilon 0).
 std::list<ObjectGuid> SimulateFindMaxDensity(
-    const Unit* bot,
+    Unit* bot,
     const std::list<ObjectGuid>& units,
     const std::map<ObjectGuid, Unit*>& unitMap,
     float range = 100.0f,
     float aoeRadius = 10.0f)
 {
-    size_t maxCount = 0;
-    ObjectGuid maxGroup;
-    std::map<ObjectGuid, std::set<ObjectGuid>> groups;
-    std::vector<ObjectGuid> uniqueUnits;
-
-    if (bot)
-    {
-        // Stable first-seen deduplication preserving priority order
-        std::set<ObjectGuid> seen;
-        for (const ObjectGuid& guid : units)
-        {
-            if (seen.insert(guid).second)
-                uniqueUnits.push_back(guid);
-        }
-
-        for (const ObjectGuid& guid : uniqueUnits)
+    return ai::FindMaxDensityCluster<ObjectGuid, Unit>(units,
+        [&unitMap](const ObjectGuid& guid) -> Unit*
         {
             auto it = unitMap.find(guid);
-            Unit* unit = (it != unitMap.end()) ? it->second : nullptr;
-            if (unit)
-            {
-                float distanceToPlayer = getDistance2d(unit, bot);
-                if (distanceToPlayer <= range)
-                {
-                    for (const ObjectGuid& otherGuid : uniqueUnits)
-                    {
-                        auto itOther = unitMap.find(otherGuid);
-                        Unit* other = (itOther != unitMap.end()) ? itOther->second : nullptr;
-                        if (other)
-                        {
-                            float d = getDistance2d(unit, other);
-                            if (d <= aoeRadius * 2.0f)
-                            {
-                                groups[guid].insert(otherGuid);
-                            }
-                        }
-                    }
-
-                    if (maxCount < groups[guid].size())
-                    {
-                        maxCount = groups[guid].size();
-                        maxGroup = guid;
-                    }
-                }
-            }
-        }
-    }
-
-    if (!maxCount || maxGroup.IsEmpty())
-    {
-        return std::list<ObjectGuid>();
-    }
-
-    // Return the cluster members in original attackers priority order
-    std::list<ObjectGuid> result;
-    const std::set<ObjectGuid>& maxSet = groups[maxGroup];
-    for (const ObjectGuid& guid : uniqueUnits)
-    {
-        if (maxSet.find(guid) != maxSet.end())
+            return it != unitMap.end() ? it->second : nullptr;
+        },
+        [](Unit* unit, Unit* other)
         {
-            result.push_back(guid);
-        }
-    }
-
-    return result;
+            return getDistance2d(unit, other);
+        },
+        bot, range, aoeRadius, 0.0f);
 }
 
-// C++ implementation of the fixed shareTargets deduplication logic preserving first-seen sequence
+// shareTargets through the shared policy: the other bot's own targets stay
+// in the copied list; the policy drops the ones that do not threaten the
+// party (party-split fix) and preserves first-seen order.
 std::list<ObjectGuid> SimulateShareTargets(
     std::list<ObjectGuid> initialList,
     const std::vector<Unit*>& /*otherBotSpecificTargets*/,
@@ -128,36 +82,20 @@ std::list<ObjectGuid> SimulateShareTargets(
     const std::map<ObjectGuid, Unit*>& unitMap,
     bool getOne = false)
 {
-    // The other bot's own targets stay in the copied list; validation below
-    // drops the ones that do not threaten the party (party-split fix).
-
-    // Append bot specific targets of this bot in natural priority order
     for (Unit* target : thisBotSpecificTargets)
     {
         if (target)
             initialList.push_back(target->getObjectGuid());
     }
 
-    // Validate targets and enforce distinct hostile units, preserving first-seen order
-    std::list<ObjectGuid> distinctResult;
-    std::set<ObjectGuid> seen;
-
-    for (const ObjectGuid& guid : initialList)
-    {
-        if (!seen.insert(guid).second)
-            continue;
-
-        auto it = unitMap.find(guid);
-        Unit* target = (it != unitMap.end()) ? it->second : nullptr;
-        if (target && target->isValid)
+    return ai::DistinctValidTargets(initialList,
+        [&unitMap](const ObjectGuid& guid)
         {
-            distinctResult.push_back(guid);
-            if (getOne)
-                break;
-        }
-    }
-
-    return distinctResult;
+            auto it = unitMap.find(guid);
+            Unit* target = it != unitMap.end() ? it->second : nullptr;
+            return target && target->isValid;
+        },
+        getOne);
 }
 
 int main()

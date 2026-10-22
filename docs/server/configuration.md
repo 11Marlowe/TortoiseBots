@@ -109,9 +109,9 @@ These keys are read into configuration so older configuration files continue loa
 - `DiffWithPlayer`
 - [`DisableBotOptimizations`](settings/performance.md#aiplayerbotdisablebotoptimizations)
 - `DisableRandomLevels`
+- `ErrorDelay`
 - `FreeMoveDelay`
 - `GroupMemberLootDistanceWithActiveMaster`
-- `InstantRandomize`
 - `LLMApiKey`
 - `MaxFreeMoveDistance`
 - `MinRandomBotInWorldTime`

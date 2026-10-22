@@ -59,10 +59,7 @@ WarrirorAoeStrategy::WarrirorAoeStrategy(PlayerbotAI* botAI) : CombatStrategy(bo
 
 void WarrirorAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    triggers.push_back(new TriggerNode(
-        "light aoe", { NextAction("sweeping strikes", ACTION_HIGH + 7),
-                                       NextAction("thunder clap", ACTION_HIGH + 5),
-                                       NextAction("demoralizing shout without life time check", ACTION_HIGH + 1),
-                                       NextAction("cleave", ACTION_HIGH) }));
-
+    // Live AoE handling queues registered "melee light aoe"/"melee medium aoe"
+    // rows (WarriorStrategy.cpp / ProtectionWarriorStrategy.cpp); the donor
+    // "light aoe" trigger creator was never ported (issue #1179).
 }

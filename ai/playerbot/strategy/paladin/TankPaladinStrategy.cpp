@@ -68,22 +68,6 @@ void TankPaladinStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     );
     triggers.push_back(
         new TriggerNode(
-            "light aoe",
-            {
-                NextAction("consecration", ACTION_HIGH + 5)
-            }
-        )
-    );
-    triggers.push_back(
-        new TriggerNode(
-            "medium aoe",
-            {
-                NextAction("consecration", ACTION_HIGH + 7)
-            }
-        )
-    );
-    triggers.push_back(
-        new TriggerNode(
             "lose aggro",
             {
                 NextAction("hand of reckoning", ACTION_HIGH + 7)

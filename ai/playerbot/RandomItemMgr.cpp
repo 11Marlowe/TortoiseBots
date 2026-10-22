@@ -990,6 +990,17 @@ void RandomItemMgr::BuildItemInfoCache()
         if (!proto)
             continue;
 
+        // Custom-id duplicate copies (e.g. 1983153 copying "Might of Menethil"
+        // 22798): registered here, then cut from every gear pool — no
+        // itemInfoCache row, so stat weights, the equip cache, the slot
+        // backstop and upgrade suggestions never see them. A bot already
+        // wearing a copy scores it 0, so autogear replaces it with the real
+        // item. The walk is ascending, so the lowest-id instance (the real
+        // item) wins and stays eligible.
+        gearDuplicateItems.Add(proto->ItemId, proto->Name1.c_str());
+        if (gearDuplicateItems.IsDuplicate(proto->ItemId))
+            continue;
+
         // skip non armor/weapon
         if (proto->Class != ITEM_CLASS_WEAPON &&
             proto->Class != ITEM_CLASS_ARMOR &&
@@ -3680,6 +3691,11 @@ void RandomItemMgr::BuildEquipCache()
             uint32 quality = fields[4].GetUInt32();
             uint32 itemId = fields[5].GetUInt32();
 
+            // Persisted rows predate the duplicate-copy rule; a copy cached
+            // before the fix must not re-enter the pools on load.
+            if (gearDuplicateItems.IsDuplicate(itemId))
+                continue;
+
             BotEquipKey key(level, clazz, spec, slot, quality);
             equipCache[key].push_back(itemId);
             count++;
@@ -3766,6 +3782,11 @@ void RandomItemMgr::BuildEquipCache()
         {
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
             if (!proto)
+                continue;
+
+            // Covers the shirt/tabard lists too: they skip the itemInfoCache
+            // lookup below, so the copy check sits on the walk itself.
+            if (gearDuplicateItems.IsDuplicate(itemId))
                 continue;
 
             // Reject everything no key could ever accept, cheapest test first.

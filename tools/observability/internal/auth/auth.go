@@ -39,9 +39,11 @@ type SessionData struct {
 }
 
 // NewService initializes the database connection and session key.
+// SecretKey must be provided: the server generates a random key at startup
+// when SESSION_SECRET is unset, so no shipped default ever signs a session.
 func NewService(cfg Config) (*Service, error) {
 	if cfg.SecretKey == "" {
-		cfg.SecretKey = "tortoise-observability-secret-salt"
+		return nil, fmt.Errorf("SecretKey is required: set SESSION_SECRET or start without it to use a random key")
 	}
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?timeout=5s",
@@ -114,7 +116,9 @@ func (s *Service) Authenticate(username, password string) (*SessionData, error) 
 		minLevel = 2
 	}
 	if int(rank) < minLevel {
-		return nil, fmt.Errorf("access denied: account requires Game Master rank (gmlevel >= %d, current rank %d)", minLevel, rank)
+		// Same error text as a wrong credential: a wrong password and a
+		// right password with too low a rank are indistinguishable.
+		return nil, fmt.Errorf("invalid username or password")
 	}
 
 	return &SessionData{

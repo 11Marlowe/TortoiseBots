@@ -36,8 +36,6 @@ void GenericPriestStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode("enemy too close for spell",
                                        { NextAction("flee", ACTION_MOVE + 9) }));
     triggers.push_back(new TriggerNode("often", { NextAction("apply oil", 1.0f) }));
-    triggers.push_back(new TriggerNode("being attacked",
-        { NextAction("power word: shield", ACTION_HIGH + 1) }));
     triggers.push_back(new TriggerNode("new pet", { NextAction("set pet stance", 60.0f) }));
 }
 
@@ -80,8 +78,4 @@ void PriestHealerDpsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
                             NextAction("smite", ACTION_DEFAULT + 0.3f),
                             NextAction("mind blast", ACTION_DEFAULT + 0.2f),
                             NextAction("shoot", ACTION_DEFAULT) }));
-
-    triggers.push_back(
-        new TriggerNode("medium aoe and healer should attack",
-                        { NextAction("holy nova", ACTION_DEFAULT + 0.1f) }));
 }

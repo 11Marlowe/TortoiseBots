@@ -119,6 +119,14 @@ that canvas, so the sizes must not change. It reads Turtle's newer patches
 Pass `--overlay-dbc` with the server's extracted `WorldMapOverlay.dbc` if the
 client copy is unreadable.
 
+## Security
+
+- **Session secret (`SESSION_SECRET`)**: the `tbm_session` cookie is signed with HMAC-SHA256. There is no shipped default key — unset, the daemon generates a random key at startup and logs a warning, so dashboard sessions end on a restart. Set `SESSION_SECRET` (any random string) to keep sessions across restarts.
+- **Login**: `/api/v1/auth/login` applies a per-IP in-memory backoff — 5 failed logins in a row block that address for 5 minutes. Every failure (wrong password, rank too low, blocked address) answers with the same error text, so it does not leak which part failed.
+- **Bind address**: the dashboard binds `127.0.0.1` by default and is reachable only on the machine it runs on. For LAN or container access set `--http-host` / `HTTP_HOST=0.0.0.0` (`run-dashboard.sh` / `run-dashboard.ps1` pass the env var through; the Docker image sets it). Anything beyond localhost should sit behind a firewall or reverse proxy you control.
+- **WebSocket**: `/api/v1/stream` accepts browser upgrades only from the same origin (Origin header must match the request host); non-browser clients are unaffected.
+- **`/metrics` is unauthenticated** (plain Prometheus text output: pool counters, no accounts or secrets). Expose the port only where a scraper can reach it, or scrape through a proxy that adds auth.
+
 ## Validation
 
 No host Go toolchain is assumed: `docker run --rm -v "$PWD/tools/observability:/src" -w /src golang:1.22-alpine sh -c 'go vet ./... && go test ./...'`. Live check: the server logs `Observability telemetry active`, and `/metrics` (default port 8095) shows `mangos_server_online 1` and a rising `tortoisebots_snapshots_total`.
