@@ -2051,17 +2051,20 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         if (playerUpgrade && !displacedStored && slot == EQUIPMENT_SLOT_MAINHAND && proto->InventoryType == INVTYPE_2HWEAPON)
                             displacedOff = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
                         InventoryResult canEquip = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId);
-                        if (canEquip != EQUIP_ERR_OK && displacedOff)
+                        // The equip check needs a free bag slot for the displaced
+                        // off-hand (it fails CANT_BE_SWAPPED, and only for that)
+                        // — with full bags the piece is mailed first, then the
+                        // check can pass. Any other failure (proficiency, ...)
+                        // is left untouched.
+                        if (canEquip == EQUIP_ERR_ITEMS_CANT_BE_SWAPPED && displacedOff)
                         {
-                            // The equip check needs a free bag slot for the
-                            // displaced off-hand; with full bags the piece is
-                            // mailed first, then the check can pass.
                             ItemPosCountVec offDest;
                             if (bot->CanStoreItem(NULL_BAG, NULL_SLOT, offDest, displacedOff, false) != EQUIP_ERR_OK)
                             {
                                 displacedOldId = displacedOff->GetProto()->ItemId;
                                 displacedMailed = !StoreReplacedItem(displacedOff);
                                 displacedStored = true;
+                                autogearUpgrades.push_back({EQUIPMENT_SLOT_OFFHAND, displacedOldId, 0, displacedMailed});
                                 canEquip = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId);
                             }
                         }
@@ -2076,6 +2079,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                                 displacedOldId = displacedOff->GetProto()->ItemId;
                                 displacedMailed = !StoreReplacedItem(displacedOff);
                                 displacedStored = true;
+                                autogearUpgrades.push_back({EQUIPMENT_SLOT_OFFHAND, displacedOldId, 0, displacedMailed});
                             }
                         }
                         bool toBags = true;
@@ -2093,8 +2097,6 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
                         if (pItem)
                         {
-                            if (playerUpgrade && displacedStored)
-                                autogearUpgrades.push_back({EQUIPMENT_SLOT_OFFHAND, displacedOldId, 0, displacedMailed});
                             if (playerUpgrade)
                                 autogearUpgrades.push_back({slot, oldStoredId, newItemId, oldStoredMailed});
                             // Issue #960: EquipNewItem never rolls a suffix; when no suffix
