@@ -2843,17 +2843,14 @@ static bool HandlePlayerAutogear(ChatHandler* handler, char const* args)
 
     // A leading spec word means no name was given; otherwise the first token
     // is the player name and the rest are the spec words ("enhancement tank").
+    // A single token is always a spec word — with no spec following it, a
+    // name cannot parse, and the unknown-spec reply lists the valid specs.
     std::string nameToken;
     size_t specStart = 0;
-    if (!TortoiseBots::IsAutogearSpecToken(tokens[0]))
+    if (tokens.size() >= 2 && !TortoiseBots::IsAutogearSpecToken(tokens[0]))
     {
         nameToken = tokens[0];
         specStart = 1;
-        if (tokens.size() < 2)
-        {
-            handler->PSendSysMessage("Usage: .autogear [player name] <spec> [ilvl]");
-            return true;
-        }
     }
     std::string specToken = tokens[specStart];
     for (size_t i = specStart + 1; i < tokens.size(); ++i)
