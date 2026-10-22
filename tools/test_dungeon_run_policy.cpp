@@ -3004,6 +3004,78 @@ static void TestGossipNotAllowedNamesTheConfigKey()
     CHECK(r.note.find("AiPlayerbot.BotGossipNpcs") != std::string::npos);
 }
 
+// Plan ZF-EVENT-HOLD T7: the order's immediate ERR for an NPC that lies dead (r12-19z29 step 220: Weegli
+// Blastfuse 7607 dead at the door): the first refusal pauses plainly, says a resume will not help and
+// names skip and stop; no retry is asked for.
+static void TestGossipDeadNpcPausesPlainly()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    std::string const order = Tick(r, f);
+    CHECK(order == "gossip 7607 Tanky 1");
+    OrderRefused(r, order,
+        "no-npc: No living NPC of that entry is within 40 yd of the bot: Weegli Blastfuse (7607) lies dead 3 yd away "
+        "and respawns in 6 d 23 h (604800 s spawn timer).");
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("gossip 7607 option 1 cannot be done") != std::string::npos);
+    CHECK(r.note.find("Weegli Blastfuse (7607) is dead (respawns in 6 d 23 h)") != std::string::npos);
+    CHECK(r.note.find("resume will not help") != std::string::npos);
+    CHECK(r.note.find(".bot run skip") != std::string::npos && r.note.find(".bot run stop") != std::string::npos);
+    CHECK(r.note.find("refused") == std::string::npos);
+    // No respawn time in the text: the sentence still names the NPC.
+    Run q = Start(&plan);
+    Tick(q, f);
+    OrderRefused(q, order, "no-npc: No living NPC of that entry is within 40 yd of the bot: Weegli Blastfuse (7607) lies dead 3 yd away.");
+    CHECK(q.state == State::Paused && q.note.find("Weegli Blastfuse (7607) is dead.") != std::string::npos);
+    CHECK(q.note.find("respawns") == std::string::npos);
+}
+
+// T8: the plain no-npc text (nothing dead there either) keeps its text.
+static void TestGossipNoNpcKeepsItsText()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    std::string const order = Tick(r, f);
+    OrderRefused(r, order, "no-npc: No living NPC of that entry is within 40 yd of the bot.");
+    CHECK(r.state == State::Paused);
+    CHECK(r.note.find("cmd gossip 7607 Tanky 1 refused: no-npc: No living NPC of that entry is within 40 yd of the bot.") !=
+        std::string::npos);
+    CHECK(r.note.find("cannot be done") == std::string::npos);
+    // The mark outside a gossip step's own order is not read either.
+    DungeonPlan other;
+    other.steps = {Step(PlanStepKind::Rest)};
+    Run o = Start(&other);
+    OrderRefused(o, "attack 5 Tanky", "invalid-target: it lies dead there");
+    CHECK(o.note.find("cannot be done") == std::string::npos);
+}
+
+// T9: the later failure (the NPC died before the bot reached it) gives the same plain note.
+static void TestGossipDeadNpcTaskReply()
+{
+    DungeonPlan plan;
+    plan.steps = {GossipRow(10)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    CHECK(Tick(r, f) == "gossip 7607 Tanky 1");
+    f.taskReply = 2;
+    f.taskText = "no-npc: The NPC died before the bot reached it: Weegli Blastfuse (7607) lies dead 3 yd away and respawns in 6 d 23 h (604800 s spawn timer).";
+    Tick(r, f);
+    CHECK(r.state == State::Paused && r.step == 0);
+    CHECK(r.note.find("gossip 7607 option 1 cannot be done") != std::string::npos);
+    CHECK(r.note.find("Weegli Blastfuse (7607) is dead (respawns in 6 d 23 h)") != std::string::npos);
+    CHECK(r.note.find("resume will not help") != std::string::npos);
+    // A late failure without the mark keeps today's note.
+    Run q = Start(&plan);
+    Tick(q, f);
+    f.taskText = "no-npc: The NPC died or despawned before the bot reached it.";
+    Tick(q, f);
+    CHECK(q.note.find("gossip 7607 option 1 failed: no-npc: The NPC died or despawned") != std::string::npos);
+}
+
 // use_on: Zul'Farrak's gong 141832, rung with the Mallet of Zul'Farrak 9240.
 static PlanStep GongRow()
 {
@@ -10120,6 +10192,9 @@ int main()
     TestGossipOrderOnceThenAck();
     TestGossipErrPauses();
     TestGossipNotAllowedNamesTheConfigKey();
+    TestGossipDeadNpcPausesPlainly();
+    TestGossipNoNpcKeepsItsText();
+    TestGossipDeadNpcTaskReply();
     TestGossipNoAnswerPauses();
     TestGossipWaitsForABusyLeadBot();
     TestGossipWalksToFarPointFirst();
