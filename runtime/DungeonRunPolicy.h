@@ -6651,11 +6651,20 @@ inline bool HealerKeptToHeals(bool runRunning, bool inRunParty, bool isLead, boo
 // guard pick-up (`attack`, which ends the stay) was undone on the next tick
 // (THREAT F1: r15 Uldaman step 40, 1159-1192 s, 3 of 3 pick-ups undone, the
 // hunter and the warlock dead; 9 of 27 rest-phase guard orders in r12-r17).
+// A stale combat flag (Facts::staleCombat: in combat by the flag, nothing
+// hostile engaged with any bot or pet) is no fight: it kept Run::fighting
+// true and the phase Rest up to the fight ceiling, so the lead is held then,
+// a pick-up pending or not (Codex and Opus review of the first F1 commit).
+// Run::guardReturn in the Rest phase: set by a pick-up during a rest fight
+// (the sentinel replay); after a fight it is not reached in Rest (the fight's
+// end moves the phase to Begin and the walk back returns each tick), kept as
+// belt and braces.
 inline bool LeadStayDueWhileResting(Run const& r, bool leadAlive, bool leadInCombat, bool leadStaying,
-    bool leadInMagma)
+    bool leadInMagma, bool combatStale)
 {
-    return r.state == State::Running && r.phase == Phase::Rest && !r.fighting && !r.guardReturn && leadAlive &&
-        !leadInCombat && !leadStaying && !leadInMagma;
+    bool const actionableFight = (r.fighting || r.guardReturn) && !combatStale;
+    return r.state == State::Running && r.phase == Phase::Rest && !actionableFight && leadAlive && !leadInCombat &&
+        !leadStaying && !leadInMagma;
 }
 
 // A party member coming back with attackers on it. The owner's rule

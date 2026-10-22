@@ -115,7 +115,10 @@ class MagmaGuardWiringTest(unittest.TestCase):
         issue = at(f, "IssueRunOrder(commander, order, answer,")
         self.assertTrue(tick < due < issue)
         hold = f[due:issue]
-        self.assertIn('leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma()))', hold)
+        self.assertIn('leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma(), facts.staleCombat))',
+                      hold)
+        # The stale flag is this tick's facts (THREAT F1 review round).
+        self.assertLess(at(f, "ReadRunFacts(slot, lead, bots, facts);"), due)
         self.assertIn("FormUpOnLead(commander, lead, std::vector<Player*>{ lead }, true);", hold)
         self.assertIn("leadAi->StopMoving();", hold)
 

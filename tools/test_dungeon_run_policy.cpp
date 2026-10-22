@@ -877,37 +877,37 @@ static void TestLeadHoldsStayWhileResting()
     f.maxMemberYd = 5;
     // Before the pull and during the fight: no hold from here.
     CHECK(Tick(r, f) == "pullback 11");
-    CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, false, false));
     f.anyInCombat = true;
     Tick(r, f);
-    CHECK(!LeadStayDueWhileResting(r, true, true, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, true, false, false, false));
     // The fight is over and the healer is dry: the run rests, the lead holds.
     f.anyInCombat = false;
     f.units.clear();
     f.minHealerManaPct = 20;
     CHECK(Tick(r, f) == "rest");
     CHECK(r.phase == Phase::Rest);
-    CHECK(LeadStayDueWhileResting(r, true, false, false, false));
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false, false));
     // Sent once: a lead already on "stay" is left alone.
-    CHECK(!LeadStayDueWhileResting(r, true, false, true, false));
+    CHECK(!LeadStayDueWhileResting(r, true, false, true, false, false));
     // A lead standing in magma is left free to walk out of it.
-    CHECK(!LeadStayDueWhileResting(r, true, false, false, true));
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, true, false));
     // A dead lead or one pulled into a fight again is not put on "stay".
-    CHECK(!LeadStayDueWhileResting(r, false, false, false, false));
-    CHECK(!LeadStayDueWhileResting(r, true, true, false, false));
+    CHECK(!LeadStayDueWhileResting(r, false, false, false, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, true, false, false, false));
     // Still resting a tick later (the formation walk would start any time).
     Tick(r, f);
     CHECK(r.phase == Phase::Rest);
-    CHECK(LeadStayDueWhileResting(r, true, false, false, false));
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false, false));
     // A paused run gives no orders.
     Run paused = r;
     paused.state = State::Paused;
-    CHECK(!LeadStayDueWhileResting(paused, true, false, false, false));
+    CHECK(!LeadStayDueWhileResting(paused, true, false, false, false, false));
     // Rested: the step goes on and the hold is the next order's business.
     f.minHealerManaPct = 85;
     Tick(r, f);
     CHECK(r.phase != Phase::Rest);
-    CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, false, false));
 }
 
 static UnitFact Hitter(std::uint64_t guid, std::uint32_t entry, float dist, bool healer);
@@ -947,27 +947,27 @@ static void TestRestFightLeavesTheLeadOffStay()
     Facts f;
     Run r = RestingRun(plan, f);
     // T2: a lead genuinely idle in the rest (off stay, no fight) is held.
-    CHECK(LeadStayDueWhileResting(r, true, false, false, false));
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false, false));
     // T1: a fight in the rest; the lead is on nobody's threat list (not in
     // combat itself) and off stay after a pick-up: not put back on stay.
     f.anyInCombat = true;
     Tick(r, f);
     CHECK(r.phase == Phase::Rest && r.fighting);
-    CHECK(!LeadStayDueWhileResting(r, true, false, false, false));
+    CHECK(!LeadStayDueWhileResting(r, true, false, false, false, false));
     // T3: the fight flag gone but the guard's return still pending (belt and
     // braces: the fight's end leaves the rest): no stay due either.
     Run back = r;
     back.fighting = false;
     back.guardReturn = true;
     CHECK(back.phase == Phase::Rest);
-    CHECK(!LeadStayDueWhileResting(back, true, false, false, false));
+    CHECK(!LeadStayDueWhileResting(back, true, false, false, false, false));
     back.guardReturn = false;
-    CHECK(LeadStayDueWhileResting(back, true, false, false, false)); // only those two flags differ
+    CHECK(LeadStayDueWhileResting(back, true, false, false, false, false)); // only those two flags differ
     // The other conditions are unchanged.
-    CHECK(!LeadStayDueWhileResting(back, true, false, true, false));
-    CHECK(!LeadStayDueWhileResting(back, true, false, false, true));
-    CHECK(!LeadStayDueWhileResting(back, true, true, false, false));
-    CHECK(!LeadStayDueWhileResting(back, false, false, false, false));
+    CHECK(!LeadStayDueWhileResting(back, true, false, true, false, false));
+    CHECK(!LeadStayDueWhileResting(back, true, false, false, true, false));
+    CHECK(!LeadStayDueWhileResting(back, true, true, false, false, false));
+    CHECK(!LeadStayDueWhileResting(back, false, false, false, false, false));
 }
 
 // T1 through the tick: a rest fight whose tank leaves stay without a guard
@@ -989,8 +989,47 @@ static void TestRestFightFocusLeavesTheLeadOffStay()
     for (int i = 0; i < 5; ++i)
     {
         CHECK(Tick(r, f).empty());
-        CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false));
+        CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false, f.staleCombat));
     }
+}
+
+// Codex adversarial and the Opus cold review of 5da4d254: a combat flag left
+// standing in the rest (Facts::staleCombat: anyInCombat, nothing hostile
+// engaged with any bot or pet) keeps Run::fighting true and the phase Rest
+// for up to the fight ceiling. A stale flag is no fight: the lead off stay is
+// held again (the RFC r3 lava wander), with or without a guard pick-up
+// pending; once the flag turns real (an attacker), the stay is off again.
+static void TestRestStaleCombatStillHoldsTheLead()
+{
+    DungeonPlan plan;
+    Facts f;
+    Run r = RestingRun(plan, f);
+    // Phase Rest, the flag up, no attackers, no targets, no guard return.
+    f.anyInCombat = true;
+    f.staleCombat = true;
+    f.leadStaying = false;
+    for (int i = 0; i < 3; ++i)
+    {
+        CHECK(Tick(r, f).empty());
+        CHECK(r.phase == Phase::Rest && r.fighting && !r.guardReturn);
+        CHECK(LeadStayDueWhileResting(r, true, false, f.leadStaying, false, f.staleCombat));
+    }
+    // The flag turns real: a mob hits the hunter.
+    f.staleCombat = false;
+    f.members = {Mem("Tanky", 0), Mem("Aeladra", 21.3f)};
+    f.members[1].attackers = 1;
+    f.members[1].inCombat = true;
+    f.partyAttackers = {Hitter(7022, 7022, 22.7f, false)};
+    Tick(r, f);
+    CHECK(r.fighting);
+    CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false, f.staleCombat));
+    // The reviewers' sequence: a guard pick-up (guard return pending), the
+    // mobs die, one bot keeps a stale flag: the lead is held where it stands
+    // (the walk back to the stand still follows the fight's end).
+    Run picked = r;
+    picked.guardReturn = true;
+    CHECK(!LeadStayDueWhileResting(picked, true, false, false, false, false));
+    CHECK(LeadStayDueWhileResting(picked, true, false, false, false, true));
 }
 
 // T4: a run back is allowed in the rest phase too (no event ahead), and not
@@ -1065,7 +1104,10 @@ static void TestRunBackListsRestFightMembers()
 // died at 1188.7, the warlock Potpourri at 1191.8. Here the glue's stay check
 // (after Tick, before the order, BotCommands.cpp) is asked each tick as the
 // glue asks it: the stay stays off for the whole fight, and the hunter and
-// the warlock run back.
+// the warlock run back. This replay does NOT prove the Run::fighting
+// condition: the first pick-up sets Run::guardReturn on the same tick, and
+// that masks it from then on (the tank is on stay before it). Only T1 and
+// TestRestFightFocusLeavesTheLeadOffStay prove Run::fighting.
 static void TestSentinelRestFightReplay()
 {
     DungeonPlan plan;
@@ -1077,8 +1119,8 @@ static void TestSentinelRestFightReplay()
     // 1151-1158: resting, the lead holds (the RFC r3 rule is untouched).
     for (int i = 0; i < 3; ++i)
         CHECK(Tick(r, f).empty() && r.phase == Phase::Rest);
-    CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false)); // on stay already
-    CHECK(LeadStayDueWhileResting(r, true, false, false, false));          // off stay: held
+    CHECK(!LeadStayDueWhileResting(r, true, false, f.leadStaying, false, false)); // on stay already
+    CHECK(LeadStayDueWhileResting(r, true, false, false, false, false));          // off stay: held
     // 1159: Venomlash on the hunter; the tank is on no threat list.
     f.anyInCombat = true;
     f.leadInCombat = false;
@@ -1108,7 +1150,7 @@ static void TestSentinelRestFightReplay()
         hunterRan = hunterRan || Listed(r, "Aeladra");
         warlockRan = warlockRan || Listed(r, "Potpourri");
         // The glue: the stay check runs after Tick, before the order goes out.
-        if (LeadStayDueWhileResting(r, true, f.leadInCombat, f.leadStaying, false))
+        if (LeadStayDueWhileResting(r, true, f.leadInCombat, f.leadStaying, false, f.staleCombat))
         {
             f.leadStaying = true; // FormUpOnLead(..., stay) + StopMoving
             ++undone;
@@ -11373,6 +11415,7 @@ int main()
     TestLeadHoldsStayWhileResting();
     TestRestFightLeavesTheLeadOffStay();
     TestRestFightFocusLeavesTheLeadOffStay();
+    TestRestStaleCombatStillHoldsTheLead();
     TestRunBackAllowedInRest();
     TestRunBackListsRestFightMembers();
     TestSentinelRestFightReplay();

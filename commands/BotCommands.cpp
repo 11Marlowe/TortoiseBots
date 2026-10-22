@@ -11083,7 +11083,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             "the lead bot stands");
     if (PlayerbotAI* leadAi = PlayerbotAIStorage::Instance().GetAI(lead))
         if (TortoiseBots::DungeonRun::LeadStayDueWhileResting(slot.run, lead->IsAlive(), lead->IsInCombat(),
-                leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma()))
+                leadAi->HasStrategy("stay", BotState::BOT_STATE_NON_COMBAT), lead->IsInMagma(), facts.staleCombat))
         {
             FormUpOnLead(commander, lead, std::vector<Player*>{ lead }, true);
             leadAi->StopMoving();
