@@ -439,12 +439,15 @@ function TT.creaturesAt(center, x, y, z, r, hostile, dead, entry)
     local cx, cy, cz = center:GetX(), center:GetY(), center:GetZ()
     local reach = TT.dist3(cx, cy, cz, x, y, z) + r + 30
     if reach > TT.CFG.max_search then reach = TT.CFG.max_search end
-    local found = center:GetCreaturesInRange(reach, entry or 0, hostile or 0, dead or 1) or {}
+    -- A GM-mode caller is friendly to everything (hostile=1 returns nothing, hostile=2 returns
+    -- everything, measured r21), so for a GM caller "hostile" means every creature except pets.
+    local gmAll = (hostile == 1) and center.IsGM and center:IsGM() and true or false
+    local found = center:GetCreaturesInRange(reach, entry or 0, gmAll and 0 or (hostile or 0), dead or 1) or {}
     local out = {}
     for i = 1, #found do
         local c = found[i]
         local d = TT.dist2(x, y, c:GetX(), c:GetY())
-        if d <= r then out[#out + 1] = { c = c, d = d } end
+        if d <= r and not (gmAll and c:GetOwner()) then out[#out + 1] = { c = c, d = d } end
     end
     table.sort(out, function(a, b) return a.d < b.d end)
     return out
@@ -491,8 +494,16 @@ end
 
 -- Online group members of a player (World state only: Group:GetMembers is
 -- METHOD_REG_WORLD, GroupMethods.h).
-function TT.groupMembers(player)
-    local g = player:GetGroup()
+-- `of` (a player's name) takes THAT player's group instead of the caller's: a commander
+-- bound with `.bot commander bind` is not in the bots' group (measured r21).
+function TT.groupMembers(player, of)
+    local g
+    if of and of ~= "" then
+        local o = GetPlayerByName(of)
+        g = o and o:GetGroup()
+    else
+        g = player:GetGroup()
+    end
     if not g then return {} end
     return g:GetMembers() or {}
 end

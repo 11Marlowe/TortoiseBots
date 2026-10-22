@@ -217,7 +217,7 @@ function Q.units(player, req)
     if not x then x, y, z = player:GetX(), player:GetY(), player:GetZ() end
     local ok, msg = checkPoint(player, x, y)
     if not ok then return fail(player, req, "point_far", msg) end
-    local hostile = req.flags["all"] and 0 or 1
+    local hostile = req.flags["all"] and 0 or (req.flags["friendly"] and 2 or 1)
     local dead = req.flags["dead"] and 0 or 1
     local entry = num(req.kv.e)
     local au = idList(req.kv.au)
@@ -229,7 +229,7 @@ function Q.units(player, req)
     local t = mapInfo(map)
     t.at = { TT.round(x), TT.round(y), TT.round(z) }
     t.r = r
-    t.filter = hostile == 1 and "hostile" or "all"
+    t.filter = hostile == 1 and "hostile" or (hostile == 2 and "friendly" or "all")
     t.n = #list
     t.units = units
     if #list > CFG.max_list then t.trunc = true end
@@ -281,7 +281,7 @@ function Q.gos(player, req)
 end
 
 function Q.group(player, req)
-    local members = TT.groupMembers(player)
+    local members = TT.groupMembers(player, req.kv.of)
     local out = {}
     local myMap, myInst = player:GetMapId(), player:GetInstanceId()
     for i = 1, #members do
@@ -571,7 +571,7 @@ local function cmdPlace(player, req)
     local myCounter = playerCounter(player)
 
     local movers, skipped, fighting = {}, {}, {}
-    local members = TT.groupMembers(player)
+    local members = TT.groupMembers(player, req.kv.of)
     for i = 1, #members do
         local m = members[i]
         local isMe = (m:GetGUIDLow() == myCounter)
@@ -653,7 +653,7 @@ local function cmdReset(player, req)
     end
     mapId = math.floor(mapId)
     if mapId <= 1 then return fail(player, req, "not_instance", "maps 0/1 have no binds") end
-    local list = TT.groupMembers(player)
+    local list = TT.groupMembers(player, req.kv.of)
     local people, seen = {}, {}
     local function add(p)
         local c = p:GetGUIDLow()
