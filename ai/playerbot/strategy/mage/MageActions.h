@@ -150,7 +150,7 @@ namespace ai
 		CastCombustionAction(PlayerbotAI* ai) : CastBuffSpellAction(ai, "combustion") {}
 	};
 
-    BEGIN_SPELL_ACTION(CastCounterspellAction, "counterspell")
+    BEGIN_INTERRUPT_SPELL_ACTION(CastCounterspellAction, "counterspell")
     END_SPELL_ACTION()
 
     class CastRemoveCurseOnPartyAction : public CurePartyMemberAction

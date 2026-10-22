@@ -115,7 +115,15 @@ namespace ai
     // repentance triggers
     INTERRUPT_HEALER_TRIGGER(RepentanceOnHealerTrigger, "repentance on enemy healer");
     SNARE_TRIGGER(RepentanceSnareTrigger, "repentance on snare target");
-    INTERRUPT_TRIGGER(RepentanceInterruptTrigger, "repentance");
+    // Issue #1158: the "repentance" action is shared with the "repentance or
+    // shield" critical-health row, which repents the current target, so this
+    // trigger stays on the current target too.
+    class RepentanceInterruptTrigger : public InterruptSpellTrigger
+    {
+    public:
+        RepentanceInterruptTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, "repentance") {}
+        virtual Value<Unit*>* GetTargetValue() override { return context->GetValue<Unit*>("current target"); }
+    };
 
     class BlessingOnPartyTrigger : public BuffOnPartyTrigger
     {
@@ -455,6 +463,12 @@ namespace ai
     {
     public:
         HammerOfJusticeInterruptSpellTrigger(PlayerbotAI* ai) : InterruptSpellTrigger(ai, "hammer of justice") {}
+
+        // Issue #1158: stays on the current target. The "hammer of justice"
+        // action is shared with the "hammer of justice on enemy" stun rows,
+        // which stun the current target, so the trigger must not point at a
+        // different mob than its action hits.
+        virtual Value<Unit*>* GetTargetValue() override { return context->GetValue<Unit*>("current target"); }
     };
 
     class HammerOfJusticeSnareTrigger : public SnareTargetTrigger

@@ -15,7 +15,7 @@ namespace ai
 	SNARE_ACTION(CastDeathCoilSnareAction, "death coil");
 	SNARE_ACTION(CastCurseOfExhaustionSnareAction, "curse of exhaustion");
 	ENEMY_HEALER_ACTION(CastDeathCoilOnHealerAction, "death coil");
-	SPELL_ACTION(CastDeathCoilAction, "death coil");
+	INTERRUPT_SPELL_ACTION(CastDeathCoilAction, "death coil");
     BUFF_ACTION(CastShadowWardAction, "shadow ward");
 
 	class CastDemonSkinAction : public CastBuffSpellAction
@@ -358,6 +358,13 @@ namespace ai
     {
     public:
         CastSpellLockAction(PlayerbotAI* ai) : CastPetSpellAction(ai, "spell lock") {}
+
+        // Issue #1158: cast at the interrupt pick - any engaged hostile in
+        // range casting an interruptible spell - not only the current
+        // target. Matches the SpellLockTrigger read.
+    protected:
+        std::string GetTargetName() override { return "interrupt target"; }
+        std::string GetTargetQualifier() override { return GetSpellName(); }
     };
 
     class CastDevourMagicPurgeAction : public CastPetSpellAction

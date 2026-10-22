@@ -122,7 +122,7 @@ namespace ai
     SPELL_ACTION(CastMindFlayAction, "mind flay");
     RANGED_DEBUFF_ACTION(CastVampiricEmbraceAction, "vampiric embrace");
     BUFF_ACTION(CastShadowformAction, "shadowform");
-    SPELL_ACTION(CastSilenceAction, "silence");
+    INTERRUPT_SPELL_ACTION(CastSilenceAction, "silence");
     ENEMY_HEALER_ACTION(CastSilenceOnEnemyHealerAction, "silence");
 
     // racials

@@ -403,6 +403,7 @@ namespace ai
                 creators["water breathing on party"] = [](PlayerbotAI* ai) { return new CastWaterBreathingOnPartyAction(ai); };
                 creators["flame shock"] = [](PlayerbotAI* ai) { return new CastFlameShockAction(ai); };
                 creators["earth shock"] = [](PlayerbotAI* ai) { return new CastEarthShockAction(ai); };
+                creators["earth shock on interrupt target"] = [](PlayerbotAI* ai) { return new CastEarthShockInterruptAction(ai); };
                 creators["earth shock on enemy healer"] = [](PlayerbotAI* ai) { return new CastEarthShockOnEnemyHealerAction(ai); };
                 creators["frost shock"] = [](PlayerbotAI* ai) { return new CastFrostShockAction(ai); };
                 creators["chain lightning"] = [](PlayerbotAI* ai) { return new CastChainLightningAction(ai); };
