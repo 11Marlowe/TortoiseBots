@@ -3187,11 +3187,35 @@ inline float StandDistance(float lx, float ly, float lz, float x, float y, float
     return ai::PlanDistance(lx, ly, lz, x, y, z);
 }
 
+// The executor's deadband for a `cmd move`: the order puts the lead bot on stay and
+// runs "return to stay position", whose MoveToPositionAction::isUseful
+// (ai/playerbot/strategy/actions/PositionAction.cpp) acts only when the bot is more
+// than GetRange("follow") from the point on the ground; inside a dungeon or raid that
+// range is AiPlayerbot.RaidFollowDistance (PlayerbotAI::GetRange "followraid",
+// default 5.0 in PlayerbotAIConfig.cpp). A lead bot this close does not move at all.
+constexpr float kFollowDeadbandYd = 5.0f;
+// The lead bot and the point share a floor (a ramp, not a ledge over another
+// floor) when the point is at most its ground distance plus this much above or
+// below it: a slope of about 45 degrees.
+constexpr float kSharedFloorRiseYd = 1.0f;
+
+// A stalled plain walk the executor would not move: within kFollowDeadbandYd on the
+// ground and on the point's floor (Zul'Farrak r16-19z34 step 37: 4.84 yd on the
+// ground, 4.6 yd above, 6.6 yd in 3D; the guard's walk back paused the run).
+inline bool InFollowDeadband(float lx, float ly, float lz, float x, float y, float z)
+{
+    float const ground = std::sqrt((lx - x) * (lx - x) + (ly - y) * (ly - y));
+    float const dz = lz > z ? lz - z : z - lz;
+    return ground <= kFollowDeadbandYd && dz <= ground + kSharedFloorRiseYd;
+}
+
 // Walks the party to a point. True once the lead bot is there; otherwise
 // `order` may hold the move to send. Pauses after kWalkTries moves without
-// progress.
+// progress. `plainWalk`: a Move step's walk or the guard's walk back to the stand
+// (not a pull's, a hop's or an exact point's), which also counts a stall inside the
+// executor's follow deadband (InFollowDeadband) as arrived.
 inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direct, std::uint32_t dt,
-    std::string& order)
+    std::string& order, bool plainWalk = false)
 {
     float const dist = ai::PlanDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
     // The anchor is where the lead bot actually stands on arrival: the point,
@@ -3234,7 +3258,11 @@ inline bool WalkTo(Run& r, const Facts& f, float x, float y, float z, bool direc
     // A plain walk judges the stalled arrival by StandDistance (a stand on a ledge);
     // a direct step keeps the 3D distance.
     float const stallYd = direct ? dist : StandDistance(f.leadX, f.leadY, f.leadZ, x, y, z);
-    if (!direct && r.walkStillMs >= kShortStallMs && stallYd <= kStalledArriveYd)
+    // A plain walk stalled inside the executor's follow deadband on the point's floor
+    // (InFollowDeadband) is arrived as well: a `cmd move` cannot move the lead bot there,
+    // so retrying only paused the run (Zul'Farrak r16-19z34 step 37, 6.6 yd in 3D).
+    bool const deadband = plainWalk && InFollowDeadband(f.leadX, f.leadY, f.leadZ, x, y, z);
+    if (!direct && r.walkStillMs >= kShortStallMs && (stallYd <= kStalledArriveYd || deadband))
         return arrived(f.leadX, f.leadY, f.leadZ);
     if (r.walkStillMs >= kWalkRetryMs && stallYd <= kStalledArriveYd)
         return arrived(f.leadX, f.leadY, f.leadZ);
@@ -5038,7 +5066,7 @@ inline void MoveStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         return;
     }
     r.note = "walking";
-    if (WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order))
+    if (WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order, true))
     {
         NoteReached(r, f, r.step);
         NextStep(r, "arrived");
@@ -7512,7 +7540,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
             r.anchorY = f.leadY;
             r.anchorZ = f.leadZ;
         }
-        else if (WalkTo(r, f, r.guardX, r.guardY, r.guardZ, false, dt, order))
+        else if (WalkTo(r, f, r.guardX, r.guardY, r.guardZ, false, dt, order, true))
         {
             r.guardReturn = false;
             EnterPhase(r, Phase::Begin);

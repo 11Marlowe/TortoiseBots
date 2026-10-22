@@ -130,7 +130,7 @@ class IslandEscapeWiringTest(unittest.TestCase):
         self.assertNotIn("slot.run.walkBack && step->kind == ai::PlanStepKind::Move && slot.run.phase", facts)
         move = body(POLICY, "inline void MoveStep(", "\n}\n")
         island = at(move, "IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r))")
-        self.assertLess(island, at(move, "WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order)"))
+        self.assertLess(island, at(move, "WalkTo(r, f, s.x, s.y, s.z, s.kind == PlanStepKind::MoveDirect, dt, order, true)"))
         self.assertLess(island, at(move, "if (r.detour)"))
         at(move, "IslandConfirmed(r, f, s.x, s.y, s.z, GoodSpotFresh(r)))")
         at(move, "r.escapeFromMove = r.escapeOn;")
