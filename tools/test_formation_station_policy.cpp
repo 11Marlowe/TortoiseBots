@@ -14,6 +14,8 @@
 using ai::FormationStationDistance;
 using ai::FormationStationWanted;
 using ai::kFormationStationToleranceYd;
+using ai::FormationStationMemory;
+using ai::FormationStationStep;
 
 int main()
 {
@@ -49,6 +51,47 @@ int main()
         CHECK(fabs(FormationStationDistance(0.0f, 0.0f, 3.0f, 4.0f) - 5.0f) < 1e-6f);
         CHECK(FormationStationDistance(1.0f, 1.0f, 1.0f, 1.0f) == 0.0f);
         std::cout << "  [PASS] distance helper measures the 2D gap\n";
+    }
+
+    // Once per formation change: a bot that reached its slot is not walked
+    // again on later ticks, even though chaos re-rolls the slot each tick.
+    {
+        FormationStationMemory memory;
+        CHECK(FormationStationStep(memory, 1, 0.0f, 0.0f, 5.0f, 0.0f));
+        CHECK(!FormationStationStep(memory, 1, 5.0f, 0.0f, 5.5f, 0.3f));
+        CHECK(!FormationStationStep(memory, 1, 5.0f, 0.0f, 4.7f, -0.2f));
+        std::cout << "  [PASS] reached slot is not walked again in the same formation\n";
+    }
+
+    // A walk that never lands gets one retry, then the bot stops until the
+    // formation changes: no endless loop.
+    {
+        FormationStationMemory memory;
+        CHECK(FormationStationStep(memory, 1, 0.0f, 0.0f, 5.0f, 0.0f));
+        CHECK(FormationStationStep(memory, 1, 0.0f, 0.0f, 5.2f, 0.4f));
+        CHECK(!FormationStationStep(memory, 1, 0.0f, 0.0f, 4.8f, -0.3f));
+        CHECK(!FormationStationStep(memory, 1, 0.0f, 0.0f, 5.0f, 0.0f));
+        std::cout << "  [PASS] a walk that never lands gets one retry, then stops\n";
+    }
+
+    // A new formation starts over, also when the same name is set again: the
+    // bot walks once more, then settles.
+    {
+        FormationStationMemory memory;
+        CHECK(FormationStationStep(memory, 1, 0.0f, 0.0f, 5.0f, 0.0f));
+        CHECK(!FormationStationStep(memory, 1, 5.0f, 0.0f, 5.0f, 0.0f));
+        CHECK(FormationStationStep(memory, 2, 5.0f, 0.0f, 0.0f, 6.0f));
+        CHECK(!FormationStationStep(memory, 2, 0.0f, 6.0f, 0.0f, 6.0f));
+        std::cout << "  [PASS] formation change re-stations once\n";
+    }
+
+    // Within the 1 yd tolerance a new formation does not walk the bot.
+    {
+        FormationStationMemory memory;
+        CHECK(!FormationStationStep(memory, 1, 0.0f, 0.0f, 0.9f, 0.0f));
+        CHECK(!FormationStationStep(memory, 2, 0.0f, 0.0f, 1.0f, 0.0f));
+        CHECK(FormationStationStep(memory, 3, 0.0f, 0.0f, 1.5f, 0.0f));
+        std::cout << "  [PASS] new formation respects the 1 yd tolerance\n";
     }
 
     std::cout << "All formation station policy tests passed.\n";
