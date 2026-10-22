@@ -34,8 +34,14 @@ bool BloodrageBuffTrigger::IsActive()
     if (!ai->HasSpell("bloodrage"))
         return false;
 
-    return AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.mediumHealth &&
-        AI_VALUE2(uint8, "rage", "self target") < 20;
+    uint32 spellId = AI_VALUE2(uint32, "spell id", "bloodrage");
+    bool spellReady = spellId && sServerFacade.IsSpellReady(bot, spellId);
+
+    uint8 rage = AI_VALUE2(uint8, "rage", "self target");
+    return ShouldBloodrage(
+        spellReady,
+        AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.mediumHealth,
+        rage);
 }
 
 bool SunderArmorDebuffTrigger::IsActive()

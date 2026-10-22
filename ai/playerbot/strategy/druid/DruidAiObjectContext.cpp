@@ -295,6 +295,7 @@ namespace ai
                 creators["bash"] = [](PlayerbotAI* ai) { return new CastBashAction(ai); };
                 creators["swipe"] = [](PlayerbotAI* ai) { return new CastSwipeAction(ai); };
                 creators["growl"] = [](PlayerbotAI* ai) { return new CastGrowlAction(ai); };
+                creators["growl on attacker"] = [](PlayerbotAI* ai) { return new CastGrowlOnAttackerAction(ai); };
                 creators["demoralizing roar"] = [](PlayerbotAI* ai) { return new CastDemoralizingRoarAction(ai); };
                 creators["hibernate"] = [](PlayerbotAI* ai) { return new CastHibernateAction(ai); };
                 creators["entangling roots"] = [](PlayerbotAI* ai) { return new CastEntanglingRootsAction(ai); };

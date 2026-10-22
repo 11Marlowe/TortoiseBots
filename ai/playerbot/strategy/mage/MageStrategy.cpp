@@ -429,8 +429,10 @@ void MageCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     CcStrategy::InitCombatTriggers(triggers);
 
+    // The tank's held pack must not burn the emergency cooldown: fire only
+    // when a mob within nova range is not on a tank.
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "frost nova window",
         NextAction::array(0, new NextAction("frost nova", ACTION_EMERGENCY), NULL)));
 
     triggers.push_back(new TriggerNode(

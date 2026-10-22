@@ -75,6 +75,15 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "enemy too close for auto shot",
         NextAction::array(0, new NextAction("flee", static_cast<float>(ACTION_MOVE) - 1.0f), NULL)));
 
+    // Threat drop: the mob fought is on the hunter (or climbing to it) in
+    // melee reach. Disengage wipes the hunter off its threat list so the
+    // tank can take it back; it never moves the hunter, so it is no escape.
+    // Below the feign row: the full feign drop outranks it when threat is
+    // already medium.
+    triggers.push_back(new TriggerNode(
+        "disengage on attacker",
+        NextAction::array(0, new NextAction("disengage", static_cast<float>(ACTION_HIGH) - 1.0f), NULL)));
+
     // Pet- or tank-held mob inside the dead zone: one step out per mob
     // (HunterSwitchPolicy.h), then shots. If the step cannot get the hunter
     // out, "switch to melee" takes over instead of fleeing again.
@@ -123,6 +132,16 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "steady shot",
         NextAction::array(0, new NextAction("steady shot", ACTION_NORMAL - 1), NULL)));
+
+    // With 2 or more mobs on the hunter, Wing Clip the nearest and step out
+    // of melee range instead of standing in the pack (HunterKitePolicy.h).
+    // Above the switch and melee-chain rows: while the trigger holds, the
+    // kite owns the fight; once the hunter is past the engage edge the plain
+    // ranged kit resumes.
+    triggers.push_back(new TriggerNode(
+        "hunter multiple attackers",
+        NextAction::array(0, new NextAction("wing clip on attacker", static_cast<float>(ACTION_MOVE) + 1.0f),
+                             new NextAction("hunter kite step out", static_cast<float>(ACTION_MOVE) + 0.5f), NULL)));
 
     // Raptor Strike / Mongoose Bite / Wing Clip row (donor melee chain): when a
     // mob closes in, raptor stays first, mongoose bite follows when raptor is

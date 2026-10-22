@@ -34,8 +34,13 @@ namespace ai
     class HunterStepOutAction : public MovementAction
     {
     public:
-        HunterStepOutAction(PlayerbotAI* ai) : MovementAction(ai, "hunter step out") {}
+        HunterStepOutAction(PlayerbotAI* ai, std::string name = "hunter step out",
+            std::string targetName = "current target")
+            : MovementAction(ai, std::move(name)), targetName(std::move(targetName)) {}
         bool Execute(Event& event) override;
+
+    private:
+        std::string targetName;
     };
 
     class CastAutoShotAction : public CastSpellAction
@@ -267,6 +272,39 @@ public:
         virtual bool isUseful()
         {
             return CastMeleeSpellAction::isUseful() && !ai->HasAura(GetSpellName(), GetTarget());
+        }
+    };
+
+    // Clips the nearest mob that is on the hunter, not the current target.
+    // No reach prerequisite: a kiting hunter must never be walked back into
+    // the pack to clip, so the cast only happens in melee reach.
+    class CastWingClipOnAttackerAction : public CastWingClipAction
+    {
+    public:
+        CastWingClipOnAttackerAction(PlayerbotAI* ai) : CastWingClipAction(ai) {}
+        std::string GetTargetName() override { return "closest attacker targeting me"; }
+        std::string GetReachActionName() override { return ""; }
+        virtual bool isUseful() override
+        {
+            Unit* target = GetTarget();
+            return ai->HasSpell("wing clip") && target && bot->CanReachWithMeleeAutoAttack(target) &&
+                CastWingClipAction::isUseful();
+        }
+    };
+
+    // Disengage drops threat only (it never moves the hunter on 1.12-style
+    // cores). The readiness check must use the rank-aware "spell id" value:
+    // it resolves the highest known rank (0 when untrained) and each rank
+    // has its own cooldown, so a hardcoded base-rank id would check the wrong
+    // cooldown and an untrained hunter would churn impossible casts.
+    class CastDisengageAction : public CastSpellAction
+    {
+    public:
+        CastDisengageAction(PlayerbotAI* ai) : CastSpellAction(ai, "disengage") {}
+        virtual bool isUseful() override
+        {
+            uint32 const rankId = AI_VALUE2(uint32, "spell id", "disengage");
+            return rankId && sServerFacade.IsSpellReady(bot, rankId) && CastSpellAction::isUseful();
         }
     };
 

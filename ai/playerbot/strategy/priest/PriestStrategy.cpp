@@ -116,9 +116,10 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // Owner-approved (2026-10-14): a mob on the priest is shed with Fade
     // before the next heal, above every heal row (critical heal + 2 is the
     // highest). The action needs a group to shed to, so solo priests are
-    // unaffected; its 30 s cooldown keeps it to one cast per window.
+    // unaffected; its 30 s cooldown keeps it to one cast per window, and the
+    // trigger only arms while that cooldown is spent.
     triggers.push_back(new TriggerNode(
-        "target of attacker",
+        "fade ready and target of attacker",
         NextAction::array(0, new NextAction("fade", ACTION_CRITICAL_HEAL + 3), NULL)));
 
     // Drop aggro while climbing the threat table in a group (donor
@@ -127,7 +128,7 @@ void PriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // action's usefulness already requires one - so solo priests keep
     // burning the GCD on heals instead of fading into nothing.
     triggers.push_back(new TriggerNode(
-        "medium threat",
+        "fade ready and medium threat",
         NextAction::array(0, new NextAction("fade", ACTION_HIGH), NULL)));
 
     // Each Turtle wand shot renews the GCD, so a running wand keeps every
@@ -216,7 +217,7 @@ void PriestRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     ClassRaidStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "medium threat",
+        "fade ready and medium threat",
         NextAction::array(0, new NextAction("fade", ACTION_DISPEL), NULL)));
 }
 

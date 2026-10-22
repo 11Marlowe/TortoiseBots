@@ -1,9 +1,21 @@
 
 #include "playerbot/playerbot.h"
+#include "playerbot/BoostReadinessPolicy.h"
 #include "PriestTriggers.h"
 #include "PriestActions.h"
 
 using namespace ai;
+
+// BuffTrigger proves the spell is trained and the aura missing; it cannot
+// see the capstone's cooldown.
+bool AscendanceTrigger::IsActive()
+{
+    if (!BuffTrigger::IsActive())
+        return false;
+
+    uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
+    return ai::BoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId));
+}
 
 bool ai::PriestPackLoose(PlayerbotAI* ai)
 {

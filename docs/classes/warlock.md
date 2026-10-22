@@ -65,7 +65,7 @@ Warlocks provide sustained Shadow and Fire DPS through curses, damage-over-time 
 ## Utility & interrupts
 
 - **Demon Summons:**
-  - *Voidwalker:* Tanking demon that taunts with *Torment* in solo play and shields the warlock with *Sacrifice* in emergencies.
+  - *Voidwalker:* Tanking demon that taunts with *Torment* in solo or tankless play and shields the warlock with *Sacrifice* in emergencies; grouped with a tank it never taunts.
   - *Imp:* Raid pet providing *Blood Pact* stamina buffs and ranged fire support.
   - *Felhunter:* Utility pet casting *Spell Lock* for ranged interrupts and *Devour Magic* for offensive and defensive dispels.
   - *Succubus:* CC demon casting *Seduction* on humanoids.
