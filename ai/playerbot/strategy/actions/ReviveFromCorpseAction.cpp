@@ -12,6 +12,7 @@
 #include "runtime/BotManager.h"
 #include "playerbot/GhostStallPolicy.h"
 #include "playerbot/GraveyardTeleportPolicy.h"
+#include "playerbot/CorpseEntrancePolicy.h"
 
 using namespace ai;
 // Ghost stall (m-stuck §5.2): the corpse-run spline is re-dispatched from IDLE
@@ -74,12 +75,19 @@ static constexpr uint32 kSpiritHealerStallSec = 60;
 static constexpr float kSpiritHealerStallProgressYd = 5.0f;
 
 
+// The door into the corpse's map whose destination lies nearest the corpse
+// (CorpseEntrancePolicy.h): a map with several doors (Scarlet Monastery's four
+// wings) is entered where the body lies, not by the door nearest the ghost.
+// anyMap: every door counts (the 300 s timeout teleports, it does not walk);
+// otherwise only the doors on the ghost's own map.
 static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, WorldPosition const& botPos,
+                                         WorldPosition const& corpsePos, bool anyMap,
                                          AreaTriggerEntry const*& outAtEntry, AreaTriggerTeleport const*& outAt)
 {
     outAtEntry = nullptr;
     outAt = nullptr;
-    float bestDist = FLT_MAX;
+    std::vector<CorpseEntranceCandidate> candidates;
+    std::vector<std::pair<AreaTriggerEntry const*, AreaTriggerTeleport const*>> doors;
 
     for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); ++i)
     {
@@ -94,20 +102,26 @@ static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, Wor
         if (at->destination.mapId != corpseMapId)
             continue;
 
-        if (atEntry->mapid != botMapId)
+        bool const onGhostMap = atEntry->mapid == botMapId;
+        if (!onGhostMap && !anyMap)
             continue;
 
-        WorldPosition triggerPos(atEntry->mapid, atEntry->x, atEntry->y, atEntry->z);
-        float dist = botPos.sqDistance2d(triggerPos);
-        if (dist < bestDist)
-        {
-            bestDist = dist;
-            outAtEntry = atEntry;
-            outAt = at;
-        }
+        CorpseEntranceCandidate c;
+        c.triggerId = i;
+        c.destX = at->destination.x;
+        c.destY = at->destination.y;
+        c.destZ = at->destination.z;
+        c.ghostSqYd = onGhostMap ? botPos.sqDistance2d(WorldPosition(atEntry->mapid, atEntry->x, atEntry->y, atEntry->z)) : -1.0f;
+        candidates.push_back(c);
+        doors.emplace_back(atEntry, at);
     }
 
-    return outAtEntry != nullptr && outAt != nullptr;
+    int const pick = PickCorpseEntrance(candidates, corpsePos.getX(), corpsePos.getY(), corpsePos.getZ());
+    if (pick < 0)
+        return false;
+    outAtEntry = doors[static_cast<size_t>(pick)].first;
+    outAt = doors[static_cast<size_t>(pick)].second;
+    return true;
 }
 
 bool ReviveFromCorpseAction::Execute(Event& event)
@@ -273,11 +287,16 @@ bool FindCorpseAction::Execute(Event& event)
 
     if (corpseInDungeon && deadTime >= 5 * MINUTE)
     {
-        AreaTriggerTeleport const* entranceTeleport = sObjectMgr.GetMapEntranceTrigger(dungeonMapId);
+        // The door nearest the corpse (CorpseEntrancePolicy.h), not the first
+        // trigger of the core's hash map; that one stays the fallback.
+        AreaTriggerEntry const* entranceTrigger = nullptr;
+        AreaTriggerTeleport const* entranceTeleport = nullptr;
+        if (!FindInstanceEntranceTrigger(dungeonMapId, botPos.GetMapId(), botPos, corpsePos, true, entranceTrigger, entranceTeleport))
+            entranceTeleport = sObjectMgr.GetMapEntranceTrigger(dungeonMapId);
         if (entranceTeleport)
         {
-            sLog.outBasic("[BOT CORPSE] %s: instance corpse run timeout (%llds >= 300s), appearing revived at dungeon entrance (map %u)",
-                bot->GetName(), (long long)deadTime, dungeonMapId);
+            sLog.outBasic("[BOT CORPSE] %s: instance corpse run timeout (%llds >= 300s), appearing revived at dungeon entrance (map %u, trigger %u)",
+                bot->GetName(), (long long)deadTime, dungeonMapId, entranceTrigger ? entranceTrigger->id : 0u);
             bot->GetMotionMaster()->Clear();
             // Resurrect BEFORE the teleport. TeleportTo onto another map is async:
             // the player is pulled off its map and m_currMap is null until the
@@ -302,7 +321,7 @@ bool FindCorpseAction::Execute(Event& event)
     {
         AreaTriggerEntry const* entranceTrigger = nullptr;
         AreaTriggerTeleport const* entranceTeleport = nullptr;
-        if (FindInstanceEntranceTrigger(corpsePos.GetMapId(), botPos.GetMapId(), botPos, entranceTrigger, entranceTeleport))
+        if (FindInstanceEntranceTrigger(corpsePos.GetMapId(), botPos.GetMapId(), botPos, corpsePos, false, entranceTrigger, entranceTeleport))
         {
 
             // 2. Near entrance portal: step into instance
@@ -311,8 +330,8 @@ bool FindCorpseAction::Execute(Event& event)
             float distToPortal = botPos.fDist(portalPos);
             if (distToPortal <= triggerRadius + 2.0f)
             {
-                sLog.outBasic("[BOT CORPSE] %s: reached instance entrance portal (dist=%.1f <= %.1f), entering instance %u",
-                    bot->GetName(), distToPortal, triggerRadius + 2.0f, corpsePos.GetMapId());
+                sLog.outBasic("[BOT CORPSE] %s: reached instance entrance portal %u (dist=%.1f <= %.1f), entering instance %u",
+                    bot->GetName(), entranceTrigger->id, distToPortal, triggerRadius + 2.0f, corpsePos.GetMapId());
                 bot->GetMotionMaster()->Clear();
                 bot->TeleportTo(entranceTeleport->destination.mapId, entranceTeleport->destination.x, entranceTeleport->destination.y, entranceTeleport->destination.z, entranceTeleport->destination.o);
                 return true;

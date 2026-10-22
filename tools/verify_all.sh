@@ -49,6 +49,7 @@ python3 -m unittest tools/test_stay_anchor_wiring.py
 python3 -m unittest tools/test_magma_guard_wiring.py
 python3 -m unittest tools/test_attack_order_wiring.py
 python3 -m unittest tools/test_bot_area_trigger_wiring.py
+python3 -m unittest tools/test_corpse_entrance_wiring.py
 python3 -m unittest tools/test_gossip_order_wiring.py
 python3 -m unittest tools/test_keepout_set_aside_wiring.py
 python3 -m unittest tools/test_pull_end_engaged.py
@@ -113,6 +114,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_class_consumable_policy
         test_combat_spread_policy
         test_combat_stuck_policy
+        test_corpse_entrance_policy
         test_commander_telemetry
         test_creature_aura_keepout_policy
         test_death_cluster_policy
