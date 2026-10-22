@@ -40,6 +40,22 @@ void SendBotStateLine(ChatHandler* handler, Player* bot);
 // strategy), also shown by the roster.
 char const* MovementName(PlayerbotAI* ai);
 
+// Per-bot behaviour toggles the TBM bot panel exposes. Each key maps to one
+// mature strategy on one engine; nothing outside this list is reachable from
+// `.bot behavior`, so the addon cannot be used as a generic strategy editor.
+// An inverted key is ON while its strategy is ABSENT: `aoe` is on by default
+// and `aoe off` adds the "no aoe" veto on every area spell.
+struct BehaviorToggle
+{
+    char const* key;
+    char const* strategy;
+    BotState state;
+    bool inverted = false;
+};
+BehaviorToggle const* FindBehaviorToggle(std::string const& key);
+bool IsBehaviorOn(PlayerbotAI* ai, BehaviorToggle const& toggle);
+void SetBehavior(PlayerbotAI* ai, BehaviorToggle const& toggle, bool enable);
+
 // What ConfigurePullMode changes on the tank: the "pull back" strategy in each
 // engine and the PullStrategy command fields. Taken before it and put back
 // exactly when the pull is refused afterwards, so a refused command neither

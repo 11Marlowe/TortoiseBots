@@ -12,6 +12,7 @@ import pathlib
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
+PARTY = (ROOT / "commands/Party.cpp").read_text()
 COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
 STAY = (ROOT / "ai/playerbot/strategy/actions/StayActions.cpp").read_text()
 
@@ -23,7 +24,7 @@ def body(text, start, end):
 
 class StayAnchorWiringTest(unittest.TestCase):
     def test_helper_sets_stay_and_return(self):
-        fn = body(COMMANDS, "void SetStayAnchor(", "\n}\n")
+        fn = body(PARTY, "void SetStayAnchor(", "\n}\n")
         self.assertIn('posMap["stay"] = stayPos;', fn)
         self.assertIn('posMap["return"] = returnPos;', fn)
         self.assertIn('posMap["random"].Reset();', fn)

@@ -21,7 +21,7 @@ class StrategyRoleCommand(unittest.TestCase):
     @unittest.skipUnless(shutil.which('g++'), 'g++ unavailable')
     def test_handler(self):
         root = pathlib.Path(os.environ.get('TBOTS_TEST_SOURCE', pathlib.Path(__file__).resolve().parents[1]))
-        source = (root/'commands/BotCommands.cpp').read_text()
+        source = (root/'commands/Party.cpp').read_text()
         code = r'''
 #include <cstdarg>
 #include <cstdio>
