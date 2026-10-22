@@ -2,6 +2,7 @@
 
 #include "playerbot/HunterSwitchPolicy.h"
 #include "playerbot/HunterKitePolicy.h"
+#include "playerbot/GroupMembers.h"
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/strategy/hunter/HunterActions.h"
 #include "playerbot/strategy/hunter/HunterValues.h"
@@ -368,6 +369,18 @@ private:
         }
     };
 
+    // Living group tank (the mark gate and the disengage gate share it).
+    inline bool HunterHasLivingTank(PlayerbotAI* ai)
+    {
+        Group* group = ai->GetBot()->GetGroup();
+        if (!group)
+            return false;
+        for (Player* member : LiveGroupMembers(group))
+            if (member && member->IsAlive() && PlayerbotAI::IsTank(member))
+                return true;
+        return false;
+    }
+
     // The kite's "usable ranged kit": ranged strategy with a loaded ranged
     // weapon. Shared by the kite trigger, the melee-chain veto and the
     // melee-switch veto.
@@ -395,6 +408,36 @@ private:
             if (!MyAttackerCountTrigger::IsActive())
                 return false;
             return HunterShouldKite(ai, AI_VALUE(uint8, "my attacker count"));
+        }
+    };
+
+    // Disengage is a threat drop, not a move: it wipes the hunter off the
+    // mob's threat list so a living tank can take the mob back. Only worth
+    // the global when the mob fought is on the hunter (or climbing to it)
+    // and stands in melee reach, and there is a tank to hand it to - solo
+    // the mob just re-attacks the hunter. Readiness is rank-aware: "spell
+    // id" resolves the highest known rank (0 when untrained) and each rank
+    // has its own cooldown.
+    class HunterDisengageTrigger : public Trigger
+    {
+    public:
+        HunterDisengageTrigger(PlayerbotAI* ai) : Trigger(ai, "disengage on attacker", 1) {}
+
+        bool IsActive() override
+        {
+            uint32 const rankId = AI_VALUE2(uint32, "spell id", "disengage");
+            if (!rankId || !sServerFacade.IsSpellReady(bot, rankId))
+                return false;
+
+            if (!HunterHasLivingTank(ai))
+                return false;
+
+            Unit* target = AI_VALUE(Unit*, "current target");
+            if (!target || !bot->CanReachWithMeleeAutoAttack(target))
+                return false;
+
+            return AI_VALUE2(bool, "has aggro", "current target") ||
+                AI_VALUE2(uint8, "threat", "current target") >= 80;
         }
     };
 

@@ -55,15 +55,14 @@ bool HuntersMarkTrigger::IsActive()
     if (!target)
         return false;
 
-    bool groupHasTank = false;
+    bool const groupHasTank = HunterHasLivingTank(ai);
     bool targetIsTankTarget = false;
-    if (Group* group = bot->GetGroup())
+    if (groupHasTank)
     {
-        for (Player* member : LiveGroupMembers(group))
+        for (Player* member : LiveGroupMembers(bot->GetGroup()))
         {
             if (!member || !member->IsAlive() || !PlayerbotAI::IsTank(member))
                 continue;
-            groupHasTank = true;
             if (member->GetVictim() == target || target->GetVictim() == member)
             {
                 targetIsTankTarget = true;

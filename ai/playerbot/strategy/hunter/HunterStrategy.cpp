@@ -71,12 +71,18 @@ void HunterStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // cases the switch leaves alone (target immobilized or too slow to close, or
     // no melee weapon), keeping the hunter from standing inside the dead zone.
     // Mob on the hunter only; a pet- or tank-held mob gets the row below.
-    // Disengage drops the mob's attention when it is ready; the flee is the
-    // fallback the readiness gate hands low-level hunters straight to.
     triggers.push_back(new TriggerNode(
         "enemy too close for auto shot",
-        NextAction::array(0, new NextAction("disengage", static_cast<float>(ACTION_MOVE) - 1.0f),
-                             new NextAction("flee", static_cast<float>(ACTION_MOVE) - 2.0f), NULL)));
+        NextAction::array(0, new NextAction("flee", static_cast<float>(ACTION_MOVE) - 1.0f), NULL)));
+
+    // Threat drop: the mob fought is on the hunter (or climbing to it) in
+    // melee reach. Disengage wipes the hunter off its threat list so the
+    // tank can take it back; it never moves the hunter, so it is no escape.
+    // Below the feign row: the full feign drop outranks it when threat is
+    // already medium.
+    triggers.push_back(new TriggerNode(
+        "disengage on attacker",
+        NextAction::array(0, new NextAction("disengage", static_cast<float>(ACTION_HIGH) - 1.0f), NULL)));
 
     // Pet- or tank-held mob inside the dead zone: one step out per mob
     // (HunterSwitchPolicy.h), then shots. If the step cannot get the hunter

@@ -222,6 +222,7 @@ namespace ai
                 creators["enemy too close for auto shot"] = [](PlayerbotAI* ai) { return new EnemyTooCloseForAutoShotTrigger(ai); };
                 creators["hunter enemy is close"] = [](PlayerbotAI* ai) { return new HunterEnemyIsCloseTrigger(ai); };
                 creators["hunter multiple attackers"] = [](PlayerbotAI* ai) { return new HunterMultipleAttackersTrigger(ai); };
+                creators["disengage on attacker"] = [](PlayerbotAI* ai) { return new HunterDisengageTrigger(ai); };
                 creators["hunter dead zone step out"] = [](PlayerbotAI* ai) { return new HunterDeadZoneStepOutTrigger(ai); };
                 creators["feign death"] = [](PlayerbotAI* ai) { return new FeignDeathTrigger(ai); };
                 creators["scatter shot on snare target"] = [](PlayerbotAI* ai) { return new ScatterShotSnareTrigger(ai); };
@@ -287,7 +288,7 @@ namespace ai
                 creators["wing clip on attacker"] = [](PlayerbotAI* ai) { return new CastWingClipOnAttackerAction(ai); };
                 creators["raptor strike"] = [](PlayerbotAI* ai) { return new CastRaptorStrikeAction(ai); };
                 creators["hunter step out"] = [](PlayerbotAI* ai) { return new HunterStepOutAction(ai); };
-                creators["hunter kite step out"] = [](PlayerbotAI* ai) { return new HunterStepOutAction(ai, "closest attacker targeting me"); };
+                creators["hunter kite step out"] = [](PlayerbotAI* ai) { return new HunterStepOutAction(ai, "hunter kite step out", "closest attacker targeting me"); };
                 creators["disengage"] = [](PlayerbotAI* ai) { return new CastDisengageAction(ai); };
                 creators["feed pet"] = [](PlayerbotAI* ai) { return new FeedPetAction(ai); };
                 creators["bestial wrath"] = [](PlayerbotAI* ai) { return new CastBestialWrathAction(ai); };
