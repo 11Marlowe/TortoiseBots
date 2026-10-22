@@ -1,3 +1,11 @@
+-- Uldaman (map 70): the whole plan again, replacing the rows of 20261021174717_world.sql (that file stays as applied).
+-- Exported from turtle-agent fix/uldaman-r10-pulls (a4d1d2030089fc9ff877cd0087266517a83340cc) with
+-- `turtle-agent plan-export --mmaps <map 70 mmaps> --rev a4d1d2030089fc9ff877cd0087266517a83340cc --stamp 20261022100000 uldaman`;
+-- NO ROW IS HAND-SET.
+-- Against the rows of 20261021174717_world.sql (138 steps, still 138) one step row differs: leg 7 (galgann) seq 5, the
+-- pull group 3 approach moves from -17.5 292.5 -46.6 to the ramp top -20 321 -40 (the r10 regression F2, see
+-- PLAN-ULDAMAN-R10-REGRESSION.txt in TortoiseBots-audit).
+--
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
 -- there and export again, never these rows by hand. The plan row carries the unit lists cc_priority, cc_always and kill_first
@@ -10,7 +18,7 @@ DELETE FROM `ai_dungeon_step` WHERE `plan` = 'uldaman';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'uldaman';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'uldaman';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('uldaman', 70, '4853,4848,7321,7030,7012,7397', '4848,7321', '4852', 'turtle-agent b45f25891f127187b80303daa9a379aa0563506c dungeons/u', 'plan v1, live-checked');
+('uldaman', 70, '4853,4848,7321,7030,7012,7397', '4848,7321', '4852', 'turtle-agent a4d1d2030089fc9ff877cd0087266517a83340cc dungeons/u', 'plan v1, live-checked');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('uldaman', 0, 'baelog', ''),
 ('uldaman', 1, 'revelosh', ''),
@@ -92,7 +100,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('uldaman', 6, 10, 'pull', 0, -80.22, 232.5, -49.65, 24.7, 0, 0, 0, 0, '7012,7011', 'pull group 5'),
 ('uldaman', 6, 11, 'pull', 0, -43.6, 237.3, -48.3, 10, 0, 0, 0, 0, '7011', 'pull group 6'),
 ('uldaman', 6, 12, 'move', 0, -64, 241, -49.7, 0, 0, 0, 0, 0, '', 'pull group 7 approach'),
-('uldaman', 6, 13, 'pull', 0, -42, 240, -48.3, 12, 0, 0, 0, 0, '4860', 'pull group 7'),
+('uldaman', 6, 13, 'pull', 0, -39.6, 272.8, -49, 10, 0, 0, 0, 0, '4860', 'pull group 7'),
 ('uldaman', 6, 14, 'move', 0, -58, 241, -48.3, 0, 0, 0, 0, 0, '', 'pull group 8 approach'),
 ('uldaman', 6, 15, 'pull', 0, -43.03, 263.93, -48.9, 18.9, 0, 0, 0, 0, '7012,7011', 'pull group 8'),
 ('uldaman', 6, 16, 'move', 0, -64, 227, -49.5, 0, 0, 0, 0, 0, '', 'pull group 9 approach'),

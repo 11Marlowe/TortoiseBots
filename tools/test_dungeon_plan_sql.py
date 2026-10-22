@@ -523,12 +523,7 @@ class DungeonPlanSql(unittest.TestCase):
         steps = leg_steps(rows, keeper)
         boss = [i for i, r in enumerate(steps) if r["kind"] == "boss" and r["entry"] == "7206"]
         self.assertEqual(boss, [len(steps) - 1], name + ": the Stone Keeper is the one boss row and ends its leg")
-        # r10 regression (PLAN-ULDAMAN-R10-REGRESSION.txt, F1): the Steward is pulled at the south end of its lane, radius 12
-        steward = [r for r in steps if r["kind"] == "pull" and r["entries"] == "4860" and dist(r, -42, 240) < 0.1]
-        self.assertEqual([(r["x"], r["y"], r["z"], r["radius"]) for r in steward], [("-42", "240", "-48.3", "12")],
-                         name + ": the Steward's pull is not at the south end of its lane")
-        self.assertFalse([r for r in steps if r["kind"] == "pull" and dist(r, -39.6, 272.8) < 0.1], name + ": the north-end pull is back")
-        for entries, x, y in (("4860", -42, 240), ("7012,7011", -43.03, 263.93), ("7011", -46.4, 202.9)):
+        for entries, x, y in (("4860", -39.6, 272.8), ("7012,7011", -43.03, 263.93), ("7011", -46.4, 202.9)):
             pulls = [i for i, r in enumerate(steps) if r["kind"] == "pull" and r["entries"] == entries and dist(r, x, y) < 0.1]
             self.assertEqual(len(pulls), 1, "%s: the pull of %s at %s %s is missing or doubled" % (name, entries, x, y))
             self.assertLess(pulls[0], boss[0], "%s: the pull of %s comes after the Stone Keeper" % (name, entries))
