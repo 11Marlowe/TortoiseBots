@@ -214,8 +214,24 @@ bool InitializePetAction::isUseful()
     {
         if (bot->GetClass() == CLASS_HUNTER)
         {
-            bool hasTamedPet = bot->GetPet();
-            if (!hasTamedPet)
+            // Issue #1178: the character_pet query below runs on the "often"
+            // trigger, but its answer only changes when the pet state changes.
+            // Ask the cache first; it re-queries at most once per live-pet
+            // presence flip (tame/summon/dismiss/death) or 60 s, so a hunter
+            // with a stored but not-live pet stops hitting the character DB
+            // every 5 ticks. StoredPetLookupCache::kRecheckSeconds bounds the
+            // staleness of answers for row changes no flip can show (e.g.
+            // abandoning a pet from a stable slot).
+            bool hasLivePet = bot->GetPet();
+            bool hasTamedPet = false;
+            if (hasLivePet)
+            {
+                // Presence flip tracking only: with a live pet the query is
+                // never reached (hasTamedPet is true below either way).
+                storedPetLookup.ShouldQuery(true, time(nullptr));
+                hasTamedPet = true;
+            }
+            else if (storedPetLookup.ShouldQuery(false, time(nullptr)))
             {
                 std::unique_ptr<QueryResult> queryResult(CharacterDatabase.PQuery("SELECT id, entry, owner "
                                                                                     "FROM character_pet WHERE owner = '%u' AND (slot = '%u' OR slot > '%u') ",
@@ -227,6 +243,11 @@ bool InitializePetAction::isUseful()
                     const uint32 entry = fields[1].GetUInt32();
                     hasTamedPet = sObjectMgr.GetCreatureTemplate(entry);
                 }
+                storedPetLookup.Store(time(nullptr), hasTamedPet);
+            }
+            else
+            {
+                hasTamedPet = storedPetLookup.CachedHasStoredPet();
             }
             if (hasTamedPet)
             {

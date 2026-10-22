@@ -250,6 +250,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_spread_toggle_policy
         test_start_zone_balance
         test_starter_kit_policy
+        test_stored_pet_lookup_policy
         test_summon_restore_policy
         test_survive_policy
         test_taker_reachability_cache
