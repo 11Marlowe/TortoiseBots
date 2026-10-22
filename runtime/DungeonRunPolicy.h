@@ -426,6 +426,11 @@ struct Facts
     float leadStayX = 0.0f, leadStayY = 0.0f, leadStayZ = 0.0f;
     bool leadHit = false;               // a living mob with the lead bot as its victim is in melee reach of it
                                         // (a caster that turns on the tank from 30 yd is not the tank holding it)
+    // ... and the nearest such mob (EngageTarget: the tank on "stay" fights nothing
+    // until an attack order takes it off the stay); guid, entry, distLead, polymorphed,
+    // evading and hitting set. leadHasAttacker is false when no mob is on the lead bot.
+    UnitFact leadAttacker;
+    bool leadHasAttacker = false;
     // Living, not friendly mobs whose victim is a party bot other than the lead
     // bot within kGuardYd of it; distLead from the lead bot, `hitting` and
     // `victimHealer` set.
@@ -741,6 +746,8 @@ struct Run
     std::uint32_t guardEventDown = 0;
     bool holdUnstayed = false;
     std::uint64_t holdEngageGuid = 0; // the unit the last engage order sent the tank at
+    std::uint64_t engageGuid = 0;     // the mob the last engage-on-arrival order (EngageTarget) sent the tank at
+    std::uint32_t engageOrders = 0;   // engage orders this fight (kGuardOrdersPerFight at most; guardOrders is not touched)
     // Members running back to the party with attackers on them (RunBack): the
     // glue keeps each one a passive follower of the lead bot (it does not stop
     // to fight) while its name is here. Per bot: how long it has run, and its
@@ -1067,6 +1074,8 @@ inline void ResetStep(Run& r)
     r.holdPlaced = false;
     r.guardMs = 0;
     r.guardOrders = 0;
+    r.engageGuid = 0;
+    r.engageOrders = 0;
     r.guardReturn = false;
     r.stopReachDue = false;
     r.reachStopped = false;
@@ -4548,7 +4557,8 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
 // Once the guard took the tank off its stay this fight, it keeps watching:
 // the next pick-up needs no stay. Never a polymorphed or evading mob. A
 // player's own order to the party pauses the run, so this never overrides the
-// commander. Null for none.
+// commander. An engage on arrival (EngageTarget) also keeps it watching. Null
+// for none.
 //
 // Inside a scripted event only in its hold (InHoldArea), and only mobs within
 // the hold's radius of its spot (HoldGuardTarget): the moves and the start
@@ -4585,7 +4595,8 @@ inline const PlanStep* InHoldArea(const Run& r, const Facts& f)
 
 inline const UnitFact* GuardTarget(const Run& r, const Facts& f)
 {
-    if (!f.leadAlive || !f.leadIsTank || !(f.leadStaying || r.guardOrders > 0) || f.carrier.empty() || InEvent(r))
+    if (!f.leadAlive || !f.leadIsTank || !(f.leadStaying || r.guardOrders > 0 || r.engageGuid != 0) ||
+        f.carrier.empty() || InEvent(r))
         return nullptr;
     return GuardPick(f, 0.0f);
 }
@@ -4650,6 +4661,35 @@ inline const UnitFact* HoldEngageTarget(const Run& r, const Facts& f)
     return best;
 }
 
+// Engage on arrival (PLAN-THREAT-265, M1a). The tank on "stay" at a stand
+// fights nothing, so a mob that reaches it, or one hitting the healer, waited
+// for the guard's wait rule or for nothing (RFC 19z19 step 25: idle 21 s with a
+// Trogg on the mage and the rogue 2-4 yd away; Uldaman 19z19 step 85: three
+// mobs on it and no target for 14 s). While the lead bot, a living tank, is on
+// stay outside an event, the one to send it at at once: a healer's attacker
+// (hitting, not polymorphed or evading, within kGuardYd, the nearest), else the
+// nearest mob on the tank itself in melee reach (Facts::leadAttacker). A DPS's
+// attacker is not engaged here: it stays with GuardTarget's wait, so a mob
+// that will come to the tank does not draw it from its stand. Null for none.
+inline const UnitFact* EngageTarget(const Run& r, const Facts& f)
+{
+    if (!f.leadAlive || !f.leadIsTank || !f.leadStaying || InEvent(r) || f.carrier.empty())
+        return nullptr;
+    const UnitFact* best = nullptr;
+    for (const UnitFact& u : f.partyAttackers)
+    {
+        if (!u.victimHealer || !u.hostile || u.evading || u.polymorphed || !u.hitting || u.distLead > kGuardYd)
+            continue;
+        if (!best || u.distLead < best->distLead)
+            best = &u;
+    }
+    if (best)
+        return best;
+    if (f.leadHasAttacker && f.leadAttacker.hostile && !f.leadAttacker.evading && !f.leadAttacker.polymorphed)
+        return &f.leadAttacker;
+    return nullptr;
+}
+
 // One fight tick of the guard: mobs hitting the party for kGuardWaitMs (a
 // healer: at once) send the pick-up, at most kGuardOrdersPerFight a fight and
 // kGuardRepeatMs apart. In a hold the tank on stay is sent at the event's
@@ -4665,6 +4705,37 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.guardEventDown = r.eventDown;
         r.guardOrders = 0;
     }
+    if (!hold)
+    {
+        // Engage on arrival: the first order of the fight (of either kind)
+        // without a wait, every other one (another mob, or after a pick-up) no
+        // sooner than kGuardRepeatMs after the last order of either kind, and
+        // at most kGuardOrdersPerFight engage orders in all. An `attack` the bot holds
+        // (stunned, feared) leaves the stay on, and the nearest mob changes:
+        // without the spacing and the cap an order went out every tick. Not
+        // one of the pick-ups (guardOrders).
+        const UnitFact* arrival = EngageTarget(r, f);
+        if (arrival && arrival->guid != r.engageGuid && r.engageOrders < kGuardOrdersPerFight &&
+            ((r.engageOrders == 0 && r.guardOrders == 0) || r.guardSinceOrderMs >= kGuardRepeatMs))
+        {
+            r.engageGuid = arrival->guid;
+            ++r.engageOrders;
+            r.guardMs = 0;
+            r.guardSinceOrderMs = 0; // a pick-up follows it no sooner than kGuardRepeatMs
+            if (!r.guardReturn)
+            {
+                // The stand it leaves, as at the first pick-up.
+                r.guardReturn = true;
+                r.guardX = f.leadStayKnown ? f.leadStayX : f.leadX;
+                r.guardY = f.leadStayKnown ? f.leadStayY : f.leadY;
+                r.guardZ = f.leadStayKnown ? f.leadStayZ : f.leadZ;
+            }
+            r.note = "fighting: the tank engages " + std::to_string(arrival->entry) + " on arrival (" +
+                Num(arrival->distLead) + " yd)";
+            order = "attack " + std::to_string(arrival->guid) + " " + f.carrier;
+            return true;
+        }
+    }
     const UnitFact* u = hold ? HoldGuardTarget(r, f) : GuardTarget(r, f);
     const UnitFact* engage = hold && !u ? HoldEngageTarget(r, f) : nullptr;
     if (!u && !engage)
@@ -4676,7 +4747,7 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
         r.guardMs += dt;
     std::uint32_t const wait = engage ? 0u : u->victimHealer ? kGuardHealerWaitMs : kGuardWaitMs;
     if ((u && r.guardMs < wait) || r.guardOrders >= kGuardOrdersPerFight ||
-        (r.guardOrders > 0 && r.guardSinceOrderMs < kGuardRepeatMs))
+        ((r.guardOrders > 0 || (!hold && r.engageGuid != 0)) && r.guardSinceOrderMs < kGuardRepeatMs))
         return false;
     r.guardMs = 0;
     r.guardSinceOrderMs = 0;
@@ -5499,6 +5570,8 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
         r.focusGuid = 0;
         r.guardMs = 0;
         r.guardOrders = 0;
+        r.engageGuid = 0;
+        r.engageOrders = 0;
         r.reachStopped = false;
         // A fight may have moved the lead bot: an exact point's tighten starts
         // over and its proof is taken again before a direct step goes out.
