@@ -1,5 +1,6 @@
 #pragma once
 #include "playerbot/PlayerbotAI.h"
+#include "playerbot/BandageSafetyPolicy.h"
 #include "GenericActions.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/RandomItemMgr.h"
@@ -454,6 +455,22 @@ namespace ai
         }
     };
 
+    // A hostile within melee reach breaks the bandage channel with its next
+    // swing even when it has not threatened the bot yet, so scan the group
+    // attacker list, not just the bot's own attackers.
+    inline bool HasHostileInMeleeReach(PlayerbotAI* ai, Player* bot)
+    {
+        const std::list<ObjectGuid>& attackers =
+            ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers")->Get();
+        for (const ObjectGuid& attackerGuid : attackers)
+        {
+            Unit* attacker = ai->GetUnit(attackerGuid);
+            if (attacker && sServerFacade.IsAlive(attacker) && attacker->CanReachWithMeleeAutoAttack(bot))
+                return true;
+        }
+        return false;
+    }
+
     class UseBandageAction : public UseTargetedItemIdAction
     {
     public:
@@ -464,10 +481,10 @@ namespace ai
             if (!UseTargetedItemIdAction::isUseful())
                 return false;
 
-            if (bot->HasAura(11196))
-                return false;
-
-            if (AI_VALUE(uint8, "my attacker count") > 0 || bot->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE))
+            if (BandageGateCheck(bot->HasAura(11196),
+                                 AI_VALUE(uint8, "my attacker count") > 0,
+                                 bot->HasAuraType(SPELL_AURA_PERIODIC_DAMAGE),
+                                 HasHostileInMeleeReach(ai, bot)) != BANDAGE_OK)
                 return false;
 
             if (bot->GetSkillValue(129) < 1)

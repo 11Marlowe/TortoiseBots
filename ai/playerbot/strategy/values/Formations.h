@@ -10,7 +10,7 @@ namespace ai
     class Formation : public AiNamedObject
     {
     public:
-        Formation(PlayerbotAI* ai, std::string name) : AiNamedObject (ai, name) {}
+        Formation(PlayerbotAI* ai, std::string name) : AiNamedObject (ai, name), serial(++lastSerial) {}
 
     public:
         virtual std::string GetTargetName() { return ""; }
@@ -21,9 +21,16 @@ namespace ai
         virtual float GetMaxDistance();
         static WorldLocation NullLocation;
 		static bool IsNullLocation(WorldLocation const& loc);
+        // Per object, not per name: .bot formation replaces the object on every
+        // set, even with the same name, so the station trigger keys on this.
+        unsigned int GetSerial() const { return serial; }
 
     protected:
         float GetFollowAngle();
+
+    private:
+        static unsigned int lastSerial;
+        unsigned int const serial;
     };
 
     class FollowFormation : public Formation

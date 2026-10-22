@@ -65,6 +65,10 @@ feature branch, see above), never `main`.
   directory, use a timestamped filename, and comment non-obvious statements.
 - If behavior is adapted from another project, name the source repository and
   commit in the pull request description.
+- Comment the code only where it cannot explain itself: a non-obvious reason,
+  not a description of what the next line does. Leave issue and pull request
+  numbers, "fixes ...", "ported from ..." and other history out of the code;
+  they belong in the commit message and the pull request description.
 
 ## Pull requests
 
@@ -78,6 +82,16 @@ plain, and fill in the template:
   that is empty.
 - **How to use it:** the command or config key, and its default.
 - **Testing:** what you built and checked, and what you did not.
+
+Write it so the owner understands the pull request without opening the diff:
+
+- Start with one or two plain sentences: what was wrong or missing, and what a
+  player or server operator notices now. Example: "Hunters with a dismissed pet
+  asked the database every few seconds; now they ask once a minute."
+- No file names, function names, line numbers or code identifiers outside the
+  "How to use it" commands and config keys. Code-level detail belongs in the
+  commit messages and in review comments.
+- Keep it short: a description longer than one screen is too long.
 
 If a full build or runtime test is not available, say so clearly rather than
 leaving the reviewer to guess. A description that does not say what changes

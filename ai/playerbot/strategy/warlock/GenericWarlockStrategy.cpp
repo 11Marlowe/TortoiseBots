@@ -77,15 +77,6 @@ void GenericWarlockStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 void AoEWarlockStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
     triggers.push_back(
-        new TriggerNode(
-            "medium aoe",
-            {
-                NextAction("rain of fire", 21.0f)
-            }
-        )
-    );
-
-    triggers.push_back(
         new TriggerNode("rain of fire channel check",
             {
                 NextAction("cancel channel", 21.5f)
@@ -175,22 +166,6 @@ void WarlockCurseOfDoomStrategy::InitTriggers(std::vector<TriggerNode*>& trigger
             "curse of doom",
             {
                 NextAction("curse of doom", 29.0f)
-            }
-        )
-    );
-}
-
-// Combat strategy for using Curse of Exhaustion
-// Disabled by default
-// To enable, type "co +curse of exhaustion"
-// To disable, type "co -curse of exhaustion"
-void WarlockCurseOfExhaustionStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
-{
-    triggers.push_back(
-        new TriggerNode(
-            "curse of exhaustion",
-            {
-                NextAction("curse of exhaustion", 29.0f)
             }
         )
     );

@@ -99,7 +99,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot interrupt`](party-actions.md#bot-interrupt) | Direct Combat | Directs a specific bot to interrupt its target. |
 | [`.bot pullback`](party-actions.md#bot-pullback) | Direct Combat | Triggers a pullback maneuver on a designated tank. |
 | [`.bot formation`](party-actions.md#bot-formation) | Direct Movement | Sets party follow formation geometry. |
-| [`.bot strategy`](party-actions.md#bot-strategy) | Direct Strategy | Adjusts combat and non-combat strategies. |
+| [`.bot strategy`](party-actions.md#bot-strategy) | Direct Strategy | Adjusts strategies by selected bot, party role or bot name. |
 | [`.bot loot`](party-actions.md#bot-loot) | Direct Party | Toggles corpse looting on targeted bot or party. |
 | [`.bot repair`](party-actions.md#bot-repair) | Direct Party | Orders targeted bot or party to repair gear. |
 | [`.bot sell`](party-actions.md#bot-sell) | Direct Party | Orders targeted bot or party to sell gray junk. |
@@ -129,6 +129,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot roster`](roster-and-hiring.md#bot-roster) | Roster & Hiring | Emits snapshot of owned alts and CC assignments. |
 | [`.bot add`](roster-and-hiring.md#bot-add) | Roster & Hiring | Logs in an owned alt character as a bot. |
 | [`.bot remove`](roster-and-hiring.md#bot-remove) | Roster & Hiring | Logs out an owned bot or dismisses a hired companion. |
+| [`.bot logout`](roster-and-hiring.md#bot-remove) | Roster & Hiring | Safely logs out an owned bot without dismissing it (alias of `.bot remove` for owned alts). |
 | [`.bot hire`](roster-and-hiring.md#bot-hire) | Roster & Hiring | Recruits a mercenary companion at recruiters. |
 | [`.bot hire raid`](roster-and-hiring.md#bot-hire-raid) | Roster & Hiring | Recruits up to 39 companions in one command. |
 | [`.bot role`](roster-and-hiring.md#bot-role) | Roster & Hiring | Configures party role overrides for bots or self. |
@@ -139,6 +140,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot autogear`](roster-and-hiring.md#bot-autogear) | Roster & Hiring | Equips level-appropriate gear up to quality caps. |
 | [`.bot release`](roster-and-hiring.md#bot-release) | Roster & Hiring | Commands dead bots to release spirit to graveyard. |
 | [`.bot corpse run`](roster-and-hiring.md#bot-corpse-run) | Roster & Hiring | Commands ghost bots to run back to their corpse. |
+| [`.bot corpserun`](roster-and-hiring.md#bot-corpse-run) | Roster & Hiring | One-word form of `.bot corpse run`. |
 | [`.bot learn`](roster-and-hiring.md#bot-learn) | Roster & Hiring | Commands bots to train spells at nearby trainers. |
 | [`.bot trade`](roster-and-hiring.md#bot-trade) | Roster & Hiring | Opens a trade window with the targeted companion. |
 | [`.bot list`](bot-panel.md#bot-list) | Inspection | Lists online bots you control. |

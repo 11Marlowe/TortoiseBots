@@ -171,7 +171,7 @@ bool PlayerbotAIConfig::Initialize()
 
     ConfigAccess configA(config);
 
-    BarGoLink::SetOutputState(config.GetBoolDefault("AiPlayerbot.ShowProgressBars", false));
+    BarGoLink::SetOutputState(config.GetBoolDefault("AiPlayerbot.ShowProgressBars", true));
     globalCoolDown = (uint32) config.GetIntDefault("AiPlayerbot.GlobalCooldown", 1500);
     maxWaitForMove = config.GetIntDefault("AiPlayerbot.MaxWaitForMove", 3000);
     expireActionTime = config.GetIntDefault("AiPlayerbot.ExpireActionTime", 5000);
@@ -219,6 +219,8 @@ bool PlayerbotAIConfig::Initialize()
     rpgDistance = config.GetFloatDefault("AiPlayerbot.RpgDistance", 200.0f);
     proximityDistance = config.GetFloatDefault("AiPlayerbot.ProximityDistance", 20.0f);
     walkDistance = config.GetFloatDefault("AiPlayerbot.WalkDistance", 5.0f);
+    EatDrinkMinDistance = config.GetFloatDefault("AiPlayerbot.EatDrinkMinDistance", 5.0f);
+    EatDrinkMaxDistance = config.GetFloatDefault("AiPlayerbot.EatDrinkMaxDistance", 1000.0f);
 
     criticalHealth = config.GetIntDefault("AiPlayerbot.CriticalHealth", 20);
     lowHealth = config.GetIntDefault("AiPlayerbot.LowHealth", 50);
@@ -763,7 +765,7 @@ bool PlayerbotAIConfig::Initialize()
 
     rndBotCheatMask = uint32(CheatAction::GetCheatMask(config.GetStringDefault("AiPlayerbot.RndBotCheats", "repair,breath,item")));
 
-    LoadListString<std::list<std::string>>(config.GetStringDefault("AiPlayerbot.AllowedLogFiles", ""), allowedLogFiles);
+    LoadListString<std::list<std::string>>(config.GetStringDefault("AiPlayerbot.AllowedLogFiles", "bot_events.csv,deaths.csv"), allowedLogFiles);
     logRetentionDays = uint32(std::max(0, config.GetIntDefault("AiPlayerbot.LogRetentionDays", 3)));
     LoadListString<std::list<std::string>>(config.GetStringDefault("AiPlayerbot.DebugFilter", "add gathering loot,check values,emote,check mount state,jump"), debugFilter);
 
@@ -802,7 +804,7 @@ bool PlayerbotAIConfig::Initialize()
         }
     }
 
-    randomBotAccountPrefix = config.GetStringDefault("AiPlayerbot.RandomBotAccountPrefix", "rndbot");
+    randomBotAccountPrefix = config.GetStringDefault("AiPlayerbot.RandomBotAccountPrefix", "RNDBOT");
     // Issue #265: managed-pool reset mode. Read once here for the reset
     // planner; `.reload config` must never initiate deletion, and the value is
     // never interpolated into SQL (tokens are stored and compared as data).
@@ -816,7 +818,6 @@ bool PlayerbotAIConfig::Initialize()
     greetCooldown = config.GetIntDefault("AiPlayerbot.GreetCooldown", 600);
     randomBotGreet = config.GetBoolDefault("AiPlayerbot.RandomBotGreet", false);
 	disableRandomLevels = config.GetBoolDefault("AiPlayerbot.DisableRandomLevels", false);
-    instantRandomize = config.GetBoolDefault("AiPlayerbot.InstantRandomize", true);
     randomBotRandomPassword = config.GetBoolDefault("AiPlayerbot.RandomBotRandomPassword", true);
     playerbotsXPrate = config.GetFloatDefault("AiPlayerbot.XPRate", 3.0f);
     disableBotOptimizations = config.GetBoolDefault("AiPlayerbot.DisableBotOptimizations", false);
@@ -853,7 +854,7 @@ bool PlayerbotAIConfig::Initialize()
     inviteChat = config.GetBoolDefault("AiPlayerbot.InviteChat", true);
     botsSilent = config.GetBoolDefault("AiPlayerbot.BotsSilent", false);
     observability = config.GetBoolDefault("AiPlayerbot.Observability", false);
-    observabilityPort = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.ObservabilityPort", 0));
+    observabilityPort = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.ObservabilityPort", 9195));
     observabilityHost = config.GetStringDefault("AiPlayerbot.ObservabilityHost", "");
     observabilityDungeonMobs = config.GetBoolDefault("AiPlayerbot.ObservabilityDungeonMobs", true);
     enableActionLog = config.GetBoolDefault("AiPlayerbot.EnableActionLog", false);
@@ -868,7 +869,7 @@ bool PlayerbotAIConfig::Initialize()
     actionLogMaxTotalMB = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.ActionLogMaxTotalMB", 2048)));
     actionLogMaxFileMB = static_cast<uint32>(std::max(0, config.GetIntDefault("AiPlayerbot.ActionLogMaxFileMB", 100)));
     actionCountsLog = config.GetBoolDefault("AiPlayerbot.ActionCountsLog", false);
-    botLogFile = config.GetStringDefault("AiPlayerbot.BotLogFile", "bots.log");
+    botLogFile = config.GetStringDefault("AiPlayerbot.BotLogFile", "");
     {
         std::string logsDir = sConfig.GetStringDefault("LogsDir", "");
         bool botLogDebug = config.GetBoolDefault("AiPlayerbot.BotLogDebug", false);
@@ -1019,9 +1020,9 @@ bool PlayerbotAIConfig::Initialize()
     llmMaxSimultaniousGenerations = config.GetIntDefault("AiPlayerbot.LLMMaxSimultaniousGenerations", 100);
 
 
-    llmPrePrompt = config.GetStringDefault("AiPlayerbot.LLMPrePrompt", "You are a roleplaying character in Tortoise 1.18.1 Core from Penqle. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.");
+    llmPrePrompt = config.GetStringDefault("AiPlayerbot.LLMPrePrompt", "You are a roleplaying character in Vanilla/Tortoise WoW. Your name is <bot name>. The <other type> <other name> is speaking to you <channel name> and is an <other gender> <other race> <other class> of level <other level>. You are level <bot level> and play as a <bot gender> <bot race> <bot class> that is currently in <bot subzone> <bot zone>. Answer as a roleplaying character. Limit responses to 100 characters.");
 
-    llmPreRpgPrompt = config.GetStringDefault("AiPlayerbot.LLMRpgPrompt", "In Tortoise 1.18.1 Core from Penqle in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>."
+    llmPreRpgPrompt = config.GetStringDefault("AiPlayerbot.LLMRpgPrompt", "In Vanilla/Tortoise WoW in <bot zone> <bot subzone> stands <bot type> <bot name> a level <bot level> <bot gender> <bot race> <bot class>."
         " Standing nearby is <unit type> <unit name> <unit subname> a level <unit level> <unit gender> <unit race> <unit faction> <unit class>. Answer as a roleplaying character. Limit responses to 100 characters.");
 
 
@@ -1090,7 +1091,7 @@ bool PlayerbotAIConfig::Initialize()
 
     if (llmEnabled > 0)
     {
-        std::string promptsFile = config.GetStringDefault("AiPlayerbot.LLMDefaultPromptsFile", "llm_character_card");
+        std::string promptsFile = config.GetStringDefault("AiPlayerbot.LLMDefaultPromptsFile", "llm_character_card.txt");
         LoadLLMDefaultPrompts(promptsFile);
     }
 

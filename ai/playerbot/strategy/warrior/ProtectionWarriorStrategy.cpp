@@ -116,6 +116,13 @@ void ProtectionWarriorStrategy::InitCombatTriggers(std::list<TriggerNode*>& trig
         "lose aggro",
         NextAction::array(0, new NextAction("taunt", ACTION_INTERRUPT + 1), NULL)));
 
+    // A mob sitting on a non-tank member: "lose aggro" only sees the tank's
+    // current target and the snare row skips an arrived mob. A missed taunt
+    // costs the healer.
+    triggers.push_back(new TriggerNode(
+        "party member attacked",
+        NextAction::array(0, new NextAction("taunt on attacker", ACTION_INTERRUPT + 1), NULL)));
+
     triggers.push_back(new TriggerNode(
         "taunt on snare target",
         NextAction::array(0, new NextAction("taunt on snare target", ACTION_MOVE), NULL)));

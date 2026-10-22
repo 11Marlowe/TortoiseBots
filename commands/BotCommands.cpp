@@ -101,9 +101,11 @@
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <initializer_list>
 #include <memory>
 #include <cstring>
 #include <sstream>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -209,7 +211,7 @@ static bool ResolveOwnedBot(ChatHandler* handler, char const* args, Player*& bot
     return IsLiveHeadlessBot(bot, record);
 }
 
-static bool HandleList(ChatHandler* handler)
+static bool HandleList(ChatHandler* handler, char const* /*args*/)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -237,7 +239,7 @@ static bool HandleList(ChatHandler* handler)
     return true;
 }
 
-static bool HandleStats(ChatHandler* handler)
+static bool HandleStats(ChatHandler* handler, char const* /*args*/)
 {
     Player* requester = Requester(handler);
     if (!requester)
@@ -309,7 +311,7 @@ static bool HandleStatus(ChatHandler* handler, char const* args)
     return true;
 }
 
-static bool HandleVersion(ChatHandler* handler)
+static bool HandleVersion(ChatHandler* handler, char const* /*args*/)
 {
     // Any player may ask; the version is public build metadata, not control.
     handler->PSendSysMessage("TortoiseBots %s", BuildVersion().c_str());
@@ -495,10 +497,46 @@ static bool HandleInterrupt(ChatHandler* handler, char const* args)
     return ExecuteInterruptAction(handler, context, requester);
 }
 
+// Match RoleChatFilter: group role overrides count, and melee/ranged are
+// range categories (so @melee includes melee tanks, not just melee DPS).
+static bool StrategyRoleMatches(PlayerbotAI* ai, Player* bot, std::string const& role)
+{
+    bool const inGroup = bot->GetGroup() != nullptr;
+    if (role == "@tank") return ai->IsTank(bot, inGroup);
+    if (role == "@heal") return ai->IsHeal(bot, inGroup);
+    if (role == "@dps") return !ai->IsTank(bot, inGroup) && !ai->IsHeal(bot, inGroup);
+    if (role == "@ranged") return ai->IsRanged(bot, inGroup);
+    if (role == "@melee") return !ai->IsRanged(bot, inGroup);
+    return role.empty();
+}
+
+// Prefer a complete registered name over interpreting its last word as a bot.
+// Query the registry, not the active set: +strategy must work before activation.
+static bool KnownStrategyChange(std::vector<Player*> const& scope, std::string const& change)
+{
+    std::set<std::string> supported;
+    for (Player* bot : scope)
+        if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+            ai->GetAiObjectContext()->GetSupportedStrategies(supported);
+    std::istringstream changes(change);
+    std::string part;
+    bool any = false;
+    while (std::getline(changes, part, ','))
+    {
+        if (part.size() < 2 || (part[0] != '+' && part[0] != '-' && part[0] != '~') ||
+            !supported.count(part.substr(1)))
+            return false;
+        any = true;
+    }
+    return any && change.back() != ',';
+}
+
 // Direct strategy toggle: `.bot strategy <+|-name> [bot]` fans out over the
 // dynamic scope (selected bot or owned party bots), mirroring `.bot loot`.
 // Thin wrapper over the mature ChangeStrategy path; validation and
 // persistence stay AI-owned via ChangeStrategyAction/DbStore.
+// Whole multi-word names, with an optional trailing role or owned bot name.
+// Changes and persistence still use the mature AI-owned paths.
 static bool HandleStrategy(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -510,38 +548,72 @@ static bool HandleStrategy(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (input.empty() || (input[0] != '+' && input[0] != '-' && input[0] != '~'))
     {
-        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy> [bot] (e.g. .bot strategy +loot, .bot strategy -passive)");
+        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy name> [role or BotName] (roles: @tank, @dps, @heal, @melee, @ranged)");
         return true;
     }
-    size_t separator = input.find_first_of(" \t");
-    std::string change = separator == std::string::npos ? input : Trim(input.substr(0, separator));
-    std::string botToken = separator == std::string::npos ? std::string() : Trim(input.substr(separator + 1));
     BotCommandContext context = BuildContext(requester);
-    std::vector<Player*> scope;
-    if (!botToken.empty())
+    std::string change = input;
+    std::string role;
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    size_t separator = input.find_last_of(" \t");
+    if (separator != std::string::npos)
     {
-        Player* bot = nullptr;
-        BotRecord* record = nullptr;
-        std::string name;
-        if (!ResolveOwnedBot(handler, botToken.c_str(), bot, record, name))
+        std::string const suffix = input.substr(separator + 1);
+        if (suffix[0] == '@')
         {
-            handler->PSendSysMessage("You may only control an online bot on your account.");
-            return true;
+            if (suffix != "@tank" && suffix != "@dps" && suffix != "@heal" &&
+                suffix != "@melee" && suffix != "@ranged")
+            {
+                handler->PSendSysMessage("Unknown role filter. Use @tank, @dps, @heal, @melee or @ranged.");
+                return true;
+            }
+            role = suffix;
+            change = Trim(input.substr(0, separator));
+            // An explicit role scope addresses the party, even with a bot selected.
+            scope = context.partyBots;
+            // Validate against the role-matching bots only: a strategy that
+            // only bots outside the role support must still be rejected,
+            // and an empty role match is reported instead of silently
+            // applying to zero bots.
+            std::vector<Player*> roleScope;
+            for (Player* bot : scope)
+            {
+                PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(bot);
+                if (botAi && StrategyRoleMatches(botAi, bot, role))
+                    roleScope.push_back(bot);
+            }
+            scope = roleScope;
         }
-        scope.push_back(bot);
+        else if (!KnownStrategyChange(scope, input))
+        {
+            Player* bot = nullptr;
+            BotRecord* record = nullptr;
+            std::string name;
+            if (ResolveOwnedBot(handler, suffix.c_str(), bot, record, name))
+            {
+                scope = { bot };
+                change = Trim(input.substr(0, separator));
+            }
+        }
     }
-    else
-        scope = ResolveDynamicScope(context);
     if (scope.empty())
     {
-        handler->PSendSysMessage("No live owned party bots are controllable.");
+        if (!role.empty())
+            handler->PSendSysMessage("No party bot matches role %s.", role.c_str());
+        else
+            handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    if (!KnownStrategyChange(scope, change))
+    {
+        handler->PSendSysMessage("Unknown strategy change or unavailable bot name: %s", input.c_str());
         return true;
     }
     uint32 succeeded = 0;
     for (Player* bot : scope)
     {
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
-        if (!ai)
+        if (!ai || !StrategyRoleMatches(ai, bot, role))
             continue;
         ai->ChangeStrategy(change, BotState::BOT_STATE_ALL);
         sPlayerbotDbStore.Save(ai);
@@ -2290,7 +2362,7 @@ static void SendBotStateLine(ChatHandler* handler, Player* bot)
     handler->PSendSysMessage("TBM:BOTSTATE|%s|%s", ProtocolSafe(bot->GetName()).c_str(), fields.c_str());
 }
 
-static bool HandleRoster(ChatHandler* handler)
+static bool HandleRoster(ChatHandler* handler, char const* /*args*/)
 {
     Player* requester = Requester(handler);
     if (!requester || !requester->GetSession())
@@ -9369,6 +9441,111 @@ static bool HandlePool(ChatHandler* handler, char const* args)
     return true;
 }
 
+// `.bot corpse` guard: accepts bare "corpse" and "corpse run", rejects the rest.
+static bool HandleCorpseShortcut(ChatHandler* handler, char const* args)
+{
+    std::string rest = Trim(args ? args : "");
+    for (char& c : rest)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (rest == "run" || rest.empty())
+        return HandleCorpseRun(handler, "");
+    handler->PSendSysMessage("Usage: .bot corpse run");
+    return true;
+}
+
+// `.bot help` answers with the addon protocol version line; the TBM addon
+// parses it, so the output must stay exactly as it is.
+static bool HandleHelp(ChatHandler* handler, char const* /*args*/)
+{
+    handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
+    return true;
+}
+
+// One row per `.bot` subcommand: primary name, handler, short usage, aliases.
+// Dispatch, the top-level usage line and the docs check
+// (tools/verify_command_docs.py) all read this table.
+struct BotCommandEntry
+{
+    char const* name;
+    bool (*handler)(ChatHandler*, char const*);
+    char const* usage;
+    std::initializer_list<char const*> aliases;
+};
+
+static BotCommandEntry const botCommands[] = {
+    {"ah", HandleAhBot, "ah <status|reload|rebuild|item ...>", {"ahbot"}},
+    {"action", HandleAction, "action <intent>", {}},
+    {"commander", HandleCommander, "commander <bind|unbind|status|view ...>", {}},
+    {"cmd", HandleCommanderOrder, "cmd <order>", {}},
+    {"add", HandleAdd, "add <characterName>", {}},
+    {"remove", HandleRemove, "remove <characterName>", {}},
+    {"logout", HandleLogout, "logout <online bot name>", {}},
+    {"roster", HandleRoster, "roster", {}},
+    {"follow", HandleFollow, "follow <botName>", {}},
+    {"invite", HandleInvite, "invite <online bot name>", {}},
+    {"uninvite", HandleUninvite, "uninvite <online bot name>", {"kick"}},
+    {"stay", HandleStay, "stay <online bot name>", {}},
+    {"guard", HandleGuard, "guard <online bot name>", {}},
+    {"free", HandleFree, "free <online bot name>", {}},
+    {"ready", HandleReady, "ready <online bot name>", {}},
+    {"attack", HandleAttack, "attack <online bot name>", {}},
+    {"interrupt", HandleInterrupt, "interrupt <online bot name>", {}},
+    {"formation", HandleFormation, "formation [botName] <formation>", {}},
+    {"list", HandleList, "list", {}},
+    {"stats", HandleStats, "stats", {}},
+    {"status", HandleStatus, "status <online bot name>", {}},
+    {"lease", HandleLease, "lease [status]", {}},
+    {"version", HandleVersion, "version", {"v", "about", "credits"}},
+    {"pullback", HandlePullback, "pullback", {"pull-back"}},
+    {"role", HandleRole, "role <online bot name/self/your name> <tank/healer/dps/clear>", {}},
+    {"summon", HandleSummon, "summon <online bot name>", {}},
+    {"maintenance", HandleMaintenance, "maintenance <online bot name>", {}},
+    {"autogear", HandleAutogear, "autogear <online bot name> [quality|ilvl]", {}},
+    {"hire", HandleHire, "hire <class> [dps/tank/healer] ... | hire raid <preset> [tier]", {}},
+    {"pool", HandlePool, "pool <status|accounts|adopt ...>", {}},
+    {"loot", HandleLoot, "loot [on/off]", {}},
+    {"repair", HandleRepair, "repair", {}},
+    {"sell", HandleSell, "sell", {}},
+    {"rest", HandleRest, "rest", {"drink", "eat"}},
+    {"release", HandleRelease, "release", {}},
+    {"corpse", HandleCorpseShortcut, "corpse run", {}},
+    {"corpserun", HandleCorpseRun, "corpserun", {}},
+    {"learn", HandleLearn, "learn", {}},
+    {"trade", HandleTrade, "trade", {}},
+    {"command", HandleMatureCommand, "command <botName> <Playerbot command>", {}},
+    {"inv", HandleInventory, "inv <online bot you control>", {"inventory"}},
+    {"item", HandleItem, "item <bot> <trade|equip|unequip|give ...>", {}},
+    {"behavior", HandleBehavior, "behavior <bot|party|raid> <behavior> <on|off>", {"behaviour"}},
+    {"totem", HandleTotem, "totem <bot|party|raid> ...", {}},
+    {"strategy", HandleStrategy, "strategy <+/-/~><strategy name> [role or botName]", {}},
+    {"help", HandleHelp, "help", {"h"}},
+};
+
+static BotCommandEntry const* FindBotCommand(std::string const& cmd)
+{
+    for (BotCommandEntry const& entry : botCommands)
+    {
+        if (cmd == entry.name)
+            return &entry;
+        for (char const* alias : entry.aliases)
+            if (cmd == alias)
+                return &entry;
+    }
+    return nullptr;
+}
+
+static std::string BuildBotUsageLine()
+{
+    std::string usage = "Usage: .bot ";
+    for (size_t i = 0; i < sizeof(botCommands) / sizeof(botCommands[0]); ++i)
+    {
+        if (i)
+            usage += '/';
+        usage += botCommands[i].name;
+    }
+    return usage;
+}
+
 // pi-lens-ignore: clang:incomplete_member_access,clang:unknown_typename
 bool HandleChatCommand(ChatHandler* handler, char const* args)
 {
@@ -9379,7 +9556,7 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     while (*args == ' ' || *args == '\t') ++args;
     if (!*args)
     {
-        handler->PSendSysMessage("Usage: .bot add/remove/logout/roster/action/commander/cmd/follow/invite/uninvite/kick/stay/guard/free/ready/attack/interrupt/formation/list/stats/status/lease/version/about/pullback/role/summon/command/hire/loot/repair/sell/rest/drink/eat/release/corpse run/learn/trade/inv/item/behavior/strategy/maintenance/autogear/ah/pool");
+        handler->PSendSysMessage("%s", BuildBotUsageLine().c_str());
         return true;
     }
 
@@ -9397,112 +9574,13 @@ bool HandleChatCommand(ChatHandler* handler, char const* args)
     // Normalize cmd to lowercase
     for (char& c : cmd) c = tolower(c);
 
-    if (cmd == "ah" || cmd == "ahbot")
-        return HandleAhBot(handler, subArgs);
-    if (cmd == "action")
-        return HandleAction(handler, subArgs);
-    if (cmd == "commander")
-        return HandleCommander(handler, subArgs);
-    if (cmd == "cmd")
-        return HandleCommanderOrder(handler, subArgs);
-    if (cmd == "add")
-        return HandleAdd(handler, subArgs);
-    if (cmd == "remove")
-        return HandleRemove(handler, subArgs);
-    if (cmd == "logout")
-        return HandleLogout(handler, subArgs);
-    if (cmd == "roster")
-        return HandleRoster(handler);
-    if (cmd == "follow")
-        return HandleFollow(handler, subArgs);
-    if (cmd == "invite")
-        return HandleInvite(handler, subArgs);
-    if (cmd == "uninvite" || cmd == "kick")
-        return HandleUninvite(handler, subArgs);
-    if (cmd == "stay")
-        return HandleStay(handler, subArgs);
-    if (cmd == "guard")
-        return HandleGuard(handler, subArgs);
-    if (cmd == "free")
-        return HandleFree(handler, subArgs);
-    if (cmd == "ready")
-        return HandleReady(handler, subArgs);
-    if (cmd == "attack")
-        return HandleAttack(handler, subArgs);
-    if (cmd == "interrupt")
-        return HandleInterrupt(handler, subArgs);
-    if (cmd == "formation")
-        return HandleFormation(handler, subArgs);
-    if (cmd == "list")
-        return HandleList(handler);
-    if (cmd == "stats")
-        return HandleStats(handler);
-    if (cmd == "status")
-        return HandleStatus(handler, subArgs);
-    if (cmd == "lease")
-        return HandleLease(handler, subArgs);
-    if (cmd == "version" || cmd == "v" || cmd == "about" || cmd == "credits")
-        return HandleVersion(handler);
-    if (cmd == "pullback" || cmd == "pull-back")
-        return HandlePullback(handler, subArgs);
-    if (cmd == "role")
-        return HandleRole(handler, subArgs);
-    if (cmd == "summon")
-        return HandleSummon(handler, subArgs);
-    if (cmd == "maintenance")
-        return HandleMaintenance(handler, subArgs);
-    if (cmd == "autogear")
-        return HandleAutogear(handler, subArgs);
-    if (cmd == "hire")
-        return HandleHire(handler, subArgs);
-    if (cmd == "pool")
-        return HandlePool(handler, subArgs);
-    if (cmd == "loot")
-        return HandleLoot(handler, subArgs);
-    if (cmd == "repair")
-        return HandleRepair(handler, subArgs);
-    if (cmd == "sell")
-        return HandleSell(handler, subArgs);
-    if (cmd == "rest" || cmd == "drink" || cmd == "eat")
-        return HandleRest(handler, subArgs);
-    if (cmd == "release")
-        return HandleRelease(handler, subArgs);
-    if (cmd == "corpse")
+    BotCommandEntry const* entry = FindBotCommand(cmd);
+    if (!entry)
     {
-        std::string rest = Trim(subArgs ? subArgs : "");
-        for (char& c : rest)
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        if (rest == "run" || rest.empty())
-            return HandleCorpseRun(handler, "");
-        handler->PSendSysMessage("Usage: .bot corpse run");
+        handler->PSendSysMessage("Unknown bot command '%s'. Try .bot help", cmd.c_str());
         return true;
     }
-    if (cmd == "corpserun")
-        return HandleCorpseRun(handler, subArgs);
-    if (cmd == "learn")
-        return HandleLearn(handler, subArgs);
-    if (cmd == "trade")
-        return HandleTrade(handler, subArgs);
-    if (cmd == "command")
-        return HandleMatureCommand(handler, subArgs);
-    if (cmd == "inv" || cmd == "inventory")
-        return HandleInventory(handler, subArgs);
-    if (cmd == "item")
-        return HandleItem(handler, subArgs);
-    if (cmd == "behavior" || cmd == "behaviour")
-        return HandleBehavior(handler, subArgs);
-    if (cmd == "totem")
-        return HandleTotem(handler, subArgs);
-    if (cmd == "strategy")
-        return HandleStrategy(handler, subArgs);
-    if (cmd == "help" || cmd == "h")
-    {
-        handler->PSendSysMessage("TBM:VERSION|%s", BuildVersion().c_str());
-        return true;
-    }
-
-    handler->PSendSysMessage("Unknown bot command '%s'. Try .bot help", cmd.c_str());
-    return true;
+    return entry->handler(handler, subArgs);
 }
 
 // pi-lens-ignore: clang:incomplete_member_access

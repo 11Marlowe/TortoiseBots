@@ -37,24 +37,32 @@ void HolyPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     // only run on isPossible failure, not isUseful), so the priest idles.
     // Donor order: efficient Greater Heal before fast Flash Heal; the
     // low-level heal/lesser ranks stay as fallbacks for untrained bots.
+    // The slots sit one below the medium row so the pace row's flash heal
+    // (MEDIUM+2) outranks the slow greater heal in this band too.
     triggers.push_back(new TriggerNode(
         "party member low health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
-                             new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 2),
-                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 1),
-                             new NextAction("heal on party", ACTION_MEDIUM_HEAL),
-                             new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL - 1), NULL)));
+                             new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 1),
+                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL),
+                             new NextAction("heal on party", ACTION_MEDIUM_HEAL - 1),
+                             new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL - 2), NULL)));
 
-    // Pull 1 (Deadmines, 2026-10-13): the tank fell through the medium band
-    // with only the renew row (60) armed there — the first heal came 8 s
-    // late, after fear ward (23) and the wand (5). The shield/fast-heal
-    // opening rides the medium row too, mirroring the low row's top
-    // (shield, then inner focus at MEDIUM+3, then the fast heal), so a
-    // dropping tank gets shield + flash heal first; renew stays last.
+    // Fast damage with enough healer mana: flash heal lands before the bar
+    // runs into the critical band. Both band rows sit below, so the pick
+    // cannot downgrade to a slow cast as the bar crosses the band line.
+    // Untrained flash heal falls through to those rows.
+    triggers.push_back(new TriggerNode(
+        "party member fast damage",
+        NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
+                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2), NULL)));
+
+    // Slow or stable damage keeps the efficient row here - greater heal/
+    // heal/lesser heal by deficit, renew last. A healer low on mana stays
+    // on the efficient rows too; flash heal is then kept for a member
+    // predicted to reach the critical line before the slow cast lands.
     triggers.push_back(new TriggerNode(
         "party member medium health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
-                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL),
                              new NextAction("heal on party", ACTION_MEDIUM_HEAL - 1),
                              new NextAction("lesser heal on party", ACTION_MEDIUM_HEAL - 2),

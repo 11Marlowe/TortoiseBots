@@ -82,15 +82,7 @@ namespace ai
         bool HandleTaxi(Event& event, Player* requester, const std::string& text);
         bool HandlePrice(Event& event, Player* requester, const std::string& text);
         bool HandleNC(Event& event, Player* requester, const std::string& text);
-        bool HandleAddNode(Event& event, Player* requester, const std::string& text);
-        bool HandleRemNode(Event& event, Player* requester, const std::string& text);
-        bool HandleResetNode(Event& event, Player* requester, const std::string& text);
-        bool HandleResetPath(Event& event, Player* requester, const std::string& text);
-        bool HandleGenNode(Event& event, Player* requester, const std::string& text);
-        bool HandleGenPath(Event& event, Player* requester, const std::string& text);
-        bool HandleCropPath(Event& event, Player* requester, const std::string& text);
         bool HandleSaveNode(Event& event, Player* requester, const std::string& text);
-        bool HandleLoadNode(Event& event, Player* requester, const std::string& text);
         bool HandleShowNode(Event& event, Player* requester, const std::string& text);
         bool HandleDSpell(Event& event, Player* requester, const std::string& text);
         bool HandleVSpell(Event& event, Player* requester, const std::string& text);

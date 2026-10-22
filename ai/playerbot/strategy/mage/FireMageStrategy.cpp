@@ -164,6 +164,11 @@ void FireMageAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         "flamestrike window",
         NextAction::array(0, new NextAction("blizzard", ACTION_HIGH + 2), NULL)));
 
+    // Instant burst: no cast or channel while the pack stands on the mage.
+    triggers.push_back(new TriggerNode(
+        "arcane explosion window",
+        NextAction::array(0, new NextAction("arcane explosion", ACTION_HIGH + 1.5f), NULL)));
+
     triggers.push_back(new TriggerNode(
         "ranged medium aoe",
         NextAction::array(0, new NextAction("flamestrike", ACTION_HIGH + 1), NULL)));

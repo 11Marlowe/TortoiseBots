@@ -136,24 +136,8 @@ bool DebugAction::Execute(Event& event)
         return HandlePrice(event, requester, text);
     else if (text.find("nc") == 0)
         return HandleNC(event, requester, text);
-    else if (text.find("add node") == 0 && isMod)
-        return HandleAddNode(event, requester, text);
-    else if (text.find("rem node") == 0 && isMod)
-        return HandleRemNode(event, requester, text);
-    else if (text.find("reset node") == 0 && isMod)
-        return HandleResetNode(event, requester, text);
-    else if (text.find("reset path") == 0 && isMod)
-        return HandleResetPath(event, requester, text);
-    else if (text.find("gen node") == 0 && isMod)
-        return HandleGenNode(event, requester, text);
-    else if (text.find("gen path") == 0 && isMod)
-        return HandleGenPath(event, requester, text);
-    else if (text.find("crop path") == 0 && isMod)
-        return HandleCropPath(event, requester, text);
     else if (text.find("save node") == 0 && isMod)
         return HandleSaveNode(event, requester, text);
-    else if (text.find("load node") == 0 && isMod)
-        return HandleLoadNode(event, requester, text);
     else if (text.find("show node") == 0 && isMod)
         return HandleShowNode(event, requester, text);
     else if (text.find("dspell ") == 0 && isMod)
@@ -682,68 +666,12 @@ bool DebugAction::HandleDebugHelp(Event& event, Player* requester, const std::st
         ai->TellPlayer(requester, "Usage: debug avoid add <spellId>");
     }
     // MOD ONLY - travel nodes
-    else if (cmd == "add node" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug add node ===");
-        ai->TellPlayer(requester, "Add travel node (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug add node");
-    }
-    else if (cmd == "rem node" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug rem node ===");
-        ai->TellPlayer(requester, "Remove travel node (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug rem node");
-    }
-    else if (cmd == "reset node" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug reset node ===");
-        ai->TellPlayer(requester, "Reset travel nodes (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug reset node");
-    }
-    else if (cmd == "reset path" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug reset path ===");
-        ai->TellPlayer(requester, "Reset travel path (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug reset path");
-    }
-    else if (cmd == "gen node" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug gen node ===");
-        ai->TellPlayer(requester, "Generate travel node (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug gen node");
-    }
-    else if (cmd == "gen path" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug gen path ===");
-        ai->TellPlayer(requester, "Generate travel path (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug gen path");
-    }
-    else if (cmd == "crop path" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug crop path ===");
-        ai->TellPlayer(requester, "Crop travel path (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug crop path");
-    }
     else if (cmd == "save node" && isMod)
     {
         ai->TellPlayer(requester, "=== debug save node ===");
         ai->TellPlayer(requester, "Save travel node (mod only).");
         ai->TellPlayer(requester, "");
         ai->TellPlayer(requester, "Usage: debug save node");
-    }
-    else if (cmd == "load node" && isMod)
-    {
-        ai->TellPlayer(requester, "=== debug load node ===");
-        ai->TellPlayer(requester, "Load travel node (mod only).");
-        ai->TellPlayer(requester, "");
-        ai->TellPlayer(requester, "Usage: debug load node");
     }
     else if (cmd == "show node" && isMod)
     {
@@ -3994,97 +3922,10 @@ bool DebugAction::HandleNC(Event& event, Player* requester, const std::string& t
     return true;
 }
 
-bool DebugAction::HandleAddNode(Event& event, Player* requester, const std::string& text)
-{
-    WorldPosition pos(bot);
-
-    std::string name = "USER:" + text.substr(9);
-
-    TravelNode* startNode = sTravelNodeMap.addNode(pos, name, false, false);
-
-    for (auto& endNode : sTravelNodeMap.GetNodes(pos, 2000))
-    {
-        endNode->setLinked(false);
-    }
-
-    ai->TellPlayerNoFacing(requester, "Node " + name + " created.");
-
-    sTravelNodeMap.setHasToGen();
-
-    return true;
-}
-
-bool DebugAction::HandleRemNode(Event& event, Player* requester, const std::string& text)
-{
-    WorldPosition pos(bot);
-
-    TravelNode* startNode = sTravelNodeMap.GetNode(pos, nullptr, 50);
-
-    if (!startNode)
-        return false;
-
-    if (startNode->IsImportant())
-    {
-        ai->TellPlayerNoFacing(requester, "Node can not be removed.");
-    }
-    sTravelNodeMap.m_nMapMtx.lock();
-    sTravelNodeMap.removeNode(startNode);
-    ai->TellPlayerNoFacing(requester, "Node removed.");
-    sTravelNodeMap.m_nMapMtx.unlock();
-
-    sTravelNodeMap.setHasToGen();
-
-    return true;
-}
-
-bool DebugAction::HandleResetNode(Event& event, Player* requester, const std::string& text)
-{
-    for (auto& node : sTravelNodeMap.GetNodes())
-        node->setLinked(false);
-    return true;
-}
-
-bool DebugAction::HandleResetPath(Event& event, Player* requester, const std::string& text)
-{
-    for (auto& node : sTravelNodeMap.GetNodes())
-        for (auto& path : *node->GetLinks())
-            node->removeLinkTo(path.first, true);
-    return true;
-}
-
-bool DebugAction::HandleGenNode(Event& event, Player* requester, const std::string& text)
-{
-    //Pathfinder
-    sTravelNodeMap.generateNodes();
-    return true;
-}
-
-bool DebugAction::HandleGenPath(Event& event, Player* requester, const std::string& text)
-{
-    sTravelNodeMap.generatePaths(false);
-    return true;
-}
-
-bool DebugAction::HandleCropPath(Event& event, Player* requester, const std::string& text)
-{
-    sTravelNodeMap.removeUselessPaths();
-    return true;
-}
-
 bool DebugAction::HandleSaveNode(Event& event, Player* requester, const std::string& text)
 {
     sTravelNodeMap.printNodeStore();
     sTravelNodeMap.saveNodeStore(true);
-    return true;
-}
-
-bool DebugAction::HandleLoadNode(Event& event, Player* requester, const std::string& text)
-{
-    std::thread t([] {if (sTravelNodeMap.removeNodes())
-        sTravelNodeMap.loadNodeStore(); });
-
-    t.detach();
-
     return true;
 }
 

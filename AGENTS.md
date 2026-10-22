@@ -4,7 +4,7 @@
 
 It is a hobby project built for its owner and interested players: pragmatic, small, working changes beat ceremony.
 
-**Before you start:** every change needs an issue, only complete features go into `dev` (unfinished ones live on a feature branch), branches are named `feat/<topic>`, `fix/<topic>` or `docs/<topic>`, and the pull request description must say plainly what is added, changed and removed. Read [`AGENTIC_GUIDELINES.md`](AGENTIC_GUIDELINES.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Before you start:** every change needs an issue, only complete features go into `dev` (unfinished ones live on a feature branch), branches are named `feat/<topic>`, `fix/<topic>` or `docs/<topic>`, and the pull request description must say plainly, in player words and without code identifiers, what is added, changed and removed (see [`CONTRIBUTING.md`](CONTRIBUTING.md#pull-requests)). Read [`AGENTIC_GUIDELINES.md`](AGENTIC_GUIDELINES.md) and [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Product direction
 
@@ -48,13 +48,14 @@ Lookup order: gameplay/class AI/CC/movement → mod-playerbots, then shyalya-tor
 - **SQL:** migrations go to `data/sql/world/` or `data/sql/character/` (the core's updater reads the module source tree, folder names must match `Database.AutoUpdate.*UpdateName`), named `YYYYMMDDHHMMSS_<world|char>.sql`, idempotent. Never edit an applied migration — add a new one.
 - **Performance:** nothing per bot tick hits the DB, scans the world or rebuilds strategy graphs; startup caches are built in one pass (O(rows), never item × template loops); expensive diagnostics are opt-in. Measure rather than guess.
 - **Edits:** when adding a declaration or line next to an existing one, check `git diff` for accidental removals (`-` lines) before committing; count prepared-statement placeholders against columns.
+- **Comments:** write the fix, and a comment only where the code cannot explain itself (a non-obvious *why*: a core quirk, a timing trap, a deliberate trade-off). No comments that narrate the change, restate the code, or point at where it came from (issue/PR numbers, "fixes X", "ported from mod-playerbots", "per review", dates, audit numbers). That history belongs in the commit message and the pull request description.
 - **Git:** check `git status --short` before and after; never stage, reset or discard changes you did not make.
 
 ## Validation
 
 Use the smallest check that proves the change, and never report runtime behaviour you only read in code.
 
-- Docs/config text only: `bash tools/verify_all.sh` (OKF, surface, wiring, unit and decision-trail tests; ~1 s) and `git diff --check`.
+- Docs/config text only: `bash tools/verify_all.sh` (OKF, surface, wiring, unit and decision-trail tests; ~30 s with 12 parallel test jobs) and `git diff --check`.
 - Module C++: one cached build after the batch is coherent — the Docker dev loop in `../tortoise-docker-penqle` (`./dev/build-playerbots`, then `./dev/restart-server`; it builds the live `TortoiseBots` checkout). Read that repo's README first; never run destructive Docker/DB commands unless asked.
 - Runtime: the smallest relevant check (server boots, module loads, bot enters world and acts, clean logout/shutdown, no DB/session errors in the log).
 - Core-seam or build-gating change: module build while iterating, full module ON/OFF matrix before handing over.

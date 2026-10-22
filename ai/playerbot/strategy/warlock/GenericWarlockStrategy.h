@@ -86,15 +86,6 @@ public:
     void InitTriggers(std::vector<TriggerNode*>& triggers) override;
 };
 
-class WarlockCurseOfExhaustionStrategy : public Strategy
-{
-public:
-    WarlockCurseOfExhaustionStrategy(PlayerbotAI* botAI) : Strategy(botAI) {}
-
-    std::string getName() override { return "curse of exhaustion"; }
-    void InitTriggers(std::vector<TriggerNode*>& triggers) override;
-};
-
 class WarlockCurseOfTonguesStrategy : public Strategy
 {
 public:

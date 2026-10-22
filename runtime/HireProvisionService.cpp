@@ -8,6 +8,7 @@
 #include "HireSpecPolicy.h"
 #include "HireGearCache.h"
 #include "HireGearPolicy.h"
+#include "../ai/playerbot/RandomItemMgr.h"
 #include "HireLevelPolicy.h"
 #include "HireFeePolicy.h"
 #include "HireTierRequestPolicy.h"
@@ -1552,6 +1553,10 @@ bool HireProvisionService::EquipHireGearSet(Player* bot, PlayerbotAI* ai, uint8_
         }
         if (!oldItem || oldItem->GetEntry() != row->itemId)
         {
+            // The hire gear table comes from the offline generator; an
+            // excluded id is never equipped (the old item stays).
+            if (sRandomItemMgr.IsTransmogClone(row->itemId))
+                continue;
             // A 2H main hand cannot be equipped while the offhand is held.
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(row->itemId);
             if (slot == EQUIPMENT_SLOT_MAINHAND && proto && proto->InventoryType == INVTYPE_2HWEAPON)

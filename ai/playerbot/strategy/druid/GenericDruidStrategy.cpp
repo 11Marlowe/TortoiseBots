@@ -48,28 +48,6 @@ void GenericDruidStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
     triggers.push_back(
         new TriggerNode("almost full health", { NextAction("barkskin", 40.0f) }));
-
-    Player* bot = botAI->GetBot();
-    int tab = AiFactory::GetPlayerSpecTab(bot);
-
-    if (tab == DRUID_TAB_FERAL)
-    {
-        if (!bot->HasAura(16931) /*thick hide — bear spec*/)
-        {
-            triggers.push_back(new TriggerNode("predator's swiftness and combat party member dead",
-                                               { NextAction("rebirth", 29.0f) }));
-            triggers.push_back(new TriggerNode("combat party member dead",
-                                               { NextAction("rebirth", 28.5f) }));
-        }
-    }
-    else
-    {
-        triggers.push_back(new TriggerNode("combat party member dead",
-                                           { NextAction("rebirth", 29.0f) }));
-    }
-
-    triggers.push_back(new TriggerNode("being attacked",
-                                       { NextAction("nature's grasp", 39.0f) }));
 }
 
 void DruidCureStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
@@ -102,33 +80,10 @@ void DruidBoostStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
 void DruidCcStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    Player* bot = botAI->GetBot();
-    int tab = AiFactory::GetPlayerSpecTab(bot);
-
-    if (tab == DRUID_TAB_BALANCE || tab == DRUID_TAB_RESTORATION)
-    {
-        triggers.push_back(new TriggerNode(
-            "hibernate", { NextAction("hibernate on cc", 41.0f) }));
-        triggers.push_back(new TriggerNode(
-            "entangling roots", { NextAction("entangling roots on cc", 40.0f) }));
-    }
-    if (tab == DRUID_TAB_FERAL)
-    {
-        if (bot->HasSpell(uint32(768)) && !bot->HasAura(16931))
-        {
-            triggers.push_back(new TriggerNode(
-                "predator's swiftness and hibernate", { NextAction("hibernate on cc", 41.0f) }));
-            triggers.push_back(new TriggerNode(
-                "predator's swiftness and entangling roots", { NextAction("entangling roots on cc", 40.0f) }));
-        }
-        else
-        {
-            triggers.push_back(new TriggerNode(
-                "hibernate", { NextAction("hibernate on cc", 41.0f) }));
-            triggers.push_back(new TriggerNode(
-                "entangling roots", { NextAction("entangling roots on cc", 40.0f) }));
-        }
-    }
+    triggers.push_back(new TriggerNode(
+        "hibernate", { NextAction("hibernate on cc", 41.0f) }));
+    triggers.push_back(new TriggerNode(
+        "entangling roots", { NextAction("entangling roots on cc", 40.0f) }));
 }
 
 void DruidHealerDpsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
@@ -136,7 +91,6 @@ void DruidHealerDpsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
     triggers.push_back(
         new TriggerNode("healer should attack",
                         {
-                            NextAction("cancel tree form", 5.4f),
                             NextAction("moonfire",         5.3f),
                             NextAction("wrath",            5.2f),
                             NextAction("starfire",         5.1f),
@@ -145,22 +99,6 @@ void DruidHealerDpsStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 
 void DruidAoeStrategy::InitTriggers(std::vector<TriggerNode*>& triggers)
 {
-    Player* bot = botAI->GetBot();
-    int tab = AiFactory::GetPlayerSpecTab(bot);
-
-    if (tab == DRUID_TAB_BALANCE)
-    {
-        triggers.push_back(new TriggerNode("hurricane channel check", { NextAction("cancel channel", 22.0f) }));
-        triggers.push_back(new TriggerNode("medium aoe", { NextAction("hurricane", 23.0f) }));
-        triggers.push_back(new TriggerNode("insect swarm on attacker", { NextAction("insect swarm on attacker", 5.2f) }));
-        triggers.push_back(new TriggerNode("moonfire on attacker", { NextAction("moonfire on attacker", 5.1f) }));
-    }
-
-    if (tab == DRUID_TAB_RESTORATION)
-    {
-        triggers.push_back(new TriggerNode("hurricane channel check", { NextAction("cancel channel", 22.0f) }));
-        triggers.push_back(new TriggerNode("medium aoe", { NextAction("hurricane", 23.0f) }));
-        triggers.push_back(new TriggerNode("insect swarm on attacker", { NextAction("insect swarm on attacker", 5.2f) }));
-        triggers.push_back(new TriggerNode("moonfire on attacker", { NextAction("moonfire on attacker", 5.1f) }));
-    }
+    triggers.push_back(new TriggerNode("insect swarm on attacker", { NextAction("insect swarm on attacker", 5.2f) }));
+    triggers.push_back(new TriggerNode("moonfire on attacker", { NextAction("moonfire on attacker", 5.1f) }));
 }

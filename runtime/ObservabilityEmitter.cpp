@@ -568,8 +568,6 @@ void ObservabilityEmitter::Initialize()
 
     m_port = sPlayerbotAIConfig.observabilityPort;
     if (m_port == 0)
-        m_port = sConfig.GetIntDefault("AiPlayerbot.ObservabilityPort", 9195);
-    if (m_port == 0)
         m_port = 9195;
 
     // Unix seconds is ample resolution: a restarted server is a new session.

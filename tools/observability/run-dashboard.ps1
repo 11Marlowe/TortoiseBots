@@ -4,11 +4,17 @@
 #
 # Usage:
 #   .\run-dashboard.ps1 [-MangosdConf C:\path\to\mangosd.conf] [-Tag v2026-10-07] [-AgentMapsDir C:\path\to\maps]
+#
+# Optional: -HttpHost 0.0.0.0 serves the dashboard on all interfaces (LAN); the default 127.0.0.1 keeps it local only.
+# Optional: SESSION_SECRET keeps dashboard sessions across a restart; unset, the daemon generates a random key at startup.
 param(
   [string]$MangosdConf = $env:MANGOSD_CONF,
   [string]$Tag = "",
   [int]$HttpPort = 8095,
   [int]$UdpPort = 9195,
+  # What the daemon binds (127.0.0.1 = local only, its default; 0.0.0.0 = all
+  # interfaces for LAN, put a firewall or reverse proxy in front).
+  [string]$HttpHost = $env:HTTP_HOST,
   # Optional: the folder `turtle-agent map` writes its run maps into; enables the read-only Agent maps tab.
   [string]$AgentMapsDir = $env:TBDASH_AGENT_MAPS_DIR
 )
@@ -123,8 +129,12 @@ if (Test-Path $AiConf) {
   Write-Warning "$AiConf not found; set AiPlayerbot.Observability = 1 yourself"
 }
 
+# A health probe against a specific bind address must target that address;
+# 0.0.0.0 (all interfaces) and the unset default answer on 127.0.0.1.
+$ProbeHost = if ($HttpHost -and $HttpHost -ne "0.0.0.0" -and $HttpHost -ne "localhost") { $HttpHost } else { "127.0.0.1" }
+
 try {
-  Invoke-WebRequest "http://127.0.0.1:${HttpPort}/metrics" -TimeoutSec 2 -UseBasicParsing | Out-Null
+  Invoke-WebRequest "http://${ProbeHost}:${HttpPort}/metrics" -TimeoutSec 2 -UseBasicParsing | Out-Null
   Write-Host "dashboard already running at http://localhost:${HttpPort}/dashboard"
   exit 0
 } catch { }
@@ -139,6 +149,7 @@ $env:DB_WORLD = $WorldDb
 $env:HTTP_PORT = "$HttpPort"
 $env:UDP_PORT = "$UdpPort"
 $env:UDP_HOST = "127.0.0.1"
+if ($HttpHost) { $env:HTTP_HOST = $HttpHost }
 if ($DbcDir) { $env:DBC_DIR = $DbcDir }
 $iconDir = if ($env:ICON_CACHE_DIR) { $env:ICON_CACHE_DIR } else { Join-Path $Here ".icon-cache" }
 New-Item -ItemType Directory -Force -Path $iconDir | Out-Null
@@ -156,7 +167,7 @@ $ErrFile = Join-Path $Here "dashboard.err.log"
 $proc = Start-Process -FilePath $Bin -RedirectStandardOutput $LogFile -RedirectStandardError $ErrFile -PassThru
 Start-Sleep -Seconds 2
 try {
-  Invoke-WebRequest "http://127.0.0.1:${HttpPort}/metrics" -TimeoutSec 3 -UseBasicParsing | Out-Null
+  Invoke-WebRequest "http://${ProbeHost}:${HttpPort}/metrics" -TimeoutSec 3 -UseBasicParsing | Out-Null
   Write-Host "dashboard up at http://localhost:${HttpPort}/dashboard"
 } catch {
   Write-Error "start failed; see $LogFile and $ErrFile"

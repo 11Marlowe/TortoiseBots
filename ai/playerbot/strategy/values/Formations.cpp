@@ -11,6 +11,7 @@
 using namespace ai;
 
 WorldLocation Formation::NullLocation = WorldLocation();
+unsigned int Formation::lastSerial = 0;
 
 // Follow-spot ground safety (issue #217): a missed floor lookup must not drag
 // the bot into the subterranean terrain below a crypt. A steep stair or slope

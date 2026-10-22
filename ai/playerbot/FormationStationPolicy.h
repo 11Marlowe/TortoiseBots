@@ -40,4 +40,59 @@ namespace ai
         float const dy = botY - slotY;
         return std::sqrt(dx * dx + dy * dy);
     }
+
+    // Walks allowed per formation change: the first walk, plus one retry when
+    // the bot did not reach the slot it aimed at (a cast, a stop, a path that
+    // fell short). Then the bot stops until the formation changes, so a walk
+    // that never lands cannot repeat forever.
+    constexpr int kFormationStationWalksPerChange = 2;
+
+    // Per-bot station memory for the formation the bot was last set to.
+    // Chaos re-rolls its slot every 3 s, so the memory keeps the slot the last
+    // walk aimed at: the next check asks whether the bot reached that slot,
+    // not whether it sits on today's re-rolled one.
+    struct FormationStationMemory
+    {
+        unsigned int formation = 0; // serial of the formation this memory is for
+        int walks = 0;              // walks issued for that formation
+        bool settled = false;       // no more walks until the formation changes
+        float walkX = 0.0f;
+        float walkY = 0.0f;
+    };
+
+    // One check tick. Returns true when the bot should walk to the slot now.
+    // A new formation serial starts the memory over. A bot already on its slot
+    // settles without walking; a bot whose last walk reached its slot settles too.
+    inline bool FormationStationStep(FormationStationMemory& memory, unsigned int formation,
+        float botX, float botY, float slotX, float slotY)
+    {
+        if (memory.formation != formation)
+        {
+            memory = FormationStationMemory();
+            memory.formation = formation;
+        }
+        if (memory.settled)
+            return false;
+
+        if (memory.walks == 0)
+        {
+            if (!FormationStationWanted(FormationStationDistance(botX, botY, slotX, slotY)))
+            {
+                memory.settled = true;
+                return false;
+            }
+        }
+        else if (!FormationStationWanted(FormationStationDistance(botX, botY, memory.walkX, memory.walkY)) ||
+            memory.walks >= kFormationStationWalksPerChange)
+        {
+            // The last walk reached its slot, or the retry is already spent.
+            memory.settled = true;
+            return false;
+        }
+
+        ++memory.walks;
+        memory.walkX = slotX;
+        memory.walkY = slotY;
+        return true;
+    }
 }

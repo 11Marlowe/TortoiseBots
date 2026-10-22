@@ -17,7 +17,6 @@ public:
         creators["windfury"] = &windfury_totem;
         creators["healing stream totem"] = &healing_stream_totem;
         creators["chain heal"] = &chain_heal;
-        creators["chain heal on party"] = &chain_heal_on_party;
     }
 
 private:
@@ -34,8 +33,6 @@ private:
     ACTION_NODE_A(healing_stream_totem, "healing stream totem", "mana spring totem");
 
     ACTION_NODE_A(chain_heal, "chain heal", "lesser healing wave");
-
-    ACTION_NODE_A(chain_heal_on_party, "chain heal on party", "lesser healing wave on party");
 };
 
 RestorationShamanStrategy::RestorationShamanStrategy(PlayerbotAI* ai) : ShamanStrategy(ai)

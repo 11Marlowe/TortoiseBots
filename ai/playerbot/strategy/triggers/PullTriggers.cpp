@@ -148,6 +148,18 @@ bool PullEndTrigger::IsActive()
         return true;
     }
 
+    // An intercepted pullback is a landed pull too: pack members reaching the
+    // tank before its own shot's target does mean the fight has started. The
+    // meet branch above only sees the shot's target; without this the return
+    // leg (and its bounded clock) never arms, and the tank stays pinned at the
+    // camp for the approach cap. Landing here hands the fight over through the
+    // return leg like any other pullback - the cap bounds it even under fire.
+    if (pullback && !strategy->HasPullActionCompleted() && !bot->GetAttackers().empty())
+    {
+        const_cast<PullStrategy*>(strategy)->OnPullActionCompleted();
+        return false;
+    }
+
     // An ordinary pull hands control back to combat as soon as its pull action
     // succeeds.  Before that, retain the request while the tank closes to its
     // class-specific melee/ranged pull distance.
@@ -179,18 +191,27 @@ bool PullAnchorDoneTrigger::IsActive()
     if (!posMap["pull hold"].isSet())
         return false;
 
-    // Hold the anchor for as long as the pulled fight lasts: in combat, or
-    // with a live target left to tank. Once nothing is left - the mob dead,
-    // the pack finished, the hold broken off - the tank follows the party
-    // again instead of standing at the anchor forever.
+    // Hold the anchor only while the pulled mob is still on its way. Once it
+    // has arrived (in melee), stopped short (a caster), or died, the anchor
+    // has done its job: a stay held for the whole fight kept the tank from
+    // reaching the rest of the pack, so it stood idle while the other mobs
+    // beat on the party. mod-playerbots' pull back holds no stay at all.
     //
     // This runs inside the combat engine, which is evaluated between reaction
-    // ticks: it frees the tank in the same tick the fight is over, while
-    // PlayerbotAI::OnCombatEnded is the guarantee (it fires with the engine
-    // switch, where this trigger no longer exists). Both call the same release.
-    if (sServerFacade.IsInCombat(bot))
-        return false;
-
+    // ticks, while PlayerbotAI::OnCombatEnded is the guarantee (it fires with
+    // the engine switch, where this trigger no longer exists). Both call the
+    // same release.
     Unit* currentTarget = AI_VALUE(Unit*, "current target");
-    return !currentTarget || !currentTarget->IsAlive();
+    if (!currentTarget || !currentTarget->IsAlive())
+        return true;
+
+    // The pulled mob left the fight entirely (it reset and went home): nothing
+    // is coming to the anchor, and a wander at home must not keep the tank
+    // parked on it. The bot's own armed attack cannot be the test here - it
+    // stays on the reset mob for good, while the mob itself is out of combat
+    // and never comes back.
+    if (!currentTarget->IsInCombat())
+        return true;
+
+    return !sServerFacade.isMoving(currentTarget) || bot->CanReachWithMeleeAutoAttack(currentTarget);
 }

@@ -101,6 +101,26 @@ RandomItemMgr::RandomItemMgr()
 
 }
 
+// The duplicate-copy condition reads the index built in BuildItemInfoCache,
+// which Init runs before the other cache builds; the two clone conditions
+// need no index at all.
+bool RandomItemMgr::IsTransmogClone(ItemPrototype const* proto) const
+{
+    if (!proto)
+        return false;
+
+    TortoiseBots::TransmogCloneFacts facts;
+    facts.destItemSet = proto->DestItemId != 0;
+    facts.idIsCloneId = sObjectMgr.GetItemTransmogrifyTemplate(proto->ItemId) != nullptr;
+    facts.duplicateCopy = gearDuplicateItems.IsDuplicate(proto->ItemId);
+    return TortoiseBots::IsTransmogClone(facts);
+}
+
+bool RandomItemMgr::IsTransmogClone(uint32 itemId) const
+{
+    return IsTransmogClone(sObjectMgr.GetItemPrototype(itemId));
+}
+
 void RandomItemMgr::Init()
 {
     BuildItemInfoCache();
@@ -221,6 +241,9 @@ void RandomItemMgr::BuildRandomItemCache()
         {
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
             if (!proto)
+                continue;
+
+            if (IsTransmogClone(proto))
                 continue;
 
             if (proto->Duration & 0x80000000)
@@ -988,6 +1011,23 @@ void RandomItemMgr::BuildItemInfoCache()
 
         ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
         if (!proto)
+            continue;
+
+        // Transmog clones must be skipped BEFORE the duplicate registration:
+        // a clone carries the base item's name and would otherwise flag a
+        // higher-id original instead of itself.
+        if (IsTransmogClone(proto))
+            continue;
+
+        // Custom-id duplicate copies (e.g. 1983153 copying "Might of Menethil"
+        // 22798): registered here, then cut from every gear pool — no
+        // itemInfoCache row, so stat weights, the equip cache, the slot
+        // backstop and upgrade suggestions never see them. A bot already
+        // wearing a copy scores it 0, so autogear replaces it with the real
+        // item. The walk is ascending, so the lowest-id instance (the real
+        // item) wins and stays eligible.
+        gearDuplicateItems.Add(proto->ItemId, proto->Name1.c_str());
+        if (gearDuplicateItems.IsDuplicate(proto->ItemId))
             continue;
 
         // skip non armor/weapon
@@ -3680,6 +3720,11 @@ void RandomItemMgr::BuildEquipCache()
             uint32 quality = fields[4].GetUInt32();
             uint32 itemId = fields[5].GetUInt32();
 
+            // Persisted rows predate the duplicate-copy rule; a copy cached
+            // before the fix must not re-enter the pools on load.
+            if (IsTransmogClone(itemId))
+                continue;
+
             BotEquipKey key(level, clazz, spec, slot, quality);
             equipCache[key].push_back(itemId);
             count++;
@@ -3766,6 +3811,11 @@ void RandomItemMgr::BuildEquipCache()
         {
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
             if (!proto)
+                continue;
+
+            // Covers the shirt/tabard lists too: they skip the itemInfoCache
+            // lookup below, so the copy check sits on the walk itself.
+            if (IsTransmogClone(proto))
                 continue;
 
             // Reject everything no key could ever accept, cheapest test first.
@@ -3986,6 +4036,12 @@ void RandomItemMgr::BuildAmmoCache()
             candidate.delayMs = fields[6].GetUInt32();
             candidates.push_back(candidate);
         } while (rows->NextRow());
+
+        // Reads plain item_template rows: runtime clones are never rows
+        // there, but the materialised duplicate-copy rows are.
+        candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                              [](ai::AmmoCandidate const& c) { return sRandomItemMgr.IsTransmogClone(c.entry); }),
+            candidates.end());
         return ai::PickAmmo(candidates, level);
     };
 
@@ -4080,6 +4136,9 @@ void RandomItemMgr::BuildPotionCache()
                 if (!proto)
                     continue;
 
+                if (IsTransmogClone(proto))
+                    continue;
+
                 // Turtle 1.18.1 combat potions live under subclass 0
                 // (ITEM_SUBCLASS_CONSUMABLE); see FindPotionVisitor. The
                 // spell-effect loop below still restricts to heal/energize.
@@ -4152,6 +4211,9 @@ void RandomItemMgr::BuildFoodCache()
             {
                 ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
                 if (!proto)
+                    continue;
+
+                if (IsTransmogClone(proto))
                     continue;
 
                 if (proto->Class != ITEM_CLASS_CONSUMABLE ||
@@ -4266,6 +4328,9 @@ void RandomItemMgr::BuildTradeCache()
         {
             ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
             if (!proto)
+                continue;
+
+            if (IsTransmogClone(proto))
                 continue;
 
             if (proto->Class != ITEM_CLASS_TRADE_GOODS || proto->Bonding != NO_BIND)

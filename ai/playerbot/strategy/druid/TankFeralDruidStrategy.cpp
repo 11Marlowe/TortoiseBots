@@ -59,6 +59,12 @@ void TankFeralDruidStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigger
         "lose aggro",
         NextAction::array(0, new NextAction("growl", ACTION_MOVE), NULL)));
 
+    // A mob sitting on a non-tank member: "lose aggro" only sees the bear's
+    // current target. Same priority as "lose aggro".
+    triggers.push_back(new TriggerNode(
+        "party member attacked",
+        NextAction::array(0, new NextAction("growl on attacker", ACTION_MOVE), NULL)));
+
     triggers.push_back(new TriggerNode(
         "faerie fire (feral)",
         NextAction::array(0, new NextAction("faerie fire (feral)", ACTION_HIGH), NULL)));

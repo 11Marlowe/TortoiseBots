@@ -38,14 +38,21 @@ void DisciplinePriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigg
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL + 1), NULL)));
 
-    // Pull 1 (Deadmines, 2026-10-13): the medium band had no fast direct heal
-    // behind the shield — the gap is the same shape as holy's. Flash Heal
-    // rides the medium row above greater heal so a dropping tank gets a fast
-    // heal first; the efficient greater heal stays for the mana case.
+    // Fast damage with enough healer mana: flash heal lands before the bar
+    // runs into the critical band. Both band rows sit below, so the pick
+    // cannot downgrade to a slow cast as the bar crosses the band line.
+    // Untrained flash heal falls through to those rows.
+    triggers.push_back(new TriggerNode(
+        "party member fast damage",
+        NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
+                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2), NULL)));
+
+    // Slow or stable damage keeps the efficient greater heal here, and so
+    // does a healer low on mana - flash heal is then kept for a member
+    // predicted to reach the critical line before the slow cast lands.
     triggers.push_back(new TriggerNode(
         "party member medium health",
         NextAction::array(0, new NextAction("power word: shield on party", ACTION_MEDIUM_HEAL + 4),
-                             new NextAction("flash heal on party", ACTION_MEDIUM_HEAL + 2),
                              new NextAction("greater heal on party", ACTION_MEDIUM_HEAL), NULL)));
 
     // Owner-approved (2026-10-14): Flash Heal just above Greater Heal while

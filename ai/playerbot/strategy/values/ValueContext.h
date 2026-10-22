@@ -66,6 +66,7 @@
 #include "LfgValues.h" // Vanilla/Tortoise meeting-stone and group role support.
 #include "PvpValues.h"
 #include "EnemyHealerTargetValue.h"
+#include "InterruptTargetValue.h"
 #include "Formations.h"
 #include "ItemUsageValue.h"
 #include "LastSaidValue.h"
@@ -79,6 +80,7 @@
 #include "RangeValues.h"
 #include "SkipSpellsListValue.h"
 #include "SnareTargetValue.h"
+#include "AttackerOfNonTankTargetValue.h"
 #include "Stances.h"
 #include "QuestValues.h"
 #include "BudgetValues.h"
@@ -274,7 +276,9 @@ namespace ai
             creators["min repair cost"] = [](PlayerbotAI* ai) { return new MinRepairCostValue(ai); };
             creators["train cost"] = [](PlayerbotAI* ai) { return new TrainCostValue(ai); };
             creators["enemy healer target"] = [](PlayerbotAI* ai) { return new EnemyHealerTargetValue(ai); };
+            creators["interrupt target"] = [](PlayerbotAI* ai) { return new InterruptTargetValue(ai); };
             creators["snare target"] = [](PlayerbotAI* ai) { return new SnareTargetValue(ai); };
+            creators["attacker of non-tank target"] = [](PlayerbotAI* ai) { return new AttackerOfNonTankTargetValue(ai); };
             creators["formation"] = [](PlayerbotAI* ai) { return new FormationValue(ai); };
             creators["formation position"] = [](PlayerbotAI* ai) { return new FormationPositionValue(ai); };
             creators["stance"] = [](PlayerbotAI* ai) { return new StanceValue(ai); };

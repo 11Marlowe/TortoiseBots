@@ -124,7 +124,7 @@ namespace ai
     MELEE_ACTION(CastSlamAction, "slam");
     BUFF_ACTION(CastBerserkerRageAction, "berserker rage");
     MELEE_ACTION(CastWhirlwindAction, "whirlwind");
-    MELEE_ACTION(CastPummelAction, "pummel");
+    MELEE_INTERRUPT_ACTION(CastPummelAction, "pummel");
     ENEMY_HEALER_ACTION(CastPummelOnEnemyHealerAction, "pummel");
     BUFF_ACTION(CastRecklessnessAction, "recklessness");
 
@@ -136,8 +136,22 @@ namespace ai
     // protection
     MELEE_ACTION_U(CastTauntAction, "taunt", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
     SNARE_ACTION(CastTauntOnSnareTargetAction, "taunt");
+
+    // Taunt the mob picked by "attacker of non-tank target"; the cast reads
+    // its real range from the spell and the reach prerequisite walks the
+    // tank in.
+    class CastTauntOnAttackerAction : public CastSnareSpellAction
+    {
+    public:
+        CastTauntOnAttackerAction(PlayerbotAI* ai) : CastSnareSpellAction(ai, "taunt") {}
+
+    protected:
+        virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+        virtual std::string getName() override { return "taunt on attacker"; }
+    };
+
     BUFF_ACTION(CastBloodrageAction, "bloodrage");
-    MELEE_ACTION(CastShieldBashAction, "shield bash");
+    MELEE_INTERRUPT_ACTION(CastShieldBashAction, "shield bash");
     ENEMY_HEALER_ACTION(CastShieldBashOnEnemyHealerAction, "shield bash");
     MELEE_ACTION(CastRevengeAction, "revenge");
     BUFF_ACTION(CastShieldBlockAction, "shield block");

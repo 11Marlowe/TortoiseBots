@@ -1,11 +1,15 @@
 // Standalone regression test for issue #88: Economy Synthetic AH Supply and Buyer Engine with Work Budgets.
-// Self-contained mock harness verifying:
-//   1. Work budget slicing and phase transitions (Idle -> Gather -> Overrides -> Post -> Buy -> Expire -> Idle)
-//   2. Item generation templates, quality/level caps, pricing bands and variance
-//   3. Synthetic inventory isolation (SYNTHETIC_OWNER_GUID = 0, never in player bags, safe expiration)
-//   4. Buyer engine policies, spend caps, exclusions (same-account, own auction, outbid self)
-//   5. Overrides, blacklisting, and instant reload via ahbot_items
-//   6. Exact item and currency conservation
+// The decision rules under test (eligibility, pricing, stacks, overrides,
+// buyer exclusions and bid decision, expiration protection, synthetic
+// ownership) live in runtime/AhSyntheticMarketPolicy.h, which production
+// (AhMarketService) calls into (issue #1180); the mock service below only
+// orchestrates game-state bookkeeping around them.
+// Verifies:
+//   1. Item generation eligibility, quality/level caps, pricing and variance
+//   2. Synthetic inventory isolation (SYNTHETIC_OWNER_GUID = 0, never in player bags, safe expiration)
+//   3. Buyer engine policies, spend caps, exclusions (same-account, own auction, outbid self)
+//   4. Overrides, blacklisting, and instant reload via ahbot_items
+//   5. Exact item and currency conservation
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_synthetic_ah.cpp -o /tmp/test_synthetic_ah && /tmp/test_synthetic_ah
@@ -23,6 +27,8 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+
+#include "../runtime/AhSyntheticMarketPolicy.h"
 
 static int checks = 0;
 #define CHECK(cond) do { \
@@ -77,7 +83,7 @@ struct ItemPrototype
     uint32 SellPrice;
     uint32 ItemLevel;
     uint32 RequiredLevel;
-    uint32 MaxStack;
+    uint32 Stackable;
     uint32 Bonding;
     uint32 Flags;
 };
@@ -236,6 +242,10 @@ struct MockAhMarketService
     uint64 totalProtectedBids = 0;
     uint64 totalOperationsExecuted = 0;
 
+    // Level caps as the service tracks them (dynamic level refresh)
+    uint32 maxRequiredLevel = 60;
+    uint32 maxItemLevel = 255;
+
     // Available mock item prototypes
     std::unordered_map<uint32, ItemPrototype> prototypes;
 
@@ -264,10 +274,7 @@ struct MockAhMarketService
     {
         auto it = overrides.find(itemId);
         if (it != overrides.end())
-        {
-            if (it->second.add_chance == 0 || it->second.value == 0)
-                return true;
-        }
+            return ai::AhItemBlacklisted(it->second.value, it->second.add_chance);
         return false;
     }
 
@@ -303,17 +310,11 @@ struct MockAhMarketService
     bool IsItemEligible(ItemPrototype const* proto, bool forced = false) const
     {
         if (!proto) return false;
-        if (!forced && IsItemBlacklisted(proto->ItemId))
-            return false;
-        if (proto->Quality > config.ahMarketMaxQuality)
-            return false;
-        if (proto->RequiredLevel > config.ahMarketMaxLevel)
-            return false;
-        if (proto->Class == ITEM_CLASS_QUEST)
-            return false;
-        if (proto->Bonding != 0 && proto->Bonding != 2 /* Binds when equipped */)
-            return false;
-        return true;
+        return ai::AhItemEligible(IsItemBlacklisted(proto->ItemId), forced, proto->Stackable != 0,
+            proto->Quality, config.ahMarketMaxQuality,
+            proto->RequiredLevel, maxRequiredLevel,
+            proto->ItemLevel, maxItemLevel,
+            proto->Bonding, proto->Flags);
     }
 
     uint32 CalculatePrice(ItemPrototype const* proto) const
@@ -323,37 +324,21 @@ struct MockAhMarketService
         if (it != overrides.end() && it->second.value > 0)
             return it->second.value;
 
-        uint32 price = proto->SellPrice;
-        if (price == 0)
-            price = proto->BuyPrice;
-        if (price == 0)
-            price = 100; // 1 silver baseline fallback
-
-        uint32 multiplier = 100;
-        switch (proto->Quality)
-        {
-            case ITEM_QUALITY_POOR:      multiplier = 50; break;
-            case ITEM_QUALITY_NORMAL:    multiplier = 120; break;
-            case ITEM_QUALITY_UNCOMMON:  multiplier = 300; break;
-            case ITEM_QUALITY_RARE:      multiplier = 800; break;
-            case ITEM_QUALITY_EPIC:      multiplier = 2500; break;
-            default: break;
-        }
-
-        uint64 calculated = (static_cast<uint64>(price) * multiplier) / 100;
-        if (proto->ItemLevel > 0)
-            calculated += static_cast<uint64>(proto->ItemLevel) * 20;
-
-        return static_cast<uint32>(calculated);
+        // Quality scaling + buy/sell sanity rule from the policy. A zero
+        // base price (zero-value poor item) returns before the variance
+        // draw, exactly as in production.
+        uint32 basePrice = ai::AhSyntheticBasePrice(proto->BuyPrice, proto->SellPrice, proto->Quality);
+        if (!basePrice)
+            return 0;
+        return ApplyVariance(basePrice);
     }
 
     uint32 ApplyVariance(uint32 price) const
     {
-        if (config.ahMarketVariance == 0 || price == 0)
-            return price;
-        // Mock deterministic variance: +5%
-        int32 delta = static_cast<int32>((price * 5) / 100);
-        return static_cast<uint32>(static_cast<int32>(price) + delta);
+        if (!price || !config.ahMarketVariance)
+            return price ? price : 1;
+        int32 delta = static_cast<int32>(config.ahMarketVariance); // deterministic mock draw
+        return ai::AhVariedPrice(price, delta);
     }
 
     // StepWorkSlice: mimics execution of tasks up to maxOperations or budget
@@ -440,7 +425,8 @@ struct MockAhMarketService
 
                         ItemPrototype const* proto = &pIt->second;
                         uint32 unitPrice = ApplyVariance(CalculatePrice(proto));
-                        uint32 stack = std::min<uint32>(count, proto->MaxStack ? proto->MaxStack : 1);
+                        uint32 stack = ai::AhStackCount(proto->Stackable != 0, proto->Stackable, count, unitPrice, 0, 0);
+                        if (!stack) { ++opsExecuted; continue; }
                         uint32 buyout = unitPrice * stack;
                         uint32 startbid = (buyout * config.ahMarketBidMin) / 100;
                         if (startbid == 0) startbid = 1;
@@ -497,21 +483,17 @@ struct MockAhMarketService
         return opsExecuted;
     }
 
-    // Buyer evaluation logic
+    // Buyer evaluation logic, production decision shape
+    // (AhMarketService::BuyAuctionCandidate): exclusions via the policy,
+    // then willingness and the buyout-or-next-bid decision from the policy,
+    // then money/spend-cap gates, then execution.
     bool EvaluateAndBid(MockPlayer& buyer, AuctionEntry* auction, uint32 customMaxSpend = 0)
     {
         if (!auction) return false;
 
-        // Exclusion 1: Own auction
-        if (auction->owner == buyer.GetGUIDLow())
-            return false;
-
-        // Exclusion 2: Same account auction
-        if (auction->ownerAccount == buyer.GetSession()->GetAccountId())
-            return false;
-
-        // Exclusion 3: Already highest bidder
-        if (auction->bidder == buyer.GetGUIDLow())
+        // Own auction, same-account auction, already-highest-bidder
+        if (ai::AhBuyerExcluded(auction->owner, auction->ownerAccount, auction->bidder,
+                buyer.GetGUIDLow(), buyer.GetSession()->GetAccountId()))
             return false;
 
         // Blacklist check
@@ -522,19 +504,30 @@ struct MockAhMarketService
         if (pIt == prototypes.end()) return false;
         ItemPrototype const* proto = &pIt->second;
 
-        uint32 marketPrice = CalculatePrice(proto) * auction->itemCount;
-        uint32 fairValueCap = (marketPrice * config.ahMarketBuyValue) / 100;
-
-        uint32 spendCap = customMaxSpend ? customMaxSpend : config.ahMarketMaxSpendPerBot;
-        if (spendCap > 0 && auction->buyout > spendCap)
+        // Harness stands in for the live AH read model: no median blend.
+        uint32 medianMarket = 0;
+        uint64 willingness = ai::AhBuyerWillingness(CalculatePrice(proto), medianMarket,
+            auction->itemCount, config.ahMarketBuyValue);
+        if (!willingness)
             return false;
 
-        // Buyout decision: if buyout <= fairValueCap and buyer has enough money
-        if (auction->buyout > 0 && auction->buyout <= fairValueCap && buyer.GetMoney() >= auction->buyout)
-        {
-            // Execute Buyout
-            buyer.ModifyMoney(-static_cast<int32>(auction->buyout));
+        uint32 outbid = auction->GetAuctionOutBid();
+        uint32 targetPrice = 0;
+        if (!ai::AhBuyerTargetPrice(willingness, auction->buyout, auction->bid, outbid,
+                auction->startbid, targetPrice))
+            return false;
 
+        if (buyer.GetMoney() < targetPrice)
+            return false;
+
+        uint32 spendCap = customMaxSpend ? customMaxSpend : config.ahMarketMaxSpendPerBot;
+        if (spendCap > 0 && targetPrice > spendCap)
+            return false;
+
+        buyer.ModifyMoney(-static_cast<int32>(targetPrice));
+
+        if (auction->buyout > 0 && targetPrice == auction->buyout) // Buyout
+        {
             // Deliver item to buyer
             auto itmIt = dbItemInstances.find(auction->itemGuidLow);
             if (itmIt != dbItemInstances.end())
@@ -543,7 +536,7 @@ struct MockAhMarketService
             }
 
             // Invariant: Synthetic item low guid is removed from synthetic set once owned by player
-            if (auction->owner == SYNTHETIC_OWNER_GUID)
+            if (auction->owner == ai::kAhSyntheticOwnerGuid)
             {
                 syntheticItemGuids.erase(auction->itemGuidLow);
                 syntheticAuctions.erase(auction->Id);
@@ -556,21 +549,11 @@ struct MockAhMarketService
             return true;
         }
 
-        // Underbid / Bid decision: if startbid or outbid <= fairValueCap
-        uint32 minBid = auction->bid > 0 ? (auction->bid + auction->GetAuctionOutBid()) : auction->startbid;
-        if (minBid <= fairValueCap && buyer.GetMoney() >= minBid)
-        {
-            if (spendCap > 0 && minBid > spendCap)
-                return false;
-
-            buyer.ModifyMoney(-static_cast<int32>(minBid));
-            auction->bid = minBid;
-            auction->bidder = buyer.GetGUIDLow();
-            ++totalProtectedBids;
-            return true;
-        }
-
-        return false;
+        // Underbid / Bid
+        auction->bid = targetPrice;
+        auction->bidder = buyer.GetGUIDLow();
+        ++totalProtectedBids;
+        return true;
     }
 
     // Safely expire a synthetic auction
@@ -580,13 +563,13 @@ struct MockAhMarketService
         if (!auction) return false;
 
         // Never expire or delete an auction with active bids (protects committed gold)
-        if (auction->bid != 0)
+        if (ai::AhListingProtectedFromExpire(auction->bid))
         {
             ++totalProtectedBids;
             return false;
         }
 
-        if (auction->owner == SYNTHETIC_OWNER_GUID)
+        if (auction->owner == ai::kAhSyntheticOwnerGuid)
         {
             // Safe cleanup: delete item from db, no mail sent
             auto itmIt = dbItemInstances.find(auction->itemGuidLow);
@@ -616,6 +599,7 @@ int main()
     ItemPrototype protoStaff{ 2042, "Staff of Jordan", ITEM_CLASS_WEAPON, 10, ITEM_QUALITY_EPIC, 200000, 50000, 40, 35, 1, 2, 0 };
     ItemPrototype protoLegend{ 19019, "Thunderfury", ITEM_CLASS_WEAPON, 7, ITEM_QUALITY_LEGENDARY, 1000000, 250000, 80, 60, 1, 1, 0 }; // Bound on pickup & Legendary
     ItemPrototype protoHighLevel{ 16000, "High Level Item", ITEM_CLASS_ARMOR, 1, ITEM_QUALITY_RARE, 100000, 25000, 65, 62, 1, 2, 0 }; // Level 62
+    ItemPrototype protoZero{ 9999, "Worthless Pebble", ITEM_CLASS_TRADE_GOODS, 0, ITEM_QUALITY_POOR, 0, 0, 0, 0, 1, 0, 0 }; // No vendor price at all
 
     // -------------------------------------------------------------
     // Test 1: Item Eligibility, Caps & Blacklisting
@@ -644,6 +628,13 @@ int main()
         CHECK(service.IsItemBlacklisted(protoLinen.ItemId));
         CHECK(!service.IsItemEligible(&protoLinen));
 
+        // Either zeroed dimension alone blacklists: a price without a post
+        // chance, and a post chance without a price.
+        service.SetItemOverride(protoLinen.ItemId, 5000, 0, 0, 0);
+        CHECK(service.IsItemBlacklisted(protoLinen.ItemId));
+        service.SetItemOverride(protoLinen.ItemId, 0, 80, 0, 0);
+        CHECK(service.IsItemBlacklisted(protoLinen.ItemId));
+
         // Reset override
         service.ResetItemOverride(protoLinen.ItemId);
         CHECK(!service.IsItemBlacklisted(protoLinen.ItemId));
@@ -651,37 +642,20 @@ int main()
     }
 
     // -------------------------------------------------------------
-    // Test 2: Work Budgeting & Phased State Machine Transitions
+    // Test 1b: Zero-Value Poor Item Prices At 0 And Is Never Posted
     // -------------------------------------------------------------
-    std::cout << "  [Test 2] Work budget slicing & phase state machine\n";
+    std::cout << "  [Test 1b] Zero-value poor item prices at 0, no variance draw\n";
     {
         MockAhMarketService service;
-        service.prototypes[protoLinen.ItemId] = protoLinen;
-        service.prototypes[protoSword.ItemId] = protoSword;
+        service.prototypes[protoZero.ItemId] = protoZero;
 
-        // Set tight operation budget: 2 operations per slice
-        service.config.ahMarketMaxOperations = 2;
-
-        CHECK(service.phase == MockPhase::Idle);
-        uint32 ops1 = service.StepWorkSlice(2);
-        CHECK(ops1 == 2);
-        // Idle (1) -> Gather (1) -> reached 2 ops, still in Gather or Overrides
-        CHECK(service.totalOperationsExecuted == 2);
-
-        // Run next slice
-        uint32 ops2 = service.StepWorkSlice(2);
-        CHECK(ops2 == 2);
-        CHECK(service.totalOperationsExecuted == 4);
-
-        // Run until Idle again
-        int safetyTicks = 50;
-        while (service.phase != MockPhase::Idle && --safetyTicks > 0)
-        {
-            service.StepWorkSlice(2);
-        }
-        CHECK(safetyTicks > 0);
-        CHECK(service.phase == MockPhase::Idle);
-        CHECK(service.totalListed > 0);
+        // Eligible by caps, but with no vendor price the base price is 0:
+        // production must return 0 before drawing any variance random
+        // number, so the item is never posted (old inlined behaviour).
+        CHECK(service.IsItemEligible(&protoZero));
+        CHECK(ai::AhSyntheticBasePrice(0, 0, ITEM_QUALITY_POOR) == 0);
+        CHECK(service.CalculatePrice(&protoZero) == 0);
+        CHECK(ai::AhStackCount(true, 1, 5, 0, 0, 0) == 0); // zero unit price: no stack
     }
 
     // -------------------------------------------------------------
@@ -729,7 +703,9 @@ int main()
         service.prototypes[protoLinen.ItemId] = protoLinen;
         service.prototypes[protoSword.ItemId] = protoSword;
 
-        // Setup a synthetic auction for linen cloth (worth ~120c, stack of 2 = 240c, buyout = 240c)
+        // Setup a synthetic auction for linen cloth. Policy price: BuyPrice
+        // 100 (within 5x of SellPrice 25) x NORMAL 100% = 100, +10% variance
+        // = 110 per item; willingness = 110 * 2 items * 80% = 176.
         uint32 itemGuid = service.nextItemGuid++;
         Item* item = new Item{ itemGuid, protoLinen.ItemId, 2, &protoLinen };
         service.dbItemInstances[itemGuid] = item;
@@ -743,7 +719,7 @@ int main()
         auc->owner = SYNTHETIC_OWNER_GUID;
         auc->ownerAccount = SYNTHETIC_OWNER_ACCOUNT;
         auc->startbid = 100;
-        auc->buyout = 200; // Well below fair value of 240
+        auc->buyout = 150; // Below the 176 willingness -> buyout candidate
         auc->auctionHouseEntry = &service.ahAlliance;
         service.ahObjectAlliance.AddAuction(auc);
         service.syntheticAuctions.insert(auctionId);
@@ -751,7 +727,7 @@ int main()
 
         MockPlayer buyerBot{ 20, 200, "BuyerBot", ALLIANCE, 1000 };
 
-        // Test 4a: Spend cap prevents buying if cap < buyout
+        // Test 4a: Spend cap prevents buying if cap < target price
         bool boughtWithLowCap = service.EvaluateAndBid(buyerBot, auc, 50 /* custom cap: 50c */);
         CHECK(!boughtWithLowCap);
         CHECK(buyerBot.GetMoney() == 1000);
@@ -759,7 +735,7 @@ int main()
         // Test 4b: Normal buy with adequate spend cap succeeds
         bool bought = service.EvaluateAndBid(buyerBot, auc, 1000);
         CHECK(bought);
-        CHECK(buyerBot.GetMoney() == 800); // 1000 - 200
+        CHECK(buyerBot.GetMoney() == 850); // 1000 - 150
         CHECK(buyerBot.inventory.size() == 1);
         CHECK(buyerBot.inventory[0]->guid == itemGuid);
         CHECK(service.totalBought == 1);
@@ -814,6 +790,11 @@ int main()
 
         uint32 basePrice = service.CalculatePrice(&protoSword);
         CHECK(basePrice > 0);
+
+        // Variance math boundaries: exactly-zero variation floors at the
+        // 1-copper sentinel, the cap holds at 0x7fffffff.
+        CHECK(ai::AhVariedPrice(100, -100) == 1);
+        CHECK(ai::AhVariedPrice(0x7fffffff, 100) == 0x7fffffff);
 
         // Set price override to exactly 10,000 copper (1 gold)
         service.SetItemOverride(protoSword.ItemId, 10000, 100, 1, 1);
