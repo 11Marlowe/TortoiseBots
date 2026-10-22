@@ -25,6 +25,16 @@
 // Monastery wings lie 1300+ yd apart; the Uldaman and Gnomeregan back doors
 // land beside their own halves). Dire Maul's wings may need it later.
 //
+// Only external entrances count (Codex review of 5e818595): a trigger that
+// sits on an open-world map (not an instanceable one) and leads onto another
+// map. An intra-instance scripted teleport (source map == destination map) and
+// a door from inside another instance (Molten Core's 2886 in Blackrock Depths,
+// Blackwing Lair's 3726 in Blackrock Spire) are never candidates. The walk
+// takes only doors on the ghost's own map. The 300 s timeout (a teleport, no
+// walk) takes the nearest external door only when it sits on the ghost's map
+// or on the map the instance is entered from (MapEntry::ghostEntranceMap);
+// with none, the caller keeps the core's GetMapEntranceTrigger as before.
+//
 // Callers own the core lookups; only numbers travel here (no core includes,
 // mirrors GraveyardTeleportPolicy.h).
 
@@ -41,6 +51,8 @@ namespace ai
     struct CorpseEntranceCandidate
     {
         std::uint32_t triggerId = 0;
+        std::uint32_t sourceMap = 0;          // the map the trigger sits on
+        bool sourceInstanceable = true;       // ... is a dungeon, raid or battleground (unknown: true, never taken)
         float destX = 0.0f, destY = 0.0f, destZ = 0.0f; // where the trigger puts the ghost (on the corpse's map)
         float ghostSqYd = -1.0f; // squared 2D distance ghost -> trigger; < 0: the trigger is on another map
     };
@@ -49,6 +61,33 @@ namespace ai
     {
         float const dx = c.destX - x, dy = c.destY - y, dz = c.destZ - z;
         return std::sqrt(dx * dx + dy * dy + dz * dz);
+    }
+
+    // Where the door search stands: the corpse's (destination) map, the
+    // ghost's map, the map the instance is entered from (-1: none), and
+    // whether it is the 300 s timeout's teleport rather than the walk.
+    struct CorpseEntranceRules
+    {
+        std::uint32_t destMap = 0;
+        std::uint32_t ghostMap = 0;
+        std::int32_t entranceMap = -1;
+        bool timeout = false;
+    };
+
+    // An external entrance: on an open-world map, leading onto another map.
+    inline bool IsExternalEntrance(CorpseEntranceCandidate const& c, std::uint32_t destMap)
+    {
+        return c.sourceMap != destMap && !c.sourceInstanceable;
+    }
+
+    // Whether the door may be taken at all under these rules.
+    inline bool CorpseEntranceEligible(CorpseEntranceCandidate const& c, CorpseEntranceRules const& rules)
+    {
+        if (!IsExternalEntrance(c, rules.destMap))
+            return false;
+        if (c.sourceMap == rules.ghostMap)
+            return true;
+        return rules.timeout && rules.entranceMap >= 0 && c.sourceMap == static_cast<std::uint32_t>(rules.entranceMap);
     }
 
     // Whether candidate `a` is a better door than `b` for a corpse at x,y,z.
@@ -70,15 +109,19 @@ namespace ai
         return a.triggerId < b.triggerId;
     }
 
-    // The index of the door to take, or -1 when there is none.
+    // The index of the eligible door to take, or -1 when there is none.
     inline int PickCorpseEntrance(std::vector<CorpseEntranceCandidate> const& candidates,
-        float corpseX, float corpseY, float corpseZ)
+        float corpseX, float corpseY, float corpseZ, CorpseEntranceRules const& rules)
     {
         int best = -1;
         for (std::size_t i = 0; i < candidates.size(); ++i)
+        {
+            if (!CorpseEntranceEligible(candidates[i], rules))
+                continue;
             if (best < 0 || CorpseEntranceBetter(candidates[i], candidates[static_cast<std::size_t>(best)],
                     corpseX, corpseY, corpseZ))
                 best = static_cast<int>(i);
+        }
         return best;
     }
 }

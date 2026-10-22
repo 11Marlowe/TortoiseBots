@@ -78,16 +78,27 @@ static constexpr float kSpiritHealerStallProgressYd = 5.0f;
 // The door into the corpse's map whose destination lies nearest the corpse
 // (CorpseEntrancePolicy.h): a map with several doors (Scarlet Monastery's four
 // wings) is entered where the body lies, not by the door nearest the ghost.
-// anyMap: every door counts (the 300 s timeout teleports, it does not walk);
-// otherwise only the doors on the ghost's own map.
+// Only external entrances count: a trigger on an open-world map that leads onto
+// another map (never an intra-instance teleport, never a door inside another
+// instance). The walk takes the doors on the ghost's own map; the 300 s
+// timeout (it teleports) those on the ghost's map or on the map the instance
+// is entered from (MapEntry::ghostEntranceMap). None: false, the caller keeps
+// its fallback.
 static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, WorldPosition const& botPos,
-                                         WorldPosition const& corpsePos, bool anyMap,
+                                         WorldPosition const& corpsePos, bool timeout,
                                          AreaTriggerEntry const*& outAtEntry, AreaTriggerTeleport const*& outAt)
 {
     outAtEntry = nullptr;
     outAt = nullptr;
     std::vector<CorpseEntranceCandidate> candidates;
     std::vector<std::pair<AreaTriggerEntry const*, AreaTriggerTeleport const*>> doors;
+
+    CorpseEntranceRules rules;
+    rules.destMap = corpseMapId;
+    rules.ghostMap = botMapId;
+    rules.timeout = timeout;
+    if (MapEntry const* corpseMap = sMapStorage.LookupEntry<MapEntry>(corpseMapId))
+        rules.entranceMap = corpseMap->ghostEntranceMap;
 
     for (uint32 i = 0; i < sAreaTriggerStore.GetNumRows(); ++i)
     {
@@ -102,12 +113,12 @@ static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, Wor
         if (at->destination.mapId != corpseMapId)
             continue;
 
+        MapEntry const* sourceMap = sMapStorage.LookupEntry<MapEntry>(atEntry->mapid);
         bool const onGhostMap = atEntry->mapid == botMapId;
-        if (!onGhostMap && !anyMap)
-            continue;
-
         CorpseEntranceCandidate c;
         c.triggerId = i;
+        c.sourceMap = atEntry->mapid;
+        c.sourceInstanceable = !sourceMap || sourceMap->Instanceable(); // unknown map: never a door
         c.destX = at->destination.x;
         c.destY = at->destination.y;
         c.destZ = at->destination.z;
@@ -116,7 +127,7 @@ static bool FindInstanceEntranceTrigger(uint32 corpseMapId, uint32 botMapId, Wor
         doors.emplace_back(atEntry, at);
     }
 
-    int const pick = PickCorpseEntrance(candidates, corpsePos.getX(), corpsePos.getY(), corpsePos.getZ());
+    int const pick = PickCorpseEntrance(candidates, corpsePos.getX(), corpsePos.getY(), corpsePos.getZ(), rules);
     if (pick < 0)
         return false;
     outAtEntry = doors[static_cast<size_t>(pick)].first;
@@ -287,8 +298,9 @@ bool FindCorpseAction::Execute(Event& event)
 
     if (corpseInDungeon && deadTime >= 5 * MINUTE)
     {
-        // The door nearest the corpse (CorpseEntrancePolicy.h), not the first
-        // trigger of the core's hash map; that one stays the fallback.
+        // The external door nearest the corpse on the ghost's map or the map the
+        // instance is entered from (CorpseEntrancePolicy.h); with none, the
+        // core's GetMapEntranceTrigger as before.
         AreaTriggerEntry const* entranceTrigger = nullptr;
         AreaTriggerTeleport const* entranceTeleport = nullptr;
         if (!FindInstanceEntranceTrigger(dungeonMapId, botPos.GetMapId(), botPos, corpsePos, true, entranceTrigger, entranceTeleport))
