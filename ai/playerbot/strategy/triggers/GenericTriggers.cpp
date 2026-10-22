@@ -1,4 +1,5 @@
 #include "playerbot/playerbot.h"
+#include "playerbot/BoostReadinessPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/HealerManaPolicy.h"
@@ -901,6 +902,13 @@ bool BoostTrigger::IsActive()
 {
     if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && BuffTrigger::IsActive())
     {
+        // BuffTrigger proves the spell is trained, not that it is ready:
+        // while the cooldown runs the aura is always missing, so the row
+        // would be armed (and the cast refused) every tick without this.
+        uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
+        if (!ai::BoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId)))
+            return false;
+
         if (!ai->HasRealPlayerMaster())
         {
             return AI_VALUE(uint8, "balance") <= balance;
@@ -916,11 +924,20 @@ bool BoostTrigger::IsActive()
 
 bool GenericBoostTrigger::IsActive()
 {
-    // Donor GenericBoostTrigger verdict (balance <= 50, PvP-target always)
-    // plus the local owned-bot master bypass so player-owned racials keep
-    // popping every combat the way BoostTrigger consumers always have.
     if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT))
         return false;
+
+    // The row is armed for every class, but a bot trained in neither spell -
+    // or with its racial on cooldown - would queue an impossible cast per
+    // tick; arm only when one of the pair is castable now.
+    auto castable = [this](std::string const& candidate)
+    {
+        uint32 spellId = AI_VALUE2(uint32, "spell id", candidate);
+        return ai::BoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId));
+    };
+    if (!ai::RacialBoostReady(castable(firstSpell), castable(secondSpell)))
+        return false;
+
     Unit* target = AI_VALUE(Unit*, "current target");
     if (target && target->IsPlayer())
         return true;

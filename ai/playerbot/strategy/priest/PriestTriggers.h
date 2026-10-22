@@ -58,7 +58,20 @@ namespace ai
         bool IsActive() override { return LowHealthTrigger::IsActive() && PriestPackLoose(ai); }
     };
 
-    BUFF_TRIGGER(AscendanceTrigger, "ascendance");
+    // The capstone's cooldown runs all but a sliver of the fight while the
+    // aura is missing, so a plain buff trigger would arm the row (and refuse
+    // the cast) every tick; the balance gate stays the row's own business.
+    class AscendanceTrigger : public BuffTrigger
+    {
+    public:
+        AscendanceTrigger(PlayerbotAI* ai) : BuffTrigger(ai, "ascendance") {}
+        bool IsActive() override;
+    };
+
+    // Fade's 30 s cooldown keeps the aura missing almost the whole window,
+    // so the shed-aggro rows ("fade ready and ...") arm only while the spell
+    // is trained and the cooldown spent.
+    CD_TRIGGER(FadeReadyTrigger, "fade");
     CC_TRIGGER(ShackleUndeadTrigger, "shackle undead");
     INTERRUPT_TRIGGER(SilenceTrigger, "silence");
     INTERRUPT_HEALER_TRIGGER(SilenceEnemyHealerTrigger, "silence");
