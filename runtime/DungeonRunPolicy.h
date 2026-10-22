@@ -5712,6 +5712,13 @@ inline void CountEvent(Run& r, const Facts& f, const PlanStep& s)
     r.eventUp = up;
     r.eventDown = f.eventDown;
     r.eventTotal = counted + f.eventDown;
+    // A hold done by its units (no done flag) starts once one of them is seen
+    // awake, in a fight too: r14-19z32 Bly turned hostile and was in the fight
+    // on the same tick, HoldStep (the only place that marked it) never saw him
+    // awake, and the hold waited 300 s twice with the crew dead ("3 of 3
+    // down"). A data or object hold keeps its own start rule (HoldStep).
+    if (up && !(s.flags & (ai::kPlanFlagDoneData | ai::kPlanFlagDoneObject)))
+        r.eventStarted = true;
 }
 
 // "2 of 4 down, 1 awake", or "" before any unit of the event was seen.
