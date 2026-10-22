@@ -3,18 +3,21 @@
 
 using namespace ai;
 
-BossTacticTable& ai::GetBossTactics()
+ReloadableTable<BossTacticTable>& ai::BossTacticsHolder()
 {
-    static BossTacticTable table;
-    return table;
+    static ReloadableTable<BossTacticTable> holder;
+    return holder;
 }
 
-void ai::LoadBossTactics()
+BossTacticTable& ai::GetBossTactics()
 {
-    BossTacticTable& table = GetBossTactics();
-    if (table.Sealed())
-        return;
+    return BossTacticsHolder().Current();
+}
 
+// One pass over `ai_boss_tactic` into `table` (empty, not sealed), then the seal; returns the rows skipped. The startup
+// load and `.bot run reloadplans` both read through here.
+std::uint32_t ai::ReadBossTacticRows(BossTacticTable& table)
+{
     uint32 skipped = 0;
     auto result = WorldDatabase.Query(
         "SELECT `map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param` FROM `ai_boss_tactic`");
@@ -32,12 +35,26 @@ void ai::LoadBossTactics()
             row.priority = fields[5].GetUInt8();
             row.param = fields[6].GetFloat();
             if (!table.Add(row))
+            {
                 ++skipped;
+                sLog.outError("ai_boss_tactic: map %u boss %u kind '%s' target %u spell %u skipped (unknown kind, a zero map "
+                    "or boss, an interrupt without a spell, a behind without a radius, or a second row of the key)", row.map,
+                    row.bossEntry, fields[2].GetCppString().c_str(), row.targetEntry, row.spellId);
+            }
         } while (result->NextRow());
     }
 
     // Sealed even when the table is empty or missing: the tactics then do nothing.
     table.Seal();
+    return skipped;
+}
+
+void ai::LoadBossTactics()
+{
+    BossTacticTable& table = GetBossTactics();
+    if (table.Sealed())
+        return;
+    uint32 const skipped = ReadBossTacticRows(table);
     sLog.outString(">> Loaded %u boss tactic rows (%u skipped)", uint32(table.Size()), skipped);
     sLog.outString();
 }

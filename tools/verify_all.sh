@@ -67,6 +67,7 @@ python3 -m unittest tools/test_taunt_attacker_wiring.py
 python3 -m unittest tools/test_warrior_rage_wiring.py
 python3 -m unittest tools/test_hunter_manners_wiring.py
 python3 -m unittest tools/test_dash_bosses_wiring.py
+python3 -m unittest tools/test_reload_plans_wiring.py
 echo "✓ Engine unit tests passed."
 
 echo ""
@@ -125,6 +126,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_dungeon_follow_hold_policy
         test_dungeon_hold_policy
         test_dungeon_plan_policy
+        test_dungeon_plan_reload_policy
         test_dungeon_run_policy
         test_dungeon_follow_stall_policy
         test_empty_slot_fill_policy

@@ -11325,7 +11325,69 @@ static void PauseDungeonRunForPlayer(uint64 commanderRaw, std::string const& ord
     SendRunLine(FindCharacter(commanderRaw), it->second, false);
 }
 
-// .bot run start [plan] | pause | resume | skip | stop | status | list
+static bool RebuildBossSpawnCache(uint32& ms, uint32& maps);
+
+// A console, remote-access or SOAP command (no session) of an account of GameMaster rank or the server console itself.
+// Such a handler runs in the world's CLI pass, on the world thread.
+static bool IsGmCliHandler(ChatHandler* handler)
+{
+    if (!handler || handler->GetSession())
+        return false;
+#ifdef MANGOSSERVER_CHAT_H
+    CliHandler* cli = dynamic_cast<CliHandler*>(handler);
+    return cli && cli->GetAccessLevel() >= SEC_GAMEMASTER;
+#else
+    return true; // lens stub: the real build always takes the branch above
+#endif
+}
+
+// .bot run reloadplans (GameMaster, owner goal 2026-10-22): reads ai_dungeon_plan, ai_dungeon_leg, ai_dungeon_step,
+// ai_dungeon_boss and ai_boss_tactic again through the startup loaders (ai::ReloadDungeonPlans) and swaps them in only when
+// every row passes; a refused row or a plan gone keeps the old set and answers why. A run in progress keeps the plan it
+// started with (its table stays alive, DungeonPlanReloadPolicy.h); the next `.bot run start` takes the new one. Then the
+// boss spawn cache is built again for the new boss rows. World thread: a player's `.bot` is drained by the world tick, a
+// console command runs in the world's CLI pass.
+static bool HandleReloadPlans(ChatHandler* handler, std::string const& intent)
+{
+    Player* requester = Requester(handler);
+    if (requester ? !IsBotAdministrator(requester) : !IsGmCliHandler(handler))
+    {
+        SendActionError(handler, intent, "forbidden", "Only a GameMaster may reload the dungeon plans.");
+        return true;
+    }
+    std::vector<ai::DungeonPlan const*> inUse;
+    for (auto const& entry : DungeonRuns())
+        if (entry.second.run.plan)
+            inUse.push_back(entry.second.run.plan);
+    ai::PlanReloadReport const report = ai::ReloadDungeonPlans(inUse);
+    if (!report.outcome.swapped)
+    {
+        std::string const why = "Dungeon plans NOT reloaded, the old set stays: " + report.outcome.reason +
+            (report.summary.empty() ? std::string() : " (the database now reads: " + report.summary + ")");
+        SendActionError(handler, intent, "refused", why.c_str());
+        return true;
+    }
+    ai::DungeonPlanTable const& plans = ai::GetDungeonPlans();
+    handler->PSendSysMessage("%s, reloaded (dungeon bosses %u -> %u, boss tactic rows %u -> %u)", report.summary.c_str(),
+        uint32(report.outcome.bossesBefore), uint32(plans.BossCount()), uint32(report.outcome.tacticsBefore),
+        report.tacticRows);
+    if (report.outcome.changes.empty())
+        handler->PSendSysMessage("Plans changed: none");
+    for (std::string const& change : report.outcome.changes)
+        handler->PSendSysMessage("Plan changed: %s", change.c_str());
+    uint32 ms = 0, maps = 0;
+    if (RebuildBossSpawnCache(ms, maps))
+        handler->PSendSysMessage("Boss spawn cache rebuilt in %u ms for %u maps", ms, maps);
+    else
+        handler->PSendSysMessage("Boss spawn cache NOT rebuilt: the new plans are not sealed; the dashboard boss lists stay empty");
+    if (!inUse.empty())
+        handler->PSendSysMessage("%u runs keep the plan they started with (%u old plan sets kept); a new .bot run start takes "
+            "the new plan", uint32(inUse.size()), uint32(report.outcome.keptOld));
+    SendActionAck(handler, intent, "plans", uint32(plans.PlanCount()));
+    return true;
+}
+
+// .bot run start [plan] | pause | resume | skip | stop | status | list | reloadplans (GameMaster)
 static bool HandleDungeonRun(ChatHandler* handler, char const* args)
 {
     using namespace TortoiseBots::DungeonRun;
@@ -11340,10 +11402,14 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     std::string const intent = "run " + (verb.empty() ? std::string("unknown") : ProtocolSafe(verb));
 
+    // Before the in-game and run-leader checks: a GameMaster reloads from the console too, with the run leader off.
+    if (verb == "reloadplans")
+        return HandleReloadPlans(handler, intent);
+
     if (verb != "start" && verb != "pause" && verb != "resume" && verb != "skip" && verb != "stop" &&
         verb != "status" && verb != "list")
     {
-        SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] / pause / resume / skip / stop [reason] / status / list");
+        SendActionError(handler, intent, "invalid", "Usage: .bot run start [plan] [from <leg|step N>] / pause / resume / skip / stop [reason] / status / list / reloadplans (GameMaster)");
         return true;
     }
     Player* commander = Requester(handler);
@@ -11671,6 +11737,7 @@ static void FillCommanderObjects(Player* lead, CommanderTelemetry::BindingRef& r
 struct DashBossCache
 {
     bool built = false;
+    uint32 buildMs = 0;   // how long the last build took (the reload's answer)
     std::unordered_map<uint32, std::vector<CommanderTelemetry::BossEntrySpawns>> byMap;
 };
 
@@ -11781,9 +11848,25 @@ void BuildBossSpawnCache()
     }
     cache.built = true;
     auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    cache.buildMs = uint32(ms);
     sLog.outString("TortoiseBots: boss spawn cache built in %u ms for %u maps", uint32(ms), uint32(cache.byMap.size()));
     if (overCap)
         sLog.outString("TortoiseBots: %u maps have a boss roster over the cap", overCap);
+}
+
+// `.bot run reloadplans` after the plan tables were replaced: the cache is built again from the NEW boss rows and plan boss
+// steps (the same one pass over the core's spawn data as at startup), on the world thread, in the command. False when it
+// was not built (the new plans are not sealed: never after an accepted reload). The kill latch is kept: it is per instance
+// and entry and reads no plan.
+static bool RebuildBossSpawnCache(uint32& ms, uint32& maps)
+{
+    DashBossCache& cache = DashBosses();
+    cache.built = false;
+    cache.byMap.clear();
+    BuildBossSpawnCache();
+    ms = cache.buildMs;
+    maps = uint32(cache.byMap.size());
+    return cache.built;
 }
 
 // The boss roster of a map, or null while the cache is not built (the plans were not sealed at start: the AI is off). Never builds it:

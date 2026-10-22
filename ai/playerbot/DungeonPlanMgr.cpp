@@ -1,12 +1,19 @@
 #include "playerbot/playerbot.h"
 #include "DungeonPlanMgr.h"
+#include "BossTacticsMgr.h"
 
 using namespace ai;
 
+// The current table, and the replaced ones a run in progress still points into (DungeonPlanReloadPolicy.h).
+static ReloadableTable<DungeonPlanTable>& DungeonPlanHolder()
+{
+    static ReloadableTable<DungeonPlanTable> holder;
+    return holder;
+}
+
 DungeonPlanTable& ai::GetDungeonPlans()
 {
-    static DungeonPlanTable table;
-    return table;
+    return DungeonPlanHolder().Current();
 }
 
 namespace
@@ -16,13 +23,11 @@ namespace
     constexpr float kLongHopYd = 60.0f;
 }
 
-void ai::LoadDungeonPlans()
+// One pass over each table into `table` (empty, not sealed), then the seal: the startup load and `.bot run reloadplans`
+// both read through here, so a reload checks every row as the startup did.
+static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
 {
-    DungeonPlanTable& table = GetDungeonPlans();
-    if (table.Sealed())
-        return;
-
-    uint32 skippedPlans = 0;
+    std::uint32_t& skippedPlans = counts.skippedPlans;
     if (auto result = WorldDatabase.Query(
         "SELECT `plan`, `map`, `cc_priority`, `cc_always`, `kill_first` FROM `ai_dungeon_plan`"))
     {
@@ -31,10 +36,18 @@ void ai::LoadDungeonPlans()
             Field* fields = result->Fetch();
             std::string const plan = fields[0].GetCppString();
             if (!table.AddPlan(plan, fields[1].GetUInt32()))
+            {
                 ++skippedPlans;
+                counts.Note("ai_dungeon_plan '" + plan + "' (map " + std::to_string(fields[1].GetUInt32()) +
+                    "): an empty name, map 0 or a second row of the name");
+            }
             else if (!table.SetUnits(plan, fields[2].GetCppString(), fields[3].GetCppString(), fields[4].GetCppString()))
+            {
+                ++counts.badUnits;
+                counts.Note("ai_dungeon_plan '" + plan + "': cc_priority, cc_always or kill_first is not a list of creature entries");
                 sLog.outError("ai_dungeon_plan: plan '%s': cc_priority, cc_always or kill_first is not a list of "
                     "creature entries; the plan runs without crowd control and kill-first targets", plan.c_str());
+            }
         } while (result->NextRow());
     }
 
@@ -47,7 +60,7 @@ void ai::LoadDungeonPlans()
         } while (result->NextRow());
     }
 
-    uint32 skippedSteps = 0;
+    std::uint32_t& skippedSteps = counts.skippedSteps;
     if (auto result = WorldDatabase.Query(
         "SELECT `plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, "
         "`timeout_s`, `entries` FROM `ai_dungeon_step`"))
@@ -74,6 +87,8 @@ void ai::LoadDungeonPlans()
             if (refusal != PlanStepRefusal::None)
             {
                 ++skippedSteps;
+                counts.Note("ai_dungeon_step '" + plan + "' leg " + std::to_string(uint32(step.leg)) + " seq " +
+                    std::to_string(uint32(step.seq)) + " (" + fields[3].GetCppString() + "): " + PlanStepRefusalName(refusal));
                 sLog.outError("ai_dungeon_step: plan '%s' leg %u seq %u (%s) skipped (%s)", plan.c_str(),
                     uint32(step.leg), uint32(step.seq), fields[3].GetCppString().c_str(), PlanStepRefusalName(refusal));
             }
@@ -81,14 +96,18 @@ void ai::LoadDungeonPlans()
     }
 
     // Bosses no boss step names (the telemetry's boss rank, DungeonPlanTable::IsBossEntry).
-    uint32 skippedBosses = 0;
+    std::uint32_t& skippedBosses = counts.skippedBosses;
     if (auto result = WorldDatabase.Query("SELECT `map`, `entry` FROM `ai_dungeon_boss`"))
     {
         do
         {
             Field* fields = result->Fetch();
             if (!table.AddBoss(fields[0].GetUInt32(), fields[1].GetUInt32()))
+            {
                 ++skippedBosses;
+                counts.Note("ai_dungeon_boss map " + std::to_string(fields[0].GetUInt32()) + " entry " +
+                    std::to_string(fields[1].GetUInt32()) + ": a zero map or entry, or a second row");
+            }
         } while (result->NextRow());
     }
 
@@ -101,8 +120,41 @@ void ai::LoadDungeonPlans()
             sLog.outError("ai_dungeon_step: plan '%s' has %u moves more than %.0f yd from the move before them",
                 plan->name.c_str(), uint32(longHops), kLongHopYd);
     }
-    sLog.outString(">> Loaded %u dungeon plans, %u steps, %u dungeon bosses (%u plans, %u steps and %u boss rows skipped)",
-        uint32(table.PlanCount()), uint32(table.StepCount()), uint32(table.BossCount()), skippedPlans, skippedSteps,
-        skippedBosses);
+}
+
+void ai::LoadDungeonPlans()
+{
+    DungeonPlanTable& table = GetDungeonPlans();
+    if (table.Sealed())
+        return;
+    PlanLoadCounts counts;
+    ReadDungeonPlanRows(table, counts);
+    sLog.outString(">> %s", PlanLoadSummary(table, counts).c_str());
     sLog.outString();
+}
+
+// `.bot run reloadplans`, world thread: both tables are read into new ones through the startup loaders, and replace the
+// old ones only when CommitPlanReload accepts them (any refused row, a plan gone: the old set stays, nothing changes).
+PlanReloadReport ai::ReloadDungeonPlans(std::vector<DungeonPlan const*> const& inUse)
+{
+    PlanReloadReport report;
+    if (!GetDungeonPlans().Sealed())
+    {
+        report.outcome.reason = "the dungeon plans were not loaded at startup (the AI is off): nothing to reload";
+        return report;
+    }
+    auto next = std::make_shared<DungeonPlanTable>();
+    PlanLoadCounts counts;
+    ReadDungeonPlanRows(*next, counts);
+    auto nextTactics = std::make_shared<BossTacticTable>();
+    uint32 const skippedTactics = ReadBossTacticRows(*nextTactics);
+    report.summary = PlanLoadSummary(*next, counts);
+    report.tacticRows = uint32(nextTactics->Size());
+    report.outcome = CommitPlanReload(DungeonPlanHolder(), std::move(next), counts, BossTacticsHolder(), std::move(nextTactics),
+        skippedTactics, inUse);
+    if (report.outcome.swapped)
+        sLog.outString(">> %s, %u boss tactic rows (reloaded by .bot run reloadplans)", report.summary.c_str(), report.tacticRows);
+    else
+        sLog.outError(".bot run reloadplans refused, the old dungeon plans stay: %s", report.outcome.reason.c_str());
+    return report;
 }

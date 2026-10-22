@@ -2,7 +2,7 @@
 id: play-dungeon-run-leader
 title: Dungeon Run Leader
 category: play
-summary: The opt-in run leader (.bot run, AiPlayerbot.DungeonSelfClear) that lets a bound party clear a dungeon plan by itself, its safety rules and supported steps (scripted events too, ritual and hold), and the plan tables (ai_dungeon_plan, ai_dungeon_leg, ai_dungeon_step) that turtle-agent's exporter fills.
+summary: The opt-in run leader (.bot run, AiPlayerbot.DungeonSelfClear) that lets a bound party clear a dungeon plan by itself, its safety rules and supported steps (scripted events too, ritual and hold), the plan tables (ai_dungeon_plan, ai_dungeon_leg, ai_dungeon_step) that turtle-agent's exporter fills, and their hot reload (.bot run reloadplans).
 tags: [guide, dungeon, plan, commander, self-clear, uldaman, events]
 relates_to:
   - play-boss-tactics
@@ -18,7 +18,17 @@ A **dungeon plan** is the route of one dungeon written as data: where to walk, w
 
 The **run leader** (`.bot run`) lets a bound party clear such a plan by itself. It is **off by default** (`AiPlayerbot.DungeonSelfClear = 0`); see [Run leader](#run-leader) below.
 
-The tables are read once at startup into a cache (`ai/playerbot/DungeonPlanMgr.cpp`, one pass per table). Nothing reads them per tick; a change needs a restart.
+The tables are read at startup into a cache (`ai/playerbot/DungeonPlanMgr.cpp`, one pass per table). Nothing reads them per tick. Until 2026-10-22 a change needed a restart; since then a GameMaster reloads them with `.bot run reloadplans` (below).
+
+### Reloading the plans (`.bot run reloadplans`)
+
+Added 2026-10-22 (owner goal: fix a plan blocker by a hot reload instead of an image rebuild and a server restart per fix). A GameMaster (account rank 3 or more) in game, or the server console, remote access or SOAP with an account of that rank, sends `.bot run reloadplans`. It works with the run leader off too. On the world thread, in the command, the module read `ai_dungeon_plan`, `ai_dungeon_leg`, `ai_dungeon_step`, `ai_dungeon_boss` and `ai_boss_tactic` again through the same loaders and row checks as at startup, into NEW tables, and then:
+
+- **Refused** when any row was refused (a plan, step, boss or boss tactic row skipped, a plan whose `cc_priority`, `cc_always` or `kill_first` did not parse), or when a plan of the loaded set was gone or had no steps any more: the old set stayed, nothing changed, and the answer was `TBM:ACTION_ERR|run reloadplans|refused|Dungeon plans NOT reloaded, the old set stays: <reason> (the database now reads: Loaded ...)`, naming the first three refused rows (the server log named every one). At startup such rows were skipped with an error line; a reload was stricter, since the old set worked. A plan could therefore not be removed by a reload: that still took a restart.
+- **Accepted** otherwise: both new tables replaced the old ones at once, and the answer was the boot log's line with `reloaded` (`Loaded 11 dungeon plans, 3340 steps, 70 dungeon bosses (0 plans, 0 steps and 0 boss rows skipped), reloaded (dungeon bosses 70 -> 71, boss tactic rows 59 -> 59)`), one `Plan changed:` line per new or changed plan (`bfd 620 -> 622 steps`, `uldaman 139 steps, rows changed`, `rfk new, 80 steps`; `Plans changed: none` when nothing differed), and `Boss spawn cache rebuilt in N ms for M maps`: the dashboard's boss list was built again from the new boss rows, by the same one pass over the spawn data as at startup. It ended with `TBM:ACTION_ACK|run reloadplans|plans|<count>|-`.
+- **A run in progress kept the plan it started with.** A run holds a pointer into the plan table it started from, so the replaced table was kept alive (not freed) while any run's plan pointed into it, checked again on each reload; the answer then said how many runs kept their plan. `.bot run stop` and a new `.bot run start` took the new plan. Nothing held a boss tactic row across a tick, so the new tactic rows applied at once, also to a run in progress.
+
+Rules: `ai/playerbot/DungeonPlanReloadPolicy.h` (tests `tools/test_dungeon_plan_reload_policy.cpp`); wiring pins `tools/test_reload_plans_wiring.py`.
 
 ## Tables
 
