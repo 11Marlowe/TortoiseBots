@@ -1,4 +1,5 @@
 #include "playerbot/playerbot.h"
+#include "playerbot/BoostReadinessPolicy.h"
 #include "playerbot/GroupMembers.h"
 #include "playerbot/GroupBuffPolicy.h"
 #include "playerbot/HealerManaPolicy.h"
@@ -901,6 +902,16 @@ bool BoostTrigger::IsActive()
 {
     if (ai->IsStateActive(BotState::BOT_STATE_COMBAT) && BuffTrigger::IsActive())
     {
+        // Issue #1166: BuffTrigger proves the spell is trained, not that it is
+        // ready - while the cooldown runs the aura is always missing, so the
+        // row was armed every tick and the cast died in isPossible. Donor
+        // mod-playerbots has the same hole and gates it per-trigger
+        // (ShadowfiendTrigger adds !bot->HasSpellCooldown); here it is the
+        // shared gate so every class's boost stands down while not castable.
+        uint32 spellId = AI_VALUE2(uint32, "spell id", spell);
+        if (!ai::BoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId)))
+            return false;
+
         if (!ai->HasRealPlayerMaster())
         {
             return AI_VALUE(uint8, "balance") <= balance;
@@ -916,11 +927,23 @@ bool BoostTrigger::IsActive()
 
 bool GenericBoostTrigger::IsActive()
 {
-    // Donor GenericBoostTrigger verdict (balance <= 50, PvP-target always)
-    // plus the local owned-bot master bypass so player-owned racials keep
-    // popping every combat the way BoostTrigger consumers always have.
     if (!ai->IsStateActive(BotState::BOT_STATE_COMBAT))
         return false;
+
+    // Issue #1166: the row offers berserking then blood fury to every class,
+    // but a bot trained in neither - or with its racial on cooldown - armed
+    // both actions and collected an IMPOSSIBLE verdict per combat tick.
+    // Donor mod-playerbots dodges the unknown half at construction time
+    // (racials rows built only under bot->HasSpell), which cannot see
+    // cooldowns; arm the row only when one of the pair is castable now.
+    auto castable = [this](std::string const& candidate)
+    {
+        uint32 spellId = AI_VALUE2(uint32, "spell id", candidate);
+        return ai::BoostReady(spellId != 0, spellId && sServerFacade.IsSpellReady(bot, spellId));
+    };
+    if (!ai::RacialBoostReady(castable(firstSpell), castable(secondSpell)))
+        return false;
+
     Unit* target = AI_VALUE(Unit*, "current target");
     if (target && target->IsPlayer())
         return true;

@@ -557,8 +557,15 @@ namespace ai
     class GenericBoostTrigger : public Trigger
     {
     public:
-        GenericBoostTrigger(PlayerbotAI* ai) : Trigger(ai, "generic boost", 3) {}
+        // The spells the racials row offers, in its cast order: readiness is
+        // checked against exactly this pair (issue #1166).
+        GenericBoostTrigger(PlayerbotAI* ai, std::string firstSpell = "berserking",
+                            std::string secondSpell = "blood fury")
+            : Trigger(ai, "generic boost", 3), firstSpell(firstSpell), secondSpell(secondSpell) {}
         virtual bool IsActive() override;
+
+    protected:
+        std::string firstSpell, secondSpell;
     };
 
     class RandomTrigger : public Trigger
