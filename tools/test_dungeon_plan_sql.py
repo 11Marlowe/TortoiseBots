@@ -333,6 +333,25 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertEqual((foot["kind"], foot["x"], foot["y"], foot["z"]), ("move", "-293.3", "0.5", "-58"), name)
         self.assertEqual((hop["kind"], hop["x"], hop["y"], hop["z"]), ("move_hop_exact", "-287.5", "5", "-63.6"), name)
 
+    def test_wailing_caverns_kresh_pull(self):
+        # 20261022210200 (turtle-agent e281a2b, 2026-10-22) re-exports the whole wailing_caverns plan with Kresh 3653 as a pull of his own
+        # in leg 2 (cobrahn_a) at his spawn, radius 12, between the Ectoplasm-patrol pack and the Crocolisk pair; it replaces one approach
+        # move (12 legs, 226 steps: 131 move + 1 move_hop_exact + 89 pull + 5 boss). Lady Anacondra stays a member of her four spot packs
+        # (a boss row per spot would pause the run 'boss not found' three times in four) and the five boss rows are unchanged.
+        name, text = newest_plan_text("wailing_caverns")
+        self.assertEqual(name, "20261022210200_world.sql")
+        self.assertIn("'turtle-agent e281a2b dungeons/wailing_caverns.json'", text)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "wailing_caverns"]
+        kinds = {k: len([r for r in rows if r["kind"] == k]) for k in KINDS}
+        self.assertEqual((len(rows), kinds["move"], kinds["move_hop_exact"], kinds["pull"], kinds["boss"]), (226, 131, 1, 89, 5), name)
+        kresh = [r for r in rows if "3653" in r["entries"].split(",")]
+        self.assertEqual(len(kresh), 1, name)
+        self.assertEqual((kresh[0]["leg"], kresh[0]["kind"], kresh[0]["x"], kresh[0]["y"], kresh[0]["z"], kresh[0]["radius"], kresh[0]["entries"]),
+                         ("2", "pull", "-64.4", "319.1", "-106.7", "12", "3653"), name)
+        self.assertEqual(len([r for r in rows if r["kind"] == "pull" and "3671" in r["entries"].split(",")]), 4, name)
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3669", "3670", "3674", "3673", "5775"], name)
+        self.assertEqual(len([r for r in rows if r["kind"] == "boss" and r["entry"] in ("3653", "3671")]), 0, name)
+
     def test_gossip_rows_fit_the_loader(self):
         # NormalizePlanStep (DungeonPlanPolicy.h): a gossip row needs its NPC entry, an option of 1-15 (the number `.bot cmd gossip` takes,
         # counted from 1: it refuses 0) and no flag but kPlanFlagDeadNpcIsDone (512; 20261022210000 sets it on Bly's row only, Weegli's
