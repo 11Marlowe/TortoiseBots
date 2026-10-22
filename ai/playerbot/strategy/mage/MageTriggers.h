@@ -228,6 +228,26 @@ namespace ai
         bool IsActive() override;
     };
 
+    // #1164: a pack clustered inside Arcane Explosion's 10yd radius that the
+    // splash can safely burst (density + CC interlock from the AoeTrigger
+    // family, holder safety from MageAoeSafetyPolicy.h).
+    class ArcaneExplosionWindowTrigger : public AoeTrigger
+    {
+    public:
+        ArcaneExplosionWindowTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 3, 10.0f) {}
+        bool IsActive() override;
+    };
+
+    // #1164: a mob within Frost Nova's radius is NOT held by a tank. Replaces
+    // the "enemy ten yards" row on the current target, which read the tank's
+    // mob and burned the emergency nova on a held pack.
+    class FrostNovaWindowTrigger : public Trigger
+    {
+    public:
+        FrostNovaWindowTrigger(PlayerbotAI* ai) : Trigger(ai, "frost nova window") {}
+        bool IsActive() override;
+    };
+
     class BlizzardChannelCheckTrigger : public Trigger
     {
     public:

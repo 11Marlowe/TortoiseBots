@@ -2,8 +2,10 @@
 #include "playerbot/playerbot.h"
 #include "playerbot/ArcaneRupturePolicy.h"
 #include "playerbot/FlamestrikeWindowPolicy.h"
+#include "playerbot/MageAoeSafetyPolicy.h"
 #include "playerbot/strategy/values/LastSpellCastValue.h"
 #include "playerbot/HotStreakPolicy.h"
+#include "playerbot/strategy/values/AoeValues.h"
 #include "MageTriggers.h"
 #include "MageActions.h"
 
@@ -292,6 +294,57 @@ bool FlamestrikeWindowTrigger::IsActive()
     Trigger* mediumAoe = ai->GetAiObjectContext()->GetTrigger("ranged medium aoe");
     state.packStillGrouped = mediumAoe && mediumAoe->IsActive();
     return ShouldBlizzardAfterFlamestrike(state);
+}
+
+bool ArcaneExplosionWindowTrigger::IsActive()
+{
+    // Density + breakable-CC interlock from the shared AoeTrigger family,
+    // at Arcane Explosion's 10yd radius instead of the 40yd ranged scan.
+    if (!AoeTrigger::IsActive())
+        return false;
+
+    // Same cluster the base just accepted; re-derived because AoeTrigger
+    // keeps no state. Triggers on this interval run every 2s.
+    std::list<ObjectGuid> splash = AoeCountValue::FindMaxDensity(bot, 10.0f);
+    for (std::list<ObjectGuid>::iterator i = splash.begin(); i != splash.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!unit)
+            continue;
+
+        // Splash threat rides on whoever holds the mob: only a mob on a
+        // tank or already on the mage is safe to burst (issue #1164).
+        Unit* victim = unit->GetVictim();
+        Player* victimPlayer = victim ? victim->ToPlayer() : nullptr;
+        bool const victimIsTank = victimPlayer && ai->IsTank(victimPlayer);
+        bool const victimIsBot = victim == bot;
+        if (!IsSplashSafeForExplosion(ClassifyMobHolder(victim != nullptr, victimIsTank, victimIsBot)))
+            return false;
+    }
+    return true;
+}
+
+bool FrostNovaWindowTrigger::IsActive()
+{
+    std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
+    for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
+    {
+        Unit* unit = ai->GetUnit(*i);
+        if (!unit || !unit->IsAlive())
+            continue;
+
+        // Nova reaches 10yd; a mob beyond it cannot be rooted by this cast.
+        if (!sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(bot, unit), 10.0f))
+            continue;
+
+        Unit* victim = unit->GetVictim();
+        Player* victimPlayer = victim ? victim->ToPlayer() : nullptr;
+        bool const victimIsTank = victimPlayer && ai->IsTank(victimPlayer);
+        bool const victimIsBot = victim == bot;
+        if (ShouldFrostNova(true, ClassifyMobHolder(victim != nullptr, victimIsTank, victimIsBot)))
+            return true;
+    }
+    return false;
 }
 
 bool BlizzardChannelCheckTrigger::IsActive()
