@@ -1,28 +1,33 @@
--- Gnomeregan (map 90): the first export of the plan, for the run leader (.bot run). Stacks on 20261022210000. Exported from
--- turtle-agent origin/dev abd37a3 (dungeons/gnomeregan.json, status 'draft (not mapped, not live-checked)') with the options of the
--- header of 20261017130000:
---   turtle-agent plan-export --mmaps <map 90 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev abd37a3 \
+-- Gnomeregan (map 90): the plan for the run leader (.bot run), exported from turtle-agent feat/gnomeregan-plan-fixes 4fef546
+-- (dungeons/gnomeregan.json, status 'draft (not mapped, not live-checked)') with the options of the header of 20261017130000:
+--   turtle-agent plan-export --mmaps <map 90 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 4fef546 \
 --     --stamp 20261022210500 --out <dir> gnomeregan
--- NO ROW IS HAND-SET, and the plan is NOT fixed: this file is the draft as it stands, exported so the data is on the branch. The plan row's
--- cc_priority, cc_always and kill_first are empty (the draft has none). 5 legs, 602 steps, 608 rows (90 + 37 + 18 + 27 + 4 pulls; bosses
--- 7079 Viscous Fallout, 6235 Electrocutioner 6000, 6229 Crowd Pummeler 9-60, 6228 Dark Iron Ambassador, 7800 Mekgineer Thermaplugg, in leg
--- order). Plan check (turtle-agent plan-check, map 90 mmaps): ok, 397 points on the navmesh, 13 detour warnings (leg 0 pulls 18, 78 and 81,
--- leg 1 pull 4, leg 3 pulls 7, 10, 15, 19, 21, 24, 25 and 27: the pack is 25-44 yd away but the way to it is 89-526 yd) and 167
--- run-leader-hop warnings (a pull or boss 50-220 yd from the move row before it; the run leader walks there in navmesh hops of its own).
+-- Stacks on 20261022210000. This file replaces the first export of the same name (the draft as the world export gave it), which was never merged or
+-- applied anywhere. NO ROW IS HAND-SET. The fixes it carries over that draft are in ~/TortoiseBots-audit/PREP-GNOMEREGAN-2026-10-22.md ("Fixes applied"):
+--   * the plan row's lists: cc_priority 6392,6329,6223 (the Holdout Medic heals, the Irradiated Pillager casts Radiation Bolt, the Leprous Defender
+--     shoots), cc_always 6392, kill_first 6220,6226,6227,7849 (the Irradiated Horror summons Remote-Controlled Golems mid-fight, the
+--     Mechano-Flamewalker's Flame Spray and the Mechano-Frostwalker's Hail Storm are AoE, the Mobile Alert System summons two Mechanized Sentries);
+--   * the Dark Iron Agent that stands at the Ambassador's own spot (-718.1 565.2 -289.1) and patrols his 12-point loop with him is the boss row's
+--     entries (the draft pulled him as a trash pack at the boss's coordinates); the Agent pulled 17.9 yd in front of the Ambassador is the leg's last
+--     pull (the boss-approach fight, the Stockade Dextren pattern);
+--   * the pull groups' radii are the exporter's own (farthest member + 10 yd), written out.
+-- 5 legs, 603 steps, 609 rows (90 + 37 + 18 + 26 + 4 pulls; bosses 7079 Viscous Fallout, 6235 Electrocutioner 6000, 6229 Crowd Pummeler 9-60, 6228
+-- Dark Iron Ambassador, 7800 Mekgineer Thermaplugg, in leg order). Plan check (turtle-agent plan-check, map 90 mmaps): ok, 396 points on the
+-- navmesh, 12 detour warnings (leg 0 pulls 18, 78 and 81, leg 1 pull 4, leg 3 pulls 4, 7, 13, 17, 19, 22, 23 and 25 as the fixed leg numbers
+-- them: the pack is 25-44 yd away but the way to it is 89-526 yd) and 166 run-leader-hop warnings (a pull or boss 50-220 yd from the move row
+-- before it; the run leader walks there in navmesh hops of its own).
 --
 -- WHAT THE RUN LEADER CANNOT DO (issue #984: nothing is dropped silently). Not in these rows:
+--   * fleers 6206,6207,6211,6391,6392,6407 (the map's EventAI: all of them flee at 15 % health) and the boss tactics: the plan has them, the rows
+--     have no place for them (an ai_boss_tactic row for map 90 would be a later migration).
 --   * doors, levers and keys: the draft has none, but the map needs them: the two cave-ins on the way in (146085/146086, opened by the
---     Explosive Charges 144065), the Workshop Door 90858, the six Gnome Face doors (142208-142213) with their six Buttons and the bomb
---     faces before Thermaplugg, The Final Chamber 142207 (the plan's leg 4 note names it). The navmesh walks through closed doors: expect
---     a stop at a door on the first run. The first live run is the mapping walk the plan notes ask for.
---   * fleers and boss tactics: the draft has no fleers field and the rows cannot carry tactics (an ai_boss_tactic row for map 90 would be
---     a later migration). The EventAI of the map (tortoise-wow sql/base): 6206, 6207, 6211, 6391, 6392, 6407 flee at 15 % health; 6220
---     Irradiated Horror casts Summon Remote-Controlled Golem 3605 mid-fight (preventionType 0: not interruptible, the Deadmines shape);
---     7849 Mobile Alert System summons 2 Mechanized Sentry; 7800 summons Walking Bomb 7915.
---   * the entrance (trigger 324, the portal at -5161.33 939.62 258.29 on map 0), level_band 27-33 and hire_composition: the run leader
---     starts inside the instance and leads the bound party as it is.
---   * the death radii of the irradiated units: 6218 Irradiated Slime casts Radiation Cloud 10341 on death (9 s), 6329 Irradiated Pillager
---     casts Radiation on death and enrages at 50 %; the rows do not carry death effects.
+--     Explosive Charges 144065), the Workshop Door 90858, the six Gnome Face doors (142208-142213) with their six Buttons and the bomb faces
+--     before Thermaplugg, The Final Chamber 142207 (the plan's leg 4 note names it). The navmesh walks through closed doors: expect a stop at a
+--     door on the first run. The first live run is the mapping walk the plan notes ask for.
+--   * the entrance (trigger 324, the portal at -5161.33 939.62 258.29 on map 0), level_band 27-33 and hire_composition: the run leader starts
+--     inside the instance and leads the bound party as it is.
+--   * the death radii of the irradiated units: 6218 Irradiated Slime casts Radiation Cloud 10341 on death (9 s), 6329 Irradiated Pillager casts
+--     Radiation on death and enrages at 50 %; the rows do not carry death effects.
 --
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
@@ -31,12 +36,12 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- gnomeregan: map 90, 5 legs, 602 steps
+-- gnomeregan: map 90, 5 legs, 603 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'gnomeregan';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'gnomeregan';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'gnomeregan';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('gnomeregan', 90, '', '', '', 'turtle-agent abd37a3 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');
+('gnomeregan', 90, '6392,6329,6223', '6392', '6220,6226,6227,7849', 'turtle-agent 4fef546 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('gnomeregan', 0, 'viscous_fallout', ''),
 ('gnomeregan', 1, 'electrocutioner_6000', ''),
@@ -572,61 +577,62 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('gnomeregan', 3, 38, 'pull', 0, -742.94, 580.54, -291, 11.6, 0, 0, 0, 0, '6212', 'pull group 4'),
 ('gnomeregan', 3, 39, 'pull', 0, -738.4, 557.26, -303.7, 12.8, 0, 0, 0, 0, '6212,6232', 'pull group 5'),
 ('gnomeregan', 3, 40, 'pull', 0, -740.75, 541.25, -291, 17.1, 0, 0, 0, 0, '6212,6234', 'pull group 6'),
-('gnomeregan', 3, 41, 'pull', 0, -712.11, 550.95, -298.01, 10, 0, 0, 0, 0, '6212', 'pull group 7'),
-('gnomeregan', 3, 42, 'pull', 0, -704.34, 548.2, -295.11, 12.8, 0, 0, 0, 0, '6212,6234', 'pull group 8'),
-('gnomeregan', 3, 43, 'pull', 0, -718.11, 565.24, -289.12, 10, 0, 0, 0, 0, '6212', 'pull group 9'),
-('gnomeregan', 3, 44, 'pull', 0, -675, 540.52, -285.84, 12.8, 0, 0, 0, 0, '6212,6234', 'pull group 10'),
-('gnomeregan', 3, 45, 'pull', 0, -644.95, 528.1, -272.98, 13.7, 0, 0, 0, 0, '6212,6234', 'pull group 11'),
-('gnomeregan', 3, 46, 'move', 0, -623.2001, 510.9332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 47, 'move', 0, -613.86676, 480.79987, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 48, 'move', 0, -610.4001, 473.06653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 49, 'move', 0, -606.1334, 469.3332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 50, 'move', 0, -618.66675, 459.19986, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 51, 'pull', 0, -671.69, 417.78, -273.01, 19.8, 0, 0, 0, 0, '7603,6222', 'pull group 12'),
-('gnomeregan', 3, 52, 'move', 0, -658.4001, 435.73322, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 53, 'move', 0, -640.00006, 447.99988, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 54, 'move', 0, -618.66675, 459.19986, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 55, 'move', 0, -606.1334, 469.3332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 56, 'move', 0, -610.4001, 473.06653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 57, 'move', 0, -618.66675, 490.66653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 58, 'move', 0, -622.66675, 509.06653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 59, 'move', 0, -623.2001, 510.9332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 60, 'move', 0, -661.33344, 533.3333, -276.95956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 61, 'move', 0, -703.20404, 554.2686, -294.5256, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 62, 'move', 0, -704.00006, 554.6666, -294.85956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 63, 'move', 0, -738.13336, 563.19995, -302.25955, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 64, 'move', 0, -738.9334, 563.4666, -302.75955, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 65, 'move', 0, -741.3334, 566.1333, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 66, 'move', 0, -747.2001, 575.99994, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 67, 'pull', 0, -751.03, 602.35, -305.03, 12.7, 0, 0, 0, 0, '6234,6212', 'pull group 13'),
-('gnomeregan', 3, 68, 'pull', 0, -769.45, 599.02, -290.98, 14.5, 0, 0, 0, 0, '6212', 'pull group 14'),
-('gnomeregan', 3, 69, 'pull', 0, -762.84, 625.1, -299.98, 10, 0, 0, 0, 0, '6232', 'pull group 15'),
-('gnomeregan', 3, 70, 'pull', 0, -758.87, 640.62, -304.04, 10, 0, 0, 0, 0, '6234', 'pull group 16'),
-('gnomeregan', 3, 71, 'pull', 0, -753.84, 656.44, -308.98, 11.6, 0, 0, 0, 0, '6234,6212', 'pull group 17'),
-('gnomeregan', 3, 72, 'pull', 0, -738.31, 655.93, -321.81, 10, 0, 0, 0, 0, '7849', 'pull group 18'),
-('gnomeregan', 3, 73, 'pull', 0, -738.66, 659.81, -323.4, 14.7, 0, 0, 0, 0, '6212,6232', 'pull group 19'),
-('gnomeregan', 3, 74, 'pull', 0, -726.56, 649.99, -309, 12.1, 0, 0, 0, 0, '6212', 'pull group 20'),
-('gnomeregan', 3, 75, 'pull', 0, -745.51, 624.38, -312.7, 13, 0, 0, 0, 0, '6234,6212', 'pull group 21'),
-('gnomeregan', 3, 76, 'move', 0, -732.0442, 671.1476, -324.04626, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 77, 'pull', 0, -724.16, 698.53, -330.7, 16, 0, 0, 0, 0, '6234,6212,6232', 'pull group 22'),
-('gnomeregan', 3, 78, 'pull', 0, -734.65, 709.46, -317.98, 15.7, 0, 0, 0, 0, '6212,6232', 'pull group 23'),
-('gnomeregan', 3, 79, 'pull', 0, -706, 693.76, -317.98, 12.9, 0, 0, 0, 0, '6212', 'pull group 24'),
-('gnomeregan', 3, 80, 'pull', 0, -688.18, 704.65, -330.7, 10, 0, 0, 0, 0, '6212', 'pull group 25'),
-('gnomeregan', 3, 81, 'pull', 0, -691.75, 720.44, -317.98, 14.4, 0, 0, 0, 0, '6234', 'pull group 26'),
-('gnomeregan', 3, 82, 'move', 0, -677.3334, 721.5999, -320.15958, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 83, 'move', 0, -648.00006, 703.99994, -326.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 84, 'move', 0, -646.9334, 703.19995, -327.55957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 85, 'move', 0, -651.46674, 684.7999, -326.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 86, 'move', 0, -661.33344, 682.6666, -327.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 87, 'move', 0, -704.00006, 692.7999, -317.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 88, 'move', 0, -706.9334, 691.99994, -317.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 89, 'move', 0, -714.9334, 687.19995, -317.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 90, 'move', 0, -715.7334, 686.39996, -317.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 91, 'move', 0, -719.46674, 671.99994, -317.05957, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 92, 'move', 0, -731.2415, 625.46136, -303.07697, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 93, 'move', 0, -741.8667, 583.4666, -290.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 94, 'move', 0, -741.8667, 581.3333, -290.45956, 0, 0, 0, 0, 0, '', 'approach path'),
-('gnomeregan', 3, 95, 'boss', 6228, -718.106, 565.242, -289.116, 0, 0, 0, 0, 0, '', 'boss'),
+('gnomeregan', 3, 41, 'pull', 0, -704.34, 548.2, -295.11, 12.8, 0, 0, 0, 0, '6212,6234', 'pull group 7'),
+('gnomeregan', 3, 42, 'pull', 0, -675, 540.52, -285.84, 12.8, 0, 0, 0, 0, '6212,6234', 'pull group 8'),
+('gnomeregan', 3, 43, 'pull', 0, -644.95, 528.1, -272.98, 13.7, 0, 0, 0, 0, '6212,6234', 'pull group 9'),
+('gnomeregan', 3, 44, 'move', 0, -623.2001, 510.9332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 45, 'move', 0, -613.86676, 480.79987, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 46, 'move', 0, -610.4001, 473.06653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 47, 'move', 0, -606.1334, 469.3332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 48, 'move', 0, -618.66675, 459.19986, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 49, 'pull', 0, -671.69, 417.78, -273.01, 19.8, 0, 0, 0, 0, '7603,6222', 'pull group 10'),
+('gnomeregan', 3, 50, 'move', 0, -658.4001, 435.73322, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 51, 'move', 0, -640.00006, 447.99988, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 52, 'move', 0, -618.66675, 459.19986, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 53, 'move', 0, -606.1334, 469.3332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 54, 'move', 0, -610.4001, 473.06653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 55, 'move', 0, -618.66675, 490.66653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 56, 'move', 0, -622.66675, 509.06653, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 57, 'move', 0, -623.2001, 510.9332, -273.05957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 58, 'move', 0, -661.33344, 533.3333, -276.95956, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 59, 'move', 0, -703.20404, 554.2686, -294.5256, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 60, 'move', 0, -704.00006, 554.6666, -294.85956, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 61, 'move', 0, -738.13336, 563.19995, -302.25955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 62, 'move', 0, -738.9334, 563.4666, -302.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 63, 'move', 0, -741.3334, 566.1333, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 64, 'move', 0, -747.2001, 575.99994, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 65, 'pull', 0, -751.03, 602.35, -305.03, 12.7, 0, 0, 0, 0, '6234,6212', 'pull group 11'),
+('gnomeregan', 3, 66, 'pull', 0, -769.45, 599.02, -290.98, 14.5, 0, 0, 0, 0, '6212', 'pull group 12'),
+('gnomeregan', 3, 67, 'pull', 0, -762.84, 625.1, -299.98, 10, 0, 0, 0, 0, '6232', 'pull group 13'),
+('gnomeregan', 3, 68, 'pull', 0, -758.87, 640.62, -304.04, 10, 0, 0, 0, 0, '6234', 'pull group 14'),
+('gnomeregan', 3, 69, 'pull', 0, -753.84, 656.44, -308.98, 11.6, 0, 0, 0, 0, '6234,6212', 'pull group 15'),
+('gnomeregan', 3, 70, 'pull', 0, -738.31, 655.93, -321.81, 10, 0, 0, 0, 0, '7849', 'pull group 16'),
+('gnomeregan', 3, 71, 'pull', 0, -738.66, 659.81, -323.4, 14.7, 0, 0, 0, 0, '6212,6232', 'pull group 17'),
+('gnomeregan', 3, 72, 'pull', 0, -726.56, 649.99, -309, 12.1, 0, 0, 0, 0, '6212', 'pull group 18'),
+('gnomeregan', 3, 73, 'pull', 0, -745.51, 624.38, -312.7, 13, 0, 0, 0, 0, '6234,6212', 'pull group 19'),
+('gnomeregan', 3, 74, 'move', 0, -732.0442, 671.1476, -324.04626, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 75, 'pull', 0, -724.16, 698.53, -330.7, 16, 0, 0, 0, 0, '6234,6212,6232', 'pull group 20'),
+('gnomeregan', 3, 76, 'pull', 0, -734.65, 709.46, -317.98, 15.7, 0, 0, 0, 0, '6212,6232', 'pull group 21'),
+('gnomeregan', 3, 77, 'pull', 0, -706, 693.76, -317.98, 12.9, 0, 0, 0, 0, '6212', 'pull group 22'),
+('gnomeregan', 3, 78, 'pull', 0, -688.18, 704.65, -330.7, 10, 0, 0, 0, 0, '6212', 'pull group 23'),
+('gnomeregan', 3, 79, 'pull', 0, -691.75, 720.44, -317.98, 10, 0, 0, 0, 0, '6234', 'pull group 24'),
+('gnomeregan', 3, 80, 'move', 0, -677.3334, 721.5999, -320.15958, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 81, 'move', 0, -648.00006, 703.99994, -326.45956, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 82, 'move', 0, -646.9334, 703.19995, -327.55957, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 83, 'move', 0, -696.8042, 700.7726, -330.20755, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 84, 'move', 0, -707.2001, 700.2666, -330.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 85, 'move', 0, -721.0667, 691.99994, -330.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 86, 'move', 0, -722.13336, 690.6666, -330.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 87, 'move', 0, -725.3334, 682.6666, -330.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 88, 'move', 0, -736.9263, 636.295, -316.08728, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 89, 'move', 0, -746.6667, 597.3333, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 90, 'move', 0, -749.60004, 581.6, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 91, 'move', 0, -749.60004, 580.26666, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 92, 'move', 0, -747.2001, 575.99994, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 93, 'move', 0, -741.3334, 566.1333, -303.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 94, 'move', 0, -738.9334, 563.4666, -302.75955, 0, 0, 0, 0, 0, '', 'approach path'),
+('gnomeregan', 3, 95, 'pull', 0, -712.11, 550.95, -298.01, 10, 0, 0, 0, 0, '6212', 'pull group 25'),
+('gnomeregan', 3, 96, 'boss', 6228, -718.106, 565.242, -289.116, 0, 0, 0, 0, 0, '6212', 'boss'),
 ('gnomeregan', 4, 0, 'move', 0, -735.7334, 571.19995, -290.45956, 0, 0, 0, 0, 0, '', 'path'),
 ('gnomeregan', 4, 1, 'move', 0, -738.66675, 575.99994, -290.45956, 0, 0, 0, 0, 0, '', 'path'),
 ('gnomeregan', 4, 2, 'move', 0, -741.8667, 581.3333, -290.45956, 0, 0, 0, 0, 0, '', 'path'),
