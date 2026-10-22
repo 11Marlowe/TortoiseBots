@@ -571,6 +571,18 @@ static bool HandleStrategy(ChatHandler* handler, char const* args)
             change = Trim(input.substr(0, separator));
             // An explicit role scope addresses the party, even with a bot selected.
             scope = context.partyBots;
+            // Validate against the role-matching bots only: a strategy that
+            // only bots outside the role support must still be rejected,
+            // and an empty role match is reported instead of silently
+            // applying to zero bots.
+            std::vector<Player*> roleScope;
+            for (Player* bot : scope)
+            {
+                PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(bot);
+                if (botAi && StrategyRoleMatches(botAi, bot, role))
+                    roleScope.push_back(bot);
+            }
+            scope = roleScope;
         }
         else if (!KnownStrategyChange(scope, input))
         {
@@ -586,7 +598,10 @@ static bool HandleStrategy(ChatHandler* handler, char const* args)
     }
     if (scope.empty())
     {
-        handler->PSendSysMessage("No live owned party bots are controllable.");
+        if (!role.empty())
+            handler->PSendSysMessage("No party bot matches role %s.", role.c_str());
+        else
+            handler->PSendSysMessage("No live owned party bots are controllable.");
         return true;
     }
     if (!KnownStrategyChange(scope, change))
