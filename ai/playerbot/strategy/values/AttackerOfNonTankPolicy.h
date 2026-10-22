@@ -1,15 +1,11 @@
 #pragma once
 
-// Pure policy for the tank's off-target taunt (issue #1156): a mob that has
-// arrived and is swinging at a non-tank group member (the healer) matches
-// neither taunt row that existed before — LoseAggroTrigger tests only the
-// tank's current target, and SnareTargetValue refuses an arrived creature
-// (the CHASE branch requires it to still be moving). This policy picks the
-// mob the tank should Taunt from the engaged hostiles the caller scanned.
-//
-// Kept std-only so the standalone g++ policy test (tools/test_*.cpp) compiles
-// the real rules; the caller (AttackerOfNonTankTargetValue) fills in the game
-// state: unit lookup, victim roles, CcGuard hold tests and distance.
+// Pure policy for the tank's off-target taunt: which engaged hostile to
+// Taunt when it is hitting a non-tank group member, the healer's attacker
+// first. Kept std-only so the standalone g++ policy test (tools/test_*.cpp)
+// compiles the real rules; the caller (AttackerOfNonTankTargetValue) fills
+// in the game state: unit lookup, victim roles, CcGuard hold tests and
+// distance.
 
 #include <cstddef>
 #include <vector>
@@ -18,10 +14,8 @@ namespace ai
 {
     struct AttackerOfNonTankCandidate
     {
-        // Players have no threat list: a taunt does nothing and a taunt-grade
-        // row would only outbid a real interrupt (LoseAggroTrigger guards the
-        // same way). Callers must reject them before filling a candidate.
-        // The caller only feeds creatures/vehicles.
+        // Players have no threat list: a taunt on one does nothing. The
+        // caller only feeds creatures.
         bool victimIsGroupPlayer = false; // victim is the bot, its master or a group member
         bool victimIsTank = false;        // victim holds it already: no taunt needed
         bool victimIsHealer = false;      // healer victims outrank the rest

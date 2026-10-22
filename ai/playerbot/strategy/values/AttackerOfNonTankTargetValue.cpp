@@ -13,9 +13,9 @@ Unit* AttackerOfNonTankTargetValue::Calculate()
     std::list<ObjectGuid> const& attackers =
         ai->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("possible attack targets")->Get();
     CcGuard ccGuard(ai);
-    // Only the tank's Taunt may touch a held CC mark, and only under the
-    // owner exception (same rule as SnareTargetValue); the IsTank walk and
-    // the spell range never change inside the loop, so hoist them out.
+    // A held CC mark may be touched only by the tank's Taunt under the
+    // held-mark exception; the IsTank walk and the spell range never change
+    // inside the loop, so hoist them out.
     bool const tankTaunt = ai->IsTank(bot);
     float const spellRange = ai->GetRange("spell");
     Player* const master = ai->GetMaster();

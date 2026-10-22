@@ -1,6 +1,6 @@
-// Standalone regression test for the off-target taunt policy (issue #1156):
-// which engaged hostile the tank taunts when a mob sits on a non-tank group
-// member — healer victims first, closest first, tanks' own mobs and out-of-
+// Standalone regression test for the off-target taunt policy: which engaged
+// hostile the tank taunts when a mob sits on a non-tank group member —
+// healer victims first, closest first, tanks' own mobs and out-of-
 // range / player attackers skipped, held CC marks refused unless the owner's
 // taunt exception applies.
 //

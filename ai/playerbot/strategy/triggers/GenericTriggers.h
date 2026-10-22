@@ -99,10 +99,9 @@ namespace ai
 		virtual bool IsActive() override;
 	};
 
-    // A mob is on a non-tank group member (the healer first, issue #1156):
-    // fires when the "attacker of non-tank target" value picks a mob, next to
-    // "lose aggro", which only sees the tank's current target. Only tank
-    // strategies arm a row for it; every class context registers the trigger.
+    // A mob is on a non-tank group member, the healer's attacker first:
+    // fires when the "attacker of non-tank target" value picks a mob. Only
+    // tank strategies arm a row for it; every class context registers it.
     class PartyMemberAttackedTrigger : public Trigger
     {
     public:

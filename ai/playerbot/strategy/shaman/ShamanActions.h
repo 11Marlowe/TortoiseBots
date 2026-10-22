@@ -492,9 +492,9 @@ namespace ai
     // CastTauntAction guard (victim exists and is not us).
     MELEE_ACTION_U(CastEarthshakerSlamAction, "earthshaker slam", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
 
-    // Taunt the mob picked by "attacker of non-tank target" (issue #1156):
-    // the value returns mobs inside the taunt spell range; the strategy's
-    // node walks into melee first, since a taunt past 5 yards fails.
+    // Taunt the mob picked by "attacker of non-tank target"; the value
+    // returns mobs inside the taunt spell range, and the strategy's node
+    // walks into melee first, since a taunt past 5 yards fails.
     class CastEarthshakerSlamOnAttackerAction : public CastEarthshakerSlamAction
     {
     public:

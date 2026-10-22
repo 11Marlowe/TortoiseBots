@@ -59,9 +59,8 @@ void TankFeralDruidStrategy::InitCombatTriggers(std::list<TriggerNode*>& trigger
         "lose aggro",
         NextAction::array(0, new NextAction("growl", ACTION_MOVE), NULL)));
 
-    // A mob is swinging at a non-tank member (the healer first, issue #1156):
-    // "lose aggro" only sees the bear's current target, so a mob sitting on
-    // the healer is never growled. Same priority as "lose aggro".
+    // A mob sitting on a non-tank member: "lose aggro" only sees the bear's
+    // current target. Same priority as "lose aggro".
     triggers.push_back(new TriggerNode(
         "party member attacked",
         NextAction::array(0, new NextAction("growl on attacker", ACTION_MOVE), NULL)));
