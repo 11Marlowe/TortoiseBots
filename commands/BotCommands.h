@@ -32,6 +32,10 @@ void ClearRemoteCommanders();
 // commander, lead bot, bound bots and the commander's last orders. World
 // thread; read-only (nothing is settled or released); empty while none stands.
 void CollectCommanderTelemetry(std::vector<CommanderTelemetry::BindingRef>& out);
+// The dashboard's boss spawn cache (every known boss of each dungeon and raid map, from one pass over the core's creature spawn data):
+// built once, from BotHostAdapter::OnStartup right after sPlayerbotAIConfig.Initialize() sealed the dungeon plans, never inside a
+// commander snapshot; logs how long it took. Does nothing before the seal or a second time.
+void BuildBossSpawnCache();
 // True when bot is in the group the commander is bound to: master-relative
 // conveniences (the summon out of a dungeon when the master leaves it) leave
 // such a bot with its lead bot.

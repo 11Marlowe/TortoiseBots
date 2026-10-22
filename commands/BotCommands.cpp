@@ -110,6 +110,7 @@
 #include "Threat/ThreatManager.h"
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -118,6 +119,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 // Lens fallback stubs — core headers absent in static analysis. Real build uses
@@ -11480,135 +11482,173 @@ static void FillCommanderObjects(Player* lead, CommanderTelemetry::BindingRef& r
         ref.objects.push_back(std::move(found[i].second));
 }
 
-// One spawn of a known boss, as the dashboard's boss list needs it (DashBossSpawnsOn).
-struct DashBossSpawn
+// The dashboard's boss spawn cache: per dungeon or raid map, every known boss entry with its spawn rows (CommanderTelemetry::BossEntrySpawns),
+// grouped by entry once. Built at server start (BotHostAdapter::OnStartup, right after the plans are sealed); the reports only read it.
+struct DashBossCache
 {
-    uint32 dbGuid = 0;  // the `creature` row (0: a plan boss step with no spawn row, a summoned or scripted boss)
-    uint32 entry = 0;
-    std::string name;
-    float x = 0.0f;
-    float y = 0.0f;
-    bool inPlan = false; // a plan of the map has a boss step for the entry
+    bool built = false;
+    std::unordered_map<uint32, std::vector<CommanderTelemetry::BossEntrySpawns>> byMap;
 };
 
-// The boss spawns of a map, or null before the dungeon plans are sealed. Built ONCE, the first time a binding stands on a dungeon map
-// after the seal, by one pass over the core's creature spawn data: every spawn whose creature is a boss by the telemetry's rank rule
-// (an `ai_dungeon_boss` row or a plan boss-step entry of that map, world-boss rank, or the instance-bind flag), kept per map for the
-// server's life; a plan boss step whose entry has no spawn row on its map adds the step's place (that row's state stays 'u'). Per map: the plan's bosses in plan order
-// first, then the rest by spawn row. The reports read it; they never scan.
-static std::vector<DashBossSpawn> const* DashBossSpawnsOn(uint32 mapId)
+static DashBossCache& DashBosses()
 {
-    static bool built = false;
-    static std::unordered_map<uint32, std::vector<DashBossSpawn>> byMap;
-    static std::vector<DashBossSpawn> const none;
+    static DashBossCache cache;
+    return cache;
+}
+
+// The killed latch of every instance a binding stands in (CommanderTelemetry::BossKillLatch): world thread, the 2 s snapshot only.
+static CommanderTelemetry::BossKillLatch& DashBossKills()
+{
+    static CommanderTelemetry::BossKillLatch kills;
+    return kills;
+}
+
+// Builds the boss spawn cache once, by one pass over the core's creature spawn data, when the dungeon plans are sealed (Codex review
+// 2026-10-22: it used to be built lazily inside the first dungeon's commander snapshot on the world thread, a whole-table scan in the 2 s
+// cycle). Every spawn whose creature is a boss by the telemetry's rank rule (an `ai_dungeon_boss` row or a plan boss-step entry of that map,
+// world-boss rank, or the instance-bind flag) is kept per map for the server's life; a plan boss step whose entry has no spawn row on its
+// map adds the step's place (that row's state stays 'u'). Per map: the plan's bosses in plan order first, then the rest by spawn row, one
+// row per entry. Logs how long it took, and names each map whose roster is over the per-binding cap (its list is never sent; the dashboard
+// falls back there).
+void BuildBossSpawnCache()
+{
+    DashBossCache& cache = DashBosses();
     ai::DungeonPlanTable const& plans = ai::GetDungeonPlans();
-    if (!built)
-    {
-        if (!plans.Sealed())
-            return nullptr;
-        built = true;
-        // the plan boss steps per map, in plan order (an entry's first step decides its place in the list)
-        std::unordered_map<uint32, std::vector<ai::PlanStep const*>> planSteps;
-        std::unordered_map<uint64, size_t> planOrder; // (map, entry) -> position in its map's plan boss steps
-        for (ai::DungeonPlan const* plan : plans.All())
-            for (ai::PlanStep const& step : plan->steps)
-                if (step.kind == ai::PlanStepKind::Boss && step.entry)
-                {
-                    uint64 const key = (static_cast<uint64>(plan->map) << 32) | step.entry;
-                    if (planOrder.emplace(key, planSteps[plan->map].size()).second)
-                        planSteps[plan->map].push_back(&step);
-                }
-        auto worker = [&](CreatureDataPair const& pair) -> bool
-        {
-            CreatureData const& data = pair.second;
-            uint32 const entry = data.creature_id[0];
-            if (!entry)
-                return false;
-            CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(entry);
-            bool const boss = plans.IsBossEntry(data.position.mapId, entry) ||
-                (info && (info->rank == CREATURE_ELITE_WORLDBOSS || (info->flags_extra & CREATURE_FLAG_EXTRA_INSTANCE_BIND)));
-            if (!boss)
-                return false;
-            DashBossSpawn spawn;
-            spawn.dbGuid = pair.first;
-            spawn.entry = entry;
-            spawn.name = info ? info->name : std::string();
-            spawn.x = data.position.x;
-            spawn.y = data.position.y;
-            spawn.inPlan = planOrder.count((static_cast<uint64>(data.position.mapId) << 32) | entry) != 0;
-            byMap[data.position.mapId].push_back(std::move(spawn));
-            return false; // keep going
-        };
-        sObjectMgr.DoCreatureData(worker);
-        for (auto& [map, steps] : planSteps)
-        {
-            std::vector<DashBossSpawn>& list = byMap[map];
-            for (ai::PlanStep const* step : steps)
+    if (cache.built || !plans.Sealed())
+        return;
+    auto const started = std::chrono::steady_clock::now();
+    // the plan boss steps per map, in plan order (an entry's first step decides its place in the list)
+    std::unordered_map<uint32, std::vector<ai::PlanStep const*>> planSteps;
+    std::unordered_map<uint64, size_t> planOrder; // (map, entry) -> position in its map's plan boss steps
+    for (ai::DungeonPlan const* plan : plans.All())
+        for (ai::PlanStep const& step : plan->steps)
+            if (step.kind == ai::PlanStepKind::Boss && step.entry)
             {
-                if (std::any_of(list.begin(), list.end(), [&](DashBossSpawn const& s) { return s.entry == step->entry; }))
-                    continue;
-                CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(step->entry);
-                DashBossSpawn spawn;
-                spawn.entry = step->entry;
-                spawn.name = info ? info->name : std::string();
-                spawn.x = step->x;
-                spawn.y = step->y;
-                spawn.inPlan = true;
-                list.push_back(std::move(spawn));
+                uint64 const key = (static_cast<uint64>(plan->map) << 32) | step.entry;
+                if (planOrder.emplace(key, planSteps[plan->map].size()).second)
+                    planSteps[plan->map].push_back(&step);
             }
-        }
-        for (auto& [map, list] : byMap)
+    std::unordered_map<uint32, std::vector<CommanderTelemetry::BossSpawnRow>> rowsByMap;
+    std::unordered_set<uint64> spawned; // (map, entry) with at least one spawn row
+    auto worker = [&](CreatureDataPair const& pair) -> bool
+    {
+        CreatureData const& data = pair.second;
+        uint32 const entry = data.creature_id[0];
+        if (!entry)
+            return false;
+        CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(entry);
+        bool const boss = plans.IsBossEntry(data.position.mapId, entry) ||
+            (info && (info->rank == CREATURE_ELITE_WORLDBOSS || (info->flags_extra & CREATURE_FLAG_EXTRA_INSTANCE_BIND)));
+        if (!boss)
+            return false;
+        uint64 const key = (static_cast<uint64>(data.position.mapId) << 32) | entry;
+        CommanderTelemetry::BossSpawnRow row;
+        row.dbGuid = pair.first;
+        row.info.entry = entry;
+        row.info.name = info ? info->name : std::string();
+        row.info.x = data.position.x;
+        row.info.y = data.position.y;
+        row.info.inPlan = planOrder.count(key) != 0;
+        rowsByMap[data.position.mapId].push_back(std::move(row));
+        spawned.insert(key);
+        return false; // keep going
+    };
+    sObjectMgr.DoCreatureData(worker);
+    for (auto& [map, steps] : planSteps)
+    {
+        std::vector<CommanderTelemetry::BossSpawnRow>& rows = rowsByMap[map];
+        for (ai::PlanStep const* step : steps)
         {
-            uint32 const m = map;
-            auto rank = [&](DashBossSpawn const& s)
-            {
-                auto it = planOrder.find((static_cast<uint64>(m) << 32) | s.entry);
-                return it == planOrder.end() ? planOrder.size() + 1 : it->second;
-            };
-            std::stable_sort(list.begin(), list.end(), [&](DashBossSpawn const& a, DashBossSpawn const& b)
-            {
-                size_t const ra = rank(a), rb = rank(b);
-                return ra != rb ? ra < rb : a.dbGuid < b.dbGuid;
-            });
+            if (spawned.count((static_cast<uint64>(map) << 32) | step->entry))
+                continue;
+            CreatureInfo const* info = sObjectMgr.GetCreatureTemplate(step->entry);
+            CommanderTelemetry::BossSpawnRow row;
+            row.info.entry = step->entry;
+            row.info.name = info ? info->name : std::string();
+            row.info.x = step->x;
+            row.info.y = step->y;
+            row.info.inPlan = true;
+            rows.push_back(std::move(row));
         }
     }
-    auto it = byMap.find(mapId);
-    return it == byMap.end() ? &none : &it->second;
+    uint32 overCap = 0;
+    for (auto& [map, rows] : rowsByMap)
+    {
+        uint32 const m = map;
+        auto rank = [&](CommanderTelemetry::BossSpawnRow const& r)
+        {
+            auto it = planOrder.find((static_cast<uint64>(m) << 32) | r.info.entry);
+            return it == planOrder.end() ? planOrder.size() + 1 : it->second;
+        };
+        std::stable_sort(rows.begin(), rows.end(), [&](CommanderTelemetry::BossSpawnRow const& a, CommanderTelemetry::BossSpawnRow const& b)
+        {
+            size_t const ra = rank(a), rb = rank(b);
+            return ra != rb ? ra < rb : a.dbGuid < b.dbGuid;
+        });
+        std::vector<CommanderTelemetry::BossEntrySpawns>& roster = cache.byMap[map];
+        roster = CommanderTelemetry::GroupBossSpawns(rows);
+        if (roster.size() > CommanderTelemetry::kMaxBossesPerBinding)
+        {
+            ++overCap;
+            sLog.outString("TortoiseBots: boss roster of map %u has %u bosses, over the %u a binding may send: its list is never sent "
+                "(the dashboard falls back to the plan and what it sees there)", m, uint32(roster.size()),
+                uint32(CommanderTelemetry::kMaxBossesPerBinding));
+        }
+    }
+    cache.built = true;
+    auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+    sLog.outString("TortoiseBots: boss spawn cache built in %u ms for %u maps", uint32(ms), uint32(cache.byMap.size()));
+    if (overCap)
+        sLog.outString("TortoiseBots: %u maps have a boss roster over the cap", overCap);
+}
+
+// The boss roster of a map, or null while the cache is not built (the plans were not sealed at start: the AI is off). Never builds it:
+// the snapshot only reads.
+static std::vector<CommanderTelemetry::BossEntrySpawns> const* DashBossSpawnsOn(uint32 mapId)
+{
+    static std::vector<CommanderTelemetry::BossEntrySpawns> const none;
+    DashBossCache const& cache = DashBosses();
+    if (!cache.built)
+        return nullptr;
+    auto it = cache.byMap.find(mapId);
+    return it == cache.byMap.end() ? &none : &it->second;
 }
 
 // Every known boss of the lead's dungeon or raid map with its state in the lead's own instance (owner 2026-10-21: all bosses on the
-// dashboard map, alive or dead): per spawn one guid lookup on the lead's map and one respawn-time read of that instance, no scan. Once per
-// 2 s snapshot cycle, only while a binding stands; nothing on the open world.
+// dashboard map, alive or dead): per spawn row one guid lookup on the lead's map and one respawn-time read of that instance, no scan; the
+// strongest read of an entry's rows, held by that instance's killed latch (a killed boss whose timer ran out while its grid was unloaded
+// stays killed). Once per 2 s snapshot cycle, only while a binding stands; nothing on the open world.
 static void FillCommanderBosses(Player* lead, CommanderTelemetry::BindingRef& ref)
 {
     Map* map = lead->GetMap();
     if (!map || !map->IsDungeon())
         return;
-    std::vector<DashBossSpawn> const* spawns = DashBossSpawnsOn(lead->GetMapId());
-    if (!spawns)
-        return; // the plans are not loaded yet: not reported, the dashboard falls back
+    std::vector<CommanderTelemetry::BossEntrySpawns> const* roster = DashBossSpawnsOn(lead->GetMapId());
+    if (!roster)
+        return; // no cache (the plans were not sealed at start): not reported, the dashboard falls back
     ref.bossesReported = true;
     ref.bossesMap = lead->GetMapId();
     MapPersistentState* persistent = map->GetPersistentState();
     time_t const now = time(nullptr);
-    std::vector<CommanderTelemetry::BossInfo> all;
-    all.reserve(spawns->size());
-    for (DashBossSpawn const& spawn : *spawns)
+    uint32 const instanceId = map->GetInstanceId();
+    CommanderTelemetry::BossKillLatch& kills = DashBossKills();
+    kills.Expire(static_cast<int64_t>(now));
+    ref.bosses.clear();
+    ref.bosses.reserve(roster->size());
+    for (CommanderTelemetry::BossEntrySpawns const& boss : *roster)
     {
-        // A plan boss with no spawn row (dbGuid 0: summoned or scripted) has neither a guid nor a respawn time: it reads 'u' here, and
-        // the dashboard learns its state from the unit in sight and the kill it sees.
-        Creature* creature = spawn.dbGuid ? map->GetCreature(::ObjectGuid(HIGHGUID_UNIT, spawn.entry, spawn.dbGuid)) : nullptr;
-        int64_t const respawnAt = spawn.dbGuid && persistent ? static_cast<int64_t>(persistent->GetCreatureRespawnTime(spawn.dbGuid)) : 0;
-        CommanderTelemetry::BossInfo boss;
-        boss.entry = spawn.entry;
-        boss.name = spawn.name;
-        boss.x = spawn.x;
-        boss.y = spawn.y;
-        boss.inPlan = spawn.inPlan;
-        boss.state = CommanderTelemetry::BossSpawnState(creature != nullptr, creature && creature->IsAlive(), respawnAt, static_cast<int64_t>(now));
-        all.push_back(std::move(boss));
+        // A plan boss with no spawn row (summoned or scripted) has neither a guid nor a respawn time: it reads 'u' here, and the dashboard
+        // learns its state from the unit in sight and the kill it sees.
+        char state = 'u';
+        for (uint32 dbGuid : boss.dbGuids)
+        {
+            Creature* creature = map->GetCreature(::ObjectGuid(HIGHGUID_UNIT, boss.info.entry, dbGuid));
+            int64_t const respawnAt = persistent ? static_cast<int64_t>(persistent->GetCreatureRespawnTime(dbGuid)) : 0;
+            state = CommanderTelemetry::StrongerBossState(state, CommanderTelemetry::BossSpawnState(creature != nullptr, creature && creature->IsAlive(), respawnAt, static_cast<int64_t>(now)));
+        }
+        ref.bosses.push_back(boss.info);
+        ref.bosses.back().state = kills.Apply(instanceId, boss.info.entry, state, static_cast<int64_t>(now));
     }
-    ref.bosses = CommanderTelemetry::MergeBosses(all);
 }
 
 // The map data of one binding for the dashboard (once per 2 s snapshot cycle, only while a binding stands): the commander's

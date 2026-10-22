@@ -564,18 +564,24 @@ void TestBosses()
 
     auto boss = [](uint32_t e, char st, bool plan = false, std::string n = "B") {
         BossInfo b; b.entry = e; b.name = n; b.x = static_cast<float>(e); b.y = -1.0f; b.state = st; b.inPlan = plan; return b; };
-    // several spawns of one entry: one row, alive beats dead beats unknown, the first spawn's place and name; first-seen order
-    std::vector<BossInfo> m = MergeBosses({boss(5, 'u', false, "first"), boss(7, 'd'), boss(5, 'd', true, "second"), boss(9, 'u'), boss(7, 'a'), boss(0, 'a')});
-    Check(m.size() == 3, "one row per entry, a zero entry dropped");
-    Check(m[0].entry == 5 && m[0].state == 'd' && m[0].name == "first" && m[0].x == 5.0f, "dead beats unknown, the first spawn's name and place");
-    Check(m[0].inPlan, "in the plan when any spawn of the entry is");
-    Check(m[1].entry == 7 && m[1].state == 'a', "alive beats dead");
-    Check(m[2].entry == 9 && m[2].state == 'u', "unknown stays unknown");
-    Check(MergeBosses({boss(1, 'z')})[0].state == 'u', "an unknown letter becomes unknown");
-    std::vector<BossInfo> lots;
+    // the cache groups the spawns of a map by entry once (no search of the output per spawn): one row per entry in first-seen order,
+    // the first spawn's place and name, in the plan when any spawn is, every spawn row's guid kept, a zero entry and a zero guid dropped
+    auto row = [&](uint32_t g, uint32_t e, bool plan = false, std::string n = "B") { BossSpawnRow r; r.dbGuid = g; r.info = boss(e, 'u', plan, n); return r; };
+    std::vector<BossEntrySpawns> g = GroupBossSpawns({row(11, 5, false, "first"), row(12, 7), row(13, 5, true, "second"), row(0, 9), row(14, 7), row(15, 0)});
+    Check(g.size() == 3, "one row per entry, a zero entry dropped");
+    Check(g[0].info.entry == 5 && g[0].info.name == "first" && g[0].info.x == 5.0f, "the first spawn's name and place");
+    Check(g[0].info.inPlan, "in the plan when any spawn of the entry is");
+    Check(g[0].dbGuids == std::vector<uint32_t>({11, 13}) && g[1].dbGuids == std::vector<uint32_t>({12, 14}), "every spawn row of the entry kept");
+    Check(g[2].info.entry == 9 && g[2].dbGuids.empty(), "a plan boss with no spawn row: a row, no guid");
+    std::vector<BossSpawnRow> many;
     for (uint32_t i = 1; i <= 40; ++i)
-        lots.push_back(boss(i, 'a'));
-    Check(MergeBosses(lots).size() == 40, "the merge never cuts a roster short (the payload leaves a long one out whole)");
+        many.push_back(row(i, i));
+    Check(GroupBossSpawns(many).size() == 40, "the grouping never cuts a roster short (the payload leaves a long one out whole)");
+    // several spawns of one entry make one state: alive beats dead beats unknown, a stray letter is unknown
+    Check(StrongerBossState('u', 'd') == 'd' && StrongerBossState('d', 'u') == 'd', "dead beats unknown");
+    Check(StrongerBossState('d', 'a') == 'a' && StrongerBossState('a', 'd') == 'a', "alive beats dead");
+    Check(StrongerBossState('u', 'a') == 'a' && StrongerBossState('u', 'u') == 'u', "alive beats unknown; unknown stays unknown");
+    Check(StrongerBossState('u', 'z') == 'u' && StrongerBossState('z', 'u') == 'u', "an unknown letter becomes unknown");
 
     // the state from what the game hands over: on the map (alive or a corpse), else the instance's respawn time against now
     Check(BossSpawnState(true, true, 0, 100) == 'a' && BossSpawnState(true, false, 0, 100) == 'd', "found: alive or a corpse");
@@ -616,7 +622,7 @@ void TestBosses()
     json = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, roster(20)));
     Check(Count(json, "\"bosses\":[") == kMaxBossesPerPayload / 20 && Count(json, "\"e\":") == (kMaxBossesPerPayload / 20) * 20,
         "whole lists while the per-datagram count allows");
-    json = BuildPayload(9, 1, 1, 1, {roster(30), roster(30), roster(18)});
+    json = BuildPayload(9, 1, 0, 1, {roster(30), roster(30), roster(18)});
     Check(Count(json, "\"bosses\":[") == 2 && Count(json, "\"e\":") == 48, "the second list does not fit the count, the third does");
 }
 
@@ -689,7 +695,7 @@ void TestBossesByteBudget()
     BindingInfo dungeon = big;
     dungeon.run.stepList.clear();
     dungeon.objects.clear();
-    std::string const usual = BuildPayload(9, 1, 1, 1, std::vector<BindingInfo>(kMaxBindings, dungeon));
+    std::string const usual = BuildPayload(9, 1, 0, 1, std::vector<BindingInfo>(kMaxBindings, dungeon));
     Check(Count(usual, "\"bosses\":[") == kMaxBossesPerPayload / 16, "the lists that the payload count allows all fit");
     Check(usual.find("\"bosses\":[") < usual.find("\"commander\":\"" + big.commander + "\"", usual.find("\"commander\":\"") + 1),
         "the first binding keeps its list");
@@ -722,10 +728,86 @@ void TestBossesBudgetDoesNotCount()
     Check(bigLen > smallLen + 200, "the test needs a big and a small list");
     // pad the first binding so that the small list fits the budget and the big one does not
     pad.commander = std::string(kPayloadByteBudget - bare.size() - (bigLen + smallLen) / 2 - 2 * 20, 'P');
-    std::string const json = BuildPayload(9, 1, 1, 1, {pad, big, small});
+    std::string const json = BuildPayload(9, 1, 0, 1, {pad, big, small}); // seq 0: the big list is tried first
     Check(json.size() <= kPayloadByteBudget, "within the budget");
     Check(Count(json, "\"bosses\":[") == 1 && Count(json, "\"e\":") == 20,
         "the big list is left out by the budget and the small one still goes in (30 + 20 would pass the count of 48)");
+}
+
+// Codex review 2026-10-22: with the lists tried in a fixed order, a binding late in the list could lose its roster every snapshot. The
+// first list tried moves on with the snapshot sequence, so over as many snapshots as there are lists every binding is sent whole at least
+// once (each list is the first one tried once), and a list still never goes in short.
+void TestBossRotation()
+{
+    auto mk = [](uint32_t map, size_t n) {
+        BindingInfo r;
+        r.commander = "C" + std::to_string(map);
+        r.bossesReported = true;
+        r.bossesMap = map;
+        for (uint32_t i = 1; i <= n; ++i)
+        {
+            BossInfo b; b.entry = i; b.name = "B"; b.state = 'u'; r.bosses.push_back(b);
+        }
+        return r;
+    };
+    // five bindings of 30 bosses: only one list fits the 48 of a datagram
+    std::vector<BindingInfo> five;
+    for (uint32_t m = 101; m <= 105; ++m)
+        five.push_back(mk(m, 30));
+    std::vector<int> sent(5, 0);
+    for (uint64_t seq = 1000; seq < 1000 + five.size(); ++seq)
+    {
+        std::string const json = BuildPayload(9, 1, seq, 1, five);
+        Check(Count(json, "\"bosses\":[") == 1 && Count(json, "\"e\":") == 30, "one whole list per datagram, never a short one");
+        for (size_t i = 0; i < five.size(); ++i)
+            sent[i] += Has(json, "\"bosses_map\":" + std::to_string(101 + i) + ",") ? 1 : 0;
+    }
+    for (size_t i = 0; i < five.size(); ++i)
+        Check(sent[i] >= 1, "over as many snapshots as lists, every binding's roster is sent at least once");
+    // a binding whose roster is over the cap is no candidate: the others still take turns
+    std::vector<BindingInfo> mixed = {mk(201, 30), mk(202, kMaxBossesPerBinding + 1), mk(203, 30)};
+    bool got201 = false, got203 = false;
+    for (uint64_t seq = 0; seq < 2; ++seq)
+    {
+        std::string const json = BuildPayload(9, 1, seq, 1, mixed);
+        Check(!Has(json, "\"bosses_map\":202,"), "an over-cap roster is never sent");
+        got201 = got201 || Has(json, "\"bosses_map\":201,");
+        got203 = got203 || Has(json, "\"bosses_map\":203,");
+    }
+    Check(got201 && got203, "the candidates take turns");
+}
+
+// Codex review 2026-10-22 (lead's decision): a killed boss whose respawn timer ran out while its grid was unloaded read 'u' again. The
+// latch keeps it killed for that instance until a living creature of the entry is seen, the instance id changes (a reset gives a new id)
+// or no binding has stood on the instance for kForgetAfterS; bounded at kMaxLatches (the oldest is dropped).
+void TestBossKillLatch()
+{
+    BossKillLatch l;
+    Check(l.Apply(7, 100, 'u', 0) == 'u', "nothing latched: unknown stays unknown");
+    Check(l.Apply(7, 100, 'd', 10) == 'd' && l.Holds(7, 100), "read killed: latched");
+    Check(l.Apply(7, 100, 'u', 20) == 'd', "killed, then the timer ran out with the grid unloaded (not found): still killed");
+    Check(l.Apply(7, 101, 'u', 20) == 'u', "another entry of the instance is not latched");
+    Check(l.Apply(8, 100, 'u', 20) == 'u', "a new instance id (a reset) starts fresh");
+    Check(l.Apply(7, 100, 'a', 30) == 'a' && !l.Holds(7, 100), "a living creature of the entry clears the latch");
+    Check(l.Apply(7, 100, 'u', 40) == 'u', "cleared: unknown again");
+    Check(l.Apply(0, 100, 'd', 40) == 'd' && !l.Holds(0, 100), "no instance id: nothing latched");
+    // forgotten once no binding has stood on the instance for kForgetAfterS
+    l.Apply(9, 300, 'd', 1000);
+    l.Expire(1000 + BossKillLatch::kForgetAfterS - 1);
+    Check(l.Holds(9, 300), "kept while a binding stood there recently");
+    l.Apply(9, 300, 'u', 1000 + BossKillLatch::kForgetAfterS - 1); // still seen: the clock restarts
+    l.Expire(1000 + 2 * BossKillLatch::kForgetAfterS - 2);
+    Check(l.Holds(9, 300), "every report on the instance keeps it");
+    l.Expire(1000 + 2 * BossKillLatch::kForgetAfterS);
+    Check(!l.Holds(9, 300), "no binding on the instance for the forget time: dropped");
+    // the size bound: the oldest latch goes first
+    BossKillLatch b;
+    for (uint32_t i = 1; i <= BossKillLatch::kMaxLatches + 5; ++i)
+        b.Apply(1, i, 'd', 0);
+    Check(b.Size() == BossKillLatch::kMaxLatches, "at most kMaxLatches latches");
+    Check(!b.Holds(1, 1) && !b.Holds(1, 5) && b.Holds(1, 6) && b.Holds(1, BossKillLatch::kMaxLatches + 5), "the oldest dropped first");
+    b.Apply(1, 6, 'd', 1); // read killed again: not a new latch, the size stays
+    Check(b.Size() == BossKillLatch::kMaxLatches, "a latch read again is not added twice");
 }
 
 void TestControlCharacters()
@@ -753,6 +835,8 @@ int main()
     TestBosses();
     TestBossesByteBudget();
     TestBossesBudgetDoesNotCount();
+    TestBossRotation();
+    TestBossKillLatch();
     TestControlCharacters();
     if (g_failures)
     {
