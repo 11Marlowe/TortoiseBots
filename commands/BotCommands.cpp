@@ -7010,10 +7010,11 @@ std::string RespawnInText(uint32 seconds)
     return std::to_string(seconds) + " s";
 }
 
-// The sentence that follows "No living NPC ..." when the entry's NPC lies dead within
+// The sentence that follows "No living NPC ..." when an NPC of the entry lies dead within
 // GossipOrder::kSearchYards of the bot (the dead one nearest to it): "<name> (<entry>) lies dead
-// <n> yd away and respawns in <time> (<delay> s spawn timer)." The run leader reads the mark
-// "lies dead" (DungeonRun::kGossipNpcDeadMark). "" when none lies dead there.
+// <n> yd away and respawns in <time> (<delay> s spawn timer)." (no respawn clause for a delay of 0).
+// It says nothing about NPCs of the entry farther away than the search reaches. The run leader reads
+// the mark "lies dead" (DungeonRun::kGossipNpcDeadMark). "" when none lies dead there.
 std::string DeadGossipNpcText(Player* bot, uint32 entry)
 {
     Map* map = bot->GetMap();
@@ -7040,12 +7041,16 @@ std::string DeadGossipNpcText(Player* bot, uint32 entry)
     }
     if (!nearest)
         return std::string();
+    std::string text = std::string(nearest->GetName()) + " (" + std::to_string(entry) + ") lies dead " +
+        std::to_string(static_cast<uint32>(best + 0.5f)) + " yd away";
+    // A scripted or summoned NPC has no respawn delay: it never comes back by itself.
+    if (nearest->GetRespawnDelay() == 0)
+        return text + " (it has no respawn timer).";
     time_t const now = time(nullptr);
     time_t const at = nearest->GetRespawnTimeEx();
     uint32 const left = at > now ? static_cast<uint32>(at - now) : 0;
-    return std::string(nearest->GetName()) + " (" + std::to_string(entry) + ") lies dead " +
-        std::to_string(static_cast<uint32>(best + 0.5f)) + " yd away and respawns in " + RespawnInText(left) + " (" +
-        std::to_string(nearest->GetRespawnDelay()) + " s spawn timer).";
+    return text + " and respawns in " + RespawnInText(left) + " (" + std::to_string(nearest->GetRespawnDelay()) +
+        " s spawn timer).";
 }
 
 // The GUID an order's target names: the GUID as typed, or the nearest object
@@ -8450,7 +8455,8 @@ static bool CommanderGossip(ChatHandler* handler, CommanderOrder const& order, P
     {
         std::string const dead = DeadGossipNpcText(bot, request.entry);
         SendActionError(handler, intent, GossipOrder::kCodeNoNpc,
-            ("No living NPC of that entry is within 40 yd of the bot" + (dead.empty() ? std::string(".") : ": " + dead)).c_str());
+            ("No living NPC of that entry is within 40 yd of the bot" +
+                (dead.empty() ? std::string(".") : ": a dead one lies nearby: " + dead)).c_str());
         return true;
     }
     if (target.creature->IsInCombat())

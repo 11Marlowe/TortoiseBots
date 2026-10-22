@@ -426,11 +426,22 @@ static UnitFact Engaged(std::uint32_t entry, float x, float y, float yd)
     return u;
 }
 
+// The ranged bots (the healer too) `yd` from the tank, on the ground.
+static void RangedYd(Facts& f, float yd)
+{
+    for (MemberFact& m : f.members)
+        if (m.ranged)
+        {
+            m.yd = yd;
+            m.dz = 0.0f;
+        }
+}
+
 // Plan ZF-EVENT-HOLD T1: the tank is sent at the first awake troll (the engage
-// order ends its stay) and then leaves the spot; the places are let go at once
-// (the glue lets the placed bots follow it), and the hold places them again
-// only once the tank is back (T3).
-static void TestHoldStandsLetGoWhenTheTankLeavesTheSpot()
+// order ends its stay), chases it 12 yd off the spot and on, and the ranged
+// fall behind it out of heal range: the places are let go after two fight
+// ticks (not one), and the glue lets the placed bots follow the tank.
+static void TestHoldStandsLetGoWhenTheRangedFallBehindTheTank()
 {
     FightHold h;
     StartFightHold(h, ZfHold(), 7789);
@@ -438,50 +449,102 @@ static void TestHoldStandsLetGoWhenTheTankLeavesTheSpot()
     Facts& f = h.f;
     f.anyInCombat = true;
     f.units = {Engaged(7789, 14, 5, 15.0f)};
+    RangedYd(f, 6.0f);
     std::string const order = Tick(r, f);
     CHECK(order == "attack " + std::to_string(f.units[0].guid) + " Trian");
     CHECK(r.holdUnstayed && Has(r.note, "the tank takes 7789"));
-    // On the spot the order changes nothing about the places.
     CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
-    // The tank fights where it stands, then chases 12 yd off.
+    // The tank fights where it stands, then chases 12 yd off; the ranged 36 yd behind.
     f.leadStaying = false;
     f.leadX = 12.0f;
+    RangedYd(f, 36.0f);
+    Tick(r, f);
+    CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced); // one tick is not enough
     Tick(r, f);
     CHECK(r.holdStands.empty() && r.holdStandsGen == 2 && !r.holdPlaced);
-    CHECK(Has(r.note, "the ranged leave their places") && r.holdReleases == 1);
+    CHECK(Has(r.note, "the ranged 36.0 yd behind the tank") && Has(r.note, "leave their places") && r.holdReleases == 1);
     // No churn while it stays away: the generation does not move again.
     for (int i = 0; i < 20; ++i)
     {
         f.leadX = 12.0f + static_cast<float>(i);
         Tick(r, f);
     }
-    CHECK(r.holdStands.empty() && r.holdStandsGen == 2 && !r.holdPlaced);
+    CHECK(r.holdStands.empty() && r.holdStandsGen == 2 && !r.holdPlaced && r.holdReleases == 1);
 }
 
-// T2: a tank that fights on or near the spot keeps the places: no churn, every
-// tick, up to exactly kHoldReturnYd (the walk back's own limit).
-static void TestHoldStandsKeptWhileTheTankFightsOnTheSpot()
+// T2: the places stay (a) for a one-tick spike of the distance, (b) while the
+// tank is on or near the spot (up to exactly kHoldReturnYd) however far a
+// ranged bot is, (c) while the ranged are within reach of a tank that is far
+// off the spot. Every case runs many rounds.
+static void TestHoldStandsKeptUnlessBothAreFar()
 {
-    FightHold h;
-    StartFightHold(h, ZfHold(), 7789);
-    Run& r = h.r;
-    Facts& f = h.f;
-    f.anyInCombat = true;
-    f.units = {Engaged(7789, 14, 5, 15.0f)};
-    Tick(r, f);
-    f.leadStaying = false;
-    for (int i = 0; i < 20; ++i)
+    // (a) spikes: far for one tick, back within reach the next, never two in a row.
     {
-        f.leadX = 5.0f;
+        FightHold h;
+        StartFightHold(h, ZfHold(), 7789);
+        Run& r = h.r;
+        Facts& f = h.f;
+        f.anyInCombat = true;
+        f.units = {Engaged(7789, 14, 5, 15.0f)};
         Tick(r, f);
+        f.leadStaying = false;
+        f.leadX = 20.0f;
+        for (int i = 0; i < 30; ++i)
+        {
+            RangedYd(f, i % 2 ? 12.0f : 36.0f);
+            Tick(r, f);
+            CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
+        }
     }
-    CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
-    f.leadX = kHoldFollowYd; // exactly the walk back's limit is still the spot
-    Tick(r, f);
-    CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
-    f.leadX = kHoldFollowYd + 0.5f;
-    Tick(r, f);
-    CHECK(r.holdStands.empty() && r.holdStandsGen == 2);
+    // (b) the tank on the spot, a ranged bot far off: not the tank's walk.
+    {
+        FightHold h;
+        StartFightHold(h, ZfHold(), 7789);
+        Run& r = h.r;
+        Facts& f = h.f;
+        f.anyInCombat = true;
+        f.units = {Engaged(7789, 14, 5, 15.0f)};
+        Tick(r, f);
+        f.leadStaying = false;
+        RangedYd(f, 40.0f);
+        f.leadX = 5.0f;
+        for (int i = 0; i < 20; ++i)
+            Tick(r, f);
+        f.leadX = kHoldReturnYd; // exactly the walk back's limit is still the spot
+        for (int i = 0; i < 5; ++i)
+            Tick(r, f);
+        CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
+        f.leadX = kHoldReturnYd + 0.5f;
+        Tick(r, f);
+        Tick(r, f);
+        CHECK(r.holdStands.empty() && r.holdStandsGen == 2);
+    }
+    // (c) the tank far off the spot, the ranged within 30 yd of it.
+    {
+        FightHold h;
+        StartFightHold(h, ZfHold(), 7789);
+        Run& r = h.r;
+        Facts& f = h.f;
+        f.anyInCombat = true;
+        f.units = {Engaged(7789, 14, 5, 15.0f)};
+        Tick(r, f);
+        f.leadStaying = false;
+        f.leadX = 28.0f;
+        RangedYd(f, kHoldFollowRangedYd); // exactly the limit is within reach
+        for (int i = 0; i < 20; ++i)
+            Tick(r, f);
+        CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
+        // The same distance measured on the ground: 3D 40 yd with 15 yd of height is 37 on the ground.
+        for (MemberFact& m : f.members)
+            if (m.ranged)
+            {
+                m.yd = 32.0f;
+                m.dz = 15.0f; // 28.3 yd on the ground
+            }
+        for (int i = 0; i < 20; ++i)
+            Tick(r, f);
+        CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1);
+    }
 }
 
 // T3: the fight ends with the tank away: the hold walks it back and, once it
@@ -497,6 +560,8 @@ static void TestHoldStandsBackWhenTheTankIsBack()
     Tick(r, f);
     f.leadStaying = false;
     f.leadX = 12.0f;
+    RangedYd(f, 36.0f);
+    Tick(r, f);
     Tick(r, f);
     CHECK(r.holdStands.empty() && r.holdStandsGen == 2);
     // The fight is over; the hold sends the tank back.
@@ -510,6 +575,7 @@ static void TestHoldStandsBackWhenTheTankIsBack()
     // It arrives (on stay again).
     f.leadX = 0.0f;
     f.leadStaying = true;
+    RangedYd(f, 6.0f);
     for (int i = 0; i < 4 && !r.holdPlaced; ++i)
         Tick(r, f);
     CHECK(r.holdPlaced && r.holdStands.size() == 3 && r.holdStandsGen == 3);
@@ -530,8 +596,9 @@ static void TestHoldStandsStayWhenTheLeadIsDead()
     Tick(r, f);
     f.leadX = 40.0f;
     KillLead(f);
-    Tick(r, f);
-    CHECK(r.leadDied || !f.leadAlive);
+    RangedYd(f, 40.0f);
+    for (int i = 0; i < 4; ++i)
+        Tick(r, f);
     CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1);
 }
 
@@ -559,8 +626,9 @@ static void TestHoldStandsReleaseOnlyInTheHoldStep()
     f.leadIsTank = true;
     f.anyInCombat = true;
     f.leadX = 12.0f;
+    RangedYd(f, 36.0f);
     f.units = {Engaged(7787, 14, 5, 15.0f)};
-    for (int i = 0; i < 3; ++i)
+    for (int i = 0; i < 5; ++i)
         Tick(r, f);
     CHECK(r.holdStands.size() == 1 && r.holdStandsGen == 4 && r.holdPlaced);
 
@@ -577,16 +645,18 @@ static void TestHoldStandsReleaseOnlyInTheHoldStep()
     g.seen = false;
     g.anyInCombat = true;
     g.leadX = 12.0f;
+    RangedYd(g, 36.0f);
     g.units = {Engaged(7787, 14, 5, 15.0f)};
-    Tick(q, g);
-    CHECK(!q.eventOn || q.holdStandsGen == 4);
+    for (int i = 0; i < 5; ++i)
+        Tick(q, g);
     CHECK(q.holdStandsGen == 4 && q.holdStands.size() == 1);
 }
 
-// T6: the r12-19z29 phase 2 replay (+105.9 .. +131 s): the tank takes 7789 at
-// 15 yd, then 8876 at 8.8 and 7789 at 5; it is 0, 10, 21 and 28 yd off the spot
-// while the four ranged stand on their places. By the tick at 21 yd the places
-// are let go (they stayed 85 % of the frames in the live run).
+// T6: the r12-19z29 phase 2 replay (+105.9 .. +156 s): the tank takes 7789 at
+// 15 yd, then 8876 at 8.8 and 7789 at 5, and chases down the stairs: 0, 12, 21,
+// 28, 31 and 36 yd off the spot, the four ranged 8, 17, 27, 36, 38 and 40 yd
+// from it (the live run: 36 yd median, 85 % of the frames on "stay"). The
+// places are let go within two fight ticks of the ranged passing 30 yd.
 static void TestZfPyramidPhase2Replay()
 {
     FightHold h;
@@ -598,23 +668,28 @@ static void TestZfPyramidPhase2Replay()
     std::string const first = Tick(r, f);
     CHECK(first.compare(0, 7, "attack ") == 0 && Has(r.note, "the tank takes"));
     f.leadStaying = false;
-    float const away[] = {0.0f, 10.0f, 21.0f, 28.0f};
-    for (int i = 0; i < 4; ++i)
+    float const away[] = {0.0f, 12.0f, 21.0f, 28.0f, 31.0f, 36.0f};
+    float const behind[] = {8.0f, 17.0f, 27.0f, 36.0f, 38.0f, 40.0f};
+    for (int i = 0; i < 6; ++i)
     {
         f.leadX = away[i];
+        RangedYd(f, behind[i]);
         Tick(r, f);
-        if (i < 1)
-            CHECK(r.holdStands.size() == 3);
-        if (i >= 2)
+        if (i < 4)
+            CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1); // 36 yd is the first tick past 30
+        else
             CHECK(r.holdStands.empty() && !r.holdPlaced);
     }
     CHECK(r.holdStandsGen == 2);
 }
 
-// The Uldaman Keepers' and Archaedas' holds (19z12, the stands' origin): a
-// tank that leaves the spot by less than kHoldReturnYd for a keeper or a statue
-// keeps the ranged on their places, through the whole fight.
-static void TestUldamanHoldsKeepTheirPlacesForAShortChase()
+// The Uldaman Keepers' (radius 30) and Archaedas' (radius 45) holds (19z12, the
+// stands' origin): the tank goes after a keeper or a statue 17 yd out while the
+// ranged stand on their places 17-28 yd from it (within heal and cast range):
+// the places stay through many rounds. A tank that chases 35 yd out with the
+// ranged still on their places, 36 yd behind it, is out of heal range: the
+// places go after two ticks (intended).
+static void TestUldamanHoldsKeepTheirPlacesInReach()
 {
     for (int variant = 0; variant < 2; ++variant)
     {
@@ -634,15 +709,30 @@ static void TestUldamanHoldsKeepTheirPlacesForAShortChase()
         std::string const order = Tick(r, f);
         CHECK(order.compare(0, 7, "attack ") == 0);
         f.leadStaying = false;
-        float const path[] = {2.0f, 5.0f, 7.0f, 7.9f, 6.0f, 3.0f};
-        for (int round = 0; round < 5; ++round)
-            for (float x : path)
+        std::vector<MemberFact*> ranged;
+        for (MemberFact& m : f.members)
+            if (m.ranged)
+                ranged.push_back(&m);
+        CHECK(ranged.size() == 3);
+        float const spread[] = {17.0f, 22.0f, 28.0f};
+        for (int round = 0; round < 40; ++round)
+        {
+            f.leadX = round % 3 ? 17.0f : 9.0f;
+            for (int i = 0; i < 3; ++i)
             {
-                f.leadX = x;
-                f.leadY = 0.0f;
-                Tick(r, f);
-                CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced);
+                ranged[static_cast<std::size_t>(i)]->yd = spread[i];
+                ranged[static_cast<std::size_t>(i)]->dz = 0.0f;
             }
+            Tick(r, f);
+            CHECK(r.holdStands.size() == 3 && r.holdStandsGen == 1 && r.holdPlaced && r.holdReleases == 0);
+        }
+        // 35 yd out, the ranged still on their places.
+        f.leadX = 35.0f;
+        RangedYd(f, 36.0f);
+        Tick(r, f);
+        CHECK(r.holdStands.size() == 3);
+        Tick(r, f);
+        CHECK(r.holdStands.empty() && r.holdStandsGen == 2 && !r.holdPlaced && r.holdReleases == 1);
     }
 }
 
@@ -691,13 +781,13 @@ int main()
     TestPausedHoldDoneResumes();
     TestLeadDeadInHoldRegroups();
     TestHoldStandsPlaceRangedBehindTank();
-    TestHoldStandsLetGoWhenTheTankLeavesTheSpot();
-    TestHoldStandsKeptWhileTheTankFightsOnTheSpot();
+    TestHoldStandsLetGoWhenTheRangedFallBehindTheTank();
+    TestHoldStandsKeptUnlessBothAreFar();
     TestHoldStandsBackWhenTheTankIsBack();
     TestHoldStandsStayWhenTheLeadIsDead();
     TestHoldStandsReleaseOnlyInTheHoldStep();
     TestZfPyramidPhase2Replay();
-    TestUldamanHoldsKeepTheirPlacesForAShortChase();
+    TestUldamanHoldsKeepTheirPlacesInReach();
     TestApproachNotReadIsNotNoPath();
     std::cout << "test_dungeon_hold_policy: ok\n";
     return 0;
