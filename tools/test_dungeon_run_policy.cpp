@@ -3772,6 +3772,59 @@ static void TestUnitsHoldAllDeadDoesNotEndEarly()
     }
 }
 
+// holdUnitSeen belongs to one hold: ResetStep clears it. A leftover true (a step before it, or the same hold before a pause and a resume)
+// would keep a later all-dead hold waiting its whole 300 s.
+static void TestHoldUnitSeenDoesNotLeakAcrossSteps()
+{
+    // Two units holds in a row: the first sees a unit alive (and awake), ends when they are dead; the second finds only corpses.
+    {
+        DungeonPlan plan;
+        plan.steps = {CrewHold(), CrewHold(), Step(PlanStepKind::Move, 500)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        f.units = {Unit(7604, 7604, 11.0f)};
+        Tick(r, f);
+        CHECK(r.step == 0 && r.holdUnitSeen);
+        f.units.clear();
+        f.eventDown = 4;
+        Tick(r, f);
+        CHECK(r.step == 1 && !r.holdUnitSeen); // the first hold ended ("every unit of it is dead"); nothing leaks into the second
+        int ticks = 0;
+        while (r.state == State::Running && r.step == 1 && ticks < 40)
+        {
+            Tick(r, f);
+            ++ticks;
+        }
+        CHECK(r.state == State::Running && r.step == 2 && ticks <= 15);
+        CHECK(r.note.find("none of its units is alive") != std::string::npos);
+    }
+    // Pause and resume of one units hold: the unit seen alive before the pause does not count after the resume.
+    {
+        DungeonPlan plan;
+        plan.steps = {CrewHold(), Step(PlanStepKind::Move, 500)};
+        Run r = Start(&plan);
+        Facts f = Party(0);
+        UnitFact bly = Unit(7604, 7604, 11.0f);
+        bly.hostile = false;
+        f.units = {bly};
+        Tick(r, f);
+        CHECK(r.holdUnitSeen && r.step == 0);
+        Pause(r, "test pause");
+        CHECK(Resume(r));
+        CHECK(!r.holdUnitSeen);
+        f.units.clear();
+        f.eventDown = 4;
+        int ticks = 0;
+        while (r.state == State::Running && r.step == 0 && ticks < 80)
+        {
+            Tick(r, f);
+            ++ticks;
+        }
+        CHECK(r.state == State::Running && r.step == 1);
+        CHECK(r.note.find("none of its units is alive") != std::string::npos);
+    }
+}
+
 // Not for a data, object or encounter hold: they end by their own condition, units or no units.
 static void TestAllDeadEndIsForAUnitsHoldOnly()
 {
@@ -10879,6 +10932,7 @@ int main()
     TestBlyCrewDeadBeforeTheLegRunsUnattended();
     TestUnitsHoldAllDeadDoesNotEndEarly();
     TestAllDeadEndIsForAUnitsHoldOnly();
+    TestHoldUnitSeenDoesNotLeakAcrossSteps();
     TestUseOnOneTargetedOrderThenAck();
     TestUseOnWithoutTheItemPauses();
     TestUseOnResendsOnceThenPauses();

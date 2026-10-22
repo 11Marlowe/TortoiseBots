@@ -231,7 +231,7 @@ constexpr std::uint32_t kHoldFollowTicks = 2;
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
 constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
 // A hold done by its units (no done flag) whose units were all dead before it began (no unit seen alive in the radius, no
-// awake one, corpses in sight): it ends this long after the spot was first in sight (HoldStep; ZF r15-19z33: Bly's crew
+// awake one, corpses in sight): it ends this long after the first look at the spot, on a tick with the spot in sight (HoldStep; ZF r15-19z33: Bly's crew
 // killed by the troll waves, "4 of 4 down" held the whole 300 s).
 constexpr std::uint32_t kHoldAllDeadMs = 10000;
 constexpr float kGossipWalkYd = 30.0f;            // a gossip step walks to its point first when the lead bot is farther than this
@@ -6100,9 +6100,10 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
             return;
         }
         // Every unit lay dead before the hold began (r15-19z33: Bly's crew killed by the troll waves, "4 of 4 down" for 300 s): the
-        // event can never start. Only after the spot has been in sight for kHoldAllDeadMs, with corpses in sight (eventDown), no
-        // unit ever alive in the radius this hold (holdUnitSeen) and none awake (eventStarted); units that are merely not spawned or
-        // not visible yet show no corpses and keep the 300 s ceiling.
+        // event can never start. Only kHoldAllDeadMs after the FIRST look at the spot (eventMs runs from that look and keeps running
+        // while the spot is out of sight; this code runs only on a tick with the spot in sight), with corpses in sight (eventDown),
+        // no unit ever alive in the radius this hold (holdUnitSeen) and none awake (eventStarted); units that are merely not spawned
+        // or not visible yet show no corpses and keep the 300 s ceiling.
         if (!r.eventStarted && !r.holdUnitSeen && f.units.empty() && r.eventDown > 0 && r.eventMs >= kHoldAllDeadMs)
         {
             NextStep(r, "event done: none of its units is alive (they died before the hold)" + tail);
