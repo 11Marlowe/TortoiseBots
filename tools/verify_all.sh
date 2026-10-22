@@ -54,6 +54,7 @@ python3 -m unittest tools/test_hire_never_leaves_wiring.py
 python3 -m unittest tools/test_raid_status_instance_wiring.py
 python3 -m unittest tools/test_wand_fallback_wiring.py
 python3 -m unittest tools/test_start_zone_write_ordering_wiring.py
+python3 -m unittest tools/test_strategy_role_command.py
 echo "✓ Engine unit tests passed."
 
 echo ""

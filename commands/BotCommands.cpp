@@ -104,6 +104,7 @@
 #include <memory>
 #include <cstring>
 #include <sstream>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -495,10 +496,46 @@ static bool HandleInterrupt(ChatHandler* handler, char const* args)
     return ExecuteInterruptAction(handler, context, requester);
 }
 
+// Match RoleChatFilter: group role overrides count, and melee/ranged are
+// range categories (so @melee includes melee tanks, not just melee DPS).
+static bool StrategyRoleMatches(PlayerbotAI* ai, Player* bot, std::string const& role)
+{
+    bool const inGroup = bot->GetGroup() != nullptr;
+    if (role == "@tank") return ai->IsTank(bot, inGroup);
+    if (role == "@heal") return ai->IsHeal(bot, inGroup);
+    if (role == "@dps") return !ai->IsTank(bot, inGroup) && !ai->IsHeal(bot, inGroup);
+    if (role == "@ranged") return ai->IsRanged(bot, inGroup);
+    if (role == "@melee") return !ai->IsRanged(bot, inGroup);
+    return role.empty();
+}
+
+// Prefer a complete registered name over interpreting its last word as a bot.
+// Query the registry, not the active set: +strategy must work before activation.
+static bool KnownStrategyChange(std::vector<Player*> const& scope, std::string const& change)
+{
+    std::set<std::string> supported;
+    for (Player* bot : scope)
+        if (PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot))
+            ai->GetAiObjectContext()->GetSupportedStrategies(supported);
+    std::istringstream changes(change);
+    std::string part;
+    bool any = false;
+    while (std::getline(changes, part, ','))
+    {
+        if (part.size() < 2 || (part[0] != '+' && part[0] != '-' && part[0] != '~') ||
+            !supported.count(part.substr(1)))
+            return false;
+        any = true;
+    }
+    return any && change.back() != ',';
+}
+
 // Direct strategy toggle: `.bot strategy <+|-name> [bot]` fans out over the
 // dynamic scope (selected bot or owned party bots), mirroring `.bot loot`.
 // Thin wrapper over the mature ChangeStrategy path; validation and
 // persistence stay AI-owned via ChangeStrategyAction/DbStore.
+// Whole multi-word names, with an optional trailing role or owned bot name.
+// Changes and persistence still use the mature AI-owned paths.
 static bool HandleStrategy(ChatHandler* handler, char const* args)
 {
     Player* requester = Requester(handler);
@@ -510,38 +547,57 @@ static bool HandleStrategy(ChatHandler* handler, char const* args)
     std::string input = Trim(args ? args : "");
     if (input.empty() || (input[0] != '+' && input[0] != '-' && input[0] != '~'))
     {
-        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy> [bot] (e.g. .bot strategy +loot, .bot strategy -passive)");
+        handler->PSendSysMessage("Usage: .bot strategy [+/-/~]<strategy name> [role or BotName] (roles: @tank, @dps, @heal, @melee, @ranged)");
         return true;
     }
-    size_t separator = input.find_first_of(" \t");
-    std::string change = separator == std::string::npos ? input : Trim(input.substr(0, separator));
-    std::string botToken = separator == std::string::npos ? std::string() : Trim(input.substr(separator + 1));
     BotCommandContext context = BuildContext(requester);
-    std::vector<Player*> scope;
-    if (!botToken.empty())
+    std::string change = input;
+    std::string role;
+    std::vector<Player*> scope = ResolveDynamicScope(context);
+    size_t separator = input.find_last_of(" \t");
+    if (separator != std::string::npos)
     {
-        Player* bot = nullptr;
-        BotRecord* record = nullptr;
-        std::string name;
-        if (!ResolveOwnedBot(handler, botToken.c_str(), bot, record, name))
+        std::string const suffix = input.substr(separator + 1);
+        if (suffix[0] == '@')
         {
-            handler->PSendSysMessage("You may only control an online bot on your account.");
-            return true;
+            if (suffix != "@tank" && suffix != "@dps" && suffix != "@heal" &&
+                suffix != "@melee" && suffix != "@ranged")
+            {
+                handler->PSendSysMessage("Unknown role filter. Use @tank, @dps, @heal, @melee or @ranged.");
+                return true;
+            }
+            role = suffix;
+            change = Trim(input.substr(0, separator));
+            // An explicit role scope addresses the party, even with a bot selected.
+            scope = context.partyBots;
         }
-        scope.push_back(bot);
+        else if (!KnownStrategyChange(scope, input))
+        {
+            Player* bot = nullptr;
+            BotRecord* record = nullptr;
+            std::string name;
+            if (ResolveOwnedBot(handler, suffix.c_str(), bot, record, name))
+            {
+                scope = { bot };
+                change = Trim(input.substr(0, separator));
+            }
+        }
     }
-    else
-        scope = ResolveDynamicScope(context);
     if (scope.empty())
     {
         handler->PSendSysMessage("No live owned party bots are controllable.");
+        return true;
+    }
+    if (!KnownStrategyChange(scope, change))
+    {
+        handler->PSendSysMessage("Unknown strategy change or unavailable bot name: %s", input.c_str());
         return true;
     }
     uint32 succeeded = 0;
     for (Player* bot : scope)
     {
         PlayerbotAI* ai = PlayerbotAIStorage::Instance().GetAI(bot);
-        if (!ai)
+        if (!ai || !StrategyRoleMatches(ai, bot, role))
             continue;
         ai->ChangeStrategy(change, BotState::BOT_STATE_ALL);
         sPlayerbotDbStore.Save(ai);

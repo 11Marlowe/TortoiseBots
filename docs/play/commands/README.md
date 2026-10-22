@@ -99,7 +99,7 @@ The table below lists all primary commands and links to their authoritative docu
 | [`.bot interrupt`](party-actions.md#bot-interrupt) | Direct Combat | Directs a specific bot to interrupt its target. |
 | [`.bot pullback`](party-actions.md#bot-pullback) | Direct Combat | Triggers a pullback maneuver on a designated tank. |
 | [`.bot formation`](party-actions.md#bot-formation) | Direct Movement | Sets party follow formation geometry. |
-| [`.bot strategy`](party-actions.md#bot-strategy) | Direct Strategy | Adjusts combat and non-combat strategies. |
+| [`.bot strategy`](party-actions.md#bot-strategy) | Direct Strategy | Adjusts strategies by selected bot, party role or bot name. |
 | [`.bot loot`](party-actions.md#bot-loot) | Direct Party | Toggles corpse looting on targeted bot or party. |
 | [`.bot repair`](party-actions.md#bot-repair) | Direct Party | Orders targeted bot or party to repair gear. |
 | [`.bot sell`](party-actions.md#bot-sell) | Direct Party | Orders targeted bot or party to sell gray junk. |
