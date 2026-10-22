@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.9.0 (2026-10-22)
+
+### Classes & Combat
+- Hunters now fire Multi-Shot at the right moment and actually place Freezing Traps in dungeons. [#1162](https://github.com/Sagiroth/TortoiseBots/pull/1162)
+
+### Commands
+- A new `.autogear` command outfits your own character with the best gear for a talent spec you choose. [#1215](https://github.com/Sagiroth/TortoiseBots/pull/1215)
+- It only ever upgrades, so running it again finds nothing better and leaves your character alone. [#1215](https://github.com/Sagiroth/TortoiseBots/pull/1215)
+- Swapped-out items are never destroyed; they go to your bags, or arrive by mail if your bags are full. [#1215](https://github.com/Sagiroth/TortoiseBots/pull/1215)
+- You can set an item level ceiling to lower the gear cap; at level 60 it can raise it instead. [#1215](https://github.com/Sagiroth/TortoiseBots/pull/1215)
+
+### Raids & Dungeons
+- Bots summoned into a raid keep their raid behaviour after arriving, even if they start fighting straight away. [#1218](https://github.com/Sagiroth/TortoiseBots/pull/1218)
+
+### Diagnostics
+- You can now switch on optional logging of raid boss threat and spell hits to help report problems. [#1219](https://github.com/Sagiroth/TortoiseBots/pull/1219)
+- Threat is recorded roughly every two seconds per boss, and the health numbers in the log are samples, not exact values. [#1219](https://github.com/Sagiroth/TortoiseBots/pull/1219)
+
+### Behind the scenes
+- The oversized command-handling file was split up so future changes are easier to make. [#1175](https://github.com/Sagiroth/TortoiseBots/pull/1175)
+
+---
+
 ## Unreleased
 
 ### Classes & Combat
