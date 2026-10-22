@@ -230,6 +230,10 @@ constexpr float kHoldFollowRangedYd = 30.0f;
 constexpr std::uint32_t kHoldFollowTicks = 2;
 constexpr std::uint32_t kHoldIdlePullMs = 10000;  // an awake event unit that has not come for this long is pulled
 constexpr std::uint32_t kEventStartMs = 30000;    // an encounter hold whose data does not leave "not started" in this time failed
+// A hold done by its units (no done flag) whose units were all dead before it began (no unit seen alive in the radius, no
+// awake one, corpses in sight): it ends this long after the first look at the spot, on a tick with the spot in sight (HoldStep; ZF r15-19z33: Bly's crew
+// killed by the troll waves, "4 of 4 down" held the whole 300 s).
+constexpr std::uint32_t kHoldAllDeadMs = 10000;
 constexpr float kGossipWalkYd = 30.0f;            // a gossip step walks to its point first when the lead bot is farther than this
 constexpr std::uint32_t kRitualNoReplyMs = 5000;  // a ritual whose bots are free again with no answer this long: pause
 constexpr std::uint32_t kEventResetWaitMs = 60000; // before a ritual: an encounter still in progress or failed (a boss
@@ -934,6 +938,7 @@ struct Run
     std::uint32_t eventResetWaitMs = 0; // a ritual waiting for its encounter to reset (kEventResetWaitMs)
     std::uint32_t eventMs = 0;
     bool eventStarted = false;   // the done data left "not started", or an event unit was seen awake
+    bool holdUnitSeen = false;   // a units hold (no done flag): a unit of it stood alive in the radius at some tick of this hold
     bool holdArrived = false;    // the party stood on the hold spot once
     // The party's places on the hold spot (HoldStands), set once the lead bot
     // stands there out of a fight and again after each fight; the glue places
@@ -1354,6 +1359,7 @@ inline void ResetStep(Run& r)
     r.eventResetWaitMs = 0;
     r.eventMs = 0;
     r.eventStarted = false;
+    r.holdUnitSeen = false;
     r.holdArrived = false;
     r.eventIdleMs = 0;
     r.eventUp = r.eventDown = r.eventTotal = 0;
@@ -2771,7 +2777,8 @@ inline void GoneStepDone(Run& r, const PlanStep& s)
 // mark. `what` is the step's own words ("gossip 7607 option 1").
 constexpr const char* kGossipNpcDeadMark = "lies dead";
 
-inline std::string GossipNpcDeadNote(const std::string& what, const std::string& answer)
+// The dead NPC's words in the answer: "Sergeant Bly (7604)", "the NPC" when none. "" without the mark.
+inline std::string GossipNpcDeadSubject(const std::string& answer)
 {
     std::size_t const mark = answer.find(kGossipNpcDeadMark);
     if (mark == std::string::npos)
@@ -2781,8 +2788,15 @@ inline std::string GossipNpcDeadNote(const std::string& what, const std::string&
     std::string subject = answer.substr(from, mark - from);
     while (!subject.empty() && subject.back() == ' ')
         subject.pop_back();
-    if (subject.empty())
-        subject = "the NPC";
+    return subject.empty() ? std::string("the NPC") : subject;
+}
+
+inline std::string GossipNpcDeadNote(const std::string& what, const std::string& answer)
+{
+    std::size_t const mark = answer.find(kGossipNpcDeadMark);
+    if (mark == std::string::npos)
+        return std::string();
+    std::string const subject = GossipNpcDeadSubject(answer);
     std::string respawn;
     std::string const key = "respawns in ";
     std::size_t const at = answer.find(key, mark);
@@ -2802,6 +2816,25 @@ inline std::string GossipNpcDeadNote(const std::string& what, const std::string&
     return what + " cannot be done: none alive within 40 yd, a dead one lies nearby (" + subject + respawn +
         "). .bot run resume will not help while it lies dead; .bot run skip goes on without it (a later step that "
         "needs this NPC may fail too), .bot run stop ends the run";
+}
+
+// ai::kPlanFlagDeadNpcIsDone: a gossip row with the flag counts the NPC being dead as done. `answer` is the module's text for the
+// refused order or the failed task; the dead-NPC wording (GossipNpcDeadNote's mark) is what counts: any other refusal still pauses.
+// True (and the step ended, with the note) when it applied.
+inline bool GossipDeadIsDone(Run& r, const PlanStep* s, const std::string& answer)
+{
+    if (!s || s->kind != PlanStepKind::Gossip || !(s->flags & ai::kPlanFlagDeadNpcIsDone))
+        return false;
+    std::string name = GossipNpcDeadSubject(answer);
+    if (name.empty())
+        return false;
+    // "Sergeant Bly (7604)" -> "Sergeant Bly": the step's own words already name the entry.
+    std::string const entry = " (" + std::to_string(s->entry) + ")";
+    if (name.size() > entry.size() && name.compare(name.size() - entry.size(), entry.size(), entry) == 0)
+        name.erase(name.size() - entry.size());
+    NextStep(r, "gossip " + std::to_string(s->entry) + ": " + name + " lies dead, nothing to talk to: the step is counted done "
+        "(the plan marks a dead NPC as done)");
+    return true;
 }
 
 inline void OrderRefused(Run& r, const std::string& order, const std::string& answer)
@@ -3039,6 +3072,8 @@ inline void OrderRefused(Run& r, const std::string& order, const std::string& an
     }
     if (s && s->kind == PlanStepKind::Gossip && order.compare(0, 7, "gossip ") == 0)
     {
+        if (GossipDeadIsDone(r, s, answer))
+            return;
         std::string const dead = GossipNpcDeadNote(
             "gossip " + std::to_string(s->entry) + " option " + std::to_string(s->param), answer);
         if (!dead.empty())
@@ -5544,6 +5579,8 @@ inline void GossipStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t 
     }
     if (f.taskReply == 2)
     {
+        if (GossipDeadIsDone(r, &s, f.taskText))
+            return;
         std::string const dead = GossipNpcDeadNote(what, f.taskText);
         Pause(r, dead.empty() ? what + " failed: " + f.taskText : dead);
         return;
@@ -5719,6 +5756,9 @@ inline void CountEvent(Run& r, const Facts& f, const PlanStep& s)
     // down"). A data or object hold keeps its own start rule (HoldStep).
     if (up && !(s.flags & (ai::kPlanFlagDoneData | ai::kPlanFlagDoneObject)))
         r.eventStarted = true;
+    // A unit alive in the radius at any tick (friendly or not) rules out the "all dead before the hold" end (HoldStep).
+    if (!f.units.empty())
+        r.holdUnitSeen = true;
 }
 
 // "2 of 4 down, 1 awake", or "" before any unit of the event was seen.
@@ -6057,6 +6097,16 @@ inline void HoldStep(Run& r, const Facts& f, const PlanStep& s, std::uint32_t dt
         if (r.eventStarted && f.units.empty())
         {
             NextStep(r, "event done: every unit of it is dead" + tail);
+            return;
+        }
+        // Every unit lay dead before the hold began (r15-19z33: Bly's crew killed by the troll waves, "4 of 4 down" for 300 s): the
+        // event can never start. Only kHoldAllDeadMs after the FIRST look at the spot (eventMs runs from that look and keeps running
+        // while the spot is out of sight; this code runs only on a tick with the spot in sight), with corpses in sight (eventDown),
+        // no unit ever alive in the radius this hold (holdUnitSeen) and none awake (eventStarted); units that are merely not spawned
+        // or not visible yet show no corpses and keep the 300 s ceiling.
+        if (!r.eventStarted && !r.holdUnitSeen && f.units.empty() && r.eventDown > 0 && r.eventMs >= kHoldAllDeadMs)
+        {
+            NextStep(r, "event done: none of its units is alive (they died before the hold)" + tail);
             return;
         }
     }

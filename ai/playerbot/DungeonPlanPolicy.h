@@ -126,6 +126,12 @@ namespace ai
     // counted as done", instead of pausing the run on a refused order. Read only on a row with no item (item 0).
     // Any other kind with this flag is refused (BadParam). 128 is reserved.
     constexpr std::uint32_t kPlanFlagGoneIsDone = 256;
+    // gossip only: the NPC being DEAD counts as done. The order refused with the dead-NPC wording (the module's no-npc text
+    // with "lies dead", GossipNpcDeadNote) or the task failed with it ends the step with the note "<name> lies dead, nothing
+    // to talk to: the step is counted done" instead of pausing the run. Zul'Farrak's Sergeant Bly: his crew dies in the pyramid
+    // event's troll waves in some runs. A gossip row without it pauses as before (Weegli: the End Door stays shut without him).
+    // Any other kind with this flag is refused (BadParam), and a gossip row with any other flag.
+    constexpr std::uint32_t kPlanFlagDeadNpcIsDone = 512;
     constexpr std::uint32_t kPlanEncounterNotStarted = 0;
     constexpr std::uint32_t kPlanEncounterFail = 2;
     constexpr std::uint32_t kPlanEncounterMax = 4;
@@ -316,6 +322,8 @@ namespace ai
             return PlanStepRefusal::BadParam;
         if ((step.flags & kPlanFlagGoneIsDone) && step.kind != PlanStepKind::Loot && step.kind != PlanStepKind::Open)
             return PlanStepRefusal::BadParam;
+        if ((step.flags & kPlanFlagDeadNpcIsDone) && step.kind != PlanStepKind::Gossip)
+            return PlanStepRefusal::BadParam;
         if (step.exactLaunch && step.kind != PlanStepKind::MoveDirect)
             return PlanStepRefusal::BadParam;
         switch (step.kind)
@@ -335,8 +343,9 @@ namespace ai
             case PlanStepKind::Gossip:
                 if (step.entry == 0)
                     return PlanStepRefusal::MissingEntry;
-                // No flag is read on a gossip yet (team flags come with a later change): a set one is refused, not ignored.
-                if (step.param < 1 || step.param > kPlanMaxGossipOption || step.flags != 0)
+                // The one flag read on a gossip is kPlanFlagDeadNpcIsDone (team flags come with a later change): any other set
+                // one is refused, not ignored.
+                if (step.param < 1 || step.param > kPlanMaxGossipOption || (step.flags & ~kPlanFlagDeadNpcIsDone) != 0)
                     return PlanStepRefusal::BadParam;
                 break;
             case PlanStepKind::UseOn:
