@@ -18,7 +18,7 @@ def table_names():
     text = SOURCE.read_text()
     start = text.index('static BotCommandEntry const botCommands[] = {')
     end = text.index('};', start)
-    return re.findall(r'^\s*\{"([a-z]+)",', text[start:end], re.M)
+    return re.findall(r'^\s*\{"([^"]+)",', text[start:end], re.M)
 
 
 def main():
