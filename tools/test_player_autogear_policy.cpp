@@ -190,6 +190,20 @@ static void TestQualityCeiling()
     CHECK(AutogearMaxQuality(60, 60, false) == 3);
 }
 
+static void TestRunCounts()
+{
+    PlayerAutogearRunCounts counts;
+    // Empty slot filled by the backstop: an equip, nothing replaced.
+    CountPlayerAutogearRecord(counts, 0, 1687, false);
+    // Normal upgrade: old piece to the bags.
+    CountPlayerAutogearRecord(counts, 825, 1687, false);
+    // Piece freed for a two-hander, mailed (full bags).
+    CountPlayerAutogearRecord(counts, 7, 0, true);
+    CHECK(counts.slotsEquipped == 2);
+    CHECK(counts.replaced == 2);
+    CHECK(counts.mailed == 1);
+}
+
 int main()
 {
     TestSpecParsing();
@@ -198,6 +212,7 @@ int main()
     TestQualityCeiling();
     TestUniqueAndSets();
     TestTargetState();
+    TestRunCounts();
     std::printf("test_player_autogear_policy: %d checks passed\n", checks);
     return 0;
 }

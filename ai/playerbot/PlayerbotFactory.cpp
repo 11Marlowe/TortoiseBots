@@ -213,8 +213,12 @@ bool PlayerbotFactory::StoreReplacedItem(Item* oldItem)
     ItemPosCountVec dest;
     if (bot->CanStoreItem(NULL_BAG, NULL_SLOT, dest, oldItem, false) == EQUIP_ERR_OK)
     {
+        // StoreItem (not MoveItemToInventory): the piece already has a
+        // character_inventory row, so the save must run an UPDATE
+        // (ITEM_CHANGED), not an INSERT (ITEM_NEW) — same pattern as the
+        // core's AutoUnequipItemFromSlot.
         bot->RemoveItem(bag, slot, true);
-        bot->MoveItemToInventory(dest, oldItem, true);
+        bot->StoreItem(dest, oldItem, true);
         return true;
     }
 
@@ -2016,6 +2020,15 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         break;
                 }
 
+                // Player-mode bookkeeping across retry attempts: a piece freed
+                // in a failed attempt is reported once with its real
+                // destination and never touched twice.
+                uint32 oldStoredId = oldProto ? oldProto->ItemId : 0;
+                bool oldStoredMailed = false;
+                uint32 displacedOldId = 0;
+                bool displacedMailed = false;
+                bool displacedStored = false;
+
                 // Retry every passing candidate until one actually equips
                 // (owner spec: every slot filled). Seed order = uniform
                 // green/blue roll over the sample; earned order = best-first
@@ -2034,46 +2047,69 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                             newStatValue += sRandomItemMgr.CalculateEnchantWeight(bot->GetClass(), specId, randomEnchBestId);
                         }
                         uint16 eDest;
-                        bool toBags = true;
-                        if (RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId) == EQUIP_ERR_OK)
+                        Item* displacedOff = nullptr;
+                        if (playerUpgrade && !displacedStored && slot == EQUIPMENT_SLOT_MAINHAND && proto->InventoryType == INVTYPE_2HWEAPON)
+                            displacedOff = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
+                        InventoryResult canEquip = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId);
+                        if (canEquip != EQUIP_ERR_OK && displacedOff)
                         {
-                            // The two-hander displaces the off-hand piece too:
-                            // free it first, so it lands in the bags (or the
-                            // mail) and not in the core's own equip refusal.
-                            Item* displacedOff = nullptr;
-                            bool offToBags = true;
-                            if (playerUpgrade && slot == EQUIPMENT_SLOT_MAINHAND && proto->InventoryType == INVTYPE_2HWEAPON)
-                                displacedOff = bot->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_OFFHAND);
-                            if (displacedOff)
-                                offToBags = StoreReplacedItem(displacedOff);
-                            if (oldItem)
+                            // The equip check needs a free bag slot for the
+                            // displaced off-hand; with full bags the piece is
+                            // mailed first, then the check can pass.
+                            ItemPosCountVec offDest;
+                            if (bot->CanStoreItem(NULL_BAG, NULL_SLOT, offDest, displacedOff, false) != EQUIP_ERR_OK)
                             {
-                                if (playerUpgrade)
-                                    toBags = StoreReplacedItem(oldItem);
-                                else
-                                    bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+                                displacedOldId = displacedOff->GetProto()->ItemId;
+                                displacedMailed = !StoreReplacedItem(displacedOff);
+                                displacedStored = true;
+                                canEquip = RandomBotFacade::CanEquipUnseenItem(bot, slot, eDest, newItemId);
                             }
-                            Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
-                            if (pItem)
+                        }
+                        if (canEquip != EQUIP_ERR_OK)
+                            continue;
+                        if (displacedOff)
+                        {
+                            // Free the displaced piece before the equip: the
+                            // core's EquipItem does not move it itself.
+                            if (!displacedStored)
                             {
-                                if (displacedOff)
-                                    autogearUpgrades.push_back({EQUIPMENT_SLOT_OFFHAND, displacedOff->GetProto()->ItemId, newItemId, !offToBags});
-                                if (playerUpgrade && oldItem)
-                                    autogearUpgrades.push_back({slot, oldProto->ItemId, newItemId, !toBags});
-                                // Issue #960: EquipNewItem never rolls a suffix; when no suffix
-                                // scores for this spec (e.g. resistance-only jewelry groups),
-                                // roll one like loot instead of wearing it stat-less.
-                                if (!randomEnchBestId && proto->RandomProperty)
-                                    randomEnchBestId = Item::GenerateItemRandomPropertyId(newItemId);
-                                if (randomEnchBestId)
-                                {
-                                    pItem->SetItemRandomProperties(randomEnchBestId);
-                                    bot->TransmogSetVisibleItemSlot(pItem->GetSlot(), pItem);
-                                }
-                                pItem->SetOwnerGuid(bot->getObjectGuid());
-                                EnchantItem(pItem);
-                                found = true;
+                                displacedOldId = displacedOff->GetProto()->ItemId;
+                                displacedMailed = !StoreReplacedItem(displacedOff);
+                                displacedStored = true;
                             }
+                        }
+                        bool toBags = true;
+                        if (oldItem)
+                        {
+                            if (playerUpgrade)
+                            {
+                                toBags = StoreReplacedItem(oldItem);
+                                oldStoredMailed = !toBags;
+                                oldItem = nullptr;
+                            }
+                            else
+                                bot->DestroyItem(oldItem->GetBagSlot(), oldItem->GetSlot(), true);
+                        }
+                        Item* pItem = bot->EquipNewItem(eDest, newItemId, true);
+                        if (pItem)
+                        {
+                            if (playerUpgrade && displacedStored)
+                                autogearUpgrades.push_back({EQUIPMENT_SLOT_OFFHAND, displacedOldId, 0, displacedMailed});
+                            if (playerUpgrade && oldStoredId)
+                                autogearUpgrades.push_back({slot, oldStoredId, newItemId, oldStoredMailed});
+                            // Issue #960: EquipNewItem never rolls a suffix; when no suffix
+                            // scores for this spec (e.g. resistance-only jewelry groups),
+                            // roll one like loot instead of wearing it stat-less.
+                            if (!randomEnchBestId && proto->RandomProperty)
+                                randomEnchBestId = Item::GenerateItemRandomPropertyId(newItemId);
+                            if (randomEnchBestId)
+                            {
+                                pItem->SetItemRandomProperties(randomEnchBestId);
+                                bot->TransmogSetVisibleItemSlot(pItem->GetSlot(), pItem);
+                            }
+                            pItem->SetOwnerGuid(bot->getObjectGuid());
+                            EnchantItem(pItem);
+                            found = true;
                         }
                         if (found && incremental)
                         {
@@ -2191,6 +2227,8 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                         // Issue #960: same suffix-blind create as the main loop above.
                         if (proto->RandomProperty)
                             pItem->SetItemRandomProperties(Item::GenerateItemRandomPropertyId(itemId));
+                        if (playerUpgrade)
+                            autogearUpgrades.push_back({slot, 0, itemId, false});
                         sLog.outDetail("Bot #%d <%s>: slot %u empty-slot backstop equipped %u (ilvl %u)",
                             bot->GetGUIDLow(), bot->GetName(), slot, itemId, proto->ItemLevel);
                         return true;

@@ -194,6 +194,25 @@ inline uint32_t AutogearMaxQuality(uint32_t playerLevel, uint32_t maxLevel, bool
     return raisedCeiling && playerLevel >= maxLevel ? 4u : 3u;
 }
 
+// One run = one record per touched piece: oldItemId 0 = a filled empty slot,
+// newItemId 0 = a piece freed so a two-hander could go on.
+struct PlayerAutogearRunCounts
+{
+    uint32_t slotsEquipped = 0;
+    uint32_t replaced = 0;
+    uint32_t mailed = 0;
+};
+
+inline void CountPlayerAutogearRecord(PlayerAutogearRunCounts& counts, uint32_t oldItemId, uint32_t newItemId, bool mailed)
+{
+    if (newItemId)
+        ++counts.slotsEquipped;
+    if (oldItemId)
+        ++counts.replaced;
+    if (mailed)
+        ++counts.mailed;
+}
+
 enum class PlayerAutogearPermission
 {
     Allowed,

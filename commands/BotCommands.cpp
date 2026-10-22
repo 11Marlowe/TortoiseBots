@@ -2875,13 +2875,12 @@ static bool HandlePlayerAutogear(ChatHandler* handler, char const* args)
     }
     else
     {
+        // No name: the selected player, or the caller themself when nothing
+        // (or no player) is selected.
         Unit* selected = requester->GetSelectedUnit();
-        target = selected && selected != requester ? selected->ToPlayer() : nullptr;
+        target = selected ? selected->ToPlayer() : nullptr;
         if (!target)
-        {
-            handler->PSendSysMessage("Select a player or give a name: .autogear [player name] <spec> [ilvl]");
-            return true;
-        }
+            target = requester;
     }
 
     if (BotManager::Instance().IsBot(target->GetObjectGuid()))
@@ -2960,22 +2959,16 @@ static bool HandlePlayerAutogear(ChatHandler* handler, char const* args)
             target->GetName(), rangedProto->Name1, gun ? "bullets" : "arrows");
     }
 
-    size_t toBags = 0;
-    size_t mailed = 0;
+    TortoiseBots::PlayerAutogearRunCounts counts;
     for (PlayerbotFactory::AutogearUpgrade const& upgrade : factory.autogearUpgrades)
-    {
-        if (upgrade.mailed)
-            ++mailed;
-        else
-            ++toBags;
-    }
+        TortoiseBots::CountPlayerAutogearRecord(counts, upgrade.oldItemId, upgrade.newItemId, upgrade.mailed);
 
     if (factory.autogearUpgrades.empty())
         handler->PSendSysMessage("No upgrades for %s (%s) at item level %u - nothing changed.",
             target->GetName(), specToken.c_str(), ilvl.effective);
     else
-        handler->PSendSysMessage("Geared %s as '%s': %u slot(s) upgraded, %u replaced item(s) to the bags, %u mailed.",
-            target->GetName(), specToken.c_str(), uint32(factory.autogearUpgrades.size()), uint32(toBags), uint32(mailed));
+        handler->PSendSysMessage("Geared %s as '%s': %u slot(s) equipped, %u replaced item(s) to the bags, %u mailed.",
+            target->GetName(), specToken.c_str(), counts.slotsEquipped, counts.replaced - counts.mailed, counts.mailed);
 
     std::ostringstream logLine;
     logLine << "PlayerAutogear: caller=" << requester->GetName() << " target=" << target->GetName()
