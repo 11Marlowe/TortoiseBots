@@ -48,9 +48,11 @@ KNOWN = {
 # Bear/Cat/Resto/Dps stacks (see PROGRESS.md). Misses there are tech debt, not
 # live bugs; the audit value is in misses from legacy list-engine files.
 # NOTE: TotemsShamanStrategy.{h,cpp} and GenericShamanStrategy.{h,cpp} were
-# deleted with issue #1179 (unregistered donor vector-style trees; the live
-# per-spec *TotemsStrategy blocks inside Enhancement/Elemental/ShamanStrategy.cpp
-# use registered "X totem" names).
+# deleted with issue #1179: unregistered donor vector-style trees whose
+# global-namespace ShamanAoe/Cure/Boost classes duplicated the live ai::
+# classes in ShamanStrategy.h (untouched). The live per-spec *TotemsStrategy
+# blocks inside Enhancement/Elemental/ShamanStrategy.cpp use registered
+# "X totem" names.
 DEAD_FILES = (
     'GenericDruidStrategy.cpp', 'GenericDruidNonCombatStrategy.cpp',
     'GenericHunterStrategy.cpp', 'GenericHunterNonCombatStrategy.cpp',
@@ -62,7 +64,7 @@ DEAD_FILES = (
     'LevelingDruidStrategy.cpp',
     'DpsRogueStrategy.cpp', 'TankPaladinStrategy.cpp', 'DpsPaladinStrategy.cpp',
     'OffhealRetPaladinStrategy.cpp', 'BattlegroundStrategy.cpp',
-    'TravelStrategy.cpp', 'RpgStrategy.cpp', 'MeleeCombatStrategy.cpp',
+    'RpgStrategy.cpp', 'MeleeCombatStrategy.cpp',
     'SayStrategy.cpp',
     'TankWarriorStrategy.cpp', 'PriestNonCombatStrategy.cpp',
 )
