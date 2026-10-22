@@ -3,8 +3,11 @@
 #include "HunterTriggers.h"
 #include "playerbot/GroupMembers.h"
 #include "../../../runtime/PetRevivePolicy.h"
+#include "../../../runtime/PetEngagePolicy.h"
 #include "HunterActions.h"
 #include "../../../runtime/HunterViperPolicy.h"
+#include "playerbot/ServerFacade.h"
+#include "playerbot/strategy/values/ThreatValues.h"
 
 using namespace ai;
 
@@ -131,19 +134,34 @@ bool HuntersPetLowHealthTrigger::IsActive()
         !AI_VALUE2(bool, "dead", "pet target") && !AI_VALUE2(bool, "mounted", "self target");
 }
 
-// PET-3/PET-8b: fires while the pet holds the enemy's attention AND pet
-// taunts are stood down (grouped with a real tank). Cheap-first: the
-// victim check and group check run before the member walk inside the
-// helper, so solo hunters never pay for the scan.
+// Fires when the pet holds the enemy's attention AND pet taunts are stood
+// down (grouped with a real tank), or — first, so the mob never turns on
+// the pet — when the pet's threat on the target leads the tank's
+// (runtime/PetEngagePolicy.h ShouldPetCower). Cheap-first: the victim check
+// and group check run before the member walk inside the helper, so solo
+// hunters never pay for the scan.
 bool PetHasAggroTrigger::IsActive()
 {
     Unit* pet = AI_VALUE(Unit*, "pet target");
     if (!pet || !pet->IsAlive())
         return false;
     Unit* target = AI_VALUE(Unit*, "current target");
-    if (!target || target->GetVictim() != pet)
+    if (!target)
         return false;
-    return bot->GetGroup() && !ai::IsPetTauntAllowed(ai, bot);
+    bool const petHasAggro = target->GetVictim() == pet;
+    if (!bot->GetGroup() || ai::IsPetTauntAllowed(ai, bot))
+        return false;
+    TortoiseBots::PetThreatLeadInputs cower;
+    cower.petHasAggro = petHasAggro;
+    if (!petHasAggro)
+    {
+        // Threat-lead reads only for the pre-aggro case: two threat lookups
+        // and the tank walk stay behind the victim check. A dead or absent
+        // tank reports < 0 and the pet (the fallback holder) never cowers.
+        cower.petThreat = sServerFacade.GetThreatManager(target).getThreat(pet);
+        cower.tankThreat = ThreatValue::GetTankThreat(ai, target);
+    }
+    return TortoiseBots::ShouldPetCower(cower);
 }
 
 // PET-4 (donor GenericHunterStrategy.cpp:72-73): the medium band below

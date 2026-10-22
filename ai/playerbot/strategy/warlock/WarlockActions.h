@@ -431,9 +431,13 @@ namespace ai
         {
             Unit* target = GetTarget();
             Unit* pet = AI_VALUE(Unit*, "pet target");
-            // Ordered peel only: the "has aggro" trigger requires victim ==
-            // bot, so this rescues the owner bot -> pet and can never steal
-            // from the tank (who by definition does not hold the mob).
+            // With a live tank in the group the Voidwalker never taunts: a
+            // pet peel is top threat the party cannot afford (same
+            // permission read as the autocast stand-down). Solo or tankless,
+            // this rescues the owner bot: the "has aggro" trigger requires
+            // victim == bot, so it can never take a mob the tank holds.
+            if (!ai::IsPetTauntAllowed(ai, bot))
+                return false;
             return target && pet && target->GetVictim() != pet;
         }
     };
