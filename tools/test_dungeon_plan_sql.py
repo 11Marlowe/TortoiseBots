@@ -272,16 +272,24 @@ class DungeonPlanSql(unittest.TestCase):
                 yield dict(zip(cols, [v.strip("'") for v in values]))
 
     def test_gnomeregan_is_the_plan_with_the_pack_fixes(self):
-        # 20261022210500 (turtle-agent 4fef546, 2026-10-22): the Gnomeregan draft with the pack fixes of PREP-GNOMEREGAN-2026-10-22.md, no row
-        # hand-set, with the boss rows of map 90. 5 legs, 603 steps (90 + 37 + 18 + 26 + 4 pulls), bosses in leg order, no door or event step. The
-        # plan row has the unit lists; the Agent at the Ambassador's own spot is that boss row's entries, not a pull.
+        # 20261022211100 (turtle-agent ea66939, 2026-10-22): the Gnomeregan draft with the pack fixes of PREP-GNOMEREGAN-2026-10-22.md and the
+        # step-25 fix of the first live run (~/TortoiseBots-audit/GNOMEREGAN-STEP25-2026-10-22.md), no row hand-set, with the boss rows of map
+        # 90. 5 legs, 625 steps (88 + 37 + 18 + 26 + 4 pulls), bosses in leg order, no door or event step. The plan row has the unit lists
+        # (6223 is kill_first now, not cc_priority); the Agent at the Ambassador's own spot is that boss row's entries, not a pull. Leg 0's cave
+        # chain (groups 23-29: the merged 6223/6233 pairs and the 6223/6233 camps) is radius 8 and each has an approach move on its own floor.
         name, text = newest_plan_text("gnomeregan")
-        self.assertEqual(name, "20261022210500_world.sql")
-        self.assertIn("('gnomeregan', 90, '6392,6329,6223', '6392', '6220,6226,6227,7849', 'turtle-agent 4fef546 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(name, "20261022211100_world.sql")
+        self.assertIn("('gnomeregan', 90, '6392,6329', '6392', '6220,6226,6227,7849,6223', 'turtle-agent ea66939 dungeons/gnomeregan.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "gnomeregan")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "gnomeregan"]
-        self.assertEqual(len(rows), 603)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [90, 37, 18, 26, 4])
+        self.assertEqual(len(rows), 625)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [88, 37, 18, 26, 4])
+        # The east-end-first cave chain: 7 pulls, radius 8, each with its approach move (E-427 239 ... W-514 263).
+        chain = [r for r in leg_steps(rows, 0) if r["kind"] == "pull" and 23 <= int(r["comment"].rsplit(" ", 1)[1]) <= 29]
+        self.assertEqual([(float(r["radius"]), r["entries"]) for r in chain],
+                         [(8.0, "6233,6223"), (8.0, "6223"), (8.0, "6233"), (8.0, "6233"), (8.0, "6233,6223"), (8.0, "6223"), (8.0, "6223,6233")])
+        for n in range(23, 30):
+            self.assertIn("'pull group %d approach'" % n, text)
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["7079", "6235", "6229", "6228", "7800"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         # The last step of every leg is its boss; the Ambassador's boss row carries his Agent, the others name none.
@@ -292,7 +300,9 @@ class DungeonPlanSql(unittest.TestCase):
         last = [r for r in leg_steps(rows, 3) if r["kind"] == "pull"][-1]
         self.assertEqual((last["entries"], float(last["radius"])), ("6212", 10.0))
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["gnomeregan"])
-        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (90);", text)
+        # The map's ai_dungeon_boss seed stays in 20261022210500 (the five bosses are unchanged): this file must not seed it again (the
+        # boss seed test asserts every (map, entry) is seeded once).
+        self.assertNotRegex(text, r"(?m)^(?:INSERT|REPLACE) INTO `ai_dungeon_boss`")
 
     def test_zulfarrak_and_uldaman_final_counts(self):
         # Each plan's newest INSERT follows the DELETE of its old steps and legs, so its rows are the plan after all migrations.
