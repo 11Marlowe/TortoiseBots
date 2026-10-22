@@ -211,23 +211,25 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
     def test_shadowfang_keep_is_the_first_five_legs_as_exported(self):
-        # 20261022210900 (turtle-agent abd37a3d, 2026-10-22): the Shadowfang Keep draft's legs 0-4 (the Fenrus, Nandos and Arugal
-        # legs left out: the closed Courtyard Door 18895 seals the route to them; PREP-SFK-2026-10-22.md), exported with --skip-legs,
-        # no row hand-set, with the boss rows of map 33 (the five boss steps' entries; not Sever 14682, Prelate Ironmane 61969 or
-        # the intro Arugal 10000). 5 legs, 172 rows (1 + 5, 10 + 18, 4 + 19, 13 + 5, 78 + 14 moves and pulls, a boss at each leg's
-        # end); the plan row has empty unit lists (the pack census goes into the next export).
+        # 20261022210900 (turtle-agent 47e9e8be, 2026-10-22, replaces the unmerged first export of the same name):
+        # the Shadowfang Keep draft's legs 0-4 (the Fenrus, Nandos and Arugal legs left out: the closed Courtyard Door 18895
+        # seals the route to them; PREP-SFK-2026-10-22.md), no row hand-set, with the boss rows of map 33 (the five boss
+        # steps' entries; not Sever 14682, Prelate Ironmane 61969 or the intro Arugal 10000). 5 legs, 171 steps
+        # (177 rows with the plan row and the leg rows; 1 + 4, 10 + 16, 4 + 21, 13 + 5, 78 + 14 moves and pulls,
+        # a boss at each leg's end). The plan row carries cc_priority
+        # 3855,61970,10000; the packs that stand with a boss are that boss row's entries (Odo's guards came from leg 0).
         name, text = newest_plan_text("shadowfang_keep")
         self.assertEqual(name, "20261022210900_world.sql")
-        self.assertIn("('shadowfang_keep', 33, '', '', '', 'turtle-agent abd37a3d dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertIn("('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent 3ac8c83f dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
         self.assertEqual(len(leg_rows(text, "shadowfang_keep")), 5)
         rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
-        self.assertEqual(len(rows), 172)
-        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [5, 18, 19, 5, 14])
+        self.assertEqual(len(rows), 171)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [4, 16, 21, 5, 14])
         self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3914", "3886", "3887", "4278", "4279"])
         self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
         for leg in range(5):
             self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
-        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "", ""])
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["3861,3851", "3875,2110", "", "", "3866,3868"])
         self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["shadowfang_keep"])
         self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (33);", text)
 

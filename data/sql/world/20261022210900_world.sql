@@ -7,20 +7,25 @@
 -- commander_springvale, odo_the_blindwatcher; status 'draft (not mapped, not live-checked)'), exported with the options of
 -- the header of 20261022210100_world.sql (Stormwind Stockade):
 --   turtle-agent plan-export --mmaps <map 33 mmaps> --allow-draft --gm-cross-direct --approach-hops \
---     --skip-legs fenrus_the_devourer,wolf_master_nandos,archmage_arugal --rev abd37a3d \
---     --stamp 20261022210900 --out <dir> shadowfang_keep
--- Legs 5-7 (Fenrus the Devourer, Wolf Master Nandos, Archmage Arugal) are LEFT OUT on purpose: every route to them is behind the
--- closed Courtyard Door (18895, guid 20835) at -242.58 2159.05 90.62 — the plan check cannot reach leg 5's first pack from leg 4's
--- end (the navmesh splits there; see PREP-SFK-2026-10-22.md, "Blockers"). 5 legs, 172 steps (178 rows), no door or event step, the
--- plan row has empty unit lists (the census of PREP-SFK-2026-10-22.md goes into the pack fixes of the next export).
+--     --skip-legs fenrus_the_devourer,wolf_master_nandos,archmage_arugal --rev 3ac8c83f \
+--     --stamp 20261022210900 --out <dir> --force shadowfang_keep
+-- This file REPLACES the first export of the same name (the legs 0-4 of the draft as the world export gave it, turtle-agent
+-- abd37a3d), which was never merged or applied anywhere. The fixes it carries over that first export are in
+-- ~/TortoiseBots-audit/PREP-SFK-2026-10-22.md ("Fixes applied"): the plan row's cc_priority 3855,61970,10000 (the Darksouls,
+-- the Clerics, the intro Arugal); Rethilgore's cell tail and Razorclaw's yard pair are their boss rows' entries; Odo's guards
+-- (Vile Bat 16259, Blood Seeker 16258) are leg 4's boss row's entries instead of a pull of leg 0; Silverlaine's court east
+-- half is three pulls (4/4/8); the Wolfguard inside the west court's pull is its entry; the radii are cut to the groups' own
+-- members (legs 1, 2, 3, 4). Plan check (turtle-agent plan-check, map 33 mmaps, 2026-10-22): legs 0-4 pass clean (0 failures,
+-- 5 detour warnings for the cross-floor stands and run-leader-hop notices for the approach points); the WHOLE plan still
+-- fails 35 of 177 points, all in legs 5-7, behind the closed Courtyard Door 18895 (see "Blockers" of the prep note).
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- shadowfang_keep: map 33, 5 legs, 172 steps
+-- shadowfang_keep: map 33, 5 legs, 171 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'shadowfang_keep';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'shadowfang_keep';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'shadowfang_keep';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('shadowfang_keep', 33, '', '', '', 'turtle-agent abd37a3d dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');
+('shadowfang_keep', 33, '3855,61970,10000', '', '', 'turtle-agent 3ac8c83f dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('shadowfang_keep', 0, 'rethilgore', ''),
 ('shadowfang_keep', 1, 'razorclaw_the_butcher', ''),
@@ -30,11 +35,10 @@ INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, `timeout_s`, `entries`, `comment`) VALUES
 ('shadowfang_keep', 0, 0, 'move', 0, -232.683, 2111.82, 76.974, 0, 0, 0, 0, 0, '', 'to'),
 ('shadowfang_keep', 0, 1, 'pull', 0, -232.68, 2111.82, 76.97, 10, 0, 0, 0, 0, '2110', 'pull group 0'),
-('shadowfang_keep', 0, 2, 'pull', 0, -246.89, 2124.08, 84.57, 22.7, 0, 0, 0, 0, '3861,2110,3851', 'pull group 1'),
-('shadowfang_keep', 0, 3, 'pull', 0, -245.98, 2124.9, 100.11, 13.5, 0, 0, 0, 0, '3866,3868', 'pull group 2'),
-('shadowfang_keep', 0, 4, 'pull', 0, -241.87, 2111.72, 97.47, 10, 0, 0, 0, 0, '3873', 'pull group 3'),
-('shadowfang_keep', 0, 5, 'pull', 0, -210.07, 2102.48, 76.98, 12.9, 0, 0, 0, 0, '3861,3851', 'pull group 4'),
-('shadowfang_keep', 0, 6, 'boss', 3914, -252.091, 2123.11, 81.1795, 0, 0, 0, 0, 0, '', 'boss'),
+('shadowfang_keep', 0, 2, 'pull', 0, -241.88, 2120.26, 87.05, 14, 0, 0, 0, 0, '3861,2110,3851', 'pull group 1'),
+('shadowfang_keep', 0, 3, 'pull', 0, -241.87, 2111.72, 97.47, 10, 0, 0, 0, 0, '3873', 'pull group 2'),
+('shadowfang_keep', 0, 4, 'pull', 0, -210.07, 2102.48, 76.98, 12.9, 0, 0, 0, 0, '3861,3851', 'pull group 3'),
+('shadowfang_keep', 0, 5, 'boss', 3914, -252.091, 2123.11, 81.1795, 0, 0, 0, 0, 0, '3861,3851', 'boss'),
 ('shadowfang_keep', 1, 0, 'move', 0, -253.06673, 2130.4, 81.26872, 0, 0, 0, 0, 0, '', 'path'),
 ('shadowfang_keep', 1, 1, 'move', 0, -252.26672, 2133.3333, 82.56872, 0, 0, 0, 0, 0, '', 'path'),
 ('shadowfang_keep', 1, 2, 'move', 0, -248.80006, 2142.1333, 87.103065, 0, 0, 0, 0, 0, '', 'path'),
@@ -49,45 +53,45 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('shadowfang_keep', 1, 11, 'pull', 0, -205.23, 2208.91, 79.76, 10, 0, 0, 0, 0, '3875', 'pull group 1'),
 ('shadowfang_keep', 1, 12, 'pull', 0, -195.48, 2203.13, 79.85, 10, 0, 0, 0, 0, '3853', 'pull group 2'),
 ('shadowfang_keep', 1, 13, 'pull', 0, -195.79, 2221.96, 79.84, 13.5, 0, 0, 0, 0, '3853,3862', 'pull group 3'),
-('shadowfang_keep', 1, 14, 'pull', 0, -180.59, 2234.14, 76.32, 12.8, 0, 0, 0, 0, '3875', 'pull group 4'),
-('shadowfang_keep', 1, 15, 'pull', 0, -180.12, 2233.84, 76.24, 10, 0, 0, 0, 0, '3854', 'pull group 5'),
-('shadowfang_keep', 1, 16, 'pull', 0, -174.87, 2217.47, 79.93, 14.5, 0, 0, 0, 0, '3853', 'pull group 6'),
-('shadowfang_keep', 1, 17, 'pull', 0, -162.57, 2222.21, 82.05, 10, 0, 0, 0, 0, '3875', 'pull group 7'),
-('shadowfang_keep', 1, 18, 'pull', 0, -157.69, 2228.26, 82.85, 10, 0, 0, 0, 0, '3875', 'pull group 8'),
-('shadowfang_keep', 1, 19, 'pull', 0, -159.02, 2243.51, 86.1, 10, 0, 0, 0, 0, '3853', 'pull group 9'),
-('shadowfang_keep', 1, 20, 'pull', 0, -173.55, 2250.22, 86.48, 12.7, 0, 0, 0, 0, '3862,3853', 'pull group 10'),
-('shadowfang_keep', 1, 21, 'pull', 0, -196.82, 2254.39, 76.26, 17.9, 0, 0, 0, 0, '3875,2110', 'pull group 11'),
-('shadowfang_keep', 1, 22, 'pull', 0, -193.98, 2271.01, 90.84, 10, 0, 0, 0, 0, '3855', 'pull group 12'),
-('shadowfang_keep', 1, 23, 'pull', 0, -186.91, 2284.36, 95.98, 10, 0, 0, 0, 0, '3855', 'pull group 13'),
-('shadowfang_keep', 1, 24, 'pull', 0, -194.64, 2289.77, 95.9, 10, 0, 0, 0, 0, '3855', 'pull group 14'),
-('shadowfang_keep', 1, 25, 'pull', 0, -226.46, 2278.76, 75, 10, 0, 0, 0, 0, '3857', 'pull group 15'),
-('shadowfang_keep', 1, 26, 'pull', 0, -223.36, 2241.88, 79.85, 24, 0, 0, 0, 0, '3864,3865,3853,2110', 'pull group 16'),
-('shadowfang_keep', 1, 27, 'pull', 0, -217.14, 2225.19, 79.84, 10, 0, 0, 0, 0, '3853', 'pull group 17'),
-('shadowfang_keep', 1, 28, 'boss', 3886, -202.596, 2257.96, 76.2846, 0, 0, 0, 0, 0, '', 'boss'),
+('shadowfang_keep', 1, 14, 'pull', 0, -180.43, 2234.04, 76.3, 8, 0, 0, 0, 0, '3875,3854', 'pull group 4'),
+('shadowfang_keep', 1, 15, 'pull', 0, -174.87, 2217.47, 79.93, 14.5, 0, 0, 0, 0, '3853', 'pull group 5'),
+('shadowfang_keep', 1, 16, 'pull', 0, -162.57, 2222.21, 82.05, 10, 0, 0, 0, 0, '3875', 'pull group 6'),
+('shadowfang_keep', 1, 17, 'pull', 0, -157.69, 2228.26, 82.85, 10, 0, 0, 0, 0, '3875', 'pull group 7'),
+('shadowfang_keep', 1, 18, 'pull', 0, -159.02, 2243.51, 86.1, 10, 0, 0, 0, 0, '3853', 'pull group 8'),
+('shadowfang_keep', 1, 19, 'pull', 0, -173.55, 2250.22, 86.48, 12.7, 0, 0, 0, 0, '3862,3853', 'pull group 9'),
+('shadowfang_keep', 1, 20, 'pull', 0, -193.98, 2271.01, 90.84, 10, 0, 0, 0, 0, '3855', 'pull group 10'),
+('shadowfang_keep', 1, 21, 'pull', 0, -186.91, 2284.36, 95.98, 10, 0, 0, 0, 0, '3855', 'pull group 11'),
+('shadowfang_keep', 1, 22, 'pull', 0, -194.64, 2289.77, 95.9, 10, 0, 0, 0, 0, '3855', 'pull group 12'),
+('shadowfang_keep', 1, 23, 'pull', 0, -226.46, 2278.76, 75, 10, 0, 0, 0, 0, '3857', 'pull group 13'),
+('shadowfang_keep', 1, 24, 'pull', 0, -223.36, 2241.88, 79.85, 17, 0, 0, 0, 0, '3864,3865,3853,2110', 'pull group 14'),
+('shadowfang_keep', 1, 25, 'pull', 0, -217.14, 2225.19, 79.84, 10, 0, 0, 0, 0, '3853', 'pull group 15'),
+('shadowfang_keep', 1, 26, 'boss', 3886, -202.596, 2257.96, 76.2846, 0, 0, 0, 0, 0, '3875,2110', 'boss'),
 ('shadowfang_keep', 2, 0, 'move', 0, -229.406, 2272.55, 75.0827, 0, 0, 0, 0, 0, '', 'to'),
-('shadowfang_keep', 2, 1, 'pull', 0, -246.93, 2285.46, 75.23, 31.8, 0, 0, 0, 0, '3875,3857,2110', 'pull group 0'),
+('shadowfang_keep', 2, 1, 'pull', 0, -246.93, 2285.46, 75.23, 27, 0, 0, 0, 0, '3875,3857,2110,3854', 'pull group 0'),
 ('shadowfang_keep', 2, 2, 'pull', 0, -246.91, 2293.83, 75, 10, 0, 0, 0, 0, '3854', 'pull group 1'),
-('shadowfang_keep', 2, 3, 'pull', 0, -256.67, 2311.73, 95.89, 20.8, 0, 0, 0, 0, '3855', 'pull group 2'),
+('shadowfang_keep', 2, 3, 'pull', 0, -256.67, 2311.73, 95.89, 11, 0, 0, 0, 0, '3855', 'pull group 2'),
 ('shadowfang_keep', 2, 4, 'pull', 0, -251.63, 2322.94, 96.82, 10, 0, 0, 0, 0, '3854', 'pull group 3'),
 ('shadowfang_keep', 2, 5, 'pull', 0, -248.04, 2346.95, 96.82, 22.1, 0, 0, 0, 0, '3854,61970,4075,3855', 'pull group 4'),
 ('shadowfang_keep', 2, 6, 'pull', 0, -254.05, 2355.36, 96.82, 10, 0, 0, 0, 0, '3854', 'pull group 5'),
 ('shadowfang_keep', 2, 7, 'pull', 0, -263.1, 2361.41, 96.82, 11.9, 0, 0, 0, 0, '3855', 'pull group 6'),
-('shadowfang_keep', 2, 8, 'pull', 0, -234.69, 2369.77, 96.88, 43, 0, 0, 0, 0, '61970,4075,3854,3855', 'pull group 7'),
-('shadowfang_keep', 2, 9, 'pull', 0, -224.8, 2390.77, 97.59, 10, 0, 0, 0, 0, '61969', 'pull group 8'),
-('shadowfang_keep', 2, 10, 'pull', 0, -235.15, 2399.28, 96.82, 10, 0, 0, 0, 0, '3855', 'pull group 9'),
-('shadowfang_keep', 2, 11, 'pull', 0, -210.34, 2388.55, 96.82, 10, 0, 0, 0, 0, '3855', 'pull group 10'),
-('shadowfang_keep', 2, 12, 'pull', 0, -204.58, 2375.86, 96.82, 12, 0, 0, 0, 0, '3855', 'pull group 11'),
-('shadowfang_keep', 2, 13, 'pull', 0, -226.54, 2344.31, 96.82, 10, 0, 0, 0, 0, '3854', 'pull group 12'),
-('shadowfang_keep', 2, 14, 'move', 0, -239.7334, 2339.9998, 96.90307, 0, 0, 0, 0, 0, '', 'approach path'),
-('shadowfang_keep', 2, 15, 'move', 0, -242.9334, 2338.6665, 97.20307, 0, 0, 0, 0, 0, '', 'approach path'),
-('shadowfang_keep', 2, 16, 'move', 0, -252.80006, 2325.3333, 97.20307, 0, 0, 0, 0, 0, '', 'approach path'),
-('shadowfang_keep', 2, 17, 'pull', 0, -277.79, 2322.1, 95.95, 10, 0, 0, 0, 0, '3855', 'pull group 13'),
-('shadowfang_keep', 2, 18, 'pull', 0, -278.91, 2323.63, 95.87, 10, 0, 0, 0, 0, '3855', 'pull group 14'),
-('shadowfang_keep', 2, 19, 'pull', 0, -299, 2295.8, 93.11, 10, 0, 0, 0, 0, '3855', 'pull group 15'),
-('shadowfang_keep', 2, 20, 'pull', 0, -294.71, 2279.39, 95.87, 10, 0, 0, 0, 0, '3855', 'pull group 16'),
-('shadowfang_keep', 2, 21, 'pull', 0, -284.36, 2277.18, 95.95, 10, 0, 0, 0, 0, '3855', 'pull group 17'),
-('shadowfang_keep', 2, 22, 'pull', 0, -273.39, 2273.13, 95.95, 10, 0, 0, 0, 0, '3855', 'pull group 18'),
-('shadowfang_keep', 2, 23, 'boss', 3887, -275.342, 2297.35, 76.2365, 0, 0, 0, 0, 0, '', 'boss'),
+('shadowfang_keep', 2, 8, 'pull', 0, -248.9, 2391.3, 96.82, 14, 0, 0, 0, 0, '61970,3854,3855', 'pull group 7'),
+('shadowfang_keep', 2, 9, 'pull', 0, -240.67, 2376.55, 96.91, 18, 0, 0, 0, 0, '61970,4075', 'pull group 8'),
+('shadowfang_keep', 2, 10, 'pull', 0, -224.59, 2355.61, 96.89, 24, 0, 0, 0, 0, '61970,3855,4075', 'pull group 9'),
+('shadowfang_keep', 2, 11, 'pull', 0, -224.8, 2390.77, 97.59, 10, 0, 0, 0, 0, '61969', 'pull group 10'),
+('shadowfang_keep', 2, 12, 'pull', 0, -235.15, 2399.28, 96.82, 10, 0, 0, 0, 0, '3855', 'pull group 11'),
+('shadowfang_keep', 2, 13, 'pull', 0, -210.34, 2388.55, 96.82, 10, 0, 0, 0, 0, '3855', 'pull group 12'),
+('shadowfang_keep', 2, 14, 'pull', 0, -204.58, 2375.86, 96.82, 12, 0, 0, 0, 0, '3855', 'pull group 13'),
+('shadowfang_keep', 2, 15, 'pull', 0, -226.54, 2344.31, 96.82, 10, 0, 0, 0, 0, '3854', 'pull group 14'),
+('shadowfang_keep', 2, 16, 'move', 0, -239.7334, 2339.9998, 96.90307, 0, 0, 0, 0, 0, '', 'approach path'),
+('shadowfang_keep', 2, 17, 'move', 0, -242.9334, 2338.6665, 97.20307, 0, 0, 0, 0, 0, '', 'approach path'),
+('shadowfang_keep', 2, 18, 'move', 0, -252.80006, 2325.3333, 97.20307, 0, 0, 0, 0, 0, '', 'approach path'),
+('shadowfang_keep', 2, 19, 'pull', 0, -277.79, 2322.1, 95.95, 10, 0, 0, 0, 0, '3855', 'pull group 15'),
+('shadowfang_keep', 2, 20, 'pull', 0, -278.91, 2323.63, 95.87, 10, 0, 0, 0, 0, '3855', 'pull group 16'),
+('shadowfang_keep', 2, 21, 'pull', 0, -299, 2295.8, 93.11, 10, 0, 0, 0, 0, '3855', 'pull group 17'),
+('shadowfang_keep', 2, 22, 'pull', 0, -294.71, 2279.39, 95.87, 10, 0, 0, 0, 0, '3855', 'pull group 18'),
+('shadowfang_keep', 2, 23, 'pull', 0, -284.36, 2277.18, 95.95, 10, 0, 0, 0, 0, '3855', 'pull group 19'),
+('shadowfang_keep', 2, 24, 'pull', 0, -273.39, 2273.13, 95.95, 10, 0, 0, 0, 0, '3855', 'pull group 20'),
+('shadowfang_keep', 2, 25, 'boss', 3887, -275.342, 2297.35, 76.2365, 0, 0, 0, 0, 0, '', 'boss'),
 ('shadowfang_keep', 3, 0, 'move', 0, -225.113, 2303.42, 94.6767, 0, 0, 0, 0, 0, '', 'to'),
 ('shadowfang_keep', 3, 1, 'pull', 0, -225.11, 2303.42, 94.68, 10, 0, 0, 0, 0, '14682', 'pull group 0'),
 ('shadowfang_keep', 3, 2, 'pull', 0, -212.2, 2295.34, 96.01, 10, 0, 0, 0, 0, '2110', 'pull group 1'),
@@ -103,7 +107,7 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('shadowfang_keep', 3, 12, 'move', 0, -297.0667, 2287.9998, 96.50307, 0, 0, 0, 0, 0, '', 'approach path'),
 ('shadowfang_keep', 3, 13, 'move', 0, -296.5334, 2286.6665, 96.50307, 0, 0, 0, 0, 0, '', 'approach path'),
 ('shadowfang_keep', 3, 14, 'move', 0, -293.0667, 2284.7998, 95.90307, 0, 0, 0, 0, 0, '', 'approach path'),
-('shadowfang_keep', 3, 15, 'pull', 0, -243.93, 2251.93, 101.46, 30.6, 0, 0, 0, 0, '3875,3877,2110', 'pull group 2'),
+('shadowfang_keep', 3, 15, 'pull', 0, -243.93, 2251.93, 101.46, 26, 0, 0, 0, 0, '3875,3877,2110', 'pull group 2'),
 ('shadowfang_keep', 3, 16, 'pull', 0, -250.51, 2237.95, 100.98, 10, 0, 0, 0, 0, '3877', 'pull group 3'),
 ('shadowfang_keep', 3, 17, 'pull', 0, -232.18, 2212.89, 97.35, 10, 0, 0, 0, 0, '3877', 'pull group 4'),
 ('shadowfang_keep', 3, 18, 'boss', 4278, -222.592, 2259.44, 102.839, 0, 0, 0, 0, 0, '', 'boss'),
@@ -138,9 +142,9 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('shadowfang_keep', 4, 28, 'move', 0, -193.60008, 2205.0667, 79.80307, 0, 0, 0, 0, 0, '', 'path'),
 ('shadowfang_keep', 4, 29, 'move', 0, -200.86, 2191.01, 79.8479, 0, 0, 0, 0, 0, '', 'to'),
 ('shadowfang_keep', 4, 30, 'pull', 0, -202.44, 2187.57, 79.85, 13.8, 0, 0, 0, 0, '3853,3862', 'pull group 0'),
-('shadowfang_keep', 4, 31, 'pull', 0, -200.54, 2159.63, 79.84, 17, 0, 0, 0, 0, '3853,3862', 'pull group 1'),
+('shadowfang_keep', 4, 31, 'pull', 0, -200.54, 2159.63, 79.84, 12, 0, 0, 0, 0, '3853,3862', 'pull group 1'),
 ('shadowfang_keep', 4, 32, 'pull', 0, -222.21, 2159.76, 79.85, 10, 0, 0, 0, 0, '3875', 'pull group 2'),
-('shadowfang_keep', 4, 33, 'pull', 0, -225.45, 2155.45, 80.85, 24.5, 0, 0, 0, 0, '3862,3853,10000', 'pull group 3'),
+('shadowfang_keep', 4, 33, 'pull', 0, -225.45, 2155.45, 80.85, 19, 0, 0, 0, 0, '3862,3853,10000', 'pull group 3'),
 ('shadowfang_keep', 4, 34, 'pull', 0, -252.3, 2168.82, 93.94, 10, 0, 0, 0, 0, '3877', 'pull group 4'),
 ('shadowfang_keep', 4, 35, 'pull', 0, -251.16, 2175.53, 94.02, 10, 0, 0, 0, 0, '3877', 'pull group 5'),
 ('shadowfang_keep', 4, 36, 'pull', 0, -248.5, 2183.63, 93.93, 10, 0, 0, 0, 0, '3877', 'pull group 6'),
@@ -193,13 +197,13 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('shadowfang_keep', 4, 83, 'move', 0, -240.00006, 2156.7998, 90.70307, 0, 0, 0, 0, 0, '', 'approach path'),
 ('shadowfang_keep', 4, 84, 'move', 0, -232.80006, 2152.7998, 90.70307, 0, 0, 0, 0, 0, '', 'approach path'),
 ('shadowfang_keep', 4, 85, 'move', 0, -228.5334, 2150.6665, 90.70307, 0, 0, 0, 0, 0, '', 'approach path'),
-('shadowfang_keep', 4, 86, 'pull', 0, -200.3, 2132.94, 84.57, 22.1, 0, 0, 0, 0, '3861,2110,3851', 'pull group 8'),
-('shadowfang_keep', 4, 87, 'pull', 0, -190.23, 2130.3, 97.42, 17.8, 0, 0, 0, 0, '3873', 'pull group 9'),
+('shadowfang_keep', 4, 86, 'pull', 0, -200.3, 2132.94, 84.57, 17, 0, 0, 0, 0, '3861,2110,3851', 'pull group 8'),
+('shadowfang_keep', 4, 87, 'pull', 0, -190.23, 2130.3, 97.42, 11, 0, 0, 0, 0, '3873', 'pull group 9'),
 ('shadowfang_keep', 4, 88, 'pull', 0, -192.01, 2124.54, 97.39, 10, 0, 0, 0, 0, '3872', 'pull group 10'),
 ('shadowfang_keep', 4, 89, 'pull', 0, -194.84, 2120.18, 97.47, 10, 0, 0, 0, 0, '3873', 'pull group 11'),
 ('shadowfang_keep', 4, 90, 'pull', 0, -205.82, 2105.25, 97.39, 10, 0, 0, 0, 0, '3873', 'pull group 12'),
-('shadowfang_keep', 4, 91, 'pull', 0, -201.35, 2114.15, 81.14, 15.1, 0, 0, 0, 0, '3861,3851', 'pull group 13'),
-('shadowfang_keep', 4, 92, 'boss', 4279, -236.708, 2146.08, 100.112, 0, 0, 0, 0, 0, '', 'boss');
+('shadowfang_keep', 4, 91, 'pull', 0, -201.35, 2114.15, 81.14, 10, 0, 0, 0, 0, '3861,3851', 'pull group 13'),
+('shadowfang_keep', 4, 92, 'boss', 4279, -236.708, 2146.08, 100.112, 0, 0, 0, 0, 0, '3866,3868', 'boss');
 
 -- Dungeon bosses of map 33, for the commander telemetry's boss rank (see 20261021114931_world.sql): the five boss steps'
 -- entries of the legs in this file, read from Turtle's own world data (tortoise-wow sql/base creature_template: all five are
