@@ -16,10 +16,10 @@ int main()
 {
     std::cout << "Starting TortoiseBots warrior rage gate policy tests...\n";
 
-    // Disarm: 20 rage and a target that carries a weapon (issue 1157).
+    // Disarm: 20 rage and a target that carries a weapon.
     CHECK(ShouldDisarm(true, 20));
     CHECK(ShouldDisarm(true, 100));
-    CHECK(!ShouldDisarm(true, 19));   // audit: median rage 6 -> row was IMPOSSIBLE
+    CHECK(!ShouldDisarm(true, 19));   // below the rage cost
     CHECK(!ShouldDisarm(true, 0));
     CHECK(!ShouldDisarm(false, 100)); // weaponless mob: rage would be wasted
     CHECK(!ShouldDisarm(false, 0));
@@ -37,7 +37,7 @@ int main()
     // Battle Shout: only at 10+ rage; buff/might logic is BattleShoutPolicy.
     CHECK(ShouldBattleShout(10));
     CHECK(ShouldBattleShout(15));
-    CHECK(!ShouldBattleShout(9));    // audit: median rage 1 -> 79 % IMPOSSIBLE
+    CHECK(!ShouldBattleShout(9));    // below the rage cost
     CHECK(!ShouldBattleShout(0));
     std::cout << "  [PASS] battle shout gates on rage\n";
 

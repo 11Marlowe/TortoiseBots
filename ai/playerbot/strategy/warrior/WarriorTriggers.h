@@ -11,10 +11,8 @@ namespace ai
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
-    // Disarm only when it can bite (issue 1157): the spell needs 20 rage and
-    // a target that actually carries a weapon. Without the gates the row was
-    // armed every combat tick and failed isPossible — 99.6 % IMPOSSIBLE at a
-    // median of 6 rage in the spell audit.
+    // Disarm only strips a target that carries a weapon and only with the
+    // rage it costs; anything else fails the cast and stalls the rotation.
     class DisarmDebuffTrigger : public DebuffTrigger
     {
     public:
@@ -90,8 +88,7 @@ namespace ai
         {
             static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
 
-            // 10-rage gate (issue 1157): the row was armed every tick at any
-            // rage and failed isPossible (79 % IMPOSSIBLE, median rage 1).
+            // The shout costs 10 rage; below that the cast fails.
             if (!ShouldBattleShout(AI_VALUE2(uint8, "rage", "self target")))
                 return false;
 
