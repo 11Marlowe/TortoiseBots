@@ -679,8 +679,8 @@ func main() {
 // POST alone is not enough: a cross-site HTML form POST is a top-level
 // navigation, so the browser would apply the clearing Set-Cookie. The request
 // must also be same-origin (Origin matches the Host, as for the WebSocket
-// stream); a foreign or opaque (Origin: null) origin gets 403 and the cookie
-// is left alone. The dashboard's button posts with fetch and navigates to
+// stream); a missing, foreign or opaque (Origin: null) origin gets 403 and the
+// cookie is left alone. The dashboard's button posts with fetch and navigates to
 // /login itself.
 func logoutHandler(authService *auth.Service) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -689,7 +689,11 @@ func logoutHandler(authService *auth.Service) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !ws.SameOrigin(r) {
+		// ws.SameOrigin lets a request with no Origin pass (the WebSocket stream
+		// relies on that for non-browser clients). Logout is stricter: the
+		// dashboard's button is a same-origin fetch POST, which every current
+		// browser sends with Origin, so a POST without one is refused too.
+		if r.Header.Get("Origin") == "" || !ws.SameOrigin(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

@@ -68,15 +68,7 @@ func TestLogoutRejectsNonPOST(t *testing.T) {
 
 func TestLogoutPOSTClearsCookieAndReturnsNoContent(t *testing.T) {
 	srv := newLogoutTestServer(t)
-	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/auth/logout", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp, err := noRedirect.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	resp.Body.Close()
+	resp := postLogout(t, srv, srv.URL) // a browser's fetch POST always sends Origin
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("POST: status = %d, want 204", resp.StatusCode)
 	}
@@ -88,8 +80,20 @@ func TestLogoutPOSTClearsCookieAndReturnsNoContent(t *testing.T) {
 	}
 }
 
-// postLogout posts to the logout route; origin "" sends no Origin header (a
-// non-browser client), anything else is sent as the Origin header.
+// Logout is stricter than the WebSocket stream: a POST with no Origin header is
+// refused too, so a browser that omits Origin cannot be used to force a logout.
+func TestLogoutRejectsPOSTWithoutOrigin(t *testing.T) {
+	srv := newLogoutTestServer(t)
+	resp := postLogout(t, srv, "")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("POST without Origin: status = %d, want 403", resp.StatusCode)
+	}
+	if len(resp.Header.Values("Set-Cookie")) != 0 || sessionCookieCleared(resp) {
+		t.Errorf("POST without Origin: response touches the session cookie; Set-Cookie = %v", resp.Header.Values("Set-Cookie"))
+	}
+}
+
+// postLogout posts to the logout route; origin "" sends no Origin header, anything else is sent as the Origin header.
 func postLogout(t *testing.T, srv *httptest.Server, origin string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/auth/logout", nil)
