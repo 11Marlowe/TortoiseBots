@@ -6645,11 +6645,26 @@ inline bool HealerKeptToHeals(bool runRunning, bool inRunParty, bool isLead, boo
 // once a tick; true only while the lead is off "stay", so it is sent once.
 // A lead standing in magma (Player::IsInMagma) is not held there: it must be
 // free to walk out (the movement guard lets a bot in magma leave it).
+// Not while the run fights (Run::fighting) or the guard's walk back is
+// pending (Run::guardReturn): the phase stayed Rest through a fight that began
+// in the rest, and a tank on nobody's threat list is not in combat, so each
+// guard pick-up (`attack`, which ends the stay) was undone on the next tick
+// (THREAT F1: r15 Uldaman step 40, 1159-1192 s, 3 of 3 pick-ups undone, the
+// hunter and the warlock dead; 9 of 27 rest-phase guard orders in r12-r17).
+// A stale combat flag (Facts::staleCombat: in combat by the flag, nothing
+// hostile engaged with any bot or pet) is no fight: it kept Run::fighting
+// true and the phase Rest up to the fight ceiling, so the lead is held then,
+// a pick-up pending or not (Codex and Opus review of the first F1 commit).
+// Run::guardReturn in the Rest phase: set by a pick-up during a rest fight
+// (the sentinel replay); after a fight it is not reached in Rest (the fight's
+// end moves the phase to Begin and the walk back returns each tick), kept as
+// belt and braces.
 inline bool LeadStayDueWhileResting(Run const& r, bool leadAlive, bool leadInCombat, bool leadStaying,
-    bool leadInMagma)
+    bool leadInMagma, bool combatStale)
 {
-    return r.state == State::Running && r.phase == Phase::Rest && leadAlive && !leadInCombat && !leadStaying &&
-        !leadInMagma;
+    bool const actionableFight = (r.fighting || r.guardReturn) && !combatStale;
+    return r.state == State::Running && r.phase == Phase::Rest && !actionableFight && leadAlive && !leadInCombat &&
+        !leadStaying && !leadInMagma;
 }
 
 // A party member coming back with attackers on it. The owner's rule
@@ -6658,15 +6673,17 @@ inline bool LeadStayDueWhileResting(Run const& r, bool leadAlive, bool leadInCom
 // it can stop and fight with them."
 //
 // Only while the run waits for its party: a regroup (revive, gather), a
-// step's gather, or a walk back. Never during an event (a hold, or the steps
-// leading into one: the Keepers, Archaedas); a player's order pauses the run
-// (and ends every run back) anyway.
+// step's gather, a walk back, or a rest (THREAT F1: r15 Uldaman step 40, the
+// hunter 20-36 yd out with eleven scorpids, and r15 Deadmines step 83, four
+// members fighting 55-70 yd from the resting tank for 60 s, got no run back).
+// Never during an event (a hold, or the steps leading into one: the Keepers,
+// Archaedas); a player's order pauses the run (and ends every run back) anyway.
 inline bool RunBackAllowed(const Run& r)
 {
     const PlanStep* s = Current(r);
     if (!s || s->kind == PlanStepKind::Hold || r.eventOn || EventHoldAhead(r))
         return false;
-    return r.regroup || r.phase == Phase::Gather || r.walkBack;
+    return r.regroup || r.phase == Phase::Gather || r.walkBack || r.phase == Phase::Rest;
 }
 
 // One second of the run backs. A living bot other than the lead bot, more
