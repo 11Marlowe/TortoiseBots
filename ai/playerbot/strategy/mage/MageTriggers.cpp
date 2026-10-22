@@ -300,12 +300,12 @@ bool ArcaneExplosionWindowTrigger::IsActive()
 {
     // Density + breakable-CC interlock from the shared AoeTrigger family,
     // at Arcane Explosion's 10yd radius instead of the 40yd ranged scan.
-    if (!AoeTrigger::IsActive())
-        return false;
+    bool const aoeInterlockSafe = AoeTrigger::IsActive();
 
     // Same cluster the base just accepted; re-derived because AoeTrigger
     // keeps no state. Triggers on this interval run every 2s.
     std::list<ObjectGuid> splash = AoeCountValue::FindMaxDensity(bot, 10.0f);
+    bool safeSplash = true;
     for (std::list<ObjectGuid>::iterator i = splash.begin(); i != splash.end(); ++i)
     {
         Unit* unit = ai->GetUnit(*i);
@@ -313,19 +313,31 @@ bool ArcaneExplosionWindowTrigger::IsActive()
             continue;
 
         // Splash threat rides on whoever holds the mob: only a mob on a
-        // tank or already on the mage is safe to burst (issue #1164).
+        // tank or already on the mage is safe to burst.
         Unit* victim = unit->GetVictim();
         Player* victimPlayer = victim ? victim->ToPlayer() : nullptr;
         bool const victimIsTank = victimPlayer && ai->IsTank(victimPlayer);
         bool const victimIsBot = victim == bot;
         if (!IsSplashSafeForExplosion(ClassifyMobHolder(victim != nullptr, victimIsTank, victimIsBot)))
-            return false;
+        {
+            safeSplash = false;
+            break;
+        }
     }
-    return true;
+
+    ArcaneExplosionGate gate;
+    gate.mobsInSplash = splash.size();
+    gate.minMobs = amount;
+    gate.aoeInterlockSafe = aoeInterlockSafe;
+    gate.safeSplash = safeSplash;
+    return ShouldArcaneExplosion(gate);
 }
 
 bool FrostNovaWindowTrigger::IsActive()
 {
+    // Only a mob attacking the mage itself is worth the emergency root
+    // (BlinkBackTrigger's read); the tank's held pack must not burn the
+    // cooldown.
     std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "attackers");
     for (std::list<ObjectGuid>::iterator i = attackers.begin(); i != attackers.end(); ++i)
     {
@@ -337,11 +349,7 @@ bool FrostNovaWindowTrigger::IsActive()
         if (!sServerFacade.IsDistanceLessOrEqualThan(sServerFacade.getDistance2d(bot, unit), 10.0f))
             continue;
 
-        Unit* victim = unit->GetVictim();
-        Player* victimPlayer = victim ? victim->ToPlayer() : nullptr;
-        bool const victimIsTank = victimPlayer && ai->IsTank(victimPlayer);
-        bool const victimIsBot = victim == bot;
-        if (ShouldFrostNova(true, ClassifyMobHolder(victim != nullptr, victimIsTank, victimIsBot)))
+        if (unit->GetVictim() == bot)
             return true;
     }
     return false;

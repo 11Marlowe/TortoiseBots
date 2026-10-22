@@ -228,9 +228,8 @@ namespace ai
         bool IsActive() override;
     };
 
-    // #1164: a pack clustered inside Arcane Explosion's 10yd radius that the
-    // splash can safely burst (density + CC interlock from the AoeTrigger
-    // family, holder safety from MageAoeSafetyPolicy.h).
+    // A pack clustered inside Arcane Explosion's 10yd radius that the splash
+    // can safely burst (density + CC interlock, holder safety).
     class ArcaneExplosionWindowTrigger : public AoeTrigger
     {
     public:
@@ -238,9 +237,8 @@ namespace ai
         bool IsActive() override;
     };
 
-    // #1164: a mob within Frost Nova's radius is NOT held by a tank. Replaces
-    // the "enemy ten yards" row on the current target, which read the tank's
-    // mob and burned the emergency nova on a held pack.
+    // A mob attacking the mage within Frost Nova's radius: the tank's held
+    // pack must not burn the emergency cooldown.
     class FrostNovaWindowTrigger : public Trigger
     {
     public:

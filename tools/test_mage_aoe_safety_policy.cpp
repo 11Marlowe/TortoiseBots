@@ -1,7 +1,7 @@
-// Standalone regression test for the mage point-blank spell gates
-// (issue #1164): frost/fire mages burst a pack inside Arcane Explosion
-// range only when the splash is safe, and Frost Nova no longer burns its
-// emergency cooldown on a pack a tank already holds.
+// Standalone regression test for the mage point-blank spell gates:
+// frost/fire mages burst a pack inside Arcane Explosion range only when the
+// splash is safe, and Frost Nova is left for mobs attacking the mage itself
+// (checked in the trigger, not here).
 //
 // Build and run:
 //   g++ -std=c++17 -Wall -Wextra tools/test_mage_aoe_safety_policy.cpp -o /tmp/test_mage_aoe_safety
@@ -28,7 +28,7 @@ static ArcaneExplosionGate Base()
     ArcaneExplosionGate gate;
     gate.mobsInSplash = 3;
     gate.minMobs = 3;
-    gate.breakableCcInSplash = false;
+    gate.aoeInterlockSafe = true;
     gate.safeSplash = true;
     return gate;
 }
@@ -42,6 +42,14 @@ int main()
     CHECK(ClassifyMobHolder(true, false, false) == MobHolder::OtherPlayer);
     // A victim cannot be both tank and bot; tank wins the classification.
     CHECK(ClassifyMobHolder(true, true, true) == MobHolder::Tank);
+
+    // --- splash safety ---
+    CHECK(IsSplashSafeForExplosion(MobHolder::Tank));
+    CHECK(IsSplashSafeForExplosion(MobHolder::Bot));
+    // A mob on another member, or not yet held, would ride the splash threat
+    // away from its holder.
+    CHECK(!IsSplashSafeForExplosion(MobHolder::OtherPlayer));
+    CHECK(!IsSplashSafeForExplosion(MobHolder::Nobody));
 
     // --- Arcane Explosion gate ---
     CHECK(ShouldArcaneExplosion(Base()));
@@ -63,30 +71,16 @@ int main()
     // A sheep, sap or trap inside the splash forbids the burst.
     {
         ArcaneExplosionGate gate = Base();
-        gate.breakableCcInSplash = true;
+        gate.aoeInterlockSafe = false;
         CHECK(!ShouldArcaneExplosion(gate));
     }
 
-    // A mob loose on another member (or not yet held) rides the splash
-    // threat away from its holder: no burst.
+    // A mob loose on another member: no burst.
     {
         ArcaneExplosionGate gate = Base();
         gate.safeSplash = false;
         CHECK(!ShouldArcaneExplosion(gate));
     }
-
-    // --- Frost Nova gate ---
-    // The #1164 bug case: the mob in reach is the tank's held pack.
-    CHECK(!ShouldFrostNova(true, MobHolder::Tank));
-    // Not in reach: never.
-    CHECK(!ShouldFrostNova(false, MobHolder::Tank));
-    CHECK(!ShouldFrostNova(false, MobHolder::Bot));
-
-    // A mob chewing on the mage, on another member, or not yet held is a
-    // peel situation.
-    CHECK(ShouldFrostNova(true, MobHolder::Bot));
-    CHECK(ShouldFrostNova(true, MobHolder::OtherPlayer));
-    CHECK(ShouldFrostNova(true, MobHolder::Nobody));
 
     std::printf("mage aoe safety policy: %d checks passed\n", checks);
     return 0;
