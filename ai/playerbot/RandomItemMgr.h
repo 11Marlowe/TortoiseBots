@@ -287,6 +287,9 @@ class RandomItemMgr
         // Spec scale name for a scale id ("" when unknown). Lets callers use
         // the slot-aware policy without touching the private scale map.
         std::string GetSpecName(uint32 specId);
+        // Scale id for a weightscale name of this class (0 when unknown) —
+        // the lookup GetPlayerSpecId does, without needing a Player.
+        uint32 GetSpecIdFor(uint8 playerclass, std::string const& specName);
     private:
         void BuildRandomItemCache();
         void BuildEquipCache();

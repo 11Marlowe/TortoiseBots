@@ -44,6 +44,10 @@ struct PendingBotCommand
     uint64_t requesterGuid = 0;
     BotCommandReply reply = BotCommandReply::Chat;
     std::string args;
+    // A top-level player command (`.autogear`): args holds the full command
+    // text and the drain dispatches it through TryHandleBotCommand instead of
+    // the `.bot` subcommand table.
+    bool topLevel = false;
 };
 
 // Per-requester commands dropped because the requester already had the
@@ -71,7 +75,7 @@ public:
 
     // Any thread. False when the requester already has the maximum pending;
     // the command is then dropped and counted for one reply at the next drain.
-    bool Enqueue(uint64_t requesterGuid, BotCommandReply reply, std::string args)
+    bool Enqueue(uint64_t requesterGuid, BotCommandReply reply, std::string args, bool topLevel = false)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         size_t& pending = m_pendingPerRequester[requesterGuid];
@@ -84,7 +88,7 @@ public:
             return false;
         }
         ++pending;
-        m_pending.push_back(PendingBotCommand{ NextWorldQueueSequence(), requesterGuid, reply, std::move(args) });
+        m_pending.push_back(PendingBotCommand{ NextWorldQueueSequence(), requesterGuid, reply, std::move(args), topLevel });
         return true;
     }
 

@@ -26,6 +26,7 @@
 #include "../runtime/RandomBotService.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/PlayerbotAI.h"
+#include "../ai/playerbot/RandomItemMgr.h"
 // pi-lens-ignore: clang:pp_file_not_found
 #include "../ai/playerbot/PlayerbotDbStore.h"
 #include "../ai/playerbot/ChatHelper.h"
@@ -48,6 +49,8 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/SurvivePolicy.h"
 #include "runtime/OwnedBotQolPolicy.h"
+#include "../runtime/PlayerAutogearPolicy.h"
+#include "../runtime/GearItemLevelCapPolicy.h"
 #include "../runtime/RemoteCommanderPolicy.h"
 #include "../ai/playerbot/AiFactory.h"
 #include "../runtime/RemoteCommanderView.h"
@@ -232,6 +235,203 @@ bool HandleAutogear(ChatHandler* handler, char const* args)
     return true;
 }
 
+// `.autogear` — gear a real player the way a spawned pool bot gets geared:
+// same candidate pool, score, required-level rule and spawn ceiling
+// (GearItemLevelCap with RandomGearMaxItemLevelAboveLevel). Upgrades only;
+// replaced pieces go to the bags or the target's own mailbox. A top-level
+// command like `.ahbot`, not a `.bot` subcommand: owned bots keep
+// `.bot autogear` above, and this handler refuses bots.
+static bool IsChallengeModeCharacter(Player* player)
+{
+    // Every Turtle challenge mode except CHALLENGE_WAR_MODE, which is the
+    // open-world PvP toggle rather than a gear restriction.
+    return player->HasChallenge(CHALLENGE_SLOW_AND_STEADY) || player->HasChallenge(CHALLENGE_EXHAUSTION_MODE) ||
+        player->HasChallenge(CHALLENGE_HARDCORE) || player->HasChallenge(CHALLENGE_VAGRANT_MODE) ||
+        player->HasChallenge(CHALLENGE_BOARING_MODE) || player->HasChallenge(CHALLENGE_CRAFTMASTER) ||
+        player->HasChallenge(CHALLENGE_LUNATIC) || player->HasChallenge(CHALLENGE_BREWMASTER) ||
+        player->HasChallenge(CHALLENGE_HEROIC);
+}
+
+static bool HandlePlayerAutogear(ChatHandler* handler, char const* args)
+{
+    Player* requester = Requester(handler);
+    if (!requester)
+    {
+        handler->PSendSysMessage("You must be in-game.");
+        return true;
+    }
+
+    std::string text = Trim(args ? args : "");
+    if (text.empty())
+    {
+        handler->PSendSysMessage("Usage: .autogear [player name] <spec> [ilvl]");
+        return true;
+    }
+
+    std::vector<std::string> tokens;
+    std::istringstream stream(text);
+    std::string token;
+    while (stream >> token)
+        tokens.push_back(token);
+
+    // Trailing digits are the optional ilvl argument; everything before is
+    // [player name] <spec words...>.
+    uint32 requestedIlvl = 0;
+    if (!tokens.empty())
+    {
+        std::string const& last = tokens.back();
+        bool digitsOnly = !last.empty() && last.size() <= 5;
+        for (char c : last)
+            if (c < '0' || c > '9')
+                digitsOnly = false;
+        if (digitsOnly)
+        {
+            requestedIlvl = static_cast<uint32>(stoul(last));
+            tokens.pop_back();
+        }
+    }
+    if (tokens.empty())
+    {
+        handler->PSendSysMessage("Usage: .autogear [player name] <spec> [ilvl]");
+        return true;
+    }
+
+    // A leading spec word means no name was given; otherwise the first token
+    // is the player name and the rest are the spec words ("enhancement tank").
+    // A single token is always a spec word — with no spec following it, a
+    // name cannot parse, and the unknown-spec reply lists the valid specs.
+    std::string nameToken;
+    size_t specStart = 0;
+    if (tokens.size() >= 2 && !TortoiseBots::IsAutogearSpecToken(tokens[0]))
+    {
+        nameToken = tokens[0];
+        specStart = 1;
+    }
+    std::string specToken = tokens[specStart];
+    for (size_t i = specStart + 1; i < tokens.size(); ++i)
+        specToken += " " + tokens[i];
+
+    Player* target = nullptr;
+    if (!nameToken.empty())
+    {
+        std::string name = nameToken;
+        if (normalizePlayerName(name))
+            target = sObjectMgr.GetPlayer(name.c_str());
+        if (!target)
+            target = sObjectAccessor.FindPlayerByName(name.c_str());
+        if (!target)
+        {
+            handler->PSendSysMessage("Player '%s' is not online.", nameToken.c_str());
+            return true;
+        }
+    }
+    else
+    {
+        // No name: the selected player, or the caller themself when nothing
+        // (or no player) is selected.
+        Unit* selected = requester->GetSelectedUnit();
+        target = selected ? selected->ToPlayer() : nullptr;
+        if (!target)
+            target = requester;
+    }
+
+    if (BotManager::Instance().IsBot(target->GetObjectGuid()))
+    {
+        handler->PSendSysMessage("'%s' is a bot - owned bots are geared with .bot autogear.", target->GetName());
+        return true;
+    }
+
+    bool const shapeshifted = target->GetClass() == CLASS_DRUID && target->GetShapeshiftForm() != FORM_NONE;
+    switch (TortoiseBots::DecidePlayerAutogearTargetState(target->IsAlive(), target->IsInCombat(), shapeshifted))
+    {
+        case TortoiseBots::PlayerAutogearTargetState::Dead:
+            handler->PSendSysMessage("'%s' must be alive.", target->GetName());
+            return true;
+        case TortoiseBots::PlayerAutogearTargetState::InCombat:
+            handler->PSendSysMessage("'%s' must be out of combat.", target->GetName());
+            return true;
+        case TortoiseBots::PlayerAutogearTargetState::Shapeshifted:
+            handler->PSendSysMessage("'%s' must leave the shapeshift form first.", target->GetName());
+            return true;
+        case TortoiseBots::PlayerAutogearTargetState::Ready:
+            break;
+    }
+
+    bool const callerIsGm = requester->GetSession()->GetSecurity() >= SEC_GAMEMASTER;
+    switch (TortoiseBots::DecidePlayerAutogearPermission(callerIsGm, sPlayerbotAIConfig.playerAutogearForAll,
+        target == requester, IsChallengeModeCharacter(target)))
+    {
+        case TortoiseBots::PlayerAutogearPermission::Allowed:
+            break;
+        case TortoiseBots::PlayerAutogearPermission::GmOnly:
+            handler->PSendSysMessage("Autogear is GM-only (AiPlayerbot.PlayerAutogearForAll = 1 lets every player gear themselves).");
+            return true;
+        case TortoiseBots::PlayerAutogearPermission::NotSelf:
+            handler->PSendSysMessage("You may only gear yourself with .autogear.");
+            return true;
+        case TortoiseBots::PlayerAutogearPermission::ChallengeGmOnly:
+            handler->PSendSysMessage("'%s' is on a challenge mode - only a GM may gear that character.", target->GetName());
+            return true;
+    }
+
+    uint8 const classId = target->GetClass();
+    std::string const scale = TortoiseBots::MatchAutogearSpec(classId, specToken);
+    uint32 const specId = scale.empty() ? 0 : sRandomItemMgr.GetSpecIdFor(classId, scale);
+    if (!specId)
+    {
+        std::string const valid = TortoiseBots::ListAutogearSpecs(classId);
+        handler->PSendSysMessage("Unknown spec '%s'%s. Valid specs: %s",
+            specToken.c_str(), target == requester ? "" : " for that class",
+            valid.empty() ? "none for this class" : valid.c_str());
+        return true;
+    }
+
+    // Spawn ceiling of a pool bot of the target's level; the ilvl argument
+    // may only lower it below max level, and may raise it at max level.
+    uint32 const defaultCeiling = TortoiseBots::GearItemLevelCap(target->GetLevel(),
+        sPlayerbotAIConfig.randomGearMaxItemLevelAboveLevel, sPlayerbotAIConfig.randomGearMaxLevel);
+    TortoiseBots::PlayerAutogearIlvl const ilvl = TortoiseBots::ResolvePlayerAutogearIlvl(
+        target->GetLevel(), TortoiseBots::kAutogearMaxLevel, requestedIlvl, defaultCeiling);
+    if (ilvl.clamped)
+        handler->PSendSysMessage("Item level %u is above the ceiling for level %u; using %u.",
+            requestedIlvl, target->GetLevel(), defaultCeiling);
+
+    PlayerbotFactory factory(target, target->GetLevel());
+    factory.AutogearPlayer(specId, ilvl.effective, ilvl.effective > defaultCeiling);
+
+    Item const* ranged = target->GetItemByPos(INVENTORY_SLOT_BAG_0, EQUIPMENT_SLOT_RANGED);
+    ItemPrototype const* rangedProto = ranged ? ranged->GetProto() : nullptr;
+
+    // Autogear hands out no ammo: warn when the equipped ranged weapon has
+    // none in the bags, like the owned-bot command does.
+    if (rangedProto && rangedProto->Class == ITEM_CLASS_WEAPON && !factory.HasAmmoInBagsFor(rangedProto->SubClass))
+    {
+        bool const gun = rangedProto->SubClass == ITEM_SUBCLASS_WEAPON_GUN;
+        handler->PSendSysMessage("Warning: %s has %s equipped but no %s in the bags - auto shot will not fire until they get some.",
+            target->GetName(), rangedProto->Name1, gun ? "bullets" : "arrows");
+    }
+
+    TortoiseBots::PlayerAutogearRunCounts counts;
+    for (PlayerbotFactory::AutogearUpgrade const& upgrade : factory.autogearUpgrades)
+        TortoiseBots::CountPlayerAutogearRecord(counts, upgrade.oldItemId, upgrade.newItemId, upgrade.mailed);
+
+    if (factory.autogearUpgrades.empty())
+        handler->PSendSysMessage("No upgrades for %s (%s) at item level %u - nothing changed.",
+            target->GetName(), specToken.c_str(), ilvl.effective);
+    else
+        handler->PSendSysMessage("Geared %s as '%s': %u slot(s) equipped, %u replaced item(s) to the bags, %u mailed.",
+            target->GetName(), specToken.c_str(), counts.slotsEquipped, counts.replaced - counts.mailed, counts.mailed);
+
+    std::ostringstream logLine;
+    logLine << "PlayerAutogear: caller=" << requester->GetName() << " target=" << target->GetName()
+            << " spec=" << scale << " ilvl=" << ilvl.effective;
+    for (PlayerbotFactory::AutogearUpgrade const& upgrade : factory.autogearUpgrades)
+        logLine << " [" << uint32(upgrade.slot) << "] " << upgrade.oldItemId << "->" << upgrade.newItemId
+            << (upgrade.mailed ? " (mailed)" : "");
+    sLog.outString("%s", logLine.str().c_str());
+    return true;
+}
+
 // `.bot help` answers with the addon protocol version line; the TBM addon
 // parses it, so the output must stay exactly as it is.
 bool HandleHelp(ChatHandler* handler, char const* /*args*/)
@@ -367,6 +567,9 @@ bool TryHandleBotCommand(ChatHandler* handler, char const* text)
 {
     if (!handler || !text)
         return false;
+    // Check for ".autogear" (real players; bots use ".bot autogear")
+    if (strncmp(text, "autogear", 8) == 0 && (text[8] == '\0' || text[8] == ' ' || text[8] == '\t'))
+        return HandlePlayerAutogear(handler, text + 8);
     // Check for ".ahbot" alias
     if (strncmp(text, "ahbot", 5) == 0 && (text[5] == '\0' || text[5] == ' ' || text[5] == '\t'))
     {

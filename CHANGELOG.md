@@ -7,6 +7,8 @@
 - Hunters use Freezing Trap again as crowd control in dungeon runs without assigned marks: they trap a loose extra attacker nobody is fighting yet and lay the trap where the mob will walk into it.
 
 ---
+### Commands
+- New `.autogear` command gears a real player the way a spawned bot gets geared: items picked for the level and spec from the same gear pool the bots use, upgrades only, replaced items to the bags or the mailbox. GameMasters can gear any player; `AiPlayerbot.PlayerAutogearForAll` (default `0`) lets every player gear themselves.
 
 ## v1.8.0 (2026-10-22)
 
