@@ -29,7 +29,8 @@ bool BotChatAdapter::CanExecuteCommand(ChatHandler* handler, char const* command
     for (char& character : commandName)
         character = static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
 
-    if (commandName != "bot")
+    bool const isAutogear = commandName == "autogear";
+    if (commandName != "bot" && !isAutogear)
         return true;
 
     // Returning false tells the generic AllCommandScript registry that this
@@ -46,12 +47,18 @@ bool BotChatAdapter::CanExecuteCommand(ChatHandler* handler, char const* command
     Player* requester = session ? session->GetPlayer() : nullptr;
     if (!requester || typeid(*handler) != typeid(ChatHandler))
     {
-        BotCommands::HandleChatCommand(handler, args ? args : "");
+        if (isAutogear)
+            BotCommands::TryHandleBotCommand(handler, ("autogear " + std::string(args ? args : "")).c_str());
+        else
+            BotCommands::HandleChatCommand(handler, args ? args : "");
         return false;
     }
 
+    // `autogear` carries its full text: the drain dispatches it through
+    // TryHandleBotCommand, which owns the top-level `.autogear` form.
+    std::string const queued = isAutogear ? "autogear " + std::string(args ? args : "") : std::string(args ? args : "");
     BotCommandQueue::Instance().Enqueue(requester->GetObjectGuid().GetRawValue(), BotCommandReply::Chat,
-        args ? args : "");
+        queued, isAutogear);
     return false;
 }
 
@@ -78,7 +85,10 @@ uint64_t BotChatAdapter::DrainQueuedCommands()
                 return;
             }
             ChatHandler handler(requester->GetSession());
-            BotCommands::HandleChatCommand(&handler, command.args.c_str());
+            if (command.topLevel)
+                BotCommands::TryHandleBotCommand(&handler, command.args.c_str());
+            else
+                BotCommands::HandleChatCommand(&handler, command.args.c_str());
         },
         [](Player* requester, DroppedBotCommands const& dropped)
         {

@@ -3095,6 +3095,14 @@ std::string RandomItemMgr::GetSpecName(uint32 specId)
     return itr->second.info.name;
 }
 
+uint32 RandomItemMgr::GetSpecIdFor(uint8 playerclass, std::string const& specName)
+{
+    for (auto const& itr : m_weightScales)
+        if (itr.second.info.id && itr.second.info.classId == playerclass && itr.second.info.name == specName)
+            return itr.second.info.id;
+    return 0;
+}
+
 uint32 RandomItemMgr::GetUpgrade(Player* player, std::string spec, uint8 slot, uint32 quality, uint32 itemId)
 {
     if (!player)

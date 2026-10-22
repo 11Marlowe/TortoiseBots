@@ -226,7 +226,7 @@ namespace ai
                 creators["hunter dead zone step out"] = [](PlayerbotAI* ai) { return new HunterDeadZoneStepOutTrigger(ai); };
                 creators["feign death"] = [](PlayerbotAI* ai) { return new FeignDeathTrigger(ai); };
                 creators["scatter shot on snare target"] = [](PlayerbotAI* ai) { return new ScatterShotSnareTrigger(ai); };
-                creators["multi-shot"] = [](PlayerbotAI* ai) { return new MultishotCanCastTrigger(ai); };
+                creators["multi-shot"] = [](PlayerbotAI* ai) { return new HunterMultiShotTrigger(ai); };
                 creators["intimidation"] = [](PlayerbotAI* ai) { return new IntimidationTrigger(ai); };
                 creators["intimidation on snare target"] = [](PlayerbotAI* ai) { return new IntimidationSnareTrigger(ai); };
                 creators["counterattack"] = [](PlayerbotAI* ai) { return new CounterattackCanCastTrigger(ai); };

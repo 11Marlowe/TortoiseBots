@@ -603,6 +603,7 @@ bool PlayerbotAIConfig::Initialize()
     if (ownedBotAutogearQualityCap > 5)
         ownedBotAutogearQualityCap = 5;
     ownedBotAutogearIlvlCap = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotAutogearIlvlCap", 0));
+    playerAutogearForAll = config.GetBoolDefault("AiPlayerbot.PlayerAutogearForAll", false);
     ownedBotSummonWhenGroup = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonWhenGroup", false);
     ownedBotSummonAllowInCombat = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowInCombat", false);
     ownedBotSummonAllowMasterDead = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowMasterDead", false);

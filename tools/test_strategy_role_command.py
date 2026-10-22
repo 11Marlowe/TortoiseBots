@@ -21,7 +21,7 @@ class StrategyRoleCommand(unittest.TestCase):
     @unittest.skipUnless(shutil.which('g++'), 'g++ unavailable')
     def test_handler(self):
         root = pathlib.Path(os.environ.get('TBOTS_TEST_SOURCE', pathlib.Path(__file__).resolve().parents[1]))
-        source = (root/'commands/BotCommands.cpp').read_text()
+        source = (root/'commands/Party.cpp').read_text()
         code = r'''
 #include <cstdarg>
 #include <cstdio>
@@ -63,7 +63,7 @@ std::string Trim(std::string const& s){auto a=s.find_first_not_of(" \t");return 
         for sig in ['static bool StrategyRoleMatches(', 'static bool KnownStrategyChange(']:
             if sig in source:
                 code += function(source,sig)
-        code += function(source,'static bool HandleStrategy(')
+        code += function(source,'bool HandleStrategy(')
         code += r'''
 int main(){
  Player tank{"Tank",true,false,false},dps{"Dps"},mage{"Mage",false,false,true},heal{"Heal",false,true,true},stranger{"Stranger",false,false,false,true,false};
