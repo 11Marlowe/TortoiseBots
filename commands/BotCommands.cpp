@@ -4587,6 +4587,7 @@ std::unordered_map<uint64, DungeonRunSlot>& DungeonRuns()
 
 Player* FindCharacter(uint64 raw);
 void PointFollowerAtLead(uint64 commanderRaw, Player* bot, Player* lead);
+void ClearRunCcIcons(uint64 leadRaw, DungeonRunSlot& slot);
 
 // AiPlayerbot.DungeonRunLootFfa: a loot step may have left the group's loot method on free-for-all
 // (DungeonRun::Run::lootFfaLive). Whenever the run is not running (paused, stopped, done, released), the lead
@@ -4913,7 +4914,10 @@ uint32 ReleaseBinding(uint64 commanderRaw, RemoteCommander::ReleaseReason reason
     {
         auto const run = DungeonRuns().find(commanderRaw);
         if (run != DungeonRuns().end())
+        {
             RestoreRunLootMethod(standing->leadGuid, run->second.run);
+            ClearRunCcIcons(standing->leadGuid, run->second);
+        }
         CancelCommanderTasks(commanderRaw);
     }
     RemoteCommander::Binding removed = CommanderBindings().Unbind(commanderRaw);
@@ -8925,7 +8929,7 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
     if (!RemoteCommander::IsKnownOrder(verb))
     {
         SendActionError(handler, intent, "invalid",
-            "Usage: .bot cmd attack <guid> [bot] / pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / focus <guid> / move <x> <y> <z> / stay / follow / rest / lootmethod <ffa|group|rr|master|nbg> [threshold] / revive <bot> / summon <bot> / loot <guid|entry:id[@x,y,z]> <bot> [itemId] / open <guid|entry:id[@x,y,z]> <bot> / use <itemId> <bot> [guid|entry:id[@x,y,z]] / ritual <guid|entry:id[@x,y,z]> <bot1> <bot2> [<bot3>...] / gossip <npc entry> <bot> <option number|\"option text\"> / state <guid|entry:id[@x,y,z]> / enter <area trigger id|near> [bot]");
+            "Usage: .bot cmd attack <guid> [bot] / pull|pullback <guid> [seconds] / cc <mark> <guid> [bot] / cc clear <bot> [<mark> <guid>] / focus <guid> / move <x> <y> <z> / stay / follow / rest / lootmethod <ffa|group|rr|master|nbg> [threshold] / revive <bot> / summon <bot> / loot <guid|entry:id[@x,y,z]> <bot> [itemId] / open <guid|entry:id[@x,y,z]> <bot> / use <itemId> <bot> [guid|entry:id[@x,y,z]] / ritual <guid|entry:id[@x,y,z]> <bot1> <bot2> [<bot3>...] / gossip <npc entry> <bot> <option number|\"option text\"> / state <guid|entry:id[@x,y,z]> / enter <area trigger id|near> [bot]");
         return true;
     }
 
@@ -9199,6 +9203,59 @@ static bool HandleCommanderOrder(ChatHandler* handler, char const* args)
         SupersedeCommanderTasks(order.commander->GetObjectGuid().GetRawValue(), 0, RemoteCommander::LaterOrder::Pull);
         BotCommandContext context = CommanderContext(order, target);
         return RunPullOrder(handler, context, order.lead, verb, option, intent);
+    }
+
+    // cc clear <bot> [<mark> <guid>]: the run leader takes a bot off its cc
+    // mark (issue #1159: a Sap that did not land, a Banish that never did):
+    // its "rti cc" goes to none, so no class row of it fires on the mark, and
+    // the raid icon is cleared only while it is still on that unit (an icon
+    // someone moved since is left alone).
+    if (!parts.empty() && parts[0] == "clear")
+    {
+        if (parts.size() != 2 && parts.size() != 4)
+        {
+            SendActionError(handler, intent, "invalid", "Usage: .bot cmd cc clear <bot> [<mark> <guid>]");
+            return true;
+        }
+        Player* named = FindCommandedBot(order, parts[1]);
+        if (!named)
+        {
+            SendActionError(handler, intent, "no-bot", "That bot is not in your commanded group.");
+            return true;
+        }
+        if (AltBotService::Instance().IsAutonomous(named->GetObjectGuid()))
+        {
+            SendActionError(handler, intent, "denied", "That bot is an autonomous alt-bot; order it with whispers or party chat.");
+            return true;
+        }
+        PlayerbotAI* namedAi = PlayerbotAIStorage::Instance().GetAI(named);
+        if (!namedAi || !namedAi->GetAiObjectContext())
+        {
+            SendActionError(handler, intent, "no-ai", "That bot has no AI.");
+            return true;
+        }
+        int iconIndex = -1;
+        uint64 iconGuid = 0;
+        if (parts.size() == 4)
+        {
+            std::string mark = parts[2];
+            for (char& c : mark)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            iconIndex = IsRaidTargetMark(mark) ? RtiTargetValue::GetRtiIndex(mark) : -1;
+            iconGuid = std::strtoull(parts[3].c_str(), nullptr, 10);
+            if (iconIndex < 0 || !iconGuid)
+            {
+                SendActionError(handler, intent, "invalid", "Usage: .bot cmd cc clear <bot> [<mark> <guid>]");
+                return true;
+            }
+        }
+        namedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set("none");
+        sPlayerbotDbStore.Save(namedAi);
+        if (iconIndex >= 0 && order.group &&
+            order.group->GetTargetIcon(static_cast<uint8>(iconIndex)).GetRawValue() == iconGuid)
+            order.group->SetTargetIcon(static_cast<uint8>(iconIndex), ObjectGuid());
+        SendActionAck(handler, intent, "bot:" + std::string(named->GetName()), 1, named->GetName());
+        return true;
     }
 
     // cc <mark> <guid> [bot]
@@ -9651,6 +9708,31 @@ bool HasAnyAura(Unit const* unit, uint32 const (&spells)[N])
         if (unit->HasAura(spell))
             return true;
     return false;
+}
+
+// The run cc families a creature is immune to (DungeonRun::UnitFact::ccImmune):
+// the mechanic of each family's first rank against its creature_template
+// mechanic_immune_mask (Creature::IsImmuneToSpell's test) or a live mechanic
+// immunity (an aura's).
+uint32 RunCcImmune(Creature* creature)
+{
+    using namespace TortoiseBots::DungeonRun;
+    struct FamilySpell { CcFamily family; uint32 spell; };
+    static FamilySpell const families[] = {
+        { CcFamily::Polymorph, kPolymorphSpells[0] }, { CcFamily::Shackle, kShackleUndeadSpells[0] },
+        { CcFamily::Banish, kBanishSpells[0] }, { CcFamily::Sap, kSapSpells[0] } };
+    uint32 const templateMask = creature->GetCreatureInfo() ? creature->GetCreatureInfo()->mechanic_immune_mask : 0;
+    uint32 immune = 0;
+    for (FamilySpell const& entry : families)
+    {
+        SpellEntry const* info = sServerFacade.LookupSpellInfo(entry.spell);
+        uint32 const mechanic = info ? info->Mechanic : 0;
+        if (!mechanic)
+            continue;
+        if ((templateMask & (1u << (mechanic - 1))) || creature->IsImmuneToMechanic(Mechanics(mechanic)))
+            immune |= CcBit(entry.family);
+    }
+    return immune;
 }
 
 // A run crowd-control aura is on it (DungeonRun::UnitFact::polymorphed):
@@ -10336,6 +10418,10 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
     f.leadY = lead->GetPositionY();
     f.leadZ = lead->GetPositionZ();
     f.leadMoving = lead->IsMoving(); // an exact waypoint's stand-still proof (DungeonRunPolicy.h ExactWalkTo)
+    // The group's raid icons now: a cc order takes only a free mark or one the run set (DungeonRun::PickCcOrder).
+    if (Group* const iconGroup = lead->GetGroup())
+        for (uint8 i = 0; i < 8; ++i) // TARGET_ICON_COUNT
+            f.raidIcons[i] = iconGroup->GetTargetIcon(i).GetRawValue();
     f.carrier = lead->GetName();
     f.team = lead->GetTeam() == ALLIANCE ? ai::kPlanFlagAlliance : ai::kPlanFlagHorde;
     // A direct step is the current one (or the walk back's next point): each follower is asked the step's own
@@ -10385,6 +10471,10 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
         // A healer or a ranged bot stands behind the tank in a hold (DungeonRun::HoldStands).
         PlayerbotAI* const memberAi = PlayerbotAIStorage::Instance().GetAI(bot);
         member.ranged = PlayerbotAI::IsHeal(bot) || (memberAi && !PlayerbotAI::IsTank(bot) && memberAi->IsRanged(bot));
+        // A rogue's pre-pull Sap trigger (SapCcMarkTrigger) fires only for a bot with a live client master and Sap
+        // on: without it the run orders no Sap (DungeonRun::PickCcOrder).
+        member.canSap = (member.cc & CcBit(CcFamily::Sap)) && memberAi && memberAi->HasRealPlayerMaster() &&
+            !memberAi->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT);
         if (bot == lead)
             f.leadInCombat = member.inCombat;
         // Units attacking it: the core's attacker set of that bot (no scan),
@@ -10589,6 +10679,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = RunCcHeld(creature);
                     unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
+                    unit.ccImmune = RunCcImmune(creature);
                     // The pull stand: can the tank shoot it from where it stands (one ray, key on only).
                     if (f.pullStand)
                         unit.losLead = lead->IsWithinLOSInMap(creature);
@@ -10765,6 +10856,7 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
                     unit.evading = creature->IsInEvadeMode();
                     unit.polymorphed = RunCcHeld(creature);
                     unit.creatureType = creature->GetCreatureType(); // which run cc fits it (DungeonRun::CcFits)
+                    unit.ccImmune = RunCcImmune(creature);
                     // Awake and fighting: the unit the tank takes (DungeonRun::HoldEngageTarget).
                     Unit* const victim = creature->GetVictim();
                     unit.engaged = unit.hostile && creature->IsInCombat() && victim;
@@ -10898,6 +10990,21 @@ void ReadRunFacts(DungeonRunSlot const& slot, Player* lead, std::vector<Player*>
 // movement: they are only let go, not formed up over it.
 // The bots placed on an event's hold spot (DungeonRun::HoldStands) are let
 // go the same way.
+// The raid icons the run's cc orders set (DungeonRun::Run::ccIcons) are
+// cleared when the run ends, each only while it is still on the unit the run
+// put it on: an icon a player or other code moved since is left alone.
+void ClearRunCcIcons(uint64 leadRaw, DungeonRunSlot& slot)
+{
+    Player* const lead = FindCharacter(leadRaw);
+    Group* const group = lead ? lead->GetGroup() : nullptr;
+    if (group)
+        for (auto const& icon : TortoiseBots::DungeonRun::CcIconsToClear(slot.run))
+            if (icon.first >= 0 && icon.first < TARGET_ICON_COUNT &&
+                group->GetTargetIcon(static_cast<uint8>(icon.first)).GetRawValue() == icon.second)
+                group->SetTargetIcon(static_cast<uint8>(icon.first), ObjectGuid());
+    slot.run.ccIcons.clear();
+}
+
 void ReleaseRunHold(Player* commander, uint64 leadRaw, DungeonRunSlot& slot)
 {
     RestoreRunLootMethod(leadRaw, slot.run); // a loot step's free-for-all detour ends with the run's tick
@@ -11079,6 +11186,7 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
             slot.run.note.c_str());
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot);
+        ClearRunCcIcons(binding->leadGuid, slot);
         DungeonRuns().erase(it);
         return;
     }
@@ -11123,6 +11231,8 @@ void TickDungeonRun(uint64 commanderRaw, uint32 dt)
     if (slot.run.state != TortoiseBots::DungeonRun::State::Running || !commander)
     {
         ReleaseRunHold(commander, binding->leadGuid, slot); // paused by a player's order (DungeonRun::Pause)
+        if (slot.run.state == TortoiseBots::DungeonRun::State::Done)
+            ClearRunCcIcons(binding->leadGuid, slot); // the plan's end: a pause keeps them
         return;
     }
     Player* lead = FindCharacter(binding->leadGuid);
@@ -11313,7 +11423,10 @@ static void UpdateDungeonRuns(uint32 diff)
         for (auto& entry : DungeonRuns())
         {
             if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
+            {
                 RestoreRunLootMethod(standing->leadGuid, entry.second.run);
+                ClearRunCcIcons(standing->leadGuid, entry.second);
+            }
             entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
             entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
             SendRunLine(FindCharacter(entry.first), entry.second, false);
@@ -11536,6 +11649,7 @@ static bool HandleDungeonRun(ChatHandler* handler, char const* args)
         slot.run.note = RunStopNote(rawArg); // "stopped by .bot run stop", or the reason the caller gave
         SendRunLine(commander, slot, true);
         ReleaseRunHold(commander, binding->leadGuid, slot); // held bots follow the lead bot again
+        ClearRunCcIcons(binding->leadGuid, slot);
         DungeonRuns().erase(it);
         SendActionAck(handler, intent, "party", 0);
         return true;

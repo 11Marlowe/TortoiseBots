@@ -19,6 +19,10 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 COMMANDS = (ROOT / "commands/BotCommands.cpp").read_text()
 
 
+def strip_comments(text):
+    return "\n".join(line.split("//", 1)[0].rstrip() for line in text.splitlines())
+
+
 def body(text, start, end):
     i = text.index(start)
     return text[i:text.index(end, i + len(start))]
@@ -136,6 +140,27 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("f.directPathCrossesPack = PathCrossesUnclearedPack(*slot.run.plan, slot.run.step, whole, f.team,\n"
                       "                            slot.run.notCleared);", facts)
 
+    def test_guard_reads_every_run_cc_as_held(self):
+        # The tank's guard leaves a shackled, banished or sapped mob alone like a sheep: both of its
+        # reads (the lead bot's nearest attacker and the party's attackers), as code.
+        guard = strip_comments(body(COMMANDS, "void ReadGuardFacts(", "\n}\n"))
+        self.assertIn("fact.polymorphed = RunCcHeld(nearestHit);", guard)
+        self.assertIn("fact.polymorphed = RunCcHeld(attacker);", guard)
+
+    def test_cc_clear_order_and_run_end_icons(self):
+        # `cmd cc clear <bot> [<mark> <guid>]`: the bot's rti cc goes to none, the icon only while on that unit.
+        clear = strip_comments(COMMANDS.split('if (!parts.empty() && parts[0] == "clear")', 1)[1].split("// cc <mark> <guid> [bot]", 1)[0])
+        self.assertIn('namedAi->GetAiObjectContext()->GetValue<std::string>("rti cc")->Set("none");', clear)
+        self.assertIn("order.group->GetTargetIcon(static_cast<uint8>(iconIndex)).GetRawValue() == iconGuid)", clear)
+        self.assertIn("order.group->SetTargetIcon(static_cast<uint8>(iconIndex), ObjectGuid());", clear)
+        icons = strip_comments(body(COMMANDS, "void ClearRunCcIcons(uint64 leadRaw, DungeonRunSlot& slot)\n{", "\n}\n"))
+        self.assertIn("group->GetTargetIcon(static_cast<uint8>(icon.first)).GetRawValue() == icon.second)", icons)
+        # Every run end clears them: the time limit, `.bot run stop`, the plan's end, an unbind, a switch-off.
+        code = strip_comments(COMMANDS)
+        self.assertEqual(code.count("ClearRunCcIcons(binding->leadGuid, slot);"), 3)
+        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, run->second);"), 1)
+        self.assertEqual(code.count("ClearRunCcIcons(standing->leadGuid, entry.second);"), 1)
+
     def test_crowd_control_and_kill_first_facts(self):
         facts = body(COMMANDS, "void ReadRunFacts(", "\n}\n")
         # The crowd control is picked from the members (issue #1159): a mage that knows Polymorph, and
@@ -154,6 +179,14 @@ class RunLeaderWiringTest(unittest.TestCase):
         held = body(COMMANDS, "bool RunCcHeld(", "\n}\n")
         for spells in ("kPolymorphSpells", "kShackleUndeadSpells", "kBanishSpells", "kSapSpells"):
             self.assertIn("HasAnyAura(unit, %s)" % spells, held)
+        # Review of fe5d4109: each unit's immunity, the rogue's live master and the live raid icons are read.
+        self.assertEqual(code.count("unit.ccImmune = RunCcImmune(creature);"), 2)
+        self.assertIn("member.canSap = (member.cc & CcBit(CcFamily::Sap)) && memberAi && memberAi->HasRealPlayerMaster() &&", code)
+        self.assertIn('!memberAi->HasStrategy("no sap", BotState::BOT_STATE_NON_COMBAT);', code)
+        self.assertIn("f.raidIcons[i] = iconGroup->GetTargetIcon(i).GetRawValue();", code)
+        immune = strip_comments(body(COMMANDS, "uint32 RunCcImmune(", "\n}\n"))
+        self.assertIn("(templateMask & (1u << (mechanic - 1))) || creature->IsImmuneToMechanic(Mechanics(mechanic))", immune)
+
         # Kill-first units come from the bots' cached attackers lists: no grid or world scan (AGENTS.md).
         self.assertIn("ReadKillFirst(*slot.run.plan, lead, bots, f);", facts)
         kill = body(COMMANDS, "void ReadKillFirst(", "\n}\n")
@@ -575,7 +608,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (!PullStandOn(r, f))", hold)
         self.assertIn("r.shotStandFor = u.guid;", hold)
         # Every pull caller hands its tick length to the stand walk.
-        self.assertIn("PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);", policy)
+        self.assertIn("CcPick const ccPick = PickCcOrder(r, f, pick->guid);\n        PullUnit(r, f, *pick, order, ccPick.unit, false, dt);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, false, dt, true);", policy)
         self.assertIn("PullUnit(r, f, *hopUnit, order, nullptr, true, dt);", policy)
         # PLAN-ZF-NOFIGHT: a move's and the walk back's pulls are hop pulls; a hop unit the tank cannot shoot is

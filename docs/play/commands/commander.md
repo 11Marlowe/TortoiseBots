@@ -153,6 +153,12 @@ Assigns a crowd control mark and target to a capable party bot.
 
 Places the specified raid target icon on the target GUID and assigns the crowd control duty to a bot.
 
+```text
+.bot cmd cc clear <bot> [<mark> <guid>]
+```
+
+Takes a bot off its crowd control mark: its `rti cc` goes to `none`, so none of its crowd control rows fires on the mark. With a mark and a GUID, that raid icon is also cleared, but only while it is still on that unit. The run leader sends it for a Sap that did not land and for a Banish that never landed ([Dungeon Run Leader](../dungeon-run-leader.md)).
+
 ### `.bot cmd focus`
 
 Applies the Skull raid mark to the specified target GUID and commands all party bots to focus damage.

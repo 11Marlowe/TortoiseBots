@@ -393,6 +393,10 @@ struct UnitFact
     // The core's creature type (kCreatureHumanoid ...): which run cc fits it
     // (CcFits). 0: not read, Polymorph only (the facts before #1159).
     std::uint32_t creatureType = 0;
+    // CcBit of each run cc family it is immune to (its creature_template
+    // mechanic_immune_mask or a live mechanic immunity against that spell's
+    // mechanic): never picked for that spell.
+    std::uint32_t ccImmune = 0;
     // Kill-first candidates (Facts::killFirst): in combat with a party member,
     // or summoned / owned (a healing ward) by a unit that is.
     bool engaged = false;
@@ -485,6 +489,16 @@ inline bool CcFits(CcFamily family, std::uint32_t creatureType)
 // order moves the mark onto its unit and sets the bot's "rti cc" to it, so two
 // held units need two marks). Moon first, as before.
 constexpr const char* kCcMarks[] = {"moon", "square", "diamond", "triangle"};
+// ... their raid icon slots (RtiTargetValue::GetRtiIndex): moon 4, square 5,
+// diamond 2, triangle 3. -1 for any other name.
+inline int CcMarkIcon(const std::string& mark)
+{
+    return mark == "moon" ? 4 : mark == "square" ? 5 : mark == "diamond" ? 2 : mark == "triangle" ? 3 : -1;
+}
+// A warlock is the crowd control of a unit only within Banish's range of the
+// lead bot (the party is gathered on it): beyond it the warlock's "fear on
+// cc" row (20 yd) is the one that can fire on the mark.
+constexpr float kBanishYd = 30.0f;
 // A Sap goes out before the pull, which waits this long for its aura (the
 // rogue stealths and walks to the mob), then goes without it.
 constexpr std::uint32_t kSapWaitMs = 15000;
@@ -514,6 +528,10 @@ struct MemberFact
     // The run cc it knows besides `polymorph` (CcBit: a priest's Shackle
     // Undead, a warlock's Banish, a rogue's Sap; issue #1159).
     std::uint32_t cc = 0;
+    // A rogue whose pre-pull Sap trigger ("sap cc mark") can fire at all: its
+    // master is a live client (PlayerbotAI::HasRealPlayerMaster) and Sap is
+    // not switched off ("no sap"). Without it no Sap is ordered.
+    bool canSap = false;
 };
 
 // Every run cc family `m` knows.
@@ -537,6 +555,9 @@ struct Facts
     float leadX = 0.0f, leadY = 0.0f, leadZ = 0.0f;
     bool leadMoving = false;            // the lead bot is moving now (Unit::IsMoving): an exact point's proof waits
     float maxMemberYd = 0.0f;           // the living bot farthest from the lead bot
+    // The group's raid icons now (Group::GetTargetIcon, star 0 ... skull 7):
+    // a cc order only takes a mark that is free or one the run set itself.
+    std::uint64_t raidIcons[8] = {};
     std::vector<MemberFact> members;    // the living bots, the lead bot too (at 0 yd)
     // The glue read MemberFact::withLead for every member this tick (only while DirectJoinWanted: a direct step
     // is the current one or the walk back's). The gate before a direct step then asks that test, not only the
@@ -941,6 +962,11 @@ struct Run
     };
     std::vector<CcWatch> ccWatch;
     bool ccSapFailed = false; // a Sap did not land this step: no other Sap in it
+    bool ccRegather = false;  // a Sap wait ended: gather (the rogue is by its mob) before the pull
+    // The raid icons the run's cc orders set, icon slot -> the unit (for the
+    // whole run, not the step): the run reuses only these and clears them at
+    // its end (CcIconsToClear), and never moves an icon it did not set.
+    std::unordered_map<int, std::uint64_t> ccIcons;
     std::uint64_t focusGuid = 0;              // the kill-first unit focused in this fight
     // Kill-first units whose focus was refused (kFocusRefusedIgnoreMs): unit ->
     // runMs until which PickKillFirst passes it over. focusUnstayed: such a
@@ -1448,6 +1474,7 @@ inline void ResetStep(Run& r)
     r.ccHolds.clear();
     r.ccWatch.clear();
     r.ccSapFailed = false;
+    r.ccRegather = false;
     r.walkBackDue = false;
     r.walkBack = false;
     r.walkBackDirect = false;
@@ -3598,17 +3625,25 @@ inline void SyncCcWatch(Run& r)
     r.ccWaitMs = r.ccWatch.empty() ? 0 : r.ccWatch.front().waitMs;
 }
 
-inline CcFamily HoldFamily(const Run& r, std::uint64_t guid)
+// The order that takes a bot off its cc mark (`cc clear <bot> <mark> <guid>`):
+// its "rti cc" goes to none, so no class row of it fires on the mark (a
+// warlock's "fear on cc"), and the raid icon is cleared when it is still on
+// that unit. The run's record of that icon goes with it.
+inline std::string CcClearOrder(Run& r, const Run::CcHold& hold, std::uint64_t guid)
 {
-    auto const h = r.ccHolds.find(guid);
-    return h == r.ccHolds.end() ? CcFamily::None : h->second.family;
+    int const icon = CcMarkIcon(hold.mark);
+    auto const set = r.ccIcons.find(icon);
+    if (set != r.ccIcons.end() && set->second == guid)
+        r.ccIcons.erase(set);
+    return "cc clear " + hold.bot + " " + hold.mark + " " + std::to_string(guid);
 }
 
 // In the fight after a `cc <mark>`: its aura must show on that unit within
 // kCcLandMs of its bot's own fight time. Not there: the mark once more (the
-// same mark and bot), then noted as not landed. A Sap is a pre-pull spell
-// (SapWait): one that has not shown when the fight starts is only noted.
-// At most one order a tick. Returns true when it sent one.
+// same mark and bot), then noted as not landed; a warlock is then taken off
+// the mark (CcClearOrder), so its Fear row cannot fire on it. A Sap is a
+// pre-pull spell (SapWait): one that has not shown when the fight starts is
+// only noted. At most one order a tick. Returns true when it sent one.
 inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
     bool sent = false;
@@ -3625,7 +3660,7 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
             r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
             continue;
         }
-        std::string const& bot = hold->second.bot;
+        std::string const bot = hold->second.bot;
         bool botAlive = false;
         // Counted only while the crowd control itself is in the fight.
         for (const MemberFact& m : f.members)
@@ -3659,6 +3694,17 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
             ++i;
             continue;
         }
+        if (hold->second.family == CcFamily::Banish && botAlive)
+        {
+            if (sent)
+            {
+                ++i; // the clear goes out next tick
+                continue;
+            }
+            order = CcClearOrder(r, hold->second, held->guid);
+            sent = true;
+            r.ccHolds.erase(hold);
+        }
         r.note = "fighting: cc did not land on " + std::to_string(held->entry);
         r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
     }
@@ -3668,13 +3714,14 @@ inline bool CheckCc(Run& r, const Facts& f, std::uint32_t dt, std::string& order
 
 // Before the pull: a Sap sent is waited for (the rogue stealths and walks to
 // its mob) up to kSapWaitMs, with no gather that would call the rogue back.
-// Landed: the pull goes on (its gather first, the rogue far off). Not landed
-// in time: noted (that tick holds the pull too), the unit is no longer held
-// and no other Sap goes out this step. Returns true while it holds the pull.
+// Landed: the party gathers (the rogue is by its mob), then the pull.
+// Not landed in time, or its unit gone from the facts (out of the read, out of
+// sight: the Sap is off): the rogue is taken off the mark first (`cc clear`,
+// so it stops), the unit is no longer held and no other Sap goes out this
+// step; the gather follows on the next tick. Returns true while it holds the
+// pull (an order or a wait).
 inline bool SapWait(Run& r, const Facts& f, std::uint32_t dt, std::string& order)
 {
-    bool ended = false;
-    bool failed = false;
     for (std::size_t i = 0; i < r.ccWatch.size();)
     {
         Run::CcWatch& w = r.ccWatch[i];
@@ -3694,33 +3741,40 @@ inline bool SapWait(Run& r, const Facts& f, std::uint32_t dt, std::string& order
             SyncCcWatch(r);
             return true;
         }
-        if (unit && unit->polymorphed)
-            r.note = std::to_string(unit->entry) + " is " + spell->held + ": the pull goes";
-        else if (unit)
-        {
-            r.note = "sap did not land on " + std::to_string(unit->entry) + " in " +
-                std::to_string(kSapWaitMs / 1000) + " s: the pull goes without it";
-            r.ccSapFailed = true;
-            r.ccSent.erase(w.guid);
-            r.ccHolds.erase(hold);
-            failed = true;
-        }
+        std::uint64_t const guid = w.guid;
         r.ccWatch.erase(r.ccWatch.begin() + static_cast<std::ptrdiff_t>(i));
-        ended = true;
-    }
-    SyncCcWatch(r);
-    if (ended && f.maxMemberYd > kGatherYd)
-    {
-        // The rogue is off by its mob: gather again before the pull (the
-        // gather's ceiling counts from here, not from the cc order).
-        std::string const why = r.note;
-        r.phaseMs = 0;
-        SendGather(r, f, order);
-        r.note = why + "; gathering before the pull";
+        r.ccRegather = true;
+        if (unit && unit->polymorphed)
+        {
+            r.note = std::to_string(unit->entry) + " is " + spell->held + ": the pull goes";
+            continue;
+        }
+        // Off: stop the rogue before anything else goes out.
+        r.note = unit ? "sap did not land on " + std::to_string(unit->entry) + " in " +
+                std::to_string(kSapWaitMs / 1000) + " s: the rogue is taken off it, the pull goes without it"
+                      : "sap off: its unit " + GuidArg(guid) + " left the read; the rogue is taken off it";
+        order = CcClearOrder(r, hold->second, guid);
+        r.ccSapFailed = true;
+        r.ccSent.erase(guid);
+        r.ccHolds.erase(hold);
+        SyncCcWatch(r);
         return true;
     }
-    // A Sap that did not land holds this one tick, so its note is seen.
-    return failed;
+    SyncCcWatch(r);
+    if (r.ccRegather)
+    {
+        r.ccRegather = false;
+        if (f.maxMemberYd > kGatherYd)
+        {
+            // The gather's ceiling counts from here, not from the cc order.
+            std::string const why = r.note;
+            r.phaseMs = 0;
+            SendGather(r, f, order);
+            r.note = why + "; gathering before the pull";
+            return true;
+        }
+    }
+    return false;
 }
 
 // The pack member the run crowd-controls before a pull of `pullGuid`: the
@@ -3738,22 +3792,28 @@ inline bool BossStepUnit(const PlanStep* s, std::uint32_t entry)
     return entry == s->entry || std::find(s->entries.begin(), s->entries.end(), entry) != s->entries.end();
 }
 
-// A cc order: the unit, the bot, its spell and the mark.
+// A cc order: the unit, the bot, its spell and the mark. noMarkEntry: a unit
+// a bot could have held, left because no mark was free (unit null then).
 struct CcPick
 {
     const UnitFact* unit = nullptr;
     std::string bot;
     CcFamily family = CcFamily::None;
     std::string mark;
+    std::uint32_t noMarkEntry = 0;
 };
 
 // Issue #1159: the unit as above, by rank, then the spell's reliability
 // (kRunCc's order), then the nearest; only a unit some free bot has a spell
-// for: the unit's creature type in the spell's (CcFits), a Sap only with the
-// party and that rogue out of combat (after a Sap that did not land this
-// step, none). A bot is free while no unit it holds lives (one unit per bot),
-// and a held unit is never given a second one. Its mark is the first of
-// kCcMarks no living held unit has. Unit null for none.
+// for: the unit's creature type in the spell's (CcFits) and the unit not
+// immune to it (ccImmune); a Banish only within kBanishYd of the lead bot; a
+// Sap only with the party and that rogue out of combat, a rogue whose Sap
+// trigger can fire (canSap), and none after a Sap that did not land this
+// step. Never a kill_first unit (that list wins: it is killed, not held). A
+// bot is free while no unit it holds lives (one unit per bot), and a held
+// unit is never given a second one. Its mark is the first of kCcMarks whose
+// raid icon is empty, or set by the run and on no living held unit; another
+// icon (a player's) is never moved, and with none free no cc goes out.
 inline CcPick PickCcOrder(const Run& r, const Facts& f, std::uint64_t pullGuid)
 {
     CcPick pick;
@@ -3769,19 +3829,25 @@ inline CcPick PickCcOrder(const Run& r, const Facts& f, std::uint64_t pullGuid)
         }
     const char* mark = nullptr;
     for (const char* m : kCcMarks)
-        if (!marks.count(m))
+    {
+        if (marks.count(m))
+            continue;
+        int const icon = CcMarkIcon(m);
+        std::uint64_t const live = f.raidIcons[icon];
+        auto const set = r.ccIcons.find(icon);
+        if (!live || (set != r.ccIcons.end() && set->second == live))
         {
             mark = m;
             break;
         }
-    if (!mark)
-        return pick;
+    }
     const PlanStep* const step = Current(r);
     int bestRank = 0;
     std::size_t bestSpell = 0;
     for (const UnitFact& u : f.units)
     {
-        if (u.guid == pullGuid || !Pullable(r, u) || r.ccSent.count(u.guid) || BossStepUnit(step, u.entry))
+        if (u.guid == pullGuid || !Pullable(r, u) || r.ccSent.count(u.guid) || BossStepUnit(step, u.entry) ||
+            r.plan->KillFirstRank(u.entry) >= 0)
             continue;
         int const rank = r.plan->CcRank(u.entry);
         if (rank < 0)
@@ -3792,13 +3858,15 @@ inline CcPick PickCcOrder(const Run& r, const Facts& f, std::uint64_t pullGuid)
         for (; spellIdx < sizeof(kRunCc) / sizeof(kRunCc[0]) && !bot; ++spellIdx)
         {
             const RunCcSpell& c = kRunCc[spellIdx];
-            if (!CcFits(c.family, u.creatureType))
+            if (!CcFits(c.family, u.creatureType) || (u.ccImmune & CcBit(c.family)))
                 continue;
             if (c.prePull && (f.anyInCombat || r.ccSapFailed))
                 continue;
+            if (c.family == CcFamily::Banish && u.distLead > kBanishYd)
+                continue;
             for (const MemberFact& m : f.members)
                 if (!m.name.empty() && !busy.count(m.name) && (MemberCc(m) & CcBit(c.family)) &&
-                    !(c.prePull && m.inCombat))
+                    !(c.prePull && (m.inCombat || !m.canSap)))
                 {
                     bot = &m;
                     break;
@@ -3818,7 +3886,14 @@ inline CcPick PickCcOrder(const Run& r, const Facts& f, std::uint64_t pullGuid)
             bestSpell = spellIdx;
         }
     }
-    if (pick.unit)
+    if (pick.unit && !mark)
+    {
+        pick.noMarkEntry = pick.unit->entry;
+        pick.unit = nullptr;
+        pick.bot.clear();
+        pick.family = CcFamily::None;
+    }
+    else if (pick.unit)
         pick.mark = mark;
     return pick;
 }
@@ -3826,6 +3901,15 @@ inline CcPick PickCcOrder(const Run& r, const Facts& f, std::uint64_t pullGuid)
 inline const UnitFact* PickCc(const Run& r, const Facts& f, std::uint64_t pullGuid)
 {
     return PickCcOrder(r, f, pullGuid).unit;
+}
+
+// The raid icons the run set that the glue clears at the run's end (only
+// where the icon is still on that unit): icon slot and unit.
+inline std::vector<std::pair<int, std::uint64_t>> CcIconsToClear(const Run& r)
+{
+    std::vector<std::pair<int, std::uint64_t>> out(r.ccIcons.begin(), r.ccIcons.end());
+    std::sort(out.begin(), out.end());
+    return out;
 }
 
 // The pull stand rule is on for this pull (AiPlayerbot.DungeonRunPullStand):
@@ -4233,6 +4317,7 @@ inline void PullUnit(Run& r, const Facts& f, const UnitFact& u, std::string& ord
         // (SapWait). One unit per bot, each with its own mark (PickCcOrder).
         r.ccSent.insert(cc->guid);
         r.ccHolds[cc->guid] = Run::CcHold{ccPick.bot, ccPick.mark, ccPick.family};
+        r.ccIcons[CcMarkIcon(ccPick.mark)] = cc->guid; // the order moves that icon onto it
         Run::CcWatch watch;
         watch.guid = cc->guid;
         r.ccWatch.push_back(watch);
@@ -5159,7 +5244,10 @@ inline void FightStep(Run& r, const Facts& f, const PlanStep& s, const std::vect
                 " pulls that killed nothing");
             return;
         }
-        PullUnit(r, f, *pick, order, PickCc(r, f, pick->guid), false, dt);
+        CcPick const ccPick = PickCcOrder(r, f, pick->guid);
+        PullUnit(r, f, *pick, order, ccPick.unit, false, dt);
+        if (ccPick.noMarkEntry && order.compare(0, 9, "pullback ") == 0)
+            r.note += "; no free raid mark for crowd control on " + std::to_string(ccPick.noMarkEntry);
         if (!budgetNote.empty() && r.phase == Phase::AwaitPull)
             r.note = f.pullStand ? budgetNote + "; " + r.note : budgetNote;
         return;

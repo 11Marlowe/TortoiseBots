@@ -5289,6 +5289,7 @@ static UnitFact Ward(std::uint64_t guid, std::uint64_t owner, bool ownerEngaged,
 static void TestHopWaiverEndsWhenCombatStartsDuringCrowdControl()
 {
     DungeonPlan plan = ZfPlan();
+    plan.killFirst = {8179, 7247}; // #1159: a kill_first unit is never held, so the witch doctor is cc only
     Run r = Start(&plan);
     r.restDue = false;
     r.anchorKnown = true; // the stand before, 20 yd below the lead bot
@@ -5361,6 +5362,7 @@ static void TestBossStepNeverCrowdControlsItsAdds()
 static void TestPullCrowdControlsTheHealer()
 {
     DungeonPlan plan = ZfPlan();
+    plan.killFirst = {8179, 7247}; // #1159: a kill_first unit is never held, so the witch doctor is cc only
     Run r = Start(&plan);
     Facts f = Party(0);
     f.members = {MemberFact{"Magey", 5, true, true}};
@@ -5994,6 +5996,7 @@ static MemberFact CcMem(const std::string& name, CcFamily family, bool inCombat 
         m.polymorph = true;
     else
         m.cc = CcBit(family);
+    m.canSap = family == CcFamily::Sap; // a live client master (HasRealPlayerMaster)
     m.inCombat = inCombat;
     return m;
 }
@@ -6187,12 +6190,14 @@ static void TestSapThatNeverLandsLetsThePullGo()
         Typed(3, 101, 22, kCreatureHumanoid)};
     CHECK(Tick(r, f) == "cc moon 2 Roguey");
     std::uint32_t ticks = 0;
-    for (; ticks <= kSapWaitMs / kTickMs + 1 && !r.ccSapFailed; ++ticks)
-        CHECK(Tick(r, f).empty());
+    std::string order;
+    for (; ticks <= kSapWaitMs / kTickMs + 1 && order.empty(); ++ticks)
+        order = Tick(r, f);
     CHECK(ticks == kSapWaitMs / kTickMs);
-    CHECK(r.note.find("sap did not land on 100") == 0);
+    // The rogue is taken off the mark (and the icon cleared) before anything else.
+    CHECK(order == "cc clear Roguey moon 2" && r.note.find("sap did not land on 100") == 0);
     // No second Sap this step: the pull goes, and the unit is not held.
-    std::string order = Tick(r, f);
+    order = Tick(r, f);
     CHECK(order == "pullback 1");
     CHECK(r.ccSapFailed && !r.ccSent.count(2) && r.ccHolds.empty() && r.ccPending == 0);
     CHECK(PickCc(r, f, 0) == nullptr);
@@ -6228,6 +6233,159 @@ static void TestCcResendUsesItsOwnMark()
         orders += Tick(r, f);
     CHECK(orders == "cc square 3 Priesty");
     CHECK(r.ccWatch.size() == 1 && r.ccWatch[0].resent && r.ccPending == 3 && r.ccResent);
+}
+
+// Review of fe5d4109: a Sap that times out stops the rogue (`cc clear`)
+// before the gather calls the party together; no other Sap that step.
+static void TestSapTimeoutClearsTheRogueBeforeTheGather()
+{
+    DungeonPlan plan = CcPlan({100, 101});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {Mem("Tanky", 0), CcMem("Roguey", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid),
+        Typed(3, 101, 22, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Roguey");
+    CHECK(r.ccIcons.count(4) && r.ccIcons.at(4) == 2);
+    f.maxMemberYd = 30; // the rogue is off by its mob
+    f.members[1].yd = 30;
+    std::string order;
+    for (std::uint32_t i = 0; i <= kSapWaitMs / kTickMs + 1 && order.empty(); ++i)
+        order = Tick(r, f);
+    CHECK(order == "cc clear Roguey moon 2");
+    CHECK(r.ccIcons.empty()); // the clear takes the run's icon with it
+    order = Tick(r, f);
+    CHECK(order.compare(0, 5, "move ") == 0 && r.note.find("gathering before the pull") != std::string::npos);
+    f.maxMemberYd = 0;
+    f.members[1].yd = 5;
+    CHECK(Tick(r, f) == "pullback 1");
+    CHECK(PickCc(r, f, 0) == nullptr && r.ccSent.empty());
+}
+
+// Codex on fe5d4109: a watched Sap target that drops out of the facts for a
+// tick (range, sight) is a cancelled Sap: the rogue is cleared and the unit
+// is free again: back in the read, it is no held unit (pulled and focused as
+// any other).
+static void TestSapTargetGoneForATickIsCancelled()
+{
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Roguey", CcFamily::Sap)};
+    f.units = {Typed(1, 1, 30, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 2 Roguey");
+    CHECK(Tick(r, f).empty()); // waiting
+    Facts gone = f;
+    gone.units.pop_back();
+    CHECK(Tick(r, gone) == "cc clear Roguey moon 2");
+    CHECK(r.ccSapFailed && !r.ccSent.count(2) && r.ccHolds.empty() && r.ccWatch.empty());
+    // Back: the nearest unit, no longer held, is the pull.
+    const UnitFact* pull = PickPackPull(r, f);
+    CHECK(pull && pull->guid == 2);
+    CHECK(Tick(r, f) == "pullback 2");
+}
+
+// Codex on fe5d4109: a raid icon set by someone else is never moved; the run
+// takes the next free mark, none when all four are taken (noted), and reuses
+// an icon it set itself once its unit is gone.
+static void TestCcMarksOnlyFreeOrTheRunsOwn()
+{
+    DungeonPlan plan = CcPlan({100});
+    Facts f = Party(0);
+    f.members = {CcMem("Magey", CcFamily::Polymorph)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    f.raidIcons[4] = 99; // a player's moon
+    Run r = Start(&plan);
+    CHECK(Tick(r, f) == "cc square 2 Magey");
+    // Every cc mark taken: no cc, noted with the pull.
+    Run n = Start(&plan);
+    Facts g = f;
+    g.raidIcons[5] = 98;
+    g.raidIcons[2] = 97;
+    g.raidIcons[3] = 96;
+    CHECK(Tick(n, g) == "pullback 1");
+    CHECK(n.ccSent.empty() && n.note.find("no free raid mark for crowd control on 100") != std::string::npos);
+    // The run's own moon, still on a unit that is gone, is taken again.
+    Run o = Start(&plan);
+    Facts h = Party(0);
+    h.members = f.members;
+    h.units = f.units;
+    o.ccIcons[4] = 77;
+    h.raidIcons[4] = 77;
+    CHECK(Tick(o, h) == "cc moon 2 Magey");
+    // Run end: the icons the run set, for the glue to clear.
+    auto const clear = CcIconsToClear(o);
+    CHECK(clear.size() == 1 && clear[0].first == 4 && clear[0].second == 2);
+    CHECK(CcMarkIcon("moon") == 4 && CcMarkIcon("square") == 5 && CcMarkIcon("diamond") == 2 &&
+        CcMarkIcon("triangle") == 3 && CcMarkIcon("skull") == -1);
+}
+
+// Codex on fe5d4109: kill_first wins: a unit whose entry is in both lists is
+// killed, never held.
+static void TestKillFirstUnitIsNeverCrowdControlled()
+{
+    DungeonPlan plan = CcPlan({100, 101});
+    plan.killFirst = {100};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Magey", CcFamily::Polymorph)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid),
+        Typed(3, 101, 25, kCreatureHumanoid)};
+    CHECK(Tick(r, f) == "cc moon 3 Magey");
+    CHECK(Tick(r, f) == "pullback 2"); // the kill_first unit is the pull
+}
+
+// Opus on fe5d4109: a warlock only for a demon or elemental within Banish's
+// range and not immune to it (else its "fear on cc" row can fire on the mark),
+// and taken off the mark when the Banish never lands. Immunity holds for every
+// spell (a Polymorph-immune humanoid too).
+static void TestWarlockOnlyWhereBanishCanLand()
+{
+    DungeonPlan plan = CcPlan({300});
+    Facts f = Party(0);
+    f.members = {CcMem("Locky", CcFamily::Banish, true)};
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 300, kBanishYd + 5, kCreatureDemon)};
+    Run far = Start(&plan);
+    CHECK(PickCc(far, f, 0) == nullptr);
+    f.units[1].distLead = kBanishYd;
+    f.units[1].ccImmune = CcBit(CcFamily::Banish);
+    CHECK(PickCc(far, f, 0) == nullptr);
+    f.units[1].ccImmune = CcBit(CcFamily::Polymorph);
+    CHECK(PickCc(far, f, 0) != nullptr);
+    Facts m = Party(0);
+    m.members = {CcMem("Magey", CcFamily::Polymorph)};
+    m.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    m.units[1].ccImmune = CcBit(CcFamily::Polymorph);
+    DungeonPlan hp = CcPlan({100});
+    Run mr = Start(&hp);
+    CHECK(PickCc(mr, m, 0) == nullptr);
+    // Never lands: once more, then `cc clear` for the warlock.
+    Run r = Start(&plan);
+    f.units[1].ccImmune = 0;
+    CHECK(Tick(r, f) == "cc moon 2 Locky");
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    std::string orders;
+    for (std::uint32_t i = 0; i <= 2 * kCcLandMs / kTickMs + 2; ++i)
+        orders += Tick(r, f) + "|";
+    CHECK(orders.find("cc moon 2 Locky|") != std::string::npos);
+    CHECK(orders.find("cc clear Locky moon 2|") != std::string::npos);
+    CHECK(orders.find("cc moon 2 Locky|") < orders.find("cc clear Locky moon 2|"));
+    CHECK(r.ccHolds.empty() && r.ccWatch.empty() && r.ccIcons.empty());
+}
+
+// The rogue's pre-pull Sap trigger runs only for a bot with a live client
+// master (HasRealPlayerMaster): without one no Sap is ordered (no 15 s lost).
+static void TestNoSapWithoutALiveMaster()
+{
+    DungeonPlan plan = CcPlan({100});
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.members = {CcMem("Roguey", CcFamily::Sap)};
+    f.members[0].canSap = false;
+    f.units = {Typed(1, 1, 10, kCreatureHumanoid), Typed(2, 100, 20, kCreatureHumanoid)};
+    CHECK(PickCc(r, f, 0) == nullptr);
+    CHECK(Tick(r, f) == "pullback 1" && r.ccSent.empty());
 }
 
 static void TestStepIdleCeiling()
@@ -11996,6 +12154,12 @@ int main()
     TestRogueSapsBeforeThePull();
     TestSapThatNeverLandsLetsThePullGo();
     TestCcResendUsesItsOwnMark();
+    TestSapTimeoutClearsTheRogueBeforeTheGather();
+    TestSapTargetGoneForATickIsCancelled();
+    TestCcMarksOnlyFreeOrTheRunsOwn();
+    TestKillFirstUnitIsNeverCrowdControlled();
+    TestWarlockOnlyWhereBanishCanLand();
+    TestNoSapWithoutALiveMaster();
     TestTankGuardsThePartyFromItsStand();
     TestTankGuardReturnsToItsOwnSpot();
     TestTankGuardPull100Replay();
