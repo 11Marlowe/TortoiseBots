@@ -150,6 +150,15 @@ Bots do not jump autonomously inside dungeons or raids (the chase jump, follow j
 
 Entering a raid map automatically activates the dungeon transition engine, enabling raid strategies for Molten Core, Onyxia's Lair, Blackwing Lair, Naxxramas, Zul'Gurub, Ruins of Ahn'Qiraj, and Temple of Ahn'Qiraj.
 
+The `dungeon` strategy detects the current map after walking or teleporting in,
+including a summon straight into combat. Loading an older combat/non-combat
+strategy snapshot retains this detector when its saved list omits it; an
+explicit saved `-dungeon` still wins. Existing sessions missing it need a
+strategy reload/relog or `.bot command all all +dungeon`. Detection runs on the
+normal trigger interval after world insertion and teleport completion. This
+does not automatically enable every optional boss strategy or guarantee that
+an avoidance action succeeds.
+
 ### Universal Raid Reactions
 
 - **Bomb Runout:** Carriers of *Living Bomb* (Baron Geddon), *Burning Adrenaline* (Vaelastrasz), *Mutating Injection* (Grobbulus), or *Detonate Mana* (Kel'Thuzad) immediately run clear of the raid group ([`AiPlayerbot.BombRunoutDistance`](../server/settings/dungeons-raids.md#aiplayerbotbombrunoutdistance)). Ranged Grobbulus carriers run behind the boss.
