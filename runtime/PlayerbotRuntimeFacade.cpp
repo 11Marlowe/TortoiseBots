@@ -5,6 +5,7 @@
 
 #include "../ai/playerbot/RandomBotFacade.h"
 #include "runtime/BotActivityLease.h"
+#include "AhReadModelPolicy.h"
 #include "NamedLocationIndex.h"
 
 #include "../ai/playerbot/PlayerbotAI.h"
@@ -360,7 +361,7 @@ void RandomBotFacade::LoadAuctionPrices()
 
             // Bounded per-item listings: keep up to 64 lowest-unit-price entries
             // per item template so memory and appraisal sorting stay bounded.
-            constexpr size_t kMaxAuctionsPerItem = 64;
+            // The replace-the-dearest rule is the shared AhReadModelPolicy.
             auto& listings = ahMirror[entry->itemTemplate];
             if (listings.size() < kMaxAuctionsPerItem)
             {
@@ -369,22 +370,16 @@ void RandomBotFacade::LoadAuctionPrices()
             else
             {
                 float currentUnitPrice = float(entry->buyout) / float(item->GetCount());
-                size_t maxIdx = 0;
-                float maxUnitPrice = 0.0f;
-                for (size_t idx = 0; idx < listings.size(); ++idx)
-                {
-                    Item const* existingItem = sAuctionMgr.GetAItem(listings[idx].itemGuidLow);
-                    uint32 existingCount = existingItem ? existingItem->GetCount() : 1;
-                    float existingUnitPrice = float(listings[idx].buyout) / float(existingCount);
-                    if (existingUnitPrice > maxUnitPrice)
+                size_t replaceIdx = ai::AhListingReplaceIndex(listings, currentUnitPrice,
+                    [](AuctionEntry const& existing)
                     {
-                        maxUnitPrice = existingUnitPrice;
-                        maxIdx = idx;
-                    }
-                }
-                if (currentUnitPrice < maxUnitPrice)
+                        Item const* existingItem = sAuctionMgr.GetAItem(existing.itemGuidLow);
+                        uint32 existingCount = existingItem ? existingItem->GetCount() : 1;
+                        return float(existing.buyout) / float(existingCount);
+                    });
+                if (replaceIdx != ai::kAhNoListingIndex)
                 {
-                    listings[maxIdx] = *entry;
+                    listings[replaceIdx] = *entry;
                 }
             }
         }
@@ -429,8 +424,7 @@ std::vector<AuctionEntry> RandomBotFacade::GetAhPrices(uint32 itemId, uint32 hou
         }
 
         uint32 team = entry.auctionHouseEntry ? AuctionHouseMgr::GetAuctionHouseTeam(entry.auctionHouseEntry) : 0;
-        // team == 0 is neutral AH (accessible to all factions)
-        if (team == 0 || team == houseFaction || houseFaction == 0)
+        if (ai::AhListingVisibleForFaction(twoSide, team, houseFaction))
         {
             result.push_back(entry);
         }

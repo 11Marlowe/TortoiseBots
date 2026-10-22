@@ -1,6 +1,7 @@
 #include "AhMarketService.h"
 #include "AhBuyerPolicy.h"
 #include "AhSellerTeleportPolicy.h"
+#include "AhSyntheticMarketPolicy.h"
 #include "BotActivityLease.h"
 #include "TradingLeasePolicy.h"
 
@@ -472,7 +473,7 @@ bool AhMarketService::IsSyntheticAuction(AuctionEntry const* auction) const
 {
     if (!auction)
         return false;
-    return auction->owner == SYNTHETIC_OWNER_GUID || m_syntheticAuctions.count(auction->Id) > 0;
+    return AhIsSyntheticAuction(auction->owner, m_syntheticAuctions.count(auction->Id) > 0);
 }
 
 bool AhMarketService::IsSyntheticItem(uint32_t itemGuidLow) const
@@ -484,7 +485,7 @@ bool AhMarketService::IsItemBlacklisted(uint32_t itemId) const
 {
     auto it = m_overrides.find(itemId);
     if (it != m_overrides.end())
-        return it->second.add_chance == 0 || it->second.value == 0;
+        return AhItemBlacklisted(it->second.value, it->second.add_chance);
     return false;
 }
 
@@ -519,9 +520,9 @@ void AhMarketService::ReloadOverrides()
                 continue;
             ItemOverride ov;
             ov.value = f[1].GetUInt32();
-            ov.add_chance = std::min<uint32>(100, f[2].GetUInt32());
+            ov.add_chance = AhClampedOverrideChance(f[2].GetUInt32());
             ov.min_amount = f[3].GetUInt32();
-            ov.max_amount = std::max(ov.min_amount, f[4].GetUInt32());
+            ov.max_amount = AhOverrideMaxAmount(ov.min_amount, f[4].GetUInt32());
             m_overrides[itemId] = ov;
         } while (result->NextRow());
         TB_LOG_BASIC("TortoiseBots: AhMarket loaded %zu item overrides from ahbot_items", m_overrides.size());
@@ -538,9 +539,9 @@ bool AhMarketService::SetItemOverride(uint32_t itemId, uint32_t value, uint32_t 
         return false;
     ItemOverride ov;
     ov.value = value;
-    ov.add_chance = std::min<uint32>(100, addChance);
+    ov.add_chance = AhClampedOverrideChance(addChance);
     ov.min_amount = minAmount;
-    ov.max_amount = std::max(minAmount, maxAmount);
+    ov.max_amount = AhOverrideMaxAmount(minAmount, maxAmount);
     m_overrides[itemId] = ov;
 
     CharacterDatabase.PExecute("REPLACE INTO ahbot_items (item, value, add_chance, min_amount, max_amount) VALUES ('%u', '%u', '%u', '%u', '%u')",
@@ -701,19 +702,16 @@ void AhMarketService::RefreshDynamicLevel()
 
 bool AhMarketService::IsItemEligible(ItemPrototype const* proto, bool forced) const
 {
-    if (!proto || !proto->Stackable || proto->Quality > sPlayerbotAIConfig.ahMarketMaxQuality)
+    if (!proto)
         return false;
-    if (IsItemBlacklisted(proto->ItemId))
-        return false;
-    if (forced)
-        return true;
-    if (proto->RequiredLevel > m_maxRequiredLevel || proto->ItemLevel > m_maxItemLevel)
-        return false;
-    if (proto->Bonding == BIND_WHEN_PICKED_UP || proto->Bonding == BIND_QUEST_ITEM)
-        return false;
-    if (proto->Flags & ITEM_FLAG_HAS_LOOT)
-        return false;
-    return true;
+
+    // Caps, blacklist, bonding and loot-window rules are the shared
+    // AhSyntheticMarketPolicy; this reads game state into plain inputs.
+    return AhItemEligible(IsItemBlacklisted(proto->ItemId), forced, proto->Stackable != 0,
+        uint32_t(proto->Quality), sPlayerbotAIConfig.ahMarketMaxQuality,
+        proto->RequiredLevel, m_maxRequiredLevel,
+        proto->ItemLevel, m_maxItemLevel,
+        uint32_t(proto->Bonding), proto->Flags);
 }
 
 uint32_t AhMarketService::CalculatePrice(ItemPrototype const* proto) const
@@ -724,56 +722,32 @@ uint32_t AhMarketService::CalculatePrice(ItemPrototype const* proto) const
     if (it != m_overrides.end() && it->second.value > 0)
         return it->second.value;
 
-    uint32 qualityMultiplier = 100;
-    switch (proto->Quality)
-    {
-        case ITEM_QUALITY_POOR: qualityMultiplier = 50; break;
-        case ITEM_QUALITY_NORMAL: qualityMultiplier = 100; break;
-        case ITEM_QUALITY_UNCOMMON: qualityMultiplier = 200; break;
-        case ITEM_QUALITY_RARE: qualityMultiplier = 400; break;
-        case ITEM_QUALITY_EPIC: qualityMultiplier = 800; break;
-        case ITEM_QUALITY_LEGENDARY: qualityMultiplier = 1600; break;
-        case ITEM_QUALITY_ARTIFACT: qualityMultiplier = 3200; break;
-        default: break;
-    }
-
-    uint64 base = proto->BuyPrice;
-    if (!base || (proto->SellPrice && proto->BuyPrice / proto->SellPrice > 5))
-        base = uint64(proto->SellPrice) * (proto->Quality <= 1 ? 4 : 5);
-    if (!base)
-        base = 1;
-
-    uint32 price = uint32(std::min<uint64>(base * qualityMultiplier / 100, 0x7fffffffULL));
-    return ApplyVariance(price);
+    // Quality scaling, the buy/sell sanity rule and the overflow cap are
+    // the shared AhSyntheticMarketPolicy; variance stays game-side (urand).
+    return ApplyVariance(AhSyntheticBasePrice(proto->BuyPrice, proto->SellPrice, uint32_t(proto->Quality)));
 }
 
 uint32_t AhMarketService::ApplyVariance(uint32_t price) const
 {
     if (!price || !sPlayerbotAIConfig.ahMarketVariance)
         return price ? price : 1;
+
     int32 variance = (int32)sPlayerbotAIConfig.ahMarketVariance;
     int32 delta = (int32)urand(0, variance * 2) - variance;
-    int64 varied = int64(price) + (int64(price) * delta / 100);
-    if (varied <= 0)
-        return 1;
-    return (uint32_t)std::min<int64>(varied, 0x7fffffffLL);
+    return AhVariedPrice(price, delta);
 }
 
 uint32_t AhMarketService::CalculateStack(ItemPrototype const* proto, uint32_t stockCount, uint32_t unitPrice) const
 {
-    if (!proto || !stockCount || !unitPrice || !proto->Stackable)
+    if (!proto)
         return 0;
-    uint32 maxAffordable = uint32(0x7fffffffULL / unitPrice);
-    uint32 count = std::min<uint32>(stockCount, std::min<uint32>(proto->Stackable, maxAffordable));
+
     auto it = m_overrides.find(proto->ItemId);
-    if (it != m_overrides.end())
-    {
-        if (it->second.min_amount)
-            count = std::max(count, it->second.min_amount);
-        if (it->second.max_amount)
-            count = std::min(count, it->second.max_amount);
-    }
-    return count ? count : 1;
+    uint32_t overrideMinAmount = it != m_overrides.end() ? it->second.min_amount : 0;
+    uint32_t overrideMaxAmount = it != m_overrides.end() ? it->second.max_amount : 0;
+
+    return AhStackCount(proto->Stackable != 0, proto->Stackable, stockCount, unitPrice,
+        overrideMinAmount, overrideMaxAmount);
 }
 
 bool AhMarketService::PublishSyntheticAuction(uint32_t itemId, uint32_t count, uint32_t unitPrice)
@@ -901,13 +875,12 @@ bool AhMarketService::BuyAuctionCandidate(AuctionEntry* auction, AuctionHouseObj
         // into a buyer bid. Host guards above stay authoritative.
         if (!BotActivityLeaseManager::Instance().IsAvailableForBackground(bot->GetGUIDLow()))
             continue;
-        if (auction->owner == bot->GetGUIDLow())
-            continue;
         if (!bot->GetSession() || !bot->IsInWorld() || !bot->IsAlive() || bot->IsBeingTeleported())
             continue;
-        if (auction->ownerAccount == bot->GetSession()->GetAccountId())
-            continue;
-        if (auction->bidder == bot->GetGUIDLow())
+        // Own auction, same-account auction, already-highest-bidder: the
+        // shared AhSyntheticMarketPolicy exclusion rule.
+        if (AhBuyerExcluded(auction->owner, auction->ownerAccount, auction->bidder,
+                bot->GetGUIDLow(), bot->GetSession()->GetAccountId()))
             continue;
         if (auction->bidder && sObjectMgr.GetPlayerAccountIdByGUID(ObjectGuid(HIGHGUID_PLAYER, auction->bidder)) == bot->GetSession()->GetAccountId())
             continue;
@@ -939,27 +912,19 @@ bool AhMarketService::BuyAuctionCandidate(AuctionEntry* auction, AuctionHouseObj
     if (!buyer || !ai || !auctioneer)
         return false;
 
-    uint32 fairUnit = CalculatePrice(proto);
     uint32 medianMarket = ai::ItemUsageValue::GetAHMedianBuyoutPricePerItem(proto, buyer);
-    if (medianMarket > 0)
-        fairUnit = (fairUnit + medianMarket) / 2;
-
-    uint64 willingness = (uint64(fairUnit) * count * sPlayerbotAIConfig.ahMarketBuyValue) / 100;
+    uint64 willingness = AhBuyerWillingness(CalculatePrice(proto), medianMarket, count,
+        sPlayerbotAIConfig.ahMarketBuyValue);
     if (!willingness)
         return false;
 
     uint32 buyout = auction->buyout;
     uint32 curBid = auction->bid;
     uint32 outbid = auction->GetAuctionOutBid();
-    uint32 nextBid = curBid ? (curBid + outbid) : auction->startbid;
 
-    bool canBuyout = (buyout > 0 && willingness >= buyout);
-    bool canBid = (!canBuyout && willingness >= nextBid && (buyout == 0 || nextBid < buyout));
-
-    if (!canBuyout && !canBid)
+    uint32 targetPrice = 0;
+    if (!AhBuyerTargetPrice(willingness, buyout, curBid, outbid, auction->startbid, targetPrice))
         return false;
-
-    uint32 targetPrice = canBuyout ? buyout : nextBid;
 
     if (buyer->GetMoney() < targetPrice)
         return false;
@@ -990,7 +955,8 @@ bool AhMarketService::BuyAuctionCandidate(AuctionEntry* auction, AuctionHouseObj
     BotActivityLeaseManager::Instance().Release(buyer->GetGUIDLow(), BotActivity::Trading, restore);
     ++m_totalBought;
     TB_LOG_DEBUG("TortoiseBots: AhMarket buyer %s placed %s on auc %u (item %s x%u) for %u",
-        buyer->GetName(), canBuyout ? "buyout" : "bid", auction->Id, proto->Name1.c_str(), count, targetPrice);
+        buyer->GetName(), (buyout > 0 && targetPrice == buyout) ? "buyout" : "bid",
+        auction->Id, proto->Name1.c_str(), count, targetPrice);
 
     return true;
 }
@@ -1314,7 +1280,7 @@ void AhMarketService::StepExpire()
     // Never expire or delete an auction that has an active bid, even during
     // admin rebuild-all. The listing must run its natural course to either
     // victory (SendAuctionWonMail) or outbid refund so money is preserved.
-    if (auction->bid != 0)
+    if (AhListingProtectedFromExpire(auction->bid))
     {
         ++m_totalProtectedBids;
         return;

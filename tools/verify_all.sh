@@ -75,6 +75,8 @@ if command -v g++ >/dev/null 2>&1; then
         test_aoe_off_policy
         test_arcane_rupture_policy
         test_attack_order_policy
+        test_attackers_aoe_density
+        test_auction_read_model
         test_auto_tools_kit_policy
         test_autonomous_bg_policy
         test_avoid_aoe_policy
@@ -268,6 +270,7 @@ if command -v g++ >/dev/null 2>&1; then
         test_travel_route_policy
         test_trinket_use_policy
         test_totem_command_policy
+        test_synthetic_ah
         test_undercity_lift_policy
         test_use_item_name_policy
         test_vael_policy

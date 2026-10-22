@@ -4,76 +4,31 @@
 
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "playerbot/AttackersAoeDensityPolicy.h"
 using namespace ai;
 
 #include <set>
 
 std::list<ObjectGuid> AoeCountValue::FindMaxDensity(Player* bot, float range)
 {
-    size_t maxCount = 0;
-    ObjectGuid maxGroup;
-    std::map<ObjectGuid, std::set<ObjectGuid> > groups;
-    std::vector<ObjectGuid> uniqueUnits;
-    if (bot)
-    {
-        std::list<ObjectGuid> units = *PlayerbotAIStorage::Instance().GetAI(bot)->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers");
-
-        // Stable first-seen deduplication preserving attackers priority order
-        std::set<ObjectGuid> seen;
-        for (const ObjectGuid& guid : units)
-        {
-            if (seen.insert(guid).second)
-                uniqueUnits.push_back(guid);
-        }
-
-        for (const ObjectGuid& guid : uniqueUnits)
-        {
-            Unit* unit = PlayerbotAIStorage::Instance().GetAI(bot)->GetUnit(guid);
-            if (unit)
-            {
-                float distanceToPlayer = sServerFacade.getDistance2d(unit, bot);
-                if (sServerFacade.IsDistanceLessOrEqualThan(distanceToPlayer, range))
-                {
-                    for (const ObjectGuid& otherGuid : uniqueUnits)
-                    {
-                        Unit* other = PlayerbotAIStorage::Instance().GetAI(bot)->GetUnit(otherGuid);
-                        if (other)
-                        {
-                            float d = sServerFacade.getDistance2d(unit, other);
-                            if (sServerFacade.IsDistanceLessOrEqualThan(d, sPlayerbotAIConfig.aoeRadius * 2.0f))
-                            {
-                                groups[guid].insert(otherGuid);
-                            }
-                        }
-                    }
-
-                    if (maxCount < groups[guid].size())
-                    {
-                        maxCount = groups[guid].size();
-                        maxGroup = guid;
-                    }
-                }
-            }
-        }
-    }
-
-    if (!maxCount || maxGroup.IsEmpty())
-    {
+    if (!bot)
         return std::list<ObjectGuid>();
-    }
 
-    // Return the cluster members in original attackers priority order
-    std::list<ObjectGuid> result;
-    const std::set<ObjectGuid>& maxSet = groups[maxGroup];
-    for (const ObjectGuid& guid : uniqueUnits)
-    {
-        if (maxSet.find(guid) != maxSet.end())
+    PlayerbotAI* botAi = PlayerbotAIStorage::Instance().GetAI(bot);
+    std::list<ObjectGuid> units = *botAi->GetAiObjectContext()->GetValue<std::list<ObjectGuid>>("attackers");
+
+    // Dedup, cluster scoring, tie-breaking and result ordering are the pure
+    // rules in AttackersAoeDensityPolicy; lookup and distance stay here.
+    return FindMaxDensityCluster<ObjectGuid, Unit>(units,
+        [botAi](const ObjectGuid& guid) -> Unit*
         {
-            result.push_back(guid);
-        }
-    }
-
-    return result;
+            return botAi->GetUnit(guid);
+        },
+        [](Unit* unit, Unit* other)
+        {
+            return sServerFacade.getDistance2d(unit, other);
+        },
+        bot, range, sPlayerbotAIConfig.aoeRadius, sPlayerbotAIConfig.targetPosRecalcDistance);
 }
 
 WorldLocation AoePositionValue::Calculate()
