@@ -18,7 +18,7 @@
 -- Ritualists (36519, which channel Frostmane Ritual 41592, 150 health per second each, on him), Kan'za (63129) to two Snowcallers of
 -- leg 1 pull group 28 and Tan'sha (63133) to Handler Oboka (63132, leg 2 pull group 12), so a pull of any of them wakes the boss; 15
 -- patrolling spawns walk 96-370 yd loops through other camps; each leg's `to` is the position of its first pack; leg 1 starts with a 463 yd
--- walk that passes 30 units of 12 packs pulled later.
+-- walk that passes 30 units of 17 packs pulled later (21 of them within 8 yd of the walk).
 --
 -- ai_dungeon_boss rows for map 822 follow the plan rows (the four boss steps). Handler Oboka (63132) is a named mob, not a boss step, and is
 -- not listed.
