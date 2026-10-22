@@ -6707,6 +6707,9 @@ inline bool CheckGuard(Run& r, const Facts& f, std::uint32_t dt, std::string& or
 //   - a move step: no walk back, its walk goes on forward to its point;
 //   - any other step (it acts where the party stood: a wait_clear, a rest, an
 //     object or item step): kept.
+// During a wipe's walk back (Run::walkBack) the step judged is the one whose
+// point is replayed (FactStep: a move point, so the replay goes on forward),
+// not the step the run returns to; the facts are read for that step too.
 // The key at 1 keeps the walk back after every fight, as before.
 inline bool GuardWalkBackWanted(const Run& r, const Facts& f, const PlanStep& s)
 {
@@ -7619,7 +7622,7 @@ inline std::string TickBody(Run& r, const Facts& f, std::uint32_t dt, const Rest
     {
         if (InEvent(r) || r.phase == Phase::AwaitTask || r.phase == Phase::Wait)
             r.guardReturn = false;
-        else if (!GuardWalkBackWanted(r, f, *s))
+        else if (!GuardWalkBackWanted(r, f, FactStep(r) ? *FactStep(r) : *s))
             r.guardReturn = false; // the fight is won: the step goes on from where the tank stands
         else if (r.phase != Phase::Walk &&
             ai::PlanDistance(f.leadX, f.leadY, f.leadZ, r.guardX, r.guardY, r.guardZ) > kGuardReturnMaxYd)

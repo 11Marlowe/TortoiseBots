@@ -11280,11 +11280,13 @@ static void UpdateDungeonRuns(uint32 diff)
     {
         for (auto& entry : DungeonRuns())
         {
-            if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
-                RestoreRunLootMethod(standing->leadGuid, entry.second.run);
             entry.second.run.state = TortoiseBots::DungeonRun::State::Done;
             entry.second.run.note = "stopped: the run leader was switched off (AiPlayerbot.DungeonSelfClear)";
             SendRunLine(FindCharacter(entry.first), entry.second, false);
+            // As `.bot run stop` and the time limit: the bots held on stay (hold stands, places) follow the
+            // lead bot again, and a loot step's free-for-all detour ends (ReleaseRunHold restores the method).
+            if (RemoteCommander::Binding const* standing = CommanderBindings().FindByCommander(entry.first))
+                ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);
         }
         DungeonRuns().clear();
         s_dungeonRunMs = 0;

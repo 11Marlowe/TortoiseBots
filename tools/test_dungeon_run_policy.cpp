@@ -6545,6 +6545,58 @@ static void TestWalkBackKeptWhenTheStepIsNotOver()
     }
 }
 
+// Cold review of 59589d67: a guard fight on an ambush pull step before the
+// party walked through it. The pack shows itself only on the walk, so an empty
+// list is no cleared pack: the walk back is kept.
+static void TestWalkBackKeptOnAnAmbushNotWalkedThrough()
+{
+    PlanStep ambush = PullStep(40, {63134}, ai::kPlanFlagAmbush);
+    DungeonPlan plan;
+    Facts f;
+    Run r = FrostmaneWonFight(plan, false, f, &ambush);
+    CHECK(!r.walkedThrough);
+    CHECK(Tick(r, f) == "move 0.0 0.0 0.0");
+    CHECK(r.guardReturn && r.step == 1);
+    // Walked through already: the pack is cleared, no walk back.
+    DungeonPlan plan2;
+    Facts g;
+    Run r2 = FrostmaneWonFight(plan2, false, g, &ambush);
+    r2.walkedThrough = true;
+    CHECK(Tick(r2, g).compare(0, 5, "move ") != 0);
+    CHECK(!r2.guardReturn && r2.step == 2);
+}
+
+// Cold review of 59589d67: during a wipe's walk back the guard's walk back is
+// judged on the replayed point's step (FactStep), a move: the replay goes on
+// forward. The step the run returns to (a pull with its pack still up) would
+// have kept it and walked the party back to the old stand.
+static void TestGuardWalkBackJudgedOnTheReplayedPoint()
+{
+    DungeonPlan plan;
+    plan.steps = {Step(PlanStepKind::Move, 0), Step(PlanStepKind::Move, 60), PullStep(120, {4851})};
+    auto replay = [&plan](bool walkBack)
+    {
+        Run r = Start(&plan);
+        r.step = 2;
+        r.walkBack = walkBack;
+        r.walkBackIdx = 1;
+        r.guardReturn = true;
+        r.guardX = 20;
+        Facts f = Party(30);
+        f.leadIsTank = true;
+        f.anchorPathRead = true;
+        f.anchorReachable = true;
+        f.units = {Unit(31, 4851, 90)}; // the pull's pack, still up
+        std::string const order = Tick(r, f);
+        return std::make_pair(order, r.guardReturn);
+    };
+    auto const during = replay(true);
+    CHECK(during.first != "move 20.0 0.0 0.0" && !during.second);
+    // Not in a walk back: the pull with units left keeps it (the same stand).
+    auto const after = replay(false);
+    CHECK(after.first == "move 20.0 0.0 0.0" && after.second);
+}
+
 // Replay of keepers door pull 100 (trace r-...9bbf): a Brawler on the tank in
 // melee reach, a Geomancer casting at the mage from 30 yd, then two Maulers on
 // the mage and the healer. The tank keeps its Brawler while only the mage is
@@ -11965,6 +12017,8 @@ int main()
     TestWalkBackAfterAWonFightOnTheOldKey();
     TestWalkBackKeptWhereItMatters();
     TestWalkBackKeptWhenTheStepIsNotOver();
+    TestWalkBackKeptOnAnAmbushNotWalkedThrough();
+    TestGuardWalkBackJudgedOnTheReplayedPoint();
     TestTankGuardPull100Replay();
     TestTankGuardOneMaulerAndTheCapAfterARefill();
     TestTankGuardLimits();

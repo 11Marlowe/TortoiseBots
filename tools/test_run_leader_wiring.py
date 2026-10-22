@@ -426,7 +426,8 @@ class RunLeaderWiringTest(unittest.TestCase):
         release = body(COMMANDS, "uint32 ReleaseBinding(", "RemoteCommander::Binding removed =")
         self.assertIn("RestoreRunLootMethod(standing->leadGuid, run->second.run);", release)
         off = body(COMMANDS, "// Switched off by a config reload", "s_dungeonRunMs = 0;")
-        self.assertIn("RestoreRunLootMethod(standing->leadGuid, entry.second.run);", off)
+        # The key switched off lets each run go through ReleaseRunHold too (its first line restores, above).
+        self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
         policy = (ROOT / "runtime/DungeonRunPolicy.h").read_text()
         self.assertIn("LootFfaWanted(r, f, s)", policy)
         self.assertIn('order = "lootmethod ffa";', policy)
@@ -645,7 +646,7 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("f = Facts();", facts)
         self.assertIn("f.walkBackAfterWonFight = sPlayerbotAIConfig.dungeonRunWalkBackAfterWonFight;", facts)
         self.assertIn("bool walkBackAfterWonFight = false;", policy)
-        self.assertIn("else if (!GuardWalkBackWanted(r, f, *s))", policy)
+        self.assertIn("else if (!GuardWalkBackWanted(r, f, FactStep(r) ? *FactStep(r) : *s))", policy)
         # The suppression follows the pull and boss steps' own end rule (Codex review of 7537eab8): one predicate.
         wanted = body(policy, "inline bool GuardWalkBackWanted(", "\n}\n")
         self.assertIn("return FightStepEnd(r, f, s) == FightEnd::NotYet;", wanted)
@@ -688,6 +689,13 @@ class RunLeaderWiringTest(unittest.TestCase):
         self.assertIn("if (s_dungeonRunKeysDue.exchange(false))\n        sPlayerbotAIConfig.ReloadDungeonRunKeys();", on_update)
         self.assertIn("WORLDHOOK_ON_AFTER_CONFIG_LOAD", host)
         self.assertEqual(host.count("ReloadDungeonRunKeys"), 1)
+        # Switched off by a reload, every run ends as `.bot run stop` ends one: its held bots are let go
+        # (ReleaseRunHold, which also restores a loot detour's method), not left on stay at hold stands.
+        off = body(COMMANDS, "    // Switched off by a config reload: every run ends, with a last status line.",
+                   "DungeonRuns().clear();")
+        self.assertIn("ReleaseRunHold(FindCharacter(entry.first), standing->leadGuid, entry.second);", off)
+        self.assertLess(off.index("SendRunLine(FindCharacter(entry.first), entry.second, false);"),
+                        off.index("ReleaseRunHold("))
 
 
 if __name__ == "__main__":
