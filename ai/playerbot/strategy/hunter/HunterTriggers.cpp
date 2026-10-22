@@ -8,6 +8,8 @@
 #include "../../../runtime/HunterViperPolicy.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/values/ThreatValues.h"
+#include "playerbot/strategy/values/PossibleAttackTargetsValue.h"
+#include "playerbot/HunterAoePolicy.h"
 
 using namespace ai;
 
@@ -78,6 +80,78 @@ bool HuntersMarkTrigger::IsActive()
         return false;
 
     return DebuffTrigger::IsActive();
+}
+
+// The generic CC gate (HasCcTargetTrigger::CcTargetPending) holds dungeon
+// crowd control to an assigned raid mark, so the trap never fired in a
+// markless dungeon run. The trap goes on the chooser's own pick instead -
+// the same target tournament every other crowd control follows: never over
+// an existing CC, never a mob the group is already fighting, never dotted,
+// never the kill target. While our own trap holds a mob the value goes
+// empty, so no second trap is laid on top.
+bool FreezingTrapTrigger::IsActive()
+{
+    // The action feigns before dropping the trap (traps cannot be laid in
+    // combat), so Feign Death must be known - IsSpellReady is true for an
+    // unlearned spell - and ready. Below level 30 the trap row stands down
+    // instead of walking the hunter into melee for a cast that cannot happen.
+    if (!ai->HasSpell("feign death") || !sServerFacade.IsSpellReady(bot, 5384))
+        return false;
+
+    uint32 const trapId = AI_VALUE2(uint32, "spell id", getName());
+    if (!trapId || !sServerFacade.IsSpellReady(bot, trapId))
+        return false;
+
+    return AI_VALUE2(Unit*, "cc target", getName()) && !AI_VALUE2(Unit*, "current cc target", getName());
+}
+
+// The splash is measured around the current target: an attacker inside the
+// 10 yd chain-jump radius (core CHAIN_SPELL_JUMP_RADIUS, starting at the
+// shot's target) gets hit when the shot lands. Members must be fighting -
+// an idle add selected by nobody never counts. A breakable CC inside the
+// splash vetoes the whole shot; damage-immune members (banish, bubbles) are
+// excluded from the count but do not veto. Stuns, fears and roots take the
+// splash harmlessly and still count. Skull-marked mobs opted out of CC
+// protection (same as the AoE interlock): their CC is treated as stale.
+bool HunterMultiShotTrigger::IsActive()
+{
+    if (!SpellCanBeCastedTrigger::IsActive())
+        return false;
+
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target)
+        return false;
+
+    uint8_t splashTargets = 0;
+    bool breakableCcInSplash = false;
+    for (ObjectGuid const& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !sServerFacade.IsAlive(unit) || !unit->IsInCombat())
+            continue;
+
+        if (sServerFacade.getDistance2d(unit, target) > kHunterMultiShotSplashYd)
+            continue;
+
+        if (PossibleAttackTargetsValue::HasIgnoreCCRti(unit, bot))
+        {
+            ++splashTargets;
+            continue;
+        }
+
+        if (PossibleAttackTargetsValue::HoldsBreakableCc(ai, unit, bot))
+        {
+            breakableCcInSplash = true;
+            continue;
+        }
+
+        if (PossibleAttackTargetsValue::IsImmuneToDamage(unit, bot))
+            continue;
+
+        ++splashTargets;
+    }
+
+    return ShouldHunterMultiShot(splashTargets, breakableCcInSplash);
 }
 
 bool AspectOfTheViperLowManaTrigger::IsActive()

@@ -460,6 +460,9 @@ public:
     bool ownedBotAutogearEnabled = false;
     uint32 ownedBotAutogearQualityCap = 2;
     uint32 ownedBotAutogearIlvlCap = 0;
+    // `.autogear` on real players: 0 = GM-only, 1 = every player may gear
+    // only themselves. GMs are never restricted.
+    bool playerAutogearForAll = false;
     bool ownedBotSummonWhenGroup = false;
     bool ownedBotSummonAllowInCombat = false;
     bool ownedBotSummonAllowMasterDead = false;
@@ -793,6 +796,7 @@ public:
     // Hour (unix time / 3600) each live log was opened in.
     std::unordered_map<std::string, time_t> logHour;
 
+    bool raidBossDiagnostics = false;
     std::list<std::string> allowedLogFiles;
     std::list<std::string> debugFilter;
 

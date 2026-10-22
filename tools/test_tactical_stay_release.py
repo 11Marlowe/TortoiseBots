@@ -1,6 +1,6 @@
 """A tactical order that breaks a stay leaves the bot following again.
 
-Compiles the production RelaxTacticalMovement from commands/BotCommands.cpp
+Compiles the production RelaxTacticalMovement from commands/Party.cpp
 and PlayerbotAI::EndStayForOrder from ai/playerbot/PlayerbotAI.cpp against a
 stand-in PlayerbotAI (strategy sets per engine, the real movement-mode list
 from MovementModePolicy.h). Also checks that the per-bot `.bot attack` and
@@ -15,7 +15,7 @@ import tempfile
 import unittest
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SOURCE = (ROOT / "commands/BotCommands.cpp").read_text()
+SOURCE = (ROOT / "commands/Party.cpp").read_text()
 AI_SOURCE = (ROOT / "ai/playerbot/PlayerbotAI.cpp").read_text()
 ATTACK_SOURCE = (ROOT / "ai/playerbot/strategy/actions/AttackAction.cpp").read_text()
 
@@ -149,7 +149,7 @@ class TacticalStayReleaseTest(unittest.TestCase):
         code = extract("void PlayerbotAI::EndStayForOrder()", "std::string PlayerbotAI::HandleRemoteCommand(", AI_SOURCE)
         # End at the function's own closing brace: helpers defined after it
         # (the pull checks and snapshots) need types this stand-in lacks.
-        code += extract_definition("static void RelaxTacticalMovement(PlayerbotAI* ai)", "\n}\n") + "\n}\n"
+        code += extract_definition("void RelaxTacticalMovement(PlayerbotAI* ai)", "\n}\n") + "\n}\n"
         with tempfile.TemporaryDirectory() as tmp:
             src = pathlib.Path(tmp) / "fixture.cpp"
             src.write_text(FIXTURE % {"code": code})
@@ -159,9 +159,9 @@ class TacticalStayReleaseTest(unittest.TestCase):
 
     def test_per_bot_attack_breaks_stay(self):
         # `.bot attack <Name>` must end a stay like `.bot action attack`.
-        body = extract("static bool HandleAttack(", "static bool IsPublicFormation(")
+        body = extract("bool HandleAttack(", "static bool IsPublicFormation(")
         self.assertRegex(body, r'HandleNamedAction\([^;]*"attack my target"[^;]*,\s*true\)')
-        named = extract("static bool HandleNamedAction(", "// `.bot action flee`")
+        named = extract("static bool HandleNamedAction(", "void SetStayAnchor(")
         relax = named.index("RelaxTacticalMovement(ai)")
         self.assertLess(relax, named.index("DoSpecificAction(action"))
 

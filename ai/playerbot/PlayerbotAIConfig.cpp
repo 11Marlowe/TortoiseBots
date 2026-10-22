@@ -603,6 +603,7 @@ bool PlayerbotAIConfig::Initialize()
     if (ownedBotAutogearQualityCap > 5)
         ownedBotAutogearQualityCap = 5;
     ownedBotAutogearIlvlCap = static_cast<uint32>(config.GetIntDefault("AiPlayerbot.OwnedBotAutogearIlvlCap", 0));
+    playerAutogearForAll = config.GetBoolDefault("AiPlayerbot.PlayerAutogearForAll", false);
     ownedBotSummonWhenGroup = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonWhenGroup", false);
     ownedBotSummonAllowInCombat = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowInCombat", false);
     ownedBotSummonAllowMasterDead = config.GetBoolDefault("AiPlayerbot.OwnedBotSummonAllowMasterDead", false);
@@ -765,6 +766,7 @@ bool PlayerbotAIConfig::Initialize()
 
     rndBotCheatMask = uint32(CheatAction::GetCheatMask(config.GetStringDefault("AiPlayerbot.RndBotCheats", "repair,breath,item")));
 
+    raidBossDiagnostics = config.GetBoolDefault("AiPlayerbot.RaidBossDiagnostics", false);
     LoadListString<std::list<std::string>>(config.GetStringDefault("AiPlayerbot.AllowedLogFiles", "bot_events.csv,deaths.csv"), allowedLogFiles);
     logRetentionDays = uint32(std::max(0, config.GetIntDefault("AiPlayerbot.LogRetentionDays", 3)));
     LoadListString<std::list<std::string>>(config.GetStringDefault("AiPlayerbot.DebugFilter", "add gathering loot,check values,emote,check mount state,jump"), debugFilter);
