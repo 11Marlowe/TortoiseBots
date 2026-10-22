@@ -1,16 +1,17 @@
 -- Deadmines (map 36): the whole plan again, replacing the rows of 20261017130000_world.sql (that file stays as applied; it also holds
--- Ragefire Chasm and Wailing Caverns, which this file does not touch). Exported from turtle-agent fix/deadmines-packs 726557c
+-- Ragefire Chasm and Wailing Caverns, which this file does not touch). Exported from turtle-agent fix/deadmines-packs 16efe83
 -- (dungeons/deadmines.json: origin/dev abd37a3 plus the pack-size fixes) with the options of the header of 20261017130000:
---   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 726557c \
---     --stamp 20261022190000 deadmines
+--   turtle-agent plan-export --mmaps <map 36 mmaps> --allow-draft --gm-cross-direct --approach-hops --rev 16efe83 \
+--     --stamp 20261022200000 deadmines
 -- NO ROW IS HAND-SET. The plan row's cc_priority, cc_always and kill_first are exported by the plan-export (columns from
--- 20261015200000_world.sql), so no UPDATE follows. 16 legs, 212 steps, 229 rows (20261017130000: 202 steps, 219 rows; the 10 new rows are
--- pull approach moves). Plan check (turtle-agent plan-check, map 36 mmaps): ok, 222 points on the navmesh.
+-- 20261015200000_world.sql), so no UPDATE follows. 16 legs, 210 steps, 227 rows (20261017130000: 202 steps, 219 rows; the 8 new rows are
+-- pull approach moves). Plan check (turtle-agent plan-check, map 36 mmaps): ok, 221 points on the navmesh.
+-- This file replaces a first draft (stamp 20261022190000) that was never applied anywhere; the cold review of 2026-10-22 found four defects in it.
 --
 -- WHY (Deadmines r12-19z29 and r14-19z32, 2026-10-22: 202/202 steps, 14 and 10 deaths; r14 killed 5 at step 90 and 5 at step 118, the tank
 -- dead early in both, the mana users at 1-55 % at death after entering at 75-100 %): the packs were 2-10 times the plan's group math.
--- Patrolling units no pull row owned (the Engineer 622 spawn 79213 walks the Gilnid floor, the golem 2582923 the hall to the Harvester
--- room's door, the Woodcarver 79207 to the Sneed door), Summon Remote-Controlled Golem adds, fleeing runners that drag a fight into the
+-- Patrolling units the pull rows did not count where they walk (the Engineer 622 spawn 79213 walks the Gilnid floor, the golem 2582923 from
+-- the hall to the Harvester room's door, the Woodcarver 79207 to the Sneed door), Summon Remote-Controlled Golem adds, fleeing runners that drag a fight into the
 -- next camp, and walks over uncleared ground (step 118's walk down the foundry spiral to the Craftsman 79247 engaged the terrace Engineers
 -- at the spiral's foot).
 --
@@ -20,21 +21,28 @@
 --     `cmd cc moon <guid> <mage>` on 622 and 1731 (they were 0 in r12 and r14).
 --   * leg 3 'sneed': the group that owns the Woodcarver 79207's beat (pull radius 19) is the first pull, the pair (radius 12) the second
 --     (r12 step 50, a move at the door, was engaged 2 s in by the patroller and the pair: 5 Woodcarvers + the Shredder + Sneed, 1 dead).
---   * leg 6 'harvester' (10 -> 13 steps): the Taskmaster 4417 pull has radius 22 (its whole 20.6 yd beat) instead of 6; the south-middle pack of
---     step 90 (1731 + 622 + golem 61962 at r5) is two pulls from the west side, each behind a move row: the Craftsman and the Engineer
---     (-116 -573 z 52), then the golem alone (-104 -575 z 52.5); the first pull of the room, 622 at -152.7 -570.5, also names 61962 (the
---     patrolling golem 2582923, at the point -147.8 -567.8 of its beat 5 yd away), so the pack counts it.
---   * leg 7 'gilnid' (33 -> 41 steps): pull 3 (the Craftsman 79247 under the spiral) is shot from a stand on the spiral (-195 -598 z 34.8) and no
---     longer from the floor; pull 4 is new, the two terrace Engineers 79212 and 79209 as one pull of two 622 from (-195 -596 z 36.5); then the
---     floor ring one camp at a time, each behind a move row to a stand 17 yd or more (3-D) from every spawn pulled later: the west Craftsman 79218
---     with the patrolling Engineer 79213 (-221 -596), the west-wall pair 79205/79208 (-225 -584), the terrace Craftsman 79203 (-221 -584), the
---     northern pair 79197/79198 (in no group before; -217 -576), the northern pair 79196/79201 (moved up from leg 8; -207 -568) and the
---     Craftsman 79204 beside Gilnid (-203 -568). The old pulls 5, 6 and 9 (the Engineers 79212 and 79209 alone, the Engineer 79213 at radius 3 on its
---     spawn point) are inside those groups. The boss row (Gilnid 1763, entries 1731) is unchanged: no boss approach moved.
+--   * leg 6 'harvester' (10 -> 11 steps): the Taskmaster 4417 pull has radius 12 (was 6) round its west end: the disc stops at x -83.9, 17.0 yd
+--     from the Masterpiece Harvester (a radius 22 reached 7 yd; the boss assists within 10 yd), and a Taskmaster on the east half of its beat is
+--     waited for as before; the south-middle pack of step 90 (1731 + 622 + golem 61962, radius 9 now, was 5) stays ONE pull of three, so the joiner
+--     estimate counts the golem (it stands 6.5 yd from the Engineer, same faction: it assists), behind a move row to the west stand (-112 -573
+--     z 52.5): 20.2 yd from the Craftsman, 23.0 yd (3-D) from the beat of the ledge Overseer 2583051 (reach 15-16 yd) and 18 yd or more from the
+--     boss; the first pull of the room, 622 at -152.7 -570.5, also names 61962 (the golem 2582923, which is in hall group 2 at its spawn and walks
+--     to this room's door; the point -147.8 -567.8 of its beat, 5 yd away), so the pack counts it a second time.
+--   * leg 7 'gilnid' (33 -> 41 steps): pull 3 is new, the two terrace Engineers 79212 and 79209 as one pull of two 622 from the terrace stand
+--     (-195 -596 z 36.5, over the open pit: 19.3 yd 3-D from the Craftsman 79247, the nearest spawn pulled later); pull 4 (the Craftsman 79247
+--     under the spiral, whose surface at z 32-34 lies right above him) is shot from the floor (-215 -590 z 21.1: 21.2 yd from him, 22.5 yd from the
+--     nearest spawn pulled after it), after the Engineers are dead; then the floor ring one camp at a time, each behind a move row to a stand 17 yd
+--     or more (3-D) from every spawn pulled later: the west Craftsman 79218 with the patrolling Engineer 79213 (-221 -596), the west-wall pair
+--     79205/79208 (-225 -584), the terrace Craftsman 79203 (-221 -584), the northern pair 79197/79198 (in no group before; -217 -576), the
+--     northern pair 79196/79201 (moved up from leg 8; -207 -568) and the Craftsman 79204 beside Gilnid (-203 -568). The old pulls 5, 6 and 9
+--     (the Engineers 79212 and 79209 alone, the Engineer 79213 at radius 3 on its spawn point) are inside those groups. The boss row (Gilnid
+--     1763, entries 1731) is unchanged: no boss approach moved. (A stand on the spiral at -195 -598 z 34.8 for 79247 was the first draft and is wrong:
+--     no sight line, so the run leader would walk the tank down the 57 yd spiral to the Engineers' reach, the r14 step-118 wipe.)
 --   * leg 8 'cannon_a' (9 -> 8 steps): its first pull (622 + 1731 at -187.05 -551.48, spawns 79196/79201) is leg 7's pull 9 now.
 -- NOT IN THE ROWS: a rest row before steps 90 and 118 (the plan format has no rest step the exporter can write; the run leader's own rest
 -- gate, under 80 % health / 50 % healer mana / 35 % mana, already ran at 1473 s, 1575 s and 2124 s of r12, and every ordered pull in r12 and r14
--- started at 53-100 % mana). The Summon Remote-Controlled Golem adds and the line of sight of the new stands are not modelled: the live run shows both.
+-- started at 53-100 % mana). The Summon Remote-Controlled Golem adds are not modelled, and the stands were checked only with a navmesh sight proxy
+-- (no walkable surface crosses the eye-height line; no vmaps here), not a line-of-sight test: the live run shows both.
 --
 -- Dungeon plans for the run leader (.bot run), exported by turtle-agent (plan-export). Plan format v1; the mapping is
 -- docs/guides/dungeon-run-leader.md ("From plan v1 to rows"). The plan file in turtle-agent is the single source: edit it
@@ -43,12 +51,12 @@
 --
 -- Idempotent: each plan's rows are deleted, then inserted. The tables come from 20261014150000_world.sql.
 
--- deadmines: map 36, 16 legs, 212 steps
+-- deadmines: map 36, 16 legs, 210 steps
 DELETE FROM `ai_dungeon_step` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_leg` WHERE `plan` = 'deadmines';
 DELETE FROM `ai_dungeon_plan` WHERE `plan` = 'deadmines';
 INSERT INTO `ai_dungeon_plan` (`plan`, `map`, `cc_priority`, `cc_always`, `kill_first`, `source`, `comment`) VALUES
-('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 726557c dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
+('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 16efe83 dungeons/deadmines.json', 'plan v1, draft (not mapped, not live-checked)');
 INSERT INTO `ai_dungeon_leg` (`plan`, `leg`, `name`, `comment`) VALUES
 ('deadmines', 0, 'mine_a', ''),
 ('deadmines', 1, 'rhahk_zor', ''),
@@ -155,15 +163,13 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('deadmines', 6, 1, 'pull', 0, -150.27, -569.13, 51.21, 11, 0, 0, 0, 0, '622,61962', 'pull group 0'),
 ('deadmines', 6, 2, 'pull', 0, -118.07, -560.75, 51.23, 7, 0, 0, 0, 0, '1731,61962', 'pull group 1'),
 ('deadmines', 6, 3, 'pull', 0, -113.65, -580.87, 51.23, 14, 0, 0, 0, 0, '61962,622', 'pull group 2'),
-('deadmines', 6, 4, 'pull', 0, -95.93, -569.47, 51.23, 22, 0, 0, 0, 0, '4417', 'pull group 3'),
-('deadmines', 6, 5, 'move', 0, -116, -573, 52, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
-('deadmines', 6, 6, 'pull', 0, -90.37, -578.9, 51.23, 8, 0, 0, 0, 0, '1731,622', 'pull group 4'),
-('deadmines', 6, 7, 'move', 0, -104, -575, 52.5, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
-('deadmines', 6, 8, 'pull', 0, -81.73, -583.43, 51.23, 6, 0, 0, 0, 0, '61962', 'pull group 5'),
-('deadmines', 6, 9, 'pull', 0, -92.23, -559.99, 51.23, 9, 0, 0, 0, 0, '622', 'pull group 6'),
-('deadmines', 6, 10, 'pull', 0, -81.02, -555.55, 51.23, 9, 0, 0, 0, 0, '61962', 'pull group 7'),
-('deadmines', 6, 11, 'pull', 0, -63.79, -559.28, 51.23, 5, 0, 0, 0, 0, '622', 'pull group 8'),
-('deadmines', 6, 12, 'boss', 61963, -66.8989, -570.032, 51.2299, 0, 0, 0, 0, 0, '', 'boss'),
+('deadmines', 6, 4, 'pull', 0, -95.93, -569.47, 51.23, 12, 0, 0, 0, 0, '4417', 'pull group 3'),
+('deadmines', 6, 5, 'move', 0, -112, -573, 52.5, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('deadmines', 6, 6, 'pull', 0, -87.49, -580.41, 51.23, 9, 0, 0, 0, 0, '1731,622,61962', 'pull group 4'),
+('deadmines', 6, 7, 'pull', 0, -92.23, -559.99, 51.23, 9, 0, 0, 0, 0, '622', 'pull group 5'),
+('deadmines', 6, 8, 'pull', 0, -81.02, -555.55, 51.23, 9, 0, 0, 0, 0, '61962', 'pull group 6'),
+('deadmines', 6, 9, 'pull', 0, -63.79, -559.28, 51.23, 5, 0, 0, 0, 0, '622', 'pull group 7'),
+('deadmines', 6, 10, 'boss', 61963, -66.8989, -570.032, 51.2299, 0, 0, 0, 0, 0, '', 'boss'),
 ('deadmines', 7, 0, 'move', 0, -71.733444, -573.0668, 52.45861, 0, 0, 0, 0, 0, '', 'path'),
 ('deadmines', 7, 1, 'move', 0, -73.06678, -574.4001, 52.45861, 0, 0, 0, 0, 0, '', 'path'),
 ('deadmines', 7, 2, 'move', 0, -85.33344, -576.0001, 51.258614, 0, 0, 0, 0, 0, '', 'path'),
@@ -187,10 +193,10 @@ INSERT INTO `ai_dungeon_step` (`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, 
 ('deadmines', 7, 20, 'pull', 0, -182.8, -565.8, 51.13, 20, 0, 0, 0, 0, '1731', 'pull group 0'),
 ('deadmines', 7, 21, 'pull', 0, -188.73, -600.47, 36.58, 12, 0, 0, 0, 0, '1731', 'pull group 1'),
 ('deadmines', 7, 22, 'pull', 0, -205.8, -604.77, 29.36, 8, 0, 0, 0, 0, '1731', 'pull group 2'),
-('deadmines', 7, 23, 'move', 0, -195, -598, 34.8, 0, 0, 0, 0, 0, '', 'pull group 3 approach'),
-('deadmines', 7, 24, 'pull', 0, -198.93, -603.78, 19.3, 8, 0, 0, 0, 0, '1731', 'pull group 3'),
-('deadmines', 7, 25, 'move', 0, -195, -596, 36.5, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
-('deadmines', 7, 26, 'pull', 0, -202.74, -584.35, 20.98, 10, 0, 0, 0, 0, '622', 'pull group 4'),
+('deadmines', 7, 23, 'move', 0, -195, -596, 36.5, 0, 0, 0, 0, 0, '', 'pull group 3 approach'),
+('deadmines', 7, 24, 'pull', 0, -202.74, -584.35, 20.98, 10, 0, 0, 0, 0, '622', 'pull group 3'),
+('deadmines', 7, 25, 'move', 0, -215, -590, 21.1, 0, 0, 0, 0, 0, '', 'pull group 4 approach'),
+('deadmines', 7, 26, 'pull', 0, -198.93, -603.78, 19.3, 8, 0, 0, 0, 0, '1731', 'pull group 4'),
 ('deadmines', 7, 27, 'move', 0, -221, -596, 21.8, 0, 0, 0, 0, 0, '', 'pull group 5 approach'),
 ('deadmines', 7, 28, 'pull', 0, -233.75, -572.8, 19.31, 9, 0, 0, 0, 0, '1731,622', 'pull group 5'),
 ('deadmines', 7, 29, 'move', 0, -225, -584, 20.9, 0, 0, 0, 0, 0, '', 'pull group 6 approach'),

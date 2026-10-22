@@ -207,15 +207,15 @@ class DungeonPlanSql(unittest.TestCase):
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
 
     def test_deadmines_pack_fixes(self):
-        # 20261022190000 (turtle-agent 726557c, Deadmines r12-19z29 / r14-19z32, 2026-10-22): the plan again with the Engineers and
+        # 20261022200000 (turtle-agent 16efe83, Deadmines r12-19z29 / r14-19z32, 2026-10-22): the plan again with the Engineers and
         # Craftsmen in the cc lists, the Sneed patroller's group first, the Harvester room's golem split off, and the Gilnid ramp pulled from
         # the spiral and the floor ring camp by camp (its pairs behind move rows to stands). Every pin below fails when its rows are cut.
         name, text = newest_plan_text("deadmines")
-        self.assertEqual(name, "20261022190000_world.sql")
-        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 726557c dungeons/deadmines.json',", text)
+        self.assertEqual(name, "20261022200000_world.sql")
+        self.assertIn("('deadmines', 36, '622,1731,4418,1729,1732', '622', '636,622', 'turtle-agent 16efe83 dungeons/deadmines.json',", text)
         rows = [r for r in self.step_rows(text) if r["plan"] == "deadmines"]
-        self.assertEqual(len(rows), 212)
-        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (3, 6, 7, 8)}, {3: 11, 6: 13, 7: 41, 8: 8})
+        self.assertEqual(len(rows), 210)
+        self.assertEqual({leg: len(leg_steps(rows, leg)) for leg in (3, 6, 7, 8)}, {3: 11, 6: 11, 7: 41, 8: 8})
 
         def pulls(leg):
             return [(r["entries"], int(r["radius"]), round(float(r["x"]), 1)) for r in leg_steps(rows, leg) if r["kind"] == "pull"]
@@ -233,21 +233,22 @@ class DungeonPlanSql(unittest.TestCase):
         # Sneed: the group of the Woodcarver 79207's beat (radius 19) is the first pull.
         self.assertEqual(pulls(3)[0], ("641", 19, -277.3))
         self.assertEqual(pulls(3)[1], ("641", 12, -288.3))
-        # Harvester room: the Taskmaster over its whole beat; the Craftsman + Engineer, then the golem alone, each from the west;
-        # the first pull of the room counts the patrolling golem 2582923.
+        # Harvester room: the Taskmaster over the west half of its beat only (radius 12: the disc stops 17 yd from the Harvester); the Craftsman,
+        # the Engineer and the golem that assists them are ONE pull of three from the west stand, 23 yd from the ledge Overseer's beat; the first
+        # pull of the room counts the patrolling golem 2582923.
         hv = pulls(6)
         self.assertEqual(hv[0], ("622,61962", 11, -150.3))
-        self.assertIn(("4417", 22, -95.9), hv)
-        self.assertIn(("1731,622", 8, -90.4), hv)
-        self.assertIn(("61962", 6, -81.7), hv)
-        self.assertEqual(stand_before(6, -90.37, -578.9), (-116.0, -573.0, 52.0))
-        self.assertEqual(stand_before(6, -81.73, -583.43), (-104.0, -575.0, 52.5))
-        # Gilnid ramp: the spiral's Craftsman and the two terrace Engineers from the spiral (z 30 or more), then the floor ring.
+        self.assertIn(("4417", 12, -95.9), hv)
+        self.assertIn(("1731,622,61962", 9, -87.5), hv)
+        self.assertNotIn(("61962", 6, -81.7), hv)
+        self.assertEqual(stand_before(6, -87.49, -580.41), (-112.0, -573.0, 52.5))
+        # Gilnid ramp: the two terrace Engineers FIRST, from the spiral (z 36.5, over the open pit), then the Craftsman under the spiral from
+        # the floor (a spiral stand has no sight of him), then the floor ring.
         gl = pulls(7)
-        self.assertEqual(gl[3:], [("1731", 8, -198.9), ("622", 10, -202.7), ("1731,622", 9, -233.8), ("1731,622", 5, -226.1),
+        self.assertEqual(gl[3:], [("622", 10, -202.7), ("1731", 8, -198.9), ("1731,622", 9, -233.8), ("1731,622", 5, -226.1),
                                   ("1731", 12, -209.6), ("1731,622", 8, -208.6), ("622,1731", 11, -187.1), ("1731", 6, -178.4)])
-        self.assertEqual(stand_before(7, -198.93, -603.78), (-195.0, -598.0, 34.8))
         self.assertEqual(stand_before(7, -202.74, -584.35), (-195.0, -596.0, 36.5))
+        self.assertEqual(stand_before(7, -198.93, -603.78), (-215.0, -590.0, 21.1))
         self.assertEqual(stand_before(7, -233.75, -572.8), (-221.0, -596.0, 21.8))
         self.assertEqual(stand_before(7, -208.61, -552.0), (-217.0, -576.0, 21.1))
         self.assertEqual(stand_before(7, -187.05, -551.48), (-207.0, -568.0, 21.1))
