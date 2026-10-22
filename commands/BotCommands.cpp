@@ -9647,7 +9647,10 @@ bool EngagedWithParty(Unit* unit, std::unordered_set<uint64> const& party)
 
 // The plan's kill_first units of this fight, from the bots' cached
 // "attackers" lists (no scan): each with whether it is engaged with the party
-// and, for a summoned one (a healing ward), whether its owner is.
+// and, for a summoned one (a healing ward), whether its owner is. The creatures
+// channelling an aura at an engaged attacker are read off that attacker too
+// (auraOnEngaged): Hailar's Ritualists channelled their heal on him from out
+// of combat and were in no attackers list (r19-19z37).
 void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player*> const& bots,
     TortoiseBots::DungeonRun::Facts& f)
 {
@@ -9655,7 +9658,8 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
     for (Player* bot : bots)
         party.insert(bot->GetObjectGuid().GetRawValue());
     std::unordered_set<uint64> seen;
-    auto add = [&](Unit* unit)
+    std::unordered_set<uint64> auraWalked; // attackers whose aura holders this read walked
+    auto add = [&](Unit* unit, bool auraOnEngaged)
     {
         if (!unit || !unit->IsAlive() || !seen.insert(unit->GetObjectGuid().GetRawValue()).second)
             return;
@@ -9668,6 +9672,7 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
         fact.stealthed = IsStealthed(unit);
         fact.evading = unit->IsCreature() && static_cast<Creature*>(unit)->IsInEvadeMode();
         fact.engaged = EngagedWithParty(unit, party);
+        fact.auraOnEngaged = auraOnEngaged;
         ObjectGuid owner = unit->GetOwnerGuid();
         if (owner.IsEmpty())
             owner = unit->GetCreatorGuid();
@@ -9691,14 +9696,48 @@ void ReadKillFirst(ai::DungeonPlan const& plan, Player* lead, std::vector<Player
             Unit* unit = SeenHostile(bot, guid);
             if (!unit)
                 continue;
-            add(unit);
-            // The totems and guardians of an attacker in this fight, read off
-            // the attacker itself: a Greater Healing Ward the moment it is up,
-            // not when a bot's cached list next takes it in (19z5: one ward was
-            // focused 16 s after it came up).
+            add(unit, false);
             if (EngagedWithParty(unit, party))
-                unit->CallForAllControlledUnits([&](Unit* summon) { add(summon); },
+            {
+                // The totems and guardians of an attacker in this fight, read off
+                // the attacker itself: a Greater Healing Ward the moment it is up,
+                // not when a bot's cached list next takes it in (19z5: one ward was
+                // focused 16 s after it came up).
+                unit->CallForAllControlledUnits([&](Unit* summon) { add(summon, false); },
                     CONTROLLED_TOTEMS | CONTROLLED_GUARDIANS);
+                // The creatures channelling an aura at it, read off its own aura
+                // holders (no scan): Hailar's Ritualists channel Frostmane Ritual
+                // 41592 (a periodic heal) at Hailar from out of combat (r19-19z37:
+                // 680 s with no focus after the first one died). Only a caster whose
+                // channel is on this unit now counts: a long buff or HoT a creature
+                // outside the fight left on it does not. Each attacker's holders are
+                // walked once per read, however many bots list it.
+                if (auraWalked.insert(unit->GetObjectGuid().GetRawValue()).second)
+                    for (auto const& entry : unit->GetSpellAuraHolderMap())
+                    {
+                        SpellAuraHolder const* holder = entry.second;
+                        if (!holder || holder->IsDeleted() || holder->IsPassive())
+                            continue;
+                        ObjectGuid const casterGuid = holder->GetCasterGuid();
+                        if (casterGuid == unit->GetObjectGuid() || !casterGuid.IsCreature())
+                            continue;
+                        Unit* caster = unit->GetMap()->GetUnit(casterGuid);
+                        if (!caster || !caster->IsInWorld() || caster->IsDeleted() ||
+                            caster->GetChannelObjectGuid() != unit->GetObjectGuid())
+                            continue;
+                        uint64 const casterRaw = casterGuid.GetRawValue();
+                        if (seen.count(casterRaw))
+                        {
+                            // Already read off an attackers list (a bot's target, not
+                            // engaged): its channel on this unit still makes it this fight's.
+                            for (TortoiseBots::DungeonRun::UnitFact& known : f.killFirst)
+                                if (known.guid == casterRaw)
+                                    known.auraOnEngaged = true;
+                            continue;
+                        }
+                        add(caster, true);
+                    }
+            }
         }
     }
 }

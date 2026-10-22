@@ -5488,6 +5488,150 @@ static void TestKillFirstIsThisFightsOnly()
     CHECK(Tick(r, f).empty());
     f.killFirst.push_back(Ward(21, 1, true, 12)); // the ward of a unit in this fight (a pull step: within kKillFirstMaxYd)
     CHECK(Tick(r, f) == "focus 21");
+
+    // A kill_first unit whose aura is on no unit of this fight (a channeller
+    // of another circle elsewhere): auraOnEngaged false, not engaged, never
+    // focused, here or later.
+    Run c = Start(&plan);
+    Facts g = Party(0);
+    g.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(c, g) == "pullback 1");
+    g.anyInCombat = true;
+    g.killFirst = {Unit(40, 7247, 8)}; // within kKillFirstMaxYd: only the engaged rule keeps it out
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(c, g).empty() && c.focusGuid == 0);
+    // The same unit with its aura on a unit of this fight is taken.
+    g.killFirst[0].auraOnEngaged = true;
+    CHECK(Tick(c, g) == "focus 40");
+}
+
+// An auraOnEngaged unit on a pull step keeps the kKillFirstMaxYd bound: one
+// farther off is left to come in, one within it is focused.
+static void TestAuraOnEngagedKeepsThePullBound()
+{
+    DungeonPlan plan = ZfPlan();
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(1, 5648, 10)};
+    CHECK(Tick(r, f) == "pullback 1");
+    f.anyInCombat = true;
+    UnitFact far = Unit(41, 7247, kKillFirstMaxYd + 5.0f);
+    far.auraOnEngaged = true;
+    f.killFirst = {far};
+    CHECK(KillFirstBounded(r));
+    CHECK(Tick(r, f).empty() && r.focusGuid == 0);
+    f.killFirst[0].distLead = kKillFirstMaxYd - 1.0f;
+    CHECK(Tick(r, f) == "focus 41");
+}
+
+// Frostmane Hollow r19-19z37 slot 1, step 413 (boss Hailar the Frigid 63130):
+// the five Frostmane Ritualists 36519 (REACT_PASSIVE, never in combat, never
+// attacked) channelled Frostmane Ritual 41592 (a periodic heal) on Hailar. The
+// pull's Ritualist ...e95 was focused (3613.2 s) and died (3622.3 s); the four
+// others were in no bot's attackers list, so f.killFirst was empty and no
+// order went out for 680 s. With their aura on the engaged Hailar they are
+// candidates (auraOnEngaged), and each death re-focuses the nearest left.
+static void TestHailarRitualistsReplayR19_19z37()
+{
+    std::uint64_t const ritualist = 0xf130008ea7279e95ull; // ...e95
+    std::uint64_t const e93 = ritualist - 2, e94 = ritualist - 1, e96 = ritualist + 1, e97 = ritualist + 2;
+    std::uint64_t const hailar = 17379392021170986489ull;
+    CHECK(ritualist == 17379391574712491669ull); // the guid in the trace's focus order
+    DungeonPlan plan;
+    plan.name = "frostmane_hollow";
+    plan.killFirst = {36519};
+    PlanStep boss = Step(PlanStepKind::Boss, 10);
+    boss.entry = 63130;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    Facts f = Party(0);
+    f.units = {Unit(hailar, 63130, 3)};
+    f.anyInCombat = true;
+    // 3613.2 s: the pulled Ritualist fights the party.
+    f.killFirst = {Engaged(Unit(ritualist, 36519, 24.5f))};
+    CHECK(Tick(r, f) == "focus " + std::to_string(ritualist));
+    CHECK(r.note == "fighting: kill 36519 first");
+    // 3622.3 s: ...e95 died; the four others kept the Ritual on Hailar, out of
+    // combat, at 28.2 / 39.9 / 43.6 / 47.9 yd (a boss step: unbounded).
+    auto channeller = [](std::uint64_t guid, float dist)
+    {
+        UnitFact u = Unit(guid, 36519, dist);
+        u.auraOnEngaged = true; // engaged stays false: cb:false in every frame
+        return u;
+    };
+    f.killFirst = {channeller(e96, 39.9f), channeller(e94, 28.2f), channeller(e97, 47.9f), channeller(e93, 43.6f)};
+    CHECK(Tick(r, f) == "focus " + std::to_string(e94));
+    CHECK(Tick(r, f).empty()); // only on a change
+    // Each dies in turn: the nearest left is focused.
+    for (std::uint64_t const guid : {e96, e93, e97})
+    {
+        std::vector<UnitFact> left;
+        for (const UnitFact& u : f.killFirst)
+            if (u.guid != r.focusGuid)
+                left.push_back(u);
+        f.killFirst = left;
+        CHECK(Tick(r, f) == "focus " + std::to_string(guid));
+        CHECK(r.note == "fighting: kill 36519 first");
+    }
+    // The last dies: no order, the focus is over.
+    f.killFirst.clear();
+    CHECK(Tick(r, f).empty() && r.focusGuid == 0);
+    CHECK(r.state == State::Running);
+}
+
+// The channeller rule as far as the policy sees it (the glue sets
+// auraOnEngaged only for a creature whose channel is on an engaged unit now):
+// on a boss step (unbounded) a kill_first unit without it stays unpicked even
+// 8 yd away; a channeller that is gone (dead, or its channel stopped, so the
+// glue no longer lists it) clears the focus with no order; a refused focus on
+// a channeller passes it over for kFocusRefusedIgnoreMs, then it is picked again.
+static void TestChannellerQualificationOnABossStep()
+{
+    std::uint64_t const e93 = 0xf130008ea7279e93ull, e94 = e93 + 1, e96 = e93 + 3;
+    DungeonPlan plan;
+    plan.name = "frostmane_hollow";
+    plan.killFirst = {36519};
+    PlanStep boss = Step(PlanStepKind::Boss, 10);
+    boss.entry = 63130;
+    ai::NormalizePlanStep(boss);
+    plan.steps = {boss, Step(PlanStepKind::Rest)};
+    Run r = Start(&plan);
+    CHECK(!KillFirstBounded(r));
+    Facts f = Party(0);
+    f.units = {Unit(17379392021170986489ull, 63130, 3)};
+    f.anyInCombat = true;
+    // Not engaged, no channel on an engaged unit: never picked, however near.
+    f.killFirst = {Unit(e94, 36519, 8)};
+    for (int i = 0; i < 5; ++i)
+        CHECK(Tick(r, f).empty() && r.focusGuid == 0);
+
+    // A stale channeller: focused, then gone from the list (it died, or its
+    // channel stopped): FocusGone clears the focus and nothing is sent.
+    UnitFact ch = Unit(e94, 36519, 28.2f);
+    ch.auraOnEngaged = true;
+    f.killFirst = {ch};
+    CHECK(Tick(r, f) == "focus " + std::to_string(e94));
+    f.killFirst.clear();
+    CHECK(Tick(r, f).empty() && r.focusGuid == 0);
+    CHECK(Tick(r, f).empty() && r.focusGuid == 0);
+
+    // A refused focus on the nearer channeller (out of reach): the next one is
+    // focused at once, and the nearer one again only after kFocusRefusedIgnoreMs.
+    Run q = Start(&plan);
+    UnitFact far = Unit(e96, 36519, 39.9f);
+    far.auraOnEngaged = true;
+    f.killFirst = {ch, far};
+    CHECK(Tick(q, f) == "focus " + std::to_string(e94));
+    OrderRefused(q, "focus " + std::to_string(e94), "invalid-target");
+    CHECK(q.focusGuid == 0 && q.state == State::Running);
+    std::uint64_t const refusedAt = q.runMs;
+    CHECK(Tick(q, f) == "focus " + std::to_string(e96));
+    std::string order;
+    while (order.empty() && q.runMs < refusedAt + 3 * kFocusRefusedIgnoreMs)
+        order = Tick(q, f);
+    CHECK(order == "focus " + std::to_string(e94));
+    CHECK(q.runMs >= refusedAt + kFocusRefusedIgnoreMs);
 }
 
 // A mob hitting the healer `dist` from the lead bot (Hitter is defined further down).
@@ -11575,6 +11719,9 @@ int main()
     TestNoCrowdControlWithoutAMageOrPlanList();
     TestCrowdControlMustLand();
     TestKillFirstIsThisFightsOnly();
+    TestAuraOnEngagedKeepsThePullBound();
+    TestHailarRitualistsReplayR19_19z37();
+    TestChannellerQualificationOnABossStep();
     TestKillFirstFarIsNotFocusedWipe1Replay();
     TestKillFirstBoundDoesNotFlipFlop();
     TestHeldFocusEndsOnlyWhenItsUnitIsGone();

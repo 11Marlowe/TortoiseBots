@@ -393,6 +393,10 @@ struct UnitFact
     bool engaged = false;
     std::uint64_t owner = 0;
     bool ownerEngaged = false;
+    // A kill_first unit keeping an aura (a channelled heal) on a unit engaged
+    // with the party (Hailar's Ritualists, r19-19z37): this fight's, though it
+    // is in no combat itself.
+    bool auraOnEngaged = false;
     bool victimHealer = false; // its victim is a healer (Facts::partyAttackers, and a hold's units)
     bool victimLead = false;   // a hold's units: its victim is the lead bot (the tank holds it)
     // Facts::partyAttackers only:
@@ -3661,7 +3665,10 @@ inline bool FocusGone(const Run& r, const Facts& f)
 // focus once, not every tick. There is no order that takes a focus back (the
 // skull and every bot's attack stay), so a held focus is never dropped for
 // distance: a focused unit that walks back to its camp still draws the party.
-// Boss steps and events: any distance, as before. Null for none.
+// Boss steps and events: any distance, as before. Only this fight's units:
+// engaged with the party, the ward of one that is, or one keeping an aura on
+// one that is (UnitFact::auraOnEngaged: Hailar's Ritualists channelled their
+// heal from out of combat, r19-19z37). Null for none.
 inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
 {
     if (!r.plan)
@@ -3677,8 +3684,9 @@ inline const UnitFact* PickKillFirst(const Run& r, const Facts& f)
         auto const refused = r.focusRefused.find(u.guid);
         if (refused != r.focusRefused.end() && r.runMs < refused->second)
             continue;
-        // Only this fight's: engaged with the party, or the ward of one that is.
-        if (!u.engaged && !(u.owner && u.ownerEngaged))
+        // Only this fight's: engaged with the party, the ward of one that is,
+        // or a caster keeping an aura on one that is (a channeller).
+        if (!u.engaged && !(u.owner && u.ownerEngaged) && !u.auraOnEngaged)
             continue;
         if (bounded && u.guid != r.focusGuid && u.distLead > kKillFirstMaxYd)
             continue;
