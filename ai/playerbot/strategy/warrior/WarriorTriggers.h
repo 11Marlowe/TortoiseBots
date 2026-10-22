@@ -1,6 +1,7 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
 #include "playerbot/BattleShoutPolicy.h"
+#include "playerbot/WarriorRageGatePolicy.h"
 
 namespace ai
 {
@@ -9,8 +10,33 @@ namespace ai
     BUFF_TRIGGER_A(BerserkerStanceTrigger, "berserker stance");
     BUFF_TRIGGER_A(ShieldBlockTrigger, "shield block");
     DEBUFF_TRIGGER(RendDebuffTrigger, "rend");
-    DEBUFF_TRIGGER(DisarmDebuffTrigger, "disarm");
     DEBUFF_TRIGGER_A(SunderArmorDebuffTrigger, "sunder armor");
+    // Disarm only strips a target that carries a weapon and only with the
+    // rage it costs; anything else fails the cast and stalls the rotation.
+    class DisarmDebuffTrigger : public DebuffTrigger
+    {
+    public:
+        DisarmDebuffTrigger(PlayerbotAI* ai) : DebuffTrigger(ai, "disarm") {}
+
+        bool IsActive() override
+        {
+            if (!DebuffTrigger::IsActive())
+                return false;
+
+            if (AI_VALUE2(uint8, "rage", "self target") < WARRIOR_DISARM_RAGE_COST)
+                return false;
+
+            Unit* target = GetTarget();
+            if (!target)
+                return false;
+
+            if (Player* playerTarget = target->ToPlayer())
+                return playerTarget->GetWeaponForAttack(BASE_ATTACK, true, true) != nullptr;
+
+            Creature* creatureTarget = target->ToCreature();
+            return creatureTarget && creatureTarget->HasWeapon();
+        }
+    };
     DEBUFF_TRIGGER(DemoralizingShoutDebuffTrigger, "demoralizing shout");
     DEBUFF_TRIGGER(MortalStrikeDebuffTrigger, "mortal strike");
     DEBUFF_ENEMY_TRIGGER(RendDebuffOnAttackerTrigger, "rend");
@@ -61,6 +87,10 @@ namespace ai
         bool IsActive() override
         {
             static const std::vector<uint32> battleShoutIds = {6673, 5242, 6192, 11549, 11550, 11551, 25289};
+
+            // The shout costs 10 rage; below that the cast fails.
+            if (!ShouldBattleShout(AI_VALUE2(uint8, "rage", "self target")))
+                return false;
 
             for (uint32 id : battleShoutIds)
             {
