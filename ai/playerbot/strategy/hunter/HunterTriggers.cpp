@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "HunterTriggers.h"
+#include "playerbot/GroupMembers.h"
 #include "../../../runtime/PetRevivePolicy.h"
 #include "HunterActions.h"
 #include "../../../runtime/HunterViperPolicy.h"
@@ -42,6 +43,38 @@ bool AspectOfTheHawkTrigger::IsActive()
             return false;
     }
     return BuffTrigger::IsActive();
+}
+
+// With a living tank in the group, mark only the mob the tank is fighting -
+// not whichever mob is chewing on the hunter. "The tank's mob" is either what
+// the tank is attacking or what is already attacking the tank; a solo hunter
+// or a tank down marks freely.
+bool HuntersMarkTrigger::IsActive()
+{
+    Unit* target = AI_VALUE(Unit*, "current target");
+    if (!target)
+        return false;
+
+    bool const groupHasTank = HunterHasLivingTank(ai);
+    bool targetIsTankTarget = false;
+    if (groupHasTank)
+    {
+        for (Player* member : LiveGroupMembers(bot->GetGroup()))
+        {
+            if (!member || !member->IsAlive() || !PlayerbotAI::IsTank(member))
+                continue;
+            if (member->GetVictim() == target || target->GetVictim() == member)
+            {
+                targetIsTankTarget = true;
+                break;
+            }
+        }
+    }
+
+    if (!ShouldHuntersMarkTarget(groupHasTank, targetIsTankTarget))
+        return false;
+
+    return DebuffTrigger::IsActive();
 }
 
 bool AspectOfTheViperLowManaTrigger::IsActive()

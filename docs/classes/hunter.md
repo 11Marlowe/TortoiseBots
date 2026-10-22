@@ -25,7 +25,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 ## What the bot does in combat
 
 ### Beast Mastery & Marksmanship (Ranged DPS)
-- Maintains maximum ranged distance from hostiles, opening with *Hunter's Mark* and *Auto Shot*.
+- Maintains maximum ranged distance from hostiles, opening with *Hunter's Mark* and *Auto Shot*. With a living tank in the group the mark goes only on the mob the tank is fighting.
 - Fires *Aimed Shot* (MM) or *Arcane Shot* on cooldown.
 - Uses *Steady Shot* as a filler timed cast fitting directly into the Auto Shot swing window.
 - Uses *Multi-Shot* when multiple targets are present without risking crowd control breaks.
@@ -35,7 +35,7 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 - Replaces Serpent Sting with *Viper Sting* when the hunter's mana is below 50% and the target has mana (≥10%); manual `sting viper` or `sting serpent` commands override this gate.
 - BM activates *Bestial Wrath* and *Kill Command* on cooldown. MM triggers *Rapid Fire*.
 - Switches between *Aspect of the Hawk* for damage and *Aspect of the Viper* when low on mana.
-- Drops threat with *Feign Death* upon reaching medium threat. The bot holds back Feign Death if the attacking mob has only the hunter on its threat list to avoid causing scripted encounters to evade.
+- Threat handling (Feign Death, Disengage, multi-mob kiting): see [Threat drops](#threat-drops).
 
 ### Survival (Melee / Ranged Hybrid)
 - Fights primarily in melee reach while keeping full access to the ranged shot kit.
@@ -45,8 +45,13 @@ Hunters deliver consistent ranged physical damage, pet management, crowd control
 - Employs *Counterattack* after parrying incoming strikes.
 
 ### Dead-Zone & Melee Weaving
-- If enemies close inside Auto Shot minimum range (DBC-driven), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*.
+- If enemies close inside Auto Shot minimum range (DBC-driven), ranged hunters trade into melee using *Wing Clip*, *Raptor Strike*, and *Mongoose Bite*, then step back out.
 - When space opens or the mob is pulled off the hunter by the tank or pet (or is rooted), the bot switches back to ranged attacks.
+
+### Threat drops
+- When the mob the hunter is fighting is on the hunter itself (or about to be) and stands in melee reach, and a living tank is in the group, the hunter casts *Disengage* to drop off the mob's threat list so the tank can take it back. *Disengage* does not move the hunter and is not used as an escape.
+- Drops threat more heavily with *Feign Death* upon reaching medium threat. The bot holds back Feign Death if the attacking mob has only the hunter on its threat list to avoid causing scripted encounters to evade.
+- When two or more mobs are on the hunter itself, it stops trading: *Wing Clip* on the nearest attacker and a step back out to shooting range, then shoots the mobs chasing it (repeating until the tank takes them back or they die).
 
 <details>
 <summary>Pet management and lifecycle details</summary>
