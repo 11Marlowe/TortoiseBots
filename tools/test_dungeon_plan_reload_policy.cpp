@@ -397,6 +397,23 @@ static void TestFailedOrChangingReadsKeepTheOldSet()
         }
 }
 
+static void TestFingerprintSqlIsNullSafe()
+{
+    // Every column is wrapped: a value is 'v' + value, a NULL is 'n', so a NULL that moves between columns (which
+    // CONCAT_WS alone would skip) changes the checksum.
+    CHECK(TableFingerprintSql("ai_dungeon_boss", "`map`, `entry`") ==
+        "SELECT COUNT(*), CAST(COALESCE(SUM(CRC32(CONCAT_WS('|', COALESCE(CONCAT('v', `map`), 'n'), "
+        "COALESCE(CONCAT('v', `entry`), 'n')))), 0) AS UNSIGNED) FROM `ai_dungeon_boss`");
+    std::string const step = TableFingerprintSql("ai_dungeon_step",
+        "`plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, `timeout_s`, `entries`");
+    std::size_t wrapped = 0;
+    for (std::size_t at = step.find("COALESCE(CONCAT('v', "); at != std::string::npos; at = step.find("COALESCE(CONCAT('v', ", at + 1))
+        ++wrapped;
+    CHECK(wrapped == 14);
+    CHECK(step.find("`timeout_s`), 'n')") != std::string::npos);
+    CHECK(step.find("SELECT COUNT(*), ") == 0);
+}
+
 static void TestOwns()
 {
     auto table = OldSet();
@@ -416,6 +433,7 @@ int main()
     TestMissingPlanKeepsTheOldSet();
     TestRunningRunKeepsItsPlan();
     TestOwns();
+    TestFingerprintSqlIsNullSafe();
     TestBadLegKeepsBothOldTables();
     TestFailedOrChangingReadsKeepTheOldSet();
     std::cout << "dungeon plan reload policy: all tests passed\n";

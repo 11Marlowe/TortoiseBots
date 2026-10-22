@@ -46,7 +46,12 @@ class ReloadPlansWiring(unittest.TestCase):
         cli = body(CMD, "static bool IsGmCliHandler(")
         self.assertIn("if (!handler || handler->GetSession())\n        return false;", cli)
         self.assertIn("cli && cli->GetAccessLevel() >= SEC_GAMEMASTER", cli)
-        # the GM rank: account security >= SEC_GAMEMASTER (3)
+        # the GM rank: account security >= SEC_GAMEMASTER, which this core has only as the shim's alias of
+        # SEC_ADMINISTRATOR (4); the docs name the value
+        shim = (ROOT / "ai/cmangos-compat-shim.h").read_text()
+        self.assertIn("#define SEC_GAMEMASTER SEC_ADMINISTRATOR", shim)
+        self.assertIn("`SEC_ADMINISTRATOR` = **4**", DOC_CMD)
+        self.assertIn("`SEC_ADMINISTRATOR`, which is **4**", DOC_RUN)
         admin = (ROOT / "commands/BotCommandContext.cpp").read_text()
         self.assertIn("requester->GetSession()->GetSecurity() >= SEC_GAMEMASTER", admin)
 
@@ -110,7 +115,7 @@ class ReloadPlansWiring(unittest.TestCase):
         self.assertIn("reads[i].rowsRead = rowsRead[i];", reload)
         fp = body(MGR, "static TableFingerprint ReadTableFingerprint(")
         # COUNT(*) always answers one row: a null answer is a failed query, never an empty table
-        self.assertIn('"SELECT COUNT(*), CAST(COALESCE(SUM(CRC32(CONCAT_WS(\'|\', "', fp)
+        self.assertIn("std::string const sql = TableFingerprintSql(table, columns);", fp)
         self.assertRegex(fp, r"if \(!result\)\s*return fp;")
         self.assertIn("fp.ok = true;", fp)
         # the revision covers the columns each loader reads, for all five tables
@@ -121,6 +126,30 @@ class ReloadPlansWiring(unittest.TestCase):
         self.assertIn("`timeout_s`, `entries`", tables)
         self.assertIn("`map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param`", tables)
         self.assertIn("++*rowsRead;", body(TACTICS, "std::uint32_t ai::ReadBossTacticRows("))
+
+    def test_revision_columns_match_the_loaders_selects(self):
+        # The revision of each table covers exactly the columns its loader SELECTs, in order: they cannot drift.
+        def joined(text):
+            return re.sub(r'"\s*\n\s*"', "", text)
+        loaders = {}
+        for source in (MGR, TACTICS):
+            for columns, table in re.findall(r'"SELECT ((?:`\w+`, )*`\w+`) FROM `(\w+)`"', joined(source)):
+                loaders[table] = [c.strip() for c in columns.split(",")]
+        tables = joined(MGR[MGR.index("constexpr ReloadTable kReloadTables[]"):])
+        tables = tables[:tables.index("};")]
+        fingerprints = {t: [c.strip() for c in cols.split(",")] for t, cols in re.findall(r'\{"(\w+)", "([^"]+)"\}', tables)}
+        self.assertEqual(sorted(fingerprints), sorted(["ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step",
+                                                       "ai_dungeon_boss", "ai_boss_tactic"]))
+        self.assertEqual(sorted(loaders), sorted(fingerprints))
+        for table, columns in fingerprints.items():
+            self.assertEqual(columns, loaders[table], table)
+
+    def test_every_query_result_is_freed(self):
+        # The core's Query returns a raw QueryResult* (src/shared/Database/Database.h): every one is held by a unique_ptr.
+        for name, source, count in (("DungeonPlanMgr", MGR, 5), ("BossTacticsMgr", TACTICS, 1)):
+            self.assertEqual(source.count("WorldDatabase.Query("), count, name)
+            self.assertEqual(len(re.findall(r"std::unique_ptr<QueryResult> result[({]WorldDatabase\.Query\(", source)), count, name)
+            self.assertNotIn("auto result = WorldDatabase", source, name)
 
     def test_every_refused_row_is_counted_for_the_reload(self):
         rows = body(MGR, "static void ReadDungeonPlanRows(")

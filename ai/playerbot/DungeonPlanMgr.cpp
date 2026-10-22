@@ -27,11 +27,13 @@ namespace
 
 // One pass over each table into `table` (empty, not sealed), then the seal: the startup load and `.bot run reloadplans`
 // both read through here, so a reload checks every row as the startup did.
+// The core's Query hands over a raw QueryResult* the caller frees (src/shared/Database/Database.h): each is held by a
+// unique_ptr, as in the rest of the module.
 static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
 {
     std::uint32_t& skippedPlans = counts.skippedPlans;
-    if (auto result = WorldDatabase.Query(
-        "SELECT `plan`, `map`, `cc_priority`, `cc_always`, `kill_first` FROM `ai_dungeon_plan`"))
+    if (std::unique_ptr<QueryResult> result{WorldDatabase.Query(
+        "SELECT `plan`, `map`, `cc_priority`, `cc_always`, `kill_first` FROM `ai_dungeon_plan`")})
     {
         do
         {
@@ -54,7 +56,7 @@ static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
         } while (result->NextRow());
     }
 
-    if (auto result = WorldDatabase.Query("SELECT `plan`, `leg`, `name` FROM `ai_dungeon_leg`"))
+    if (std::unique_ptr<QueryResult> result{WorldDatabase.Query("SELECT `plan`, `leg`, `name` FROM `ai_dungeon_leg`")})
     {
         do
         {
@@ -74,9 +76,9 @@ static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
     }
 
     std::uint32_t& skippedSteps = counts.skippedSteps;
-    if (auto result = WorldDatabase.Query(
+    if (std::unique_ptr<QueryResult> result{WorldDatabase.Query(
         "SELECT `plan`, `leg`, `seq`, `kind`, `entry`, `x`, `y`, `z`, `radius`, `item`, `param`, `flags`, "
-        "`timeout_s`, `entries` FROM `ai_dungeon_step`"))
+        "`timeout_s`, `entries` FROM `ai_dungeon_step`")})
     {
         do
         {
@@ -111,7 +113,7 @@ static void ReadDungeonPlanRows(DungeonPlanTable& table, PlanLoadCounts& counts)
 
     // Bosses no boss step names (the telemetry's boss rank, DungeonPlanTable::IsBossEntry).
     std::uint32_t& skippedBosses = counts.skippedBosses;
-    if (auto result = WorldDatabase.Query("SELECT `map`, `entry` FROM `ai_dungeon_boss`"))
+    if (std::unique_ptr<QueryResult> result{WorldDatabase.Query("SELECT `map`, `entry` FROM `ai_dungeon_boss`")})
     {
         do
         {
@@ -148,13 +150,13 @@ void ai::LoadDungeonPlans()
     sLog.outString();
 }
 
-// The revision of one table (DungeonPlanReloadPolicy.h TableFingerprint): its row count and the sum of a CRC32 of the
-// columns the loader reads, by one query that always answers one row, so a null answer is a failed query.
+// The revision of one table (DungeonPlanReloadPolicy.h TableFingerprint, TableFingerprintSql): its row count and the sum
+// of a NULL-safe CRC32 of the columns the loader reads, by one query that always answers one row, so a null answer is a
+// failed query.
 static TableFingerprint ReadTableFingerprint(char const* table, char const* columns)
 {
     TableFingerprint fp;
-    std::string const sql = std::string("SELECT COUNT(*), CAST(COALESCE(SUM(CRC32(CONCAT_WS('|', ") + columns +
-        "))), 0) AS UNSIGNED) FROM `" + table + "`";
+    std::string const sql = TableFingerprintSql(table, columns);
     std::unique_ptr<QueryResult> result(WorldDatabase.Query(sql.c_str()));
     if (!result)
         return fp;

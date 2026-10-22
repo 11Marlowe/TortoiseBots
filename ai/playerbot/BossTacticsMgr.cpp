@@ -1,6 +1,8 @@
 #include "playerbot/playerbot.h"
 #include "BossTacticsMgr.h"
 
+#include <memory>
+
 using namespace ai;
 
 ReloadableTable<BossTacticTable>& ai::BossTacticsHolder()
@@ -19,8 +21,9 @@ BossTacticTable& ai::GetBossTactics()
 std::uint32_t ai::ReadBossTacticRows(BossTacticTable& table, std::uint64_t* rowsRead)
 {
     uint32 skipped = 0;
-    auto result = WorldDatabase.Query(
-        "SELECT `map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param` FROM `ai_boss_tactic`");
+    // The core's Query hands over a raw QueryResult* the caller frees (src/shared/Database/Database.h).
+    std::unique_ptr<QueryResult> result(WorldDatabase.Query(
+        "SELECT `map`, `boss_entry`, `kind`, `target_entry`, `spell_id`, `priority`, `param` FROM `ai_boss_tactic`"));
     if (result)
     {
         do

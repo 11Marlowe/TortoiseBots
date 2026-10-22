@@ -107,6 +107,31 @@ namespace ai
         bool operator!=(const TableFingerprint& o) const { return !(*this == o); }
     };
 
+    // The revision query of one table: its row count and the sum of a CRC32 of every row's `columns` (the loader's
+    // SELECT list, "`a`, `b`"). Each column is NULL-safe and unambiguous: a value is 'v' + the value, a NULL is 'n'
+    // (CONCAT_WS alone skips a NULL, so a NULL moving to the next column would keep the checksum). COUNT(*) always
+    // answers one row, so a null result is a failed query.
+    inline std::string TableFingerprintSql(const std::string& table, const std::string& columns)
+    {
+        std::string parts;
+        std::size_t pos = 0;
+        while (pos < columns.size())
+        {
+            std::size_t comma = columns.find(',', pos);
+            std::string column = columns.substr(pos, comma == std::string::npos ? std::string::npos : comma - pos);
+            std::size_t const first = column.find_first_not_of(' ');
+            std::size_t const last = column.find_last_not_of(' ');
+            column = first == std::string::npos ? std::string() : column.substr(first, last - first + 1);
+            if (!column.empty())
+                parts += (parts.empty() ? "" : ", ") + std::string("COALESCE(CONCAT('v', ") + column + "), 'n')";
+            if (comma == std::string::npos)
+                break;
+            pos = comma + 1;
+        }
+        return "SELECT COUNT(*), CAST(COALESCE(SUM(CRC32(CONCAT_WS('|', " + parts + "))), 0) AS UNSIGNED) FROM `" +
+            table + "`";
+    }
+
     // One table of a reload: its revision before the data query and after the last one, and the rows the data query
     // handed the loader.
     struct TableRead
