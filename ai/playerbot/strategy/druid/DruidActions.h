@@ -586,6 +586,19 @@ namespace ai
         CastGrowlAction(PlayerbotAI* ai) : CastSpellAction(ai, "growl") {}
     };
 
+    // Taunt the mob picked by "attacker of non-tank target"; the cast reads
+    // its real range from the spell and the reach prerequisite walks the
+    // bear in.
+    class CastGrowlOnAttackerAction : public CastGrowlAction
+    {
+    public:
+        CastGrowlOnAttackerAction(PlayerbotAI* ai) : CastGrowlAction(ai) {}
+
+    protected:
+        virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+        virtual std::string getName() override { return "growl on attacker"; }
+    };
+
     class CastMaulAction : public CastMeleeSpellAction
     {
     public:

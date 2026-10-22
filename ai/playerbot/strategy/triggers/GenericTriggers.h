@@ -99,6 +99,20 @@ namespace ai
 		virtual bool IsActive() override;
 	};
 
+    // A mob is on a non-tank group member, the healer's attacker first:
+    // fires when the "attacker of non-tank target" value picks a mob. Only
+    // tank strategies arm a row for it; every class context registers it.
+    class PartyMemberAttackedTrigger : public Trigger
+    {
+    public:
+        PartyMemberAttackedTrigger(PlayerbotAI* ai) : Trigger(ai, "party member attacked") {}
+
+        virtual bool IsActive() override
+        {
+            return AI_VALUE(Unit*, "attacker of non-tank target") != NULL;
+        }
+    };
+
 	class HasAggroTrigger : public Trigger
     {
 	public:

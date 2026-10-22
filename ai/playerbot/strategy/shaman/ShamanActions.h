@@ -492,6 +492,21 @@ namespace ai
     // CastTauntAction guard (victim exists and is not us).
     MELEE_ACTION_U(CastEarthshakerSlamAction, "earthshaker slam", GetTarget() && GetTarget()->GetVictim() && GetTarget()->GetVictim() != bot);
 
+    // Taunt the mob picked by "attacker of non-tank target". CastMeleeSpellAction's
+    // own reach prerequisite targets that mob (a taunt past 5 yards fails, so
+    // the shaman walks to the healer's attacker first); no strategy node may
+    // override it with an unqualified "reach melee", which would target the
+    // current target instead.
+    class CastEarthshakerSlamOnAttackerAction : public CastEarthshakerSlamAction
+    {
+    public:
+        CastEarthshakerSlamOnAttackerAction(PlayerbotAI* ai) : CastEarthshakerSlamAction(ai) {}
+
+    protected:
+        virtual std::string GetTargetName() override { return "attacker of non-tank target"; }
+        virtual std::string getName() override { return "earthshaker slam on attacker"; }
+    };
+
     // Tauren tank racial (Tortoise 45500, quest 40348, 90 s CD): damage plus
     // slow, NOT a taunt. Fires in melee when the strikes are cooling down
     // (the TotemicSlamTrigger ready-gate); off-GCD damage on every mob in

@@ -104,6 +104,14 @@ void TankShamanStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("earthshaker slam", ACTION_INTERRUPT + 1),
                              new NextAction("earth shock", ACTION_INTERRUPT), NULL)));
 
+    // A mob sitting on a non-tank member: "lose aggro" only sees the
+    // shaman's current target. Same priority as "lose aggro"; no Earth Shock
+    // fallback — the mob is already on someone else, and threat is what the
+    // taunt is for.
+    triggers.push_back(new TriggerNode(
+        "party member attacked",
+        NextAction::array(0, new NextAction("earthshaker slam on attacker", ACTION_INTERRUPT + 1), NULL)));
+
     // Earth Shock on fights that need it (boss/elite/raid):
     // about 40% of single-target threat, top of the rotation on cooldown
     // (community shaman tank guide: Earth Shock > Stormstrike > Lightning Strike).
