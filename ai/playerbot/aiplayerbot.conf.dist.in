@@ -2135,6 +2135,10 @@ AiPlayerbot.RndBotCheats = repair,breath,item
 # these files: it is fed over UDP by the observability emitter, so activity, deaths and kills keep flowing.
 AiPlayerbot.AllowedLogFiles = bot_events.csv,deaths.csv
 
+# Opt-in engaged raid boss threat snapshots (2 s) and spell-damage packet observations.
+# Requires bot_events.csv above. Hit health is a sample/estimate, not exact post-hit health.
+AiPlayerbot.RaidBossDiagnostics = 0
+
 # Days of bot logs to keep. The live file is plain text; every hour and at server start it is packed into
 # <name>_<date>_<time>.csv.gz next to it (named after the time it was closed), and packs older than this
 # are deleted. 0 = never delete. Only files listed in AiPlayerbot.AllowedLogFiles above are written, so

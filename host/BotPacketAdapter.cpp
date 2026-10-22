@@ -1,4 +1,5 @@
 #include "BotPacketAdapter.h"
+#include "RaidBossDiagnostics.h"
 
 #include "../runtime/BotChatGate.h"
 #include "../runtime/BotManager.h"
@@ -180,6 +181,8 @@ bool BotPacketAdapter::CanPacketSend(WorldSession* session, WorldPacket const& p
 {
     if (!session)
         return true;
+
+    RaidBossDiagnostics::ObservePacket(session, packet);
 
     if (session->IsHeadless())
     {

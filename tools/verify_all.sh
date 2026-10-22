@@ -292,6 +292,7 @@ if command -v g++ >/dev/null 2>&1; then
         g++ -std=c++17 -Wall -Wextra "tools/${policy_test}.cpp" -o "${policy_bin}"
         "${policy_bin}"
     done
+    python3 tools/test_raid_boss_logging.py
     echo "✓ Standalone policy tests verified."
 else
     echo "ℹ Skipping standalone policy tests (no g++ on PATH)."

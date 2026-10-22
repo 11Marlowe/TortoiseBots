@@ -100,3 +100,13 @@ LLM-based chat interactions are purely asynchronous and decoupled. If an LLM bac
 Player-facing boundaries, gameplay quirks, and project non-goals are cataloged in [Known Limitations & Quirks](../play/known-limitations.md). Key architectural invariants include:
 - **Summon Sequencing:** Re-binding the master occurs before follow movement is resumed to guarantee ownership cannot be hijacked during a teleport transition.
 - **Out-of-AH Inventory Queries:** Bots check their inventory values using cached vendor and pricing models rather than sending world-wide auction queries.
+
+## Optional raid boss observations
+
+`RaidBossDiagnostics` uses the existing unit-update and packet-send hooks to
+record engaged raid bosses when explicitly enabled. The synchronous combat
+opcode is observed on its owning map/world thread; asynchronous packet handling
+remains deferred. No player, creature or AI pointer is retained. Per-instance
+throttle metadata is mutex-protected, and threat lists are read only when a
+snapshot is due. Health fields are samples/estimates, not post-damage guarantees.
+See [the host contract](host-api.md#raid-boss-diagnostics-module-only).
