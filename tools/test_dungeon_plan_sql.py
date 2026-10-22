@@ -22,7 +22,8 @@ KINDS = {"move", "move_direct", "move_hop_exact", "pull", "boss", "loot", "open"
 OPT_IN = pathlib.Path(ROOT) / "tools/optional-plans/zulfarrak-gahzrilla.sql"
 TABLES = ("ai_dungeon_plan", "ai_dungeon_leg", "ai_dungeon_step", "ai_dungeon_boss")
 # The plans whose bosses ai_dungeon_boss lists, and their maps.
-BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36}
+BOSS_PLANS = {"ragefire_chasm": 389, "wailing_caverns": 43, "uldaman": 70, "zulfarrak": 209, "deadmines": 36,
+              "shadowfang_keep": 33}
 # Every ai_dungeon_boss row, by (map, entry): the creature_template name and rank in the core's data (Tortoise V2
 # sql/base tw_world_creature_template.sql, read 2026-10-21). All rank 1 (elite) and no instance bind, hence the table.
 SEEDED_BOSSES = {
@@ -39,10 +40,13 @@ SEEDED_BOSSES = {
     (36, 644): "Rhahk'Zor", (36, 642): "Sneed's Shredder", (36, 643): "Sneed", (36, 1763): "Gilnid",
     (36, 61963): "Masterpiece Harvester", (36, 646): "Mr. Smite", (36, 647): "Captain Greenskin",
     (36, 639): "Edwin VanCleef", (36, 645): "Cookie",
+    (33, 3914): "Rethilgore", (33, 3886): "Razorclaw the Butcher", (33, 3887): "Baron Silverlaine",
+    (33, 4278): "Commander Springvale", (33, 4279): "Odo the Blindwatcher",
 }
 # Not bosses here: adds of a boss step (Eric 6907, Olaf 6908, Nekrum 7796, Ruuzlu 7797), the friendly Naralex 3679 and his
-# Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080).
-NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586}
+# Disciple 3678, the Sergeant Bly event 7604, Miner Johnson 3586 (a rare in the original game), rares (Deviate Faerie Dragon 5912, Zerillis 10082, Sandarr Dunereaver 10080),
+# and Shadowfang Keep's extras that are not legs (Sever 14682, Prelate Ironmane 61969, the intro Arugal 10000).
+NOT_BOSSES = {6907, 6908, 7796, 7797, 3679, 3678, 7604, 5912, 10082, 10080, 3586, 14682, 61969, 10000}
 # Zum'rah's 31 Shallow Graves (128403), in the order the leg opens them: the nearest-neighbour walk of the plan from 1859 1058
 # (the exporter writes each as a stand move, a loot and a sweep pull, in this order). A reorder is a deliberate change.
 ZUMRAH_GRAVES = (
@@ -205,6 +209,27 @@ class DungeonPlanSql(unittest.TestCase):
             self.assertEqual(len(re.findall(r"^\('deadmines', \d+, \d+, '%s'," % kind, text, re.M)), count, kind)
         self.assertRegex(text, r"\('deadmines', 9, \d+, 'open', 16398, [^)]*, 0, 5397, 0, 0, 0,")
         self.assertIn("gm_cross", text)  # the header names every step the run leader cannot do
+
+    def test_shadowfang_keep_is_the_first_five_legs_as_exported(self):
+        # 20261022210900 (turtle-agent abd37a3d, 2026-10-22): the Shadowfang Keep draft's legs 0-4 (the Fenrus, Nandos and Arugal
+        # legs left out: the closed Courtyard Door 18895 seals the route to them; PREP-SFK-2026-10-22.md), exported with --skip-legs,
+        # no row hand-set, with the boss rows of map 33 (the five boss steps' entries; not Sever 14682, Prelate Ironmane 61969 or
+        # the intro Arugal 10000). 5 legs, 172 rows (1 + 5, 10 + 18, 4 + 19, 13 + 5, 78 + 14 moves and pulls, a boss at each leg's
+        # end); the plan row has empty unit lists (the pack census goes into the next export).
+        name, text = newest_plan_text("shadowfang_keep")
+        self.assertEqual(name, "20261022210900_world.sql")
+        self.assertIn("('shadowfang_keep', 33, '', '', '', 'turtle-agent abd37a3d dungeons/shadowfang_keep.json', 'plan v1, draft (not mapped, not live-checked)');", text)
+        self.assertEqual(len(leg_rows(text, "shadowfang_keep")), 5)
+        rows = [r for r in self.step_rows(text) if r["plan"] == "shadowfang_keep"]
+        self.assertEqual(len(rows), 172)
+        self.assertEqual([len([r for r in leg_steps(rows, leg) if r["kind"] == "pull"]) for leg in range(5)], [5, 18, 19, 5, 14])
+        self.assertEqual([r["entry"] for r in rows if r["kind"] == "boss"], ["3914", "3886", "3887", "4278", "4279"])
+        self.assertEqual({r["kind"] for r in rows}, {"move", "pull", "boss"})
+        for leg in range(5):
+            self.assertEqual(leg_steps(rows, leg)[-1]["kind"], "boss", leg)
+        self.assertEqual([r["entries"] for r in rows if r["kind"] == "boss"], ["", "", "", "", ""])
+        self.assertEqual(re.findall(r"(?m)^DELETE FROM `ai_dungeon_step` WHERE `plan` = '(\w+)';", text), ["shadowfang_keep"])
+        self.assertIn("DELETE FROM `ai_dungeon_boss` WHERE `map` IN (33);", text)
 
     def test_deadmines_pack_fixes(self):
         # 20261022200000 (turtle-agent 16efe83, Deadmines r12-19z29 / r14-19z32, 2026-10-22): the plan again with the Engineers and
