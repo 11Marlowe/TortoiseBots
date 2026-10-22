@@ -166,3 +166,36 @@ func TestLoginBackoffPrune(t *testing.T) {
 		t.Error("the fresh entry must survive the prune")
 	}
 }
+
+func TestLoginBackoffHardCap(t *testing.T) {
+	now := time.Unix(1000000, 0)
+	b := NewLoginBackoff()
+	b.maxEntries = 2
+	b.now = func() time.Time { return now }
+
+	// Fill the map with fresh failures; pruning frees nothing.
+	b.Fail("10.0.0.1")
+	b.Fail("10.0.0.2")
+
+	// A further address is refused instead of evicting a live entry: the
+	// map stays bounded even under an address flood, and the untracked
+	// address is not blocked (it simply is not counted).
+	b.Fail("10.0.0.3")
+	if len(b.failures) != b.maxEntries {
+		t.Errorf("backoff map grew past maxEntries: %d entries", len(b.failures))
+	}
+	if _, ok := b.failures["10.0.0.3"]; ok {
+		t.Error("a new address must not be tracked while the map is full")
+	}
+	if !b.Allow("10.0.0.3") {
+		t.Error("an untracked address must not be blocked")
+	}
+
+	// Once room frees up (a window elapsed), new addresses are tracked again.
+	later := now.Add(b.blockDuration + time.Second)
+	b.now = func() time.Time { return later }
+	b.Fail("10.0.0.3")
+	if _, ok := b.failures["10.0.0.3"]; !ok {
+		t.Error("a new address must be tracked once room has freed up")
+	}
+}

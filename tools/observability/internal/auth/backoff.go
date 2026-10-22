@@ -53,7 +53,11 @@ func (b *LoginBackoff) Allow(ip string) bool {
 }
 
 // Fail records a failed login from ip; the maxFailures-th failure in a row
-// blocks the IP for blockDuration.
+// blocks the IP for blockDuration. When the map is full, entries older than
+// blockDuration are dropped (their lockout has expired and the count resets
+// on the next use); if it is still full — an address flood — new addresses
+// are not tracked until room frees up, so the scan stays bounded instead of
+// running on every attempt.
 func (b *LoginBackoff) Fail(ip string) {
 	now := b.now()
 	b.mu.Lock()
@@ -62,6 +66,9 @@ func (b *LoginBackoff) Fail(ip string) {
 	if !ok {
 		if len(b.failures) >= b.maxEntries {
 			b.pruneLocked(now)
+			if len(b.failures) >= b.maxEntries {
+				return
+			}
 		}
 		f = &loginFailures{}
 		b.failures[ip] = f
@@ -85,9 +92,12 @@ func (b *LoginBackoff) Reset(ip string) {
 	delete(b.failures, ip)
 }
 
+// pruneLocked drops entries whose last failure is older than the block
+// window: such an entry is dead weight (the lockout has expired and a
+// further failure starts counting from zero again).
 func (b *LoginBackoff) pruneLocked(now time.Time) {
 	for ip, f := range b.failures {
-		if now.Sub(f.last) > time.Hour {
+		if now.Sub(f.last) > b.blockDuration {
 			delete(b.failures, ip)
 		}
 	}

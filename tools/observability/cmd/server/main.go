@@ -11,7 +11,6 @@ import (
 	"math"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -634,22 +633,10 @@ func main() {
 		writeJSON(w, page)
 	}))
 
-	// Browsers send Origin on a WebSocket upgrade: only same-origin
-	// connections are accepted, so a page on another site cannot open an
-	// authenticated stream with the visitor's cookies. Non-browser clients
-	// send no Origin and are unaffected.
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool {
-			origin := r.Header.Get("Origin")
-			if origin == "" {
-				return true
-			}
-			u, err := url.Parse(origin)
-			if err != nil {
-				return false
-			}
-			return strings.EqualFold(u.Host, r.Host)
-		},
+		// Only the dashboard's own pages may open an authenticated stream
+		// (ws.SameOrigin); non-browser clients send no Origin and pass.
+		CheckOrigin: ws.SameOrigin,
 	}
 
 	mux.HandleFunc("/api/v1/stream", func(w http.ResponseWriter, r *http.Request) {
